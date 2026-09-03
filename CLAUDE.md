@@ -1060,6 +1060,22 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   bytes are in. Design + measurements:
   [`docs/plans/osc-narrowband-denoiser.md`](docs/plans/osc-narrowband-denoiser.md) section 1o and
   [`docs/plans/denoiser-training.md`](docs/plans/denoiser-training.md) H0 / section 9.
+- **Training pairs come from `tianwen dataset degrade`** (`DatasetDegradationExporter`, beside
+  `DatasetTileExporter`): a bake's RETAINED LINEAR masters degraded in linear units and exported
+  through the P0 path, `--mode noise` for the denoiser and `--mode blur` for the deconvolver. **Four
+  rules, each the way the naive version is wrong.** (1) **Both sides of a pair take the TARGET's unit
+  divisor and MTF parameters** (`Image.MtfStretchWith`) -- taking each side's own encodes the stretch
+  difference as signal, and injected noise moves the frame's maximum, so `ToUnitRange` alone would
+  rescale the input side; it also makes the transform pointwise, so a draw touches one CELL instead of
+  the canvas. (2) **Cells AND the level anchor come from the P0 manifest**: the injected level is a
+  real sub's measured `NoiseMad` converted to linear through `Image.MidtonesTransferFunctionSlope`,
+  because a MAD taken on a MASTER reads the cell's gradient as noise (7x too high on this project's own
+  fixture). (3) **Parity is against the BAKE's tiles, not against itself** -- the clean tile derived
+  from the retained master is byte-identical to the P0 tile of the same cell (0.0 measured), which a
+  self-parity check cannot see by construction. (4) **The injected noise SHAPE is calibrated by
+  measurement**: white reads band1/band0 0.216 and a bilinear warp 0.328 against a real half-master's
+  0.463, so `--warp-sigma 0.5` (measured, re-measure per bake) is what makes the arms comparable.
+  [`docs/plans/denoiser-training.md`](docs/plans/denoiser-training.md) H2.
 - **RC-Astro (BlurX / NoiseX / StarXTerminator)** -- `AddRcAstroAi()`. Its `.onnx` files are
   **encrypted at rest** (the license forbids extracting the weights), so they are driven through the
   `rc-astro` CLI's `--json` NDJSON protocol, **never** loaded into ORT: `RcAstroEnhancerBase` writes the

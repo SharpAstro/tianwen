@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -331,7 +331,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
 
         return new Command("dataset", "Training-dataset tooling (see docs/plans/ai-denoise-deconv.md).")
         {
-            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildGradientReportCommand(), BuildCoverageCommand(consoleHost), BuildTagFilterCommand(), BuildTagObjectCommand(), BuildTagSiteElevationCommand() },
+            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildGradientReportCommand(), BuildDegradeCommand(), BuildCoverageCommand(consoleHost), BuildTagFilterCommand(), BuildTagObjectCommand(), BuildTagSiteElevationCommand() },
         };
     }
 
@@ -589,6 +589,130 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
     }
 
     private static readonly string[] MasterExtensions = [".fits", ".fit", ".fits.gz", ".fit.gz", ".fz"];
+
+    /// <summary>
+    /// <c>tianwen dataset degrade</c>: the shared degradation exporter
+    /// (docs/plans/model-training-roadmap.md section 1 item 3). It reads a bake's RETAINED LINEAR
+    /// masters plus its P0 manifest, degrades each cell in linear units, and writes a cache whose
+    /// manifest is P0-shaped, so the trainer's <c>--prepare</c> reads it with no change: slot 0 is the
+    /// clean target, slots 1..8 are independent degradations of it.
+    ///
+    /// <para>A separate command from <c>build</c> because it needs no archive, no calibration and no
+    /// registration: the expensive half already happened and its output is on disk.</para>
+    /// </summary>
+    private Command BuildDegradeCommand()
+    {
+        var bakeOpt = new Option<string>("--bake")
+        {
+            Description = "Dataset bake to read: it must hold tiles-manifest.jsonl and session-masters/.",
+            Required = true,
+        };
+        var outOpt = new Option<string>("--out", "-o")
+        {
+            Description = "Where the degraded cache is written. Must not be the bake itself.",
+            Required = true,
+        };
+        var modeOpt = new Option<string>("--mode")
+        {
+            Description = "noise (denoiser E1: inject noise only) or blur (deconvolver E2: PSF blur, then noise).",
+            DefaultValueFactory = _ => "noise",
+        };
+        var shapeOpt = new Option<string>("--shape")
+        {
+            Description = "white (uncorrelated) or warped (correlated by a bilinear resample, as a registered stack's noise is). The H2 arms.",
+            DefaultValueFactory = _ => "white",
+        };
+        var drawsOpt = new Option<int>("--draws")
+        {
+            Description = "Degraded draws per cell. Eight fills the trainer's sub slots.",
+            DefaultValueFactory = _ => 8,
+        };
+        var cellsOpt = new Option<int>("--cells")
+        {
+            Description = "Cells per session, in canonical order, or 0 for every cell the bake has.",
+            DefaultValueFactory = _ => 300,
+        };
+        var sessionsOpt = new Option<int>("--sessions")
+        {
+            Description = "Cap on sessions (0 = all). A smoke export is a handful.",
+            DefaultValueFactory = _ => 0,
+        };
+        var seedOpt = new Option<int>("--seed")
+        {
+            Description = "Base seed; every (session, cell, draw) derives its own from it.",
+            DefaultValueFactory = _ => 1,
+        };
+        var warpSigmaOpt = new Option<double>("--warp-sigma")
+        {
+            Description = "Warped shape only: extra per-realisation smoothing in pixels, standing in for a " +
+                          "resampling kernel wider than bilinear. Calibrate it with --measure-shape against " +
+                          "the bake's own real pairs; 0 is bilinear alone.",
+            DefaultValueFactory = _ => 0d,
+        };
+        var forceOpt = new Option<bool>("--force")
+        {
+            Description = "Re-export sessions already present in degradations.jsonl.",
+        };
+        var measureOpt = new Option<bool>("--measure-shape")
+        {
+            Description = "After exporting, measure band1/band0 of the injected draws and of the bake's own " +
+                          "real sub and half-master pairs with the same code, which is the only way the numbers compare.",
+        };
+
+        var command = new Command("degrade",
+            "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
+            "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
+        {
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, seedOpt, warpSigmaOpt, forceOpt, measureOpt },
+        };
+
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var modeText = parseResult.GetValue(modeOpt) ?? "noise";
+            if (!Enum.TryParse<DatasetDegradationExporter.DegradationMode>(modeText, ignoreCase: true, out var mode))
+            {
+                consoleHost.WriteError($"--mode must be noise or blur, got '{modeText}'");
+                return 1;
+            }
+            var shapeText = parseResult.GetValue(shapeOpt) ?? "white";
+            if (!Enum.TryParse<DatasetDegradationExporter.NoiseShape>(shapeText, ignoreCase: true, out var shape))
+            {
+                consoleHost.WriteError($"--shape must be white or warped, got '{shapeText}'");
+                return 1;
+            }
+
+            var options = new DatasetDegradationExporter.Options(
+                BakeRoot: parseResult.GetValue(bakeOpt)!,
+                OutDir: parseResult.GetValue(outOpt)!,
+                Mode: mode,
+                Shape: shape,
+                Draws: parseResult.GetValue(drawsOpt),
+                CellsPerSession: parseResult.GetValue(cellsOpt),
+                MaxSessions: parseResult.GetValue(sessionsOpt),
+                Seed: parseResult.GetValue(seedOpt),
+                WarpResampleSigma: parseResult.GetValue(warpSigmaOpt),
+                Force: parseResult.GetValue(forceOpt));
+
+            var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
+            var degraded = result.Sessions.Sum(s => s.DegradedTiles);
+            consoleHost.WriteScrollable(
+                $"[degrade] {result.Sessions.Length} sessions, {degraded} degraded tiles + {result.Sessions.Sum(s => s.CleanTiles)} clean, " +
+                $"skipped {result.Skipped}, failed {result.Failed}; worst clean-tile parity against the bake {result.WorstParity:E1}");
+
+            if (parseResult.GetValue(measureOpt))
+            {
+                foreach (var m in await DatasetDegradationExporter.MeasureShapeAsync(options.OutDir, options.BakeRoot, cancellationToken: ct))
+                {
+                    consoleHost.WriteScrollable(
+                        $"[degrade] shape {m.Label,-24} pairs {m.Pairs,4}  band0 {m.Band0:E2}  band1 {m.Band1:E2}  band2 {m.Band2:E2}  band1/band0 {m.Ratio:F3}");
+                }
+            }
+
+            return result.Failed > 0 && result.Sessions.Length == 0 ? 2 : 0;
+        });
+
+        return command;
+    }
 
     /// <summary>
     /// <c>tianwen dataset tag-filter</c> writes a FILTER card into frames whose capture software
