@@ -1,0 +1,14 @@
+# E2 train sessions: 8 train + 2 val drawn from D:\Astro-Dataset5-2026-organized with every
+# session sharing a camera and target with an eval4 observer EXCLUDED, so an arm is never scored
+# on a scene it trained on. Two of those overlaps are the SAME NIGHT (Skull and Crossbones
+# 2026-02-14, Rim Nebula 2025-05-02) and the rest are the same rig on the same target another
+# night, which for a denoiser judged on faint structure is the same leak.
+# Order is the trainer's own: sorted, then Random(42).shuffle, over the ELIGIBLE set.
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HD-71181/2026-01-01|ZWO ASI533MC Pro|COO 71|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HD-71526/2026-02-10|ZWO ASI533MC Pro|HD 71526|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Lobster-Nebula/2025-05-09|ZWO ASI533MC Pro|Lobster Nebula|Optolong L-Ultimate 3nm
+SVBONY-SV605CC/Optolong-L-Ultimate-3nm/Tarantula-Nebula/2025-10-14|SVBONY SV605CC|Tarantula Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HD-72800/2026-01-11|ZWO ASI533MC Pro|HD 76360|Optolong L-Ultimate 3nm
+SVBONY-SV605CC/Optolong-L-Ultimate-3nm/Helix-Nebula/2025-08-20|SVBONY SV605CC|Helix Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HD-75426/2026-02-16|ZWO ASI533MC Pro|HD 77566|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HD-77683/2026-02-18|ZWO ASI533MC Pro|HD 77683|Optolong L-Ultimate 3nm

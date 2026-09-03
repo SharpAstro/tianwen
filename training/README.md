@@ -78,8 +78,9 @@ python n2n_smoke.py --prepare --root $env:TIANWEN_SCRATCH\deg-warped --cache $en
 ```
 
 Two things to know before using one. **A pair of draws is an N2N pair and a draw against slot 0 is a
-SUPERVISED pair**, which is the point of the arm; the trainer's existing regimes give the first for
-free and the second needs the `--synthetic` flag that does not exist yet. And **`--warp-sigma` is a
+SUPERVISED pair**, which is the point of the arm: the trainer's existing regimes give the first for
+free, and `--synthetic` gives the second (exclusive of the N2N regimes, and refused on a cache of real
+subs, where slot 0 is an integration the subs are noisy views OF). And **`--warp-sigma` is a
 measurement, not a constant**: run with `--measure-shape` and match the injected band1/band0 to the
 bake's own real half-master pairs (0.5 px landed on 0.460 against 0.463 for `2025-2026-organized`).
 Injecting at the wrong shape trains for a noise distribution no frame has.
