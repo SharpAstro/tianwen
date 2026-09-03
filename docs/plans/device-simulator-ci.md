@@ -89,17 +89,29 @@ Two entry points:
 
 - **`catalogs`** (ubuntu) -- the only job needing `lzip` + the `*.lz` LFS objects; builds
   `TianWen.Lib` to produce the `*.gs.gz` preprocessed catalogs and uploads them as the
-  `preprocessed-catalogs` artifact (the proven `dotnet.yml` pattern). This is what lets the Windows
-  leg build without `lzip`.
+  `preprocessed-catalogs` artifact (the proven `dotnet.yml` pattern), plus the build-time
+  expansions (`obj/tyc2.bin`, `obj/hip_to_tyc.bin`, `obj/hd_to_tyc.bin`) as
+  `expanded-catalog-bins`. This is what lets the Windows leg build without `lzip`. Two artifacts
+  rather than one because `upload-artifact` roots an artifact at its paths' least common ancestor,
+  so mixing `Catalogs/` and `obj/` would re-root both.
 - **`alpaca-sim`** (ubuntu, `needs: catalogs`) -- downloads the self-contained OmniSim
   (`ascom.alpaca.simulators.linux-x64.tar.xz`), launches it headless, discovers the port it bound
   (from its startup log, falling back to the Alpaca default 11111), exports `TIANWEN_ALPACA_SIM`,
   and runs the suite. Uploads the OmniSim log as an artifact.
 - **`ascom-sim`** (windows, `needs: catalogs`) -- silent-installs the ASCOM Platform
   (`/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`), sets `TIANWEN_ASCOM_CI=1`, runs the suite.
-- Neither sim job pulls LFS: the sim tests load nothing from LFS, and the embedded `*.bin.gz` (LFS
-  pointer text here) is never read at runtime. `PreprocessCatalogs` is skipped via the downloaded
-  `*.gs.gz` + an mtime touch.
+- Neither sim job pulls LFS, and **everything the BUILD needs out of an LFS input therefore has to
+  arrive from `catalogs`**. `PreprocessCatalogs`, `ExpandTycho2` and `ExpandTycho2CrossRef` are all
+  skipped the same way: download what that job produced, touch it newer than the `*.lz` sources,
+  and MSBuild's Inputs/Outputs check does the rest.
+
+  The original rule was weaker -- "the sim tests load nothing from LFS, and the embedded `*.bin.gz`
+  (LFS pointer text here) is never read at runtime" -- and it stopped being true on 2026-08-31,
+  when the Tycho-2 and HIP/HD cross-reference arrays moved to a build-time expansion that is
+  embedded rather than read at runtime. The expansion targets are gated on `Exists()`, which a
+  pointer stub satisfies, so the stub gets decoded: `Invalid lzip magic bytes`, `MSB3073`, build
+  failed. That took the weekly schedule red for a week. A new build-time expansion added to
+  `TianWen.Lib.csproj` breaks this lane until it is added to both halves of the hand-off.
 
 ## Running locally
 

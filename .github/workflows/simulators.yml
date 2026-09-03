@@ -83,6 +83,21 @@ jobs:
         name: preprocessed-catalogs
         path: src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
         retention-days: 1
+    # The same build also EXPANDS tyc2.bin.lz and the two HIP/HD cross-reference arrays into obj/
+    # and embeds those, so the sim jobs need them too. A second artifact rather than more paths on
+    # the one above: upload-artifact roots an artifact at its paths' least common ancestor, so
+    # adding obj/ to a Catalogs/ upload would re-root BOTH at src/TianWen.Lib/ and land the .gs.gz
+    # a directory deeper than the download step puts them. Listed by name so a stray obj/*.bin from
+    # some future target cannot join the set silently.
+    - name: Upload expanded catalog binaries
+      uses: actions/upload-artifact@v7
+      with:
+        name: expanded-catalog-bins
+        path: |
+          src/TianWen.Lib/obj/tyc2.bin
+          src/TianWen.Lib/obj/hip_to_tyc.bin
+          src/TianWen.Lib/obj/hd_to_tyc.bin
+        retention-days: 1
 
   alpaca-sim:
     timeout-minutes: 30
@@ -104,16 +119,33 @@ jobs:
         # Windows and macOS entries (1.4 GB per pin bump) while every push/PR job runs on Linux.
         # A miss costs a nuget.org restore, which is free and cannot refuse; the repo cache budget
         # is 10 GB and the lfs-* entries in it are the ones whose miss actually fails a build.
-    # Skip PreprocessCatalogs by dropping in the prebuilt *.gs.gz and making them newer than the
-    # *.lz sources (MSBuild Inputs/Outputs check). No LFS pull: the Alpaca sim tests load nothing
-    # from LFS, and the embedded *.bin.gz (LFS pointer text here) is never read at runtime.
+    # Skip PreprocessCatalogs / ExpandTycho2 / ExpandTycho2CrossRef by dropping in what the
+    # catalogs job already produced and making it newer than the *.lz sources (MSBuild
+    # Inputs/Outputs check).
+    #
+    # Still no LFS pull here, but the reason it is affordable changed on 2026-08-31 and the old
+    # one no longer holds on its own. It used to be enough that the sim tests READ nothing from
+    # LFS: a *.lz that stayed pointer text was simply never opened. The build now EXPANDS
+    # tyc2.bin.lz (and hip_to_tyc/hd_to_tyc) at build time and embeds the result, and those
+    # targets are gated on Exists(), which a pointer stub satisfies -- so the stub is decoded and
+    # the build fails outright with "Invalid lzip magic bytes". That is what took this job red on
+    # the 2026-08-31 schedule. The rule to carry forward: with lfs:false, every build-time
+    # expansion of an LFS input has to arrive from the catalogs job, not just the preprocessed
+    # catalogs, and a new one added to TianWen.Lib.csproj breaks this lane until it is added here.
     - name: Download preprocessed catalogs
       uses: actions/download-artifact@v8
       with:
         name: preprocessed-catalogs
         path: src/TianWen.Lib/Astrometry/Catalogs/
-    - name: Refresh preprocessed catalog mtimes
-      run: touch src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
+    - name: Download expanded catalog binaries
+      uses: actions/download-artifact@v8
+      with:
+        name: expanded-catalog-bins
+        path: src/TianWen.Lib/obj/
+    - name: Refresh downloaded catalog mtimes
+      run: |
+        touch src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
+        touch src/TianWen.Lib/obj/*.bin
     # Download the self-contained OmniSim, launch it headless, discover the port it bound (from
     # its startup log, falling back to the Alpaca default 11111) and export the base URL so the
     # test suite's TIANWEN_ALPACA_SIM gate opens.
@@ -180,14 +212,24 @@ jobs:
         # Windows and macOS entries (1.4 GB per pin bump) while every push/PR job runs on Linux.
         # A miss costs a nuget.org restore, which is free and cannot refuse; the repo cache budget
         # is 10 GB and the lfs-* entries in it are the ones whose miss actually fails a build.
+    # Same hand-off as alpaca-sim, and the same rule: with lfs:false every build-time expansion
+    # of an LFS input arrives from the catalogs job. See that job's comment for what a missing one
+    # looks like.
     - name: Download preprocessed catalogs
       uses: actions/download-artifact@v8
       with:
         name: preprocessed-catalogs
         path: src/TianWen.Lib/Astrometry/Catalogs/
-    - name: Refresh preprocessed catalog mtimes
+    - name: Download expanded catalog binaries
+      uses: actions/download-artifact@v8
+      with:
+        name: expanded-catalog-bins
+        path: src/TianWen.Lib/obj/
+    - name: Refresh downloaded catalog mtimes
       shell: pwsh
-      run: Get-ChildItem src/TianWen.Lib/Astrometry/Catalogs/ -Filter *.gs.gz | ForEach-Object { $_.LastWriteTime = Get-Date }
+      run: |
+        Get-ChildItem src/TianWen.Lib/Astrometry/Catalogs/ -Filter *.gs.gz | ForEach-Object { $_.LastWriteTime = Get-Date }
+        Get-ChildItem src/TianWen.Lib/obj/ -Filter *.bin | ForEach-Object { $_.LastWriteTime = Get-Date }
     # The ASCOM Platform installer REQUIRES .NET Framework 3.5, but windows-latest enables only 4.x.
     # Under /VERYSILENT the installer's "activate .NET 3.5" prompt is suppressed with nothing to answer
     # it, so it hangs forever (it ate a whole runner before we caught it). Enable the feature up front;
