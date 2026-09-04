@@ -68,7 +68,20 @@ def main():
     columns = [("raw half A", S.crop(half_a))]
     for spec in a.models:
         slug, ckpt = spec.split("=", 1)
-        columns.append((slug, S.crop(S.denoise(a.cache, ckpt, half_a, dev))))
+        # "slug=ckpt.pt@0.6" blends the output back toward the input at 0.6, which is the shipped
+        # strength dial. Without it a comparison is at each model's OWN strength, and a model that
+        # simply acts harder looks different for that reason alone -- which is how a colour cast and
+        # a denoising difference become impossible to tell apart by eye.
+        alpha = 1.0
+        if "@" in ckpt:
+            ckpt, a_s = ckpt.rsplit("@", 1)
+            alpha = float(a_s)
+        raw_in = S.crop(half_a)
+        out = S.crop(S.denoise(a.cache, ckpt, half_a, dev))
+        if alpha != 1.0:
+            out = raw_in + alpha * (out - raw_in)
+            slug = f"{slug}@{alpha:g}"
+        columns.append((slug, out))
     columns.append(("half B (ref)", S.crop(half_b)))
     columns.append(("master (leaks)", S.crop(master)))
 

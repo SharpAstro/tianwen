@@ -1,0 +1,4 @@
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HIP-34710/2025-12-28|ZWO ASI533MC Pro|HIP 34710|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HIP-85088/2025-05-20|ZWO ASI533MC Pro|HIP 85088|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/V1045-Ori/2026-01-18|ZWO ASI533MC Pro|V1045 Ori|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/eta-Car-Nebula/2026-02-20|ZWO ASI533MC Pro|eta Car Nebula|Optolong L-Ultimate 3nm

@@ -700,3 +700,45 @@ already names is common-mode noise shared between input and target -- which N2N 
 construction (same session, same calibration, same registration) and which the SUPERVISED arms have
 too, since their input is a master plus noise and their target is that same master. Four regimes
 landing within a seed's noise of each other is what one shared broken assumption looks like.
+
+### 2026-09-04: warped_s2 on a fourth eval -- a reproducible TRADE, not a better model
+
+`arms/e2-eval4b-4.txt`: four sessions, four distinct nights, chosen by a script that rejects any
+session OR night already used by `e2-train-8`, `e2-val-2`, `e2-eval3-4` or `armD`. The night check
+earned its keep on the first pass by rejecting a hand-picked candidate. Only NINE sessions of the
+bake's 51 survive every exclusion, which is worth knowing before another independent eval is planned.
+All four are ZWO ASI533MC Pro / L-Ultimate, because every SVBONY candidate shared a target with an
+existing eval: this tests scene independence, not rig independence.
+
+**`warped_s2` leads its arm for the fourth time** (8.4 at 10 percent removed, of nine seeds), on the
+only eval it was never selected across. Its ranks are 2nd, 1st, 1st, 1st at a mean pairwise rank
+correlation of just +0.32. **But s1 reads 8.6**, so the honest statement is that the warped arm has TWO
+seeds that lead it, not that s2 is singular.
+
+**The split says it is a trade.** Amplitude spent at 10 percent removed, stars / detail:
+
+| | eval4 | eval4b |
+|---|---|---|
+| warped_s2 | 10.2 / **2.6** | 10.4 / **3.2** |
+| gate1500 | 10.3 / 7.2 | **9.3** / 7.6 |
+| shipped4000 | 15.1 / 9.2 | 13.1 / 8.5 |
+
+Consistent on both: `warped_s2` preserves structure about 2.4x better, `gate1500` preserves stars as
+well or better. **Caveat on the detail column:** the catalogue is cut at BP 16, so real stars fainter
+than that fall into "unmatched detail" -- on these deep frames that population is nebulosity PLUS
+sub-BP16 stars, and eval4b is only 16.9 percent detail to begin with.
+
+**Not switching, and the reason is reach.** `gate1500` removes up to 33.0 percent of the noise against
+`warped_s2`'s 20.4, and that asymmetry runs one way: the blend dial turns a strong model down and can
+never turn a weak one up. At matched strength they are within 0.4 points. Add that `gate1500` was
+selected by a criterion independent of all four evals while `warped_s2` was selected across three of
+them, and one day's evidence does not justify a second swap.
+
+**One thing the tables missed and the 1:1 caught.** On bright eta Carinae nebulosity both v19d
+checkpoints shift the colour -- `gate1500` toward magenta, `shipped4000` to a washed pink -- where the
+raw half, the independent half and the master are all warm orange and `warped_s2` stays warm. It
+survives blending to matched strength, so it is the model and not the amount of work done.
+**It is measured in the RAW MODEL OUTPUT and the shipped path does not run that way**: `N2nLinearRunner`
+applies `RestoreLevel` per (channel, chunk), which exists to remove exactly this, so the production
+effect is probably much smaller. Verifying that needs the C# runner on a real frame, not this harness.
+The ordering `warped_s2` > `gate1500` > `shipped4000` still means today's re-export moved the right way.
