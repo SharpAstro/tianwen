@@ -18,6 +18,9 @@ the open one was empty). P1, P2 and P5 are in
 `Codecs` and reach CI through **SharpAstro codecs 3.10.721** (released 2026-08-20; `src/Directory.Packages.props`
 floats `3.10.*`); the rest are in this repo.
 
+**"NEXT RELEASE" below means the one after 7.0.1513**, which went to the Store on 2026-09-04 without
+P11.2, P13, P18 or P19. It did carry P17 and P11.1, the two fixed items that 6.3.1352 had missed.
+
 **A local build proves nothing about these three.** `UseLocalSiblings` self-enables when the `../Codecs`
 clone is present, so an ordinary build compiles the sibling source and never touches the pin -- which is
 exactly the state the fixes were developed in. Verified on the package path instead:
@@ -49,6 +52,7 @@ the 35 TIFF / import / codec tests pass against it.
 | P19 | Stepping between frames re-solves everything, so there is no blink | NEXT RELEASE |
 | P20 | A share link to the web viewer (needs `&t=`) | BACKLOG (web) |
 | P21 | A mosaic's channel views show the mosaic, not the debayered planes | BACKLOG |
+| P22 | Save the ANNOTATED view (grid, markers, labels), beside P18's clean raster | BACKLOG (split off P18 2026-09-04) |
 
 ---
 
@@ -488,3 +492,22 @@ hard. backlog it if we can't deliver it now."*
 - **P7**: `describe_ui` must list one region per visible row with a label, and `click_label` on a
   filename must select it. That is the acceptance test the current pane fails.
 - **P6**: visual, against the specific files named above.
+
+## P22. Save the ANNOTATED view  — BACKLOG
+
+Split off P18 on 2026-09-04, when the user chose the clean raster for "as seen on screen" and asked
+for the annotated variant to be backlogged rather than dropped.
+
+P18 saves what `Image.RenderStretchedRgba` produces: the stretch, WB, curves, HDR and channel view,
+at **full image resolution**, because that path needs no framebuffer readback and so is not bounded
+by the window. Everything drawn OVER the image -- the WCS grid, star markers, object labels -- is
+absent by construction.
+
+The machinery for the annotated version exists: `PlateSolveAnnotator` already draws overlays onto a
+CPU raster through the same `RenderStretchedRgba` + `StretchSolver` path. What makes it a backlog
+item rather than a flag on P18 is that it is a **second drawing path beside the GPU one**, and the
+two will drift: every overlay added to the shader would then owe a CPU twin, with nothing failing
+when it is forgotten. If it is picked up, the thing to settle first is whether the CPU annotator
+becomes the single source of truth for overlay GEOMETRY (the shader consuming the same computed
+placements) rather than a parallel implementation of it.
+

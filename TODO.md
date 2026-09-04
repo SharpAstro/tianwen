@@ -323,22 +323,43 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   `SkywatcherGssOracleTests` red. Note while answering the rollover question we found a probable
   copy-paste bug in upstream `SkyServer.GetRawStepsDt` (different command type per axis) -- GSS is a
   reference, not a specification.
-- [ ] **Astro Photo Viewer, next release (P11-P21, from the user's notes 2026-08-22 and 2026-08-27)**.
-  **Shipped:** the version now leads `--help` (plus `--version`, and the same line in the in-app `?`
-  panel beside the AI-enhancer discovery status, which reports which backend resolved, which RC
-  products are licensed and which SAS models are missing -- **without** undoing the deliberate
-  deferral of the RC-vs-SAS license probe to the first `EnhanceAsync`); gain/ISO + offset render in
-  the info pane; an EMPTY instance adopts any opened file instead of spawning a second window; and
-  right-click on the image copies RA/Dec, the per-channel value or the position (which is also what
-  found that no viewer dropdown had ever had a mouse hover state). **Remaining, in order:** a way to
-  FETCH the missing SAS models, since `tools/tianwen-ai-models-fetch.ps1` is a repo script and a Store
-  install cannot reach it (P11); **Save as seen on screen** + Save-As over the formats the codecs
-  facade already writes, and iconising Open/Save to buy toolbar width (P18); **carry the display state
-  across frames of the same shape, which is the enabler for a BLINK mode** over the file list -- the
-  transport already exists for SER, and without the carry-over each frame solves its own auto-stretch
-  so a sequence flickers in brightness rather than showing what moved (P19); and in-depth user
-  documentation for the Store listing to point at, written last so it documents what the rest do
-  (P13). See `docs/plans/viewer-prerelease-fixes.md` (phases G and H) and
+- [ ] **Astro Photo Viewer, the release AFTER 7.0.1513 (P11-P21, from the user's notes 2026-08-22 and
+  2026-08-27)**. **7.0.1513 went to the Store on 2026-09-04** carrying the fixed half of this list --
+  P17 and P11's version + AI-status line were the two that had not been released before it -- plus
+  Explorer thumbnails, Auto stretch and the SPCC/Calibrate render toggle. None of the open items made
+  that release, so they move to the next one. **Start with P18** (user, 2026-09-04).
+  - [x] **P11.1** `--help`, `--version` and the in-app `?` panel report the version, beside an
+    AI-enhancer discovery status saying which backend resolved, which RC products are licensed and
+    which SAS models are missing -- **without** undoing the deliberate deferral of the RC-vs-SAS
+    license probe to the first `EnhanceAsync`.
+  - [ ] **P11.2: a way to FETCH the missing SAS models.** `tools/tianwen-ai-models-fetch.ps1` is a repo
+    script and a Store install cannot reach it, so P11.1's status panel names a gap the user has no way
+    to close.
+  - [x] **P12** Gain/ISO and offset render in the info pane.
+  - [ ] **P13: in-depth user documentation** for the Store listing to point at. Written last, so it
+    documents what the others end up doing.
+  - [x] **P14** An EMPTY instance adopts an opened file instead of spawning a second window.
+  - [ ] **P15** A faint residue is left at the end of the cursor readout (damage-era). The one item
+    here never triaged into a release either way.
+  - [x] **P16** `Frame: None` no longer prints the enum default as if it were a frame kind.
+  - [x] **P17** Right-click on the image copies RA/Dec, the per-channel value or the position -- which
+    is also what found that no viewer dropdown had ever had a mouse hover state.
+  - [ ] **P18: Save as seen on screen**, plus Save-As over the formats the codecs facade already
+    writes, and iconising Open/Save to buy toolbar width. **The one to start with** (user, 2026-09-04).
+  - [ ] **P19: carry the display state across frames of the same shape**, the enabler for a BLINK mode
+    over the file list. The transport already exists for SER, and without the carry-over each frame
+    solves its own auto-stretch, so a sequence flickers in brightness rather than showing what moved.
+  - [ ] **P20** A share link to the web viewer (needs `&t=`). BACKLOG, blocked on the web side.
+  - [ ] **P21** A mosaic's channel views show the mosaic, not the debayered planes. BACKLOG; a shader
+    change whose cheap form is not obvious yet.
+  - [ ] **P22** Save the ANNOTATED view (pixels + grid + star markers + object labels), as a second
+    entry in P18's Save-As menu. BACKLOG, split off P18 on 2026-09-04: `PlateSolveAnnotator` already
+    draws these onto a CPU raster so the machinery exists, but it is a SECOND drawing path beside the
+    GPU one and the two will drift. P18 deliberately saves the clean raster only, which needs no
+    framebuffer readback and so is full image resolution rather than window resolution.
+
+  P18 and P19 both touch the display raster and the file list, so they share a sitting. See
+  `docs/plans/viewer-prerelease-fixes.md` (phases G and H) and
   `docs/architecture/desktop-shell.md`.
 - [ ] **Atlas planet detail** (tracked in the plan only, per the user): vmag sparkline + visibility curve + the date of the next opposition / greatest elongation for a selected planet. `SkyPathEventDetector` already computes the events and draws them as rings along the selection path, so the date is a text row over tested math -- except the 120-day path window is far shorter than a synodic period, so the event query needs its own coarse long sweep. Also fixes a planet's info-panel magnitude, which is currently the STATIC catalog `V_Mag` and so is off by magnitudes for most of Mars's cycle. See `docs/plans/atlas-planet-detail.md`.
 - [x] RC-Astro enhancer integration: drive RC-Astro StarX/NoiseX/BlurXTerminator (encrypted ONNX, so via the `rc-astro` `--json` CLI, not in-proc ORT), preferred over the SETI Astro ONNX enhancers when the CLI is installed + the product is licensed. **Phase 1+2 SHIPPED:** `RcAstroCli` + NDJSON parser + FITS round-trip base, `RcAstroStarRemover`/`RcAstroDenoiser` (noise-adaptive `--dn`)/`RcAstroNonStellarDeconvolver`, deferred license-gated selector (`DeferredEnhancer` proxy, no subprocess at DI build/resolve), wired into `TianWen.Cli`. 13 tests. **Phase 3 SHIPPED (PR #59, 2026-06-30):** immutable threaded `EnhanceOptions`/`EnhanceTuning` (no mutable singleton) + shared `EnhanceOptions.TryParse`; CLI flags (`--ai-backend`/`--bxt-sharpen`/`--nxt-denoise`/`--nxt-iterations`) on `image sharpen` + `stack --enhance` (3a); per-step `EnhanceProgress` -> CLI printer (3b); interactive Enhance action in `tianwen-fits` (3c); `tianwen-server` `POST /api/v1/image/enhance` single-flight endpoint + `ENHANCE-PROGRESS`/`-COMPLETED` WS, presence-gated 503 when no pipeline (3d). Job-id/queue model deferred as a nice-to-have (`docs/plans/server-enhance-job-model.md`). See `docs/plans/rc-astro-enhancers.md`.
