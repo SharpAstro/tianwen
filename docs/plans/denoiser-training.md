@@ -742,3 +742,35 @@ survives blending to matched strength, so it is the model and not the amount of 
 applies `RestoreLevel` per (channel, chunk), which exists to remove exactly this, so the production
 effect is probably much smaller. Verifying that needs the C# runner on a real frame, not this harness.
 The ordering `warped_s2` > `gate1500` > `shipped4000` still means today's re-export moved the right way.
+
+### 2026-09-04: the re-export verified through the SHIPPED path, and the colour cast does not survive it
+
+The 1:1 comparison showed `gate1500` shifting bright nebulosity toward magenta, and it survived
+blending to matched strength -- but it was measured on RAW MODEL OUTPUT in the stretched tile domain,
+and the shipped path does not run that way. `N2nSeamProbe.ReportInputRescaleResponseOnARealMaster` on
+a real eta Carinae master (3065x3109, ZWO ASI533MC / L-Ultimate), both checkpoints, same frame:
+
+| | gate1500 (now shipped) | shipped4000 (until today) |
+|---|---|---|
+| level-restore \|offset\| median / max | 3.94e-3 / 8.42e-2 | 2.37e-3 / 4.47e-2 |
+| per-channel median drag, in that channel's own MAD | 0.024 / 0.049 / 0.016 | -0.011 / 0.028 / 0.002 |
+| **cast differential (max minus min)** | **0.033 MAD** | 0.039 MAD |
+| faint-star amplitude kept, SNR 8-15 | **0.649** | 0.547 |
+| faint stars DETECTED, SNR 8-15 | **94 %** | 70 % |
+| SNR 15-30 / 30-100 | **0.704** / 0.759 | 0.685 / **0.775** |
+| background movers >10 MAD, per Mpx | 0 / 0 / 677 | 0 / 1158 / 921 |
+| noise MAD kept R/G/B | 91 / 89 / 78 % | 90 / 80 / 77 % |
+| loud seams (of 30) | 6 / 7 / 6 | 2 / 7 / 6 |
+
+**`RestoreLevel` absorbs the cast.** The Python-domain shift was 1.5 to 5 noise units; through the
+runner the per-channel differential is **0.033 MAD**, and marginally SMALLER than the old weights'.
+The per-(channel, chunk) level correction exists for exactly this, and this is what it looks like
+working. A cast measured on raw model output is not a claim about what a user sees.
+
+**The re-export looks better here than the tile metrics suggested.** The old weights were not merely
+dimming faint stars, they were losing 30 percent of them outright (detected 70 percent against 94),
+and they moved twice as many background pixels on two channels. Against that the old weights remove
+slightly more noise on G and have fewer loud seams on R; recorded, not decisive.
+
+The model file was restored after the swap and `git status` came back clean, so what is committed is
+byte-identical to what was measured.
