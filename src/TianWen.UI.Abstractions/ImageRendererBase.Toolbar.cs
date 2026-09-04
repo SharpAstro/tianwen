@@ -758,6 +758,10 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.Channel => document is not null && document.UnstretchedImage.ChannelCount > 1,
             ToolbarAction.CurvesBoost => document?.Stars is { Count: > 0 },
             ToolbarAction.Hdr => document is not null,
+            // There is nothing to write without a document, and a mark-only button that does nothing
+            // when clicked is worse than a dimmed one: with no label, the status line is the only
+            // thing that could have explained the no-op.
+            ToolbarAction.Save => document is not null,
             ToolbarAction.StretchToggle => document is not null,
             ToolbarAction.StretchLink or ToolbarAction.StretchParams => document is not null,
             ToolbarAction.Grid => document?.Wcs is { HasCDMatrix: true },
@@ -921,6 +925,12 @@ namespace TianWen.UI.Abstractions
 
         private bool HasToolbarMark(ToolbarAction action, ViewerState state) => action switch
         {
+            // The two file actions are marks INSTEAD of words, which is the whole point: they sit at
+            // the head of a bar that had already run out of room and wrapped, and "Open" / "Save" are
+            // the two labels a picture replaces without losing anything -- unlike a stateful label
+            // such as the zoom's, they never had a value to say.
+            ToolbarAction.Open => true,
+            ToolbarAction.Save => true,
             ToolbarAction.Debayer => _source?.SensorType is SensorType.RGGB,
             // Composite / R / G / B are the three bars and which of them is lit. Channel0..2 are not
             // colours at all, so the mark would be inventing one.
@@ -944,6 +954,8 @@ namespace TianWen.UI.Abstractions
         {
             switch (action)
             {
+                case ToolbarAction.Open: DrawFolderMark(x, btnY, btnH, ink); break;
+                case ToolbarAction.Save: DrawSaveMark(x, btnY, btnH, ink); break;
                 case ToolbarAction.Debayer: DrawBayerSwatch(x, btnY, btnH, enabled); break;
                 case ToolbarAction.Channel: DrawChannelBars(x, btnY, btnH, state, enabled); break;
                 case ToolbarAction.Grid: DrawBakedMark(BakedIcons.Globe, x, btnY, btnH, ink); break;
@@ -1065,6 +1077,73 @@ namespace TianWen.UI.Abstractions
         /// Renderer, but <see cref="ImageRendererBase{TSurface}"/> does not expose it, and widening that
         /// seam for one toolbar mark would be the tail wagging the dog.</para>
         /// </remarks>
+        /// <summary>
+        /// A folder: an empty rectangle with a tab on its top-left corner.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Hand-drawn because no glyph survives the bake.</b> Baked at 13 px against
+        /// Noto-COLRv1, U+1F4C1 file-folder, U+1F4C4 page, U+1F4BE floppy and U+2B07 down-arrow all
+        /// come out as solid blocks (78% to 85% of the square inked, most of it fully opaque) --
+        /// the same failure <c>icons.recipe</c> already records for U+1F4C2, whose structure is
+        /// drawn in COLOUR and so vanishes when only the alpha silhouette is kept. U+1F5C1 and
+        /// U+21E9 are absent from the face entirely. The two tray glyphs (U+1F4E4 / U+1F4E5) do
+        /// survive with structure, and were still rejected: at 13 px they differ from each other
+        /// only in which way a two-pixel stem tapers, and a PAIR of marks has to differ in
+        /// silhouette, not in detail.</para>
+        /// <para>So the pair is drawn: a box for Open against an arrow for Save. Strokes only, and
+        /// nothing sits INSIDE the rectangle -- an outline with anything in it reads as an eye at
+        /// this size, which is the trap the spiral mark was redrawn three times to escape.</para>
+        /// </remarks>
+        private void DrawFolderMark(float x, float btnY, float btnH, RGBAColor32 ink)
+        {
+            var size = BaseToolbarMarkSize * DpiScale;
+            var y = btnY + (btnH - size) / 2f;
+            var t = MathF.Max(1f, DpiScale);
+
+            var left = x + size * 0.05f;
+            var right = x + size * 0.95f;
+            var tabRight = x + size * 0.40f;
+            var bodyTop = y + size * 0.36f;
+            var tabTop = y + size * 0.22f;
+            var bottom = y + size * 0.82f;
+
+            DrawLineOverlay(left, tabTop, tabRight, tabTop, ink, t);              // tab
+            DrawLineOverlay(tabRight, tabTop, x + size * 0.52f, bodyTop, ink, t); // tab riser
+            DrawLineOverlay(x + size * 0.52f, bodyTop, right, bodyTop, ink, t);   // body top
+            DrawLineOverlay(left, tabTop, left, bottom, ink, t);
+            DrawLineOverlay(right, bodyTop, right, bottom, ink, t);
+            DrawLineOverlay(left, bottom, right, bottom, ink, t);
+        }
+
+        /// <summary>
+        /// A down arrow into a tray: the file goes down, onto the disk.
+        /// </summary>
+        /// <remarks>
+        /// Paired with <see cref="DrawFolderMark"/> and differing from it in SILHOUETTE -- an arrow
+        /// against a box -- rather than in detail, which is the whole reason both are drawn rather
+        /// than baked. The tray is open at the top (two walls and a floor, no lid) so it cannot read
+        /// as a second rectangle beside the folder's.
+        /// </remarks>
+        private void DrawSaveMark(float x, float btnY, float btnH, RGBAColor32 ink)
+        {
+            var size = BaseToolbarMarkSize * DpiScale;
+            var y = btnY + (btnH - size) / 2f;
+            var t = MathF.Max(1f, DpiScale);
+            var cx = x + size / 2f;
+
+            var tip = y + size * 0.56f;
+            DrawLineOverlay(cx, y + size * 0.08f, cx, y + size * 0.50f, ink, t);        // shaft
+            DrawLineOverlay(cx - size * 0.24f, y + size * 0.32f, cx, tip, ink, t);      // head, left
+            DrawLineOverlay(cx + size * 0.24f, y + size * 0.32f, cx, tip, ink, t);      // head, right
+
+            var left = x + size * 0.08f;
+            var right = x + size * 0.92f;
+            var floor = y + size * 0.86f;
+            DrawLineOverlay(left, y + size * 0.66f, left, floor, ink, t);
+            DrawLineOverlay(right, y + size * 0.66f, right, floor, ink, t);
+            DrawLineOverlay(left, floor, right, floor, ink, t);
+        }
+
         private void DrawStarMark(float x, float btnY, float btnH, RGBAColor32 ink)
         {
             var size = BaseToolbarMarkSize * DpiScale;
@@ -1396,6 +1475,8 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.Channel => HasToolbarMark(ToolbarAction.Channel, state)
                     ? string.Empty
                     : $"{state.ChannelView}",
+                // No label at all: the folder and the tray say it, and the tooltip carries the rest.
+                ToolbarAction.Open or ToolbarAction.Save => string.Empty,
                 ToolbarAction.Debayer => state.DebayerAlgorithm.DisplayName,
                 ToolbarAction.CurvesBoost => state.CurvesBoost > 0f ? $"Boost {UiFormat.Percent0(state.CurvesBoost)}" : "Boost",
                 ToolbarAction.Hdr => state.HdrAmount > 0f ? $"HDR: {state.HdrAmount:F1}" : "HDR",
