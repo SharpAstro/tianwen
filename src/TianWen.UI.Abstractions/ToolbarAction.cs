@@ -6,6 +6,20 @@ namespace TianWen.UI.Abstractions;
 public enum ToolbarAction
 {
     Open,
+
+    /// <summary>
+    /// Write the image AS SEEN -- the current stretch, white balance, curves, HDR and channel view --
+    /// to a file the user picks.
+    /// </summary>
+    /// <remarks>
+    /// Not a screenshot: the raster is rendered at the IMAGE's size through
+    /// <see cref="TianWen.Lib.Imaging.DisplayRasterExport"/>, so a 9576x6388 master saves at
+    /// 9576x6388 from a 1280-pixel window, and nothing drawn OVER the image (grid, star markers,
+    /// object labels, the A/B split) is included. The container comes from the extension the user
+    /// chooses in the dialog, which is what makes one button enough for every format.
+    /// </remarks>
+    Save,
+
     StretchToggle,
     StretchLink,
     StretchParams,

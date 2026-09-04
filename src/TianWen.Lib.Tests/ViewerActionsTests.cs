@@ -239,6 +239,7 @@ public class ViewerActionsTests
 
     [Theory]
     [InlineData(ToolbarAction.Open)]
+    [InlineData(ToolbarAction.Save)]
     [InlineData(ToolbarAction.PlateSolve)]
     public void HandleToolbarAction_DIDependentActions_ReturnFalse(ToolbarAction action)
     {

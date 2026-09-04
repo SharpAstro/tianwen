@@ -370,6 +370,69 @@ public sealed class ViewerController(
                 onFinally: () => state.NeedsRedraw = true);
                 break;
 
+            // Save the raster AS DISPLAYED. The uniforms are recomputed here from the same state the
+            // renderer hands its shader rather than reached for across the renderer:
+            // ComputeStretchUniforms is documented as the single producer, so the same inputs give the
+            // same answer, and the controller stays free of a renderer reference.
+            case ToolbarAction.Save:
+                if (Document is not { } saveDoc)
+                {
+                    state.StatusMessage = "Nothing to save";
+                    break;
+                }
+
+                state.StatusMessage = "Saving...";
+                tracker.RunGuarded(async token =>
+                {
+                    // PNG first, so it is the dialog's default and the extension appended to a name
+                    // typed without one. It is also the only lossless option here.
+                    var filters = new Dictionary<string, IReadOnlyList<string>>
+                    {
+                        ["PNG (16-bit)"] = [".png"],
+                        ["JPEG"] = [".jpg", ".jpeg"],
+                        ["TIFF (32-bit float)"] = [".tif", ".tiff"],
+                    };
+
+                    var stem = Path.GetFileNameWithoutExtension(saveDoc.FilePath);
+                    var suggested = (stem.Length > 0 ? stem : "image") + ".png";
+                    var target = await fileDialog.SaveAsync(filters, suggested, "Save image as displayed", token).ConfigureAwait(false);
+                    if (target is null)
+                    {
+                        state.StatusMessage = null;
+                        return;
+                    }
+
+                    var image = saveDoc.UnstretchedImage;
+                    var uniforms = saveDoc.ComputeStretchUniforms(
+                        state.StretchMode, state.StretchParameters,
+                        bgNeutralizationStrength: state.BackgroundNeutralizationStrength,
+                        manualWhiteBalance: state.ManualWhiteBalance,
+                        applyColorCalibration: state.ColorCalibrationEnabled);
+
+                    // The boost pivots on the POST-stretch background, exactly as the shader's
+                    // curvesMidpoint does; passing the default 0.25 instead would move the curve.
+                    var background = uniforms.ComputePostStretchBackground(
+                        saveDoc.PerChannelBackground, saveDoc.LumaBackground);
+
+                    await DisplayRasterExport.WriteAsync(
+                        image, target,
+                        DisplayRasterExport.FromExtension(target) ?? DisplayRasterFormat.Png16,
+                        uniforms,
+                        state.CurvesBoost, state.CurvesMode, state.CurveData, background,
+                        state.HdrAmount, state.HdrKnee,
+                        displayedChannel: state.ChannelView.DisplayedSourceChannel(image.ChannelCount),
+                        debayerAlgorithm: state.DebayerAlgorithm,
+                        cancellationToken: token).ConfigureAwait(false);
+
+                    state.StatusMessage = $"Saved {Path.GetFileName(target)}";
+                },
+                appToken,
+                logger,
+                "Save display raster",
+                onError: ex => state.StatusMessage = $"Save failed: {StatusText.FromException(ex)}",
+                onFinally: () => state.NeedsRedraw = true);
+                break;
+
             case ToolbarAction.PlateSolve:
                 if (Document is { } solveDoc && !state.IsPlateSolving && !solveDoc.IsPlateSolved)
                 {

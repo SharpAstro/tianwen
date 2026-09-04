@@ -22,6 +22,7 @@ namespace TianWen.UI.Abstractions
         private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> CoreToolbarButtons =
         [
             ("Open", ToolbarAction.Open, 0),
+            ("Save", ToolbarAction.Save, 0),
             ("STF", ToolbarAction.StretchToggle, 1),
             ("Link", ToolbarAction.StretchLink, 1),
             ("Params", ToolbarAction.StretchParams, 1),
@@ -1172,6 +1173,7 @@ namespace TianWen.UI.Abstractions
             ToolbarAction action, ViewerState state, AstroImageDocument? document) => action switch
         {
             ToolbarAction.Open => "Open a FITS / TIFF / SER file",
+            ToolbarAction.Save => "Save the image as displayed (PNG / JPEG / TIFF), at full resolution",
             ToolbarAction.StretchToggle => "Screen transfer function on / off (T)",
             ToolbarAction.StretchLink => "Stretch mode: auto picks linked when calibrated and unlinked otherwise; linked keeps colour, unlinked neutralises the background, luma stretches luminance",
             ToolbarAction.StretchParams => "Stretch strength preset (+ / -)",

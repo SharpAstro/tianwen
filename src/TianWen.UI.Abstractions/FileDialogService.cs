@@ -16,4 +16,11 @@ internal sealed class FileDialogService : IFileDialogHelper
         string title = "Open file",
         CancellationToken cancellationToken = default)
         => FileDialogHelper.PickAsync(filters, combinedFilterName, title, cancellationToken);
+
+    public Task<string?> SaveAsync(
+        IReadOnlyDictionary<string, IReadOnlyList<string>> filters,
+        string? suggestedFileName = null,
+        string title = "Save image",
+        CancellationToken cancellationToken = default)
+        => FileDialogHelper.SaveAsync(filters, suggestedFileName, title, cancellationToken);
 }

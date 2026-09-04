@@ -375,14 +375,20 @@
        Both are already pulled in transitively by SharpAstro.Codecs (gain-map decode
        lives in the facade registry), but tianwen references them directly since it
        calls the encode API, matching the direct-ref convention of the Tiff/Png/Exr
-       codecs above. All on the 3.6.* lockstep. -->
+       codecs above. All on the 3.6.* lockstep.
+       SharpAstro.Jpeg.IccInjector joins them for DisplayRasterExport: a JPEG the USER keeps and
+       shares needs its sRGB v4 tag, or a colour-managed viewer re-interprets the transfer function
+       and renders it differently from the viewer that saved it. TianWen.Hosting already carries the
+       same reference for the preview endpoint, for the same reason. -->
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
     <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Jpeg\SharpAstro.Jpeg.csproj" />
     <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Jpeg.GainMap\SharpAstro.Jpeg.GainMap.csproj" />
+    <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Jpeg.IccInjector\SharpAstro.Jpeg.IccInjector.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="SharpAstro.Jpeg" />
     <PackageReference Include="SharpAstro.Jpeg.GainMap" />
+    <PackageReference Include="SharpAstro.Jpeg.IccInjector" />
   </ItemGroup>
 
   <!-- DIR.Lib: TiffWriter + PngWriter on the production path (Image.Export.cs). -->
