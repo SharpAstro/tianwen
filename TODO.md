@@ -344,8 +344,12 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   - [x] **P16** `Frame: None` no longer prints the enum default as if it were a frame kind.
   - [x] **P17** Right-click on the image copies RA/Dec, the per-channel value or the position -- which
     is also what found that no viewer dropdown had ever had a mouse hover state.
-  - [ ] **P18: Save as seen on screen**, plus Save-As over the formats the codecs facade already
-    writes, and iconising Open/Save to buy toolbar width. **The one to start with** (user, 2026-09-04).
+  - [x] **P18: Save as seen on screen** -- a Save button writes the display raster (stretch, WB,
+    curves, HDR, channel view) as PNG-16 / JPEG / float TIFF through a native save dialog, at the
+    IMAGE's resolution rather than the window's. `DisplayRasterExport` + `IFileDialogHelper.SaveAsync`
+    (no save dialog existed on any platform). Open and Save are hand-drawn marks now, and the bar no
+    longer wraps to a second row. 8-bit PNG is in the API with no UI: it shares `.png` with the 16-bit
+    variant, so choosing it needs a menu that does not exist. Done 2026-09-04.
   - [ ] **P19: carry the display state across frames of the same shape**, the enabler for a BLINK mode
     over the file list. The transport already exists for SER, and without the carry-over each frame
     solves its own auto-stretch, so a sequence flickers in brightness rather than showing what moved.
