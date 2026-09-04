@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using Shouldly;
 using TianWen.Lib.Imaging;
@@ -29,7 +29,7 @@ namespace TianWen.Lib.Tests
             // RA is carried in HOURS: 5.5 h = 82.5 deg, which is the decimal form the payload must show.
             var items = ImageContextMenu.ItemsFor(Pixel([0.5f], ra: 5.5, dec: -12.25));
 
-            items.Length.ShouldBe(3);
+            items.Length.ShouldBe(4);
             items[0].Description.ShouldBe("RA / Dec");
             items[0].Label.ShouldStartWith("Copy RA / Dec");
 
@@ -60,13 +60,41 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
-        public void ThePositionItemIsAlwaysLastAndNamesThePixel()
+        public void ThePositionItemIsTheLastREADOUTAndNamesThePixel()
         {
+            // Ordering is readouts about the pixel first, in the order they are asked for (sky, sample,
+            // position), then the one ACTION. The share link is not a fact about the pixel, so it goes
+            // after all three rather than competing with them for the top of the menu.
             var items = ImageContextMenu.ItemsFor(Pixel([0.1f], ra: 1.0, dec: 2.0));
 
-            items[^1].Description.ShouldBe("pixel position");
-            items[^1].Payload.ShouldBe("12 34");
-            items[^1].Label.ShouldBe("Copy position   (12, 34)");
+            var position = items[^2];
+            position.Description.ShouldBe("pixel position");
+            position.Payload.ShouldBe("12 34");
+            position.Label.ShouldBe("Copy position   (12, 34)");
+
+            items[^1].Description.ShouldBe("sky atlas link");
+        }
+
+        [Fact]
+        public void TheShareLinkPointsAtWhereTheFrameWasLooking()
+        {
+            var captured = new DateTimeOffset(2026, 1, 18, 23, 26, 51, TimeSpan.Zero);
+
+            var items = ImageContextMenu.ItemsFor(Pixel([0.1f], ra: 1.0, dec: 2.0), fovDeg: 1.5, capturedUtc: captured);
+
+            var link = items.First(i => i.Description == "sky atlas link");
+            link.Payload.ShouldBe(SkyAtlasLink.For(1.0, 2.0, 1.5, captured),
+                "the menu is not a second place the URL vocabulary is spelled out");
+        }
+
+        [Fact]
+        public void AFrameWithNoWcsOffersNoShareLink()
+        {
+            // There is nothing to point the atlas AT. The link would otherwise be built from a null
+            // coordinate and land at RA 0 / Dec 0, which is a real place in the sky and therefore the
+            // worst kind of wrong answer.
+            ImageContextMenu.ItemsFor(Pixel([0.5f]))
+                .Select(i => i.Description).ShouldNotContain("sky atlas link");
         }
 
         [Fact]
@@ -88,12 +116,22 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
-        public void EveryLabelCarriesTheValueSoTheMenuAnswersWithoutCopying()
+        public void EveryREADOUTLabelCarriesTheValueSoTheMenuAnswersWithoutCopying()
         {
             // The menu is also a readout: someone who right-clicks to check a coordinate should not have to
             // paste it somewhere to see it. Every label therefore ends in its own value.
+            //
+            // The share link is the one deliberate exception, and it is exempted BY NAME rather than by
+            // relaxing the rule to "most labels": its value is a hundred-character URL, which would be
+            // the widest thing in the menu and unreadable at that size, so it is the one item where
+            // what gets copied is worth more than what is shown. Any OTHER item that stops carrying its
+            // value is still a failure here.
             foreach (var item in ImageContextMenu.ItemsFor(Pixel([0.5f], ra: 3.0, dec: 4.0)))
             {
+                if (item.Description == "sky atlas link")
+                {
+                    continue;
+                }
                 item.Label.ShouldNotBe($"Copy {item.Description}");
                 item.Label.Length.ShouldBeGreaterThan($"Copy {item.Description}".Length);
             }

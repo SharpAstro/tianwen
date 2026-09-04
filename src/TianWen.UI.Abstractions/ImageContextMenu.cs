@@ -32,7 +32,16 @@ namespace TianWen.UI.Abstractions
         /// Empty when the pixel carries neither a sample nor a WCS position -- an out-of-raster query
         /// answers that shape, and a menu whose only item is "the coordinates you clicked" is noise.
         /// </remarks>
-        public static ImmutableArray<ImageContextMenuItem> ItemsFor(PixelInfo pixel)
+        /// <param name="fovDeg">
+        /// The frame's own field width in degrees, so a share link opens the atlas showing roughly what
+        /// the image covers. Null when the frame carries no usable plate scale.
+        /// </param>
+        /// <param name="capturedUtc">
+        /// When the frame was taken, for the share link's <c>t=</c>. Null (or a sentinel) drops that
+        /// parameter and the atlas opens at the reader's "now".
+        /// </param>
+        public static ImmutableArray<ImageContextMenuItem> ItemsFor(
+            PixelInfo pixel, double? fovDeg = null, DateTimeOffset? capturedUtc = null)
         {
             var hasSky = pixel.RA.HasValue && pixel.Dec.HasValue;
             if (pixel.Values.Length == 0 && !hasSky)
@@ -40,7 +49,7 @@ namespace TianWen.UI.Abstractions
                 return ImmutableArray<ImageContextMenuItem>.Empty;
             }
 
-            var builder = ImmutableArray.CreateBuilder<ImageContextMenuItem>(3);
+            var builder = ImmutableArray.CreateBuilder<ImageContextMenuItem>(4);
 
             if (hasSky)
             {
@@ -71,6 +80,18 @@ namespace TianWen.UI.Abstractions
                 $"Copy position   ({pixel.X}, {pixel.Y})",
                 "pixel position",
                 string.Create(CultureInfo.InvariantCulture, $"{pixel.X} {pixel.Y}")));
+
+            // Last, and only for a plate-solved frame: without RA/Dec there is nothing to point the
+            // atlas at. The label does not carry the URL the way the others carry their values -- a
+            // hundred-character link would be the widest thing in the menu and unreadable at that size,
+            // so this is the one item where the payload is worth more than the preview.
+            if (hasSky)
+            {
+                builder.Add(new ImageContextMenuItem(
+                    "Copy sky atlas link",
+                    "sky atlas link",
+                    SkyAtlasLink.For(pixel.RA!.Value, pixel.Dec!.Value, fovDeg, capturedUtc)));
+            }
 
             return builder.ToImmutable();
         }

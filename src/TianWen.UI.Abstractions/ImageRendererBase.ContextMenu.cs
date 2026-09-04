@@ -105,7 +105,17 @@ namespace TianWen.UI.Abstractions
                 ? document.GetPixelInfo(at.X, at.Y)
                 : state.CursorPixelInfo;
 
-            return info is { } pixel ? ImageContextMenu.ItemsFor(pixel) : ImmutableArray<ImageContextMenuItem>.Empty;
+            if (info is not { } pixel)
+            {
+                return ImmutableArray<ImageContextMenuItem>.Empty;
+            }
+
+            var image = _document?.UnstretchedImage;
+            var fovDeg = image is { } img
+                ? SkyAtlasLink.FieldOfViewDeg(_document?.Wcs, img.Width, img.Height)
+                : null;
+
+            return ImageContextMenu.ItemsFor(pixel, fovDeg, image?.ImageMeta.ExposureStartTime);
         }
 
         private void CopyToClipboard(ViewerState state, string description, string payload)
