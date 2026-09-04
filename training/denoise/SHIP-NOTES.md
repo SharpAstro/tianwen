@@ -5,7 +5,22 @@ research question that produced it is closed (see `../v24/README.md`): three dis
 8-session draws gave 0.825 / 0.726 / 0.739 on the same observer, so there is no recipe, and
 v19d ships as **the best checkpoint measured, not as the output of a method.**
 
-## The checkpoint: `n2n_v19d_s2_final.pt`
+## The checkpoint: `n2n_v19d_s2.pt` (gate-selected, step 1500)
+
+**Changed 2026-09-04.** `n2n_v19d_s2_final.pt` (step 4000) shipped from 2026-08-17 to 2026-09-04. The
+seed was picked on the four-observer frontier table below, which is sound, but that table compared the
+three seeds' FINAL checkpoints and the gate-selected one was never entered into it -- the audit the
+trainer's own comment asks for ("if the last step also passes, selection helped has to be demonstrated
+against it, not assumed") was never run in that direction. Run 2026-09-04 at matched noise, the
+gate-selected checkpoint wins on every measurement taken: Gaia-confirmed faint-star amplitude spent
+10.3 against 15.1 and unmatched-detail 7.2 against 9.2 (at 10 percent noise removed, two clean evals),
+this table's own criterion 0.79 against 0.68 at SNR 8-15, and fabricated point sources 19.0 per tile
+against 34.5 on a raw-sub floor of 13.2. Two columns favour the old one, residual correlation and
+fine-structure ratio; they did not outweigh four that do not.
+
+The section below is the ORIGINAL 2026-08-17 record of the SEED choice, unchanged.
+
+## The seed: three of three, on the four-observer frontier
 
 Seed 2 of three, picked on the four-observer frontier table rather than the gate (which is
 single-observer). Over the three UNCONTAMINATED observers, faint amplitude kept at matched

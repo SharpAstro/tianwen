@@ -1,7 +1,8 @@
 # Denoiser training: the campaign after v24
 
 **Status: PLANNED (written 2026-09-02). Nothing below has run.** The shipped model is
-`n2n_v19d_s2_final` (task N4, 2026-08-17), an 0.81 M-parameter noise-conditioned U-Net trained by
+`n2n_v19d_s2` (the GATE-SELECTED step-1500 checkpoint; task N4 shipped its step-4000 sibling until
+2026-09-04, see section 9), an 0.81 M-parameter noise-conditioned U-Net trained by
 Noise2Noise on eight OSC narrowband sessions, reachable as `--ai-backend n2n`. Everything measured
 about it is in [osc-narrowband-denoiser.md](osc-narrowband-denoiser.md) (the v15 to v24 run log) and
 [ai-denoise-deconv.md](ai-denoise-deconv.md) sections 2.1, 2.4, 3a and 3b. This document does not
@@ -62,7 +63,7 @@ trainings and the shared tooling), [deconvolver-training.md](deconvolver-trainin
 | Shipping scripts | `D:\Astro-Dataset\n2n-smoke\ship\` (`n2n_export.py`, `n2n_dial.py`, `n2n_fixture.py`, `README.md`). They import `../v24/scripts` by relative path. |
 | Run records | `D:\Astro-Dataset\n2n-smoke\v2 .. v24\README.md`, each with its `scripts/` snapshot and `run-vNN.ps1` carrying the pre-registered predictions. |
 | Prepared caches + checkpoints | `C:\temp\tianwen-scratch\n2n-{ds,big,a52,b52,c21,d8,e8,f8,eval4}` (`tiles.f16` memmap + `meta.json` with train/val sessions BY NAME + `.pt`). `n2n-d8` is armD, the shipped arm; `n2n-eval4` is the four-observer eval cache. **`C:\tianwen-scratch` no longer exists**; every script default and hardcoded `EVAL` constant still says it. |
-| Shipped weights | `src/TianWen.AI.Imaging/models/tianwen_denoise_osc_v19d.onnx` (3,268,149 bytes, plain git blob under a temporary `.gitattributes` LFS exemption with a 2026-09 revert note). Source `ship/n2n_v19d_s2_final.onnx`. |
+| Shipped weights | `src/TianWen.AI.Imaging/models/tianwen_denoise_osc_v19d.onnx` (3,268,149 bytes, plain git blob under a temporary `.gitattributes` LFS exemption with a 2026-09 revert note). Source `n2n_v19d_s2.pt`, the GATE-SELECTED step-1500 checkpoint, exported 2026-09-04; its step-4000 sibling shipped until then. Torch parity max abs 1.192e-7. |
 | Parity fixture | `src/TianWen.Lib.Tests/Data/n2n-parity-fixture.json`, pinned by `N2nDenoiserTests.TheWholePipelineReproducesTorch` (5.07e-7 max abs). |
 | Inference | `N2nDenoiser` + `N2nLinearRunner` (`src/TianWen.AI.Imaging/Onnx/`): fixed 256 px chunks, sigma computed in the graph, `RestoreLevel` per chunk, 16 px rim dropped, blend dial. **Feeds linear `[0,1]` pixels to a model trained on MTF-stretched tiles (fact 0 above); the runner's and the enhancer's XML docs assert the opposite and are wrong.** |
 | Datasets | `2025-2026-organized` (51 sessions, 159,300 tiles, filters from headers, 7 pinned test sessions) is the pool. `2025-2026-darkscaled` (67 sessions, no filter) is what v15 to v24 trained on and is **not interchangeable** (different ids, different pool). Retained linear masters under each bake's `session-masters/`. |
@@ -655,3 +656,47 @@ Three traps found while building it, each of which produced a plausible wrong an
 stars separately from amplitude on unmatched compact detail. Both matter and a denoiser should scrub
 neither, but conflating them is what made this unreadable. It needs one WCS per eval session, which is
 a one-off solve of six masters.
+
+### 2026-09-04: the shipped weights were the checkpoint the gate REJECTED
+
+`n2n_v19d_s2_final.pt` (step 4000) shipped from 2026-08-17. The gate had selected step 1500 of that
+same run, and `n2n_v19d_s2.pt` sat beside it on disk the whole time.
+
+**It was not a blunder, it was an audit that never ran in one direction.** The seed was picked on a
+four-observer frontier table rather than on the gate, for the good reason that the gate is
+single-observer -- but that table compared the three seeds' FINAL checkpoints, and the gate-selected
+one was never entered into it. The trainer's own comment asks for exactly this: *"The FINAL weights are
+kept beside the selected ones rather than discarded, so the choice stays auditable: if the last step
+also passes, 'selection helped' has to be demonstrated against it, not assumed."*
+
+At matched noise (0.75x against 0.76x, so no strength confound), on two clean evals:
+
+| | gate-selected, step 1500 | shipped, step 4000 |
+|---|---|---|
+| Gaia-confirmed faint-star amplitude spent, at 10 % removed | **10.3** | 15.1 |
+| unmatched-detail amplitude spent, at 10 % removed | **7.2** | 9.2 |
+| the ship table's own criterion (faint amp, SNR 8-15) | **0.79** | 0.68 |
+| SNR 15-30 / 30-100 / 100+ | **0.80 / 0.83** / 0.88 | 0.74 / 0.81 / **0.90** |
+| fabricated point sources per tile (raw sub floor 13.2) | **19.0** | 34.5 |
+| dots landing on a real star | **85.1 %** | 75.8 % |
+| residual correlation (0 = clean) | 0.691 | **0.354** |
+| fine-structure ratio 1-2 px | 0.88 | **0.96** |
+
+**Re-exported 2026-09-04**, same `n2n_export.py`, same opset and in-graph sigma: torch parity max abs
+**1.192e-7** (the old graph's was 1.49e-7), sigma fixture exact. The cross-language fixture was
+regenerated, and it earned its keep -- swapping the model with the OLD fixture in place fails
+`N2nDenoiserTests.TheWholePipelineReproducesTorch` and nothing else, which is what a fixture pinning
+weights is supposed to do. 23 tests green after regenerating.
+
+**Two columns favour the old checkpoint** and are recorded rather than buried: residual correlation
+and fine-structure ratio. The gate-selected model removes more that correlates with signal, which sits
+oddly beside its better amplitude retention and is not fully reconciled here. Four measurements against
+two, and the four include both populations of the split metric, is what decided it.
+
+**What this says beyond one file.** More training was not buying anything: between step 1500 and 4000
+noise removal is flat (0.75x to 0.76x) while faint amplitude falls and fabrication doubles. That is the
+signature of a model fitting something that does not generalise, and the mechanism `n2n_paircorr.py`
+already names is common-mode noise shared between input and target -- which N2N pairs have by
+construction (same session, same calibration, same registration) and which the SUPERVISED arms have
+too, since their input is a master plus noise and their target is that same master. Four regimes
+landing within a seed's noise of each other is what one shared broken assumption looks like.
