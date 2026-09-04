@@ -160,6 +160,19 @@ wide one cannot come from square art without cropping).
 - **Add the Store deep link to <https://sharpastro.github.io/> once the app is live.** Partner Center
   only issues it after the product goes live, which is why the site does not carry it yet.
 - Store submission is manual: upload the `.msixbundle` from the CI artifact to the draft submission.
-  Automating it needs a Partner Center Azure AD app plus three repo secrets.
+  Automating it is `microsoft/microsoft-store-apppublisher@v1.1` plus `msstore reconfigure` and
+  `msstore publish -id 9PMDZP16TGBG`, and what it waits on is a Partner Center side that does not
+  exist yet: an Entra tenant associated with the account (gear -> Account settings -> Tenants), an app
+  registration added under Account settings -> User management -> Microsoft Entra applications with the
+  **Manager** role, and **four** repo secrets, not the three this bullet used to claim --
+  `AZURE_AD_TENANT_ID`, `AZURE_AD_APPLICATION_CLIENT_ID`, `AZURE_AD_APPLICATION_SECRET`, `SELLER_ID`.
+  Checked 2026-09-04. Three things about it are not guessable from the workflow you would write:
+  - **`msstore publish` takes `.msix` or `.msixupload`, NOT `.msixbundle`** -- which is the only
+    artifact this directory produces. A `.msixupload` is a zip around the bundle, so closing that gap
+    is a third mode of `build-msix.ps1`, not a step in the workflow.
+  - **`publish` DELETES the pending draft** and recreates it from the last published submission, so it
+    has to run before any metadata edit, never after. `-nc, --noCommit` stops at draft.
+  - App updates through GitHub Actions are **free-products-only** today. Astro Photo Viewer is free, so
+    this is a note for whoever prices it, not a blocker.
 - `tianwen-gui` is not packaged. Nothing here is viewer-specific except the manifest's file types and
   executable name, so a second package is mostly a second manifest.
