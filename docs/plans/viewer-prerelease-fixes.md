@@ -49,7 +49,7 @@ the 35 TIFF / import / codec tests pass against it.
 | P16 | `Frame: None` printed the enum default as if it were a frame kind | **FIXED** |
 | P17 | Right-click on the image copies nothing (RA/Dec, value, position) | **FIXED** |
 | P18 | No Save at all; Open is a word where an icon would do | **FIXED** 2026-09-04 |
-| P19 | Stepping between frames re-solves everything, so there is no blink | NEXT RELEASE |
+| P19 | Stepping between frames re-solves everything, so there is no blink | **FIXED** 2026-09-04 |
 | P20 | A share link to the web viewer (needs `&t=`) | BACKLOG (web) |
 | P21 | A mosaic's channel views show the mosaic, not the debayered planes | BACKLOG |
 | P22 | Save the ANNOTATED view (grid, markers, labels), beside P18's clean raster | BACKLOG (split off P18 2026-09-04) |
@@ -437,7 +437,7 @@ ones: "as seen" in 16 bit is lossless against the display raster.
 Iconizing Open (and Save) frees toolbar width, which the two-row wrap makes measurable rather than
 cosmetic. Marks go through `DrawToolbarMark` as `Content.Icon`, never a symbol character in a text run.
 
-## P19. Stepping between frames re-solves everything, so there is no blink  — NEXT RELEASE
+## P19. Stepping between frames re-solves everything, so there is no blink  — **FIXED** 2026-09-04
 
 From the user's notes 2026-08-27: *"in folder open mode, when moving between one raw frame of same
 type (.fits, etc) we copy over the calibration/stretch params etc so that they load faster"*, and then
@@ -455,6 +455,47 @@ Two halves:
 - **A transport over the file list.** The SER path already has `Space` play/pause and `Left`/`Right`
   frame stepping, and `Up`/`Down` already step files; blink is that transport pointed at the file list
   with a fixed interval, gated on the frames being comparable.
+
+**Fixed as planned, with one design decision the plan had left open: the anchor is a DOCUMENT, not a
+snapshot of its numbers.** `DisplayCarry` (`TianWen.UI.Abstractions`) decides which frame's statistics a
+document is shown with; `AstroImageDocument.DisplayAnchor` is the one-hop reference, and every display
+read (`PerChannelStats`, `LumaStats`, `StarMaskedStats`, `ChannelStatistics`, `PerChannelBackground`,
+`LumaBackground`, `MaxValue`, `ColorCalibration` + its summary) goes through a private `Basis` accessor
+that resolves to the anchor or to `this`.
+
+- **Why a document and not a snapshot.** The anchor's own numbers arrive over TIME -- the SPCC triple
+  seconds after the load, the star-masked background later still. A snapshot taken at adoption would be
+  stale in both, and worse, the ANCHOR would go on rendering from its live values: the frame the run is
+  measured against would then look different from every frame following it, which is the flicker the
+  carry exists to remove. Reading through the anchor means there is one set of numbers by construction.
+  The cost is one retained document per browsing run, released when the folder changes.
+- **Comparability is `FrameShape`**: width, height, plane count, `BitDepth`, `SensorType`, and the
+  filter's `IdentityKey`. The filter test is deliberately not symmetric-transitive -- a frame naming no
+  filter is comparable to one that does, because a folder where only some frames carry a FILTER card is
+  the common case and refusing there would disable the feature on the archives it was asked for. Every
+  comparison is against ONE anchor, so the missing transitivity never has to hold.
+- **The carry is ON by default** (`ViewerState.CarryDisplayAcrossFrames`), which is what the user asked
+  for ("we copy over the calibration/stretch params etc so that they load faster"). It is also the
+  "load faster" half by itself: a follower reports the anchor's `ColorCalibration`, so the auto-retrigger
+  in `RestoreDocumentCalibration` never fires and the SPCC fit runs once per run instead of once per file.
+- **The readout stays honest.** `MeasuredPerChannelBackground` / `MeasuredLumaBackground` are the
+  frame's OWN numbers and are what the info panel prints; the status bar declares "Held to <file>"
+  whenever a frame is not being shown with its own stretch. The carry is invisible by design, so the
+  only defensible way to ship it is to say so on screen.
+- **Blink** is `ViewerController.TickBlink`, ticked from the host loop beside `TickPlayback` for the
+  same reason (it is what paces the step without a busy-spin). `Space` toggles it when the source is not
+  a sequence -- the SER transport already claims Space when one is loaded -- and `Shift+Space` holds or
+  releases the display. A step is never queued behind a load, and the renderer STOPS the blink, naming
+  the file, when a frame arrives that the anchor cannot describe: a blink through two different fields
+  compares nothing.
+- **One residual, deliberate.** `ComputeBackgroundNeutralization`'s per-method gain cache now keys on the
+  background ARRAY as well as the method and WB -- it is replaced rather than mutated, by star detection
+  and by an anchor being taken up or dropped, and without that the pre-mask gains were served for the
+  life of the document. That was a pre-existing staleness the carry would have widened.
+
+Pinned by `DisplayCarryTests` (14), whose discriminating pair is that two frames with genuinely
+different statistics render the SAME uniforms with an anchor and DIFFERENT ones without -- confirmed by
+breaking `Basis` and watching three of them go red.
 
 ## P20. A share link to the web viewer  — BACKLOG (needs the web side)
 
@@ -491,7 +532,7 @@ hard. backlog it if we can't deliver it now."*
 | E | P5 | DONE. An LZW decoder; the only item whose absence was already documented scope. |
 | F | P9, P10 | Reproduce first; do not fix from a single screenshot. |
 | G | **P12 + P14 DONE 2026-08-22**; **P11's version + AI status DONE 2026-08-27**; P11's model download and P13 remain | The next release, in that order: P12 is a two-row rendering gap, P11 is a read of an existing property plus a lazily-populated status, P14 is a host-policy change with two cases to settle, and P13 is best written last so it documents what P11/P14 actually do. |
-| H | **P17 DONE 2026-08-27**; P18, P19 next; P20, P21 backlogged | The second wave of the user's notes. P17 first because it is a formatter over state that already existed, and it is what found the missing dropdown hover state. P18 and P19 both touch the display raster and the file list, so they share a sitting. P20 waits on the web build; P21 is a shader change whose cheap form is not obvious yet. |
+| H | **P17 DONE 2026-08-27**; **P18 + P19 DONE 2026-09-04**; P20, P21, P22 backlogged | The second wave of the user's notes. P17 first because it is a formatter over state that already existed, and it is what found the missing dropdown hover state. P18 and P19 both touch the display raster and the file list, so they share a sitting. P20 waits on the web build; P21 is a shader change whose cheap form is not obvious yet. |
 
 ## Verification
 

@@ -327,8 +327,9 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   2026-08-27)**. **7.0.1513 went to the Store on 2026-09-04** carrying the fixed half of this list --
   P17 and P11's version + AI-status line were the two that had not been released before it -- plus
   Explorer thumbnails, Auto stretch and the SPCC/Calibrate render toggle. None of the open items made
-  that release, so they move to the next one. P18 is done (2026-09-04); **P19 is next**, and shares
-  its ground -- both touch the display raster and the file list.
+  that release, so they move to the next one. P18 and P19 are both done (2026-09-04); of what is
+  left, **P11.2 and P15 are the shippable ones** and **P13 is written last**, so it documents what the
+  rest ended up doing.
   - [x] **P11.1** `--help`, `--version` and the in-app `?` panel report the version, beside an
     AI-enhancer discovery status saying which backend resolved, which RC products are licensed and
     which SAS models are missing -- **without** undoing the deliberate deferral of the RC-vs-SAS
@@ -351,9 +352,15 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     (no save dialog existed on any platform). Open and Save are hand-drawn marks now, and the bar no
     longer wraps to a second row. 8-bit PNG is in the API with no UI: it shares `.png` with the 16-bit
     variant, so choosing it needs a menu that does not exist. Done 2026-09-04.
-  - [ ] **P19: carry the display state across frames of the same shape**, the enabler for a BLINK mode
-    over the file list. The transport already exists for SER, and without the carry-over each frame
-    solves its own auto-stretch, so a sequence flickers in brightness rather than showing what moved.
+  - [x] **P19: carry the display state across frames of the same shape**, and the BLINK mode it
+    enables. `DisplayCarry` decides which frame's statistics a document is shown with; the anchor is a
+    DOCUMENT rather than a snapshot, because the anchor's own SPCC triple and star-masked background
+    arrive seconds after the load and a snapshot would leave the anchor looking different from every
+    frame following it. On by default, so a step between two subs no longer re-solves the auto-stretch;
+    it also makes the SPCC fit run once per run instead of once per file, which is the "load faster"
+    half. `Space` blinks the file list (the SER transport still owns Space while a sequence is loaded),
+    `Shift+Space` holds or releases, the status bar says "Held to <file>", and the blink stops itself
+    on a frame the anchor cannot describe. `DisplayCarryTests`. Done 2026-09-04.
   - [ ] **P20** A share link to the web viewer (needs `&t=`). BACKLOG, blocked on the web side.
   - [ ] **P21** A mosaic's channel views show the mosaic, not the debayered planes. BACKLOG; a shader
     change whose cheap form is not obvious yet.
@@ -363,7 +370,7 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     GPU one and the two will drift. P18 deliberately saves the clean raster only, which needs no
     framebuffer readback and so is full image resolution rather than window resolution.
 
-  P18 and P19 both touch the display raster and the file list, so they share a sitting. See
+  P18 and P19 shared a sitting: both touch the display raster and the file list. See
   `docs/plans/viewer-prerelease-fixes.md` (phases G and H) and
   `docs/architecture/desktop-shell.md`.
 - [ ] **Atlas planet detail** (tracked in the plan only, per the user): vmag sparkline + visibility curve + the date of the next opposition / greatest elongation for a selected planet. `SkyPathEventDetector` already computes the events and draws them as rings along the selection path, so the date is a text row over tested math -- except the 120-day path window is far shorter than a synodic period, so the event query needs its own coarse long sweep. Also fixes a planet's info-panel magnitude, which is currently the STATIC catalog `V_Mag` and so is off by magnitudes for most of Mars's cycle. See `docs/plans/atlas-planet-detail.md`.
