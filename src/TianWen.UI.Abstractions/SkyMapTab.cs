@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Numerics;
@@ -170,9 +170,19 @@ namespace TianWen.UI.Abstractions
                 _lastSiteLat = siteLat;
                 _lastSiteLon = siteLon;
                 State.Initialized = true;
-                // Home position: look at the visible celestial pole (SCP for southern hemisphere, NCP for northern)
-                State.CenterRA = site.LST;
-                State.CenterDec = siteLat < 0 ? -89.0 : 89.0;
+                if (State.ExternalViewPending)
+                {
+                    // Someone positioned the view before this first pass (a share link). Record the
+                    // site above so a later profile switch still re-homes, but do not overwrite a
+                    // pointing that is more specific than any default could be.
+                    State.ExternalViewPending = false;
+                }
+                else
+                {
+                    // Home position: look at the visible celestial pole (SCP for southern hemisphere, NCP for northern)
+                    State.CenterRA = site.LST;
+                    State.CenterDec = siteLat < 0 ? -89.0 : 89.0;
+                }
                 State.NeedsRedraw = true;
             }
 

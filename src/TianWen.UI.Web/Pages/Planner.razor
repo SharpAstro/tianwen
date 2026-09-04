@@ -214,6 +214,8 @@
         // (chip NavigateTo + browser back/forward both raise LocationChanged).
         ApplyViewFromLocation();
         ApplyObjectFromLocation();
+        // After the view, which it can override: a pointing link is an atlas link whatever ?view says.
+        ApplyPointingFromLocation();
         Nav.LocationChanged += OnLocationChanged;
         BindTextInputFocus();
 
@@ -277,6 +279,9 @@
         WireSkyMapSearch(_skyTab);
         WireSkyMapInteractions(_skyTab);
         ApplyPendingObjectSelection();
+        // The pointing needs only the tab -- no catalog, no comets -- so unlike the object selection
+        // this is its one and only retry point.
+        ApplyPendingPointing();
 
         // E2E-only: when the app is opened with ?e2e=1, hand a .NET ref to the index.html shim so
         // browser tests can read LIVE sky-map view state (FOV/centre) via window.__tianwenTest -
@@ -2032,6 +2037,108 @@
         {
             skyState.NeedsRedraw = true;
         }
+    }
+
+    // A pointing deep link -- "?ra=<deg>&dec=<deg>&fov=<deg>&t=<ISO-8601 UTC>" -- as produced by the
+    // desktop viewer's right-click "Copy sky atlas link" (P20). The vocabulary is defined once, on
+    // TianWen.UI.Abstractions' SkyAtlasLink, which is the writer; this is the reader.
+    //
+    // RA arrives in DEGREES and SkyMapState.CenterRA is in HOURS. That divide-by-15 is the whole trap:
+    // both units produce a legal RA, so getting it wrong points 15x away with nothing to show for it.
+    //
+    // Applied once, at init, and NOT re-applied from LocationChanged: panning the atlas does not
+    // rewrite these into the address bar (unlike ?object=), so a link is where the view STARTS rather
+    // than a live mirror of it. Re-applying would yank the view back to the link on every history
+    // event while the user was exploring away from it.
+    void ApplyPointingFromLocation()
+    {
+        var query = Nav.ToAbsoluteUri(Nav.Uri).Query;
+        var raDeg = ParseDoubleFromQuery(query, "ra");
+        var decDeg = ParseDoubleFromQuery(query, "dec");
+
+        // The time stands on its own: "the sky as it was at t" is meaningful with no pointing, and it
+        // has to be applied BEFORE the pointing so the first draw of that field is already at the
+        // right instant rather than jumping a frame later.
+        if (ParseInstantFromQuery(query, "t") is { } captured)
+        {
+            _state.PlanningDate = captured;
+        }
+
+        if (raDeg is not { } ra || decDeg is not { } dec)
+        {
+            return;
+        }
+
+        _pendingPointing = (RaHours: ra / 15.0, DecDeg: dec, FovDeg: ParseDoubleFromQuery(query, "fov"));
+        ApplyPendingPointing();
+    }
+
+    // The sky tab does not exist yet at init (same ordering ApplyPendingObjectSelection exists for),
+    // so the parsed pointing is parked and applied from wherever the tab is first available.
+    (double RaHours, double DecDeg, double? FovDeg)? _pendingPointing;
+
+    void ApplyPendingPointing()
+    {
+        if (_pendingPointing is not { } p || _skyTab is not { State: { } skyState })
+        {
+            return;
+        }
+
+        _pendingPointing = null;
+        _view = View.SkyMap; // a pointing link is an ATLAS link; landing on the planner shows none of it
+
+        // Through the shared primitive, which normalises RA, clamps Dec off the projection poles and
+        // clamps the FOV to the same bounds the scroll-zoom uses -- a link is not a second place any of
+        // those limits are spelled out. A FOV of null leaves the atlas at its own.
+        SkyMapViewActions.SetView(skyState,
+            centerRaHours: p.RaHours,
+            centerDecDeg: p.DecDeg,
+            fieldOfViewDeg: p.FovDeg is { } fov && double.IsFinite(fov) && fov > 0 ? fov : null);
+
+        // SkyMapTab.Render installs a HOME position on its first pass -- the site's local sidereal time
+        // at the visible pole -- and would overwrite the pointing on the very next frame. Declaring the
+        // view externally positioned is what suppresses that one pass; see the remarks on the flag for
+        // why setting Initialized instead does not work. Found by the browser E2E, which read back the
+        // site's LST rather than the link's RA: nothing on either side of the URL could have caught it,
+        // because both ends were correct.
+        skyState.ExternalViewPending = true;
+    }
+
+    // "?<key>=<invariant double>" -> the value, or null when absent / unparseable. Unparseable is
+    // deliberately the same answer as absent: a hand-edited link should open the atlas, not an error.
+    static double? ParseDoubleFromQuery(string query, string key)
+    {
+        foreach (var part in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = part.IndexOf('=');
+            if (eq > 0 && part.AsSpan(0, eq).Equals(key, StringComparison.OrdinalIgnoreCase)
+                && double.TryParse(Uri.UnescapeDataString(part[(eq + 1)..]),
+                    NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+                && double.IsFinite(value))
+            {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    // "?<key>=<ISO-8601>" -> the instant in UTC. AssumeUniversal because the writer emits a trailing
+    // Z and a bare local reading would shift the sky by the reader's own offset -- the one thing a
+    // shared link must not depend on.
+    static DateTimeOffset? ParseInstantFromQuery(string query, string key)
+    {
+        foreach (var part in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = part.IndexOf('=');
+            if (eq > 0 && part.AsSpan(0, eq).Equals(key, StringComparison.OrdinalIgnoreCase)
+                && DateTimeOffset.TryParse(Uri.UnescapeDataString(part[(eq + 1)..]),
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var value))
+            {
+                return value;
+            }
+        }
+        return null;
     }
 
     // "?view=<alias>" -> the view; null when the query carries no view key (so the caller falls back

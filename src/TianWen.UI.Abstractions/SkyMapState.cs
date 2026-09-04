@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
@@ -30,6 +30,24 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>True once the view has been initialized from site coordinates.</summary>
         public bool Initialized { get; set; }
+
+        /// <summary>
+        /// Set by a caller that has ALREADY decided where the view looks -- today a share link's
+        /// <c>ra</c>/<c>dec</c> (P20). Consumed by the first home-positioning pass, which then records
+        /// the site as usual but leaves the pointing alone.
+        /// </summary>
+        /// <remarks>
+        /// A one-shot rather than a permanent opt-out, because the pass it suppresses does two jobs:
+        /// place the view on first sight of a site, and RE-place it when the site changes. Only the
+        /// first is in conflict with a caller's pointing; a later profile switch should still re-home.
+        /// <para>
+        /// It cannot be done by setting <see cref="Initialized"/> from outside, which is the obvious
+        /// thing to try: the pass also fires whenever the site differs from the one it last homed for,
+        /// and that comparison starts against <see cref="double.NaN"/> -- so it is unconditionally true
+        /// the first time, whatever Initialized says.
+        /// </para>
+        /// </remarks>
+        public bool ExternalViewPending { get; set; }
 
         /// <summary>Full viewport vertical field of view in degrees, range [0.5, 180].</summary>
         public double FieldOfViewDeg { get; set; } = 60.0;
