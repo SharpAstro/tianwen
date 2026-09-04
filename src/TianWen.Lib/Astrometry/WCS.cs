@@ -2,6 +2,7 @@ using nom.tam.fits;
 using System;
 using System.Globalization;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Stacking;
 
 namespace TianWen.Lib.Astrometry;
 
@@ -19,20 +20,48 @@ namespace TianWen.Lib.Astrometry;
 ///   <listheader><term>Keyword</term><description>Description</description></listheader>
 ///   <item><term>CTYPE1/2</term><description>Coordinate type: <c>RA---TAN</c> / <c>DEC--TAN</c></description></item>
 ///   <item><term>CRVAL1/2</term><description>Reference sky coordinate (RA in degrees, Dec in degrees)</description></item>
-///   <item><term>CRPIX1/2</term><description>Reference pixel (1-based, typically image centre)</description></item>
+///   <item><term>CRPIX1/2</term><description>Reference pixel, written 1-based as the FITS standard requires; 0-based in memory (see below)</description></item>
 ///   <item><term>CD1_1..CD2_2</term><description>Linear transformation matrix (degrees/pixel), encoding scale, rotation, and any skew/flip</description></item>
 ///   <item><term>EQUINOX</term><description>Equinox of coordinates (always 2000.0)</description></item>
+///   <item><term>PIXORIG</term><description>Marker that CRPIX follows the standard (see <see cref="PixelOriginCard"/>)</description></item>
 /// </list>
+/// <para><b>Pixel convention.</b> In memory every pixel coordinate on this type, <see cref="CRPix1"/> and
+/// <see cref="CRPix2"/> included, is in the same 0-based frame as a detected centroid: the centre of pixel
+/// <c>[y, x]</c> is <c>(x, y)</c>. That is the frame <c>CatalogPlateSolver</c> fits in and the one every
+/// consumer compares against, so <see cref="SkyToPixel"/> answers in it with no origin shift. The FITS
+/// standard puts the centre of the first pixel at <c>(1, 1)</c>, so the header is the ONLY place the two
+/// differ: <see cref="WriteToHeader"/> adds one and stamps <see cref="PixelOriginCard"/>;
+/// <see cref="FromHeader"/> and <see cref="FromAstapIniFile"/> subtract one. Until 2026-09-05 the numbers
+/// crossed the header unchanged under a "1-based" comment, so every file TianWen solved was one pixel
+/// off in astropy, PixInsight, Siril and ASTAP, and every third-party WCS was one pixel off in TianWen;
+/// measured against Gaia DR3 on four fields as a constant (+0.95, +0.91) px offset in (x, y), the same on
+/// bright stars and in every quarter of the frame. A file written before the marker existed is still
+/// read correctly where its authorship can be seen (<see cref="IsLegacyZeroBasedHeader"/>).</para>
 /// </summary>
 /// <param name="CenterRA">J2000.0 RA of the reference pixel in 0..24h (hours)</param>
 /// <param name="CenterDec">J2000.0 Dec of the reference pixel in -90..+90 degrees</param>
 public record struct WCS(double CenterRA, double CenterDec)
 {
-    /// <summary>Reference pixel X (1-based FITS convention). Typically image centre: (Width + 1) / 2.0.</summary>
+    /// <summary>Reference pixel X in the 0-based centroid frame (see the pixel-convention remarks on the type);
+    /// the header carries it plus one. The frame centre in this frame is <c>(Width - 1) / 2.0</c>; the solver's
+    /// nominal <c>(Width + 1) / 2.0</c> sits one pixel from it, which is harmless because CRVAL is re-derived at
+    /// whatever pixel CRPIX names.</summary>
     public double CRPix1 { get; init; } = double.NaN;
 
-    /// <summary>Reference pixel Y (1-based FITS convention). Typically image centre: (Height + 1) / 2.0.</summary>
+    /// <summary>Reference pixel Y in the 0-based centroid frame; the header carries it plus one. See <see cref="CRPix1"/>.</summary>
     public double CRPix2 { get; init; } = double.NaN;
+
+    /// <summary>
+    /// Card stamped beside CRPIX by <see cref="WriteToHeader"/>: <c>1</c> says the CRPIX values follow the FITS
+    /// standard. Its absence on a TianWen-authored file marks a header written before 2026-09-05, whose CRPIX is
+    /// the 0-based in-memory value verbatim. Not spelled with a <c>CRPIX</c> or <c>WCS</c> prefix on purpose:
+    /// wcslib (and so astropy) warns on every keyword that looks like a near-miss of a standard one, and
+    /// <c>CRPIXORG</c> drew "looks very much like CRPIXja but isn't" on every file.
+    /// </summary>
+    public const string PixelOriginCard = "PIXORIG";
+
+    /// <summary>The FITS standard's coordinate of the first pixel's centre: the offset between header and memory.</summary>
+    private const double FitsPixelOrigin = 1.0;
 
     /// <summary>Partial derivative ∂RA/∂x in degrees per pixel.</summary>
     public double CD1_1 { get; init; } = double.NaN;
@@ -180,12 +209,12 @@ public record struct WCS(double CenterRA, double CenterDec)
     }
 
     /// <summary>
-    /// Converts a pixel position (1-based FITS convention) to sky coordinates
+    /// Converts a pixel position (0-based centroid frame, see the type remarks) to sky coordinates
     /// using the CD matrix and inverse gnomonic (TAN) deprojection.
     /// Returns <c>null</c> if no CD matrix is available.
     /// </summary>
-    /// <param name="x">Pixel X (1-based).</param>
-    /// <param name="y">Pixel Y (1-based).</param>
+    /// <param name="x">Pixel X, 0-based.</param>
+    /// <param name="y">Pixel Y, 0-based.</param>
     /// <returns>RA in hours, Dec in degrees; or <c>null</c> if no CD matrix.</returns>
     public readonly (double RA, double Dec)? PixelToSky(double x, double y)
     {
@@ -240,13 +269,13 @@ public record struct WCS(double CenterRA, double CenterDec)
     }
 
     /// <summary>
-    /// Converts sky coordinates to pixel position (1-based FITS convention)
+    /// Converts sky coordinates to pixel position (0-based centroid frame, see the type remarks)
     /// using the CD matrix inverse and gnomonic (TAN) projection.
     /// Returns <c>null</c> if no CD matrix is available or the CD matrix is singular.
     /// </summary>
     /// <param name="ra">RA in hours (0..24).</param>
     /// <param name="dec">Dec in degrees (-90..+90).</param>
-    /// <returns>Pixel position (1-based); or <c>null</c> if no CD matrix or behind tangent plane.</returns>
+    /// <returns>Pixel position, 0-based, directly comparable to a detected centroid; or <c>null</c> if no CD matrix or behind tangent plane.</returns>
     public readonly (double X, double Y)? SkyToPixel(double ra, double dec)
     {
         if (!HasCDMatrix)
@@ -329,6 +358,37 @@ public record struct WCS(double CenterRA, double CenterDec)
     }
 
     /// <summary>
+    /// True when the header's CRPIX must be read WITHOUT the origin shift: a file TianWen wrote before
+    /// <see cref="PixelOriginCard"/> existed, whose CRPIX numbers are the 0-based in-memory values verbatim.
+    /// Shifting them would move every such master one pixel in TianWen's own viewer, which is the one
+    /// place they were right. Authorship is <c>STACK_N</c> (a TianWen integration) or a <c>TianWen.</c>
+    /// SWCREATE; a file carrying the marker is never legacy whatever its author, and a foreign file never
+    /// is. Two cases this cannot see, both reading one pixel off here exactly as they did before the shift
+    /// existed, and both ended by re-solving, which writes the marker: a legacy master whose WCS came from
+    /// the ASTAP or astrometry.net fallback (compliant numbers all along), and a foreign frame TianWen
+    /// solved in place with <c>solve --update-fits</c> (0-based numbers under its author's SWCREATE).
+    /// </summary>
+    private static bool IsLegacyZeroBasedHeader(Header header)
+    {
+        var origin = header.GetIntValue(PixelOriginCard, -1);
+        if (origin == 0)
+        {
+            // Nothing writes 0 today; it is what a header declaring 0-based numbers would say.
+            return true;
+        }
+        else if (origin > 0)
+        {
+            return false;
+        }
+        else
+        {
+            // No marker: legacy only if TianWen wrote the file.
+            return header.GetIntValue("STACK_N", 0) > 0
+                || IntegrationFitsWriter.IsTianWenProduct(header.GetStringValue("SWCREATE"));
+        }
+    }
+
+    /// <summary>
     /// Read WCS parameters from a FITS header.
     /// </summary>
     public static WCS? FromHeader(Header header)
@@ -381,10 +441,13 @@ public record struct WCS(double CenterRA, double CenterDec)
             return default;
         }
 
+        // The header's CRPIX is 1-based and memory is 0-based (type remarks). A TianWen file from before
+        // the marker card wrote the 0-based numbers verbatim, so it is read verbatim.
+        var originShift = IsLegacyZeroBasedHeader(header) ? 0.0 : FitsPixelOrigin;
         var wcs = new WCS(raDeg / 15.0, dec)
         {
-            CRPix1 = header.GetDoubleValue("CRPIX1", double.NaN),
-            CRPix2 = header.GetDoubleValue("CRPIX2", double.NaN),
+            CRPix1 = header.GetDoubleValue("CRPIX1", double.NaN) - originShift,
+            CRPix2 = header.GetDoubleValue("CRPIX2", double.NaN) - originShift,
         };
 
         // Try CD matrix first (preferred modern convention)
@@ -604,10 +667,11 @@ public record struct WCS(double CenterRA, double CenterDec)
             return null;
         }
 
+        // ASTAP writes the standard's 1-based CRPIX; memory is 0-based (type remarks).
         var wcs = new WCS(ra / 15.0, dec)
         {
-            CRPix1 = values.TryGetValue("CRPIX1", out var crpix1) ? crpix1 : double.NaN,
-            CRPix2 = values.TryGetValue("CRPIX2", out var crpix2) ? crpix2 : double.NaN,
+            CRPix1 = values.TryGetValue("CRPIX1", out var crpix1) ? crpix1 - FitsPixelOrigin : double.NaN,
+            CRPix2 = values.TryGetValue("CRPIX2", out var crpix2) ? crpix2 - FitsPixelOrigin : double.NaN,
         };
 
         if (values.TryGetValue("CD1_1", out var cd11) && values.TryGetValue("CD1_2", out var cd12)
@@ -646,14 +710,17 @@ public record struct WCS(double CenterRA, double CenterDec)
         header.AddCard(new HeaderCard("CRVAL1", CenterRA * 15.0, "RA at reference pixel [deg]"));
         header.AddCard(new HeaderCard("CRVAL2", CenterDec, "Dec at reference pixel [deg]"));
 
+        // Memory is 0-based, the standard's first pixel centre is (1, 1) (type remarks). The marker is
+        // what lets FromHeader tell this file from one written before the shift existed.
         if (!double.IsNaN(CRPix1))
         {
-            header.AddCard(new HeaderCard("CRPIX1", CRPix1, "Reference pixel X (1-based)"));
+            header.AddCard(new HeaderCard("CRPIX1", CRPix1 + FitsPixelOrigin, "Reference pixel X (FITS 1-based)"));
         }
         if (!double.IsNaN(CRPix2))
         {
-            header.AddCard(new HeaderCard("CRPIX2", CRPix2, "Reference pixel Y (1-based)"));
+            header.AddCard(new HeaderCard("CRPIX2", CRPix2 + FitsPixelOrigin, "Reference pixel Y (FITS 1-based)"));
         }
+        header.AddCard(new HeaderCard(PixelOriginCard, 1, "CRPIX origin (1 = FITS standard)"));
 
         if (HasCDMatrix)
         {
