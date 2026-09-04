@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
@@ -46,6 +47,20 @@ namespace TianWen.UI.Abstractions
             if (document?.Stars is { Count: > 0 } detectedStars)
             {
                 statusParts.Add($"Stars: {detectedStars.Count}  HFR: {document.AverageHFR:F2}  FWHM: {document.AverageFWHM:F2}");
+            }
+
+            // Say when this frame is NOT being shown with its own stretch, and name the frame it is
+            // borrowing. Without it "why is this sub darker than the last one?" has no answer on screen
+            // -- the carry is invisible by design, so the only honest place to declare it is here.
+            if (document?.DisplayAnchor is { } anchor)
+            {
+                statusParts.Add(state.IsBlinking
+                    ? $"Blink | held to {Path.GetFileName(anchor.FilePath)}"
+                    : $"Held to {Path.GetFileName(anchor.FilePath)}");
+            }
+            else if (state.IsBlinking)
+            {
+                statusParts.Add("Blink");
             }
 
             if (state.StatusMessage is { } msg)

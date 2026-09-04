@@ -258,6 +258,27 @@ namespace TianWen.UI.Abstractions
                     // is not painted, so there are no bounds to anchor a menu to, and claiming the key
                     // there would swallow it for nothing.
                     return OpenToolbarDropdown(state, ToolbarAction.Zoom);
+                case InputKey.Space:
+                    // The SER transport claims Space while a sequence is loaded (handled above), so this
+                    // is the still-image case: the SAME play/pause gesture, pointed at the file list.
+                    // Shift holds or releases the display mapping the blink depends on, so the pair sits
+                    // on one key.
+                    if (shift)
+                    {
+                        state.CarryDisplayAcrossFrames = !state.CarryDisplayAcrossFrames;
+                        if (!state.CarryDisplayAcrossFrames)
+                        {
+                            // Blinking through per-frame auto-stretches is a flicker, not a comparison.
+                            state.IsBlinking = false;
+                        }
+                        state.NeedsRedraw = true;
+                    }
+                    else if (state.ImageFileNames.Count >= 2)
+                    {
+                        state.IsBlinking = !state.IsBlinking;
+                        state.NeedsRedraw = true;
+                    }
+                    return true;
                 case InputKey.Up:
                     if (state.SelectedFileIndex > 0)
                     {

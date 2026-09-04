@@ -377,7 +377,10 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         // place a hand-off from a later launch is noticed. Evaluate them, then combine.
         var handedOff = PumpInstanceGate();
         var playback = controller.TickPlayback();
-        return handedOff || playback
+        // Same rule for the blink: it paces the file-list step from this call, so it may not sit on the
+        // right of a || either.
+        var blinked = controller.TickBlink();
+        return handedOff || playback || blinked
             || state.NeedsRedraw || state.NeedsTextureUpdate || state.RequestedFilePath is not null
             || controller.IsLoadPending;
     },

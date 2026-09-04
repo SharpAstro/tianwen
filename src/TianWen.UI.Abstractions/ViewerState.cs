@@ -339,6 +339,34 @@ public sealed class ViewerState
     /// <summary>Set by UI to request loading a different file. Consumed by the app loop.</summary>
     public string? RequestedFilePath { get; set; }
 
+    // --- Blink comparison over the file list (docs/plans/viewer-prerelease-fixes.md, P19) ---
+
+    /// <summary>
+    /// Show every comparable frame of the folder with the display mapping of the frame the run started
+    /// on, instead of solving a fresh auto-stretch per file. On by default: stepping through subs of one
+    /// field is what the file list is for, and a per-frame re-solve makes the sequence flicker in
+    /// brightness and colour -- which is precisely the difference the user is stepping through to see.
+    /// <para>
+    /// What "comparable" means, and why the anchor is a document rather than a snapshot, is in
+    /// <see cref="DisplayCarry"/>. Turning this off restores the pre-P19 behaviour frame by frame.
+    /// </para>
+    /// </summary>
+    public bool CarryDisplayAcrossFrames { get; set; } = true;
+
+    /// <summary>
+    /// True while the file list is auto-advancing as a blink comparison -- the SER transport's
+    /// play/pause pointed at the file list. Cleared when a frame arrives that the anchor cannot
+    /// describe, because a blink through frames of different fields compares nothing.
+    /// </summary>
+    public bool IsBlinking { get; set; }
+
+    /// <summary>
+    /// Blink rate in files per second. Slow by default: a blink comparator works by giving the eye
+    /// long enough to settle on each frame, and the point is what MOVED between two of them, not
+    /// motion. Clamped by the ticker, so a stored value can never wedge it.
+    /// </summary>
+    public float BlinkFps { get; set; } = 2f;
+
     // --- Toolbar hover ---
 
     /// <summary>Screen position of the mouse cursor, updated each frame.</summary>

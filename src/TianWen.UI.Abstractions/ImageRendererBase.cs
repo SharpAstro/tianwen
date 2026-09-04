@@ -988,6 +988,11 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
+            // P19: point this frame at the run's display anchor (or make it one) BEFORE anything below
+            // reads a statistic off it -- the background neutralisation two lines down is solved from
+            // PerChannelBackground, which is the anchor's while one is held.
+            ReconcileDisplayAnchor(document, state);
+
             // Always reapply the current method when the toggle is on -- not just when the doc's cached
             // gain is null. Otherwise a cached doc that was previously viewed under a different method
             // (e.g. Mean) keeps its stale Mean gains even though the toolbar shows Min pivot. The doc's
@@ -1009,6 +1014,43 @@ namespace TianWen.UI.Abstractions
                 && document.Stars is { Count: >= 5 })
             {
                 TryStartColorCalibration(state);
+            }
+        }
+
+        // The frame whose display statistics every comparable frame of this folder is shown with, and
+        // the folder it belongs to. Held here rather than on ViewerState because it is a DOCUMENT: the
+        // state object carries no pixels, and scoping the anchor to the folder is what keeps a run's
+        // worth of retained image from outliving the browsing run that wanted it.
+        private AstroImageDocument? _displayAnchor;
+        private string? _displayAnchorFolder;
+
+        /// <summary>
+        /// Reconciles <paramref name="document"/> against the run's display anchor, per
+        /// <see cref="DisplayCarry"/>. Idempotent and re-run every frame, so a document served again
+        /// from the cache is pointed by the same rule that pointed it the first time.
+        /// </summary>
+        private void ReconcileDisplayAnchor(AstroImageDocument document, ViewerState state)
+        {
+            // A different folder is a different run. Dropping the reference here is also what releases
+            // the previous folder's retained document.
+            if (!string.Equals(_displayAnchorFolder, state.CurrentFolder, StringComparison.OrdinalIgnoreCase))
+            {
+                _displayAnchor = null;
+                _displayAnchorFolder = state.CurrentFolder;
+            }
+
+            var previous = _displayAnchor;
+            _displayAnchor = DisplayCarry.Apply(document, previous, state.CarryDisplayAcrossFrames);
+
+            // A blink that walks onto a frame the anchor cannot describe is comparing two different
+            // fields, so it stops and says which file ended it -- rather than carrying on past the point
+            // where the comparison meant anything. Only a CHANGE of anchor counts: the first frame of a
+            // run installs one from nothing, which is not a mismatch.
+            if (state.IsBlinking && previous is not null && !ReferenceEquals(previous, _displayAnchor))
+            {
+                state.IsBlinking = false;
+                state.StatusMessage =
+                    $"Blink stopped: {Path.GetFileName(document.FilePath)} does not match the first frame";
             }
         }
 

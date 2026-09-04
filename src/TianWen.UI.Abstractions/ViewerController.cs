@@ -711,6 +711,65 @@ public sealed class ViewerController(
     }
 
     /// <summary>
+    /// Advances the BLINK comparison by one tick: steps the file-list selection at
+    /// <see cref="ViewerState.BlinkFps"/>, wrapping at the end of the folder. Call from the render
+    /// loop's <c>CheckNeedsRedraw</c> beside <see cref="TickPlayback"/>, and on every iteration for the
+    /// same reason -- it is what paces the blink without a busy-spin. Returns true when a step was
+    /// requested this tick.
+    /// </summary>
+    /// <remarks>
+    /// A blink is the SER transport pointed at the file list (P19), and it only means anything because
+    /// the frames share one display mapping: see <see cref="DisplayCarry"/>. The renderer stops it when
+    /// a frame arrives that the run's anchor cannot describe.
+    /// </remarks>
+    public bool TickBlink()
+    {
+        if (!state.IsBlinking)
+        {
+            _blinkDueAt = null;
+            return false;
+        }
+
+        // A sequence has its own transport and owns Space; a folder of one file has nothing to blink
+        // between. Both clear the flag rather than idling, so the status readout cannot claim a blink
+        // that is not running.
+        if (state.IsSequence || state.ImageFileNames.Count < 2)
+        {
+            state.IsBlinking = false;
+            _blinkDueAt = null;
+            return false;
+        }
+
+        // Never queue a step behind a load. A folder that opens slower than the interval would
+        // otherwise build a backlog of requests and keep stepping after the user stopped -- and the
+        // wait is not wasted, since the next due time is measured from when the frame actually landed.
+        if (IsLoadPending || state.RequestedFilePath is not null)
+        {
+            return false;
+        }
+
+        var now = _playbackClock.Elapsed.TotalSeconds;
+        var interval = 1.0 / Math.Clamp(state.BlinkFps, MinBlinkFps, MaxBlinkFps);
+        if (_blinkDueAt is { } due && now < due)
+        {
+            return false;
+        }
+
+        _blinkDueAt = now + interval;
+        var next = state.SelectedFileIndex + 1;
+        ViewerActions.SelectFile(state, next >= state.ImageFileNames.Count ? 0 : next);
+        return true;
+    }
+
+    /// <summary>Slowest and fastest blink rates, in files per second. The floor keeps a stored zero from
+    /// dividing by nothing; the ceiling keeps the blink slower than the disk.</summary>
+    private const float MinBlinkFps = 0.25f;
+    private const float MaxBlinkFps = 10f;
+
+    // When the next blink step is due, in the playback clock's monotonic seconds; null when not blinking.
+    private double? _blinkDueAt;
+
+    /// <summary>
     /// Advances SER sequence playback by one tick. Call from the render loop's <c>CheckNeedsRedraw</c>
     /// (it runs every loop iteration, including idle WaitEvent polls -- which is how playback stays paced
     /// without busy-spinning). All frame decode happens off the render thread; this only polls for a

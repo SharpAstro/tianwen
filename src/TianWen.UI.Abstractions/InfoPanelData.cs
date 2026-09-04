@@ -114,15 +114,16 @@ public static class InfoPanelData
             lines.Add($"{pad}med={stats.Median:F1}");
             lines.Add($"{pad}MAD={stats.MAD:F1}");
 
-            var bg = c < document.PerChannelBackground.Length
-                ? document.PerChannelBackground[c]
-                : document.PerChannelBackground[0];
+            // The MEASURED background, never the one the display is currently solved from: this panel
+            // reports what is in the frame, and while a display anchor is held those two differ.
+            var measured = document.MeasuredPerChannelBackground;
+            var bg = c < measured.Length ? measured[c] : measured[0];
             lines.Add($"{pad}bg={bg:F4}");
         }
 
         if (document.UnstretchedImage.ChannelCount >= 3)
         {
-            lines.Add($"Luma bg={document.LumaBackground:F4}");
+            lines.Add($"Luma bg={document.MeasuredLumaBackground:F4}");
         }
 
         return lines;
