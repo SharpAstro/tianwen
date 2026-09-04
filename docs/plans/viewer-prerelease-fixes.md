@@ -50,7 +50,7 @@ the 35 TIFF / import / codec tests pass against it.
 | P17 | Right-click on the image copies nothing (RA/Dec, value, position) | **FIXED** |
 | P18 | No Save at all; Open is a word where an icon would do | **FIXED** 2026-09-04 |
 | P19 | Stepping between frames re-solves everything, so there is no blink | **FIXED** 2026-09-04 |
-| P20 | A share link to the web viewer (needs `&t=`) | BACKLOG (web) |
+| P20 | A share link to the web viewer (needs `&t=`) | **FIXED** 2026-09-04 |
 | P21 | A mosaic's channel views show the mosaic, not the debayered planes | BACKLOG |
 | P22 | Save the ANNOTATED view (grid, markers, labels), beside P18's clean raster | BACKLOG (split off P18 2026-09-04) |
 
@@ -503,12 +503,54 @@ Pinned by `DisplayCarryTests` (14), whose discriminating pair is that two frames
 different statistics render the SAME uniforms with an anchor and DIFFERENT ones without -- confirmed by
 breaking `Basis` and watching three of them go red.
 
-## P20. A share link to the web viewer  — BACKLOG (needs the web side)
+## P20. A share link to the web viewer  — **FIXED** 2026-09-04
 
 From the user's notes 2026-08-27: *"right click menu could also have an option to create a share link
 that shares direct links to the Tianwen website viewer, we would need to add a `&t=<time of capture>`
-support for the links as well"*. The menu from P17 is where it goes. Blocked on the web build
-accepting the parameters, so it is tracked with the web items rather than here.
+support for the links as well"*. The menu from P17 is where it goes.
+
+**It was never blocked on anyone else** -- the "web side" is `TianWen.UI.Web`, in this repo. And the
+note anticipated one gap where there were two: the web build read exactly two query keys, `view` and
+`object`, and `object=` takes a CATALOG TOKEN, so there was no way to point at a plain coordinate
+either. A link from an arbitrary plate-solved frame had nothing to say.
+
+**The vocabulary is `SkyAtlasLink` (`TianWen.UI.Abstractions`), defined once for both ends:**
+`?view=sky&ra=<deg>&dec=<deg>&fov=<deg>&t=<ISO-8601 Z>`. The viewer's right-click menu writes one;
+`Planner.razor` reads it.
+
+- **RA travels in DEGREES while everything internal is in hours.** SIMBAD, Aladin and WWT all take
+  degrees, so an hours value pasted anywhere else reads as a 15x-wrong position -- silently, because
+  both readings of any number are a legal RA. That is why the conversion is in one place with a test
+  rather than at each call site, and why the E2E's tolerance is a tenth of a degree.
+- **No SITE in the link, deliberately.** The equatorial view at an instant is the same sky wherever it
+  is opened; only the horizon and altitude overlays are site-dependent and those should be the
+  recipient's own. Time is what pins the sky, and time is in the link.
+- **`fov` is the frame's own** (`SkyAtlasLink.FieldOfViewDeg`: plate scale x the LONG axis), so the
+  atlas opens showing roughly what the image covered. An APPROXIMATE WCS still answers -- a
+  FOCALLEN-derived scale is a poor astrometric solution but a fine statement about geometry, which is
+  all this number is. That is the opposite of the grid labels' rule.
+- **A missing capture time drops `t=` entirely.** Both import paths use a SENTINEL rather than a null
+  (no `DATE-OBS` parses to `DateTime.MinValue`, no EXIF capture time to the epoch), so an unguarded
+  link would have drawn the sky of the year 1. One comparison against the epoch covers both.
+- **The menu label does not carry the URL**, which is the one exception to P17's rule that every label
+  ends in its own value: a hundred-character link would be the widest thing in the menu and unreadable
+  at that size. `ImageContextMenuTests` exempts it BY NAME so any other item that stops carrying its
+  value still fails.
+
+**What only the browser E2E could catch, and did on its first run:** `SkyMapTab.Render` installs a
+HOME position on its first pass -- the site's local sidereal time at the visible pole -- so the link's
+pointing was applied and then overwritten one frame later. Both ends of the URL were individually
+correct, so no unit suite on either side could see it; the atlas answered 8.073 h, which is just the
+LST at the link's own `t=`. **Setting `Initialized` from outside does not fix it** (the first attempt,
+and it failed identically): that same `if` also fires whenever the site differs from the one last
+homed for, and the comparison starts against `double.NaN`, so it is unconditionally true the first
+time whatever `Initialized` says. The fix is `SkyMapState.ExternalViewPending`, a ONE-SHOT the pass
+consumes -- it still records the site, so a later profile switch re-homes as before.
+
+Pinned by `SkyAtlasLinkTests` (20, including the whole URL exactly) plus `ImageContextMenuTests`, and
+end-to-end by `TianWen.UI.Web.E2E`'s `ShareLinkTests` (3). The E2E carries the canonical URL as a
+LITERAL because that project is deliberately reference-free; the unit test that pins the same string
+against the writer is what keeps the two in step, and it names the file.
 
 ## P21. A mosaic's channel views show the mosaic, not the debayered planes  — BACKLOG
 
@@ -538,7 +580,7 @@ hard. backlog it if we can't deliver it now."*
 | E | P5 | DONE. An LZW decoder; the only item whose absence was already documented scope. |
 | F | P9, P10 | Reproduce first; do not fix from a single screenshot. |
 | G | **P12 + P14 DONE 2026-08-22**; **P11's version + AI status DONE 2026-08-27**; P11's model download and P13 remain | The next release, in that order: P12 is a two-row rendering gap, P11 is a read of an existing property plus a lazily-populated status, P14 is a host-policy change with two cases to settle, and P13 is best written last so it documents what P11/P14 actually do. |
-| H | **P17 DONE 2026-08-27**; **P18 + P19 DONE 2026-09-04**; P20, P21, P22 backlogged | The second wave of the user's notes. P17 first because it is a formatter over state that already existed, and it is what found the missing dropdown hover state. P18 and P19 both touch the display raster and the file list, so they share a sitting. P20 waits on the web build; P21 is a shader change whose cheap form is not obvious yet. |
+| H | **P17 DONE 2026-08-27**; **P18 + P19 + P20 DONE 2026-09-04**; P21, P22 backlogged | The second wave of the user's notes. P17 first because it is a formatter over state that already existed, and it is what found the missing dropdown hover state. P18 and P19 both touch the display raster and the file list, so they share a sitting. P20 waits on the web build; P21 is a shader change whose cheap form is not obvious yet. |
 
 ## Verification
 

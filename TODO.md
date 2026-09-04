@@ -363,7 +363,17 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     to the held frame, and `Shift+H` holds or releases. The status bar says "Held to <file>", and the
     blink stops itself on a frame the anchor cannot describe. `DisplayCarryTests` +
     `ViewerControllerTests`. Done 2026-09-04.
-  - [ ] **P20** A share link to the web viewer (needs `&t=`). BACKLOG, blocked on the web side.
+  - [x] **P20: a share link to the web Sky Atlas** from the right-click menu.
+    `?view=sky&ra=<deg>&dec=<deg>&fov=<deg>&t=<ISO-8601 Z>`, the vocabulary defined once in
+    `SkyAtlasLink` for both ends. It was never blocked on anyone else -- the "web side" is
+    `TianWen.UI.Web`, in this repo -- and the gap was wider than the note assumed: the web build read
+    only `view` and `object`, and `object=` takes a catalog token, so there was no way to point at a
+    plain coordinate. RA travels in DEGREES (hours everywhere internally; both readings of a number
+    are a legal RA, so the x15 is isolated with a test), no site travels (the equatorial view at an
+    instant is the same sky anywhere), and a missing capture time drops `t=` rather than sending a
+    sentinel. The browser E2E caught what neither side's units could: the atlas's first render
+    installed a home position over the link's pointing. `SkyAtlasLinkTests` + `ShareLinkTests`.
+    Done 2026-09-04.
   - [ ] **P21** A mosaic's channel views show the mosaic, not the debayered planes. BACKLOG; a shader
     change whose cheap form is not obvious yet.
   - [ ] **P22** Save the ANNOTATED view (pixels + grid + star markers + object labels), as a second
