@@ -327,7 +327,8 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   2026-08-27)**. **7.0.1513 went to the Store on 2026-09-04** carrying the fixed half of this list --
   P17 and P11's version + AI-status line were the two that had not been released before it -- plus
   Explorer thumbnails, Auto stretch and the SPCC/Calibrate render toggle. None of the open items made
-  that release, so they move to the next one. **Start with P18** (user, 2026-09-04).
+  that release, so they move to the next one. P18 is done (2026-09-04); **P19 is next**, and shares
+  its ground -- both touch the display raster and the file list.
   - [x] **P11.1** `--help`, `--version` and the in-app `?` panel report the version, beside an
     AI-enhancer discovery status saying which backend resolved, which RC products are licensed and
     which SAS models are missing -- **without** undoing the deliberate deferral of the RC-vs-SAS

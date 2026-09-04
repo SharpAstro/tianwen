@@ -48,7 +48,7 @@ the 35 TIFF / import / codec tests pass against it.
 | P15 | A faint residue is left at the end of the cursor readout (damage-era) | OPEN |
 | P16 | `Frame: None` printed the enum default as if it were a frame kind | **FIXED** |
 | P17 | Right-click on the image copies nothing (RA/Dec, value, position) | **FIXED** |
-| P18 | No Save at all; Open is a word where an icon would do | NEXT RELEASE |
+| P18 | No Save at all; Open is a word where an icon would do | **FIXED** 2026-09-04 |
 | P19 | Stepping between frames re-solves everything, so there is no blink | NEXT RELEASE |
 | P20 | A share link to the web viewer (needs `&t=`) | BACKLOG (web) |
 | P21 | A mosaic's channel views show the mosaic, not the debayered planes | BACKLOG |
@@ -407,7 +407,18 @@ row highlight from `PixelWidgetBase.Pointer`, and nothing in the viewer ever set
 panel and the new menu all showed only the keyboard's `HighlightIndex`. `Render` now sets it from the
 position both hosts already track, and a pointer move repaints while a dropdown is open.
 
-## P18. No Save at all, and Open is a word where an icon would do  — NEXT RELEASE
+## P18. No Save at all, and Open is a word where an icon would do  — FIXED
+
+**Shipped 2026-09-04.** `DisplayRasterExport` (TianWen.Lib) renders through the CPU mirror of the
+shader and writes PNG-16 / JPEG / float TIFF; `IFileDialogHelper.SaveAsync` is the save dialog none
+of the three platforms had. "As seen" was settled as the CLEAN raster at full IMAGE resolution --
+the annotated variant is P22. Open and Save became hand-drawn marks after every candidate glyph
+baked solid (measurements in that commit, reasoning in `DrawFolderMark`'s remarks), and the toolbar
+no longer wraps to a second row, which was the stated point of iconising them. Left out
+deliberately: 8-bit PNG is in the API with no UI, because it shares `.png` with the 16-bit variant
+and choosing it needs a menu that does not exist.
+
+The original note follows.
 
 From the user's notes 2026-08-27: *"Save as seen on screen option. Iconize Open (and Save)"*, *"+
 Shift or whatever Save-As (choose png, jpeg, and what else we have)"*.
