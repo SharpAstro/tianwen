@@ -66,14 +66,56 @@ public sealed class AstroImageDocument : IPreviewSource
     public ChannelStretchStats? LumaStats { get; }
 
     /// <summary>
-    /// Per-channel background values measured from the unstretched image (pedestal-subtracted).
-    /// These are the average values of the darkest spatial region, ready to feed into
-    /// <see cref="Image.StretchValue"/> to get the post-stretch background level.
+    /// Per-channel background values the DISPLAY is solved from (pedestal-subtracted): the average
+    /// values of the darkest spatial region, ready to feed into <see cref="Image.StretchValue"/> to get
+    /// the post-stretch background level -- or the anchor's, while one is held (see
+    /// <see cref="DisplayAnchor"/>).
     /// </summary>
-    public float[] PerChannelBackground { get; private set; }
+    public float[] PerChannelBackground => Basis._perChannelBackground;
 
-    /// <summary>Luminance background from the unstretched image (pedestal-subtracted).</summary>
-    public float LumaBackground { get; private set; }
+    /// <summary>Luminance background the display is solved from (pedestal-subtracted).</summary>
+    public float LumaBackground => Basis._lumaBackground;
+
+    /// <summary>
+    /// This frame's OWN measured background, whatever it is being displayed with. Read by the info
+    /// panel: a readout is a measurement of the frame in front of the user, and quietly reporting the
+    /// anchor's numbers there would be a lie -- the display consistency the carry buys is worth having
+    /// only because the readout stays honest about what differs.
+    /// </summary>
+    public float[] MeasuredPerChannelBackground => _perChannelBackground;
+
+    /// <summary>This frame's own measured luminance background. See <see cref="MeasuredPerChannelBackground"/>.</summary>
+    public float MeasuredLumaBackground => _lumaBackground;
+
+    private float[] _perChannelBackground;
+    private float _lumaBackground;
+
+    /// <summary>
+    /// Another document whose display statistics this one is rendered with, or <c>null</c> to use its
+    /// own. Set by the viewer while stepping through comparable frames of one folder; see
+    /// <see cref="DisplayCarry"/> for what it buys and why the anchor is a document rather than a
+    /// snapshot of its numbers.
+    /// </summary>
+    /// <remarks>
+    /// It is a display concern only: the pixels, the star list, the WCS and
+    /// <see cref="MeasuredPerChannelBackground"/> are always this frame's own.
+    /// </remarks>
+    public AstroImageDocument? DisplayAnchor
+    {
+        get => _displayAnchor;
+        // Never itself. Every accessor below takes exactly ONE hop through the anchor, which is what
+        // keeps a cycle unrepresentable rather than merely unlikely; a self-reference would defeat the
+        // hop silently instead of looping, and is what an over-eager reconcile would write.
+        set => _displayAnchor = ReferenceEquals(value, this) ? null : value;
+    }
+
+    private AstroImageDocument? _displayAnchor;
+
+    /// <summary>
+    /// The document the DISPLAY numbers come from: the anchor when one is held, else this frame. Every
+    /// read through it is a field access, so the single hop can never become a chain.
+    /// </summary>
+    private AstroImageDocument Basis => _displayAnchor ?? this;
 
     /// <summary>Per-channel stretch stats recomputed with star mask exclusion. Only available after star detection.</summary>
     public ChannelStretchStats[]? StarMaskedStats { get; private set; }
@@ -93,8 +135,15 @@ public sealed class AstroImageDocument : IPreviewSource
     /// <summary>Time taken for star detection.</summary>
     public TimeSpan StarDetectionDuration { get; private set; }
 
-    /// <summary>White balance multipliers from Tycho-2 color calibration. null until computed.</summary>
-    public (float R, float G, float B)? ColorCalibration { get; private set; }
+    /// <summary>
+    /// White balance multipliers from Tycho-2 / SPCC color calibration; null until computed. While a
+    /// <see cref="DisplayAnchor"/> is held its triple wins, so the fit runs ONCE per run of comparable
+    /// frames instead of once per file -- which is the half of P19 the user asked for as "so that they
+    /// load faster". The frame's own measurement, if it has one, stays as the fallback.
+    /// </summary>
+    public (float R, float G, float B)? ColorCalibration => Basis._colorCalibration ?? _colorCalibration;
+
+    private (float R, float G, float B)? _colorCalibration;
 
     /// <summary>
     /// Provenance for <see cref="ColorCalibration"/>: which method produced it, how many stars it
@@ -106,7 +155,9 @@ public sealed class AstroImageDocument : IPreviewSource
     /// it came from.
     /// </para>
     /// </summary>
-    public ColorCalibrationSummary? ColorCalibrationSummary { get; private set; }
+    public ColorCalibrationSummary? ColorCalibrationSummary => Basis._colorCalibrationSummary ?? _colorCalibrationSummary;
+
+    private ColorCalibrationSummary? _colorCalibrationSummary;
 
     /// <summary>
     /// Carries <paramref name="from"/>'s colour calibration and its provenance over to this document,
@@ -125,8 +176,19 @@ public sealed class AstroImageDocument : IPreviewSource
         {
             return;
         }
-        ColorCalibration = wb;
-        ColorCalibrationSummary = from.ColorCalibrationSummary;
+        InheritColorCalibration(wb, from.ColorCalibrationSummary);
+    }
+
+    /// <summary>
+    /// Installs a colour calibration measured on another frame, with the provenance that goes with it.
+    /// The document overload above is the caller for it; it is separate so a triple that never came
+    /// from a loaded document -- a test's, or a future sidecar's -- has one way in rather than a second
+    /// assignment path that could set the triple without its summary.
+    /// </summary>
+    internal void InheritColorCalibration((float R, float G, float B) whiteBalance, ColorCalibrationSummary? summary)
+    {
+        _colorCalibration = whiteBalance;
+        _colorCalibrationSummary = summary;
     }
 
     // SPCC in-flight gate. The compute task runs on a thread-pool thread and
@@ -190,7 +252,7 @@ public sealed class AstroImageDocument : IPreviewSource
     /// <summary>Per-method cache of computed background-neutralization gains. Switching
     /// method on a loaded document is a dict lookup + uniform write, not a recompute.
     /// Populated lazily by <see cref="ComputeBackgroundNeutralization"/>.</summary>
-    private readonly System.Collections.Generic.Dictionary<(Lib.Imaging.BackgroundNeutralizationMethod Method, (float R, float G, float B) WhiteBalance), (float R, float G, float B)> _bnGainsByMethod = new();
+    private readonly System.Collections.Generic.Dictionary<(Lib.Imaging.BackgroundNeutralizationMethod Method, (float R, float G, float B) WhiteBalance, float[] Background), (float R, float G, float B)> _bnGainsByMethod = new();
 
     /// <summary>When true, the stretch factor is iteratively adjusted so the post-stretch median converges to <see cref="ConvergenceTarget"/>.</summary>
     public bool UseIterativeConvergence { get; set; }
@@ -223,8 +285,8 @@ public sealed class AstroImageDocument : IPreviewSource
         DebayerAlgorithm = debayerAlgorithm;
         PerChannelStats = perChannelStats;
         LumaStats = lumaStats;
-        PerChannelBackground = perChannelBackground;
-        LumaBackground = lumaBackground;
+        _perChannelBackground = perChannelBackground;
+        _lumaBackground = lumaBackground;
         Wcs = wcs;
         IsPreStretched = isPreStretched;
 
@@ -500,8 +562,12 @@ public sealed class AstroImageDocument : IPreviewSource
         (float R, float G, float B)? manualWhiteBalance = null,
         bool applyColorCalibration = true)
     {
-        var stats = PerChannelStats;
-        var luma = LumaStats;
+        // Through Basis, not `this`: while a DisplayAnchor is held every frame of the run is solved
+        // from ONE set of statistics, which is what stops a step between two subs of the same field
+        // from re-solving the auto-stretch and flickering. Basis is `this` when nothing is held, so a
+        // single open is unchanged.
+        var stats = Basis.PerChannelStats;
+        var luma = Basis.LumaStats;
         var factor = parameters.Factor;
         var clipping = parameters.ShadowsClipping;
         var weights = ResolveLumaWeights(weighting);
@@ -531,16 +597,16 @@ public sealed class AstroImageDocument : IPreviewSource
             || UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB;
         mode = mode.ResolveAuto(isColour, autoWb is not null);
 
-        if (UseIterativeConvergence && StarMaskedStats is { } masked)
+        if (UseIterativeConvergence && Basis.StarMaskedStats is { } masked)
         {
             // Star-masked stats have a lower median (stars excluded), so a fixed
             // stretchFactor under-stretches. Convergence compensates by adjusting
             // the factor to hit the target median regardless of which stats are used.
             stats = masked;
-            luma = StarMaskedLumaStats ?? luma;
+            luma = Basis.StarMaskedLumaStats ?? luma;
 
             var convStats = luma ?? stats[0];
-            var hist = ChannelStatistics.Length > 0 ? ChannelStatistics[0] : null;
+            var hist = Basis.ChannelStatistics.Length > 0 ? Basis.ChannelStatistics[0] : null;
             if (hist is not null)
             {
                 // For luma convergence the WB scalar is the weighting-profile-weighted
@@ -557,7 +623,9 @@ public sealed class AstroImageDocument : IPreviewSource
             }
         }
 
-        var uniforms = ComputeStretchUniforms(mode, new StretchParameters(factor, clipping), stats, luma, UnstretchedImage.MaxValue, autoWb, weights, shaderWb);
+        // The anchor's observed peak too: NormFactor is 1/MaxValue, so two frames whose brightest
+        // pixel differs would otherwise normalise differently before the curve ever ran.
+        var uniforms = ComputeStretchUniforms(mode, new StretchParameters(factor, clipping), stats, luma, Basis.UnstretchedImage.MaxValue, autoWb, weights, shaderWb);
         if (BackgroundNeutralization is { } bn)
         {
             // Lerp the gain toward identity by `strength`. Cheap: no recompute,
@@ -579,7 +647,7 @@ public sealed class AstroImageDocument : IPreviewSource
         {
             var scale = Image.PredictPostStretchMaxScale(
                 uniforms,
-                ChannelStatistics.AsSpan(),
+                Basis.ChannelStatistics.AsSpan(),
                 curvesMode: curvesMode,
                 curveLut: curveLut,
                 curvesBoost: curvesBoost,
@@ -662,8 +730,8 @@ public sealed class AstroImageDocument : IPreviewSource
             Span<float> pedestals = stackalloc float[PerChannelStats.Length];
             for (var c = 0; c < PerChannelStats.Length; c++) { pedestals[c] = PerChannelStats[c].Pedestal; }
             var (perChannelBg, lumaBg) = UnstretchedImage.ScanBackgroundRegion(pedestals, squareSize: 48, stars.StarMask);
-            PerChannelBackground = perChannelBg;
-            LumaBackground = lumaBg;
+            _perChannelBackground = perChannelBg;
+            _lumaBackground = lumaBg;
 
             // Recompute stretch stats with star mask exclusion
             if (stars.StarMask is { } mask)
@@ -714,13 +782,13 @@ public sealed class AstroImageDocument : IPreviewSource
         if (wb is not { } w)
             return (0, "No valid bg samples");
 
-        ColorCalibration = (w.R, w.G, w.B);
+        _colorCalibration = (w.R, w.G, w.B);
         // No white reference: a sky-background estimate declares the SKY neutral, which is an
         // assumption about the frame rather than a spectrum, so there is nothing honest to name.
-        ColorCalibrationSummary = new ColorCalibrationSummary(
+        var summary = new ColorCalibrationSummary(
             "Sky background", w.R, w.G, w.B, StarCount: 0, WhiteReference: null);
-        var diag = ColorCalibrationSummary.Value.Describe();
-        return (1, diag);
+        _colorCalibrationSummary = summary;
+        return (1, summary.Describe());
     }
 
     /// <summary>
@@ -742,7 +810,12 @@ public sealed class AstroImageDocument : IPreviewSource
         // would keep serving gains computed for the previous (or absent) triple: the same
         // stale-cached-projection shape as a palette-derived texture that outlives a theme switch.
         var wb = (applyColorCalibration ? ColorCalibration : null) ?? (1f, 1f, 1f);
-        var key = (method, wb);
+        // The BACKGROUND array is part of the key too, by reference, because it is replaced rather than
+        // mutated -- by star detection, which re-scans it behind a mask, and by a DisplayAnchor being
+        // taken up or dropped. Keyed on method and WB alone, gains solved for a background this frame
+        // no longer displays with would go on being served: the same stale-cached-projection shape the
+        // WB was already in the key to prevent.
+        var key = (method, wb, bg);
         if (!_bnGainsByMethod.TryGetValue(key, out var gains))
         {
             gains = Lib.Imaging.BackgroundNeutralization.ComputeGains(bg, method, wb);
@@ -800,11 +873,11 @@ public sealed class AstroImageDocument : IPreviewSource
         if (result is not { } r)
             return (0, "Insufficient SPCC matches");
 
-        ColorCalibration = (r.R, r.G, r.B);
-        ColorCalibrationSummary = new ColorCalibrationSummary(
+        _colorCalibration = (r.R, r.G, r.B);
+        var summary = new ColorCalibrationSummary(
             "SPCC", r.R, r.G, r.B, r.MatchCount, r.WhiteReferenceName);
-        var diag = ColorCalibrationSummary.Value.Describe();
-        return (r.MatchCount, diag);
+        _colorCalibrationSummary = summary;
+        return (r.MatchCount, summary.Describe());
     }
 
     /// <summary>
