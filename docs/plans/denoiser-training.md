@@ -245,6 +245,42 @@ seed spread beside the number.
 **H7 (deferred). Mono.** The two ASI1600MM sets are poor and excluded by `drop_foreign_channel_sessions`;
 the user intends to shoot true narrowband mono later. Nothing to test until that data exists.
 
+**H8. Cross-night pairs give N2N genuinely independent noise, and that lifts the shared-noise ceiling
+both measured regimes sit under.** Every arm so far trains on a target whose noise its input also
+carries: same-session N2N by construction (one calibration, one registration, common-mode residuals in
+both halves), supervised injection because its target is the master its input was made from. The same
+target on two nights shares the signal and nothing else: photon noise is independent, and the
+fixed-pattern calibration residual lands on different sky pixels once the second night is registered
+onto the first, so the registration IS the decorrelation. The `2026-09-full` bake holds the pairs, by
+camera, filter and object, with per-night median sub FWHM from `stats/psf-sessions.jsonl`:
+
+| rig / filter / object | nights (FWHM p50 px, subs) | pairable |
+|---|---|---|
+| ASI533MC / L-Ultimate / HD 74167 | 2026-01-05 (2.09, 169), 01-06 (2.10, 147) | yes, matched |
+| ASI533MC / L-Ultimate / Rim Nebula | 2026-02-16 (2.12, 48), 02-18 (2.08, 103), 02-20 (2.12, 78); 2025-05-02 (2.14, 177) | yes, three nights matched, the fourth at 3 % |
+| ASI533MC / L-Ultimate / Vela SNR | 2025-12-17 (2.18, 135), 2026-01-23 (2.05, 55) | after PSF matching (6 %) |
+| ASI533MC / L-Ultimate / HD 71272 | 2026-01-20 (2.40, 34), 01-23 (2.08, 159) | after PSF matching (15 %), thin |
+| SV605CC / L-Ultimate / Tarantula | 2025-10-14 (1.70, 57), 11-01 (2.18, 128) | no (28 %) |
+
+*Design rules, each the way the naive version is wrong:*
+1. **Match on PSF, or convolve the sharper night to the wider one.** N2N assumes identical signal and
+   two nights differ in seeing, so a naive pair teaches the model to blur toward the worse night.
+2. **Flatten both nights with `ClassicalBackgroundExtractor` and match levels before pairing.** Sky
+   gradient and background differ between nights; the median gradient is 2.3 sigma (gradient report G1),
+   larger than the noise being learned, and an unflattened pair teaches the model to move backgrounds.
+3. **Register both nights to one grid with one resampler.** Registering the target alone puts the
+   warp's blur on the target side, which teaches blur; its noise reshaping (band ratio 0.328 for a
+   bilinear warp against 0.216 white) N2N tolerates, the blur it does not.
+4. **Stretch both sides with the same MTF parameters** (the E1 rule), or the stretch difference is signal.
+5. **Match global gain per pair** (transparency); N2N is symmetric, so both directions are augmentation.
+6. **Sessions flagged with mis-scaled darks stay out**, and mono stays out as everywhere.
+*Test:* arm X on the matched pairs, three seeds, against ctl (same-session N2N) and the best supervised
+arm at matched noise, on eval4b and on a night held out of every pair.
+*Prediction:* faint-structure amplitude spent at 10 percent removed falls below the supervised arm's
+3.2 to 6.2 with no loss on stars, because the model can no longer learn to keep the common-mode part.
+*Kill:* no better than ctl. Then the ceiling is not shared noise and the mechanism paragraph of
+2026-09-04 ("the split revises E2") is wrong.
+
 ## 2. Data
 
 ### The pool
@@ -257,6 +293,19 @@ cannot be reused against the organized one** (different ids, different pool); an
 compared against v19d is scored on the `n2n-eval4` observers, which are darkscaled sessions, or
 v19d is re-scored on the new observers. Mixing the two bakes in one table is the cross-bake error
 that produced a wrong fabrication win once (2.4, "my measurement error").
+
+**A third bake exists since 2026-09-05: `D:/Astro-Dataset/2026-09-full`**, the organized archive plus
+`D:/Astro-Unsorted` (never baked before), built in 13.4 hours with scratch on a second spindle: 79 of
+80 discovered sessions (HIP 42861 on 2025-12-28 skipped, 49 of its 50 subs found no quad fit against
+the reference), 7,975 registered subs, 239,689 tiles, 8 test sessions pinned in its own
+`test-sessions.txt`, 0 failures. It is a third pool with its own ids, so the cross-bake rule above
+applies to it unchanged. What it holds that the 51 could not supply is the same target on different
+nights under the same camera and filter, which is what an independent-noise pair needs (run log,
+2026-09-04, "the split revises E2"): Rim Nebula on four nights (2025-05-02, 2026-02-16, 02-18, 02-20),
+HD 74167 on 2026-01-05 and 01-06, Vela SNR on 2025-12-17 and 2026-01-23, all ASI533MC / L-Ultimate, and
+Tarantula on the SV605CC on 2025-10-14 and 11-01. Grouped by exact object under one rig; the pairing
+experiment's first step is the proper enumeration with per-session FWHM from `stats/psf-sessions.jsonl`.
+It also widens the eval pool, where only nine of 51 sessions had survived every exclusion.
 
 ### What the synthetic arms need that the tiles do not hold
 
@@ -343,6 +392,8 @@ Settled by the campaign; restated so no run re-derives them.
 | **E6** | If H1 passes: NAFNet-32 on the S recipe, one seed, rented GPU (RunPod 4090, per-second billing) or the internal T4 pool; AMP on there, off locally. | ~$15 to 50 | H5 |
 | **E7** | Export the winner with `n2n_export.py` (baked sigma, fixed 256, opset 17), parity to torch under 2e-7, regenerate the parity fixture, replace the in-repo weights, **execute the LFS revert in `.gitattributes`**, re-measure the dial (blend stays unless measured otherwise). | half a day | Ships v2 |
 
+| **E8** | Cross-night arm X (H8). The pair table is written (under H8); next is a paired cache from the `2026-09-full` bake: flatten, level-match, register both nights to one grid, one MTF for both sides, PSF-match where the table says so. Three seeds against ctl and the best supervised arm at matched noise on eval4b plus a held-out night. No training until the cache's pair statistics (residual noise correlation between the two sides, FWHM after matching) are in the run log. | 1 day exporter, 3 x 11 min | H8 |
+
 Every arm: pre-register predictions in the run script header; three seeds; one prepared cache per
 arm, never edited between runs; launch multi-hour jobs detached (`Start-Process`), never through the
 session's background shell, and never read a file a running job appends to.
@@ -401,6 +452,20 @@ and the decision to promote is the user's. Record it as such rather than as a pe
   one is a confound to state per arm.
 - **How many broadband nights are enough** to say anything about H4 step 2 with two SV545 sessions
   in hand? Probably none; step 2 is a pilot until a third broadband night exists.
+- **Does `RestoreLevel` really absorb the magenta cast, or only its background?** The 2026-09-04 probe
+  measured per-channel MEDIAN drag, which is a background statement by construction; the cast was seen
+  on BRIGHT nebulosity, and a per-chunk level restore corrects an offset, not a gain. The measurement
+  that answers it is the per-channel out/in ratio in the top brightness decile of the eta Car master,
+  both checkpoints, through `N2nLinearRunner`. Until then "the cast does not survive the shipped path"
+  is unshown; "the background level does not move" is what was shown.
+- **Is the "unreconciled" residual correlation the cast seen twice?** `resid_corr` is corr(removed,
+  output) over non-star pixels; a per-channel gain shift on bright regions puts a brightness-proportional
+  term into "removed", which correlates with the output by construction. gate1500 reads 0.691 against
+  shipped4000's 0.354 and also showed the stronger cast in the 1:1. Recompute on the high-passed removed
+  component; if 0.691 collapses, the two odd columns of the ship table and the cast are one phenomenon.
+- **Is Horsehead's unmatched 87 percent nebulosity or sub-BP16 stars?** The one field where a BP 18
+  catalogue at 1 px keeps the floor under 1 percent (run log, 2026-09-05); answer it there before
+  calling any "detail" number nebulosity.
 
 ## 9. Run log
 
@@ -817,3 +882,71 @@ SIGNAL is identical and only the noise differs: two nights have different seeing
 teaches the model to blur toward the worse PSF. `stats/psf-sessions.jsonl` carries per-session FWHM,
 so pairs must be matched on it or convolved to a common PSF. That is the next experiment, and its
 first step is a query rather than a training run.
+
+### 2026-09-05: the Gaia match was one pixel off, and the split re-read on the sharper instrument
+
+Raised in review as "why do we need a tolerance fix?", and the answer was that we did not: the 2.5 px
+tolerance was hiding an offset. For every peak, the distance to the nearest projected Gaia star against
+the same distance to a catalogue shifted by (11, 7) px, the pure-chance reference; the excess is where
+real matches sit. A peak is an integer pixel and a Gaia position is not, so quantisation puts a real
+match inside 0.71 px. On eval4b's four fields the excess sat at 1.6 percent inside 0.5 px, 16.5 percent
+in 0.5 to 1.0, **80.9 percent in 1.0 to 2.0**, and nothing beyond 2.25. The median offset vector was
+(+0.95, +0.91) px in (x, y), identical on all four sessions, for stars above SNR 100, and in every
+quarter of the frame: a convention, not a fit.
+
+**The cause was in TianWen, not the tooling.** The in-memory `WCS` is 0-based (the "never subtract 1
+from `SkyToPixel`" rule) and `WriteToHeader` wrote those numbers unchanged under a "1-based" comment, so
+astropy placed every star a pixel low. Fixed at the FITS boundary in a5c558e7 (`PIXORIG` marker, plus
+one on write, minus one on read, legacy TianWen masters read verbatim); the consequence outside this
+campaign is that every file TianWen ever solved was one pixel off in every external tool, and every
+third-party WCS one pixel off inside TianWen. `gaia_starmask` now refuses a solved file without the
+marker, and the twelve eval masters were re-solved with the fixed CLI.
+
+**With the pixel put back, a 1 px tolerance keeps 96.7 percent of real matches** (18 percent before the
+shift) **and the floor falls 6.25 times.** eval4b, per session, 2.5 px unshifted against 1 px shifted:
+
+| session | floor | confirmed | share of all "detail" |
+|---|---|---|---|
+| HIP 34710 | 13.6 % to 2.2 % | 84.9 % to 84.1 % | 28 % to 26 % |
+| HIP 85088 | 12.2 % to 1.9 % | 76.6 % to 71.6 % | 42 % to 44 % |
+| V1045 Ori | 3.9 % to 0.6 % | 53.2 % to 50.5 % | 26 % to 23 % |
+| eta Car | **40.4 % to 8.0 %** | 97.6 % to 95.1 % | 4 % to 7.5 % |
+
+The 19.8 percent floor the 2026-09-04 entry quoted was a mean over densities that differ thirteenfold;
+eta Car alone sat at 40, and `n2n_starsplit.py` now prints the table above instead of the mean.
+**eta Car's 95 percent is not knots called stars:** at an 8 percent floor its 8-MAD peaks are stars,
+because Carina is that dense. Which settles what eval4b's detail column is made of: 93 percent of it
+comes from three star fields, where an unmatched peak is most plausibly a star fainter than BP 16
+(completeness on this pool is 15 percent at BP 16 to 17). So eval4b supports "supervised injection
+preserves faint UNCATALOGUED POINT SOURCES two to three times better"; nebulosity it does not test.
+eval4 is the opposite kind of eval: Horsehead confirms 13.3 percent at a 0.1 percent floor (its WCS is
+sound, 95.5 percent of its real matches inside 0.75 px) and the Statue of Liberty 36.0 percent at 1.1,
+and those two supply 93 percent of its detail. Whether Horsehead's unmatched 87 percent is nebulosity or
+sub-BP16 stars is answerable there and nowhere else: at its density a BP 18 catalogue at 1 px would
+still have a floor under 1 percent.
+
+**The E2 revision, re-read at 1 px on eval4b** (amplitude spent at 10 percent removed, stars / detail):
+
+| family | stars | detail |
+|---|---|---|
+| warped, 9 seeds | 10.3 - 14.3 | **3.8 - 6.6** |
+| white, 3 seeds | 10.5 - 12.7 | **5.1 - 5.9** |
+| N2N finals: ctl s1, s2; v19d s0; **shipped4000** | **13.2** - 15.0 | 8.9 - 12.7 |
+| gate1500 | **9.4** | 7.7 |
+
+Three readings change. **Structure stands**: supervised 3.8 to 6.6 against N2N 8.9 to 12.7 with no
+overlap, and this time the row holds all four N2N finals; the 2026-09-04 row listed three and left out
+the shipped one, which was in the same log. **"And preserves stars better" is withdrawn**: shipped4000's
+13.2 sits inside the supervised range, and warped s0, s3 and s4 (14.3, 13.9, 13.6) are worse than it.
+Gate-selection stays the star lever (9.4). **Shape stays dead**: white sits inside warped on both axes.
+
+**eval4 at 1 px** (three sessions, see below): warped_s2 10.3 / 2.7, warped_s1 11.4 / 7.3, gate1500
+10.3 / 7.3, shipped4000 15.2 / 9.4, within 0.2 of the 2.5 px figures (10.2 / 2.6, gate1500 10.3 / 7.2,
+shipped 15.1 / 9.2). The E2 conclusions did not depend on the offset, because at 2.5 px the real stars
+were still inside the disc; what the offset cost was the floor, and with it the ability to read eta
+Car at all. One thing eval4 adds: on the nebula-heavy fields `warped_s2` (2.7) is NOT matched by
+`warped_s1` (7.3), so the "two seeds lead the arm" reading was eval4b's; on structure s2 is singular
+among the two run here, the seed lottery the nine-seed arms exist to average out.
+
+**The 24 mm ASI585 session of 2025-03-19 does not plate-solve** (catalog solver, no solution), so eval4
+scores 144 of 192 cells over three sessions, not four. Recorded so nobody reads it as four observers.

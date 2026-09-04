@@ -8,6 +8,10 @@ import gaia_d50 as d50, gaia_vizier as vizier
 
 path, label = sys.argv[1], sys.argv[2]
 with fits.open(path) as hdul:
+    if hdul[0].header.get('PIXORIG') != 1:
+        # A TianWen CLI from before 2026-09-05 wrote 0-based CRPIX under a "1-based" comment, and astropy then
+        # places every star one pixel low; see gaia_starmask. Re-solve the file with a current CLI.
+        raise SystemExit(f'{path}: WCS carries no PIXORIG marker, so its CRPIX is in the old 0-based frame; re-solve it')
     data = hdul[0].data.astype(np.float32); w = WCS(hdul[0].header, naxis=2)
 lum = data.mean(axis=0) if data.ndim == 3 else data
 h, wid = lum.shape
