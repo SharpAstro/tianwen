@@ -157,8 +157,6 @@ wide one cannot come from square art without cropping).
 
 ## Still to do
 
-- **Add the Store deep link to <https://sharpastro.github.io/> once the app is live.** Partner Center
-  only issues it after the product goes live, which is why the site does not carry it yet.
 - Store submission is manual: upload the `.msixbundle` from the CI artifact to the draft submission.
   Automating it is `microsoft/microsoft-store-apppublisher@v1.1` plus `msstore reconfigure` and
   `msstore publish -id 9PMDZP16TGBG`, and what it waits on is a Partner Center side that does not
