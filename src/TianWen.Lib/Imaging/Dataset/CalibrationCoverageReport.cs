@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -181,7 +181,7 @@ public static class CalibrationCoverageReport
             Clean(session.Camera),
             Clean(light.Meta.Telescope),
             light.Meta.FocalLength > 0 ? light.Meta.FocalLength.ToString(CultureInfo.InvariantCulture) : "",
-            Clean(light.Meta.SWCreator ?? ""),
+            Clean(light.Meta.SWCreator),
             Clean(session.FilterName),
             FilterSource(session, light),
             session.Lights.Length.ToString(CultureInfo.InvariantCulture),
@@ -552,7 +552,14 @@ public static class CalibrationCoverageReport
     private static string Bool(bool value) => value ? "true" : "false";
 
     /// <summary>TSV fields must not carry the separator or line breaks; target/instrument names are
-    /// free text from headers.</summary>
-    private static string Clean(string value) =>
-        value.IndexOfAny(['\t', '\r', '\n']) < 0 ? value : value.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
+    /// free text from headers.
+    /// <para>NULL-tolerant on purpose. Every one of these fields is a header card a capture program
+    /// may simply not have written, and a curated bake is exactly the archive where that never shows
+    /// up: this threw a <see cref="NullReferenceException"/> the first time the report was pointed at
+    /// an un-ingested pile, on a frame with no OBJECT. Guarding here rather than at each call site is
+    /// what keeps the next unwritten card from doing it again.</para></summary>
+    internal static string Clean(string? value) =>
+        value is null ? ""
+            : value.IndexOfAny(['\t', '\r', '\n']) < 0 ? value
+                : value.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
 }
