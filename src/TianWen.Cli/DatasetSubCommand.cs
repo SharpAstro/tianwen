@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -260,6 +260,11 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                 $"{stats.InstrumentExcluded} excluded-instrument, {stats.SoftwareExcluded} excluded-software, " +
                 $"{stats.ObjectExcluded} excluded-object, " +
                 $"{stats.PathExcluded} excluded-path, " +
+                (stats.NoSessionDir > 0
+                    ? $"{stats.NoSessionDir} no-session-dir (frames sitting under a frame-type folder " +
+                      "directly at the root: point --archive-root one level deeper, at the tree that " +
+                      "holds session directories), "
+                    : "") +
                 $"{stats.ProductExcluded} products, {stats.Duplicates} duplicates, " +
                 $"{stats.SessionsTooSmall} too-small sessions");
 

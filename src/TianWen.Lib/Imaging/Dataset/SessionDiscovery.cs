@@ -38,6 +38,13 @@ public static class SessionDiscovery
         int SoftwareExcluded,
         int ObjectExcluded,
         int PathExcluded,
+        /// <summary>Frames with no session directory under the root they were reported under. NOT an
+        /// exclusion the caller asked for: on a library-shaped archive it means the root is one level
+        /// too HIGH, since a top-level <c>lights</c> is a frame-type folder and every light under it
+        /// then looks like a shared library. Counted apart from <see cref="PathExcluded"/> because
+        /// reporting the two as one number says "you excluded these" when the answer is "look at your
+        /// root", which is a twenty-minute diagnosis instead of a one-line fix.</summary>
+        int NoSessionDir,
         int ProductExcluded,
         int Duplicates,
         int SessionsTooSmall,
@@ -74,7 +81,7 @@ public static class SessionDiscovery
     public static (ImmutableArray<ImagingSession> Sessions, DiscoveryStats Stats) GroupSessions(
         IReadOnlyList<(FrameInfo Frame, string Root)> frames, DatasetBuildOptions options)
     {
-        int notLight = 0, exposureOut = 0, instrumentExcluded = 0, softwareExcluded = 0, objectExcluded = 0, pathExcluded = 0, productExcluded = 0, duplicates = 0;
+        int notLight = 0, exposureOut = 0, instrumentExcluded = 0, softwareExcluded = 0, objectExcluded = 0, pathExcluded = 0, noSessionDir = 0, productExcluded = 0, duplicates = 0;
         var seen = new HashSet<(string Camera, DateTimeOffset Start, TimeSpan Exposure, int Width, int Height)>();
         // Grouped per target AND per filter as well as per directory + camera: a single dated LIGHT
         // folder routinely holds several pointings distinguished only by OBJECT, and on a mono
@@ -136,7 +143,7 @@ public static class SessionDiscovery
 
         var stats = new DiscoveryStats(
             frames.Count, notLight, exposureOut, instrumentExcluded, softwareExcluded, objectExcluded, pathExcluded,
-            productExcluded, duplicates, tooSmall, sessions.Count, lightCount);
+            noSessionDir, productExcluded, duplicates, tooSmall, sessions.Count, lightCount);
         return (sessions.ToImmutable(), stats);
     }
 
