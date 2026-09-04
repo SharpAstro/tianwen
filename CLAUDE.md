@@ -464,9 +464,17 @@ order and must not diverge: the pair-lock anchor pool is the brightest catalog s
 the frame from the hint, so a hint off by most of a field fills it with stars the image does not
 contain and the seed never reaches consensus.
 
-**A solver-built WCS answers in DETECTED-CENTROID coordinates -- never subtract 1 from `SkyToPixel`.**
-The emitted WCS needs no 1-based-to-0-based conversion; applying one injects a constant (+0.91, +0.89)
-px bias and spends a third of the acceptance gate's tolerance.
+**A `WCS` is in DETECTED-CENTROID coordinates, 0-based, everywhere in memory -- never subtract 1 from
+`SkyToPixel`, and never write CRPIX to a header by hand.** The FITS standard centres the first pixel at
+(1, 1), so the header is the ONE place the two frames differ: `WriteToHeader` adds one and stamps
+`PIXORIG = 1`; `FromHeader` and `FromAstapIniFile` subtract one. Until 2026-09-05 the numbers crossed
+the header unchanged under a "1-based" comment, so every file TianWen solved was one pixel off in
+astropy, PixInsight, Siril and ASTAP, and every third-party WCS one pixel off in TianWen; found as a
+constant (+0.95, +0.91) px offset against Gaia DR3 that a 2.5 px star-match tolerance had been
+absorbing. A TianWen master from before the marker (`STACK_N` or a `TianWen.` SWCREATE, no
+`PIXORIG`) is still read verbatim; a foreign frame solved in place with `--update-fits` before the fix
+is undetectable and reads one pixel off until re-solved. Subtracting one from `SkyToPixel` in memory
+injects the same bias the other way ((+0.91, +0.89) measured on Vela). Pinned by `WcsPixelOriginTests`.
 
 **`MinSampledFwhmPx` (2.0) re-detects at full resolution when a bin's median `StarFWHM` lands under
 it** -- binning is proposed by the plate scale and vetoed by the measured star width, since a scale

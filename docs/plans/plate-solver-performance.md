@@ -1317,6 +1317,45 @@ mean residual at (-0.07, -0.10) px unshifted and growing monotonically with any 
 acceptance gate 1.27 px of its 3 px tolerance, and `ReProjectionError` the sharpness of the parity
 comparison it exists to make.
 
+### ...and the header is 1-based, so the FITS boundary converts (2026-09-05)
+
+The rule above made the in-memory `WCS` 0-based and self-consistent, and left one consequence unpaid:
+`WriteToHeader` wrote those 0-based numbers under a "1-based" comment, and `FromHeader` read whatever a
+header held as if it were already in memory's frame. The FITS standard centres the first pixel at
+(1, 1). So every file TianWen solved was one pixel off for astropy, PixInsight, Siril and ASTAP, and
+every third-party WCS (a `.wcs` from ASTAP or astrometry.net, a N.I.N.A. sub solved elsewhere) was one
+pixel off inside TianWen.
+
+**How it surfaced.** The denoiser campaign's Gaia star mask (`training/denoise/gaia_starmask.py`)
+projects Gaia DR3 through a TianWen-solved master with astropy and matches detected peaks at 2.5 px. A
+peak is an integer pixel and a Gaia position is not, so a real match sits within 0.71 px of quantisation
+plus the WCS residual. On eval4b's four fields the excess of real over chance matches sat instead at:
+
+| ring | share of real matches |
+|---|---|
+| 0.00 to 0.50 px | 1.6 % |
+| 0.50 to 1.00 px | 16.5 % |
+| 1.00 to 2.00 px | 80.9 % |
+| beyond 2.25 px | 0 |
+
+The median offset vector was (+0.95, +0.91) px in (x, y): the same on all four sessions, for stars above
+SNR 100, and in the left, right, top and bottom halves of each frame, so a constant and not a fit,
+scale or distortion error. With one pixel put back, 96.7 percent of real matches fall inside 1.0 px and
+99.6 inside 1.5. The 2.5 px tolerance had been covering the offset at 6.25 times the coincidence floor,
+which on eta Car (1,275 catalogue stars per 224 px cell) meant 40 percent of any position "matching".
+
+**The fix is at the boundary and nowhere else.** `WriteToHeader` adds one and stamps `PIXORIG = 1`;
+`FromHeader` and `FromAstapIniFile` subtract one; the in-memory frame, the solver and every consumer are
+untouched. A file TianWen wrote before the marker (`STACK_N`, or a `TianWen.` SWCREATE, and no
+`PIXORIG`) is read verbatim, because its numbers already are the in-memory values. Two cases stay
+undetectable and read one pixel off exactly as before, until re-solved: a legacy master whose WCS came
+from the ASTAP or astrometry.net fallback (compliant numbers all along), and a foreign frame solved in
+place with `solve --update-fits` under its author's SWCREATE. `IncrementalSolver.CanonicaliseToFrameCentre`
+and the solver's nominal `(Width + 1) / 2` reference sit one pixel from the true 0-based centre; CRVAL
+is re-derived at whatever pixel CRPIX names, so that is a one-pixel shift in what `CenterRA` /
+`CenterDec` mean (about a plate scale of arcseconds), left alone deliberately rather than moving every
+solve. Pinned by `WcsPixelOriginTests`; the Gaia tooling refuses a solved file without the marker.
+
 ### The header hint: `OBJCTRA`/`OBJCTDEC` first, and `RA`/`DEC` is NOT the frame centre
 
 `RA`/`DEC` is the position the *mount reported*; `OBJCTRA`/`OBJCTDEC` is the target the framing put on
