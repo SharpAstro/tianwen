@@ -756,8 +756,11 @@ public sealed class ViewerController(
         }
 
         _blinkDueAt = now + interval;
-        var next = state.SelectedFileIndex + 1;
-        ViewerActions.SelectFile(state, next >= state.ImageFileNames.Count ? 0 : next);
+        var count = state.ImageFileNames.Count;
+        var next = state.SelectedFileIndex + (state.BlinkStep < 0 ? -1 : 1);
+        // Wrapping both ways, so a backward blink off the top lands on the last file rather than
+        // stalling at index 0 -- and an unselected list (-1) still enters at an end.
+        ViewerActions.SelectFile(state, next < 0 ? count - 1 : next >= count ? 0 : next);
         return true;
     }
 

@@ -367,6 +367,12 @@ public sealed class ViewerState
     /// </summary>
     public float BlinkFps { get; set; } = 2f;
 
+    /// <summary>
+    /// Which way the blink walks the file list: +1 forward, -1 backward (<c>Shift+Space</c>). Only the
+    /// SIGN is read, so nothing downstream has to trust the magnitude.
+    /// </summary>
+    public int BlinkStep { get; set; } = 1;
+
     // --- Toolbar hover ---
 
     /// <summary>Screen position of the mouse cursor, updated each frame.</summary>

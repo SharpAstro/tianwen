@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -207,6 +208,114 @@ public class ViewerControllerTests
 
         // ShutdownAsync should complete without throwing
         await controller.ShutdownAsync();
+    }
+
+    // --- TickBlink (P19) ---
+
+    /// <summary>
+    /// A three-file folder with <paramref name="selected"/> showing. A FRESH controller each time, so
+    /// the blink's first tick is always due and no test has to wait out an interval.
+    /// </summary>
+    private static (ViewerController Controller, ViewerState State) BlinkSut(int selected, int step)
+    {
+        var (controller, state, _, _, _) = CreateSut();
+        state.CurrentFolder = "/frames";
+        state.ImageFileNames = ["a.fits", "b.fits", "c.fits"];
+        state.SelectedFileIndex = selected;
+        state.IsBlinking = true;
+        state.BlinkStep = step;
+        return (controller, state);
+    }
+
+    [Fact]
+    public void TickBlink_WhenNotBlinking_StepsNothing()
+    {
+        var (controller, state) = BlinkSut(selected: 0, step: 1);
+        state.IsBlinking = false;
+
+        controller.TickBlink().ShouldBeFalse();
+
+        state.SelectedFileIndex.ShouldBe(0);
+        state.RequestedFilePath.ShouldBeNull();
+    }
+
+    [Fact]
+    public void TickBlink_StepsForward()
+    {
+        var (controller, state) = BlinkSut(selected: 0, step: 1);
+
+        controller.TickBlink().ShouldBeTrue();
+
+        state.SelectedFileIndex.ShouldBe(1);
+        state.RequestedFilePath.ShouldBe(Path.Combine("/frames", "b.fits"));
+    }
+
+    [Fact]
+    public void TickBlink_WrapsForwardOffTheEnd()
+    {
+        var (controller, state) = BlinkSut(selected: 2, step: 1);
+
+        controller.TickBlink().ShouldBeTrue();
+
+        state.SelectedFileIndex.ShouldBe(0, "a blink runs in a loop; stalling on the last file is not a blink");
+    }
+
+    [Fact]
+    public void TickBlink_WrapsBackwardOffTheStart()
+    {
+        // Shift+Space. The off-by-one that matters: -1 must land on the LAST file, not clamp at 0.
+        var (controller, state) = BlinkSut(selected: 0, step: -1);
+
+        controller.TickBlink().ShouldBeTrue();
+
+        state.SelectedFileIndex.ShouldBe(2);
+    }
+
+    [Fact]
+    public void TickBlink_StepsBackward()
+    {
+        var (controller, state) = BlinkSut(selected: 2, step: -1);
+
+        controller.TickBlink().ShouldBeTrue();
+
+        state.SelectedFileIndex.ShouldBe(1);
+    }
+
+    [Fact]
+    public void TickBlink_DoesNotQueueAStepBehindALoad()
+    {
+        // A folder that opens slower than the interval would otherwise build a backlog and keep
+        // stepping after the user stopped.
+        var (controller, state) = BlinkSut(selected: 0, step: 1);
+        state.RequestedFilePath = "/frames/pending.fits";
+
+        controller.TickBlink().ShouldBeFalse();
+
+        state.SelectedFileIndex.ShouldBe(0);
+        state.IsBlinking.ShouldBeTrue("a load in flight defers the step, it does not end the blink");
+    }
+
+    [Fact]
+    public void TickBlink_WithNothingToBlinkBetween_StopsItself()
+    {
+        var (controller, state) = BlinkSut(selected: 0, step: 1);
+        state.ImageFileNames = ["only.fits"];
+
+        controller.TickBlink().ShouldBeFalse();
+
+        state.IsBlinking.ShouldBeFalse("the status readout must not claim a blink that is not running");
+    }
+
+    [Fact]
+    public void TickBlink_WhileASequenceIsLoaded_StopsItself()
+    {
+        // A SER owns Space and has its own transport; the two must not both be running.
+        var (controller, state) = BlinkSut(selected: 0, step: 1);
+        state.IsSequence = true;
+
+        controller.TickBlink().ShouldBeFalse();
+
+        state.IsBlinking.ShouldBeFalse();
     }
 
     /// <summary>

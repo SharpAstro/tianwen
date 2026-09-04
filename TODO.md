@@ -358,9 +358,11 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     arrive seconds after the load and a snapshot would leave the anchor looking different from every
     frame following it. On by default, so a step between two subs no longer re-solves the auto-stretch;
     it also makes the SPCC fit run once per run instead of once per file, which is the "load faster"
-    half. `Space` blinks the file list (the SER transport still owns Space while a sequence is loaded),
-    `Shift+Space` holds or releases, the status bar says "Held to <file>", and the blink stops itself
-    on a frame the anchor cannot describe. `DisplayCarryTests`. Done 2026-09-04.
+    half. The keys are a transport, so Shift is the other direction: `Space` blinks forward (the SER
+    transport still owns Space while a sequence is loaded), `Shift+Space` backward, `Ctrl+Space` returns
+    to the held frame, and `Shift+H` holds or releases. The status bar says "Held to <file>", and the
+    blink stops itself on a frame the anchor cannot describe. `DisplayCarryTests` +
+    `ViewerControllerTests`. Done 2026-09-04.
   - [ ] **P20** A share link to the web viewer (needs `&t=`). BACKLOG, blocked on the web side.
   - [ ] **P21** A mosaic's channel views show the mosaic, not the debayered planes. BACKLOG; a shader
     change whose cheap form is not obvious yet.

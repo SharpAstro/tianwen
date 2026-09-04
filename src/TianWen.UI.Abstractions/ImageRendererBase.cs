@@ -1054,6 +1054,35 @@ namespace TianWen.UI.Abstractions
             }
         }
 
+        /// <summary>
+        /// Selects the file the run is anchored to -- the reference frame every other frame is being
+        /// displayed with, and the one a blink is measured against (<c>Ctrl+Space</c>).
+        /// </summary>
+        /// <remarks>
+        /// The affordance stepping cannot give: once a blink has walked several files, going back to the
+        /// reference means finding it in the list by name, and the list does not mark it. Stops the blink
+        /// on the way, because coming back to the reference is what you do to LOOK at it.
+        /// <para>No-op when nothing is held, or when the anchor's file has left the folder listing.</para>
+        /// </remarks>
+        private void SnapToDisplayAnchor(ViewerState state)
+        {
+            if (_displayAnchor is not { } anchor)
+            {
+                return;
+            }
+
+            var name = Path.GetFileName(anchor.FilePath);
+            var index = state.ImageFileNames.FindIndex(
+                f => string.Equals(f, name, StringComparison.OrdinalIgnoreCase));
+            if (index < 0)
+            {
+                return;
+            }
+
+            state.IsBlinking = false;
+            ViewerActions.SelectFile(state, index);
+        }
+
         // -----------------------------------------------------------------------
         // Image rendering: computes placement, delegates to abstract
         // -----------------------------------------------------------------------

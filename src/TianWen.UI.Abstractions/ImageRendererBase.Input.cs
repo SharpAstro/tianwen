@@ -209,7 +209,23 @@ namespace TianWen.UI.Abstractions
                     state.NeedsRedraw = true;
                     return true;
                 case InputKey.H:
-                    ViewerActions.CycleHdr(state);
+                    // Shift holds or releases the display mapping the blink is measured against. It
+                    // moved off Shift+Space because on a transport Shift means the OTHER DIRECTION
+                    // everywhere else, and H is where "hold" reads.
+                    if (shift)
+                    {
+                        state.CarryDisplayAcrossFrames = !state.CarryDisplayAcrossFrames;
+                        if (!state.CarryDisplayAcrossFrames)
+                        {
+                            // Blinking through per-frame auto-stretches is a flicker, not a comparison.
+                            state.IsBlinking = false;
+                        }
+                        state.NeedsRedraw = true;
+                    }
+                    else
+                    {
+                        ViewerActions.CycleHdr(state);
+                    }
                     return true;
                 case InputKey.V:
                     if (shift)
@@ -260,24 +276,23 @@ namespace TianWen.UI.Abstractions
                     return OpenToolbarDropdown(state, ToolbarAction.Zoom);
                 case InputKey.Space:
                     // The SER transport claims Space while a sequence is loaded (handled above), so this
-                    // is the still-image case: the SAME play/pause gesture, pointed at the file list.
-                    // Shift holds or releases the display mapping the blink depends on, so the pair sits
-                    // on one key.
-                    if (shift)
+                    // is the still-image case: the same play/pause gesture, pointed at the file list.
+                    // Ctrl returns to the frame the run is HELD to -- the reference a blink is measured
+                    // against, and the one thing a blink comparator needs that stepping cannot give.
+                    if (ctrl)
                     {
-                        state.CarryDisplayAcrossFrames = !state.CarryDisplayAcrossFrames;
-                        if (!state.CarryDisplayAcrossFrames)
-                        {
-                            // Blinking through per-frame auto-stretches is a flicker, not a comparison.
-                            state.IsBlinking = false;
-                        }
-                        state.NeedsRedraw = true;
+                        SnapToDisplayAnchor(state);
                     }
                     else if (state.ImageFileNames.Count >= 2)
                     {
-                        state.IsBlinking = !state.IsBlinking;
-                        state.NeedsRedraw = true;
+                        // Shift is the other direction, as on any transport. Pressing a direction while
+                        // already running THAT way pauses; pressing the other one reverses rather than
+                        // stopping, so a comparison never needs two presses to turn around.
+                        var step = shift ? -1 : 1;
+                        state.IsBlinking = !(state.IsBlinking && state.BlinkStep == step);
+                        state.BlinkStep = step;
                     }
+                    state.NeedsRedraw = true;
                     return true;
                 case InputKey.Up:
                     if (state.SelectedFileIndex > 0)

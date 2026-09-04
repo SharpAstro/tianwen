@@ -483,11 +483,17 @@ that resolves to the anchor or to `this`.
   whenever a frame is not being shown with its own stretch. The carry is invisible by design, so the
   only defensible way to ship it is to say so on screen.
 - **Blink** is `ViewerController.TickBlink`, ticked from the host loop beside `TickPlayback` for the
-  same reason (it is what paces the step without a busy-spin). `Space` toggles it when the source is not
-  a sequence -- the SER transport already claims Space when one is loaded -- and `Shift+Space` holds or
-  releases the display. A step is never queued behind a load, and the renderer STOPS the blink, naming
-  the file, when a frame arrives that the anchor cannot describe: a blink through two different fields
-  compares nothing.
+  same reason (it is what paces the step without a busy-spin). A step is never queued behind a load, and
+  the renderer STOPS the blink, naming the file, when a frame arrives that the anchor cannot describe: a
+  blink through two different fields compares nothing.
+- **The keys are a transport, so Shift is the other DIRECTION**, not a mode: `Space` runs the blink
+  forward (the SER transport still claims Space while a sequence is loaded), `Shift+Space` runs it
+  backward, and pressing a direction while already running that way pauses while pressing the other one
+  reverses -- so turning a comparison around never takes two presses. `Ctrl+Space` returns to the frame
+  the run is HELD to, which is the affordance stepping cannot give: once a blink has walked several
+  files, going back to the reference otherwise means finding it in the list by name, and the list does
+  not mark it. Hold/release moved to `Shift+H`. The first cut put it on `Shift+Space`, where it read as
+  a direction to anyone who has used a transport.
 - **One residual, deliberate.** `ComputeBackgroundNeutralization`'s per-method gain cache now keys on the
   background ARRAY as well as the method and WB -- it is replaced rather than mutated, by star detection
   and by an anchor being taken up or dropped, and without that the pre-mask gains were served for the
