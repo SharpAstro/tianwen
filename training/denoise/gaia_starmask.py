@@ -14,6 +14,13 @@ The chain, all cached, one pass per session rather than per cell:
 Cell geometry is exact, not inferred: `meta["keys"][i]` is `[session, CellX, CellY]` and
 DatasetTileExporter documents CellX/CellY as the tile ORIGIN in canvas pixels, so tile pixel (j, i)
 is master pixel (CellY + j, CellX + i), and the metric's 16 px rim crop shifts both by 16.
+
+The WCS itself has to be in the FITS convention for astropy to place a star on the right pixel. A CLI
+from before 2026-09-05 wrote its 0-based CRPIX under a "1-based" comment, and astropy then read every
+star one pixel low: measured as a constant (+0.95, +0.91) px offset between peaks and their Gaia stars
+on all four eval4b fields, which a 2.5 px tolerance had been absorbing at the price of a 40 percent
+coincidence floor on eta Car. The fixed writer stamps PIXORIG = 1; this module refuses a solved file
+without it and re-solves.
 """
 import json
 import os
@@ -30,6 +37,9 @@ import gaia_vizier
 # stars, one per 21 pixels of a cell, and a 2.5 px tolerance then matches nearly every peak by chance.
 # The cut is what the IMAGE can see, not what the catalogue holds.
 DEFAULT_MAG_MAX = 16.0
+
+# Written beside CRPIX by WCS.WriteToHeader since 2026-09-05; its absence means 0-based CRPIX numbers.
+PIXEL_ORIGIN_CARD = 'PIXORIG'
 
 TILE = 256
 BORDER = 16                      # n2n_metrics.crop drops this many pixels per edge
@@ -52,19 +62,27 @@ def master_path(session_id):
 
 
 def solved_master(session_id, verbose=True):
-    """A copy of the session master carrying a WCS. Solves once, then reuses."""
+    """A copy of the session master carrying a WCS in the FITS convention. Solves once, then reuses."""
     src = master_path(session_id)
     if src is None:
         return None
     os.makedirs(SOLVED_DIR, exist_ok=True)
     dst = os.path.join(SOLVED_DIR, os.path.basename(src))
+    from astropy.io import fits
+    if os.path.exists(dst):
+        hdr = fits.getheader(dst)
+        if 'CRVAL1' in hdr and hdr.get(PIXEL_ORIGIN_CARD) == 1:
+            return dst
+        if 'CRVAL1' in hdr:
+            # Solved by a CLI from before the marker: its CRPIX is 0-based and astropy reads every star one
+            # pixel low (module docstring). Start again from the bake master.
+            if verbose:
+                print(f'  {os.path.basename(dst)[:60]}: legacy 0-based CRPIX, re-solving')
+            os.remove(dst)
     if not os.path.exists(dst):
         shutil.copy2(src, dst)
-    from astropy.io import fits
-    with fits.open(dst) as h:
-        if 'CRVAL1' in h[0].header:
-            return dst
-        hint = (h[0].header.get('OBJCTRA'), h[0].header.get('OBJCTDEC'))
+    hdr = fits.getheader(dst)
+    hint = (hdr.get('OBJCTRA'), hdr.get('OBJCTDEC'))
     cmd = [CLI, 'solve', dst, '--update-fits']
     if all(hint):
         # A hint narrows the search enormously; OBJCTRA is what the mount reported, which is close
@@ -82,11 +100,15 @@ def solved_master(session_id, verbose=True):
     if verbose:
         print(f'  solving {os.path.basename(dst)[:60]}')
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
-    with fits.open(dst) as h:
-        if 'CRVAL1' not in h[0].header:
-            if verbose:
-                print(f'    SOLVE FAILED: {r.stdout.strip().splitlines()[-1] if r.stdout.strip() else r.returncode}')
-            return None
+    hdr = fits.getheader(dst)
+    if 'CRVAL1' not in hdr:
+        if verbose:
+            print(f'    SOLVE FAILED: {r.stdout.strip().splitlines()[-1] if r.stdout.strip() else r.returncode}')
+        return None
+    if hdr.get(PIXEL_ORIGIN_CARD) != 1:
+        # An old CLI would hand astropy 0-based numbers and every star would land a pixel low, silently.
+        raise SystemExit(f'{CLI} wrote a WCS without {PIXEL_ORIGIN_CARD}; rebuild it from a checkout at or '
+                         f'after 2026-09-05 (dotnet build src/TianWen.Cli)')
     return dst
 
 
