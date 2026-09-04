@@ -774,3 +774,46 @@ slightly more noise on G and have fewer loud seams on R; recorded, not decisive.
 
 The model file was restored after the swap and `git status` came back clean, so what is committed is
 byte-identical to what was measured.
+
+### 2026-09-04: the split revises E2 -- the REGIME is a lever, the SHAPE is not
+
+Fifteen checkpoints on eval4b (the eval none of them was selected across), split into Gaia-confirmed
+stars and unmatched detail. Amplitude spent at 10 percent noise removed, lower better:
+
+| family | stars | detail |
+|---|---|---|
+| warped, 9 seeds | 10.2 - 14.1 | **3.2 - 6.2** |
+| white, 3 seeds | 10.3 - 12.5 | **4.7 - 5.5** |
+| N2N final weights (ctl s1, s2; v19d s0) | 14.6 - 14.9 | 10.2 - 12.4 |
+| gate1500 (gate-SELECTED, for reference) | **9.3** | 7.6 |
+
+**Shape calibration is not a lever.** White and warped overlap on both axes, and `warped_s2`'s 3.2 sits
+at the good end of its OWN arm's 3.2 to 6.2 spread. H2 is dead on this axis as well as on the blended
+one, and **E2b is closed**: there is nothing for a per-draw `--warp-sigma` to tune.
+
+**The regime is a lever, and it is a big one.** All twelve supervised checkpoints spend 3.2 to 6.2 of
+the faint STRUCTURE amplitude where the three N2N finals spend 10.2 to 12.4, with no overlap on either
+population and like for like on selection (no supervised probe passed a gate, and these N2N rows are
+finals too). Supervised injection preserves nebulosity two to three times better AND preserves stars
+better.
+
+**This revises H1 without contradicting it.** H1 was measured on the blended metric and its kill stands
+as arithmetic; what the blend did was average a large structure win against a smaller star loss into
+a wash. "Supervised injection does not beat N2N at deployment depth" is too coarse: it does not beat it
+on a metric that averages stars with nebulosity, and it beats it decisively on structure. The pool is
+100 percent emission nebulae, so which half of that average matters is not a neutral choice.
+
+**And gate-selection is a THIRD axis, orthogonal to both.** `gate1500` is the best star preserver
+measured (9.3) while sitting mid-pack on detail. So: gate-selection buys stars, supervised injection
+buys structure, and noise shape buys nothing.
+
+**Consequence for what comes next.** The supervised regime is the better one for this pool's subject
+matter, and its ceiling is the shared-noise defect: its target is a master whose noise its INPUT also
+carries, so the model is trained to leave exactly that. Fixing it is a data-design question --
+same-target-different-night pairs have genuinely independent noise, and the bake holds several (HD
+74167 on 2026-01-05 and 01-06, Vela SNR on 2025-12-17 and 2026-01-23, eta Car on 2025-12-17 and
+2026-02-20, plus Orion and Tarantula repeats). The trap to design around is that N2N assumes the
+SIGNAL is identical and only the noise differs: two nights have different seeing, so a naive pair
+teaches the model to blur toward the worse PSF. `stats/psf-sessions.jsonl` carries per-session FWHM,
+so pairs must be matched on it or convolved to a common PSF. That is the next experiment, and its
+first step is a query rather than a training run.
