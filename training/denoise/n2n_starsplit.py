@@ -26,12 +26,15 @@ import torch
 import gaia_starmask
 import n2n_metrics as M
 import n2n_smoke as S
+from gaia_depth import ring_ratio
+from gaia_starmask import MATCH_PX
 
-# A peak is an integer pixel and a Gaia position is not, so a real match sits within 0.71 px of
-# quantisation plus the WCS residual: measured on eval4b, 96.7 percent inside 1.0 px and 99.6 inside
-# 1.5 once the writer's one-pixel CRPIX offset was fixed (gaia_starmask docstring). The 2.5 px this
-# used to be was covering that offset, at 6.25 times the coincidence floor.
-MATCH_PX = 1.0
+# The per-session cap walks from the pool's BP 16 down to Gaia's practical limit while the analytic
+# coincidence floor stays under this. Measured 2026-09-05 (gaia_depth.py): Horsehead reaches 21 at a
+# 1.5 percent floor and gains 50 points of confirmed stars; the Rim Nebula at 5.7"/px is over 4 percent
+# at 16 already and stays there.
+AUTO_MAG_MAX = 21.0
+AUTO_FLOOR_MAX = 0.05
 
 
 def main():
@@ -40,7 +43,9 @@ def main():
     ap.add_argument('--models', nargs='+', required=True, help='slug=checkpoint.pt')
     ap.add_argument('--blend', default='0.2,0.4,0.7,1.0')
     ap.add_argument('--match', default='4,10', help='noise-removal percentages to compare AT')
-    ap.add_argument('--mag-max', type=float, default=gaia_starmask.DEFAULT_MAG_MAX)
+    ap.add_argument('--mag-max', default='auto',
+                    help='Gaia BP cap: a number, or "auto" for the deepest cap per session (16 to %g) whose '
+                         'coincidence floor stays under %.0f%%' % (AUTO_MAG_MAX, 100 * AUTO_FLOOR_MAX))
     a = ap.parse_args()
 
     dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -48,8 +53,10 @@ def main():
     halves = meta['has_halves']
     cells = [i for i in range(meta['train_cells'], meta['cells']) if halves[i]]
 
+    auto = str(a.mag_max).lower() == 'auto'
+    fetch_to = AUTO_MAG_MAX if auto else float(a.mag_max)
     print('building the Gaia star mask (solves each session master once, then caches)')
-    mask = gaia_starmask.build(a.cache, mag_max=a.mag_max)
+    mask = gaia_starmask.build(a.cache, mag_max=fetch_to, with_mag=True)
     covered = [k for k, i in enumerate(cells) if i in mask]
     if not covered:
         raise SystemExit('no scored cell has a solved session; nothing to split')
@@ -61,48 +68,95 @@ def main():
     half_b = np.asarray(mm[idx, S.SLOT_HALF_B], dtype=np.float32)
     lm, lb = masters.mean(axis=1)[..., 16:-16, 16:-16], half_b.mean(axis=1)[..., 16:-16, 16:-16]
     stars = M.star_table(lm)
+    cell_area = lm.shape[1] * lm.shape[2]
 
-    confirmed, detail = [], []
-    n_conf = n_det = 0
+    # The cap per session. A fixed BP 16 was the pool's AVERAGE detection depth, and on 2026-09-05 it
+    # read three quarters of Horsehead's real stars and two thirds of the Statue of Liberty's as
+    # "detail" (gaia_depth.py); a fixed BP 21 makes a 135 mm field unreadable (Rim Nebula floor 123
+    # percent). So each session takes the deepest cap whose analytic floor stays under AUTO_FLOOR_MAX,
+    # never shallower than the old 16, and the cap is printed beside the number it produced.
+    session_of = {i: meta['keys'][i][0] for i in idx}
+    cap_of = {}
+    for sid in dict.fromkeys(session_of[i] for i in idx):
+        if not auto:
+            cap_of[sid] = fetch_to
+            continue
+        cells_here = [(t, i) for t, i in enumerate(idx) if session_of[i] == sid]
+        cap = gaia_starmask.DEFAULT_MAG_MAX
+        for trial in np.arange(gaia_starmask.DEFAULT_MAG_MAX, AUTO_MAG_MAX + 0.5, 1.0):
+            floor = np.mean([(mask[i][:, 2] < trial).sum() * np.pi * MATCH_PX ** 2 / cell_area for _, i in cells_here])
+            if floor <= AUTO_FLOOR_MAX or trial == gaia_starmask.DEFAULT_MAG_MAX:
+                cap = float(trial)
+            else:
+                break
+        cap_of[sid] = cap
+
+    confirmed, compact, extended = [], [], []
+    n_conf = n_comp = n_ext = 0
     chance = []
     per_session = {}
+    ring_band = {}
     for t, i in enumerate(idx):
         ys, xs, snr = stars[t]
+        sid = session_of[i]
         g = mask[i]
+        g = g[g[:, 2] < cap_of[sid]]
         if len(g) and len(ys):
             d = np.hypot(ys[:, None] - g[None, :, 0], xs[:, None] - g[None, :, 1]).min(axis=1)
             hit = d <= MATCH_PX
         else:
             hit = np.zeros(len(ys), bool)
+        # An unmatched peak is split by SHAPE against the session's own confirmed stars: the ring-to-peak
+        # ratio at 2 px (gaia_depth.ring_ratio), and "extended" is broader than the confirmed 95th
+        # percentile. On Horsehead that put 82 percent of the unmatched remainder in extended and the
+        # noise check at chance; on eta Car 83 percent stayed compact (blends below the match radius).
+        rr = ring_ratio(lm[t], ys, xs, float(np.median(lm[t]))) if len(ys) else np.zeros(0)
+        band = ring_band.setdefault(sid, [])
+        band.extend(rr[hit].tolist())
         confirmed.append((ys[hit], xs[hit], snr[hit]))
-        detail.append((ys[~hit], xs[~hit], snr[~hit]))
-        n_conf += int(hit.sum()); n_det += int((~hit).sum())
-        # Coincidence floor for this cell: catalogue density x the tolerance disc. Analytic, and checked
-        # against a shifted catalogue on eval4b (8.0 against 8.0 percent on the densest field at 1 px).
-        floor = len(g) * np.pi * MATCH_PX ** 2 / (lm.shape[1] * lm.shape[2])
+        compact.append((ys[~hit], xs[~hit], snr[~hit], rr[~hit]))   # split once every band is known
+        n_conf += int(hit.sum())
+        floor = len(g) * np.pi * MATCH_PX ** 2 / cell_area
         chance.append(floor)
-        p = per_session.setdefault(meta['keys'][i][0], dict(cells=0, peaks=0, conf=0, floor=0.0))
+        p = per_session.setdefault(sid, dict(cells=0, peaks=0, conf=0, floor=0.0, ext=0, comp=0))
         p['cells'] += 1; p['peaks'] += len(ys); p['conf'] += int(hit.sum()); p['floor'] += floor
 
-    total = n_conf + n_det
-    print(f"{'session':44s} {'cells':>5} {'peaks':>6} {'confirmed':>9} {'floor':>6} {'of detail':>9}")
+    # Second pass: the extended cut needs each session's whole confirmed population.
+    cut_of = {sid: (np.percentile(b, 95) if len(b) >= 50 else np.nan) for sid, b in ring_band.items()}
+    pooled_cut = np.percentile(sum(ring_band.values(), []), 95)
+    for t, i in enumerate(idx):
+        ys, xs, snr, rr = compact[t]
+        cut = cut_of[session_of[i]]
+        cut = pooled_cut if np.isnan(cut) else cut
+        ext = rr > cut
+        compact[t] = (ys[~ext], xs[~ext], snr[~ext])
+        extended.append((ys[ext], xs[ext], snr[ext]))
+        n_comp += int((~ext).sum()); n_ext += int(ext.sum())
+        p = per_session[session_of[i]]
+        p['ext'] += int(ext.sum()); p['comp'] += int((~ext).sum())
+
+    total = n_conf + n_comp + n_ext
+    print(f"{'session':44s} {'cells':>5} {'peaks':>6} {'BP cap':>6} {'floor':>6} {'stars':>7} {'compact':>8} {'extended':>9} {'of ext.':>8}")
     for sid, p in per_session.items():
-        print(f"{sid.split('|')[0][-44:]:44s} {p['cells']:5d} {p['peaks']:6d} {100*p['conf']/max(p['peaks'],1):8.1f}% "
-              f"{100*p['floor']/p['cells']:5.1f}% {100*(p['peaks']-p['conf'])/max(n_det,1):8.1f}%")
-    print(f'{total} peaks over the covered cells: {n_conf} Gaia-confirmed ({100*n_conf/total:.1f}%), '
-          f'{n_det} unmatched detail ({100*n_det/total:.1f}%)')
+        print(f"{sid.split('|')[0][-44:]:44s} {p['cells']:5d} {p['peaks']:6d} {cap_of[sid]:6g} {100*p['floor']/p['cells']:5.1f}% "
+              f"{100*p['conf']/max(p['peaks'],1):6.1f}% {100*p['comp']/max(p['peaks'],1):7.1f}% "
+              f"{100*p['ext']/max(p['peaks'],1):8.1f}% {100*p['ext']/max(n_ext,1):7.1f}%")
+    print(f'{total} peaks over the covered cells: {n_conf} Gaia-confirmed stars ({100*n_conf/total:.1f}%), '
+          f'{n_comp} compact unmatched ({100*n_comp/total:.1f}%), {n_ext} extended ({100*n_ext/total:.1f}%)')
     print(f'pooled coincidence floor: {100*np.mean(chance):.1f}% -- a confirmed fraction near a session\'s '
-          f'floor is luck, not stars, and "of detail" says which fields the structure column is made of\n')
+          f'floor is luck, not stars; "of ext." says which fields the extended column is made of.\n'
+          f'Compact unmatched peaks are star-shaped: uncatalogued or blended stars, or knots; only the '
+          f'EXTENDED column is nebulosity, and only it supports a structure claim.\n')
 
     raw = S.crop(half_a)
-    pops = {'Gaia-confirmed stars': confirmed, 'unmatched detail': detail}
+    pops = {'Gaia stars': confirmed, 'compact unmatched': compact, 'extended': extended}
     base_noise = float(np.mean([M.bg_stats(t)[1] for t in raw.mean(axis=1)]))
     raw_amp = {k: M.measure(raw.mean(axis=1), t, lb)[0][0] for k, t in pops.items()}
 
     alphas = [float(x) for x in a.blend.split(',') if x.strip()]
     targets = [float(x) for x in a.match.split(',') if x.strip()]
-    print(f"{'model':14s} " + ' '.join(f'{t:>10.0f}% removed' for t in targets))
-    print(f"{'':14s} " + ' '.join(f'{"stars/detail":>18}' for _ in targets))
+    print(f"{'model':14s} " + ' '.join(f'{t:>19.0f}% removed' for t in targets))
+    print(f"{'':14s} " + ' '.join(f'{"stars/compact/extended":>27}' for _ in targets))
     for spec in a.models:
         slug, ckpt = spec.split('=', 1)
         out = S.crop(S.denoise(a.cache, ckpt, half_a, dev))
@@ -124,10 +178,11 @@ def main():
                         hit = f'{s0 + (s1 - s0) * (tgt - r0) / (r1 - r0):5.1f}'
                         break
                 vals.append(hit)
-            row.append(f'{vals[0]:>8} /{vals[1]:>8}')
-        print(f'{slug:14s} ' + ' '.join(f'{r:>18}' for r in row))
+            row.append(' /'.join(f'{v:>8}' for v in vals))
+        print(f'{slug:14s} ' + ' '.join(f'{r:>27}' for r in row))
     print('\nEach cell is the faint amplitude SPENT to buy that much quiet: lower is better, and the '
-          'two numbers are the same model judged on stars and on structure.')
+          'three numbers are the same model judged on Gaia stars, on compact unmatched peaks (uncatalogued '
+          'or blended stars, knots) and on extended peaks (nebulosity). A structure claim rests on the third.')
 
 
 if __name__ == '__main__':

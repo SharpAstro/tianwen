@@ -283,12 +283,16 @@ def prepare(args):
     # supervised pair when slot 0 is the clean target of the degradation rather than an integration
     # the subs are noisy views OF. Recorded from the tiles that were actually read, not from a flag,
     # so a cache cannot claim to be something its bytes are not.
-    injected = all(
+    # A cross-night pair cache (tianwen dataset pair) has NO sub tiles: its two nights sit in the half
+    # slots and the sub slots stay zero. `all()` over nothing is True, so without this a pair cache
+    # would read as injected and --synthetic would regress zeros onto the master.
+    has_subs = any(cells[key]["subs"] for key in keys)
+    injected = has_subs and all(
         os.path.basename(rel).rsplit("_", 1)[-1].startswith("deg")
         for key in keys for rel in cells[key]["subs"][:SUBS_PER_CELL])
-    print(f"  sub slots: {'INJECTED draws' if injected else 'real subs'}")
+    print(f"  sub slots: {'INJECTED draws' if injected else 'real subs' if has_subs else 'EMPTY (a pair cache: train with --half-only)'}")
     meta = {
-        "cells": n, "slots": SLOTS_WITH_HALVES, "injected": bool(injected),
+        "cells": n, "slots": SLOTS_WITH_HALVES, "injected": bool(injected), "has_subs": bool(has_subs),
         "train_cells": len(train_keys), "val_cells": len(val_keys),
         "train_sessions": train_s, "val_sessions": val_s,
         "has_halves": halves,
@@ -572,6 +576,14 @@ def train(args):
     # against 2.96x for the deepest pair 8 subs allow (4v4). That is the regime the model is
     # deployed in and, until this bake, the training set had no pair anywhere near it.
     regimes = list(MIX_LEVELS) if args.mix_avg else [args.pair_avg]
+    if args.half_only:
+        # A cross-night pair cache: the two nights are the half slots and the sub slots are empty,
+        # so the half regime is the only one with pixels in it. Implies --half-pairs.
+        args.half_pairs = True
+        regimes = []
+    elif not meta.get("has_subs", True):
+        raise SystemExit("this cache has no sub tiles (a cross-night pair cache from "
+                         "`tianwen dataset pair`); train it with --half-only")
     if args.synthetic:
         # Supervised, and EXCLUSIVE: an arm that mixed noise-to-clean with noise-to-noise would not
         # answer H1, which asks whether supervised injection beats N2N at deployment depth. Refused
@@ -1022,6 +1034,10 @@ if __name__ == "__main__":
     p.add_argument("--half-pairs", action="store_true",
                    help="train on the half-master pair as a fourth regime (needs a cache "
                         "prepared from a bake that exports halves)")
+    p.add_argument("--half-only", action="store_true",
+                   help="train on the half-master pair ALONE: the regime for a cross-night pair cache "
+                        "(tianwen dataset pair), whose two nights sit in the half slots and whose sub "
+                        "slots are empty. Implies --half-pairs")
     p.add_argument("--require-halves", action="store_true",
                    help="prepare only from sessions that carry a half-master pair")
     p.add_argument("--cond", action="store_true",
