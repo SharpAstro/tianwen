@@ -1114,7 +1114,7 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   removes noise (0.94 / 0.92 / 0.88x) and every independent-target seed ADDS it (1.07 / 1.04 / 1.07x).
   It amplifies rather than underperforming, which is a systematic being learned: N2N needs the target's
   deviation to be independent of the input AND to have zero conditional mean, and a night's own smooth
-  field (5.5 to 18.6 percent of its deviation) fails the second. **Arm X was KILLED (2026-09-05): three
+  field (5.5 to 18.6 percent of its deviation) fails the second. Reversing every pair so the independent target is the QUIETER night makes it worse still (-21 to -26 percent removed, extended column -68), which is how the depth confound was excluded rather than argued away. **Arm X was KILLED (2026-09-05): three
   seeds trained to near-identity**, and the reason is the pool, not the regime: one sky's master-depth halves
   span a third of the CONDITIONING plane's deployed range (training p5 0.22; Horsehead reads 0.09, the
   Statue 0.17), and off that range the net amplifies noise rather than removing it. Check the
