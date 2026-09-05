@@ -1,0 +1,4 @@
+# Arm X2 val: the one pair of a sky nothing trains on, held out whole. The gate selects on it, and on
+# a pair cache with injected draws the gate's input is a DRAW of night A, not a half slot, so it sees
+# the same regime the training steps do.
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HD-74167/2026-01-05+2026-01-06|ZWO ASI533MC Pro|HD 74167|Optolong L-Ultimate 3nm
