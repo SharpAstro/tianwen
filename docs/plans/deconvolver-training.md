@@ -22,7 +22,12 @@ discipline in [model-training-roadmap.md](model-training-roadmap.md).
   encodes the RADIUS as `psf01 = log2(r / 1 px) / log2(8)` over `[1, 8]` px, the SAS AI4 convention.
   Two consequences measured 2026-08-11: a FWHM sweep to 8 px reaches only `psf01 = 0.667`, and this
   archive's masters (FWHM 1.8 to 2.4 px, radius 0.9 to 1.2) **clamp at or near 0**, so under the SAS
-  encoding the model has no lever on the very frames it will be run on.
+  encoding the model has no lever on the very frames it will be run on. **REVISED by E1 (H5 below):
+  that was the 51-session organized bake. Over the full 79-session bake the estimator reads 0.88 to
+  3.03 px radius and the shipped encoding spreads them 0.000 to 0.293 with 6 of 79 clamped, so there
+  IS a lever and it is the CEILING, not the floor, that is throwing resolution away.** The estimator
+  now exposes its unclamped measurement (`MeasureRadiusPxAsync`) and a range-parameterised
+  `EncodeRadiusToPsf01`, because a clamped value cannot be re-encoded under a candidate range.
 - Backend order today: RC-Astro `bxt` when installed and licensed, else SAS
   `deep_nonstellar_sharp_conditional_psf_AI4.onnx`. Neither may appear in this training, validation
   or metric loop (EULA section 10; SAS licence unverified, excluded by default).
@@ -110,6 +115,42 @@ and report the spread of psf01 values a real master would present.
 *Prediction:* `[1, 8]` gives a spread under 0.1 (no lever); `[0.5, 8]` spreads the archive over about
 0.2 to 0.4. Train and ship the own contract with the lower floor; only a SAS drop-in export is pinned
 to `[1, 8]`, and it is not built unless measured equal.
+
+> **ANSWERED 2026-09-06 (E1), and BOTH halves are wrong: the diagnosis and the fix.**
+> `PsfEncodingSpreadProbe` runs the DEPLOYED `HfdPsfEstimator` over all 79 retained masters of
+> `2026-09-full` and encodes the radius it reads under four candidate ranges.
+>
+> | range | p05 | p50 | p95 | spread | on floor | at ceiling |
+> |---|---:|---:|---:|---:|---:|---:|
+> | `[1.0, 8.0]` shipped | 0.000 | 0.131 | 0.293 | **0.293** | 6/79 | 0/79 |
+> | `[0.5, 8.0]` H5's proposal | 0.222 | 0.348 | 0.470 | **0.247** | 0/79 | 0/79 |
+> | `[0.5, 4.0]` | 0.296 | 0.464 | 0.626 | **0.330** | 0/79 | 0/79 |
+> | `[0.75, 3.0]` | 0.152 | 0.404 | 0.647 | **0.495** | 0/79 | 1/79 |
+>
+> **The shipped range does not collapse the archive.** Spread 0.293 with 6 of 79 clamped, against a
+> predicted "under 0.1". The old claim was true of the 51-session organized bake, whose masters run
+> FWHM 1.8 to 2.4 px; the full bake runs **0.88 to 3.03 px radius (FWHM 1.75 to 6.06)**, a 3.44x
+> span, because it includes short-focal-length sessions the organized root did not.
+>
+> **Lowering the floor makes the spread SMALLER, and that is arithmetic rather than an accident.**
+> psf01 is a ratio of logs, so for any unclamped pair of radii the spread is
+> `log2(r_hi / r_lo) / log2(max / min)`: widening the range's span divides every difference by it.
+> Going from `[1, 8]` to `[0.5, 8]` takes the denominator from 3 to 4 and costs a quarter of the
+> spread everywhere, to unclamp 6 masters. The measured spreads match that formula to three decimals
+> (0.246 predicted against 0.247 measured, 0.328 against 0.330, 0.492 against 0.495), which is what
+> says the probe is measuring the encoding rather than the archive.
+>
+> **The CEILING is the lever, because nothing in the archive is anywhere near 8 px radius.** The
+> floor only ever buys unclamping. **Take `[0.5, 4.0]`**: the floor sits under the sharpest master
+> (0.88 px) so nothing clamps low, and the ceiling sits above the widest input the exporter can
+> produce, since a +4 px FWHM draw in quadrature on the widest master (6.06 px) reaches 7.26 px FWHM
+> = 3.63 px radius. `[0.75, 3.0]` spreads further still and is rejected for exactly that reason: it
+> clamps a real master today and would clamp most degraded ones.
+>
+> **What survives of H5:** ship an own contract rather than SAS's, and do not build a SAS drop-in
+> unless measured equal. What does not: the claim that the shipped encoding leaves no lever, and the
+> instruction to fix it by lowering the floor. The honest size of the win is 0.330 against 0.293,
+> about 13 percent more spread, not a transformation.
 
 **H6. A Moffat-trained model generalises to real near-focus defocus, and the point where it stops
 defines the advertised range.** Real defocus is a disk; the rungs nearest the anchor are the
@@ -219,7 +260,7 @@ disk; the frames are taken either way.
 | Step | What | Cost | Decides |
 |---|---|---|---|
 | E0 | **DONE 2026-09-06, and no re-measure was needed** (results below): `2026-09-full` is already current-detector, its report is already rendered, and what remained was the fit. | 0 GPU, ~5 min of probes | Calibration of everything below |
-| E1 | H5 encoding spread; H1 oracle ceiling table with Richardson-Lucy and the exact kernel over the sweep. | a day, CPU | The ceiling and the contract floor |
+| E1 | **H5 DONE 2026-09-06** (`PsfEncodingSpreadProbe`, all 79 masters through the deployed estimator): the shipped range is not the collapse it was recorded as, lowering the floor makes the spread SMALLER, and `[0.5, 4.0]` is the pick. **H1 (oracle ceiling with Richardson-Lucy and the exact kernel) still open.** | a day, CPU | The ceiling and the contract floor |
 | E2 | **SHIPPED 2026-09-03 as the shared exporter** (`tianwen dataset degrade --mode blur`, `DatasetDegradationExporter`): linear Moffat blur with a drawn (FWHM, beta, elongation, PA), noise after, both sides stretched with the TARGET's parameters, field-radius tag per cell, and the drawn kernel parameters in `degradations.jsonl`. Parity is stronger than planned: the clean tile derived from the RETAINED master is byte-identical to the P0 tile of the same cell (0.0 on every session measured), which pins the whole path rather than just the stretch. Still owed: psf01 labels from `HfdPsfEstimator` on the degraded stretched frame under both encodings (H2, H5), and the per-(train, filter, channel) draw distribution, which needs E0's re-measured store | 1 to 2 days | Whether pairs are honest |
 | E3 | Smoke arms, three seeds each, on the U-Net: kernel vs estimator label (H2), shared vs per-channel (H3), noise vs none (H4), two vs three bands (H8). Post a labelled comparison at 1:1 around bright and faint stars. | 4 pairs x 3 seeds x 11 min | H2, H3, H4, H8 |
 | E4 | Stationary vs position-varying (H7) on the refractor trains. | 2 x 3 x 11 min | H7 |

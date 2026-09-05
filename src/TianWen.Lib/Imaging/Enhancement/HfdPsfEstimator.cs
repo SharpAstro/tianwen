@@ -38,6 +38,27 @@ public sealed class HfdPsfEstimator(ILogger<HfdPsfEstimator>? logger = null) : I
 
     public async Task<float> EstimateAsync(Image image, CancellationToken cancellationToken = default)
     {
+        var measured = await MeasureRadiusPxAsync(image, cancellationToken);
+        var psf01 = EncodeRadiusToPsf01(measured.RadiusPx);
+        logger?.LogDebug("HfdPsfEstimator: n={Count} medianFWHM={Fwhm:F2}px radius={Radius:F2}px psf01={Psf01:F3}",
+            measured.Stars, measured.RadiusPx * 2f, measured.RadiusPx, psf01);
+        return psf01;
+    }
+
+    /// <summary>The estimator's measurement before any encoding: the radius it read, in pixels, and
+    /// how many stars it read it from (0 when it fell back to <see cref="DefaultRadiusPx"/>).</summary>
+    internal readonly record struct Measurement(float RadiusPx, int Stars);
+
+    /// <summary>
+    /// The measurement half of <see cref="EstimateAsync"/>, UNCLAMPED and unencoded. Split out
+    /// rather than duplicated because the encoding range is exactly what P2's H5 is deciding
+    /// (<c>docs/plans/deconvolver-training.md</c>): under the shipped <c>[1, 8]</c> px range this
+    /// archive's masters all clamp to psf01 = 0, so a probe that needs to compare candidate ranges
+    /// cannot invert the encoded value to recover the radius, because the clamp has already
+    /// destroyed it. Anything measuring the encoding must read the radius here.
+    /// </summary>
+    internal async Task<Measurement> MeasureRadiusPxAsync(Image image, CancellationToken cancellationToken = default)
+    {
         var stars = await image.FindStarsAsync(
             channel: 0,
             snrMin: MinSnr,
@@ -48,7 +69,7 @@ public sealed class HfdPsfEstimator(ILogger<HfdPsfEstimator>? logger = null) : I
         {
             logger?.LogDebug("HfdPsfEstimator: no stars found at SNR>={Snr}, falling back to default radius {Px} px",
                 MinSnr, DefaultRadiusPx);
-            return EncodeRadiusToPsf01(DefaultRadiusPx);
+            return new Measurement(DefaultRadiusPx, 0);
         }
 
         // Median FWHM across detected stars. ImagedStar.StarFWHM is already in pixels (measured
@@ -60,15 +81,12 @@ public sealed class HfdPsfEstimator(ILogger<HfdPsfEstimator>? logger = null) : I
         if (fwhms.Length == 0)
         {
             logger?.LogDebug("HfdPsfEstimator: no positive FWHM samples; falling back to default radius");
-            return EncodeRadiusToPsf01(DefaultRadiusPx);
+            return new Measurement(DefaultRadiusPx, 0);
         }
+
         Array.Sort(fwhms);
         var medianFwhm = fwhms[fwhms.Length / 2];
-        var radius = medianFwhm * 0.5f;
-        var psf01 = EncodeRadiusToPsf01(radius);
-        logger?.LogDebug("HfdPsfEstimator: n={Count} medianFWHM={Fwhm:F2}px radius={Radius:F2}px psf01={Psf01:F3}",
-            fwhms.Length, medianFwhm, radius, psf01);
-        return psf01;
+        return new Measurement(medianFwhm * 0.5f, fwhms.Length);
     }
 
     /// <summary>
@@ -78,10 +96,19 @@ public sealed class HfdPsfEstimator(ILogger<HfdPsfEstimator>? logger = null) : I
     /// or 1 respectively -- the model was only trained on that range.
     /// </summary>
     public static float EncodeRadiusToPsf01(float radiusPx)
+        => EncodeRadiusToPsf01(radiusPx, MinRadiusPx, MaxRadiusPx);
+
+    /// <summary>
+    /// The same encoding over an arbitrary radius range, so a candidate contract can be evaluated
+    /// against the shipped one without a second implementation to disagree with this one. The
+    /// shipped range is <see cref="MinRadiusPx"/> to <see cref="MaxRadiusPx"/> and is SAS AI4's;
+    /// P2's H5 is measuring whether TianWen's own model wants a lower floor.
+    /// </summary>
+    public static float EncodeRadiusToPsf01(float radiusPx, float minRadiusPx, float maxRadiusPx)
     {
-        var clamped = Math.Clamp(radiusPx, MinRadiusPx, MaxRadiusPx);
-        var t = (MathF.Log2(clamped) - MathF.Log2(MinRadiusPx))
-              / (MathF.Log2(MaxRadiusPx) - MathF.Log2(MinRadiusPx));
+        var clamped = Math.Clamp(radiusPx, minRadiusPx, maxRadiusPx);
+        var t = (MathF.Log2(clamped) - MathF.Log2(minRadiusPx))
+              / (MathF.Log2(maxRadiusPx) - MathF.Log2(minRadiusPx));
         return t;
     }
 }
