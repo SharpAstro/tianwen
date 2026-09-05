@@ -171,6 +171,10 @@ namespace TianWen.AI.Imaging
         /// <param name="MinExtraFwhmPx">Blur mode: bottom of the added-FWHM range.</param>
         /// <param name="MaxExtraFwhmPx">Blur mode: top of the added-FWHM range.</param>
         /// <param name="Force">Re-export a session already present in the degradation store.</param>
+        /// <param name="SessionFilters">Case-insensitive substrings of the session id; when non-empty only
+        /// sessions matching at least one are exported. The way an arm names its pool without exporting
+        /// the whole bake (the 51-session E2 export ran two and a half hours, and the widened arm of
+        /// 2026-09-05 wanted nineteen sessions of a 76-session bake).</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -186,7 +190,8 @@ namespace TianWen.AI.Imaging
             double MaxDepthScale = 1.5,
             double MinExtraFwhmPx = 0.5,
             double MaxExtraFwhmPx = 4.0,
-            bool Force = false);
+            bool Force = false,
+            ImmutableArray<string> SessionFilters = default);
 
         /// <summary>What one session's export produced.</summary>
         public sealed record SessionResult(string SessionId, int Cells, int CleanTiles, int DegradedTiles, double ParityMaxAbsDiff, long ElapsedMs);
@@ -235,6 +240,11 @@ namespace TianWen.AI.Imaging
             var alreadyDone = options.Force ? [] : await ReadExportedSessionsAsync(outDegManifest, cancellationToken);
 
             var sessions = cellsBySession.Keys.OrderBy(static s => s, StringComparer.Ordinal).ToList();
+            if (!options.SessionFilters.IsDefaultOrEmpty)
+            {
+                var filters = options.SessionFilters;
+                sessions = sessions.Where(s => filters.Any(f => s.Contains(f, StringComparison.OrdinalIgnoreCase))).ToList();
+            }
             if (options.MaxSessions > 0 && sessions.Count > options.MaxSessions)
             {
                 sessions = sessions.Take(options.MaxSessions).ToList();

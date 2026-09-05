@@ -1,0 +1,22 @@
+# WIDE arm training sessions: E2's eight (arms/e2-train-8.txt, unchanged, same cells and drawn
+# depths under export seed 1) plus the nine low-plane sessions of arms/wide-low-9.txt. Val stays
+# arms/e2-val-2.txt (Triangulum at plane 0.10 is the gate session). 45 cells per session as in E2,
+# so the arm has 765 train cells against E2's 360; that is a second difference from warped and is
+# read on eval4b, where a range that already covered the fields should show no gain from it.
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HD-71181/2026-01-01|ZWO ASI533MC Pro|COO 71|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HD-71526/2026-02-10|ZWO ASI533MC Pro|HD 71526|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Lobster-Nebula/2025-05-09|ZWO ASI533MC Pro|Lobster Nebula|Optolong L-Ultimate 3nm
+SVBONY-SV605CC/Optolong-L-Ultimate-3nm/Tarantula-Nebula/2025-10-14|SVBONY SV605CC|Tarantula Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HD-72800/2026-01-11|ZWO ASI533MC Pro|HD 76360|Optolong L-Ultimate 3nm
+SVBONY-SV605CC/Optolong-L-Ultimate-3nm/Helix-Nebula/2025-08-20|SVBONY SV605CC|Helix Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HD-75426/2026-02-16|ZWO ASI533MC Pro|HD 77566|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HD-77683/2026-02-18|ZWO ASI533MC Pro|HD 77683|Optolong L-Ultimate 3nm
+SVBONY-SV605CC/Optolong-L-Quad-Enhance/Pleiades/2025-10-28|SVBONY SV605CC|Pleiades|Optolong L-Quad Enhance
+Vela SNR/Vela SNR P1 120s 2deg 13o r63 b63/2024-02-03|ZWO ASI533MC Pro|Vela SNR P1 120s 2deg 13o r63 b63
+Vela SNR/Vela SNR P2 120s 2deg 13o r63 b63/2024-02-03|ZWO ASI533MC Pro|Vela SNR P2 120s 2deg 13o r63 b63
+Vela SNR/Vela SNR P3 120s 2deg 13o r63 b63/2024-02-03|ZWO ASI533MC Pro|Vela SNR P3 120s 2deg 13o r63 b63
+Vela SNR/Vela SNR P4 120s/2024-02-10|ZWO ASI533MC Pro|Vela SNR 120s P4
+Vela SNR/Vela SNR P5 120s/2024-02-10|ZWO ASI533MC Pro|Vela SNR 120s P5
+Vela SNR/Vela SNR P6 120s/2024-02-10|ZWO ASI533MC Pro|Vela SNR 120s P6
+Vela SNR/Vela SNR p7 120s/2024-02-12|ZWO ASI533MC Pro|Vela SNR p7 120s
+Vela SNR/Vela SNR p9 120s/2024-02-12|ZWO ASI533MC Pro|Vela SNR p9 120s

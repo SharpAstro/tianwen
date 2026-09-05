@@ -402,6 +402,27 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public async Task ASessionFilterNamesThePoolWithoutExportingTheBake()
+        {
+            var bake = BuildBake();
+            var outDir = Path.Combine(_root, "degraded-filtered");
+
+            var none = await DatasetDegradationExporter.RunAsync(
+                new DatasetDegradationExporter.Options(bake, outDir, Draws: 1, CellsPerSession: 1, SessionFilters: ["Another-Object"]),
+                logger: null,
+                TestContext.Current.CancellationToken);
+            var matched = await DatasetDegradationExporter.RunAsync(
+                new DatasetDegradationExporter.Options(bake, outDir, Draws: 1, CellsPerSession: 1, SessionFilters: ["Another-Object", "testcam/none/target"]),
+                logger: null,
+                TestContext.Current.CancellationToken);
+
+            none.Sessions.Length.ShouldBe(0, "a filter nothing matches exports nothing, and is not an error");
+            none.Skipped.ShouldBe(0);
+            matched.Sessions.Length.ShouldBe(1, "the match is a case-insensitive substring of the session id");
+            matched.Sessions[0].SessionId.ShouldBe(SessionId);
+        }
+
+        [Fact]
         public async Task WritingTheCacheIntoTheBakeIsRefused()
         {
             var bake = BuildBake();
