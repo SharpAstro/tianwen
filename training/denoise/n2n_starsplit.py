@@ -44,8 +44,10 @@ def main():
     ap.add_argument('--blend', default='0.2,0.4,0.7,1.0')
     ap.add_argument('--match', default='4,10', help='noise-removal percentages to compare AT')
     ap.add_argument('--mag-max', default='auto',
+                    # Formatted twice: once here, and again by argparse when it renders help. A literal
+                    # percent must therefore survive BOTH, so it is written %%%% and not %%.
                     help='Gaia BP cap: a number, or "auto" for the deepest cap per session (16 to %g) whose '
-                         'coincidence floor stays under %.0f%%' % (AUTO_MAG_MAX, 100 * AUTO_FLOOR_MAX))
+                         'coincidence floor stays under %.0f%%%%' % (AUTO_MAG_MAX, 100 * AUTO_FLOOR_MAX))
     ap.add_argument('--only', default=None,
                     help='comma-separated substrings; score only the sessions whose id contains one. '
                          'For an observer set that shares a night with an arm (eval4\'s Rim Nebula '

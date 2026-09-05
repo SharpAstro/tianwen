@@ -747,7 +747,9 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
         };
         var pairOpt = new Option<string[]>("--pair")
         {
-            Description = $"An explicit pair as two session ids joined by '{DatasetCrossNightExporter.PairSeparator}'. " +
+            Description = $"An explicit pair as two session ids joined by '{DatasetCrossNightExporter.PairSeparator}', " +
+                          "or three for a triple: the third night is written as measurement tiles the trainer never " +
+                          "reads, and three nights are what separate a night's photon noise from its systematic. " +
                           "Repeatable. Without it, every two sessions of the bake sharing camera, object and filter on " +
                           "different nights are paired.",
             AllowMultipleArgumentsPerToken = false,
@@ -783,13 +785,56 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
         {
             Description = "Re-export pairs the output manifest already lists.",
         };
+        var quadStarsOpt = new Option<int>("--quad-stars")
+        {
+            Description = "Stars a side the quad matcher may use, or 0 to escalate 100 / 200 / 400. A partially " +
+                          "overlapping pair is starved of common quads, not unregistrable.",
+            DefaultValueFactory = _ => 0,
+        };
+        var psfToleranceOpt = new Option<double>("--psf-tolerance")
+        {
+            Description = "Relative FWHM difference the two EXPORTED sides must be inside; the match is iterated on " +
+                          "the tiles, since the warp widens the two sides by different amounts.",
+            DefaultValueFactory = _ => 0.01,
+        };
+        var psfIterationsOpt = new Option<int>("--psf-iterations")
+        {
+            Description = "Cap on those exported-side passes. 0 keeps the master-side behaviour.",
+            DefaultValueFactory = _ => 4,
+        };
+        var injectOpt = new Option<int>("--inject-draws")
+        {
+            Description = "Degraded draws of night A written into the sub slots, or 0 for a plain pair export. With " +
+                          "them the input distribution is the supervised arm's and only the TARGET differs.",
+            DefaultValueFactory = _ => 0,
+        };
+        var minNoiseOpt = new Option<double>("--min-injected-noise")
+        {
+            Description = "Bottom of the injected level range, in multiples of the night's own measured noise.",
+            DefaultValueFactory = _ => 0.5,
+        };
+        var maxNoiseOpt = new Option<double>("--max-injected-noise")
+        {
+            Description = "Top of that range.",
+            DefaultValueFactory = _ => 3.0,
+        };
+        var warpSigmaOpt = new Option<double>("--warp-sigma")
+        {
+            Description = "Extra smoothing per injected realisation, in pixels: the shape calibration. Measure it per " +
+                          "bake rather than inheriting it (0.5 is what the S-warped arms measured).",
+            DefaultValueFactory = _ => 0.0,
+        };
 
         var command = new Command("pair",
             "Export cross-night N2N pairs from a bake's retained linear masters: two nights of one object " +
             "flattened, level matched, registered onto one midpoint grid and stretched with one MTF, as a P0-shaped " +
             "cache whose half slots are the two nights.")
         {
-            Options = { bakeOpt, outOpt, pairOpt, objectOpt, excludeOpt, fwhmOpt, psfMatchOpt, cellsOpt, seedOpt, forceOpt },
+            Options =
+            {
+                bakeOpt, outOpt, pairOpt, objectOpt, excludeOpt, fwhmOpt, psfMatchOpt, cellsOpt, seedOpt, forceOpt,
+                quadStarsOpt, psfToleranceOpt, psfIterationsOpt, injectOpt, minNoiseOpt, maxNoiseOpt, warpSigmaOpt,
+            },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -797,13 +842,14 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             var pairs = ImmutableArray.CreateBuilder<DatasetCrossNightExporter.PairSpec>();
             foreach (var text in parseResult.GetValue(pairOpt) ?? [])
             {
-                var cut = text.IndexOf(DatasetCrossNightExporter.PairSeparator, StringComparison.Ordinal);
-                if (cut <= 0 || cut + DatasetCrossNightExporter.PairSeparator.Length >= text.Length)
+                var parts = text.Split(DatasetCrossNightExporter.PairSeparator, StringSplitOptions.TrimEntries);
+                if (parts.Length is < 2 or > 3 || Array.Exists(parts, string.IsNullOrEmpty))
                 {
-                    consoleHost.WriteError($"--pair must be two session ids joined by '{DatasetCrossNightExporter.PairSeparator}', got '{text}'");
+                    consoleHost.WriteError(
+                        $"--pair must be two or three session ids joined by '{DatasetCrossNightExporter.PairSeparator}', got '{text}'");
                     return 1;
                 }
-                pairs.Add(new DatasetCrossNightExporter.PairSpec(text[..cut], text[(cut + DatasetCrossNightExporter.PairSeparator.Length)..]));
+                pairs.Add(new DatasetCrossNightExporter.PairSpec(parts[0], parts[1], parts.Length == 3 ? parts[2] : null));
             }
 
             var options = new DatasetCrossNightExporter.Options(
@@ -816,7 +862,14 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                 PsfMatch: parseResult.GetValue(psfMatchOpt),
                 CellsPerPair: parseResult.GetValue(cellsOpt),
                 Seed: parseResult.GetValue(seedOpt),
-                Force: parseResult.GetValue(forceOpt));
+                Force: parseResult.GetValue(forceOpt),
+                QuadStars: parseResult.GetValue(quadStarsOpt),
+                PsfTolerance: parseResult.GetValue(psfToleranceOpt),
+                PsfIterations: parseResult.GetValue(psfIterationsOpt),
+                InjectDraws: parseResult.GetValue(injectOpt),
+                MinInjectedNoise: parseResult.GetValue(minNoiseOpt),
+                MaxInjectedNoise: parseResult.GetValue(maxNoiseOpt),
+                WarpResampleSigma: parseResult.GetValue(warpSigmaOpt));
 
             var result = await DatasetCrossNightExporter.RunAsync(options, logger, ct);
             foreach (var p in result.Pairs)
@@ -826,7 +879,10 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                     (p.BlurredSide.Length > 0 ? $" (night {p.BlurredSide} convolved by {p.BlurFwhmPx:F2} px)" : "") +
                     $", rotation {p.RotationDeg:F3} deg, scale {p.Scale:F5}, rms {p.RegistrationRmsPx:F2} px, overlap {p.OverlapFraction:P1}, " +
                     $"gain {string.Join('/', p.Gain.Select(g => g.ToString("G4")))}, " +
-                    $"residual correlation {string.Join('/', p.ResidualCorrelation.Select(r => r.ToString("F3")))}");
+                    $"residual correlation {string.Join('/', p.ResidualCorrelation.Select(r => r.ToString("F3")))}" +
+                    $", {p.RegistrationBasis}, {p.PsfPasses} psf pass(es)" +
+                    (p.InjectedDraws > 0 ? $", {p.InjectedDraws} injected draws" : "") +
+                    (p.SessionC.Length > 0 ? $", third night at {p.FwhmAfterC:F2} px" : ""));
             }
             foreach (var s in result.Skipped)
             {

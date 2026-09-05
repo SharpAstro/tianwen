@@ -391,6 +391,169 @@ namespace TianWen.Lib.Tests
             Math.Abs(bSide.M12 - half.M12).ShouldBeLessThan(1e-3f);
         }
 
+        [Fact]
+        public async Task ThePsfIsMatchedOnTheEXPORTEDSidesAndNotOnlyOnTheMasters()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var sky = SharedSky();
+            var a = RenderNight(sky, isNightB: false, gain: 1f, level: 900f, gradX: 140f, gradY: 60f, fwhmPx: 3f, seed: 61, noise: null, out _);
+            var b = RenderNight(sky, isNightB: true, gain: 1f, level: 1000f, gradX: 0f, gradY: 0f, fwhmPx: 5f, seed: 62, noise: null, out _);
+            var bake = BuildBake(a, b);
+            var pairs = ImmutableArray.Create(new DatasetCrossNightExporter.PairSpec(NightA, NightB));
+            // The master-side match is OFF here (the mismatch is merely tolerated), so what closes the gap
+            // is the exported-side loop and nothing else. On real pairs both run: the master step takes
+            // most of it and the loop takes the rest, which is where the 3 to 6 percent the first arm
+            // shipped came from -- the warp widens the two sides by different amounts after the fact.
+            var options = new DatasetCrossNightExporter.Options(
+                bake, "", Pairs: pairs, CellsPerPair: 4, MaxFwhmMismatch: 0.5);
+            var masterOnly = await DatasetCrossNightExporter.RunAsync(
+                options with { OutDir = Path.Combine(_root, "master-only"), PsfIterations = 0 }, cancellationToken: ct);
+            masterOnly.Pairs.Length.ShouldBe(1, string.Join("; ", masterOnly.Skipped));
+            var before = masterOnly.Pairs[0];
+            before.PsfPasses.ShouldBe(0);
+            var mismatchBefore = Math.Abs(before.FwhmAfterA - before.FwhmAfterB) / Math.Max(before.FwhmAfterA, before.FwhmAfterB);
+
+            var iterated = await DatasetCrossNightExporter.RunAsync(
+                options with { OutDir = Path.Combine(_root, "iterated") }, cancellationToken: ct);
+            iterated.Pairs.Length.ShouldBe(1, string.Join("; ", iterated.Skipped));
+            var after = iterated.Pairs[0];
+            output.WriteLine($"exported mismatch {mismatchBefore:P2} -> {Math.Abs(after.FwhmAfterA - after.FwhmAfterB) / Math.Max(after.FwhmAfterA, after.FwhmAfterB):P2} in {after.PsfPasses} pass(es)");
+            after.PsfPasses.ShouldBeGreaterThan(0);
+            var mismatchAfter = Math.Abs(after.FwhmAfterA - after.FwhmAfterB) / Math.Max(after.FwhmAfterA, after.FwhmAfterB);
+            mismatchAfter.ShouldBeLessThan(mismatchBefore);
+            mismatchAfter.ShouldBeLessThan(0.02);
+            mismatchBefore.ShouldBeGreaterThan(0.2);
+        }
+
+        [Fact]
+        public async Task InjectedDrawsAreNightAsOwnSceneWithMoreNoiseOnIt()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var sky = SharedSky();
+            var a = RenderNight(sky, isNightB: false, gain: 1f, level: 900f, gradX: 140f, gradY: 60f, fwhmPx: 3f, seed: 71, noise: null, out _);
+            var b = RenderNight(sky, isNightB: true, gain: 1f, level: 980f, gradX: 20f, gradY: -30f, fwhmPx: 3f, seed: 72, noise: null, out _);
+            var bake = BuildBake(a, b);
+            var outDir = Path.Combine(_root, "injected");
+
+            var result = await DatasetCrossNightExporter.RunAsync(
+                new DatasetCrossNightExporter.Options(
+                    bake, outDir, Pairs: [new DatasetCrossNightExporter.PairSpec(NightA, NightB)], CellsPerPair: 3,
+                    InjectDraws: 2, MinInjectedNoise: 1.0, MaxInjectedNoise: 1.0),
+                cancellationToken: ct);
+
+            result.Pairs.Length.ShouldBe(1, string.Join("; ", result.Skipped));
+            var pair = result.Pairs[0];
+            pair.InjectedDraws.ShouldBe(pair.Cells * 2);
+
+            var tiles = Directory.GetFiles(Path.Combine(outDir, "tiles"), "*.f16", SearchOption.AllDirectories);
+            var draw = tiles.First(static t => Path.GetFileName(t).EndsWith("_deg000.f16", StringComparison.Ordinal));
+            var nightA = draw.Replace("_deg000.f16", "_halfmaster_a.f16", StringComparison.Ordinal);
+            File.Exists(nightA).ShouldBeTrue(nightA);
+            var degraded = ReadTile(draw);
+            var clean = ReadTile(nightA);
+
+            // Same scene: the draw is that night with noise added, so it tracks it almost exactly.
+            Pearson(degraded, clean).ShouldBeGreaterThan(0.95);
+            // And noisier: at one times the night's own measured noise the input sits at sqrt(2) of it,
+            // which a pixel-to-pixel difference sees and a correlation does not.
+            var noisier = AdjacentSigma(degraded) / AdjacentSigma(clean);
+            output.WriteLine($"adjacent-difference sigma ratio {noisier:F2}");
+            noisier.ShouldBeGreaterThan(1.1);
+        }
+
+        [Fact]
+        public async Task AThirdNightRidesOnThePairsOwnGridAsAMeasurementFrame()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var sky = SharedSky();
+            var a = RenderNight(sky, isNightB: false, gain: 1f, level: 900f, gradX: 140f, gradY: 60f, fwhmPx: 3f, seed: 81, noise: null, out _);
+            var b = RenderNight(sky, isNightB: true, gain: 1f, level: 980f, gradX: 20f, gradY: -30f, fwhmPx: 3f, seed: 82, noise: null, out _);
+            var c = RenderNight(sky, isNightB: true, gain: 0.9f, level: 1050f, gradX: -40f, gradY: 15f, fwhmPx: 3f, seed: 83, noise: null, out _);
+            const string NightC = "TestCam/None/Target/2026-01-07|TestCam|Target|None";
+            var bake = BuildBake(a, b, (NightC, c));
+            var outDir = Path.Combine(_root, "triple");
+
+            var result = await DatasetCrossNightExporter.RunAsync(
+                new DatasetCrossNightExporter.Options(
+                    bake, outDir, Pairs: [new DatasetCrossNightExporter.PairSpec(NightA, NightB, NightC)], CellsPerPair: 3),
+                cancellationToken: ct);
+
+            result.Pairs.Length.ShouldBe(1, string.Join("; ", result.Skipped));
+            var pair = result.Pairs[0];
+            pair.SessionC.ShouldBe(NightC);
+            // The third night is on the same grid, so it reads the same width as the other two.
+            pair.FwhmAfterC.ShouldBeInRange(pair.FwhmAfterA * 0.85, pair.FwhmAfterA * 1.15);
+
+            // One measurement tile per cell, beside the three the trainer knows about.
+            var tiles = Directory.GetFiles(Path.Combine(outDir, "tiles"), "*.f16", SearchOption.AllDirectories);
+            tiles.Count(static t => Path.GetFileName(t).EndsWith("_nightc.f16", StringComparison.Ordinal)).ShouldBe(pair.Cells);
+            var third = tiles.First(static t => Path.GetFileName(t).EndsWith("_nightc.f16", StringComparison.Ordinal));
+            var nightA = third.Replace("_nightc.f16", "_halfmaster_a.f16", StringComparison.Ordinal);
+            // Registered and level matched onto A like B is: the same sky, so it correlates with it.
+            Pearson(ReadTile(third), ReadTile(nightA)).ShouldBeGreaterThan(0.8);
+        }
+
+        [Theory]
+        [InlineData(0, 500, 500, new[] { 100, 200, 400 })]
+        [InlineData(0, 120, 500, new[] { 100, 120 })]
+        [InlineData(0, 60, 500, new[] { 60 })]
+        [InlineData(250, 500, 500, new[] { 250 })]
+        public void TheQuadBudgetEscalatesUntilTheStarListsRunOut(int requested, int starsA, int starsB, int[] expected)
+        {
+            // A partially overlapping pair is refused for want of stars nobody looked at, so the budget
+            // climbs; it never asks for more than the shorter list holds, and never repeats a budget.
+            DatasetCrossNightExporter.QuadBudgets(
+                new DatasetCrossNightExporter.Options("bake", "out", QuadStars: requested), starsA, starsB)
+                .ShouldBe(expected);
+        }
+
+        [Fact]
+        public void ANanAwareBlurWidensAStarWithoutSpreadingTheUncoveredRing()
+        {
+            var plane = new float[32, 32];
+            plane[16, 16] = 100f;
+            for (var y = 0; y < 32; y++)
+            {
+                for (var x = 0; x < 4; x++)
+                {
+                    plane[y, x] = float.NaN;
+                }
+            }
+
+            DatasetCrossNightExporter.BlurPlaneInPlace(plane, 1.5);
+
+            // The point spread, and the ring did not: a plain convolution would have eaten four more
+            // columns per pass, and the exported-side match runs several.
+            plane[16, 16].ShouldBeLessThan(100f);
+            plane[16, 18].ShouldBeGreaterThan(0f);
+            for (var y = 0; y < 32; y++)
+            {
+                float.IsNaN(plane[y, 3]).ShouldBeTrue();
+                float.IsNaN(plane[y, 4]).ShouldBeFalse();
+            }
+            // Flux is conserved by the renormalisation rather than leaked into the ring.
+            var sum = 0.0;
+            for (var y = 0; y < 32; y++)
+            {
+                for (var x = 4; x < 32; x++)
+                {
+                    sum += plane[y, x];
+                }
+            }
+            sum.ShouldBeInRange(95.0, 105.0);
+        }
+
+        private static double AdjacentSigma(float[] tile)
+        {
+            var diffs = new double[tile.Length - 1];
+            for (var i = 0; i < diffs.Length; i++)
+            {
+                diffs[i] = Math.Abs(tile[i + 1] - (double)tile[i]);
+            }
+            Array.Sort(diffs);
+            return diffs[diffs.Length / 2] * 1.4826 / Math.Sqrt(2);
+        }
+
         private static double Pearson(float[] a, float[] b)
         {
             double sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0;

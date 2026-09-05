@@ -232,10 +232,27 @@ public class N2nSeamProbe(ITestOutputHelper output)
         // restore corrects an offset, not a gain, so the median drag cannot see it. This can: the ratio
         // of output to input summed over the top decile of the INPUT luminance, per channel. A cast is
         // the three ratios disagreeing; a level shift alone leaves them equal.
+        // Star cores are excluded (a 9x9 box on every detected peak): the model attenuates star peaks
+        // by a channel-dependent amount too (the red PSF is wider), and that would read as a cast on a
+        // mask that is one third star cores. What is left is nebulosity.
         var brightThreshold = Percentile(lumIn, 0.90f);
         var brightMask = new bool[lumIn.Length];
         for (var i = 0; i < lumIn.Length; i++) brightMask[i] = lumIn[i] >= brightThreshold;
-        output.WriteLine($"bright  top-decile threshold on input luminance = {brightThreshold:E3} ({brightMask.Count(static b => b)} px)");
+        var brightBeforeStars = brightMask.Count(static b => b);
+        foreach (var star in stars)
+        {
+            for (var dy = -4; dy <= 4; dy++)
+            {
+                var y = star.Y + dy;
+                if (y < 0 || y >= height) continue;
+                for (var dx = -4; dx <= 4; dx++)
+                {
+                    var x = star.X + dx;
+                    if (x >= 0 && x < width) brightMask[y * width + x] = false;
+                }
+            }
+        }
+        output.WriteLine($"bright  top-decile threshold on input luminance = {brightThreshold:E3} ({brightBeforeStars} px, {brightMask.Count(static b => b)} px once star cores are cut out)");
 
         // The exporter's route: every training tile was stored after exactly this stretch, so this
         // arm hands the net the domain it was trained in and inverts the answer with the same

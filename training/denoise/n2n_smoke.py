@@ -70,7 +70,7 @@ def load_cells(root, manifest):
     they are an N2N pair whose noise sits at the level the model is actually DEPLOYED at,
     unlike a pair of subs. Absent for a session too shallow to halve.
     """
-    cells = defaultdict(lambda: {"subs": [], "master": None, "half_a": None, "half_b": None})
+    cells = defaultdict(lambda: {"subs": [], "master": None, "half_a": None, "half_b": None, "night_c": None})
     with open(os.path.join(root, manifest), encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
@@ -85,6 +85,12 @@ def load_cells(root, manifest):
                 cells[key]["half_a"] = d["Tile"]
             elif frame == "halfmaster_b":
                 cells[key]["half_b"] = d["Tile"]
+            elif frame == "nightc":
+                # A triple export's measurement night. It sits on the pair's grid and is a THIRD
+                # observation of the same sky, which is what separates a night's photon noise from its
+                # systematic; it is not an input and not a target, and the `else` below would file it
+                # as a sub slot, which is exactly the silent way to train on it.
+                cells[key]["night_c"] = d["Tile"]
             else:
                 cells[key]["subs"].append(d["Tile"])
     return cells
@@ -597,9 +603,23 @@ def train(args):
         if args.half_pairs:
             raise SystemExit("--synthetic and --half-pairs are different regimes; pick one")
         regimes = [SYNTH]
-        print("regime: synthetic (a degraded draw against the clean target in slot 0). "
-              "Note the target is a MASTER, so it carries its own 1/sqrt(N) noise and the model "
-              "learns to leave that; score against a held-out half, never against this target.")
+        if args.synthetic_target == "master":
+            print("regime: synthetic (a degraded draw against the clean target in slot 0). "
+                  "Note the target is a MASTER, so it carries its own 1/sqrt(N) noise and the model "
+                  "learns to leave that; score against a held-out half, never against this target.")
+        else:
+            print(f"regime: synthetic (a degraded draw against {args.synthetic_target}). Note the target "
+                  "is a MASTER, so it carries its own 1/sqrt(N) noise and the model learns to leave that; "
+                  "score against a held-out half, never against this target.")
+    # Which frame the supervised regime regresses onto. On a pair cache the two half slots are two
+    # NIGHTS of one sky, so half-b is a target whose noise is independent of the input's by
+    # construction, and half-a is the same night the input was degraded from: the same inputs, the
+    # same cells, and the only difference is whether the target shares the input's noise. That is the
+    # one axis H8 is about, and every earlier cross-night arm varied it together with the input
+    # distribution, which is why its kill said nothing about the mechanism.
+    synth_target = {"master": SLOT_MASTER, "half-a": SLOT_HALF_A, "half-b": SLOT_HALF_B}[args.synthetic_target]
+    if args.synthetic and args.synthetic_target != "master":
+        print(f"  supervised target: slot {synth_target} ({args.synthetic_target}), not the combined master")
     half_train = np.array([], dtype=np.int64)
     if args.half_pairs:
         flags = meta.get("has_halves")
@@ -714,9 +734,10 @@ def train(args):
         k = regimes[int(rng.integers(0, len(regimes)))] if len(regimes) > 1 else regimes[0]
         regime_steps[k] += 1
         if k == SYNTH:
-            # Input: one injected draw. Target: the undegraded tile every draw was made from.
+            # Input: one injected draw. Target: the undegraded tile every draw was made from, or on a
+            # pair cache whichever night --synthetic-target names.
             x = torch.from_numpy(np.ascontiguousarray(mm[idx, a])).to(dev).float()
-            y = torch.from_numpy(np.ascontiguousarray(mm[idx, SLOT_MASTER])).to(dev).float()
+            y = torch.from_numpy(np.ascontiguousarray(mm[idx, synth_target])).to(dev).float()
         elif k == HALF:
             # The two halves are already integrated, so there is nothing to average: this is a
             # plain N2N pair that happens to be quiet. The split is INTERLEAVED upstream
@@ -1030,6 +1051,12 @@ if __name__ == "__main__":
                         "'near' only adjacent subs (and interleaves the averages), 'any' is the "
                         "original unrestricted draw, byte-for-byte. v22 measured time-correlated "
                         "residue in every session's pairs; this is the causal test")
+    p.add_argument("--synthetic-target", choices=["master", "half-a", "half-b"], default="master",
+                   help="which frame --synthetic regresses onto. On a cross-night PAIR cache the half "
+                        "slots are two nights of one sky: half-a shares the input's noise (the input is "
+                        "that night degraded), half-b does not. Holding the input distribution fixed and "
+                        "moving only this is the one-axis test of whether a shared-noise target is what "
+                        "limits a denoiser (H8)")
     p.add_argument("--synthetic", action="store_true",
                    help="supervised regime: train an injected draw against the CLEAN target in "
                         "slot 0, instead of one noisy view against another. Needs a cache prepared "

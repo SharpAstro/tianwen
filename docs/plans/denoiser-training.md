@@ -288,6 +288,24 @@ nights' signals disagree at the pixel scale (excess variance 1.09 to 1.87 agains
 same-session halves). The shared-noise ceiling is neither confirmed nor refuted; H8 is PARKED behind
 the four preconditions listed there.
 
+**H9. What limits the deployed denoiser is the POOL's coverage of the conditioning plane, not the
+regime, the shape or the recipe.** Every arm through E2 trained on eight sessions whose masters sit at
+0.21 to 0.39 on the plane, and the injected floor is half a session's own master depth, so the training
+range cannot reach below the pool. Deployment runs 0.07 to 2.53 over the 76 colour sessions of
+`2026-09-full`, and 15 of them sit under 0.23. Off the trained range a net amplifies rather than
+removes, which is what arm X's autopsy found and what the per-field collapse looks like: warped removes
+2.8 percent of the noise on Horsehead and Skull and 20 percent pooled on eval4b.
+*Test:* the WIDE arm (E9) -- the same recipe, the same val, the same export seed, with nine low-plane
+sessions added to the pool. Three seeds, scored against ALL of warped's seeds rather than three.
+*Prediction:* at full strength on the low-plane fields wide removes at least 10 percent where warped_s2
+removes 2.8, and at matched removal on eval4b it stays inside warped's seed spread.
+*Kill:* under 5 percent there. Then coverage is not the lever and the next suspect is the recipe.
+*Result 2026-09-05 (run log, "the conditioning range over the whole pool"):* **CONFIRMED**, and by more
+than the prediction asked: 13.7 to 17.0 percent against a nine-seed warped range of 2.8 to 11.3, at no
+cost on the faint-structure columns. Per field it is unambiguous on Skull and inside the spread on
+Horsehead. The gate's noise criterion now rejects the arm that scores best where the gate lives, which
+is the next thing to fix.
+
 ## 2. Data
 
 ### The pool
@@ -401,6 +419,8 @@ Settled by the campaign; restated so no run re-derives them.
 
 | **E8** | Cross-night arm X (H8). **Exporter SHIPPED 2026-09-05**: `tianwen dataset pair` (`DatasetCrossNightExporter`) flattens, level-matches per channel, registers both nights onto the MIDPOINT grid, stretches both with the mean's MTF, and writes the two nights into the trainer's half slots with a `pairs.jsonl` sidecar; `n2n_pairstats.py` runs the same residual statistic on the bake's same-session halves as the control. Seven pairs exported from `2026-09-full` (HD 74167 x1, Rim Nebula x6), two refused for want of a quad fit (Vela SNR, HD 71272: partial overlap, a WCS-seeded registration is the fix). The pair statistics are in the run log (2026-09-05, "the paired cache"). **Arm X RUN and KILLED 2026-09-05** (`run-x.ps1`, pre-registration in its header; run log "arm X, the cross-night pairs"): the gate takes night A's half slot on a pair cache (`n2n_gate.Gate(input_slot=)`, chosen by `--half-only`), cache `n2n-x` is the six Rim pairs (60 cells each, 360 train) with the HD 74167 pair held out for the gate, and the pool-matched control `n2n-x-ctl` is same-session N2N (`--mix-avg`, real subs) on the SAME four Rim nights from the bake, 360 cells, val on the two HD 74167 nights. Three seeds each, the E2 recipe. No X seed passed a probe (0.88 to 0.92x, faint amplitude falling one for one); X removes noise on one eval field (eta Car, where at matched removal it costs more stars than xctl) and ADDS 7 to 25 percent on Horsehead and the Statue. Cause: one sky's master-depth halves span p5 0.22 to 0.54 of the conditioning plane against deployed 0.09 to 0.83, and the nights' signals disagree at the pixel scale. The kill fires against xctl; its pre-registered inference (the ceiling is not shared noise) does not follow from an arm that never learned the task. H8 PARKED. | 6 x 11-14 min | H8 |
 
+| **E9** | The WIDE arm (H9, the pool covers the deployed conditioning plane). `run-wide.ps1`: E2's eight sessions plus nine low-plane ones that are not eval nights (`arms/wide-train-17.txt`; Pleiades and eight 2024 Vela SNR panels, eight of the nine one mosaic on one rig, stated as the confound it is), 45 cells each, the E2 recipe byte for byte, val and export seed unchanged so the eight shared sessions carry the same cells and drawn depths as `warped`. `tianwen dataset degrade` gained a repeatable `--session` filter for it (nineteen sessions in 54 minutes against two and a half hours for the whole bake). **RUN and WON 2026-09-05** (run log, "the conditioning range over the whole pool"): 13.7 / 16.2 / 17.0 percent of the noise removed at full strength on the two low-plane eval4 fields, clear of all NINE warped seeds (2.8 to 11.3), inside warped's spread on the faint-structure columns, and the per-field collapse on HIP-85088 gone (6.9 and 7.6 percent become 18.0 to 26.8). Two of three seeds fail the gate's 0.82x noise criterion, which was calibrated on models trained off the low end of the plane. | 3 x 11 min | H9 |
+
 Every arm: pre-register predictions in the run script header; three seeds; one prepared cache per
 arm, never edited between runs; launch multi-hour jobs detached (`Start-Process`), never through the
 session's background shell, and never read a file a running job appends to.
@@ -459,17 +479,17 @@ and the decision to promote is the user's. Record it as such rather than as a pe
   one is a confound to state per arm.
 - **How many broadband nights are enough** to say anything about H4 step 2 with two SV545 sessions
   in hand? Probably none; step 2 is a pilot until a third broadband night exists.
-- **Does `RestoreLevel` really absorb the magenta cast, or only its background?** The 2026-09-04 probe
-  measured per-channel MEDIAN drag, which is a background statement by construction; the cast was seen
-  on BRIGHT nebulosity, and a per-chunk level restore corrects an offset, not a gain. The measurement
-  that answers it is the per-channel out/in ratio in the top brightness decile of the eta Car master,
-  both checkpoints, through `N2nLinearRunner`. Until then "the cast does not survive the shipped path"
-  is unshown; "the background level does not move" is what was shown.
-- **Is the "unreconciled" residual correlation the cast seen twice?** `resid_corr` is corr(removed,
-  output) over non-star pixels; a per-channel gain shift on bright regions puts a brightness-proportional
-  term into "removed", which correlates with the output by construction. gate1500 reads 0.691 against
-  shipped4000's 0.354 and also showed the stronger cast in the 1:1. Recompute on the high-passed removed
-  component; if 0.691 collapses, the two odd columns of the ship table and the cast are one phenomenon.
+- ~~**Does `RestoreLevel` really absorb the magenta cast, or only its background?**~~ Answered
+  2026-09-05 (run log, "the conditioning range over the whole pool"): only its background. Through the
+  shipped path on the eta Car master, the top brightness decile with star cores cut out comes out
+  0.996 / 0.952 / 0.972 per channel for gate1500 (spread 0.044) and 1.027 / 0.976 / 0.985 for
+  shipped4000 (0.051), a magenta-ward GAIN a per-chunk offset cannot touch; warped_s2 reads 0.028.
+  With star cores left in the statistic read 0.195, four times the truth: star peaks are attenuated
+  by a channel-dependent amount and that is not a colour.
+- ~~**Is the "unreconciled" residual correlation the cast seen twice?**~~ Answered 2026-09-05, yes:
+  on the 8 px high-passed removed component gate1500's 0.691 is 0.265, shipped4000's 0.354 is 0.216
+  and warped_s2's 0.388 is 0.263. The 0.34 gap between the checkpoints is 0.05 without the smooth
+  term; the column is printed beside the raw one now (`n2n_metrics.py`, "resid hp").
 - ~~**Is Horsehead's unmatched 87 percent nebulosity or sub-BP16 stars?**~~ Answered 2026-09-05 (run
   log, "the depth of the catalogue was the depth of the pool, not of the field"): 50 points of it were
   stars between BP 16 and 21, 31 points nebulosity, and the same cut had been hiding two thirds of the
@@ -1248,3 +1268,106 @@ Artefacts: `C:/temp/e2/x.log` (both launches), `C:/temp/e2/scripts-x/` (the scri
 scores), `C:/temp/e2/gaia/condprobe.py` with `condprobe-out.txt` and `condprobe-e2.txt` (the
 conditioning ranges per cache and session), `C:/temp/tianwen-scratch/n2n-x/x_s{0,1,2}.pt`,
 `n2n-x-ctl/xctl_s{0,1,2}.pt` (gate-selected) and `_final.pt`.
+
+### 2026-09-05: the conditioning range over the whole pool, and three open questions closed
+
+Arm X's autopsy said the supervised arms share its blind spot: their injected inputs never go below
+0.23 on the conditioning plane. Before another arm, the plane was measured everywhere it matters
+(`C:/temp/e2/gaia/condpool.py`, output `condpool-out.txt`).
+
+**Inside the E2 S-warped cache, the range covers each session's own master by construction.** Per
+training session, the injected input's p5 sits at 0.94 to 1.09 of the clean master's median plane
+(the floor is half the master depth, so the noisiest injected draws land just above the master's own
+noise), so the 2026-09-03 fix did what it was written to do. What it cannot do is reach BELOW a
+session's master, and the eight masters sit at 0.21 to 0.39: the pool sets the floor, not the formula.
+
+**Over the 76 colour sessions of `2026-09-full`** (60 master tiles each), the master's median plane
+runs min 0.07, p25 0.25, median 0.30, p75 0.42, max 2.53, and **15 of 76 sit under 0.23**: Pleiades
+0.07, the eight 2024 Vela SNR panels 0.08 to 0.15, Horsehead 0.11, Skull and Crossbones 0.14, then
+Lobster 0.19 (in E2), the eta Car 24 mm frame 0.22 and HD 76358 0.23 at the edge. The plane is not a
+function of depth: `1/sqrt(StackedFrames)` is what the E2 range was derived from, and these sessions
+are smooth for other reasons (sky level, a quad-band or no filter, 120 s subs in 2024). At the other
+end eta Car 2026-02-20 reads 1.98 and the 2025-12-17 one 2.53 (bright nebulosity inflates a
+darkest-half MAD), inside the injected p95s of 1.2 to 3.4.
+
+**The WIDE arm** (`run-wide.ps1`, pre-registered in its header, launched 22:37): S-warped, the E2
+recipe byte for byte, on E2's eight sessions plus the nine low-plane sessions that are not eval nights
+(`arms/wide-low-9.txt`: Pleiades and eight Vela panels; eight of nine are one 2024 mosaic on one rig,
+stated as the confound it is), 45 cells each, val unchanged (Triangulum at 0.10 is the gate). Export
+seed 1 and `--warp-sigma 0.5` as E2, so the eight shared sessions carry the same cells and drawn
+depths as `warped`. Prediction: at full strength on eval4's Horsehead and Skull cells wide removes at
+least 10 percent where warped_s2 removes 2.8, and at matched removal on eval4b it sits within
+warped's seed spread. Kill: under 5 percent there. `tianwen dataset degrade` gained a repeatable
+`--session` substring filter for it (the E2 export of the whole organized bake ran two and a half
+hours; nineteen sessions of the full bake ran in 54 minutes).
+
+**The result: the pool was the lever, and the prediction holds.** On the two low-plane eval4 fields at
+full strength the three wide seeds remove **13.7 / 16.2 / 17.0 percent** of the noise, against
+warped_s2's 2.8. **All NINE warped seeds were scored on the same cells, not the three the comparison
+started with**, and they span 2.8 to 11.3 (2.8 / 3.0 / 4.5 / 5.0 / 6.4 / 9.2 / 9.5 / 11.1 / 11.3):
+wide's WORST seed beats warped's BEST of nine, which three seeds a side could not have established.
+Per field the answer splits. On Skull and Crossbones (plane 0.17) wide reads 18.2 / 22.6 / 22.3 against
+a warped range of 3.0 to 13.1, clear of all nine again. On Horsehead (0.09) wide reads 6.6 / 8.4 / 10.4
+against 2.7 to 12.3 -- above warped's median of 5.4, inside its spread, and not above its best. So the
+pre-registered ten percent is met pooled and on Skull, and on Horsehead only by the gate-passing seed
+and only inside the noise. The kill line, under five percent, is nowhere near.
+
+And it is not bought with structure. At matched removal on eval4b the extended column reads 0.1 / 1.3 /
+1.0 at 10 percent removed against warped's 1.1 / 1.3 / 1.1, inside the seed spread as predicted, and on
+the low-plane fields wide spends 0.0 to 0.4 at 1 to 4 percent where gate1500 spends 0.9 to 3.6. The
+per-field collapse that the 2026-09-05 side finding named is gone as well: on eval4b's HIP-85088,
+warped removes 6.9 and 7.6 percent at full strength and wide removes 18.0 / 19.2 / 26.8.
+
+**Two of the three seeds did not pass the gate at all** ("NO probe passed every gate"), so s0 and s1 are
+FINAL weights and only s2 is a gate pick -- a mixed comparison, stated because it is not a detail: the
+two that failed are also the two that remove least, and s2, the passer, is the best seed on every
+column. What they failed is the noise criterion (0.82x) on the Triangulum val, itself a plane-0.10
+field. That criterion was calibrated on models trained OFF the low end of the plane, where they
+removed noise indiscriminately; a model that has SEEN plane-0.10 training data and removes less there
+now fails a threshold set by models that had not. The gate is measuring the right thing on the wrong
+scale, and the arm it just rejected twice is the one that scores best where the gate lives. The
+gate-picked and final weights of s2 are identical to 0.1 on every column, so nothing hangs on which one
+ships for that seed.
+
+**Three open questions closed on the way.**
+
+- **The eval4 "Statue" cells are not the v19d training night.** The full bake holds two 2026-02-14
+  sessions in the Statue folder: the Skull and Crossbones pointing (by `OBJECT`; plane 0.14, the
+  half-master 0.17 the eval reads) and the Statue of Liberty pointing (0.66, half 0.68), and d8's
+  training key is the Statue one. Different object header, a fivefold plane apart: different frames.
+  The E2 session lists already excluded the Skull night; nothing else needed excluding.
+- **The residual-correlation anomaly was the cast seen twice.** `n2n_metrics.py` now prints the same
+  statistic on the 8 px high-passed removed component beside the raw one, on eval4's 192 cells:
+  gate1500 0.691 raw becomes 0.265, shipped4000 0.354 becomes 0.216, warped_s2 0.388 becomes 0.263.
+  The gap between the two v19d checkpoints (0.34) is 0.05 once the smooth term is out, and the three
+  models sit within 0.05 of each other. What correlated the removed component with the output was a
+  smooth, brightness-proportional term, which is what a per-channel gain on bright regions puts there.
+- **`RestoreLevel` absorbs the background and not the cast, so the 2026-09-04 conclusion that the cast
+  "does not survive the shipped path" was a statement about the background.** The seam probe gained a
+  per-channel gain statistic (output over input summed on the top decile of the input luminance, star
+  cores cut out, `TIANWEN_N2N_SEAM_MODEL_DIR` to run a second checkpoint on the same frame); on the
+  eta Car 2026-02-20 master through the runner's own stretch, run, invert:
+
+  | eta Car master, shipped path, top decile of luminance minus star cores (319k px) | out/in R / G / B | spread | stars kept 8-15 / 15-30 / 30-100 / 100+ | noise R / G / B |
+  |---|---|---|---|---|
+  | gate1500 (shipped) | 0.996 / 0.952 / 0.972 | **0.044** | 0.649 / 0.700 / 0.753 / 0.724 | 90 / 89 / 78 % |
+  | shipped4000 (until 2026-09-04) | 1.027 / 0.976 / 0.985 | **0.051** | 0.521 / 0.665 / 0.760 / 0.744 | 89 / 80 / 76 % |
+  | warped_s2 (exported to ONNX for this, parity 1.49e-7) | 1.022 / 1.003 / 0.994 | **0.028** | 0.735 / 0.811 / 0.871 / 0.886 | 91 / 84 / 78 % |
+
+  The median drag stays at 1e-6 on every checkpoint (the offset restore works); a per-channel GAIN on
+  bright nebulosity passes straight through it, because a per-chunk offset cannot correct a
+  multiplicative error. On both v19d checkpoints it is magenta-ward (red held, green cut 2.4 to 4.8
+  percent), and at the top decile's brightness a 4 percent gain is about one MAD of the frame, which
+  is what the eye saw in the 1:1. **The first version of this statistic read 0.195 and 0.273**: the
+  top decile of luminance is one third star cores, star peaks are attenuated by a channel-dependent
+  amount (the red PSF is wider), and that read as a cast four times the size of the real one. Cut the
+  cores out before calling a ratio a colour. warped_s2 is the least cast of the three (0.028, centred on
+  1.0) and keeps 0.74 of the faint-star amplitude where gate1500 keeps 0.65, on this one frame through
+  the path that ships.
+
+Artefacts: `C:/temp/e2/gaia/condpool.py`, `condpool-out.txt`, `metrics-hp-eval4.txt`,
+`C:/temp/e2/starsplit-wide-eval4.txt` and `starsplit-warped9-eval4.txt` (the low-plane scores, three
+wide seeds and all nine warped ones),
+`seamprobe-{gate1500,shipped4000}[-nostars].txt`, `C:/temp/e2/models-old/` (the previous ONNX from
+git f5be9f14), `C:/temp/e2/wide.log`, `C:/temp/e2/scripts-wide/`, `D:/Astro-Dataset/degraded/wide`,
+`C:/temp/tianwen-scratch/n2n-e2-wide/e2_wide_s{0,1,2}.pt`.

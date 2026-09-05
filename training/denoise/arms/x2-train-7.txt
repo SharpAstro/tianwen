@@ -1,0 +1,29 @@
+# Arm X2 (H8 re-run, docs/plans/denoiser-training.md): the eight cross-night pairs of
+# D:\Astro-Dataset\pairs-x2, exported by `tianwen dataset pair` from D:\Astro-Dataset\2026-09-full on
+# 2026-09-05 with injected draws in the sub slots.
+#
+# Arm X trained on six pairs of ONE sky (Rim). Vela SNR and HD 71272 were refused then for want of a
+# quad fit, which was a starved matcher rather than an unregistrable pair: their nights overlap
+# partially, so the brightest hundred stars of each hold no quad in common.
+#
+# The escalating budget brings VELA SNR in at 400 stars a side (19.2 percent overlap, rms 0.28 px),
+# and with it a second sky and the low end of the conditioning plane, which is where arm X was blind:
+# its pairs spanned 0.22 to 0.54 against a deployed 0.09 to 0.83, and Vela SNR's own master reads 0.08
+# to 0.15.
+#
+# HD 71272 STILL REFUSES, at 400 and again at the 500-star detection cap, so seven pairs and not
+# eight. The matcher is exhausted rather than starved there, and the fix is the one the plan named: a
+# registration seeded by coordinates. The retained masters carry no WCS (STACK_N, OBJECT and DATE-OBS
+# and nothing else), so that means plate-solving both nights first, with the OBJECT name as the hint.
+# Recorded here before the seeds ran, because a pool that shrinks after an export is exactly the thing
+# a pre-registration is for.
+#
+# HD 74167 stays held out whole (x2-val-1.txt), as in arm X: another sky, so the gate never selects on
+# a night the model trained on.
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2025-05-02+2026-02-16|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2025-05-02+2026-02-18|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2025-05-02+2026-02-20|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2026-02-16+2026-02-18|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2026-02-16+2026-02-20|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2026-02-18+2026-02-20|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Vela-SNR/2025-12-17+2026-01-23|ZWO ASI533MC Pro|Vela SNR|Optolong L-Ultimate 3nm

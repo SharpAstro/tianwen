@@ -16,6 +16,7 @@ using TianWen.AI.Imaging.Onnx;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Dataset;
+using TianWen.Lib.Imaging.Degradation;
 using TianWen.Lib.Imaging.Stacking;
 
 namespace TianWen.AI.Imaging
@@ -96,6 +97,11 @@ namespace TianWen.AI.Imaging
         /// <summary>Night B, in the trainer's second half slot.</summary>
         public const string FrameNightB = DatasetTileExporter.FrameHalfMasterB;
 
+        /// <summary>A third night of the same object, on the pair's own grid. A MEASUREMENT frame: the
+        /// trainer's cache prepare reads master / subs / the two half slots and nothing else, so this
+        /// one is invisible to training by construction.</summary>
+        public const string FrameNightC = "nightc";
+
         /// <summary>Separates the two session ids of an explicit <c>--pair</c> on the command line.
         /// A session id contains <c>|</c> and <c>/</c>, never two colons.</summary>
         public const string PairSeparator = "::";
@@ -113,8 +119,14 @@ namespace TianWen.AI.Imaging
         private const float StarSnrMin = 20f;
         private const int StarMax = 500;
 
-        /// <summary>Two session ids of one bake, both with a retained master.</summary>
-        public sealed record PairSpec(string SessionA, string SessionB);
+        /// <summary>Two session ids of one bake, both with a retained master, and optionally a THIRD
+        /// night of the same object.
+        /// <para>The third night is a measurement and never training data. Two frames cannot separate a
+        /// night's photon noise from its systematic: both are per-night, and a difference drops whatever
+        /// the two share. Three can, because <c>cov(A - B, A - C)</c> keeps only the terms belonging to
+        /// A, which is the statistic that says whether the shared-noise component H8 posits exists
+        /// before an arm is spent on it.</para></summary>
+        public sealed record PairSpec(string SessionA, string SessionB, string? SessionC = null);
 
         /// <param name="BakeRoot">A bake with <c>session-masters/</c> and <c>tiles-manifest.jsonl</c>.</param>
         /// <param name="OutDir">Where the pair cache goes; must not be the bake.</param>
@@ -130,6 +142,30 @@ namespace TianWen.AI.Imaging
         /// <param name="CellsPerPair">Tiles per pair, sampled with the P0 exporter's structure bias.</param>
         /// <param name="Seed">Folded into the per-pair cell sampling seed.</param>
         /// <param name="Force">Re-export pairs the output manifest already lists.</param>
+        /// <param name="QuadStars">Stars a side the quad matcher may use, or 0 to escalate from
+        /// <see cref="FrameRegistration.DefaultQuadStars"/> through twice and four times it. A partial
+        /// overlap does not fail registration, it STARVES it: the budget takes the brightest N of each
+        /// night, and where two nights share half a field two lists of 100 can hold no common quad.</param>
+        /// <param name="PsfTolerance">Relative FWHM difference the two EXPORTED sides must be inside.
+        /// Rule 1 is a statement about the tiles the model sees, and the pre-registration blur matches the
+        /// masters, which the warp then widens by different amounts on the two sides.</param>
+        /// <param name="PsfIterations">Cap on the exported-side match passes; each measures both sides and
+        /// convolves the sharper one by the quadrature difference. Zero keeps the master-side behaviour.</param>
+        /// <param name="InjectDraws">Degraded draws of night A written into the trainer's sub slots, or 0
+        /// for the plain pair export. The input distribution is then the supervised arm's own (a master
+        /// plus shape-calibrated injected noise) and the only thing left differing between this arm and
+        /// that one is the TARGET, which is the single axis H8 is about. It is also what puts the
+        /// conditioning plane where deployment is: a night's master is a floor injection can raise and
+        /// nothing can lower.</param>
+        /// <param name="MinInjectedNoise">Bottom of the log-uniform injected level range, in multiples of
+        /// THIS NIGHT's own measured background noise, not of one sub: the level is anchored on the pair's
+        /// own difference (<see cref="PairRow.NoiseSigmaA"/>), which is a noise measurement rather than a
+        /// MAD over a master reading its gradient as noise. A draw at k leaves the input at
+        /// <c>sqrt(1 + k^2)</c> times the night's noise, so 0.5 is 1.12x.</param>
+        /// <param name="MaxInjectedNoise">Top of the same range.</param>
+        /// <param name="WarpResampleSigma">Extra smoothing per injected realisation, in pixels. The knob
+        /// that calibrates the injected shape against a registered stack's; 0.5 is what the S-warped arms
+        /// measured, and it is a per-bake measurement rather than a constant.</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -140,7 +176,14 @@ namespace TianWen.AI.Imaging
             bool PsfMatch = false,
             int CellsPerPair = 300,
             int Seed = 1,
-            bool Force = false);
+            bool Force = false,
+            int QuadStars = 0,
+            double PsfTolerance = 0.01,
+            int PsfIterations = 4,
+            int InjectDraws = 0,
+            double MinInjectedNoise = 0.5,
+            double MaxInjectedNoise = 3.0,
+            double WarpResampleSigma = 0.0);
 
         /// <summary>
         /// One exported pair. Per-channel arrays are R, G, B. <paramref name="ResidualCorrelation"/> is the
@@ -150,6 +193,10 @@ namespace TianWen.AI.Imaging
         /// <paramref name="FwhmA"/>/<paramref name="FwhmB"/> are measured on the masters as read (after
         /// any PSF convolution), <paramref name="FwhmAfterA"/>/<paramref name="FwhmAfterB"/> on the two
         /// sides as exported (registered and level matched), both in pixels.
+        /// <para><paramref name="RegistrationBasis"/> names the quad budget that answered, so a pair that
+        /// needed four times the default is a pair to look at twice; <paramref name="PsfPasses"/> counts
+        /// the exported-side match passes; <paramref name="InjectedDraws"/> the degraded draws of night A
+        /// written into the sub slots; <paramref name="SessionC"/> the measurement night, if any.</para>
         /// </summary>
         public sealed record PairRow(
             string PairId,
@@ -179,7 +226,12 @@ namespace TianWen.AI.Imaging
             double FwhmAfterA,
             double FwhmAfterB,
             int Cells,
-            long ElapsedMs);
+            long ElapsedMs,
+            string RegistrationBasis = "",
+            int PsfPasses = 0,
+            int InjectedDraws = 0,
+            string SessionC = "",
+            double FwhmAfterC = 0);
 
         /// <summary>What one run did. <paramref name="Skipped"/> carries a reason per refused pair.</summary>
         public sealed record RunResult(
@@ -458,20 +510,11 @@ namespace TianWen.AI.Imaging
             flatB.Background.Release();
 
             // Rule 3: the transform B -> A, then its midpoint grid.
-            Matrix3x2 m;
-            float quadTolerance;
-            float rmsPx;
-            using (var sortedB = new SortedStarList(starsB))
-            using (var sortedA = new SortedStarList(starsA))
+            var (m, quadTolerance, rmsPx, registrationBasis) = await MatchAsync(options, starsA, starsB);
+            if (registrationBasis.Length == 0)
             {
-                var (solution, tolerance, rms) = await FrameRegistration.TryMatchAsync(sortedB, sortedA, FrameRegistration.DefaultQuadStars);
-                if (solution is null)
-                {
-                    return Outcome.Skip("no quad fit between the two nights");
-                }
-                m = solution.Value;
-                quadTolerance = tolerance;
-                rmsPx = rms;
+                return Outcome.Skip(string.Create(CultureInfo.InvariantCulture,
+                    $"no quad fit between the two nights at up to {QuadBudgets(options, starsA.Count, starsB.Count)[^1]} stars a side"));
             }
             var (half, scale, rotationDeg) = HalfTransform(m);
             if (!Matrix3x2.Invert(half, out var halfInverse))
@@ -538,6 +581,59 @@ namespace TianWen.AI.Imaging
                 return Outcome.Skip(string.Create(CultureInfo.InvariantCulture, $"the two nights overlap on {overlap:P1} of the canvas, under one tile"));
             }
 
+            // Rule 1, on the frames the model will actually see. The convolution above matched the two
+            // MASTERS; the warp then widened each side by a different amount (the midpoint grid splits
+            // the resampling, it does not equalise it), and what rule 1 is about is the exported tiles.
+            // So the match is iterated here: measure both exported sides, convolve the sharper by the
+            // quadrature difference, measure again. The first arm's pairs shipped 3 to 6 percent apart.
+            var psfPasses = 0;
+            var fwhmAfterA = await MedianFwhmOfAsync(planesA, warpedA, ct);
+            var fwhmAfterB = await MedianFwhmOfAsync(planesB, warpedA, ct);
+            for (var pass = 0; pass < options.PsfIterations; pass++)
+            {
+                if (!double.IsFinite(fwhmAfterA) || !double.IsFinite(fwhmAfterB))
+                {
+                    break;
+                }
+                var wideAfter = Math.Max(fwhmAfterA, fwhmAfterB);
+                var sharpAfter = Math.Min(fwhmAfterA, fwhmAfterB);
+                if (wideAfter <= 0 || (wideAfter - sharpAfter) / wideAfter <= options.PsfTolerance)
+                {
+                    break;
+                }
+                var sigma = Math.Sqrt((wideAfter * wideAfter) - (sharpAfter * sharpAfter)) / 2.354820045;
+                var sharperIsA = fwhmAfterA < fwhmAfterB;
+                var sharperSide = sharperIsA ? planesA : planesB;
+                for (var c = 0; c < channels; c++)
+                {
+                    BlurPlaneInPlace(sharperSide[c], sigma);
+                }
+                RecomputeMean(planesA, planesB, planesM);
+                psfPasses++;
+                var side = sharperIsA ? "A" : "B";
+                blurredSide = blurredSide.Length == 0 || blurredSide == side ? side : "AB";
+                fwhmAfterA = await MedianFwhmOfAsync(planesA, warpedA, ct);
+                fwhmAfterB = await MedianFwhmOfAsync(planesB, warpedA, ct);
+            }
+
+            // The measurement night, on the pair's own grid and in A's units like the other two. Its
+            // footprint narrows the MEAN, which is what the cells are sampled from, so every cell of a
+            // triple export carries all three nights rather than a NaN third of the time.
+            float[][,]? planesC = null;
+            var fwhmAfterC = 0.0;
+            if (!string.IsNullOrWhiteSpace(pair.SessionC))
+            {
+                var third = await WarpThirdNightAsync(
+                    options, pair.SessionC!, starsA, warpedA, halfInverse, Math.Max(fwhmAfterA, fwhmAfterB), logger, ct);
+                if (third.Planes is null)
+                {
+                    return Outcome.Skip(third.Skip);
+                }
+                planesC = third.Planes;
+                fwhmAfterC = third.Fwhm;
+                MaskWhereAbsent(planesM, planesC[0]);
+            }
+
             // Everything below is in A's linear units. One divisor and one pedestal for the three
             // frames, the pair's own equivalent of the P0 exporter's ToUnitRange on a single master.
             var divisor = Math.Max(1f, Math.Max(warpedA.MaxValue, FiniteMax(planesA, planesB)));
@@ -545,6 +641,10 @@ namespace TianWen.AI.Imaging
             ScaleInPlace(planesA, inv);
             ScaleInPlace(planesB, inv);
             ScaleInPlace(planesM, inv);
+            if (planesC is not null)
+            {
+                ScaleInPlace(planesC, inv);
+            }
             var pedestal = warpedA.Pedestal * inv;
             var meta = rawA.ImageMeta;
             var unitA = new Image(planesA, BitDepth.Float32, 1f, 0f, pedestal, meta);
@@ -559,6 +659,9 @@ namespace TianWen.AI.Imaging
             }
             var stretchedA = unitA.MtfStretchWith(origMin, balances);
             var stretchedB = unitB.MtfStretchWith(origMin, balances);
+            var stretchedC = planesC is null
+                ? null
+                : new Image(planesC, BitDepth.Float32, 1f, 0f, pedestal, meta).MtfStretchWith(origMin, balances);
 
             // Cells where both nights are finite, sampled with the P0 structure bias on the mean.
             var candidates = FiniteTileOrigins(planesM[0], width, height);
@@ -571,19 +674,22 @@ namespace TianWen.AI.Imaging
 
             // The pair statistics the plan asks for before any training.
             var (noiseA, noiseB, correlation) = ResidualStatistics(planesA, planesB, stretchedM.GetChannelSpan(0), width, height);
-            var fwhmAfterA = await MedianFwhmOfAsync(planesA, unitA, ct);
-            var fwhmAfterB = await MedianFwhmOfAsync(planesB, unitB, ct);
 
             var slug = DatasetTileExporter.Sanitize(pairId);
             var tilesDir = Path.Combine(options.OutDir, "tiles", slug);
             Directory.CreateDirectory(tilesDir);
             var rows = ImmutableArray.CreateBuilder<DatasetTileExporter.TileManifestRow>(cells.Count * 3);
-            foreach (var (frame, image, source) in new[]
-                     {
-                         (FrameCombined, stretchedM, ""),
-                         (FrameNightA, stretchedA, pair.SessionA),
-                         (FrameNightB, stretchedB, pair.SessionB),
-                     })
+            var frames = new List<(string Frame, Image Image, string Source)>
+            {
+                (FrameCombined, stretchedM, ""),
+                (FrameNightA, stretchedA, pair.SessionA),
+                (FrameNightB, stretchedB, pair.SessionB),
+            };
+            if (stretchedC is not null)
+            {
+                frames.Add((FrameNightC, stretchedC, pair.SessionC!));
+            }
+            foreach (var (frame, image, source) in frames)
             {
                 foreach (var cell in cells)
                 {
@@ -603,6 +709,70 @@ namespace TianWen.AI.Imaging
                         Gain: header.Gain,
                         ExposureSeconds: header.ExposureSeconds,
                         NoiseMad: mad));
+                }
+            }
+
+            // The sub slots: night A degraded, drawn per cell. Injection happens in LINEAR units and the
+            // draw is stretched with the PAIR's own parameters, never its own, so the difference between
+            // an input and its target is noise and never a stretch (the degradation exporter's rule 1).
+            var injected = 0;
+            if (options.InjectDraws > 0)
+            {
+                var anchor = noiseA[0];
+                if (!(anchor > 0) || !double.IsFinite(anchor))
+                {
+                    return Outcome.Skip(string.Create(CultureInfo.InvariantCulture,
+                        $"night A's background noise measured {anchor}, so no injected level can be anchored"));
+                }
+                foreach (var cell in cells)
+                {
+                    for (var draw = 0; draw < options.InjectDraws; draw++)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        var drawRng = new Random(DatasetTileExporter.StableSeed(pairId) ^ (options.Seed * 397) ^ (cell.X * 73856093) ^ (cell.Y * 19349663) ^ (draw * 83492791));
+                        var level = LogUniform(drawRng, options.MinInjectedNoise, options.MaxInjectedNoise);
+                        var planes = new float[channels][,];
+                        for (var c = 0; c < channels; c++)
+                        {
+                            var region = CutCell(planesA[c], cell, TileSize);
+                            var background = MedianFinite(region);
+                            // One calibration per cell from night A's own measured noise, so a draw at
+                            // level k adds k times that: the ramp with signal is SigmaAt's, the anchor is
+                            // a measurement of this night rather than a MAD reading its gradient as noise.
+                            var calibration = new LinearDegradation.NoiseCalibration(pedestal, background, anchor, 1);
+                            var shape = NoiseField.Warped(TileSize, TileSize, InjectionRealisations, drawRng, options.WarpResampleSigma);
+                            LinearDegradation.AddNoiseInPlace(region, shape, calibration, level);
+                            var plane = new float[TileSize, TileSize];
+                            for (var y = 0; y < TileSize; y++)
+                            {
+                                for (var x = 0; x < TileSize; x++)
+                                {
+                                    plane[y, x] = region[(y * TileSize) + x];
+                                }
+                            }
+                            planes[c] = plane;
+                        }
+                        var cellImage = new Image(planes, BitDepth.Float32, 1f, 0f, pedestal, meta);
+                        var stretchedCell = cellImage.MtfStretchWith(origMin, balances);
+                        var frame = DatasetDegradationExporter.FrameForDraw(draw);
+                        var file = $"x{cell.X}_y{cell.Y}_{frame}{DatasetTileExporter.TileExtension}";
+                        var mad = DatasetTileExporter.WriteTile(stretchedCell, Point.Empty, TileSize, Path.Combine(tilesDir, file), pairId);
+                        stretchedCell.Release();
+                        rows.Add(new DatasetTileExporter.TileManifestRow(
+                            Tile: $"tiles/{slug}/{file}",
+                            SessionId: pairId,
+                            Camera: header.Camera,
+                            Frame: frame,
+                            SourceFile: pair.SessionA,
+                            CellX: cell.X,
+                            CellY: cell.Y,
+                            TileSize: TileSize,
+                            Channels: channels,
+                            Gain: header.Gain,
+                            ExposureSeconds: header.ExposureSeconds,
+                            NoiseMad: mad));
+                        injected++;
+                    }
                 }
             }
 
@@ -635,7 +805,12 @@ namespace TianWen.AI.Imaging
                 FwhmAfterA: fwhmAfterA,
                 FwhmAfterB: fwhmAfterB,
                 Cells: cells.Count,
-                ElapsedMs: sw.ElapsedMilliseconds);
+                ElapsedMs: sw.ElapsedMilliseconds,
+                RegistrationBasis: registrationBasis,
+                PsfPasses: psfPasses,
+                InjectedDraws: injected,
+                SessionC: pair.SessionC ?? "",
+                FwhmAfterC: fwhmAfterC);
 
             // Tiles first, then the two manifests, so a killed run leaves at worst orphan tiles that the
             // next run overwrites, never a manifest row without its tile.
@@ -650,6 +825,7 @@ namespace TianWen.AI.Imaging
             flatB.Cleaned.Release();
             rawA.Release();
             rawB.Release();
+            stretchedC?.Release();
             logger?.LogInformation(
                 "[{Pair}] {Cells} cells; FWHM {FwhmA:F2}/{FwhmB:F2} px, rotation {Rot:F3} deg, rms {Rms:F2} px, gain {Gain}, residual correlation {Corr}, {Ms} ms",
                 pairId, cells.Count, fwhmA, fwhmB, rotationDeg, rmsPx,
@@ -708,6 +884,330 @@ namespace TianWen.AI.Imaging
             }
             var h = Vector2.Transform(new Vector2(m.M31, m.M32), kInverse);
             return (new Matrix3x2(linear.M11, linear.M12, linear.M21, linear.M22, h.X, h.Y), scale, rotation * 180.0 / Math.PI);
+        }
+
+        /// <summary>Sub-realisations averaged into one injected noise field. A registered stack's noise
+        /// is correlated because many resampled frames were averaged; the count past a dozen or so stops
+        /// changing the shape, so it is fixed here rather than read off a header the retained master does
+        /// not carry.</summary>
+        private const int InjectionRealisations = 8;
+
+        /// <summary>
+        /// The third night on the pair's grid and in night A's units: masked, star-matched against A,
+        /// flattened, warped onto the midpoint grid and level-matched, exactly as B was.
+        /// </summary>
+        /// <returns>Null planes with a reason when the night cannot be placed on the grid.</returns>
+        private static async Task<(float[][,]? Planes, double Fwhm, string Skip)> WarpThirdNightAsync(
+            Options options, string sessionC, StarList starsA, Image warpedA, Matrix3x2 halfInverse,
+            double targetFwhm, ILogger? logger, CancellationToken ct)
+        {
+            if (!RetainedMasterStore.TryRead(options.BakeRoot, sessionC, out var rawC, logger))
+            {
+                return (null, 0, $"no retained master for the third night {sessionC}");
+            }
+            try
+            {
+                if (rawC.ChannelCount != 3)
+                {
+                    return (null, 0, $"the third night has {rawC.ChannelCount} channels; mono stays out");
+                }
+                var c0 = MaskAbsent(rawC);
+                var starsC = await c0.FindStarsAsync(StarChannel, StarSnrMin, StarMax, MinStars, cancellationToken: ct);
+                if (starsC.Count < MinStars)
+                {
+                    return (null, 0, $"the third night yielded {starsC.Count} stars, needs {MinStars}");
+                }
+                var (mC, _, _, basis) = await MatchAsync(options, starsA, starsC);
+                if (basis.Length == 0)
+                {
+                    return (null, 0, "no quad fit between the third night and night A");
+                }
+                var extractor = new ClassicalBackgroundExtractor();
+                var flatC = await extractor.ExtractAsync(c0, BackgroundExtractionOptions.Default, ct);
+                flatC.Background.Release();
+                var (_, width, height) = warpedA.Shape;
+                var warpedC = await flatC.Cleaned.WarpToReferenceGridAsync(mC * halfInverse, width, height, ct);
+                var channels = 3;
+                var planes = new float[channels][,];
+                for (var c = 0; c < channels; c++)
+                {
+                    var sa = warpedA.GetChannelSpan(c);
+                    var sc = warpedC.GetChannelSpan(c);
+                    var (gain, offset) = FitLevel(sa, sc);
+                    var plane = new float[height, width];
+                    var g = (float)gain;
+                    var o = (float)offset;
+                    for (var i = 0; i < sa.Length; i++)
+                    {
+                        var y = i / width;
+                        var x = i - (y * width);
+                        var va = sa[i];
+                        var vc = sc[i];
+                        plane[y, x] = float.IsFinite(va) && float.IsFinite(vc) ? (vc - o) / g : float.NaN;
+                    }
+                    planes[c] = plane;
+                }
+                // Brought to the PAIR's width, one-sidedly: a sharper third night is convolved up to it,
+                // a wider one is left alone and recorded. Widening A or B to suit the measurement frame
+                // would change the arm's own training data to make a statistic look better, and the
+                // statistic is there to be believed rather than flattered. The residual is reported.
+                var fwhm = await MedianFwhmOfAsync(planes, warpedA, ct);
+                for (var pass = 0; pass < options.PsfIterations; pass++)
+                {
+                    if (!double.IsFinite(fwhm) || !double.IsFinite(targetFwhm) || targetFwhm <= 0)
+                    {
+                        break;
+                    }
+                    if (fwhm >= targetFwhm || (targetFwhm - fwhm) / targetFwhm <= options.PsfTolerance)
+                    {
+                        break;
+                    }
+                    var sigma = Math.Sqrt((targetFwhm * targetFwhm) - (fwhm * fwhm)) / 2.354820045;
+                    for (var c = 0; c < channels; c++)
+                    {
+                        BlurPlaneInPlace(planes[c], sigma);
+                    }
+                    fwhm = await MedianFwhmOfAsync(planes, warpedA, ct);
+                }
+                warpedC.Release();
+                flatC.Cleaned.Release();
+                return (planes, fwhm, "");
+            }
+            finally
+            {
+                rawC.Release();
+            }
+        }
+
+        /// <summary>NaN wherever the reference plane is not finite: the mean carries the footprint every
+        /// frame of the export shares, so a cell sampled from it holds all of them.</summary>
+        internal static void MaskWhereAbsent(float[][,] planes, float[,] reference)
+        {
+            var height = reference.GetLength(0);
+            var width = reference.GetLength(1);
+            for (var c = 0; c < planes.Length; c++)
+            {
+                var plane = planes[c];
+                for (var y = 0; y < height; y++)
+                {
+                    for (var x = 0; x < width; x++)
+                    {
+                        if (!float.IsFinite(reference[y, x]))
+                        {
+                            plane[y, x] = float.NaN;
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>One cell of a plane, row-major, as the noise injection wants it.</summary>
+        internal static float[] CutCell(float[,] plane, Point origin, int size)
+        {
+            var region = new float[size * size];
+            var height = plane.GetLength(0);
+            var width = plane.GetLength(1);
+            for (var y = 0; y < size; y++)
+            {
+                var sy = Math.Clamp(origin.Y + y, 0, height - 1);
+                for (var x = 0; x < size; x++)
+                {
+                    var sx = Math.Clamp(origin.X + x, 0, width - 1);
+                    region[(y * size) + x] = plane[sy, sx];
+                }
+            }
+            return region;
+        }
+
+        /// <summary>Median over the finite samples, NaN when there are none.</summary>
+        internal static double MedianFinite(ReadOnlySpan<float> values)
+        {
+            var finite = new List<float>(values.Length);
+            foreach (var v in values)
+            {
+                if (float.IsFinite(v))
+                {
+                    finite.Add(v);
+                }
+            }
+            return finite.Count == 0 ? double.NaN : Median([.. finite]);
+        }
+
+        /// <summary>A draw log-uniform in [min, max], so the level range is covered evenly in ratio
+        /// rather than in difference.</summary>
+        internal static double LogUniform(Random rng, double min, double max)
+        {
+            if (!(max > min))
+            {
+                return min;
+            }
+            var logMin = Math.Log(min);
+            return Math.Exp(logMin + (rng.NextDouble() * (Math.Log(max) - logMin)));
+        }
+
+        /// <summary>
+        /// Separable Gaussian over a plane whose uncovered pixels are NaN, renormalising the kernel over
+        /// the finite samples it actually reached.
+        /// <para>A plain convolution would spread the uncovered ring inward by the kernel radius on every
+        /// pass, and the iteration below runs several. NaN stays NaN; a covered pixel is a weighted mean
+        /// of the covered pixels near it, which is what the frame's own edge does anyway.</para>
+        /// </summary>
+        internal static void BlurPlaneInPlace(float[,] plane, double sigma)
+        {
+            if (!(sigma > 0.0))
+            {
+                return;
+            }
+            var height = plane.GetLength(0);
+            var width = plane.GetLength(1);
+            var radius = Math.Max(1, (int)Math.Ceiling(3.0 * sigma));
+            var kernel = new double[(2 * radius) + 1];
+            var twoSigmaSquared = 2.0 * sigma * sigma;
+            // AREA sampled, not point sampled. A PSF match asks for kernels well under a pixel wide, and
+            // a point-sampled Gaussian of sigma 0.27 px is [0.001, 1, 0.001]: its second moment is 0.002
+            // px^2 where the kernel it stands for has 0.073, so the convolution is a no-op that leaves the
+            // widths exactly where they were. That failure is silent -- the pass runs, the star does not
+            // move -- and it is what a sub-pixel kernel does whenever it is sampled at pixel centres.
+            const int SubSamples = 16;
+            for (var k = -radius; k <= radius; k++)
+            {
+                var sum = 0.0;
+                for (var s = 0; s < SubSamples; s++)
+                {
+                    var offset = k - 0.5 + ((s + 0.5) / SubSamples);
+                    sum += Math.Exp(-(offset * offset) / twoSigmaSquared);
+                }
+                kernel[k + radius] = sum / SubSamples;
+            }
+
+            var row = new float[width];
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    row[x] = plane[y, x];
+                }
+                for (var x = 0; x < width; x++)
+                {
+                    if (float.IsNaN(row[x]))
+                    {
+                        continue;
+                    }
+                    double sum = 0, weight = 0;
+                    var from = Math.Max(0, x - radius);
+                    var to = Math.Min(width - 1, x + radius);
+                    for (var i = from; i <= to; i++)
+                    {
+                        var v = row[i];
+                        if (float.IsNaN(v))
+                        {
+                            continue;
+                        }
+                        var w = kernel[i - x + radius];
+                        sum += w * v;
+                        weight += w;
+                    }
+                    plane[y, x] = weight > 0 ? (float)(sum / weight) : row[x];
+                }
+            }
+
+            var column = new float[height];
+            for (var x = 0; x < width; x++)
+            {
+                for (var y = 0; y < height; y++)
+                {
+                    column[y] = plane[y, x];
+                }
+                for (var y = 0; y < height; y++)
+                {
+                    if (float.IsNaN(column[y]))
+                    {
+                        continue;
+                    }
+                    double sum = 0, weight = 0;
+                    var from = Math.Max(0, y - radius);
+                    var to = Math.Min(height - 1, y + radius);
+                    for (var i = from; i <= to; i++)
+                    {
+                        var v = column[i];
+                        if (float.IsNaN(v))
+                        {
+                            continue;
+                        }
+                        var w = kernel[i - y + radius];
+                        sum += w * v;
+                        weight += w;
+                    }
+                    plane[y, x] = weight > 0 ? (float)(sum / weight) : column[y];
+                }
+            }
+        }
+
+        /// <summary>The mean frame after either side moved: it is a projection of the two, never a third
+        /// thing to keep in step by hand.</summary>
+        internal static void RecomputeMean(float[][,] planesA, float[][,] planesB, float[][,] planesM)
+        {
+            for (var c = 0; c < planesA.Length; c++)
+            {
+                var pa = planesA[c];
+                var pb = planesB[c];
+                var pm = planesM[c];
+                var height = pm.GetLength(0);
+                var width = pm.GetLength(1);
+                for (var y = 0; y < height; y++)
+                {
+                    for (var x = 0; x < width; x++)
+                    {
+                        var va = pa[y, x];
+                        var vb = pb[y, x];
+                        pm[y, x] = float.IsFinite(va) && float.IsFinite(vb) ? 0.5f * (va + vb) : float.NaN;
+                    }
+                }
+            }
+        }
+
+        /// <summary>Quad budgets to try in order, each capped by the shorter star list.</summary>
+        internal static int[] QuadBudgets(Options options, int starsA, int starsB)
+        {
+            var cap = Math.Min(starsA, starsB);
+            var wanted = options.QuadStars > 0
+                ? [options.QuadStars]
+                : new[] { FrameRegistration.DefaultQuadStars, FrameRegistration.DefaultQuadStars * 2, FrameRegistration.DefaultQuadStars * 4 };
+            var budgets = new List<int>(wanted.Length);
+            foreach (var w in wanted)
+            {
+                var capped = Math.Min(w, cap);
+                if (budgets.Count == 0 || capped > budgets[^1])
+                {
+                    budgets.Add(capped);
+                }
+            }
+            return [.. budgets];
+        }
+
+        /// <summary>
+        /// The transform taking the second night onto the first, at the first budget that answers.
+        /// <para><b>A partial overlap starves the matcher rather than defeating it.</b> The budget takes
+        /// the brightest N stars of each night; where two nights share half a field, two lists of a
+        /// hundred can hold no quad in common, and the pair is refused for want of stars nobody looked at.
+        /// Escalating is what brings a partially overlapping pair in, and the basis it returns records
+        /// which budget answered.</para>
+        /// </summary>
+        /// <returns>An empty basis when no budget matched.</returns>
+        internal static async Task<(Matrix3x2 Transform, float QuadTolerance, float RmsPx, string Basis)> MatchAsync(
+            Options options, StarList starsA, StarList starsB)
+        {
+            using var sortedB = new SortedStarList(starsB);
+            using var sortedA = new SortedStarList(starsA);
+            foreach (var budget in QuadBudgets(options, starsA.Count, starsB.Count))
+            {
+                var (solution, tolerance, rms) = await FrameRegistration.TryMatchAsync(sortedB, sortedA, budget);
+                if (solution is not null)
+                {
+                    return (solution.Value, tolerance, rms, string.Create(CultureInfo.InvariantCulture, $"quad{budget}"));
+                }
+            }
+            return (Matrix3x2.Identity, 0f, 0f, "");
         }
 
         private static double MedianFwhm(StarList stars)

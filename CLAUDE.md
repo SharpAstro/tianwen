@@ -1098,7 +1098,19 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   span a third of the CONDITIONING plane's deployed range (training p5 0.22; Horsehead reads 0.09, the
   Statue 0.17), and off that range the net amplifies noise rather than removing it. Check the
   conditioning range per session before a seed, exactly as the level range is checked.
-  [`docs/plans/denoiser-training.md`](docs/plans/denoiser-training.md) H8.
+  [`docs/plans/denoiser-training.md`](docs/plans/denoiser-training.md) H8. **Four more from unparking
+  H8 (2026-09-05):** the PSF match belongs on the EXPORTED tiles, not the masters, because the midpoint
+  warp widens the two sides by different amounts after the master-side kernel has run (3 to 6 percent
+  apart became 0.6 to 1.4); a sub-pixel Gaussian must be AREA sampled, since point-sampling sigma 0.27
+  px gives [0.001, 1, 0.001], a kernel with a thirtieth of the intended second moment, and the pass
+  runs and moves nothing; **a partially overlapping pair is a STARVED matcher, not an unregistrable
+  one** (the budget takes the brightest N a side, so escalate 100 / 200 / 400 before believing "no quad
+  fit" -- Vela SNR joins at 400 on 19 percent overlap, while HD 71272 refuses at the 500-star detection
+  cap and needs a coordinate seed, which means plate-solving first because a retained master carries no
+  WCS); and **three frames of one sky are what separate a night's photon noise from its systematic**
+  (`--pair "A::B::C"` plus `n2n_threeframe.py`: `cov(A-B, A-C)` is night A's own deviation, of which 5.5
+  to 18.6 percent of the variance is structured). A measurement frame must be excluded from the
+  trainer's slots BY NAME -- the cache prepare files every unrecognised frame as a sub.
 - **RC-Astro (BlurX / NoiseX / StarXTerminator)** -- `AddRcAstroAi()`. Its `.onnx` files are
   **encrypted at rest** (the license forbids extracting the weights), so they are driven through the
   `rc-astro` CLI's `--json` NDJSON protocol, **never** loaded into ORT: `RcAstroEnhancerBase` writes the
