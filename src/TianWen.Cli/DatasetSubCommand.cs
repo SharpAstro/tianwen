@@ -663,12 +663,18 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             Description = "After exporting, measure band1/band0 of the injected draws and of the bake's own " +
                           "real sub and half-master pairs with the same code, which is the only way the numbers compare.",
         };
+        var sessionFilterOpt = new Option<string[]>("--session")
+        {
+            Description = "Case-insensitive substring of the session id (repeatable); only matching sessions are " +
+                          "exported. Names an arm's pool without exporting the whole bake.",
+            AllowMultipleArgumentsPerToken = true,
+        };
 
         var command = new Command("degrade",
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, seedOpt, warpSigmaOpt, forceOpt, measureOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, forceOpt, measureOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -696,7 +702,8 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                 MaxSessions: parseResult.GetValue(sessionsOpt),
                 Seed: parseResult.GetValue(seedOpt),
                 WarpResampleSigma: parseResult.GetValue(warpSigmaOpt),
-                Force: parseResult.GetValue(forceOpt));
+                Force: parseResult.GetValue(forceOpt),
+                SessionFilters: [.. parseResult.GetValue(sessionFilterOpt) ?? []]);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);

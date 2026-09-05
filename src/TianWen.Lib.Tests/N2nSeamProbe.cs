@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Meziantou.Extensions.Logging.Xunit.v3;
 using Microsoft.Extensions.Logging;
@@ -42,6 +43,13 @@ public class N2nSeamProbe(ITestOutputHelper output)
     private const string OverlapVar = "TIANWEN_N2N_SEAM_OVERLAP";
     private const string PngDirVar = "TIANWEN_N2N_SEAM_PNG_DIR";
     private const string TagVar = "TIANWEN_N2N_SEAM_TAG";
+    /// <summary>A directory holding a DIFFERENT copy of the shipped model file, so two checkpoints of the
+    /// same graph can be probed on the same frame without swapping the repo's file (2026-09-04 compared
+    /// gate1500 against shipped4000 this way; the previous file is one `git show` away).</summary>
+    private const string ModelDirVar = "TIANWEN_N2N_SEAM_MODEL_DIR";
+
+    private static ModelResolver Resolver() =>
+        Environment.GetEnvironmentVariable(ModelDirVar) is { Length: > 0 } dir ? new ModelResolver([dir]) : new ModelResolver();
 
     private const int DefaultOverlap = 64;
     private const int Tile = 256;
@@ -167,8 +175,9 @@ public class N2nSeamProbe(ITestOutputHelper output)
         var path = Environment.GetEnvironmentVariable(PathVar);
         Assert.SkipWhen(string.IsNullOrWhiteSpace(path), $"{PathVar} not set");
         Assert.SkipUnless(File.Exists(path), $"{PathVar} does not exist: {path}");
-        Assert.SkipUnless(new ModelResolver().TryResolve(N2nDenoiser.ModelFileName, out _),
+        Assert.SkipUnless(Resolver().TryResolve(N2nDenoiser.ModelFileName, out var modelPath),
             $"{N2nDenoiser.ModelFileName} not resolvable");
+        output.WriteLine($"model   {modelPath}");
 
         var ct = TestContext.Current.CancellationToken;
         Image.TryReadFitsFile(path!, out var loaded).ShouldBeTrueForProbe(output, "could not read the frame");
@@ -205,7 +214,7 @@ public class N2nSeamProbe(ITestOutputHelper output)
         output.WriteLine($"stars   {stars.Length} input-luminance peaks at >= 8 MAD over their ring, by SNR bucket: {BucketCounts(stars)}");
 
         using var factory = LoggerFactory.Create(b => b.AddProvider(new XUnitLoggerProvider(output, appendScope: false)));
-        using var enhancer = new N2nDenoiser(new ModelResolver(), factory.CreateLogger<N2nDenoiser>(), overlap: overlap);
+        using var enhancer = new N2nDenoiser(Resolver(), factory.CreateLogger<N2nDenoiser>(), overlap: overlap);
 
         // One shared stretch window from the INPUT so every arm's crop is directly comparable.
         var (winMed, winMad) = MedianMad(input.GetChannelSpan(1));
@@ -218,6 +227,15 @@ public class N2nSeamProbe(ITestOutputHelper output)
             WriteCrop(Path.Combine(cropDir, "rescale-input.png"),
                 input.GetChannelSpan(1), width, cropX, cropY, cropW, cropH, winMed - winMad, winMed + 8 * winMad, stride);
         }
+
+        // The colour cast seen in the 1:1 (2026-09-04) sits on BRIGHT nebulosity, and a per-chunk level
+        // restore corrects an offset, not a gain, so the median drag cannot see it. This can: the ratio
+        // of output to input summed over the top decile of the INPUT luminance, per channel. A cast is
+        // the three ratios disagreeing; a level shift alone leaves them equal.
+        var brightThreshold = Percentile(lumIn, 0.90f);
+        var brightMask = new bool[lumIn.Length];
+        for (var i = 0; i < lumIn.Length; i++) brightMask[i] = lumIn[i] >= brightThreshold;
+        output.WriteLine($"bright  top-decile threshold on input luminance = {brightThreshold:E3} ({brightMask.Count(static b => b)} px)");
 
         // The exporter's route: every training tile was stored after exactly this stretch, so this
         // arm hands the net the domain it was trained in and inverts the answer with the same
@@ -259,6 +277,7 @@ public class N2nSeamProbe(ITestOutputHelper output)
         void Score(string heading, float[][] planes, string cropTag)
         {
             output.WriteLine(heading);
+            var brightGain = new double[channels];
             for (var c = 0; c < channels; c++)
             {
                 var outPlane = planes[c];
@@ -268,6 +287,7 @@ public class N2nSeamProbe(ITestOutputHelper output)
                     input.GetChannelSpan(c), outPlane, width, height, stride, bandWidth);
                 var loudBg = LargeBackgroundCorrections(
                     input.GetChannelSpan(c), outPlane, inStats[c].Median, inStats[c].Mad);
+                brightGain[c] = BrightGain(input.GetChannelSpan(c), outPlane, brightMask);
                 output.WriteLine(
                     $"  ch{c}   MAD out={mad:E3} ({mad / inStats[c].Mad:P0} of input)  adjMAD out={adjMad:E3} ({adjMad / inAdj[c]:P0})  "
                     + $"median drag={median - inStats[c].Median:E2}  "
@@ -280,7 +300,34 @@ public class N2nSeamProbe(ITestOutputHelper output)
                 }
             }
             output.WriteLine($"  stars  {StarReport(lumIn, Luminance(planes), stars, width)}");
+            var castSpread = brightGain.Max() - brightGain.Min();
+            output.WriteLine(
+                $"  bright top-decile out/in per channel = {string.Join(" / ", brightGain.Select(static g => g.ToString("F4")))}"
+                + $"   cast spread (max - min) = {castSpread:F4}   (a level shift alone leaves the three equal)");
         }
+    }
+
+    /// <summary>The value at <paramref name="fraction"/> of the sorted plane, on a copy.</summary>
+    private static float Percentile(float[] plane, float fraction)
+    {
+        var sorted = (float[])plane.Clone();
+        Array.Sort(sorted);
+        var index = Math.Clamp((int)(fraction * (sorted.Length - 1)), 0, sorted.Length - 1);
+        return sorted[index];
+    }
+
+    /// <summary>Sum of the output over sum of the input across the masked pixels: a GAIN, which is what
+    /// a colour cast on bright nebulosity is and what a per-chunk offset restore cannot remove.</summary>
+    private static double BrightGain(ReadOnlySpan<float> input, float[] output, bool[] mask)
+    {
+        double sumIn = 0, sumOut = 0;
+        for (var i = 0; i < mask.Length; i++)
+        {
+            if (!mask[i]) continue;
+            sumIn += input[i];
+            sumOut += output[i];
+        }
+        return sumIn > 0 ? sumOut / sumIn : double.NaN;
     }
 
     /// <summary>

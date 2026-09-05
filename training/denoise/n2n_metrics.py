@@ -148,12 +148,24 @@ def main():
         # means structure went out with it. This needs no clean reference at all, which is
         # why it is the one diagnostic that would also work on a real unlabelled image.
         resid = []
+        resid_hp = []
         for i in range(len(la)):
-            d = (lm[i] - la[i])[masks[i]]
+            d_full = lm[i] - la[i]
+            d = d_full[masks[i]]
             o = la[i][masks[i]]
             if d.std() > 0 and o.std() > 0:
                 resid.append(float(np.corrcoef(d, o)[0, 1]))
+            # The same statistic on the HIGH-PASSED removed component. A per-channel gain shift on
+            # bright regions puts a brightness-proportional, SMOOTH term into "removed", and that
+            # term correlates with the output by construction (the output IS the brightness). If the
+            # correlation lives in that smooth term it is the colour cast seen twice, not structure
+            # going out with the noise; removing the 8 px low-pass leaves only what a denoiser could
+            # have taken out pixel by pixel. Open question of 2026-09-04, section 8.
+            d_hp = (d_full - gaussian_filter(d_full, 8.0))[masks[i]]
+            if d_hp.std() > 0 and o.std() > 0:
+                resid_hp.append(float(np.corrcoef(d_hp, o)[0, 1]))
         resid_corr = float(np.mean(resid)) if resid else float("nan")
+        resid_corr_hp = float(np.mean(resid_hp)) if resid_hp else float("nan")
         amp, det, cnt = measure(la, stars, lm)
         struct = []
         for sc in SCALES:
@@ -172,6 +184,7 @@ def main():
         rows.append({"label": label, "note": note, "noise": noise / base_noise,
                      "amp": amp, "detect": det, "counts": cnt, "struct": struct,
                      "resid_corr": resid_corr,
+                     "resid_corr_hp": resid_corr_hp,
                      "snr_gain": overall_amp / (noise / base_noise)})
         return rows[-1]
 
@@ -189,12 +202,12 @@ def main():
         print(f"{r['label']:22s} {r['noise']:5.2f}x  {cells}")
 
     print(f"\n{'model':22s} " + "  ".join(f"{f'{x:g}-{y:g}px':>13s}" for x, y in SCALES)
-          + f"  {'resid corr':>11s}")
+          + f"  {'resid corr':>11s}  {'resid hp':>9s}")
     print(f"{'':22s} " + "  ".join(f"{'ratio  corr':>13s}" for _ in SCALES)
-          + f"  {'(0 = clean)':>11s}")
+          + f"  {'(0 = clean)':>11s}  {'(8px hp)':>9s}")
     for r in rows:
         cells = "  ".join(f"{a_:5.2f} {c_:6.3f}" for a_, c_ in r["struct"])
-        print(f"{r['label']:22s} " + cells + f"  {r['resid_corr']:11.3f}")
+        print(f"{r['label']:22s} " + cells + f"  {r['resid_corr']:11.3f}  {r['resid_corr_hp']:9.3f}")
 
     # ---- fabricated point sources -------------------------------------------------
     # The metric that overturned v6. Everything above asks whether real stars SURVIVE;
