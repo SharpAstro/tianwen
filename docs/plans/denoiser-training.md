@@ -280,6 +280,13 @@ arm at matched noise, on eval4b and on a night held out of every pair.
 3.2 to 6.2 with no loss on stars, because the model can no longer learn to keep the common-mode part.
 *Kill:* no better than ctl. Then the ceiling is not shared noise and the mechanism paragraph of
 2026-09-04 ("the split revises E2") is wrong.
+*Result 2026-09-05 (run log, "arm X, the cross-night pairs"):* **KILLED**, three seeds no better than
+the pool-matched control at any operating point, pooled or per field. But the kill's inference does
+not follow: X never learned the task (0.88 to 0.92x, faint amplitude falling one for one), because six
+pairs of one sky at master depth cover a third of the conditioning plane's deployed range and the two
+nights' signals disagree at the pixel scale (excess variance 1.09 to 1.87 against 0.98 to 1.02 for
+same-session halves). The shared-noise ceiling is neither confirmed nor refuted; H8 is PARKED behind
+the four preconditions listed there.
 
 ## 2. Data
 
@@ -392,7 +399,7 @@ Settled by the campaign; restated so no run re-derives them.
 | **E6** | If H1 passes: NAFNet-32 on the S recipe, one seed, rented GPU (RunPod 4090, per-second billing) or the internal T4 pool; AMP on there, off locally. | ~$15 to 50 | H5 |
 | **E7** | Export the winner with `n2n_export.py` (baked sigma, fixed 256, opset 17), parity to torch under 2e-7, regenerate the parity fixture, replace the in-repo weights, **execute the LFS revert in `.gitattributes`**, re-measure the dial (blend stays unless measured otherwise). | half a day | Ships v2 |
 
-| **E8** | Cross-night arm X (H8). **Exporter SHIPPED 2026-09-05**: `tianwen dataset pair` (`DatasetCrossNightExporter`) flattens, level-matches per channel, registers both nights onto the MIDPOINT grid, stretches both with the mean's MTF, and writes the two nights into the trainer's half slots with a `pairs.jsonl` sidecar; `n2n_pairstats.py` runs the same residual statistic on the bake's same-session halves as the control. Seven pairs exported from `2026-09-full` (HD 74167 x1, Rim Nebula x6), two refused for want of a quad fit (Vela SNR, HD 71272: partial overlap, a WCS-seeded registration is the fix). The pair statistics are in the run log (2026-09-05, "the paired cache"); **training has not started.** **Arm X LAUNCHED 2026-09-05 17:08** (`run-x.ps1`, pre-registration in its header): the gate takes night A's half slot on a pair cache (`n2n_gate.Gate(input_slot=)`, chosen by `--half-only`), cache `n2n-x` is the six Rim pairs (60 cells each, 360 train) with the HD 74167 pair held out for the gate, and the pool-matched control `n2n-x-ctl` is same-session N2N (`--mix-avg`, real subs) on the SAME four Rim nights from the bake, 360 cells, val on the two HD 74167 nights. Three seeds each, the E2 recipe. H8's verdict is X against xctl; X against the E2 arms is reported. Scored on eval4b, and on eval4's Horsehead and Statue cells only (Rim 2025-05-02 is a pair member AND eval4's Rim observer). | 6 x 11 min | H8 |
+| **E8** | Cross-night arm X (H8). **Exporter SHIPPED 2026-09-05**: `tianwen dataset pair` (`DatasetCrossNightExporter`) flattens, level-matches per channel, registers both nights onto the MIDPOINT grid, stretches both with the mean's MTF, and writes the two nights into the trainer's half slots with a `pairs.jsonl` sidecar; `n2n_pairstats.py` runs the same residual statistic on the bake's same-session halves as the control. Seven pairs exported from `2026-09-full` (HD 74167 x1, Rim Nebula x6), two refused for want of a quad fit (Vela SNR, HD 71272: partial overlap, a WCS-seeded registration is the fix). The pair statistics are in the run log (2026-09-05, "the paired cache"). **Arm X RUN and KILLED 2026-09-05** (`run-x.ps1`, pre-registration in its header; run log "arm X, the cross-night pairs"): the gate takes night A's half slot on a pair cache (`n2n_gate.Gate(input_slot=)`, chosen by `--half-only`), cache `n2n-x` is the six Rim pairs (60 cells each, 360 train) with the HD 74167 pair held out for the gate, and the pool-matched control `n2n-x-ctl` is same-session N2N (`--mix-avg`, real subs) on the SAME four Rim nights from the bake, 360 cells, val on the two HD 74167 nights. Three seeds each, the E2 recipe. No X seed passed a probe (0.88 to 0.92x, faint amplitude falling one for one); X removes noise on one eval field (eta Car, where at matched removal it costs more stars than xctl) and ADDS 7 to 25 percent on Horsehead and the Statue. Cause: one sky's master-depth halves span p5 0.22 to 0.54 of the conditioning plane against deployed 0.09 to 0.83, and the nights' signals disagree at the pixel scale. The kill fires against xctl; its pre-registered inference (the ceiling is not shared noise) does not follow from an arm that never learned the task. H8 PARKED. | 6 x 11-14 min | H8 |
 
 Every arm: pre-register predictions in the run script header; three seeds; one prepared cache per
 arm, never edited between runs; launch multi-hour jobs detached (`Start-Process`), never through the
@@ -467,6 +474,16 @@ and the decision to promote is the user's. Record it as such rather than as a pe
   log, "the depth of the catalogue was the depth of the pool, not of the field"): 50 points of it were
   stars between BP 16 and 21, 31 points nebulosity, and the same cut had been hiding two thirds of the
   Statue of Liberty's stars. The split now takes a per-session cap and reports extended peaks apart.
+- **What range should the conditioning plane be trained over, and how is it covered?** Arm X (run
+  log 2026-09-05) fell off the low edge of its range and amplified; the E2 injected inputs share a
+  0.23 floor that Horsehead (0.09) and the Statue (0.17) sit under, and warped_s2 removes 2.8 percent
+  there against 20 pooled. The E2 range was derived from each session's master depth and still misses
+  these fields, so the deployed plane is a per-field measurement, not a function of depth. Options:
+  draw the injected depth down to the pool's measured plane minimum rather than half the session's
+  own depth; widen the pool until the range is covered, as v19d's happened to be (a Pleiades session's
+  halves at 0.09 are why gate1500 acts there); condition on nothing and let the net read the noise
+  from the tile; or accept the floor and state which fields the model is not for. Answer
+  with `condprobe.py` over the next cache before its first seed, not after.
 
 ## 9. Run log
 
@@ -1081,6 +1098,153 @@ Four things the run taught before any training:
 
 The cache is at `C:/temp/tianwen-scratch/n2n-pairs` (2,100 tiles, 7 rows in `pairs.jsonl`); prepare
 it with the trainer's `--prepare --require-halves` and train it `--half-only`, the flag added today for
-a cache whose sub slots are empty (`prepare` records `has_subs` so the sub regimes refuse it). Training
-has not started, and one thing blocks it: `n2n_gate.Gate` takes sub slot 1 as its input, which is zeros
-here, so the gate needs a half-slot input before an arm on this cache can be gate-selected.
+a cache whose sub slots are empty (`prepare` records `has_subs` so the sub regimes refuse it). The gate
+reads night A's half slot on such a cache (`n2n_gate.Gate(input_slot=)`, chosen by `--half-only`; an
+all-zero slot is refused), which is what let arm X run the same evening (next entry).
+
+### 2026-09-05: arm X, the cross-night pairs -- KILLED, and not by the route the kill was written for
+
+Pre-registered in `run-x.ps1` before the first seed: six Rim Nebula pairs (every combination of four
+nights, 60 cells each, 360 train cells) with the HD 74167 pair held out for the gate; against `xctl`,
+same-session N2N (`--mix-avg`, real subs) on the SAME four nights from the bake, 360 cells, val on the
+two HD 74167 nights; the E2 recipe; three seeds each. Prediction: at matched noise removed on eval4b,
+X spends less faint-structure amplitude than xctl and lands at or below the supervised arms' 1.1 to 1.3
+on the extended column, with no loss on stars. Kill: X no better than xctl across three seeds. Scored
+on eval4b and on eval4's Horsehead and Statue of Liberty cells only (Rim 2025-05-02 is a pair member
+and eval4's Rim observer; the "Statue" cells are the Skull and Crossbones pointing by `OBJECT`, in the
+Statue's folder). X trained `--half-only` (night A's half in, night B's out, the direction swapped per
+sample), the gate reading night A's half; xctl's gate reads a sub, so the two arms' trajectories below
+are on different inputs (floors 71.6 and 19.2 spurious per tile) and only the eval scores compare them.
+The first launch ran X alone: the script built the control's cache path as `n2n-xctl` and its
+"prepare it, then re-run" skip fired as designed; fixed, the control ran at 21:11.
+
+| gate probe | 500 | 1000 | 1500 | 2000 | 2500 | 3000 | 3500 | 4000 | selected |
+|---|---|---|---|---|---|---|---|---|---|
+| x s0, noise / faint amp | 1.00 / 1.00 | 1.01 / 0.99 | 0.97 / 0.96 | 0.96 / 0.94 | 0.94 / 0.92 | 0.89 / 0.88 | 0.91 / 0.91 | 0.91 / 0.91 | none, final kept |
+| x s1 | 0.99 / 0.98 | 0.95 / 0.94 | 0.90 / 0.91 | 0.90 / 0.90 | 0.88 / 0.89 | 0.90 / 0.93 | 0.87 / 0.92 | 0.88 / 0.93 | none, final kept |
+| x s2 | 0.99 / 0.99 | 0.98 / 0.98 | 0.98 / 0.96 | 0.96 / 0.94 | 0.94 / 0.91 | 0.91 / 0.89 | 0.92 / 0.90 | 0.92 / 0.89 | none, final kept |
+| xctl s0 | 0.96 / 0.95 | 0.88 / 0.84 | 0.85 / 0.78 | 0.81 / 0.75 | 0.80 / 0.73 | 0.79 / 0.72 | 0.78 / 0.72 | 0.78 / 0.72 | 2000 |
+| xctl s1 | 0.92 / 0.87 | 0.83 / 0.79 | 0.78 / 0.75 | 0.74 / 0.70 | 0.73 / 0.70 | 0.71 / 0.68 | 0.70 / 0.66 | 0.70 / 0.66 | 1100 |
+| xctl s2 | 0.91 / 0.90 | 0.82 / 0.81 | 0.75 / 0.73 | 0.76 / 0.76 | 0.76 / 0.75 | 0.75 / 0.74 | 0.75 / 0.74 | 0.75 / 0.74 | 1500 |
+
+No X seed passed a probe, and in every seed the faint amplitude fell one for one with the noise
+(0.91 / 0.91, 0.88 / 0.93, 0.92 / 0.89 at 4000): an attenuation, not a denoise. The only failing gate
+was the noise one; X's spurious count sat 8 to 14 UNDER its floor throughout, the number a model that
+does nothing posts. xctl walks the same-session path v19d walked, 0.82x by step 1100 to 2000 and then
+the fabrication climb (spurious +48 to +67 over floor by 3000), so its gate picks early and its final
+is the one the gate rejected.
+
+**Scores.** Per-session-cap split; each cell is stars / compact / extended amplitude spent, lower is
+better; "full" is blend 1.0, the noise the model removes when asked for everything it has, with the
+cost at that point. X seeds are given as a range over three, xctl likewise (gate-selected checkpoints;
+the finals in their own row).
+
+| eval4b, 240 cells of four fields | 4 % removed | 6 % | 10 % | full |
+|---|---|---|---|---|
+| x s0 to s2 | 3.6-5.0 / 5.9-6.8 / -1.7-0.1 | 5.5-7.7 / 9.4-11.2 / -2.2 to -0.6 | not reached | 7.3-9.9 %: 7.5-10.0 / 14.3-16.7 / -4.0 to -1.2 |
+| xctl s0 to s2 | 4.7-5.0 / 5.3-5.7 / 1.6-2.0 | 7.2-7.8 / 8.0-8.9 / 2.4-3.0 | 12.5-13.8 / 13.7-15.5 / 4.0-5.3 | 18.7-22.6 %: 26.5-33.4 / 31.8-37.1 / 8.1-12.1 |
+| xctl finals | 3.4-4.9 / 4.0-5.9 / 1.0-1.8 | 5.1-7.5 / 5.9-9.0 / 1.5-2.6 | 8.8-13.0 / 10.3-15.6 / 2.5-4.3 | 21.5-31.8 %: 30.9-39.2 / 38.0-42.8 / 8.7-14.7 |
+| warped_s2 | 3.4 / 4.8 / 0.5 | 5.3 / 7.4 / 0.7 | 9.2 / 12.9 / 1.1 | 20.4 %: 20.4 / 29.3 / 2.4 |
+| e2ctl_s2 | 6.1 / 6.1 / 2.2 | 9.1 / 9.2 / 3.2 | 15.6 / 15.8 / 5.4 | 30.9 %: 62.3 / 64.6 / 21.4 |
+| gate1500 | 3.6 / 3.8 / 2.4 | 5.4 / 5.7 / 3.6 | 9.2 / 9.9 / 6.3 | 33.0 %: 33.9 / 39.0 / 26.2 |
+| shipped4000 | 5.0 / 5.3 / 1.7 | 7.6 / 8.0 / 2.5 | 13.0 / 14.0 / 4.2 | 30.6 %: 47.5 / 52.8 / 16.5 |
+
+Per field at full strength, noise removed (negative is ADDED): x s0 to s2 HIP-34710 +0.1 to +5.3,
+HIP-85088 -8.0 to -0.1, V1045 Ori -0.3 to +8.2, eta Car +14.2 to +20.4; xctl +14 to +32 on every
+field; warped_s2 +31.5 / +7.6 / +23.0 / +34.4; gate1500 +21.7 to +38.7.
+
+| eta Car alone, 60 cells (the one field X acts on) | 8 % removed | 12 % | full |
+|---|---|---|---|
+| x s0 to s2 | 12.1-14.5 / 12.5-13.2 / 0.2-6.2 | 19.0-22.3 / 19.5-20.8 / 0.3-8.9 | 12.6-14.5 %: 23.4-24.4 / 22.0-24.6 / 0.3-9.3 |
+| xctl s0 to s2 | 9.9-12.5 / 12.1-14.2 / 3.3-5.2 | 15.4-20.4 / 18.8-23.3 / 5.3-7.1 | 17.3-20.5 %: 28.2-34.1 / 34.8-39.4 / 10.0-10.9 |
+| xctl s2 final | 7.1 / 8.6 / 2.3 | 11.2 / 13.4 / 3.5 | 33.3 %: 37.2 / 45.7 / 11.0 |
+| warped_s2 | 10.7 / 13.4 / 0.6 | 17.6 / 23.0 / 1.0 | 19.9 %: 35.0 / 48.1 / 1.9 |
+| gate1500 | 8.6 / 8.4 / 2.9 | 13.3 / 13.1 / 4.6 | 34.1 %: 43.0 / 46.5 / 18.3 |
+| shipped4000 | 13.1 / 14.1 / 2.9 | 20.5 / 22.4 / 4.5 | 26.6 %: 57.1 / 67.6 / 13.1 |
+
+| eval4, Horsehead + Statue, 96 cells | 2 % removed | 4 % | full |
+|---|---|---|---|
+| x s0 to s2 | not reached | not reached | -24.5 to -8.0 %: -10.7 to -2.5 / -10.9 to -2.4 / -39.3 to -14.8 |
+| xctl s0 to s2 | 2.2-3.2 / 2.3-3.7 / 1.1-1.5 | 4.4-6.5 / 4.6-7.2 / 2.2-3.0 | 14.4-19.5 %: 23.0-25.7 / 24.0-26.4 / 7.9-17.3 |
+| warped_s2 | 2.0 / 2.1 / 1.7 | not reached | 2.8 %: 2.8 / 3.0 / 2.7 |
+| e2ctl_s2 | 2.3 / 2.3 / 1.2 | 4.6 / 4.7 / 2.5 | 43.4 %: 60.1 / 61.8 / 32.0 |
+| gate1500 | 2.1 / 2.4 / 1.8 | 4.2 / 4.8 / 3.6 | 18.3 %: 19.3 / 20.7 / 16.6 |
+| shipped4000 | 2.7 / 2.9 / 1.1 | 5.3 / 5.8 / 2.2 | 18.4 %: 26.0 / 26.0 / 9.8 |
+
+Five readings, in the order they were reached:
+
+- **X is not a denoiser, and its pooled numbers say so only once they are read per field.** At the
+  pooled 4 percent on eval4b X's extended column is the lowest in the table (-1.7 to 0.1 against
+  xctl's 1.6 to 2.0), which is the prediction's headline and is false: the pooled 4 percent is eta Car
+  denoised by 14 to 20 with HIP-34710 and V1045 Ori untouched and HIP-85088 made NOISIER, and a model
+  that leaves a field alone spends nothing on its structure. On eta Car, the one field where X does
+  something, at matched 8 and 12 percent it spends MORE on stars than xctl (12.1 to 14.5 against 9.9
+  to 12.5), the same on compact peaks, and its extended column scatters across seeds from 0.2 to 6.2
+  around xctl's 3.3 to 5.2, which is the seed spread E2 measured, not an effect. On Horsehead and the
+  Statue X adds 7 to 25 percent of noise while brightening the extended peaks 15 to 39 percent and the
+  stars 2 to 11. **A pooled matched operating point is not matched per field when a model's action is
+  field-dependent; the comparison has to be made field by field.** The kill fires: X is no better than
+  xctl at any point X reaches, on three seeds, pooled and per field.
+- **The field dependence is the conditioning plane, and it is the level trap of E2's aborted launch in
+  a second coordinate.** The plane is the input's background sigma (median minus the 25th percentile of
+  the luminance, times 100). X's training inputs, master-depth halves of one sky, span p5 0.22 to 0.54
+  and medians 0.30 to 0.74 per pair; xctl's sub inputs span 1.0 to 2.0 and its halves 0.32 to 0.81,
+  and `--mix-avg` trains across both. On the evals: eta Car 0.83 (inside, the field X denoises),
+  HIP-34710 0.42 and V1045 Ori 0.36 (inside but low, near zero action), HIP-85088 0.24 (the bottom
+  edge, noisier), the Statue 0.17 and Horsehead 0.09 (below anything X saw, amplified). Every level is
+  0.25 by construction of the MTF, so the level check of 2026-09-03 would have passed this cache; the
+  range that has to cover deployment, per session, is EVERY coordinate the model is conditioned on. A
+  cache of one sky's master-depth pairs cannot cover it, and that is a property of the pool, not of
+  the regime. The same probe on the E2 caches says the supervised arms share the edge: S-warped's
+  injected inputs have a p5 floor of 0.23 across eight sessions, which is why warped_s2 removes 2.8
+  percent on Horsehead and the Statue and 20 pooled on eval4b; the v19d cache reached 0.09 through a
+  Pleiades session's halves, and gate1500 removes 18 there. The E2 injection range was derived from
+  the session's master depth (the fix of 2026-09-03) and still does not reach these two fields, so the
+  plane a session deploys at is not a function of its depth alone; it is a per-field measurement, and
+  the range should be checked against it, not derived past it.
+- **The kill fires, and the inference written on it does not follow.** "Then the ceiling is not shared
+  noise" needs an arm that learned the task under independent noise and found no gain; an arm that
+  trained to near-identity says nothing about the ceiling either way. What the run does say is what
+  the pair statistics said before it started: the faint-half excess var(a - b) / (sa^2 + sb^2) is 1.09
+  to 1.87 on the cross-night pairs (mostly 1.15 to 1.35) against 0.98 to 1.02 on the same-session
+  HD 74167 halves, 1.2 to 3.5 over all pixels, with a smooth share of 2 to 5 percent against 1; the two
+  nights' SIGNALS disagree at the pixel scale (registration residual, a 3 to 6 percent PSF mismatch
+  left after the quadrature convolution, two resamplings), not in level. A target whose signal differs
+  from the input's in a way the input does not predict is a target N2N cannot use, and 360 cells of
+  one sky with such a target converge on E[b | a] near the identity. Whether same-session halves carry
+  shared noise at all is still unmeasured (Rim 05-02's halves read 0.84 to 0.90, the sign of it;
+  Rim 02-16's 1.06 to 1.34, the opposite; HD 74167's 0.98 to 1.02).
+- **The pool-matched control is a same-session N2N like every other, and its finals beat its gate
+  picks at matched noise.** xctl at the pooled 10 percent (12.5 to 13.8 / 13.7 to 15.5 / 4.0 to 5.3)
+  lands beside shipped4000 (13.0 / 14.0 / 4.2) and e2ctl (15.6 / 15.8 / 5.4) on 360 cells of four
+  nights, so the pool is not what separates the same-session arms from the supervised ones. Its
+  finals, the checkpoints the gate rejected for fabricating (+54 to +67 spurious over floor), read
+  8.8 to 13.0 / 10.3 to 15.6 / 2.5 to 4.3 at 10 percent, better on every column than the gate picks;
+  the opposite of v19d, where the gate pick (gate1500) beats its final (shipped4000) on stars 9.2 to
+  13.0. The amplitude columns do not see fabrication, which is the gate's whole job, so this is not
+  an argument against the gate; it is a reminder that "better at matched noise" and "passes the
+  fabrication gate" are two axes and a model can win one while losing the other.
+- **What H8 would need before another seed, so it is parked rather than pursued:** the PSF matched to
+  equality on the EXPORTED tiles (iterate the convolution on the exported FWHM, or a Moffat kernel;
+  3 to 6 percent apart today), the WCS-seeded registration so Vela SNR and HD 71272 join and the pool
+  is more than one sky, a conditioning range that covers deployment (mix each pair's halves with its
+  nights' own subs as xctl does, or drop the plane), and the three-frame matched-noise measurement
+  that could say whether the shared-noise component exists before an arm is spent on it. Against E2's
+  verdict (supervised injection wins on structure) and H8's LOW confidence, the campaign's next arm is
+  not this one.
+
+One side finding, worth its own line because it changes how every score in this log is read: **the
+noise a model removes at full strength is a per-field number, and the pooled figure hides a field
+where the deployed model does nothing.** warped_s2 removes 20 percent pooled on eval4b and 7.6 to 34
+per field, and 2.8 percent on Horsehead and the Statue; gate1500 removes 18 percent there; e2ctl_s2
+43 percent at 60 percent of the star amplitude. The 10 percent matched point this log compares at is
+a pooled operating point that some models never reach on some fields, which the "not reached" cells
+above show for the first time. `n2n_starsplit.py` now prints a full-strength column and, with
+`--per-session`, the removal per session under each model, and `--only` restricts the scored cells
+to named sessions; the per-field matched comparison is `--only <field>`.
+
+Artefacts: `C:/temp/e2/x.log` (both launches), `C:/temp/e2/scripts-x/` (the scripts as run),
+`C:/temp/e2/gaia/starsplit-x-final-{eval4b,eval4,etacar}.txt` and `starsplit-x-preview-*.txt` (the
+scores), `C:/temp/e2/gaia/condprobe.py` with `condprobe-out.txt` and `condprobe-e2.txt` (the
+conditioning ranges per cache and session), `C:/temp/tianwen-scratch/n2n-x/x_s{0,1,2}.pt`,
+`n2n-x-ctl/xctl_s{0,1,2}.pt` (gate-selected) and `_final.pt`.

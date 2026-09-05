@@ -70,7 +70,9 @@ Copy-Item arms\x-*.txt, arms\xctl-*.txt $snap -Force
 
 try {
     foreach ($arm in $Arms) {
-        $cache = Join-Path $Scratch "n2n-$arm"
+        # Named explicitly: "n2n-$arm" read n2n-xctl on the first launch, the cache is n2n-x-ctl, and
+        # the skip below fired as designed, so X trained alone and the control arm had to be re-run.
+        $cache = Join-Path $Scratch $(if ($arm -eq 'x') { 'n2n-x' } else { 'n2n-x-ctl' })
         # Checked per arm and right before its first seed, not up front: the control cache prepares
         # from the bake while X already trains, and a missing meta.json then means "not yet", so it is
         # skipped and the script re-run, never treated as fatal.

@@ -71,18 +71,38 @@ def cell_statistics(a, b, master_lum):
         rb = residual(b[c])
         m = faint & np.isfinite(ra) & np.isfinite(rb)
         if m.sum() < 64:
-            out.append((np.nan, np.nan, np.nan))
+            out.append((np.nan, np.nan, np.nan, np.nan, np.nan, np.nan))
             continue
         xa, xb = ra[m], rb[m]
         mad_a = np.median(np.abs(xa - np.median(xa)))
         mad_b = np.median(np.abs(xb - np.median(xb)))
         keep = (np.abs(xa) <= 5 * 1.4826 * mad_a) & (np.abs(xb) <= 5 * 1.4826 * mad_b)
         if keep.sum() < 64:
-            out.append((np.nan, np.nan, np.nan))
+            out.append((np.nan, np.nan, np.nan, np.nan, np.nan, np.nan))
             continue
         corr = np.corrcoef(xa[keep], xb[keep])[0, 1]
         scale = 1.4826 / 0.9798
-        out.append((mad_a * scale, mad_b * scale, corr))
+        sa, sb = mad_a * scale, mad_b * scale
+        # Do the two sides share the SIGNAL? var(a - b) is sa^2 + sb^2 when only the noise differs,
+        # LESS when the noise is shared (the covariance term), MORE when the signal itself differs:
+        # residual registration, PSF, a level or colour structure the global gain did not remove.
+        # Over the faint half with stars clipped, and over every pixel (where misregistered stars
+        # dominate). N2N's optimum is E[b | a]; a signal that differs between the sides is not
+        # predictable from a and pulls that optimum toward the input, which is what a run that will
+        # not denoise looks like from the outside.
+        d = (a[c] - b[c])
+        faint_d = d[m]
+        faint_d = faint_d[np.abs(faint_d - np.median(faint_d)) <= 5 * 1.4826 * np.median(np.abs(faint_d - np.median(faint_d)))]
+        excess_faint = float(np.var(faint_d) / (sa * sa + sb * sb))
+        all_d = d[np.isfinite(d)]
+        excess_all = float(np.var(all_d) / (sa * sa + sb * sb))
+        # How much of the faint difference is SMOOTH: the variance of its 15x15 mean over the variance
+        # of the difference. White noise puts 1/225 there and a bilinearly resampled noise a few
+        # percent; a level or gradient mismatch the flattener and the global gain left behind puts
+        # tens of percent there. Pixel-scale disagreement (registration, PSF) does not.
+        smooth = uniform_filter(np.where(np.isfinite(d), d, 0.0), size=15, mode='nearest')
+        low_frac = float(np.var(smooth[m]) / max(np.var(d[m]), 1e-30))
+        out.append((sa, sb, corr, excess_faint, excess_all, low_frac))
     return out
 
 
@@ -135,20 +155,27 @@ def main():
         raise SystemExit('no cell with both sides found')
     kind = 'sub pair' if a.sub else 'half pair'
     print(f'{kind}s under {a.root}\n')
-    print(f"{'session':60s} {'cells':>5} {'sigma a (R/G/B)':>21} {'sigma b (R/G/B)':>21} {'correlation (R/G/B)':>21}")
+    print(f"{'session':60s} {'cells':>5} {'sigma a (R/G/B)':>21} {'sigma b (R/G/B)':>21} {'correlation (R/G/B)':>21} "
+          f"{'var(a-b)/(sa2+sb2) faint':>25} {'all pixels':>17} {'smooth share':>20}")
     for sid, entries in sorted(per_session.items()):
         stats = []
         for tile_a, tile_b, master in entries[:a.max_cells]:
             ta, tb, tm = read_tile(tile_a), read_tile(tile_b), read_tile(master)
             stats.append(cell_statistics(ta, tb, tm.mean(axis=0)))
-        arr = np.array(stats)                        # cells x channels x 3
+        arr = np.array(stats)                        # cells x channels x 5
         med = np.nanmedian(arr, axis=0)
         print(f"{sid.split('|')[0][-60:]:60s} {len(stats):5d} "
               f"{'/'.join(f'{v:.1e}' for v in med[:, 0]):>21} "
               f"{'/'.join(f'{v:.1e}' for v in med[:, 1]):>21} "
-              f"{'/'.join(f'{v:6.3f}' for v in med[:, 2]):>21}")
+              f"{'/'.join(f'{v:6.3f}' for v in med[:, 2]):>21} "
+              f"{'/'.join(f'{v:6.2f}' for v in med[:, 3]):>25} "
+              f"{'/'.join(f'{v:5.1f}' for v in med[:, 4]):>17} "
+              f"{'/'.join(f'{100 * v:4.1f}%' for v in med[:, 5]):>20}")
     print('\nA same-session half pair shares signal AND noise; a cross-night pair shares signal only. The gap '
-          'between the two correlations, on the same sky, is the shared noise the cross-night pair escaped.')
+          'between the two correlations, on the same sky, is the shared noise the cross-night pair escaped.\n'
+          'var(a-b)/(sa2+sb2) reads 1 when only the noise differs between the sides, under 1 when noise is '
+          'shared, over 1 when the SIGNAL differs (registration, PSF, level structure): an N2N target that '
+          'is not the input\'s own signal.')
 
 
 if __name__ == '__main__':
