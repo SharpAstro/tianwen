@@ -32,14 +32,14 @@ discipline in [model-training-roadmap.md](model-training-roadmap.md).
 | Fact | Where | Consequence for the sweep |
 |---|---|---|
 | Per-sub FWHM p05 1.96 / p50 2.10 / p95 2.55 px; intra-session p90/p10 median 1.04 | 51-session PSF store (`stats/psf-sessions.jsonl`, `SubFwhm`) | The archive has no blurry arm; truth is synthetic (2.1b) |
-| Master profile is Moffat, beta PER TRAIN: Samyang 7.95, SH61 6.85, ZS61 2.05 to 2.70; Moffat beats Gaussian 48/50; wing flux 98x a Gaussian's at 2 FWHM | `SessionPsf.MasterProfiles[]` (`PsfProfileFit`, log-space fit) | Sweep beta 2 to 12 weighted to 6 to 9, or sample the measured per-train distribution; never Gaussian |
-| beta correlates with FWHM (r 0.66, 0.635 within the Samyang train) | same | Sample (FWHM, beta) jointly, never independently |
+| Master profile is Moffat, beta PER TRAIN: Samyang 7.95, SH61 6.85, ZS61 2.05 to 2.70; Moffat beats Gaussian 154/163 on the current store (48/50 as first measured); wing flux 98x a Gaussian's at 2 FWHM | `SessionPsf.MasterProfiles[]` (`PsfProfileFit`, log-space fit) | Sweep beta 2 to 12 weighted to 6 to 9, or sample the measured per-(train, channel) distribution; never Gaussian, EXCEPT that all nine Gaussian wins are ch0 (E0) |
+| ~~beta correlates with FWHM (r 0.66, 0.635 within the Samyang train)~~ **SUPERSEDED by E0: that is an all-channels POOLED statistic and it does not survive the split** | E0 below | Sample (FWHM, beta) jointly PER CHANNEL. The joint draw is supported on ch0 and ch2 and is not supported on ch1 |
 | PSF is per CHANNEL and the direction is train-dependent (green/red 0.64 Samyang, blue/red 1.28 ZS61) | `MasterProfiles`, one per channel, blue first | Degrade each channel with its own kernel |
 | The G/R ratio is mostly an AHD demosaic artifact (0.767 AHD to 0.947 drizzle on one session; AHD red log-rms 0.957 vs 0.130) | `stats/psf-channel-survey`, `drizzle-vs-ahd/` | Calibrate the per-channel ratios on DRIZZLE masters only; split every statistic by `MasterStrategy` |
 | Red's centre-to-corner FWHM FALL is chromatic defocus from autofocus optimising at 500 to 550 nm, not a bug (red sharpest in 6 of 65 sessions; red/green 1.38 quad-band, 1.64 at 3 nm) | run log 1c, `docs/todo` task #19 closed | The P2 hold on channel 0's radial profile is LIFTED; model red as it is, per (train, filter) |
 | Field-radius bins sample ONE common star set banded on green (`RadiusSampling = "common-stars"`) | `SessionPsf.BinsByChannel`, commit `069e5b14` | The radial profiles are now comparable across channels |
 | Faint stars read 25 to 30 percent WIDER (half-max relative to own peak); saturation ruled out (0.1 to 0.2 percent of stars) | 2.2 | Any PSF fitted from detections must band on brightness; `PsfProfileFit` does (55th to 75th percentile) |
-| The store predates the 2026-08-27/28 deblender; the current detector finds ~4 percent more matched stars and measures ~2 percent (+0.039 px) wider, non-uniformly | `PsfStoreVsCurrentDetectorProbe`, 12 sessions | **Run `dataset build --force-psf` before fitting anything to the store** |
+| The `2025-2026-organized` store predates the 2026-08-27/28 deblender; the current detector finds ~4 percent more matched stars and measures ~2 percent (+0.039 px) wider, non-uniformly. **RESOLVED by E0 without a re-measure: `2026-09-full` is already current** (count ratio 1.000, 0.000 px) | `PsfStoreVsCurrentDetectorProbe` | **Calibrate on `2026-09-full`, never on `2025-2026-organized`** |
 | Report keyed by (train, filter) with `FilterFromSessionId`; the ASI533 split is 36 sessions 3 nm against ONE quad-band | run log 1f, N5 | A one-session (train, filter) cell needs a stated fallback (train profile) or is withheld |
 
 ### Data
@@ -218,7 +218,7 @@ disk; the frames are taken either way.
 
 | Step | What | Cost | Decides |
 |---|---|---|---|
-| E0 | `dataset build --force-psf` on the organized bake so the store reflects the current detector; re-render the report; re-fit the per-(train, filter, channel) (FWHM, beta) distributions. | ~10 min (reads retained masters) | Calibration of everything below |
+| E0 | **DONE 2026-09-06, and no re-measure was needed** (results below): `2026-09-full` is already current-detector, its report is already rendered, and what remained was the fit. | 0 GPU, ~5 min of probes | Calibration of everything below |
 | E1 | H5 encoding spread; H1 oracle ceiling table with Richardson-Lucy and the exact kernel over the sweep. | a day, CPU | The ceiling and the contract floor |
 | E2 | **SHIPPED 2026-09-03 as the shared exporter** (`tianwen dataset degrade --mode blur`, `DatasetDegradationExporter`): linear Moffat blur with a drawn (FWHM, beta, elongation, PA), noise after, both sides stretched with the TARGET's parameters, field-radius tag per cell, and the drawn kernel parameters in `degradations.jsonl`. Parity is stronger than planned: the clean tile derived from the RETAINED master is byte-identical to the P0 tile of the same cell (0.0 on every session measured), which pins the whole path rather than just the stretch. Still owed: psf01 labels from `HfdPsfEstimator` on the degraded stretched frame under both encodings (H2, H5), and the per-(train, filter, channel) draw distribution, which needs E0's re-measured store | 1 to 2 days | Whether pairs are honest |
 | E3 | Smoke arms, three seeds each, on the U-Net: kernel vs estimator label (H2), shared vs per-channel (H3), noise vs none (H4), two vs three bands (H8). Post a labelled comparison at 1:1 around bright and faint stars. | 4 pairs x 3 seeds x 11 min | H2, H3, H4, H8 |
@@ -227,6 +227,71 @@ disk; the frames are taken either way.
 | E6 | Ladder capture on three nights (hardware queue); H6 scoring. | nights | The advertised range |
 | E7 | Export with the own contract (`[0.5, 8]` px), parity to torch, contract JSON, `OnnxTianWenDeconvolver : INonStellarDeconvolver` through `ChunkedNafnetRunner`, an `IPsfEstimator` variant with the lower floor, backend routing. | 2 days | Ships |
 | E8 | Space-truth tier (H9), only after E7 has a baseline to beat. | rented GPU | Optional |
+
+### E0's results, 2026-09-06
+
+**No `--force-psf` run was needed, because the bake that arrived for the denoiser is already
+current.** The plan named `2025-2026-organized`, whose store was written 2026-08-15 and predates the
+deblender. `2026-09-full` (79 sessions against 51, filters carried, written 2026-09-04) postdates it,
+and a file date is not evidence, so `PsfStoreVsCurrentDetectorProbe` was run on both. The old bake
+reproduces its documented staleness (matched-star count ratio p50 **1.038**, banded FWHM **+0.033 px**)
+and the new one is identical to the current detector on every metric (**1.000**, **0.000 px**, on all
+8 probed masters). The control is what makes the zero readable: without it, a probe that compared a
+store with itself would print the same thing. **Calibrate on `2026-09-full`.**
+
+**The pool is thinner than a per-(train, filter, channel) draw needs.** 17 (train, filter) cells over
+79 sessions, and **10 of the 17 hold one session each**; two cells carry 43 of the 79 (Samyang 135 at
+130 mm under L-Ultimate 3 nm, 33; ASI533 at 130 mm with no filter recorded, 14). 163 of a possible 237
+channel profiles fitted. So a cell-level draw distribution is supportable for two or three cells and
+every other cell must fall back, per train and then globally.
+
+**The joint (FWHM, beta) draw survives the split on blue and red, and not on green.** The plan's
+"r 0.66, sample jointly, never independently" reproduces exactly on its own store as an
+**all-channels pooled** statistic (+0.654 there, +0.423 on the current one). Split it and the pooling
+is doing most of the work:
+
+| population | ch0 | ch1 | ch2 |
+|---|---|---|---|
+| `2025-2026-organized`, Samyang, within channel | +0.736 | +0.193 | +0.620 |
+| `2026-09-full`, Samyang, within channel | +0.554 | -0.095 | +0.685 |
+| `2026-09-full`, all trains, within channel | +0.508 | -0.238 | -0.104 |
+
+Pooling across TRAINS dilutes it (trains sit at different beta levels) and pooling across CHANNELS
+within a train inflates it (+0.809 on Samyang), because ch0 is both wider and heavier-winged than
+ch1 and ch2, so a channel difference reads as a within-channel slope. **Draw beta from the
+conditional below, per channel; on green the slope is zero or negative and the draw is correctly
+independent, which needs no special case because the fitted slope says so.**
+
+`log(beta) = a + b * FWHM_px`, residual sd in log units, railed rows excluded:
+
+| population | ch | n | a | b | sd | r2 | beta at FWHM 2.0 / 3.0 |
+|---|---:|---:|---:|---:|---:|---:|---|
+| all trains (global fallback) | 0 | 40 | 0.138 | 0.657 | 0.487 | 0.238 | 4.27 / 8.24 |
+| all trains (global fallback) | 1 | 59 | 2.245 | -0.355 | 0.295 | 0.040 | 4.64 / 3.25 |
+| all trains (global fallback) | 2 | 53 | 1.592 | -0.121 | 0.344 | -0.009 | 3.86 / 3.42 |
+| Samyang 135 @130 [3 nm] | 0 | 18 | 0.997 | 0.465 | 0.202 | 0.307 | 6.86 / 10.93 |
+| Samyang 135 @130 [3 nm] | 1 | 25 | 1.927 | -0.195 | 0.144 | -0.027 | 4.65 / 3.83 |
+| Samyang 135 @130 [3 nm] | 2 | 22 | 0.411 | 0.617 | 0.181 | 0.378 | 5.17 / 9.59 |
+| SH61 @270 [L-Quad] | 0 | 6 | -0.266 | 0.723 | 0.383 | 0.597 | 3.25 / 6.71 |
+| ASI533 @130 [(none)] | 1 | 14 | 0.689 | 0.595 | 0.279 | 0.032 | 6.54 / 11.86 |
+
+**Read the r2 column before using a slope.** Only four of these explain anything; the rest are a line
+through a cloud, and the residual sd is then the whole distribution. That is a finding rather than a
+defect in the fit: outside blue, beta is roughly independent of width, so the exporter's existing
+independent draw was closer to right than "sample jointly, never independently" implied.
+
+**A railed beta means Gaussian, and must be EXCLUDED rather than clipped.** `PsfProfileFit` searches
+`beta` on a grid to 25.0, and **11 of 163 fits land on the last grid point (24.95)**. In 9 of those the
+Gaussian fit is the better one, and all 9 are ch0. So the rail is the fitter reporting "this profile is
+Gaussian" in the only vocabulary it has, and a distribution fitted over the raw column drags blue's
+draw toward beta 25, which is the one shape the plan says never to sample. Excluding them is what the
+table above does, and it is why the Moffat-versus-Gaussian row now reads 154 of 163 with its exceptions
+named rather than 48 of 50 with none.
+
+**What E2 owes on the back of this**, unchanged in scope but now specified: the exporter draws ONE
+kernel for all three channels (`DatasetDegradationExporter.DegradeCell`) and draws beta log-uniform
+over a fixed [1.5, 8.0] independently of FWHM. Both are wrong against the measurements above, and the
+per-channel half is the load-bearing one: ch0 sits at FWHM p50 2.47 px where ch1 sits at 1.80.
 
 ## 6. Integration
 
@@ -243,7 +308,7 @@ release, and Auto stays RC then SAS then in-house rescue until a human side-by-s
 
 | Phase | Deliverable | Exit |
 |---|---|---|
-| P2.0 | Store re-measured; oracle ceiling and encoding spread tabled | E0, E1 |
+| P2.0 | Store re-measured (**E0 DONE 2026-09-06**: no re-measure needed, `2026-09-full` is already current, and the joint draw is fitted per channel); oracle ceiling and encoding spread still to table | E0 done, E1 open |
 | P2.1 | Degradation exporter with stretch parity; first pairs (**exporter + parity done 2026-09-03**; psf01 labelling and the measured draw distribution owed) | E2 |
 | P2.2 | H2/H3/H4/H8 answered on the smoke U-Net with posted comparisons | E3 |
 | P2.3 | H7 answered; recipe fixed | E4, E5 |
