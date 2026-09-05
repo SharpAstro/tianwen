@@ -287,6 +287,17 @@ pairs of one sky at master depth cover a third of the conditioning plane's deplo
 nights' signals disagree at the pixel scale (excess variance 1.09 to 1.87 against 0.98 to 1.02 for
 same-session halves). The shared-noise ceiling is neither confirmed nor refuted; H8 is PARKED behind
 the four preconditions listed there.
+*Result 2026-09-06 (run log, "H8 unparked"):* **REFUTED, on the one axis it is about.** The
+preconditions were cleared (three fully, the fourth measured, the pool one sky short of the plan's
+list), and arm X2 holds the input distribution, the cells and the injected draws fixed while moving
+only the target: night B, whose noise is independent of the input's, against night A, the night the
+input was degraded from. Every control seed removes noise (0.94 / 0.92 / 0.88x on the gate, 5.3 to 9.5
+percent on eval4b) and every independent-target seed ADDS it (1.07 / 1.04 / 1.07x, -6.2 to -9.5
+percent), so no matched operating point exists to compare amplitudes at. A shared-noise target is not
+the ceiling; it is what makes the regime work at all. What a cross-night target adds instead is a
+night-specific smooth field -- 5.5 to 18.6 percent of a night's own deviation, measured before the
+seeds ran -- and that term has a non-zero conditional mean given the input, so the net learns it rather
+than averaging it away.
 
 **H9. What limits the deployed denoiser is the POOL's coverage of the conditioning plane, not the
 regime, the shape or the recipe.** Every arm through E2 trained on eight sessions whose masters sit at
@@ -417,7 +428,7 @@ Settled by the campaign; restated so no run re-derives them.
 | **E6** | If H1 passes: NAFNet-32 on the S recipe, one seed, rented GPU (RunPod 4090, per-second billing) or the internal T4 pool; AMP on there, off locally. | ~$15 to 50 | H5 |
 | **E7** | Export the winner with `n2n_export.py` (baked sigma, fixed 256, opset 17), parity to torch under 2e-7, regenerate the parity fixture, replace the in-repo weights, **execute the LFS revert in `.gitattributes`**, re-measure the dial (blend stays unless measured otherwise). | half a day | Ships v2 |
 
-| **E8** | Cross-night arm X (H8). **Exporter SHIPPED 2026-09-05**: `tianwen dataset pair` (`DatasetCrossNightExporter`) flattens, level-matches per channel, registers both nights onto the MIDPOINT grid, stretches both with the mean's MTF, and writes the two nights into the trainer's half slots with a `pairs.jsonl` sidecar; `n2n_pairstats.py` runs the same residual statistic on the bake's same-session halves as the control. Seven pairs exported from `2026-09-full` (HD 74167 x1, Rim Nebula x6), two refused for want of a quad fit (Vela SNR, HD 71272: partial overlap, a WCS-seeded registration is the fix). The pair statistics are in the run log (2026-09-05, "the paired cache"). **Arm X RUN and KILLED 2026-09-05** (`run-x.ps1`, pre-registration in its header; run log "arm X, the cross-night pairs"): the gate takes night A's half slot on a pair cache (`n2n_gate.Gate(input_slot=)`, chosen by `--half-only`), cache `n2n-x` is the six Rim pairs (60 cells each, 360 train) with the HD 74167 pair held out for the gate, and the pool-matched control `n2n-x-ctl` is same-session N2N (`--mix-avg`, real subs) on the SAME four Rim nights from the bake, 360 cells, val on the two HD 74167 nights. Three seeds each, the E2 recipe. No X seed passed a probe (0.88 to 0.92x, faint amplitude falling one for one); X removes noise on one eval field (eta Car, where at matched removal it costs more stars than xctl) and ADDS 7 to 25 percent on Horsehead and the Statue. Cause: one sky's master-depth halves span p5 0.22 to 0.54 of the conditioning plane against deployed 0.09 to 0.83, and the nights' signals disagree at the pixel scale. The kill fires against xctl; its pre-registered inference (the ceiling is not shared noise) does not follow from an arm that never learned the task. H8 PARKED. | 6 x 11-14 min | H8 |
+| **E8** | Cross-night arm X (H8). **Exporter SHIPPED 2026-09-05**: `tianwen dataset pair` (`DatasetCrossNightExporter`) flattens, level-matches per channel, registers both nights onto the MIDPOINT grid, stretches both with the mean's MTF, and writes the two nights into the trainer's half slots with a `pairs.jsonl` sidecar; `n2n_pairstats.py` runs the same residual statistic on the bake's same-session halves as the control. Seven pairs exported from `2026-09-full` (HD 74167 x1, Rim Nebula x6), two refused for want of a quad fit (Vela SNR, HD 71272: partial overlap, a WCS-seeded registration is the fix). The pair statistics are in the run log (2026-09-05, "the paired cache"). **Arm X RUN and KILLED 2026-09-05** (`run-x.ps1`, pre-registration in its header; run log "arm X, the cross-night pairs"): the gate takes night A's half slot on a pair cache (`n2n_gate.Gate(input_slot=)`, chosen by `--half-only`), cache `n2n-x` is the six Rim pairs (60 cells each, 360 train) with the HD 74167 pair held out for the gate, and the pool-matched control `n2n-x-ctl` is same-session N2N (`--mix-avg`, real subs) on the SAME four Rim nights from the bake, 360 cells, val on the two HD 74167 nights. Three seeds each, the E2 recipe. No X seed passed a probe (0.88 to 0.92x, faint amplitude falling one for one); X removes noise on one eval field (eta Car, where at matched removal it costs more stars than xctl) and ADDS 7 to 25 percent on Horsehead and the Statue. Cause: one sky's master-depth halves span p5 0.22 to 0.54 of the conditioning plane against deployed 0.09 to 0.83, and the nights' signals disagree at the pixel scale. The kill fires against xctl; its pre-registered inference (the ceiling is not shared noise) does not follow from an arm that never learned the task. H8 PARKED. **UNPARKED and REFUTED 2026-09-06** (run log, "H8 unparked"): the exporter gained exported-side PSF matching, an escalating quad budget (Vela SNR joins at 400 stars a side; HD 71272 still refuses at the detection cap and needs a coordinate seed), injected draws in the sub slots and a third measurement night, and `n2n_smoke.py --synthetic-target` moves ONLY the target. Arm X2: every control seed removes noise (0.94 / 0.92 / 0.88x, 5.3 to 9.5 percent on eval4b), every independent-target seed adds it (1.07 / 1.04 / 1.07x, -6.2 to -9.5 percent). The reversed-pair arm X2R checks the one remaining confound, the target night being 1.2 to 4.7 times noisier than the input's. | 6 x 11-14 min | H8 |
 
 | **E9** | The WIDE arm (H9, the pool covers the deployed conditioning plane). `run-wide.ps1`: E2's eight sessions plus nine low-plane ones that are not eval nights (`arms/wide-train-17.txt`; Pleiades and eight 2024 Vela SNR panels, eight of the nine one mosaic on one rig, stated as the confound it is), 45 cells each, the E2 recipe byte for byte, val and export seed unchanged so the eight shared sessions carry the same cells and drawn depths as `warped`. `tianwen dataset degrade` gained a repeatable `--session` filter for it (nineteen sessions in 54 minutes against two and a half hours for the whole bake). **RUN and WON 2026-09-05** (run log, "the conditioning range over the whole pool"): 13.7 / 16.2 / 17.0 percent of the noise removed at full strength on the two low-plane eval4 fields, clear of all NINE warped seeds (2.8 to 11.3), inside warped's spread on the faint-structure columns, and the per-field collapse on HIP-85088 gone (6.9 and 7.6 percent become 18.0 to 26.8). Two of three seeds fail the gate's 0.82x noise criterion, which was calibrated on models trained off the low end of the plane. | 3 x 11 min | H9 |
 
@@ -1408,3 +1419,115 @@ wide seeds and all nine warped ones),
 `seamprobe-{gate1500,shipped4000}[-nostars].txt`, `C:/temp/e2/models-old/` (the previous ONNX from
 git f5be9f14), `C:/temp/e2/wide.log`, `C:/temp/e2/scripts-wide/`, `D:/Astro-Dataset/degraded/wide`,
 `C:/temp/tianwen-scratch/n2n-e2-wide/e2_wide_s{0,1,2}.pt`.
+
+### 2026-09-06: H8 unparked -- the four preconditions, and the question asked on one axis
+
+Arm X was killed for the wrong reason to learn anything from: it differed from every supervised arm
+in the target AND in the input distribution, and it never learned the task. The plan parked H8 behind
+four preconditions. All four were worked tonight; three are cleared, one is half cleared, and the
+measurement that was supposed to predict the arm did.
+
+**1. The PSF is matched on the EXPORTED sides now, not on the masters.** The master-side step
+convolves the sharper night by the quadrature difference, and then the midpoint warp widens the two
+sides by different amounts, which is how arm X's pairs shipped 3 to 6 percent apart while the exporter
+believed them matched. `--psf-tolerance` (default 1 percent) iterates on the tiles themselves: measure
+both exported sides, convolve the sharper, measure again, up to `--psf-iterations` passes. On the
+seven pairs the exported mismatch is **0.56 to 1.41 percent**, and four pairs spend all four passes
+oscillating around one percent, which is the FWHM estimator's own repeatability rather than a failure
+to converge.
+
+**A point-sampled Gaussian narrower than a pixel is a silent no-op, and the first version of this loop
+was exactly that.** A PSF match asks for kernels well under a pixel: at sigma 0.27 px the pixel-centre
+samples are [0.001, 1, 0.001], whose second moment is 0.002 px^2 where the kernel it stands for has
+0.073. The loop ran its four passes, every stage reported success, and the measured widths did not
+move. The fix is to AREA sample (sixteen sub-samples per tap), and the test that found it was the one
+that asserted the mismatch FELL rather than that the passes happened.
+
+**2. The pool is two skies, not one, and the low end of the conditioning plane is in it.** Vela SNR
+and HD 71272 were refused by the quad matcher, which the arm-X log recorded as "no quad fit". That was
+a STARVED matcher, not an unregistrable pair: the budget takes the brightest hundred stars of each
+night, and where two nights share a fifth of a field two lists of a hundred hold no quad in common.
+The budget escalates (100, 200, 400) and Vela SNR joins at 400, on 19.2 percent overlap at 0.28 px
+rms. HD 71272 refuses at 400 and again at the 500-star detection cap, where the matcher is exhausted
+rather than starved; the fix there is the coordinate seed the plan named, which needs a plate solve
+first because a retained master carries `STACK_N`, `OBJECT` and `DATE-OBS` and no WCS at all. So seven
+pairs over two skies, and the deviation is recorded in `arms/x2-train-7.txt` and the arm's header.
+
+**3. The conditioning range is no longer one sky's master depth.** The pair export writes injected
+draws of night A into the sub slots (`--inject-draws 8`), at 0.5 to 3 times that night's own measured
+noise, log-uniform. The anchor is the pair's OWN difference statistic rather than a MAD over a master,
+which reads a gradient as noise. The plane now spans a range instead of a point, and the input
+distribution becomes the supervised arm's own, which is what makes the arm below a one-axis test
+instead of a two-axis one.
+
+**Measured on the prepared cache, though, this precondition is only PARTLY met**: the injected inputs
+run p5 0.33, median 0.76, p95 1.94, against a deployed 0.09 to 0.83 and the WIDE cache's p5 0.10. A
+draw can only ADD noise, so a pair's floor is its own quieter night plus a little, and warping,
+PSF-matching and level-matching move that further up. Everything the arm says is therefore said at
+plane 0.33 and above. It does not touch the CONTRAST -- both arms train on identical inputs -- but it
+does mean neither arm is a deployable model, and it is why the numbers below are read as a comparison
+and never as a score.
+
+**4. The three-frame measurement, run BEFORE the seeds and reported whatever it said.** Two frames of
+one sky cannot say what a night's deviation is made of: their difference drops what they share and
+keeps what they do not, and there is no second equation. Three give one, because
+`cov(A - B, A - C) = var(a)` drops every term carrying another night. `tianwen dataset pair` takes a
+third night (`--pair "A::B::C"`) onto the pair's own grid, in one set of units under one MTF, PSF
+matched one-sidedly to the pair's width; `n2n_threeframe.py` splits each night's own deviation by
+spatial scale. On 120 cells of the Rim triple (2026-02-16 / 02-18 / 02-20):
+
+| night | own deviation (sigma) | pixel-scale | structured | structured share of variance |
+|---|---|---|---|---|
+| 2026-02-16 | 0.01201 | 0.01084 | 0.00517 | 18.6 % |
+| 2026-02-18 | 0.01271 | 0.01207 | 0.00397 | 9.7 % |
+| 2026-02-20 | 0.02059 | 0.02002 | 0.00483 | 5.5 % |
+
+**Five and a half to nineteen percent** of what a cross-night target adds is not pixel-scale. Two
+things it cannot see, both stated before the number was read: a component shared by all three nights
+(one master dark calibrating every one of them) cancels in every difference, and a fixed-pattern
+residual is pixel-scale and lands in the same bin as photon noise, so this is a LOWER bound on the
+non-photon part. The pre-registration named a third as the level at which the tax would outweigh what
+independence buys, so the measurement RAISED the arm's confidence from low to medium before it ran.
+
+**The arm itself is one axis.** `x2` and `x2ctl` train on the same cache, the same cells and the same
+injected draws of night A, and differ in which frame the loss regresses onto: night B, whose noise is
+independent of the input's, or night A, the night the input was degraded from, which is the supervised
+regime. `n2n_smoke.py --synthetic-target {master,half-a,half-b}` is the whole of the difference.
+
+**The result: the independent target is not better, it is worse, and by a lot.** Same cache, same
+cells, same injected draws, same recipe, three seeds each, and the only difference is which frame the
+loss regresses onto.
+
+| final gate (val = the held-out HD 74167 pair) | seed 0 | seed 1 | seed 2 |
+|---|---|---|---|
+| x2, target night B (independent noise) | 1.07x noise, faint amp 1.08 | 1.04x, 1.17 | 1.07x, 1.06 |
+| x2ctl, target night A (the input's own night) | 0.94x, 0.94 | 0.92x, 0.91 | 0.88x, 0.90 |
+
+Every control seed removes noise; every x2 seed ADDS it. On eval4b it is the same story with an
+observer that never trained: x2ctl removes 5.3 / 6.8 / 9.5 percent at full strength, spending 0.2 to
+1.7 of the extended column at 2 to 6 percent removed, while **x2 removes -9.5 / -6.2 / -6.2 percent**,
+so no matched operating point exists to compare at and the amplitude columns read as dashes. The
+pre-registered kill ("x2 is no better than x2ctl across three seeds") fires, and this time the
+inference the arm-X kill could not license does follow: the two arms differ in exactly one thing.
+
+**Why it fails is visible in HOW it fails.** A noisier target costs gradient variance, which slows
+learning; it does not make a model amplify. Amplifying, with faint amplitude ABOVE one and the residual
+correlation pinned near -0.85 for most of training, is what learning a systematic looks like. The
+target is another night, and a night carries a smooth field of its own -- the structured 5.5 to 18.6
+percent the three-frame measurement put a number on before the seeds ran. That term is not zero-mean
+given the input: it is a deterministic function of position, so the net can learn it and does, while
+the photon noise it was meant to average away is the part that stays. N2N's unbiasedness needs the
+target's deviation to be independent of the input AND to have zero conditional mean; a per-night
+gradient satisfies the first and fails the second.
+
+**One axis is not quite one axis, and the check is running.** A cross-night target brings its night
+with it, and measuring the prepared cache says the target night is 1.2 to 4.7 times noisier than the
+input's in every pair (median 2.25x). So X2R, pre-registered in `run-x2r.ps1` and committed before
+x2ctl had finished, is the same seven pairs with the nights SWAPPED, which takes that ratio to 1.19.
+**Running as this is written** (three seeds each of x2r and x2rctl); seed 0 reads 1.45x at step 1100, which is amplifying HARDER than X2 did with the noisier target, so the early sign is that the depth asymmetry is not what decided it.
+
+Artefacts: `D:/Astro-Dataset/pairs-x2` (seven pairs plus the held-out one, 45 and 120 cells, eight
+injected draws each), `D:/Astro-Dataset/pairs-triple`, `C:/temp/e2/x2.log`, `C:/temp/e2/threeframe.json`,
+`C:/temp/e2/scripts-x2/`, `C:/temp/e2/starsplit-x2-eval4b.txt`,
+`C:/temp/tianwen-scratch/n2n-x2/x2_s{0,1,2}.pt` and `x2ctl_s{0,1,2}.pt`, `D:/Astro-Dataset/pairs-x2r`
+and `C:/temp/tianwen-scratch/n2n-x2r/` (the reversed arm).
