@@ -996,7 +996,9 @@ public static class DatasetPsfNoiseReport
         sb.AppendLine();
         sb.AppendLine("| Metric | p5 | p25 | p50 | p75 | p95 |");
         sb.AppendLine("|--------|----|-----|-----|-----|-----|");
-        AppendPct(sb, ci, "MAD / max", report.MasterNoiseRelative);
+        // A deep master's MAD sits near 4e-5 of full scale, which three decimals print as 0.000 in
+        // every column but p95; parts per million keeps the digits the number actually has.
+        AppendPpm(sb, ci, "MAD / max (ppm of full scale)", report.MasterNoiseRelative);
         sb.AppendLine();
         sb.AppendLine("## Field-radius PSF profile (per optical train PER FILTER, centre -> corner)");
         sb.AppendLine();
@@ -1116,6 +1118,10 @@ public static class DatasetPsfNoiseReport
 
     private static void AppendPct(StringBuilder sb, CultureInfo ci, string label, Percentiles p) =>
         sb.AppendLine(string.Create(ci, $"| {label} | {p.P5:F3} | {p.P25:F3} | {p.P50:F3} | {p.P75:F3} | {p.P95:F3} |"));
+
+    /// <summary>The same row in parts per million, for a quantity whose whole range sits below 1e-3.</summary>
+    private static void AppendPpm(StringBuilder sb, CultureInfo ci, string label, Percentiles p) =>
+        sb.AppendLine(string.Create(ci, $"| {label} | {p.P5 * 1e6:F0} | {p.P25 * 1e6:F0} | {p.P50 * 1e6:F0} | {p.P75 * 1e6:F0} | {p.P95 * 1e6:F0} |"));
 
     /// <summary>MAD of the master's channel 0 divided by <see cref="Image.MaxValue"/>; a
     /// full-scale-relative background sigma proxy (background-dominated, robust to the ~few % star
