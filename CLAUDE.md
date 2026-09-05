@@ -1108,7 +1108,12 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   two-sided noise statistic comes from a SMOOTHED scene, never the combined pixel (selecting on the
   sum being low anticorrelates the sides: -0.23 on independent noise); and the residual correlation
   is only readable against the same-session halves through `n2n_pairstats.py`, since faint shared
-  SIGNAL leaks through any high-pass. [`docs/plans/denoiser-training.md`](docs/plans/denoiser-training.md) H8.
+  SIGNAL leaks through any high-pass. **Arm X on those pairs was KILLED (2026-09-05): three seeds
+  trained to near-identity**, and the reason is the pool, not the regime: one sky's master-depth halves
+  span a third of the CONDITIONING plane's deployed range (training p5 0.22; Horsehead reads 0.09, the
+  Statue 0.17), and off that range the net amplifies noise rather than removing it. Check the
+  conditioning range per session before a seed, exactly as the level range is checked.
+  [`docs/plans/denoiser-training.md`](docs/plans/denoiser-training.md) H8.
 - **RC-Astro (BlurX / NoiseX / StarXTerminator)** -- `AddRcAstroAi()`. Its `.onnx` files are
   **encrypted at rest** (the license forbids extracting the weights), so they are driven through the
   `rc-astro` CLI's `--json` NDJSON protocol, **never** loaded into ORT: `RcAstroEnhancerBase` writes the

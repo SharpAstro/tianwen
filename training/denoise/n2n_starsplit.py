@@ -46,12 +46,23 @@ def main():
     ap.add_argument('--mag-max', default='auto',
                     help='Gaia BP cap: a number, or "auto" for the deepest cap per session (16 to %g) whose '
                          'coincidence floor stays under %.0f%%' % (AUTO_MAG_MAX, 100 * AUTO_FLOOR_MAX))
+    ap.add_argument('--only', default=None,
+                    help='comma-separated substrings; score only the sessions whose id contains one. '
+                         'For an observer set that shares a night with an arm (eval4\'s Rim Nebula '
+                         '2025-05-02 is a member of every arm X pair): state the exclusion, then apply it.')
+    ap.add_argument('--per-session', action='store_true',
+                    help='under each model, the noise removed at full strength per session')
     a = ap.parse_args()
 
     dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     mm, meta = S.open_cache(a.cache)
     halves = meta['has_halves']
     cells = [i for i in range(meta['train_cells'], meta['cells']) if halves[i]]
+    if a.only:
+        wanted = [t.strip().lower() for t in a.only.split(',') if t.strip()]
+        before = len(cells)
+        cells = [i for i in cells if any(t in meta['keys'][i][0].lower() for t in wanted)]
+        print(f'--only {a.only!r}: {len(cells)} of {before} scored cells kept')
 
     auto = str(a.mag_max).lower() == 'auto'
     fetch_to = AUTO_MAG_MAX if auto else float(a.mag_max)
@@ -155,8 +166,13 @@ def main():
 
     alphas = [float(x) for x in a.blend.split(',') if x.strip()]
     targets = [float(x) for x in a.match.split(',') if x.strip()]
-    print(f"{'model':14s} " + ' '.join(f'{t:>19.0f}% removed' for t in targets))
-    print(f"{'':14s} " + ' '.join(f'{"stars/compact/extended":>27}' for _ in targets))
+    # The last column is the model at FULL strength (the last --blend, 1.0 by default): how much noise
+    # it removes at all on these cells, and what that costs. A match point a model never reaches prints
+    # a dash, and on eval4's Horsehead and Statue cells the supervised warped arm and every arm X seed
+    # stayed under 4 percent, so without this column the whole comparison was dashes.
+    print(f"{'model':14s} " + ' '.join(f'{t:>19.0f}% removed' for t in targets) + f"{'full strength':>36}")
+    print(f"{'':14s} " + ' '.join(f'{"stars/compact/extended":>27}' for _ in targets)
+          + f"{'removed: stars/compact/extended':>36}")
     for spec in a.models:
         slug, ckpt = spec.split('=', 1)
         out = S.crop(S.denoise(a.cache, ckpt, half_a, dev))
@@ -179,7 +195,21 @@ def main():
                         break
                 vals.append(hit)
             row.append(' /'.join(f'{v:>8}' for v in vals))
-        print(f'{slug:14s} ' + ' '.join(f'{r:>27}' for r in row))
+        full_removed = pts['Gaia stars'][-1][0]
+        full = f"{full_removed:5.1f}%: " + '/'.join(f'{pts[k][-1][1]:5.1f}' for k in pops)
+        print(f'{slug:14s} ' + ' '.join(f'{r:>27}' for r in row) + f'{full:>36}')
+        if a.per_session:
+            # The pooled "removed" is a mean over cells of several fields, and a model can denoise one
+            # field while making another NOISIER (arm X: +4 percent pooled on eval4b, -13 to -25 on
+            # eval4's Horsehead and Statue). Per session, at full strength, so a pooled figure cannot
+            # average an off-pool failure away.
+            lo = (raw + alphas[-1] * (out - raw)).mean(axis=1)
+            per_cell = 1.0 - np.array([M.bg_stats(t)[1] for t in lo]) / np.array([M.bg_stats(t)[1] for t in raw.mean(axis=1)])
+            by_session = {}
+            for t, i in enumerate(idx):
+                by_session.setdefault(session_of[i], []).append(per_cell[t])
+            print(f'{"":14s} full strength per session: ' + '  '.join(
+                f"{sid.split('|')[0].split('/')[-1][-24:]} {100 * np.mean(v):+5.1f}%" for sid, v in by_session.items()))
     print('\nEach cell is the faint amplitude SPENT to buy that much quiet: lower is better, and the '
           'three numbers are the same model judged on Gaia stars, on compact unmatched peaks (uncatalogued '
           'or blended stars, knots) and on extended peaks (nebulosity). A structure claim rests on the third.')
