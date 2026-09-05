@@ -336,7 +336,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
 
         return new Command("dataset", "Training-dataset tooling (see docs/plans/ai-denoise-deconv.md).")
         {
-            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildGradientReportCommand(), BuildDegradeCommand(), BuildCoverageCommand(consoleHost), BuildTagFilterCommand(), BuildTagObjectCommand(), BuildTagSiteElevationCommand() },
+            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildGradientReportCommand(), BuildDegradeCommand(), BuildPairCommand(), BuildCoverageCommand(consoleHost), BuildTagFilterCommand(), BuildTagObjectCommand(), BuildTagSiteElevationCommand() },
         };
     }
 
@@ -714,6 +714,121 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             }
 
             return result.Failed > 0 && result.Sessions.Length == 0 ? 2 : 0;
+        });
+
+        return command;
+    }
+
+    /// <summary>
+    /// <c>tianwen dataset pair</c>: cross-night N2N pairs (denoiser H8). Two retained masters of one object
+    /// on different nights, flattened, level matched, registered onto a midpoint grid so both carry the
+    /// same resampling, stretched with one MTF, written as a P0-shaped cache whose half slots hold the
+    /// two nights. The sidecar <c>pairs.jsonl</c> carries the per-pair statistics (FWHM both sides, the
+    /// transform, gains, residual noise correlation) the plan wants in the run log before any training.
+    /// </summary>
+    private Command BuildPairCommand()
+    {
+        var bakeOpt = new Option<string>("--bake")
+        {
+            Description = "Dataset bake to read: it must hold tiles-manifest.jsonl and session-masters/.",
+            Required = true,
+        };
+        var outOpt = new Option<string>("--out", "-o")
+        {
+            Description = "Where the pair cache is written. Must not be the bake itself.",
+            Required = true,
+        };
+        var pairOpt = new Option<string[]>("--pair")
+        {
+            Description = $"An explicit pair as two session ids joined by '{DatasetCrossNightExporter.PairSeparator}'. " +
+                          "Repeatable. Without it, every two sessions of the bake sharing camera, object and filter on " +
+                          "different nights are paired.",
+            AllowMultipleArgumentsPerToken = false,
+        };
+        var objectOpt = new Option<string[]>("--object")
+        {
+            Description = "Discovery only: keep the groups whose object name contains this text (case-insensitive). Repeatable.",
+        };
+        var excludeOpt = new Option<string[]>("--exclude")
+        {
+            Description = "A session whose id contains this text stays out (mis-scaled darks, and anything else the plan flags). Repeatable.",
+        };
+        var fwhmOpt = new Option<double>("--max-fwhm-mismatch")
+        {
+            Description = "Relative FWHM difference between the two masters above which a pair is refused; 0.03 is what the pair table calls matched.",
+            DefaultValueFactory = _ => 0.03,
+        };
+        var psfMatchOpt = new Option<bool>("--psf-match")
+        {
+            Description = "Beyond the mismatch, convolve the sharper night to the wider one (Gaussian, quadrature difference) instead of refusing.",
+        };
+        var cellsOpt = new Option<int>("--cells")
+        {
+            Description = "Tiles per pair, sampled with the P0 exporter's structure bias over the common footprint.",
+            DefaultValueFactory = _ => 300,
+        };
+        var seedOpt = new Option<int>("--seed")
+        {
+            Description = "Folded into each pair's cell-sampling seed.",
+            DefaultValueFactory = _ => 1,
+        };
+        var forceOpt = new Option<bool>("--force")
+        {
+            Description = "Re-export pairs the output manifest already lists.",
+        };
+
+        var command = new Command("pair",
+            "Export cross-night N2N pairs from a bake's retained linear masters: two nights of one object " +
+            "flattened, level matched, registered onto one midpoint grid and stretched with one MTF, as a P0-shaped " +
+            "cache whose half slots are the two nights.")
+        {
+            Options = { bakeOpt, outOpt, pairOpt, objectOpt, excludeOpt, fwhmOpt, psfMatchOpt, cellsOpt, seedOpt, forceOpt },
+        };
+
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var pairs = ImmutableArray.CreateBuilder<DatasetCrossNightExporter.PairSpec>();
+            foreach (var text in parseResult.GetValue(pairOpt) ?? [])
+            {
+                var cut = text.IndexOf(DatasetCrossNightExporter.PairSeparator, StringComparison.Ordinal);
+                if (cut <= 0 || cut + DatasetCrossNightExporter.PairSeparator.Length >= text.Length)
+                {
+                    consoleHost.WriteError($"--pair must be two session ids joined by '{DatasetCrossNightExporter.PairSeparator}', got '{text}'");
+                    return 1;
+                }
+                pairs.Add(new DatasetCrossNightExporter.PairSpec(text[..cut], text[(cut + DatasetCrossNightExporter.PairSeparator.Length)..]));
+            }
+
+            var options = new DatasetCrossNightExporter.Options(
+                BakeRoot: parseResult.GetValue(bakeOpt)!,
+                OutDir: parseResult.GetValue(outOpt)!,
+                Pairs: pairs.ToImmutable(),
+                ObjectFilters: [.. parseResult.GetValue(objectOpt) ?? []],
+                Exclude: [.. parseResult.GetValue(excludeOpt) ?? []],
+                MaxFwhmMismatch: parseResult.GetValue(fwhmOpt),
+                PsfMatch: parseResult.GetValue(psfMatchOpt),
+                CellsPerPair: parseResult.GetValue(cellsOpt),
+                Seed: parseResult.GetValue(seedOpt),
+                Force: parseResult.GetValue(forceOpt));
+
+            var result = await DatasetCrossNightExporter.RunAsync(options, logger, ct);
+            foreach (var p in result.Pairs)
+            {
+                consoleHost.WriteScrollable(
+                    $"[pair] {p.PairId}: {p.Cells} cells, FWHM {p.FwhmA:F2}/{p.FwhmB:F2} -> {p.FwhmAfterA:F2}/{p.FwhmAfterB:F2} px" +
+                    (p.BlurredSide.Length > 0 ? $" (night {p.BlurredSide} convolved by {p.BlurFwhmPx:F2} px)" : "") +
+                    $", rotation {p.RotationDeg:F3} deg, scale {p.Scale:F5}, rms {p.RegistrationRmsPx:F2} px, overlap {p.OverlapFraction:P1}, " +
+                    $"gain {string.Join('/', p.Gain.Select(g => g.ToString("G4")))}, " +
+                    $"residual correlation {string.Join('/', p.ResidualCorrelation.Select(r => r.ToString("F3")))}");
+            }
+            foreach (var s in result.Skipped)
+            {
+                consoleHost.WriteScrollable($"[pair] skipped {s}");
+            }
+            consoleHost.WriteScrollable(
+                $"[pair] {result.Pairs.Length} pairs exported, {result.Skipped.Length} skipped, {result.Failed} failed; " +
+                $"manifest {result.TileManifestPath}, pair statistics {result.PairManifestPath}");
+            return result.Failed > 0 && result.Pairs.Length == 0 ? 2 : 0;
         });
 
         return command;

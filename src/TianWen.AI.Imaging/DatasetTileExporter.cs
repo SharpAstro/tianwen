@@ -229,22 +229,8 @@ public static class DatasetTileExporter
         var seed = StableSeed(imaging.Id);
         var rng = new Random(seed);
 
-        // Structure-biased cell selection: weight each candidate by the local MAD of the (stretched)
-        // master channel 0 -- stars/nebulosity score high, blank sky low (plus a floor so background
-        // tiles still appear, which denoise needs to learn not to over-smooth). Efraimidis-Spirakis
-        // weighted sampling without replacement keeps it deterministic under the seeded RNG.
         var (masterStretched, _, _, _) = ChunkedNafnetRunner.ApplyInputStretch(ToUnitRange(session.Master));
-        var masterCh0 = masterStretched.GetChannelSpan(0);
-        var mW = masterStretched.Width;
-        var weights = new double[candidates.Count];
-        for (var i = 0; i < candidates.Count; i++)
-        {
-            weights[i] = CellMad(masterCh0, mW, candidates[i].X, candidates[i].Y, tileSize) + 1e-4;
-        }
-        var selected = WeightedSampleWithoutReplacement(candidates, weights, Math.Min(cellsPerSession, candidates.Count), rng);
-        // Canonical cell order (row-major) so the master pass, the sub->cell map, and the manifest
-        // all agree independent of the sampler's internal ordering.
-        selected.Sort(static (a, b) => a.Y != b.Y ? a.Y.CompareTo(b.Y) : a.X.CompareTo(b.X));
+        var selected = SampleCells(candidates, masterStretched, tileSize, cellsPerSession, rng);
 
         var subCount = session.Subs.Length;
         var perCellSubs = new int[selected.Count][];
@@ -572,6 +558,29 @@ public static class DatasetTileExporter
 
     /// <summary>MAD (median absolute deviation from the median) of a cell of the master's channel 0,
     /// the structure-bias weight. High where stars/nebulosity vary the signal; low over blank sky.</summary>
+    /// <summary>
+    /// Structure-biased cell selection: weight each candidate by the local MAD of the STRETCHED master's
+    /// channel 0 -- stars/nebulosity score high, blank sky low (plus a floor so background tiles still
+    /// appear, which denoise needs to learn not to over-smooth) -- then Efraimidis-Spirakis weighted
+    /// sampling without replacement, deterministic under the seeded <paramref name="rng"/>. Returned in
+    /// canonical row-major order so every pass over the cells and the manifest agree independent of the
+    /// sampler's internal ordering. Shared with the cross-night exporter, whose candidates come from a
+    /// registered pair's common footprint rather than one session's intersection.
+    /// </summary>
+    internal static List<Point> SampleCells(List<Point> candidates, Image stretchedMaster, int tileSize, int count, Random rng)
+    {
+        var ch0 = stretchedMaster.GetChannelSpan(0);
+        var width = stretchedMaster.Width;
+        var weights = new double[candidates.Count];
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            weights[i] = CellMad(ch0, width, candidates[i].X, candidates[i].Y, tileSize) + 1e-4;
+        }
+        var selected = WeightedSampleWithoutReplacement(candidates, weights, Math.Min(count, candidates.Count), rng);
+        selected.Sort(static (a, b) => a.Y != b.Y ? a.Y.CompareTo(b.Y) : a.X.CompareTo(b.X));
+        return selected;
+    }
+
     private static double CellMad(ReadOnlySpan<float> channel, int width, int ox, int oy, int tileSize)
     {
         var buf = new float[tileSize * tileSize];
@@ -804,7 +813,7 @@ public static class DatasetTileExporter
         return new Image(built.MoveToImmutable(), BitDepth.Float32, img.Pedestal * inv, img.ImageMeta);
     }
 
-    private static int StableSeed(string s)
+    internal static int StableSeed(string s)
     {
         // FNV-1a 32-bit folded to a positive int -- deterministic across runs, unlike the
         // randomised string.GetHashCode.
