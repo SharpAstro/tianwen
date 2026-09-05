@@ -717,6 +717,14 @@ def train(args):
     running = []
     regime_steps = defaultdict(int)
     best = (-1.0, 0, None, None)      # (score, step, metrics, state_dict)
+    # The same tuple, tracked WITHOUT the noise threshold: the best-by-noise probe among those
+    # meeting the structure criteria. It never becomes --out, and exists for the case below where
+    # no probe passes all three, because the fallback there is the FINAL weights and those can be
+    # strictly worse than a probe at equal noise. Measured on the WIDE arm 2026-09-06: seed 1's
+    # step 2200 and its step 4000 both read 0.880x, but 2200 holds faint amplitude 0.82 against
+    # 0.76 and sits 14.6 under the spurious floor against 23.8. Saving it alongside makes that
+    # visible instead of leaving it to a re-run with a different threshold.
+    best_struct = (-1.0, 0, None, None)
     for step in range(1, steps + 1):
         idx = rng.integers(0, n_train, args.batch)
         # Two DIFFERENT subs of the same cell: independent noise, same scene. That is the
@@ -875,15 +883,18 @@ def train(args):
             # probe to make a relative rule testable. Do not gate on it yet: whether a relative rule
             # picks the same step on two sessions is the open question, which --gate-observe exists
             # to answer.
-            passed = (m["spurious_over_floor"] <= args.gate_max_spurious
-                      and m["faint_amp"] >= args.gate_min_faint_amp
-                      and m["noise"] <= args.gate_max_noise)
+            structure_ok = (m["spurious_over_floor"] <= args.gate_max_spurious
+                            and m["faint_amp"] >= args.gate_min_faint_amp)
+            passed = structure_ok and m["noise"] <= args.gate_max_noise
             score = m["noise"]
             mark = "pass" if passed else "FAIL"
             if passed and (best[3] is None or score < best[0]):
                 best = (score, step, m,
                         {k: v.detach().cpu().clone() for k, v in model.state_dict().items()})
                 mark = "pass *"
+            if structure_ok and (best_struct[3] is None or score < best_struct[0]):
+                best_struct = (score, step, m,
+                               {k: v.detach().cpu().clone() for k, v in model.state_dict().items()})
             print(f"  gate {step:6d}   {n2n_gate.Gate.format(m)}   {score:6.3f}  {mark}",
                   flush=True)
             # The observed sessions print on the SAME schedule with an "obs" tag and no verdict
@@ -917,6 +928,29 @@ def train(args):
         if gate is not None:
             print("  NO probe passed every gate; saving the final weights and saying so rather "
                   "than quietly shipping the least-bad one.")
+            # Which criterion blocked it is the useful half, and the two answers mean opposite
+            # things. If the STRUCTURE criteria were met throughout and only the noise threshold
+            # failed, the run is a gentle model on this val, not a bad one, and the threshold is
+            # an absolute on a quantity that trades against the criteria it is paired with -- read
+            # the arm's own eval, not this. If the structure criteria failed, the run really did
+            # fabricate or flatten and the fallback weights deserve the suspicion.
+            #
+            # This gate orders STEPS WITHIN ONE RUN ON ONE SESSION (see the note beside the
+            # criteria above); it is not a portable purity bar, so "N of 3 seeds failed the gate"
+            # is not a fact about an arm. Measured 2026-09-06: all 120 WIDE probes met the
+            # structure criteria and only 20 met the noise one, while the arm it was being
+            # compared against violated the structure criteria on most of its probes and reached a
+            # lower noise where it did not. Same gate, opposite failure, and the arm that never
+            # fabricates is the one it rejects.
+            if best_struct[3] is not None:
+                struct_out = args.out.replace(".pt", "_bestprobe.pt")
+                print(f"  the structure criteria WERE met at {best_struct[1]} (noise "
+                      f"{best_struct[0]:.3f}x, over the {args.gate_max_noise} threshold); saving "
+                      f"that probe beside the final weights for audit, NOT as the output.")
+                save(best_struct[3], struct_out, best_struct[1])
+            else:
+                print("  no probe met the structure criteria either, so the run has nothing to "
+                      "audit against: it fabricated or flattened at every probe.")
         save(model.state_dict(), args.out, steps)
 
 

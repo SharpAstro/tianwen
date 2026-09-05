@@ -1047,10 +1047,16 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   (`TianWen.AI.Imaging/Onnx/*`, `AddTianWenAi()`). Models under `%LOCALAPPDATA%\TianWen\models`
   (`tools/tianwen-ai-models-fetch.ps1`).
 - **In-house N2N denoiser** (`N2nDenoiser`; OSC-only, throws on mono), whose weights ship **in this
-  repo** at `src/TianWen.AI.Imaging/models/` as a **plain git blob, not an LFS object** --
-  `.gitattributes` exempts that directory from the repo-wide `*.onnx` rule, so a checkout has the real
-  weights with or without git-lfs (`ModelResolver` still refuses a pointer stub, so the failure mode
-  stays a logged skip, not an ORT protobuf error). **Three ways in, deliberately tiered:**
+  repo** at `src/TianWen.AI.Imaging/models/` as an **LFS object under the repo-wide `*.onnx` rule**
+  (a `.gitattributes` exemption made them a plain blob from 2026-08-19 to 2026-09-06, while the LFS
+  budget was dry). A clone without git-lfs therefore holds a pointer stub, which `ModelResolver`
+  refuses, so the failure mode is a logged skip and not an ORT protobuf error. **A new .onnx must go
+  into `lfs-payload.list` in `dotnet.yml` as well**: the publish matrix never pulls LFS, and the
+  weights are `Content`, so an object missing from that artifact ships as a stub inside every release
+  binary (`publish-apps`'s `Verify LFS objects materialised` step is the backstop). **The shipped
+  checkpoint is `tianwen_denoise_osc_e2wide_s2.onnx`** since 2026-09-06, and the file NAME carries the
+  checkpoint identity by design: a retrain gets a new name, never a silent replacement under the old
+  one. **Three ways in, deliberately tiered:**
   `--ai-backend n2n` selects it per enhance for the denoise role; **Auto rescues with it** when the SAS
   AI4 weights are absent and the input is OSC at the default variant (it replaces a crash, never a
   measured backend's result -- with SAS weights present Auto is byte-for-byte the old path); and

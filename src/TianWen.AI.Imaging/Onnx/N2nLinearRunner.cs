@@ -291,12 +291,18 @@ internal static class N2nLinearRunner
     /// </summary>
     /// <remarks>
     /// <para><b>This is a correction for a measured defect, not a stylistic touch-up.</b> The net
-    /// carries a learned prior about sky level from its eight training sessions and drags an input
+    /// carries a learned prior about sky level from its training sessions and drags an input
     /// toward it: over 49 held-out tiles the shift in a channel's median correlates with that
     /// channel's input level at <b>-0.988</b>, and only -0.278 with its noise. Because the prior is
     /// per channel it does not land equally on R, G and B -- the worst held-out tile moved
     /// R +0.017, G +0.002, B +0.048, which is a heavy blue cast, not an offset. Any master whose
     /// sky sits below the training set's would have come out miscoloured.</para>
+    ///
+    /// <para><b>Widening the pool weakened the prior and did not remove it,</b> which is why this
+    /// stays unconditional. The measurements above were taken on v19d's eight sessions; the
+    /// seventeen-session checkpoint that replaced it on 2026-09-06 leaves a bright-decile cast
+    /// spread of 0.019 on the eta Car master where v19d left 0.044. Smaller, still a cast, and
+    /// still per channel.</para>
     ///
     /// <para><b>It cannot cost anything the model was selected on.</b> A per-channel constant moves
     /// neither a standard deviation nor a background sigma nor a local star amplitude: measured,

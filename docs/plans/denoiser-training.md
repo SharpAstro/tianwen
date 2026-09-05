@@ -476,23 +476,52 @@ and the decision to promote is the user's. Record it as such rather than as a pe
 | D2 | H1/H2/H3 answered with three seeds per arm and a posted comparison | E2, E3 |
 | D3 | Broadband transfer answered; N3 restated in the programme doc and in `N2nDenoiser`'s XML doc | E4, E5 |
 | D4 | Capacity answered or retired | E6 |
-| D5 | v2 exported, parity-pinned, LFS exemption reverted, contract JSON asserted at load, photometric gate run | E7 |
+| D5 | **SHIPPED 2026-09-06** (below): v2 exported, parity-pinned, LFS exemption reverted. Still open: the contract JSON asserted at load, and the photometric gate | E7 |
 
-### D5's candidate, decided 2026-09-06: `e2_wide_s2`
+### D5, shipped 2026-09-06: `e2_wide_s2`
 
-**What would ship as v2 is the WIDE arm's gate-passing seed**, exported to ONNX at parity 1.49e-7
+**Shipped as `src/TianWen.AI.Imaging/models/tianwen_denoise_osc_e2wide_s2.onnx`.** The name changed
+with the weights, which is the rule `N2nDenoiser`'s doc states and the first time it was exercised: a
+retrain gets a new file name, so no checkpoint can be replaced under a name someone else measured. The
+v19d bytes remain one `git show` away and `TIANWEN_N2N_SEAM_MODEL_DIR` still compares two checkpoints
+on one frame without touching the repo's copy.
+
+Verified after the swap, against the COMMITTED file with no model-directory override: the seam probe
+reproduces the table below exactly (cast spread 0.0188, stars 0.690 / 0.786 / 0.864 / 0.883, MAD
+89 / 85 / 77 percent), the regenerated parity fixture reproduces torch to 3.87e-7 through the C# path,
+and all 20 runnable `N2n*` tests pass. **The LFS exemption was reverted the same day**: the budget is
+back, so `*.onnx` is an LFS object again, which is three edits and not one (the `.gitattributes` block,
+`git rm --cached` + `git add`, and `*.onnx` back into `lfs-payload.list` in `dotnet.yml`, since the
+publish matrix never pulls LFS and would otherwise ship a pointer stub as the model in every release
+asset). `docs/todo/infra.md` carries the detail.
+
+**One thing the regeneration exposed, about the fixture and not the model.** The parity plate
+conditions the graph at sigma EXACTLY zero, on this checkpoint and on v19d alike: the runner fills a
+16 px border with the channel median and the replicate pad then copies that constant across the strips
+taking 192 to 256, leaving 61 percent of the tile at one value, so median minus p25 is 0. It remains a
+valid parity fixture (same graph, same bytes, both languages, and the conditioning is computed inside
+the graph) but it cannot exercise the sigma path, and the output/input std it prints is not a
+denoising measurement. Do not repair it by adding noise to the border: median-fill is what
+`N2nLinearRunner` does and pinning that is the fixture's job. Written up in `n2n_fixture.py`.
+
+**The level prior weakened and did not vanish**, which is the H3 prediction meeting the wider pool:
+cast spread 0.044 to 0.019 on the master, and on the synthetic plate the per-channel median deltas
+tighten from a 0.00151 spread to 0.00072. So `RestoreLevel` stays unconditional, and its remarks now
+carry both numbers.
+
+**The evidence the decision was taken on**, exported to ONNX at parity 1.49e-7
 (`C:/temp/e2/models-wide/`, the baked graph). It is not a close call on the observers that exist, and
 every column below is measured on the SHIPPED path, not on tiles: the seam probe drives the real
 `N2nDenoiser` over the eta Car 2026-02-20 master through the runner's own stretch, run and invert.
 
 | through the shipped path | bright-decile cast spread | stars kept 8-15 / 15-30 / 30-100 / 100+ | noise kept R / G / B |
 |---|---|---|---|
-| gate1500 (**shipped today**) | 0.044 | 0.649 / 0.700 / 0.753 / 0.724 | 90 / 89 / 78 % |
+| gate1500 (v19d, shipped until 2026-09-06) | 0.044 | 0.649 / 0.700 / 0.753 / 0.724 | 90 / 89 / 78 % |
 | shipped4000 (shipped until 2026-09-04) | 0.051 | 0.521 / 0.665 / 0.760 / 0.744 | 89 / 80 / 76 % |
 | warped_s2 (E2's best) | 0.028 | 0.735 / 0.811 / 0.871 / 0.886 | 91 / 84 / 78 % |
-| **wide_s2** | **0.019** | 0.690 / 0.786 / 0.864 / 0.883 | 89 / 85 / 77 % |
+| **wide_s2** (**shipped**) | **0.019** | 0.690 / 0.786 / 0.864 / 0.883 | 89 / 85 / 77 % |
 
-Against what is shipped today it is better on every axis measured and worse on none: the least colour
+Against what it replaced it is better on every axis measured and worse on none: the least colour
 cast of the four, more of every star bucket kept, the same noise removed on that master, and on the
 Gaia split it buys the same quiet far more cheaply -- at 10 percent removed on eval4b it spends 1.0 of
 the extended column against gate1500's 6.3, and on the two low-plane fields it removes 17.0 percent at
@@ -500,23 +529,51 @@ a spend of 2.8 against gate1500's 18.3 at 16.6. Against warped_s2 it trades a li
 (0.690 against 0.735 in the faintest bucket) for the thing warped cannot do at all: 17.0 percent of the
 noise on the low-plane fields where warped_s2 removes 2.8.
 
-**Two caveats travel with the recommendation.** It is one seed of three, and the other two failed the
-gate -- shipping the gate pick is the established practice (gate1500 is one) but the arm's seed spread
-is real and only s2 passed. And the cast and star numbers are ONE frame; the eval columns are four
-observers. **Not done here:** swapping `src/TianWen.AI.Imaging/models/` is a user decision, so the
-weights in the repo are untouched. Shipping means copying the baked ONNX over
-`tianwen_denoise_osc_v19d.onnx`, regenerating the parity fixture, and re-running the seam probe against
-the committed file.
+**Two caveats travel with it, and shipping does not retire either.** It is one seed of three, and the
+arm's seed spread is real: shipping the gate pick is the established practice (gate1500 was one), and
+s2 is the one seed the gate selected. What that does NOT mean is that the other two are worse models
+-- see section 8, where reading the trajectories showed all three seeds met the structure criteria at
+every probe and only s2 also cleared the absolute noise bar. And the cast and star numbers are ONE
+frame; the eval columns are four observers.
+
+**A third, raised by the pool change and NOT measured.** v19d trained on real SUB pairs, whose
+conditioning plane runs far above a master's; every arm since E1 trains on injected draws capped at
+3x a master's own noise, so the shipped model's training plane tops out around 2.5 where v19d's did
+not. The deployed job is masters and that is what every column above measures, but if anyone points
+this at a single sub it is out of range on the high side, exactly as v19d was on the low side. One
+measurement would settle it and none has been taken.
 
 ## 8. Open questions
 
-- **The gate's noise criterion now rejects the arm that scores best where the gate lives.** 0.82x was
-  calibrated on models trained OFF the low end of the conditioning plane, which removed noise there
-  indiscriminately; two of three WIDE seeds fail it on a plane-0.10 val while the arm beats all nine
-  warped seeds on the low-plane observers. A threshold that a better model fails is a threshold
-  measured against the wrong population. Re-derive it per plane bucket, from what a model that HAS
-  seen that plane can achieve, before the next arm is judged by it -- and note the same gate is what
-  selects the checkpoint that ships (D5).
+- **ANSWERED 2026-09-06, and not the way it was asked. "N of 3 seeds failed the gate" is not a fact
+  about an arm.** The question above proposed re-deriving 0.82x per plane bucket, on the theory that
+  it had been calibrated on the wrong population. Reading the three arms' full trajectories off disk
+  (`C:/temp/e2/wide.log`, `e2.log`; 40 probes per seed, so this cost no GPU) says the axis is the
+  criteria's SHAPE, not the plane:
+
+  | arm | probes meeting spurious + faint | probes meeting all three | min noise reached |
+  |---|---|---|---|
+  | wide s0 / s1 / s2 | 40/40, 40/40, 40/40 | 0, 0, 20 | 0.860 / 0.880 / 0.750 |
+  | white s0 / s1 / s2 | 25/40, 11/40, 37/40 | 0, 0, 0 | 0.850 / 0.740 / 0.830 |
+
+  **The WIDE seeds never fabricate and never flatten; they simply do not denoise this val hard
+  enough to clear an absolute noise bar. The arm they were being compared against violates the
+  structure criteria on most of its probes and reaches a lower noise where it does not.** Same gate,
+  opposite failure. Pairing a floor on structure with an absolute ceiling on noise says "be at least
+  this aggressive while never being too destructive", which systematically prefers the aggressive
+  model and rejects the gentle-and-clean one. **The code already said not to read it as an arm-level
+  bar** (the note beside the criteria: it "orders steps within one run on one session, which is its
+  actual job, and never a portable claim about a checkpoint's purity"), and the D5 write-up leaned on
+  it anyway. Do not re-tune the number on one field.
+
+  What DID need fixing is narrower and is done: **the no-pass fallback discarded a strictly better
+  checkpoint.** It saved the FINAL weights, so WIDE seed 1 shipped step 4000 when its step 2200 read
+  the same 0.880x noise with faint amplitude 0.82 against 0.76 and 14.6 under the spurious floor
+  against 23.8. `n2n_smoke.py` now tracks the best-by-noise probe among those meeting the STRUCTURE
+  criteria, saves it as `<out>_bestprobe.pt` when nothing passes (for audit, never as the output, so
+  "saving the final weights and saying so" still holds), and names which criterion blocked the run,
+  because "only noise failed" and "structure failed" mean opposite things. Exercised on the wide
+  cache before being written up.
 - **How much of 3b's real-frame shortfall was the runner?** Answered by E0.5 (section 9): the
   whole of the gap between the verbatim path and the k = 124 peak, plus a 30 percent flat star
   suppression 3b never measured. The 3b k = 124 row stands as measured; its k = 1 row describes the

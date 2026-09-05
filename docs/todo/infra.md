@@ -32,21 +32,27 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
   **Not blocking:** `publish-apps` no longer reads that cache at all (it takes its files from the
   `lfs-payload` artifact), so this is about the remaining cache users and any future Windows job.
 
-- [ ] **REVERT the n2n model out of plain git and back into LFS** (added 2026-08-19, expected to revert 2026-09,
-  when the replacement model lands). `src/TianWen.AI.Imaging/models/*.onnx` carries an `!filter !diff !merge`
-  exception in `.gitattributes` so `tianwen_denoise_osc_v19d.onnx` is stored as an ordinary 3.1 MB blob.
-  **Why:** the repo's LFS budget is exhausted (2026-08-17, enforcement rather than fresh usage -- see
-  `f1764364`), so CI cannot fetch a single new object and every run dies in `Fetch required LFS objects`.
-  This file was the ONLY object missing from the runners' cache, verified by reproducing the workflow's
-  own cache key across main: the cached set hashes `db37df0e2057d6cf` (32 files, at `237d7515`) and the
-  wanted set `718e3fd94981c9ba` (33 files, from `69218529`), and this is the file that differs. Storing it
-  as a blob therefore restores CI completely, because every remaining LFS object rides the cache.
-  **To revert:** delete the `.gitattributes` block, then `git rm --cached` + `git add` the file so the
-  general `*.onnx` rule takes it back. Note the 3.1 MB stays in history either way (removal does not
+- [x] **REVERT the n2n model out of plain git and back into LFS.** Done 2026-09-06, on exactly the occasion
+  it was written for: the replacement checkpoint landed (`tianwen_denoise_osc_e2wide_s2.onnx`) and the LFS
+  budget is back, so the `.gitattributes` exemption is gone and `*.onnx` is an LFS object again.
+  **The revert is three coordinated edits, not one.** The exemption block, `git rm --cached` + `git add`
+  so the filter takes the file, and **`*.onnx` back into `lfs-payload.list` in `dotnet.yml`**: the publish
+  matrix deliberately never touches LFS, so a new object left out of that artifact reaches every release
+  asset as a ~130-byte pointer stub in `models/`, which `ModelResolver` refuses at runtime while the build
+  stays green. The `Verify LFS objects materialised` step in `publish-apps` covered `*.onnx` throughout,
+  which is what made the flip safe to perform rather than merely plausible.
+  **Why it was there** (2026-08-19 to 2026-09-06): the repo's LFS budget was exhausted (2026-08-17,
+  enforcement rather than fresh usage -- see `f1764364`), so CI could not fetch a single new object and
+  every run died in `Fetch required LFS objects`. That file was the ONLY object missing from the runners'
+  cache, verified by reproducing the workflow's own cache key across main: the cached set hashes
+  `db37df0e2057d6cf` (32 files, at `237d7515`) and the wanted set `718e3fd94981c9ba` (33 files, from
+  `69218529`), and it was the file that differed. Storing it as a blob restored CI completely, because
+  every remaining LFS object rode the cache. The 3.1 MB stays in history either way (removal does not
   reclaim it without a rewrite); it is 0.3% of a 976 MB `.git`, which is why that was accepted rather
   than worked around.
-  **Do not** treat this as a template for other LFS objects: the catalogs (`*.lz`) and snapshots
-  (`*.bin.gz`) are far larger, and unlike this file they are already cached, so they need no exception.
+  **Do not** treat that exemption as a template if the budget ever runs dry again: the catalogs (`*.lz`)
+  and snapshots (`*.bin.gz`) are far larger, and unlike this file they are already cached, so they would
+  need no exception.
 
 ## Code Quality / Architecture
 

@@ -16,13 +16,24 @@ namespace TianWen.AI.Imaging.Onnx;
 /// </summary>
 /// <remarks>
 /// <para><b>Provenance, stated because it changes how to treat this model.</b> The shipped weights
-/// are <c>n2n_v19d</c> seed 2, trained on 8 sessions x 45 cells. Six experiments went looking for
-/// why a small training set beat a large one and the answer turned out to be that it does not
-/// reliably: three disjoint 8-session draws scored 0.825 / 0.726 / 0.739 on the same held-out
-/// session, and one arm's three seeds spanned a wider range than the effect being ranked. So this
-/// is <b>the best checkpoint measured, not the output of a repeatable method</b>. If it is ever
-/// retrained, re-measure on the held-out sessions rather than assuming a like-for-like recipe
-/// reproduces it.</para>
+/// are <c>e2_wide_s2</c>, gate-selected at step 3100 of a 17-session x 45-cell run over injected
+/// pairs (E2's recipe, E9's pool). They replaced <c>n2n_v19d</c> seed 2 on 2026-09-06, which had
+/// trained on 8 sessions of real sub pairs.</para>
+///
+/// <para><b>The POOL effect is established; the SEED is still the best one measured.</b> Widening
+/// the pool to cover the low end of the conditioning plane is the one thing in this programme whose
+/// effect cleared the seed spread: the WIDE arm's worst seed removes more noise on the low-plane
+/// observers (13.7 percent) than the best of NINE seeds of the arm it replaced (11.3), where the
+/// pool has one measured confound (eight of the nine added sessions are one mosaic on one rig).
+/// Picking seed 2 within that arm is not established the same way, and three disjoint 8-session
+/// draws of the older recipe scored 0.825 / 0.726 / 0.739 on one held-out session, so a like-for-like
+/// retrain should be re-measured on the held-out sessions rather than assumed to reproduce this.</para>
+///
+/// <para><b>What changed against v19d, measured through this class's own path</b> on the eta Car
+/// master: the per-channel colour cast a level prior leaves (bright-decile out/in spread) falls
+/// 0.044 to 0.019, every star bucket keeps more amplitude (0.690 / 0.786 / 0.864 / 0.883 against
+/// 0.649 / 0.700 / 0.753 / 0.724), the noise removed is the same, and on the Gaia split the same
+/// quiet costs 1.0 of the extended column against 6.3 at 10 percent removed.</para>
 ///
 /// <para><b>Domain semantics: linear in, linear out, the exporter's stretch in between.</b> The
 /// contract at this boundary is a linear <c>[0, 1]</c> frame, the same one the AI4 enhancers take,
@@ -54,11 +65,14 @@ public sealed class N2nDenoiser(
     : IDenoiseEnhancer, IDisposable
 {
     /// <summary>
-    /// The shipped weights. The <c>v19d</c> segment is deliberate: the checkpoint identity is part
-    /// of what this model is (see the provenance note on the class), so a future retrain gets a new
-    /// file name rather than silently replacing this one under the same one.
+    /// The shipped weights. The <c>e2wide_s2</c> segment is deliberate: the checkpoint identity is
+    /// part of what this model is (see the provenance note on the class), so a retrain gets a new
+    /// file name rather than silently replacing this one under the same one. That rule was honoured
+    /// on 2026-09-06, when this stopped being <c>tianwen_denoise_osc_v19d.onnx</c>; the old weights
+    /// are one <c>git show</c> away, and the seam probe's model-directory override exists to compare
+    /// two checkpoints on one frame without swapping the file back.
     /// </summary>
-    public const string ModelFileName = "tianwen_denoise_osc_v19d.onnx";
+    public const string ModelFileName = "tianwen_denoise_osc_e2wide_s2.onnx";
 
     private readonly System.Threading.Lock _gate = new();
     private InferenceSession? _session;

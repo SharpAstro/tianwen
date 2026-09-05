@@ -336,14 +336,14 @@ if (-not $NoGraXpert) {
 
 # Phase 4: TianWen's own models, shipped IN this repo
 # (src/TianWen.AI.Imaging/models/). Preferred source is the checkout beside this
-# script -- hardlink-else-copy, same as SAS Pro. Those weights are currently a
-# plain git blob (a .gitattributes exemption from the *.onnx LFS rule), so a
-# checkout holds them outright; the pointer-stub path below still matters, both
-# for any other LFS-tracked model and for a revert of that exemption. A clone
-# made without git-lfs holds a ~130-byte pointer stub instead of weights, in
+# script -- hardlink-else-copy, same as SAS Pro. These weights are LFS objects
+# again since 2026-09-06 (between 2026-08-19 and then a .gitattributes exemption
+# made them a plain git blob, so a checkout held them outright and the pointer-stub
+# path below was dead code for them). A clone made without git-lfs holds a
+# ~130-byte pointer stub instead of weights, in
 # which case the LFS object bytes are fetched from GitHub's media host (which serves the real
 # content for a public repo; the plain raw host would serve the stub again).
-$tianwenNativeModels = @('tianwen_denoise_osc_v19d.onnx')
+$tianwenNativeModels = @('tianwen_denoise_osc_e2wide_s2.onnx')
 $tianwenRepoModelsDir = Join-Path $PSScriptRoot '..' 'src' 'TianWen.AI.Imaging' 'models'
 $tianwenLfsMediaBase = 'https://media.githubusercontent.com/media/SharpAstro/tianwen/main/src/TianWen.AI.Imaging/models'
 

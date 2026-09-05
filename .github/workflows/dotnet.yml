@@ -58,11 +58,11 @@ jobs:
     # (*.fits.gz) saves ~120 MB per pull -- they're only needed by the test
     # jobs, not for compilation or the .nupkg artifact.
     #
-    # The .onnx in this glob is a leftover and a no-op: the weights are a plain git
-    # blob now, so checkout already carries them and `git lfs pull` has nothing to do
-    # for them. It is kept only so the glob still matches the cache key computed above.
-    # (It used to be here to keep this glob identical to publish-apps', which shared the
-    # lfs-build- cache; that job takes the lfs-payload artifact instead now.)
+    # The .onnx is a real object in this glob again since 2026-09-06, when the LFS budget
+    # came back and the `.gitattributes` exemption that had made the weights a plain git
+    # blob was removed. It must stay in the glob AND in the payload packed below: the
+    # publish matrix never touches LFS, so anything missing from the payload reaches a
+    # released binary as a 130-byte pointer stub that ModelResolver then refuses.
     - name: Compute LFS cache key
       id: lfs-key
       run: |
@@ -97,10 +97,14 @@ jobs:
     # into one tree. The tar keeps repo-relative paths, so a leg unpacks it over its own
     # checkout and every file lands where the csproj expects it.
     #
-    # *.onnx is absent on purpose: it is a plain git blob now, so checkout carries it.
+    # *.onnx is IN the payload: the AI model weights are `Content` on TianWen.AI.Imaging, so
+    # they flow into every consuming app's publish dir. While they were a plain git blob the
+    # checkout carried them and this list did not need them; now that they are an LFS object
+    # again, leaving them out would ship a pointer stub as the model file in every release
+    # asset -- a failure that looks like a broken model at runtime, not like a broken build.
     - name: Package LFS payload for the publish matrix
       run: |
-        git ls-files '*.lz' '*.ttf' '*.bin.gz' > lfs-payload.list
+        git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.onnx' > lfs-payload.list
         tar -czf lfs-payload.tar.gz -T lfs-payload.list
         echo "packaged $(wc -l < lfs-payload.list) files, $(du -h lfs-payload.tar.gz | cut -f1)"
     - uses: actions/upload-artifact@v7
@@ -568,11 +572,12 @@ jobs:
     # They could not bootstrap an entry of their own either, since actions/cache saves only when
     # the job succeeds and this one could not get that far.
     #
-    # The .onnx is not in the payload because it is a plain git blob now, so the checkout above
-    # carries it. It stays in the verify step below, because its absence is SILENT: a ~130-byte
-    # pointer is a valid file, Content copies it into the release tarball's models/ dir, and the
-    # binary looks complete while ModelResolver refuses the stub -- so `--ai-backend n2n` would
-    # go missing from a release with nothing in the build saying so.
+    # The .onnx is back IN the payload as of 2026-09-06 (the LFS budget returned, so the
+    # `.gitattributes` exemption that had made it a plain git blob is gone). It was already in
+    # the verify step below throughout, which is what made that flip safe to perform: its absence
+    # is SILENT otherwise -- a ~130-byte pointer is a valid file, Content copies it into the
+    # release tarball's models/ dir, and the binary looks complete while ModelResolver refuses the
+    # stub, so `--ai-backend n2n` would go missing from a release with nothing saying so.
     - name: Download LFS payload
       uses: actions/download-artifact@v8
       with:
