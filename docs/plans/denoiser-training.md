@@ -464,8 +464,45 @@ and the decision to promote is the user's. Record it as such rather than as a pe
 | D4 | Capacity answered or retired | E6 |
 | D5 | v2 exported, parity-pinned, LFS exemption reverted, contract JSON asserted at load, photometric gate run | E7 |
 
+### D5's candidate, decided 2026-09-06: `e2_wide_s2`
+
+**What would ship as v2 is the WIDE arm's gate-passing seed**, exported to ONNX at parity 1.49e-7
+(`C:/temp/e2/models-wide/`, the baked graph). It is not a close call on the observers that exist, and
+every column below is measured on the SHIPPED path, not on tiles: the seam probe drives the real
+`N2nDenoiser` over the eta Car 2026-02-20 master through the runner's own stretch, run and invert.
+
+| through the shipped path | bright-decile cast spread | stars kept 8-15 / 15-30 / 30-100 / 100+ | noise kept R / G / B |
+|---|---|---|---|
+| gate1500 (**shipped today**) | 0.044 | 0.649 / 0.700 / 0.753 / 0.724 | 90 / 89 / 78 % |
+| shipped4000 (shipped until 2026-09-04) | 0.051 | 0.521 / 0.665 / 0.760 / 0.744 | 89 / 80 / 76 % |
+| warped_s2 (E2's best) | 0.028 | 0.735 / 0.811 / 0.871 / 0.886 | 91 / 84 / 78 % |
+| **wide_s2** | **0.019** | 0.690 / 0.786 / 0.864 / 0.883 | 89 / 85 / 77 % |
+
+Against what is shipped today it is better on every axis measured and worse on none: the least colour
+cast of the four, more of every star bucket kept, the same noise removed on that master, and on the
+Gaia split it buys the same quiet far more cheaply -- at 10 percent removed on eval4b it spends 1.0 of
+the extended column against gate1500's 6.3, and on the two low-plane fields it removes 17.0 percent at
+a spend of 2.8 against gate1500's 18.3 at 16.6. Against warped_s2 it trades a little star amplitude
+(0.690 against 0.735 in the faintest bucket) for the thing warped cannot do at all: 17.0 percent of the
+noise on the low-plane fields where warped_s2 removes 2.8.
+
+**Two caveats travel with the recommendation.** It is one seed of three, and the other two failed the
+gate -- shipping the gate pick is the established practice (gate1500 is one) but the arm's seed spread
+is real and only s2 passed. And the cast and star numbers are ONE frame; the eval columns are four
+observers. **Not done here:** swapping `src/TianWen.AI.Imaging/models/` is a user decision, so the
+weights in the repo are untouched. Shipping means copying the baked ONNX over
+`tianwen_denoise_osc_v19d.onnx`, regenerating the parity fixture, and re-running the seam probe against
+the committed file.
+
 ## 8. Open questions
 
+- **The gate's noise criterion now rejects the arm that scores best where the gate lives.** 0.82x was
+  calibrated on models trained OFF the low end of the conditioning plane, which removed noise there
+  indiscriminately; two of three WIDE seeds fail it on a plane-0.10 val while the arm beats all nine
+  warped seeds on the low-plane observers. A threshold that a better model fails is a threshold
+  measured against the wrong population. Re-derive it per plane bucket, from what a model that HAS
+  seen that plane can achieve, before the next arm is judged by it -- and note the same gate is what
+  selects the checkpoint that ships (D5).
 - **How much of 3b's real-frame shortfall was the runner?** Answered by E0.5 (section 9): the
   whole of the gap between the verbatim path and the k = 124 peak, plus a 30 percent flat star
   suppression 3b never measured. The 3b k = 124 row stands as measured; its k = 1 row describes the
@@ -1269,7 +1306,7 @@ scores), `C:/temp/e2/gaia/condprobe.py` with `condprobe-out.txt` and `condprobe-
 conditioning ranges per cache and session), `C:/temp/tianwen-scratch/n2n-x/x_s{0,1,2}.pt`,
 `n2n-x-ctl/xctl_s{0,1,2}.pt` (gate-selected) and `_final.pt`.
 
-### 2026-09-05: the conditioning range over the whole pool, and three open questions closed
+### 2026-09-05/06: the conditioning range over the whole pool, the WIDE arm, and three questions closed
 
 Arm X's autopsy said the supervised arms share its blind spot: their injected inputs never go below
 0.23 on the conditioning plane. Before another arm, the plane was measured everywhere it matters
