@@ -1,0 +1,9 @@
+# Arm X's pool-matched CONTROL: same-session N2N (real subs, --mix-avg, the v19d recipe) on the SAME
+# four Rim Nebula nights the cross-night pairs were made from, read from D:\Astro-Dataset\2026-09-full.
+# The only difference to arm X is the regime: two subs (or sub averages) of one night against each
+# other, instead of one night against another. The E2 control lives on another pool and another bake,
+# and v24 measured the pool draw carrying more variance than most effects chased here.
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2025-05-02|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2026-02-16|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2026-02-18|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2026-02-20|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm

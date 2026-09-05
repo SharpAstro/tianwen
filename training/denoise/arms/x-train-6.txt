@@ -1,0 +1,11 @@
+# Arm X (H8, cross-night N2N): the six Rim Nebula pairs of C:\temp\tianwen-scratch\n2n-pairs, exported
+# by `tianwen dataset pair` from D:\Astro-Dataset\2026-09-full on 2026-09-05 (four nights, every
+# combination). The HD 74167 pair is held out whole (x-val-1.txt): a different sky, so the gate never
+# selects on a night the model trained on. Rim 2025-05-02 is also the eval4 Rim observer's night, so
+# this arm is scored on eval4b only, never on eval4's Rim session.
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2025-05-02+2026-02-16|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2025-05-02+2026-02-18|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2025-05-02+2026-02-20|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2026-02-16+2026-02-18|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2026-02-16+2026-02-20|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2026-02-18+2026-02-20|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm

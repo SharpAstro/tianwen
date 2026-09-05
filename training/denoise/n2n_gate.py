@@ -36,12 +36,21 @@ class Gate:
 
     cells: absolute cache indices to probe. Keep it small (~24); this runs inside the training
     loop and its job is to rank checkpoints of ONE run against each other, not to be the report.
+
+    input_slot: the noisy frame the fabrication count is taken on. Sub slot 1 on a cache of real or
+    injected subs; on a cross-night pair cache (tianwen dataset pair) the sub slots are EMPTY and
+    the two nights sit in the half slots, so the probe takes night A there. That input is at master
+    depth rather than sub depth, which is the depth the model is deployed at, so the count reads as
+    the deployment case and not as the extrapolation it is on a sub.
     """
 
-    def __init__(self, mm, cells, device):
+    def __init__(self, mm, cells, device, input_slot=1):
         self.dev = device
         self.masters = np.asarray(mm[cells, S.SLOT_MASTER], dtype=np.float32)
-        self.subs = np.asarray(mm[cells, 1], dtype=np.float32)
+        self.subs = np.asarray(mm[cells, input_slot], dtype=np.float32)
+        if not np.any(self.subs):
+            raise SystemExit(f"gate input slot {input_slot} is all zeros on this cache; a pair cache "
+                             f"needs --half-only, which probes night A's half slot")
         m_c = S.crop(self.masters)
         self.lm = m_c.mean(axis=1)
         self.stars = M.star_table(self.lm)
