@@ -41,6 +41,12 @@ DEFAULT_MAG_MAX = 16.0
 # Written beside CRPIX by WCS.WriteToHeader since 2026-09-05; its absence means 0-based CRPIX numbers.
 PIXEL_ORIGIN_CARD = 'PIXORIG'
 
+# A peak is an integer pixel and a Gaia position is not, so a real match sits within 0.71 px of
+# quantisation plus the WCS residual: measured on eval4b, 96.7 percent inside 1.0 px and 99.6 inside
+# 1.5 once the writer's one-pixel CRPIX offset was fixed (module docstring). The 2.5 px this used to
+# be was covering that offset, at 6.25 times the coincidence floor.
+MATCH_PX = 1.0
+
 TILE = 256
 BORDER = 16                      # n2n_metrics.crop drops this many pixels per edge
 CROP = TILE - 2 * BORDER
@@ -112,8 +118,9 @@ def solved_master(session_id, verbose=True):
     return dst
 
 
-def stars_for_session(session_id, mag_max=DEFAULT_MAG_MAX, verbose=True):
-    """Gaia stars over the master, as (y, x) master pixels. None when the master will not solve."""
+def stars_for_session(session_id, mag_max=DEFAULT_MAG_MAX, verbose=True, with_mag=False):
+    """Gaia stars over the master, as (y, x) master pixels, or (y, x, BP) with `with_mag`. None when the
+    master will not solve."""
     path = solved_master(session_id, verbose)
     if path is None:
         return None
@@ -131,16 +138,19 @@ def stars_for_session(session_id, mag_max=DEFAULT_MAG_MAX, verbose=True):
                                             (ra.max() - ra.min()) + 0.1,
                                             (dec.max() - dec.min()) + 0.1, mag_max=mag_max)
     if len(gra) == 0:
-        return np.empty((0, 2))
+        return np.empty((0, 3 if with_mag else 2))
     px, py = w.all_world2pix(gra, gdec, 0)
     inside = (px >= 0) & (px < nx) & (py >= 0) & (py < ny)
     if verbose:
-        print(f'    {inside.sum()} Gaia stars on the plate ({nx}x{ny})')
-    return np.column_stack([py[inside], px[inside]])
+        print(f'    {inside.sum()} Gaia stars on the plate ({nx}x{ny}) to BP {mag_max:g}')
+    cols = [py[inside], px[inside]] + ([gmag[inside]] if with_mag else [])
+    return np.column_stack(cols)
 
 
-def build(cache, mag_max=DEFAULT_MAG_MAX, verbose=True):
-    """cell index -> (n, 2) array of Gaia star (y, x) in CROPPED tile coordinates.
+def build(cache, mag_max=DEFAULT_MAG_MAX, verbose=True, with_mag=False):
+    """cell index -> (n, 2) array of Gaia star (y, x) in CROPPED tile coordinates, or (n, 3) with the
+    star's BP magnitude as the third column when `with_mag`, so a caller can cut the catalogue per
+    session AFTER one fetch (n2n_starsplit's per-session cap).
 
     A cell whose session will not solve is absent from the dict, so a caller can tell "no stars here"
     from "no answer for this cell" -- scoring the two the same way would silently count an unsolved
@@ -154,14 +164,15 @@ def build(cache, mag_max=DEFAULT_MAG_MAX, verbose=True):
         if sid not in per_session:
             if verbose:
                 print(f'  session {sid[:64]}')
-            per_session[sid] = stars_for_session(sid, mag_max, verbose)
+            per_session[sid] = stars_for_session(sid, mag_max, verbose, with_mag=with_mag)
         stars = per_session[sid]
         if stars is None:
             continue
         y = stars[:, 0] - cy - BORDER
         x = stars[:, 1] - cx - BORDER
         keep = (y >= 0) & (y < CROP) & (x >= 0) & (x < CROP)
-        out[i] = np.column_stack([y[keep], x[keep]])
+        cols = [y[keep], x[keep]] + ([stars[keep, 2]] if with_mag else [])
+        out[i] = np.column_stack(cols)
     if verbose:
         solved = sum(1 for v in per_session.values() if v is not None)
         print(f'{solved}/{len(per_session)} sessions solved; {len(out)} of {len(keys)} cells covered')

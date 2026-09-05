@@ -392,7 +392,7 @@ Settled by the campaign; restated so no run re-derives them.
 | **E6** | If H1 passes: NAFNet-32 on the S recipe, one seed, rented GPU (RunPod 4090, per-second billing) or the internal T4 pool; AMP on there, off locally. | ~$15 to 50 | H5 |
 | **E7** | Export the winner with `n2n_export.py` (baked sigma, fixed 256, opset 17), parity to torch under 2e-7, regenerate the parity fixture, replace the in-repo weights, **execute the LFS revert in `.gitattributes`**, re-measure the dial (blend stays unless measured otherwise). | half a day | Ships v2 |
 
-| **E8** | Cross-night arm X (H8). The pair table is written (under H8); next is a paired cache from the `2026-09-full` bake: flatten, level-match, register both nights to one grid, one MTF for both sides, PSF-match where the table says so. Three seeds against ctl and the best supervised arm at matched noise on eval4b plus a held-out night. No training until the cache's pair statistics (residual noise correlation between the two sides, FWHM after matching) are in the run log. | 1 day exporter, 3 x 11 min | H8 |
+| **E8** | Cross-night arm X (H8). **Exporter SHIPPED 2026-09-05**: `tianwen dataset pair` (`DatasetCrossNightExporter`) flattens, level-matches per channel, registers both nights onto the MIDPOINT grid, stretches both with the mean's MTF, and writes the two nights into the trainer's half slots with a `pairs.jsonl` sidecar; `n2n_pairstats.py` runs the same residual statistic on the bake's same-session halves as the control. Seven pairs exported from `2026-09-full` (HD 74167 x1, Rim Nebula x6), two refused for want of a quad fit (Vela SNR, HD 71272: partial overlap, a WCS-seeded registration is the fix). The pair statistics are in the run log (2026-09-05, "the paired cache"); **training has not started.** Next: `--prepare --require-halves` the pair cache and train `--half-only` (the trainer flag for a cache whose sub slots are empty), three seeds against ctl and the best supervised arm at matched noise on eval4b plus a held-out Rim night, scored with the per-session-cap split. **One blocker first: `n2n_gate.Gate` reads sub slot 1 as its input, which is zeros on a pair cache; it needs a half-slot input before the arm can be gate-selected.** | 3 x 11 min | H8 |
 
 Every arm: pre-register predictions in the run script header; three seeds; one prepared cache per
 arm, never edited between runs; launch multi-hour jobs detached (`Start-Process`), never through the
@@ -463,9 +463,10 @@ and the decision to promote is the user's. Record it as such rather than as a pe
   term into "removed", which correlates with the output by construction. gate1500 reads 0.691 against
   shipped4000's 0.354 and also showed the stronger cast in the 1:1. Recompute on the high-passed removed
   component; if 0.691 collapses, the two odd columns of the ship table and the cast are one phenomenon.
-- **Is Horsehead's unmatched 87 percent nebulosity or sub-BP16 stars?** The one field where a BP 18
-  catalogue at 1 px keeps the floor under 1 percent (run log, 2026-09-05); answer it there before
-  calling any "detail" number nebulosity.
+- ~~**Is Horsehead's unmatched 87 percent nebulosity or sub-BP16 stars?**~~ Answered 2026-09-05 (run
+  log, "the depth of the catalogue was the depth of the pool, not of the field"): 50 points of it were
+  stars between BP 16 and 21, 31 points nebulosity, and the same cut had been hiding two thirds of the
+  Statue of Liberty's stars. The split now takes a per-session cap and reports extended peaks apart.
 
 ## 9. Run log
 
@@ -950,3 +951,136 @@ among the two run here, the seed lottery the nine-seed arms exist to average out
 
 **The 24 mm ASI585 session of 2025-03-19 does not plate-solve** (catalog solver, no solution), so eval4
 scores 144 of 192 cells over three sessions, not four. Recorded so nobody reads it as four observers.
+
+### 2026-09-05: the depth of the catalogue was the depth of the pool, not of the field
+
+The open question was whether Horsehead's unmatched 87 percent was nebulosity or stars fainter than the
+BP 16 cut. `gaia_depth.py` re-matched the same peaks at BP 16, 18 and 21, ran the reverse direction
+(of the Gaia stars inside the scored cells, how many have a peak within 1 px, per magnitude bin, chance
+corrected), and classified every peak still unmatched by SHAPE against the session's own Gaia-confirmed
+stars: the ring-to-peak ratio at 2 px, with "extended" meaning broader than the confirmed 95th
+percentile. That reference is external, which is what the 2026-09-04 self-referential shape proxy
+lacked. Horsehead, 5,190 peaks over 48 cells:
+
+| BP cap | Gaia stars in cells | confirmed | floor | chance-corrected stars |
+|---|---|---|---|---|
+| 16 | 770 | 13.3 % | 0.10 % | 13.2 % |
+| 18 | 2,438 | 40.0 % | 0.32 % | 39.8 % |
+| 21 | 11,438 | 63.2 % | 1.49 % | 62.6 % |
+
+The reverse direction agrees to half a point (62.2 percent): this master detects 88 to 93 percent of
+Gaia's stars at every magnitude to BP 17, 80 percent at 17-18, 52 at 18-19, 10 at 19-20, and the shells
+16-18 and 18-21 add 1,379 and 1,171 real stars over 10 and 31 expected by chance. **Of the 38 percent
+left at BP 21, 82 percent is broader than any confirmed star** (unmatched median ring ratio 0.73 against
+the confirmed 0.19; local background a median 6.9 MADs above the tile against the stars' 0.75), 17
+percent is star-shaped (about a third of that is the 3 percent of real matches the 1 px tolerance loses),
+and the half-master asymmetry test, judged per SNR bucket, flags 4.9 percent against the 5 percent it
+flags by construction, so noise is not a population here. The 105 unmatched peaks above SNR 100 sit on a
+median local background of 644 MADs: saturated plateaus of stars too bright for Gaia, not nebulosity.
+So the answer is **50 points stars, 31 points nebulosity, 2 points saturated cores, the rest tolerance**,
+and the BP 16 cut was hiding three quarters of the field's real stars.
+
+**The same cut was wrong on four of seven solvable fields**, because 16 was the POOL's average detection
+depth (75 percent completeness at 15-16, 15 at 16-17) and a deep master on a sparse field goes far past
+it, while a 135 mm field at 5.7"/px cannot go deeper at all (the floor is catalogue density times the
+matching disc):
+
+| field | at BP 16 | at BP 18 (floor) | at BP 21 (floor) | of the unmatched remainder, extended |
+|---|---|---|---|---|
+| Horsehead | 13.3 % | 40.0 % (0.3 %) | 63.2 % (1.5 %) | 82 % |
+| Statue of Liberty | 36.0 % | 93.8 % (3.8 %) | 99.7 % (14.6 %) | 33 % of 0.3 % |
+| HIP 85088 | 71.6 % | 86.9 % (6.4 %) | unreadable (47.6 %) | 47 % |
+| HIP 34710 | 84.1 % | 94.2 % (7.8 %) | unreadable (36.1 %) | 57 % |
+| V1045 Ori | 50.5 % | 53.5 % (1.5 %) | 55.9 % (6.2 %) | 46 % |
+| eta Car | 67.6 % | 68.8 % (23.2 %) | unreadable | 11 % (83 % compact: blends) |
+| Rim Nebula (135 mm) | 89.9 % | 93.9 % (18.8 %) | unreadable (123 %) | 6 % |
+
+The Statue of Liberty's "36 percent confirmed, 93 percent of eval4's detail" was two thirds stars
+between BP 16 and 18 (11,268 excess matches in that shell); eta Car and the Rim are complete at 16 and
+their remainders are star-shaped, which at 5.7"/px is blends below the 1 px match radius.
+
+**The metric changed.** `n2n_starsplit.py --mag-max auto` (the default now) takes, per session, the
+deepest cap from 16 to 21 whose analytic floor stays under 5 percent, prints the cap and the floor
+beside the number, and splits the unmatched peaks by the ring-ratio band of the session's own confirmed
+stars into COMPACT (uncatalogued or blended stars, knots) and EXTENDED. Only the extended column
+supports a structure claim. The E2 checkpoints re-read, amplitude spent at 10 percent removed:
+
+| model | eval4b stars / compact / extended | eval4 stars / compact / extended |
+|---|---|---|
+| shipped4000 | 13.0 / 14.0 / 4.2 | 13.2 / 12.7 / 4.4 |
+| gate1500 | **9.2** / **9.9** / 6.3 | 9.2 / 8.8 / 6.2 |
+| warped_s2 | **9.2** / 12.9 / **1.1** | **7.4** / **5.6** / **2.2** |
+| warped_s1 | 9.6 / 12.0 / **1.3** | 10.2 / 9.9 / 3.3 |
+
+Caps: HIP 34710 17, HIP 85088 17, V1045 Ori 20, eta Car 16 (eval4b, 79.5 percent stars, 14.0 compact,
+6.4 extended); Rim 16, Horsehead 21, Statue 18 (eval4, 88.4 / 6.6 / 4.9). Three readings. **Structure
+stands, and is now measured on nebulosity**: supervised 1.1 to 1.3 against N2N 4.2 to 6.3 on eval4b,
+2.2 to 3.3 against 4.4 to 6.2 on eval4, with 76 percent of eval4's extended peaks coming from
+Horsehead. **The star column moved toward the supervised arm** once the faint real stars were counted as
+stars: warped_s2 ties gate1500 at 9.2 on eval4b and beats it on eval4 (7.4), and both beat the shipped
+weights. **The compact column is where gate-selection still wins** (9.9 against 12.0 to 12.9), and it
+is a quarter of eta Car's and V1045's peaks: blends and uncatalogued stars that the supervised arm treats
+more like structure than like stars. The 2026-09-04 sentence "supervised injection preserves stars
+better" is neither restored nor refuted; it depends on which of two star-like populations is meant,
+and the split now names them.
+
+### 2026-09-05: the paired cache
+
+`tianwen dataset pair` (`DatasetCrossNightExporter`, the E8 exporter) is shipped and ran on the
+`2026-09-full` bake. Per pair: both retained masters read, the exact-zero canvas ring masked to NaN,
+stars found on the green channel of each, PSF compared on THOSE stars, the sharper night convolved when
+asked, both flattened with the classical extractor, the B-to-A transform fitted through the stacking
+pipeline's own quad matcher, both nights resampled onto the MIDPOINT grid (A by the inverse half
+transform, B by `M * H^-1`, so both carry the same interpolation and the registration stays exact),
+night B fitted to A per channel as gain times A plus offset over the covered pixels, the mean of the two
+stretched with `ApplyInputStretch` and both nights with those parameters, cells sampled on the common
+footprint with the P0 structure bias, and three tiles per cell written into the trainer's `master`,
+`halfmaster_a` and `halfmaster_b` slots so `--half-pairs` trains on it unchanged. `pairs.jsonl` carries
+the geometry, gains, PSF and the statistic below per pair. Nine tests pin it, including a synthetic
+two-night sky whose rotation (0.6 degrees), gain (1.25) and independent noise are known, a half-shared
+noise control, the PSF refusal and convolution, resume, and the half-transform algebra.
+
+| pair (ASI533MC / L-Ultimate) | FWHM masters, px | convolved | FWHM exported, px | rotation | gain R/G/B | overlap |
+|---|---|---|---|---|---|---|
+| HD 74167 01-05 + 01-06 | 1.80 / 1.98 | A by 0.83 | 2.13 / 2.26 | -0.12 deg | 0.69 / 0.70 / 0.45 | 91.6 % |
+| Rim 2025-05-02 + 02-16 | 1.85 / 1.89 | no | 2.15 / 2.19 | 178.0 deg | 7983 / 3024 / 3369 | 90.0 % |
+| Rim 05-02 + 02-18 | 1.85 / 1.78 | B by 0.51 | 2.16 / 2.06 | 178.0 deg | 0.120 / 0.084 / 0.065 | 91.0 % |
+| Rim 05-02 + 02-20 | 1.85 / 1.82 | no | 2.15 / 2.11 | -179.1 deg | 0.089 / 0.083 / 0.076 | 91.1 % |
+| Rim 02-16 + 02-18 | 1.89 / 1.78 | B by 0.62 | 2.20 / 2.10 | 0.04 deg | 1.4e-5 / 1.0e-5 / 7.4e-6 | 97.4 % |
+| Rim 02-16 + 02-20 | 1.89 / 1.82 | B by 0.50 | 2.19 / 2.12 | 2.95 deg | 1.0e-5 / 8.5e-6 / 6.5e-6 | 97.3 % |
+| Rim 02-18 + 02-20 | 1.78 / 1.82 | no | 2.10 / 2.13 | 2.91 deg | 0.68 / 0.63 / 0.48 | 97.6 % |
+
+Registration RMS 0.02 to 0.16 px on every pair. Vela SNR (2025-12-17 + 2026-01-23) and HD 71272
+(01-20 + 01-23) found no quad fit: the two nights of each are different pointings with partial overlap,
+and a WCS-seeded registration (both masters plate-solve) is the fix, not a looser quad tolerance.
+Four things the run taught before any training:
+
+- **The PSF decision belongs on the masters, not the sub table.** H8's table called HD 74167's nights
+  matched within 1 percent on sub FWHM; the masters differ by 9 (one drizzled, one staged), and five
+  of seven pairs needed a convolution at the 3 percent tolerance. After a quadrature-Gaussian
+  convolution the exported sides still differ by 3 to 6 percent (Moffat wings are not Gaussian);
+  `FwhmAfterA/B` is on the row so the arm can select on it.
+- **Both sides pay the midpoint resampling equally**, 1.85 to 2.15 px, 16 percent softer than a deployed
+  master. That is the price of rule 3; the alternative (resampling one side) teaches blur.
+- **The level match must be per channel, and the units differ by 8,000 between a staged and a drizzled
+  master of the same rig.** Gains of 0.68 / 0.63 / 0.48 between two Rim nights are a colour-balance
+  difference the fit absorbs; a single scalar would have encoded it as signal.
+- **The residual correlation cannot see shared noise on a real field.** The statistic (pixel minus its
+  5x5 mean, faintest half of the scene, five-MAD clip, Pearson between the two sides) reads, through
+  `n2n_pairstats.py` on tiles with one implementation for both kinds of pair: same-session halves Rim
+  05-02 0.20 / 0.27 / 0.24, Rim 02-16 0.21 / 0.19 / 0.12, HD 74167 0.09 to 0.12; cross-night pairs
+  HD 74167 0.12 / 0.12 / 0.06, Rim 0.19 to 0.34. Shared faint SIGNAL leaks through any high-pass on a
+  field with 6,800 peaks per megapixel, and the halves at 1.41x the noise dilute their leakage more,
+  so the comparison is not like for like and the shared-noise component H8 posits is below what this
+  can resolve. Its first version was also wrong: the "faintest half" mask was the combined pixel,
+  (A + B) / 2, and selecting on the two noises SUMMING low anticorrelates them; synthetic independent
+  noise read -0.23 and a half-shared control 0.49 where 0.71 was the truth. A 15x15 box mean as the
+  scene reads 0.00 and 0.70. The exporter's number is an upper bound, not a verdict; **H8 is decided
+  by the arm** (kill: no better than ctl), and a registered half-master per night in the retained
+  store would give the three-frame, matched-noise comparison that could measure the component directly.
+
+The cache is at `C:/temp/tianwen-scratch/n2n-pairs` (2,100 tiles, 7 rows in `pairs.jsonl`); prepare
+it with the trainer's `--prepare --require-halves` and train it `--half-only`, the flag added today for
+a cache whose sub slots are empty (`prepare` records `has_subs` so the sub regimes refuse it). Training
+has not started, and one thing blocks it: `n2n_gate.Gate` takes sub slot 1 as its input, which is zeros
+here, so the gate needs a half-slot input before an arm on this cache can be gate-selected.

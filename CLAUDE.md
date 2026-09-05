@@ -1099,6 +1099,16 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   measurement**: white reads band1/band0 0.216 and a bilinear warp 0.328 against a real half-master's
   0.463, so `--warp-sigma 0.5` (measured, re-measure per bake) is what makes the arms comparable.
   [`docs/plans/denoiser-training.md`](docs/plans/denoiser-training.md) H2.
+- **Cross-night pairs come from `tianwen dataset pair`** (`DatasetCrossNightExporter`): two nights of
+  one object flattened, level-matched PER CHANNEL, registered onto the MIDPOINT of the fitted transform
+  (each night resampled by half the rotation, so neither side is the sharper one by construction), one
+  MTF for both, written into the trainer's half slots with a `pairs.jsonl` sidecar. Three rules from
+  the first real run: the PSF decision is taken on the MASTERS, never the sub table (a drizzled and a
+  staged integration of matched seeing differ 4 to 9 percent); a "faintest half" mask for any
+  two-sided noise statistic comes from a SMOOTHED scene, never the combined pixel (selecting on the
+  sum being low anticorrelates the sides: -0.23 on independent noise); and the residual correlation
+  is only readable against the same-session halves through `n2n_pairstats.py`, since faint shared
+  SIGNAL leaks through any high-pass. [`docs/plans/denoiser-training.md`](docs/plans/denoiser-training.md) H8.
 - **RC-Astro (BlurX / NoiseX / StarXTerminator)** -- `AddRcAstroAi()`. Its `.onnx` files are
   **encrypted at rest** (the license forbids extracting the weights), so they are driven through the
   `rc-astro` CLI's `--json` NDJSON protocol, **never** loaded into ORT: `RcAstroEnhancerBase` writes the
