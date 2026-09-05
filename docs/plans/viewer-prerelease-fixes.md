@@ -45,7 +45,7 @@ the 35 TIFF / import / codec tests pass against it.
 | P12 | Gain/ISO and offset are parsed but never shown in the info pane | **FIXED** |
 | P13 | No in-depth user documentation | NEXT RELEASE |
 | P14 | An EMPTY instance does not adopt a file, because the gate is folder-scoped | **FIXED** |
-| P15 | A faint residue is left at the end of the cursor readout (damage-era) | OPEN |
+| P15 | A faint residue is left by a narrowed repaint (damage-era) | **FIXED** 2026-09-06 |
 | P16 | `Frame: None` printed the enum default as if it were a frame kind | **FIXED** |
 | P17 | Right-click on the image copies nothing (RA/Dec, value, position) | **FIXED** |
 | P18 | No Save at all; Open is a word where an icon would do | **FIXED** 2026-09-04 |
@@ -336,39 +336,72 @@ P10 is in the same code path (`ViewerActions.ScanFolder(state, folder, fileName)
 row after a hand-off) and is still worth reproducing; the hand-offs above selected the right row every
 time.
 
-## P15. A faint residue at the end of the cursor readout  — OPEN
+## P15. A faint residue left by a narrowed repaint  — FIXED
 
 Reported by the user 2026-08-22: *"the pointer now sometimes leaves a very faint ) at the end of the
 position when moving pointer left to the file list, that might be a residue from the clip rect or
-something. not dramatic but noticable"*.
+something. not dramatic but noticable"*. **"Now" was the important word** -- before damage-based
+repaint every frame cleared the whole surface, so anything painted outside a fill was wiped for free.
 
-**"Now" is the important word.** The readout is `Pos: (x, y)` from `InfoPanelData.GetCursorLines`, and
-the pointer leaving the image pane clears it. Before damage-based repaint every frame cleared the
-whole surface, so anything painted outside a fill was wiped for free; now only the declared damage is
-repainted, and whatever is not covered by an actual paint inside it survives. So this is a
-damage-era regression, not a new drawing bug.
+**The hypothesis this entry carried until 2026-09-06 was wrong, and measuring it is what said so.**
+It read: the erase is narrower than the text was, so an antialiased fringe of the `Pos:` line
+survives past the info panel's own background fill. Two facts kill it. The panel fills its ENTIRE
+rect before drawing anything into it, so nothing inside it can survive; and the host merges damage
+into a single bounding BOX (one scissor per draw -- `SwapchainDamage`), so `StatusBar` ∪ `InfoPanel`
+comes out as the full width from below the toolbar to the bottom of the window. The info panel is
+never the region at risk. The region at risk is the toolbar strip, the only thing that box excludes.
 
-**What has already been ruled out:** the float-to-integer conversion. `ClampToSwapchain`
-(SdlVulkan.Renderer) truncates the near edge and takes `MathF.Ceiling` on the far edge, so the
-scissor already covers the whole of a rect that ends mid-pixel -- the obvious cause is not the cause.
-`ApplyClip` likewise intersects a widget clip with the damage region, so a clipped draw cannot escape
-it either.
+**The measurement is a new suite, `ViewerRepaintResidueTests`, and it is the shape this needed all
+along.** `ViewerFrameDamageTests` asserts what was DECLARED; this one asserts what the screen shows.
+It models the host exactly, because the host is simple: paint both frames in full, composite the old
+one with the new one inside the damage box, and compare against the new one. Every pixel that differs
+is one the user can see. Two properties of the harness are load-bearing -- the surface is CLEARED
+between frames (painting over the previous contents let an alpha-blended panel background converge
+across repaints, and a no-input control frame then differed from its predecessor by 150,307 pixels,
+swamping any real residue and reading exactly like one), and a no-input control test is what says the
+number means anything at all.
 
-**The leading hypothesis is that the erase is narrower than the text was.** The narrowing declares
-`_layout.InfoPanel` (and `_layout.StatusBar`) as damaged, but the repaint fills the panel's own
-background rect; if a glyph's antialiased fringe extended a fraction past that fill, the fringe now
-has nothing to cover it. That matches the symptom exactly -- a *very faint* remnant of one glyph
-rather than a whole one, and the last glyph of the longest line at that. Worth measuring before
-fixing: capture the panel's arranged rect and the measured width of the `Pos:` line at the DPI in
-use, and compare.
+**Two real residues, both in the class the report named, both now fixed:**
 
-**Two candidate fixes, and the choice matters.** Inflating the damage rect by a pixel would hide it
-cheaply and would also hide the next one like it. Finding why text extends past its own background is
-the root fix, and it generalises: any panel that draws text to its edge has the same exposure.
+- **The before/after divider left its half labels behind** (the user's own repro, 2026-09-06:
+  *"when I move the A|B slider to the right there's residue ... on the left side"*). The labels are
+  aligned AGAINST the divider and travel with it, so the strip that changed is wider than the
+  divider's path. `SweepBetween` widened it by a guessed `SweepLabelMargin = 220f`, which was wrong
+  twice over: a DESIGN-unit constant subtracted from a SURFACE-pixel coordinate and never scaled, so
+  a 150% display got two thirds of the slack it was owed; and the labels name WHAT DIFFERS between
+  the halves, so their width is a property of the user's settings and no constant can bound it. Two
+  differing controls already outgrow 220 units at 100%. Measured: **3,193 stale pixels at DPI 1 and
+  7,257 at DPI 1.5** -- the DPI factor visible in the numbers. Fixed by measuring instead of guessing:
+  the paint already measures both labels to decide whether each fits its own half, and now reports
+  them through `SplitCompareController.SetLabelExtents`, before the fit checks so the frame where a
+  label stops fitting still erases it.
+- **A hover repaint was silently replaced by the readout's narrow region** (the user, same day:
+  *"if I hover over a button like Auto, tooltip appears, moving over the actual canvas makes it
+  flicker"*). `HandleViewerMouseMove` has three branches that ask for a frame because hover chrome
+  changed -- an open menu, the toolbar button highlight and its tooltip, the file-list row -- and each
+  sets `NeedsRedraw` and FALLS THROUGH to the narrowing at the end, which declares the readout's two
+  rects and nothing else. The two collide exactly when the pointer crosses out of the image pane,
+  which is when both change at once. Measured: **4,532 stale pixels** of tooltip and **7,854** of
+  file-list row highlight. The tooltip is anchored at its button's bottom edge, inside the toolbar
+  strip -- the one band the damage box excludes -- and because damage is tracked PER SWAPCHAIN IMAGE
+  the leftovers survive in some images and not others, which is why it reads as a flicker rather than
+  as a stuck tooltip. Fixed with a local flag those branches set and the narrowing checks.
 
-The high-level counters in
-[inspector-high-level-telemetry.md](inspector-high-level-telemetry.md) would have made this
-measurable from inside the app (damage area versus painted area) instead of by eye.
+**The guard in `ImageRendererBase.Damage.cs` could not have caught the second one**, and that is worth
+knowing before trusting it again: it forces a full repaint when an event asks for a frame WITHOUT
+narrowing, which covers a non-declaring event in a different dispatch. Here both changes arrive inside
+one handler and the narrowing is genuine -- it is simply not the whole truth.
+
+**What the cost is:** one full frame per pane crossing, and none at all while the pointer travels
+across the image, which is the 8%-GPU case the mechanism was measured for.
+`AMoveWithinTheImageStillRepaintsOnlyTheReadout` pins that, and it is not optional -- a full repaint
+trivially satisfies every residue assertion here, so without it "narrow nothing, ever" would pass the
+whole file. All six tests were confirmed to fail with each fix removed.
+
+**The original `)` was never reproduced**, and the user reported on 2026-09-06 that they no longer see
+it. It is the same class as the two above -- chrome painted outside the declared damage -- and the
+likeliest candidate is the file-list header's full-path tooltip, which draws the untruncated folder
+name and would end in `)` for any folder named that way. Left as measured rather than asserted.
 
 ## P16. `Frame: None` printed the enum default as a value  — FIXED
 

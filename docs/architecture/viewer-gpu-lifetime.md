@@ -62,6 +62,27 @@ Fixed in **SdlVulkan.Renderer 7.29** (`FlushPresentQueueAfterDrain`: a `vkQueueW
 *successful* drain, skipped on a wedged-GPU drain timeout so the no-hang-on-resize property
 `TryDrainDevice` exists for still holds).
 
+## Since 7.31 the shared render pass has a DEPTH attachment, so a side-car pipeline must state one
+
+`VkFitsImagePipeline` and `VkSkyMapPipeline` build their own `VkGraphicsPipeline` against
+`ctx.RenderPass`, and neither passed a `pDepthStencilState`. That was legal while the pass had no
+depth attachment. SdlVulkan.Renderer 7.31 gave every pass one -- one shape from
+`VulkanDevice.CreateCompatibleRenderPass`, so `VkRenderer.DrawMesh` can depth-sort inline in whatever
+pass is open -- and a pipeline created against a pass that HAS a depth attachment must state a
+depth-stencil. Both now state one that tests nothing and writes nothing
+(`depthTestEnable = false`, `depthCompareOp = Always`), matching the toolkit's own 2D pipelines, so
+painter's order still decides among 2D draws.
+
+**This is the shape of cross-repo breakage that compiles.** Pipeline creation is a runtime call, so
+nothing in the build says a word about it -- and because `UseLocalSiblings` self-enables, a dev box
+was already running against 7.31's pass while the pin still said 7.29. Whenever the toolkit changes
+the render pass, grep this repo for `VkGraphicsPipelineCreateInfo`; there are exactly two.
+
+7.31 also carries two render-area corrections worth knowing here, both in paths the viewer uses: an
+offscreen frame never set the paintable region, so a clip popped to empty mid-frame reset the scissor
+to an empty rect; and a cached layer or thumbnail pass inherited the PREVIOUS swapchain frame's
+region rather than its own.
+
 ## The cached image layer samples in TEXTURE space
 
 And a fixed-capacity target is not the size you asked for this frame. `VulkanContext.CachedLayer`

@@ -327,9 +327,9 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   2026-08-27)**. **7.0.1513 went to the Store on 2026-09-04** carrying the fixed half of this list --
   P17 and P11's version + AI-status line were the two that had not been released before it -- plus
   Explorer thumbnails, Auto stretch and the SPCC/Calibrate render toggle. None of the open items made
-  that release, so they move to the next one. P18 and P19 are both done (2026-09-04); of what is
-  left, **P11.2 and P15 are the shippable ones** and **P13 is written last**, so it documents what the
-  rest ended up doing.
+  that release, so they move to the next one. P18, P19 and P20 are done (2026-09-04) and P15 on
+  2026-09-06; of what is left, **P11.2 is the shippable one** and **P13 is written last**, so it
+  documents what the rest ended up doing.
   - [x] **P11.1** `--help`, `--version` and the in-app `?` panel report the version, beside an
     AI-enhancer discovery status saying which backend resolved, which RC products are licensed and
     which SAS models are missing -- **without** undoing the deliberate deferral of the RC-vs-SAS
@@ -341,8 +341,13 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   - [ ] **P13: in-depth user documentation** for the Store listing to point at. Written last, so it
     documents what the others end up doing.
   - [x] **P14** An EMPTY instance adopts an opened file instead of spawning a second window.
-  - [ ] **P15** A faint residue is left at the end of the cursor readout (damage-era). The one item
-    here never triaged into a release either way.
+  - [x] **P15** A faint residue left by a narrowed repaint (damage-era). The entry's standing
+    hypothesis was wrong -- the damage box already spans everything below the toolbar, so the info
+    panel was never the region at risk -- and measuring it found two real ones instead: the A|B
+    divider's half labels (a guessed 220-unit sweep margin, never scaled by DPI, against labels whose
+    width is the user's own settings) and every hover repaint the readout's narrowing silently
+    replaced, which is the toolbar tooltip flicker. Pinned by `ViewerRepaintResidueTests`, which
+    asserts the SCREEN rather than the declaration. Done 2026-09-06.
   - [x] **P16** `Frame: None` no longer prints the enum default as if it were a frame kind.
   - [x] **P17** Right-click on the image copies RA/Dec, the per-channel value or the position -- which
     is also what found that no viewer dropdown had ever had a mouse hover state.

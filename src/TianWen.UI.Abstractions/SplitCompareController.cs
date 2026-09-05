@@ -83,11 +83,11 @@ namespace TianWen.UI.Abstractions
         /// changes nothing except which side of it each pixel belongs to -- and therefore only the
         /// pixels between the old and the new position. Everything to the left of both, and
         /// everything to the right of both, is identical.</para>
-        /// <para>Widened by <see cref="SweepLabelMargin"/> because the two half LABELS travel with
-        /// the divider, so the strip that changed is wider than the divider's own path. Guessing that
-        /// margin is deliberate: the labels are measured at paint time and this is decided during
-        /// input, and a margin that is too generous costs a little repainting while one that is too
-        /// tight leaves half a word on screen.</para>
+        /// <para>Widened by the half LABELS' own measured extents, because they are aligned against
+        /// the divider and travel with it -- so the strip that changed is wider than the divider's own
+        /// path. That widening used to be a guessed constant, and a guess cannot work here: the labels
+        /// name WHAT DIFFERS between the two halves, so their width is a property of the user's
+        /// settings rather than of the layout. See <see cref="SetLabelExtents"/>.</para>
         /// <para>Worth knowing what this does NOT fix: a RAPID drag sweeps most of the pane, so the
         /// strip approaches the whole thing and the saving approaches nothing. It helps a slow,
         /// deliberate comparison. Making a fast drag cheap needs the two renditions cached, which is
@@ -95,8 +95,29 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         public RectF32? LastDragSweep { get; private set; }
 
-        /// <summary>Design units of slack each side of the swept strip, to cover the half labels.</summary>
-        private const float SweepLabelMargin = 220f;
+        /// <summary>
+        /// How far the half labels reach either side of the divider, in surface pixels. Call from the
+        /// paint that draws them, with the extents it just measured.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>This replaced a guessed 220-unit margin that was wrong twice over.</b> It was a
+        /// DESIGN-unit constant subtracted from a SURFACE-pixel coordinate and never scaled, so a 150%
+        /// display got two thirds of the slack it was owed -- and the labels are the delta between the
+        /// two halves, so two differing controls already outgrow 220 units at 100%. Dragging the
+        /// divider then left the head of the left label and the tail of the right one on screen.</para>
+        /// <para>Measured at PAINT and read during INPUT, so these are the extents at the divider's OLD
+        /// position -- which is what the sweep needs, since a label's width depends on the controls and
+        /// those do not change while the divider is being dragged. Reported whether or not the label was
+        /// actually drawn, so the frame where one stops fitting its half still erases it.</para>
+        /// </remarks>
+        public void SetLabelExtents(float left, float right)
+        {
+            _labelExtentLeft = MathF.Max(0f, left);
+            _labelExtentRight = MathF.Max(0f, right);
+        }
+
+        private float _labelExtentLeft;
+        private float _labelExtentRight;
 
         private RectF32? SweepBetween(float? from, float? to)
         {
@@ -105,8 +126,8 @@ namespace TianWen.UI.Abstractions
                 return null;
             }
 
-            var x0 = _track.X + MathF.Min(a, b) * _track.Width - SweepLabelMargin;
-            var x1 = _track.X + MathF.Max(a, b) * _track.Width + SweepLabelMargin;
+            var x0 = _track.X + MathF.Min(a, b) * _track.Width - _labelExtentLeft;
+            var x1 = _track.X + MathF.Max(a, b) * _track.Width + _labelExtentRight;
             x0 = MathF.Max(x0, _track.X);
             x1 = MathF.Min(x1, _track.X + _track.Width);
             return x1 <= x0 ? null : new RectF32(x0, _track.Y, x1 - x0, _track.Height);

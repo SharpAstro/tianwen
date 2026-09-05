@@ -1262,12 +1262,23 @@ namespace TianWen.UI.Abstractions
             // rendering fault. Half a name is worse than no name: the whole point is to say which side
             // is which, and a truncated one says something else.
             var leftW = LabelWidth(leftText, fontSize);
+            var rightW = LabelWidth(rightText, fontSize);
+
+            // How far each label reaches from the divider, handed to the control so a DRAG can repaint
+            // the strip they actually occupy. Reported BEFORE the fit checks below, and so regardless of
+            // whether either is drawn: the frame where a label stops fitting its half is exactly the one
+            // that has to erase it. This is the number that used to be guessed at 220 design units --
+            // see SplitCompareController.SetLabelExtents.
+            Split.SetLabelExtents(gap + leftW, gap + rightW);
+
+            // A label is DROPPED when its own half is too narrow to hold it, rather than clamped into
+            // the pane -- see the remarks above.
             if (splitX - gap - leftW >= area.X + PanelPadding)
             {
                 DrawSplitLabel(leftText, area, splitX - gap - leftW, top, fontSize);
             }
 
-            if (splitX + gap + LabelWidth(rightText, fontSize) <= area.Right - PanelPadding)
+            if (splitX + gap + rightW <= area.Right - PanelPadding)
             {
                 DrawSplitLabel(rightText, area, splitX + gap, top, fontSize);
             }

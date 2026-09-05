@@ -90,6 +90,10 @@ namespace TianWen.UI.Abstractions
         /// hence one of the two rects a readout change damages.</summary>
         internal RectF32 StatusBarRect => _layout.StatusBar;
 
+        /// <summary>The arranged toolbar strip. Test seam: the band a hover tooltip is anchored under,
+        /// which is the one thing a pointer move paints that a readout change does not cover.</summary>
+        internal RectF32 ToolbarRect => _layout.Toolbar;
+
         /// <summary>Design-unit thickness of the file-list resize divider (the Split divider IS the grab bar).</summary>
         private const float BaseFileListDividerWidth = 6f;
 

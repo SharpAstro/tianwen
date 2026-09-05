@@ -616,6 +616,13 @@ namespace TianWen.UI.Abstractions
 
             state.MouseScreenPosition = (px, py);
 
+            // Set by any branch below that repaints something OTHER than the pixel readout. Every one of
+            // them asks for a frame and FALLS THROUGH to the narrowing at the end of this method, which
+            // declares the readout's two rects and nothing else -- so without this the narrow region
+            // silently replaces the repaint they asked for. Tracked rather than inferred from
+            // NeedsRedraw, which an earlier event in the same frame may already have set.
+            var hoverRepaint = false;
+
             // An OPEN menu tracks the pointer, so every motion event is a repaint while one is up.
             // Unconditional rather than keyed on the hovered row: the row is resolved during paint (the
             // widget owns the geometry it drew), so there is nothing here to compare against, and a
@@ -625,6 +632,7 @@ namespace TianWen.UI.Abstractions
             if (state.ToolbarDropdown.IsOpen)
             {
                 state.NeedsRedraw = true;
+                hoverRepaint = true;
             }
 
             // Hover-driven toolbar chrome -- the button highlight AND its tooltip -- changes with the
@@ -640,6 +648,7 @@ namespace TianWen.UI.Abstractions
             {
                 _lastHoveredToolbarButton = hoveredButton;
                 state.NeedsRedraw = true;
+                hoverRepaint = true;
             }
 
             // The same reasoning as the toolbar above, for the file list: the row highlight, a row's
@@ -659,6 +668,7 @@ namespace TianWen.UI.Abstractions
             {
                 _lastHoveredFileListRow = fileListHover;
                 state.NeedsRedraw = true;
+                hoverRepaint = true;
             }
 
             // File-list drag-to-scroll / thumb drag in progress (returns false when its gesture is idle,
@@ -721,10 +731,24 @@ namespace TianWen.UI.Abstractions
             // optional here even though it looks secondary -- it lists the per-channel pixel values,
             // so omitting it would leave them frozen at whatever the pointer last touched while the
             // status bar beside them kept updating.
-            RequestDamage(_layout.StatusBar);
-            if (state.ShowInfoPanel)
+            //
+            // ONLY when the readout is the one thing this move changed. The hover branches above ask
+            // for a repaint of chrome that is neither of these two rects -- a toolbar tooltip, a
+            // file-list row, an open menu -- and then fall through to here, so narrowing over the top
+            // of one drops it: the tooltip's own pixels are left behind, and because damage is tracked
+            // per swapchain image they are left behind in SOME images and not others, which reads as a
+            // flicker rather than as a stale tooltip. The wrapper in ImageRendererBase.Damage.cs cannot
+            // catch this; it guards a non-declaring event in a DIFFERENT dispatch, and both changes
+            // arrive inside this one handler. They coincide exactly when the pointer crosses out of the
+            // image pane, so the cost is one full frame per crossing and none at all while it travels
+            // across the image -- which is the case the whole mechanism was measured for.
+            if (!hoverRepaint)
             {
-                RequestDamage(_layout.InfoPanel);
+                RequestDamage(_layout.StatusBar);
+                if (state.ShowInfoPanel)
+                {
+                    RequestDamage(_layout.InfoPanel);
+                }
             }
 
             return true;

@@ -1299,6 +1299,20 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             pAttachments = blendAttachments
         };
 
+        // Required since SdlVulkan.Renderer 7.31, where the shared render pass gained a depth
+        // attachment for VkRenderer.DrawMesh: a pipeline created against a pass that HAS one must
+        // state a depth-stencil, and leaving it null is a spec violation the validation layer catches
+        // and a driver is free to do anything with. Tests nothing and writes nothing, exactly as the
+        // toolkit's own 2D pipelines do, so painter's order still decides among 2D draws.
+        VkPipelineDepthStencilStateCreateInfo depthStencil = new()
+        {
+            depthTestEnable = false,
+            depthWriteEnable = false,
+            depthCompareOp = VkCompareOp.Always,
+            depthBoundsTestEnable = false,
+            stencilTestEnable = false
+        };
+
         var dynamicStates = stackalloc VkDynamicState[2];
         dynamicStates[0] = VkDynamicState.Viewport;
         dynamicStates[1] = VkDynamicState.Scissor;
@@ -1317,6 +1331,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             pViewportState = &viewportState,
             pRasterizationState = &rasterizer,
             pMultisampleState = &multisample,
+            pDepthStencilState = &depthStencil,
             pColorBlendState = &colorBlend,
             pDynamicState = &dynamicState,
             layout = layoutOverride != VkPipelineLayout.Null ? layoutOverride : _pipelineLayout,
