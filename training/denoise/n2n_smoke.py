@@ -560,6 +560,11 @@ def train(args):
 
     mm, meta = open_cache(args.cache)
     n = meta["cells"]
+    if args.half_only:
+        # A cross-night pair cache: the two nights are the half slots and the sub slots are empty,
+        # so the half regime is the only one with pixels in it. Implied here, before the RAM load
+        # below decides on it, and the regime list is emptied further down.
+        args.half_pairs = True
     if args.pair_avg > 1 or args.mix_avg or args.half_pairs:
         # Averaging K subs per side multiplies the per-sample reads by K, and fancy-indexing a
         # memmap per sample is far slower than the GPU step it feeds, so the whole cache is
@@ -577,10 +582,7 @@ def train(args):
     # deployed in and, until this bake, the training set had no pair anywhere near it.
     regimes = list(MIX_LEVELS) if args.mix_avg else [args.pair_avg]
     if args.half_only:
-        # A cross-night pair cache: the two nights are the half slots and the sub slots are empty,
-        # so the half regime is the only one with pixels in it. Implies --half-pairs.
-        args.half_pairs = True
-        regimes = []
+        regimes = []            # HALF is appended below; nothing else has pixels on this cache
     elif not meta.get("has_subs", True):
         raise SystemExit("this cache has no sub tiles (a cross-night pair cache from "
                          "`tianwen dataset pair`); train it with --half-only")
@@ -645,12 +647,15 @@ def train(args):
     if args.gate_every > 0:
         import n2n_gate                       # imported here: it imports this module back
         cells = gate_cells(meta, args.gate_sessions, args.gate_cells)
-        gate = n2n_gate.Gate(mm, cells, dev)
+        # The probe's noisy input: sub slot 1, or night A's half slot on a pair cache whose sub
+        # slots are empty (n2n_gate.Gate's docstring).
+        gate_input = SLOT_HALF_A if args.half_only else 1
+        gate = n2n_gate.Gate(mm, cells, dev, input_slot=gate_input)
         print(f"gate: {len(cells)} cells from {args.gate_sessions} val session(s), probing every "
               f"{args.gate_every} steps; floor {gate.floor_spurious:.1f} spurious/tile")
         if args.gate_observe:
             for s, ocells in observer_cells(meta, args.gate_sessions, args.gate_cells):
-                observers.append((s, n2n_gate.Gate(mm, ocells, dev)))
+                observers.append((s, n2n_gate.Gate(mm, ocells, dev, input_slot=gate_input)))
                 print(f"  OBSERVING (never selected on) {len(ocells)} cells from {s[:44]}; "
                       f"floor {observers[-1][1].floor_spurious:.1f} spurious/tile")
         # Names the three gates that are actually in the pass condition. It used to print the

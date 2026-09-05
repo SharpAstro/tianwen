@@ -1,0 +1,3 @@
+# Control val: the two HD 74167 nights (the same sky arm X is gated on), one for the gate, one observed.
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HD-74167/2026-01-05|ZWO ASI533MC Pro|HD 74167|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HD-74167/2026-01-06|ZWO ASI533MC Pro|HD 74167|Optolong L-Ultimate 3nm
