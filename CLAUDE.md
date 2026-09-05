@@ -1108,8 +1108,14 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   two-sided noise statistic comes from a SMOOTHED scene, never the combined pixel (selecting on the
   sum being low anticorrelates the sides: -0.23 on independent noise); and the residual correlation
   is only readable against the same-session halves through `n2n_pairstats.py`, since faint shared
-  SIGNAL leaks through any high-pass. **Arm X on those pairs was KILLED (2026-09-05): three seeds
-  trained to near-identity**, and the reason is the pool, not the regime: one sky's master-depth halves
+  SIGNAL leaks through any high-pass. **H8 is REFUTED (2026-09-06), and the reason inverts the hypothesis: a
+  SHARED-noise target is what makes supervised injection work, not its ceiling.** Arm X2 held the input
+  distribution, the cells and the injected draws fixed and moved only the target -- every control seed
+  removes noise (0.94 / 0.92 / 0.88x) and every independent-target seed ADDS it (1.07 / 1.04 / 1.07x).
+  It amplifies rather than underperforming, which is a systematic being learned: N2N needs the target's
+  deviation to be independent of the input AND to have zero conditional mean, and a night's own smooth
+  field (5.5 to 18.6 percent of its deviation) fails the second. **Arm X was KILLED (2026-09-05): three
+  seeds trained to near-identity**, and the reason is the pool, not the regime: one sky's master-depth halves
   span a third of the CONDITIONING plane's deployed range (training p5 0.22; Horsehead reads 0.09, the
   Statue 0.17), and off that range the net amplifies noise rather than removing it. Check the
   conditioning range per session before a seed, exactly as the level range is checked.
