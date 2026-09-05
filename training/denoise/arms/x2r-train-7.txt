@@ -1,0 +1,17 @@
+# Arm X2R (H8, the reversed pairs): the same seven pairs as arms/x2-train-7.txt with the NIGHTS
+# SWAPPED, so the night that is the input in X2 is the target here and the deeper night sits on the
+# target side.
+#
+# Why it exists. Measured on the x2 cache before either arm was judged: night B is 1.2 to 4.7 times
+# noisier than night A in every pair (median about 2x), because these nights differ in depth and
+# transparency, not only in date. So the x2-against-x2ctl contrast carries a SECOND axis: the
+# independent target is also the noisier one, and N2N stays unbiased under that while its gradient
+# variance does not. Reversing does not remove the asymmetry, it flips its sign -- an independent
+# target that is now QUIETER than the shared one. An arm that loses both ways loses on independence.
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2026-02-16+2025-05-02|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2026-02-18+2025-05-02|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2026-02-20+2025-05-02|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2026-02-18+2026-02-16|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2026-02-20+2026-02-16|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2026-02-20+2026-02-18|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Vela-SNR/2026-01-23+2025-12-17|ZWO ASI533MC Pro|Vela SNR|Optolong L-Ultimate 3nm
