@@ -52,19 +52,13 @@ tyc2.bin filter=lfs diff=lfs merge=lfs -text
 # %LOCALAPPDATA%/TianWen/models; CI narrow-pulls them for the parity tests.
 *.onnx filter=lfs diff=lfs merge=lfs -text
 
-# TEMPORARY, and the only reason it is here: the repo's LFS budget is exhausted, so CI cannot fetch a
-# single new object. This file is the ONLY one missing from the runners' LFS cache -- verified by
-# reproducing the workflow's cache key across main (the cached set is 32 files at 237d7515, the wanted
-# set is 33 from 69218529, and this is the file that differs) -- so storing it as a plain git blob is
-# the whole fix, and every other LFS object still rides the cache.
-#
-# The cost is 3.1 MB of permanent history against a 976 MB .git, i.e. 0.3%; measured rather than
-# assumed, because "later remove" does NOT reclaim it (that needs a history rewrite, which is not worth
-# doing for this).
-#
-# REVERT when the replacement model lands (expected 2026-09): delete this block, then
-# `git rm --cached` + `git add` the file so *.onnx above takes it back into LFS.
-src/TianWen.AI.Imaging/models/*.onnx !filter !diff !merge -text
+# (2026-08-19 to 2026-09-06 this directory carried an `!filter !diff !merge` exemption from the rule
+# above, because the LFS budget was exhausted and CI could not fetch a single new object. The budget
+# is back, so the exemption is gone and these weights are LFS objects again. Two things the revert
+# has to keep true, both wired: the publish matrix takes an ARTIFACT rather than pulling LFS, so a
+# new object must be in `lfs-payload.list` or every released binary ships a pointer stub as its
+# model file; and the 3.1 MB v19d blob stays in history either way, which is why nobody rewrote it.)
+
 *.bz2 filter=lfs diff=lfs merge=lfs -text
 *.so filter=lfs diff=lfs merge=lfs -text
 # Canon raw fixtures - keep repo slim, narrow-pull in CI

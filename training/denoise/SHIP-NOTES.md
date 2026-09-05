@@ -1,4 +1,34 @@
-# ship/ -- taking n2n_v19d out of the experiment and into TianWen
+# ship/ -- taking a checkpoint out of the experiment and into TianWen
+
+## 2026-09-06: `e2_wide_s2` replaces `n2n_v19d_s2`
+
+The shipped file is `src/TianWen.AI.Imaging/models/tianwen_denoise_osc_e2wide_s2.onnx`. **The name
+changed with the weights**, which is the rule the class doc states and this is the first time it was
+exercised: a retrain gets a new file name, so nothing can be silently swapped under a name someone
+else measured. The v19d bytes are one `git show` away, and `TIANWEN_N2N_SEAM_MODEL_DIR` exists so two
+checkpoints can be probed on one frame without touching the repo's file.
+
+What changed, all of it measured through the C# path on the eta Car master (D5, plan section 7):
+colour cast spread 0.044 to 0.019, star amplitude kept 0.690 / 0.786 / 0.864 / 0.883 against
+0.649 / 0.700 / 0.753 / 0.724, the same noise removed, and 1.0 of the extended column against 6.3 at
+10 percent removed on the Gaia split. ONNX parity 1.49e-7, C# parity 3.87e-7.
+
+Three things this ship taught, none of them about the model:
+
+- **The parity fixture conditions the model at sigma exactly 0**, on this checkpoint and on v19d
+  alike, because the runner's median-filled 16 px border plus the replicate pad leave 61 percent of
+  the 256 px tile at one value. It is still a valid parity fixture (same graph, same bytes, both
+  languages) but it cannot exercise the sigma path, and the output/input std it prints is not a
+  denoising measurement. Written up in `n2n_fixture.py`'s docstring.
+- **The level prior weakened and did not go away**, which is what `RestoreLevel` was told to expect
+  when the pool widened: 0.044 to 0.019 on the master, and on the synthetic plate the per-channel
+  median deltas tighten from a 0.00151 spread to 0.00072. So the correction stays unconditional.
+- **The weights went back into Git LFS the same day**, the LFS budget having returned. That is three
+  edits, not one: the `.gitattributes` exemption, `git rm --cached` + `git add`, and `*.onnx` back
+  into `lfs-payload.list` in `dotnet.yml`, because the publish matrix never pulls LFS and would
+  otherwise ship a pointer stub as the model inside every release asset.
+
+## The original write-up: taking n2n_v19d into TianWen
 
 2026-08-17, task #43 / plan row N4. Everything here is about deploying ONE checkpoint. The
 research question that produced it is closed (see `../v24/README.md`): three disjoint
