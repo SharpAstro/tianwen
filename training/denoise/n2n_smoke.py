@@ -233,6 +233,37 @@ def choose(cells, n_train_sessions, n_val_sessions, cells_per_session, seed=42,
 
 
 # --------------------------------------------------------------------------- cache
+def load_psf01(root):
+    """psf01 per degraded tile, keyed by the tile's own relative path.
+
+    Read from `degradations.jsonl`, which `tianwen dataset degrade` writes beside the tile manifest.
+    Keyed on the PATH rather than on (session, cell, frame) because that tuple would have to be
+    re-derived here and the path is already the join key both files agree on.
+
+    Absent, null or star-less rows are dropped rather than defaulted. A missing label is not a zero:
+    the exporter writes null exactly when its estimator found no stars and fell back to a constant
+    radius, and training on that constant would condition the model on a number nothing measured.
+    """
+    path = os.path.join(root, "degradations.jsonl")
+    if not os.path.exists(path):
+        return {}
+
+    out = {}
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+
+            row = json.loads(line)
+            value = row.get("Psf01Estimated")
+            if value is None or not np.isfinite(value):
+                continue
+
+            out[row["Tile"]] = float(value)
+    return out
+
+
 def prepare(args):
     cells = load_cells(args.root, args.manifest)
     cells = drop_foreign_channel_sessions(args.root, cells)
@@ -257,6 +288,10 @@ def prepare(args):
     mm = np.memmap(path, dtype=np.float16, mode="w+",
                    shape=(n, SLOTS_WITH_HALVES, CH, TILE, TILE))
     halves = []
+    # The deconvolver's conditioning label, per (cell, sub slot). NaN means "no label", which is a
+    # state the trainer has to see rather than a zero it would silently condition on.
+    psf01_by_tile = load_psf01(args.root)
+    psf01 = np.full((n, SUBS_PER_CELL), np.nan, dtype=np.float32)
 
     def read_tile(rel):
         with open(os.path.join(args.root, rel.replace("/", os.sep)), "rb") as fh:
@@ -271,6 +306,8 @@ def prepare(args):
         paths = [entry["master"]] + sorted(entry["subs"])[:SUBS_PER_CELL]
         for slot, rel in enumerate(paths):
             mm[i, slot] = read_tile(rel)
+            if slot > 0 and rel in psf01_by_tile:
+                psf01[i, slot - 1] = psf01_by_tile[rel]
         pair = has_halves(entry)
         halves.append(pair)
         if pair:
@@ -297,11 +334,26 @@ def prepare(args):
         os.path.basename(rel).rsplit("_", 1)[-1].startswith("deg")
         for key in keys for rel in cells[key]["subs"][:SUBS_PER_CELL])
     print(f"  sub slots: {'INJECTED draws' if injected else 'real subs' if has_subs else 'EMPTY (a pair cache: train with --half-only)'}")
+
+    labelled = int(np.isfinite(psf01).sum())
+    if labelled:
+        np.save(os.path.join(args.cache, "psf01.npy"), psf01)
+        finite = psf01[np.isfinite(psf01)]
+        print(f"  psf01 labels: {labelled}/{psf01.size} degraded slots, "
+              f"p5 {np.quantile(finite, 0.05):.3f} p50 {np.quantile(finite, 0.5):.3f} "
+              f"p95 {np.quantile(finite, 0.95):.3f}")
+    else:
+        # Said out loud rather than left to be discovered at train time, because a deconvolution arm
+        # launched against an unlabelled cache would fall back to the noise plane and train something
+        # nobody asked for.
+        print("  psf01 labels: NONE (no degradations.jsonl, or no row carried a measured label)")
+
     meta = {
         "cells": n, "slots": SLOTS_WITH_HALVES, "injected": bool(injected), "has_subs": bool(has_subs),
         "train_cells": len(train_keys), "val_cells": len(val_keys),
         "train_sessions": train_s, "val_sessions": val_s,
         "has_halves": halves,
+        "psf01_labels": labelled,
         "keys": [[k[0], k[1], k[2]] for k in keys],
     }
     with open(os.path.join(args.cache, "meta.json"), "w", encoding="utf-8") as fh:
@@ -653,6 +705,31 @@ def train(args):
     # One resolved plane count from here down, so the model, the training step, the gate and the
     # checkpoint cannot disagree about what the input looks like.
     cond_planes = COND_BANDS if args.cond_bands else (1 if args.cond else 0)
+
+    # A DECONVOLUTION arm conditions on a stored psf01 label rather than on the input's measured
+    # noise, and is selected on width and ringing rather than on noise: the denoiser's gate would
+    # pick whichever checkpoint irons the frame flattest, which is selecting a deconvolver for
+    # blurring. Both switch together on purpose, because a run with one and not the other is a
+    # combination nobody wants: labelled but scored wrong, or scored right but conditioned on the
+    # wrong quantity.
+    psf01_labels = None
+    if args.cond_psf01:
+        psf01_path = os.path.join(args.cache, "psf01.npy")
+        if not os.path.exists(psf01_path):
+            raise SystemExit(f"--cond-psf01 needs {psf01_path}; re-run --prepare against an export "
+                             f"that carries degradations.jsonl with measured labels")
+
+        psf01_labels = np.load(psf01_path)
+        finite = np.isfinite(psf01_labels)
+        if not finite.any():
+            raise SystemExit("psf01.npy holds no finite label; every degraded tile lacked a "
+                             "measurement, so there is nothing to condition on")
+
+        cond_planes = 1
+        print(f"conditioning on STORED psf01 ({int(finite.sum())} labelled slots, "
+              f"p5 {np.quantile(psf01_labels[finite], 0.05):.3f} "
+              f"p95 {np.quantile(psf01_labels[finite], 0.95):.3f}), not on measured noise")
+
     model = build_model(args.base, args.upsample, cond_planes).to(dev)
     params = sum(p.numel() for p in model.parameters())
     opt = torch.optim.Adam(model.parameters(), args.lr)
@@ -670,9 +747,17 @@ def train(args):
         # The probe's noisy input: sub slot 1, or night A's half slot on a pair cache whose sub
         # slots are empty (n2n_gate.Gate's docstring).
         gate_input = SLOT_HALF_A if args.half_only else 1
-        gate = n2n_gate.Gate(mm, cells, dev, input_slot=gate_input)
-        print(f"gate: {len(cells)} cells from {args.gate_sessions} val session(s), probing every "
-              f"{args.gate_every} steps; floor {gate.floor_spurious:.1f} spurious/tile")
+        if psf01_labels is not None:
+            import n2n_deconv_gate
+            gate = n2n_deconv_gate.DeconvGate(
+                mm, cells, dev, psf01=psf01_labels[cells, gate_input - 1], input_slot=gate_input)
+            print(f"deconv gate: {len(cells)} cells from {args.gate_sessions} val session(s), "
+                  f"probing every {args.gate_every} steps; the probed input sits at "
+                  f"{np.nanmean(gate.input_fwhm / gate.truth_fwhm):.2f}x the truth width")
+        else:
+            gate = n2n_gate.Gate(mm, cells, dev, input_slot=gate_input)
+            print(f"gate: {len(cells)} cells from {args.gate_sessions} val session(s), probing every "
+                  f"{args.gate_every} steps; floor {gate.floor_spurious:.1f} spurious/tile")
         if args.gate_observe:
             for s, ocells in observer_cells(meta, args.gate_sessions, args.gate_cells):
                 observers.append((s, n2n_gate.Gate(mm, ocells, dev, input_slot=gate_input)))
@@ -681,11 +766,23 @@ def train(args):
         # Names the three gates that are actually in the pass condition. It used to print the
         # residual threshold too, left behind when resid became report-only, which read as a
         # fourth gate in six runs' worth of logs.
-        print(f"  pass requires spurious-over-floor <= {args.gate_max_spurious}, faint amp >= "
-              f"{args.gate_min_faint_amp}, noise <= {args.gate_max_noise}x")
-        print(f"  |resid corr| is REPORTED ONLY (it does not transfer between sessions)")
-        print(f"  among passers the QUIETEST wins (doing nothing is 1.00x, the worst answer)")
-        print(f"  step   {n2n_gate.Gate.header()}   {'obj':>6}  {'':4}")
+        if psf01_labels is not None:
+            # The DECONVOLUTION criteria. Printed separately because the denoiser's lines below name
+            # three thresholds none of which this run applies, and a log that states the wrong pass
+            # condition is read as truth months later by whoever is diagnosing the run.
+            print(f"  pass requires out/truth width >= 1.0 (under it is fabrication rather than "
+                  f"success: an oracle handed the exact kernel never goes under) and stars kept in "
+                  f"[{args.gate_min_stars_kept}, {args.gate_max_stars_kept}]")
+            print(f"  ring excess is REPORTED ONLY (nobody has calibrated what a value means yet)")
+            print(f"  among passers the NARROWEST wins (doing nothing scores the input's own ratio)")
+        else:
+            print(f"  pass requires spurious-over-floor <= {args.gate_max_spurious}, faint amp >= "
+                  f"{args.gate_min_faint_amp}, noise <= {args.gate_max_noise}x")
+            print(f"  |resid corr| is REPORTED ONLY (it does not transfer between sessions)")
+            print(f"  among passers the QUIETEST wins (doing nothing is 1.00x, the worst answer)")
+        header = (n2n_deconv_gate.DeconvGate.header() if psf01_labels is not None
+                  else n2n_gate.Gate.header())
+        print(f"  step   {header}   {'obj':>6}  {'':4}")
 
     band_scales = [tuple(float(v) for v in p.split(",")) for p in args.band_scales.split()]
     kernels = {s: _gauss_kernel(s, dev) for pair in band_scales for s in pair}
@@ -791,7 +888,18 @@ def train(args):
             x = torch.from_numpy(np.ascontiguousarray(mm[idx, a])).to(dev).float()
             y = torch.from_numpy(np.ascontiguousarray(mm[idx, b])).to(dev).float()
 
-        pred = model(with_sigma(x, planes=cond_planes) if cond_planes else x)
+        if psf01_labels is not None:
+            # Each sample's label follows the SLOT it was drawn from, since that is the tile the
+            # exporter measured. A cell with an unlabelled slot falls back to the batch's median
+            # rather than to zero, which would tell the model "no blur" about a blurred tile.
+            import n2n_deconv_gate as DG
+            lab = psf01_labels[idx, np.clip(a - 1, 0, psf01_labels.shape[1] - 1)]
+            if not np.all(np.isfinite(lab)):
+                good = lab[np.isfinite(lab)]
+                lab = np.where(np.isfinite(lab), lab, float(np.median(good)) if good.size else 0.5)
+            pred = model(DG.with_psf01(x, lab))
+        else:
+            pred = model(with_sigma(x, planes=cond_planes) if cond_planes else x)
         # Mask the rim: at inference no output pixel comes from a chunk edge, so a loss over
         # the full tile optimises a condition the model never meets.
         pc = pred[:, :, BORDER:-BORDER, BORDER:-BORDER]
@@ -836,7 +944,7 @@ def train(args):
                   f"{step*args.batch/el:5.1f} tiles/s  elapsed {el/60:5.1f} min", flush=True)
 
         if gate is not None and (step % args.gate_every == 0 or step == steps):
-            m = gate.evaluate(model, cond_planes)
+            m = gate.evaluate(model) if psf01_labels is not None else gate.evaluate(model, cond_planes)
             # Three hard gates, then MINIMISE noise among whatever passes. Framing invention,
             # residual correlation and faint-flux retention as GATES rather than as terms in a
             # weighted score is deliberate: a weight lets a model buy its way past invention with
@@ -883,10 +991,32 @@ def train(args):
             # probe to make a relative rule testable. Do not gate on it yet: whether a relative rule
             # picks the same step on two sessions is the open question, which --gate-observe exists
             # to answer.
-            structure_ok = (m["spurious_over_floor"] <= args.gate_max_spurious
-                            and m["faint_amp"] >= args.gate_min_faint_amp)
-            passed = structure_ok and m["noise"] <= args.gate_max_noise
-            score = m["noise"]
+            if psf01_labels is not None:
+                # A deconvolver's criteria, and deliberately only ONE of them is a threshold.
+                # `fwhm_ratio >= 1` is not a tuning knob: E1 measured that an oracle handed the
+                # EXACT kernel never produces a star narrower than the one that was there, so
+                # crossing it is fabrication rather than success. `stars_kept` guards the other
+                # failure the same measurements kept catching, a width that improves because noise
+                # was sharpened into a new population. Ring excess is REPORTED and not thresholded,
+                # for the reason `resid_corr` is report-only above: nobody has calibrated what value
+                # means anything, and a threshold nobody measured is how the noise gate came to
+                # reject the arm that scored best.
+                # Bounded on BOTH sides, and the upper bound is the one that matters. The failure is
+                # symmetric: a deconvolver can destroy the star population or invent one, and it is
+                # the second that flatters every other number, because sharpened noise reads as
+                # narrow stars. Seen immediately on the first smoke run, where a 200-step model
+                # produced TEN TIMES the truth's detections and sailed through a lower bound alone.
+                # A deconvolution cannot legitimately create a star the clean master does not have.
+                structure_ok = (args.gate_min_stars_kept <= m["stars_kept"] <= args.gate_max_stars_kept)
+                passed = structure_ok and np.isfinite(m["fwhm_ratio"]) and m["fwhm_ratio"] >= 1.0
+                # Closest to the truth width from ABOVE. Doing nothing scores the input's own
+                # ratio, which is the worst answer rather than a free pass.
+                score = m["fwhm_ratio"] if np.isfinite(m["fwhm_ratio"]) else float("inf")
+            else:
+                structure_ok = (m["spurious_over_floor"] <= args.gate_max_spurious
+                                and m["faint_amp"] >= args.gate_min_faint_amp)
+                passed = structure_ok and m["noise"] <= args.gate_max_noise
+                score = m["noise"]
             mark = "pass" if passed else "FAIL"
             if passed and (best[3] is None or score < best[0]):
                 best = (score, step, m,
@@ -895,14 +1025,16 @@ def train(args):
             if structure_ok and (best_struct[3] is None or score < best_struct[0]):
                 best_struct = (score, step, m,
                                {k: v.detach().cpu().clone() for k, v in model.state_dict().items()})
-            print(f"  gate {step:6d}   {n2n_gate.Gate.format(m)}   {score:6.3f}  {mark}",
+            fmt = (n2n_deconv_gate.DeconvGate.format if psf01_labels is not None
+                   else n2n_gate.Gate.format)
+            print(f"  gate {step:6d}   {fmt(m)}   {score:6.3f}  {mark}",
                   flush=True)
             # The observed sessions print on the SAME schedule with an "obs" tag and no verdict
             # column, so the two trajectories are aligned step-for-step in one log and neither can
             # be mistaken for the one that selected.
             for si, (_, og) in enumerate(observers):
                 om = og.evaluate(model, cond_planes)
-                print(f"  obs{si} {step:6d}   {n2n_gate.Gate.format(om)}", flush=True)
+                print(f"  obs{si} {step:6d}   {fmt(om)}", flush=True)
 
     if len(regimes) > 1:
         print("  steps per regime: " + "  ".join(
@@ -1147,6 +1279,23 @@ if __name__ == "__main__":
     p.add_argument("--gate-max-spurious", type=float, default=6.0,
                    help="reject a probe inventing more than this many point sources per tile "
                         "OVER the raw sub's own floor")
+    p.add_argument("--cond-psf01", action="store_true",
+                   help="condition on the STORED psf01 label from degradations.jsonl instead of on "
+                        "the input's measured noise, and select on width and ringing instead of on "
+                        "noise. This is what makes a DECONVOLUTION arm possible: the denoiser's gate "
+                        "picks whichever checkpoint irons the frame flattest, which for this job is "
+                        "selecting for blurring. Requires a cache prepared from a blur-mode export.")
+    p.add_argument("--gate-min-stars-kept", type=float, default=0.90,
+                   help="deconvolution gate only: reject a probe that has lost this fraction of the "
+                        "truth's detectable stars.")
+    p.add_argument("--gate-max-stars-kept", type=float, default=1.10,
+                   help="deconvolution gate only, and the load-bearing half: reject a probe that has "
+                        "INVENTED stars. A deconvolution cannot legitimately create a star the clean "
+                        "master does not have, and sharpened noise reads to a detector as narrow "
+                        "stars, which is the failure that flatters every other number. The 1.10 is a "
+                        "tolerance for detection jitter and is not itself measured; what is measured "
+                        "is that an unbounded version passes a model producing ten times the truth's "
+                        "detections, seen on this gate's first smoke run.")
     p.add_argument("--gate-max-noise", type=float, default=0.82,
                    help="reject a probe that does not clean this hard, so a near-identity cannot "
                         "win by being the only thing pure enough to pass. Needs headroom: the "

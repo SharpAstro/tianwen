@@ -371,13 +371,46 @@ everything and above it recovers little.
 | E1 | **DONE 2026-09-06, both halves.** H5 (`PsfEncodingSpreadProbe`, all 79 masters through the deployed estimator): the shipped range is not the collapse it was recorded as, lowering the floor makes the spread SMALLER, `[0.5, 4.0]` is the pick. H1 (`DeconvolutionOracleCeilingProbe`, `RichardsonLucy` with the exact kernel, 180 rows): full recovery to 1.3x blur, inside 10 percent to 1.6x, 1.7 to 1.8x the truth width beyond 2x; nothing recovers below the truth; ringing bounds the range before recovery does. | a day, CPU | The ceiling and the contract floor |
 | E2 | **SHIPPED 2026-09-03 as the shared exporter** (`tianwen dataset degrade --mode blur`, `DatasetDegradationExporter`): linear Moffat blur with a drawn (FWHM, beta, elongation, PA), noise after, both sides stretched with the TARGET's parameters, field-radius tag per cell, and the drawn kernel parameters in `degradations.jsonl`. Parity is stronger than planned: the clean tile derived from the RETAINED master is byte-identical to the P0 tile of the same cell (0.0 on every session measured), which pins the whole path rather than just the stretch. Still owed: psf01 labels from `HfdPsfEstimator` on the degraded stretched frame under both encodings (H2, H5), and the per-(train, filter, channel) draw distribution, which needs E0's re-measured store | 1 to 2 days | Whether pairs are honest |
 | E3 | Smoke arms on the U-Net: kernel vs estimator label (H2), shared vs per-channel (H3), noise vs none (H4), two vs three bands (H8). Post a labelled comparison at 1:1 around bright and faint stars. **BLOCKED on E2.5 below, and the seed count is NOT three until the power check says so.** | 4 pairs x N seeds x 11 min | H2, H3, H4, H8 |
-| E2.5 | **Discovered 2026-09-06, and the reason the row above cannot start.** The trainer cannot train a deconvolver at all yet: `--prepare` reads `tiles-manifest.jsonl` only and never `degradations.jsonl`, so the psf01 the exporter now writes never reaches the cache; the conditioning plane comes from `with_sigma`, which MEASURES the input's noise rather than reading a stored label; and `n2n_gate.py`'s metrics are noise, faint amplitude and spurious sources, every one of them noise-oriented. **The gate is the consequential half: as it stands it would select the checkpoint that removes the most noise while doing nothing about sharpness, which is selecting a deconvolver for BLURRING.** It needs FWHM recovery and ringing, scored against E1's ceiling at 60 iterations. | 1 to 2 days | Whether E3 can run |
+| E2.5 | **DONE 2026-09-06** (details below the table). `--prepare` reads `degradations.jsonl` into a `psf01.npy` beside the tiles; `--cond-psf01` conditions on that stored label instead of on measured noise; `n2n_deconv_gate.DeconvGate` selects on width, ringing and star count. Validated end to end on a two-session blur export, which is also what caught the gate's own first bug. Originally recorded as: **discovered 2026-09-06, and the reason the row above cannot start.** The trainer cannot train a deconvolver at all yet: `--prepare` reads `tiles-manifest.jsonl` only and never `degradations.jsonl`, so the psf01 the exporter now writes never reaches the cache; the conditioning plane comes from `with_sigma`, which MEASURES the input's noise rather than reading a stored label; and `n2n_gate.py`'s metrics are noise, faint amplitude and spurious sources, every one of them noise-oriented. **The gate is the consequential half: as it stands it would select the checkpoint that removes the most noise while doing nothing about sharpness, which is selecting a deconvolver for BLURRING.** It needs FWHM recovery and ringing, scored against E1's ceiling at 60 iterations. | 1 to 2 days | Whether E3 can run |
 | E2.6 | The power check the denoiser campaign paid for: ONE arm at six seeds, seed spread measured against the effect each of H2/H3/H4/H8 expects, then the rest sized from it. On the denoiser's E2 the seed sd beat the between-regime sd 2 to 3x, so three-seed arms could not read a one-point effect and about 31 seeds would have been needed. H4 and H8 are plausibly large enough to read at three; H2 and H3 are the ones at risk. | 6 x 11 min | E3's seed count |
 | E4 | Stationary vs position-varying (H7) on the refractor trains. | 2 x 3 x 11 min | H7 |
 | E5 | On-the-fly torch degradation with the MTF pin, if E3 is sample-hungry. | a day | Sample efficiency |
 | E6 | Ladder capture on three nights (hardware queue); H6 scoring. | nights | The advertised range |
 | E7 | Export with the own contract (`[0.5, 8]` px), parity to torch, contract JSON, `OnnxTianWenDeconvolver : INonStellarDeconvolver` through `ChunkedNafnetRunner`, an `IPsfEstimator` variant with the lower floor, backend routing. | 2 days | Ships |
 | E8 | Space-truth tier (H9), only after E7 has a baseline to beat. | rented GPU | Optional |
+
+### E2.5's results, 2026-09-06: the gate a deconvolver is selected on
+
+**What it selects on, and why only one criterion is a threshold.** `fwhm_ratio >= 1.0` is not a
+tuning knob: E1 measured that an oracle handed the EXACT kernel never produces a star narrower than
+the one that was there, so crossing it is fabrication rather than success. Star count is bounded on
+both sides. Ring excess is REPORTED and not thresholded, for the same reason `resid_corr` is
+report-only in the denoiser's gate, and for the sharper reason that a threshold nobody measured is
+exactly how the noise gate came to reject the arm that scored best (section 8).
+
+**The star bound is bounded ABOVE, and that half is the load-bearing one.** The first smoke run
+produced **ten times the truth's detections** at 200 steps and sailed straight through a lower bound
+alone. A deconvolution cannot legitimately create a star the clean master does not have, and
+sharpened noise reads to a detector as narrow stars, which is the failure that flatters every other
+number in the table. The 1.10 tolerance is jitter allowance and is not itself measured; what IS
+measured is that an unbounded version passes a model inventing an order of magnitude of stars.
+
+**The ring statistic needs its null and the self-test says how badly.** On an untouched noisy plate
+the raw annulus statistic reads **100 percent of stars** ringing. Used raw, every arm would score
+100 percent forever. `n2n_deconv_gate.py --self-test` prints that alongside the width estimator's
+check against known answers (2.00 / 3.06 / 4.55 px measured for 2.0 / 3.0 / 4.5), because the width
+estimator is what every metric rests on and it is not obvious by inspection.
+
+**A label is never invented.** `load_psf01` drops rows whose `Psf01Estimated` is null, which the
+exporter writes exactly when its estimator found no stars and fell back to a constant radius;
+training on that constant would condition the model on a number nothing measured. Where a batch
+sample's slot has no label the trainer falls back to the batch median rather than to zero, which
+would tell the model "no blur" about a blurred tile.
+
+**Measured on the two-session smoke export**, the estimated and kernel labels sit 0.03 to 0.04 apart
+in psf01 units with no visible dependence on star count over 1 to 73 stars per cell (median 16). An
+alarm raised on four low-star rows did not survive being measured, so no minimum-star threshold was
+added; the count is recorded and a consumer can filter on it.
 
 ### Reproducing E0 and E1
 
