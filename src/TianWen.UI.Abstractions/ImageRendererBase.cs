@@ -809,6 +809,22 @@ namespace TianWen.UI.Abstractions
             // file list (no divider node was arranged).
             PaintLayout(_layoutArranged);
 
+            // EVERY sky overlay is clipped to the image pane, once, here -- they are the only things
+            // drawn in IMAGE space rather than window space, and the pane is where image space ends.
+            //
+            // Without this they reach the chrome. An object marker is placed from the WCS, so an object
+            // near the frame's edge (or simply near it in the sky, since the gather covers the view and
+            // not the sensor) projects outside the picture, and its LABEL is drawn from the marker: the
+            // viewer painted "NGC 2546" across the toolbar and a column of Dobashi labels down the
+            // metadata panel. Zooming in does the same to the star overlay, whose per-star test is a
+            // CULL of the wholly-outside and never trimmed a marker straddling the edge.
+            //
+            // A clip rather than tighter culling because a marker half inside the pane should show its
+            // half, which is what the image quad above already does with the same rect. DIR.Lib's stack
+            // intersects with whatever the host already clipped and restores it on pop.
+            var overlayArea = _layout.ImageArea;
+            PushClip(overlayArea.X, overlayArea.Y, overlayArea.Width, overlayArea.Height);
+
             if (state.ShowGrid && document?.Wcs is { HasCDMatrix: true } wcs)
             {
                 RenderGridLabels(state, wcs);
@@ -836,6 +852,8 @@ namespace TianWen.UI.Abstractions
             {
                 RenderWcsAnnotation(state, annWcs);
             }
+
+            PopClip();
 
             if (state.ShowHistogram && source is not null)
             {
