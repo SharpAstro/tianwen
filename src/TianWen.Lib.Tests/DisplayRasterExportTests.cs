@@ -1,4 +1,5 @@
 using Shouldly;
+using SharpAstro.Png;
 using System;
 using System.IO;
 using System.Threading.Tasks;
@@ -79,6 +80,63 @@ public class DisplayRasterExportTests
             ReadBigEndianUInt32(bytes, 16).ShouldBe((uint)Width);
             ReadBigEndianUInt32(bytes, 20).ShouldBe((uint)Height);
             bytes[24].ShouldBe((byte)expectedBitDepth);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// The PNG carries the display raster pixel for pixel, as RGB with no alpha plane.
+    /// </summary>
+    /// <remarks>
+    /// <para>The TIFF case below has always checked the pixels; the PNG cases only ever checked the
+    /// IHDR's width, height and bit depth, which a wrong channel gather sails straight through. That
+    /// mattered little while the encoder copied RGBA verbatim, and matters now that it discards the
+    /// alpha and repacks three channels out of four on the way to the file.</para>
+    /// <para>Colour type 2 is asserted as well as the pixels: getting RGBA out with a correct-looking
+    /// image would mean the alpha plane came back, which is the whole cost this is here to prevent.</para>
+    /// </remarks>
+    [Theory]
+    [InlineData(DisplayRasterFormat.Png16)]
+    [InlineData(DisplayRasterFormat.Png8)]
+    public async Task ThePngCarriesTheDisplayRasterAsRgbWithNoAlphaPlane(DisplayRasterFormat format)
+    {
+        var image = ColourImage();
+        var uniforms = Uniforms();
+
+        var expected = new ushort[Width * Height * 4];
+        image.RenderStretchedRgba16(uniforms, expected);
+
+        var path = TempPath(".png");
+        try
+        {
+            await DisplayRasterExport.WriteAsync(image, path, format, uniforms,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            var decoded = PngReader.Decode(await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken));
+
+            decoded.ColorType.ShouldBe(2, "an opaque display raster has no business carrying an alpha plane");
+            decoded.Width.ShouldBe(Width);
+            decoded.Height.ShouldBe(Height);
+
+            var sixteenBit = format == DisplayRasterFormat.Png16;
+            for (var i = 0; i < Width * Height; i++)
+            {
+                for (var c = 0; c < 3; c++)
+                {
+                    // PNG stores 16-bit samples big-endian; the reader hands back raw bytes either way.
+                    var actual = sixteenBit
+                        ? (decoded.Pixels[(((i * 3) + c) * 2)] << 8) | decoded.Pixels[(((i * 3) + c) * 2) + 1]
+                        : decoded.Pixels[(i * 3) + c];
+                    var want = sixteenBit ? expected[(i * 4) + c] : expected[(i * 4) + c] >> 8;
+
+                    // The 8-bit path quantises, so it is allowed one step; the 16-bit path is not.
+                    actual.ShouldBeInRange(want - (sixteenBit ? 0 : 1), want + (sixteenBit ? 0 : 1),
+                        $"pixel {i} channel {c}: the file must carry what the renderer produced");
+                }
+            }
         }
         finally
         {
