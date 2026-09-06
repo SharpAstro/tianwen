@@ -19,13 +19,17 @@ the time, so they record what each bump was for. Where a bump commit said nothin
 the entry says so instead of inventing a theme. The date on each is its release tag's; a new entry
 carries none, because the tag will.
 
-One trap for anyone extending the reconstruction: **the history was rewritten between 4.0 and 4.2**
-(the LFS migration; the `pre-lfs-migration` tag marks the last old commit, 2026-04-22), so the tags
-from `v3.0.440` through `v4.0.564` point into a history that is NOT an ancestor of `main`. A
-`git log v4.0.564..v4.2.640` therefore spans both histories and returns the whole repository back to
-its 2022 initial commit, 1,318 commits that look like one release. Compare across that boundary by
-commit SUBJECT (every old commit has a twin with the same message on the new history) or by tree
-diff, never by hash range. The ranges among the old tags themselves are sound.
+**The history was rewritten once, during 4.2** (the LFS migration of 2026-04-22, between CI runs 601
+and 611), and **releases before 4.2 no longer exist on GitHub.** Until 2026-09-06 the seven release
+tags from `v3.0.440` through `v4.0.564`, plus 71 orphan tags, still pointed into the pre-migration
+history, which kept 594 MB of superseded catalog and fixture blobs (the Tycho-2 binary in four
+encodings, the `.fits.gz` fixtures) in every fresh clone: a 632 MB pack for a 48 MB repository.
+Those seven releases and their binaries were deleted (four had never been downloaded; the others had
+12 to 28 lifetime downloads, all from their first weeks), every orphan tag was removed, and the seven
+release tags were re-created on `main` at the commits with the same subjects, so the entries below
+stay, their dates stay verifiable, and `git log v3.6.493..v4.0.564` answers the same 200 commits it
+always did. Hashes quoted in the docs from before the migration were re-pointed the same way. Any
+other commit hash from before 2026-04-22 no longer resolves anywhere.
 
 ## 7.1
 
@@ -226,8 +230,8 @@ target scoring, and the DEBUG-only live UI inspector with its MCP sidecar.
 
 ## 4.2
 
-Released 2026-05-04 (`v4.2.640`). 242 commits since 4.0, counted on the rewritten history by
-matching subjects (see the preamble), and the first release on that history.
+Released 2026-05-04 (`v4.2.640`). 242 commits since 4.0, and the first release cut on the rewritten
+history (see the preamble).
 
 The **hosting API completed all four phases**, including the ninaAPI v2 compatibility shim for Touch
 N Stars, and `tianwen-server` got its README section and download table. The solution migrated to
@@ -249,7 +253,7 @@ Never released. Bumped and superseded by 4.2 the same day (2026-04-07), so no ta
 
 ## 4.0
 
-Released 2026-04-07 (`v4.0.564`).
+Released 2026-04-07 (`v4.0.564`; binaries removed 2026-09-06, see the preamble).
 
 The bump marks TianWen running **a complete imaging session end to end**: device management,
 observation planning, session configuration, automated imaging with guiding, auto-focus, filter
@@ -263,7 +267,7 @@ phases 1 and 2.
 
 ## 3.6
 
-Released 2026-03-26 (`v3.6.493`).
+Released 2026-03-26 (`v3.6.493`; binaries removed 2026-09-06, see the preamble).
 
 Sixel image preview in the TUI live session tab, per-OTA status in that tab, shared setup logic
 consolidated, an application icon (the Helix Nebula), iterative centering with auto-focus pipeline
@@ -272,11 +276,11 @@ log. Sibling packages moved back to nuget.org and the local nupkg directory was 
 
 ## 3.5
 
-Released 2026-03-18 (`v3.5.455`). The bump commit records only the number.
+Released 2026-03-18 (`v3.5.455`; binaries removed 2026-09-06, see the preamble). The bump commit records only the number.
 
 ## 3.4
 
-Released 2026-03-17 (`v3.4.454`).
+Released 2026-03-17 (`v3.4.454`; binaries removed 2026-09-06, see the preamble).
 
 `IMountDependentGuider`, so a built-in guider receives the same mount driver instance rather than a
 second `NewInstance`, wired through `SessionFactory`. `Setup` exposed on `ISession` to remove a
@@ -288,15 +292,15 @@ Skipped. The version went 3.2 to 3.4 directly.
 
 ## 3.2
 
-Released 2026-03-15 (`v3.2.449`). The bump commit records only the number.
+Released 2026-03-15 (`v3.2.449`; binaries removed 2026-09-06, see the preamble). The bump commit records only the number.
 
 ## 3.1
 
-Released 2026-03-11 (`v3.1.442`). The bump commit records only the number.
+Released 2026-03-11 (`v3.1.442`; binaries removed 2026-09-06, see the preamble). The bump commit records only the number.
 
 ## 3.0
 
-Released 2026-03-09 (`v3.0.440`).
+Released 2026-03-09 (`v3.0.440`; binaries removed 2026-09-06, see the preamble).
 
 **AOT compatibility**: `IsAotCompatible` and `IsTrimmable` on `TianWen.Lib`, a six-platform AOT
 publish matrix (Windows, Linux and macOS on x64 and arm64), and CI split into the build, test,
