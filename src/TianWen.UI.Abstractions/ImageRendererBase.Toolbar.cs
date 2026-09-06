@@ -424,12 +424,40 @@ namespace TianWen.UI.Abstractions
             ViewerActions.StretchLinkModes, m => m.ToString());
 
         /// <summary>
-        /// The Save selector. Index 1 is the annotated variant, which is what the dropdown handler
-        /// tests -- the clean raster stays first because it is the one most saves want and the one
-        /// right-click reaches directly.
+        /// The Save selector. The 16-bit clean raster stays FIRST because it is the one most saves
+        /// want, the lossless one, and the one right-click reaches directly without opening this.
         /// </summary>
+        /// <remarks>
+        /// The two clean rows differ in DEPTH, not container: only PNG has two depths behind one
+        /// extension, so it is the only choice the file name cannot make. The dialog still picks the
+        /// container, and relabels its first filter to match the row, so the choice is restated where
+        /// it takes effect rather than being state to remember.
+        /// </remarks>
         private static readonly ImmutableArray<string> SaveMenuLabels =
-            ["Image as displayed...", "Image with overlays..."];
+        [
+            "Image as displayed (16-bit)...",
+            "Image as displayed (8-bit)...",
+            "Image with overlays...",
+        ];
+
+        /// <summary>
+        /// What each <see cref="SaveMenuLabels"/> row asks for.
+        /// </summary>
+        /// <remarks>
+        /// A named function rather than the switch inline in the dropdown's lambda, because the rows
+        /// are matched to signals BY INDEX: reordering the labels silently swaps what two of them do,
+        /// with nothing to fail. Pinned by <c>SaveMenuTests</c>, which can only reach it if it has a
+        /// name.
+        /// </remarks>
+        internal static SaveImageSignal SaveSignalFor(int menuIndex) => menuIndex switch
+        {
+            1 => new SaveImageSignal(WithOverlays: false, PngDepth: PngDepth.EightBit),
+            2 => new SaveImageSignal(WithOverlays: true),
+            _ => new SaveImageSignal(WithOverlays: false),
+        };
+
+        /// <summary>The Save rows, so a test can pin the labels against what they do.</summary>
+        internal static ImmutableArray<string> SaveMenuRows => SaveMenuLabels;
 
         /// <summary>Channel-view selector: Composite/Red/Green/Blue. Only
         /// surfaced for 3+ channel images (gated by <see cref="IsToolbarButtonEnabled"/>).</summary>
@@ -595,7 +623,7 @@ namespace TianWen.UI.Abstractions
                     // grow a step: that is the same fall-through every other dropdown button has.
                     OpenDropdown(state, bounds, SaveMenuLabels, (idx, _) =>
                     {
-                        PostSignal(new SaveImageSignal(WithOverlays: idx == 1));
+                        PostSignal(SaveSignalFor(idx));
                         state.NeedsRedraw = true;
                     });
                     return true;

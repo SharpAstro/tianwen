@@ -505,7 +505,7 @@ bus.Subscribe<EnhanceImageSignal>(_ =>
 // inside the controller, because the renderer is what holds it -- so a plate-solve verification or a
 // polar-alignment overlay lands in the saved file too.
 bus.Subscribe<SaveImageSignal>(sig =>
-    controller.SaveImage(sig.WithOverlays, cts.Token, imageRenderer.Annotation));
+    controller.SaveImage(sig.WithOverlays, sig.PngDepth, cts.Token, imageRenderer.Annotation));
 
 // Damage: hand the renderer the rects this frame changed, so it preserves the previous frame and
 // repaints only those. Anything that asked for a frame without saying what moved comes back false

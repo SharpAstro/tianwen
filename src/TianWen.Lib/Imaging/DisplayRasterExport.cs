@@ -22,6 +22,40 @@ namespace TianWen.Lib.Imaging;
 /// against the raster the shader produced: the GPU path quantises to 8 bits only at the very end of
 /// the swapchain, so 16-bit PNG holds strictly more of what was on screen than a screenshot could.</para>
 /// </remarks>
+/// <summary>
+/// Which PNG a <c>.png</c> path means: the one thing about these formats an extension cannot say.
+/// </summary>
+/// <remarks>
+/// JPEG is 8-bit because baseline JPEG is, and a TIFF here is 32-bit float; only PNG has two depths
+/// behind one extension, so this is the only choice a caller has to make that the file name does not
+/// already make for it. It is a PREFERENCE rather than a format: it decides what <c>.png</c> resolves
+/// to and has nothing to say about a path ending <c>.jpg</c> or <c>.tif</c>.
+/// </remarks>
+public enum PngDepth
+{
+    /// <summary>
+    /// 16 bits per channel: lossless against the display raster, and the default.
+    /// </summary>
+    /// <remarks>
+    /// The background of a stretched frame spans thousands of 16-bit levels and about a dozen 8-bit
+    /// ones (measured: 2465 against 14 on a real frame), so this is the one that survives further
+    /// editing and the one a smooth master needs. See <see cref="EightBit"/> for when it does not.
+    /// </remarks>
+    SixteenBit,
+
+    /// <summary>
+    /// 8 bits per channel: a fifth the size, for sharing.
+    /// </summary>
+    /// <remarks>
+    /// Whether the coarser quantisation SHOWS depends on the noise, and counter-intuitively 8-bit is
+    /// safest on the worst data: a single sub's photon noise straddles several 8-bit steps and dithers
+    /// them, so nothing bands. It is a deep stack or a denoised master -- where the noise floor has
+    /// been beaten below one step -- that turns a smooth gradient into visible contours. Which is why
+    /// this is a per-save choice and not a default.
+    /// </remarks>
+    EightBit,
+}
+
 public enum DisplayRasterFormat
 {
     /// <summary>16-bit-per-channel PNG. Lossless against the display raster.</summary>
@@ -93,18 +127,24 @@ public static class DisplayRasterExport
     /// The format a path's extension asks for, or <c>null</c> when the extension is not one we write.
     /// </summary>
     /// <remarks>
-    /// <c>.png</c> resolves to <see cref="DisplayRasterFormat.Png16"/>, never the 8-bit variant: both
-    /// share an extension, so a path alone cannot distinguish them and the lossless one is the better
-    /// default to land on. Choosing 8-bit is therefore an explicit act in the Save-As menu, which is
-    /// the only place the distinction is visible.
+    /// <para>Both PNG variants share an extension, so a path alone cannot distinguish them:
+    /// <paramref name="pngDepth"/> is what says which, and it defaults to the lossless one. It binds
+    /// on <c>.png</c> ONLY -- a path ending <c>.jpg</c> or <c>.tif</c> already names one unambiguous
+    /// format, and the extension keeps deciding those, so asking for 8-bit and then typing
+    /// <c>.tif</c> writes the float TIFF the name asked for.</para>
     /// </remarks>
-    public static DisplayRasterFormat? FromExtension(string path) => Path.GetExtension(path).ToLowerInvariant() switch
-    {
-        ".png" => DisplayRasterFormat.Png16,
-        ".jpg" or ".jpeg" => DisplayRasterFormat.Jpeg,
-        ".tif" or ".tiff" => DisplayRasterFormat.TiffFloat,
-        _ => null,
-    };
+    public static DisplayRasterFormat? FromExtension(string path, PngDepth pngDepth = PngDepth.SixteenBit) =>
+        Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".png" => pngDepth is PngDepth.EightBit ? DisplayRasterFormat.Png8 : DisplayRasterFormat.Png16,
+            ".jpg" or ".jpeg" => DisplayRasterFormat.Jpeg,
+            ".tif" or ".tiff" => DisplayRasterFormat.TiffFloat,
+            _ => null,
+        };
+
+    /// <summary>The PNG format <paramref name="pngDepth"/> asks for.</summary>
+    public static DisplayRasterFormat Png(this PngDepth pngDepth) =>
+        pngDepth is PngDepth.EightBit ? DisplayRasterFormat.Png8 : DisplayRasterFormat.Png16;
 
     /// <summary>
     /// Renders <paramref name="image"/> through <paramref name="uniforms"/> and writes the result to
