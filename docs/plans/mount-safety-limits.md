@@ -234,7 +234,7 @@ start from nothing:
 - **The flip settings get their first UI here, and are validated against the limit.** The user asked
   for this. `MeridianFlipEarliestMinutesAfter` / `MeridianFlipLatestMinutesAfter` are edited nowhere
   today, so whatever editor is built owns them: show both and the limit in MINUTES (the unit fix in
-  `c04400f1` is what makes them comparable), and flag or refuse a flip deadline that
+  #210 "one unit for the meridian, and the limit clamps the flip" is what makes them comparable), and flag or refuse a flip deadline that
   `ClampFlipLatestMinutes` would clamp -- the clamp keeps the rig safe silently, the editor should say
   so out loud.
 - **Ask for the number in terms the user can measure.** The envelope is Dec- and tube-dependent (see

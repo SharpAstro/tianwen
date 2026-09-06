@@ -258,7 +258,7 @@ state through the terminal is a small addition that follows an existing pattern:
 - [x] `OnMouseWheel` passes tracked mouse position (no more hardcoded 0, 0)
 - [x] F11 fullscreen removed from loop, each consumer handles it in `OnKeyDown`
 - [x] Migrated `TianWen.UI.FitsViewer/Program.cs` to use `SdlEventLoop`
-- [x] Touch input: pinch-to-zoom via `SDL_EVENT_FINGER_*` events; two-finger tracking + scale computation in `SdlEventLoop` (`OnPinch`/`OnPinchEnd`), consumed by `SkyMapTab` via `InputEvent.Pinch`/`PinchEnd` (f6f2cdd8)
+- [x] Touch input: pinch-to-zoom via `SDL_EVENT_FINGER_*` events; two-finger tracking + scale computation in `SdlEventLoop` (`OnPinch`/`OnPinchEnd`), consumed by `SkyMapTab` via `InputEvent.Pinch`/`PinchEnd` ("Add touch pinch zoom, center-point zoom, grid dedup, Alt/Az grid + mode")
 
 Vulkan/SDL migration rationale moved to `../SdlVulkan.Renderer/README.md` ("Rationale: Why SDL3 + Vortice.Vulkan" section).
 

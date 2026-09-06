@@ -28,6 +28,11 @@ Canonical project state lives in these markdown files; read the relevant ones be
 | `docs/known-limitations.md` | Root causes of limitations/bugs (the *why*); read before "fixing" a suspected bug |
 | `CHANGELOG.md` | Released version history, newest first, one section per `MAJOR.MINOR`. A version bump adds its entry **in the same commit** (`/bump-version` step 6), so a number can never ship without its note. The GitHub Release lists the commits; this says what the release was FOR and what breaks |
 
+**A doc never cites a commit by hash.** Every PR merges by rebase, so a hash written into a plan or
+TODO before its PR lands is rewritten on landing, and the 2026-04-22 LFS migration rewrote everything
+before it; sixteen dangling hashes were found in the docs on 2026-09-06. Cite the commit SUBJECT in
+quotes, a release tag (`v6.3.1352`), or a PR or issue number (`#227`), all of which survive both.
+
 ## Custom Skills
 
 Available in `.claude/skills/<name>/SKILL.md`: auto-invocable when the request matches the skill's description, or explicitly via `/<name>`.
