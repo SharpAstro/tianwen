@@ -449,9 +449,23 @@ trainer: the L2-optimal estimate of a sharp master from a blurred one averages o
 consistent with that input, and averaging blurs. E1's oracle recovered most of a known blur from
 these same frames given the exact kernel, so the gap is the objective and not the data.
 
+**Amended after reading the loss: nothing in the objective looks at the scale being deblurred.** The
+band term supervised DoG bands at sigma 2 to 4 and 4 to 8 px (`--band-scales "2,4 4,8"`, and
+`_gauss_kernel` takes a SIGMA, not an FWHM). This project's stars are FWHM 1.80 to 2.47 px, which is
+sigma 0.76 to 1.05; the probed input sits at 1.43x that, sigma 1.09 to 1.50; the injected kernel
+itself is about sigma 0.78 to 1.07. Every one of those numbers falls below the FINEST supervised
+band. What is left covering the stars is plain MSE, which the background dominates, so a model can
+buy a lower loss by trading star sharpness for background fidelity. Width degrading with training is
+then not a subtle MMSE effect, it is the objective working exactly as written. `COND_BAND_SIGMAS`
+already carries the (0,1) and (1,2) pairs and the run used neither; the exclusion rationale in the
+source is that a SINGLE SUB's 1-2 px band carries 5.18x the master's RMS, measured for the
+denoiser's noisy target, and it does not transfer to this regime's clean-master target.
+
 **What this changes.** E3 does not run on this recipe, and its seed count is not the open question.
-The blockers in order: the two gate nulls (cheap, measured above, no retraining needed), then an
-objective that is not rewarded for smoothing.
+The blockers in order: the two gate nulls (cheap, measured above, no retraining needed); then a
+one-flag control that supervises the bands the blur actually occupies, which is nearly free and
+would moot a redesign if it works; and only if that fails, an architecture that carries the forward
+operator rather than a loss that hopes to imply it.
 
 ### Reproducing E0 and E1
 
