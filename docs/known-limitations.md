@@ -57,6 +57,34 @@ re-anchor to an immutable reference, never to your own last output.
 
 ## Imaging / stretch pipeline
 
+### The AI runner's linear/stretched auto-detect misreads a bright-sky master, on about 2.5 percent of this archive
+
+`ChunkedNafnetRunner.NeedsStretch` is SAS Pro's heuristic: unit-scale the frame, take
+`median(value - min)`, and call anything at or above `AiNafnetInputs.StretchAutoDetectMedianThreshold`
+(0.125) already-stretched, skipping `ApplyInputStretch`. It is right for the shape of frame it was
+designed around, where sky is a small fraction of the peak. **It is wrong for a linear master whose sky
+is a large fraction of it**, and this archive has some.
+
+Measured over all 79 retained masters of `2026-09-full` (2026-09-06): the statistic runs p5 0.0008,
+p50 0.0044, p95 0.0449, so the typical master clears the threshold by nearly 3x. **Two exceed it.** The
+worse one is a 120 s ASI585 stack whose raw median is 21,013 against a max of 66,060, so its sky sits at
+32 percent of full scale with the stars clipped near saturation and a dynamic range of only about 3x. It
+is genuinely linear; the heuristic simply cannot tell that apart from a stretched frame. The other sits
+at 0.127 against the 0.125 bar, which is a knife-edge rather than a clear call.
+
+**Consequences, and they differ by caller.** `DatasetDegradationExporter` REFUSES such a master
+outright rather than exporting pairs from it, so the training path fails loudly and drops the session
+(the message names the auto-detect). At INFERENCE nothing refuses: the stretch is skipped and the model
+is fed the frame as-is. In this particular case the damage is smaller than it sounds, because the
+unstretched median of 0.32 lands near the 0.25 the training tiles carry, so the LEVEL is roughly right
+and only the nonlinear SHAPE differs; it is not the 100x level error of the H0 defect
+([denoiser-training.md](plans/denoiser-training.md) fact 0). The effect has not been measured.
+
+**Not repaired on a sample of two, and one obvious repair does not work.** The natural discriminator is
+skew, since a linear astro frame's brightest pixels sit orders of magnitude above sky while a stretched
+one's do not, but this master's bright end is CLIPPED, so its q99.9-to-median ratio is 1.85 and a
+skew test would call it stretched too. Anything better needs more than two examples to be tuned on.
+
 ### SPCC's remaining error budget is the white-reference sub-type, and it is a few percent
 
 `Tycho2ColorCalibration.WhiteReference` defines the spectrum that renders neutral and defaults to
