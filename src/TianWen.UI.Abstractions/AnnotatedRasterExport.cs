@@ -166,6 +166,9 @@ namespace TianWen.UI.Abstractions
                     {
                         IccProfile = IccProfiles.SRgbV4.ToArray(),
                         DiscardAlpha = true,
+
+                        // See DisplayRasterExport.PngFragments for why this is a constant.
+                        ParallelFragments = 8,
                     });
                     break;
 
