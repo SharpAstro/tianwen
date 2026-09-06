@@ -16,6 +16,11 @@ using Microsoft.Extensions.Logging;
 using static SDL3.SDL;
 using SharpAstro.AppShell;
 
+// Anchor the start-up trace FIRST, so the phase before this line -- the AOT runtime's own init and,
+// for the packaged build, MSIX activation -- is measured rather than assumed. Nothing in the process
+// can see that time except by asking the OS when the process was created, which is what this does.
+StartupTrace.Mark("main");
+
 // DI setup, before args processing so logger is available for early errors
 var services = new ServiceCollection();
 services
@@ -37,12 +42,14 @@ services
     .AddSingleton<ViewerController>();
 
 var sp = services.BuildServiceProvider();
+StartupTrace.Mark("di");
 var state = sp.GetRequiredService<ViewerState>();
 var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("TianWen.UI.FitsViewer");
 var controller = sp.GetRequiredService<ViewerController>();
 var tracker = sp.GetRequiredService<BackgroundTaskTracker>();
 // Wire the AI enhance pipeline so the Enhance toolbar button (+ 'E' shortcut) is active.
 controller.EnhancePipeline = sp.GetRequiredService<SharpenPipeline>();
+StartupTrace.Mark("services");
 
 // --- Command-line definition ---
 var pathArg = new Argument<string?>("path")
@@ -111,6 +118,7 @@ if (parsedResult.Errors.Count > 0)
 }
 
 await parsedResult.InvokeAsync();
+StartupTrace.Mark("cli");
 
 // --help/--version bypass SetAction: exit cleanly
 if (!actionCalled)
@@ -171,6 +179,8 @@ if (initialFilePath is not null)
     // Defer loading so the window appears immediately with a status message
     state.RequestedFilePath = initialFilePath;
 }
+
+StartupTrace.Mark("scan");
 
 // --- One instance per folder, plus one for "nothing open" ---
 // A double-click in the shell starts a fresh process, so a folder the user is already looking
@@ -239,6 +249,8 @@ if (!newWindow
     }
 }
 
+StartupTrace.Mark("gate");
+
 // --- SDL3 + Vulkan init ---
 // Install the native-library resolver before the first P/Invoke into SDL3 so a
 // failed DLL load lands in the file logger instead of crashing silently.
@@ -247,6 +259,7 @@ NativeLoaderDiagnostics.Install(logger);
 using var sdlWindow = NativeLoaderDiagnostics.InitNative(logger, "SDL3 + Vulkan window",
     () => SdlVulkanWindow.Create("Fits viewer", 1536, 1080));
 sdlWindow.GetSizeInPixels(out var pixW, out var pixH);
+StartupTrace.Mark("window");
 
 var bus = new SignalBus();
 // One owner for the GPU trio (see GpuStack): disposed at scope end top-down -- imageRenderer,
@@ -284,6 +297,21 @@ using var gpu = new GpuStack<VkImageRenderer>(logger, sdlWindow, (uint)pixW, (ui
     });
 var renderer = gpu.Renderer;
 var imageRenderer = gpu.Top;
+StartupTrace.Mark("gpu");
+
+// Once-only latches for the start-up trace. The three phases after "gpu" are all inside per-frame
+// callbacks, and only their FIRST run is start-up.
+var firstPrepareTraced = false;
+var firstBeforeFrameTraced = false;
+var firstFrameTraced = false;
+var firstRedrawCheckTraced = false;
+var firstRenderCallbackTraced = false;
+// How many attempts the first PAINTED frame took. A BeginFrame that reports a resize abandons the
+// frame and the loop retries, re-running OnBeforeFrame and the pre-render-pass hook each time, so a
+// count above one says the window was still settling and the time went on frames nobody saw.
+var frameAttempts = 0;
+var prepareCalls = 0;
+var resizeCalls = 0;
 
 using var cts = new CancellationTokenSource();
 imageRenderer.AppToken = cts.Token;
@@ -294,8 +322,15 @@ imageRenderer.AppToken = cts.Token;
 // call below finds the work already done instead of repeating it.
 renderer.OnPreRenderPass = _ =>
 {
+    prepareCalls++;
     imageRenderer.PrepareFrame(controller.Source, state);
     imageRenderer.PrepareCachedImageLayer();
+
+    if (!firstPrepareTraced)
+    {
+        firstPrepareTraced = true;
+        StartupTrace.Mark("prepare");
+    }
 };
 
 
@@ -310,7 +345,17 @@ tracker.RunGuarded(
     onError: _ => state.StatusMessage = "Object catalog unavailable");
 
 // Wire title update from controller
-controller.FileLoaded += name => SetWindowTitle(sdlWindow.Handle, Path.GetFileName(name));
+var firstDocumentTraced = false;
+controller.FileLoaded += name =>
+{
+    if (!firstDocumentTraced)
+    {
+        firstDocumentTraced = true;
+        StartupTrace.Mark("document");
+        StartupTrace.Log(logger);
+    }
+    SetWindowTitle(sdlWindow.Handle, Path.GetFileName(name));
+};
 
 // --- Main event loop via SdlEventLoop ---
 
@@ -324,6 +369,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
     OnResize = (rw, rh) =>
     {
+        resizeCalls++;
         imageRenderer.DpiScale = sdlWindow.DisplayScale;
         imageRenderer.Resize(rw, rh);
     },
@@ -372,6 +418,14 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     // the loop idles and the GPU/disk go quiet (mirroring the standalone viewer's low-idle behaviour).
     CheckNeedsRedraw = () =>
     {
+        if (!firstRedrawCheckTraced)
+        {
+            firstRedrawCheckTraced = true;
+            // Everything from "wire" to here is SDL: the loop's first PollEvent and the burst of
+            // window events it drains before the app is asked whether to draw.
+            StartupTrace.Mark("events");
+        }
+
         // BOTH of these must run on EVERY iteration, so neither may sit on the right of a ||:
         // TickPlayback paces SER playback (see the note above), and the gate pump is the only
         // place a hand-off from a later launch is noticed. Evaluate them, then combine.
@@ -387,6 +441,14 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
     OnRender = () =>
     {
+        if (!firstRenderCallbackTraced)
+        {
+            firstRenderCallbackTraced = true;
+            // "prepare" to here is the renderer's own frame open: acquiring a swapchain image
+            // (which can wait on the presentation engine) and beginning the pass.
+            StartupTrace.Mark("acquire");
+        }
+
         // Everything that can SWAP the document (finished background work, a file request, an enhance
         // result) runs in OnBeforeFrame, before this frame's command buffer exists; the texture upload
         // it implies runs inside PrepareFrame, from the pre-render-pass hook. Both used to happen here,
@@ -399,6 +461,20 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     if (renderer.LastFrameWasPartial) { partialFrames++; } else { fullFrames++; }
 
     imageRenderer.Render(controller.Source, state);
+
+        // The trace is written here rather than at the end of the set-up above because the window
+        // being on screen is what the user is waiting for, and a file opened from the shell then
+        // adds a second line once its pixels arrive (the load is deliberately deferred so the
+        // window can appear first).
+        if (!firstFrameTraced)
+        {
+            firstFrameTraced = true;
+            StartupTrace.Mark("first-frame");
+            StartupTrace.Log(logger);
+            logger.LogInformation(
+                "startup: the first painted frame took {Attempts} frame attempts, {Prepares} pre-render passes, {Resizes} resizes",
+                frameAttempts, prepareCalls, resizeCalls);
+        }
 
         // Also after a paint, not only on move: a repaint can change which regions sit under a
         // STATIONARY pointer (a dropdown opening over the handle, a panel toggled by a key).
@@ -430,6 +506,15 @@ bus.Subscribe<EnhanceImageSignal>(_ =>
 var frameDamage = new List<RectF32>();
 loop.OnBeforeFrame = () =>
 {
+    frameAttempts++;
+    if (!firstBeforeFrameTraced)
+    {
+        firstBeforeFrameTraced = true;
+        // Everything between "gpu" and here is the event loop reaching its first frame at all: the
+        // window shown, the first events pumped, the redraw gate answering yes.
+        StartupTrace.Mark("loop");
+    }
+
     // The document may only change BETWEEN frames. A swap recreates the channel textures, and the
     // recreate destroys the previous views; done inside a frame it invalidated whatever this frame's
     // command buffer had already recorded against them (the cached-layer pre-pass), and the GPU
@@ -513,6 +598,7 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
 });
 #endif
 
+StartupTrace.Mark("wire");
 loop.Run(cts.Token);
 
 // Cleanup. The window and the Vulkan context can only be destroyed on THIS thread, so the drain
