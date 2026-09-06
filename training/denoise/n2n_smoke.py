@@ -760,9 +760,21 @@ def train(args):
                   f"{args.gate_every} steps; floor {gate.floor_spurious:.1f} spurious/tile")
         if args.gate_observe:
             for s, ocells in observer_cells(meta, args.gate_sessions, args.gate_cells):
-                observers.append((s, n2n_gate.Gate(mm, ocells, dev, input_slot=gate_input)))
-                print(f"  OBSERVING (never selected on) {len(ocells)} cells from {s[:44]}; "
-                      f"floor {observers[-1][1].floor_spurious:.1f} spurious/tile")
+                # The observers have to be the SAME KIND of gate as the selector, or they report a
+                # different set of keys under the selector's column headers. They were left as
+                # denoiser gates when the selector became a deconvolution one, and the run died on
+                # the first observed probe with a KeyError: better than printing noise-metric numbers
+                # under width headings, which is what a looser formatter would have done.
+                if psf01_labels is not None:
+                    observers.append((s, n2n_deconv_gate.DeconvGate(
+                        mm, ocells, dev, psf01=psf01_labels[ocells, gate_input - 1],
+                        input_slot=gate_input)))
+                    print(f"  OBSERVING (never selected on) {len(ocells)} cells from {s[:44]}; "
+                          f"input at {np.nanmean(observers[-1][1].input_fwhm / observers[-1][1].truth_fwhm):.2f}x truth")
+                else:
+                    observers.append((s, n2n_gate.Gate(mm, ocells, dev, input_slot=gate_input)))
+                    print(f"  OBSERVING (never selected on) {len(ocells)} cells from {s[:44]}; "
+                          f"floor {observers[-1][1].floor_spurious:.1f} spurious/tile")
         # Names the three gates that are actually in the pass condition. It used to print the
         # residual threshold too, left behind when resid became report-only, which read as a
         # fourth gate in six runs' worth of logs.
@@ -1033,7 +1045,7 @@ def train(args):
             # column, so the two trajectories are aligned step-for-step in one log and neither can
             # be mistaken for the one that selected.
             for si, (_, og) in enumerate(observers):
-                om = og.evaluate(model, cond_planes)
+                om = og.evaluate(model) if psf01_labels is not None else og.evaluate(model, cond_planes)
                 print(f"  obs{si} {step:6d}   {fmt(om)}", flush=True)
 
     if len(regimes) > 1:

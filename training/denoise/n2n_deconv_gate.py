@@ -97,10 +97,17 @@ def star_fwhm(tile, ys, xs, med, max_r=10):
 
 
 def ring_excess(tile, ys, xs, fwhm, med, mad):
-    """Fraction of stars whose annulus minimum sits more than 1 MAD below the local background.
+    """Median annulus DEPTH below background, in MAD, over the given stars.
 
     Returned RAW; the caller subtracts the same statistic measured on the input, because this reads
     well above zero on a frame nothing has been done to.
+
+    **A depth and not a fraction-over-a-threshold, which is what this was first.** The thresholded
+    form ("what share of stars undershoot by more than 1 MAD") saturates on real data: the minimum of
+    about a hundred noise samples is already past 1 MAD before anything is deconvolved, so input and
+    output both read 1.0 and the excess is exactly 0.0 on every row. Seen on the first real run, where
+    the column printed +0.0% for the selector AND both observers at every probe. A column that cannot
+    move is worse than no column, because it is later read as "no ringing observed".
     """
     if not np.isfinite(fwhm) or fwhm <= 0 or mad <= 0:
         return float("nan")
@@ -114,18 +121,15 @@ def ring_excess(tile, ys, xs, fwhm, med, mad):
     if not ring.any():
         return float("nan")
 
-    over = 0
-    n = 0
+    depths = []
     for y, x in zip(ys, xs):
         if y - r < 0 or x - r < 0 or y + r >= h or x + r >= w:
             continue
 
         patch = tile[y - r:y + r + 1, x - r:x + r + 1]
-        n += 1
-        if (med - patch[ring].min()) > mad:
-            over += 1
+        depths.append((med - patch[ring].min()) / mad)
 
-    return float(over) / n if n else float("nan")
+    return float(np.median(depths)) if depths else float("nan")
 
 
 class DeconvGate:
@@ -234,12 +238,12 @@ class DeconvGate:
 
     @staticmethod
     def header():
-        return (f"{'in/truth':>9} {'out/truth':>10} {'resid px':>9} {'ring exc':>9} {'stars':>6}")
+        return (f"{'in/truth':>9} {'out/truth':>10} {'resid px':>9} {'ring MAD':>9} {'stars':>6}")
 
     @staticmethod
     def format(m):
         return (f"{m['input_ratio']:9.3f} {m['fwhm_ratio']:10.3f} {m['residual_px']:+9.3f} "
-                f"{m['ring_excess']:+9.1%} {m['stars_kept']:6.2f}")
+                f"{m['ring_excess']:+9.2f} {m['stars_kept']:6.2f}")
 
 
 def _self_test():
@@ -299,7 +303,7 @@ def _self_test():
     yz, xz = np.nonzero(dz)
     kz = (yz > 12) & (yz < size - 13) & (xz > 12) & (xz < size - 13)
     raw = ring_excess(noisy, yz[kz], xz[kz], 3.0, mnz, madz)
-    print(f"  ring on an untouched noisy plate: {raw:.1%} of stars "
+    print(f"  ring depth on an untouched noisy plate: {raw:.2f} MAD "
           f"(NOT expected to be 0; this is why the gate subtracts a null)")
 
     print("self-test PASSED" if ok else "self-test FAILED")
