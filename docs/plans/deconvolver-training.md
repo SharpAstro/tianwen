@@ -475,6 +475,59 @@ one-flag control that supervises the bands the blur actually occupies, which is 
 would moot a redesign if it works; and only if that fails, an architecture that carries the forward
 operator rather than a loss that hopes to imply it.
 
+### E2.7's results, 2026-09-06: the loss can see the scale now, and buys width with faint stars
+
+Two arms x three seeds against E2.6's own seeds 0-2, same cache, same everything but `--band-scales`.
+Arm A added the fine band (`"1,2 2,4 4,8"`, which dilutes it to weight 1.0 because the loss divides
+by band count); arm B isolated it (`"1,2"`, full weight 3.0).
+
+| seed | E2.6 min | arm A | arm B | E2.6 final | arm A | arm B |
+|---|---|---|---|---|---|---|
+| 0 | 1.364 | 1.290 | 1.313 | 1.389 | 1.327 | 1.341 |
+| 1 | 1.241 | 1.215 | 1.199 | 1.265 | 1.240 | 1.214 |
+| 2 | 1.364 | 1.349 | 1.328 | 1.459 | 1.365 | 1.339 |
+
+The input is 1.382. Paired against E2.6 the deltas are arm A -0.038 (sd 0.031) and arm B -0.043
+(sd 0.008), consistent in sign 3 of 3 in both arms, and **the two arms are not separable at three
+seeds** against a seed sd near 0.046: the band SET is not the thing to tune next.
+
+**The one robust difference is WHERE the minimum sits.** E2.6's minima came at steps 400, 2800 and
+100 of 4000, two of three effectively at the untrained model. Every one of E2.7's six lands at 3100
+to 3400 and is still falling at the budget. So the objective is no longer fighting the goal.
+
+**But the fixed gate refuses almost all of it, and that is the finding.** Arm B seed 2 is the first
+run in this campaign to select anything, and it selected **step 100, score 1.365**, barely under the
+1.382 input, rather than its own 1.328 at step 3300. The reason is in the star column:
+
+```
+step   100  out/truth 1.365  stars 0.64  pass      step  1300  out/truth 1.639  stars 0.48  FAIL
+step   500  out/truth 1.476  stars 0.62  pass      step  3300  out/truth 1.328  stars 0.54  FAIL
+```
+
+The floor is 0.620, being 0.95 of the measured input null of 0.653. Every checkpoint that reaches a
+deep minimum is holding 0.54 of the truth's stars, which is well under what its own INPUT still had:
+the width is being bought by suppressing faint stars. Converting the other five seeds out of pre-fix
+units (divide by the 1.096 self-score) puts their minimum-width checkpoints at 0.57 to 0.60, all
+below the same floor. **Not one arm's best-width checkpoint would survive the corrected gate.**
+
+That is the opposite of a deconvolution. Concentrating a star's flux RAISES its peak against the
+background, so a real inversion should make faint stars easier to detect, not harder. A high-pass
+that sharpens bright structure and attenuates everything near the noise floor reproduces the band
+statistic the loss is asking for while doing none of the work, and that is what the band term
+appears to have taught.
+
+**Two corrections to E2.6 above.** "Width degrades monotonically with steps" is wrong: both
+campaigns run a hump, worst around step 1300-1600 (E2.6 peaks at 1.53 to 1.66) and then partially
+recover. What actually separates them is whether the model ever beats its own step-100 value, which
+E2.6 largely did not and E2.7 does. And the reading "the binding constraint is now the step budget,
+so train longer" does not survive this table: more steps drive the star count further down, so a
+longer run buys width at exactly the price the gate exists to refuse.
+
+**Unit warning.** Arm B seed 2 ran after the gate fix landed and its star column is in POST-fix
+units; the other five are pre-fix and read about a tenth high. The width column is unaffected (the
+fix touched star detection only), which is why the table above is comparable throughout. Each seed
+is a fresh process, so an edit mid-campaign reaches the seeds not yet started.
+
 ### Reproducing E0 and E1
 
 Every number in the two sections below comes from a probe in `TianWen.Lib.Tests`, gated on an
