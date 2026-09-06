@@ -75,6 +75,16 @@ namespace TianWen.UI.Abstractions
             _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
         };
 
+        /// <summary>A human name for the format, for a menu row, a status line or the log. Mirrors
+        /// <see cref="DisplayRasterExport.DisplayName"/>, and says the depth for the same reason that
+        /// one does: a save's cost only reads correctly next to how many bits it wrote.</summary>
+        public static string DisplayName(this AnnotatedRasterFormat format) => format switch
+        {
+            AnnotatedRasterFormat.Png => "PNG (8-bit)",
+            AnnotatedRasterFormat.Jpeg => "JPEG",
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
+        };
+
         /// <summary>
         /// The format a path's extension asks for, or <c>null</c> when the extension is not one this
         /// writer produces.

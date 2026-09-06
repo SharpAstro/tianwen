@@ -412,6 +412,13 @@ public sealed class ViewerController(
                 return;
             }
 
+            // Timed from the dialog closing, so the number is the WAIT: everything between the user
+            // committing to a name and the file being on disk, and nothing they were not waiting for.
+            // A full-frame save is seconds of work with no progress indication, and until this line
+            // existed the only way to find out where those seconds went was to reproduce it in a
+            // benchmark and hope the benchmark resembled the real thing. Twice today it did not.
+            var saveStarted = System.Diagnostics.Stopwatch.StartNew();
+
             if (withOverlays)
             {
                 AnnotatedRasterFormat annotatedFormat;
@@ -432,6 +439,7 @@ public sealed class ViewerController(
                     annotation,
                     cancellationToken: token).ConfigureAwait(false);
 
+                LogSaved(target, annotatedFormat.DisplayName(), saveStarted);
                 state.StatusMessage = $"Saved {Path.GetFileName(target)}";
                 return;
             }
@@ -469,6 +477,7 @@ public sealed class ViewerController(
                 debayerAlgorithm: state.DebayerAlgorithm,
                 cancellationToken: token).ConfigureAwait(false);
 
+            LogSaved(target, format.DisplayName(), saveStarted);
             state.StatusMessage = $"Saved {Path.GetFileName(target)}";
         },
         appToken,
@@ -476,6 +485,26 @@ public sealed class ViewerController(
         withOverlays ? "Save annotated raster" : "Save display raster",
         onError: ex => state.StatusMessage = $"Save failed: {StatusText.FromException(ex)}",
         onFinally: () => state.NeedsRedraw = true);
+    }
+
+    /// <summary>
+    /// Record what a save cost, in the shape the rest of this log already uses for a slow operation
+    /// ("Detected 2203 stars in 0.3s").
+    /// </summary>
+    /// <remarks>
+    /// The megapixels and the megabytes are here because the seconds mean nothing without them: the
+    /// same picture is 121 MB at 16-bit and 16 MB at 8-bit, and those are different jobs rather than
+    /// the same job going at different speeds.
+    /// </remarks>
+    private void LogSaved(string path, string format, System.Diagnostics.Stopwatch elapsed)
+    {
+        var megapixels = Document is { } document
+            ? document.UnstretchedImage.Shape.Width * (long)document.UnstretchedImage.Shape.Height / 1e6
+            : 0d;
+        var megabytes = File.Exists(path) ? new FileInfo(path).Length / (1024.0 * 1024) : 0d;
+
+        logger.LogInformation("Saved {File} as {Format}: {Megapixels:F1} MP, {Megabytes:F0} MB in {Seconds:F2}s",
+            Path.GetFileName(path), format, megapixels, megabytes, elapsed.Elapsed.TotalSeconds);
     }
 
     /// <summary>
