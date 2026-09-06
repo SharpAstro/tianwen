@@ -343,8 +343,17 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     script and a Store install cannot reach it, so P11.1's status panel names a gap the user has no way
     to close.
   - [x] **P12** Gain/ISO and offset render in the info pane.
-  - [ ] **P13: in-depth user documentation** for the Store listing to point at. Written last, so it
-    documents what the others end up doing.
+  - [x] **P13: in-depth user documentation** for the Store listing to point at. DONE 2026-09-06:
+    `guide/viewer.html` in the `sharpastro.github.io` repo, linked from the Astro Photo Viewer
+    section of the landing page and reachable at
+    `https://sharpastro.github.io/guide/viewer.html`. Written LAST on purpose and it earned it --
+    P15, P18, P19 and P20 all changed what there was to describe. Every claim is checked against the
+    code: the shortcut tables come from the app's own `?` panel list (`ShortcutLines`) and
+    `GetToolbarButtonTooltip`, the two places the app already documents itself, so the page and the
+    program cannot disagree about a key. The three current limitations are stated rather than
+    omitted -- Save writes the clean raster (P22), SPCC is broadband-only, and a mosaic's channel
+    views show the mosaic (P21). Structured so the CLI / server / session runner can join as sibling
+    pages under `/guide/` without a rewrite.
   - [x] **P14** An EMPTY instance adopts an opened file instead of spawning a second window.
   - [x] **P15** A faint residue left by a narrowed repaint (damage-era). The entry's standing
     hypothesis was wrong -- the damage box already spans everything below the toolbar, so the info

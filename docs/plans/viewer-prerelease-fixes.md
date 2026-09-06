@@ -43,7 +43,7 @@ the 35 TIFF / import / codec tests pass against it.
 | P10 | Hand-off may select the adjacent row (needs confirmation) | UNCONFIRMED |
 | P11 | `--help` reports no version, and the AI enhancer status is invisible | **HALF FIXED**: version + status shipped, model download remains |
 | P12 | Gain/ISO and offset are parsed but never shown in the info pane | **FIXED** |
-| P13 | No in-depth user documentation | NEXT RELEASE |
+| P13 | No in-depth user documentation | **FIXED** 2026-09-06 (on the org site) |
 | P14 | An EMPTY instance does not adopt a file, because the gate is folder-scoped | **FIXED** |
 | P15 | A faint residue is left by a narrowed repaint (damage-era) | **FIXED** 2026-09-06 |
 | P16 | `Frame: None` printed the enum default as if it were a frame kind | **FIXED** |
@@ -286,14 +286,45 @@ the failure mode of a formatted-unconditionally row is `Gain: -1`, which reads l
 a real header. Live-verified: the ZWO ASI120MC plate-solve fixture renders `Gain: 48` with no `Offset`
 row, that file having no OFFSET card.
 
-## P13. No in-depth user documentation  — NEXT RELEASE
+## P13. No in-depth user documentation  — FIXED
 
-Raised by the user 2026-08-22. The viewer ships to the Microsoft Store as Astro Photo Viewer with no
-user-facing documentation at all: the keyboard shortcuts, the stretch model (and what Linked /
+Raised by the user 2026-08-22. The viewer shipped to the Microsoft Store as Astro Photo Viewer with
+no user-facing documentation at all: the keyboard shortcuts, the stretch model (and what Linked /
 Unlinked / Luma actually do), Calibrate versus the manual WB sliders, the wavelet layers, plate
-solve, Enhance, the SER transport, and the file associations plus the single-instance behaviour are
-all discoverable only by experiment or by reading `CLAUDE.md`. The Store listing needs somewhere to
-point, and P11's version line needs a document to sit beside.
+solve, Enhance, the SER transport, and the file associations plus the single-instance behaviour were
+all discoverable only by experiment or by reading `CLAUDE.md`.
+
+**Shipped 2026-09-06 as `guide/viewer.html` in the `sharpastro.github.io` repo**
+(`https://sharpastro.github.io/guide/viewer.html`), linked from the Astro Photo Viewer section of
+the landing page, which already carried the Store button and the screenshot. It lives on the org
+site rather than in this repo because that is where a Store reader lands and where the product page
+already is; the cost is a second repo, and this entry is the pointer.
+
+**Written last, and it earned that.** P15, P18, P19 and P20 all landed after it was raised and all
+changed what there was to describe -- Save did not exist, the blink and the display hold did not
+exist, and the share link did not exist.
+
+**Every claim is checked against the code rather than recalled**, which matters more here than in
+any other entry: a guide is the one artefact that can be confidently wrong for a year. The shortcut
+tables come from the app's own `?` panel list (`ShortcutLines`) and from `GetToolbarButtonTooltip`,
+the two places the app already documents itself, so the page and the program cannot drift apart on
+what a key does without one of those changing too.
+
+**Three current limitations are stated rather than omitted**: Save writes the clean raster with no
+grid, markers or labels (P22), photometric calibration is broadband-only, and a mosaic's
+single-channel views show the mosaic (P21). A guide that lists only what works is the one a reader
+stops trusting at their first surprise, and all three are things a user meets by accident.
+
+Structured so the CLI, the server and the session runner can join as sibling pages under `/guide/`
+without a rewrite. `assets/guide.css` is loaded only by these pages and is written entirely in
+`site.css`'s own custom properties, so the landing page's stylesheet is untouched.
+
+**Rendered and read before committing**, which caught three defects the markup was clean through:
+consecutive paragraphs ran together (site.css gives its paragraphs their rhythm through the landing
+page's own section selectors, so a bare `<p>` inherited none), every chord broke across the line end
+at its `+` (adjacent inline-block `<kbd>`s give the browser a break opportunity, so it is one `<kbd>`
+per chord now -- which is also how the app's panel writes them), and the Store button was
+`btn-primary`, which that site reserves for the sky atlas.
 
 ## P14. An EMPTY instance does not adopt a file  — FIXED
 
@@ -612,7 +643,7 @@ hard. backlog it if we can't deliver it now."*
 | D | P4, P6 | DONE. Correctness of presentation. P4 was briefly backlogged, then done anyway once P1 made the file decode at all. |
 | E | P5 | DONE. An LZW decoder; the only item whose absence was already documented scope. |
 | F | P9, P10 | Reproduce first; do not fix from a single screenshot. |
-| G | **P12 + P14 DONE 2026-08-22**; **P11's version + AI status DONE 2026-08-27**; P11's model download and P13 remain | The next release, in that order: P12 is a two-row rendering gap, P11 is a read of an existing property plus a lazily-populated status, P14 is a host-policy change with two cases to settle, and P13 is best written last so it documents what P11/P14 actually do. |
+| G | **P12 + P14 DONE 2026-08-22**; **P11's version + AI status DONE 2026-08-27**; **P13 DONE 2026-09-06**; P11's model download remains | P13 was written last on purpose, and by the time it was written the things it had to describe were P15 and phase H's three rather than P11/P14 -- which is the argument for writing it last, not against it. P11.2 (fetching the missing vendor models) is deferred: nothing on the resolution path copies, so an installed SAS Pro or GraXpert is already read in place. |
 | H | **P17 DONE 2026-08-27**; **P18 + P19 + P20 DONE 2026-09-04**; P21, P22 backlogged | The second wave of the user's notes. P17 first because it is a formatter over state that already existed, and it is what found the missing dropdown hover state. P18 and P19 both touch the display raster and the file list, so they share a sitting. P20 waits on the web build; P21 is a shader change whose cheap form is not obvious yet. |
 
 ## Verification
