@@ -179,8 +179,8 @@ mesa-vulkan-drivers install is verified, but allow the existing
 - Std140 alignment / packing mistakes in `UpdateStretchUBO` -- the GPU
   reads via the layout in the shader; CPU writes via byte offsets; a
   mismatch silently corrupts uniforms.
-- Bayer demosaic in the GPU path (`debayerBilinear`) that isn't currently
-  testable from CPU at all.
+- Bayer demosaic in the GPU path, which is not testable from the CPU at all
+  (since covered for VNG -- see followup A).
 
 ## What this does NOT catch
 
@@ -212,21 +212,33 @@ Luma vs C# `StretchMode.Unlinked == 2`), it's worth surveying every GPU
 pipeline that has a CPU equivalent or algorithmic check. Each candidate
 below could plug into the same `OffscreenGpuContext` fixture.
 
-### A. Bayer demosaic (`debayerBilinear` in image fragment shader)
+### A. Bayer demosaic (`debayerBilinear` in image fragment shader) -- **DONE for VNG (2026-09-07)**
 
-GPU: `VkFitsImagePipeline.cs:188-226` -- the shader does an inline
-bilinear demosaic when `imageSource == 2 (RawBayer)`.
+GPU: the shader demosaics inline when `imageSource == 2 (RawBayer)`, in one
+of five `stretchBlend.z` branches (bilinear / MHC / raw / mono / VNG).
 
-CPU: `Image.DebayerAsync(DebayerAlgorithm.BilinearMono)` (existing).
+CPU: `Image.DebayerAsync(...)` for the matching algorithm.
 
-Test: feed a small RGGB mosaic, render via GPU with imageSource=RawBayer,
-compare to CPU bilinear debayer + `RenderStretchedRgba`. Stretch
-parameters identity so demosaic is the only variable.
+Shipped as `GpuVngDebayerParityTests`, exactly the shape sketched here:
+a synthetic RGGB mosaic, `StretchMode.None` with neutral WB so the demosaic
+is the only variable, GPU render vs `DebayerAsync(VNG)` + `RenderStretchedRgba`.
+**Measured: max 1 byte, zero bytes differing by more than the 8-bit
+quantisation floor.** Two things worth carrying to the other candidates below:
 
-Value: Bayer images are common in OSC astrophotography. Confirms the GPU
-demosaic produces the same colors the CPU does.
+- **The mean is the wrong statistic for a CPU/GPU byte comparison.** Around
+  half of all bytes are off by one whatever the shader does, because the CPU
+  truncates (`(byte)(v * 255f)`) and the GPU's UNORM8 attachment rounds. That
+  floor swamps the signal: a deliberately broken shader scored 0.50 against
+  the correct one's 0.49, while the count of bytes past the floor moved 0.000%
+  -> 0.471% and the max 1 -> 8. Count outliers, not average error.
+- **A parity test needs a control that proves the fixture can fail.** The same
+  mosaic is also rendered through the MHC branch and required to disagree
+  loudly (max 86, 5.3% outliers); without it, a VNG branch that was never
+  reached would pass on any fixture smooth enough for all demosaics to agree.
 
-Effort: ~half a day. Same fixture, new test theory cases.
+Still open here: bilinear and MHC have no parity test of their own (MHC is
+pinned CPU-to-SER.Lib only), and a mosaic whose Bayer offset is not (0, 0)
+is untested on either side.
 
 ### B. Histogram pipeline (`VkFitsImagePipeline.RecordHistogramDraw`)
 
@@ -355,7 +367,7 @@ Effort: ~half a day. Folded into D.
 Order by value-per-day:
 
 1. **D (primitives)** -- highest value, broadest coverage, ~2 days.
-2. **A (Bayer demosaic)** -- direct extension of Phase 1, ~half a day.
+2. ~~**A (Bayer demosaic)**~~ -- done for VNG, 2026-09-07 (took about that).
 3. **F (line tessellation)** -- cheap, no GPU needed, ~half a day.
 4. **B (histogram)** -- nice to have, ~half a day.
 5. **C (WCS grid)** -- only if CPU mirror written for free elsewhere.

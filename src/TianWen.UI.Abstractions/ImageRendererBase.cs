@@ -128,25 +128,31 @@ namespace TianWen.UI.Abstractions
         /// <summary>Bayer pattern Y offset (0 or 1).</summary>
         public int BayerOffsetY { get; set; }
 
-        /// <summary>In-shader Bayer demosaic for the RawBayer path: 0 = bilinear, 1 = MHC.
-        /// Derived from <see cref="ViewerState.DebayerAlgorithm"/> via <see cref="GpuDebayerMode"/>
-        /// and refreshed in <see cref="UploadDocumentTextures"/>.</summary>
-        public int RawBayerDebayerMode { get; set; } = 1;
+        /// <summary>In-shader Bayer demosaic for the RawBayer path (see <see cref="GpuDebayerMode"/> for
+        /// the full mode list). Derived from <see cref="ViewerState.DebayerAlgorithm"/> and refreshed in
+        /// <see cref="UploadDocumentTextures"/>; the initial value matches
+        /// <see cref="ViewerActions.DefaultDebayerAlgorithm"/> so the first frame after an upload is not a
+        /// different demosaic from every frame after it.</summary>
+        public int RawBayerDebayerMode { get; set; } = GpuDebayerMode(ViewerActions.DefaultDebayerAlgorithm);
 
         /// <summary>Maps a <see cref="DebayerAlgorithm"/> to the GPU live-demosaic mode written into
         /// <c>stretchBlend.z</c> for the RawBayer shader path: <c>0</c> = bilinear colour, <c>1</c> = MHC colour,
-        /// <c>2</c> = raw mosaic (no demosaic, grey CFA pattern), <c>3</c> = monochrome. Each menu entry behaves
-        /// as its name implies: <see cref="DebayerAlgorithm.None"/> shows the raw pattern,
-        /// <see cref="DebayerAlgorithm.BilinearMono"/> is greyscale, <see cref="DebayerAlgorithm.VNG"/> is the
-        /// simple colour demosaic, and <see cref="DebayerAlgorithm.AHD"/>/<see cref="DebayerAlgorithm.MHC"/> both
-        /// use MHC (the GPU's best gradient-corrected colour demosaic; AHD has no GPU implementation). The default
-        /// <see cref="DebayerAlgorithm.AHD"/> therefore gives MHC colour, matching the standalone SER viewer.</summary>
+        /// <c>2</c> = raw mosaic (no demosaic, grey CFA pattern), <c>3</c> = monochrome, <c>4</c> = VNG colour.
+        ///
+        /// <para>Every algorithm the selector offers (<see cref="ViewerActions.DebayerAlgorithms"/>) has its
+        /// own shader branch, each a transcription of the CPU implementation of the same name, so the screen
+        /// and a Save agree by construction rather than by resemblance.</para>
+        ///
+        /// <para><see cref="DebayerAlgorithm.AHD"/> is the exception and is why it is not in the selector:
+        /// the shader has no AHD, so it answers MHC here. That mapping stays for a state persisted before
+        /// AHD was withdrawn -- such a viewer keeps looking exactly as it did -- but it is the one entry
+        /// where the display and a Save disagree.</para></summary>
         public static int GpuDebayerMode(DebayerAlgorithm algorithm) => algorithm switch
         {
             DebayerAlgorithm.None => 2,         // raw mosaic, no demosaic
             DebayerAlgorithm.BilinearMono => 3, // monochrome
-            DebayerAlgorithm.VNG => 0,          // bilinear colour (no GPU VNG)
-            _ => 1,                             // MHC colour (AHD falls back to MHC)
+            DebayerAlgorithm.VNG => 4,          // VNG colour
+            _ => 1,                             // MHC colour (AHD, no longer selectable, falls back to MHC)
         };
 
         // DPI scale is the inherited PixelWidgetBase.DpiScale -- set by the host (SDL DisplayScale) at
@@ -594,7 +600,7 @@ namespace TianWen.UI.Abstractions
             var pixelHeight = source.Height;
             var uploadedSlots = 0;
 
-            // Raw Bayer: upload single channel, GPU shader debayers (bilinear or MHC per DebayerAlgorithm)
+            // Raw Bayer: upload single channel, GPU shader debayers (bilinear / MHC / VNG per DebayerAlgorithm)
             if (source.SensorType is TianWen.Lib.Imaging.SensorType.RGGB && source.ChannelCount == 1
                 && state.ChannelView is ChannelView.Composite)
             {

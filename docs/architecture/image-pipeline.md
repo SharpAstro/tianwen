@@ -89,7 +89,25 @@ flowchart TD
 
 The fragment shader handles all image processing in a single pass per pixel:
 
-1. **Bayer demosaic** (`imgSource=RawBayer`): bilinear interpolation from 3×3 neighborhood via `texelFetch` on the raw mosaic texture, with configurable Bayer pattern offset
+1. **Bayer demosaic** (`imgSource=RawBayer`): one of five branches selected by `stretchBlend.z`
+   (`ImageRendererBase.GpuDebayerMode`), all `texelFetch` on the raw mosaic texture with a
+   configurable Bayer pattern offset -- `0` bilinear colour, `1` MHC, `2` the raw mosaic as grey,
+   `3` monochrome (the 2×2 quad average), `4` VNG.
+
+   **Every demosaic the viewer OFFERS has a branch here, and that is a rule rather than a
+   coincidence.** The save path CPU-debayers (`DisplayRasterExport` -> `Image.DebayerAsync`) while
+   the screen shows the shader's output, so an algorithm with no branch is one where the file is not
+   what the user was looking at. `debayerMhc` and `debayerVng` are transcriptions of
+   `Image.DebayerMHCAsync` / `Image.DebayerVNGAsync` down to the epsilons; `GpuVngDebayerParityTests`
+   renders a synthetic mosaic through both and holds them to zero bytes differing by more than the
+   8-bit quantisation floor. AHD is the one algorithm with no branch, which is exactly why
+   `ViewerActions.DebayerAlgorithms` does not offer it (it stays in `DebayerAlgorithm` for the batch
+   paths, and `GpuDebayerMode` still answers MHC for a viewer state persisted before it was
+   withdrawn).
+
+   **VNG's direction thresholds are ABSOLUTE (`+ 0.01` in the frame's own units), so the branch is
+   only correct on a mosaic normalised to `[0, 1]`** -- which `AstroImageDocument` guarantees for
+   both the texture upload and the image `DisplayRasterExport` later debayers.
 2. **Normalization**: `raw × normFactor` where `normFactor = 1/MaxValue`
 3. **MTF stretch**: pedestal subtraction → shadow clip → midtone transfer function
 4. **Curves boost** and **HDR compression** (optional)

@@ -16,7 +16,7 @@ public sealed class ViewerState
     public StretchMode StretchMode { get; set; } = ViewerActions.DefaultStretchMode;
     public StretchParameters StretchParameters { get; set; } = StretchParameters.Default;
     public ChannelView ChannelView { get; set; } = ChannelView.Composite;
-    public DebayerAlgorithm DebayerAlgorithm { get; set; } = DebayerAlgorithm.AHD;
+    public DebayerAlgorithm DebayerAlgorithm { get; set; } = ViewerActions.DefaultDebayerAlgorithm;
     public bool ShowInfoPanel { get; set; } = true;
 
     /// <summary>Curves boost amount applied in the display shader (0.0 = off, up to 1.0).</summary>

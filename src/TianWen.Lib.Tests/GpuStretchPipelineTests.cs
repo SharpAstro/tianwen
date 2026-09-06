@@ -603,22 +603,10 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         return ExtractSubRect(fullRgba, OffscreenGpuFixture.Width, width, height);
     }
 
-    /// <summary>
-    /// The fixture's framebuffer is sized to the largest test image (<see cref="OffscreenGpuFixture.Width"/>
-    /// x <see cref="OffscreenGpuFixture.Height"/>). For tests with smaller images the readback
-    /// returns the full framebuffer; this helper slices the meaningful top-left
-    /// <paramref name="dstWidth"/> x <paramref name="dstHeight"/> sub-rectangle out of it.
-    /// Returns the input unchanged when no slicing is needed.
-    /// </summary>
+    // Slicing the drawn corner out of the fixture-sized readback lives on the fixture itself now
+    // (OffscreenGpuFixtureBase.ExtractSubRect); GpuVngDebayerParityTests needs the same thing.
     private static byte[] ExtractSubRect(byte[] fullRgba, int srcStrideWidth, int dstWidth, int dstHeight)
-    {
-        if (dstWidth == srcStrideWidth && fullRgba.Length == dstWidth * dstHeight * 4)
-            return fullRgba;
-        var result = new byte[dstWidth * dstHeight * 4];
-        for (var y = 0; y < dstHeight; y++)
-            Buffer.BlockCopy(fullRgba, y * srcStrideWidth * 4, result, y * dstWidth * 4, dstWidth * 4);
-        return result;
-    }
+        => OffscreenGpuFixtureBase.ExtractSubRect(fullRgba, srcStrideWidth, dstWidth, dstHeight);
 
     private static string Triple((float R, float G, float B) v) => $"({v.R:F4},{v.G:F4},{v.B:F4})";
 
