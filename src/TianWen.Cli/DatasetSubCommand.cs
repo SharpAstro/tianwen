@@ -654,6 +654,14 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                           "the bake's own real pairs; 0 is bilinear alone.",
             DefaultValueFactory = _ => 0d,
         };
+        var maxBlurRatioOpt = new Option<double>("--max-blur-ratio")
+        {
+            Description = "Blur mode only: cap each draw at this multiple of the CELL'S OWN measured width, " +
+                          "on top of --max-extra-fwhm. Default 2.0, from E1's oracle ceiling: past 2x blur even " +
+                          "a deconvolution handed the exact kernel leaves the star about 1.6x too wide, so " +
+                          "drawing there teaches a problem nothing can solve. 1.0 or less disables it.",
+            DefaultValueFactory = _ => 2.0,
+        };
         var perChannelOpt = new Option<bool>("--per-channel-kernels")
         {
             Description = "Blur mode only: draw a SEPARATE kernel per channel, its width scaled by the " +
@@ -682,7 +690,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, perChannelOpt, forceOpt, measureOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, maxBlurRatioOpt, perChannelOpt, forceOpt, measureOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -710,6 +718,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                 MaxSessions: parseResult.GetValue(sessionsOpt),
                 Seed: parseResult.GetValue(seedOpt),
                 WarpResampleSigma: parseResult.GetValue(warpSigmaOpt),
+                MaxBlurRatio: parseResult.GetValue(maxBlurRatioOpt),
                 PerChannelKernels: parseResult.GetValue(perChannelOpt),
                 Force: parseResult.GetValue(forceOpt),
                 SessionFilters: [.. parseResult.GetValue(sessionFilterOpt) ?? []]);

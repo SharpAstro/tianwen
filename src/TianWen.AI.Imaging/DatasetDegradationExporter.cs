@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -14,6 +14,7 @@ using System.Threading.Tasks;
 using TianWen.AI.Imaging.Onnx;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Dataset;
+using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Degradation;
 
 namespace TianWen.AI.Imaging
@@ -123,6 +124,20 @@ namespace TianWen.AI.Imaging
         /// model meets at inference. It must be INTERIOR to the drawn range, which is what makes the
         /// bottom of that range a per-session value rather than a constant.</param>
         /// <param name="Seed">The draw's RNG seed, so one tile can be re-derived on its own.</param>
+        /// <param name="Psf01Estimated">Blur mode: the conditioning scalar <see cref="HfdPsfEstimator"/>
+        /// reads off the DEGRADED cell, in the LINEAR domain and under TianWen's own
+        /// <c>[0.5, 4.0]</c> px contract. <b>This is the label a trained model may use</b>, because it
+        /// is the only one inference can obtain: on a real frame there is no kernel, only what the
+        /// estimator reads. NaN when the estimator found no stars and fell back to its default radius,
+        /// so a consumer drops the row rather than training on a constant nothing measured.</param>
+        /// <param name="Psf01FromKernel">Blur mode: the same scalar computed from the KERNEL instead,
+        /// the drawn width composed in quadrature with the clean cell's own measured width. Available
+        /// only in training, which is exactly H2's point; recorded so the two labels can be compared
+        /// as an arm rather than argued about. NaN when the clean cell yielded no measurement.</param>
+        /// <param name="Psf01Stars">Stars the estimator measured <see cref="Psf01Estimated"/> from.
+        /// Zero means the fallback fired.</param>
+        /// <param name="CleanFwhmPx">The clean cell's own median star FWHM, measured once per cell by
+        /// the same estimator. The frame's existing blur, which the drawn kernel adds to.</param>
         public sealed record DegradationRow(
             string Tile,
             string SessionId,
@@ -144,7 +159,11 @@ namespace TianWen.AI.Imaging
             double FieldRadius,
             string NoiseAnchor,
             double MasterDepth,
-            int Seed);
+            int Seed,
+            double? Psf01Estimated = null,
+            double? Psf01FromKernel = null,
+            int Psf01Stars = 0,
+            double? CleanFwhmPx = null);
 
         /// <summary>What to export.</summary>
         /// <param name="BakeRoot">A dataset bake: it must hold <c>tiles-manifest.jsonl</c> and
@@ -169,7 +188,12 @@ namespace TianWen.AI.Imaging
         /// standing in for a resampling kernel wider than bilinear. The knob that calibrates the arm
         /// against the shape a real frame has; measure with --measure-shape rather than guessing.</param>
         /// <param name="MinExtraFwhmPx">Blur mode: bottom of the added-FWHM range.</param>
-        /// <param name="MaxExtraFwhmPx">Blur mode: top of the added-FWHM range.</param>
+        /// <param name="MaxExtraFwhmPx">Blur mode: outer limit of the added-FWHM range, in pixels.</param>
+        /// <param name="MaxBlurRatio">Blur mode: the per-frame limit, as a multiple of the cell's OWN
+        /// measured width, applied on top of <see cref="MaxExtraFwhmPx"/>. Default 2.0 because E1's
+        /// oracle, handed the exact kernel, stays within 10 percent of the truth to 2x and leaves the
+        /// star about 1.6x too wide beyond it: drawing past that teaches a problem nothing can solve.
+        /// 1.0 or less disables it, leaving the pixel cap alone.</param>
         /// <param name="Force">Re-export a session already present in the degradation store.</param>
         /// <param name="SessionFilters">Case-insensitive substrings of the session id; when non-empty only
         /// sessions matching at least one are exported. The way an arm names its pool without exporting
@@ -190,6 +214,7 @@ namespace TianWen.AI.Imaging
             double MaxDepthScale = 1.5,
             double MinExtraFwhmPx = 0.5,
             double MaxExtraFwhmPx = 4.0,
+            double MaxBlurRatio = 2.0,
             bool PerChannelKernels = false,
             bool Force = false,
             ImmutableArray<string> SessionFilters = default);
@@ -386,10 +411,18 @@ namespace TianWen.AI.Imaging
                         ? Math.Sqrt(Math.Pow(cell.X + (cell.TileSize / 2.0) - centreX, 2) + Math.Pow(cell.Y + (cell.TileSize / 2.0) - centreY, 2)) / halfDiagonal
                         : 0.0;
 
+                    // ONCE per cell, not per draw: the clean width does not depend on which blur was
+                    // drawn, and it is the term the kernel-side label composes the drawn width into.
+                    // Blur mode only, because nothing else has a use for it and a star detection per
+                    // cell is not free.
+                    var cleanFwhmPx = options.Mode == DegradationMode.Blur
+                        ? await MeasureCleanFwhmAsync(unitMaster, origin, cell.TileSize, cancellationToken)
+                        : null;
+
                     for (var draw = 0; draw < options.Draws; draw++)
                     {
                         var seed = DrawSeed(options.Seed, sessionId, cell.X, cell.Y, draw);
-                        var row = DegradeCell(options, unitMaster, cell, origin, draw, seed, stackedFrames, fieldRadius, origMin, balances, tilesDir, slug, sessionId);
+                        var row = await DegradeCellAsync(options, unitMaster, cell, origin, draw, seed, stackedFrames, fieldRadius, origMin, balances, tilesDir, slug, sessionId, cleanFwhmPx, cancellationToken);
                         degRows.Add(row);
                         tileRows.Add(new DatasetTileExporter.TileManifestRow(
                             Tile: row.Tile, SessionId: sessionId, Camera: cell.Camera, Frame: row.Frame,
@@ -423,7 +456,7 @@ namespace TianWen.AI.Imaging
         /// region is cut <see cref="PsfKernel.Radius"/> pixels wider on every side, convolved, and then
         /// cropped back, so the kernel never reaches for a pixel that is not there.
         /// </summary>
-        private static DegradationRow DegradeCell(
+        private static async Task<DegradationRow> DegradeCellAsync(
             Options options,
             Image unitMaster,
             CellSpec cell,
@@ -436,7 +469,9 @@ namespace TianWen.AI.Imaging
             double[] balances,
             string tilesDir,
             string slug,
-            string sessionId)
+            string sessionId,
+            double? cleanFwhmPx,
+            CancellationToken cancellationToken)
         {
             var rng = new Random(seed);
             var size = cell.TileSize;
@@ -450,7 +485,20 @@ namespace TianWen.AI.Imaging
             var positionAngle = 0.0;
             if (options.Mode == DegradationMode.Blur)
             {
-                extraFwhm = LogUniform(rng, options.MinExtraFwhmPx, options.MaxExtraFwhmPx);
+                // The top of the range is a RATIO to the frame's own width, not a pixel count, because
+                // what a deconvolver can do is bounded by how much of a width is excess rather than by
+                // how many pixels wide it is. E1's oracle, handed the exact kernel, recovers a blur
+                // fully to about 1.3x and stays inside 10 percent to 2x; past that it leaves the star
+                // 1.6x too wide, so drawing there fills the training set with a problem nothing solves.
+                // A fixed 4 px cap is roughly 2x on a 2.3 px master and far past it on a 1.5 px one,
+                // which is why the pixel cap alone was the wrong bound. Both still apply: the pixel one
+                // is the outer limit and this is the per-frame one.
+                var maxFromRatio = cleanFwhmPx is > 0 && options.MaxBlurRatio > 1.0
+                    ? cleanFwhmPx.Value * Math.Sqrt((options.MaxBlurRatio * options.MaxBlurRatio) - 1.0)
+                    : double.PositiveInfinity;
+                var maxExtra = Math.Max(options.MinExtraFwhmPx, Math.Min(options.MaxExtraFwhmPx, maxFromRatio));
+
+                extraFwhm = LogUniform(rng, options.MinExtraFwhmPx, maxExtra);
                 elongation = 1.0 + (rng.NextDouble() * 0.25);
                 positionAngle = rng.NextDouble() * 180.0;
 
@@ -547,6 +595,38 @@ namespace TianWen.AI.Imaging
             }
 
             var cellImage = new Image(planes, BitDepth.Float32, 1f, 0f, unitMaster.Pedestal, unitMaster.ImageMeta);
+
+            // H2's label, measured HERE and not from the kernel, on the LINEAR cell and not the
+            // stretched one. Both halves matter. Inference has no kernel, only what the estimator reads
+            // (OnnxNonStellarDeconvolver calls EstimateAsync on its input before the runner stretches),
+            // so a label taken from the drawn parameters is a quantity the deployed path cannot obtain
+            // -- the tile-border lesson in another costume. Measuring after the stretch would be a
+            // different number again, because a tone curve moves a star's half-maximum crossing.
+            double? psf01Estimated = null;
+            double? psf01FromKernel = null;
+            var psf01Stars = 0;
+            if (options.Mode == DegradationMode.Blur)
+            {
+                var measured = await PsfMeasurement.MeasureRadiusPxAsync(cellImage, cancellationToken);
+                psf01Stars = measured.Stars;
+                if (measured.Stars > 0)
+                {
+                    psf01Estimated = HfdPsfEstimator.EncodeRadiusToPsf01(
+                        measured.RadiusPx, HfdPsfEstimator.TianWenMinRadiusPx, HfdPsfEstimator.TianWenMaxRadiusPx);
+                }
+
+                if (cleanFwhmPx is > 0)
+                {
+                    // The training-only twin: the clean cell's own width composed in quadrature with the
+                    // width that was drawn. On the same scale as the measured one, so an arm comparing
+                    // them varies the label's SOURCE and nothing else.
+                    var clean = cleanFwhmPx.Value;
+                    var total = Math.Sqrt((clean * clean) + (extraFwhm * extraFwhm));
+                    psf01FromKernel = HfdPsfEstimator.EncodeRadiusToPsf01(
+                        (float)(total / 2.0), HfdPsfEstimator.TianWenMinRadiusPx, HfdPsfEstimator.TianWenMaxRadiusPx);
+                }
+            }
+
             Image? stretchedCell = null;
             try
             {
@@ -576,7 +656,11 @@ namespace TianWen.AI.Imaging
                     FieldRadius: fieldRadius,
                     NoiseAnchor: anchor,
                     MasterDepth: masterDepth,
-                    Seed: seed);
+                    Seed: seed,
+                    Psf01Estimated: psf01Estimated,
+                    Psf01FromKernel: psf01FromKernel,
+                    Psf01Stars: psf01Stars,
+                    CleanFwhmPx: cleanFwhmPx);
             }
             finally
             {
@@ -898,6 +982,49 @@ namespace TianWen.AI.Imaging
 
         private static double LogUniform(Random rng, double lo, double hi)
             => Math.Exp(Math.Log(lo) + (rng.NextDouble() * (Math.Log(hi) - Math.Log(lo))));
+
+        /// <summary>
+        /// One estimator instance for every psf01 measurement this exporter takes, on TianWen's own
+        /// contract rather than SAS's, so a label and the range it is encoded over cannot drift apart.
+        /// </summary>
+        private static readonly HfdPsfEstimator PsfMeasurement =
+            new(logger: null, HfdPsfEstimator.TianWenMinRadiusPx, HfdPsfEstimator.TianWenMaxRadiusPx);
+
+        /// <summary>
+        /// The clean cell's own median star FWHM in pixels, or NaN when the estimator found no stars.
+        /// Measured on the LINEAR master through the same estimator inference uses, so it is on the
+        /// same footing as the degraded measurement it will be composed with.
+        /// </summary>
+        private static async Task<double?> MeasureCleanFwhmAsync(Image unitMaster, Point origin, int size, CancellationToken cancellationToken)
+        {
+            var channels = unitMaster.ChannelCount;
+            var planes = new float[channels][,];
+            for (var c = 0; c < channels; c++)
+            {
+                var region = CutClamped(unitMaster, c, origin.X, origin.Y, size, size);
+                var plane = new float[size, size];
+                for (var y = 0; y < size; y++)
+                {
+                    for (var x = 0; x < size; x++)
+                    {
+                        plane[y, x] = region[(y * size) + x];
+                    }
+                }
+
+                planes[c] = plane;
+            }
+
+            var cell = new Image(planes, BitDepth.Float32, 1f, 0f, unitMaster.Pedestal, unitMaster.ImageMeta);
+            try
+            {
+                var measured = await PsfMeasurement.MeasureRadiusPxAsync(cell, cancellationToken);
+                return measured.Stars > 0 ? measured.RadiusPx * 2.0 : null;
+            }
+            finally
+            {
+                cell.Release();
+            }
+        }
 
         /// <summary>
         /// Per-channel added-width multipliers, relative to green, for

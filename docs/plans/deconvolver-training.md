@@ -480,10 +480,30 @@ draw toward beta 25, which is the one shape the plan says never to sample. Exclu
 table above does, and it is why the Moffat-versus-Gaussian row now reads 154 of 163 with its exceptions
 named rather than 48 of 50 with none.
 
-**What E2 owes on the back of this**, unchanged in scope but now specified: the exporter draws ONE
-kernel for all three channels (`DatasetDegradationExporter.DegradeCell`) and draws beta log-uniform
-over a fixed [1.5, 8.0] independently of FWHM. Both are wrong against the measurements above, and the
-per-channel half is the load-bearing one: ch0 sits at FWHM p50 2.47 px where ch1 sits at 1.80.
+**What E2 owed on the back of this, now SHIPPED 2026-09-06.** Three pieces:
+
+- **The per-channel correlated draw**, `--per-channel-kernels`, off by default so the shared draw
+  stays H3's control. Width scales by the measured channel ratio and beta comes from that channel's
+  own fitted relation, log-normal about the fit and clamped to the measured family; elongation and
+  angle stay shared, being properties of tracking and optics rather than wavelength. Justification
+  measured rather than asserted: a shared kernel drives the blue/green ratio from 1.372 to 1.072 by a
+  4 px blur where the per-channel draw holds 1.329.
+- **psf01 labelling (H2's other half).** Every blur row now carries `Psf01Estimated`, from
+  `HfdPsfEstimator` on the DEGRADED cell, in the LINEAR domain and under the `[0.5, 4.0]` contract,
+  beside `Psf01FromKernel`, the training-only twin composed from the clean cell's own measured width
+  and the drawn one. Two rules the code enforces: the label is measured on the linear cell because
+  `OnnxNonStellarDeconvolver` measures it there too and a tone curve moves a star's half-maximum
+  crossing; and **a psf01 is never written without stars behind it** (`Psf01Stars`), because the
+  estimator falls back to a constant default radius and storing that would put a number nothing
+  measured into the column a model conditions on. Null instead, so a consumer drops the row.
+  **Measured on the fixture, the two labels agree closely at light blur (0.639 against 0.642) and
+  DIVERGE at heavy blur (0.837 against 0.810)**: quadrature composition understates a Moffat's
+  widening, so the kernel label is systematically low exactly where it matters, which is evidence for
+  H2's position before the arm is run.
+- **The sweep's top is a RATIO now, not a pixel count** (`--max-blur-ratio`, default 2.0, applied on
+  top of the pixel cap). E1's ceiling is the reason: past 2x blur the oracle itself leaves the star
+  about 1.6x too wide, so a fixed 4 px cap, which is roughly 2x on a 2.3 px master and far past it on
+  a 1.5 px one, spends a slice of the training set on a problem nothing can solve.
 
 ## 6. Integration
 

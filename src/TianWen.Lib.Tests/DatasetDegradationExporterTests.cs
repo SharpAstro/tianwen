@@ -322,6 +322,130 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// H2's label, and the invariant that makes it trustworthy: <b>a psf01 never appears without
+        /// stars behind it.</b> `HfdPsfEstimator` falls back to a constant default radius when it finds
+        /// none, and storing that as a training label would put a number nothing measured into the
+        /// column a model conditions on. The exporter writes null instead, so a consumer drops the row.
+        /// </summary>
+        [Fact]
+        public async Task APsf01LabelNeverAppearsWithoutStarsBehindIt()
+        {
+            var bake = BuildBake();
+            var outDir = Path.Combine(_root, "degraded-psf01");
+
+            await DatasetDegradationExporter.RunAsync(
+                new DatasetDegradationExporter.Options(
+                    bake, outDir, Mode: DatasetDegradationExporter.DegradationMode.Blur,
+                    Draws: 3, CellsPerSession: 2, Seed: 21, MinExtraFwhmPx: 0.5, MaxExtraFwhmPx: 4.0),
+                logger: null,
+                TestContext.Current.CancellationToken);
+
+            var rows = ReadDegradationRows(outDir);
+            rows.Length.ShouldBeGreaterThan(0);
+
+            foreach (var r in rows)
+            {
+                output.WriteLine($"added {r.ExtraFwhmPx:F2} px: clean FWHM {r.CleanFwhmPx?.ToString("F2") ?? "none"}, "
+                    + $"psf01 estimated {r.Psf01Estimated?.ToString("F3") ?? "null"} from {r.Psf01Stars} stars, "
+                    + $"psf01 from kernel {r.Psf01FromKernel?.ToString("F3") ?? "null"}");
+
+                if (r.Psf01Stars == 0)
+                {
+                    r.Psf01Estimated.ShouldBeNull("the estimator's fallback radius is not a measurement");
+                }
+                else
+                {
+                    r.Psf01Estimated.ShouldNotBeNull();
+                    r.Psf01Estimated!.Value.ShouldBeInRange(0.0, 1.0);
+                }
+
+                // The kernel-side label is available only when the CLEAN cell yielded a width to compose
+                // the drawn one into; it is training-only by construction, which is H2's whole point.
+                if (r.CleanFwhmPx is null)
+                {
+                    r.Psf01FromKernel.ShouldBeNull();
+                }
+                else
+                {
+                    r.Psf01FromKernel.ShouldNotBeNull();
+                    r.Psf01FromKernel!.Value.ShouldBeInRange(0.0, 1.0);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The sweep's top is a RATIO to the frame's own width, not a pixel count. E1's oracle leaves a
+        /// star about 1.6x too wide past 2x blur, so a draw beyond that teaches a problem nothing can
+        /// solve; a fixed pixel cap cannot express that, being roughly 2x on one master and far past it
+        /// on a sharper one. Asserted against the cell's OWN measured width, which is the quantity the
+        /// bound is relative to.
+        /// </summary>
+        [Fact]
+        public async Task TheBlurSweepIsCappedAgainstTheFramesOwnWidthNotAPixelCount()
+        {
+            var bake = BuildBake();
+            var outDir = Path.Combine(_root, "degraded-ratio-cap");
+
+            await DatasetDegradationExporter.RunAsync(
+                new DatasetDegradationExporter.Options(
+                    bake, outDir, Mode: DatasetDegradationExporter.DegradationMode.Blur,
+                    Draws: 8, CellsPerSession: 2, Seed: 5,
+                    // A pixel cap far beyond anything the ratio permits, so only the ratio can be what
+                    // bounds the draws: without it this asserts the pixel cap and passes for free.
+                    MinExtraFwhmPx: 0.5, MaxExtraFwhmPx: 40.0, MaxBlurRatio: 1.5),
+                logger: null,
+                TestContext.Current.CancellationToken);
+
+            var rows = ReadDegradationRows(outDir).Where(r => r.CleanFwhmPx is > 0).ToArray();
+            Assert.SkipWhen(rows.Length == 0, "no row carried a clean width to bound against");
+
+            foreach (var r in rows)
+            {
+                var own = r.CleanFwhmPx!.Value;
+                var total = Math.Sqrt((own * own) + (r.ExtraFwhmPx * r.ExtraFwhmPx));
+                var ratio = total / own;
+                output.WriteLine($"own {own:F2} px + {r.ExtraFwhmPx:F2} = {total:F2} ({ratio:F2}x)");
+                ratio.ShouldBeLessThanOrEqualTo(1.5 + 1e-6, "the draw must respect the per-frame ratio cap");
+            }
+
+            // And the cap must BIND rather than sit unreached, or the assertion above is vacuous.
+            rows.Max(r => r.ExtraFwhmPx).ShouldBeGreaterThan(rows.Min(r => r.CleanFwhmPx!.Value) * 0.5);
+        }
+
+        /// <summary>
+        /// The label has to MOVE with the blur, or it carries no information for the model to condition
+        /// on. Skipped rather than asserted when the fixture yields no measurement, because a synthetic
+        /// plate is not guaranteed to present stars the detector accepts, and a silently vacuous
+        /// assertion is worse than an honest skip.
+        /// </summary>
+        [Fact]
+        public async Task ThePsf01LabelRisesWithTheInjectedBlur()
+        {
+            var bake = BuildBake();
+            var outDir = Path.Combine(_root, "degraded-psf01-monotone");
+
+            await DatasetDegradationExporter.RunAsync(
+                new DatasetDegradationExporter.Options(
+                    bake, outDir, Mode: DatasetDegradationExporter.DegradationMode.Blur,
+                    Draws: 8, CellsPerSession: 2, Seed: 33, MinExtraFwhmPx: 0.5, MaxExtraFwhmPx: 4.0),
+                logger: null,
+                TestContext.Current.CancellationToken);
+
+            var measured = ReadDegradationRows(outDir)
+                .Where(r => r.Psf01Estimated is not null)
+                .OrderBy(r => r.ExtraFwhmPx)
+                .ToArray();
+
+            Assert.SkipWhen(measured.Length < 6, $"only {measured.Length} rows carried a measurement");
+
+            var half = measured.Length / 2;
+            var gentle = measured.Take(half).Average(r => r.Psf01Estimated!.Value);
+            var heavy = measured.Skip(measured.Length - half).Average(r => r.Psf01Estimated!.Value);
+            output.WriteLine($"psf01 over the gentlest {half} draws {gentle:F3}, over the heaviest {half} {heavy:F3}");
+            heavy.ShouldBeGreaterThan(gentle, "a conditioning label that does not move with the blur conditions on nothing");
+        }
+
+        /// <summary>
         /// Subsetting cells must SAMPLE, not take a prefix: the P0 cells arrive sorted row-major, so a
         /// prefix is the top of the canvas and a training set drawn from it sees one edge of every
         /// frame. Seeded, so the same cells come back on a re-run.

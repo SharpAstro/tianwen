@@ -85,7 +85,10 @@ public sealed class HfdPsfEstimator(
 
     /// <summary>The estimator's measurement before any encoding: the radius it read, in pixels, and
     /// how many stars it read it from (0 when it fell back to <see cref="DefaultRadiusPx"/>).</summary>
-    internal readonly record struct Measurement(float RadiusPx, int Stars);
+    /// <remarks><b>A zero star count means the radius is the FALLBACK constant, not a measurement.</b>
+    /// Anything recording this as data has to drop those rows rather than store the default as if the
+    /// frame had presented it, which is how a training label acquires a value nothing measured.</remarks>
+    public readonly record struct Measurement(float RadiusPx, int Stars);
 
     /// <summary>
     /// The measurement half of <see cref="EstimateAsync"/>, UNCLAMPED and unencoded. Split out
@@ -94,8 +97,12 @@ public sealed class HfdPsfEstimator(
     /// archive's masters all clamp to psf01 = 0, so a probe that needs to compare candidate ranges
     /// cannot invert the encoded value to recover the radius, because the clamp has already
     /// destroyed it. Anything measuring the encoding must read the radius here.
+    /// <para>Public because the degradation exporter labels its pairs with it too: a training label
+    /// has to be the quantity INFERENCE can obtain (P2's H2), so it comes from this estimator run on
+    /// the degraded frame rather than from the kernel that produced it, and the exporter needs the
+    /// star count to tell a measurement from the fallback.</para>
     /// </summary>
-    internal async Task<Measurement> MeasureRadiusPxAsync(Image image, CancellationToken cancellationToken = default)
+    public async Task<Measurement> MeasureRadiusPxAsync(Image image, CancellationToken cancellationToken = default)
     {
         var stars = await image.FindStarsAsync(
             channel: 0,
