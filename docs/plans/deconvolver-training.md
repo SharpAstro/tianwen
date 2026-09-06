@@ -412,6 +412,47 @@ in psf01 units with no visible dependence on star count over 1 to 73 stars per c
 alarm raised on four low-star rows did not survive being measured, so no minimum-star threshold was
 added; the count is recorded and a consumer can filter on it.
 
+### E2.6's results, 2026-09-06: the power check answered a different question
+
+Six seeds of one arm, identical in every respect but the seed, run to measure the seed spread of the
+selected checkpoint's `fwhm_ratio` before E3 spends a day on four arms of three. The pre-registered
+prediction was a spread under 0.05. **No seed selected a checkpoint.** All six ended "NO probe passed
+every gate", 240 probes without a single pass, so the pre-registered readout has no sample at all.
+
+**The gate could not be passed by construction, and the reason is a null nobody measured.**
+`stars_kept` is `detections(output) / detections(truth)`, with a pass band of `[0.90, 1.10]`. Measured
+on this cache's own gate cells, the model's INPUT scores **0.763** on that statistic: the blur is what
+erases the faint stars, so a model reproducing its input exactly would fail. Every seed's best probe
+landed at 0.77 to 0.82, which IS the input's value, so six runs were failed for staying close to their
+input by a criterion that placed "unchanged" outside its own pass band. This is the same defect as the
+ring column fixed the same day, sitting one field away in the same constructor: the ring null is
+measured on the input (`self.ring_null`) and the star null is not.
+
+**A second defect inflates the same column by a tenth.** The star set is edge-trimmed on the truth
+(`ok = (ys > 3) & ...`) while `out_det.sum()` counts detections anywhere including that rim, so
+numerator and denominator cover different areas. The truth scores **1.096** against itself where a
+self-consistency null has to be 1.000.
+
+**Re-anchoring the band on both measured nulls, `[0.763, 1.096]`, makes every seed select**, and the
+selected `fwhm_ratio` then has a seed sd of **0.027** over six seeds, which taken at face value says
+three seeds is ample and two would do. It must not be taken at face value. The selected ratios run
+1.387 to 1.456 against an input of **1.382**: the gate picks the narrowest passer, and the narrowest
+passer is still wider than doing nothing. The spread is tight because all six models converged on the
+same near-identity, and a power calculation across arms that all sit at the null will cheerfully
+resolve differences between four ways of not working.
+
+**The recipe does not deconvolve, and it degrades with training.** Across 240 probes the narrowest
+output any seed reached was 1.241 against the 1.382 input, a 10 percent narrowing, and the mean FINAL
+ratio is 1.444, wider than the input it was given. Width degrades monotonically with steps while the
+L2 loss falls to 8e-5 and plateaus. That is the signature of MMSE regression rather than a broken
+trainer: the L2-optimal estimate of a sharp master from a blurred one averages over the sharp images
+consistent with that input, and averaging blurs. E1's oracle recovered most of a known blur from
+these same frames given the exact kernel, so the gap is the objective and not the data.
+
+**What this changes.** E3 does not run on this recipe, and its seed count is not the open question.
+The blockers in order: the two gate nulls (cheap, measured above, no retraining needed), then an
+objective that is not rewarded for smoothing.
+
 ### Reproducing E0 and E1
 
 Every number in the two sections below comes from a probe in `TianWen.Lib.Tests`, gated on an
