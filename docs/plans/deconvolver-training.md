@@ -472,8 +472,11 @@ denoiser's noisy target, and it does not transfer to this regime's clean-master 
 **What this changes.** E3 does not run on this recipe, and its seed count is not the open question.
 The blockers in order: the two gate nulls (cheap, measured above, no retraining needed); then a
 one-flag control that supervises the bands the blur actually occupies, which is nearly free and
-would moot a redesign if it works; and only if that fails, an architecture that carries the forward
-operator rather than a loss that hopes to imply it.
+would moot a redesign if it works; and only if that fails, a network with the blur physics built into
+it: a fixed handful of Richardson-Lucy iterations with the known kernel written out as layers, and a
+small learned network doing only what RL is bad at between them (noise, ringing). A loss can only
+REWARD deblurring and the net may find a cheaper answer; the unrolled operator forces it, since the
+output is RL applied to the input plus a learned correction, and a high-pass is not expressible.
 
 ### E2.7's results, 2026-09-06: the loss can see the scale now, and buys width with faint stars
 
