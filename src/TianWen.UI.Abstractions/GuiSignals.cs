@@ -2,6 +2,7 @@ using DIR.Lib;
 using System;
 using TianWen.DAL;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing.PolarAlignment;
 
 namespace TianWen.UI.Abstractions;
@@ -150,7 +151,12 @@ public readonly record struct EnhanceImageSignal;
 /// "as displayed" has always meant here. <c>true</c> writes the same pixels with the WCS grid, the
 /// star markers and the object labels drawn over them (<see cref="AnnotatedRasterExport"/>).
 /// </param>
-public readonly record struct SaveImageSignal(bool WithOverlays);
+/// <param name="PngDepth">
+/// Which PNG a <c>.png</c> path should mean. Ignored when <paramref name="WithOverlays"/> is set,
+/// the annotated raster being 8-bit by construction: it is drawn by a CPU rasteriser that has no
+/// other depth.
+/// </param>
+public readonly record struct SaveImageSignal(bool WithOverlays, PngDepth PngDepth = PngDepth.SixteenBit);
 
 /// <summary>Planner session state changed (proposals, sliders, settings). Triggers auto-save.</summary>
 public readonly record struct SavePlannerSessionSignal;

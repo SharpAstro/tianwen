@@ -348,13 +348,18 @@ public sealed class ViewerController(
     /// reference.</para>
     /// </remarks>
     /// <param name="withOverlays">Draw the WCS grid, star markers and object labels over the raster.</param>
+    /// <param name="pngDepth">
+    /// Which PNG a <c>.png</c> path means. It also names the dialog's first filter, so the dialog
+    /// restates the row's choice instead of carrying it silently. Ignored for the annotated variant,
+    /// which is 8-bit by construction.
+    /// </param>
     /// <param name="appToken">The host's lifetime token.</param>
     /// <param name="annotation">
     /// The caller-supplied sky annotation the renderer is holding, so a plate-solve verification or a
     /// polar-alignment overlay lands in the file too. Ignored when <paramref name="withOverlays"/> is
     /// false.
     /// </param>
-    public void SaveImage(bool withOverlays, CancellationToken appToken,
+    public void SaveImage(bool withOverlays, PngDepth pngDepth, CancellationToken appToken,
         Overlays.WcsAnnotation annotation = default)
     {
         if (Document is not { } saveDoc)
@@ -368,6 +373,13 @@ public sealed class ViewerController(
         {
             // PNG first, so it is the dialog's default and the extension appended to a name typed
             // without one. It is also the lossless option in both lists.
+            //
+            // The clean list's first entry is named for the DEPTH the menu row chose, which is the
+            // whole reason a caller passes one: having picked "8-bit" in a menu that then vanishes,
+            // seeing "PNG (8-bit)" in the dialog is what confirms the save is the one asked for. The
+            // names come from DisplayRasterFormat.DisplayName so the dialog and the status line can
+            // never drift into calling the same file two things.
+            var pngFormat = pngDepth.Png();
             var filters = withOverlays
                 ? new Dictionary<string, IReadOnlyList<string>>
                 {
@@ -376,9 +388,9 @@ public sealed class ViewerController(
                 }
                 : new Dictionary<string, IReadOnlyList<string>>
                 {
-                    ["PNG (16-bit)"] = [".png"],
-                    ["JPEG"] = [".jpg", ".jpeg"],
-                    ["TIFF (32-bit float)"] = [".tif", ".tiff"],
+                    [pngFormat.DisplayName()] = [".png"],
+                    [DisplayRasterFormat.Jpeg.DisplayName()] = [".jpg", ".jpeg"],
+                    [DisplayRasterFormat.TiffFloat.DisplayName()] = [".tif", ".tiff"],
                 };
 
             var stem = Path.GetFileNameWithoutExtension(saveDoc.FilePath);
@@ -402,9 +414,21 @@ public sealed class ViewerController(
 
             if (withOverlays)
             {
+                var annotatedFormat = AnnotatedRasterExport.FromExtension(target);
+
+                // The annotated writer answers PNG for every extension it does not recognise, so a
+                // hand-typed "shot.tif" would put PNG bytes in a file called .tif -- unreachable from
+                // the dropdown, which offers PNG and JPEG, and silent when it happens. Name the file
+                // for what is actually going into it.
+                if (annotatedFormat is AnnotatedRasterFormat.Png
+                    && !target.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+                {
+                    target = Path.ChangeExtension(target, ".png");
+                }
+
                 await AnnotatedRasterExport.WriteAsync(
                     saveDoc, state, target,
-                    AnnotatedRasterExport.FromExtension(target),
+                    annotatedFormat,
                     CelestialObjectDB,
                     annotation,
                     cancellationToken: token).ConfigureAwait(false);
@@ -427,7 +451,7 @@ public sealed class ViewerController(
 
             await DisplayRasterExport.WriteAsync(
                 image, target,
-                DisplayRasterExport.FromExtension(target) ?? DisplayRasterFormat.Png16,
+                DisplayRasterExport.FromExtension(target, pngDepth) ?? pngFormat,
                 uniforms,
                 state.CurvesBoost, state.CurvesMode, state.CurveData, background,
                 state.HdrAmount, state.HdrKnee,
@@ -496,7 +520,7 @@ public sealed class ViewerController(
             // same answer, and the controller stays free of a renderer reference.
             case ToolbarAction.Save:
                 // Right-click, or a host with no dropdown: the clean raster, one click, as before.
-                SaveImage(withOverlays: false, appToken);
+                SaveImage(withOverlays: false, PngDepth.SixteenBit, appToken);
                 break;
 
             case ToolbarAction.PlateSolve:
