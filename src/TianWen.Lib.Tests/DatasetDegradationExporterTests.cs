@@ -486,5 +486,63 @@ namespace TianWen.Lib.Tests
             }
             return values;
         }
+
+        /// <summary>
+        /// H3's arm, and the reason it exists. A master already carries a blue/green width ratio near
+        /// 1.32; adding ONE kernel to all three channels composes the same width into both and drives
+        /// that ratio toward 1 as the blur grows, which is channel structure the archive does not show.
+        /// Scaling the added width per channel holds it. This asserts the DIFFERENCE between the two
+        /// arms rather than either one's absolute number, because that difference is the hypothesis.
+        /// </summary>
+        [Theory]
+        [InlineData(1.0)]
+        [InlineData(2.0)]
+        [InlineData(4.0)]
+        public void APerChannelDrawHoldsTheChannelWidthRatioWhereASharedKernelCollapsesIt(double extraFwhm)
+        {
+            // The archive's median per-channel master widths (blue, green), which the exporter composes
+            // the drawn blur into in quadrature.
+            const double OwnBlue = 2.47;
+            const double OwnGreen = 1.80;
+            var atRest = OwnBlue / OwnGreen;
+
+            static double Compose(double own, double added) => Math.Sqrt((own * own) + (added * added));
+
+            var shared = Compose(OwnBlue, extraFwhm) / Compose(OwnGreen, extraFwhm);
+
+            var rng = new Random(7);
+            var blue = DatasetDegradationExporter.PerChannelKernel(rng, 0, extraFwhm, 1.0, 0.0);
+            var green = DatasetDegradationExporter.PerChannelKernel(rng, 1, extraFwhm, 1.0, 0.0);
+            var perChannel = Compose(OwnBlue, blue.Fwhm) / Compose(OwnGreen, green.Fwhm);
+
+            output.WriteLine($"added {extraFwhm:F1} px: at rest {atRest:F3}, shared kernel {shared:F3}, per-channel {perChannel:F3}");
+
+            // The shared arm always loses ground, and the more blur the more it loses.
+            shared.ShouldBeLessThan(atRest);
+            // The per-channel arm stays close to the archive's own ratio, and beats the shared arm at
+            // every blur in the sweep.
+            perChannel.ShouldBeGreaterThan(shared);
+            (perChannel / atRest).ShouldBe(1.0, 0.06);
+        }
+
+        /// <summary>
+        /// Beta must land in the family the archive shows and the plan permits: never a Gaussian
+        /// (the clamp's top), never lighter-winged than any measured master. The draw is log-normal
+        /// about a fitted line, so an unclamped tail would reach both.
+        /// </summary>
+        [Fact]
+        public void ThePerChannelBetaStaysInsideTheMeasuredFamily()
+        {
+            var rng = new Random(11);
+            for (var i = 0; i < 400; i++)
+            {
+                for (var c = 0; c < 3; c++)
+                {
+                    var k = DatasetDegradationExporter.PerChannelKernel(rng, c, 0.5 + (rng.NextDouble() * 3.5), 1.0, 0.0);
+                    k.Beta.ShouldBeGreaterThanOrEqualTo(1.5);
+                    k.Beta.ShouldBeLessThanOrEqualTo(20.0);
+                }
+            }
+        }
     }
 }

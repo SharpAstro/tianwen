@@ -190,6 +190,7 @@ namespace TianWen.AI.Imaging
             double MaxDepthScale = 1.5,
             double MinExtraFwhmPx = 0.5,
             double MaxExtraFwhmPx = 4.0,
+            bool PerChannelKernels = false,
             bool Force = false,
             ImmutableArray<string> SessionFilters = default);
 
@@ -442,6 +443,7 @@ namespace TianWen.AI.Imaging
             var channels = unitMaster.ChannelCount;
 
             PsfKernel? kernel = null;
+            PsfKernel[]? perChannelKernels = null;
             var extraFwhm = 0.0;
             var beta = 0.0;
             var elongation = 1.0;
@@ -449,15 +451,43 @@ namespace TianWen.AI.Imaging
             if (options.Mode == DegradationMode.Blur)
             {
                 extraFwhm = LogUniform(rng, options.MinExtraFwhmPx, options.MaxExtraFwhmPx);
-                // The archive's measured betas run roughly 1.5 to 8 with the heavy-winged end the common
-                // one; a jittered draw over that span keeps the pairs inside what the estimator has seen.
-                beta = LogUniform(rng, 1.5, 8.0);
                 elongation = 1.0 + (rng.NextDouble() * 0.25);
                 positionAngle = rng.NextDouble() * 180.0;
-                kernel = PsfKernel.Moffat(extraFwhm, beta, elongation, positionAngle);
+
+                if (options.PerChannelKernels)
+                {
+                    // H3's arm: one kernel per channel, width scaled by the measured channel ratio and
+                    // beta from that channel's own fitted relation. The elongation and angle stay
+                    // SHARED, because they are a property of the tracking and the optics rather than of
+                    // the wavelength, and varying them per channel would put a second difference in an
+                    // arm that exists to isolate one.
+                    perChannelKernels = new PsfKernel[channels];
+                    for (var c = 0; c < channels; c++)
+                    {
+                        perChannelKernels[c] = PerChannelKernel(rng, c, extraFwhm, elongation, positionAngle);
+                    }
+
+                    // The row carries GREEN's numbers, green being the reference the ratios are
+                    // relative to; the other two derive from it and from ChannelWidthRatio.
+                    var green = Math.Min(1, channels - 1);
+                    extraFwhm = perChannelKernels[green].Fwhm;
+                    beta = perChannelKernels[green].Beta;
+                    kernel = perChannelKernels[green];
+                }
+                else
+                {
+                    // The archive's measured betas run roughly 1.5 to 8 with the heavy-winged end the common
+                    // one; a jittered draw over that span keeps the pairs inside what the estimator has seen.
+                    beta = LogUniform(rng, 1.5, 8.0);
+                    kernel = PsfKernel.Moffat(extraFwhm, beta, elongation, positionAngle);
+                }
             }
 
-            var margin = kernel?.Radius ?? 0;
+            // The MAXIMUM radius over whatever kernels this cell uses: a channel whose kernel is
+            // narrower than the margin is still exact, because its footprint is covered by construction.
+            var margin = perChannelKernels is null
+                ? kernel?.Radius ?? 0
+                : perChannelKernels.Max(static k => k.Radius);
             var cut = size + (2 * margin);
             var planes = new float[channels][,];
             var calibration = default(LinearDegradation.NoiseCalibration);
@@ -498,9 +528,10 @@ namespace TianWen.AI.Imaging
                     ? NoiseField.White(cut, cut, rng)
                     : NoiseField.Warped(cut, cut, Math.Max(2, Math.Min(stackedFrames, 16)), rng, options.WarpResampleSigma);
 
-                var degraded = kernel is null
+                var channelKernel = perChannelKernels is null ? kernel : perChannelKernels[c];
+                var degraded = channelKernel is null
                     ? region
-                    : kernel.Convolve(region, cut, cut);
+                    : channelKernel.Convolve(region, cut, cut);
                 LinearDegradation.AddNoiseInPlace(degraded, shape, calibration, depthScale);
 
                 // Crop the margin off and lay the cell out as a plane.
@@ -867,6 +898,71 @@ namespace TianWen.AI.Imaging
 
         private static double LogUniform(Random rng, double lo, double hi)
             => Math.Exp(Math.Log(lo) + (rng.NextDouble() * (Math.Log(hi) - Math.Log(lo))));
+
+        /// <summary>
+        /// Per-channel added-width multipliers, relative to green, for
+        /// <see cref="Options.PerChannelKernels"/>. Channel order is the store's: blue, green, red.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Measured, and the arm exists because a SHARED kernel cannot reproduce them.</b> Over
+        /// the 23 sessions of the `2026-09-full` bake with all three channels fitted and none railed at
+        /// the beta grid edge, blue runs 1.32x green (quartiles 1.13 to 1.44) and red 1.00x (0.98 to
+        /// 1.04), roughly flat with overall width. A master already carries that structure, so adding
+        /// ONE kernel to all three channels drives the ratio down toward 1 as the blur grows, which is
+        /// channel structure this archive does not show; scaling the added width per channel holds it.
+        /// That is H3's claim, and this is the arm that tests it.</para>
+        /// <para><b>Twenty-three sessions is thin and the number is pooled across trains</b>, where the
+        /// direction is known to be train-dependent. Treat these as the archive's central tendency, not
+        /// as a per-rig truth, and do not read the red 1.00 as contradicting the narrowband red-defocus
+        /// finding, which is a CENTRE-width measurement from the radial bins on a different subset.</para>
+        /// </remarks>
+        private static readonly double[] ChannelWidthRatio = [1.32, 1.00, 1.00];
+
+        /// <summary>
+        /// Per-channel coefficients of <c>log(beta) = a + b * FWHM</c>, blue, green, red, from E0's
+        /// all-trains fit over the current store (`docs/plans/deconvolver-training.md`, E0's results).
+        /// </summary>
+        /// <remarks>
+        /// The residual sd is the third element and it is most of the distribution: only blue's slope
+        /// explains anything (r2 0.24), while green's and red's are a line through a cloud, which is
+        /// the finding that "sample (FWHM, beta) jointly, never independently" was an all-channels
+        /// POOLED statistic. Drawing from the fit rather than special-casing green is deliberate: a
+        /// slope near zero makes the draw independent on its own.
+        /// </remarks>
+        private static readonly (double A, double B, double Sd)[] BetaFit =
+        [
+            (0.138, 0.657, 0.487),
+            (2.245, -0.355, 0.295),
+            (1.592, -0.121, 0.344),
+        ];
+
+        /// <summary>The archive's median per-channel master FWHM (blue, green, red), the "own" term the
+        /// beta fit is evaluated at once the drawn blur is composed in quadrature. A constant rather
+        /// than the frame's own measurement, which would cost a star detection per session per channel;
+        /// stated here because it is an approximation and a candidate refinement.</summary>
+        private static readonly double[] MedianOwnFwhmPx = [2.47, 1.80, 1.91];
+
+        /// <summary>
+        /// The blur kernel for one channel under <see cref="Options.PerChannelKernels"/>: the drawn
+        /// width scaled by that channel's measured ratio, and beta drawn from the channel's own fitted
+        /// relation at the resulting total width, log-normal about the fit with its measured residual.
+        /// </summary>
+        internal static PsfKernel PerChannelKernel(Random rng, int channel, double extraFwhm, double elongation, double positionAngle)
+        {
+            var c = Math.Clamp(channel, 0, BetaFit.Length - 1);
+            var width = extraFwhm * ChannelWidthRatio[c];
+            var total = Math.Sqrt((MedianOwnFwhmPx[c] * MedianOwnFwhmPx[c]) + (width * width));
+            var (a, b, sd) = BetaFit[c];
+            // Box-Muller for the residual: the fit is in log space, so the scatter is log-normal.
+            var u1 = 1.0 - rng.NextDouble();
+            var u2 = rng.NextDouble();
+            var g = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
+            // Clamped to the family the kernel builder and the archive both stay inside: below 1.5 the
+            // wings run wider than any measured master, and at 20 the profile is a Gaussian, which is
+            // the one shape the plan says never to sample.
+            var beta = Math.Clamp(Math.Exp(a + (b * total) + (g * sd)), 1.5, 20.0);
+            return PsfKernel.Moffat(width, beta, elongation, positionAngle);
+        }
 
         /// <summary>
         /// A per-draw seed that depends on everything identifying the draw, so a tile can be re-derived

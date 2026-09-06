@@ -93,24 +93,37 @@ level is wrong (H4) before anything is trained.
 > degree of blur. Deconvolution removes EXCESS width, and the conditioning scalar cannot express how
 > much of a width is excess. That is a fact about the contract, not about this probe.
 >
+> **The table is at 60 iterations, not 30, and that correction is the second half of E1.** The first
+> version stood at 30, which the iteration sweep below then showed to be under-converged by roughly a
+> factor of three in residual. A too-low ceiling flatters every arm scored against it, so the table was
+> re-measured rather than annotated.
+>
 > | blurred/truth | noise | n | rec/truth | residual px | ring excess | stars vs truth |
 > |---|---|---:|---:|---:|---:|---:|
 > | 1.0-1.1x | no | 24 | 1.00 | 0.00 | 0 % | 1.00 |
-> | 1.0-1.1x | yes | 17 | 1.00 | 0.00 | 2 % | 0.89 |
+> | 1.0-1.1x | yes | 18 | 1.00 | 0.00 | 1 % | 0.94 |
 > | 1.1-1.3x | no | 17 | 1.00 | 0.00 | 15 % | 1.00 |
-> | 1.1-1.3x | yes | 15 | 0.99 | -0.01 | 9 % | 0.93 |
-> | 1.3-1.6x | no | 9 | 1.08 | 0.22 | 49 % | 0.94 |
-> | 1.3-1.6x | yes | 11 | 1.06 | 0.12 | 23 % | 0.66 |
-> | 1.6-2.0x | no | 14 | 1.20 | 0.39 | 80 % | 0.97 |
-> | 1.6-2.0x | yes | 15 | 1.15 | 0.29 | 38 % | 0.75 |
-> | 2.0-3.0x | no | 20 | 1.67 | 1.31 | 94 % | 0.70 |
-> | 2.0-3.0x | yes | 17 | 1.74 | 1.36 | 82 % | 0.45 |
-> | 3.0x and up | no | 5 | 1.81 | 1.59 | 30 % | 0.78 |
-> | 3.0x and up | yes | 5 | 1.76 | 1.40 | 35 % | 0.87 |
+> | 1.1-1.3x | yes | 15 | 0.99 | -0.02 | 8 % | 0.86 |
+> | 1.3-1.6x | no | 9 | 1.02 | 0.06 | 48 % | 0.96 |
+> | 1.3-1.6x | yes | 11 | 1.01 | 0.04 | 24 % | 0.64 |
+> | 1.6-2.0x | no | 14 | 1.14 | 0.26 | 82 % | 0.99 |
+> | 1.6-2.0x | yes | 14 | 1.09 | 0.19 | 41 % | 0.71 |
+> | 2.0-3.0x | no | 20 | 1.58 | 1.12 | 95 % | 0.77 |
+> | 2.0-3.0x | yes | 18 | 1.59 | 1.05 | 77 % | 0.52 |
+> | 3.0x and up | no | 5 | 1.59 | 1.17 | 29 % | 0.83 |
+> | 3.0x and up | yes | 5 | 1.57 | 1.13 | 38 % | 0.91 |
 >
-> **"Within 10 percent up to about 2x" is close but overstated: the boundary is 1.6x.** Through
-> 1.3-1.6x the recovered star is 1.06 to 1.08 times the truth, inside the prediction; at 1.6-2.0x it
-> is 1.15 to 1.20, outside it; past 2x it is 1.7 to 1.8 times, which is most of the blur still there.
+> **"Within 10 percent up to about 2x" HOLDS, and the earlier refutation of it was an under-converged
+> measurement rather than a property of the problem.** At 60 iterations the recovered star is 1.01 to
+> 1.02 times the truth through 1.3-1.6x and 1.09 to 1.14 at 1.6-2.0x, so the prediction's boundary is
+> right where it said. At 30 iterations the same rows read 1.06 to 1.08 and 1.15 to 1.20, which is what
+> produced the "the boundary is 1.6x" claim this paragraph replaces. Past 2x the star is about 1.6x the
+> truth, which is most of the blur still present, at either count.
+>
+> **Read rec/truth off the NOISE-FREE arm.** The noisy arm scores BETTER on it (1.09 against 1.14 at
+> 1.6-2.0x) while keeping 0.71 of the truth's stars against 0.99, which is the fabrication signature
+> again: noise sharpened into point sources reads as narrow stars and pulls the median down. Where the
+> two arms disagree on width, the star count says which one to believe.
 >
 > **"Nothing recovers below the truth" holds.** rec/truth is at or above 0.99 in every band, so at the
 > median the oracle never produced a star narrower than the one that was there. That is the line a
@@ -133,9 +146,32 @@ level is wrong (H4) before anything is trained.
 > annulus minima, so the noisy arm's excess is structurally smaller. The cost of noise shows in the
 > star count instead: 0.45 of the truth's stars survive at 2-3x against 0.70 noise-free.
 >
-> **Stated limitations.** 30 RL iterations, unswept, and the iteration count IS the regularisation
-> parameter on noisy data. Beta fixed at 4. Six masters and centre crops only, so nothing here speaks
-> to field position (H7).
+> **The iteration sweep, which is why the table above stands at 60.** `ReportWhereTheIterationCountStopsHelping`
+> walks 5 to 120 on three masters at the 2 and 3 px injections, reading every count off ONE run via
+> `RichardsonLucy`'s checkpoint handler, since the iteration is a trajectory and re-running it per
+> candidate would repeat every earlier iteration.
+>
+> | iterations | noise-free residual / ring / stars | noisy residual / ring / stars |
+> |---|---|---|
+> | 5 | 0.78 px / 28 % / 0.88 | 0.70 px / 25 % / 0.69 |
+> | 10 | 0.63 / 34 % / 0.92 | 0.51 / 33 % / 0.73 |
+> | 20 | 0.42 / 40 % / 0.96 | 0.32 / 33 % / 0.73 |
+> | 30 | 0.37 / 40 % / 0.94 | 0.32 / 38 % / 0.74 |
+> | 60 | 0.22 / 42 % / 1.04 | 0.14 / 41 % / 0.71 |
+> | 120 | 0.10 / 43 % / 1.02 | 0.09 / 43 % / 0.63 |
+>
+> **The residual has still not plateaued at 120, and the cost does not land where the metric was
+> pointed.** Ringing moves 40 to 43 percent across the whole sweep, so it is nearly blind to this axis;
+> what more iterations actually spend is STARS, and only where there is noise (0.74 to 0.63 from 30 to
+> 120) while the noise-free arm rises to 1.02 as deconvolution makes faint stars more detectable. That
+> is Richardson-Lucy fitting the noise, and it destroys stars rather than announcing itself as ringing
+> or as a worse width. **60 is the knee**: it takes the noisy residual from 0.32 to 0.14 px for three
+> points of star loss, where 120 buys 0.05 px more for eight.
+>
+> **Stated limitations.** The sweep used only the 2 and 3 px injections on three masters, so it speaks
+> to the heavy-blur regime; at light blur far fewer iterations already suffice, which the ceiling table
+> shows as 0.00 px residual in its top two bands at both counts. Beta fixed at 4. Six masters and
+> centre crops only, so nothing here speaks to field position (H7).
 
 **H2. Condition on what inference can measure: psf01 from `HfdPsfEstimator` run on the degraded
 frame, never from the kernel parameters.** Inference has no kernel; it has the estimator's number,
@@ -198,12 +234,20 @@ to `[1, 8]`, and it is not built unless measured equal.
 > (0.246 predicted against 0.247 measured, 0.328 against 0.330, 0.492 against 0.495), which is what
 > says the probe is measuring the encoding rather than the archive.
 >
-> **The CEILING is the lever, because nothing in the archive is anywhere near 8 px radius.** The
-> floor only ever buys unclamping. **Take `[0.5, 4.0]`**: the floor sits under the sharpest master
-> (0.88 px) so nothing clamps low, and the ceiling sits above the widest input the exporter can
-> produce, since a +4 px FWHM draw in quadrature on the widest master (6.06 px) reaches 7.26 px FWHM
-> = 3.63 px radius. `[0.75, 3.0]` spreads further still and is rejected for exactly that reason: it
-> clamps a real master today and would clamp most degraded ones.
+> **The SPAN sets the resolution and the window's POSITION decides what clamps. Corrected 2026-09-06,
+> a few hours after this section was first written, by the unit test that pins the arithmetic.** The
+> first version of this paragraph said "the ceiling is the lever", which is wrong: `[0.5, 4.0]` and
+> SAS's `[1, 8]` are BOTH 8:1, so they resolve identically, and the entire measured gain of 0.330 over
+> 0.293 is unclamping the six masters pinned to SAS's floor. Buying real resolution means NARROWING
+> the span, which costs clamping at one end: `[0.75, 3.0]` is 4:1 and spreads 1.5x further for exactly
+> that reason.
+>
+> **Take `[0.5, 4.0]` anyway**, on the position rather than the span: the floor sits under the
+> sharpest master (0.88 px) so nothing clamps low, and the ceiling sits above the widest input the
+> exporter can produce, since a +4 px FWHM draw in quadrature on the widest master (6.06 px) reaches
+> 7.26 px FWHM = 3.63 px radius. `[0.75, 3.0]` is rejected despite its better spread: it clamps a real
+> master today and would clamp most degraded ones, and a conditioning input that saturates is worth
+> less than one that resolves slightly less finely.
 >
 > **What survives of H5:** ship an own contract rather than SAS's, and do not build a SAS drop-in
 > unless measured equal. What does not: the claim that the shipped encoding leaves no lever, and the
@@ -309,9 +353,15 @@ variants using our own detector, never a third-party star removal in the data pa
   validated on synthetic pairs only and must say so in its contract JSON.
 - **Never** PSNR for selection; never an RC or SAS output anywhere in the loop.
 
-Hardware-validation item to add: **run three nights with `SaveIntermediates` on**, on the two rigs
-the archive is dominated by (ASI533 + Samyang, SV605CC + SH61), so H6 has data. It costs nothing but
-disk; the frames are taken either way.
+**Every sky-time blocker in this plan lives in
+[`docs/todo/hardware-validation.md`](../todo/hardware-validation.md), one home per item, and this
+plan keeps only the why.** Three of them are P2's: the `SaveIntermediates` ladders H6 needs (three
+nights on the two rigs the archive is dominated by, ASI533 + Samyang and SV605CC + SH61), nights on
+the under-represented (train, filter) pairs so E0's per-cell draw rests on more than one session, and
+a mono session, since this model is OSC by data rather than by design. The ladder entry there also
+carries what E1 says a night must SPAN to be worth taking: the rungs that decide the advertised range
+sit between about 1.1x and 2x the anchor's own FWHM, because below that the oracle recovers
+everything and above it recovers little.
 
 ## 5. Experiments, in order
 

@@ -155,7 +155,27 @@ under it, and the fake asserts that state by construction.
 - QHY294 gain-1600 dark library for the denoiser dataset -- `imaging.md`.
 - Three nights with `SessionConfiguration.SaveIntermediates` on, on both main rigs (ASI533 + Samyang,
   SV605CC + SH61), so the deconvolver's real-defocus validation has ladders; none exist as of
-  2026-09-02 -- `docs/plans/deconvolver-training.md` H6 / E6.
+  2026-09-02 -- `docs/plans/deconvolver-training.md` H6 / E6. **It costs nothing but disk: the frames
+  are taken either way, the switch just keeps them.** What E1 added (2026-09-06) is what makes a night
+  COUNT rather than merely happen: the oracle recovers a blur fully only to about 1.3x the anchor's own
+  FWHM and is outside 10 percent past 1.6x, so the rungs that decide the advertised range are the ones
+  landing between roughly 1.1x and 2x the anchor width. A ladder whose rungs all sit under 1.1x
+  measures nothing, and one that jumps straight past 2x measures a regime nothing can solve. Check the
+  step size against the rig's CFZ before the night, not after, and keep the anchor frame: every number
+  H6 wants is a rung compared to it.
+- **A third broadband night** (any rig, any broadband or light-pollution filter), because the denoiser
+  pool is otherwise entirely narrowband and H4 step 2 rests on two SV545 `IDAS LPS-D3` sessions --
+  `docs/plans/denoiser-training.md` H4 and its open question, which currently answers itself with
+  "probably none, step 2 is a pilot until a third night exists".
+- **Any mono session at all.** Both in-house models are one-shot-colour by DATA, not by design:
+  `N2nDenoiser` refuses a mono input outright rather than tiling it across three slots, and the
+  deconvolver plan carries the same "waits on mono data, as everywhere" line. One mono night does not
+  make a mono model, but it is the difference between a measured refusal and an untested one.
+- **Nights on the under-represented (train, filter) pairs**, because the PSF draw the deconvolver's
+  exporter is being calibrated on is thinner than it looks: 10 of 17 cells in the 79-session bake hold
+  ONE session and two cells carry 43 of the 79 (E0, 2026-09-06). A per-cell (FWHM, beta) distribution
+  is only supportable for the two or three populated cells and everything else falls back per train --
+  `docs/plans/deconvolver-training.md`, E0's results.
 - One recording night for the neural guider (`train-guide-model`, open-loop worm cycles + closed-loop
   P), then one guided night with the model admitted -- `docs/plans/neural-guider-training.md` N7.
 - QHY, and any other vendor, active-region support: phases P1-P5 of

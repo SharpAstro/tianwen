@@ -38,6 +38,16 @@ namespace TianWen.Lib.Imaging.Deconvolution
         /// rather than dividing by a number that is only nonzero by rounding.</summary>
         private const float DenominatorFloor = 1e-12f;
 
+        /// <summary>
+        /// Called after each iteration with the estimate as it stands, so a caller measuring the
+        /// iteration count (which IS the regularisation parameter on noisy data) can read a whole
+        /// trajectory from ONE run instead of re-running the iteration once per candidate count.
+        /// </summary>
+        /// <remarks>A delegate rather than an <c>Action</c> because the estimate is handed over as a
+        /// span: the caller may read it but must copy anything it wants to keep, since the next
+        /// iteration overwrites the same buffer.</remarks>
+        public delegate void CheckpointHandler(int iteration, ReadOnlySpan<float> estimate);
+
         /// <summary>One deconvolution: the estimate, and what the run had to do to its input.</summary>
         /// <param name="Estimate">The deconvolved plane, row-major, same dimensions as the input.</param>
         /// <param name="Iterations">Iterations actually run.</param>
@@ -57,12 +67,14 @@ namespace TianWen.Lib.Imaging.Deconvolution
         /// <param name="iterations">Number of RL iterations. RL does not converge to a fixed point on
         /// noisy data: it fits the noise, so the iteration count IS a regularisation parameter and the
         /// right value is a measurement, not a default.</param>
+        /// <param name="onCheckpoint">Optional, called after every iteration with the current estimate.</param>
         public static Result Deconvolve(
             ReadOnlySpan<float> observed,
             int width,
             int height,
             PsfKernel psf,
-            int iterations)
+            int iterations,
+            CheckpointHandler? onCheckpoint = null)
         {
             ArgumentOutOfRangeException.ThrowIfNotEqual(observed.Length, width * height);
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(iterations);
@@ -113,6 +125,8 @@ namespace TianWen.Lib.Imaging.Deconvolution
                     // excursion below zero becoming a sign flip that never recovers.
                     estimate[i] = next > 0f && float.IsFinite(next) ? next : 0f;
                 }
+
+                onCheckpoint?.Invoke(it + 1, estimate);
             }
 
             return new Result(estimate, iterations, n == 0 ? 0.0 : (double)clamped / n);

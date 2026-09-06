@@ -205,6 +205,195 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
             : (Median(depths), (double)over / depths.Count);
     }
 
+    /// <summary>Iteration counts the sweep below reads off ONE run each, via the checkpoint handler.</summary>
+    private static readonly int[] IterationCheckpoints = [5, 10, 20, 30, 60, 120];
+
+    /// <summary>
+    /// The ceiling table fixes Richardson-Lucy at 30 iterations, and on noisy data the iteration count
+    /// IS the regularisation parameter, so that number is a free parameter the ceiling silently depends
+    /// on. This walks it and reports where each blur regime's residual stops improving and its ringing
+    /// starts, which is the only thing that says whether 30 was a reasonable place to stand.
+    /// </summary>
+    /// <remarks>
+    /// One RL run per (master, channel, blur, noise), checkpointed: the iteration is a trajectory, so
+    /// re-running it once per candidate count would repeat every earlier iteration and cost about five
+    /// times as much for the same numbers.
+    /// </remarks>
+    [Fact]
+    public async Task ReportWhereTheIterationCountStopsHelping()
+    {
+        var root = Environment.GetEnvironmentVariable(DirVar);
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(root), $"{DirVar} not set");
+
+        var mastersDir = Path.Combine(root!, "session-masters");
+        Assert.SkipUnless(Directory.Exists(mastersDir), $"no session-masters at {mastersDir}");
+
+        var ct = TestContext.Current.CancellationToken;
+        var maxMasters = int.TryParse(Environment.GetEnvironmentVariable(MastersVar), out var mm) ? mm : 3;
+        var all = Directory.GetFiles(mastersDir, "*.fits").OrderBy(f => f, StringComparer.Ordinal).ToArray();
+        Assert.SkipWhen(all.Length == 0, "no masters");
+
+        var step = Math.Max(1, all.Length / Math.Max(1, maxMasters));
+        var masters = all.Where((_, i) => i % step == 0).Take(maxMasters).ToArray();
+
+        // The regime where iterations can matter: a 0.5 px blur is recovered at any count.
+        double[] injected = [2.0, 3.0];
+        var maxIterations = IterationCheckpoints[^1];
+
+        output.WriteLine($"masters   {masters.Length} of {all.Length}; injected {string.Join(", ", injected)} px; "
+            + $"checkpoints {string.Join(", ", IterationCheckpoints)} read off one {maxIterations}-iteration run each");
+        output.WriteLine("");
+
+        var residual = new Dictionary<(int Iter, bool Noisy), List<double>>();
+        var excessBy = new Dictionary<(int Iter, bool Noisy), List<double>>();
+        var starBy = new Dictionary<(int Iter, bool Noisy), List<double>>();
+
+        foreach (var masterPath in masters)
+        {
+            var name = Path.GetFileNameWithoutExtension(masterPath);
+            if (!Image.TryReadFitsFile(masterPath, out var master) || master is null)
+            {
+                continue;
+            }
+
+            int channels;
+            var crops = new List<float[]>();
+            try
+            {
+                var (chan, width, height) = master.Shape;
+                if (width < Crop || height < Crop)
+                {
+                    continue;
+                }
+
+                channels = Math.Min(3, chan);
+                for (var c = 0; c < channels; c++)
+                {
+                    crops.Add(CropCentre(master, c, Crop));
+                }
+            }
+            finally
+            {
+                master.Release();
+            }
+
+            for (var c = 0; c < channels; c++)
+            {
+                var truth = crops[c];
+                var (bg, mad) = BackgroundStats(truth);
+                if (!(mad > 0f))
+                {
+                    continue;
+                }
+
+                var (truthFwhm, truthStars) = await MeasuredFwhmAsync(truth, Crop, ct);
+                var truthImage = Wrap(truth, Crop);
+                StarList stars;
+                try
+                {
+                    stars = await truthImage.FindStarsAsync(channel: 0, snrMin: 20f, cancellationToken: ct);
+                }
+                finally
+                {
+                    truthImage.Release();
+                }
+
+                if (!float.IsFinite(truthFwhm) || stars.Count < 20)
+                {
+                    continue;
+                }
+
+                foreach (var inj in injected)
+                {
+                    var psf = PsfKernel.Moffat(inj, Beta);
+                    var blurred = psf.Convolve(truth, Crop, Crop);
+
+                    foreach (var noisy in new[] { false, true })
+                    {
+                        var observed = blurred;
+                        if (noisy)
+                        {
+                            var rng = new Random(HashCode.Combine(name, c, inj));
+                            observed = new float[blurred.Length];
+                            for (var i = 0; i < blurred.Length; i++)
+                            {
+                                var u1 = 1.0 - rng.NextDouble();
+                                var u2 = rng.NextDouble();
+                                var g = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
+                                observed[i] = (float)(blurred[i] + (g * mad));
+                            }
+                        }
+
+                        var (_, nullOver) = Ringing(observed, Crop, stars, bg, mad);
+                        var snapshots = new Dictionary<int, float[]>();
+                        RichardsonLucy.Deconvolve(observed, Crop, Crop, psf, maxIterations, (iter, est) =>
+                        {
+                            if (Array.IndexOf(IterationCheckpoints, iter) >= 0)
+                            {
+                                snapshots[iter] = est.ToArray();
+                            }
+                        });
+
+                        foreach (var iter in IterationCheckpoints)
+                        {
+                            if (!snapshots.TryGetValue(iter, out var est))
+                            {
+                                continue;
+                            }
+
+                            var (recFwhm, recStars) = await MeasuredFwhmAsync(est, Crop, ct);
+                            var (_, overOne) = Ringing(est, Crop, stars, bg, mad);
+                            var key = (iter, noisy);
+                            if (float.IsFinite(recFwhm))
+                            {
+                                (residual.TryGetValue(key, out var rl) ? rl : residual[key] = []).Add(recFwhm - truthFwhm);
+                            }
+
+                            if (double.IsFinite(overOne) && double.IsFinite(nullOver))
+                            {
+                                (excessBy.TryGetValue(key, out var el) ? el : excessBy[key] = []).Add(overOne - nullOver);
+                            }
+
+                            if (truthStars > 0)
+                            {
+                                (starBy.TryGetValue(key, out var sl) ? sl : starBy[key] = []).Add((double)recStars / truthStars);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Assert.SkipWhen(residual.Count == 0, "nothing measured");
+
+        output.WriteLine($"{"iterations",11} {"noise",6} {"n",4} {"residual px p50",16} {"ring excess p50",16} {"stars kept p50",15}");
+        foreach (var iter in IterationCheckpoints)
+        {
+            foreach (var noisy in new[] { false, true })
+            {
+                var key = (iter, noisy);
+                if (!residual.TryGetValue(key, out var res) || res.Count == 0)
+                {
+                    continue;
+                }
+
+                res.Sort();
+                var ex = excessBy.TryGetValue(key, out var e) ? e : [];
+                ex.Sort();
+                var st = starBy.TryGetValue(key, out var s) ? s : [];
+                st.Sort();
+                output.WriteLine($"{iter,11} {(noisy ? "yes" : "no"),6} {res.Count,4} {res[res.Count / 2],16:F2} "
+                    + $"{(ex.Count == 0 ? double.NaN : ex[ex.Count / 2]).ToString("P0", CultureInfo.InvariantCulture),16} "
+                    + $"{(st.Count == 0 ? double.NaN : st[st.Count / 2]),15:F2}");
+            }
+        }
+
+        output.WriteLine("");
+        output.WriteLine("Richardson-Lucy does not converge on noisy data, it fits the noise, so the residual");
+        output.WriteLine("and the ringing move in opposite directions and the useful count is where the first");
+        output.WriteLine("stops improving rather than where the second becomes tolerable.");
+    }
+
     [Fact]
     public async Task ReportHowMuchOfAKnownBlurAnOracleRecovers()
     {

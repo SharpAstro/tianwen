@@ -654,6 +654,14 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                           "the bake's own real pairs; 0 is bilinear alone.",
             DefaultValueFactory = _ => 0d,
         };
+        var perChannelOpt = new Option<bool>("--per-channel-kernels")
+        {
+            Description = "Blur mode only: draw a SEPARATE kernel per channel, its width scaled by the " +
+                          "archive's measured channel ratio (blue 1.32x green, red 1.00x) and its beta from " +
+                          "that channel's own fitted relation, instead of one shared kernel. This is H3's " +
+                          "arm: a shared kernel drives the blue/green width ratio toward 1 as the blur " +
+                          "grows, which is channel structure the archive does not show.",
+        };
         var forceOpt = new Option<bool>("--force")
         {
             Description = "Re-export sessions already present in degradations.jsonl.",
@@ -674,7 +682,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, forceOpt, measureOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, perChannelOpt, forceOpt, measureOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -702,6 +710,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                 MaxSessions: parseResult.GetValue(sessionsOpt),
                 Seed: parseResult.GetValue(seedOpt),
                 WarpResampleSigma: parseResult.GetValue(warpSigmaOpt),
+                PerChannelKernels: parseResult.GetValue(perChannelOpt),
                 Force: parseResult.GetValue(forceOpt),
                 SessionFilters: [.. parseResult.GetValue(sessionFilterOpt) ?? []]);
 

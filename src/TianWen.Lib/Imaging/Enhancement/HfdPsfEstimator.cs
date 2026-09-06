@@ -21,7 +21,14 @@ namespace TianWen.Lib.Imaging.Enhancement;
 /// <c>measure_psf_radius</c> (SEP-based), but the per-image scalar is good
 /// enough for typical small-FOV astro frames where PSF is roughly uniform.
 /// </remarks>
-public sealed class HfdPsfEstimator(ILogger<HfdPsfEstimator>? logger = null) : IPsfEstimator
+// The defaults below are literals rather than MinRadiusPx / MaxRadiusPx because a primary
+// constructor's parameter defaults cannot see the type's own constants. They must stay equal to them,
+// and HfdPsfEstimatorTests.TheDefaultRangeIsStillTheOneTheShippedModelWasTrainedUnder is what says so.
+public sealed class HfdPsfEstimator(
+    ILogger<HfdPsfEstimator>? logger = null,
+    float minRadiusPx = 1.0f,
+    float maxRadiusPx = 8.0f)
+    : IPsfEstimator
 {
     /// <summary>Default PSF radius (in pixels) used when star detection finds
     /// no usable stars -- matches SAS Pro's <c>default_radius = 3.0</c>.</summary>
@@ -33,15 +40,46 @@ public sealed class HfdPsfEstimator(ILogger<HfdPsfEstimator>? logger = null) : I
     /// <summary>Upper bound of the log2-radius training range -- corresponds to psf01 = 1.</summary>
     public const float MaxRadiusPx = 8.0f;
 
+    /// <summary>
+    /// The floor of TianWen's OWN deconvolution contract, measured rather than chosen
+    /// (`docs/plans/deconvolver-training.md` H5, 2026-09-06). Below the sharpest master this archive
+    /// holds (0.88 px), so nothing clamps at the bottom.
+    /// </summary>
+    public const float TianWenMinRadiusPx = 0.5f;
+
+    /// <summary>
+    /// The ceiling of TianWen's own contract. Above the widest input the degradation exporter can
+    /// produce (a +4 px FWHM draw in quadrature on the archive's widest master reaches 3.63 px
+    /// radius), and deliberately far below SAS's 8 px: the SPREAD of psf01 over a set of frames is
+    /// <c>log2(r_hi / r_lo) / log2(max / min)</c>, so the range's total log span divides every
+    /// difference, and a ceiling nothing ever approaches spends resolution for nothing. Measured over
+    /// all 79 masters, this pair spreads them 0.330 where SAS's spreads them 0.293.
+    /// </summary>
+    public const float TianWenMaxRadiusPx = 4.0f;
+
+    /// <summary>
+    /// The range THIS instance encodes into, defaulting to SAS AI4's because that is the model the
+    /// shipped <c>OnnxNonStellarDeconvolver</c> runs.
+    /// </summary>
+    /// <remarks>
+    /// <b>The range belongs to the MODEL, not to the estimator, and mismatching them is silent.</b>
+    /// psf01 is a conditioning input: a graph trained on `[1, 8]` handed a number encoded over
+    /// `[0.5, 4]` still runs, still produces a plausible image, and is being told a PSF roughly twice
+    /// the one it was given. So the default stays SAS's for as long as a SAS graph is what resolves,
+    /// and TianWen's own contract (<see cref="TianWenMinRadiusPx"/>, <see cref="TianWenMaxRadiusPx"/>)
+    /// becomes the default only alongside the model trained under it.
+    /// </remarks>
+    public (float Min, float Max) RadiusRange { get; } = (minRadiusPx, maxRadiusPx);
+
     /// <summary>Minimum SNR for a star to count toward the PSF estimate.</summary>
     public const float MinSnr = 20f;
 
     public async Task<float> EstimateAsync(Image image, CancellationToken cancellationToken = default)
     {
         var measured = await MeasureRadiusPxAsync(image, cancellationToken);
-        var psf01 = EncodeRadiusToPsf01(measured.RadiusPx);
-        logger?.LogDebug("HfdPsfEstimator: n={Count} medianFWHM={Fwhm:F2}px radius={Radius:F2}px psf01={Psf01:F3}",
-            measured.Stars, measured.RadiusPx * 2f, measured.RadiusPx, psf01);
+        var psf01 = EncodeRadiusToPsf01(measured.RadiusPx, RadiusRange.Min, RadiusRange.Max);
+        logger?.LogDebug("HfdPsfEstimator: n={Count} medianFWHM={Fwhm:F2}px radius={Radius:F2}px psf01={Psf01:F3} over [{Min}, {Max}] px",
+            measured.Stars, measured.RadiusPx * 2f, measured.RadiusPx, psf01, RadiusRange.Min, RadiusRange.Max);
         return psf01;
     }
 
