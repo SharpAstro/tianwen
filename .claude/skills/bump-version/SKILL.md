@@ -47,11 +47,14 @@ patch segment is CI's** (`github.run_number`) and is never written by hand.
    grep -rn "<VersionPrefix>[0-9]\|<AssemblyVersion>[0-9]" src/*/*.csproj
    grep -n "VERSION_PREFIX:" .github/workflows/dotnet.yml   # expect only the job-env indirections
    ```
-6. Add the release-notes entry to the workflow `env:` if the user wants one. **Release notes live
-   there, not beside the number** — several entries contain a double hyphen, which XML forbids inside
-   a comment (MSBuild reports it as MSB4025 "the project file could not be loaded", which reads like
-   corruption rather than punctuation).
-7. Do NOT commit. Let the user review and commit when ready.
+6. Add the entry to `CHANGELOG.md`, newest first, one section per `MAJOR.MINOR`. **Release notes live
+   there, not beside the number**: several entries contain a double hyphen, which XML forbids inside a
+   comment (MSBuild reports it as MSB4025 "the project file could not be loaded", which reads like
+   corruption rather than punctuation). Say what changed and why, not which files moved. The GitHub
+   Release itself is `generate_release_notes: true` in `dotnet.yml`, so it lists the commits; the
+   changelog is the half a commit list cannot write.
+7. Commit the bump and the changelog entry **together**, so a version can never ship without its
+   note. Commit only; do not push (the user pushes and merges).
 
 ## If you are editing the props file for any other reason
 

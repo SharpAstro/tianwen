@@ -1,0 +1,272 @@
+# Changelog
+
+Release notes for TianWen, newest first, one section per `MAJOR.MINOR`.
+
+The version NUMBER is not here. It is one line in `src/Directory.Build.props`
+(`VersionMajorMinor`), and CI's `version` job reads that property back rather than restating it, so a
+build can never declare a version this file disagrees with. Bump it there and add the entry here, in
+the same commit.
+
+The patch segment is CI's `github.run_number` and is never written by hand, which is why the tags
+read `v7.0.1532` while the sections below read `7.0`. Per the org convention in the SharpAstro
+`.github` repo, `X.Y` to `X.(Y+1)` is additive and `X.*` to `(X+1).0` is breaking.
+
+Each GitHub Release is cut with `generate_release_notes: true`, so it already lists the commits.
+This file is the half a commit list cannot write: what a release was FOR, and what breaks.
+
+Entries before 7.1 were reconstructed from the release commits and the tags rather than written at
+the time, so they record what each bump was for. Where a bump commit said nothing beyond the number,
+the entry says so instead of inventing a theme.
+
+## 7.1
+
+Unreleased. Additive, so a minor: every public member that existed at 7.0 survives, and the new
+constructor parameters are all defaulted, so `new HfdPsfEstimator()` still compiles.
+
+**`RichardsonLucy` (`TianWen.Lib/Imaging/Deconvolution`)** is the known-kernel maximum-likelihood
+iteration, shipped as library surface rather than as a training script, because the deconvolution
+work needs an oracle that anything trained can be scored against. It was validated against answers
+known in advance before it was used to judge anything: a ceiling measured with a broken instrument
+is worse than no ceiling, since every arm would be scored against it and the error would never
+surface. It recovers 100, 97 and 86 percent of a known blur on noise-free synthetic stars given the
+exact kernel, conserves interior flux to 0.000 percent, is inert to 4e-4 under a near-delta kernel,
+and reports rather than absorbs a negative input, since the update is multiplicative and a negative
+sample flips the sign of its own correction.
+
+**`PsfKernel.Mirrored()`** is the adjoint the correction pass convolves with. It equals the original
+for every kernel this family can build, and is built unconditionally rather than short-circuited, so
+that a future asymmetric kernel turns it into a real correction instead of silently leaving every
+deconvolution running the wrong operator. A `[Theory]` pins that equality.
+
+**The measured oracle ceiling**, which is the number any trained deconvolver may be held to: full
+recovery to 1.3x blur (residual 0.00 px), within 10 percent of the truth width to 1.6x, 1.15 to
+1.20x at 1.6 to 2.0x, and 1.7 to 1.8x beyond 2x, which is most of the blur still present. Nothing
+recovers below the truth (rec/truth at or above 0.99 in every band), and that is the line a trained
+arm may not cross without it being fabrication rather than success.
+
+**`HfdPsfEstimator` takes its radius range at construction**, and TianWen's own measured contract
+lands beside it as `TianWenMinRadiusPx` / `TianWenMaxRadiusPx` ([0.5, 4.0] px). **The default is
+deliberately NOT changed**: it stays SAS's [1, 8], because the range belongs to the MODEL, and the
+shipped `OnnxNonStellarDeconvolver` runs SAS AI4. A graph trained on [1, 8] handed a number encoded
+over [0.5, 4] does not fail. It runs, and is quietly told a PSF about twice the one it was given. A
+test pins that the container still resolves the shipped range, which is exactly what the new
+optional constructor parameters could otherwise break in silence.
+
+The encoding arithmetic behind that choice is worth stating, because the intuitive move is
+backwards. `psf01` is a ratio of logs, so widening the range divides every difference by its span:
+lowering the floor makes the spread SMALLER. [0.5, 4] and [1, 8] are both 8:1 and resolve
+identically; the whole measured gain is unclamping the six of 79 masters that were pinned to SAS's
+floor. The span sets the resolution, the window's position decides what clamps, and buying real
+resolution means narrowing the span at the cost of clamping one end.
+
+**`DatasetDegradationExporter`** gains `MaxBlurRatio`, `PerChannelKernels`, and psf01 labelling on
+every blur row: `Psf01Estimated`, read off the DEGRADED cell, beside the training-only
+`Psf01FromKernel`. Two rules the exporter enforces. The label is measured on the LINEAR cell,
+because `OnnxNonStellarDeconvolver` measures it there too, before the runner stretches, and a tone
+curve moves a star's half-maximum crossing. And a psf01 is never written without stars behind it:
+the estimator falls back to a constant default radius when it finds none, so the exporter writes
+null instead and a consumer drops the row, rather than conditioning a model on a number nothing
+measured.
+
+## 7.0
+
+Released 2026-09-04 (`v7.0.1513`), reissued 2026-09-06 (`v7.0.1532`).
+
+**BREAKING: `TryLease(out Image?)` is now `TryLease(out ImageLease)`**, cut in one wave with no
+compatibility overload. **Migration:** convert each call site to `using`. `default(ImageLease)` is
+inert, its `Dispose` a no-op and its `Image` throwing to name the call-site bug. The own side is
+unchanged: an owner still calls `Image.Release`, which stays a no-op for self-owned frames. The
+token is the BORROW side only.
+
+The reason for the cut is that a shared refcount can DETECT a double release but cannot prevent one
+(the offending call is byte-identical to a legitimate last release), and a bare `Image` returned
+from `TryLease` carried its release obligation only in a doc comment. `ImageLease` is a readonly
+struct whose `Dispose` is the borrower's whole obligation, 1:1 with the claim and spent exactly once
+however many struct copies exist. Note that CA2000 does NOT catch a forgotten one: it ignores
+value-type disposables, measured directly (a forgotten `ImageLease` beside a forgotten `FileStream`,
+only the stream fired), so a dropped lease is the DEBUG leak tracker's catch and not the compiler's.
+
+The cut also closed a latent poison. The bufferless branch used to hand out `this`, so the
+borrower's dispose marked the SOURCE released and every later lease of the same published frame
+refused: a repeat-polling preview got one frame and then 404s until the frame happened to swap. A
+lease is now always a distinct image sharing the planes.
+
+Also in 7.0:
+
+- **Mount safety limits**, the mechanical bound where the tube meets the pier or the ground, which
+  is not the meridian flip and can exist with it, without it, or neither. Enforced with no session
+  running too, via `MountLimitWatcher`, so `tianwen-server` and the GUI both hold the rig.
+- **A meridian flip is verified from the IMAGE, not the mount's word**, wherever the pointing state
+  is computed rather than measured, plus `Session.GetSideOfPierAsync` as the canonical pier side and
+  a solved field reporting its position angle.
+- **Explorer thumbnails** for `.fits` / `.fit` / `.fts` / `.fz` / `.ser`, a NativeAOT COM DLL living
+  inside the viewer's own publish tree.
+- **Comet integration finished**: the nucleus comes from the raw frames, each channel gets its own
+  amplitude, the model reaches as far as each channel's coma, and one run emits the star layer with
+  the body subtracted out of it.
+- **`StretchMode.Auto`**, the new viewer default, picking Linked when calibrated and Unlinked
+  otherwise.
+- **Session measurement frames are kept** (`SaveIntermediates`) and every light is stamped with the
+  guide RMS of its own exposure.
+- Plate solving searches for the frame when the hint is not where it says it is.
+
+## 6.3
+
+Released 2026-08-22 (`v6.3.1352`). Additive.
+
+- **Damage-based repaint plus the cached image layer**: a mouse move no longer repaints the window,
+  and a divider drag repaints the strip it swept rather than the whole pane. Rides DIR.Lib 8.8,
+  Console.Lib 4.27 and SdlVulkan.Renderer 7.25.
+- An 8-bit document drops the float planes it duplicates, and uploads its own bytes rather than the
+  floats it had been widened into.
+- The viewer info pane reports what the camera was SET to (gain, ISO, offset), each suppressed where
+  the header said nothing rather than printed as a -1 sentinel. The same fix retired a literal
+  "Frame: None".
+- A viewer window with nothing open adopts a file from anywhere, instead of letting a second window
+  open beside it. A window already showing the folder still wins, and a non-empty one still never
+  adopts across folders.
+- Calibration gained time-aware master matching (a 2021 dark never blends into a 2026 master), a
+  bad-pixel map derived from the lights themselves, and rejection of a wrong-gain dark by default.
+
+## 6.2
+
+Released 2026-08-20 (`v6.2.1314`). Additive, and cut because 161 features had already shipped under
+6.1: the previous binary release was 2026-06-24, and main had taken 646 commits since, every one of
+which would otherwise have gone out under the same minor.
+
+- **Remote rigs**: the Home board listing every rig you can look at, bindings that survive a DHCP
+  lease change, backoff on a rig that is not answering, and a mirrored guider tab that draws the
+  guide star rather than an empty panel.
+- **The in-house N2N denoiser ships in the repo**, one flag away (`--ai-backend n2n`), with Auto
+  rescuing with it when the SAS weights are absent, and CI running the parity test.
+- **The image is not necessarily in HDU 0**, so every reader walks to the first HDU that carries
+  one. This is what made tile-compressed `.fz` readable at all, since a binary table is only legal
+  as an extension.
+- **Four-state colour theme** (System / Light / Dark / Night) on one palette, with F12 for dark
+  adaptation, and the colour literals becoming roles.
+- **Text input as a declaration** on both surfaces, including non-Latin input.
+- Viewer toolbar rework: baked icons needing no font, a before/after split, a wrapping second row,
+  and a zoom control that says what the zoom is.
+- The web build fetches only the sky the view is looking at, off a region-aligned Tycho-2 bake.
+
+## 6.1
+
+Released 2026-06-24 (`v6.1.921`). Additive.
+
+Headlined by the **planetary lucky-imaging stack**, phases 1 through 9: frame quality grading, 2D
+FFT and sub-pixel phase correlation, global alignment, alignment points with a displacement-mesh
+warp, per-AP quality-weighted integration, Bayer drizzle, a-trous wavelet sharpening with bandpass
+and combo presets, the `planetary-stack` CLI, and the live rolling-window stack in the viewer with
+adjustable sharpen sliders.
+
+Also: SER planetary video opened as a frame sequence with off-thread frame-paced playback, MHC
+debayer mirrored on GPU and CPU, manual and gray-world white balance, Alpaca ImageBytes binary
+transfer, and the `TIANWEN_NOW` startup clock anchor.
+
+## 6.0
+
+Released 2026-06-20 (`v6.0.885`). The bump rode the layout foundation milestone and was described as
+additive at the time, despite the major number.
+
+- **Shared `GuiTheme` plus surface-agnostic layout engine adoption**, replacing roughly 35 duplicated
+  colour constants and six copies of the base font size across seven tabs and the renderer.
+  Byte-identical by construction: only value-matching constants were migrated.
+- A data-driven equipment panel via a section driver, with the per-OTA panel tree built from the
+  layout engine.
+- **API keys move to the OS credential vault**, off the profile URI.
+- Solar-system planets become first-class in sky-map click, search and the info panel;
+  centre-anchored zoom and a limiting-magnitude readout.
+- Planner weather work: per-hour humidity, a solar-midnight marker, precipitation probability.
+
+## 5.0
+
+Released 2026-06-14 (`v5.0.862`).
+
+**BREAKING, and the reason for the major: the CLI output formats split by data type.** OpenEXR
+becomes the unstretched linear HDR master out of the stacking pipeline (`stack --output-format exr`,
+full float32 mono and RGB), and JXR is restricted to stretched or processed output. So
+`--output-format jxr` is now rejected by `stack` (use `exr`), and `exr` is rejected by `image`.
+
+Also: the GHS reference math ported and validated, `stack --enhance` integrating `SharpenPipeline`
+into `MasterPostProcessor`, sRGB v4 embedded in display TIFF/PNG/JPEG output, 16-bit PNG with cICP,
+a zenith-anchored first-scout obstruction oracle with a cloud gate, moon-avoidance penalties in
+target scoring, and the DEBUG-only live UI inspector with its MCP sidecar.
+
+## 4.2
+
+Released 2026-05-04 (`v4.2.640`).
+
+The **hosting API completed all four phases**, including the ninaAPI v2 compatibility shim for Touch
+N Stars, and `tianwen-server` got its README section and download table. The solution migrated to
+`.slnx`.
+
+The bulk of the range (over 1300 commits) is **polar alignment** and **plate solving**: the
+SharpCap-style two-frame routine with its overlay, ramp and live WCS binding, frozen-seed quad
+matching replacing ROI-anchor tracking in the incremental solver, and the catalog binary format
+rollout.
+
+## 4.1
+
+Never released. Bumped and superseded by 4.2 the same day (2026-04-07), so no tag carries it.
+
+## 4.0
+
+Released 2026-04-07 (`v4.0.564`).
+
+The bump marks TianWen running **a complete imaging session end to end**: device management,
+observation planning, session configuration, automated imaging with guiding, auto-focus, filter
+sequencing and live monitoring, for single and dual-rig setups. Dual-rig was the original
+motivation, and the README was rewritten at this point to describe an imaging suite rather than a
+library.
+
+Also: QHYCCD camera, filter wheel and QFOC focuser support; a Weather device type with an
+Open-Meteo forecast overlay in the planner; the moon altitude curve and phase; and hosting API
+phases 1 and 2.
+
+## 3.6
+
+Released 2026-03-26 (`v3.6.493`).
+
+Sixel image preview in the TUI live session tab, per-OTA status in that tab, shared setup logic
+consolidated, an application icon (the Helix Nebula), iterative centering with auto-focus pipeline
+overlap, and unified per-frame star detection shared by the viewer, the drift check and the exposure
+log. Sibling packages moved back to nuget.org and the local nupkg directory was removed.
+
+## 3.5
+
+Released 2026-03-18 (`v3.5.455`). The bump commit records only the number.
+
+## 3.4
+
+Released 2026-03-17 (`v3.4.454`).
+
+`IMountDependentGuider`, so a built-in guider receives the same mount driver instance rather than a
+second `NewInstance`, wired through `SessionFactory`. `Setup` exposed on `ISession` to remove a
+downcast in tests.
+
+## 3.3
+
+Skipped. The version went 3.2 to 3.4 directly.
+
+## 3.2
+
+Released 2026-03-15 (`v3.2.449`). The bump commit records only the number.
+
+## 3.1
+
+Released 2026-03-11 (`v3.1.442`). The bump commit records only the number.
+
+## 3.0
+
+Released 2026-03-09 (`v3.0.440`).
+
+**AOT compatibility**: `IsAotCompatible` and `IsTrimmable` on `TianWen.Lib`, a six-platform AOT
+publish matrix (Windows, Linux and macOS on x64 and arm64), and CI split into the build, test,
+publish-cli, release and publish-nuget jobs it still uses. This is the release that started cutting
+GitHub Releases with binaries attached, which is why the tag history begins here.
+
+## Before 3.0
+
+No tags, so nothing is reconstructed here. For the record, the version lineage runs back through
+2.0, 1.8, 1.7, 1.6 and 1.5 in `dotnet.yml`, with the framework bumps at .NET 10 (2026-02), .NET 8
+(2024-01) and .NET 7 (2023-10). The first CI workflow was added 2022-05.

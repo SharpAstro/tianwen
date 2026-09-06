@@ -26,6 +26,7 @@ Canonical project state lives in these markdown files; read the relevant ones be
 | `docs/todo/*.md` | Full backlog + done-archive + unsorted inbox, split by area |
 | `docs/todo/hardware-validation.md` | The bench queue: every check only a real device or night can answer, indexed by GEAR; one home per item (plans keep the *why* + a pointer, never a second checkbox) |
 | `docs/known-limitations.md` | Root causes of limitations/bugs (the *why*); read before "fixing" a suspected bug |
+| `CHANGELOG.md` | Released version history, newest first, one section per `MAJOR.MINOR`. A version bump adds its entry **in the same commit** (`/bump-version` step 6), so a number can never ship without its note. The GitHub Release lists the commits; this says what the release was FOR and what breaks |
 
 ## Custom Skills
 
