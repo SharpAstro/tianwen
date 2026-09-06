@@ -76,15 +76,23 @@ namespace TianWen.UI.Abstractions
         };
 
         /// <summary>
-        /// The format a path's extension asks for, defaulting to <see cref="AnnotatedRasterFormat.Png"/>
-        /// for anything this writer does not recognise -- the lossless one, and the one the save dialog
-        /// offers first.
+        /// The format a path's extension asks for, or <c>null</c> when the extension is not one this
+        /// writer produces.
         /// </summary>
-        public static AnnotatedRasterFormat FromExtension(string path) =>
+        /// <remarks>
+        /// <b>It does not guess</b>, and it used to. Falling through to
+        /// <see cref="AnnotatedRasterFormat.Png"/> for every unrecognised extension meant a hand-typed
+        /// <c>shot.tif</c> got PNG bytes in a file called <c>.tif</c> -- a file that lies about itself
+        /// and fails to open in whatever the user reaches for next, with nothing said. The fallback is
+        /// a POLICY and belongs to the caller, which is the only layer that also knows it may rename
+        /// the file; the same contract <see cref="DisplayRasterExport.FromExtension"/> has always had.
+        /// </remarks>
+        public static AnnotatedRasterFormat? FromExtension(string path) =>
             Path.GetExtension(path).ToLowerInvariant() switch
             {
+                ".png" => AnnotatedRasterFormat.Png,
                 ".jpg" or ".jpeg" => AnnotatedRasterFormat.Jpeg,
-                _ => AnnotatedRasterFormat.Png,
+                _ => null,
             };
 
         /// <summary>
