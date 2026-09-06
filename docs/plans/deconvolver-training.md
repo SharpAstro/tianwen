@@ -79,6 +79,64 @@ against, and a net that "beats" it is fabricating.
 *Kill:* none; this is a measurement. If the oracle itself rings at every psf01, the noise-after-blur
 level is wrong (H4) before anything is trained.
 
+> **MEASURED 2026-09-06 (E1).** `DeconvolutionOracleCeilingProbe`: 6 masters spread across the
+> archive, 512 px centre crops, 3 channels, 5 injected FWHM (0.5 to 4.0 px, Moffat beta 4 fixed so
+> the sweep has one axis), both noise-free and blur-then-noise at the frame's own background MAD,
+> Richardson-Lucy 30 iterations with the EXACT kernel. 180 rows.
+>
+> **The kill does not fire.** The oracle does not ring at every level: excess is 0 and 2 percent in
+> the gentlest band, so the noise-after-blur level is sane and H4 is not implicated.
+>
+> **The axis is the blur RATIO, not the psf01 bin the hypothesis asked for.** psf01 encodes absolute
+> width, so binning by it puts "a frame that was already 7 px wide" in the same bucket as "a 1.5 px
+> frame blurred to 5 px", and the top bin turned out to be one short-focal-length master rather than a
+> degree of blur. Deconvolution removes EXCESS width, and the conditioning scalar cannot express how
+> much of a width is excess. That is a fact about the contract, not about this probe.
+>
+> | blurred/truth | noise | n | rec/truth | residual px | ring excess | stars vs truth |
+> |---|---|---:|---:|---:|---:|---:|
+> | 1.0-1.1x | no | 24 | 1.00 | 0.00 | 0 % | 1.00 |
+> | 1.0-1.1x | yes | 17 | 1.00 | 0.00 | 2 % | 0.89 |
+> | 1.1-1.3x | no | 17 | 1.00 | 0.00 | 15 % | 1.00 |
+> | 1.1-1.3x | yes | 15 | 0.99 | -0.01 | 9 % | 0.93 |
+> | 1.3-1.6x | no | 9 | 1.08 | 0.22 | 49 % | 0.94 |
+> | 1.3-1.6x | yes | 11 | 1.06 | 0.12 | 23 % | 0.66 |
+> | 1.6-2.0x | no | 14 | 1.20 | 0.39 | 80 % | 0.97 |
+> | 1.6-2.0x | yes | 15 | 1.15 | 0.29 | 38 % | 0.75 |
+> | 2.0-3.0x | no | 20 | 1.67 | 1.31 | 94 % | 0.70 |
+> | 2.0-3.0x | yes | 17 | 1.74 | 1.36 | 82 % | 0.45 |
+> | 3.0x and up | no | 5 | 1.81 | 1.59 | 30 % | 0.78 |
+> | 3.0x and up | yes | 5 | 1.76 | 1.40 | 35 % | 0.87 |
+>
+> **"Within 10 percent up to about 2x" is close but overstated: the boundary is 1.6x.** Through
+> 1.3-1.6x the recovered star is 1.06 to 1.08 times the truth, inside the prediction; at 1.6-2.0x it
+> is 1.15 to 1.20, outside it; past 2x it is 1.7 to 1.8 times, which is most of the blur still there.
+>
+> **"Nothing recovers below the truth" holds.** rec/truth is at or above 0.99 in every band, so at the
+> median the oracle never produced a star narrower than the one that was there. That is the line a
+> trained arm may not cross.
+>
+> **Ringing arrives BEFORE recovery degrades, and it is what bounds the usable range.** At 1.1-1.3x
+> the residual is still 0.00 px while 15 percent of stars already show excess undershoot. So the
+> advertised range is set by the ringing column, not by the FWHM column, and H6's ladder question
+> inherits that.
+>
+> **The recovery FRACTION is not comparable across blur ratios and must not be quoted alone.** Its
+> denominator grows with the injected blur, so the worst rows in the table score best on it: one reads
+> 85 percent recovery while leaving the star at 1.48x its original width (truth 1.85 px, blurred 8.15,
+> recovered 2.74). The absolute residual is monotone in blur and is the honest column; that is why the
+> table above leads with it and the earlier by-psf01 summary, which showed recovery rising again in
+> its top bin, was an artefact of the same thing.
+>
+> **Two arms are not comparable to each other on the ring column, only within one.** The excess is
+> measured against the same statistic on each arm's OWN input, and a noisy input already has deep
+> annulus minima, so the noisy arm's excess is structurally smaller. The cost of noise shows in the
+> star count instead: 0.45 of the truth's stars survive at 2-3x against 0.70 noise-free.
+>
+> **Stated limitations.** 30 RL iterations, unswept, and the iteration count IS the regularisation
+> parameter on noisy data. Beta fixed at 4. Six masters and centre crops only, so nothing here speaks
+> to field position (H7).
+
 **H2. Condition on what inference can measure: psf01 from `HfdPsfEstimator` run on the degraded
 frame, never from the kernel parameters.** Inference has no kernel; it has the estimator's number,
 which carries its own biases (faint-star widening, the undersampling clamp, the azimuthal average of
@@ -260,7 +318,7 @@ disk; the frames are taken either way.
 | Step | What | Cost | Decides |
 |---|---|---|---|
 | E0 | **DONE 2026-09-06, and no re-measure was needed** (results below): `2026-09-full` is already current-detector, its report is already rendered, and what remained was the fit. | 0 GPU, ~5 min of probes | Calibration of everything below |
-| E1 | **H5 DONE 2026-09-06** (`PsfEncodingSpreadProbe`, all 79 masters through the deployed estimator): the shipped range is not the collapse it was recorded as, lowering the floor makes the spread SMALLER, and `[0.5, 4.0]` is the pick. **H1 (oracle ceiling with Richardson-Lucy and the exact kernel) still open.** | a day, CPU | The ceiling and the contract floor |
+| E1 | **DONE 2026-09-06, both halves.** H5 (`PsfEncodingSpreadProbe`, all 79 masters through the deployed estimator): the shipped range is not the collapse it was recorded as, lowering the floor makes the spread SMALLER, `[0.5, 4.0]` is the pick. H1 (`DeconvolutionOracleCeilingProbe`, `RichardsonLucy` with the exact kernel, 180 rows): full recovery to 1.3x blur, inside 10 percent to 1.6x, 1.7 to 1.8x the truth width beyond 2x; nothing recovers below the truth; ringing bounds the range before recovery does. | a day, CPU | The ceiling and the contract floor |
 | E2 | **SHIPPED 2026-09-03 as the shared exporter** (`tianwen dataset degrade --mode blur`, `DatasetDegradationExporter`): linear Moffat blur with a drawn (FWHM, beta, elongation, PA), noise after, both sides stretched with the TARGET's parameters, field-radius tag per cell, and the drawn kernel parameters in `degradations.jsonl`. Parity is stronger than planned: the clean tile derived from the RETAINED master is byte-identical to the P0 tile of the same cell (0.0 on every session measured), which pins the whole path rather than just the stretch. Still owed: psf01 labels from `HfdPsfEstimator` on the degraded stretched frame under both encodings (H2, H5), and the per-(train, filter, channel) draw distribution, which needs E0's re-measured store | 1 to 2 days | Whether pairs are honest |
 | E3 | Smoke arms, three seeds each, on the U-Net: kernel vs estimator label (H2), shared vs per-channel (H3), noise vs none (H4), two vs three bands (H8). Post a labelled comparison at 1:1 around bright and faint stars. | 4 pairs x 3 seeds x 11 min | H2, H3, H4, H8 |
 | E4 | Stationary vs position-varying (H7) on the refractor trains. | 2 x 3 x 11 min | H7 |
@@ -349,7 +407,7 @@ release, and Auto stays RC then SAS then in-house rescue until a human side-by-s
 
 | Phase | Deliverable | Exit |
 |---|---|---|
-| P2.0 | Store re-measured (**E0 DONE 2026-09-06**: no re-measure needed, `2026-09-full` is already current, and the joint draw is fitted per channel); oracle ceiling and encoding spread still to table | E0 done, E1 open |
+| P2.0 | **DONE 2026-09-06.** Store re-measured (E0: no re-measure needed, `2026-09-full` is already current, and the joint draw is fitted per channel); oracle ceiling and encoding spread tabled (E1) | E0, E1 |
 | P2.1 | Degradation exporter with stretch parity; first pairs (**exporter + parity done 2026-09-03**; psf01 labelling and the measured draw distribution owed) | E2 |
 | P2.2 | H2/H3/H4/H8 answered on the smoke U-Net with posted comparisons | E3 |
 | P2.3 | H7 answered; recipe fixed | E4, E5 |

@@ -258,6 +258,32 @@ namespace TianWen.Lib.Imaging.Degradation
             return 2.0 * radius;
         }
 
+        /// <summary>
+        /// The kernel rotated by 180 degrees, which is the adjoint a deconvolution's correction pass
+        /// convolves with (<c>P^T</c> in Richardson-Lucy's update).
+        /// </summary>
+        /// <remarks>
+        /// For every kernel this class can currently build the result equals the original, because a
+        /// Moffat or Gaussian weight depends on the SQUARES of the rotated offsets and is therefore
+        /// centrally symmetric however it is elongated or rotated. It is built anyway rather than
+        /// short-circuited, because the adjoint is what the mathematics asks for and the cost is one
+        /// array reverse at setup. `PsfKernelTests` pins the equality, so a future asymmetric kernel
+        /// (a measured PSF, a motion smear) turns this from a no-op into a correction rather than
+        /// silently leaving every deconvolution using the wrong operator.
+        /// <para>Reversing a row-major square IS the 180 degree rotation: index <c>i</c> maps to
+        /// <c>n - 1 - i</c>, which negates both the row and the column offset from the centre.</para>
+        /// </remarks>
+        public PsfKernel Mirrored()
+        {
+            var mirrored = new float[_weights.Length];
+            for (var i = 0; i < _weights.Length; i++)
+            {
+                mirrored[i] = _weights[_weights.Length - 1 - i];
+            }
+
+            return new PsfKernel(Radius, mirrored, IsSeparable, Fwhm, Beta);
+        }
+
         /// <summary>The weights as an immutable array, for a caller that wants to keep or compare one.</summary>
         public ImmutableArray<float> ToImmutable() => ImmutableCollectionsMarshal.AsImmutableArray((float[])_weights.Clone());
     }
