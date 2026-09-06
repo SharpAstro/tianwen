@@ -377,6 +377,49 @@ everything and above it recovers little.
 | E7 | Export with the own contract (`[0.5, 8]` px), parity to torch, contract JSON, `OnnxTianWenDeconvolver : INonStellarDeconvolver` through `ChunkedNafnetRunner`, an `IPsfEstimator` variant with the lower floor, backend routing. | 2 days | Ships |
 | E8 | Space-truth tier (H9), only after E7 has a baseline to beat. | rented GPU | Optional |
 
+### Reproducing E0 and E1
+
+Every number in the two sections below comes from a probe in `TianWen.Lib.Tests`, gated on an
+environment variable and skipped without it, so none of them run in the ordinary suite. They read a
+real archive off a spinning disk. **Recorded here because the invocations are the experiment**: the
+plan quotes the results, and without the command lines a re-read cannot re-derive them.
+
+```bash
+# from src/. TIANWEN_PSF_STORE_DIR points at a dataset out-dir (the one holding stats/ and
+# session-masters/); everything below is against the 79-session 2026-09-full bake.
+export TIANWEN_PSF_STORE_DIR="D:/Astro-Dataset/2026-09-full"
+
+# E0, is the store current? ~35 s for 8 masters. Run it against 2025-2026-organized too: that bake is
+# the CONTROL, and its documented staleness (count 1.038, +0.033 px) is what makes the newer bake's
+# exact zeros readable rather than a self-comparison.
+TIANWEN_PSF_PROBE_MAX=8 dotnet test TianWen.Lib.Tests \
+  --filter "FullyQualifiedName~PsfStoreVsCurrentDetectorProbe" --logger "console;verbosity=detailed"
+
+# E1 / H5, the conditioning contract. ~1.7 min for all 79 masters (MAX=0 means all).
+TIANWEN_PSF_PROBE_MAX=0 dotnet test TianWen.Lib.Tests \
+  --filter "FullyQualifiedName~PsfEncodingSpreadProbe" --logger "console;verbosity=detailed"
+
+# E1 / H1, the oracle ceiling. ~26 min at 30 iterations, ~45 at 60. The tabled numbers are 60.
+TIANWEN_ORACLE_MASTERS=6 TIANWEN_ORACLE_ITERS=60 dotnet test TianWen.Lib.Tests \
+  --filter "FullyQualifiedName~ReportHowMuchOfAKnownBlurAnOracleRecovers" --logger "console;verbosity=detailed"
+
+# E1 / H1, the iteration sweep that picked 60. ~22 min; reads 5..120 off ONE run per combination.
+TIANWEN_ORACLE_MASTERS=3 dotnet test TianWen.Lib.Tests \
+  --filter "FullyQualifiedName~ReportWhereTheIterationCountStopsHelping" --logger "console;verbosity=detailed"
+```
+
+**Two things the raw output does not give you.** The ceiling probe prints per-row detail and bins by
+psf01, which E1 found to be the wrong axis; the tables in this plan are re-aggregated by BLUR RATIO
+(`blurred / truth`) from those rows, and the per-cell fits behind E0 come from parsing
+`stats/psf-sessions.jsonl` directly (`MasterProfiles[]` per channel, filter = the 4th `|`-delimited
+field of `SessionId`, rows with `MoffatBeta > 20` dropped as railed). Both are small scripts, not
+committed, and a re-run should redo them from the stored output rather than trusting a remembered
+number.
+
+**Captured output from the 2026-09-06 runs**, kept for comparison rather than as an input:
+`C:/temp/e2/psf-encoding-spread.txt`, `oracle-ceiling.txt` (30 iterations), `oracle-ceiling-60.txt`,
+`oracle-iterations.txt`. Scratch, not backed up.
+
 ### E0's results, 2026-09-06
 
 **No `--force-psf` run was needed, because the bake that arrived for the denoiser is already
