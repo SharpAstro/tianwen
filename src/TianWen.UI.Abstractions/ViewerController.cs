@@ -414,16 +414,15 @@ public sealed class ViewerController(
 
             if (withOverlays)
             {
-                var annotatedFormat = AnnotatedRasterExport.FromExtension(target);
-
-                // The annotated writer answers PNG for every extension it does not recognise, so a
-                // hand-typed "shot.tif" would put PNG bytes in a file called .tif -- unreachable from
-                // the dropdown, which offers PNG and JPEG, and silent when it happens. Name the file
-                // for what is actually going into it.
-                if (annotatedFormat is AnnotatedRasterFormat.Png
-                    && !target.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+                AnnotatedRasterFormat annotatedFormat;
+                if (AnnotatedRasterExport.FromExtension(target) is { } askedFor)
                 {
-                    target = Path.ChangeExtension(target, ".png");
+                    annotatedFormat = askedFor;
+                }
+                else
+                {
+                    annotatedFormat = AnnotatedRasterFormat.Png;
+                    target = RenamedToPng(target);
                 }
 
                 await AnnotatedRasterExport.WriteAsync(
@@ -449,9 +448,20 @@ public sealed class ViewerController(
             var background = uniforms.ComputePostStretchBackground(
                 saveDoc.PerChannelBackground, saveDoc.LumaBackground);
 
+            DisplayRasterFormat format;
+            if (DisplayRasterExport.FromExtension(target, pngDepth) is { } named)
+            {
+                format = named;
+            }
+            else
+            {
+                format = pngFormat;
+                target = RenamedToPng(target);
+            }
+
             await DisplayRasterExport.WriteAsync(
                 image, target,
-                DisplayRasterExport.FromExtension(target, pngDepth) ?? pngFormat,
+                format,
                 uniforms,
                 state.CurvesBoost, state.CurvesMode, state.CurveData, background,
                 state.HdrAmount, state.HdrKnee,
@@ -467,6 +477,24 @@ public sealed class ViewerController(
         onError: ex => state.StatusMessage = $"Save failed: {StatusText.FromException(ex)}",
         onFinally: () => state.NeedsRedraw = true);
     }
+
+    /// <summary>
+    /// <paramref name="path"/> with a <c>.png</c> extension, for when the writer fell back to PNG
+    /// because the chosen name asked for a container it cannot produce.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>A native save dialog returns what was TYPED</b>, its filter list notwithstanding, so a
+    /// path can name a format neither writer has an encoder for: <c>.tif</c> for an annotated save,
+    /// which is PNG or JPEG only, and anything at all for either -- <c>.bmp</c>, <c>.gif</c>, a
+    /// deliberate <c>.txt</c>. Both paths used to write PNG bytes under the typed name, and that is
+    /// the worse half of the failure: the file is fine, the NAME is a lie, and it surfaces later as
+    /// something that will not open rather than now as something that did not save.</para>
+    /// <para>Renaming rather than refusing, because the intent is unambiguous -- the container was the
+    /// only unavailable part -- and the status line reports the file that was actually written, so
+    /// the correction is visible at the moment it happens rather than discovered afterwards.</para>
+    /// </remarks>
+    private static string RenamedToPng(string path) =>
+        path.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? path : Path.ChangeExtension(path, ".png");
 
     /// <summary>
     /// Handles toolbar actions that require DI (Open, PlateSolve).
