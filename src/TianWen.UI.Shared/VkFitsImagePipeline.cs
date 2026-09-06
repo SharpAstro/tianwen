@@ -604,7 +604,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         ProcessedChannels = 0,
         /// <summary>Raw mono: single R32F texture, no debayer needed.</summary>
         RawMono = 1,
-        /// <summary>Raw Bayer mosaic: single R32F texture, bilinear debayer in shader.</summary>
+        /// <summary>Raw Bayer mosaic: single R32F texture, demosaiced in the shader
+        /// (which branch: the <c>debayerMode</c> argument of <see cref="UpdateStretchUBO"/>).</summary>
         RawBayer = 2,
     }
 
@@ -765,7 +766,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         WriteFloat(p, 396, 0f);
 
         // stretchBlend (vec4 at offset 400) -- (lumaBlend, normalizeScale, debayerMode, pad).
-        // debayerMode (z) selects the in-shader Bayer demosaic for the RawBayer path: 1 = MHC, else bilinear.
+        // debayerMode (z) selects the in-shader Bayer demosaic for the RawBayer path: 1 = MHC, 2 = raw
+        // mosaic, 3 = mono, 4 = VNG, else bilinear. Written by ImageRendererBase.GpuDebayerMode.
         WriteFloat(p, 400, lumaBlend);
         WriteFloat(p, 404, normalizeScale);
         WriteFloat(p, 408, debayerMode);

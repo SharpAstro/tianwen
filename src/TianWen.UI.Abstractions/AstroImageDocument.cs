@@ -316,10 +316,11 @@ public sealed class AstroImageDocument : IPreviewSource
     /// <c>Adopt</c> in the name states, per the rule that ownership transfer is visible in the name.
     /// See the frame-ownership notes on <see cref="Image"/>.</para>
     /// </remarks>
-    public static async Task<AstroImageDocument> AdoptImageAsync(Image image, DebayerAlgorithm algorithm = DebayerAlgorithm.AHD, WCS? wcs = null, string filePath = "", CancellationToken cancellationToken = default)
+    public static async Task<AstroImageDocument> AdoptImageAsync(Image image, DebayerAlgorithm algorithm = DebayerAlgorithm.VNG, WCS? wcs = null, string filePath = "", CancellationToken cancellationToken = default)
     {
         // For Bayer images: skip CPU debayer but normalize to [0,1] so stretch stats
-        // match the existing histogram-based computation. The GPU shader does bilinear debayer.
+        // match the existing histogram-based computation, and because the shader's VNG thresholds
+        // are absolute. The GPU shader demosaics, in whichever branch `algorithm` selects.
         Image viewImage;
         DebayerAlgorithm actualAlgorithm;
         if (image.ImageMeta.SensorType is SensorType.RGGB && algorithm is not DebayerAlgorithm.None)
@@ -359,7 +360,7 @@ public sealed class AstroImageDocument : IPreviewSource
     /// Opens an image file (FITS or TIFF), applies debayering if needed, and caches stretch statistics.
     /// The debayer result becomes the permanent base image; stretch is done on the GPU.
     /// </summary>
-    public static async Task<AstroImageDocument?> OpenAsync(string filePath, DebayerAlgorithm algorithm = DebayerAlgorithm.AHD, CancellationToken cancellationToken = default)
+    public static async Task<AstroImageDocument?> OpenAsync(string filePath, DebayerAlgorithm algorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
     {
         var ext = Path.GetExtension(filePath);
 

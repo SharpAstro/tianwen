@@ -20,7 +20,7 @@ public sealed class DocumentCache : IDocumentCache
     /// </summary>
     public async Task<AstroImageDocument?> GetOrLoadAsync(
         string filePath,
-        DebayerAlgorithm algorithm = DebayerAlgorithm.AHD,
+        DebayerAlgorithm algorithm = DebayerAlgorithm.VNG,
         CancellationToken cancellationToken = default)
     {
         if (_cache.TryGetValue(filePath, out var weakRef) && weakRef.TryGetTarget(out var cached))

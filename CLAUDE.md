@@ -1353,8 +1353,17 @@ matrix, the two full-scale numbers and the header parse:
   attach-after-construct step (`WithChannelBuffers` is gone); a rewrap sharing arrays
   (`ScaleFloatValuesToUnitInPlace`) sets `Buffer = null` (pinned by `ImageChannelCtorTests`).
 - Viewers never CPU-debayer; the GPU shader debayers the raw mosaic (`LiveFramePreviewSource.AcceptFrame`,
-  `AstroImageDocument`). CPU `DebayerAsync` is for batch paths. `Image.DebayerIntoAsync` has **zero
-  callers**: wire it or delete it.
+  `AstroImageDocument`). CPU `DebayerAsync` is for batch paths **and for a Save**, which is what makes
+  the next rule load-bearing. `Image.DebayerIntoAsync` has **zero callers**: wire it or delete it.
+- **A demosaic the viewer OFFERS must have its own branch in `image.frag`** -- the screen shows the
+  shader's output while a Save CPU-debayers the same frame, so an algorithm without one silently
+  writes a different picture from the one on screen. That is why `ViewerActions.DebayerAlgorithms`
+  drops AHD (no GPU branch, and 1258 ms per save) and defaults to VNG (no ring at a star core,
+  measured), while `DebayerAlgorithm` keeps AHD for the batch paths. `debayerVng` / `debayerMhc`
+  mirror `Image.DebayerVNGAsync` / `DebayerMHCAsync` down to the epsilons, and **VNG's thresholds are
+  ABSOLUTE, so both sides must be fed a `[0, 1]` mosaic**. Pinned by `GpuVngDebayerParityTests`
+  (which also carries why a mean byte diff cannot see a demosaic bug);
+  [docs/architecture/image-pipeline.md](docs/architecture/image-pipeline.md).
 - `Array2DPool` is scratch only; camera buffers use `ChannelBuffer`/`_freeBuffers`.
 - **A buffer nobody released is findable in DEBUG** (`ChannelBufferLeakTracker`, weak-referenced, no
   finalizer); `dotnet.yml`'s `test-unit` runs a DEBUG leg on `--filter "Category=DebugOnly"` and

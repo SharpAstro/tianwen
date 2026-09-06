@@ -177,6 +177,28 @@ public abstract unsafe class OffscreenGpuFixtureBase : IDisposable
         return completion.Task;
     }
 
+    /// <summary>
+    /// The framebuffer is sized to the largest image any test in the class renders, so a smaller test
+    /// draws into the top-left sub-rectangle and the readback comes back with the clear colour around
+    /// it. This slices the meaningful <paramref name="dstWidth"/> x <paramref name="dstHeight"/> corner
+    /// out of it, and returns the input unchanged when there is nothing to slice.
+    /// </summary>
+    public static byte[] ExtractSubRect(byte[] fullRgba, int srcStrideWidth, int dstWidth, int dstHeight)
+    {
+        if (dstWidth == srcStrideWidth && fullRgba.Length == dstWidth * dstHeight * 4)
+        {
+            return fullRgba;
+        }
+
+        var result = new byte[dstWidth * dstHeight * 4];
+        for (var y = 0; y < dstHeight; y++)
+        {
+            Buffer.BlockCopy(fullRgba, y * srcStrideWidth * 4, result, y * dstWidth * 4, dstWidth * 4);
+        }
+
+        return result;
+    }
+
     public void Dispose()
     {
         if (VulkanAvailable)

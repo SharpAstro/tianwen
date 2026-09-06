@@ -467,12 +467,13 @@ namespace TianWen.UI.Abstractions
         private static readonly ImmutableArray<string> ChannelViewLabels = BuildLabels(
             ChannelViewOrder, v => v switch { ChannelView.Composite => "RGB", _ => v.ToString() });
 
-        /// <summary>Debayer-algorithm selector, all algorithms always shown. The click handler
-        /// indexes this array directly, so the order is independent of the enum's numeric values.
-        /// MHC sits next to the other Bayer-to-RGB algorithms; for the GPU live (RawBayer) path it
-        /// and VNG/AHD all resolve to the shader's MHC demosaic (see <see cref="GpuDebayerMode"/>).</summary>
-        private static readonly DebayerAlgorithm[] DebayerAlgorithmOrder =
-            [DebayerAlgorithm.None, DebayerAlgorithm.BilinearMono, DebayerAlgorithm.MHC, DebayerAlgorithm.VNG, DebayerAlgorithm.AHD];
+        /// <summary>Debayer-algorithm selector. The click handler indexes this array directly, so the
+        /// order is independent of the enum's numeric values -- and it IS
+        /// <see cref="ViewerActions.DebayerAlgorithms"/> rather than a copy of it, so the dropdown and
+        /// the D key can never offer different sets (that list also says why AHD is not among them).
+        /// Every entry here has its own GPU branch, so what is on screen is what a Save writes
+        /// (see <see cref="GpuDebayerMode"/>).</summary>
+        private static readonly DebayerAlgorithm[] DebayerAlgorithmOrder = ViewerActions.DebayerAlgorithms;
 
         private static readonly ImmutableArray<string> DebayerLabels = BuildLabels(
             DebayerAlgorithmOrder, a => a.DisplayName);

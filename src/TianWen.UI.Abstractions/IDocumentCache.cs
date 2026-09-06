@@ -15,7 +15,7 @@ public interface IDocumentCache
     /// </summary>
     Task<AstroImageDocument?> GetOrLoadAsync(
         string filePath,
-        DebayerAlgorithm algorithm = DebayerAlgorithm.AHD,
+        DebayerAlgorithm algorithm = DebayerAlgorithm.VNG,
         CancellationToken cancellationToken = default);
 
     /// <summary>

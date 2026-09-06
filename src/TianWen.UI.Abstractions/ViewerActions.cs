@@ -98,15 +98,50 @@ public static class ViewerActions
         state.NeedsTextureUpdate = true;
     }
 
-    private const int DebayerAlgorithmCount = 5; // None, BilinearMono, VNG, AHD, MHC (contiguous enum values)
+    // The demosaics the viewer OFFERS, in selector order. Internal so the toolbar dropdown in
+    // <see cref="ImageRendererBase{TSurface}"/> reads the same list the D key cycles, exactly as
+    // StretchLinkModes above does for the stretch selector: one order, so a cycle can never land on
+    // something the dropdown does not show.
+    //
+    // AHD is deliberately absent, and the reason is honesty rather than quality. The GPU shader has
+    // no AHD, so choosing it displayed MHC while a Save wrote AHD -- the one thing a viewer whose
+    // whole contract is "the file is what you were looking at" may not do. It also cost 1258 ms of
+    // every save, an order more than anything else here. This removes it from the SELECTOR only:
+    // DebayerAlgorithm still has it, the batch paths (stacking, dataset export) still ask for it by
+    // name, GpuDebayerMode still answers for it, and a state that has AHD in it keeps rendering
+    // exactly as it did.
+    internal static readonly DebayerAlgorithm[] DebayerAlgorithms =
+        [DebayerAlgorithm.None, DebayerAlgorithm.BilinearMono, DebayerAlgorithm.MHC, DebayerAlgorithm.VNG];
+
+    /// <summary>
+    /// What a viewer demosaics a raw CFA frame with when nobody has chosen: <see cref="DebayerAlgorithm.VNG"/>.
+    ///
+    /// <para>VNG because of what it does at a star, which is the thing this application is looking at.
+    /// Measured on a real CR3 over four stars, the rim of the halo sits 0.36% BELOW the local sky for
+    /// VNG and 2.86% ABOVE it for MHC -- MHC draws a faint dark ring around every bright core, which
+    /// is visible the moment two renders are blinked against each other. Bilinear has no ring either
+    /// but spreads colour twice as far (fringe 3.89% against VNG's 1.35%).</para>
+    ///
+    /// <para>The default used to be AHD, which is not in the selector at all any more (see
+    /// <see cref="DebayerAlgorithms"/>): it rings less than MHC but still rings, has no GPU
+    /// implementation, and cost 1258 ms of every save against VNG's 63 ms.</para>
+    ///
+    /// <para>Named once here so the places that need a default -- ViewerState's initialiser, the
+    /// document open/cache entry points, the CLI view command -- cannot drift apart.</para>
+    /// </summary>
+    public const DebayerAlgorithm DefaultDebayerAlgorithm = DebayerAlgorithm.VNG;
 
     public static void CycleDebayerAlgorithm(ViewerState state, bool reverse = false)
     {
-        var idx = (int)state.DebayerAlgorithm;
-        idx = (idx + (reverse ? DebayerAlgorithmCount - 1 : 1)) % DebayerAlgorithmCount;
-        state.DebayerAlgorithm = (DebayerAlgorithm)idx;
+        // A state holding something the selector no longer offers (a persisted AHD) is not in the
+        // ring at all; IndexOf answers -1 and the first step lands on entry 0 instead of throwing.
+        var idx = Array.IndexOf(DebayerAlgorithms, state.DebayerAlgorithm);
+        var len = DebayerAlgorithms.Length;
+        idx = idx < 0 ? 0 : (idx + (reverse ? len - 1 : 1)) % len;
+        state.DebayerAlgorithm = DebayerAlgorithms[idx];
         // RawBayer (SER / raw Bayer FITS) re-derives the GPU demosaic mode in UploadDocumentTextures,
-        // so the bilinear<->MHC switch is live (a CPU-debayered colour FITS is unaffected).
+        // so the switch between the shader's bilinear / MHC / VNG branches is live (a CPU-debayered
+        // colour FITS is unaffected).
         state.NeedsTextureUpdate = true;
     }
 

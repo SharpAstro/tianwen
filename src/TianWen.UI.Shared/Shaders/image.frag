@@ -261,6 +261,156 @@ vec3 debayerMhc(vec2 uv) {
     return clamp(vec3(rr, gg, bb), 0.0, 1.0);
 }
 
+// ---------------------------------------------------------------------------------------------
+// Variable Number of Gradients (VNG). The exact CPU mirror is Image.DebayerVNGAsync and its four
+// Interpolate*VNG helpers, in the same way debayerMhc above mirrors Image.DebayerMHCAsync: every
+// direction, weight, 1.5 threshold factor and epsilon below is transcribed from there, so what the
+// screen shows and what a Save writes are the same demosaic rather than two that merely agree on
+// average. VNG is what the viewer defaults to because it is the one algorithm here that leaves no
+// dark rim around a bright star core -- measured on a real CR3, ring dip -0.36% against MHC's
+// +2.86% -- while still resolving colour better than plain bilinear (fringe 1.35% vs 3.89%).
+//
+// The idea: interpolate along the directions the image is SMOOTH in and ignore the ones it has an
+// edge in. Each candidate direction contributes a gradient and a value; the smallest gradient sets
+// a threshold at 1.5x itself, and the directions inside it are averaged. A flat neighbourhood keeps
+// all of them (an average, like bilinear); an edge keeps only the ones running along it, which is
+// what stops the interpolator reaching across a star's rim and pulling the background inwards.
+//
+// THE EPSILONS ARE ABSOLUTE, so this is only correct on a mosaic normalised to [0, 1]. Both callers
+// are: AstroImageDocument normalises on load and uploads that texture, and DisplayRasterExport
+// debayers that same normalised image. Feeding it raw ADU would drown the 0.01 floor and turn every
+// direction test into a coin toss on noise.
+// ---------------------------------------------------------------------------------------------
+
+// Frame border, within two pixels of an edge: the CPU's VNG inner loop is inset by that much and
+// the rim is filled by Image.ProcessEdgePixels instead, which averages every same-colour sample in
+// the clipped 5x5 window (BilinearInterpolateColorFast -- not a bilinear filter, despite the name).
+// Mirrored literally, window clipping included, rather than leaning on rawAt's clamp: clamping
+// would be defensible on its own but would disagree with the file at the one place the difference
+// is easiest to see, a 2px band along all four edges.
+vec3 vngEdge(ivec2 p, vec3 knownMask) {
+    ivec2 m = ivec2(ubo.imageSize) - ivec2(1, 1);
+    ivec2 lo = max(p - ivec2(2, 2), ivec2(0, 0));
+    ivec2 hi = min(p + ivec2(2, 2), m);
+    int offX = ubo.bayerPat % 65536;
+    int offY = ubo.bayerPat / 65536;
+
+    vec3 sum = vec3(0.0);
+    vec3 count = vec3(0.0);
+    for (int y = lo.y; y <= hi.y; y++) {
+        for (int x = lo.x; x <= hi.x; x++) {
+            int nx = (x + offX) % 2;
+            int ny = (y + offY) % 2;
+            bool isRed  = (nx == 0 && ny == 0);
+            bool isBlue = (nx == 1 && ny == 1);
+            vec3 hit = vec3(isRed ? 1.0 : 0.0, (isRed || isBlue) ? 0.0 : 1.0, isBlue ? 1.0 : 0.0);
+            sum += hit * texelFetch(uChannel0, ivec2(x, y), 0).r;
+            count += hit;
+        }
+    }
+
+    // The known channel takes the raw sample verbatim; only the other two are interpolated, exactly
+    // as ProcessEdgePixel's `if (c != knownColor)` does.
+    vec3 avg = sum / max(count, vec3(1.0));
+    return clamp(mix(avg, vec3(texelFetch(uChannel0, p, 0).r), knownMask), 0.0, 1.0);
+}
+
+// Green at a red or blue site. Four cardinal directions over a 5-tap cross: the gradient is the
+// second difference through the centre (2*g - v - c, zero on a linear ramp and large at a rim), and
+// the value corrects the near green by half the same-colour slope. Mirrors InterpolateGreenAtRBVNG,
+// which is the ONE helper with no epsilon on its threshold -- the second difference already
+// suppresses a smooth gradient, so a floor here would only re-admit the direction just rejected.
+float vngGreenAtRB(ivec2 p, float c) {
+    vec4 g = vec4(rawAt(p + ivec2( 0, -1)), rawAt(p + ivec2( 0, 1)),
+                  rawAt(p + ivec2(-1,  0)), rawAt(p + ivec2( 1, 0)));
+    vec4 v = vec4(rawAt(p + ivec2( 0, -2)), rawAt(p + ivec2( 0, 2)),
+                  rawAt(p + ivec2(-2,  0)), rawAt(p + ivec2( 2, 0)));
+
+    vec4 grad = abs(2.0 * g - v - vec4(c));
+    vec4 val = g + (vec4(c) - v) * 0.5;
+
+    float threshold = min(min(grad.x, grad.y), min(grad.z, grad.w)) * 1.5;
+    vec4 keep = step(grad, vec4(threshold));
+    float count = dot(keep, vec4(1.0));
+    return count > 0.0 ? dot(keep, val) / count : val.x;
+}
+
+// Red or blue at a green site whose same-colour neighbours lie in the same ROW.
+// Mirrors InterpolateHorizontalVNG.
+float vngHorizontal(ivec2 p, float c) {
+    vec2 n = vec2(rawAt(p + ivec2(-1, 0)), rawAt(p + ivec2(1, 0)));
+    vec2 grad = abs(n - vec2(c));
+    float threshold = min(grad.x, grad.y) * 1.5 + 0.01;
+    vec2 keep = step(grad, vec2(threshold));
+    float count = keep.x + keep.y;
+    return count > 0.0 ? dot(keep, n) / count : (n.x + n.y) * 0.5;
+}
+
+// The transpose of the above: same-colour neighbours in the same COLUMN.
+// Mirrors InterpolateVerticalVNG.
+float vngVertical(ivec2 p, float c) {
+    vec2 n = vec2(rawAt(p + ivec2(0, -1)), rawAt(p + ivec2(0, 1)));
+    vec2 grad = abs(n - vec2(c));
+    float threshold = min(grad.x, grad.y) * 1.5 + 0.01;
+    vec2 keep = step(grad, vec2(threshold));
+    float count = keep.x + keep.y;
+    return count > 0.0 ? dot(keep, n) / count : (n.x + n.y) * 0.5;
+}
+
+// Red at a blue site (or blue at a red one): the same-colour neighbours are the four diagonals.
+// Each diagonal's gradient adds the difference between the two GREENS flanking it, which is the
+// part that makes this better than a diagonal average -- green is sampled twice as densely, so it
+// is the only channel that can tell a real edge from chroma noise at this scale.
+// Mirrors InterpolateDiagonalVNG.
+float vngDiagonal(ivec2 p, float c) {
+    vec4 d = vec4(rawAt(p + ivec2(-1, -1)), rawAt(p + ivec2( 1, -1)),
+                  rawAt(p + ivec2(-1,  1)), rawAt(p + ivec2( 1,  1)));   // NW, NE, SW, SE
+    float gN = rawAt(p + ivec2( 0, -1));
+    float gS = rawAt(p + ivec2( 0,  1));
+    float gW = rawAt(p + ivec2(-1,  0));
+    float gE = rawAt(p + ivec2( 1,  0));
+
+    vec4 grad = abs(d - vec4(c))
+              + abs(vec4(gN, gN, gS, gS) - vec4(gW, gE, gW, gE));
+
+    float threshold = min(min(grad.x, grad.y), min(grad.z, grad.w)) * 1.5 + 0.01;
+    vec4 keep = step(grad, vec4(threshold));
+    float count = dot(keep, vec4(1.0));
+    return count > 0.0 ? dot(keep, d) / count : dot(d, vec4(0.25));
+}
+
+// Nearest fetch, so no -0.5: see debayerBilinear.
+vec3 debayerVng(vec2 uv) {
+    ivec2 px = ivec2(floor(uv * ubo.imageSize));
+    int offX = ubo.bayerPat % 65536;
+    int offY = ubo.bayerPat / 65536;
+    int bx = (px.x + offX) % 2;
+    int by = (px.y + offY) % 2;
+
+    bool redSite = (bx == 0 && by == 0);
+    bool blueSite = (bx == 1 && by == 1);
+    vec3 knownMask = vec3(redSite ? 1.0 : 0.0, (redSite || blueSite) ? 0.0 : 1.0, blueSite ? 1.0 : 0.0);
+
+    ivec2 m = ivec2(ubo.imageSize) - ivec2(1, 1);
+    if (px.x < 2 || px.y < 2 || px.x > m.x - 2 || px.y > m.y - 2) {
+        return vngEdge(px, knownMask);
+    }
+
+    float c = rawAt(px);
+    float rr, gg, bb;
+    if (redSite) {
+        rr = c;  gg = vngGreenAtRB(px, c);  bb = vngDiagonal(px, c);
+    } else if (blueSite) {
+        bb = c;  gg = vngGreenAtRB(px, c);  rr = vngDiagonal(px, c);
+    } else if (by == 0) {              // green on a red row: red neighbours horizontal, blue vertical
+        gg = c;  rr = vngHorizontal(px, c);  bb = vngVertical(px, c);
+    } else {                           // green on a blue row: blue horizontal, red vertical
+        gg = c;  bb = vngHorizontal(px, c);  rr = vngVertical(px, c);
+    }
+    // Clamped like debayerMhc: the green-at-RB correction extrapolates and can overshoot [0, 1].
+    return clamp(vec3(rr, gg, bb), 0.0, 1.0);
+}
+
 // No demosaic: the raw mosaic value at each pixel, shown as grey -- reveals the CFA checkerboard.
 // Nearest fetch, so no -0.5: see debayerBilinear.
 float debayerRaw(vec2 uv) {
@@ -285,7 +435,8 @@ float debayerMono(vec2 uv) {
 
 void main() {
     int src = ubo.imgSource;
-    // RawBayer demosaic mode (stretchBlend.z): 0 = bilinear colour, 1 = MHC colour, 2 = raw mosaic, 3 = mono.
+    // RawBayer demosaic mode (stretchBlend.z): 0 = bilinear colour, 1 = MHC colour, 2 = raw mosaic,
+    // 3 = mono, 4 = VNG colour.
     int dm = (src == 2) ? int(ubo.stretchBlend.z) : -1;
     // Raw passthrough and mono both yield a single grey value -> route them through the mono stretch
     // path so they render as true greyscale (the per-channel colour stretch would tint an equal RGB triple).
@@ -293,8 +444,10 @@ void main() {
     float r, g, b;
 
     if (src == 2 && !rawBayerGrey) {
-        // 1 = MHC, else bilinear (fallback). Both produce colour.
-        vec3 rgb = (dm == 1) ? debayerMhc(vTexCoord) : debayerBilinear(vTexCoord);
+        // 1 = MHC, 4 = VNG, else bilinear (fallback). All three produce colour.
+        vec3 rgb = (dm == 1) ? debayerMhc(vTexCoord)
+                 : (dm == 4) ? debayerVng(vTexCoord)
+                 : debayerBilinear(vTexCoord);
         r = rgb.r; g = rgb.g; b = rgb.b;
     } else if (rawBayerGrey) {
         r = (dm == 2) ? debayerRaw(vTexCoord) : debayerMono(vTexCoord);
