@@ -157,7 +157,7 @@ an in-memory fake for tests.
 - `LanDiscovery` -- symmetric beacon (1 s) + peer table (5 s expiry), `TimeProvider`-driven.
 - `LanProtocol` -- magic + version + space-separated URL-encoded tokens. The ANNOUNCE verb gains
   a **service token + key=value property bag**: every SharpAstro app shares ONE broadcast domain
-  (default port 52821, chess's) and consumers filter by service name. Chess migrates to the lib
+  (default port 38821) and consumers filter by service name. Chess migrates to the lib
   separately (its protocol version is chess's own concern; the lib's magic is new).
 - `LanIdentity` -- persisted display name + per-process peer id (echo filter only, never
   persisted: the chess two-instances-one-machine bug).
@@ -185,7 +185,7 @@ services.AddLanDiscovery(o =>
   ASCII codec, source-gen nothing).
 
 **Coexistence:** Alpaca discovery (UDP 32227) is a one-shot broadcast *query*, different port;
-OnStep mDNS is separate; `ReuseAddress` means several LAN.Lib consumers on one host share 52821.
+OnStep mDNS is separate; `ReuseAddress` means several LAN.Lib consumers on one host share 38821.
 
 ## Part 2 -- `tianwen-server` surface additions (native v1)
 
@@ -364,7 +364,7 @@ N.I.N.A./SharpCap can drive the rig -- a much bigger bar, worth treating as a se
 Aim at (a). AOT caveat: the Alpaca envelope is generic over the value type, so each `T` needs
 registering in a `JsonSerializerContext` (same discipline as the no-`ResponseEnvelope<object>` rule);
 ImageBytes sidesteps JSON entirely. Discovery coexists cleanly -- Alpaca's one-shot UDP 32227 query
-finds *devices*, LAN.Lib's 52821 beacon finds *nodes with sessions* (what a binding record needs).
+finds *devices*, LAN.Lib's 38821 beacon finds *nodes with sessions* (what a binding record needs).
 
 **Rejected along the way:** an "Alpaca-direct" mode where the client runs the session against remote
 hardware. It reads as a cheap third consumption mode but violates the session-runs-on-the-node rule
@@ -860,12 +860,20 @@ the current "TianWen does not model this that way". A conformance grind, not a d
 
 Two distinct ports, both plain unencrypted -- no TLS/auth on either (see Security below):
 
-- **UDP 52821** -- `LanProtocol.DiscoveryPort`, the shared LAN.Lib broadcast domain. Every
+- **UDP 38821** -- `LanProtocol.DiscoveryPort`, the shared LAN.Lib broadcast domain. Every
   SharpAstro app on the LAN (this feature's `tianwen-server`/`tianwen-gui`, plus chess) sends
   *and* receives on it, so it must be open both directions on every node that discovers or is
-  discovered -- a listen-only consumer (`Announce = false`) still needs inbound UDP 52821 to
+  discovered -- a listen-only consumer (`Announce = false`) still needs inbound UDP 38821 to
   receive others' beacons. `UdpLanTransport` sets `ReuseAddress` so multiple local apps can share
   the port on one host.
+
+  **It was 52821 until LAN.Lib 2.0, and the move is not cosmetic.** Windows carves Hyper-V / WSL
+  exclusion ranges out of the dynamic port range and answers WSAEACCES 10013 for anything inside
+  one; 52821 landed in such a range on a developer box on 2026-08-30 and took `tianwen-gui` down at
+  DI resolution, before its first frame, over a feature the app can live without. 38821 is outside
+  that range, and a failed bind now degrades to announce-only (`ILanTransport.Degradation`, logged
+  once at start-up by `LanDiscoveryHostedService` for the server and by `Program.cs` for the GUI)
+  rather than throwing. **Old and new nodes do not see each other**, so update every node together.
 - **TCP, the configured `tianwen-server` `--port`** (default **1888**) -- the actual native v1
   HTTP + WebSocket API a remote GUI/client connects to for control and mirroring. Inbound-only on
   the server node; nothing else needs it open.
@@ -877,7 +885,7 @@ Allow) needs both rules added ahead of time, e.g.:
 
 ```powershell
 New-NetFirewallRule -DisplayName "TianWen Server (TCP 1888)" -Direction Inbound -Protocol TCP -LocalPort 1888 -Action Allow
-New-NetFirewallRule -DisplayName "LAN.Lib Discovery (UDP 52821)" -Direction Inbound -Protocol UDP -LocalPort 52821 -Action Allow
+New-NetFirewallRule -DisplayName "LAN.Lib Discovery (UDP 38821)" -Direction Inbound -Protocol UDP -LocalPort 38821 -Action Allow
 ```
 
 Linux mini PCs (a plausible headless rig target) need the UFW/iptables/firewalld equivalent; not

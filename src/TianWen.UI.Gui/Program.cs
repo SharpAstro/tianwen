@@ -72,14 +72,26 @@ var appState = sp.GetRequiredService<GuiAppState>();
 // resolve the concrete LanDiscovery and drive its lifecycle directly (mirrors what the hosted
 // service would do). Changed hints a redraw so a rig that appears/disappears while the no-profile
 // screen is showing doesn't wait for the 1Hz clock-tick fallback redraw.
+var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("TianWen.UI.Gui");
+
 var lanDiscovery = sp.GetRequiredService<LanDiscovery>();
+
+// A transport that could not bind the discovery port runs ANNOUNCE-ONLY: this node still beacons but
+// will never see a peer, so the Equipment tab's rig list stays empty and looks like a network with
+// nothing on it. Exactly one warning, which is what LanDiscoveryHostedService does for the server --
+// the GUI drives the lifecycle by hand, so it owes the same line. Known at construction (the bind is
+// in UdpLanTransport's ctor), so reading it before StartAsync is deliberate rather than early.
+if (lanDiscovery.Degradation is { } lanDegradation)
+{
+    logger.LogWarning("{Degradation}", lanDegradation);
+}
+
 lanDiscovery.Changed += () => appState.NeedsRedraw = true;
 await lanDiscovery.StartAsync();
 
 var plannerState = sp.GetRequiredService<PlannerState>();
 var viewerState = sp.GetRequiredService<ViewerState>();
 var external = sp.GetRequiredService<IExternal>();
-var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("TianWen.UI.Gui");
 var timeProvider = sp.GetRequiredService<ITimeProvider>();
 
 // Dev/test: TIANWEN_NOW anchors the whole system clock to a simulated instant (see StartupTimeOverride).
