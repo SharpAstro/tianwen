@@ -16,12 +16,22 @@ This file is the half a commit list cannot write: what a release was FOR, and wh
 
 Entries before 7.1 were reconstructed from the release commits and the tags rather than written at
 the time, so they record what each bump was for. Where a bump commit said nothing beyond the number,
-the entry says so instead of inventing a theme.
+the entry says so instead of inventing a theme. The date on each is its release tag's; a new entry
+carries none, because the tag will.
+
+One trap for anyone extending the reconstruction: **the history was rewritten between 4.0 and 4.2**
+(the LFS migration; the `pre-lfs-migration` tag marks the last old commit, 2026-04-22), so the tags
+from `v3.0.440` through `v4.0.564` point into a history that is NOT an ancestor of `main`. A
+`git log v4.0.564..v4.2.640` therefore spans both histories and returns the whole repository back to
+its 2022 initial commit, 1,318 commits that look like one release. Compare across that boundary by
+commit SUBJECT (every old commit has a twin with the same message on the new history) or by tree
+diff, never by hash range. The ranges among the old tags themselves are sound.
 
 ## 7.1
 
-Unreleased. Additive, so a minor: every public member that existed at 7.0 survives, and the new
-constructor parameters are all defaulted, so `new HfdPsfEstimator()` still compiles.
+Additive, so a minor: every public member that existed at 7.0 survives (the only public line the
+diff removes is `HfdPsfEstimator`'s old one-parameter constructor, replaced by the wider one), and
+the new constructor parameters are all defaulted, so `new HfdPsfEstimator()` still compiles.
 
 **`RichardsonLucy` (`TianWen.Lib/Imaging/Deconvolution`)** is the known-kernel maximum-likelihood
 iteration, shipped as library surface rather than as a training script, because the deconvolution
@@ -70,7 +80,8 @@ measured.
 
 ## 7.0
 
-Released 2026-09-04 (`v7.0.1513`), reissued 2026-09-06 (`v7.0.1532`).
+Two releases: `v7.0.1513` on 2026-09-04 and `v7.0.1532` on 2026-09-06, the second carrying 60 more
+commits, 27 of them features, listed at the end of this entry.
 
 **BREAKING: `TryLease(out Image?)` is now `TryLease(out ImageLease)`**, cut in one wave with no
 compatibility overload. **Migration:** convert each call site to `using`. `default(ImageLease)` is
@@ -110,6 +121,25 @@ Also in 7.0:
   guide RMS of its own exposure.
 - Plate solving searches for the frame when the hint is not where it says it is.
 
+The second 7.0 release, `v7.0.1532`, added:
+
+- **Classical background extraction** (`ClassicalBackgroundExtractor`), the AI-free gradient
+  corrector: a robust degree-2 polynomial on a block-mean working grid, standing in for GraXpert
+  wherever its weights are absent, and exposed as `tianwen image flatten`. Both of its thresholds
+  were measured over 118 real masters and turned out not to be knobs.
+- **The N2N trainer ported into the repo**, with E0 reproducing the v19d checkpoint bit for bit, one
+  degradation exporter serving three trainings, and the injected noise shape treated as a
+  measurement rather than a choice.
+- **The shipped denoiser checkpoint moves to the gate-selected WIDE seed**
+  (`tianwen_denoise_osc_e2wide_s2.onnx`) and the weights go back into LFS. The file name carries the
+  checkpoint identity by design: a retrain gets a new name, never a silent replacement.
+- Cross-night N2N pairs, both nights resampled onto the midpoint grid, and a training metric that
+  asks Gaia whether its "faint stars" are stars (on a nebula field, two thirds were not).
+- Viewer P18 to P22: Open and Save as baked marks, save the image as displayed at its own size, one
+  frame's stretch held across the folder, a blink through the file list, Shift as the other
+  direction rather than a mode, a right-click link into the web Sky Atlas (which now reads a share
+  link), and saving the annotated view without a second drawing path.
+
 ## 6.3
 
 Released 2026-08-22 (`v6.3.1352`). Additive.
@@ -130,9 +160,9 @@ Released 2026-08-22 (`v6.3.1352`). Additive.
 
 ## 6.2
 
-Released 2026-08-20 (`v6.2.1314`). Additive, and cut because 161 features had already shipped under
-6.1: the previous binary release was 2026-06-24, and main had taken 646 commits since, every one of
-which would otherwise have gone out under the same minor.
+Released 2026-08-20 (`v6.2.1314`). Additive, and cut because over 160 features had already shipped
+under 6.1: the previous binary release was 2026-06-24, and main had taken 648 commits since, 162 of
+them `feat`, every one of which would otherwise have gone out under the same minor.
 
 - **Remote rigs**: the Home board listing every rig you can look at, bindings that survive a DHCP
   lease change, backoff on a rig that is not answering, and a mirrored guider tab that draws the
@@ -166,7 +196,9 @@ transfer, and the `TIANWEN_NOW` startup clock anchor.
 ## 6.0
 
 Released 2026-06-20 (`v6.0.885`). The bump rode the layout foundation milestone and was described as
-additive at the time, despite the major number.
+additive at the time, despite the major number. The sibling pins moved to DIR.Lib 5.0,
+SdlVulkan.Renderer 6.4 and Console.Lib 3.0 in the same release, DIR.Lib 5.0 being where the layout
+engine this migration consumes had shipped.
 
 - **Shared `GuiTheme` plus surface-agnostic layout engine adoption**, replacing roughly 35 duplicated
   colour constants and six copies of the base font size across seven tabs and the renderer.
@@ -194,16 +226,22 @@ target scoring, and the DEBUG-only live UI inspector with its MCP sidecar.
 
 ## 4.2
 
-Released 2026-05-04 (`v4.2.640`).
+Released 2026-05-04 (`v4.2.640`). 242 commits since 4.0, counted on the rewritten history by
+matching subjects (see the preamble), and the first release on that history.
 
 The **hosting API completed all four phases**, including the ninaAPI v2 compatibility shim for Touch
 N Stars, and `tianwen-server` got its README section and download table. The solution migrated to
-`.slnx`.
+`.slnx`, with `open-vs.ps1` replacing an auto-generated local solution.
 
-The bulk of the range (over 1300 commits) is **polar alignment** and **plate solving**: the
-SharpCap-style two-frame routine with its overlay, ramp and live WCS binding, frozen-seed quad
-matching replacing ROI-anchor tracking in the incremental solver, and the catalog binary format
-rollout.
+The sky map grew most: an object overlay with priority-based label placement, DSO ellipses instanced
+into one draw call, the Milky Way background baked from real Tycho-2 plus Planck radiance and dust
+extinction, a Goto button and Pin/Unpin on the info panel, and the Notifications tab. Also: Canon
+WPD discovery with mirror lockup and ISO gain modes, and astro defaults applied on connect; the
+central serial probe service, with SkyWatcher moved onto it; ASCOM COM throws contained so a dead
+hub cannot fail-fast the process; driver-resilience polls routed through `PollDriverReadAsync`; the
+polar-alignment refine loop as a third mode of the Live Session tab, with frozen-seed quad matching
+replacing ROI-anchor tracking in the incremental solver; the catalog binary format rollout; and the
+first plan-status summary, `PLAN-summary.md`.
 
 ## 4.1
 
