@@ -57,6 +57,19 @@ public enum DisplayRasterFormat
 /// </remarks>
 public static class DisplayRasterExport
 {
+    /// <summary>
+    /// How many independently compressed fragments a PNG encode is split across.
+    /// </summary>
+    /// <remarks>
+    /// A constant rather than <see cref="Environment.ProcessorCount"/>, deliberately: the encoder's
+    /// output is deterministic for a given fragment count and differs between counts, so deriving it
+    /// from the machine would mean the same frame saved on the desktop and on a laptop produced
+    /// different files. Asking for more fragments than the box has cores costs nothing but a tenth of
+    /// a percent of size, so eight is most of the available speed-up on a large machine and identical
+    /// bytes, just slower, on a small one. Small images fall back to a single stream on their own.
+    /// </remarks>
+    private const int PngFragments = 8;
+
     /// <summary>The canonical extension for each format, and what the save dialog offers.</summary>
     public static string Extension(this DisplayRasterFormat format) => format switch
     {
@@ -162,8 +175,12 @@ public static class DisplayRasterExport
                 // constant 65535 into every fourth sample. Carried into the file that plane costs a
                 // quarter of the encode and a quarter of the bytes, for a channel no viewer of an
                 // astronomical image will ever consult.
-                encoded = PngWriter.EncodeRgba16(rgba, width, height,
-                    new PngWriteOptions { Cicp = CicpChunk.Srgb, DiscardAlpha = true });
+                encoded = PngWriter.EncodeRgba16(rgba, width, height, new PngWriteOptions
+                {
+                    Cicp = CicpChunk.Srgb,
+                    DiscardAlpha = true,
+                    ParallelFragments = PngFragments,
+                });
                 break;
             }
 
@@ -173,7 +190,8 @@ public static class DisplayRasterExport
                 encoded = PngWriter.Encode(rgba, width, height, new PngWriteOptions
                 {
                     IccProfile = IccProfiles.SRgbV4.ToArray(),
-                    DiscardAlpha = true,   // see the 16-bit case above
+                    DiscardAlpha = true,        // see the 16-bit case above
+                    ParallelFragments = PngFragments,
                 });
                 break;
             }
