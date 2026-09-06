@@ -285,6 +285,22 @@ scale as effectively noiseless linear truth, degraded with OUR measured PSF fami
 it beats the own-masters baseline on the pinned split; the licence argument is in the programme doc.
 Not before H1 to H5 have run.
 
+**H10. A loss that counts stars rather than pixels lets a small net narrow width without spending
+faint stars.** Pixel-wise L2, banded or not, weights error by amplitude squared times pixel count. A
+faint star is ten pixels at a few sigma and contributes about 1e-4 of a 65k-pixel tile's loss, so
+suppressing it is free, and E2.7 shows the net taking that offer. Per-star RATIO terms (flux, peak,
+width, each against the clean target's own detections) weigh a faint star like a bright one, and they
+are the gate's own criteria made differentiable, so loss and gate agree on what good means. Tested by
+E2.8.
+
+**H11. A kernel estimated from a frame's own stars keeps most of the exact-kernel ceiling.** Stars
+are point sources, so a star's profile IS the frame's PSF, which is how BlurXTerminator gets by on one
+estimated diameter (`--ansp`; no kernel or shape input, the network learns shape). For the
+unrolled-RL route this is the whole question: if a Moffat fitted to the blurred crop's stars,
+differenced against the target width, recovers within a few points of E1's table, the
+physics-in-the-network design is viable at deployment; if ringing takes over, the estimator is the
+blocker and not the network. Tested by E1b, before any torch is written.
+
 ## 2. Data and the degradation exporter
 
 **One exporter, two modes, shared with the denoiser (E1 there).** Source: retained linear masters,
@@ -370,9 +386,15 @@ everything and above it recovers little.
 | E0 | **DONE 2026-09-06, and no re-measure was needed** (results below): `2026-09-full` is already current-detector, its report is already rendered, and what remained was the fit. | 0 GPU, ~5 min of probes | Calibration of everything below |
 | E1 | **DONE 2026-09-06, both halves.** H5 (`PsfEncodingSpreadProbe`, all 79 masters through the deployed estimator): the shipped range is not the collapse it was recorded as, lowering the floor makes the spread SMALLER, `[0.5, 4.0]` is the pick. H1 (`DeconvolutionOracleCeilingProbe`, `RichardsonLucy` with the exact kernel, 180 rows, 60 iterations): full recovery to 1.3x blur, inside 10 percent to 2.0x (1.01 to 1.02 through 1.6x, 1.09 to 1.14 at 1.6 to 2.0x), about 1.6x the truth width beyond 2x; the first table at 30 iterations read 1.6x as the boundary and was under-converged by roughly three in residual; nothing recovers below the truth; ringing bounds the range before recovery does. | a day, CPU | The ceiling and the contract floor |
 | E2 | **SHIPPED 2026-09-03 as the shared exporter** (`tianwen dataset degrade --mode blur`, `DatasetDegradationExporter`): linear Moffat blur with a drawn (FWHM, beta, elongation, PA), noise after, both sides stretched with the TARGET's parameters, field-radius tag per cell, and the drawn kernel parameters in `degradations.jsonl`. Parity is stronger than planned: the clean tile derived from the RETAINED master is byte-identical to the P0 tile of the same cell (0.0 on every session measured), which pins the whole path rather than just the stretch. Still owed: psf01 labels from `HfdPsfEstimator` on the degraded stretched frame under both encodings (H2, H5), and the per-(train, filter, channel) draw distribution, which needs E0's re-measured store | 1 to 2 days | Whether pairs are honest |
-| E3 | Smoke arms on the U-Net: kernel vs estimator label (H2), shared vs per-channel (H3), noise vs none (H4), two vs three bands (H8). Post a labelled comparison at 1:1 around bright and faint stars. **BLOCKED on E2.5 below, and the seed count is NOT three until the power check says so.** | 4 pairs x N seeds x 11 min | H2, H3, H4, H8 |
+| E3 | Smoke arms on the U-Net: kernel vs estimator label (H2), shared vs per-channel (H3), noise vs none (H4), two vs three bands (H8). Post a labelled comparison at 1:1 around bright and faint stars. **BLOCKED on E2.8: no arm runs on a recipe that cannot pass its own gate, and the seed count is set by E2.6's measured sd (0.027 at the null, so five seeds).** | 4 pairs x 5 seeds x 11 min | H2, H3, H4, H8 |
 | E2.5 | **DONE 2026-09-06** (details below the table). `--prepare` reads `degradations.jsonl` into a `psf01.npy` beside the tiles; `--cond-psf01` conditions on that stored label instead of on measured noise; `n2n_deconv_gate.DeconvGate` selects on width, ringing and star count. Validated end to end on a two-session blur export, which is also what caught the gate's own first bug. Originally recorded as: **discovered 2026-09-06, and the reason the row above cannot start.** The trainer cannot train a deconvolver at all yet: `--prepare` reads `tiles-manifest.jsonl` only and never `degradations.jsonl`, so the psf01 the exporter now writes never reaches the cache; the conditioning plane comes from `with_sigma`, which MEASURES the input's noise rather than reading a stored label; and `n2n_gate.py`'s metrics are noise, faint amplitude and spurious sources, every one of them noise-oriented. **The gate is the consequential half: as it stands it would select the checkpoint that removes the most noise while doing nothing about sharpness, which is selecting a deconvolver for BLURRING.** It needs FWHM recovery and ringing, scored against E1's ceiling at 60 iterations. | 1 to 2 days | Whether E3 can run |
-| E2.6 | The power check the denoiser campaign paid for: ONE arm at six seeds, seed spread measured against the effect each of H2/H3/H4/H8 expects, then the rest sized from it. On the denoiser's E2 the seed sd beat the between-regime sd 2 to 3x, so three-seed arms could not read a one-point effect and about 31 seeds would have been needed. H4 and H8 are plausibly large enough to read at three; H2 and H3 are the ones at risk. | 6 x 11 min | E3's seed count |
+| E2.6 | **DONE 2026-09-06, and it answered a different question** (results below): no seed selected a checkpoint, the gate's star criterion had no measured null, and the loss never looked at the star scales. As planned: the power check the denoiser campaign paid for: ONE arm at six seeds, seed spread measured against the effect each of H2/H3/H4/H8 expects, then the rest sized from it. On the denoiser's E2 the seed sd beat the between-regime sd 2 to 3x, so three-seed arms could not read a one-point effect and about 31 seeds would have been needed. H4 and H8 are plausibly large enough to read at three; H2 and H3 are the ones at risk. | 6 x 11 min | E3's seed count |
+| E2.7 | **DONE 2026-09-06** (results below). Band placement control, two arms x three seeds on E2.6's own seeds: the loss can see the scale now (every minimum at steps 3100 to 3400, paired deltas -0.038 and -0.043), the arms are inseparable at three seeds, and under the corrected gate not one best-width checkpoint survives, because width is bought by suppressing faint stars (0.54 of the truth's against a 0.62 floor). A high-pass, not a deconvolution. | 6 x 10 min | Whether band placement was the lever (it was not) |
+| E1b | **Pre-registered 2026-09-06** (section below). E1's exact-kernel ceiling re-run with the kernel ESTIMATED from the blurred crop's own stars, two arms: width estimated with the injected shape, then both estimated. Decides whether the unrolled-RL route is viable at deployment before any of it is built. | ~45 min CPU, no training | H11 |
+| E2.8 | **Pre-registered 2026-09-06** (section below). The star-term loss: per-star flux, peak and width ratios against the clean target's own detections, added to E2.7 arm B's objective, same 78-session cache, five seeds paired against E2.7. | 5 x 10 to 15 min | H10; whether pixel-domain losses are exhausted for this net |
+| E2.9 | **Pre-registered 2026-09-06** (section below). FWHM against airmass over the archive: `SessionPsf` gains per-sub file, epoch and airmass, one measure-only re-run, one plot. The first step of 2.1c, and it needs no sky. | ~2.5 h CPU unattended, one field and one switch | Whether the archive holds real seeing pairs, and how much range they reach |
+| E2.10 | Seeing-split pairs: per session, the sharpest and softest thirds of the subs stacked into two masters of one night, the first real-blur validation set. Needs E2.9's per-sub identity. | minutes a session | The light end of the range, on real seeing |
+| D1 | Per-tile psf01 at inference: `ChunkedNafnetRunner` extras per chunk, `OnnxNonStellarDeconvolver` estimating per chunk region with a frame-level fallback, so inference matches the per-cell training label. Ships with E7, once E2.8 says the route is alive. | half a day | The field-varying half of the optics blur |
 | E4 | Stationary vs position-varying (H7) on the refractor trains. | 2 x 3 x 11 min | H7 |
 | E5 | On-the-fly torch degradation with the MTF pin, if E3 is sample-hungry. | a day | Sample efficiency |
 | E6 | Ladder capture on three nights (hardware queue); H6 scoring. | nights | The advertised range |
@@ -530,6 +552,142 @@ longer run buys width at exactly the price the gate exists to refuse.
 units; the other five are pre-fix and read about a tenth high. The width column is unaffected (the
 fix touched star detection only), which is why the table above is comparable throughout. Each seed
 is a fresh process, so an edit mid-campaign reaches the seeds not yet started.
+
+### The next four, pre-registered 2026-09-06: E1b, E2.8, E2.9, E2.10 (and D1)
+
+**What they rest on.** Four facts, from E2.6, E2.7 and a look at BlurXTerminator's public surface.
+
+1. **The loss counts pixels.** Any pixel-wise L2, banded or not, weights error by amplitude squared
+   times pixel count; a faint star is ten pixels at a few sigma and is about 1e-4 of a tile's loss.
+   E2.7's high-pass is that arithmetic working as written, not a subtle MMSE effect.
+2. **Session breadth is not the gap.** The cache E2.6 and E2.7 trained on is 78 sessions and 28,080
+   degraded rows (360 a session, `D:\Astro-Dataset\degraded\p2-blur`, 2026-09-06). "More data" is
+   therefore not the first lever. Capacity might be (0.81 M parameters against the 20 to 30 M Croman
+   calls saturated), but it comes after the loss, since a bigger net under the same objective has
+   the same incentive to drop faint stars.
+3. **Scalar conditioning is not what failed.** BXT takes ONE estimated PSF diameter (`--ansp`, with
+   `--nsd` as the manual value in [0, 8] px) and no kernel or shape input; the network learns shape.
+   That is our psf01 design, and BXT is existence proof that it can deconvolve real frames.
+4. **The deployed blur is seeing plus optics, and it has no sharper truth.** Stars are points, so the
+   "true" image has them as deltas and the ratio is unbounded. The product is a REDUCTION by a dialled
+   ratio, which makes the injected DIFFERENCE kernel, drawn from the archive's own measured PSF
+   family, the right training object. The right validation is the same field under different
+   atmosphere, not defocus: a defocus PSF is a disk, and BXT is not for it either. Focus ladders drop
+   to an out-of-family check.
+
+**Order and cost.** E1b and E2.9 are CPU and run together; E2.8 is about an hour of GPU on the 1070
+(seeds cost 10 to 15 minutes each; E2.7's six ran in an hour). E2.10 follows E2.9. D1 waits for
+E2.8's verdict. Nothing here needs sky time.
+
+#### E1b: the estimated-kernel ceiling (H11)
+
+*Method.* E1's 180 rows, the same crops and noise arms, 60 iterations. Per row, `PsfProfileFit` on
+the observed (blurred) crop's stars gives FWHM_obs and beta_obs; on the clean crop, FWHM_clean. The
+difference width is `sqrt(FWHM_obs^2 - FWHM_clean^2)`, exact for Gaussians and approximate for a
+Moffat, and that approximation is part of what is measured. Under N stars in the crop, the fit falls
+back to the whole degraded frame and the row records that it did. Two arms, compared row by row
+against E1's exact-kernel result: **i** width estimated, shape (beta) exact; **ii** width and shape
+both estimated. The readout adds the estimate's own error (estimated over true width, estimated
+over true beta) so a ceiling loss can be attributed to width or to shape.
+
+*Prediction.* Arm i within 0.03 of the exact rec/truth through 1.6x and within 0.05 at 1.6 to
+2.0x, ring excess up by at most ten points; arm ii loses more, and through ringing where beta is
+misread, because the wings are where a Moffat fit is weakest (11 of 163 railed in E0). The noisy
+arm's stars column is the fabrication tell: below E1's 0.71 at 1.6 to 2.0x while width improves means
+the estimate is sharpening noise. Confidence moderate: the fit is taken on the very stars RL acts on.
+
+*Kill.* Arm ii rec/truth above 1.15 at 1.3 to 1.6x, or ring excess above 50 percent at 1.1 to
+1.3x. Then the unrolled-RL route is blocked on the ESTIMATOR, which becomes its own step (a stacked
+per-channel star profile fitted in log space, as `PsfProfileFit` already does per master) and not a
+torch job.
+
+*Cost and code.* About 45 minutes CPU (E1 at 60 iterations took 45). A screen of code in
+`DeconvolutionOracleCeilingProbe` behind `TIANWEN_ORACLE_KERNEL=estimated|estimated-shape`,
+recorded under "Reproducing" once it exists. No training, no GPU.
+
+#### E2.8: the star-term loss (H10)
+
+*Change.* `--prepare` writes `stars.npy` beside the tiles: each tile's CLEAN target run through
+`n2n_deconv_gate.detect()`, the gate's own detector, so loss and gate see the same stars; up to 32 a
+tile with a validity mask, positions and target peak. The trainer gains `--star-loss W`. For every
+valid star a 7x7 window is taken on output and target and three ratio terms are formed: log
+aperture-flux ratio (r <= 3), log peak ratio, and log concentration ratio (energy within r <= 1 over
+energy within r <= 3, which rises when a star tightens), each as an absolute value, averaged over
+stars with EQUAL weight. `W` is set once so the term equals L2's magnitude on the first batch and is
+then FIXED and logged, never tuned on the gate. Everything else is E2.7 arm B: `--band-scales "1,2"`,
+base 32, 4000 steps, gate every 100, the same 78-session cache.
+
+*Arms.* One, at five seeds (0 to 4). E2.7 arm B seeds 0 to 2 are the paired control on the identical
+cache; nothing is re-exported.
+
+*Prediction.* The gate selects on at least 4 of 5 seeds; the selected fwhm_ratio is at or under 1.30
+(E2.7's best MINIMUM was 1.328, and it held only 0.54 of the stars); at the width minimum the stars
+column reads at or above 0.60 against E2.7's 0.54 to 0.60, meaning the minimum itself becomes
+gate-eligible. Confidence moderate. The term rewards exactly what the gate demands, but a 7x7 window
+and a concentration proxy are blunt, and a net could sharpen the windowed stars while suppressing
+the ones the detector missed below `STAR_SIGMA`; the observer therefore also reports `stars_kept` at a
+LOWER sigma, which is the check for that.
+
+*Kill.* Width minima still hold under 0.60 of the truth's stars in 3 or more of 5 seeds, or the
+selected width is at or above 1.36 (no gain on arm B seed 2's 1.365). Then pixel-domain losses are
+exhausted for this net, and the fork is: unrolled RL if E1b passed, capacity (NAFNet-32) if it did
+not. Both carry the star term regardless, since a learned correction inside RL has the same
+incentive under plain L2.
+
+*Power.* E2.7's paired sd was 0.008 (arm B) to 0.031 (arm A). Five seeds resolve a paired difference
+of about 0.04; the predicted width effect (1.328 to at most 1.30) sits at that edge, which is why the
+PRIMARY readout is the stars column at the minimum, a 0.06 effect (0.54 to 0.60) against a smaller
+spread, and the width is secondary.
+
+*Cost.* 5 x 10 to 15 minutes on the 1070; the detector pass at `--prepare` is minutes. Launch script
+`run-p2-starloss.ps1` with this prediction and kill line in its header, as the others.
+
+#### E2.9: FWHM against airmass over the archive (2.1c's first step)
+
+*Change.* `SessionPsf` gains `SubFile[]`, `SubEpochUtc[]` and `SubAirmass[]`, aligned index for
+index with the existing `SubFwhm[]`, which today carries 49 widths for the first session and no way
+to say which sub each one is. Airmass is COMPUTED from `DATE-OBS`, `OBJCTRA`/`OBJCTDEC` and
+`SITELAT`/`SITELONG` the way `DatasetGradientReport` already does per master; a header `AIRMASS` card,
+where a sub has one, is recorded beside it as a cross-check and never relied on. A measure-only
+switch runs the `measure` stage alone (112 s a session, 147 minutes over 79 sessions) instead of the
+full re-registration `ForcePsfRemeasure` implies (13.3 hours for the bake); the store appends
+last-wins as it already does, so the earlier records stay readable.
+
+*Readout.* Per session: the log-log slope of FWHM against airmass (Kolmogorov seeing predicts 0.6),
+the airmass span, and the FWHM span the slope explains. Pooled, by optical train: how many sessions
+reach a 1.3x FWHM span attributable to airmass.
+
+*Prediction.* Slopes of 0.3 to 0.6 on the longer-focal trains (SH61, ZS61); the 135 mm sessions
+flatter, because 2 px sampling floors the FWHM; few sessions spanning enough airmass for 1.3x, since
+most targets were imaged near culmination. Confidence low, which is the point: this is the
+measurement 2.1c asked for before any pairing is built.
+
+*Kill (for 2.1c pairing).* No session reaches a 1.3x span attributable to airmass. Then airmass
+pairs cannot reach the range that matters (E1 puts it at 1.1x to 2x), real-blur validation stays at
+the light end with E2.10, and the heavy end stays synthetic, a KNOWN limit of the advertised range
+rather than an assumption.
+
+*Cost.* One field, one switch, about 2.5 hours of unattended CPU, one python plot.
+
+#### E2.10: seeing-split pairs (real-blur validation at the light end)
+
+Given E2.9's per-sub identity, for each session whose `SubFwhm` p90/p10 is at least 1.15: the
+sharpest third of the subs to a manifest and `stack --manifest` for master A, the softest third for
+master B, both registered to the session's reference, both retained beside the session master. A is
+the truth at the light end, B the input. Score any deconvolver on B against A at matched output
+width (E1's readout), and run the gate's observers on the pair. *Prediction:* 2 to 6 sessions qualify
+(the earlier store found two of 51 at 1.2), and a deconvolver passing E2.8's gate moves B toward A
+on width without dropping below A's star count. *Cost:* minutes a session; no new code beyond the
+manifest writer. *Data:* none from the sky.
+
+#### D1: per-tile psf01 at inference
+
+Training labels psf01 per 256 px cell; inference hands `OnnxNonStellarDeconvolver` ONE radius per
+frame, so a frame whose PSF falls 4.03 to 3.12 px centre to corner (Rim) is told one number
+everywhere. `ChunkedNafnetRunner`'s extras become a per-chunk callback and the deconvolver estimates
+per chunk region with `HfdPsfEstimator.MeasureRadiusPxAsync`, falling back to the frame value under
+N stars. Measure on Rim. Ships with E7, once E2.8 says the route is alive; not needed for E1b or
+E2.8.
 
 ### Reproducing E0 and E1
 
