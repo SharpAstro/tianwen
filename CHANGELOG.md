@@ -52,11 +52,16 @@ for every kernel this family can build, and is built unconditionally rather than
 that a future asymmetric kernel turns it into a real correction instead of silently leaving every
 deconvolution running the wrong operator. A `[Theory]` pins that equality.
 
-**The measured oracle ceiling**, which is the number any trained deconvolver may be held to: full
-recovery to 1.3x blur (residual 0.00 px), within 10 percent of the truth width to 1.6x, 1.15 to
-1.20x at 1.6 to 2.0x, and 1.7 to 1.8x beyond 2x, which is most of the blur still present. Nothing
-recovers below the truth (rec/truth at or above 0.99 in every band), and that is the line a trained
-arm may not cross without it being fabrication rather than success.
+**The measured oracle ceiling**, which is the number any trained deconvolver may be held to, at 60
+Richardson-Lucy iterations with the exact kernel over 180 rows of real masters: full recovery to 1.3x
+blur (residual 0.00 px), the recovered star 1.01 to 1.02 times the truth through 1.6x and 1.09 to
+1.14 at 1.6 to 2.0x, so "within 10 percent up to about 2x" holds; past 2x the star is about 1.6x the
+truth, most of the blur still present. A first table at 30 iterations read 1.6x as the boundary and
+was under-converged by roughly three in residual; a too-low ceiling flatters every arm scored against
+it, so it was re-measured rather than annotated. Nothing recovers below the truth (rec/truth at or
+above 0.99 in every band), which is the line a trained arm may not cross, and ringing arrives before
+recovery degrades (15 percent of stars at 1.1 to 1.3x while the residual is still 0.00 px), so the
+usable range is set by the ringing column, not the width.
 
 **`HfdPsfEstimator` takes its radius range at construction**, and TianWen's own measured contract
 lands beside it as `TianWenMinRadiusPx` / `TianWenMaxRadiusPx` ([0.5, 4.0] px). **The default is
