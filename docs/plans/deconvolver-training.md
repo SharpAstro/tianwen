@@ -433,6 +433,14 @@ measured on the input (`self.ring_null`) and the star null is not.
 numerator and denominator cover different areas. The truth scores **1.096** against itself where a
 self-consistency null has to be 1.000.
 
+**Every number in this section is in the PRE-FIX convention, including the 0.763.** The two defects
+are not independent: the null was measured with the same untrimmed numerator, so it is inflated by
+the same tenth as everything it is being compared against. With `detect()` shared by all three
+counts the truth self-scores exactly **1.000** and the input null is **0.653**. The section's
+numbers stay internally consistent because the inflation is common to the null and to the model
+scores it is set beside, and the replay below is unaffected for the same reason, but do not quote
+0.763 against a post-fix measurement.
+
 **Re-anchoring the band on both measured nulls, `[0.763, 1.096]`, makes every seed select**, and the
 selected `fwhm_ratio` then has a seed sd of **0.027** over six seeds, which taken at face value says
 three seeds is ample and two would do. It must not be taken at face value. The selected ratios run

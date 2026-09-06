@@ -96,6 +96,23 @@ def star_fwhm(tile, ys, xs, med, max_r=10):
     return float(np.median(widths)) if widths else float("nan")
 
 
+def detect(tile, med, mad, margin=4):
+    """Peak detections on one tile, with the SAME edge margin everywhere it is used.
+
+    Factored out because it was inlined twice with different margins, and that asymmetry is a bug
+    with no symptom: the truth's star set was edge-trimmed (`ys > 3`, and the interior of a 5-px
+    maximum filter needs it) while the output count was a bare `det.sum()` over the whole tile
+    including the rim. The two therefore covered different AREAS, and the truth scored 1.096 against
+    ITSELF where a self-consistency null has to be 1.000. Every stars_kept ever printed by this gate
+    before 2026-09-06 is inflated by about a tenth for that reason.
+    """
+    det = (tile >= maximum_filter(tile, size=5)) & (tile > med + STAR_SIGMA * mad)
+    ys, xs = np.nonzero(det)
+    ok = ((ys >= margin) & (ys < tile.shape[0] - margin)
+          & (xs >= margin) & (xs < tile.shape[1] - margin))
+    return ys[ok], xs[ok]
+
+
 def ring_excess(tile, ys, xs, fwhm, med, mad):
     """Median annulus DEPTH below background, in MAD, over the given stars.
 
@@ -163,10 +180,7 @@ class DeconvGate:
         for t in self.lm:
             med = float(np.median(t))
             _, mad = M.bg_stats(t)
-            det = (t >= maximum_filter(t, size=5)) & (t > med + STAR_SIGMA * mad)
-            ys, xs = np.nonzero(det)
-            ok = (ys > 3) & (ys < t.shape[0] - 4) & (xs > 3) & (xs < t.shape[1] - 4)
-            ys, xs = ys[ok], xs[ok]
+            ys, xs = detect(t, med, mad)
             self.stars.append((ys, xs))
             self.truth_stats.append((med, mad))
             self.truth_fwhm.append(star_fwhm(t, ys, xs, med))
@@ -185,6 +199,21 @@ class DeconvGate:
             star_fwhm(self.li[i], self.stars[i][0], self.stars[i][1], self.truth_stats[i][0])
             for i in range(len(self.lm))
         ], dtype=np.float64)
+
+        # The star NULL, on the same footing as the ring null above and for the same reason. Without
+        # it `stars_kept` was compared against a band centred on 1.0 as though the model's INPUT were
+        # lossless, when the blur is exactly what pushes faint stars under the detection threshold.
+        # Measured on this project's own cache the input scores 0.763, so the old [0.90, 1.10] band
+        # placed "reproduced the input exactly" OUTSIDE it and no arm could pass at any step: six
+        # seeds and 240 probes failed, every one of them for landing at 0.77 to 0.82, which IS the
+        # input's own value. A criterion whose null sits outside its pass band cannot be met, and
+        # reads in the log as the model failing rather than the gate.
+        null = []
+        for i in range(len(self.lm)):
+            if self.truth_stars[i] > 0:
+                iy, ix = detect(self.li[i], *self.truth_stats[i])
+                null.append(len(iy) / self.truth_stars[i])
+        self.stars_null = float(np.median(null)) if null else float("nan")
 
     def _forward(self, model, src):
         out = []
@@ -221,9 +250,9 @@ class DeconvGate:
             if np.isfinite(e) and np.isfinite(self.ring_null[i]):
                 excess.append(e - self.ring_null[i])
 
-            out_det = (den[i] >= maximum_filter(den[i], size=5)) & (den[i] > med + STAR_SIGMA * mad)
+            oy, _ = detect(den[i], med, mad)
             if self.truth_stars[i] > 0:
-                kept.append(float(out_det.sum()) / self.truth_stars[i])
+                kept.append(len(oy) / self.truth_stars[i])
 
         def med_of(v):
             return float(np.median(v)) if v else float("nan")
@@ -257,16 +286,23 @@ def _self_test():
     size = 128
     ok = True
 
-    def plate(fwhm, n_stars=24, noise=0.0):
+    def plate(fwhm, n_stars=24, noise=0.0, amps=None, seed=None):
+        # `amps` and `seed` exist for the star-null demo below and default to the original
+        # behaviour: equal-amplitude stars at a caller-chosen position draw. Every star being
+        # equally bright is fine for measuring a WIDTH, and useless for measuring which stars a
+        # blur erases, since none of them is ever near the detection threshold.
+        r = np.random.default_rng(seed) if seed is not None else rng
         img = np.full((size, size), 0.10, dtype=np.float32)
         sigma = fwhm / 2.3548200450309493
-        ys = rng.integers(12, size - 12, n_stars)
-        xs = rng.integers(12, size - 12, n_stars)
+        ys = r.integers(12, size - 12, n_stars)
+        xs = r.integers(12, size - 12, n_stars)
         yy, xx = np.mgrid[0:size, 0:size]
-        for y, x in zip(ys, xs):
-            img += np.exp(-(((yy - y) ** 2) + ((xx - x) ** 2)) / (2 * sigma * sigma)).astype(np.float32)
+        for k, (y, x) in enumerate(zip(ys, xs)):
+            a = 1.0 if amps is None else float(amps[k])
+            img += (a * np.exp(-(((yy - y) ** 2) + ((xx - x) ** 2))
+                               / (2 * sigma * sigma))).astype(np.float32)
         if noise > 0:
-            img = img + rng.normal(0, noise, img.shape).astype(np.float32)
+            img = img + r.normal(0, noise, img.shape).astype(np.float32)
         return img
 
     for want in (2.0, 3.0, 4.5):
@@ -305,6 +341,50 @@ def _self_test():
     raw = ring_excess(noisy, yz[kz], xz[kz], 3.0, mnz, madz)
     print(f"  ring depth on an untouched noisy plate: {raw:.2f} MAD "
           f"(NOT expected to be 0; this is why the gate subtracts a null)")
+
+    # The edge margin has to BITE, and this is the assertion that fails if the numerator and the
+    # denominator ever drift apart again. Comparing detect() to itself would be a tautology and
+    # would pass with the original bug still in place, because that bug was between an edge-trimmed
+    # truth count and an untrimmed `det.sum()` over the output. So plant stars in the rim and check
+    # that detect() drops exactly them while the untrimmed count keeps them.
+    clean = plate(3.0, noise=0.0)
+    mc = float(np.median(clean))
+    _, madc = M.bg_stats(clean)
+    rim = clean.copy()
+    for ry, rx in ((1, size // 2), (size - 2, size // 2), (size // 2, 1), (size // 2, size - 2)):
+        rim[ry, rx] = clean.max()
+    untrimmed = int(((rim >= maximum_filter(rim, size=5)) & (rim > mc + STAR_SIGMA * madc)).sum())
+    trimmed = len(detect(rim, mc, madc)[0])
+    base = len(detect(clean, mc, madc)[0])
+    print(f"  rim stars: untrimmed count {untrimmed}, detect() {trimmed}, clean baseline {base}  "
+          f"{'ok' if trimmed == base and untrimmed > trimmed else 'FAIL'}")
+    ok &= trimmed == base and untrimmed > trimmed
+
+    # And the star null a BLUR leaves behind, which is the number the pass band has to be anchored
+    # on. It is well under 1, which is the whole point: those stars are gone before the model is
+    # handed anything, so a floor near 1.0 asks it to invent them.
+    #
+    # Both plates carry the SAME noise and the threshold comes from the truth, mirroring the gate
+    # (`detect(self.li[i], *self.truth_stats[i])`). Measuring a noisy blurred plate against a
+    # NOISELESS plate's MAD instead reads 19.75: a threshold built on a near-zero MAD detects the
+    # whole frame. The units have to match on both sides of a ratio, and here that means the noise.
+    # Two things the width tests above do not need and this demo cannot do without: a RANGE of star
+    # brightnesses, so some sit near the detection threshold, and a blur that CONSERVES FLUX, so a
+    # widened star loses peak. `plate` draws every star at peak 1.0 regardless of width, which is a
+    # fine model of a star and a useless model of blurring: redrawn wider at the same peak, not one
+    # star ever crosses the threshold and the null reads exactly 1.000 while the caption claims it
+    # should not. Same position draw on both sides (`seed=`), so only the width and peak differ.
+    amps = np.geomspace(1.0, 0.15, 24)
+    scale = (3.0 / 4.5) ** 2
+    truth_n = plate(3.0, noise=0.02, amps=amps, seed=7)
+    mt = float(np.median(truth_n))
+    _, madt = M.bg_stats(truth_n)
+    n_truth = len(detect(truth_n, mt, madt)[0])
+    n_blur = len(detect(plate(4.5, noise=0.02, amps=amps * scale, seed=7), mt, madt)[0])
+    ratio = n_blur / max(1, n_truth)
+    print(f"  stars surviving a flux-conserving blur: {n_blur}/{n_truth} = {ratio:.3f}  "
+          f"{'ok' if ratio < 1.0 else 'FAIL (the demo is not demonstrating anything)'}")
+    ok &= ratio < 1.0
 
     print("self-test PASSED" if ok else "self-test FAILED")
     return 0 if ok else 1

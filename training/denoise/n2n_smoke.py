@@ -779,12 +779,22 @@ def train(args):
         # residual threshold too, left behind when resid became report-only, which read as a
         # fourth gate in six runs' worth of logs.
         if psf01_labels is not None:
+            # The star floor is ANCHORED ON THE MEASURED INPUT NULL, not on 1.0. The two bounds
+            # answer to different references on purpose: destroying stars is measured against what
+            # the model was HANDED (it cannot be blamed for the ones the blur already erased), while
+            # inventing them is measured against the TRUTH (a deconvolution may not create a star the
+            # clean master does not have). A single band centred on 1.0 conflated the two, sat above
+            # the input's own 0.763, and failed 240 consecutive probes across six seeds.
+            stars_floor = gate.stars_null * args.gate_min_stars_frac
             # The DECONVOLUTION criteria. Printed separately because the denoiser's lines below name
             # three thresholds none of which this run applies, and a log that states the wrong pass
             # condition is read as truth months later by whoever is diagnosing the run.
             print(f"  pass requires out/truth width >= 1.0 (under it is fabrication rather than "
                   f"success: an oracle handed the exact kernel never goes under) and stars kept in "
-                  f"[{args.gate_min_stars_kept}, {args.gate_max_stars_kept}]")
+                  f"[{stars_floor:.3f}, {args.gate_max_stars_kept}]")
+            print(f"  the star floor is {args.gate_min_stars_frac} x the INPUT's own measured "
+                  f"{gate.stars_null:.3f}, because the blur is what erased those stars; the ceiling "
+                  f"stays anchored on the truth, because fabrication is measured against it")
             print(f"  ring excess is REPORTED ONLY (nobody has calibrated what a value means yet)")
             print(f"  among passers the NARROWEST wins (doing nothing scores the input's own ratio)")
         else:
@@ -1019,7 +1029,7 @@ def train(args):
                 # narrow stars. Seen immediately on the first smoke run, where a 200-step model
                 # produced TEN TIMES the truth's detections and sailed through a lower bound alone.
                 # A deconvolution cannot legitimately create a star the clean master does not have.
-                structure_ok = (args.gate_min_stars_kept <= m["stars_kept"] <= args.gate_max_stars_kept)
+                structure_ok = (stars_floor <= m["stars_kept"] <= args.gate_max_stars_kept)
                 passed = structure_ok and np.isfinite(m["fwhm_ratio"]) and m["fwhm_ratio"] >= 1.0
                 # Closest to the truth width from ABOVE. Doing nothing scores the input's own
                 # ratio, which is the worst answer rather than a free pass.
@@ -1297,9 +1307,14 @@ if __name__ == "__main__":
                         "noise. This is what makes a DECONVOLUTION arm possible: the denoiser's gate "
                         "picks whichever checkpoint irons the frame flattest, which for this job is "
                         "selecting for blurring. Requires a cache prepared from a blur-mode export.")
-    p.add_argument("--gate-min-stars-kept", type=float, default=0.90,
-                   help="deconvolution gate only: reject a probe that has lost this fraction of the "
-                        "truth's detectable stars.")
+    p.add_argument("--gate-min-stars-frac", type=float, default=0.95,
+                   help="deconvolution gate only: the star floor, as a fraction of the INPUT's own "
+                        "measured retention rather than of the truth's count. Renamed from "
+                        "--gate-min-stars-kept, which took an absolute 0.90 and was unreachable: the "
+                        "blur is what erases the faint stars, so on this project's cache the input "
+                        "itself scores 0.763 and a model reproducing it exactly failed. Six seeds "
+                        "and 240 probes failed that way before the null was measured. Keep this at "
+                        "or just under 1.0: it is jitter allowance against the input, not a target.")
     p.add_argument("--gate-max-stars-kept", type=float, default=1.10,
                    help="deconvolution gate only, and the load-bearing half: reject a probe that has "
                         "INVENTED stars. A deconvolution cannot legitimately create a star the clean "
