@@ -423,6 +423,14 @@ namespace TianWen.UI.Abstractions
         private static readonly ImmutableArray<string> StretchLinkModeLabels = BuildLabels(
             ViewerActions.StretchLinkModes, m => m.ToString());
 
+        /// <summary>
+        /// The Save selector. Index 1 is the annotated variant, which is what the dropdown handler
+        /// tests -- the clean raster stays first because it is the one most saves want and the one
+        /// right-click reaches directly.
+        /// </summary>
+        private static readonly ImmutableArray<string> SaveMenuLabels =
+            ["Image as displayed...", "Image with overlays..."];
+
         /// <summary>Channel-view selector: Composite/Red/Green/Blue. Only
         /// surfaced for 3+ channel images (gated by <see cref="IsToolbarButtonEnabled"/>).</summary>
         private static readonly ChannelView[] ChannelViewOrder =
@@ -574,6 +582,22 @@ namespace TianWen.UI.Abstractions
                         // rescaling is the confirmation a message would otherwise be giving.
                         state.NeedsRedraw = true;
                     }, CurrentZoomMenuIndex(state));
+                    return true;
+
+                case ToolbarAction.Save:
+                    // Two rows rather than two buttons, and rather than two rows in the file dialog:
+                    // the dialog reports only a PATH back (see IFileDialogHelper.SaveAsync -- two of
+                    // the three platforms cannot report which filter was highlighted), and both
+                    // variants write a .png, so the choice cannot be carried by the extension. It has
+                    // to be made before the dialog opens, which is here.
+                    //
+                    // Right-click still saves the clean raster in one click, so the common case did not
+                    // grow a step: that is the same fall-through every other dropdown button has.
+                    OpenDropdown(state, bounds, SaveMenuLabels, (idx, _) =>
+                    {
+                        PostSignal(new SaveImageSignal(WithOverlays: idx == 1));
+                        state.NeedsRedraw = true;
+                    });
                     return true;
 
                 case ToolbarAction.Shortcuts:

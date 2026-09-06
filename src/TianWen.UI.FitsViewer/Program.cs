@@ -161,6 +161,10 @@ var celestialObjectDB = new DotNext.Threading.AsyncLazy<TianWen.Lib.Astrometry.C
     return db;
 });
 
+// The annotated save draws the object overlay, so the controller needs the same catalog the renderer
+// is given below. Lazy, so wiring it here still starts nothing.
+controller.CelestialObjectDB = celestialObjectDB;
+
 // Scan folder for supported image files
 if (folderPath is not null)
 {
@@ -496,6 +500,12 @@ bus.Subscribe<PlateSolveSignal>(_ =>
     controller.HandleToolbarAction(ToolbarAction.PlateSolve, reverse: false, cts.Token));
 bus.Subscribe<EnhanceImageSignal>(_ =>
     controller.HandleToolbarAction(ToolbarAction.Enhance, reverse: false, cts.Token));
+
+// The Save dropdown's two rows. The annotation is read off the renderer here rather than reached for
+// inside the controller, because the renderer is what holds it -- so a plate-solve verification or a
+// polar-alignment overlay lands in the saved file too.
+bus.Subscribe<SaveImageSignal>(sig =>
+    controller.SaveImage(sig.WithOverlays, cts.Token, imageRenderer.Annotation));
 
 // Damage: hand the renderer the rects this frame changed, so it preserves the previous frame and
 // repaints only those. Anything that asked for a frame without saying what moved comes back false

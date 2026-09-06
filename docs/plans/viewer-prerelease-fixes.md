@@ -52,7 +52,7 @@ the 35 TIFF / import / codec tests pass against it.
 | P19 | Stepping between frames re-solves everything, so there is no blink | **FIXED** 2026-09-04 |
 | P20 | A share link to the web viewer (needs `&t=`) | **FIXED** 2026-09-04 |
 | P21 | A mosaic's channel views show the mosaic, not the debayered planes | BACKLOG |
-| P22 | Save the ANNOTATED view (grid, markers, labels), beside P18's clean raster | BACKLOG (split off P18 2026-09-04) |
+| P22 | Save the ANNOTATED view (grid, markers, labels), beside P18's clean raster | **FIXED** 2026-09-06 |
 
 ---
 
@@ -476,7 +476,7 @@ position both hosts already track, and a pointer move repaints while a dropdown 
 **Shipped 2026-09-04.** `DisplayRasterExport` (TianWen.Lib) renders through the CPU mirror of the
 shader and writes PNG-16 / JPEG / float TIFF; `IFileDialogHelper.SaveAsync` is the save dialog none
 of the three platforms had. "As seen" was settled as the CLEAN raster at full IMAGE resolution --
-the annotated variant is P22. Open and Save became hand-drawn marks after every candidate glyph
+the annotated variant is P22, shipped 2026-09-06. Open and Save became hand-drawn marks after every candidate glyph
 baked solid (measurements in that commit, reasoning in `DrawFolderMark`'s remarks), and the toolbar
 no longer wraps to a second row, which was the stated point of iconising them. Left out
 deliberately: 8-bit PNG is in the API with no UI, because it shares `.png` with the 16-bit variant
@@ -657,21 +657,41 @@ hard. backlog it if we can't deliver it now."*
   filename must select it. That is the acceptance test the current pane fails.
 - **P6**: visual, against the specific files named above.
 
-## P22. Save the ANNOTATED view  — BACKLOG
+## P22. Save the ANNOTATED view  — FIXED
 
-Split off P18 on 2026-09-04, when the user chose the clean raster for "as seen on screen" and asked
-for the annotated variant to be backlogged rather than dropped.
+**Shipped 2026-09-06.** `AnnotatedRasterExport` (TianWen.UI.Abstractions) writes the display raster
+with the WCS grid, star markers, object markers and labels, and any caller-supplied `WcsAnnotation`
+drawn over it, at the image's own resolution. Reached from the Save toolbar button, which now opens
+a two-row dropdown -- "Image as displayed..." and "Image with overlays..." -- while a right-click
+still saves the clean raster in one click.
 
-P18 saves what `Image.RenderStretchedRgba` produces: the stretch, WB, curves, HDR and channel view,
-at **full image resolution**, because that path needs no framebuffer readback and so is not bounded
-by the window. Everything drawn OVER the image -- the WCS grid, star markers, object labels -- is
-absent by construction.
+**The question the backlog entry said to settle first was settled by NOT writing a second drawing
+path.** The export runs `ImageRendererBase<TSurface>` itself -- the same class the window is drawn
+by -- over a CPU `RgbaImageRenderer` surface the size of the image. The layout pass, the placement,
+`OverlayEngine.ComputeOverlays` and the label collision avoidance are therefore the SAME code, and
+only three primitives (ellipse, cross, line) plus the image blit are backend-specific. An overlay
+added to the viewer appears in the export for free, which is precisely what a parallel CPU annotator
+in the shape of `PlateSolveAnnotator` could not have promised.
 
-The machinery for the annotated version exists: `PlateSolveAnnotator` already draws overlays onto a
-CPU raster through the same `RenderStretchedRgba` + `StretchSolver` path. What makes it a backlog
-item rather than a flag on P18 is that it is a **second drawing path beside the GPU one**, and the
-two will drift: every overlay added to the shader would then owe a CPU twin, with nothing failing
-when it is forgotten. If it is picked up, the thing to settle first is whether the CPU annotator
-becomes the single source of truth for overlay GEOMETRY (the shader consuming the same computed
-placements) rather than a parallel implementation of it.
+Three things fell out of that choice and are worth knowing:
+
+- **The surface IS the image**, so screen coordinates and image coordinates coincide: the export
+  state renders at zoom 1, pan 0, chrome off, and the image pane fills the whole surface. Nothing
+  projects differently from the way the window projects it; the window is just a different size.
+- **The annotation furniture is scaled, the pixels are not.** A 6-pixel marker on a 9576-pixel-wide
+  master is a speck, so the export sets `DpiScale` from the image width against a 1600-pixel
+  reference -- the same lever a HiDPI window pulls, so markers, labels and placement grow together.
+- **It is 8-bit, and that is a property of the rasteriser** (`RgbaImageRenderer` composites into an
+  8-bit surface), not a choice. The clean raster keeps its 16-bit PNG and float TIFF.
+
+`ViewerState.ForAnnotatedExport()` is the display contract in one place: a copy rather than a
+temporary mutation, because the export runs off the render thread and flipping zoom and chrome on
+the live instance would race the frame in flight. **A new display setting belongs in that list** --
+omitting one makes the saved file differ from the screen in exactly that respect, silently, which is
+why `AnnotatedRasterExportTests` fails when `ShowStarOverlay` is dropped from it (verified by
+sabotage, along with the ellipse primitive).
+
+The strongest of those tests is the one that asserts the annotated save with nothing switched on is
+the clean save **pixel for pixel**: the two files are of one picture, and the annotation is the only
+thing allowed to differ.
 

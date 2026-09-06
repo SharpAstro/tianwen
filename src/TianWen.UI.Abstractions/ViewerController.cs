@@ -76,6 +76,14 @@ public sealed class ViewerController(
     /// </summary>
     public SharpenPipeline? EnhancePipeline { get; set; }
 
+    /// <summary>
+    /// The catalog the object overlay draws from, or null in a host that wires none. Set by the host
+    /// after resolving it, the same way <see cref="EnhancePipeline"/> is; only the ANNOTATED save
+    /// reads it, and null there simply omits that one overlay -- which is also what the on-screen
+    /// renderer does before the catalog has finished loading.
+    /// </summary>
+    public DotNext.Threading.AsyncLazy<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>? CelestialObjectDB { get; set; }
+
     /// <summary>True while an AI enhance pass is in flight; used by the render loop's redraw gate.</summary>
     public bool IsEnhancePending => _enhanceTask is { IsCompleted: false };
 
@@ -325,6 +333,118 @@ public sealed class ViewerController(
     }
 
     /// <summary>
+    /// Saves the displayed image, with or without the overlays drawn over it. Asks for a path first,
+    /// then renders and writes on the background tracker.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Both variants render at the IMAGE's resolution, not the window's</b>, and neither is a
+    /// screenshot: a 9576x6388 master saves at 9576x6388 from a 1280-pixel-wide window. The clean one
+    /// goes through <see cref="DisplayRasterExport"/> and can be 16-bit; the annotated one goes through
+    /// <see cref="AnnotatedRasterExport"/>, which runs the viewer itself over a CPU surface and is
+    /// 8-bit because the overlay rasteriser is.</para>
+    /// <para>The uniforms are recomputed here from the same state the renderer hands its shader rather
+    /// than reached for across the renderer: <c>ComputeStretchUniforms</c> is documented as the single
+    /// producer, so the same inputs give the same answer and the controller stays free of a renderer
+    /// reference.</para>
+    /// </remarks>
+    /// <param name="withOverlays">Draw the WCS grid, star markers and object labels over the raster.</param>
+    /// <param name="appToken">The host's lifetime token.</param>
+    /// <param name="annotation">
+    /// The caller-supplied sky annotation the renderer is holding, so a plate-solve verification or a
+    /// polar-alignment overlay lands in the file too. Ignored when <paramref name="withOverlays"/> is
+    /// false.
+    /// </param>
+    public void SaveImage(bool withOverlays, CancellationToken appToken,
+        Overlays.WcsAnnotation annotation = default)
+    {
+        if (Document is not { } saveDoc)
+        {
+            state.StatusMessage = "Nothing to save";
+            return;
+        }
+
+        state.StatusMessage = "Saving...";
+        tracker.RunGuarded(async token =>
+        {
+            // PNG first, so it is the dialog's default and the extension appended to a name typed
+            // without one. It is also the lossless option in both lists.
+            var filters = withOverlays
+                ? new Dictionary<string, IReadOnlyList<string>>
+                {
+                    ["PNG"] = [".png"],
+                    ["JPEG"] = [".jpg", ".jpeg"],
+                }
+                : new Dictionary<string, IReadOnlyList<string>>
+                {
+                    ["PNG (16-bit)"] = [".png"],
+                    ["JPEG"] = [".jpg", ".jpeg"],
+                    ["TIFF (32-bit float)"] = [".tif", ".tiff"],
+                };
+
+            var stem = Path.GetFileNameWithoutExtension(saveDoc.FilePath);
+            if (stem.Length == 0)
+            {
+                stem = "image";
+            }
+
+            // The annotated variant suggests its own name, because the two files are of the same
+            // picture and land in the same folder: saving one over the other is the mistake worth
+            // designing out, and it is the file NAME that has to say which is which.
+            var suggested = (withOverlays ? stem + "-annotated" : stem) + ".png";
+            var title = withOverlays ? "Save image with overlays" : "Save image as displayed";
+
+            var target = await fileDialog.SaveAsync(filters, suggested, title, token).ConfigureAwait(false);
+            if (target is null)
+            {
+                state.StatusMessage = null;
+                return;
+            }
+
+            if (withOverlays)
+            {
+                await AnnotatedRasterExport.WriteAsync(
+                    saveDoc, state, target,
+                    AnnotatedRasterExport.FromExtension(target),
+                    CelestialObjectDB,
+                    annotation,
+                    cancellationToken: token).ConfigureAwait(false);
+
+                state.StatusMessage = $"Saved {Path.GetFileName(target)}";
+                return;
+            }
+
+            var image = saveDoc.UnstretchedImage;
+            var uniforms = saveDoc.ComputeStretchUniforms(
+                state.StretchMode, state.StretchParameters,
+                bgNeutralizationStrength: state.BackgroundNeutralizationStrength,
+                manualWhiteBalance: state.ManualWhiteBalance,
+                applyColorCalibration: state.ColorCalibrationEnabled);
+
+            // The boost pivots on the POST-stretch background, exactly as the shader's curvesMidpoint
+            // does; passing the default 0.25 instead would move the curve.
+            var background = uniforms.ComputePostStretchBackground(
+                saveDoc.PerChannelBackground, saveDoc.LumaBackground);
+
+            await DisplayRasterExport.WriteAsync(
+                image, target,
+                DisplayRasterExport.FromExtension(target) ?? DisplayRasterFormat.Png16,
+                uniforms,
+                state.CurvesBoost, state.CurvesMode, state.CurveData, background,
+                state.HdrAmount, state.HdrKnee,
+                displayedChannel: state.ChannelView.DisplayedSourceChannel(image.ChannelCount),
+                debayerAlgorithm: state.DebayerAlgorithm,
+                cancellationToken: token).ConfigureAwait(false);
+
+            state.StatusMessage = $"Saved {Path.GetFileName(target)}";
+        },
+        appToken,
+        logger,
+        withOverlays ? "Save annotated raster" : "Save display raster",
+        onError: ex => state.StatusMessage = $"Save failed: {StatusText.FromException(ex)}",
+        onFinally: () => state.NeedsRedraw = true);
+    }
+
+    /// <summary>
     /// Handles toolbar actions that require DI (Open, PlateSolve).
     /// Call after <see cref="ViewerActions.HandleToolbarAction"/> returns <c>false</c>.
     /// </summary>
@@ -375,62 +495,8 @@ public sealed class ViewerController(
             // ComputeStretchUniforms is documented as the single producer, so the same inputs give the
             // same answer, and the controller stays free of a renderer reference.
             case ToolbarAction.Save:
-                if (Document is not { } saveDoc)
-                {
-                    state.StatusMessage = "Nothing to save";
-                    break;
-                }
-
-                state.StatusMessage = "Saving...";
-                tracker.RunGuarded(async token =>
-                {
-                    // PNG first, so it is the dialog's default and the extension appended to a name
-                    // typed without one. It is also the only lossless option here.
-                    var filters = new Dictionary<string, IReadOnlyList<string>>
-                    {
-                        ["PNG (16-bit)"] = [".png"],
-                        ["JPEG"] = [".jpg", ".jpeg"],
-                        ["TIFF (32-bit float)"] = [".tif", ".tiff"],
-                    };
-
-                    var stem = Path.GetFileNameWithoutExtension(saveDoc.FilePath);
-                    var suggested = (stem.Length > 0 ? stem : "image") + ".png";
-                    var target = await fileDialog.SaveAsync(filters, suggested, "Save image as displayed", token).ConfigureAwait(false);
-                    if (target is null)
-                    {
-                        state.StatusMessage = null;
-                        return;
-                    }
-
-                    var image = saveDoc.UnstretchedImage;
-                    var uniforms = saveDoc.ComputeStretchUniforms(
-                        state.StretchMode, state.StretchParameters,
-                        bgNeutralizationStrength: state.BackgroundNeutralizationStrength,
-                        manualWhiteBalance: state.ManualWhiteBalance,
-                        applyColorCalibration: state.ColorCalibrationEnabled);
-
-                    // The boost pivots on the POST-stretch background, exactly as the shader's
-                    // curvesMidpoint does; passing the default 0.25 instead would move the curve.
-                    var background = uniforms.ComputePostStretchBackground(
-                        saveDoc.PerChannelBackground, saveDoc.LumaBackground);
-
-                    await DisplayRasterExport.WriteAsync(
-                        image, target,
-                        DisplayRasterExport.FromExtension(target) ?? DisplayRasterFormat.Png16,
-                        uniforms,
-                        state.CurvesBoost, state.CurvesMode, state.CurveData, background,
-                        state.HdrAmount, state.HdrKnee,
-                        displayedChannel: state.ChannelView.DisplayedSourceChannel(image.ChannelCount),
-                        debayerAlgorithm: state.DebayerAlgorithm,
-                        cancellationToken: token).ConfigureAwait(false);
-
-                    state.StatusMessage = $"Saved {Path.GetFileName(target)}";
-                },
-                appToken,
-                logger,
-                "Save display raster",
-                onError: ex => state.StatusMessage = $"Save failed: {StatusText.FromException(ex)}",
-                onFinally: () => state.NeedsRedraw = true);
+                // Right-click, or a host with no dropdown: the clean raster, one click, as before.
+                SaveImage(withOverlays: false, appToken);
                 break;
 
             case ToolbarAction.PlateSolve:

@@ -135,6 +135,23 @@ public readonly record struct PlateSolveSignal;
 /// fires into the void where no SharpenPipeline is wired (the toolbar button is hidden there anyway).</summary>
 public readonly record struct EnhanceImageSignal;
 
+/// <summary>
+/// Request a save of the displayed image, with or without the overlays drawn over it.
+/// </summary>
+/// <remarks>
+/// A signal rather than a <see cref="ToolbarAction"/> because the choice is made in a dropdown row,
+/// which runs inside the renderer, and the save itself needs the controller (the file dialog, the
+/// document, the background tracker). The renderer reaches the controller the way everything else
+/// does: it posts. A host with no subscriber drops it, exactly as it drops
+/// <see cref="EnhanceImageSignal"/>.
+/// </remarks>
+/// <param name="WithOverlays">
+/// <c>false</c> writes the clean display raster (<see cref="DisplayRasterExport"/>), which is what
+/// "as displayed" has always meant here. <c>true</c> writes the same pixels with the WCS grid, the
+/// star markers and the object labels drawn over them (<see cref="AnnotatedRasterExport"/>).
+/// </param>
+public readonly record struct SaveImageSignal(bool WithOverlays);
+
 /// <summary>Planner session state changed (proposals, sliders, settings). Triggers auto-save.</summary>
 public readonly record struct SavePlannerSessionSignal;
 

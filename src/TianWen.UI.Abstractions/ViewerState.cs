@@ -432,4 +432,66 @@ public sealed class ViewerState
 
     /// <summary>Set to true when the UI needs to be redrawn. Cleared after each render.</summary>
     public bool NeedsRedraw { get; set; } = true;
+
+    /// <summary>
+    /// A copy of everything that decides how the IMAGE looks, with the window taken out of it: no
+    /// chrome, no file list, no histogram or info panel, no A/B divider, and the view sitting at 1:1
+    /// with no pan. Feed it to a renderer whose surface is the size of the image and screen
+    /// coordinates become image coordinates, which is what
+    /// <see cref="AnnotatedRasterExport"/> renders the annotated save with.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>A copy rather than a temporary mutation, because the export does not run on the render
+    /// thread.</b> Flipping these on the live instance and putting them back would be a data race with
+    /// whatever frame is in flight, and the window would visibly jump to 1:1 for the duration.</para>
+    ///
+    /// <para><b>What is copied here IS the display contract.</b> A new setting that changes the
+    /// rendered pixels or the overlays belongs in this list; one that changes the window does not.
+    /// Omitting a display setting makes the saved file differ from the screen in exactly that one
+    /// respect, silently, so add it here in the same edit that adds the property.</para>
+    /// </remarks>
+    public ViewerState ForAnnotatedExport() => new ViewerState
+    {
+        // The stretch, and everything feeding it.
+        StretchMode = StretchMode,
+        StretchParameters = StretchParameters,
+        ChannelView = ChannelView,
+        DebayerAlgorithm = DebayerAlgorithm,
+        ColorCalibrationEnabled = ColorCalibrationEnabled,
+        BackgroundNeutralizationEnabled = BackgroundNeutralizationEnabled,
+        BackgroundNeutralizationMethod = BackgroundNeutralizationMethod,
+        BackgroundNeutralizationStrength = BackgroundNeutralizationStrength,
+        ManualWhiteBalance = ManualWhiteBalance,
+
+        // The post-stretch dials.
+        CurvesBoost = CurvesBoost,
+        CurvesMode = CurvesMode,
+        CurveData = CurveData,
+        HdrAmount = HdrAmount,
+        HdrKnee = HdrKnee,
+        WaveletSharpenEnabled = WaveletSharpenEnabled,
+        WaveletGains = WaveletGains,
+
+        // The overlays -- the whole reason this export exists.
+        ShowGrid = ShowGrid,
+        ShowOverlays = ShowOverlays,
+        ShowStarOverlay = ShowStarOverlay,
+
+        // The window, removed. Zoom 1 with no pan is what makes the surface and the image one
+        // coordinate space; the rest is chrome that has no meaning in a file.
+        Zoom = 1f,
+        ZoomToFit = false,
+        PanOffset = (0f, 0f),
+        HideChrome = true,
+        ShowFileList = false,
+        ShowInfoPanel = false,
+        ShowHistogram = false,
+        IsSequence = false,
+        SplitFraction = null,
+
+        // No GPU textures to upload (the exporter renders the pixels itself), and no pointer, so
+        // nothing resolves a hover state against a window that is not there.
+        NeedsTextureUpdate = false,
+        MouseScreenPosition = (-1f, -1f),
+    };
 }
