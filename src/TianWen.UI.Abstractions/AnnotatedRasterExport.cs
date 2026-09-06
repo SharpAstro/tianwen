@@ -160,7 +160,13 @@ namespace TianWen.UI.Abstractions
             switch (format)
             {
                 case AnnotatedRasterFormat.Png:
-                    encoded = PngWriter.Encode(rgba, width, height, IccProfiles.SRgbV4.Span);
+                    // The overlay is drawn onto an opaque surface, so the alpha plane is a
+                    // constant 0xFF and worth no part of the file.
+                    encoded = PngWriter.Encode(rgba, width, height, new PngWriteOptions
+                    {
+                        IccProfile = IccProfiles.SRgbV4.ToArray(),
+                        DiscardAlpha = true,
+                    });
                     break;
 
                 case AnnotatedRasterFormat.Jpeg:

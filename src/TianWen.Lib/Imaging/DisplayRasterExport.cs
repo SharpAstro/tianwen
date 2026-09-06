@@ -157,14 +157,24 @@ public static class DisplayRasterExport
             case DisplayRasterFormat.Png16:
             {
                 var rgba = RenderRgba16();
-                encoded = PngWriter.EncodeRgba16(rgba, width, height, new PngWriteOptions { Cicp = CicpChunk.Srgb });
+
+                // DiscardAlpha, because a display raster has none: RenderStretchedRgba16 writes a
+                // constant 65535 into every fourth sample. Carried into the file that plane costs a
+                // quarter of the encode and a quarter of the bytes, for a channel no viewer of an
+                // astronomical image will ever consult.
+                encoded = PngWriter.EncodeRgba16(rgba, width, height,
+                    new PngWriteOptions { Cicp = CicpChunk.Srgb, DiscardAlpha = true });
                 break;
             }
 
             case DisplayRasterFormat.Png8:
             {
                 var rgba = RenderRgba8();
-                encoded = PngWriter.Encode(rgba, width, height, IccProfiles.SRgbV4.Span);
+                encoded = PngWriter.Encode(rgba, width, height, new PngWriteOptions
+                {
+                    IccProfile = IccProfiles.SRgbV4.ToArray(),
+                    DiscardAlpha = true,   // see the 16-bit case above
+                });
                 break;
             }
 
