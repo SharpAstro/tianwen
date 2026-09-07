@@ -220,8 +220,10 @@ taps present, exact at integer shifts) is opt-in. Measured on the same night (R1
 `docs/plans/deconvolver-training.md`): the six-frame master goes 2.39 to 2.15 px per star and the
 whole night's 2.70 to 2.48, each still the mean of its frames, with no ringing on any of four measures
 at 2 px seeing, so the case for the default is made and the flip is the user's, since it changes every
-master. One consequence: the star profile fit refuses the sharper master because its log-space fit
-reads far-wing background residue (`known-limitations.md`; E1g owed).
+master. One consequence: the star profile fit refuses the sharper master, and every sharp input, because
+a Gaussian core with a faint wing is not a fixed-width Moffat to an equal-weight log fit
+(`known-limitations.md`; E1g-2 owed). `PsfProfileFit.Diagnostics` now carries the stacked profile, the
+floor and the fitted bins, so a refusal can be read bin by bin.
 
 ## 7.0
 

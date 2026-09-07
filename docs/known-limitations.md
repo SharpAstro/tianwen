@@ -719,20 +719,27 @@ cost, measured 4 to 9 percent apart from a staged one before either registration
 `--warp-interpolation Lanczos3` is opt-in while its ringing on real frames is measured (R1); the
 default flip changes every master and is the user's decision.
 
-### The star profile fit refuses a sharp master because its far wings are sky, not star
+### The star profile fit refuses a SHARP master, because a Gaussian core with a faint wing is not a Moffat
 
 `PsfProfileFit` stacks bright isolated stars after a per-star annulus background, then fits a Moffat in
-LOG space over every quarter-pixel bin above 0.2 percent of the peak, out to 12 px, and refuses above a
-log residual of 0.5. On the real masters measured (Orion 2025-10-15, R1) the stacked profile sits at 0.7
-to 1.5 percent of the peak from 4 px outward on the bilinear master and the Lanczos master alike: that
-is background residue the annulus did not remove, not the star's wing, and it is above the floor, so
-every outer bin is fitted. A Moffat through a blurrier core passes near it; through a core 15 percent
-narrower it predicts a third of it, and the residual crosses 0.5. So the fit refused the Lanczos master
-(0.83) while accepting its bilinear twin (beta 3.9), with no ringing anywhere in the profile, and it
-will refuse any master sharp enough for the same reason, which is the estimator step the deconvolver
-plan leans on. The fit's beta on the masters it does accept is biased toward the residue as well.
-**Owed (E1g in `docs/plans/deconvolver-training.md`):** a floor relative to the profile's own outer
-level, or the fit stopped at a radius the star still owns, measured against E1e's 180 rows.
+LOG space, equal weight per quarter-pixel bin, over every bin above 0.2 percent of the peak out to 12
+px, with the width fixed at the stacked profile's half maximum and only the exponent searched; it
+refuses above a log residual of 0.5. A sharp stacked star (the R1 Lanczos master at 2.3 px, a two-frame
+stack, a VNG sub at 1.8 px) is Gaussian to within 0.02 at every bin out to 2 px and then carries a
+faint wing of half a percent to two percent from 3 to 5 px. No Moffat with that half-maximum width
+follows both: the exponent that reaches the wing overshoots the core (0.159 where the profile has
+0.106 at 2.1 px), the one that fits the core has no wing, and with two dozen equal-weight bins in log
+space across three decades the search settles between them at 0.77 to 0.83 and refuses. A blurrier
+master sits closer to the Moffat family and passes (the bilinear twin at 2.47 px, beta 3.9; the whole
+night, 2.61, beta 4.6). **So the fit refuses sharp inputs systematically, which is the estimator step
+refusing the frames the deconvolver most wants to measure**, and the betas it accepts on blurrier
+masters lean the same way. It was first read as far-wing background residue (a floor relative to the
+profile's outer level was built and withdrawn within the hour: the annulus already leaves the outer bins
+at 0.03 to 0.07 percent, and the relative floor turned a detached halo's `PoorFit` into
+`TooFewFitBins`); the fit's `Diagnostics` now carry the stacked profile, so the shape is read rather
+than inferred. **Owed (E1g-2 in `docs/plans/deconvolver-training.md`):** a core-weighted fit, linear
+residual or the log fit stopped near 2 FWHM with the far wing reported beside it, measured on E1e's
+180 rows and the sharp masters.
 
 ## GPU / rendering
 

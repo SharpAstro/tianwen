@@ -1,6 +1,7 @@
 using Shouldly;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Dataset;
 using Xunit;
@@ -125,12 +126,16 @@ namespace TianWen.Lib.Tests
                 alpha: 3.2 / (2 * Math.Sqrt(Math.Pow(2, 1.0 / 4.0) - 1)));
 
             var stars = DetectSyntheticStars(image);
-            PsfProfileFit.Measure(image, channel: 0, stars).ShouldBeNull();
+            var result = PsfProfileFit.Measure(image, channel: 0, stars, out var diagnostics);
+            result.ShouldBeNull(
+                $"accepted with fwhm {diagnostics.Fwhm:F2}, beta {diagnostics.MoffatBeta:F2}, rms {diagnostics.MoffatLogRms:F3}, floor {diagnostics.Floor:F4}, "
+                + $"{diagnostics.FitBins} bins; profile {string.Join(" ", (diagnostics.Profile ?? []).Select((p, b) => $"{(b + 0.5) * diagnostics.BinWidthPx:F2}:{p:F4}"))}");
 
             // And the refusal SAYS it was the fit: the stack was fine (enough stars, a half-maximum, bins
             // to fit), the shape was not. A caller tallying refusals over an archive needs that distinction.
-            PsfProfileFit.Measure(image, channel: 0, stars, out var diagnostics).ShouldBeNull();
-            diagnostics.Refusal.ShouldBe(PsfProfileFit.Refusal.PoorFit);
+            diagnostics.Refusal.ShouldBe(PsfProfileFit.Refusal.PoorFit,
+                $"floor {diagnostics.Floor:F4}, {diagnostics.FitBins} bins, fwhm {diagnostics.Fwhm:F2}; profile "
+                + string.Join(" ", (diagnostics.Profile ?? []).Select((p, b) => $"{(b + 0.5) * diagnostics.BinWidthPx:F2}:{p:F4}")));
             diagnostics.Stacked.ShouldBeGreaterThanOrEqualTo(40);
             diagnostics.FitBins.ShouldBeGreaterThanOrEqualTo(8);
             diagnostics.MoffatLogRms.ShouldBeGreaterThan(0.5);

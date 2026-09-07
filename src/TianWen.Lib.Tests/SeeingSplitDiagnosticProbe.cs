@@ -50,6 +50,20 @@ public class SeeingSplitDiagnosticProbe(ITestOutputHelper output)
             var plane = FullPlane(image, green);
             var (fit, diag) = await FitStarProfileAsync(plane, width, height, PsfProfileFit.StarSelection.SignalFloor, 5f, 3000, ct);
             cells.Add(fit is { } f ? $"fit ch{green} {f.Fwhm:F2} px beta {f.MoffatBeta:F1}" : $"fit ch{green} {Describe(diag)}");
+            if (fit is null && diag.Profile is { } refusedProfile)
+            {
+                // What the refusal was refusing: the stacked profile per quarter pixel, the floor it had to
+                // clear, and the Moffat the search ended on, so the shape mismatch is visible bin by bin.
+                var alpha = diag.Fwhm / (2 * Math.Sqrt(Math.Pow(2, 1.0 / diag.MoffatBeta) - 1));
+                var fitted = new HashSet<int>(diag.FittedBins ?? []);
+                var row = string.Join(" ", refusedProfile.Select((p, b) =>
+                {
+                    var r = (b + 0.5) * diag.BinWidthPx;
+                    var model = Math.Pow(1 + (r * r) / (alpha * alpha), -diag.MoffatBeta);
+                    return $"{r:F2}:{p:F4}/{model:F4}{(fitted.Contains(b) ? "*" : "")}";
+                }));
+                output.WriteLine($"    refused profile of {label} (radius:profile/model, * fitted; floor {diag.Floor:F4}, fwhm {diag.Fwhm:F2}, beta {diag.MoffatBeta:F2}): {row}");
+            }
 
             // Brightness-matched: the median FWHM of the hundred BRIGHTEST detections by flux. A deep
             // stack admits stars a sub cannot, and every median over "all detections" (the estimator's

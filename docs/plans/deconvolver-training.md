@@ -1110,6 +1110,41 @@ unchanged within 0.02, and the Lanczos masters fit at 2.15 to 2.25 px. *Kill.* W
 0.05 on the clean rows, or refusals do not fall. Then the wing residue is not what refuses, and the
 Moffat itself is the wrong wing model for a resampled star.
 
+**E1g read the same evening: KILLED, and the hypothesis with it. The fit exposes its stacked profile
+now, and the profile says what refuses is shape.** The relative floor was built (three times the
+median of the outermost quarter of bins) and run against the four R1 masters before the oracle rows
+came back: on the near6 Lanczos master it changed nothing, the same 24 bins and the same 0.83, because
+the fit's per-star annulus already leaves the outer bins at 0.03 to 0.07 percent of the peak (the 0.7 to
+1.5 percent plateau the probe had measured was against a GLOBAL crop background; the fit subtracts a
+local one), so no bin sat between the two floors. On the detached-halo synthetic the halo sits in the
+outer quarter, the relative floor rose into the core, and a `PoorFit` refusal became `TooFewFitBins`,
+which is the wrong reason for the right answer. Withdrawn; the diagnostics keep the profile, the floor
+and the fitted bins (`Diagnostics.Profile`, `Floor`, `FittedBins`) and the stage probe prints a refused
+profile bin by bin.
+
+What the near6 Lanczos master's profile shows, beside the best Moffat the search found (fwhm 2.32,
+beta 2.65, 24 bins to 5.6 px): 1.000, 1.000, 0.919, 0.704, 0.521, 0.373, 0.243, 0.166, 0.106 at 0.12
+to 2.12 px, a Gaussian of that width to within 0.02 at every bin from 1.1 px out; then 0.023 at 3.12 px
+against the Gaussian's 0.007, 0.007 at 4.12 against 0.0002, 0.003 at 5.12: a faint wing at half a
+percent to two percent that a Gaussian has not got and a Moffat with the half-maximum width fixed
+cannot reach without overshooting the core (the beta-2.65 compromise reads 0.159 where the profile
+reads 0.106 at 2.12 px and 0.016 where it reads 0.007 at 4.12). An equal-weight log fit over three
+decades has no way to prefer the core, and refuses. The bilinear twin's blurrier core (2.47 fwhm) sits
+closer to the Moffat family and passes at beta 3.9; so does every blurrier master, and so did the whole
+night under Lanczos (2.61, beta 4.6), while the two-frame stage stack (`exp-ref-plus-1`, rms 0.76) and
+the sharpest subs on VNG (fwhm 1.78, rms 0.77) refuse the same way. **The refusal is a systematic
+against sharp profiles**, which is the estimator step refusing the inputs the deconvolver most wants
+to measure, and the accepted betas on blurrier masters lean the same way. The oracle rows (below) read
+the withdrawn rule and are recorded for completeness.
+
+*E1g-2, pre-registered.* A fit that weights the core: the Moffat's residual in LINEAR space, or the log
+fit over bins down to 2 percent of the peak (about 2 FWHM) with beta read there and the far wing
+reported separately as a fraction of the peak at 2 and 3 FWHM. Measured on E1e's 180 rows and the four
+R1 masters plus the two-frame stage stack and the VNG subs. Prediction: refusals under 10 of 180, the
+near6 Lanczos master fits at 2.2 to 2.35 px, the sharp VNG subs at 1.8 to 2.0, widths on the rows both
+fit unchanged within 0.02; the reported betas rise on the sharper masters (the wing they carry is
+fainter than any beta under 4 says). Kill: widths move over 0.05, or the sharp masters still refuse.
+
 *What E2.10 needs before a second attempt.* A per-sub width that reads seeing: the bright-star
 profile fit on the debayered GREEN plane, beside the mosaic width in the store (owed: a
 `SubFwhmGreen` column, filled by `--remeasure-subs`, then E2.9's readout and the candidate list

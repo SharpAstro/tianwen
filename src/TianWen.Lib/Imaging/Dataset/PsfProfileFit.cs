@@ -27,6 +27,17 @@ namespace TianWen.Lib.Imaging.Dataset
 
         /// <summary>Below this the stacked profile is background residue, not signal, and including
         /// it would let the noise floor drive a log-space fit.</summary>
+        /// <remarks>
+        /// <para>A floor relative to the profile's own outer level was tried and withdrawn the same
+        /// evening (E1g, 2026-09-07): the per-star annulus already leaves the outer bins near zero on
+        /// real masters (0.03 to 0.07 percent of peak at 9 to 12 px), so the relative floor changed no
+        /// bin there, and on a detached halo it raised the floor into the core and turned a
+        /// <see cref="Refusal.PoorFit"/> into <see cref="Refusal.TooFewFitBins"/>. What refuses a SHARP
+        /// master is shape, not residue: its stacked star is Gaussian in the core to 2 px with a faint
+        /// wing of half a percent to two percent from 3 to 5 px, and no single Moffat with the
+        /// half-maximum width fixed follows both across three decades in an equal-weight log fit. The
+        /// <see cref="Diagnostics.Profile"/> is exposed so that is visible bin by bin.</para>
+        /// </remarks>
         private const double NoiseFloor = 0.002;
 
         /// <summary>
@@ -134,6 +145,12 @@ namespace TianWen.Lib.Imaging.Dataset
         /// <param name="MoffatBeta">The best-fit exponent, whether or not it was accepted, or NaN before
         /// that point.</param>
         /// <param name="MoffatLogRms">That fit's log-space residual, or NaN before that point.</param>
+        /// <param name="Profile">The stacked profile itself, one median per quarter-pixel bin from the
+        /// centre out to 12 px, normalised to each star's peak, or null before it was stacked. What a
+        /// refusal was refusing, so a probe can print it beside the model.</param>
+        /// <param name="Floor">The level a bin had to clear to be fitted (the larger of the fixed floor and
+        /// the wing-residue multiple of the profile's outer level), or NaN before that point.</param>
+        /// <param name="FittedBins">The indices into <paramref name="Profile"/> the fit used, or null.</param>
         public sealed record Diagnostics(
             Refusal Refusal,
             int StarsOffered,
@@ -142,7 +159,14 @@ namespace TianWen.Lib.Imaging.Dataset
             int FitBins,
             double Fwhm,
             double MoffatBeta,
-            double MoffatLogRms);
+            double MoffatLogRms,
+            double[]? Profile = null,
+            double Floor = double.NaN,
+            IReadOnlyList<int>? FittedBins = null)
+        {
+            /// <summary>Radial bin width in pixels of <see cref="Profile"/>.</summary>
+            public double BinWidthPx => BinWidth;
+        }
 
         /// <summary>
         /// Stacks the radial profiles of isolated, brightness-controlled stars and fits a Moffat to
@@ -326,24 +350,25 @@ namespace TianWen.Lib.Imaging.Dataset
                 return null;
             }
 
+            var floor = NoiseFloor;
             var fitBins = new List<int>();
             for (var b = 0; b < Bins; b++)
             {
-                if (!double.IsNaN(profile[b]) && profile[b] > NoiseFloor)
+                if (!double.IsNaN(profile[b]) && profile[b] > floor)
                 {
                     fitBins.Add(b);
                 }
             }
             if (fitBins.Count < 8)
             {
-                diagnostics = new Diagnostics(Refusal.TooFewFitBins, starArray.Length, candidates.Count, stacked, fitBins.Count, fwhm, double.NaN, double.NaN);
+                diagnostics = new Diagnostics(Refusal.TooFewFitBins, starArray.Length, candidates.Count, stacked, fitBins.Count, fwhm, double.NaN, double.NaN, profile, floor, fitBins);
                 return null;
             }
 
             var (beta, moffatRms) = FitMoffatBeta(profile, radii, fitBins, fwhm);
             diagnostics = new Diagnostics(
                 moffatRms > MaxAcceptableLogRms ? Refusal.PoorFit : Refusal.None,
-                starArray.Length, candidates.Count, stacked, fitBins.Count, fwhm, beta, moffatRms);
+                starArray.Length, candidates.Count, stacked, fitBins.Count, fwhm, beta, moffatRms, profile, floor, fitBins);
             if (moffatRms > MaxAcceptableLogRms)
             {
                 // Refuse rather than report. The beta search is an exhaustive grid from 1 to 25, so a
