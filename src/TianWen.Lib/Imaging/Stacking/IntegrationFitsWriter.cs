@@ -126,6 +126,17 @@ public static class IntegrationFitsWriter
                 extras["TRACKOBJ"] = (body, "Body the stack was registered on");
             }
         }
+        if (alignment is { CanvasOriginX: { } originX, CanvasOriginY: { } originY })
+        {
+            // Two masters from one reference overlay by the difference of these; the canvas is the
+            // union of each run's frame footprints, so neither its extent nor its origin is shared.
+            extras["CANVASX0"] = (originX, "Pixel (0,0) of this image in reference-frame px, x");
+            extras["CANVASY0"] = (originY, "Pixel (0,0) of this image in reference-frame px, y");
+        }
+        if (alignment?.ReferenceFrame is { Length: > 0 } reference)
+        {
+            extras["REFFRAME"] = (reference, "Reference frame whose pixel space CANVASX0/Y0 are in");
+        }
         if (modifiedBy is not null)
         {
             extras["SWMODIFY"] = (modifiedBy, "Software that modified this image");
@@ -303,11 +314,32 @@ public static class IntegrationFitsWriter
 /// <param name="DriftPxPerHour">The applied drift in CANVAS px/hr.</param>
 /// <param name="RateSource">"Horizons" for a derived ephemeris, "Manual" for an explicit
 /// <c>--comet-rate</c>. Worth distinguishing: only one of them can be wrong in a way re-running fixes.</param>
+/// <param name="CanvasOriginX">Where this master's pixel (0, 0) sits in the REFERENCE frame's pixel
+/// space, x. The canvas is the union of the registered frames' footprints, so two masters built from
+/// the same reference but different frame sets (a seeing split's sharp and soft thirds, a layer and a
+/// re-run) have different extents AND different origins; without this card they cannot be overlaid
+/// after the fact, and the number was only ever logged. Written as <c>CANVASX0</c>. An autocrop adds
+/// its crop offset, so the card stays true on the cropped file.</param>
+/// <param name="CanvasOriginY">The y half of <paramref name="CanvasOriginX"/>, <c>CANVASY0</c>.</param>
+/// <param name="ReferenceFrame">File name of the reference frame, <c>REFFRAME</c>, so a master says
+/// which frame's pixel space its origin cards are in without the manifest beside it.</param>
 public sealed record AlignmentProvenance(
     string Basis,
     string? TargetBody = null,
     Vector2? DriftPxPerHour = null,
-    string? RateSource = null)
+    string? RateSource = null,
+    int? CanvasOriginX = null,
+    int? CanvasOriginY = null,
+    string? ReferenceFrame = null)
 {
     public static readonly AlignmentProvenance Sidereal = new("Sidereal");
+
+    /// <summary>The same provenance for a crop of the master whose top-left sits at
+    /// (<paramref name="cropX"/>, <paramref name="cropY"/>) on the canvas: the origin moves with it.</summary>
+    public AlignmentProvenance ForCrop(int cropX, int cropY)
+        => this with
+        {
+            CanvasOriginX = CanvasOriginX is { } ox ? ox + cropX : null,
+            CanvasOriginY = CanvasOriginY is { } oy ? oy + cropY : null,
+        };
 }

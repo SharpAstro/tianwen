@@ -261,7 +261,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             try
             {
                 var cropFitsPath = WithSuffix(masterPath, "_autocrop");
-                IntegrationFitsWriter.Write(cropFitsPath, croppedResult, croppedWcs, strategy, alignment: alignment);
+                IntegrationFitsWriter.Write(cropFitsPath, croppedResult, croppedWcs, strategy, alignment: alignment?.ForCrop(autocropRect.X, autocropRect.Y));
                 logger.LogInformation("  wrote {Path} (crop {W}x{H})", cropFitsPath, autocropRect.Width, autocropRect.Height);
             }
             catch (Exception ex)

@@ -1754,8 +1754,14 @@ public sealed class StackingPipeline(
                 ultraHdrPeakNits: options.UltraHdrPeakNits,
                 inheritedWhiteBalance: options.InheritedWhiteBalance,
                 // Stamped on every master, sidereal included: absence would otherwise mean either
-                // "star-aligned" or "written before the card existed".
-                alignment: layerAlignment,
+                // "star-aligned" or "written before the card existed". The canvas origin rides along
+                // so two masters from this reference can be overlaid without this run's log.
+                alignment: layerAlignment with
+                {
+                    CanvasOriginX = outOriginX,
+                    CanvasOriginY = outOriginY,
+                    ReferenceFrame = Path.GetFileName(reference.Path),
+                },
                 ct: ct);
             timings.Record(StageNames.Post, postStart, 1, (long)outWidth * outHeight);
             if (intResult.TotalRejections > 0)

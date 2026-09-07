@@ -35,6 +35,46 @@ public class IntegrationFitsWriterTests
         return new Image([arr], BitDepth.Float32, maxValue: 1f, minValue: 0f, pedestal: 0f, imageMeta: meta);
     }
 
+    /// <summary>Two masters from one reference sit on different canvases (the union of each frame set's
+    /// footprints); the origin cards are what lets them be overlaid after the fact, and a crop moves them.</summary>
+    [Fact]
+    public void Write_CanvasOriginCards_RoundTripAndFollowACrop()
+    {
+        var dir = CreateTempDir();
+        var masterPath = Path.Combine(dir, "master.fits");
+        var result = Integrator.Integrate(
+            new List<Image> { MonoFrame(0.1f), MonoFrame(0.2f) },
+            new IntegrationOptions(ApplyNormalization: false));
+        var alignment = AlignmentProvenance.Sidereal with { CanvasOriginX = -63, CanvasOriginY = 25, ReferenceFrame = "ref_0033.fits" };
+
+        IntegrationFitsWriter.Write(masterPath, result, alignment: alignment);
+        var cropPath = Path.Combine(dir, "master_autocrop.fits");
+        IntegrationFitsWriter.Write(cropPath, result, alignment: alignment.ForCrop(40, 12));
+
+        using (var fits = new nom.tam.fits.Fits(masterPath))
+        {
+            var header = fits.ReadFirstImageHduHeaderOnly()!.Header;
+            header.GetIntValue("CANVASX0", int.MinValue).ShouldBe(-63);
+            header.GetIntValue("CANVASY0", int.MinValue).ShouldBe(25);
+            header.GetStringValue("REFFRAME").ShouldBe("ref_0033.fits");
+        }
+
+        using (var fits = new nom.tam.fits.Fits(cropPath))
+        {
+            var header = fits.ReadFirstImageHduHeaderOnly()!.Header;
+            header.GetIntValue("CANVASX0", int.MinValue).ShouldBe(-23);
+            header.GetIntValue("CANVASY0", int.MinValue).ShouldBe(37);
+        }
+
+        // A sidereal master with no origin writes no card, so an older reader sees nothing new.
+        var bare = Path.Combine(dir, "bare.fits");
+        IntegrationFitsWriter.Write(bare, result);
+        using (var fits = new nom.tam.fits.Fits(bare))
+        {
+            fits.ReadFirstImageHduHeaderOnly()!.Header.ContainsKey("CANVASX0").ShouldBeFalse();
+        }
+    }
+
     [Fact]
     public void Write_NoRejections_OnlyMasterFileWritten()
     {

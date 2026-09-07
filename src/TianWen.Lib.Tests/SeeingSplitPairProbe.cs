@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using nom.tam.fits;
+using nom.tam.util;
 using TianWen.AI.Imaging;
 using TianWen.AI.Imaging.Onnx;
 using TianWen.Lib.Imaging;
@@ -30,8 +32,12 @@ namespace TianWen.Lib.Tests;
 /// </summary>
 /// <remarks>
 /// Skipped unless <c>TIANWEN_E210_PAIR_DIR</c> names a directory holding <c>sharp/master_*.fits</c> and
-/// <c>soft/master_*.fits</c> (the FULL masters, not the autocrops: the two crops differ, the canvases do
-/// not). The shipped SAS graph's arm needs the GPU and runs only under <c>TIANWEN_E210_SAS=1</c>.
+/// <c>soft/master_*.fits</c> (the FULL masters, not the autocrops). <b>The two masters are on different
+/// canvases</b>: the canvas is the union of each run's frame footprints, so two subsets of one manifest
+/// share the reference and not the extent or the origin (the first pair came out 3045x3063 against
+/// 3171x3088). They are overlaid through the <c>CANVASX0</c>/<c>CANVASY0</c> cards the stacker writes,
+/// each master's pixel (0, 0) in reference-frame pixels; a master without them cannot be aligned and the
+/// probe says so. The shipped SAS graph's arm needs the GPU and runs only under <c>TIANWEN_E210_SAS=1</c>.
 /// The crop is a centred square of the region both masters cover, up to 1024 px, because the oracle
 /// convolves serially; the measures are per channel.
 /// </remarks>
@@ -49,15 +55,26 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
     private const int EstimatorMaxStars = 3000;
     /// <summary>Below this the estimated difference is "no blur" and the oracle is not run.</summary>
     private const double MinKernelFwhm = 0.1;
+    /// <summary>A crop with more uncovered pixels than this in either master is shrunk and recentred.</summary>
+    private const double MaxUncoveredFraction = 0.02;
 
-    private sealed record Pair(Image Sharp, Image Soft, string SharpPath, string SoftPath) : IDisposable
+    private sealed record Master(Image Image, string Path, int OriginX, int OriginY)
+    {
+        public int Width => Image.Shape.Width;
+        public int Height => Image.Shape.Height;
+    }
+
+    private sealed record Pair(Master Sharp, Master Soft) : IDisposable
     {
         public void Dispose()
         {
-            Sharp.Release();
-            Soft.Release();
+            Sharp.Image.Release();
+            Soft.Image.Release();
         }
     }
+
+    /// <summary>A square common to both masters: its top-left in each master's own pixels, and its side.</summary>
+    private readonly record struct Region(int SharpX, int SharpY, int SoftX, int SoftY, int Side);
 
     private static string? FindMaster(string dir)
         => Directory.Exists(dir)
@@ -67,6 +84,40 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
                 .OrderBy(p => p, StringComparer.Ordinal)
                 .FirstOrDefault()
             : null;
+
+    /// <summary>The <c>CANVASX0</c>/<c>CANVASY0</c> cards, or null on a master written before they existed.</summary>
+    private static (int X, int Y)? ReadOrigin(string path)
+    {
+        using var reader = new BufferedFile(path, FileAccess.Read, FileShare.Read, 4 * 2880);
+        using var fits = new Fits(reader, path.EndsWith(".gz", StringComparison.OrdinalIgnoreCase));
+        var header = fits.ReadFirstImageHduHeaderOnly()?.Header;
+        if (header is null)
+        {
+            return null;
+        }
+
+        var x = header.GetIntValue("CANVASX0", int.MinValue);
+        var y = header.GetIntValue("CANVASY0", int.MinValue);
+        return x == int.MinValue || y == int.MinValue ? null : (x, y);
+    }
+
+    private static Master? LoadMaster(string path, out string skip)
+    {
+        if (ReadOrigin(path) is not { } origin)
+        {
+            skip = $"{path} carries no CANVASX0/CANVASY0 cards (stacked before the origin was written); re-stack it";
+            return null;
+        }
+
+        if (!Image.TryReadFitsFile(path, out var image) || image is null)
+        {
+            skip = $"unreadable {path}";
+            return null;
+        }
+
+        skip = string.Empty;
+        return new Master(image, path, origin.X, origin.Y);
+    }
 
     private static Pair? Load(out string skip)
     {
@@ -85,69 +136,89 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
             return null;
         }
 
-        if (!Image.TryReadFitsFile(sharpPath, out var sharp) || sharp is null)
+        var sharp = LoadMaster(sharpPath, out skip);
+        if (sharp is null)
         {
-            skip = $"unreadable {sharpPath}";
             return null;
         }
 
-        if (!Image.TryReadFitsFile(softPath, out var soft) || soft is null)
+        var soft = LoadMaster(softPath, out skip);
+        if (soft is null)
         {
-            sharp.Release();
-            skip = $"unreadable {softPath}";
+            sharp.Image.Release();
             return null;
         }
 
-        if (sharp.Shape != soft.Shape)
+        if (sharp.Image.Shape.ChannelCount != soft.Image.Shape.ChannelCount)
         {
-            var shapes = $"{sharp.Shape} against {soft.Shape}";
-            sharp.Release();
-            soft.Release();
-            skip = $"the two masters are not on one canvas ({shapes}); stack both from the same manifest";
+            var shapes = $"{sharp.Image.Shape} against {soft.Image.Shape}";
+            sharp.Image.Release();
+            soft.Image.Release();
+            skip = $"the two masters differ in channel count ({shapes})";
             return null;
         }
 
-        skip = string.Empty;
-        return new Pair(sharp, soft, sharpPath, softPath);
+        return new Pair(sharp, soft);
     }
 
     /// <summary>
-    /// A centred square inside the region BOTH masters cover (finite and non-zero in each), capped for
-    /// the serial oracle. A same-reference pair covers nearly the whole canvas, so the square sits well
-    /// inside the two footprints' intersection.
+    /// A centred square inside the region BOTH masters cover, in reference-frame space through the
+    /// origin cards, then checked against the pixels: a square with more than two percent of
+    /// uncovered (NaN or exact zero) pixels in either master is shrunk and recentred, since the union
+    /// canvas's corners are empty where only some frames reached.
     /// </summary>
-    private static (int X0, int Y0, int Side)? CommonSquare(Image a, Image b, int channel)
+    private static Region? CommonSquare(Pair pair, int channel)
     {
-        var (_, width, height) = a.Shape;
-        var sa = a.GetChannelSpan(channel);
-        var sb = b.GetChannelSpan(channel);
-        int minX = width, minY = height, maxX = -1, maxY = -1;
-        for (var y = 0; y < height; y++)
+        var a = pair.Sharp;
+        var b = pair.Soft;
+        // Each master's extent in reference-frame pixels.
+        var left = Math.Max(a.OriginX, b.OriginX);
+        var top = Math.Max(a.OriginY, b.OriginY);
+        var right = Math.Min(a.OriginX + a.Width, b.OriginX + b.Width);
+        var bottom = Math.Min(a.OriginY + a.Height, b.OriginY + b.Height);
+        if (right - left < MinSide || bottom - top < MinSide)
         {
-            for (var x = 0; x < width; x++)
+            return null;
+        }
+
+        var side = Math.Min(MaxSide, Math.Min(right - left, bottom - top));
+        var centreX = (left + right) / 2;
+        var centreY = (top + bottom) / 2;
+        while (side >= MinSide)
+        {
+            var x0 = centreX - (side / 2);
+            var y0 = centreY - (side / 2);
+            var region = new Region(x0 - a.OriginX, y0 - a.OriginY, x0 - b.OriginX, y0 - b.OriginY, side);
+            if (UncoveredFraction(a.Image, channel, region.SharpX, region.SharpY, side) <= MaxUncoveredFraction
+                && UncoveredFraction(b.Image, channel, region.SoftX, region.SoftY, side) <= MaxUncoveredFraction)
             {
-                var i = (y * width) + x;
-                var va = sa[i];
-                var vb = sb[i];
-                if (float.IsFinite(va) && float.IsFinite(vb) && va != 0f && vb != 0f)
+                return region;
+            }
+
+            side = (int)(side * 0.875);
+        }
+
+        return null;
+    }
+
+    private static double UncoveredFraction(Image image, int channel, int x0, int y0, int side)
+    {
+        var (_, width, _) = image.Shape;
+        var src = image.GetChannelSpan(channel);
+        var uncovered = 0;
+        for (var y = 0; y < side; y++)
+        {
+            for (var x = 0; x < side; x++)
+            {
+                var v = src[((y0 + y) * width) + x0 + x];
+                if (!float.IsFinite(v) || v == 0f)
                 {
-                    if (x < minX) minX = x;
-                    if (x > maxX) maxX = x;
-                    if (y < minY) minY = y;
-                    if (y > maxY) maxY = y;
+                    uncovered++;
                 }
             }
         }
 
-        if (maxX < 0)
-        {
-            return null;
-        }
-
-        var boxW = maxX - minX + 1;
-        var boxH = maxY - minY + 1;
-        var side = Math.Min(MaxSide, Math.Min(boxW, boxH));
-        return (minX + ((boxW - side) / 2), minY + ((boxH - side) / 2), side);
+        return (double)uncovered / (side * (double)side);
     }
 
     [Fact]
@@ -156,11 +227,11 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
         using var pair = Load(out var skip);
         Assert.SkipWhen(pair is null, skip);
         var ct = TestContext.Current.CancellationToken;
-        var (channels, width, height) = pair!.Sharp.Shape;
+        var channels = pair!.Sharp.Image.Shape.ChannelCount;
 
-        output.WriteLine($"sharp     {pair.SharpPath}");
-        output.WriteLine($"soft      {pair.SoftPath}");
-        output.WriteLine($"canvas    {width} x {height}, {channels} channel(s); crop: a centred square of the common covered region, at most {MaxSide} px");
+        output.WriteLine($"sharp     {pair.Sharp.Path} ({pair.Sharp.Width} x {pair.Sharp.Height}, origin {pair.Sharp.OriginX}, {pair.Sharp.OriginY} in reference px)");
+        output.WriteLine($"soft      {pair.Soft.Path} ({pair.Soft.Width} x {pair.Soft.Height}, origin {pair.Soft.OriginX}, {pair.Soft.OriginY})");
+        output.WriteLine($"crop      a centred square of the region both cover, at most {MaxSide} px, overlaid through CANVASX0/CANVASY0; {channels} channel(s)");
         output.WriteLine($"estimator PsfProfileFit on each crop's own detections (snr >= {EstimatorSnrMin}, <= {EstimatorMaxStars} stars, SignalFloor); "
             + $"kernel width by Moffat composition; est-c takes beta {SyntheticKernelBeta}, est-cb the soft frame's fitted beta");
         output.WriteLine($"oracle    Richardson-Lucy, {Iterations} iterations, read at {string.Join(", ", Checkpoints)}; widths are the deployed estimator's median FWHM in px");
@@ -169,15 +240,14 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
 
         for (var c = 0; c < channels; c++)
         {
-            var region = CommonSquare(pair.Sharp, pair.Soft, c);
-            if (region is not { } r || r.Side < MinSide)
+            if (CommonSquare(pair, c) is not { } r)
             {
-                output.WriteLine($"{c,2} (common covered region under {MinSide} px; skipped)");
+                output.WriteLine($"{c,2} (no common covered square of at least {MinSide} px; skipped)");
                 continue;
             }
 
-            var truth = Cut(pair.Sharp, c, r.X0, r.Y0, r.Side, r.Side);
-            var observed = Cut(pair.Soft, c, r.X0, r.Y0, r.Side, r.Side);
+            var truth = Cut(pair.Sharp.Image, c, r.SharpX, r.SharpY, r.Side, r.Side);
+            var observed = Cut(pair.Soft.Image, c, r.SoftX, r.SoftY, r.Side, r.Side);
             var (bg, mad) = BackgroundStats(truth);
             if (!(mad > 0f))
             {
@@ -202,8 +272,8 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
             var (fitB, diagB) = await FitStarProfileAsync(observed, r.Side, r.Side, PsfProfileFit.StarSelection.SignalFloor, EstimatorSnrMin, EstimatorMaxStars, ct);
             var (nullRing, nullOver) = Ringing(observed, r.Side, stars, bg, mad);
 
-            output.WriteLine($"{c,2} crop {r.Side} px at ({r.X0}, {r.Y0}); A (sharp) {truthFwhm:F2} px over {truthStars} stars, B (soft) {blurFwhm:F2} px over {blurStars}, "
-                + $"B/A {blurFwhm / truthFwhm:F3}; {stars.Count} truth stars at snr 20; B's own ring null {nullRing:F2} MAD, {nullOver:P0} over one");
+            output.WriteLine($"{c,2} crop {r.Side} px at sharp ({r.SharpX}, {r.SharpY}) / soft ({r.SoftX}, {r.SoftY}); A (sharp) {truthFwhm:F2} px over {truthStars} stars, "
+                + $"B (soft) {blurFwhm:F2} px over {blurStars}, B/A {blurFwhm / truthFwhm:F3}; {stars.Count} truth stars at snr 20; B's own ring null {nullRing:F2} MAD, {nullOver:P0} over one");
             output.WriteLine($"{c,2} fit A {(fitA is { } a ? $"{a.Fwhm:F2} px beta {a.MoffatBeta:F2}" : Describe(diagA))}; "
                 + $"fit B {(fitB is { } b ? $"{b.Fwhm:F2} px beta {b.MoffatBeta:F2}" : Describe(diagB))}"
                 + (fitA is { } a2 && fitB is { } b2 ? $"; fitted B/A {b2.Fwhm / a2.Fwhm:F3}" : ""));
@@ -272,23 +342,23 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
         Assert.SkipUnless(resolver.TryResolve(OnnxNonStellarDeconvolver.Model, out _), $"{OnnxNonStellarDeconvolver.Model} does not resolve");
 
         var ct = TestContext.Current.CancellationToken;
-        var (channels, _, _) = pair!.Sharp.Shape;
-        var region = CommonSquare(pair.Sharp, pair.Soft, 0);
-        Assert.SkipWhen(region is not { } || region.Value.Side < MinSide, "common covered region too small");
-        var (x0, y0, side) = region!.Value;
+        var channels = pair!.Sharp.Image.Shape.ChannelCount;
+        var region = CommonSquare(pair, 0);
+        Assert.SkipWhen(region is null, "no common covered square");
+        var r = region!.Value;
 
         // The soft crop with every channel, in the deconvolver's unit range (the rescale REWRAPS; use its result).
         var planes = new float[channels][,];
         var max = 0f;
         for (var c = 0; c < channels; c++)
         {
-            var cut = Cut(pair.Soft, c, x0, y0, side, side);
-            planes[c] = new float[side, side];
-            for (var y = 0; y < side; y++)
+            var cut = Cut(pair.Soft.Image, c, r.SoftX, r.SoftY, r.Side, r.Side);
+            planes[c] = new float[r.Side, r.Side];
+            for (var y = 0; y < r.Side; y++)
             {
-                for (var x = 0; x < side; x++)
+                for (var x = 0; x < r.Side; x++)
                 {
-                    var v = cut[(y * side) + x];
+                    var v = cut[(y * r.Side) + x];
                     planes[c][y, x] = v;
                     if (v > max) max = v;
                 }
@@ -300,9 +370,9 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
         var unit = input.ScaleFloatValuesToUnitInPlace();
         using var deconvolver = new OnnxNonStellarDeconvolver(resolver, new HfdPsfEstimator(), chunkSize: 256, overlap: 64);
 
-        output.WriteLine($"sharp     {pair.SharpPath}");
-        output.WriteLine($"soft      {pair.SoftPath}");
-        output.WriteLine($"graph     {OnnxNonStellarDeconvolver.Model}, whole-image psf01 over the shipped range; crop {side} px at ({x0}, {y0})");
+        output.WriteLine($"sharp     {pair.Sharp.Path}");
+        output.WriteLine($"soft      {pair.Soft.Path}");
+        output.WriteLine($"graph     {OnnxNonStellarDeconvolver.Model}, whole-image psf01 over the shipped range; crop {r.Side} px at sharp ({r.SharpX}, {r.SharpY}) / soft ({r.SoftX}, {r.SoftY})");
         output.WriteLine("");
         output.WriteLine($"{"ch",2} {"A fwhm",6} {"A n",5} {"B fwhm",6} {"B n",5} {"B/A",6} {"out",6} {"out/A",6} {"recov%",7} {"out n",6} {"vs A",6} {"ring",6} {"null",6} {"excess",7} {"s",5}");
 
@@ -313,10 +383,10 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
         {
             for (var c = 0; c < channels; c++)
             {
-                var truth = Cut(pair.Sharp, c, x0, y0, side, side);
-                var (truthFwhm, truthStars) = await MeasuredFwhmAsync(truth, side, ct);
+                var truth = Cut(pair.Sharp.Image, c, r.SharpX, r.SharpY, r.Side, r.Side);
+                var (truthFwhm, truthStars) = await MeasuredFwhmAsync(truth, r.Side, ct);
                 StarList stars;
-                var truthImage = Wrap(truth, side, side);
+                var truthImage = Wrap(truth, r.Side, r.Side);
                 try
                 {
                     stars = await truthImage.FindStarsAsync(channel: 0, snrMin: 20f, cancellationToken: ct);
@@ -329,12 +399,12 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
                 // Input and output are in the unit range, so their ring statistics use their own MADs.
                 var observedUnit = FullPlane(unit, c);
                 var (bgIn, madIn) = BackgroundStats(observedUnit);
-                var (blurFwhm, blurStars) = await MeasuredFwhmAsync(observedUnit, side, ct);
-                var (nullRing, nullOver) = Ringing(observedUnit, side, stars, bgIn, madIn);
+                var (blurFwhm, blurStars) = await MeasuredFwhmAsync(observedUnit, r.Side, ct);
+                var (nullRing, nullOver) = Ringing(observedUnit, r.Side, stars, bgIn, madIn);
                 var outPlane = FullPlane(result, c);
                 var (bgOut, madOut) = BackgroundStats(outPlane);
-                var (outFwhm, outStars) = await MeasuredFwhmAsync(outPlane, side, ct);
-                var (ring, overOne) = Ringing(outPlane, side, stars, bgOut, madOut);
+                var (outFwhm, outStars) = await MeasuredFwhmAsync(outPlane, r.Side, ct);
+                var (ring, overOne) = Ringing(outPlane, r.Side, stars, bgOut, madOut);
                 var recovered = float.IsFinite(outFwhm) && blurFwhm > truthFwhm
                     ? (blurFwhm - outFwhm) / (blurFwhm - truthFwhm)
                     : double.NaN;

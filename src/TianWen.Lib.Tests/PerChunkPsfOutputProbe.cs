@@ -150,6 +150,84 @@ public class PerChunkPsfOutputProbe(ITestOutputHelper output)
         output.WriteLine("over 20 percent, is the kill line.");
     }
 
+    private sealed class FixedPsfEstimator(float psf01) : IPsfEstimator
+    {
+        public Task<float> EstimateAsync(Image image, CancellationToken cancellationToken = default)
+            => Task.FromResult(psf01);
+    }
+
+    /// <summary>
+    /// Does the shipped graph respond to psf01 AT ALL on a real master? The per-tile comparison above
+    /// read as a null on every Rim master (whole and per-tile within 0.01 px and one percent in count
+    /// while 250 of 289 tiles carried a different label), which is either a graph that ignores its
+    /// conditioning input at this scale or a difference too small to see; running the same graph at
+    /// psf01 0, 0.5 and 1 on one master separates the two. Opt-in (<c>TIANWEN_PSF_PROBE_SENSITIVITY=1</c>),
+    /// same filter and bins as the comparison.
+    /// </summary>
+    [Fact]
+    public async Task ReportWhetherTheShippedGraphRespondsToPsf01AtAll()
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable("TIANWEN_PSF_PROBE_SENSITIVITY") == "1", "TIANWEN_PSF_PROBE_SENSITIVITY is not 1");
+        var root = Environment.GetEnvironmentVariable(DirVar);
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(root), $"{DirVar} not set");
+        var mastersDir = Path.Combine(root!, "session-masters");
+        Assert.SkipUnless(Directory.Exists(mastersDir), $"no session-masters at {mastersDir}");
+        var resolver = new ModelResolver();
+        Assert.SkipUnless(resolver.TryResolve(OnnxNonStellarDeconvolver.Model, out var modelPath), $"{OnnxNonStellarDeconvolver.Model} does not resolve");
+
+        var filter = Environment.GetEnvironmentVariable(FilterVar) is { Length: > 0 } f ? f : "Rim";
+        var masters = Directory.GetFiles(mastersDir, "*.fits")
+            .Where(p => Path.GetFileName(p).Contains(filter, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(p => p, StringComparer.Ordinal)
+            .ToArray();
+        Assert.SkipWhen(masters.Length == 0, $"no master matches '{filter}'");
+
+        var ct = TestContext.Current.CancellationToken;
+        output.WriteLine($"model     {modelPath}");
+        output.WriteLine($"masters   {masters.Length} matching '{filter}'; the graph run whole-image at three FIXED psf01 values; bins as above");
+        output.WriteLine("");
+        output.WriteLine($"{"master",-40} {"arm",-9} {"inner",6} {"n",5} {"middle",6} {"n",5} {"outer",6} {"n",5} {"c/o",5} {"s",6}");
+
+        foreach (var path in masters)
+        {
+            var name = Path.GetFileNameWithoutExtension(path);
+            var shortName = name[..Math.Min(40, name.Length)];
+            if (!Image.TryReadFitsFile(path, out var master) || master is null)
+            {
+                output.WriteLine($"{shortName,-40} (unreadable)");
+                continue;
+            }
+
+            try
+            {
+                var unit = master.ScaleFloatValuesToUnitInPlace();
+                Print(shortName, "input", await MeasureAsync(unit, ct), 0);
+                foreach (var psf01 in new[] { 0.0f, 0.5f, 1.0f })
+                {
+                    using var deconvolver = new OnnxNonStellarDeconvolver(resolver, new FixedPsfEstimator(psf01), chunkSize: 256, overlap: 64);
+                    var started = DateTime.UtcNow;
+                    var result = await deconvolver.EnhanceAsync(unit, ct);
+                    try
+                    {
+                        Print(shortName, $"psf {psf01:F1}", await MeasureAsync(result, ct), (DateTime.UtcNow - started).TotalSeconds);
+                    }
+                    finally
+                    {
+                        result.Release();
+                    }
+                }
+            }
+            finally
+            {
+                master.Release();
+            }
+        }
+
+        output.WriteLine("");
+        output.WriteLine("Three identical rows mean the conditioning input is inert on this graph for a real master's stars and the");
+        output.WriteLine("per-tile null above is a property of the graph; rows that differ mean the per-tile labels' spread was too small.");
+    }
+
     private void Print(string master, string arm, BinStats[] bins, double seconds)
     {
         var ratio = bins[0].MedianFwhm / bins[Bins - 1].MedianFwhm;
