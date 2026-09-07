@@ -811,6 +811,37 @@ waits on two things this day supplied one of: a stacking path whose output width
 (the registration fix below, being validated) and a detector that does not hand the fit warm pixels,
 so the SH61 sessions' fits stop refusing a third of their subs.
 
+**E2.10b, pre-registered 2026-09-07 late evening: the pair again, on a stack that keeps its inputs'
+width.** Both blockers moved during the evening (the registration fixes, R1's Lanczos-3, E1g-2's fit
+that reads a sharp core), so the recipe runs once more on the best sampled candidate.
+
+*Setup.* Statue of Liberty Nebula 2026-02-14 (SV605CC, L-Quad, 256 subs of 120 s at -5 C, 251 green
+fits at 1.40 / 1.60 / 1.70 px for p10 / p50 / p90, the sharpest and softest thirds' medians 1.45 and
+1.69 on the store). The whole session stacked once (`--group-filter StatueOfLibertyNebula_light_120s
+--group-temp-tolerance 2 --strategy Float16Staged --warp-interpolation Lanczos3`, reference the run's
+pick), its manifest split by `psf-seeing-split.py --width green` into the sharpest and softest thirds
+(about 85 frames each plus the shared reference), each third stacked from its manifest with the same
+options into its own directory, then `SeeingSplitPairProbe` exactly as E2.10a: the estimator's width on
+A and B, the profile fit on each (E1g-2's), `est-c` and `est-cb` difference kernels by composition,
+Richardson-Lucy on B at 20, 40 and 60, read against A. Launcher `run-e210b-statue.ps1`, output
+`C:/temp/e2/e210b-statue/`.
+
+*Prediction.* The thirds' masters differ on the green fit by 1.10 to 1.16 (their subs' medians differ
+1.16, a Lanczos stack is the mean of its frames to two percent, and a third's mean sits a little inside
+its median); both fits succeed on all three channels now that the core is what is fitted. At 60
+iterations `est-c` reads rec/A at 1.00 to 1.10 on at least two of three channels with stars over A at
+0.7 to 0.95 and ring excess under 40 percent, E1d's 1.1 to 1.3x row on real blur; `est-cb` within 0.05
+of `est-c`. Confidence moderate on the widths, low on the recovery: a 1.1x difference at 1.5 px is a
+kernel of about 0.7 px effective width, the light end where E1d read the composition at 0.92 to 1.07
+and where the oracle removes little because there is little to remove.
+
+*Kill.* The thirds' masters differ by under 1.05 on the fit: then a 1.16x split in the subs does not
+survive even a width-preserving stack, and the seeing split is not a usable real-blur source on this
+archive at all. Or rec/A above 1.20 on every channel (the kernel does not transfer to real blur), or
+stars over A above 1.10 with rec/A under 1.00 (fabrication on real data), as in E2.10a.
+
+*Cost.* About 20 minutes of Release CLI for the three stacks, a minute of probe.
+
 **E2.10a, pre-registered 2026-09-07: the estimator step and the oracle on the Orion pair.**
 
 *Setup.* The whole session stacked once against the archive root (`tianwen stack D:/Astro-Organized
