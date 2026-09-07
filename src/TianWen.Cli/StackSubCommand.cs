@@ -52,6 +52,16 @@ internal sealed class StackSubCommand(
             Description = "Substring exclude on light-group slug. Empty = none.",
             DefaultValueFactory = _ => "",
         };
+        var groupTempToleranceOpt = new Option<double>("--group-temp-tolerance")
+        {
+            Description = "Sensor-temperature tolerance in C for grouping lights of one target into one master. Default 0 groups "
+                        + "by the temperature rounded to the degree, so a cooler drifting from 13.7 to 12.1 C over one night writes "
+                        + "three masters (49, 18 and 4 frames on a real SV605CC session) with three references. With a tolerance, "
+                        + "frames are split only where consecutive temperatures are further apart than it, so a drift stacks whole "
+                        + "and a different night's 8 C still separates; the group's dark is matched at its median temperature. "
+                        + "2 covers a cooled camera's drift at about a quarter of one dark-current doubling.",
+            DefaultValueFactory = _ => 0.0,
+        };
         var strategyOpt = new Option<IntegrationStrategyKind?>("--strategy")
         {
             Description = "Force a specific integration strategy. Default = let the selector pick.",
@@ -274,7 +284,7 @@ internal sealed class StackSubCommand(
             Arguments = { dataRootArg },
             Options =
             {
-                outputOpt, groupFilterOpt, groupExcludeOpt, strategyOpt,
+                outputOpt, groupFilterOpt, groupExcludeOpt, groupTempToleranceOpt, strategyOpt,
                 centroidDebayerOpt, stackDebayerOpt,
                 snrMinOpt, minStarsOpt, quadStarsOpt,
                 formatOpt, hdrPeakNitsOpt, noPlateSolveOpt,
@@ -429,6 +439,7 @@ internal sealed class StackSubCommand(
                 OutputDir: outputDir,
                 GroupFilter: parseResult.GetValue(groupFilterOpt) ?? "",
                 GroupExclude: parseResult.GetValue(groupExcludeOpt) ?? "",
+                LightGroupTemperatureToleranceC: parseResult.GetValue(groupTempToleranceOpt),
                 ForcedStrategy: forcedStrategy,
                 CentroidDebayerAlg: parseResult.GetValue(centroidDebayerOpt),
                 StackDebayerAlg: parseResult.GetValue(stackDebayerOpt),

@@ -285,5 +285,16 @@ public sealed record StackingOptions(
     // DERIVED, and that provenance is a property of the numbers, not of the run that copies them.
     // Re-deriving it from "did SPCC run here" stamps SKYBG onto an inherited photometric
     // calibration -- which is exactly the misreport the card exists to prevent.
-    ColourCalibration? InheritedWhiteBalance = null);
+    ColourCalibration? InheritedWhiteBalance = null,
+    // How far apart in sensor temperature two lights of one target may sit and still stack into ONE
+    // master. The default, 0, is the behaviour this option was added beside: a light group carries
+    // MasterGroupKey's temperature ROUNDED TO THE DEGREE, so a night whose cooler drifted from 13.7
+    // to 12.1 C (a real SV605CC session, 2025-10-15) came out as three masters of 49, 18 and 4 frames
+    // with three references and three canvases, which no later step can put back together. With a
+    // tolerance, frames of one target are sorted by temperature and split only where consecutive
+    // readings are FURTHER apart than this (single-linkage clusters), so a drift stays whole and a
+    // genuinely different night (8 C against 12 C) still separates; the cluster's key carries its
+    // median temperature, rounded, which is what the dark match and the slug then see. Two degrees
+    // covers a cooled camera's drift over a night at roughly a quarter of one dark-current doubling.
+    double LightGroupTemperatureToleranceC = 0);
 

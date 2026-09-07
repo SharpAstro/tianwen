@@ -456,8 +456,12 @@ public sealed class StackingPipeline(
         // night. Frames of different targets look at different sky and
         // never register against each other -- they must end up in
         // separate groups.
-        var lightGroups = lights.GroupBy(LightGroupKey.FromFrame).ToList();
-        logger.LogInformation("[lights] {Count} lights in {Groups} group(s)", lights.Count, lightGroups.Count);
+        // With a temperature tolerance, frames of one target that drifted across a degree boundary
+        // stay in one group (LightGroupKey.Assign); at the default of 0 this is FromFrame per frame.
+        var groupKeys = LightGroupKey.Assign(lights, options.LightGroupTemperatureToleranceC);
+        var lightGroups = lights.GroupBy(f => groupKeys[f]).ToList();
+        logger.LogInformation("[lights] {Count} lights in {Groups} group(s){Tolerance}", lights.Count, lightGroups.Count,
+            options.LightGroupTemperatureToleranceC > 0 ? $" (temperature tolerance {options.LightGroupTemperatureToleranceC:0.#} C)" : "");
 
         if (options.GroupExclude.Length > 0)
         {
