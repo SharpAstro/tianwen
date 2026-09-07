@@ -391,7 +391,7 @@ everything and above it recovers little.
 | E2.6 | **DONE 2026-09-06, and it answered a different question** (results below): no seed selected a checkpoint, the gate's star criterion had no measured null, and the loss never looked at the star scales. As planned: the power check the denoiser campaign paid for: ONE arm at six seeds, seed spread measured against the effect each of H2/H3/H4/H8 expects, then the rest sized from it. On the denoiser's E2 the seed sd beat the between-regime sd 2 to 3x, so three-seed arms could not read a one-point effect and about 31 seeds would have been needed. H4 and H8 are plausibly large enough to read at three; H2 and H3 are the ones at risk. | 6 x 11 min | E3's seed count |
 | E2.7 | **DONE 2026-09-06** (results below). Band placement control, two arms x three seeds on E2.6's own seeds: the loss can see the scale now (every minimum at steps 3100 to 3400, paired deltas -0.038 and -0.043), the arms are inseparable at three seeds, and under the corrected gate not one best-width checkpoint survives, because width is bought by suppressing faint stars (0.54 of the truth's against a 0.62 floor). A high-pass, not a deconvolution. | 6 x 10 min | Whether band placement was the lever (it was not) |
 | E1b | **RUN 2026-09-07, conditional pass** (results section below). E1's exact-kernel ceiling re-run with the kernel ESTIMATED from the blurred frame's own stars, two arms: width estimated with the injected shape, then both estimated. Where the estimator answers, the paired rec/truth is within 0.01 to 0.05 of exact except at 1.3-1.6x, where a systematic 1.24x width over-read makes arm i fabricate (stars 1.15x truth, rec/truth 0.95 under noise) and arm ii pass only because an over-read beta cancels it. The estimator refused 75 of 180 rows (half the noisy ones), never fitted the 512 crop, and its refusals sit on the narrowband masters. Kill line not crossed; the pre-stated refusal rule makes the estimator its own step before any unrolled RL. | 22.6 min CPU, no training | H11 |
-| E2.8 | **Pre-registered 2026-09-06** (section below). The star-term loss: per-star flux, peak and width ratios against the clean target's own detections, added to E2.7 arm B's objective, same 78-session cache, five seeds paired against E2.7. | 5 x 10 to 15 min | H10; whether pixel-domain losses are exhausted for this net |
+| E2.8 | **RUN 2026-09-07, gate-level pass, observer-level fabrication** (results section below). The star-term loss: per-star flux, peak and concentration ratios against the clean target's own detections, added to E2.7 arm B's objective, same 78-session cache, five seeds paired against E2.7. Selects on 5 of 5 at out/truth 1.10 to 1.17 holding 0.84 to 0.95 of the truth's stars (control: one seed at 1.365, minima unselectable at 0.54 to 0.63 stars); on the observer session (three times quieter truth) the same checkpoints read 34 to 45x the truth's stars and widths under 1.0. E2.8b (a no-star counterpart, and the weight matched at plateau) is pre-registered; the capacity arm waits on it. | 48 min for five seeds | H10 confirmed at the gate; the recipe fabricates on transfer |
 | E2.9 | **Pre-registered 2026-09-06** (section below). FWHM against airmass over the archive: `SessionPsf` gains per-sub file, epoch and airmass, one measure-only re-run, one plot. The first step of 2.1c, and it needs no sky. | ~2.5 h CPU unattended, one field and one switch | Whether the archive holds real seeing pairs, and how much range they reach |
 | E2.10 | Seeing-split pairs: per session, the sharpest and softest thirds of the subs stacked into two masters of one night, the first real-blur validation set. Needs E2.9's per-sub identity. | minutes a session | The light end of the range, on real seeing |
 | D1 | Per-tile psf01 at inference: `ChunkedNafnetRunner` extras per chunk, `OnnxNonStellarDeconvolver` estimating per chunk region with a frame-level fallback, so inference matches the per-cell training label. Ships with E7, once E2.8 says the route is alive. | half a day | The field-varying half of the optics blur |
@@ -793,6 +793,93 @@ brief, from these numbers: instrument the refusal reasons; estimate the DIFFEREN
 composing Moffats rather than by a quadrature of FWHMs (the 1.24 is what quadrature does to a
 Moffat); and measure the width bias against the injected truth on the same 180 rows, which this
 probe already prints per row.
+
+### E2.8's results, 2026-09-07: the star term passes its gate on every seed, and fabricates on the session it was not selected on
+
+Run as pre-registered (`run-p2-starloss.ps1`: E2.7 arm B plus `--star-loss auto`, five seeds, the
+same cache with `stars.npy` added, 48 minutes for five seeds on the 1070). Read with
+`n2n_gatelog.py` on `C:/temp/e2/p2-star.log`; the control is the same tool on `p2-band.log --arm b`.
+One correction to the control first: the corrected gate's star floor appears ONCE in the E2.7 log,
+at arm B seed 2, so seeds 0 and 1 of the control were scored on the pre-fix detector and their
+stars-at-minimum (0.63, 0.62) are the inflated count; seed 2 (0.54) is the paired control for the
+star column, the widths of all three are comparable.
+
+| arm | seed | selected step | selected out/truth | stars at the minimum | stars@6 there | final out/truth | obs0 out/truth at the minimum | obs0 stars there |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| E2.7 B (control) | 0 | none | (min 1.313 @3100) | 0.63 (pre-fix) | | 1.341 | 1.058 | 0.95 |
+| E2.7 B (control) | 1 | none | (min 1.199 @3200) | 0.62 (pre-fix) | | 1.214 | 1.006 | 1.42 |
+| E2.7 B (control) | 2 | 100 | 1.365 (min 1.328 @3300) | 0.54 | | 1.339 | 1.083 | 0.88 |
+| star term | 0 | 3200 | 1.148 | 0.93 | 0.93 | 1.162 | **0.922** | **39.1** |
+| star term | 1 | 3700 | 1.099 | 0.95 | 0.92 | 1.105 | **0.874** | **34.2** |
+| star term | 2 | 2400 | 1.126 | 0.84 | 0.80 | 1.137 | **0.937** | **34.2** |
+| star term | 3 | 2900 | 1.143 | 0.94 | 0.96 | 1.165 | **0.906** | **40.4** |
+| star term | 4 | 3800 | 1.173 | 0.88 | 0.94 | 1.174 | 1.045 | **45.0** |
+
+The input sits at 1.382x the truth on the gate session and 1.152x on the observer.
+
+**On the selecting session the prediction holds on every count, with margin.** The gate selects
+on 5 of 5 seeds (predicted at least 4); the selected out/truth is 1.10 to 1.17 (bar 1.30; the
+control's MINIMA were 1.20 to 1.33 and none was selectable); the stars column at the width minimum
+reads 0.84 to 0.95 (bar 0.60; control 0.54 to 0.63), so the minimum IS the selected step on every
+seed, which is what the term was for; and the low-bar count `stars@6` tracks the high-bar one (0.80
+to 0.96), so the net is not sharpening the twelve-MAD stars while erasing the six-MAD ones. Every one
+of the 200 probes passed from step 100 on, and the trajectory is still near its minimum at step
+4000 (final 1.10 to 1.17), not degrading. Paired against the control's best minimum (1.199) the
+selected widths are 0.03 to 0.10 narrower while keeping half again as many stars.
+
+**The observer column says the recipe fabricates, and the mechanism is measurable.** On the val
+session the gate never selects on (Pleiades, SV605CC), the same checkpoints read 34 to 45 TIMES the
+truth's star count and a width UNDER the truth on four of five seeds (0.87 to 0.94), where the
+control read 0.9 to 1.4 and 1.01 to 1.08. Three facts place it. The observer's truth is three times
+quieter than the gate session's (background MAD 0.00057 against 0.00167) with a tenth of the stars
+(22 against 199 a tile). Its INPUT already reads 6.9 times the truth's detections at the gate's
+truth-anchored threshold (the injected sub-level noise on a quiet master clears twelve of its MADs),
+and the control took that to 0.9 by denoising, which is what an L2-dominated objective does. The
+star arm takes it to 47 by step 100 and never below 28: the term rewards a peak, a flux and a
+concentration matched at detected stars, the cheapest way to raise a blurred peak is to sharpen
+every peak, and on a quiet frame the sharpened noise peaks clear the threshold. On the gate session
+the same residual sits under twelve of a three-times larger MAD and is invisible. Not a labelling
+artefact: 44 of the observer's 45 cells carry a psf01 label, as do 45 of 45 gate cells.
+
+**Two properties of the recipe to carry forward.** The weight is matched on the FIRST batch, so
+it is a random variable of the seed: 1.29e-3 to 8.62e-3 across the five, a 6.7x range, with no
+clean relation to the outcome (the lowest weight gave the narrowest selection, the highest the
+widest and the worst observer count). And as the launch header said, at E2.6's plateau the star
+term is tens of times the pixel term, so the pixel and band terms only regularise; the observer is
+what that costs.
+
+**Verdict on H10.** The gate-level hypothesis is confirmed: an objective that counts stars makes
+the width minimum gate-eligible, on every seed, and E2.7's "the loss buys width with faint stars"
+is closed as a loss problem. The pre-registered kill line is not touched. But the pre-registration
+named the selecting session and said nothing about the observer, and the observer is a
+fabrication failure of the kind the gate exists to catch: a user with a deep, sparse master would
+see it grow thirty stars for every real one. **The recipe cannot ship and cannot be the base of a
+capacity arm as it stands.** What comes next is pre-registered below as E2.8b; the fork's
+architecture question is deferred until it answers, and the estimator step (E1c, E1d) runs on the
+CPU meanwhile.
+
+#### E2.8b, pre-registered 2026-09-07: hold the star term to the truth's empty sky
+
+*Change.* Two arms, each E2.8's recipe plus one thing. Arm **N** adds the counterpart the term
+lacks: the same three ratios over windows placed where the CLEAN target has NO detection (a matched
+count of empty 7x7 windows a tile, drawn once at `--prepare-stars` beside the stars), so a peak the
+output raises over an empty patch of target is penalised the way a lowered star peak is. Arm **W**
+keeps the term as it is and matches its weight at the PLATEAU instead of the first batch: `W` is
+set on step 1 as now, then re-fixed once at step 400 to the pixel term's value there, and logged
+both times; the pixel term at step 1 is the injected noise, not the task. Seeds 0 to 4 on both,
+same cache, gate and observer as E2.8; E2.8's five runs are the paired control.
+
+*Prediction.* Arm N holds the selecting session's result (selected out/truth at or under 1.20,
+stars at the minimum at or over 0.80) and brings the observer's star count under 2x its input
+null of 6.9 (so under 14) with the observer width back over 1.0; arm W narrows less on the gate
+session (selected 1.20 to 1.30) and improves the observer only partly (10 to 25x). Confidence
+moderate on N, low on W.
+
+*Kill.* Neither arm brings the observer under 2x its input null while keeping the gate session's
+selection under 1.30. Then a per-star term cannot be made honest by construction and the fork
+reopens on the objective, not the capacity.
+
+*Readout.* `n2n_gatelog.py` on both logs; the observer columns are the primary readout this time.
 
 ### Reproducing E0 and E1
 
