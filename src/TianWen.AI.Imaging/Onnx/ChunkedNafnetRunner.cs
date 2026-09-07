@@ -59,6 +59,11 @@ public static class ChunkedNafnetRunner
     /// <param name="extraInputs">Additional ONNX inputs reused across every
     /// chunk -- e.g. the <c>psf01</c> scalar for the PSF-conditional
     /// non-stellar deconvolver. Pass <c>null</c> for single-input models.</param>
+    /// <param name="extraInputsForChunk">Additional ONNX inputs that DIFFER per chunk, by chunk
+    /// index -- the per-tile <c>psf01</c> of a deconvolver that measures its PSF per region. The
+    /// index is the position in <see cref="ChunkedInference.Layout"/> over the BORDERED plane
+    /// (<c>source + 2 * AiNafnetInputs.StitchBorderPx</c> on each axis), which is the grid this runner
+    /// splits on. Wins over <paramref name="extraInputs"/> for any chunk it returns non-null for.</param>
     public static ChunkedNafnetResult Run(
         Image input,
         InferenceSession session,
@@ -67,7 +72,8 @@ public static class ChunkedNafnetRunner
         int chunkSize,
         int overlap,
         IReadOnlyList<NamedOnnxValue>? extraInputs = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Func<int, IReadOnlyList<NamedOnnxValue>?>? extraInputsForChunk = null)
     {
         var (sourceChannels, srcW, srcH) = input.Shape;
 
@@ -198,13 +204,15 @@ public static class ChunkedNafnetRunner
 
                 // Build the input list. Each Run call's input list contains the
                 // current chunk's image tensor plus any caller-supplied extras
-                // (e.g. psf01). Extras don't change per chunk so the same
-                // tensor reference is reused safely.
-                var inputs = new List<NamedOnnxValue>(1 + (extraInputs?.Count ?? 0))
+                // (e.g. psf01): the shared set, or this chunk's own when the caller
+                // measures per tile. A shared extra's tensor reference is reused
+                // across chunks safely, since the session only reads it.
+                var chunkExtras = extraInputsForChunk?.Invoke(i) ?? extraInputs;
+                var inputs = new List<NamedOnnxValue>(1 + (chunkExtras?.Count ?? 0))
                 {
                     NamedOnnxValue.CreateFromTensor(imageInputName, imageTensor),
                 };
-                if (extraInputs is { Count: > 0 }) inputs.AddRange(extraInputs);
+                if (chunkExtras is { Count: > 0 }) inputs.AddRange(chunkExtras);
 
                 using var result = session.Run(inputs);
                 var outputTensor = result[0].AsTensor<float>();

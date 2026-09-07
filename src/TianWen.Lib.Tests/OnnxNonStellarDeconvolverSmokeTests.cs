@@ -69,6 +69,58 @@ public class OnnxNonStellarDeconvolverSmokeTests(ITestOutputHelper output)
             => Task.FromResult(psf01);
     }
 
+    /// <summary>Answers a different psf01 for every region asked about, and counts the regions, so a
+    /// per-chunk run can be seen to have asked per chunk and to have fed the model something other than
+    /// the whole-image value.</summary>
+    private sealed class PerRegionPsfEstimator(float wholeImage) : IPsfEstimator
+    {
+        public int RegionsAsked { get; private set; }
+
+        public Task<float> EstimateAsync(Image image, CancellationToken cancellationToken = default)
+            => Task.FromResult(wholeImage);
+
+        public Task<float> EstimateChunkAsync(Image image, int x0, int y0, int width, int height, float wholeImagePsf01, CancellationToken cancellationToken = default)
+        {
+            RegionsAsked++;
+            // Left half sharp, right half soft, both inside [0, 1].
+            return Task.FromResult(x0 + (width / 2) < image.Width / 2 ? 0.30f : 0.70f);
+        }
+    }
+
+    [Fact]
+    public async Task EnhanceAsync_PerChunkPsf_AsksOncePerTileAndStillProducesAFiniteFrame()
+    {
+        if (!HasDeconvModel(out var skip)) { Assert.Skip(skip); return; }
+
+        // Wide enough for several tiles across at this chunk size, so the two halves get different values.
+        const int w = 640, h = 192;
+        var src = BuildSyntheticStarless(channels: 3, w, h);
+        using var factory = LoggerFactory.Create(b => b.AddProvider(new XUnitLoggerProvider(output, appendScope: false)));
+        var estimator = new PerRegionPsfEstimator(HfdPsfEstimator.EncodeRadiusToPsf01(HfdPsfEstimator.DefaultRadiusPx));
+        using var deconv = new OnnxNonStellarDeconvolver(
+            new ModelResolver(), estimator,
+            factory.CreateLogger<OnnxNonStellarDeconvolver>(), chunkSize: 256, overlap: 64, perChunkPsf: true);
+
+        var result = await deconv.EnhanceAsync(src, TestContext.Current.CancellationToken);
+
+        var expectedTiles = ChunkedInference.Layout(w + 32, h + 32, 256, 64).Length;
+        estimator.RegionsAsked.ShouldBe(expectedTiles, "one estimate per tile of the runner's own grid");
+        var (channels, outW, outH) = result.Shape;
+        channels.ShouldBe(3);
+        outW.ShouldBe(w);
+        outH.ShouldBe(h);
+        for (var c = 0; c < channels; c++)
+        {
+            var span = result.GetChannelSpan(c);
+            for (var i = 0; i < span.Length; i++)
+            {
+                float.IsFinite(span[i]).ShouldBeTrue($"non-finite at c={c} index={i}: {span[i]}");
+            }
+        }
+
+        result.Release();
+    }
+
     [Fact]
     public async Task EnhanceAsync_RgbProducesSameShapedOutput()
     {

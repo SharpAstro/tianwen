@@ -1,5 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
+using System;
+using System.Threading.Tasks;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
 using Xunit;
 
@@ -124,5 +127,60 @@ public class HfdPsfEstimatorTests
         tianwen.ShouldBe(sas, 1e-6f);
         // 4:1 against 8:1: half the span, three halves the spread. This is the only way to buy resolution.
         (narrow / sas).ShouldBe(1.5f, 1e-4f);
+    }
+
+    // D1: the per-chunk estimate reads each region's own stars, and answers the whole-image value where a
+    // region has too few of them to carry a median.
+
+    [Fact]
+    public async Task EstimateChunkAsync_ReadsTheRegionsOwnWidth_AndFallsBackWhereItIsStarved()
+    {
+        // Stars widen left to right, 2.0 px to 4.0 px FWHM, so the left third and the right third of
+        // the frame carry different PSFs and one whole-image number is wrong for both.
+        const int width = 720, height = 300, pitch = 40, inset = 30;
+        var data = new float[height, width];
+        var rng = new Random(11);
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                data[y, x] = 200f + (float)((rng.NextDouble() - 0.5) * 4.0);
+            }
+        }
+        for (var cy = inset; cy < height - inset; cy += pitch)
+        {
+            for (var cx = inset; cx < width - inset; cx += pitch)
+            {
+                var fwhm = 2.0 + (2.0 * cx / width);
+                var sigma = fwhm / 2.3548200450309493;
+                for (var dy = -12; dy <= 12; dy++)
+                {
+                    for (var dx = -12; dx <= 12; dx++)
+                    {
+                        var r2 = (dx * dx) + (dy * dy);
+                        data[cy + dy, cx + dx] += (float)(3000.0 * Math.Exp(-r2 / (2.0 * sigma * sigma)));
+                    }
+                }
+            }
+        }
+        var image = new Image([data], BitDepth.Float32, 3200f, 0f, 0f, new ImageMeta { SensorType = SensorType.Monochrome });
+        var estimator = new HfdPsfEstimator();
+        var ct = TestContext.Current.CancellationToken;
+
+        var whole = await estimator.EstimateAsync(image, ct);
+        var left = await estimator.EstimateChunkAsync(image, 0, 0, width / 3, height, whole, ct);
+        var right = await estimator.EstimateChunkAsync(image, 2 * width / 3, 0, width / 3, height, whole, ct);
+
+        left.ShouldBeLessThan(whole, "the left third is the sharp end and must read narrower than the frame");
+        right.ShouldBeGreaterThan(whole, "the right third is the soft end and must read wider than the frame");
+        // psf01 is log2-encoded radius over [1, 8] px, so a 2x width difference is a third of the range.
+        (right - left).ShouldBeGreaterThan(0.2f);
+
+        // A region between two star columns holds at most one star: under MinChunkStars, the whole-image
+        // value comes back EXACTLY, so a caller can count the fallbacks.
+        var starved = await estimator.EstimateChunkAsync(image, inset + 14, inset + 14, 12, 12, whole, ct);
+        starved.ShouldBe(whole);
+
+        image.Release();
     }
 }

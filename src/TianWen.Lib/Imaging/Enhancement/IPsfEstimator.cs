@@ -32,4 +32,14 @@ public interface IPsfEstimator
     /// </summary>
     Task<float> EstimateChunkAsync(Image image, int x0, int y0, int width, int height, CancellationToken cancellationToken = default)
         => EstimateAsync(image, cancellationToken);
+
+    /// <summary>
+    /// The per-chunk psf01 with the whole-image value already in hand, so an estimator that finds too
+    /// few stars in the region can answer with <paramref name="wholeImagePsf01"/> instead of measuring
+    /// the whole frame again for every starved tile. The default answers the whole-image value
+    /// unconditionally, which is the whole-image behaviour every estimator had before per-tile
+    /// conditioning existed (deconvolver-training.md, D1).
+    /// </summary>
+    Task<float> EstimateChunkAsync(Image image, int x0, int y0, int width, int height, float wholeImagePsf01, CancellationToken cancellationToken = default)
+        => Task.FromResult(wholeImagePsf01);
 }

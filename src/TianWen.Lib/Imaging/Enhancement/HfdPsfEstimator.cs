@@ -74,6 +74,62 @@ public sealed class HfdPsfEstimator(
     /// <summary>Minimum SNR for a star to count toward the PSF estimate.</summary>
     public const float MinSnr = 20f;
 
+    /// <summary>Fewest stars a chunk region must yield for its own median to stand; under it the
+    /// per-chunk estimate answers the whole-image value. A median of three stars is a coin toss on a
+    /// 256 px tile, and the training label the deployed contract mirrors was itself dropped under a
+    /// measured count (the exporter writes null rather than the fallback radius).</summary>
+    public const int MinChunkStars = 8;
+
+    /// <summary>
+    /// psf01 for one REGION of the frame, measured on that region's own stars, so a frame whose PSF
+    /// falls 4.03 to 3.12 px centre to corner (Rim) conditions each tile with its own width rather
+    /// than one number everywhere (deconvolver-training.md, D1). Falls back to
+    /// <paramref name="wholeImagePsf01"/> under <see cref="MinChunkStars"/>.
+    /// </summary>
+    public async Task<float> EstimateChunkAsync(Image image, int x0, int y0, int width, int height, float wholeImagePsf01, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        var (_, srcW, srcH) = image.Shape;
+        if (x0 < 0 || y0 < 0 || width <= 0 || height <= 0 || x0 + width > srcW || y0 + height > srcH)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width), $"region ({x0},{y0},{width}x{height}) is outside the {srcW}x{srcH} image");
+        }
+
+        // A copy rather than a view: the star finder wants an Image, and the region is a few hundred
+        // pixels a side, so the copy is cheaper than the detection that follows it.
+        var src = image.GetChannelSpan(0);
+        var data = new float[height, width];
+        var max = 0f;
+        for (var y = 0; y < height; y++)
+        {
+            var row = src.Slice(((y0 + y) * srcW) + x0, width);
+            for (var x = 0; x < width; x++)
+            {
+                var v = row[x];
+                data[y, x] = v;
+                if (v > max) max = v;
+            }
+        }
+
+        var region = new Image([data], BitDepth.Float32, max <= 0f ? 1f : max, 0f, 0f, image.ImageMeta);
+        try
+        {
+            var measured = await MeasureRadiusPxAsync(region, cancellationToken);
+            if (measured.Stars < MinChunkStars)
+            {
+                logger?.LogDebug("HfdPsfEstimator: chunk ({X},{Y},{W}x{H}) has {Stars} stars (< {Min}); using the whole-image psf01 {Psf01:F3}",
+                    x0, y0, width, height, measured.Stars, MinChunkStars, wholeImagePsf01);
+                return wholeImagePsf01;
+            }
+
+            return EncodeRadiusToPsf01(measured.RadiusPx, RadiusRange.Min, RadiusRange.Max);
+        }
+        finally
+        {
+            region.Release();
+        }
+    }
+
     public async Task<float> EstimateAsync(Image image, CancellationToken cancellationToken = default)
     {
         var measured = await MeasureRadiusPxAsync(image, cancellationToken);
