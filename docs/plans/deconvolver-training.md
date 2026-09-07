@@ -845,6 +845,20 @@ stars over A above 1.10 with rec/A under 1.00 (fabrication on real data), as in 
 
 *Cost.* About 20 minutes of Release CLI for the three stacks, a minute of probe.
 
+**E2.10c, pre-registered 2026-09-07 late evening: the Orion night again, ranked on the guarded store.**
+The guarded re-measure made the Orion L-Quad 2025-10-15 night the archive's best pair (55 green fits
+of 68 subs at 1.82 / 2.17 / 2.46 px; thirds 1.89 against 2.38, 1.26x), the night E2.10a built on the
+floor-ranked list and found no pair in (2.82 against 2.72). Same recipe as E2.10b on that night
+(`--group-filter GreatOrionNebula_light_120s_1 --group-temp-tolerance 2 --strategy Float16Staged
+--warp-interpolation Lanczos3`, the split on `--width green` from the guarded store, thirds of about
+18 frames each plus the reference, then `SeeingSplitPairProbe`). Launcher `run-e210c-orion.ps1`,
+output `C:/temp/e2/e210c-orion/`, queued behind E2.10b on the Release CLI. *Prediction:* the thirds'
+masters differ 1.15 to 1.26 on the green fit and both fits succeed; at 60 iterations `est-c` reads
+rec/A 1.00 to 1.10 on two of three channels with stars over A at 0.7 to 0.95 and ring excess under 40
+percent. *Kill:* the masters differ under 1.10 (then the ranking was not what E2.10a lacked, and the
+remaining suspect is the stack's own reference-and-mean); rec/A over 1.20 everywhere; or stars over A
+above 1.10 with rec/A under 1.00. *Cost:* about 15 minutes of Release CLI, a minute of probe.
+
 **E2.10a, pre-registered 2026-09-07: the estimator step and the oracle on the Orion pair.**
 
 *Setup.* The whole session stacked once against the archive root (`tianwen stack D:/Astro-Organized
