@@ -948,8 +948,13 @@ def train(args):
                     observers.append((s, n2n_deconv_gate.DeconvGate(
                         mm, ocells, dev, psf01=psf01_labels[ocells, gate_input - 1],
                         input_slot=gate_input)))
+                    # The observer's own star NULL is printed because E2.8b's kill line is stated
+                    # against it ("under 2x the observer's input null"); E2.8's read had to compute it
+                    # offline, and a number the log does not carry is a number a later reader guesses.
                     print(f"  OBSERVING (never selected on) {len(ocells)} cells from {s[:44]}; "
-                          f"input at {np.nanmean(observers[-1][1].input_fwhm / observers[-1][1].truth_fwhm):.2f}x truth")
+                          f"input at {np.nanmean(observers[-1][1].input_fwhm / observers[-1][1].truth_fwhm):.2f}x truth, "
+                          f"input stars null {observers[-1][1].stars_null:.3f} (stars@{int(n2n_deconv_gate.STAR_SIGMA_LOW)} null "
+                          f"{observers[-1][1].stars_null_lo:.3f})")
                 else:
                     observers.append((s, n2n_gate.Gate(mm, ocells, dev, input_slot=gate_input)))
                     print(f"  OBSERVING (never selected on) {len(ocells)} cells from {s[:44]}; "
