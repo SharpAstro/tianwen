@@ -164,6 +164,12 @@ public static class DatasetPsfNoiseReport
     /// re-measured alone (<c>DatasetBuildOptions.RemeasureSubs</c>), which measures every light and
     /// keeps the gate's survivors but cannot know which of them would have registered. Null on a
     /// record from before the distinction existed, which is <see cref="SubsRegistered"/> in fact.</param>
+    /// <param name="SubSiteFromFallback">True when at least one sub's <paramref name="SubAirmass"/> was
+    /// computed from a FALLBACK site (<c>DatasetBuildOptions.FallbackSite</c>) because its header carried
+    /// none; false when every finite value came from the header's own site; null on a record written
+    /// before the column existed. SharpCap writes no <c>SITELAT</c>/<c>SITELONG</c>, which left 27 of 79
+    /// sessions with no computed air mass at all (E2.9); a consumer that wants only header-sited values
+    /// filters on this.</param>
     public sealed record SessionPsf(
         string SessionId,
         string OpticalTrain,
@@ -179,7 +185,8 @@ public static class DatasetPsfNoiseReport
         DateTimeOffset[]? SubEpochUtc = null,
         float[]? SubAirmass = null,
         float[]? SubHeaderAirmass = null,
-        string? SubSelection = null);
+        string? SubSelection = null,
+        bool? SubSiteFromFallback = null);
 
     /// <summary>Value of <see cref="SessionPsf.SubSelection"/> when the sub arrays describe the
     /// registered subs, in registration order.</summary>
@@ -198,34 +205,53 @@ public static class DatasetPsfNoiseReport
     /// <param name="Airmass">Computed air mass per sub (<see cref="SiteContext.Airmass"/>).</param>
     /// <param name="HeaderAirmass">The capture software's AIRMASS card per sub, NaN where absent.</param>
     /// <param name="Selection"><see cref="SubsRegistered"/> or <see cref="SubsGateSurvivors"/>.</param>
+    /// <param name="UsedFallbackSite">Whether any <paramref name="Airmass"/> came from a fallback site
+    /// rather than the header's own (<see cref="SessionPsf.SubSiteFromFallback"/>).</param>
     public sealed record SubIdentity(
         string[] File,
         DateTimeOffset[] EpochUtc,
         float[] Airmass,
         float[] HeaderAirmass,
-        string Selection)
+        string Selection,
+        bool UsedFallbackSite = false)
     {
-        /// <summary>The identity columns of <paramref name="frames"/>, in the order given.</summary>
-        public static SubIdentity From(IReadOnlyList<FrameInfo> frames, string selection)
+        /// <summary>
+        /// The identity columns of <paramref name="frames"/>, in the order given. A frame whose header
+        /// has no site takes <paramref name="fallbackSite"/> when one is given (and the identity says so
+        /// in <see cref="UsedFallbackSite"/>); a header site is never overridden by it.
+        /// </summary>
+        public static SubIdentity From(IReadOnlyList<FrameInfo> frames, string selection, (double LatitudeDeg, double LongitudeDeg)? fallbackSite = null)
         {
             ArgumentNullException.ThrowIfNull(frames);
             var file = new string[frames.Count];
             var epoch = new DateTimeOffset[frames.Count];
             var airmass = new float[frames.Count];
             var headerAirmass = new float[frames.Count];
+            var usedFallback = false;
             for (var i = 0; i < frames.Count; i++)
             {
                 var meta = frames[i].Meta;
                 file[i] = frames[i].Path;
                 epoch[i] = meta.ExposureStartTime;
+                double latitude = meta.Latitude;
+                double longitude = meta.Longitude;
+                if ((double.IsNaN(latitude) || double.IsNaN(longitude)) && fallbackSite is { } site)
+                {
+                    // SharpCap writes no site cards at all; a caller who knows where the archive was
+                    // shot supplies it, and the record marks that the value did not come from the frame.
+                    latitude = site.LatitudeDeg;
+                    longitude = site.LongitudeDeg;
+                    usedFallback = true;
+                }
+
                 // The START epoch, as the gradient report evaluates a master's covariates at its
                 // DATE-OBS: consistent with it, and over a sub's few minutes the difference to
                 // mid-exposure is under a thousandth of an air mass.
-                airmass[i] = (float)SiteContext.Airmass(meta.ExposureStartTime, meta.Latitude, meta.Longitude, meta.TargetRA, meta.TargetDec);
+                airmass[i] = (float)SiteContext.Airmass(meta.ExposureStartTime, latitude, longitude, meta.TargetRA, meta.TargetDec);
                 headerAirmass[i] = meta.Airmass;
             }
 
-            return new SubIdentity(file, epoch, airmass, headerAirmass, selection);
+            return new SubIdentity(file, epoch, airmass, headerAirmass, selection, usedFallback);
         }
 
         /// <summary>The identity a stored record carries, or null on a record from before it existed
@@ -234,7 +260,7 @@ public static class DatasetPsfNoiseReport
         {
             ArgumentNullException.ThrowIfNull(record);
             return record is { SubFile: { } file, SubEpochUtc: { } epoch, SubAirmass: { } airmass, SubHeaderAirmass: { } header }
-                ? new SubIdentity(file, epoch, airmass, header, record.SubSelection ?? SubsRegistered)
+                ? new SubIdentity(file, epoch, airmass, header, record.SubSelection ?? SubsRegistered, record.SubSiteFromFallback ?? false)
                 : null;
         }
     }
@@ -381,6 +407,7 @@ public static class DatasetPsfNoiseReport
         float snrMin = 5f,
         int maxStars = 3000,
         ILogger? logger = null,
+        (double LatitudeDeg, double LongitudeDeg)? fallbackSite = null,
         CancellationToken cancellationToken = default)
     {
         var label = CalibrationResolver.CalTrain.OpticalTrain(session.Session.Lights[0]).Describe();
@@ -401,7 +428,7 @@ public static class DatasetPsfNoiseReport
         return await MeasureMasterAsync(
             session.Session.Id, label, session.Master, session.CanvasWidth, session.CanvasHeight,
             subFwhm, subHfd, subEcc, session.MasterStrategy.ToString(),
-            SubIdentity.From(sources, SubsRegistered),
+            SubIdentity.From(sources, SubsRegistered, fallbackSite),
             radiusBins, snrMin, maxStars, logger, cancellationToken);
     }
 
@@ -425,6 +452,7 @@ public static class DatasetPsfNoiseReport
         float qualityRejectSigma,
         float qualityMaxRejectFraction,
         DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG,
+        (double LatitudeDeg, double LongitudeDeg)? fallbackSite = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(prior);
@@ -450,7 +478,7 @@ public static class DatasetPsfNoiseReport
             sources[i] = kept[i].Frame;
         }
 
-        var identity = SubIdentity.From(sources, SubsGateSurvivors);
+        var identity = SubIdentity.From(sources, SubsGateSurvivors, fallbackSite);
         return prior with
         {
             SubFwhm = subFwhm,
@@ -461,6 +489,7 @@ public static class DatasetPsfNoiseReport
             SubAirmass = identity.Airmass,
             SubHeaderAirmass = identity.HeaderAirmass,
             SubSelection = identity.Selection,
+            SubSiteFromFallback = identity.UsedFallbackSite,
         };
     }
 
@@ -593,7 +622,8 @@ public static class DatasetPsfNoiseReport
             SubEpochUtc: subs?.EpochUtc,
             SubAirmass: subs?.Airmass,
             SubHeaderAirmass: subs?.HeaderAirmass,
-            SubSelection: subs?.Selection);
+            SubSelection: subs?.Selection,
+            SubSiteFromFallback: subs?.UsedFallbackSite);
     }
 
     /// <summary>Value of <see cref="SessionPsf.RadiusSampling"/> for a record whose field-radius
@@ -831,7 +861,7 @@ public static class DatasetPsfNoiseReport
         /// archive builder, via <see cref="DatasetPsfStore"/>) measures once and folds the same
         /// record, rather than there being a second way to compute one.</summary>
         public async Task AddAsync(SessionRegistrar.RegisteredSession session, ILogger? logger = null, CancellationToken cancellationToken = default)
-            => Add(await MeasureSessionAsync(session, _radiusBins, _snrMin, _maxStars, logger, cancellationToken), logger);
+            => Add(await MeasureSessionAsync(session, _radiusBins, _snrMin, _maxStars, logger, cancellationToken: cancellationToken), logger);
 
         /// <summary>
         /// Folds one session's persisted samples into the accumulator. This is the ONLY path that

@@ -296,6 +296,7 @@ public static class DatasetBuildRunner
                         var remeasured = await DatasetPsfNoiseReport.RemeasureSubsAsync(
                             priorForSubs, session, subsCalibrator,
                             options.QualityRejectSigma, options.QualityMaxRejectFraction,
+                            fallbackSite: options.FallbackSite,
                             cancellationToken: cancellationToken);
                         subsTimings.Record(StageNames.Measure, subsStart, items: session.Lights.Length);
 
@@ -505,7 +506,7 @@ public static class DatasetBuildRunner
                 // session measured so far, and the rendered report is rebuilt from the store rather
                 // than from this run's in-memory accumulator.
                 var psfStart = StageTimings.Start();
-                var psf = await DatasetPsfNoiseReport.MeasureSessionAsync(reg, logger: logger, cancellationToken: cancellationToken);
+                var psf = await DatasetPsfNoiseReport.MeasureSessionAsync(reg, logger: logger, fallbackSite: options.FallbackSite, cancellationToken: cancellationToken);
                 // Persisting the measurement must not be able to fail the SESSION. By the time we get
                 // here the tiles are written and their manifest rows are appended, so the session IS
                 // part of the dataset; letting an I/O fault fall to the per-session catch marked a

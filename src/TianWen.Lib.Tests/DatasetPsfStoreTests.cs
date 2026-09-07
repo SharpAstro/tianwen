@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
 using Xunit;
 
@@ -115,6 +117,7 @@ namespace TianWen.Lib.Tests
                 SubAirmass = [1.05f, float.NaN, 1.31f],
                 SubHeaderAirmass = [float.NaN, float.NaN, 1.30f],
                 SubSelection = DatasetPsfNoiseReport.SubsRegistered,
+                SubSiteFromFallback = true,
             };
 
             await DatasetPsfStore.AppendAsync(path, written, ct);
@@ -123,6 +126,9 @@ namespace TianWen.Lib.Tests
             back.SubFile.ShouldBe(written.SubFile);
             back.SubEpochUtc.ShouldBe(epochs);
             back.SubSelection.ShouldBe(DatasetPsfNoiseReport.SubsRegistered);
+            back.SubSiteFromFallback.ShouldBe(true);
+            plain.SubSiteFromFallback.ShouldBeNull("a record from before the column has no answer");
+            DatasetPsfNoiseReport.SubIdentity.From(back).ShouldNotBeNull().UsedFallbackSite.ShouldBeTrue();
             back.SubAirmass.ShouldNotBeNull();
             back.SubAirmass.Length.ShouldBe(back.SubFwhm.Length);
             back.SubAirmass[0].ShouldBe(1.05f);
@@ -305,6 +311,57 @@ namespace TianWen.Lib.Tests
             var withGood = acc.Build();
             withGood.Sessions.ShouldBe(2);
             withGood.Trains.ShouldHaveSingleItem().RadialSessions.ShouldBe(1, "only the correctly binned one");
+        }
+
+        private static FrameInfo Light(float latitude, float longitude)
+        {
+            var meta = new ImageMeta(
+                Instrument: "SVBONY SV605CC",
+                ExposureStartTime: new DateTimeOffset(2025, 1, 14, 12, 5, 47, TimeSpan.Zero),
+                ExposureDuration: TimeSpan.FromSeconds(60),
+                FrameType: FrameType.Light,
+                Telescope: "",
+                PixelSizeX: 2.9f,
+                PixelSizeY: 2.9f,
+                FocalLength: 24,
+                FocusPos: -1,
+                Filter: Filter.None,
+                BinX: 1,
+                BinY: 1,
+                CCDTemperature: -10f,
+                SensorType: SensorType.RGGB,
+                BayerOffsetX: 0,
+                BayerOffsetY: 0,
+                RowOrder: RowOrder.TopDown,
+                Latitude: latitude,
+                Longitude: longitude,
+                Gain: 252,
+                Offset: 20,
+                TargetRA: 11.1833,
+                TargetDec: -60.371);
+            return new FrameInfo("frame_00001.fits", 100, 100, 1, BitDepth.Int16, meta);
+        }
+
+        /// <summary>SharpCap writes no site; the fallback fills it in where, and only where, the header
+        /// has none, and the identity says that it did.</summary>
+        [Fact]
+        public void SubIdentity_UsesTheFallbackSiteOnlyWhereTheHeaderHasNone()
+        {
+            var melbourne = (LatitudeDeg: -37.877, LongitudeDeg: 145.1775);
+            var noSite = new[] { Light(float.NaN, float.NaN) };
+            var sited = new[] { Light(-37.877f, 145.1775f) };
+
+            var bare = DatasetPsfNoiseReport.SubIdentity.From(noSite, DatasetPsfNoiseReport.SubsRegistered);
+            float.IsNaN(bare.Airmass[0]).ShouldBeTrue("no site, no fallback, no air mass");
+            bare.UsedFallbackSite.ShouldBeFalse();
+
+            var filled = DatasetPsfNoiseReport.SubIdentity.From(noSite, DatasetPsfNoiseReport.SubsRegistered, melbourne);
+            float.IsFinite(filled.Airmass[0]).ShouldBeTrue();
+            filled.UsedFallbackSite.ShouldBeTrue();
+
+            var fromHeader = DatasetPsfNoiseReport.SubIdentity.From(sited, DatasetPsfNoiseReport.SubsRegistered, (0.0, 0.0));
+            fromHeader.UsedFallbackSite.ShouldBeFalse("a header site is never overridden");
+            fromHeader.Airmass[0].ShouldBe(filled.Airmass[0], tolerance: 1e-4f);
         }
     }
 }

@@ -278,6 +278,20 @@ public sealed record DatasetBuildOptions
     public bool RemeasureSubs { get; init; }
 
     /// <summary>
+    /// The observing site, in decimal degrees, for a light whose header carries NO site: the per-sub air
+    /// mass (<c>SessionPsf.SubAirmass</c>) is computed from it where <c>SITELAT</c>/<c>SITELONG</c> are
+    /// absent, and the record marks that it was (<c>SessionPsf.SubSiteFromFallback</c>). A header site
+    /// is never overridden. Null (the default) leaves such subs at NaN, as before.
+    ///
+    /// <para><b>Why.</b> Every SharpCap capture in this archive writes target coordinates and
+    /// <c>DATE-OBS</c> and no site at all, so 27 of 79 sessions had no computed air mass (E2.9,
+    /// 2026-09-07, <c>docs/known-limitations.md</c>). The value is the caller's assertion about where
+    /// the archive was shot, which is why it is an explicit switch rather than a profile default and
+    /// why the record says which sessions leaned on it.</para>
+    /// </summary>
+    public (double LatitudeDeg, double LongitudeDeg)? FallbackSite { get; init; }
+
+    /// <summary>
     /// Re-render the PSF/noise report from <see cref="DatasetPsfStore"/> and stop. No archive scan,
     /// no registration, no export; nothing is measured and no tile is touched.
     ///

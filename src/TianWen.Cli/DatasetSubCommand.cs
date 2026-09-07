@@ -183,6 +183,13 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                           "so. Not combinable with --force-psf: run that as a second pass. Use with " +
                           "--resume and the SAME roots and gates as the original run.",
         };
+        var siteOpt = new Option<string?>("--site")
+        {
+            Description = "Observing site as 'lat,lon' in decimal degrees, used ONLY for a light whose header " +
+                          "has no SITELAT/SITELONG (SharpCap writes none): the per-sub air mass is computed " +
+                          "from it and the record says so (SubSiteFromFallback). A header site is never " +
+                          "overridden. Default: such subs keep NaN.",
+        };
         var resumeOpt = new Option<bool>("--resume")
         {
             Description = "Continue a stopped run: keep the existing manifest as the checkpoint and " +
@@ -208,7 +215,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             {
                 archiveRootOpt, outOpt,
                 minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, minSubsOpt,
-                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, hotPixelSigmaOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt, forcePsfOpt, remeasureSubsOpt, scratchRootOpt,
+                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, hotPixelSigmaOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt, forcePsfOpt, remeasureSubsOpt, siteOpt, scratchRootOpt,
             },
         };
         buildCommand.SetAction(async (parseResult, ct) =>
@@ -254,6 +261,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                 RegenPsfForExportedSessions = parseResult.GetValue(regenPsfOpt),
                 ForcePsfRemeasure = parseResult.GetValue(forcePsfOpt),
                 RemeasureSubs = parseResult.GetValue(remeasureSubsOpt),
+                FallbackSite = ParseSite(parseResult.GetValue(siteOpt)),
             };
 
             // User path exclusions append to the built-in processed-data defaults (never replace them).
@@ -1028,6 +1036,27 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
     /// <summary>Reads a FITS numeric card body (or a --expect value) in the invariant culture, which
     /// is the only correct reading: a header is ASCII and its numbers are never localised, so a
     /// machine set to a decimal-comma locale must not parse "74.0" as 740.</summary>
+    /// <summary>`--site lat,lon` in decimal degrees, or null when not given; a malformed or out-of-range
+    /// value is an argument error rather than a silently ignored site.</summary>
+    internal static (double LatitudeDeg, double LongitudeDeg)? ParseSite(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var parts = text.Split(',', StringSplitOptions.TrimEntries);
+        if (parts.Length != 2
+            || !double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var lat)
+            || !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var lon)
+            || Math.Abs(lat) > 90.0 || Math.Abs(lon) > 180.0)
+        {
+            throw new ArgumentException($"--site expects 'lat,lon' in decimal degrees (latitude within 90, longitude within 180), got '{text}'.");
+        }
+
+        return (lat, lon);
+    }
+
     private static bool TryParseCard(string? text, out double value)
         => double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
 
