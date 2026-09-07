@@ -166,6 +166,12 @@ is matched at its median temperature. The default stays 0, grouping exactly as b
 same rounding is what pairs a group with a dark at its temperature. `LightGroupKey.Assign` is the
 one implementation; five facts pin it. Found by E2.10, which needs one manifest for one night.
 
+**Two processes of one app started within the same second no longer collide on the log file.**
+`FileLoggerProvider` named its file to the second and truncated it, so the second process died at
+start-up with "the process cannot access the file" before it had logged a line (a launcher that ran
+`tianwen --version` and then `tianwen stack` lost the stack). The name is created fresh and gets the
+process id appended only when it already exists, so every existing log name stays as it was.
+
 **Every master now carries `CANVASX0` / `CANVASY0` / `REFFRAME`**: its pixel (0, 0) in the reference
 frame's pixel space, and the reference frame's name. The canvas is the union of the registered frames'
 footprints, so two masters built from one reference but different frame sets (a seeing split's sharp
