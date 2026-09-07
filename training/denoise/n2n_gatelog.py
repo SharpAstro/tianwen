@@ -91,7 +91,11 @@ def main():
 
     has_lo = any(g["stars_lo"] is not None for r in runs for g in r["gate"])
     print(f"{args.log}: {len(runs)} run(s)" + (f", arm {args.arm}" if args.arm else ""))
-    hdr = f"| seed | probes | passes | selected step | sel out/truth | stars @sel | {'stars@6 @sel | ' if has_lo else ''}min out/truth | @step | stars @min | {'stars@6 @min | ' if has_lo else ''}final out/truth | final stars | obs0 @min out/truth | obs0 @min stars | weight |"
+    # The observer is read at the SELECTED step (the checkpoint that would ship), falling back to the
+    # width minimum when nothing was selected; E2.8b's pre-registration is stated at the selected step.
+    hdr = (f"| seed | probes | passes | selected step | sel out/truth | stars @sel | {'stars@6 @sel | ' if has_lo else ''}"
+           f"min out/truth | @step | stars @min | {'stars@6 @min | ' if has_lo else ''}final out/truth | final stars | "
+           f"obs0 @sel out/truth | obs0 @sel stars | {'obs0 @sel stars@6 | ' if has_lo else ''}weight |")
     print(hdr)
     print("|" + "---|" * (hdr.count("|") - 1))
     n_sel = n_width = n_stars = 0
@@ -107,7 +111,8 @@ def main():
         sel_row = next((x for x in g if sel and x["step"] == sel[0]), None)
         last = g[-1]
         obs0 = r["obs"].get(0, [])
-        obs_at_min = next((o for o in obs0 if mn and o["step"] == mn["step"]), None)
+        obs_step = sel[0] if sel else (mn["step"] if mn else None)
+        obs_at_min = next((o for o in obs0 if obs_step is not None and o["step"] == obs_step), None)
         n_sel += sel is not None
         n_width += sel is not None and sel[1] <= args.width_bar
         n_stars += mn is not None and mn["stars"] >= args.stars_floor
@@ -122,8 +127,10 @@ def main():
         if has_lo:
             cells.append(fmt(mn["stars_lo"], ".2f") if mn else "-")
         cells += [fmt(last["out"]), fmt(last["stars"], ".2f"),
-                  fmt(obs_at_min["out"]) if obs_at_min else "-", fmt(obs_at_min["stars"], ".2f") if obs_at_min else "-",
-                  f"{r['weight'][0]:.3e} @{r['weight'][1]}" if r["weight"] else "-"]
+                  fmt(obs_at_min["out"]) if obs_at_min else "-", fmt(obs_at_min["stars"], ".2f") if obs_at_min else "-"]
+        if has_lo:
+            cells.append(fmt(obs_at_min["stars_lo"], ".2f") if obs_at_min else "-")
+        cells.append(f"{r['weight'][0]:.3e} @{r['weight'][1]}" if r["weight"] else "-")
         print("| " + " | ".join(cells) + " |")
     print()
     print(f"selected: {n_sel}/{len(runs)}; selected out/truth <= {args.width_bar}: {n_width}/{len(runs)}; "
