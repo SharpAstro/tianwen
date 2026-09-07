@@ -163,6 +163,16 @@ is matched at its median temperature. The default stays 0, grouping exactly as b
 same rounding is what pairs a group with a dark at its temperature. `LightGroupKey.Assign` is the
 one implementation; five facts pin it. Found by E2.10, which needs one manifest for one night.
 
+**Every master now carries `CANVASX0` / `CANVASY0` / `REFFRAME`**: its pixel (0, 0) in the reference
+frame's pixel space, and the reference frame's name. The canvas is the union of the registered frames'
+footprints, so two masters built from one reference but different frame sets (a seeing split's sharp
+and soft thirds, a layer and a re-run) differ in extent AND origin, and until now the origin was only
+ever logged; two such masters could not be overlaid after the fact. `AlignmentProvenance` carries it,
+an autocrop moves it by its offset (`ForCrop`), and a master written before the cards simply has none.
+`--site lat,lon` on `tianwen dataset build` supplies an observing site for lights whose header has
+none (SharpCap writes no site cards), used only where the header is silent and recorded on the
+session (`SessionPsf.SubSiteFromFallback`), so the per-sub air mass exists for those sessions too.
+
 ## 7.0
 
 Two releases: `v7.0.1513` on 2026-09-04 and `v7.0.1532` on 2026-09-06, the second carrying 60 more
