@@ -136,6 +136,14 @@ fails on the next divergence.
 attached QHY actually reports, and `CAM_IGNOREOVERSCAN_INTERFACE` may make the capture path need no
 crop from us at all. One connect-time query decides the scope of everything after it.
 
+**P1-P5 are GATED ON HARDWARE, deferred 2026-09-07.** Canon (P0) shipped because a raw file carries
+its own `SensorInfo` rect, so a fixture answers every question. No vendor SDK path has that property:
+overscan geometry is model-dependent and the SDK is the only thing that knows it, so writing P1
+without a body attached produces a log line nobody can read and a scope decision nobody can take.
+Work resumes when a real QHY (or any other vendor's) camera is connected. The bench queue carries it,
+one home per item, in [hardware-validation.md](../todo/hardware-validation.md) under "Gated on gear
+but NOT validations".
+
 ---
 
 ## Traps

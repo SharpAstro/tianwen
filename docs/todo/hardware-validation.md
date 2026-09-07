@@ -158,4 +158,11 @@ under it, and the fake asserts that state by construction.
   2026-09-02 -- `docs/plans/deconvolver-training.md` H6 / E6.
 - One recording night for the neural guider (`train-guide-model`, open-loop worm cycles + closed-loop
   P), then one guided night with the model admitted -- `docs/plans/neural-guider-training.md` N7.
+- QHY, and any other vendor, active-region support: phases P1-P5 of
+  [sensor-active-area.md](../plans/sensor-active-area.md), deferred 2026-09-07 until a real body is
+  connected. Overscan is model-dependent and only the SDK knows the geometry, so the connect-time
+  `GetQHYCCDEffectiveArea` / `GetQHYCCDOverScanArea` / `CAM_IGNOREOVERSCAN_INTERFACE` query measures
+  nothing without a camera to answer it, and that one answer decides the scope of everything after
+  it; a body that honours `CAM_IGNOREOVERSCAN_INTERFACE` needs no crop from us at all. Canon (P0)
+  shipped without hardware only because a raw file carries its own `SensorInfo` rect.
 - Seed ZWO EAF `MaxStep` from hardware during discovery -- `TODO.md` (item 18 above is its confirmation).
