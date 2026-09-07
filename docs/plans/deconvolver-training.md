@@ -1951,6 +1951,39 @@ draw. Kill: the estimate is off by more than 20 percent at 1.3x and up (which wo
 on the exporter's own cells), or refusals above 70 percent (the operator would then train mostly on
 the drawn kernel, and H2 could not move inside it).
 
+*Built and read the same evening (`EstimateKernels`, `--estimate-kernels`; the Rosette 2025-12-17
+session, 12 cells by 4 draws, `C:/temp/e2/degrade-kernels-rosette*-read.txt`).* Per TILE the kill
+line is met outright: on the 256 px cells every one of 48 rows fell back to the drawn kernel, 32
+`TooFewStars` and 16 `TooFewStacked`, because a 256 px cell of this master holds about 17 stars
+(`Psf01Stars`) where the fit needs 40; the fixture's synthetic cells refuse the same way. The reading
+is therefore taken over a WINDOW centred on the cell (`EstimateWindowPx`, default 1024,
+`--estimate-window`), the clean side once per cell and the observed side as the window convolved
+with the draw's kernel and noised at the draw's level from its own random stream, which is how
+inference takes it (the whole image, never a tile; D1 found per-tile conditioning inert). With the
+window, 47 of 48 rows are estimated (one `PoorFit` at 373 stars), against the predicted 20 to 50
+percent refusals, and the estimated width reads the drawn kernel's effective width thus (median and
+p10 / p90 of estimated over effective, by realised ratio):
+
+| realised blur | rows | est / effective p10 | p50 | p90 |
+|---|---|---|---|---|
+| 1.0 to 1.1x | 3 | 0.80 | 0.93 | 1.16 |
+| 1.1 to 1.3x | 11 | 0.79 | 0.89 | 0.98 |
+| 1.3 to 1.6x | 16 | 0.99 | 1.03 | 1.19 |
+| 1.6 to 2.0x | 17 | 0.99 | 1.08 | 1.16 |
+
+The prediction (within 5 percent at 1.3x and up) holds at the median in the 1.3 to 1.6x band and
+misses by three points in the 1.6 to 2.0x band; the p90 sits within a point of the 20 percent kill
+and does not cross it; under 1.3x the estimate reads 0.89 to 0.93 of the effective width, as E1d
+did. The cost prediction is missed: 2.5 s a draw (the export alone is under 0.1), two detections at
+the signal floor's retry on a 1024 px window plus the window's convolution; a re-export of E2.6's
+pool for E3.0 is about a day of CPU at that rate, and detecting once per cell and fitting the
+observed side at the clean side's positions (the store's own trick) is the obvious saving, owed.
+Two readings the rows add: the profile fit's clean width is 0.65 to 0.74 of the HFD estimator's
+(the two widths are different statistics and the operator must use one consistently), and the
+observed fit's exponent ranges 1.9 to 9.9 against drawn 1.5 to 8, so the "shape from the fit" is
+noisy at the wing-less end, as E1g-2 said it would be. Verdict: the ground-work stands with the
+window; per-tile estimation is closed as a design; E3.0 needs the re-export.
+
 *What this does not decide.* E4 (position-varying kernels) and E7 (the export and the runtime) stand
 as written; the shipped SAS graph remains the deployed deconvolver until E7, and E2.10a's baseline on
 the Orion pair is the number it has to beat. The decision is the plan's; the PR is where it is

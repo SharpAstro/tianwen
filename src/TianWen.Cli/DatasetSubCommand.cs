@@ -691,6 +691,19 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                           "(0.5 to 4 px) instead, as before; those pixel bounds still clamp the solved width.",
             DefaultValueFactory = _ => 1.05,
         };
+        var estimateKernelsOpt = new Option<bool>("--estimate-kernels")
+        {
+            Description = "Blur mode only: run the estimator step on every draw (the profile fit on the linear " +
+                          "clean and degraded cells' green planes, width by composition, shape from the degraded " +
+                          "fit) and write its kernel on the row beside the drawn kernel's effective width; the " +
+                          "unrolled operator trains on it. Two detections and two fits per draw.",
+        };
+        var estimateWindowOpt = new Option<int>("--estimate-window")
+        {
+            Description = "With --estimate-kernels: the square window, in pixels and centred on the cell, the estimator " +
+                          "reads. A 256 px cell holds about 17 stars where the fit needs 40. Default 1024.",
+            DefaultValueFactory = _ => 1024,
+        };
         var perChannelOpt = new Option<bool>("--per-channel-kernels")
         {
             Description = "Blur mode only: draw a SEPARATE kernel per channel, its width scaled by the " +
@@ -719,7 +732,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, minBlurRatioOpt, maxBlurRatioOpt, perChannelOpt, forceOpt, measureOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -751,6 +764,8 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                 PerChannelKernels: parseResult.GetValue(perChannelOpt),
                 Force: parseResult.GetValue(forceOpt),
                 MinBlurRatio: parseResult.GetValue(minBlurRatioOpt),
+                EstimateKernels: parseResult.GetValue(estimateKernelsOpt),
+                EstimateWindowPx: parseResult.GetValue(estimateWindowOpt),
                 SessionFilters: [.. parseResult.GetValue(sessionFilterOpt) ?? []]);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);

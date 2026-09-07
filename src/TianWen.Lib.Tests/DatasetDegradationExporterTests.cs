@@ -466,6 +466,57 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// The estimator step's kernel on the row (E3.0 ground-work, pre-registered in
+        /// deconvolver-training.md): where both profile fits return, the estimated width is read against the
+        /// drawn kernel's EFFECTIVE width on the same core; the pre-registration predicts within 5 percent
+        /// from a realised ratio of 1.3x up and kills at 20 percent, and the refusal fraction on 512 px cells
+        /// between 20 and 50 percent. Asserted at the kill bound, printed at the prediction, because the
+        /// fixture's synthetic plate is not the archive.
+        /// </summary>
+        [Fact]
+        public async Task TheEstimatorsKernelIsWrittenOnTheRowAndReadsTheEffectiveWidth()
+        {
+            var bake = BuildBake();
+            var outDir = Path.Combine(_root, "degraded-kernels");
+
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            await DatasetDegradationExporter.RunAsync(
+                new DatasetDegradationExporter.Options(
+                    bake, outDir, Mode: DatasetDegradationExporter.DegradationMode.Blur,
+                    Draws: 8, CellsPerSession: 2, Seed: 17,
+                    MinBlurRatio: 1.1, MaxBlurRatio: 2.0, EstimateKernels: true),
+                logger: null,
+                TestContext.Current.CancellationToken);
+            clock.Stop();
+
+            var rows = ReadDegradationRows(outDir).Where(r => r.CleanFwhmPx is > 0).ToArray();
+            Assert.SkipWhen(rows.Length == 0, "no row carried a clean width");
+            output.WriteLine($"{rows.Length} rows in {clock.Elapsed.TotalSeconds:F1} s ({clock.Elapsed.TotalMilliseconds / Math.Max(1, rows.Length):F0} ms a draw, export included)");
+
+            rows.ShouldAllBe(r => r.KernelSource == "estimated" || r.KernelSource == "drawn");
+            rows.ShouldAllBe(r => r.EffectiveKernelFwhmPx.HasValue && r.EffectiveKernelFwhmPx.Value > 0);
+            var estimated = rows.Where(r => r.KernelSource == "estimated").ToArray();
+            var refused = rows.Length - estimated.Length;
+            output.WriteLine($"estimated on {estimated.Length}, refused on {refused} ({100.0 * refused / rows.Length:F0} percent): "
+                + string.Join("; ", rows.Where(r => r.KernelSource == "drawn").Select(r => r.KernelEstimateRefusal).Distinct()));
+            foreach (var r in rows.OrderBy(r => r.ComposedFwhmPx / r.CleanFwhmPx))
+            {
+                var ratio = r.ComposedFwhmPx!.Value / r.CleanFwhmPx!.Value;
+                output.WriteLine($"  realised {ratio:F3}x: clean fit {r.CleanFitFwhmPx?.ToString("F2") ?? "-"} ({r.CleanFitBeta?.ToString("F1") ?? "-"}), "
+                    + $"observed fit {r.ObservedFitFwhmPx?.ToString("F2") ?? "-"} ({r.ObservedFitBeta?.ToString("F1") ?? "-"}), "
+                    + $"kernel est {r.EstimatedKernelFwhmPx:F2} ({r.EstimatedKernelBeta:F1}) vs effective {r.EffectiveKernelFwhmPx:F2} (drawn {r.ExtraFwhmPx:F2}, beta {r.MoffatBeta:F1}) [{r.KernelSource}{(r.KernelEstimateRefusal is null ? "" : ": " + r.KernelEstimateRefusal)}]");
+            }
+
+            var readable = estimated.Where(r => r.ComposedFwhmPx / r.CleanFwhmPx >= 1.3).ToArray();
+            Assert.SkipWhen(readable.Length == 0, "no estimated row at 1.3x or more to read the width against");
+            foreach (var r in readable)
+            {
+                r.EstimatedKernelFwhmPx!.Value.ShouldBe(r.EffectiveKernelFwhmPx!.Value, r.EffectiveKernelFwhmPx.Value * 0.20,
+                    "the estimated kernel width must read the effective width within the pre-registered kill bound at 1.3x and up");
+            }
+        }
+
+        /// <summary>
         /// The solver's contract on its own: a ratio the bracket cannot reach returns the bound, and a
         /// reachable one is realised to a thousandth on a continuous-width core.
         /// </summary>

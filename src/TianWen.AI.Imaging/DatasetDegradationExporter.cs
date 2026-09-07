@@ -144,6 +144,25 @@ namespace TianWen.AI.Imaging
         /// AS APPLIED, by Moffat composition with the sampled kernel; the realised blur, which the nominal
         /// <see cref="ExtraFwhmPx"/> under-states below about 1.5 px. Divided by <see cref="CleanFwhmPx"/>
         /// it is the realised ratio, to be read against <see cref="BlurRatioDrawn"/>.</param>
+        /// <param name="EffectiveKernelFwhmPx">Blur mode: the continuous Moffat width the drawn kernel is
+        /// worth AS SAMPLED on this cell's core (<c>MoffatComposition.EffectiveKernelFwhm</c>, E1f), the truth
+        /// an estimated kernel width is read against; under about 1.5 px it is less than
+        /// <see cref="ExtraFwhmPx"/>.</param>
+        /// <param name="KernelSource">Under <see cref="Options.EstimateKernels"/>: "estimated" when both
+        /// profile fits returned and the kernel columns are the estimator's, "drawn" when one refused and
+        /// they carry the drawn kernel's effective width and exponent instead. Null when kernels were not
+        /// estimated.</param>
+        /// <param name="CleanFitFwhmPx">The profile fit's width on the linear clean cell's green plane.</param>
+        /// <param name="CleanFitBeta">Its exponent (core fit, E1g-2's meaning).</param>
+        /// <param name="ObservedFitFwhmPx">The profile fit's width on the linear degraded cell's green plane.</param>
+        /// <param name="ObservedFitBeta">Its exponent.</param>
+        /// <param name="EstimatedKernelFwhmPx">The kernel the operator trains on: the difference width by
+        /// Moffat composition of the two fits (0 when the degraded fit is no wider), or the drawn kernel's
+        /// effective width when <see cref="KernelSource"/> is "drawn".</param>
+        /// <param name="EstimatedKernelBeta">The degraded fit's exponent (the shape from the fit), or the drawn
+        /// exponent when <see cref="KernelSource"/> is "drawn".</param>
+        /// <param name="KernelEstimateRefusal">Which fit refused and why ("clean TooFewStacked", "observed
+        /// PoorFit"), null when both returned.</param>
         public sealed record DegradationRow(
             string Tile,
             string SessionId,
@@ -171,7 +190,16 @@ namespace TianWen.AI.Imaging
             int Psf01Stars = 0,
             double? CleanFwhmPx = null,
             double? BlurRatioDrawn = null,
-            double? ComposedFwhmPx = null);
+            double? ComposedFwhmPx = null,
+            double? EffectiveKernelFwhmPx = null,
+            string? KernelSource = null,
+            double? CleanFitFwhmPx = null,
+            double? CleanFitBeta = null,
+            double? ObservedFitFwhmPx = null,
+            double? ObservedFitBeta = null,
+            double? EstimatedKernelFwhmPx = null,
+            double? EstimatedKernelBeta = null,
+            string? KernelEstimateRefusal = null);
 
         /// <summary>What to export.</summary>
         /// <param name="BakeRoot">A dataset bake: it must hold <c>tiles-manifest.jsonl</c> and
@@ -211,6 +239,21 @@ namespace TianWen.AI.Imaging
         /// [<see cref="MinExtraFwhmPx"/>, <see cref="MaxExtraFwhmPx"/>]. The pixel bounds still clamp the
         /// solved width; <see cref="DegradationRow.ComposedFwhmPx"/> records what was realised either way.
         /// Default 1.05: a blur the oracle recovers in full, above the near-identity a 0.5 px draw was.</param>
+        /// <param name="EstimateKernels">Blur mode: run the estimator step on every draw and write its kernel
+        /// on the row (E3.0's ground-work). <c>PsfProfileFit</c> with the signal floor on the LINEAR clean
+        /// cell's green plane (once per cell) and on the linear degraded cell's, the kernel width by Moffat
+        /// composition of the two fits and its shape from the degraded fit
+        /// (<see cref="DegradationRow.EstimatedKernelFwhmPx"/>, <see cref="DegradationRow.EstimatedKernelBeta"/>,
+        /// <see cref="DegradationRow.KernelSource"/> "estimated"); where either fit refuses the row carries the
+        /// drawn kernel's effective width instead, source "drawn", and says which check refused. Opt-in,
+        /// because it is two star detections and two fits per draw. The stored tiles are stretched and a tone
+        /// curve moves the half-maximum crossing, so this reading can only be taken here.</param>
+        /// <param name="EstimateWindowPx">The square window, centred on the cell, the estimator reads
+        /// (<see cref="EstimateKernels"/>); never smaller than the tile. A 256 px cell of a real master holds
+        /// about 17 stars where the fit needs 40 (measured 2026-09-07 on the Rosette session: every cell
+        /// refused), so the reading is taken over a wider field, as inference takes it over the whole image;
+        /// the observed side is the window convolved with the draw's kernel and noised at the draw's level.
+        /// Default 1024.</param>
         /// <param name="Force">Re-export a session already present in the degradation store.</param>
         /// <param name="SessionFilters">Case-insensitive substrings of the session id; when non-empty only
         /// sessions matching at least one are exported. The way an arm names its pool without exporting
@@ -235,6 +278,8 @@ namespace TianWen.AI.Imaging
             bool PerChannelKernels = false,
             bool Force = false,
             double MinBlurRatio = 1.05,
+            bool EstimateKernels = false,
+            int EstimateWindowPx = 1024,
             ImmutableArray<string> SessionFilters = default);
 
         /// <summary>What one session's export produced.</summary>
@@ -436,11 +481,17 @@ namespace TianWen.AI.Imaging
                     var cleanFwhmPx = options.Mode == DegradationMode.Blur
                         ? await MeasureCleanFwhmAsync(unitMaster, origin, cell.TileSize, cancellationToken)
                         : null;
+                    // The estimator's clean-side fit, also once per cell (E3.0 ground-work): the clean
+                    // core does not change with the draw either.
+                    var (windowOrigin, windowSize) = EstimationWindow(origin, cell.TileSize, options.EstimateWindowPx);
+                    var cleanFit = options.Mode == DegradationMode.Blur && options.EstimateKernels
+                        ? await FitCleanCellAsync(unitMaster, windowOrigin, windowSize, cancellationToken)
+                        : (Fit: null, Refusal: null);
 
                     for (var draw = 0; draw < options.Draws; draw++)
                     {
                         var seed = DrawSeed(options.Seed, sessionId, cell.X, cell.Y, draw);
-                        var row = await DegradeCellAsync(options, unitMaster, cell, origin, draw, seed, stackedFrames, fieldRadius, origMin, balances, tilesDir, slug, sessionId, cleanFwhmPx, cancellationToken);
+                        var row = await DegradeCellAsync(options, unitMaster, cell, origin, draw, seed, stackedFrames, fieldRadius, origMin, balances, tilesDir, slug, sessionId, cleanFwhmPx, cleanFit, cancellationToken);
                         degRows.Add(row);
                         tileRows.Add(new DatasetTileExporter.TileManifestRow(
                             Tile: row.Tile, SessionId: sessionId, Camera: cell.Camera, Frame: row.Frame,
@@ -489,6 +540,7 @@ namespace TianWen.AI.Imaging
             string slug,
             string sessionId,
             double? cleanFwhmPx,
+            (PsfProfileFit.Result? Fit, string? Refusal) cleanFit,
             CancellationToken cancellationToken)
         {
             var rng = new Random(seed);
@@ -686,6 +738,83 @@ namespace TianWen.AI.Imaging
                 }
             }
 
+            // The estimator step's kernel, the one the unrolled operator trains on (E3.0 ground-work):
+            // the profile fit on the degraded LINEAR cell against the clean cell's, width by composition,
+            // shape from the degraded fit. Inference has exactly these two readings and no drawn kernel,
+            // so a row that carried only the draw would be the H0 domain skew in a new place. The drawn
+            // kernel's EFFECTIVE width is written beside it as the truth the estimate is read against, and
+            // stands in for it, marked, where a fit refuses (the pre-registration's whole-frame fallback,
+            // which would cost a full-master convolution per draw).
+            double? effectiveKernelFwhmPx = null;
+            string? kernelSource = null;
+            double? observedFitFwhm = null, observedFitBeta = null, estimatedKernelFwhm = null, estimatedKernelBeta = null;
+            string? kernelRefusal = null;
+            if (options.Mode == DegradationMode.Blur && kernel is { } drawnKernel)
+            {
+                if (cleanFwhmPx is > 0)
+                {
+                    var effective = MoffatComposition.EffectiveKernelFwhm(drawnKernel, cleanFwhmPx.Value);
+                    effectiveKernelFwhmPx = double.IsFinite(effective) ? effective : null;
+                }
+
+                if (options.EstimateKernels)
+                {
+                    // The observed side over the estimation window, not the tile: the window's green plane
+                    // convolved with green's kernel and noised at this draw's level from its own random
+                    // stream, so the tile's own draw sequence is untouched.
+                    var (windowOrigin, windowSize) = EstimationWindow(origin, size, options.EstimateWindowPx);
+                    var green = Math.Min(1, channels - 1);
+                    var greenKernel = perChannelKernels is null ? drawnKernel : perChannelKernels[green];
+                    var windowMargin = greenKernel.Radius;
+                    var windowCut = windowSize + (2 * windowMargin);
+                    var windowRegion = CutClamped(unitMaster, green, windowOrigin.X - windowMargin, windowOrigin.Y - windowMargin, windowCut, windowCut);
+                    var windowBlurred = greenKernel.Convolve(windowRegion, windowCut, windowCut);
+                    var windowRng = new Random(seed ^ 0x5bd1e995);
+                    var windowShape = options.Shape == NoiseShape.White
+                        ? NoiseField.White(windowCut, windowCut, windowRng)
+                        : NoiseField.Warped(windowCut, windowCut, Math.Max(2, Math.Min(stackedFrames, 16)), windowRng, options.WarpResampleSigma);
+                    LinearDegradation.AddNoiseInPlace(windowBlurred, windowShape, calibration, depthScale);
+                    var windowPlane = new float[windowSize, windowSize];
+                    for (var y = 0; y < windowSize; y++)
+                    {
+                        for (var x = 0; x < windowSize; x++)
+                        {
+                            windowPlane[y, x] = windowBlurred[((y + windowMargin) * windowCut) + x + windowMargin];
+                        }
+                    }
+
+                    var observedWindow = new Image([windowPlane], BitDepth.Float32, 1f, 0f, unitMaster.Pedestal, unitMaster.ImageMeta);
+                    (PsfProfileFit.Result? observedFit, string? observedRefusal) = (null, null);
+                    try
+                    {
+                        (observedFit, observedRefusal) = await FitProfileOnAsync(observedWindow, cancellationToken);
+                    }
+                    finally
+                    {
+                        observedWindow.Release();
+                    }
+
+                    observedFitFwhm = observedFit?.Fwhm;
+                    observedFitBeta = observedFit?.MoffatBeta;
+                    if (cleanFit.Fit is { } cf && observedFit is { } of)
+                    {
+                        var difference = MoffatComposition.DifferenceFwhm(cf.Fwhm, cf.MoffatBeta, of.Fwhm, of.MoffatBeta);
+                        estimatedKernelFwhm = double.IsNaN(difference) ? 0.0 : difference;
+                        estimatedKernelBeta = of.MoffatBeta;
+                        kernelSource = "estimated";
+                    }
+                    else
+                    {
+                        estimatedKernelFwhm = effectiveKernelFwhmPx ?? drawnKernel.Fwhm;
+                        estimatedKernelBeta = drawnKernel.Beta;
+                        kernelSource = "drawn";
+                        kernelRefusal = cleanFit.Fit is null
+                            ? $"clean {cleanFit.Refusal ?? "unmeasured"}"
+                            : $"observed {observedRefusal ?? "unmeasured"}";
+                    }
+                }
+            }
+
             Image? stretchedCell = null;
             try
             {
@@ -720,6 +849,15 @@ namespace TianWen.AI.Imaging
                     Psf01FromKernel: psf01FromKernel,
                     BlurRatioDrawn: blurRatioDrawn,
                     ComposedFwhmPx: composedFwhmPx,
+                    EffectiveKernelFwhmPx: effectiveKernelFwhmPx,
+                    KernelSource: kernelSource,
+                    CleanFitFwhmPx: options.EstimateKernels ? cleanFit.Fit?.Fwhm : null,
+                    CleanFitBeta: options.EstimateKernels ? cleanFit.Fit?.MoffatBeta : null,
+                    ObservedFitFwhmPx: observedFitFwhm,
+                    ObservedFitBeta: observedFitBeta,
+                    EstimatedKernelFwhmPx: estimatedKernelFwhm,
+                    EstimatedKernelBeta: estimatedKernelBeta,
+                    KernelEstimateRefusal: kernelRefusal,
                     Psf01Stars: psf01Stars,
                     CleanFwhmPx: cleanFwhmPx);
             }
@@ -1058,6 +1196,21 @@ namespace TianWen.AI.Imaging
         /// </summary>
         private static async Task<double?> MeasureCleanFwhmAsync(Image unitMaster, Point origin, int size, CancellationToken cancellationToken)
         {
+            var cell = CutCell(unitMaster, origin, size);
+            try
+            {
+                var measured = await PsfMeasurement.MeasureRadiusPxAsync(cell, cancellationToken);
+                return measured.Stars > 0 ? measured.RadiusPx * 2.0 : null;
+            }
+            finally
+            {
+                cell.Release();
+            }
+        }
+
+        /// <summary>The clean LINEAR cell as its own image, every channel, clamped at the master's edge.</summary>
+        private static Image CutCell(Image unitMaster, Point origin, int size)
+        {
             var channels = unitMaster.ChannelCount;
             var planes = new float[channels][,];
             for (var c = 0; c < channels; c++)
@@ -1075,16 +1228,52 @@ namespace TianWen.AI.Imaging
                 planes[c] = plane;
             }
 
-            var cell = new Image(planes, BitDepth.Float32, 1f, 0f, unitMaster.Pedestal, unitMaster.ImageMeta);
+            return new Image(planes, BitDepth.Float32, 1f, 0f, unitMaster.Pedestal, unitMaster.ImageMeta);
+        }
+
+        /// <summary>The estimator's window: <paramref name="windowPx"/> square centred on the cell, never
+        /// smaller than the cell; the cut clamps at the master's edge, so a corner cell reads a window that
+        /// repeats its edge rows rather than one shifted inward.</summary>
+        internal static (Point Origin, int Size) EstimationWindow(Point origin, int size, int windowPx)
+        {
+            var windowSize = Math.Max(size, windowPx);
+            var shift = (windowSize - size) / 2;
+            return (new Point(origin.X - shift, origin.Y - shift), windowSize);
+        }
+
+        /// <summary>The estimator step's fit on the clean linear cell (see <see cref="FitProfileOnAsync"/>).</summary>
+        private static async Task<(PsfProfileFit.Result? Fit, string? Refusal)> FitCleanCellAsync(Image unitMaster, Point origin, int size, CancellationToken cancellationToken)
+        {
+            var cell = CutCell(unitMaster, origin, size);
             try
             {
-                var measured = await PsfMeasurement.MeasureRadiusPxAsync(cell, cancellationToken);
-                return measured.Stars > 0 ? measured.RadiusPx * 2.0 : null;
+                return await FitProfileOnAsync(cell, cancellationToken);
             }
             finally
             {
                 cell.Release();
             }
+        }
+
+        /// <summary>The detector's floor and cap for the estimator step's own detection, the oracle probe's
+        /// values (E1b): low enough to reach the signal floor's stars on a sparse cell, capped where a
+        /// rich one would cost more than it adds.</summary>
+        private const float EstimatorSnrMin = 5f;
+        private const int EstimatorMaxStars = 3000;
+
+        /// <summary>
+        /// The estimator step as the deployed path has it: the cell's OWN detections on the green plane, the
+        /// profile fit stacking by the signal floor (E1e), the core fitted (E1g-2). Null with the refusing
+        /// check's name when the cell cannot support a fit.
+        /// </summary>
+        private static async Task<(PsfProfileFit.Result? Fit, string? Refusal)> FitProfileOnAsync(Image cell, CancellationToken cancellationToken)
+        {
+            var green = Math.Min(1, cell.ChannelCount - 1);
+            var stars = await cell.FindStarsAsync(green, snrMin: EstimatorSnrMin, maxStars: EstimatorMaxStars, cancellationToken: cancellationToken);
+            var fit = PsfProfileFit.Measure(cell, green, stars, out var diagnostics, selection: PsfProfileFit.StarSelection.SignalFloor);
+            return (fit, fit is null
+                ? $"{diagnostics.Refusal} (stars {diagnostics.StarsOffered}, over floor {diagnostics.InBrightnessBand}, stacked {diagnostics.Stacked}, bins {diagnostics.FitBins}, {cell.Width} px)"
+                : null);
         }
 
         /// <summary>

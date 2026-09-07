@@ -139,7 +139,15 @@ kernel width solved by bisection so the kernel as sampled realises it (`SolveNom
 realised within a thousandth on every row of the test fixture, nominal 0.74 to 3.47 px); the row
 records `BlurRatioDrawn` and `ComposedFwhmPx`, the realised width. A cell with no measured width, or
 a ratio floor of 1.0 or less, keeps the pixel draw, and the pixel bounds still clamp the solved width.
-A cache exported before this carries the lighter light end E1d found.
+A cache exported before this carries the lighter light end E1d found. Opt-in `EstimateKernels`
+(`--estimate-kernels`, `--estimate-window`, default 1024 px) runs the estimator step on every draw
+and writes its kernel on the row for the unrolled operator to train on: the profile fit by the signal
+floor on the linear clean window (once per cell) and on the linear degraded window, the width by
+Moffat composition and the shape from the degraded fit (`EstimatedKernelFwhmPx`,
+`EstimatedKernelBeta`, `KernelSource` estimated or drawn, the refusal), beside the drawn kernel's
+`EffectiveKernelFwhmPx`. A 256 px tile cannot support the fit (17 stars where it needs 40), which is
+why the reading is over a window, as inference takes it over the whole image; on the Rosette session
+47 of 48 rows estimate, within 3 to 8 percent of the effective width at the median from 1.3x blur up.
 
 **`PsfProfileFit` says why it refuses, and can select its stack by an absolute floor.** A
 `Diagnostics` overload returns which of the five checks declined (`Refusal`) with the counts at each
