@@ -193,6 +193,30 @@ public class WarpInterpolationTests(ITestOutputHelper output)
         var detectorBilinear = (await (await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Bilinear)).FindStarsAsync(0, snrMin: 20f)).Where(s => s.StarFWHM > 0f).Select(s => (double)s.StarFWHM).ToList();
         var detectorLanczos = (await (await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Lanczos3)).FindStarsAsync(0, snrMin: 20f)).Where(s => s.StarFWHM > 0f).Select(s => (double)s.StarFWHM).ToList();
         output.WriteLine($"moment FWHM: source {source:F3}, bilinear {underBilinear:F3} (+{bilinearAdd:F2} in quadrature), lanczos3 {underLanczos:F3} (+{lanczosAdd:F2})");
+
+        // The sinc kernel's negative lobe, as the deepest pixel below the background within 6 px of each
+        // star relative to its peak: what a Moffat fit of the wings sees and an annulus minimum on the
+        // wing does not.
+        static double DeepestDip(float[,] p, float cx, float cy)
+        {
+            var ix = (int)MathF.Round(cx);
+            var iy = (int)MathF.Round(cy);
+            var peak = 0f;
+            var min = float.MaxValue;
+            for (var dy = -6; dy <= 6; dy++)
+            {
+                for (var dx = -6; dx <= 6; dx++)
+                {
+                    var v = p[iy + dy, ix + dx] - Background;
+                    peak = MathF.Max(peak, v);
+                    min = MathF.Min(min, v);
+                }
+            }
+
+            return min / peak;
+        }
+
+        output.WriteLine($"deepest dip below background within 6 px, over the star's peak: source {Median(Stars.Select(s => DeepestDip(plane, s.X, s.Y))):P2}, bilinear {Median(Stars.Select(s => DeepestDip(bilinear, s.X + 0.5f, s.Y + 0.5f))):P2}, lanczos3 {Median(Stars.Select(s => DeepestDip(lanczos, s.X + 0.5f, s.Y + 0.5f))):P2}");
         output.WriteLine($"detector median FWHM: source {Median(detectorSource):F3} ({detectorSource.Count}), bilinear {Median(detectorBilinear):F3} ({detectorBilinear.Count}), lanczos3 {Median(detectorLanczos):F3} ({detectorLanczos.Count})");
 
         source.ShouldBe(2.12, tolerance: 0.15);

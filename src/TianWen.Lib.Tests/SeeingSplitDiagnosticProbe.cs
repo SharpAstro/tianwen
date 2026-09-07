@@ -651,6 +651,136 @@ public class SeeingSplitDiagnosticProbe(ITestOutputHelper output)
         output.WriteLine("background; a positive number is a dip. undershoot / peak reads it against the median star's own peak.");
     }
 
+    /// <summary>
+    /// The stacked radial profile of the bright unsaturated stars in each stage master named in
+    /// <c>TIANWEN_E210_RING</c>: background-subtracted, peak-normalised, the median over stars per 0.5 px
+    /// radial bin out to 8 px, on the same 1024 px green crop as the ringing probe. A sinc kernel's
+    /// negative lobe shows here as a bin BELOW zero (or below the Moffat's wing) at one to three pixels
+    /// beyond the core, which is where <c>PsfProfileFit</c> refused the Lanczos master as a poor Moffat
+    /// while the annulus-minimum measure, starting at 1.2 FWHM on the star's own wing, saw nothing.
+    /// </summary>
+    [Fact]
+    public async Task ReportTheRadialProfileOfTheStageMasters()
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable("TIANWEN_E210_DIAG") == "1", "TIANWEN_E210_DIAG is not 1");
+        var pairDir = Environment.GetEnvironmentVariable("TIANWEN_E210_PAIR_DIR");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(pairDir), "TIANWEN_E210_PAIR_DIR not set");
+        var exps = (Environment.GetEnvironmentVariable("TIANWEN_E210_RING") ?? "exp-near6-fixed,exp-near6-lanczos")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var ct = TestContext.Current.CancellationToken;
+        const int side = 1024;
+        const float binPx = 0.5f;
+        const int bins = 16;
+
+        var header = $"{"stage",-22} {"stars",5} | " + string.Join(" ", Enumerable.Range(0, bins).Select(b => $"{(b + 0.5f) * binPx,6:F2}"));
+        output.WriteLine("median over stars of the background-subtracted profile normalised to the star's peak, per 0.5 px radial bin (bin centre in px):");
+        output.WriteLine(header);
+        foreach (var exp in exps)
+        {
+            var expDir = Path.Combine(pairDir!, exp);
+            var masterPath = Directory.Exists(expDir)
+                ? Directory.GetFiles(expDir, "master_*.fits").FirstOrDefault(p => !p.Contains("autocrop", StringComparison.OrdinalIgnoreCase) && !p.Contains("rejection", StringComparison.OrdinalIgnoreCase))
+                : null;
+            if (masterPath is null || !Image.TryReadFitsFile(masterPath, out var master) || master is null)
+            {
+                output.WriteLine($"{exp,-22} (no master)");
+                continue;
+            }
+
+            try
+            {
+                var (channels, width, height) = master.Shape;
+                if (width < side || height < side)
+                {
+                    output.WriteLine($"{exp,-22} smaller than the {side} px square");
+                    continue;
+                }
+
+                var crop = CropCentre(master, Math.Min(1, channels - 1), side);
+                var (bg, _) = BackgroundStats(crop);
+                var wrapped = Wrap(crop, side, side);
+                List<ImagedStar> stars;
+                try
+                {
+                    stars = (await wrapped.FindStarsAsync(channel: 0, snrMin: 20f, cancellationToken: ct))
+                        .Where(s => s.StarFWHM > 0f && s.SNR >= 50f && s.SNR <= 400f).ToList();
+                }
+                finally
+                {
+                    wrapped.Release();
+                }
+
+                var perBin = new List<double>[bins];
+                for (var b = 0; b < bins; b++)
+                {
+                    perBin[b] = [];
+                }
+
+                var used = 0;
+                foreach (var s in stars)
+                {
+                    var cx = s.XCentroid;
+                    var cy = s.YCentroid;
+                    var ix = (int)MathF.Round(cx);
+                    var iy = (int)MathF.Round(cy);
+                    if (ix < 10 || iy < 10 || ix >= side - 10 || iy >= side - 10)
+                    {
+                        continue;
+                    }
+
+                    var peak = float.MinValue;
+                    for (var dy = -1; dy <= 1; dy++)
+                    {
+                        for (var dx = -1; dx <= 1; dx++)
+                        {
+                            peak = MathF.Max(peak, crop[((iy + dy) * side) + ix + dx] - bg);
+                        }
+                    }
+
+                    if (peak <= 0f)
+                    {
+                        continue;
+                    }
+
+                    var sums = new double[bins];
+                    var counts = new int[bins];
+                    for (var dy = -9; dy <= 9; dy++)
+                    {
+                        for (var dx = -9; dx <= 9; dx++)
+                        {
+                            var r = MathF.Sqrt(((ix + dx - cx) * (ix + dx - cx)) + ((iy + dy - cy) * (iy + dy - cy)));
+                            var b = (int)(r / binPx);
+                            if (b >= bins)
+                            {
+                                continue;
+                            }
+
+                            sums[b] += (crop[((iy + dy) * side) + ix + dx] - bg) / peak;
+                            counts[b]++;
+                        }
+                    }
+
+                    for (var b = 0; b < bins; b++)
+                    {
+                        if (counts[b] > 0)
+                        {
+                            perBin[b].Add(sums[b] / counts[b]);
+                        }
+                    }
+
+                    used++;
+                }
+
+                var cells = perBin.Select(v => v.Count == 0 ? "     -" : $"{Median(v.OrderBy(x => x).ToList()),6:F3}");
+                output.WriteLine($"{exp,-22} {used,5} | {string.Join(" ", cells)}");
+            }
+            finally
+            {
+                master.Release();
+            }
+        }
+    }
+
     private static float NearestDistance(float[] xs, float[] ys, Vector2 p)
     {
         var bestSq = float.MaxValue;
