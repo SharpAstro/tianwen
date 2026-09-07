@@ -222,8 +222,20 @@ whole night's 2.70 to 2.48, each still the mean of its frames, with no ringing o
 at 2 px seeing, so the case for the default is made and the flip is the user's, since it changes every
 master. One consequence: the star profile fit refuses the sharper master, and every sharp input, because
 a Gaussian core with a faint wing is not a fixed-width Moffat to an equal-weight log fit
-(`known-limitations.md`; E1g-2 owed). `PsfProfileFit.Diagnostics` now carries the stacked profile, the
-floor and the fitted bins, so a refusal can be read bin by bin.
+(`known-limitations.md`). `PsfProfileFit.Diagnostics` now carries the stacked profile, the floor and
+the fitted bins, so a refusal can be read bin by bin.
+
+**`PsfProfileFit` fits the star's core and reports its wing** (`Result.WingAt2Fwhm`, `WingAt3Fwhm`).
+The Moffat was fitted in log space, equal weight per bin, over every bin above 0.2 percent of the peak
+out to 12 px, and it refused every sharp input: a 2.3 px Lanczos master, a two-frame stack, a 1.8 px
+sub, because their stacked star is Gaussian to 2 px with a faint half-to-two-percent wing that no
+fixed-width Moffat follows across three decades, while blurrier masters sat closer to the family and
+passed. The fit now runs over the bins above two percent of the peak (about two FWHM) and reports the
+profile's own value at two and three FWHM beside the exponent. Every refused profile returns, every
+accepted width is unchanged to the hundredth, and the exponents rise by one to three everywhere (the
+wing bins had been pulling them toward heavy wings); above an exponent of about six the core cannot
+tell exponents apart, so a high beta means Gaussian-cored. **The store's `MoffatBeta` and E0's beta
+statistics were measured the old way** and are a different quantity until the masters are re-measured.
 
 ## 7.0
 

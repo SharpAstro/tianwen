@@ -719,7 +719,17 @@ cost, measured 4 to 9 percent apart from a staged one before either registration
 `--warp-interpolation Lanczos3` is opt-in while its ringing on real frames is measured (R1); the
 default flip changes every master and is the user's decision.
 
-### The star profile fit refuses a SHARP master, because a Gaussian core with a faint wing is not a Moffat
+### FIXED (E1g-2, 2026-09-07): the star profile fit refused a SHARP master, because a Gaussian core with a faint wing is not a Moffat
+
+**Fixed the same evening by fitting the CORE** (`PsfProfileFit.CoreFitFloor`: bins above two percent
+of the peak, about two FWHM) and reporting the wing beside it (`Result.WingAt2Fwhm`, `WingAt3Fwhm`, the
+profile's own value). Every refused profile returns (the R1 Lanczos master 2.32 px, the two-frame
+stack 2.20, the VNG subs 1.73 to 1.90), every accepted width is unchanged to the hundredth, and the
+exponents rose by one to three everywhere because the wing bins had been pulling them down. **What
+remains:** above an exponent of about six the core cannot tell exponents apart (a beta-7 synthetic
+reads 10.7), so a high beta means "Gaussian-cored" and the wing number carries the rest; and the
+store's `MoffatBeta` column and E0's beta statistics were measured with the wing in the fit, so they
+are a different quantity from a post-E1g-2 value until the masters are re-measured. The history:
 
 `PsfProfileFit` stacks bright isolated stars after a per-star annulus background, then fits a Moffat in
 LOG space, equal weight per quarter-pixel bin, over every bin above 0.2 percent of the peak out to 12

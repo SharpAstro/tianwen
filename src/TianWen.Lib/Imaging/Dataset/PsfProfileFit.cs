@@ -25,20 +25,30 @@ namespace TianWen.Lib.Imaging.Dataset
         /// <summary>Radial bins, i.e. profile sampled out to <c>Bins * BinWidth</c> = 12 px.</summary>
         private const int Bins = 48;
 
-        /// <summary>Below this the stacked profile is background residue, not signal, and including
-        /// it would let the noise floor drive a log-space fit.</summary>
+        /// <summary>
+        /// The Moffat is fitted over the bins where the stacked profile is above this fraction of the
+        /// peak, about two FWHM: the core, which is what a deconvolution kernel is built from. The
+        /// fainter wing is reported beside it (<see cref="Result.WingAt2Fwhm"/>,
+        /// <see cref="Result.WingAt3Fwhm"/>) rather than fitted.
+        /// </summary>
         /// <remarks>
-        /// <para>A floor relative to the profile's own outer level was tried and withdrawn the same
-        /// evening (E1g, 2026-09-07): the per-star annulus already leaves the outer bins near zero on
-        /// real masters (0.03 to 0.07 percent of peak at 9 to 12 px), so the relative floor changed no
-        /// bin there, and on a detached halo it raised the floor into the core and turned a
-        /// <see cref="Refusal.PoorFit"/> into <see cref="Refusal.TooFewFitBins"/>. What refuses a SHARP
-        /// master is shape, not residue: its stacked star is Gaussian in the core to 2 px with a faint
-        /// wing of half a percent to two percent from 3 to 5 px, and no single Moffat with the
-        /// half-maximum width fixed follows both across three decades in an equal-weight log fit. The
-        /// <see cref="Diagnostics.Profile"/> is exposed so that is visible bin by bin.</para>
+        /// <para>Until E1g-2 (2026-09-07) the fit ran over every bin above 0.2 percent of the peak, out to
+        /// 12 px, equal weight per bin in log space, and it REFUSED every sharp input: the R1 Lanczos
+        /// master at 2.3 px (log rms 0.83), a two-frame stack (0.76), a VNG sub at 1.8 px (0.77). Their
+        /// stacked star is Gaussian to within 0.02 at every bin out to 2 px and then carries a wing of
+        /// half a percent to two percent from 3 to 5 px, and no Moffat with the half-maximum width fixed
+        /// follows both across three decades: the exponent that reaches the wing overshoots the core
+        /// (0.159 where the profile has 0.106 at 2.1 px), the one that fits the core has no wing, and
+        /// the search settled between them. Blurrier masters sit closer to the family and passed, so
+        /// the estimator step was refusing exactly the frames the deconvolver most wants to measure,
+        /// and the exponents it accepted leaned toward the wing. A floor relative to the profile's own
+        /// outer level was tried first and withdrawn within the hour (E1g): the per-star annulus already
+        /// leaves the outer bins at 0.03 to 0.07 percent, so it changed no bin, and on a detached halo
+        /// it turned a <see cref="Refusal.PoorFit"/> into <see cref="Refusal.TooFewFitBins"/>. The
+        /// <see cref="Diagnostics.Profile"/> is exposed so the shape is read rather than inferred.
+        /// docs/plans/deconvolver-training.md, E1g and E1g-2.</para>
         /// </remarks>
-        private const double NoiseFloor = 0.002;
+        private const double CoreFitFloor = 0.02;
 
         /// <summary>
         /// Largest log-space residual a reported Moffat may have. Above it <see cref="Measure"/>
@@ -75,12 +85,18 @@ namespace TianWen.Lib.Imaging.Dataset
         /// comparison. Moffat winning by a wide margin is the expected result; the two being close
         /// would mean this frame really is Gaussian-cored.</param>
         /// <param name="StarsStacked">How many stars went into the stack.</param>
+        /// <param name="WingAt2Fwhm">The stacked profile at two FWHM from the centre, as a fraction of
+        /// the peak (interpolated between bins; NaN beyond the sampled 12 px). The wing the core fit does
+        /// not reach: a Gaussian of the same width would put 6e-5 here, a beta-4 Moffat 0.7 percent.</param>
+        /// <param name="WingAt3Fwhm">The same at three FWHM.</param>
         public sealed record Result(
             double Fwhm,
             double MoffatBeta,
             double MoffatLogRms,
             double GaussianLogRms,
-            int StarsStacked);
+            int StarsStacked,
+            double WingAt2Fwhm = double.NaN,
+            double WingAt3Fwhm = double.NaN);
 
         /// <summary>How the stars to stack are chosen from the detections.</summary>
         public enum StarSelection
@@ -350,7 +366,7 @@ namespace TianWen.Lib.Imaging.Dataset
                 return null;
             }
 
-            var floor = NoiseFloor;
+            var floor = CoreFitFloor;
             var fitBins = new List<int>();
             for (var b = 0; b < Bins; b++)
             {
@@ -388,7 +404,24 @@ namespace TianWen.Lib.Imaging.Dataset
                 return null;
             }
             var gaussRms = GaussianLogRms(profile, radii, fitBins, fwhm);
-            return new Result(fwhm, beta, moffatRms, gaussRms, stacked);
+            return new Result(fwhm, beta, moffatRms, gaussRms, stacked, ProfileAt(profile, 2 * fwhm), ProfileAt(profile, 3 * fwhm));
+        }
+
+        /// <summary>The stacked profile at radius <paramref name="r"/> px, interpolated linearly
+        /// between bin centres; NaN outside the sampled range or where a bin is empty.</summary>
+        private static double ProfileAt(double[] profile, double r)
+        {
+            var position = (r / BinWidth) - 0.5;
+            if (position < 0 || position >= profile.Length - 1)
+            {
+                return double.NaN;
+            }
+
+            var b = (int)position;
+            var t = position - b;
+            var lo = profile[b];
+            var hi = profile[b + 1];
+            return double.IsNaN(lo) || double.IsNaN(hi) ? double.NaN : lo + (t * (hi - lo));
         }
 
         private static bool IsIsolated(ImagedStar[] stars, int self, float sx, float sy)

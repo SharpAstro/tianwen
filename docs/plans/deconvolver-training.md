@@ -1145,6 +1145,37 @@ near6 Lanczos master fits at 2.2 to 2.35 px, the sharp VNG subs at 1.8 to 2.0, w
 fit unchanged within 0.02; the reported betas rise on the sharper masters (the wing they carry is
 fainter than any beta under 4 says). Kill: widths move over 0.05, or the sharp masters still refuse.
 
+**E1g-2 built and read on the masters and subs the same evening (`PsfProfileFit.CoreFitFloor` 0.02,
+`Result.WingAt2Fwhm` and `WingAt3Fwhm`; `C:/temp/e2/e210-stages-e1g2.txt`).** Every profile the old
+fit refused now returns, and every width the old fit accepted is unchanged to the hundredth (the width
+is the half maximum and never depended on the fit range):
+
+| profile | before: fit (beta) | after: fit (beta) |
+|---|---|---|
+| near6 Lanczos master (R1) | refused, rms 0.83 | 2.32 px (6.9), predicted 2.2 to 2.35 |
+| two-frame stage stack `exp-ref-plus-1` | refused, rms 0.76 | 2.20 (4.5) |
+| sub 03-05-58 VNG green | refused, rms 0.77 | 1.78 (2.8) |
+| sub 02-57-56 VNG green | refused | 1.73 (2.6) |
+| sub 03-45-13 AHD green | refused, rms 0.77 | 2.84 (7.6) |
+| near6 bilinear master | 2.47 (3.9) | 2.47 (5.9) |
+| whole night, bilinear | 2.81 (5.1) | 2.81 (8.1) |
+| whole night, Lanczos | 2.61 (4.6) | 2.61 (7.8) |
+| thirds, sharp and soft | 2.82 (4.7), 2.72 (4.7) | 2.82 (7.0), 2.72 (7.3) |
+| retained drizzle master | 2.74 (4.3) | 2.74 (6.2) |
+| subs AHD green, five | 2.00 (2.9), 1.92 (2.7), 2.09 (3.4), 2.69 (3.5), 2.84 (3.9) | 2.00 (4.4), 1.92 (3.6), 2.09 (5.3), 2.69 (4.8), 2.84 (6.7) |
+
+The exponents rose on everything by one to three, as predicted: the far-wing bins had been pulling
+every accepted beta toward heavy wings. Two consequences the measurement adds. Above an exponent of
+about six the core carries no wing to tell exponents apart, so a beta-7 synthetic field reads 10.7 and
+`PsfProfileFitTests` now asserts "Gaussian-cored" there rather than a value; the wing is reported
+beside the fit as the profile's own value at two and three FWHM (pinned against the Moffat's closed
+form at beta 2.5 and 4), which is the number a kernel's far wing should be read from. And the store's
+`MoffatBeta` changes meaning with this: every beta in `psf-sessions.jsonl` and E0's "beta correlates
+with FWHM" statistics were measured with the wing in the fit, so they are not comparable to a value
+measured after E1g-2 until the store is re-measured (`--force-psf` on the masters; the running
+`--remeasure-subs` pass predates E1g-2 too). The oracle rows over E1e's 180 (below) are the last
+pre-registered number.
+
 *What E2.10 needs before a second attempt.* A per-sub width that reads seeing: the bright-star
 profile fit on the debayered GREEN plane, beside the mosaic width in the store (owed: a
 `SubFwhmGreen` column, filled by `--remeasure-subs`, then E2.9's readout and the candidate list

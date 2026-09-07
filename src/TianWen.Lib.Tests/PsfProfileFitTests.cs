@@ -37,9 +37,29 @@ namespace TianWen.Lib.Tests
             var result = PsfProfileFit.Measure(image, channel: 0, stars).ShouldNotBeNull();
 
             result.Fwhm.ShouldBe(trueFwhm, tolerance: 0.35);
-            // Beta is a wing-shape parameter fitted over a finite radius, so it is recovered to
-            // within a fraction rather than exactly; the sweep only needs the right neighbourhood.
-            result.MoffatBeta.ShouldBe(trueBeta, tolerance: Math.Max(1.0, trueBeta * 0.35));
+            if (trueBeta < 6)
+            {
+                // Beta is a wing-shape parameter fitted over a finite radius, so it is recovered to
+                // within a fraction rather than exactly; the sweep only needs the right neighbourhood.
+                result.MoffatBeta.ShouldBe(trueBeta, tolerance: Math.Max(1.0, trueBeta * 0.35));
+            }
+            else
+            {
+                // The fit runs over the core (bins above two percent of the peak, E1g-2), and inside that
+                // contour a beta-7 Moffat is a Gaussian to within the noise: exponents above about six
+                // read high (10.7 for this field) and are not told apart, which is what "Gaussian-cored"
+                // means for a deconvolution kernel. The wing the fit did not use is reported beside it.
+                result.MoffatBeta.ShouldBeGreaterThan(5.5, $"a beta-{trueBeta} field should read as Gaussian-cored, got {result.MoffatBeta:F2}");
+            }
+
+            // The reported wing is the profile itself at two FWHM, not the fit: for a Moffat of the given
+            // exponent that is (1 + 16 (2^(1/beta) - 1))^-beta of the peak, 1.1 percent at 2.5 and 0.38 at 4
+            // (at 7 it is 0.1 percent, under this field's noise, so it is not pinned).
+            var wingTruth = Math.Pow(1 + (16 * (Math.Pow(2, 1.0 / trueBeta) - 1)), -trueBeta);
+            if (trueBeta < 6)
+            {
+                result.WingAt2Fwhm.ShouldBe(wingTruth, tolerance: wingTruth * 0.4);
+            }
         }
 
         [Fact]
@@ -201,6 +221,32 @@ namespace TianWen.Lib.Tests
 
         /// <summary>Grid of well-separated identical stars on a flat background, so the stacked
         /// profile has a known answer. Spacing is wider than the isolation radius the fit enforces.</summary>
+        /// <summary>
+        /// E1g-2: the sharp real profile. A Gaussian core of 2.2 px carrying a faint power-law wing (three
+        /// percent at the centre, 1.5 percent at 3 px, 0.8 at 5), which is what R1's Lanczos master, a
+        /// two-frame stack and a VNG sub all stacked to. No fixed-width Moffat follows both the core and
+        /// the wing, and a fit over every bin above 0.2 percent refused all three; the fit over the core
+        /// reports the width, an exponent that says "Gaussian-cored", and the wing as a number beside it.
+        /// </summary>
+        [Fact]
+        public void Measure_OnASharpGaussianCoreWithAFaintWing_ReportsItInsteadOfRefusing()
+        {
+            const double trueFwhm = 2.2;
+            var sigma = trueFwhm / 2.3548200450309493;
+            var image = RenderField(seed: 29,
+                shape: (r, _) => Math.Exp(-(r * r) / (2 * sigma * sigma)) + (0.03 / (1 + (r * r) / 9.0)),
+                alpha: sigma);
+
+            var result = PsfProfileFit.Measure(image, channel: 0, DetectSyntheticStars(image), out var diagnostics);
+
+            result.ShouldNotBeNull($"refused: {diagnostics.Refusal}, rms {diagnostics.MoffatLogRms:F2}, {diagnostics.FitBins} bins, floor {diagnostics.Floor:F3}");
+            result.Fwhm.ShouldBe(trueFwhm, tolerance: 0.3);
+            result.MoffatBeta.ShouldBeGreaterThan(5.0, $"a Gaussian core reads as a high exponent, got {result.MoffatBeta:F2}");
+            // Two FWHM is 4.4 px, where the wing alone is about one percent of the peak.
+            result.WingAt2Fwhm.ShouldBeInRange(0.004, 0.02);
+            result.WingAt3Fwhm.ShouldBeLessThan(result.WingAt2Fwhm);
+        }
+
         private static Image RenderMoffatField(double fwhm, double beta, int seed)
             => RenderField(seed, (r, alpha) => Math.Pow(1 + (r * r) / (alpha * alpha), -beta),
                 alpha: fwhm / (2 * Math.Sqrt(Math.Pow(2, 1.0 / beta) - 1)));
