@@ -115,6 +115,38 @@ The fragment shader handles all image processing in a single pass per pixel:
 
 For mono cameras (`imgSource=RawMono`), step 1 is skipped. For pre-debayered RGB files (`imgSource=ProcessedChannels`), all 3 channel textures are sampled individually.
 
+## A Canon raw file is cropped on import
+
+`Image.TryReadCanonRaw` (`Image.Import.cs`) reshapes only `CanonRawFile.ActiveArea` out of the decoded
+raster, because the raster is bigger than the photograph on every Canon body: shielded photosites down
+the left and across the top, a partly-shielded transition, and a few spare columns and rows at the far
+edges.
+
+| body | decoded | imported |
+|---|---|---|
+| 5D Mark IV | 6888x4546 | 6720x4480 at (156, 58) |
+| EOS M50 | 6288x4056 | 6000x4000 at (276, 48) |
+| EOS R5 | 5248x3510 | 5088x3392 at (144, 108) |
+| CR2 (5D Mk III) | 5568x3708 | 5472x3648 at (84, 50) |
+
+Uncropped, that margin was a flat black L on any stretched render and ~3% of the frame sitting at the
+black level inside every statistic computed over it -- including the subsampled median/MAD the stretch
+solves from. The rules that go with it are in the repo `CLAUDE.md` ("A Canon raw is cropped to its
+active area on import"): FC.SDK.Raw deliberately does not crop the mosaic, the CFA pattern comes from
+the active area rather than the raster, and `MaxValue` is measured over the kept pixels.
+
+**What the discarded margin is worth keeping for.** Its left columns are optical black: same
+amplifier, ADC, gain and timing as the picture, zero photons. Measured on a 5D Mark IV frame over
+`x < 144` (655k px, per CFA cell) the level is 2047.9 to 2048.3 against the hardcoded
+`blackLevel = 2048` FC.SDK.Raw subtracts, and the spread is 15.6 to 17.9 ADU of pure read noise with
+no sky shot noise in it -- which nothing measured from the active area can give. Three caveats before
+anyone builds on it, all measured: the TOP strip is not clean (its `G(r)` reads 2027 with three times
+the noise, and R and G(b) reach 3287 and 4411, so use columns); Canon's `BlackMaskLeftBorder` fields
+read 0 on every file inspected, so the usable window must be found by measurement; and the masked
+region is NARROWER than the discarded margin (black stops at column 143, the active area starts at
+156). It is a bias and read-noise reference, **not** a dark: dark current is per-pixel and structured,
+and a strip at one edge cannot predict a hot pixel in the middle. Tracked in FC.SDK.Raw's `TODO.md`.
+
 ## FITS Viewer Path
 
 The FITS viewer (`AstroImageDocument`) normalizes the raw image to [0,1] in-place and computes histogram-based stretch statistics on CPU. For RGGB images, CPU debayer is skipped; the raw mosaic is uploaded and the GPU shader debayers. Per-channel stats are computed from the Bayer sub-channel pixels.
@@ -133,7 +165,7 @@ The zero-alloc recycle loop above is the *design*; per-driver state:
 | Fake | ✅ | ✅ | Mirrors DAL |
 | Alpaca | ✅ | ✅ | `AlpacaImageBytes.DecodeChannel(payload, recycled)` decodes into a recycled buffer on shape match (drops it on ROI/bin change); `onRelease` returns it to the bag. (Was a no-op release, fresh LOH alloc per frame, until the 2026-07-06 audit.) |
 | ASCOM | ✅ | ✅ | `ImageData` caches the COM `ImageArray` marshal + `FromWxHImageData(sourceData, recycled)` transpose **once per exposure**; cleared by `ReleaseImageData` + `StartExposureAsync` (mirrors Alpaca). (Was a computed property, full COM re-marshal on every read, no-op release, until the audit. The "reads null after `GetImageAsync`" contract in step 3 now holds for ASCOM too.) |
-| Canon | ❌ | ❌ | Wraps the RAW-decode output array (no copy); decode allocates per frame anyway, so recycling has little to win. Deliberate. |
+| Canon | ❌ | ❌ | Wraps the RAW-decode output array (no copy); decode allocates per frame anyway, so recycling has little to win. Deliberate. Note the file path crops to the sensor's active area (see below); the live-capture path here is already a cropped live-view frame. |
 
 Consumer-side copies that are **by design** (do not "fix"):
 

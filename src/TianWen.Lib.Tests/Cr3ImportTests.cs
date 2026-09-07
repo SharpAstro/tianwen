@@ -1,4 +1,4 @@
-using Shouldly;
+﻿using Shouldly;
 using System;
 using System.IO;
 using System.Threading.Tasks;
@@ -59,8 +59,14 @@ public class Cr3ImportTests(ITestOutputHelper output)
 
         var (channels, w, h) = mosaicImage.Shape;
         channels.ShouldBe(1, "CR3 import returns the Bayer mosaic as a 1-channel float Image");
-        w.ShouldBe(5248);
-        h.ShouldBe(3510);
+
+        // The ACTIVE AREA, not the decoded raster: the R5 records 5248x3510 and declares
+        // (144, 108)-(5231, 3499) as the picture, so the import crops 160 columns and 118 rows of
+        // shielded and spare sensor off. Asserting the raster size here is what let the shielded
+        // border reach the display and the frame statistics unnoticed for as long as CR3 import
+        // has existed -- it looked like a photograph with a dark edge.
+        w.ShouldBe(5088);
+        h.ShouldBe(3392);
         mosaicImage.ImageMeta.SensorType.ShouldBe(SensorType.RGGB);
         mosaicImage.ImageMeta.Instrument.ShouldBe("Canon EOS R5");
         output.WriteLine($"Loaded {w}x{h} {mosaicImage.ImageMeta.Instrument} CR3 " +
@@ -82,6 +88,75 @@ public class Cr3ImportTests(ITestOutputHelper output)
         RenderRgbToPng(rgbImage, pngPath, applyMatrix: rgbImage.ImageMeta.CameraToSrgbMatrix);
         output.WriteLine($"CR3 debayered render: {pngPath}");
         new FileInfo(pngPath).Length.ShouldBeGreaterThan(10_000);
+    }
+
+    /// <summary>
+    /// The crop is applied at the right OFFSET, not merely to the right SIZE.
+    /// </summary>
+    /// <remarks>
+    /// <para>A size assertion alone passes on a crop taken from the wrong corner, which would shift
+    /// every pixel coordinate the viewer, the star detector and any WCS agree on -- and look
+    /// completely normal, because the wrong corner of a photograph is still a photograph.</para>
+    /// <para>The test SEARCHES for a pixel where a cropped and an uncropped read disagree rather
+    /// than picking one, and that is the point rather than fussiness: this fixture is almost
+    /// entirely zero after black subtraction, so the corner, the centre and any fixed block all
+    /// match on both sides and would have let an uncropped import pass. Failing to find such a pixel
+    /// is itself a failure, because then the test could not have detected anything.</para>
+    /// </remarks>
+    [Fact]
+    public void Cr3_CropsFromTheDeclaredOrigin()
+    {
+        var path = FixturePath;
+        if (!IsFixtureUsable(path))
+        {
+            Assert.Skip($"CR3 fixture not present or LFS pointer at {path}.");
+            return;
+        }
+
+        Image.TryReadImageFile(path, out var imported).ShouldBeTrue();
+        imported.ShouldNotBeNull();
+
+        var raw = FC.SDK.Raw.CanonRaw.Open(path);
+        var area = raw.ActiveArea;
+        var mosaic = FC.SDK.Raw.CanonRaw.PreprocessMosaic(raw);
+
+        area.Left.ShouldBe(144);
+        area.Top.ShouldBe(108);
+
+        // Exact mapping at three corners, so a transposed offset -- (Top, Left) read as (Left, Top)
+        // -- cannot slip through: it matches at none of them.
+        imported[0, 0, 0].ShouldBe(Raster(0, 0));
+        imported[0, 0, area.Width - 1].ShouldBe(Raster(area.Width - 1, 0));
+        imported[0, area.Height - 1, 0].ShouldBe(Raster(0, area.Height - 1));
+
+        var (probeX, probeY) = FindDiscriminatingPixel();
+        probeY.ShouldBeGreaterThanOrEqualTo(0,
+            "no pixel where a cropped and an uncropped read differ: this fixture cannot detect the bug");
+
+        output.WriteLine($"discriminating pixel ({probeX}, {probeY}): cropped {Raster(probeX, probeY)}, " +
+            $"uncropped {mosaic[(probeY * raw.Width) + probeX]}");
+        imported[0, probeY, probeX].ShouldBe(Raster(probeX, probeY));
+
+        float Raster(int x, int y) => mosaic[((y + area.Top) * raw.Width) + x + area.Left];
+
+        (int X, int Y) FindDiscriminatingPixel()
+        {
+            // Coarse stride: any pixel will do, and a full scan of 17 megapixels to find one is
+            // waste. Both reads must be in bounds, which the active area guarantees for the cropped
+            // one and the smaller extents guarantee for the uncropped one.
+            for (var y = 0; y < area.Height; y += 13)
+            {
+                for (var x = 0; x < area.Width; x += 13)
+                {
+                    if (Raster(x, y) != mosaic[(y * raw.Width) + x])
+                    {
+                        return (x, y);
+                    }
+                }
+            }
+
+            return (-1, -1);
+        }
     }
 
     /// <summary>3-channel float -> PNG with optional matrix, joint

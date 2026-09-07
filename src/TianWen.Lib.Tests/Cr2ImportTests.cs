@@ -78,8 +78,10 @@ public class Cr2ImportTests(ITestOutputHelper output)
         // is a downstream concern (DebayerAsync below).
         var (channels, w, h) = mosaicImage.Shape;
         channels.ShouldBe(1, "CR2 import returns the Bayer mosaic as a 1-channel float Image");
-        w.ShouldBe(5568);
-        h.ShouldBe(3708);
+        // The ACTIVE AREA, not the decoded raster (5568x3708): the file declares
+        // (84, 50)-(5555, 3697) as the picture. See the note in Cr3ImportTests.
+        w.ShouldBe(5472);
+        h.ShouldBe(3648);
         // SensorType.RGGB tells DebayerAsync which 2x2 pattern to apply. TianWen
         // only enumerates RGGB; other Bayer variants (BGGR/GBRG/GRBG) would
         // map via BayerOffsetX/Y but the CR2 import currently rejects them
