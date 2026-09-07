@@ -562,6 +562,95 @@ public class SeeingSplitDiagnosticProbe(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// R1's ringing read: for each stage master named in <c>TIANWEN_E210_RING</c> (comma-separated exp
+    /// directories; the bilinear and Lanczos twins by default), the deepest undershoot below the local
+    /// background in an annulus about each star, in MAD units, and the share of stars past one MAD, on a
+    /// 1024 px square from the canvas centre of the green plane, beside the star count and width there.
+    /// A sinc kernel rings; the pre-registration allows under 10 percent of a star's peak and kills at 20,
+    /// and the undershoot in MADs is the noise-referred form the oracle probes already use.
+    /// </summary>
+    [Fact]
+    public async Task ReportRingingOfTheStageMasters()
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable("TIANWEN_E210_DIAG") == "1", "TIANWEN_E210_DIAG is not 1");
+        var pairDir = Environment.GetEnvironmentVariable("TIANWEN_E210_PAIR_DIR");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(pairDir), "TIANWEN_E210_PAIR_DIR not set");
+        var exps = (Environment.GetEnvironmentVariable("TIANWEN_E210_RING") ?? "exp-near6-fixed,exp-near6-lanczos,exp-full-norm,exp-full-lanczos")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var ct = TestContext.Current.CancellationToken;
+        const int side = 1024;
+
+        output.WriteLine($"{"stage",-22} {"canvas",13} {"stars",5} {"fwhm",5} {"bg mad",8} {"undershoot p50 (MADs)",21} {"share past 1 MAD",16} {"peak p50",9} {"undershoot / peak",17}");
+        foreach (var exp in exps)
+        {
+            var expDir = Path.Combine(pairDir!, exp);
+            var masterPath = Directory.Exists(expDir)
+                ? Directory.GetFiles(expDir, "master_*.fits").FirstOrDefault(p => !p.Contains("autocrop", StringComparison.OrdinalIgnoreCase) && !p.Contains("rejection", StringComparison.OrdinalIgnoreCase))
+                : null;
+            if (masterPath is null || !Image.TryReadFitsFile(masterPath, out var master) || master is null)
+            {
+                output.WriteLine($"{exp,-22} (no master)");
+                continue;
+            }
+
+            try
+            {
+                var (channels, width, height) = master.Shape;
+                if (width < side || height < side)
+                {
+                    output.WriteLine($"{exp,-22} {width,5} x {height,-5} smaller than the {side} px square");
+                    continue;
+                }
+
+                var crop = CropCentre(master, Math.Min(1, channels - 1), side);
+                var (bg, mad) = BackgroundStats(crop);
+                var wrapped = Wrap(crop, side, side);
+                try
+                {
+                    var stars = (await wrapped.FindStarsAsync(channel: 0, snrMin: 20f, cancellationToken: ct)).Where(s => s.StarFWHM > 0f).ToList();
+                    var (undershoot, share) = Ringing(crop, side, stars, bg, mad);
+                    var fwhm = stars.Count == 0 ? double.NaN : Median(stars.Select(s => (double)s.StarFWHM).ToList());
+                    // The star's peak above background in the same units, for the undershoot as a share of it.
+                    var peaks = new List<double>();
+                    foreach (var s in stars)
+                    {
+                        var cx = (int)MathF.Round(s.XCentroid);
+                        var cy = (int)MathF.Round(s.YCentroid);
+                        if (cx >= 1 && cy >= 1 && cx < side - 1 && cy < side - 1)
+                        {
+                            var peak = float.MinValue;
+                            for (var dy = -1; dy <= 1; dy++)
+                            {
+                                for (var dx = -1; dx <= 1; dx++)
+                                {
+                                    peak = MathF.Max(peak, crop[((cy + dy) * side) + cx + dx]);
+                                }
+                            }
+
+                            peaks.Add(peak - bg);
+                        }
+                    }
+
+                    var peakMad = peaks.Count == 0 ? double.NaN : Median(peaks) / mad;
+                    output.WriteLine($"{exp,-22} {width,5} x {height,-5} {stars.Count,5} {fwhm,5:F2} {mad,8:G3} {undershoot,21:F2} {share,16:F3} {peakMad,9:F0} {(double.IsNaN(peakMad) ? double.NaN : undershoot / peakMad),17:P1}");
+                }
+                finally
+                {
+                    wrapped.Release();
+                }
+            }
+            finally
+            {
+                master.Release();
+            }
+        }
+
+        output.WriteLine("");
+        output.WriteLine("undershoot: median over stars of the deepest pixel in the annulus (1.2 to 2.5 FWHM) below the background, in MADs of the");
+        output.WriteLine("background; a positive number is a dip. undershoot / peak reads it against the median star's own peak.");
+    }
+
     private static float NearestDistance(float[] xs, float[] ys, Vector2 p)
     {
         var bestSq = float.MaxValue;

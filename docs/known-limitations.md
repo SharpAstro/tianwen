@@ -696,7 +696,28 @@ the plate solver's candidate list. The 2000-star retry makes it worse: on a fiel
 it lowers the threshold until warm pixels fill the list. **Owed:** a guard in the RGGB branch of
 `DetectStarsAsync` on the raw mosaic (a detection whose flux sits in one photosite is not a star),
 pre-registered and measured on the Orion night's moved and unmoved populations before it ships,
-because it touches every consumer of the star list and the fixtures pin star counts.
+because it touches every consumer of the star list and the fixtures pin star counts. **Shipped the
+same evening** (`Image.SinglePhotositeFractionMax`, 0.85): the real RGGB fixture loses 1.2 percent of
+its detections, all of them the narrow spikes; on the Orion frames the lists halve and the unmoved
+pairs fall from hundreds to a handful. The store re-measure with the guarded detector decides whether
+the three sessions' green fits run.
+
+### A stacked master is its subs plus the warp kernel's own blur, and bilinear costs about a pixel of FWHM in quadrature at 2 px seeing
+
+Every frame but the reference is resampled onto the reference grid (`Image.WarpToReferenceGridAsync`),
+and until R1 the kernel was bilinear and only bilinear: a triangle of unit base, whose variance at a
+fractional phase is phase times one minus phase per axis, 0.25 px squared at half phase. Measured star
+by star on the Orion 2025-10-15 night (`docs/plans/deconvolver-training.md`, "the third finding
+placed"): a master is the MEAN of its warped frames to 0.3 percent, so the combine adds nothing, and
+the frames at fractional shifts read 2.4 to 2.7 px where the frames at integer shifts (the reference,
+and one whose drift happened to be near-integer) read their subs' 2.15. On a synthetic 2.15 px star a
+half-pixel shift adds 1.15 px of FWHM in quadrature under bilinear and 0.00 under Lanczos-3
+(`WarpInterpolationTests`). **What follows:** every master built before R1 carries it, the retained
+dataset masters and the deconvolver's training targets included; a seeing-split pair cannot be built
+from masters whose width does not follow their inputs; and a drizzle master has its own pixel-kernel
+cost, measured 4 to 9 percent apart from a staged one before either registration fix.
+`--warp-interpolation Lanczos3` is opt-in while its ringing on real frames is measured (R1); the
+default flip changes every master and is the user's decision.
 
 ## GPU / rendering
 
