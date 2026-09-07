@@ -112,10 +112,13 @@ target below the horizon rather than a clamped value that would read as a deep o
 **`ImageMeta.Airmass`** reads the capture software's `AIRMASS` card, recorded beside the computed
 value as a cross-check and never substituted for it. The archive-wide measurement it was built for
 (E2.9) then found that computed and card agree to a median 0.015 on 50 of the 52 sessions carrying
-both, that every SharpCap capture writes no `SITELAT`/`SITELONG` at all (27 of 79 sessions have no
-computed value), and that no session's FWHM spread is explained by air mass at these focal lengths;
-`tools/psf-airmass-report.py --airmass either` uses the card where the computation has no site,
-labelled as such, on the strength of that agreement.
+both, and that every SharpCap capture writes no `SITELAT`/`SITELONG` at all (27 of 79 sessions have
+no computed value); `tools/psf-airmass-report.py --airmass either` uses the card where the
+computation has no site, labelled as such, on the strength of that agreement. The FWHM half of that
+measurement is withdrawn: `SessionPsf.SubFwhm` is the registration detector's width on the
+pre-debayer mosaic, which reads 1.70 px on every sub of an OSC night whatever the seeing (the
+debayered green plane puts the same subs at 1.7 to 2.5), so it ranks frames on a floor, not on
+seeing, and a per-sub width that reads seeing is owed before the question is asked again.
 
 **`MoffatComposition` (`TianWen.Lib/Imaging/Degradation`)** is the width of one Moffat convolved
 with another and its inverse, the kernel that takes a clean profile to an observed one. It exists

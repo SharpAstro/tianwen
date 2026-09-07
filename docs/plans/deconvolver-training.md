@@ -397,8 +397,8 @@ everything and above it recovers little.
 | E1e | **RUN 2026-09-07** (under E1b's results). `PsfProfileFit.StarSelection.SignalFloor` (opt-in; every star over fifty MADs, brightest first) in place of the percentile band: refusals 30 of 180 from 75 (prediction under 30, kill 60); clean PoorFit 4 to 1, noisy observed PoorFit 20 to 4, TooFewStacked 2 to 7 on sparse and heavily blurred frames; width ratios unchanged within 0.02. The band was the cause. | 23.5 min CPU | the refusals were the band |
 | E2.8b | **RUN 2026-09-07, not killed by one seed** (under E2.8's results). Arm N, the star term's counterpart over EMPTY target windows: observer fabrication 34-45x to 2.6-9.7x (four of five under the input's own null) as predicted, but four of five seeds lose the sharpening (selected 1.32-1.34 against an input of 1.38, stars 0.63, trained toward the identity); seed 1, the lowest weight, keeps both (1.183 selected, observer 9.7x). Arm W, the weight re-fixed at step 400: observer 22-42x, three of five under 1.30; not the mechanism. E2.8c (arm N at seed 1's fixed weight) pre-registered to say whether the weight was the cause. | 10 x ~10 min GPU | a per-star term can be honest; whether it can be honest AND sharp rides on the weight |
 | E2.8c | **RUN 2026-09-07, prediction failed, not killed** (under E2.8b's results). Arm N with the weight fixed at 1.84e-3: two of five seeds hold both (selected 1.238 and 1.163 at 0.74 to 0.76 stars, observer 11 and 10x), sharpening only after step 3,000; three never leave the input. Every seed honest on the observer (1.5 to 11x against 34 to 45). The weight was part of the cause, the optimisation the rest; the profile of a regulariser, which is how it enters the unrolled operator. **The fork is decided below: the unrolled operator, the estimator step under it, no capacity arm.** | 5 x ~10 min GPU | the honest recipe has an operating point on two seeds in five |
-| E2.9 | **RUN 2026-09-07, kill line reached for 2.1c** (section below). FWHM against air mass over 79 sessions, 8,507 subs re-measured in 62.6 min: 0 of 67 fitted sessions reach a 1.3x FWHM span explained by air mass; slopes centre on zero (SH61 -0.15 over 14 sessions, 135 mm -0.04 over 34), only the two ZS61 sessions read where Kolmogorov predicts (+0.29, +0.46) and their spans are too short. The within-night spread (p90/p10 to 1.47x) is real and not altitude. Computed air mass agrees with N.I.N.A.'s card to 0.015 on 50 of 52 sessions; SharpCap writes no site cards, so 27 sessions have none computed (a header fallback covers 15). | 62.6 min CPU | Air-mass pairs cannot reach the range; real blur is E2.10's seeing split |
-| E2.10 | **Candidates listed 2026-09-07** (section below): 7 of 79 sessions reach p90/p10 of 1.15 on the gate-surviving subs, two of them 1.3x sharp-to-soft (a 60-sub Orion at 1.43, a 35-sub HD 71272 at 1.28 that is held back over a pointing question), four at 1.11 to 1.18. Seeing-split pairs: per session, the sharpest and softest thirds of the subs stacked into two masters of one night, the first real-blur validation set. Next: `stack --manifest` A and B for the Orion session. | minutes a session | The light end of the range, on real seeing |
+| E2.9 | **RUN 2026-09-07, then WITHDRAWN to inconclusive the same afternoon** (section below). FWHM against air mass over 79 sessions, 8,507 subs re-measured in 62.6 min, read 0 of 67 sessions reaching a 1.3x span explained by air mass; but E2.10a's diagnostic showed the store's per-sub width is the mosaic mono path's, which reads 1.70 on every sub of an OSC night whatever the seeing, so the slopes measure an instrument floor. Standing: computed air mass agrees with N.I.N.A.'s card to 0.015 on 50 of 52 sessions; SharpCap writes no site cards (27 sessions uncomputed, `--site` supplies one now). Owed: a green-plane sub width in the store, then the readout again. | 62.6 min CPU, plus a re-measure | Not yet known; the instrument was wrong |
+| E2.10 | **E2.10a RUN 2026-09-07: no pair to score** (section below). The Orion night's sharp and soft thirds, built as pre-registered, measure the same width (2.82 against 2.72 px on the green fit, B/A 0.97 to 1.03), and the oracle correctly did nothing. Diagnosed stage by stage: the store's per-sub width is the mosaic mono path's floor (1.70 on every sub) so the split was ranked on noise; the subs do differ on the green plane by 1.15 to 1.25x; and every stack of the night, drizzle included, sits at 2.7 to 2.8 px from 1.7 to 2.5 px subs. Two stacker fixes came out of it (`--group-temp-tolerance`, the `CANVASX0/Y0` cards). Owed before a second attempt: a green-plane sub width in the store, and a stacking path whose output width follows its input's. | a day, three launches | No real-blur pair yet; the sub width and the stack both need fixing first |
 | D1 | **BUILT 2026-09-07, off by default; both halves measured** (under "The next four"). Per-tile psf01 at inference: `ChunkedNafnetRunner` extras per chunk, `OnnxNonStellarDeconvolver` estimating per chunk region with a frame-level fallback, so inference matches the per-cell training label. CPU half: on the seven Rim masters the per-tile radius spans 8 to 61 percent p10 to p90 and 10 to 16 percent of tiles starve. GPU half: a NULL on the shipped SAS graph, per-tile and whole-image outputs within 0.01 px and one percent in count on every master, including four where 250 of 289 tiles carried a different label; the switch stays off for that graph and ships for E7's own. Side finding: on stars the shipped graph widens soft cores and drops most of the outer third's stars. The fixed-psf01 check (0 / 0.5 / 1 over the whole shipped range) moves the output by 0.03 to 0.06 px and three percent in count: the shipped graph's conditioning input is inert on a real master's stars, so the null is the graph's property. | half a day | The field-varying half of the optics blur |
 | E4 | Stationary vs position-varying (H7) on the refractor trains. | 2 x 3 x 11 min | H7 |
 | E5 | On-the-fly torch degradation with the MTF pin, if E3 is sample-hungry. | a day | Sample efficiency |
@@ -674,6 +674,18 @@ rather than an assumption.
 
 *Cost.* One field, one switch, about 2.5 hours of unattended CPU, one python plot.
 
+> **Corrected the same afternoon (E2.10a's diagnostic, below): the per-sub width this run fitted
+> is NOT a star width on OSC frames.** `SessionPsf.SubFwhm` comes from the one detect site, which
+> measures on the pre-debayer mosaic through the mono path, and on the Orion 2025-10-15 night every
+> sub reads exactly 1.70 px there while the debayered green plane's bright-star fit puts the same subs
+> at 1.7 to 2.5 px and shows one "1.71" frame to be the night's softest. The store's 1.71 to 2.60
+> spread is a floor plus the 2000-star retry, not seeing, so the slopes below are slopes of an
+> instrument reading against air mass, and the "kill line reached" verdict is withdrawn: E2.9 is
+> INCONCLUSIVE until the store carries a colour-plane sub width (owed below) and the readout is
+> re-run on it. The cross-check of the computed air mass against the card, the SharpCap site gap and
+> the within-night spread being large stand; what is attributed to them does not. The mono session
+> (ASI1600, 328 subs, slope +0.17) is the one row the correction does not touch.
+
 **E2.9 ran 2026-09-07: 62.6 min for 8,507 subs over 79 sessions (428 ms a sub, measure stage only),
 `C:/temp/e2/e29-airmass-report.txt`, `-either.txt`, plot `e29-fwhm-airmass.png`. Kill line reached
 for 2.1c: 0 of 67 fitted sessions reach a 1.3x FWHM span attributable to air mass.**
@@ -789,6 +801,64 @@ rows never showed for `est-c`.
 same way, which is the first time the shipped deconvolver is scored against a real truth. Not
 pre-registered as a pass or fail: it is the baseline any trained arm must beat on this pair, and its
 number is the finding.
+
+**E2.10a ran 2026-09-07 (three launches; `C:/temp/e2/e210a-pair-cpu.txt`, `-sas.txt`,
+`e210-orion/` for the masters) and found no pair to score: the two thirds are the same width.** On
+the crop with the most stars (1024 px, 202 to 227 sharp-master stars at snr 20), the estimator reads
+A at 2.84 / 2.69 / 2.68 px and B at 2.76 / 2.63 / 2.62 across the channels, B/A 0.97 to 0.98; the
+bright-star fits read A 2.66 / 2.57 and B 2.70 / 2.65 (B/A 1.02 to 1.03; the third channel's A fit
+refused). The composed difference kernel is therefore 0.28 to 0.43 px, and the oracle, correctly,
+does nothing (rec/A 0.971 to 0.976 at every checkpoint, stars 1.12 to 1.13 of A's because B has more
+detections, ring excess 0). The shipped graph's baseline on the same crop: out/A 0.98 / 1.00 / 0.99,
+stars 1.01 to 1.08, ring excess 2 to 3 percent, five seconds. Neither pre-registered kill applies (the
+kills presuppose a B wider than A) and the prediction's premise (B/A 1.3 to 1.45) failed at the
+input. Three probe faults were found and fixed on the way and are recorded on the probe: the two
+masters are on different canvases (the origin cards, above), the geometric centre of the field is
+M42's core (the crop is chosen by star count now), and the detector's two scale conventions (a
+crop is normalised to a peak of 1 before detection).
+
+*Why the thirds are the same, measured stage by stage (`SeeingSplitDiagnosticProbe`, one
+estimator, whole frame).* The six subs at the ends of the store's ranking, the two thirds, the whole
+night and the retained drizzle master:
+
+| stage | store width | mosaic, mono path | AHD green (estimator / fit) | VNG green (estimator / fit) |
+|---|---:|---:|---:|---:|
+| sub 01-30-20, "sharpest" | 1.71 | 1.70 | 2.14 / 2.09 | 2.01 / 1.90 |
+| sub 02-57-56 | 1.71 | 1.70 | 2.00 / 1.92 | 1.90 / 1.73 |
+| sub 03-45-13 | 1.71 | 1.70 | 2.89 / refused | 2.78 / refused |
+| sub 04-25-22 | 2.57 | 1.70 | 2.52 / 2.45 | 2.38 / 2.19 |
+| sub 04-49-28 | 2.57 | 1.70 | 2.51 / 2.48 | 2.41 / 2.13 |
+| sub 04-43-26, "softest" | 2.60 | 1.70 | 2.50 / 2.41 | 2.40 / 2.17 |
+| sharp third, Float16Staged, 20 | | | 2.77 / 2.82 | |
+| soft third, Float16Staged, 21 | | | 2.64 / 2.72 | |
+| whole night, Float16Staged, 71 | | | 2.73 / 2.81 | |
+| retained master, BayerDrizzle, 60 | | | 2.65 / 2.74 | |
+
+Three findings, in order of reach. **First, the store's per-sub width is not a star width on an OSC
+frame.** `FrameRegistration.DetectAsync` measures on the pre-debayer mosaic through the mono path,
+for registration reasons the code documents, and that measure reads 1.70 on every sub here, the
+sharp ones and the frame that both debayers put at 2.8 to 2.9; the store's spread from 1.71 to 2.60 is
+that floor plus what the 2000-star retry does to a median, not seeing. E2.9's slopes and E2.10's
+candidate list were both computed on it, so E2.9 is withdrawn to inconclusive (its section says so)
+and the candidate list is unreliable; the ranking here put the night's softest frame in the sharp
+third. **Second, the subs DO differ on the green plane**, by 1.15 to 1.25x on the bright-star fit
+(1.7 to 2.1 against 2.1 to 2.5 px), so a seeing split of this night exists, at the light end and
+smaller than the store said. Red and blue are not usable for it: AHD and VNG disagree by a factor of
+two on red (1.5 against 3.1 px), so a per-channel width on a debayered OSC sub is a property of the
+interpolation. **Third, every stack of this night sits at 2.7 to 2.8 px on green, the drizzle
+master included, from subs that measure 1.7 to 2.5**: the integration path adds about two pixels in
+quadrature and erases a 1.2x split. Which stage does it (the warp's interpolation, the debayer, the
+averaging of frames whose PSF varies 1.5x) is not separated here and is the first thing to measure
+before E2.10 is attempted again; the plan already records that a drizzled and a staged master differ
+4 to 9 percent, and this says both sit far above their subs.
+
+*What E2.10 needs before a second attempt.* A per-sub width that reads seeing: the bright-star
+profile fit on the debayered GREEN plane, beside the mosaic width in the store (owed: a
+`SubFwhmGreen` column, filled by `--remeasure-subs`, then E2.9's readout and the candidate list
+re-run on it). And a stacking path whose output width follows its input's, or the pair is built
+some other way (a per-frame comparison, or a stack that skips the resampling). Until both exist the
+real-blur validation set does not, and E3's kernel check rests on the synthetic rows plus this one
+observation that the estimator read a 0.3 px difference as 0.3 px.
 
 #### D1: per-tile psf01 at inference
 

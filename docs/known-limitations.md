@@ -632,6 +632,27 @@ in one run. The grouping itself is correct (the filter is in the KEY); only the 
 `--group-filter` cannot separate them either. Adding the filter to the light slug changes every light
 master's file name, so it is recorded rather than done here.
 
+### The per-sub width in the PSF store is the registration detector's, and on an OSC frame it does not read seeing
+
+`SessionPsf.SubFwhm` (and the quality gate's `FrameMetrics.MedianFwhm`) come from the one detect site,
+`FrameRegistration.DetectAsync`, which measures on the PRE-DEBAYER mosaic through the mono path, for
+registration reasons that stand (a debayered plane manufactures spurious detections; the mosaic keeps
+the choice filter-independent). As a WIDTH on an OSC frame that measure reads a floor: on the Great
+Orion Nebula 2025-10-15 night every sub reads exactly 1.70 px there, the sharp ones and the one both
+debayers put at 2.8 to 2.9 px, while the store holds 1.71 to 2.60 for the same subs, which is that
+floor plus what the 2000-star retry does to a median. The debayered GREEN plane's bright-star fit
+ranks the same six subs 1.7 to 2.5 px in the order the sky did. Found 2026-09-07 when a seeing split
+ranked on the store put the night's softest frame in the sharp third
+(`docs/plans/deconvolver-training.md`, E2.10a); E2.9's air-mass slopes were computed on the same
+column and are withdrawn to inconclusive.
+
+**Two things it is not.** It is not a registration problem: the detector's positions are fine, and
+that is what it is for. And it is not a mono-camera problem: a mono frame has no mosaic and the width
+is a width. **Owed:** a `SubFwhmGreen` column from `PsfProfileFit` on the debayered green plane at the
+mosaic detections' positions (no second detection), filled by `--remeasure-subs`; until then, rank
+OSC subs on nothing in the store, and treat a per-channel width on a debayered OSC sub as a property
+of the interpolation (AHD and VNG disagree by two on red).
+
 ## GPU / rendering
 
 ### Dangling stack pointer via single-argument Vortice ctors
