@@ -42,8 +42,25 @@ public class SeeingSplitDiagnosticProbe(ITestOutputHelper output)
             // The bright-star profile fit, which a faint detection cannot inflate: the width the
             // estimator step would read off this frame.
             var green = Math.Min(1, channels - 1);
-            var (fit, diag) = await FitStarProfileAsync(FullPlane(image, green), width, height, PsfProfileFit.StarSelection.SignalFloor, 5f, 3000, ct);
+            var plane = FullPlane(image, green);
+            var (fit, diag) = await FitStarProfileAsync(plane, width, height, PsfProfileFit.StarSelection.SignalFloor, 5f, 3000, ct);
             cells.Add(fit is { } f ? $"fit ch{green} {f.Fwhm:F2} px beta {f.MoffatBeta:F1}" : $"fit ch{green} {Describe(diag)}");
+
+            // Brightness-matched: the median FWHM of the hundred BRIGHTEST detections by flux. A deep
+            // stack admits stars a sub cannot, and every median over "all detections" (the estimator's
+            // above, and the fit's MAD-relative floor) then reaches fainter, where the measured width
+            // grows with noise; the hundred brightest are the same physical stars in a sub and its stack.
+            var wrapped = Wrap(plane, width, height);
+            try
+            {
+                var stars = await wrapped.FindStarsAsync(channel: 0, snrMin: 5f, cancellationToken: ct);
+                var bright = stars.Where(s => s.StarFWHM > 0f).OrderByDescending(s => s.Flux).Take(100).Select(s => s.StarFWHM).ToList();
+                cells.Add(bright.Count == 0 ? "top100 -" : $"top100 ch{green} {Median(bright):F2} px");
+            }
+            finally
+            {
+                wrapped.Release();
+            }
         }
 
         output.WriteLine($"{label,-46} {width,5} x {height,-5} {string.Join("   ", cells)}");
