@@ -398,7 +398,7 @@ everything and above it recovers little.
 | E2.8b | **Pre-registered 2026-09-07, RUNNING** (under E2.8's results). Arm N: the star term's counterpart over EMPTY target windows (`--star-loss-empty`); arm W: the weight re-fixed to the pixel term at step 400 (`--star-loss-refix 400`). Five seeds each against E2.8's five; the observer columns are the primary readout (predicted under 14x for N from 34 to 45x). Killed if neither arm gets the observer under 2x its input null with the gate session still selectable under 1.30. | 2 x 5 x ~10 min GPU | whether a per-star term can be made honest |
 | E2.9 | **Pre-registered 2026-09-06** (section below). FWHM against airmass over the archive: `SessionPsf` gains per-sub file, epoch and airmass, one measure-only re-run, one plot. The first step of 2.1c, and it needs no sky. | ~2.5 h CPU unattended, one field and one switch | Whether the archive holds real seeing pairs, and how much range they reach |
 | E2.10 | Seeing-split pairs: per session, the sharpest and softest thirds of the subs stacked into two masters of one night, the first real-blur validation set. Needs E2.9's per-sub identity. | minutes a session | The light end of the range, on real seeing |
-| D1 | Per-tile psf01 at inference: `ChunkedNafnetRunner` extras per chunk, `OnnxNonStellarDeconvolver` estimating per chunk region with a frame-level fallback, so inference matches the per-cell training label. Ships with E7, once E2.8 says the route is alive. | half a day | The field-varying half of the optics blur |
+| D1 | **BUILT 2026-09-07, off by default; CPU half measured** (under "The next four"). Per-tile psf01 at inference: `ChunkedNafnetRunner` extras per chunk, `OnnxNonStellarDeconvolver` estimating per chunk region with a frame-level fallback, so inference matches the per-cell training label. On the seven Rim masters the per-tile radius spans 8 to 61 percent p10 to p90 and 10 to 16 percent of tiles starve; the output comparison waits for the GPU. Ships with E7, once E2.8 says the route is alive. | half a day | The field-varying half of the optics blur |
 | E4 | Stationary vs position-varying (H7) on the refractor trains. | 2 x 3 x 11 min | H7 |
 | E5 | On-the-fly torch degradation with the MTF pin, if E3 is sample-hungry. | a day | Sample efficiency |
 | E6 | Ladder capture on three nights (hardware queue); H6 scoring. | nights | The advertised range |
@@ -692,6 +692,37 @@ everywhere. `ChunkedNafnetRunner`'s extras become a per-chunk callback and the d
 per chunk region with `HfdPsfEstimator.MeasureRadiusPxAsync`, falling back to the frame value under
 N stars. Measure on Rim. Ships with E7, once E2.8 says the route is alive; not needed for E1b or
 E2.8.
+
+**D1 built 2026-09-07, off by default, and the CPU half of its measurement taken.**
+`OnnxNonStellarDeconvolver(perChunkPsf: true)` conditions each tile on its own region's estimate:
+`ChunkedInference.Layout` is the tile grid without the pixels (`Split` is built on it), the runner
+takes per-chunk extra inputs by index, `IPsfEstimator.EstimateChunkAsync` gains an overload carrying
+the whole-image value as the fallback, and `HfdPsfEstimator` measures the region's stars, answering
+the whole-image value under eight of them. The switch stays off until the OUTPUT is measured per-tile
+against whole-image, because the shipped SAS AI4 graph was trained on whole-image labels. What the
+per-tile estimate itself reads on the seven Rim masters (`PerChunkPsfProbe`, radius in px decoded over
+`[0.5, 4.0]`, 289 to 324 tiles a master, `C:/temp/e2/d1-perchunk-rim.txt`):
+
+| master | starved tiles | whole-image | tile p10 | tile p50 | tile p90 | p90/p10 | centre / corners |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Rim HaOIII 135m, 2024-07-03 | 30 | 0.90 | 0.85 | 0.91 | 0.99 | 1.16 | 0.96 |
+| Rim LPS RGB, 2024-06-06 | 31 | 0.88 | 0.84 | 0.88 | 0.91 | 1.08 | 1.01 |
+| Rim SII, 2024-07-06 | 31 | 1.11 | 1.08 | 1.19 | 1.32 | 1.22 | 1.05 |
+| Rim L-Ultimate, 2025-05-02 | 37 | 1.63 | 1.27 | 1.72 | 1.91 | 1.50 | 1.23 |
+| Rim L-Ultimate, 2026-02-16 | 34 | 1.33 | 1.29 | 1.54 | 1.87 | 1.45 | 1.14 |
+| Rim L-Ultimate, 2026-02-18 | 33 | 1.12 | 0.93 | 1.20 | 1.48 | 1.59 | 1.12 |
+| Rim L-Ultimate, 2026-02-20 | 46 | 1.15 | 0.96 | 1.25 | 1.55 | 1.61 | 1.23 |
+
+Three things it says. The 2025-26 sessions vary 45 to 61 percent from p10 to p90 across one frame,
+and their CENTRE is the soft end (12 to 23 percent wider than the corner tiles), so one psf01 per
+frame tells most of their tiles the wrong width by more than the E1 encoding resolves; the 2024
+sessions on the same camera are flatter (8 to 22 percent). The whole-image value sits at or below
+the tile median on every master (a median over all detections weights the dense regions, which here
+are the sharp ones). And 10 to 16 percent of tiles starve at eight stars and take the whole-image
+value, so the fallback is a real fraction of a frame, not a corner case. The GPU half, whether the
+graph's output is better when told the local width, waits for E2.8b to release the card; it is a
+probe over the same seven masters with per-tile against whole-image, judged by the gate's width and
+star columns per field radius.
 
 ### E1b's results, 2026-09-07: the estimate is good where it exists, and it exists for half the rows
 
