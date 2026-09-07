@@ -394,6 +394,56 @@ public class SeeingSplitDiagnosticProbe(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// The six near6 subs' own widths (calibrated as the pipeline calibrates them, AHD, green fit and
+    /// estimator), so the near6 masters' 2.65 and 2.47 px can be read against what went in rather than
+    /// against the night's sharpest and softest frames.
+    /// </summary>
+    [Fact]
+    public async Task ReportTheNear6SubsOwnWidths()
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable("TIANWEN_E210_DIAG") == "1", "TIANWEN_E210_DIAG is not 1");
+        var pairDir = Environment.GetEnvironmentVariable("TIANWEN_E210_PAIR_DIR");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(pairDir), "TIANWEN_E210_PAIR_DIR not set");
+        var manifestPath = Directory.GetFiles(pairDir!, "master_*-near6.manifest.json").FirstOrDefault();
+        Assert.SkipWhen(manifestPath is null, "no near6 manifest");
+        var ct = TestContext.Current.CancellationToken;
+
+        using var manifest = System.Text.Json.JsonDocument.Parse(File.ReadAllText(manifestPath!));
+        var paths = manifest.RootElement.GetProperty("Frames").EnumerateArray()
+            .Select(f => f.GetProperty("Path").GetString() ?? "")
+            .Where(p => p.Length > 0)
+            .OrderBy(p => Path.GetFileName(p), StringComparer.Ordinal)
+            .ToList();
+        var mastersDir = Path.Combine(pairDir!, "masters");
+        var calibrator = new Calibrator(
+            Dark: LoadMaster(Path.Combine(mastersDir, "master_dark_120s_-5C_g120.fits")),
+            Flat: LoadMaster(Path.Combine(mastersDir, "master_flat_7s_10C_OptolongL-QuadEnhance_g120_ps.fits")));
+
+        output.WriteLine("near6 subs, calibrated as the pipeline calibrates them, AHD; estimator median at snr 5, green fit with the signal floor, top-100 brightest");
+        foreach (var path in paths)
+        {
+            Image.TryReadFitsFile(path, out var raw).ShouldBeTrue(path);
+            var calibrated = calibrator.Apply(raw!);
+            try
+            {
+                var debayered = await calibrated.DebayerAsync(DebayerAlgorithm.AHD, cancellationToken: ct);
+                try
+                {
+                    await ReportAsync(Path.GetFileName(path)[..Math.Min(46, Path.GetFileName(path).Length)], debayered, ct, fitGreen: true);
+                }
+                finally
+                {
+                    debayered.Release();
+                }
+            }
+            finally
+            {
+                calibrated.Release();
+            }
+        }
+    }
+
     private static float NearestDistance(float[] xs, float[] ys, Vector2 p)
     {
         var bestSq = float.MaxValue;

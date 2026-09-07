@@ -49,6 +49,17 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
     /// against a frame median of 2.40. Those are not faint stars lost, they are positions where no star
     /// is.</para>
     ///
+    /// <para><b>The RGGB counts dropped by 1.2 % on 2026-09-07</b> (3,065 -> 3,027 at SNR 10, 2,769 ->
+    /// 2,737 at SNR 30) when a mosaic detection whose flux sits in ONE photosite stopped being a star
+    /// (<c>Image.SinglePhotositeFractionMax</c>). The mono fold the detector measures on turns a warm
+    /// photosite into a 2 by 2 blob that passes the size floor, and on an uncalibrated frame such as this
+    /// one the warm pixels are all still there; on a real night whose dark ran 17 degrees colder than
+    /// its lights they were half of every list, halved the registration's shift on every frame within
+    /// 5 px of the reference and refused the PSF store's fit on every sub. The 38 and 32 removed here
+    /// carry over 85 percent of their 3 by 3 flux in one photosite, which no sampled star does (the
+    /// real-frame populations read 0.92 to 0.99 against 0.15 to 0.41 with no overlap);
+    /// <c>StarDetectionWarmPixelTests</c> pins the measure and the guard on a synthetic mosaic.</para>
+    ///
     /// <para><b>The RGGB counts dropped by ~1.1 % on 2026-08-11</b> (3,046 -> 3,014 at SNR 10, 2,786 ->
     /// 2,753 at SNR 30) when detection stopped reporting the same star more than once. A saturated
     /// star's above-threshold halo extends past the <c>HfdFactor * HFD</c> star-area mask, so halo
@@ -74,8 +85,8 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 10f, 89, null, 0)]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 20f, 28, null, 0)]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 30f, 13, null, 0)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 30f, 2769, 5000, 0)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 3065, 5000, 0)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 30f, 2737, 5000, 0)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 3027, 5000, 0)]
     public async Task GivenImageFileAndMinSNRWhenFindingStarsThenTheyAreFound(string name, float snrMin, int expectedStars, int? maxStars = null, int expectedDuplicatePairs = 0)
     {
         // given
