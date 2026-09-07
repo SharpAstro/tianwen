@@ -94,22 +94,34 @@ internal static class DeconvolutionProbeMeasures
         return plane;
     }
 
-    /// <summary>A one-channel <see cref="Image"/> over a copy of the plane, MaxValue its own peak.</summary>
+    /// <summary>
+    /// A one-channel <see cref="Image"/> over a copy of the plane, NORMALISED to a peak of 1 so it is
+    /// unit-referred. The star detector converts a unit-referred image to 16-bit counts for its noise
+    /// model and takes anything else as ADU already (<c>aduScale = HasUnitScalePeak ? 65535 : 1</c>), so
+    /// a crop wrapped with its own peak as <c>MaxValue</c> sits between the two conventions whenever
+    /// that peak is not near 1: a TianWen master is unit-referred by convention (median 0.5) with star
+    /// peaks to 49, and such a crop found 19 stars at 4.2 px where the same pixels at 1/49 found 60 at
+    /// 2.9 (E2.10a's first run). Widths and counts are scale-free, so normalising costs nothing.
+    /// </summary>
     public static Image Wrap(float[] plane, int width, int height)
     {
-        var data = new float[height, width];
         var max = 0f;
+        foreach (var v in plane)
+        {
+            if (v > max) max = v;
+        }
+
+        var inv = max > 0f ? 1f / max : 1f;
+        var data = new float[height, width];
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
             {
-                var v = plane[(y * width) + x];
-                data[y, x] = v;
-                if (v > max) max = v;
+                data[y, x] = plane[(y * width) + x] * inv;
             }
         }
 
-        return new Image([data], BitDepth.Float32, max <= 0f ? 1f : max, 0f, 0f, new ImageMeta());
+        return new Image([data], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
     }
 
     /// <summary>

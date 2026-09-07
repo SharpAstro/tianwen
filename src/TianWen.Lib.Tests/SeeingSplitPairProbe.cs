@@ -118,9 +118,11 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
             return null;
         }
 
-        // The deployed deconvolver measures its PSF on a unit-range image, so every width and count
-        // here is taken in that domain too; the first run measured the sharp master in native units
-        // and the soft one in unit range and read a B/A of 0.37 that was the domain, not the sky.
+        // A stacked master is unit-referred by convention (DATAMAX 1, median about 0.5) with star peaks
+        // far over 1, so this rescale is a no-op on it and every measurement below normalises its own
+        // crop to a peak of 1 (DeconvolutionProbeMeasures.Wrap); the first run measured the sharp side
+        // with the crop's raw peak as MaxValue and the soft side normalised and read a B/A of 0.37 that
+        // was the detector's convention, not the sky.
         skip = string.Empty;
         return new Master(image.ScaleFloatValuesToUnitInPlace(), image, path, origin.X, origin.Y);
     }
@@ -382,26 +384,35 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
         Assert.SkipWhen(region is null, "no common covered square");
         var r = region!.Value;
 
-        // The soft crop with every channel. The masters are already in unit range, so the crop is too;
-        // MaxValue is the crop's own peak, which the deconvolver's range check reads.
-        var planes = new float[channels][,];
+        // The soft crop with every channel, normalised to a peak of 1 across the channels: a TianWen
+        // master is unit-referred by convention with star peaks well over 1 (49 on this pair), and the
+        // deconvolver's range check reads the peak.
+        var cuts = new float[channels][];
         var max = 0f;
         for (var c = 0; c < channels; c++)
         {
-            var cut = Cut(pair.Soft.Image, c, r.SoftX, r.SoftY, r.Side, r.Side);
+            cuts[c] = Cut(pair.Soft.Image, c, r.SoftX, r.SoftY, r.Side, r.Side);
+            foreach (var v in cuts[c])
+            {
+                if (v > max) max = v;
+            }
+        }
+
+        var inv = max > 0f ? 1f / max : 1f;
+        var planes = new float[channels][,];
+        for (var c = 0; c < channels; c++)
+        {
             planes[c] = new float[r.Side, r.Side];
             for (var y = 0; y < r.Side; y++)
             {
                 for (var x = 0; x < r.Side; x++)
                 {
-                    var v = cut[(y * r.Side) + x];
-                    planes[c][y, x] = v;
-                    if (v > max) max = v;
+                    planes[c][y, x] = cuts[c][(y * r.Side) + x] * inv;
                 }
             }
         }
 
-        var unit = new Image(planes, BitDepth.Float32, max <= 0f ? 1f : max, 0f, 0f,
+        var unit = new Image(planes, BitDepth.Float32, 1f, 0f, 0f,
             new ImageMeta { SensorType = channels == 1 ? SensorType.Monochrome : SensorType.Color });
         using var deconvolver = new OnnxNonStellarDeconvolver(resolver, new HfdPsfEstimator(), chunkSize: 256, overlap: 64);
 
