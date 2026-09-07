@@ -1188,6 +1188,37 @@ had fallen 20 to 50x by step 400), and the fabrication barely moved: a lower wei
 is does not make it honest. Matching the weight at the plateau is not the mechanism; the term's
 incentive is, which is what the counterpart changes.
 
+*Trajectories (added at 13:20 from the same logs, `training/denoise/n2n_gatetrace.py`, the time axis
+`n2n_gatelog.py` collapses).* Gate out/truth at probe steps 200 / 1000 / 2000 / 4000, then the
+observer's stars at the same steps:
+
+| run | 200 | 1000 | 2000 | 4000 | obs 200 | obs 1000 | obs 2000 | obs 4000 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| control, seeds 0-4 | 1.33 to 1.42 | 1.29 to 1.36 | 1.14 to 1.21 | 1.11 to 1.17 | 21 to 65 | 19 to 64 | 30 to 41 | 35 to 46 |
+| N seeds 0, 2, 3, 4 | 1.39 to 1.42 | 1.32 to 1.45 | 1.39 to 1.42 | 1.35 to 1.43 | 18 to 44 | 3 to 33 | 2 to 14 | 6 to 16 |
+| N seed 1 | 1.41 | 1.47 | 1.40 | 1.18 | 27 | 25 | 3.6 | 9.6 |
+| W seeds 1, 2 | 1.38 to 1.40 | 1.37 to 1.39 | 1.14 to 1.19 | 1.11 to 1.16 | 34 to 44 | 49 | 24 to 36 | 30 to 31 |
+| W seeds 0, 3, 4 | 1.33 to 1.42 | 1.39 to 1.41 | 1.39 to 1.41 | 1.23 to 1.40 | 21 to 65 | 49 to 59 | 39 to 49 | 22 to 50 |
+
+Three things the table says that the summary could not. The control SHARPENS STEADILY (1.4 to 1.15
+over 4,000 steps) and fabricates from its first probes on. Arm N's four losing seeds never leave the
+input's ratio at any probe, so "trained toward the identity" understates it: they never left it, and
+their observer count OSCILLATES between honest (2 to 7x) and fabricating (20 to 33x at step 1,000)
+as the two halves of the term trade blows, which is why they select early on a probe that happened to
+land honest. Seed 1 sits at the input until step 2,000 and then sharpens (1.40 to 1.19 by 3,000) with
+the observer honest: the pixel and band terms took over late, at the arm's lowest weight, which is
+E2.7 arm B's dynamics with a weak regulariser on top rather than a star term doing the sharpening.
+And arm W's re-fix at step 400 LOWERED the weight, after which three of five seeds stalled at the
+input for the rest of the run (the identical numbers up to step 400 are the shared seeds): a weaker
+star term means less sharpening, not less fabrication. So the star term is what sharpens this net,
+its counterpart cancels the sharpening at an equal weight, and a low weight hands the run back to
+the pixel objective. **How to read E2.8c, added after its launch and changing neither its prediction
+nor its kill:** a passing seed should be seen to sharpen LATE (after step 2,000) as seed 1 did, and
+its result compared against E2.7 arm B's minima (1.20 to 1.33 holding 0.54 to 0.63, never
+selectable): if E2.8c's seeds pass at 1.18 to 1.25 holding 0.75, the honest recipe is E2.7 plus a
+regulariser that makes its minimum selectable, worth having and not the star term the H10 hypothesis
+described.
+
 *Verdict.* The kill line ("neither arm ... while keeping selection under 1.30") is not crossed, on
 one seed of ten. The pre-registered N prediction (selected at or under 1.20, stars at or over 0.80,
 observer under 14x) is met on its observer half by every seed and on its gate half by one, so a
