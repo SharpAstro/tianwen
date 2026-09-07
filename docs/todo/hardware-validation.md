@@ -165,4 +165,7 @@ under it, and the fake asserts that state by construction.
   nothing without a camera to answer it, and that one answer decides the scope of everything after
   it; a body that honours `CAM_IGNOREOVERSCAN_INTERFACE` needs no crop from us at all. Canon (P0)
   shipped without hardware only because a raw file carries its own `SensorInfo` rect.
+  First measurement when a body is attached: one LONG dark (QHY illustrate with 300 s), then look at
+  both margins. Hot pixels run through the optic black strip and not through the overscan strip,
+  which identifies which edge is which and which of the two may be used as the bias reference.
 - Seed ZWO EAF `MaxStep` from hardware during discovery -- `TODO.md` (item 18 above is its confirmation).
