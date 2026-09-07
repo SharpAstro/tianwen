@@ -121,6 +121,70 @@ fails on the next divergence.
 
 ---
 
+## Prior art: what PixInsight does, and what the vendors actually say
+
+Two PixInsight forum threads cover this ground for QHY's CMOS bodies, and they change the design
+rather than merely confirming it. Both are archived under `Astro-Info` (saved 2026-09-07):
+[the procedure thread](https://pixinsight.com/forum/index.php?threads/imagecalibration-and-overscan-area-procedure.14469/)
+and [overscan vs optical black](https://pixinsight.com/forum/index.php?threads/imagecalibration-overscan-with-optic-black-area.14139/).
+
+**The drift is not thermal, and that is the whole point.** QHY's own support answer is that "the
+on-chip calibration part of the cmos sensor may cause the drift of the whole image when the image is
+bright". The bias offset therefore moves with SCENE BRIGHTNESS, frame to frame, rather than slowly
+with temperature. A master bias cannot track that by construction, however many frames go into it,
+which is the argument for a per-frame reference existing at all.
+
+**It lands in the denominator, which is where the damage is.** Written out, calibration is
+
+```
+calibrated = (L - D + drift_L) / (F - DF + drift_F)
+```
+
+and QHY's conclusion is that "the drift of light frame will have little impact. But drift of the flat
+frame appearing in the denominator can cause over/under calibration." So if this is ever worth
+effort, the FLAT path is the payoff and the light path is nearly free. That is the opposite of where
+the intuition points, and it is the one thing here worth remembering.
+
+**What `ImageCalibration` actually computes** is one MEDIAN per region, subtracted as a scalar from
+every pixel of the mapped target region, applied alike to bias, dark, flat and light. Up to four
+regions, each a source rect (measure here) mapped to a target rect (apply there), plus an image
+region saying what survives. Overscan calibration runs FIRST and CROPS, so every product downstream
+shares one geometry. Rects are x, y, width, height with coordinates starting at zero, which is our
+`Rectangle` and not the `*SEC` convention above.
+
+**Three limits, stated by PixInsight's author, all of which we would inherit:**
+
+- **Optical black and overscan are different references and only one may be used.** "I guess that
+  either could be used, but definitely not both at the same time. The value computed from the
+  optically black area would additionally contain the average dark current, and the value computed
+  from the overscan area would not." Canon's margin, the one P0 crops, is optical black: shielded
+  photosites that integrate dark current like any other. A level taken there is bias plus mean dark,
+  not bias.
+- **It is not a dark replacement.** "Since Overscan calibration only subtracts a constant value from
+  all pixels in the corresponding target region, fixed pattern noise is not at all corrected by this
+  procedure."
+- **It buys nothing on a stable body.** "In case of a drifting bias offset, the calibration result
+  will be more precise. If the bias offset of your camera is stable, using Overscan calibration in
+  PixInisght will not improve the calibration result." This is the external argument for P1 being
+  measurement only, and for stopping there if the measurement says stable.
+
+**A second algorithm exists, and PixInsight does not implement it.** Rather than one scalar, subtract
+per column and per row; STScI's STIS Data Handbook calls this BLEVCORR, section 3.4.4 "Large Scale
+Bias & Overscan Subtraction". Worth knowing before anyone assumes the scalar median is the only
+shape the correction can take.
+
+**Vendor practice, and a naming trap.** QHY ship the overscan included by default, offer "ignore
+overscan area" in the ASCOM driver, and say plainly that they "does not guranttee the signal quality
+in the overscan area" (sic). The trap is that the flag's sense is unreliable in the vendor's own
+words: for the QHY268C they describe enabling overscan as giving 6252x4176 and NOT enabling it as
+6280x4210, which is backwards, since the larger raster is the one carrying the 24 left and 4 right
+border columns. **Read the dimensions, never the flag name.** One more reason P1 logs all three
+answers rather than trusting any one of them. Note also that practice is split: one QHY600M owner
+reports a visible improvement from overscan-calibrating flats and lights, while another simply
+removes the region in the driver and reports that everything calibrates fine.
+
+---
+
 ## Phases
 
 | # | Scope | Status |
@@ -130,7 +194,7 @@ fails on the next divergence.
 | P2 | `ImageMeta.DataSection` / `BiasSection`; `Image` keeps the raster | NOT STARTED |
 | P3 | `DATASEC`/`BIASSEC`/`TRIMSEC` read in `ParseImageMetaFromHeader` + written by the FITS writer, one 1-based converter, round-trip test | NOT STARTED |
 | P4 | The crop gates: viewer/save, registration transform, plate-solve CRPix shift | NOT STARTED |
-| P5 | Calibration consumes `BiasSection`: per-frame black level + read noise | NOT STARTED |
+| P5 | Calibration consumes `BiasSection`: per-frame black level + read noise. **The FLAT path first**, since the drift enters the denominator | NOT STARTED |
 
 **P1 first, and on its own.** Whether P2-P5 are worth anything on real hardware depends on what the
 attached QHY actually reports, and `CAM_IGNOREOVERSCAN_INTERFACE` may make the capture path need no
@@ -156,11 +220,17 @@ but NOT validations".
   optically black columns stop at 143 while the active area starts at 156; the twelve between are lit
   but only partly shielded, so they belong to neither. Canon's own `BlackMaskLeftBorder` fields read 0
   on all four files inspected, so the window cannot be read off a tag.
-- **Overscan is a bias reference, never a dark.** Dark current is per-pixel and structured (hot
-  pixels, amp glow, corner gradients) and a strip at one edge cannot predict a hot pixel in the
-  middle; its own dark signal is buried under the read noise. Measured on a 5D Mark IV frame over
-  `x < 144`, per CFA cell: level 2047.9 to 2048.3 against the hardcoded `blackLevel = 2048`, spread
-  15.6 to 17.9 ADU. The spread is the interesting half — pure read noise, with no sky shot noise in
+- **Optical black is not overscan, and neither one is a dark.** What a Canon exposes, and what P0
+  crops, is optically black PHOTOSITES: shielded, but integrating dark current like every other
+  pixel, so a level taken there is bias plus MEAN dark. True overscan is extra clocked reads with no
+  photosite behind them, and carries bias alone. PixInsight's author is explicit that the two are
+  different references and must not both be used at once (see the prior-art section above). Either
+  way, neither substitutes for a dark master: dark current is per-pixel and structured (hot pixels,
+  amp glow, corner gradients) and a strip at one edge cannot predict a hot pixel in the
+  middle. Measured on a 5D Mark IV frame over `x < 144`, per CFA cell: level 2047.9 to 2048.3 against
+  the hardcoded `blackLevel = 2048`, spread 15.6 to 17.9 ADU, so the mean-dark term is under half an
+  ADU on that frame, which says nothing about a long exposure at ambient. The spread is the
+  interesting half — pure read noise, with no sky shot noise in
   it, which nothing measured from the active area can give.
 - **Use columns, not rows, on a Canon.** The top margin is not all masked: `G(r)` reads 2027 with
   three times the noise of its neighbours, and R and G(b) reach 3287 and 4411.
