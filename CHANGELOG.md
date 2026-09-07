@@ -87,6 +87,31 @@ the estimator falls back to a constant default radius when it finds none, so the
 null instead and a consumer drops the row, rather than conditioning a model on a number nothing
 measured.
 
+**The ceiling with an ESTIMATED kernel** (E1b), measured with the same probe: where the kernel is read
+off the blurred frame's own stars, the recovered width stays within 0.01 to 0.05 of the exact-kernel
+result everywhere but the 1.3 to 1.6x band, where the difference width is over-read by a quarter and
+the width-only estimate over-deconvolves into fabrication (15 percent more stars than the truth has).
+The number that decides the next step is that `PsfProfileFit` declined 75 of 180 rows, half of the
+noisy ones, most of them narrowband masters: at deployment depth the estimator answers about half the
+time, so a kernel estimator becomes its own step before any unrolled Richardson-Lucy is built.
+
+**`DatasetPsfNoiseReport.SessionPsf` gains a per-sub identity**: `SubFile`, `SubEpochUtc`,
+`SubAirmass` and `SubHeaderAirmass`, aligned index for index with the existing `SubFwhm`, plus
+`SubSelection` naming which subs the arrays describe. Records written before this read back with the
+new columns null; `SubIdentity` carries them through a master re-measure, which cannot recover them
+(a master does not say which frames made it). **`tianwen dataset build --remeasure-subs`**
+(`DatasetBuildOptions.RemeasureSubs`) re-runs the measure stage alone over every recorded session
+and rewrites the sub arrays with the identity, about two minutes a session against ten for the
+re-registration `--force-psf` falls back to; the two are refused together and run as two passes,
+subs first. The store's JSON context now allows NaN, which the per-sub air mass is for every light
+whose header has no site.
+
+**`SiteContext.Airmass` and `SiteContext.AirmassFromAltitude`** are the one air-mass computation;
+the session's sky gauge and the gradient report forward to it. The per-sub form answers NaN for a
+target below the horizon rather than a clamped value that would read as a deep observation.
+**`ImageMeta.Airmass`** reads the capture software's `AIRMASS` card, recorded beside the computed
+value as a cross-check and never substituted for it.
+
 ## 7.0
 
 Two releases: `v7.0.1513` on 2026-09-04 and `v7.0.1532` on 2026-09-06, the second carrying 60 more
