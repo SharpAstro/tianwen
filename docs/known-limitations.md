@@ -719,6 +719,21 @@ cost, measured 4 to 9 percent apart from a staged one before either registration
 `--warp-interpolation Lanczos3` is opt-in while its ringing on real frames is measured (R1); the
 default flip changes every master and is the user's decision.
 
+### The star profile fit refuses a sharp master because its far wings are sky, not star
+
+`PsfProfileFit` stacks bright isolated stars after a per-star annulus background, then fits a Moffat in
+LOG space over every quarter-pixel bin above 0.2 percent of the peak, out to 12 px, and refuses above a
+log residual of 0.5. On the real masters measured (Orion 2025-10-15, R1) the stacked profile sits at 0.7
+to 1.5 percent of the peak from 4 px outward on the bilinear master and the Lanczos master alike: that
+is background residue the annulus did not remove, not the star's wing, and it is above the floor, so
+every outer bin is fitted. A Moffat through a blurrier core passes near it; through a core 15 percent
+narrower it predicts a third of it, and the residual crosses 0.5. So the fit refused the Lanczos master
+(0.83) while accepting its bilinear twin (beta 3.9), with no ringing anywhere in the profile, and it
+will refuse any master sharp enough for the same reason, which is the estimator step the deconvolver
+plan leans on. The fit's beta on the masters it does accept is biased toward the residue as well.
+**Owed (E1g in `docs/plans/deconvolver-training.md`):** a floor relative to the profile's own outer
+level, or the fit stopped at a radius the star still owns, measured against E1e's 180 rows.
+
 ## GPU / rendering
 
 ### Dangling stack pointer via single-argument Vortice ctors

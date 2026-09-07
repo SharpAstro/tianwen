@@ -216,8 +216,12 @@ frames to 0.3 percent, and the frames at fractional shifts widen from their subs
 while the frames at integer shifts keep 2.15; on a synthetic 2.15 px star a half-pixel shift adds 1.15
 px of FWHM in quadrature under bilinear and none under Lanczos-3 (`WarpInterpolationTests`). The
 default stays bilinear, byte-identical to before; Lanczos-3 (six taps an axis, normalised over the
-taps present, exact at integer shifts) is opt-in while its ringing on real frames is measured
-(`docs/plans/deconvolver-training.md`, R1).
+taps present, exact at integer shifts) is opt-in. Measured on the same night (R1 in
+`docs/plans/deconvolver-training.md`): the six-frame master goes 2.39 to 2.15 px per star and the
+whole night's 2.70 to 2.48, each still the mean of its frames, with no ringing on any of four measures
+at 2 px seeing, so the case for the default is made and the flip is the user's, since it changes every
+master. One consequence: the star profile fit refuses the sharper master because its log-space fit
+reads far-wing background residue (`known-limitations.md`; E1g owed).
 
 ## 7.0
 

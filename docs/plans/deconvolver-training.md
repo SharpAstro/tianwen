@@ -399,7 +399,7 @@ everything and above it recovers little.
 | E2.8c | **RUN 2026-09-07, prediction failed, not killed** (under E2.8b's results). Arm N with the weight fixed at 1.84e-3: two of five seeds hold both (selected 1.238 and 1.163 at 0.74 to 0.76 stars, observer 11 and 10x), sharpening only after step 3,000; three never leave the input. Every seed honest on the observer (1.5 to 11x against 34 to 45). The weight was part of the cause, the optimisation the rest; the profile of a regulariser, which is how it enters the unrolled operator. **The fork is decided below: the unrolled operator, the estimator step under it, no capacity arm.** | 5 x ~10 min GPU | the honest recipe has an operating point on two seeds in five |
 | E2.9 | **RUN 2026-09-07, then WITHDRAWN to inconclusive the same afternoon** (section below). FWHM against air mass over 79 sessions, 8,507 subs re-measured in 62.6 min, read 0 of 67 sessions reaching a 1.3x span explained by air mass; but E2.10a's diagnostic showed the store's per-sub width is the mosaic mono path's, which reads 1.70 on every sub of an OSC night whatever the seeing, so the slopes measure an instrument floor. Standing: computed air mass agrees with N.I.N.A.'s card to 0.015 on 50 of 52 sessions; SharpCap writes no site cards (27 sessions uncomputed, `--site` supplies one now). **Re-read on `SubFwhmGreen` the same evening: the kill line stands in substance.** 76 of 79 fitted; 1 reaches a 1.3x explained span with a slope of +3.15 (five times what seeing can give); slopes in [0.3, 0.9] on 12 of 76, medians near zero on every train but ZS61 and the ASI1600; within-night p90/p10 on green 1.04 to 1.21x. The green fit refused 27 percent of subs and every sub of the three warmest SV605CC sessions, whose lists were half warm pixels (fixed in the detector that evening; re-measure running). | 62.6 min CPU, plus two re-measures of 87 min | Air-mass pairing is dead as a real-blur source; the heavy end stays synthetic |
 | E2.10 | **E2.10a RUN 2026-09-07: no pair to score** (section below). The Orion night's sharp and soft thirds, built as pre-registered, measure the same width (2.82 against 2.72 px on the green fit, B/A 0.97 to 1.03), and the oracle correctly did nothing. Diagnosed stage by stage: the store's per-sub width is the mosaic mono path's floor (1.70 on every sub) so the split was ranked on noise; the subs do differ on the green plane by 1.15 to 1.25x; and every stack of the night, drizzle included, sits at 2.7 to 2.8 px from 1.7 to 2.5 px subs. Two stacker fixes came out of it (`--group-temp-tolerance`, the `CANVASX0/Y0` cards). **The evening placed the stack's blur** ("the third finding placed"): the registration refiner HALVED every shift under 5 px because half of each frame's detections were warm pixels pairing with themselves (fixed, validated to 0.03 px), the detector accepted a single warm photosite as a star (fixed; the "1.70 floor" was their width), and what remains is the bilinear warp (a master is the mean of its warped frames to 0.3 percent; frames at fractional phase widen from 2.15 to 2.4 to 2.7 px). Candidates on green: 14 of 75 at p90/p10 1.15, thirds only 1.10 to 1.25x, the sampled trains 1.15 to 1.17x (SH61 Statue 251 subs, Rosette 115, Helix 119). A second attempt waits on R1. | two days, eight launches | No real-blur pair yet; the archive offers 1.15 to 1.17x at best, and the stack must first keep its inputs' width (R1) |
-| R1 | **Pre-registered 2026-09-07 evening, in progress.** The warp kernel: Lanczos-3 beside bilinear (`WarpInterpolation`, `--warp-interpolation`, default unchanged), a synthetic half-phase shift first, then near6 and the whole night from the fixed manifests read star by star and for ringing. Prediction: bilinear widens a 2.1 px star by 1.1 to 1.3 px in quadrature at half phase and Lanczos-3 by under 0.4; the near6 master's fit under 2.30 (2.47 now), the whole night's under 2.5 (2.81). Kill: fractional-phase frames above 2.4 px or ringing over 20 percent. | an hour of code, two stacks | Whether a master can keep its subs' width at 2 px seeing |
+| R1 | **RUN 2026-09-07 evening: Lanczos-3 removes the kernel's blur, no ringing measurable** (section below). Synthetic half-pixel shift: +1.15 px in quadrature under bilinear (predicted 1.1 to 1.3), +0.00 under Lanczos-3 (under 0.4). Real: the near6 master reads 2.15 px per star against the bilinear twin's 2.39 (predicted under 2.25), the frames rank by their own subs' seeing rather than by phase; the whole night 2.48 against 2.70 per star, fit 2.61 against 2.81 (the "under 2.5" missed because the night's subs average 2.4, not the 2.2 the six near frames suggested), still the mean of its frames. Ringing identical to bilinear on the annulus undershoot, the radial profile and the synthetic dip. `PsfProfileFit` refused the sharper near6 master (rms 0.83): its log-space fit reads far-wing background residue, which a narrower core exposes (E1g). Default stays bilinear; the flip is the user's. | an hour of code, two stacks, four probes | A master can keep its subs' width at 2 px seeing; every retained master carries about a pixel in quadrature it need not |
 | D1 | **BUILT 2026-09-07, off by default; both halves measured** (under "The next four"). Per-tile psf01 at inference: `ChunkedNafnetRunner` extras per chunk, `OnnxNonStellarDeconvolver` estimating per chunk region with a frame-level fallback, so inference matches the per-cell training label. CPU half: on the seven Rim masters the per-tile radius spans 8 to 61 percent p10 to p90 and 10 to 16 percent of tiles starve. GPU half: a NULL on the shipped SAS graph, per-tile and whole-image outputs within 0.01 px and one percent in count on every master, including four where 250 of 289 tiles carried a different label; the switch stays off for that graph and ships for E7's own. Side finding: on stars the shipped graph widens soft cores and drops most of the outer third's stars. The fixed-psf01 check (0 / 0.5 / 1 over the whole shipped range) moves the output by 0.03 to 0.06 px and three percent in count: the shipped graph's conditioning input is inert on a real master's stars, so the null is the graph's property. | half a day | The field-varying half of the optics blur |
 | E4 | Stationary vs position-varying (H7) on the refractor trains. | 2 x 3 x 11 min | H7 |
 | E5 | On-the-fly torch degradation with the MTF pin, if E3 is sample-hungry. | a day | Sample efficiency |
@@ -1042,6 +1042,73 @@ under 10 percent of a star's peak, since a 2 px star is at the edge of what a si
 percent. Then the widening is not the interpolation kernel (or the kernel is unusable at this sampling)
 and the warp is measured another way before any default changes. The default stays bilinear until the
 user decides; a flip changes every master.
+
+**R1 read, 2026-09-07 evening (`WarpInterpolationTests`; `exp-near6-lanczos` against `exp-near6-fixed`;
+`C:/temp/e2/e210-perstar-exp-near6-lanczos.txt`, `e210-ringing-near6.txt`, `e210-radial-near6.txt`,
+`e210-stages-r1.txt`).** The synthetic half held exactly: on a 2.15 px Gaussian star shifted by half a
+pixel on both axes the model-free second moment reads 2.437 px under bilinear (1.15 px in quadrature,
+predicted 1.1 to 1.3) and 2.142 under Lanczos-3 (0.00, predicted under 0.4); the detector's own median
+reads 2.14, 2.52 and 2.19 on the same three planes, so its width on a resampled plane overstates
+bilinear's cost by about a third, which is the same excess the real frames showed (1.6 against 1.18).
+The deepest dip below background within 6 px of the star is at the noise floor under both kernels.
+
+The near6 half held on every pre-registered number but one measure that could not be read. Per star,
+the Lanczos master reads 2.15 to 2.16 px on the same stars where the bilinear twin read 2.39 (predicted
+under 2.25); the six warped frames read 2.35, 2.28, 2.17, 2.07, 2.05 and 2.02 against 2.69, 2.64, 2.17,
+2.38, 2.42 and 2.14, and they now rank as their own subs do (frame 0030's sub is the night's widest of
+the six at 2.18 on the green fit, frame 0037's the narrowest at 1.99) rather than by their shift's
+phase; the master is still the mean of its frames (ratio 0.91 to 1.09 by frame). The estimator's median
+on the master went 2.44 to 2.23. Ringing: the annulus-minimum measure reads the same on both twins
+(undershoot -1.68 against -2.08 MADs, no dip, under one percent of a star's peak; 12 percent of stars
+past one MAD on both, noise), and the stacked radial profile of the bright stars has no bin below zero
+out to 8 px, a narrower core (0.199 against 0.250 of peak at 1.75 px, 0.095 against 0.134 at 2.25)
+over the same wings. The 20 percent kill is nowhere near; the 10 percent prediction holds with room.
+
+*What could not be read, and what it says about the estimator step.* `PsfProfileFit` REFUSES the
+Lanczos master (`PoorFit`, log residual 0.83 against the 0.5 allowed; 400 stars stacked, 24 bins), so
+the "fit under 2.30" prediction has no reading; the bilinear twin fits at 2.47 with beta 3.9. The
+profile shows why: the fit works in log space over every quarter-pixel bin above a floor of 0.2 percent
+of the peak, out to 12 px, and both masters' far wings sit at 0.7 to 1.5 percent of the peak from 4 px
+outward, which is background residue the per-star annulus did not remove, not the star. A Moffat
+through the bilinear master's blurrier core passes near that residue; through the Lanczos master's
+narrower core it predicts 0.5 percent at 4 px where the profile holds 1.5, a factor of three in every
+outer bin, and the residual crosses 0.5. So the refusal is the fit reading the sky, and it will refuse
+any sufficiently sharp master the same way, which matters because this fit is the estimator step E3
+leans on. Owed (E1g, below): a floor relative to the profile's own outer level, or the fit stopped at a
+radius the star still owns, measured against E1e's 180 rows so the refusals and the widths are compared
+before and after.
+
+*The whole night* (`exp-full-lanczos` against `exp-full-norm`, 71 frames; `e210-perstar-exp-full-lanczos.txt`,
+`e210-ring-radial-full.txt`). Per star the Lanczos master reads 2.47 to 2.49 px where the bilinear
+twin read 2.70, and it is still the mean of its warped frames (ratio p50 1.014; the frames' median 2.46
+against 2.69); the green fit reads 2.61 with beta 4.6 against 2.81 (this master the fit accepts: the
+whole night's mean core is wide enough to sit over the residue), the estimator's median 2.52 against
+2.72. The prediction said "fit under 2.5" and missed by 0.11, for a reason the per-star numbers make
+plain: the night's 71 subs run 1.9 to 2.6 px on the green fit with a mean near 2.4, not the 2.2 the
+prediction took from the six near frames, and a mean-combine cannot read below the mean of what it is
+given. Ringing is identical on the twins (undershoot -2.58 against -2.48 MADs, 2.3 percent of stars past
+one MAD on both, -0.7 percent of the peak) and no radial bin sits below zero (0.264 against 0.327 of
+peak at 1.75 px, 0.137 against 0.178 at 2.25, the same wings from 4 px). So the whole-night master lost
+exactly the kernel's contribution, sqrt(2.70 squared minus 2.48 squared) = 1.07 px in quadrature, the
+0.96 the arithmetic gives for a random phase plus what the detector's measure adds, and what remains
+over the sharpest subs is the night's own seeing spread averaged in.
+
+*Standing.* Lanczos-3 keeps a 2 px star's width to within the subs' own scatter and rings below what
+any of the four measures can see on this night; the default stays bilinear until the user decides, and
+every master built before this carries about a pixel in quadrature. Then E2.10's second attempt has a
+stack whose width follows its input, once the estimator's fit is made to read a sharp master.
+
+#### E1g: the profile fit's floor against the far-wing residue (pre-registered 2026-09-07 evening)
+
+*Change.* `PsfProfileFit` fits bins above a floor of 0.2 percent of the peak out to 12 px; real
+masters carry 0.7 to 1.5 percent of background residue there after the per-star annulus, so the
+log-space residual measures the sky and refuses sharp masters. Two candidate rules, chosen by
+measurement: the floor at three times the median of the outermost quarter of the bins, or the fit
+stopped at 3 FWHM. *Measurement.* E1e's 180 oracle rows again (refusals by check and widths against
+truth), plus the four R1 masters. *Prediction.* Refusals fall from 30 of 180 to under 15 with widths
+unchanged within 0.02, and the Lanczos masters fit at 2.15 to 2.25 px. *Kill.* Widths move by more than
+0.05 on the clean rows, or refusals do not fall. Then the wing residue is not what refuses, and the
+Moffat itself is the wrong wing model for a resampled star.
 
 *What E2.10 needs before a second attempt.* A per-sub width that reads seeing: the bright-star
 profile fit on the debayered GREEN plane, beside the mosaic width in the store (owed: a
