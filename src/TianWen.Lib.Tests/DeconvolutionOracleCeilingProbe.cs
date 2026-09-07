@@ -181,6 +181,7 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
         double RingExcess,
         double StarRatio,
         double EstWidthRatio,
+        double EstWidthOverEffective,
         double EstBetaRatio,
         bool FromWholeFrame,
         bool NoEstimate = false);
@@ -636,10 +637,12 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
         }
 
         output.WriteLine($"psf01     encoded over [0.5, 4.0] px radius, E1's pick");
+        output.WriteLine("effK      the injected kernel's EFFECTIVE width in px: PsfKernel samples at pixel centres, so a nominal 1 px kernel blurs like");
+        output.WriteLine("          0.6 to 0.8 px and a 0.5 px one like 0.1 (E1d); estW/e is the estimate over THAT, estW/t over the nominal width");
         output.WriteLine("");
         output.WriteLine($"{"master",-30} {"ch",2} {"inj",5} {"noise",5} {"arm",-6} {"psf01",6} {"truth",6} {"blur",6} {"b/t",5} "
             + $"{"rec",6} {"r/t",5} {"recov%",7} {"ring",6} {"null",6} {"excess",7} {"stars",6} {"vs truth",8} "
-            + $"{"estW/t",7} {"estB/t",7} {"fit",5}");
+            + $"{"effK",5} {"estW/t",7} {"estW/e",7} {"estB/t",7} {"fit",5}");
 
         var rows = new List<ArmRow>();
         var noEstimate = 0;
@@ -748,6 +751,10 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
                 foreach (var injected in InjectedFwhm)
                 {
                     var exactPsf = PsfKernel.Moffat(injected, Beta);
+                    // What the sampled kernel is worth on THIS core, the denominator an estimate of the
+                    // applied blur should be read against (E1d: the nominal width overstates it under
+                    // about 1.5 px). The core's beta is the archive's typical one; it moves this by under 0.03.
+                    var effectiveKernel = MoffatComposition.EffectiveKernelFwhm(exactPsf, truthFwhm);
                     var blurred = exactPsf.Convolve(truth, Crop, Crop);
                     // The whole degraded frame, made only if a crop fit fails, and then once per
                     // injection: the convolution is the expensive half of the fallback.
@@ -856,7 +863,7 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
                                 if (double.IsFinite(blurRatio))
                                 {
                                     rows.Add(new ArmRow(name, c, injected, noisy, arm, blurRatio, double.NaN, double.NaN,
-                                        double.NaN, double.NaN, double.NaN, double.NaN, false, NoEstimate: true));
+                                        double.NaN, double.NaN, double.NaN, double.NaN, double.NaN, false, NoEstimate: true));
                                 }
 
                                 output.WriteLine($"{prefix} (no estimate: {observedRefusal})");
@@ -873,21 +880,23 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
                             var recOverTruth = float.IsFinite(recFwhm) ? recFwhm / (double)truthFwhm : double.NaN;
                             var estimatedArm = arm != KernelSource.Exact;
                             var estWidthRatio = WidthOf(arm) / injected;
+                            var estWidthOverEffective = effectiveKernel > 0 ? WidthOf(arm) / effectiveKernel : double.NaN;
 
                             if (double.IsFinite(blurRatio))
                             {
                                 rows.Add(new ArmRow(name, c, injected, noisy, arm, blurRatio, recOverTruth,
                                     float.IsFinite(recFwhm) ? recFwhm - truthFwhm : double.NaN, excess, starRatio,
                                     estimatedArm ? estWidthRatio : double.NaN,
+                                    estimatedArm ? estWidthOverEffective : double.NaN,
                                     estimatedArm ? estBetaRatio : double.NaN,
                                     estimatedArm && fromWholeFrame));
                             }
 
                             output.WriteLine($"{prefix} {recFwhm,6:F2} {recOverTruth,5:F2} {recovered,7:P0} {ring,6:F2} {nullRing,6:F2} "
-                                + $"{excess,7:P0} {recStars,6} {starRatio,8:F2} "
+                                + $"{excess,7:P0} {recStars,6} {starRatio,8:F2} {effectiveKernel,5:F2} "
                                 + (estimatedArm
-                                    ? $"{estWidthRatio,7:F2} {estBetaRatio,7:F2} {(fromWholeFrame ? "frame" : "crop"),5}"
-                                    : $"{"-",7} {"-",7} {"-",5}"));
+                                    ? $"{estWidthRatio,7:F2} {estWidthOverEffective,7:F2} {estBetaRatio,7:F2} {(fromWholeFrame ? "frame" : "crop"),5}"
+                                    : $"{"-",7} {"-",7} {"-",7} {"-",5}"));
                         }
                     }
                 }
@@ -904,7 +913,7 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
 
         output.WriteLine("");
         output.WriteLine($"{"blurred/truth",13} {"noise",5} {"arm",-6} {"n",4} {"rec/truth",9} {"resid px",8} {"ring exc",8} {"stars",6} "
-            + $"{"d(r/t) p50",10} {"d(r/t) p90",10} {"estW/t",7} {"estB/t",7} {"frame",5} {"no-fit",6}");
+            + $"{"d(r/t) p50",10} {"d(r/t) p90",10} {"estW/t",7} {"estW/e",7} {"estB/t",7} {"frame",5} {"no-fit",6}");
         for (var bin = 0; bin < RatioBinLabels.Length; bin++)
         {
             foreach (var noisy in new[] { false, true })
@@ -936,6 +945,7 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
 
                     deltas.Sort();
                     var estW = cell.Where(r => double.IsFinite(r.EstWidthRatio)).Select(r => r.EstWidthRatio).ToList();
+                    var estE = cell.Where(r => double.IsFinite(r.EstWidthOverEffective)).Select(r => r.EstWidthOverEffective).ToList();
                     var estB = cell.Where(r => double.IsFinite(r.EstBetaRatio)).Select(r => r.EstBetaRatio).ToList();
                     var frameCount = cell.Count(r => r.FromWholeFrame);
                     var refused = cell.Count(r => r.NoEstimate);
@@ -944,9 +954,9 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
                         + $"{Median(recOverTruth),9:F2} {Median(residual),8:F2} "
                         + $"{Median(excess).ToString("P0", CultureInfo.InvariantCulture),8} {Median(starRatio),6:F2} "
                         + (arm == KernelSource.Exact
-                            ? $"{"-",10} {"-",10} {"-",7} {"-",7} {"-",5} {"-",6}"
+                            ? $"{"-",10} {"-",10} {"-",7} {"-",7} {"-",7} {"-",5} {"-",6}"
                             : $"{(deltas.Count == 0 ? double.NaN : deltas[deltas.Count / 2]),10:+0.00;-0.00} "
-                              + $"{Percentile(deltas, 0.9),10:+0.00;-0.00} {Median(estW),7:F2} {Median(estB),7:F2} {frameCount,5} {refused,6}"));
+                              + $"{Percentile(deltas, 0.9),10:+0.00;-0.00} {Median(estW),7:F2} {Median(estE),7:F2} {Median(estB),7:F2} {frameCount,5} {refused,6}"));
                 }
             }
         }
@@ -986,7 +996,9 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
         if (estimating)
         {
             output.WriteLine("d(r/t) is an estimated arm's rec/truth minus the exact arm's on the SAME row; estW/t and");
-            output.WriteLine("estB/t are the estimate over the injected width and beta, so a loss reads as width or shape.");
+            output.WriteLine("estB/t are the estimate over the injected width and beta, so a loss reads as width or shape;");
+            output.WriteLine("estW/e is the estimate over the kernel's EFFECTIVE width (effK), which is the one to read under");
+            output.WriteLine("1.3x, where the pixel-centre sampling makes the nominal width overstate the blur applied.");
         }
     }
 }

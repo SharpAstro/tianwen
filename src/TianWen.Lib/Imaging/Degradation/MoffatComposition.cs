@@ -30,11 +30,132 @@ namespace TianWen.Lib.Imaging.Degradation
         /// wings where it moves the half-maximum crossing by nothing the grid can resolve.</summary>
         private const double FootprintFwhms = 5.0;
 
-        /// <summary>Moffat profile, peak 1, in <c>PsfProfileFit</c>'s parameterisation.</summary>
+        /// <summary>
+        /// The core beta the effective-width and kernel-label helpers assume when a caller has a width
+        /// and no shape: the archive's typical measured value (E0 read 1.5 to 8 with the heavy-winged end
+        /// the common one). The effective width of a kernel moves by under 0.03 px across beta 2.5 to 5
+        /// on the archive's cores (measured 2026-09-07), so the assumption costs less than the grid.
+        /// </summary>
+        public const double DefaultCoreBeta = 3.0;
+
+        /// <summary>Moffat profile, peak 1, in <c>PsfProfileFit</c>'s parameterisation; a beta of
+        /// <see cref="double.PositiveInfinity"/> is the Gaussian limit, as <see cref="PsfKernel.Beta"/>
+        /// encodes it.</summary>
         public static double Profile(double fwhm, double beta, double r)
         {
+            if (double.IsPositiveInfinity(beta))
+            {
+                // exp(-4 ln 2 (r / fwhm)^2): unit peak, half at r = fwhm / 2.
+                return Math.Exp(-4.0 * Math.Log(2.0) * (r * r) / (fwhm * fwhm));
+            }
+
             var alpha = fwhm / (2.0 * Math.Sqrt(Math.Pow(2.0, 1.0 / beta) - 1.0));
             return Math.Pow(1.0 + ((r * r) / (alpha * alpha)), -beta);
+        }
+
+        /// <summary>
+        /// FWHM of a Moffat core convolved with a kernel AS SAMPLED, its taps at integer pixel offsets.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="PsfKernel"/> samples its profile at pixel centres, so a kernel narrower than about
+        /// 1.5 px does not blur by its nominal width: a nominal 1 px beta-4 Moffat lands 65 percent of
+        /// its mass in one pixel and widens a 2.15 px core to 1.12x where the continuous profile would
+        /// give 1.21x, and a nominal 0.5 px kernel is a near-delta (measured 2026-09-07,
+        /// deconvolver-training.md E1d). This is the composition that matches what the convolution does,
+        /// and <see cref="EffectiveKernelFwhm"/> inverts it into the continuous width the kernel is worth.
+        /// The core is continuous and the cut is along one pixel axis through the centre; the discrete
+        /// taps break radial symmetry by less than the grid resolves.
+        /// </remarks>
+        public static double ComposedFwhm(double coreFwhm, double coreBeta, PsfKernel kernel)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(coreFwhm);
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(coreBeta);
+            ArgumentNullException.ThrowIfNull(kernel);
+
+            var radius = kernel.Radius;
+            var size = kernel.Size;
+            // An array, not the span: a local function cannot capture a ref local (CS8175).
+            var weights = kernel.Weights.ToArray();
+            var reach = (FootprintFwhms * Math.Max(coreFwhm, kernel.Fwhm)) + radius;
+
+            var tableStep = Step * 0.5;
+            var tableLength = (int)Math.Ceiling((reach + radius + 1.0) * Math.Sqrt(2.0) / tableStep) + 2;
+            var coreTable = new double[tableLength];
+            for (var i = 0; i < tableLength; i++)
+            {
+                coreTable[i] = Profile(coreFwhm, coreBeta, i * tableStep);
+            }
+
+            double Lookup(double r)
+            {
+                var t = r / tableStep;
+                var i = (int)t;
+                if (i + 1 >= coreTable.Length)
+                {
+                    return 0.0;
+                }
+
+                var f = t - i;
+                return coreTable[i] + (f * (coreTable[i + 1] - coreTable[i]));
+            }
+
+            double Composed(double x)
+            {
+                var acc = 0.0;
+                for (var ty = -radius; ty <= radius; ty++)
+                {
+                    for (var tx = -radius; tx <= radius; tx++)
+                    {
+                        var w = weights[((ty + radius) * size) + tx + radius];
+                        if (w == 0f)
+                        {
+                            continue;
+                        }
+
+                        var dx = x - tx;
+                        acc += w * Lookup(Math.Sqrt((dx * dx) + (ty * ty)));
+                    }
+                }
+
+                return acc;
+            }
+
+            var peak = Composed(0.0);
+            var half = peak * 0.5;
+            var prev = peak;
+            for (var k = 1; k * Step <= reach; k++)
+            {
+                var here = Composed(k * Step);
+                if (here <= half)
+                {
+                    var t = (prev - half) / (prev - here);
+                    return 2.0 * ((k - 1) + t) * Step;
+                }
+
+                prev = here;
+            }
+
+            return double.NaN;
+        }
+
+        /// <summary>
+        /// The continuous Moffat width (of the kernel's own beta) that widens a core of
+        /// (<paramref name="coreFwhm"/>, <paramref name="coreBeta"/>) by as much as <paramref name="kernel"/>
+        /// does as sampled; 0 for a kernel that does not widen it at all. This is the width a difference
+        /// kernel estimated from the convolved frame should be compared against, not
+        /// <see cref="PsfKernel.Fwhm"/>, which the sampling under-delivers below about 1.5 px.
+        /// </summary>
+        public static double EffectiveKernelFwhm(PsfKernel kernel, double coreFwhm, double coreBeta = DefaultCoreBeta)
+        {
+            ArgumentNullException.ThrowIfNull(kernel);
+            var composed = ComposedFwhm(coreFwhm, coreBeta, kernel);
+            if (!double.IsFinite(composed))
+            {
+                return double.NaN;
+            }
+
+            var width = DifferenceFwhm(coreFwhm, coreBeta, composed, kernel.Beta);
+            return double.IsNaN(width) ? 0.0 : width;
         }
 
         /// <summary>

@@ -615,15 +615,22 @@ namespace TianWen.AI.Imaging
                         measured.RadiusPx, HfdPsfEstimator.TianWenMinRadiusPx, HfdPsfEstimator.TianWenMaxRadiusPx);
                 }
 
-                if (cleanFwhmPx is > 0)
+                if (cleanFwhmPx is > 0 && kernel is { } appliedKernel)
                 {
-                    // The training-only twin: the clean cell's own width composed in quadrature with the
-                    // width that was drawn. On the same scale as the measured one, so an arm comparing
-                    // them varies the label's SOURCE and nothing else.
-                    var clean = cleanFwhmPx.Value;
-                    var total = Math.Sqrt((clean * clean) + (extraFwhm * extraFwhm));
-                    psf01FromKernel = HfdPsfEstimator.EncodeRadiusToPsf01(
-                        (float)(total / 2.0), HfdPsfEstimator.TianWenMinRadiusPx, HfdPsfEstimator.TianWenMaxRadiusPx);
+                    // The training-only twin: the clean cell's own width composed with the kernel that
+                    // was APPLIED, on the same scale as the measured one, so an arm comparing them varies
+                    // the label's SOURCE and nothing else. Two things this is not, both measured 2026-09-07
+                    // (deconvolver-training.md, E1d): not a quadrature, which under-states a Moffat's
+                    // widening by up to a quarter; and not the drawn width, which the pixel-centre
+                    // sampling under-delivers below about 1.5 px (a nominal 1 px kernel blurs like 0.6 to
+                    // 0.8 px). The core's beta is not measured here, so the archive's typical one stands
+                    // in; it moves the total by under two percent.
+                    var total = MoffatComposition.ComposedFwhm(cleanFwhmPx.Value, MoffatComposition.DefaultCoreBeta, appliedKernel);
+                    if (double.IsFinite(total))
+                    {
+                        psf01FromKernel = HfdPsfEstimator.EncodeRadiusToPsf01(
+                            (float)(total / 2.0), HfdPsfEstimator.TianWenMinRadiusPx, HfdPsfEstimator.TianWenMaxRadiusPx);
+                    }
                 }
             }
 

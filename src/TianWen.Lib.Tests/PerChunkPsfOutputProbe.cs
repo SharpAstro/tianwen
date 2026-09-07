@@ -94,6 +94,8 @@ public class PerChunkPsfOutputProbe(ITestOutputHelper output)
         output.WriteLine($"model     {modelPath}");
         output.WriteLine($"masters   {masters.Length} matching '{filter}'; bins are thirds of the half-diagonal from the frame centre (inner, middle, outer)");
         output.WriteLine($"columns   median star FWHM px and star count per bin, for the INPUT, the whole-image run and the per-tile run; c/o = inner over outer");
+        output.WriteLine($"psf01     the SHIPPED encoding over [{estimator.RadiusRange.Min}, {estimator.RadiusRange.Max}] px, since the shipped graph is what runs; a master whose");
+        output.WriteLine("          radii sit under the floor clamps every tile to the whole-image value and cannot discriminate (tiles differing 0)");
         output.WriteLine("");
         output.WriteLine($"{"master",-40} {"arm",-9} {"inner",6} {"n",5} {"middle",6} {"n",5} {"outer",6} {"n",5} {"c/o",5} {"s",6}");
 
@@ -109,14 +111,22 @@ public class PerChunkPsfOutputProbe(ITestOutputHelper output)
 
             try
             {
-                master.ScaleFloatValuesToUnitInPlace();
-                var inputBins = await MeasureAsync(master, ct);
+                // The rescale REWRAPS: the returned image carries the unit-range values and MaxValue, the
+                // original's MaxValue is stale (Image's remarks). The first run of this probe used the
+                // original and the deconvolver refused the second master at MaxValue 65535.
+                var unit = master.ScaleFloatValuesToUnitInPlace();
+                var wholePsf01 = await estimator.EstimateAsync(unit, ct);
+                var tilePsf01 = await perTile.EstimatePerChunkAsync(unit, wholePsf01, ct);
+                var differing = tilePsf01.Count(v => v != wholePsf01);
+                output.WriteLine($"{shortName,-40} whole psf01 {wholePsf01:F3}; tiles {tilePsf01.Length}, differing from it {differing}, "
+                    + $"tile psf01 {tilePsf01.Min():F3} to {tilePsf01.Max():F3}");
+                var inputBins = await MeasureAsync(unit, ct);
                 Print(shortName, "input", inputBins, 0);
 
                 foreach (var (label, deconvolver) in new[] { ("whole", whole), ("per-tile", perTile) })
                 {
                     var started = DateTime.UtcNow;
-                    var result = await deconvolver.EnhanceAsync(master, ct);
+                    var result = await deconvolver.EnhanceAsync(unit, ct);
                     try
                     {
                         var bins = await MeasureAsync(result, ct);

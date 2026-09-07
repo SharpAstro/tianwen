@@ -27,6 +27,50 @@ namespace TianWen.Lib.Tests
             MoffatComposition.ComposedFwhm(2.8, 5.0, 0.1, 4.0).ShouldBe(2.8, tolerance: 0.03);
         }
 
+        [Fact]
+        public void AnInfiniteBetaIsTheGaussianProfile()
+        {
+            MoffatComposition.Profile(2.0, double.PositiveInfinity, 0.0).ShouldBe(1.0, tolerance: 1e-12);
+            MoffatComposition.Profile(2.0, double.PositiveInfinity, 1.0).ShouldBe(0.5, tolerance: 1e-9);
+            MoffatComposition.Profile(3.0, double.PositiveInfinity, 1.5).ShouldBe(0.5, tolerance: 1e-9);
+        }
+
+        /// <summary>
+        /// E1d's finding: PsfKernel samples at pixel centres, so a kernel under about 1.5 px blurs by less
+        /// than its label. The expected values are the numeric composition of the point-sampled kernel with
+        /// a beta-3 core (deconvolver-training.md, E1d): 0.73 px for a nominal 1 px on a 2.15 px core, a
+        /// near-delta for a nominal 0.5 px, and the label itself from 2 px up.
+        /// </summary>
+        [Theory]
+        [InlineData(1.0, 0.73, 0.08)]
+        [InlineData(0.5, 0.12, 0.08)]
+        [InlineData(2.0, 2.0, 0.10)]
+        [InlineData(3.0, 3.0, 0.10)]
+        public void APointSampledKernelUnderTwoPixelsIsNarrowerThanItsLabel(double nominal, double expectedEffective, double tolerance)
+        {
+            var kernel = PsfKernel.Moffat(nominal, 4.0);
+            var effective = MoffatComposition.EffectiveKernelFwhm(kernel, 2.15, 3.0);
+            effective.ShouldBe(expectedEffective, tolerance);
+        }
+
+        [Fact]
+        public void TheDiscreteCompositionAgreesWithTheContinuousOneOnceTheKernelIsSampledDensely()
+        {
+            // At 3 px the kernel has a dozen samples across its FWHM; the two compositions should meet.
+            var kernel = PsfKernel.Moffat(3.0, 4.0);
+            var discrete = MoffatComposition.ComposedFwhm(2.15, 3.0, kernel);
+            var continuous = MoffatComposition.ComposedFwhm(2.15, 3.0, 3.0, 4.0);
+            discrete.ShouldBe(continuous, tolerance: 0.06);
+        }
+
+        [Fact]
+        public void AGaussianKernelHasAnEffectiveWidthNearItsLabelWhenWide()
+        {
+            // Truncated at three sigma and renormalised, so a little under the label, never over.
+            var effective = MoffatComposition.EffectiveKernelFwhm(PsfKernel.Gaussian(3.0), 2.15, 3.0);
+            effective.ShouldBeInRange(2.8, 3.05);
+        }
+
         [Theory]
         [InlineData(2.15, 5.0, 2.0, 4.0)]
         [InlineData(2.15, 3.0, 1.0, 4.0)]
