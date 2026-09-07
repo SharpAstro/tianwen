@@ -332,9 +332,10 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   2026-08-27)**. **7.0.1513 went to the Store on 2026-09-04** carrying the fixed half of this list --
   P17 and P11's version + AI-status line were the two that had not been released before it -- plus
   Explorer thumbnails, Auto stretch and the SPCC/Calibrate render toggle. None of the open items made
-  that release, so they move to the next one. P18, P19 and P20 are done (2026-09-04) and P15 on
-  2026-09-06; of what is left, **P11.2 is the shippable one** and **P13 is written last**, so it
-  documents what the rest ended up doing.
+  that release, so they move to the next one. **The next one is 7.0.1568, dispatched 2026-09-07, and
+  it carries P15, P18, P19, P20 and P22** -- see
+  `packaging/windows/msix/release-notes/7.0.1568.txt` for the submission record. P13 was written
+  last on purpose and earned it. **Only P11.2 and P21 remain**, and P11.2 is the shippable one.
   - [x] **P11.1** `--help`, `--version` and the in-app `?` panel report the version, beside an
     AI-enhancer discovery status saying which backend resolved, which RC products are licensed and
     which SAS models are missing -- **without** undoing the deliberate deferral of the RC-vs-SAS
@@ -395,11 +396,17 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     Done 2026-09-04.
   - [ ] **P21** A mosaic's channel views show the mosaic, not the debayered planes. BACKLOG; a shader
     change whose cheap form is not obvious yet.
-  - [ ] **P22** Save the ANNOTATED view (pixels + grid + star markers + object labels), as a second
-    entry in P18's Save-As menu. BACKLOG, split off P18 on 2026-09-04: `PlateSolveAnnotator` already
-    draws these onto a CPU raster so the machinery exists, but it is a SECOND drawing path beside the
-    GPU one and the two will drift. P18 deliberately saves the clean raster only, which needs no
-    framebuffer readback and so is full image resolution rather than window resolution.
+  - [x] **P22** Save the ANNOTATED view (pixels + grid + star markers + object labels), as a second
+    entry in P18's Save-As menu. DONE 2026-09-06 (`cdefb1d0`), shipped in 7.0.1568. Split off P18 on
+    2026-09-04 over one question: `PlateSolveAnnotator` already draws these onto a CPU raster so the
+    machinery exists, but it is a SECOND drawing path beside the GPU one and the two will drift --
+    every overlay added to the shader would then owe a twin, with nothing failing when it was
+    forgotten. **The answer was to write neither twin.** `AnnotatedRasterExport` runs
+    `ImageRendererBase<TSurface>` itself, the class the window is drawn by, over an
+    `RgbaImageRenderer` surface the size of the image: the layout pass, the placement,
+    `OverlayEngine.ComputeOverlays` and the label collision avoidance are the SAME code, and only
+    three primitives (ellipse, cross, line) plus the image blit are backend-specific. An overlay
+    added to the viewer appears in the export for free.
 
   P18 and P19 shared a sitting: both touch the display raster and the file list. See
   `docs/plans/viewer-prerelease-fixes.md` (phases G and H) and

@@ -310,10 +310,19 @@ tables come from the app's own `?` panel list (`ShortcutLines`) and from `GetToo
 the two places the app already documents itself, so the page and the program cannot drift apart on
 what a key does without one of those changing too.
 
-**Three current limitations are stated rather than omitted**: Save writes the clean raster with no
-grid, markers or labels (P22), photometric calibration is broadband-only, and a mosaic's
-single-channel views show the mosaic (P21). A guide that lists only what works is the one a reader
-stops trusting at their first surprise, and all three are things a user meets by accident.
+**The current limitations are stated rather than omitted**: photometric calibration is
+broadband-only, and a mosaic's single-channel views show the mosaic (P21). A guide that lists only
+what works is the one a reader stops trusting at their first surprise, and both are things a user
+meets by accident.
+
+**As written it listed a third, and P22 retired it four hours later** -- "Save writes the clean
+raster with no grid, markers or labels". The guide was updated with the feature (`6fc64c3`, "Saving
+a view now includes the annotated one") and the limitation bullet was left behind, so for a day the
+page documented the annotated save and listed its absence as a limitation. Corrected 2026-09-07
+while assembling the 7.0.1568 submission. **The lesson is the ordering one this entry already
+argues, pointed the other way**: writing the guide last is what makes it accurate, and the same
+property makes it the first thing stale when the item written last ships anyway. A limitation
+retired by a feature is two edits in the guide, not one.
 
 Structured so the CLI, the server and the session runner can join as sibling pages under `/guide/`
 without a rewrite. `assets/guide.css` is loaded only by these pages and is written entirely in
@@ -644,7 +653,7 @@ hard. backlog it if we can't deliver it now."*
 | E | P5 | DONE. An LZW decoder; the only item whose absence was already documented scope. |
 | F | P9, P10 | Reproduce first; do not fix from a single screenshot. |
 | G | **P12 + P14 DONE 2026-08-22**; **P11's version + AI status DONE 2026-08-27**; **P13 DONE 2026-09-06**; P11's model download remains | P13 was written last on purpose, and by the time it was written the things it had to describe were P15 and phase H's three rather than P11/P14 -- which is the argument for writing it last, not against it. P11.2 (fetching the missing vendor models) is deferred: nothing on the resolution path copies, so an installed SAS Pro or GraXpert is already read in place. |
-| H | **P17 DONE 2026-08-27**; **P18 + P19 + P20 DONE 2026-09-04**; P21, P22 backlogged | The second wave of the user's notes. P17 first because it is a formatter over state that already existed, and it is what found the missing dropdown hover state. P18 and P19 both touch the display raster and the file list, so they share a sitting. P20 waits on the web build; P21 is a shader change whose cheap form is not obvious yet. |
+| H | **P17 DONE 2026-08-27**; **P18 + P19 + P20 DONE 2026-09-04**; **P22 DONE 2026-09-06**; P21 backlogged | The second wave of the user's notes. P17 first because it is a formatter over state that already existed, and it is what found the missing dropdown hover state. P18 and P19 both touch the display raster and the file list, so they share a sitting. P20 waits on the web build; P21 is a shader change whose cheap form is not obvious yet. P22 came off the backlog once the second-drawing-path question had an answer that needed no second path. |
 
 ## Verification
 

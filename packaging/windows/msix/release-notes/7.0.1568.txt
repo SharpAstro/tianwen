@@ -1,0 +1,266 @@
+Astro Photo Viewer (tianwen-fits)
+Store package version 7.0.1568.0   -   supersedes 7.0.1513.0
+Package identity  SharpAstro.AstroPhotoViewer   Store ID  9PMDZP16TGBG
+Git tag  v7.0.1568   -   span  v7.0.1513..v7.0.1568   -   75 commits
+
+This file is the submission record for one Store release: the copy pasted into
+Partner Center's "What's new in this version" field, and the detail behind it.
+Nothing else in the repo records what has been submitted, which is why writing
+it down is worth the file.
+
+Backlog items closed by this release: P15, P18, P19, P20, P22.
+Still open: P11.2, P21 (both stated under KNOWN ISSUES).
+
+
+================================================================================
+WHAT'S NEW  (Partner Center copy - paste the block between the rules)
+================================================================================
+
+Save what you are looking at
+The viewer had no Save at all. There is now a Save button beside Open, writing
+the image as it appears on screen - the stretch, white balance, curves, HDR and
+channel view currently applied - as a 16-bit PNG, an 8-bit PNG, a JPEG or a
+float TIFF. It is a render, not a screenshot, so the file comes out at the
+image's own resolution rather than the window's.
+
+Save the view with its overlays
+A second entry writes the grid, star markers and object labels into the image,
+drawn by the same code that draws them on screen, so anything the viewer can
+show it can also export.
+
+Choose which PNG a save writes
+16-bit remains the default: on deep or denoised data, where the noise floor
+sits below one 8-bit step, 8-bit turns a smooth gradient into visible contours.
+On a single sub the noise dithers those steps and nothing bands, so 8-bit is
+safest on the worst data and most dangerous on the best - which is why it is a
+choice per save rather than a setting.
+
+Step through a folder without the brightness jumping
+Stepping between two subs of the same field re-solved the automatic stretch
+from each frame's own statistics, so the sequence flickered in brightness and
+colour - exactly the difference someone stepping through them is trying to see.
+One frame's display mapping is now held across frames of the same shape. It
+also makes files after the first open faster, since the colour calibration is
+fitted once per folder rather than once per file.
+
+Blink between frames
+Space blinks forward through the file list, Shift+Space backward, Ctrl+Space
+returns to the frame the display is held to, and Shift+H holds or releases.
+The status bar says which frame the display is held to.
+
+Copy a link into the web Sky Atlas
+Right-click a plate-solved frame to copy a link that opens the same patch of
+sky, at the same field of view and moment, in the browser Sky Atlas.
+
+Opening a file is five seconds faster
+Double-clicking a FITS or SER file took 5.1 to 5.5 seconds to show a window,
+against 0.1 seconds for launching the app on its own. The app offers the file
+to an already-open window first, and discovering that there was not one cost
+the whole timeout - which is the common case, and it was paid before the window
+was even created. That check is now immediate.
+
+Saving is faster, and says what it cost
+A 31 megapixel frame saves as a 16-bit PNG in about 2 seconds against about 7
+before, and as 8-bit in under 1 second. Saved images no longer carry a
+pointless alpha channel, so they are smaller as well. The status line reports
+the time, the megapixels and the size.
+
+Canon raw files import as the photograph, not the whole sensor
+A CR2 or CR3 was read including the shielded edge photosites the camera keeps
+as its own black reference. That showed as a black band down the left and
+across the top, and put about 3% of the frame, pinned at the black level, into
+every statistic the automatic stretch is solved from. Files are now cropped to
+the sensor's active area.
+
+A demosaic the file chooses
+Debayer defaults to Auto and resolves per file: a still colour frame uses VNG,
+a SER video uses MHC so a frame being scrubbed matches the master the planetary
+stacker will build, a mono frame uses the mono path, and an already-colour
+frame is left alone.
+
+What you see is what a save writes
+Choosing VNG displayed bilinear and choosing AHD displayed MHC, so the file
+written could differ from the picture on screen - invisibly, since each is a
+plausible picture of the same sky. VNG now renders on the GPU exactly as it
+does on disk, and AHD, which cannot be rendered, has left the selector.
+
+Typing an extension writes that format
+Typing a name like "shot.tif" produced PNG bytes in a file called .tif. A save
+now either writes the format you named or corrects the extension to match what
+it actually wrote.
+
+Sky overlays stay inside the picture
+With the object overlay on, labels for objects near the frame edge could paint
+across the toolbar and down the metadata panel. Overlays are now clipped to the
+image pane. A faint smear of leftover text along the toolbar has gone with it.
+
+Plate solutions agree with other tools
+Pixel coordinates written into a FITS header were one pixel off from the FITS
+standard's convention, so a file solved here read a pixel off in astropy,
+PixInsight, Siril and ASTAP, and a solution from any of those read a pixel off
+here. Both directions now convert at the header boundary.
+
+Better denoising, and gradient correction without GraXpert
+The in-house one-shot-colour denoiser ships a new, wider-trained checkpoint,
+and a machine with no GraXpert weights installed can now flatten a gradient
+with a built-in classical extractor instead of skipping the step.
+
+================================================================================
+
+
+DETAIL
+================================================================================
+
+Viewer - features (backlog items P18, P19, P20, P22)
+  ff460f86  P18. DisplayRasterExport + IFileDialogHelper.SaveAsync; no save
+            dialog existed on any platform before it. Renders through
+            RenderStretchedRgba / RenderStretchedRgba16, the CPU mirror of the
+            viewer's shader, so it is the image's resolution and not the
+            window's.
+  baf42590  P18. Open and Save as hand-drawn marks; the toolbar no longer wraps.
+  ae2e95c6  P19. DisplayCarry, keyed on FrameShape (size, plane count,
+            BitDepth, SensorType). The anchor is a DOCUMENT, not a snapshot -
+            its SPCC triple and star-masked background arrive seconds after the
+            load, so a snapshot would leave the anchor unlike every frame after
+            it.
+  2aa56160  P19. TickBlink paced from CheckNeedsRedraw beside TickPlayback, so
+            no busy-spin. The SER transport keeps Space while a sequence is
+            loaded.
+  739cd4ae  P19. Shift is the other DIRECTION, not a mode - the one transport
+            key that looked like a direction was the one that was not.
+  98c33aea  P20. SkyAtlasLink defines the vocabulary both ends speak:
+            ?view=sky&ra=<deg>&dec=<deg>&fov=<deg>&t=<ISO-8601 Z>. RA travels in
+            DEGREES though every internal RA is in hours, because 5.5 is a legal
+            RA in both units and reads 15x off anywhere else; the conversion is
+            isolated behind a test.
+  af36ba74  P20. The reading half. The web atlas read only view and object, and
+            object takes a catalog token, so there was no way to point at a
+            plain coordinate. E2E caught the first render homing over the link.
+  cdefb1d0  P22. The annotated save runs ImageRendererBase over an
+            RgbaImageRenderer surface - the same layout, placement,
+            OverlayEngine and label-collision code as the window, so a new
+            overlay appears in the export for free rather than owing a twin.
+  ba4611d3  PNG depth choice. Background spans 2465 distinct 16-bit levels
+            against 14 8-bit ones on a measured stretched frame; a one-level run
+            grows 1.2 px to 7.8 px as noise drops.
+
+Viewer - fixes and performance
+  d0b0203d  DebayerAlgorithm.Auto, resolved by ResolveAuto in Lib so a headless
+            producer reaches the same answer. Default; the button reads
+            "Auto (VNG)". GpuDebayerMode THROWS on an unresolved Auto, which
+            caught its own seeding bug in a minute.
+  70c5170a  VNG on the GPU (debayerVng, a transcription of Image.DebayerVNGAsync
+            down to the epsilons); AHD withdrawn from the selector, retained for
+            the batch and dataset paths. VNG's halo rim sits 0.36% below local
+            sky against MHC's 2.86% above. Removes AHD's 1258 ms from a save.
+  20d945f6  FromExtension returns null rather than guessing PNG; the caller owns
+            the fallback and renames the file to match its content. The same
+            defect was on the clean path, which the first pass missed.
+  6df575f0  Save reports elapsed time, megapixels and megabytes - measured at
+            the one place nobody was measuring, after three wrong attributions
+            from benchmarks that resembled the real thing.
+  b60a2a50  Parallel PNG fragment encode (SharpAstro.Png 3.14, eight fragments,
+            a constant so output stays deterministic across machines).
+  fae23024  Alpha discarded from the saved display raster (colour type 2).
+  25c9479a  All four sky overlays clipped to the image pane.
+  983a8151  P15. Narrowed repaint covers the toolbar strip the damage box
+            excludes. The entry's standing hypothesis was wrong - the panel
+            fills its whole rect and the host merges damage into one box - and
+            measuring found two real residues instead. ViewerRepaintResidueTests
+            asserts the SCREEN, not the declaration.
+  09214ba9  SdlVulkan.Renderer 7.32 (texture staging-buffer sizing, headless
+            queue-thread assertion).
+
+Imaging
+  f174448d  Canon raw cropped to CanonRawFile.ActiveArea (FC.SDK.Raw 3.1).
+            5D Mark IV 6888x4546 -> 6720x4480; R5 5248x3510 -> 5088x3392. The
+            CFA pattern is taken from the cropped origin (an odd offset
+            re-phases the array), and MaxValue is measured over the kept pixels.
+  6655faa4  WCS CRPIX converts at the FITS boundary; in memory a WCS stays
+            0-based. Found as a constant (+0.95, +0.91) px offset against
+            Gaia DR3 that a 2.5 px match tolerance had been absorbing.
+  31eecad6  ClassicalBackgroundExtractor, the AI-free gradient corrector, wired
+            as FallbackGradientCorrector so a machine without GraXpert weights
+            still flattens instead of skipping the step.
+  5b03618a  Directory walks go through FileEnumeration: no reparse points
+            entered, unreadable directories skipped rather than aborting the
+            walk, extensions matched ordinal-ignore-case.
+
+AI
+  bdba90b7  tianwen_denoise_osc_e2wide_s2.onnx replaces v19d as the shipped OSC
+            N2N checkpoint. Weights back under LFS.
+
+Dependencies
+  SharpAstro.AppShell 1.1.81 (AppShell commit ecd14fc, verified in the nuspec's
+            repository metadata) carries the start-up fix. InstanceGate probes
+            the pipe namespace as a filesystem - Windows publishes it as one -
+            so "no holder" is a single stat call instead of a five-second poll,
+            and the viewer's gate phase reads 4 ms. No API change, so no bump
+            was needed: TianWen's 1.1.* pin picks it up on restore. Off Windows
+            there is no equally reliable probe, so the timed connect is
+            unchanged there.
+  6c2a73ca  StartupTrace (TianWen.Lib/Logging) is what found it, stamping phases
+            against process CREATION rather than a stopwatch started in Main -
+            the part before the first statement (AOT init, MSIX activation) is
+            exactly the half a process cannot otherwise see.
+
+Cumulative save cost, 31.3 MP frame, end to end:
+  16-bit PNG   ~7300 ms / 107 MB   ->   1946 ms / 97 MB
+   8-bit PNG   ~4900 ms            ->    890 ms / 18 MB
+
+
+KNOWN ISSUES IN THIS BUILD
+================================================================================
+  P11.2  The ? panel reports which SAS AI weights are missing and where it
+         looked, but cannot fetch them: tools/tianwen-ai-models-fetch.ps1 is a
+         repo script and a Store install cannot reach it. Closing it means an
+         in-app download into %LOCALAPPDATA%\TianWen\models driven from that
+         panel. It must compose with the deferred RC-vs-SAS license probe rather
+         than undo it - a fetch is an explicit user action, so it can.
+
+  P21    On a mosaic frame the single-channel views show the raw mosaic rather
+         than the separated colour planes. ChannelView.DisplayedSourceChannel
+         clamps to the channels the IMAGE has, and a 1-channel RGGB frame has
+         one, so Red/Green/Blue all resolve to channel 0. The viewer never
+         CPU-debayers by design, so the cheap form is a shader-side isolate of
+         one channel of the debayered triple, which debayerBilinear and
+         debayerMhc already compute; the cursor readout is the part needing CPU
+         values, and is where Channel.AsSpan() earns its place.
+
+  SPCC   Photometric colour calibration is broadband only. Narrowband is blocked
+         on data rather than maths: it needs per-star Gaia DR3 xp_sampled
+         spectra, since a spectral type average cannot tell Ha absorption from
+         emission over 3 nm.
+
+  Layout Below about 730 px of window width the image pane arrives at zero width
+         and the histogram overlay lands on the file list. Geometrically sound,
+         but nothing has decided what should yield - a policy call, deliberately
+         not invented while fixing the clamp.
+
+  About  The About banner concatenates the run attempt onto the version rather
+         than separating it (7.0.15681 for 7.0.1568 attempt 1). Cosmetic, and
+         present in every release so far: dotnet.yml composes -p:Version as
+         ${VERSION_PREFIX}${VERSION_REV} with no separator, while -p:FileVersion
+         is correct. The same concatenation is why sibling packages version as
+         1.1.81 rather than 1.1.8.
+
+
+SUBMISSION
+================================================================================
+  1. Download the msix-store-package artifact from CI run 1568:
+       gh run download 34104345416 -n msix-store-package
+     Retention is 30 days.
+  2. Upload AstroPhotoViewer.msixbundle to the draft submission for
+     Store ID 9PMDZP16TGBG. It is unsigned by design; the Store re-signs after
+     certification, so it cannot be installed by double-clicking.
+  3. Paste the WHAT'S NEW block above into "What's new in this version".
+  4. If the bundle was signed locally for testing, re-download before
+     uploading - signing edits the package in place.
+
+  Before submitting, settle the two documentation drifts this release created:
+    - TODO.md still marks P22 as "- [ ] BACKLOG"; it shipped as cdefb1d0.
+    - guide/viewer.html (sharpastro.github.io, which the Store listing points
+      at) still lists "Saving writes the clean image without the grid, star
+      markers or labels drawn over it" under "Known limitations in this
+      version", while the same page now documents the annotated save. The other
+      two limitations there, SPCC and the mosaic channel views, remain true.
