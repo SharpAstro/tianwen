@@ -7,28 +7,61 @@ namespace TianWen.Lib.Logging;
 
 /// <summary>
 /// A simple file-based logger provider that writes log entries to a single file.
-/// Log path: <c>{CommonDataRoot}/Logs/{date}/{appName}_{timestamp}.log</c>
+/// Log path: <c>{CommonDataRoot}/Logs/{date}/{appName}_{timestamp}.log</c>, with the process id
+/// appended (<c>{appName}_{timestamp}_{pid}.log</c>) only when that file already exists.
 /// </summary>
+/// <remarks>
+/// The timestamp is to the second, so two processes of one app started within the same second
+/// want the same file. Until 2026-09-07 the second one died at start-up with "the process cannot
+/// access the file because it is being used by another process", before it had logged a line: a
+/// launcher that ran <c>tianwen --version</c> and then <c>tianwen stack</c> lost the stack. The name
+/// is opened with <see cref="FileMode.CreateNew"/> so a collision is detected rather than truncating
+/// the other process's log, and only a collision changes the name.
+/// </remarks>
 public sealed class FileLoggerProvider : ILoggerProvider
 {
     private readonly StreamWriter _writer;
     private readonly Lock _lock = new Lock();
 
     public FileLoggerProvider(string appName)
+        : this(appName, SharedStaticData.CommonDataRoot.CreateSubdirectory("Logs")
+            .CreateSubdirectory(TimeProvider.System.GetLocalNow().ToString("yyyyMMdd")).FullName)
+    {
+    }
+
+    /// <summary>The provider over an explicit directory, for tests; the public constructor uses the
+    /// app data <c>Logs/{date}</c> directory.</summary>
+    internal FileLoggerProvider(string appName, string logDir)
     {
         // Machine-local wall clock (carries the local offset). Sourced from TimeProvider.System
         // rather than DateTime.Now so we never touch the banned BCL now-statics.
         var now = TimeProvider.System.GetLocalNow();
-        var dateDir = now.ToString("yyyyMMdd");
         var timestamp = now.ToString("yyyyMMdd'T'HH_mm_ss");
 
-        var logDir = SharedStaticData.CommonDataRoot.CreateSubdirectory("Logs").CreateSubdirectory(dateDir).FullName;
-
-        var logFile = Path.Combine(logDir, $"{appName}_{timestamp}.log");
-        _writer = new StreamWriter(logFile, append: false) { AutoFlush = true };
+        var stream = TryCreateNew(Path.Combine(logDir, $"{appName}_{timestamp}.log"))
+            ?? TryCreateNew(Path.Combine(logDir, $"{appName}_{timestamp}_{Environment.ProcessId}.log"))
+            ?? throw new IOException($"Could not create a log file for {appName} under {logDir}: both the timestamped name and its process-id variant exist.");
+        _writer = new StreamWriter(stream) { AutoFlush = true };
 
         WriteBanner(_writer, appName, now);
     }
+
+    /// <summary>The file, created fresh, or null when it already exists (another process of this app
+    /// started in the same second and owns it).</summary>
+    private static FileStream? TryCreateNew(string path)
+    {
+        try
+        {
+            return new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+        }
+        catch (IOException) when (File.Exists(path))
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The file this provider writes to.</summary>
+    public string LogFilePath => ((FileStream)_writer.BaseStream).Name;
 
     /// <summary>
     /// First line of every log file: which binary, from which commit, out of which install.
