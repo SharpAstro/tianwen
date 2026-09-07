@@ -364,6 +364,7 @@ def prepare(args):
 
 
 STARS_FILE = "stars.npy"
+EMPTY_FILE = "empty.npy"
 
 
 def prepare_stars(cache, max_per_tile=32):
@@ -384,7 +385,11 @@ def prepare_stars(cache, max_per_tile=32):
     mm, meta = open_cache(cache)
     n = meta["cells"]
     out = np.zeros((n, max_per_tile, len(DG.STAR_TARGET_COLUMNS)), dtype=np.float32)
+    # The counterpart: as many EMPTY windows a tile as it has star targets (E2.8b arm N). Written
+    # beside the stars from the same pass, so the two files can never describe different tiles.
+    empty = np.zeros_like(out)
     counts = []
+    empties = []
     t0 = time.perf_counter()
     for i in range(n):
         t = crop(np.asarray(mm[i, SLOT_MASTER], dtype=np.float32)).mean(axis=0)
@@ -392,17 +397,26 @@ def prepare_stars(cache, max_per_tile=32):
         _, mad = M.bg_stats(t)
         out[i] = DG.star_targets(t, med, mad, max_per_tile)
         counts.append(int(out[i, :, 3].sum()))
+        empty[i] = DG.empty_targets(t, med, mad, counts[-1], max_per_tile, seed=i)
+        empties.append(int(empty[i, :, 3].sum()))
     np.save(os.path.join(cache, STARS_FILE), out)
+    np.save(os.path.join(cache, EMPTY_FILE), empty)
     with open(os.path.join(cache, "stars.json"), "w", encoding="utf-8") as fh:
         json.dump({"columns": list(DG.STAR_TARGET_COLUMNS), "sigma": DG.STAR_SIGMA,
                    "max_per_tile": max_per_tile, "coordinates": f"cropped by BORDER={BORDER}",
                    "selection": "evenly spaced in peak rank when a tile exceeds max_per_tile",
-                   "cells": n, "cells_with_stars": int(sum(c > 0 for c in counts))}, fh, indent=1)
+                   "cells": n, "cells_with_stars": int(sum(c > 0 for c in counts)),
+                   "empty_file": EMPTY_FILE, "empty_sigma": DG.STAR_SIGMA_LOW,
+                   "empty_rule": "no low-bar detection within the 7x7 window plus one pixel, window max under the low bar, seeded per cell"},
+                  fh, indent=1)
     counts = np.array(counts)
+    empties = np.array(empties)
     print(f"star targets: {n} cells, stars/tile p10 {np.percentile(counts, 10):.0f} "
           f"p50 {np.median(counts):.0f} p90 {np.percentile(counts, 90):.0f}, "
           f"{int((counts == 0).sum())} cells with none, {int((counts == max_per_tile).sum())} at the "
           f"{max_per_tile} cap, in {time.perf_counter() - t0:.0f} s -> {os.path.join(cache, STARS_FILE)}")
+    print(f"empty targets: {int(empties.sum())} windows over {n} cells (wanted {int(counts.sum())}), "
+          f"{int((empties < counts).sum())} cells short of their star count -> {os.path.join(cache, EMPTY_FILE)}")
 
 
 # --------------------------------------------------------------------------- model
@@ -644,9 +658,14 @@ class StarTerm:
     would be a second selection on the same held-out session.
     """
 
-    def __init__(self, stars, device):
+    def __init__(self, stars, device, empties=None):
         import torch
         self.stars = torch.as_tensor(stars, device=device, dtype=torch.float32)  # [cells, S, 4]
+        # E2.8b arm N: the same ratios over windows where the target is EMPTY, concatenated onto the
+        # star set so each empty window weighs exactly what a star does. Raising a peak over empty sky
+        # then costs what lowering a star's peak costs, which E2.8's term never charged for.
+        if empties is not None:
+            self.stars = torch.cat([self.stars, torch.as_tensor(empties, device=device, dtype=torch.float32)], dim=1)
         off = torch.arange(-STAR_WINDOW_R, STAR_WINDOW_R + 1, device=device)
         self.oy = off.view(1, 1, -1, 1)
         self.ox = off.view(1, 1, 1, -1)
@@ -880,11 +899,21 @@ def train(args):
         stars = np.load(stars_path)
         if stars.shape[0] != n:
             raise SystemExit(f"{stars_path} holds {stars.shape[0]} cells for a cache of {n}")
-        star_term = StarTerm(stars, dev)
+        empties = None
+        if args.star_loss_empty:
+            empty_path = os.path.join(args.cache, EMPTY_FILE)
+            if not os.path.exists(empty_path):
+                raise SystemExit(f"--star-loss-empty needs {empty_path}; re-run --prepare-stars")
+            empties = np.load(empty_path)
+            if empties.shape != stars.shape:
+                raise SystemExit(f"{empty_path} is {empties.shape}, stars are {stars.shape}")
+        star_term = StarTerm(stars, dev, empties)
         with_stars = int((stars[:n_train, :, 3] > 0).any(axis=1).sum())
         print(f"star-term loss ON: {int(stars[:n_train, :, 3].sum())} star targets over {with_stars}/{n_train} "
-              f"train cells (<= {stars.shape[1]} a tile); weight "
-              f"{'matched to the pixel term on the first starred batch, then FIXED' if args.star_loss == 'auto' else args.star_loss}")
+              f"train cells (<= {stars.shape[1]} a tile)"
+              + (f" plus {int(empties[:n_train, :, 3].sum())} EMPTY windows weighted as stars" if empties is not None else "")
+              + f"; weight {'matched to the pixel term on the first starred batch, then FIXED' if args.star_loss == 'auto' else args.star_loss}"
+              + (f", re-fixed once at step {args.star_loss_refix}" if args.star_loss_refix else ""))
 
     # The mid-training probe. Loss cannot select a denoiser here (it falls fastest for a model
     # that irons the frame flat, because the background is most of the pixels) and neither can
@@ -1122,6 +1151,14 @@ def train(args):
                     else:
                         star_w = float(args.star_loss)
                         print(f"  star-loss weight {star_w:.4e} (given)", flush=True)
+                elif args.star_loss_refix and step == args.star_loss_refix:
+                    # E2.8b arm W: the first batch's pixel term is the injected noise, not the task,
+                    # so the weight matched there left the term tens of times the pixel term once the
+                    # noise was gone. Re-matched ONCE here, logged, and fixed again.
+                    refixed = float(pixel.item()) / max(float(s_term.item()), 1e-12)
+                    print(f"  star-loss weight RE-FIXED at {refixed:.4e} on step {step} (was {star_w:.4e}): pixel term "
+                          f"{pixel.item():.4e} / star term {s_term.item():.4e} over {n_stars} stars", flush=True)
+                    star_w = refixed
                 loss = loss + star_w * s_term
                 running_star.append(float(s_term.item()))
         opt.zero_grad(set_to_none=True)
@@ -1451,6 +1488,15 @@ if __name__ == "__main__":
                         "given. Needs --synthetic against the master and a cache with stars.npy "
                         "(--prepare writes it; --prepare-stars adds it to an existing cache). Never "
                         "tune this on the gate: that is a second selection on the same session")
+    p.add_argument("--star-loss-empty", action="store_true",
+                   help="E2.8b arm N: add the star term's counterpart, the same ratios over windows where "
+                        "the clean target has NO star (empty.npy, written by --prepare-stars), each "
+                        "weighted as a star. E2.8's term without it sharpened noise into 34 to 45x the "
+                        "truth's stars on the observer session")
+    p.add_argument("--star-loss-refix", type=int, default=0,
+                   help="E2.8b arm W: re-match the star weight to the pixel term ONCE at this step and "
+                        "fix it again (0 = never). The first batch's pixel term is the injected noise, so "
+                        "the weight matched there is tens of times too large once the noise is gone")
     p.add_argument("--star-max", type=int, default=32,
                    help="star targets kept per tile for stars.npy (evenly spaced in peak rank when a "
                         "tile has more; the faint end is the population L2 trades away)")

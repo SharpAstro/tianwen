@@ -160,6 +160,52 @@ def star_targets(tile, med, mad, max_per_tile=32):
     return out
 
 
+# The loss's 7x7 window (n2n_smoke.STAR_WINDOW_R, restated here so this module imports nothing back
+# at load time), and how far the nearest LOW-bar detection must be from an EMPTY window's centre:
+# outside the window plus one pixel of slack.
+STAR_WINDOW_R = 3
+EMPTY_EXCLUSION_R = STAR_WINDOW_R + 1
+
+
+def empty_targets(tile, med, mad, count, max_per_tile=32, margin=4, seed=0):
+    """Windows where the CLEAN target has NO star: the star term's counterpart (E2.8b arm N).
+
+    E2.8's term rewards a matched peak, flux and concentration at detected stars and says nothing
+    about the rest of the frame, so the cheapest way to raise a blurred peak is to sharpen every
+    peak, and on a quiet frame the sharpened noise clears the detector: 34 to 45 times the truth's
+    stars on the observer session. These windows are where the target is empty by its own low-bar
+    detector (`STAR_SIGMA_LOW`, so a six-MAD bump is not "empty"), placed at random with a seeded
+    generator so the cache is reproducible, `count` of them to match the tile's star count. The loss
+    applies the same three ratios here, where the target's flux and peak are at the noise floor, so a
+    peak the output raises over empty sky is penalised the way a lowered star peak is.
+
+    Same layout as `star_targets` (y, x, peak over median in MAD, valid), zero-padded.
+    """
+    rng = np.random.default_rng(seed)
+    h, w = tile.shape
+    out = np.zeros((max_per_tile, len(STAR_TARGET_COLUMNS)), dtype=np.float32)
+    want = min(count, max_per_tile)
+    if want <= 0:
+        return out
+
+    lo_ys, lo_xs = detect(tile, med, mad, margin=0, sigma=STAR_SIGMA_LOW)
+    bar = med + STAR_SIGMA_LOW * mad
+    n = 0
+    for _ in range(want * 60):
+        if n >= want:
+            break
+        y = int(rng.integers(margin, h - margin))
+        x = int(rng.integers(margin, w - margin))
+        if lo_ys.size and np.min(np.maximum(np.abs(lo_ys - y), np.abs(lo_xs - x))) <= EMPTY_EXCLUSION_R:
+            continue
+        win = tile[y - STAR_WINDOW_R:y + STAR_WINDOW_R + 1, x - STAR_WINDOW_R:x + STAR_WINDOW_R + 1]
+        if win.max() > bar:
+            continue
+        out[n] = (y, x, (float(win.max()) - med) / mad, 1.0)
+        n += 1
+    return out
+
+
 def ring_excess(tile, ys, xs, fwhm, med, mad):
     """Median annulus DEPTH below background, in MAD, over the given stars.
 
