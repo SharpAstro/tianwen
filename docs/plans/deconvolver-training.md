@@ -2040,6 +2040,34 @@ as written; the shipped SAS graph remains the deployed deconvolver until E7, and
 the Orion pair is the number it has to beat. The decision is the plan's; the PR is where it is
 reviewed.
 
+### The re-bake, in four steps (2026-09-07, 21:20)
+
+Every retained master in `2026-09-full` predates the two registration fixes and R1, and E3 trains on
+tiles cut from them, so the store has to be rebuilt before E3.0's re-export. The facts that size it:
+79 retained masters, 52 `BayerDrizzle` and 27 `Float16Staged`; the original bake ran 13.3 h (drizzle
+sessions 10.5, staged 2.8; by stage measure 2.4, calibrate 0.5, warp 1.3, integrate 2.5, halves 1.7,
+tile export 4.4, psf 0.1). The sub-level store columns were re-measured with the guarded detector on
+2026-09-07 (96 minutes); every master, every tile cut from them and the masters' profile fits were
+not. The registration halving touches every night whose star list carried residual warm pixels
+(three SV605CC nights known, the rest unknown until re-registered: the "N unmoved dropped" count is
+the only tell and the old bake never logged it); the guard moves every OSC night's reference pick and
+quality gate a little; the bilinear pixel touches the 27 staged masters only, and the drizzle drop
+kernel's own cost is unmeasured (the one number, the Orion drizzle master at 2.74 px against the
+staged 2.81, predates the registration fix); the beta semantics need no re-stack. So:
+
+1. **`--force-psf` on the masters** (measure stage only, minutes): the store's `MoffatBeta` becomes
+   the post-E1g-2 quantity and E0's per-channel beta statistics are re-read on it.
+2. **Drizzle's kernel cost per star on one night, before choosing the re-bake's strategy**: R1's
+   method (the near6 frames stacked `BayerDrizzle`, the master's per-star width against its warped
+   frames' mean, beside the bilinear and Lanczos twins). Pre-registered: drizzle sits with bilinear
+   (about a pixel in quadrature at 2 px seeing) or with Lanczos (none measurable); the answer decides
+   whether the 52 drizzle masters are part of the problem.
+3. **The Lanczos-3 default (the user's), then a bake option for the warp kernel**: `SessionRegistrar`
+   hard-codes `WarpInterpolation.Bilinear`, so a Lanczos bake needs the option either way.
+4. **The full re-stack as one detached overnight job**, about 11 h with the measure stage done, and
+   E3.0's re-export (`--estimate-kernels`, the ratio draw) after it, never before, since the
+   degradation cache is cut from the masters.
+
 ### Reproducing E0 and E1
 
 Every number in the two sections below comes from a probe in `TianWen.Lib.Tests`, gated on an
