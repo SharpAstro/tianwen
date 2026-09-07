@@ -444,6 +444,124 @@ public class SeeingSplitDiagnosticProbe(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// The same stars in a warped frame and in the master built from it, width against width. A fit or
+    /// a median over "all detections" reaches fainter on a deeper image, so a stack read that way can
+    /// look wider than its inputs without being so; pairing each star with itself removes the selection.
+    /// For every normalised frame of the stage directory (<c>TIANWEN_E210_NORM_EXP</c>): its green-plane
+    /// detections at snr 20 matched within 1 px to the master's, kept where the frame's star is
+    /// unsaturated and well above noise (SNR 30 to 300), and the median of the master's FWHM over the
+    /// frame's on those stars. The reference frame was shifted by an integer and never interpolated, so
+    /// its row is the stack's own cost; the others carry their bilinear resampling too.
+    /// </summary>
+    [Fact]
+    public async Task ReportPerStarWidthsOfTheWarpedFramesAgainstTheirMaster()
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable("TIANWEN_E210_DIAG") == "1", "TIANWEN_E210_DIAG is not 1");
+        var pairDir = Environment.GetEnvironmentVariable("TIANWEN_E210_PAIR_DIR");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(pairDir), "TIANWEN_E210_PAIR_DIR not set");
+        var exp = Environment.GetEnvironmentVariable("TIANWEN_E210_NORM_EXP") ?? "exp-near6-fixed";
+        var expDir = Path.Combine(pairDir!, exp);
+        var masterPath = Directory.Exists(expDir)
+            ? Directory.GetFiles(expDir, "master_*.fits").FirstOrDefault(p => !p.Contains("autocrop", StringComparison.OrdinalIgnoreCase) && !p.Contains("rejection", StringComparison.OrdinalIgnoreCase))
+            : null;
+        Assert.SkipWhen(masterPath is null, $"no full-canvas master under {exp}");
+        var normDir = Directory.Exists(Path.Combine(expDir, "_staging"))
+            ? Directory.GetDirectories(Path.Combine(expDir, "_staging"), "*").Select(d => Path.Combine(d, "normalized")).FirstOrDefault(Directory.Exists)
+            : null;
+        Assert.SkipWhen(normDir is null, $"no {exp}/_staging/*/normalized directory");
+        var ct = TestContext.Current.CancellationToken;
+
+        Image.TryReadFitsFile(masterPath!, out var master).ShouldBeTrue(masterPath);
+        List<ImagedStar> masterStars;
+        try
+        {
+            var (channels, width, height) = master!.Shape;
+            var wrapped = Wrap(FullPlane(master, Math.Min(1, channels - 1)), width, height);
+            try
+            {
+                masterStars = (await wrapped.FindStarsAsync(channel: 0, snrMin: 20f, cancellationToken: ct)).Where(s => s.StarFWHM > 0f).ToList();
+            }
+            finally
+            {
+                wrapped.Release();
+            }
+        }
+        finally
+        {
+            master.Release();
+        }
+
+        var masterX = masterStars.Select(s => s.XCentroid).ToArray();
+        var masterY = masterStars.Select(s => s.YCentroid).ToArray();
+        output.WriteLine($"{exp}: master {Path.GetFileName(masterPath)} with {masterStars.Count} green detections at snr 20; pairs are the frame's stars with SNR 30 to 300 matched within 1 px");
+        output.WriteLine($"{"frame",-60} {"pairs",5} {"frame fwhm",10} {"master fwhm",11} {"master/frame p25/p50/p75",24} {"quadrature add",14}");
+        foreach (var file in Directory.GetFiles(normDir!, "*.fits").OrderBy(p => p, StringComparer.Ordinal))
+        {
+            if (!Image.TryReadFitsFile(file, out var frame) || frame is null)
+            {
+                continue;
+            }
+
+            List<(float Frame, float Master)> pairs = [];
+            try
+            {
+                var (channels, width, height) = frame.Shape;
+                var wrapped = Wrap(FullPlane(frame, Math.Min(1, channels - 1)), width, height);
+                try
+                {
+                    foreach (var s in await wrapped.FindStarsAsync(channel: 0, snrMin: 20f, cancellationToken: ct))
+                    {
+                        if (s.StarFWHM <= 0f || s.SNR < 30f || s.SNR > 300f)
+                        {
+                            continue;
+                        }
+
+                        var bestSq = 1f;
+                        var best = -1;
+                        for (var j = 0; j < masterX.Length; j++)
+                        {
+                            var dx = masterX[j] - s.XCentroid;
+                            var dy = masterY[j] - s.YCentroid;
+                            var sq = (dx * dx) + (dy * dy);
+                            if (sq < bestSq)
+                            {
+                                bestSq = sq;
+                                best = j;
+                            }
+                        }
+
+                        if (best >= 0)
+                        {
+                            pairs.Add((s.StarFWHM, masterStars[best].StarFWHM));
+                        }
+                    }
+                }
+                finally
+                {
+                    wrapped.Release();
+                }
+            }
+            finally
+            {
+                frame.Release();
+            }
+
+            var name = Path.GetFileName(file);
+            if (pairs.Count < 20)
+            {
+                output.WriteLine($"{name[..Math.Min(60, name.Length)],-60} {pairs.Count,5} (too few pairs)");
+                continue;
+            }
+
+            var frameMedian = Median(pairs.Select(p => (double)p.Frame).ToList());
+            var masterMedian = Median(pairs.Select(p => (double)p.Master).ToList());
+            var ratios = pairs.Select(p => (double)p.Master / p.Frame).OrderBy(r => r).ToList();
+            var add = masterMedian > frameMedian ? Math.Sqrt((masterMedian * masterMedian) - (frameMedian * frameMedian)) : 0.0;
+            output.WriteLine($"{name[..Math.Min(60, name.Length)],-60} {pairs.Count,5} {frameMedian,10:F2} {masterMedian,11:F2} {Percentile(ratios, 0.25),8:F3}/{Percentile(ratios, 0.5),5:F3}/{Percentile(ratios, 0.75),5:F3}   {add,14:F2}");
+        }
+    }
+
     private static float NearestDistance(float[] xs, float[] ys, Vector2 p)
     {
         var bestSq = float.MaxValue;

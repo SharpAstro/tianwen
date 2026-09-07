@@ -982,6 +982,66 @@ px to under 2.3, the whole night's from 2.73 to under 2.4 (the subs' 1.9 to 2.5 
 warp). *Kill:* any of the six frames still off by more than 0.5 px, or the whole-night master not
 under 2.6 px. Then the halving was not the only mechanism and the resampling stage is measured next.
 
+**Validated the same evening (`exp-full-fixed`, `exp-near6-fixed`, `exp-full-norm`;
+`C:/temp/e2/e210-scatter-fixed.txt`, `e210-scatter-full.txt`, `e210-perstar-*.txt`,
+`e210-near6-subs.txt`).** The registration half held. The new manifest's translations are 1.9 to 2.2
+times the old on the four frames within 2 px and unchanged on the one at 6 px; all six warped frames
+sit within 0.03 px of the reference (0.7 to 1.9 before), and over the whole night's 71 frames the
+median offset is 0.02 px (p90 0.05, max 0.16) with a per-star scatter about it of 0.21 px median (p90
+0.28; five frames at 0.4 to 0.6), worth 0.6 px in quadrature to the whole-night master. The register
+log shows 377, 606 and 749 unmoved dropped on the frames within 5 px of the reference and none beyond
+(their copies fall outside the tolerance), refine rms 0.27 to 0.58 near against 0.5 to 0.83 far, and
+the registration bad-pixel map, refused that morning at a 2.28 px spread, now builds (5,538 persistent
+outliers, 5,530 of them also in the dark's mask).
+
+The width half was killed. The near6 master's green fit went 2.65 to 2.47 px (predicted under 2.3), the
+whole night's 2.81 to 2.81 (predicted under 2.4, kill at 2.6). The six subs' own green fits are 1.99 to
+2.18 px (`ReportTheNear6SubsOwnWidths`), so a six-frame stack placed to 0.03 px still sits 1.3 px above
+its inputs in quadrature. Star by star (`ReportPerStarWidthsOfTheWarpedFramesAgainstTheirMaster`: each
+warped frame's stars at SNR 30 to 300 matched to the same stars in the master, the detector's width on
+both) the stack adds nothing of its own: the master reads 2.39 px on those stars against the six warped
+frames' 2.69, 2.64, 2.17, 2.38, 2.42 and 2.14, whose mean is 2.41; over the whole night the master
+reads 2.70 against the 71 warped frames' median 2.69 (ratio p50 1.003, p10 0.90, p90 1.15). What widens
+the frames is the warp. The two whose shift is an integer or nearly one (the reference at (0, 0), frame
+0040 at (-5.04, 3.22)) read 2.14 and 2.17, their subs' own width; the four at fractional shifts read 2.38
+to 2.69, the widest at a phase of (0.6, 0.57). A bilinear kernel (a triangle of unit base) adds a
+variance of phase times one minus phase per axis: 1.18 px of FWHM in quadrature at half phase, 0.96
+averaged over phases, so 2.17 becomes 2.47 at worst by the arithmetic and the widest frame reads a
+little past that (1.6 in quadrature; the detector's width on a resampled plane may overstate it). The
+ranking is unambiguous and the mechanism is the only one left: the combine, the rejection and the
+normalisation add nothing measurable. The two pixels in quadrature the stage table could not place were
+two things, the halved shifts, fixed, and the bilinear warp of `WarpToReferenceGridAsync`, a design
+choice every master of every session carries: at this archive's 2 px seeing it is 45 to 60 percent of a
+star's width added in quadrature.
+
+*Then.* The warp kernel is the next experiment (R1, below). Until it lands, every retained master in the
+store is its subs plus about one pixel in quadrature, the deconvolver's training targets included, and
+E2.10's pairs cannot be built from masters whose width does not follow their inputs.
+
+#### R1: the warp kernel (pre-registered 2026-09-07 evening)
+
+*Change.* `StackingOptions.WarpInterpolation` (`Bilinear`, the default and byte-identical to today;
+`Lanczos3`), on the CLI as `--warp-interpolation`, threaded through `FrameRegistration.WarpToCanvasAsync`
+to `Image.WarpToReferenceGridAsync` and its region variant; Lanczos-3 is a = 3, six taps an axis,
+weights normalised per sample, a tap on a NaN or outside the source drops out with its weight.
+
+*Measurement.* First on a synthetic Gaussian field: the detector's width after a (0.5, 0.5) shift under
+each kernel against the unshifted field, which calibrates the arithmetic above. Then near6 and the
+whole night stacked from the fixed manifests under Lanczos-3, the per-star probe on their warped frames
+and masters, the masters' green fit, and the ring excess (`Ringing`) on each master against its bilinear
+twin.
+
+*Prediction.* Synthetic: bilinear widens a 2.1 px star by 1.1 to 1.3 px in quadrature at half phase,
+Lanczos-3 by under 0.4. Real: the fractional-phase frames read within 5 percent of the integer-phase
+ones (2.14 to 2.28 rather than 2.38 to 2.69); the near6 master's per-star width falls from 2.39 to under
+2.25 and its fit from 2.47 to under 2.30; the whole night's fit from 2.81 to under 2.5; ring excess
+under 10 percent of a star's peak, since a 2 px star is at the edge of what a sinc kernel rings on.
+
+*Kill.* The fractional-phase frames stay above 2.4 px under Lanczos-3, or the ring excess passes 20
+percent. Then the widening is not the interpolation kernel (or the kernel is unusable at this sampling)
+and the warp is measured another way before any default changes. The default stays bilinear until the
+user decides; a flip changes every master.
+
 *What E2.10 needs before a second attempt.* A per-sub width that reads seeing: the bright-star
 profile fit on the debayered GREEN plane, beside the mosaic width in the store (owed: a
 `SubFwhmGreen` column, filled by `--remeasure-subs`, then E2.9's readout and the candidate list

@@ -196,6 +196,18 @@ half its own drift. Pinned by `RegistrationRefinerTests`; the measurement is in
 `docs/plans/deconvolver-training.md` (E2.10a, "the third finding placed"). Masters stacked before this
 from a well-guided night with residual warm pixels carry the blur, the retained dataset masters included.
 
+**A single warm photosite on an OSC mosaic is no longer a star.** The detector measures an RGGB frame on
+a mono fold of the mosaic, which turns one hot photosite into a 2 by 2 blob that passed the size floor,
+so a residual warm pixel was a star to every consumer of the list: the quality gate's medians and the
+reference pick, the PSF store's per-sub fit, the registration, the plate solver's candidates. On the
+night above half of every list was warm pixels and every width medianed over it read theirs (1.70 px).
+The guard reads the raw mosaic, where a star's flux is spread over its photosites and a warm pixel's is
+not: a detection carrying over 85 percent of its background-subtracted 3 by 3 flux in one photosite is
+dropped and logged (`Image.SinglePhotositeFractionMax`; measured 0.92 to 0.99 for the warm pixels
+against 0.15 to 0.41 for stars, no overlap). On the real RGGB test frame the count moves by 1.2 percent
+and the removed detections are the narrow spikes; on the Orion night the lists halve and the fit that
+refused every sub is expected to run. Pinned by `StarDetectionWarmPixelTests`.
+
 ## 7.0
 
 Two releases: `v7.0.1513` on 2026-09-04 and `v7.0.1532` on 2026-09-06, the second carrying 60 more
