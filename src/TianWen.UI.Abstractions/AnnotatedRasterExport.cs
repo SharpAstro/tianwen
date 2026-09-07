@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -143,7 +143,11 @@ namespace TianWen.UI.Abstractions
             // image's own channels do not, because the shader debayers from the mosaic. Mirrors
             // DisplayRasterExport, which mirrors what UploadDocumentTextures decides between.
             var pixels = image.ImageMeta.SensorType is SensorType.RGGB && image.Shape.ChannelCount == 1 && isComposite
-                ? await image.DebayerAsync(state.DebayerAlgorithm, cancellationToken: cancellationToken).ConfigureAwait(false)
+                // Same resolution the GPU upload does, or a saved Auto frame is demosaiced by a
+                // different algorithm from the one on screen. A document is a still, never a stream.
+                ? await image.DebayerAsync(
+                    state.DebayerAlgorithm.ResolveAuto(isBayerMosaic: true, isColour: false, isVideoStream: false),
+                    cancellationToken: cancellationToken).ConfigureAwait(false)
                 : image;
 
             var (_, width, height) = pixels.Shape;

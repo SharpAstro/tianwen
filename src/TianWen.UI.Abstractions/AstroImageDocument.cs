@@ -1,4 +1,4 @@
-using CommunityToolkit.HighPerformance;
+﻿using CommunityToolkit.HighPerformance;
 using System;
 using System.Collections.Immutable;
 using System.Diagnostics;
@@ -322,6 +322,11 @@ public sealed class AstroImageDocument : IPreviewSource
         // match the existing histogram-based computation, and because the shader's VNG thresholds
         // are absolute. The GPU shader demosaics, in whichever branch `algorithm` selects.
         Image viewImage;
+        // Auto is resolved HERE, the first point that has the frame to resolve against: the caller is
+        // a file load, which cannot know the sensor type before opening it. A document is a still, so
+        // the SER answer is not reachable from this path.
+        algorithm = algorithm.ResolveAuto(image);
+
         DebayerAlgorithm actualAlgorithm;
         if (image.ImageMeta.SensorType is SensorType.RGGB && algorithm is not DebayerAlgorithm.None)
         {

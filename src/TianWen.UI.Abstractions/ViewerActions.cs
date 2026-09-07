@@ -1,4 +1,4 @@
-using DIR.Lib;
+﻿using DIR.Lib;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -110,11 +110,19 @@ public static class ViewerActions
     // DebayerAlgorithm still has it, the batch paths (stacking, dataset export) still ask for it by
     // name, GpuDebayerMode still answers for it, and a state that has AHD in it keeps rendering
     // exactly as it did.
+    //
+    // Auto leads, because it is the default and the only entry that is right for every input rather
+    // than for one. It is a UI intent, not a GPU mode: the upload path and the save path both resolve
+    // it through DebayerAlgorithmExtensions.ResolveAuto before anything acts on it.
     internal static readonly DebayerAlgorithm[] DebayerAlgorithms =
-        [DebayerAlgorithm.None, DebayerAlgorithm.BilinearMono, DebayerAlgorithm.MHC, DebayerAlgorithm.VNG];
+        [DebayerAlgorithm.Auto, DebayerAlgorithm.None, DebayerAlgorithm.BilinearMono, DebayerAlgorithm.MHC, DebayerAlgorithm.VNG];
 
     /// <summary>
-    /// What a viewer demosaics a raw CFA frame with when nobody has chosen: <see cref="DebayerAlgorithm.VNG"/>.
+    /// What a viewer demosaics with when nobody has chosen: <see cref="DebayerAlgorithm.Auto"/>, which
+    /// resolves a still CFA mosaic to <see cref="DebayerAlgorithm.VNG"/>, a SER stream to
+    /// <see cref="DebayerAlgorithm.MHC"/>, a mono frame to <see cref="DebayerAlgorithm.BilinearMono"/>
+    /// and an already-colour frame to <see cref="DebayerAlgorithm.None"/>. The measurement below is why
+    /// VNG is the answer for the still-CFA case specifically.
     ///
     /// <para>VNG because of what it does at a star, which is the thing this application is looking at.
     /// Measured on a real CR3 over four stars, the rim of the halo sits 0.36% BELOW the local sky for
@@ -129,7 +137,7 @@ public static class ViewerActions
     /// <para>Named once here so the places that need a default -- ViewerState's initialiser, the
     /// document open/cache entry points, the CLI view command -- cannot drift apart.</para>
     /// </summary>
-    public const DebayerAlgorithm DefaultDebayerAlgorithm = DebayerAlgorithm.VNG;
+    public const DebayerAlgorithm DefaultDebayerAlgorithm = DebayerAlgorithm.Auto;
 
     public static void CycleDebayerAlgorithm(ViewerState state, bool reverse = false)
     {

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Immutable;
 using System.Threading;
 using System.Threading.Tasks;
@@ -133,6 +133,9 @@ public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, 
             applyColorCalibration);
 
     public int FrameCount => _reader.FrameCount;
+
+    /// <summary>SER is a planetary/lunar capture stream; see <see cref="IPreviewSource.IsVideoStream"/>.</summary>
+    public bool IsVideoStream => true;
     public int FrameIndex => _frameIndex;
 
     /// <summary>

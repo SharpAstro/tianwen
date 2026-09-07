@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -1512,6 +1512,20 @@ namespace TianWen.UI.Abstractions
             };
         }
 
+        /// <summary>
+        /// What <see cref="DebayerAlgorithm.Auto"/> resolves to for the frame on screen, so the button
+        /// can name it. Reads <c>_source</c> rather than the document, because a SER has no
+        /// <see cref="AstroImageDocument"/> and is exactly the case whose answer differs.
+        /// </summary>
+        private string ResolvedDebayerLabel()
+        {
+            var isBayerMosaic = _source?.SensorType is SensorType.RGGB && _source.ChannelCount == 1;
+            var isColour = _source is { ChannelCount: >= 3 };
+            return DebayerAlgorithm.Auto
+                .ResolveAuto(isBayerMosaic, isColour, _source?.IsVideoStream ?? false)
+                .DisplayName;
+        }
+
         private string GetToolbarButtonLabel(string baseLabel, ToolbarAction action, AstroImageDocument? document, ViewerState state)
         {
             return action switch
@@ -1533,7 +1547,10 @@ namespace TianWen.UI.Abstractions
                     : $"{state.ChannelView}",
                 // No label at all: the folder and the tray say it, and the tooltip carries the rest.
                 ToolbarAction.Open or ToolbarAction.Save => string.Empty,
-                ToolbarAction.Debayer => state.DebayerAlgorithm.DisplayName,
+                // Auto names what it resolved to, exactly as StretchLink above does.
+                ToolbarAction.Debayer => state.DebayerAlgorithm is DebayerAlgorithm.Auto
+                    ? $"Auto ({ResolvedDebayerLabel()})"
+                    : state.DebayerAlgorithm.DisplayName,
                 ToolbarAction.CurvesBoost => state.CurvesBoost > 0f ? $"Boost {UiFormat.Percent0(state.CurvesBoost)}" : "Boost",
                 ToolbarAction.Hdr => state.HdrAmount > 0f ? $"HDR: {state.HdrAmount:F1}" : "HDR",
                 // Tri-state, and the third state is the point: at any zoom that is neither fit nor 1:1
