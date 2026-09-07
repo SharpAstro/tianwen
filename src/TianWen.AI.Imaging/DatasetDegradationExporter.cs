@@ -131,13 +131,19 @@ namespace TianWen.AI.Imaging
         /// estimator reads. NaN when the estimator found no stars and fell back to its default radius,
         /// so a consumer drops the row rather than training on a constant nothing measured.</param>
         /// <param name="Psf01FromKernel">Blur mode: the same scalar computed from the KERNEL instead,
-        /// the drawn width composed in quadrature with the clean cell's own measured width. Available
+        /// the clean cell's own measured width composed with the kernel as applied. Available
         /// only in training, which is exactly H2's point; recorded so the two labels can be compared
         /// as an arm rather than argued about. NaN when the clean cell yielded no measurement.</param>
         /// <param name="Psf01Stars">Stars the estimator measured <see cref="Psf01Estimated"/> from.
         /// Zero means the fallback fired.</param>
         /// <param name="CleanFwhmPx">The clean cell's own median star FWHM, measured once per cell by
         /// the same estimator. The frame's existing blur, which the drawn kernel adds to.</param>
+        /// <param name="BlurRatioDrawn">Blur mode under the ratio draw (<see cref="Options.MinBlurRatio"/>):
+        /// the drawn blurred/clean width ratio the kernel was solved for. Null under the pixel draw.</param>
+        /// <param name="ComposedFwhmPx">Blur mode: the width the clean cell's core reaches under the kernel
+        /// AS APPLIED, by Moffat composition with the sampled kernel; the realised blur, which the nominal
+        /// <see cref="ExtraFwhmPx"/> under-states below about 1.5 px. Divided by <see cref="CleanFwhmPx"/>
+        /// it is the realised ratio, to be read against <see cref="BlurRatioDrawn"/>.</param>
         public sealed record DegradationRow(
             string Tile,
             string SessionId,
@@ -163,7 +169,9 @@ namespace TianWen.AI.Imaging
             double? Psf01Estimated = null,
             double? Psf01FromKernel = null,
             int Psf01Stars = 0,
-            double? CleanFwhmPx = null);
+            double? CleanFwhmPx = null,
+            double? BlurRatioDrawn = null,
+            double? ComposedFwhmPx = null);
 
         /// <summary>What to export.</summary>
         /// <param name="BakeRoot">A dataset bake: it must hold <c>tiles-manifest.jsonl</c> and
@@ -194,6 +202,15 @@ namespace TianWen.AI.Imaging
         /// oracle, handed the exact kernel, stays within 10 percent of the truth to 2x and leaves the
         /// star about 1.6x too wide beyond it: drawing past that teaches a problem nothing can solve.
         /// 1.0 or less disables it, leaving the pixel cap alone.</param>
+        /// <param name="MinBlurRatio">Blur mode: the bottom of the blur-RATIO draw. Above 1.0, and with a
+        /// measured clean width in hand, each draw is a ratio of the cell's own width log-uniform in
+        /// [<see cref="MinBlurRatio"/>, <see cref="MaxBlurRatio"/>] and the nominal kernel width is SOLVED
+        /// so the kernel AS SAMPLED realises it (E1d found a nominal 1 px kernel worth 0.6 to 0.8 px and
+        /// a 0.5 px one a near-delta, so a pixel draw left the light end of the training set lighter than
+        /// its rows said). 1.0 or less, or a cell with no measured width, falls back to the pixel draw in
+        /// [<see cref="MinExtraFwhmPx"/>, <see cref="MaxExtraFwhmPx"/>]. The pixel bounds still clamp the
+        /// solved width; <see cref="DegradationRow.ComposedFwhmPx"/> records what was realised either way.
+        /// Default 1.05: a blur the oracle recovers in full, above the near-identity a 0.5 px draw was.</param>
         /// <param name="Force">Re-export a session already present in the degradation store.</param>
         /// <param name="SessionFilters">Case-insensitive substrings of the session id; when non-empty only
         /// sessions matching at least one are exported. The way an arm names its pool without exporting
@@ -217,6 +234,7 @@ namespace TianWen.AI.Imaging
             double MaxBlurRatio = 2.0,
             bool PerChannelKernels = false,
             bool Force = false,
+            double MinBlurRatio = 1.05,
             ImmutableArray<string> SessionFilters = default);
 
         /// <summary>What one session's export produced.</summary>
@@ -483,6 +501,8 @@ namespace TianWen.AI.Imaging
             var beta = 0.0;
             var elongation = 1.0;
             var positionAngle = 0.0;
+            double? blurRatioDrawn = null;
+            double? composedFwhmPx = null;
             if (options.Mode == DegradationMode.Blur)
             {
                 // The top of the range is a RATIO to the frame's own width, not a pixel count, because
@@ -498,12 +518,38 @@ namespace TianWen.AI.Imaging
                     : double.PositiveInfinity;
                 var maxExtra = Math.Max(options.MinExtraFwhmPx, Math.Min(options.MaxExtraFwhmPx, maxFromRatio));
 
-                extraFwhm = LogUniform(rng, options.MinExtraFwhmPx, maxExtra);
+                // The draw itself is the blur RATIO wherever the cell's own width is known, and the
+                // nominal kernel width is solved afterwards so the kernel AS SAMPLED realises it. A
+                // pixel draw was the first form, and E1d found what it delivers: PsfKernel samples the
+                // profile at pixel centres, so a nominal 1 px kernel blurs like 0.6 to 0.8 px and a 0.5 px
+                // one is a near-delta, which left the light end of the training set lighter than its rows
+                // said. The pixel draw stays as the fallback for a cell with no measured width and as the
+                // clamp on the solved width. One random draw either way, so a seed's sequence is unchanged.
+                var drawRatio = cleanFwhmPx is > 0 && options.MinBlurRatio > 1.0 && options.MaxBlurRatio > options.MinBlurRatio;
+                if (drawRatio)
+                {
+                    blurRatioDrawn = LogUniform(rng, options.MinBlurRatio, options.MaxBlurRatio);
+                }
+                else
+                {
+                    extraFwhm = LogUniform(rng, options.MinExtraFwhmPx, maxExtra);
+                }
+
                 elongation = 1.0 + (rng.NextDouble() * 0.25);
                 positionAngle = rng.NextDouble() * 180.0;
 
                 if (options.PerChannelKernels)
                 {
+                    if (blurRatioDrawn is { } ratioForChannels)
+                    {
+                        // The per-channel exponents are drawn inside PerChannelKernel, after the width,
+                        // so the solve takes the archive's typical exponent; the width green actually
+                        // reaches under its own kernel is recorded on the row (ComposedFwhmPx) rather
+                        // than assumed equal.
+                        extraFwhm = SolveNominalFwhmForRatio(cleanFwhmPx!.Value, ratioForChannels, MoffatComposition.DefaultCoreBeta,
+                            elongation, positionAngle, options.MinExtraFwhmPx, maxExtra);
+                    }
+
                     // H3's arm: one kernel per channel, width scaled by the measured channel ratio and
                     // beta from that channel's own fitted relation. The elongation and angle stay
                     // SHARED, because they are a property of the tracking and the optics rather than of
@@ -527,6 +573,11 @@ namespace TianWen.AI.Imaging
                     // The archive's measured betas run roughly 1.5 to 8 with the heavy-winged end the common
                     // one; a jittered draw over that span keeps the pairs inside what the estimator has seen.
                     beta = LogUniform(rng, 1.5, 8.0);
+                    if (blurRatioDrawn is { } ratio)
+                    {
+                        extraFwhm = SolveNominalFwhmForRatio(cleanFwhmPx!.Value, ratio, beta, elongation, positionAngle, options.MinExtraFwhmPx, maxExtra);
+                    }
+
                     kernel = PsfKernel.Moffat(extraFwhm, beta, elongation, positionAngle);
                 }
             }
@@ -628,6 +679,7 @@ namespace TianWen.AI.Imaging
                     var total = MoffatComposition.ComposedFwhm(cleanFwhmPx.Value, MoffatComposition.DefaultCoreBeta, appliedKernel);
                     if (double.IsFinite(total))
                     {
+                        composedFwhmPx = total;
                         psf01FromKernel = HfdPsfEstimator.EncodeRadiusToPsf01(
                             (float)(total / 2.0), HfdPsfEstimator.TianWenMinRadiusPx, HfdPsfEstimator.TianWenMaxRadiusPx);
                     }
@@ -666,6 +718,8 @@ namespace TianWen.AI.Imaging
                     Seed: seed,
                     Psf01Estimated: psf01Estimated,
                     Psf01FromKernel: psf01FromKernel,
+                    BlurRatioDrawn: blurRatioDrawn,
+                    ComposedFwhmPx: composedFwhmPx,
                     Psf01Stars: psf01Stars,
                     CleanFwhmPx: cleanFwhmPx);
             }
@@ -1096,6 +1150,64 @@ namespace TianWen.AI.Imaging
             // the one shape the plan says never to sample.
             var beta = Math.Clamp(Math.Exp(a + (b * total) + (g * sd)), 1.5, 20.0);
             return PsfKernel.Moffat(width, beta, elongation, positionAngle);
+        }
+
+        /// <summary>
+        /// The nominal Moffat width in [<paramref name="lo"/>, <paramref name="hi"/>] whose kernel, AS
+        /// SAMPLED on the pixel grid, widens a core of <paramref name="cleanFwhm"/> (at the archive's
+        /// typical exponent) by <paramref name="targetRatio"/>; the bound itself when the target lies
+        /// outside what the bounds can realise, so the pixel clamps still hold.
+        /// </summary>
+        /// <remarks>
+        /// Bisection in log width against <see cref="MoffatComposition.ComposedFwhm(double, double, PsfKernel)"/>,
+        /// which is monotone in the nominal width up to what the grid resolves; fourteen halvings of a
+        /// three-decade bracket place the width within a thousandth of a pixel. Composition is used
+        /// rather than the continuous Moffat inverse because the sampling is the whole point: below about
+        /// 1.5 px the two differ by up to a factor of two in what the kernel is worth (E1d).
+        /// </remarks>
+        internal static double SolveNominalFwhmForRatio(double cleanFwhm, double targetRatio, double beta, double elongation, double positionAngle, double lo, double hi)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(cleanFwhm);
+            ArgumentOutOfRangeException.ThrowIfLessThan(targetRatio, 1.0);
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(lo);
+            if (hi <= lo)
+            {
+                return lo;
+            }
+
+            var target = cleanFwhm * targetRatio;
+            double Realised(double nominal)
+                => MoffatComposition.ComposedFwhm(cleanFwhm, MoffatComposition.DefaultCoreBeta, PsfKernel.Moffat(nominal, beta, elongation, positionAngle));
+
+            if (!(Realised(lo) < target))
+            {
+                return lo;
+            }
+
+            if (!(Realised(hi) > target))
+            {
+                return hi;
+            }
+
+            var a = lo;
+            var b = hi;
+            for (var i = 0; i < 14; i++)
+            {
+                var mid = Math.Sqrt(a * b);
+                var realised = Realised(mid);
+                // A NaN (no half crossing inside the integral's reach) only happens for a kernel wider
+                // than the reach allows, which is the upper side.
+                if (realised < target)
+                {
+                    a = mid;
+                }
+                else
+                {
+                    b = mid;
+                }
+            }
+
+            return Math.Sqrt(a * b);
         }
 
         /// <summary>

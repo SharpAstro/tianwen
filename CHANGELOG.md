@@ -133,7 +133,13 @@ kernel narrower than about 1.5 px does not blur by its label: a nominal 1 px bet
 downstream had noticed, since the training label is measured on the degraded cell; the oracle probe
 had, reading a correct estimate as a 0.65 under-read against a width the kernel never applied. The
 exporter's training-only `Psf01FromKernel` now composes the clean width with the kernel applied
-instead of a quadrature with the drawn width.
+instead of a quadrature with the drawn width. And the exporter's blur draw is a RATIO of the cell's
+own width (`MinBlurRatio`, `--min-blur-ratio`, default 1.05, up to `MaxBlurRatio`), with the nominal
+kernel width solved by bisection so the kernel as sampled realises it (`SolveNominalFwhmForRatio`;
+realised within a thousandth on every row of the test fixture, nominal 0.74 to 3.47 px); the row
+records `BlurRatioDrawn` and `ComposedFwhmPx`, the realised width. A cell with no measured width, or
+a ratio floor of 1.0 or less, keeps the pixel draw, and the pixel bounds still clamp the solved width.
+A cache exported before this carries the lighter light end E1d found.
 
 **`PsfProfileFit` says why it refuses, and can select its stack by an absolute floor.** A
 `Diagnostics` overload returns which of the five checks declined (`Refusal`) with the counts at each

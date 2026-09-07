@@ -682,6 +682,15 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                           "drawing there teaches a problem nothing can solve. 1.0 or less disables it.",
             DefaultValueFactory = _ => 2.0,
         };
+        var minBlurRatioOpt = new Option<double>("--min-blur-ratio")
+        {
+            Description = "Blur mode only: draw each cell's blur as a RATIO of its own measured width, log-uniform " +
+                          "from this to --max-blur-ratio, and solve the kernel width that realises it as sampled " +
+                          "(a nominal 1 px kernel blurs like 0.6 to 0.8 px, a 0.5 px one hardly at all). Default " +
+                          "1.05. 1.0 or less, or a cell with no measured width, draws the added width in pixels " +
+                          "(0.5 to 4 px) instead, as before; those pixel bounds still clamp the solved width.",
+            DefaultValueFactory = _ => 1.05,
+        };
         var perChannelOpt = new Option<bool>("--per-channel-kernels")
         {
             Description = "Blur mode only: draw a SEPARATE kernel per channel, its width scaled by the " +
@@ -710,7 +719,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, maxBlurRatioOpt, perChannelOpt, forceOpt, measureOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, minBlurRatioOpt, maxBlurRatioOpt, perChannelOpt, forceOpt, measureOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -741,6 +750,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                 MaxBlurRatio: parseResult.GetValue(maxBlurRatioOpt),
                 PerChannelKernels: parseResult.GetValue(perChannelOpt),
                 Force: parseResult.GetValue(forceOpt),
+                MinBlurRatio: parseResult.GetValue(minBlurRatioOpt),
                 SessionFilters: [.. parseResult.GetValue(sessionFilterOpt) ?? []]);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);

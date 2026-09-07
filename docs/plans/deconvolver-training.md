@@ -1537,10 +1537,37 @@ the degraded cell, never on the drawn width. But the exporter's realised blur at
 distribution is lighter than intended, and `Psf01FromKernel` inherits this on top of its quadrature.
 Owed, as ground-work (E1f below): the effective width as a first-class number on the kernel and in
 the probe's columns, composition in the kernel label, and the exporter drawing the blur RATIO and
-solving for the kernel that realises it.
+solving for the kernel that realises it (the last shipped the same evening; next paragraph but one).
 
 *Verdict.* Pass. The estimator step's width arithmetic is Moffat composition from here on, in the
 probe and in the exporter's kernel label; quadrature stays only as E1b's recorded control.
+
+*The exporter draws the ratio (ground-work, shipped 2026-09-07 evening).* `DatasetDegradationExporter`
+draws each cell's blur as a ratio of its own measured width, log-uniform in
+[`MinBlurRatio` 1.05, `MaxBlurRatio` 2.0], and solves the nominal Moffat width whose kernel AS SAMPLED
+composes with the core to that ratio (`SolveNominalFwhmForRatio`: bisection in log width against
+`MoffatComposition.ComposedFwhm` with the sampled kernel, fourteen halvings, 1 to 4 ms a draw at the
+exporter's pixel bounds, so under a quarter of an hour on a full export's two hundred thousand). The
+row records `BlurRatioDrawn` and `ComposedFwhmPx`, the realised width, so the realised ratio is on
+the row rather than inferred; the pixel bounds still clamp the solved width and a cell with no
+measured width keeps the pixel draw. Measured on the test fixture (3.7 px cores, 16 rows): every
+realised ratio equals its draw to a thousandth, with nominal widths from 0.74 to 3.47 px, and the
+solver's own theory on the archive's cores says what the draw now delivers against what a quadrature
+draw did:
+
+| core (beta of the kernel) | ratio | nominal solved | quadrature would draw |
+|---|---|---|---|
+| 2.15 px (3.0) | 1.10 | 0.88 px | 0.99 px |
+| 2.15 px (2.5) | 1.50 | 1.74 px | 2.40 px |
+| 1.53 px (4.0) | 1.30 | 1.22 px | 1.27 px |
+| 2.81 px (6.0) | 1.05 | 0.91 px | 0.90 px |
+
+Two corrections pull opposite ways and the solve carries both: a heavy-winged Moffat widens the half
+maximum by MORE than quadrature (the 1.74 against 2.40 at beta 2.5), and the pixel sampling delivers
+LESS than nominal below about 1.5 px (the 1.22 against 1.27 at beta 4 on the sharp core, where a
+continuous kernel would need less). A degradation cache exported before this carries the light end
+E1d found; the one E2's arms trained on is unaffected in its labels (measured on the degraded cell)
+and lighter than its rows say in its light-end draws.
 
 #### E1e, pre-registered 2026-09-07: the stack by an absolute signal floor
 

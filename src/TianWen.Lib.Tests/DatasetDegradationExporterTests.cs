@@ -402,14 +402,94 @@ namespace TianWen.Lib.Tests
             foreach (var r in rows)
             {
                 var own = r.CleanFwhmPx!.Value;
-                var total = Math.Sqrt((own * own) + (r.ExtraFwhmPx * r.ExtraFwhmPx));
+                // The realised width by composition where the row carries it (the ratio draw), else the
+                // quadrature the pixel draw was capped by.
+                var total = r.ComposedFwhmPx ?? Math.Sqrt((own * own) + (r.ExtraFwhmPx * r.ExtraFwhmPx));
                 var ratio = total / own;
-                output.WriteLine($"own {own:F2} px + {r.ExtraFwhmPx:F2} = {total:F2} ({ratio:F2}x)");
-                ratio.ShouldBeLessThanOrEqualTo(1.5 + 1e-6, "the draw must respect the per-frame ratio cap");
+                output.WriteLine($"own {own:F2} px + nominal {r.ExtraFwhmPx:F2} = {total:F2} ({ratio:F2}x)");
+                ratio.ShouldBeLessThanOrEqualTo(1.5 + 0.02, "the draw must respect the per-frame ratio cap");
             }
 
             // And the cap must BIND rather than sit unreached, or the assertion above is vacuous.
             rows.Max(r => r.ExtraFwhmPx).ShouldBeGreaterThan(rows.Min(r => r.CleanFwhmPx!.Value) * 0.5);
+        }
+
+        /// <summary>
+        /// The draw is the blur RATIO and the kernel is solved to realise it as sampled (E1d found the
+        /// pixel draw's nominal width under-delivered below 1.5 px: a nominal 1 px kernel blurs like 0.6
+        /// to 0.8 px). Pinned two ways: the drawn ratio sits inside the requested range, and the realised
+        /// ratio, the clean width composed with the kernel actually built, is within two percent of the
+        /// drawn one wherever the pixel clamps did not bind. Read against a floor low enough that the
+        /// clamp cannot be what makes it pass.
+        /// </summary>
+        [Fact]
+        public async Task TheDrawIsABlurRatioAndTheSampledKernelRealisesIt()
+        {
+            var bake = BuildBake();
+            var outDir = Path.Combine(_root, "degraded-ratio-draw");
+
+            await DatasetDegradationExporter.RunAsync(
+                new DatasetDegradationExporter.Options(
+                    bake, outDir, Mode: DatasetDegradationExporter.DegradationMode.Blur,
+                    Draws: 8, CellsPerSession: 2, Seed: 11,
+                    MinExtraFwhmPx: 0.1, MaxExtraFwhmPx: 40.0, MinBlurRatio: 1.05, MaxBlurRatio: 1.6),
+                logger: null,
+                TestContext.Current.CancellationToken);
+
+            var rows = ReadDegradationRows(outDir).Where(r => r.CleanFwhmPx is > 0).ToArray();
+            Assert.SkipWhen(rows.Length == 0, "no row carried a clean width to draw a ratio against");
+
+            foreach (var r in rows)
+            {
+                r.BlurRatioDrawn.ShouldNotBeNull();
+                r.ComposedFwhmPx.ShouldNotBeNull();
+                var drawn = r.BlurRatioDrawn.Value;
+                var realised = r.ComposedFwhmPx.Value / r.CleanFwhmPx!.Value;
+                output.WriteLine($"clean {r.CleanFwhmPx:F2} px, drawn {drawn:F3}x, nominal {r.ExtraFwhmPx:F2} px (beta {r.MoffatBeta:F2}), realised {realised:F3}x");
+                drawn.ShouldBeInRange(1.05, 1.6);
+                if (r.ExtraFwhmPx > 0.1 + 1e-9)
+                {
+                    realised.ShouldBe(drawn, drawn * 0.02, "the solved kernel must realise the drawn ratio as sampled");
+                }
+            }
+
+            // For the record, not asserted: what a quadrature draw would have asked for at the light end.
+            // The two corrections pull opposite ways (a heavy-winged Moffat widens the half maximum by
+            // MORE than quadrature, the pixel sampling delivers LESS than nominal), so the solved width
+            // can sit either side of it; the realised ratio above is the contract.
+            foreach (var r in rows.Where(r => r.BlurRatioDrawn is < 1.2))
+            {
+                var own = r.CleanFwhmPx!.Value;
+                var quadrature = own * Math.Sqrt((r.BlurRatioDrawn!.Value * r.BlurRatioDrawn.Value) - 1.0);
+                output.WriteLine($"  light end: quadrature would ask {quadrature:F2} px, solved {r.ExtraFwhmPx:F2} px (beta {r.MoffatBeta:F2})");
+            }
+        }
+
+        /// <summary>
+        /// The solver's contract on its own: a ratio the bracket cannot reach returns the bound, and a
+        /// reachable one is realised to a thousandth on a continuous-width core.
+        /// </summary>
+        [Theory]
+        [InlineData(2.15, 1.10, 3.0)]
+        [InlineData(2.15, 1.50, 2.5)]
+        [InlineData(1.53, 1.30, 4.0)]
+        [InlineData(2.81, 1.05, 6.0)]
+        public void TheNominalWidthSolvedForARatioRealisesIt(double cleanFwhm, double ratio, double beta)
+        {
+            // The production bracket (the exporter's pixel bounds), timed, because the solve runs once
+            // per draw and a full export is two hundred thousand of them.
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var nominal = DatasetDegradationExporter.SolveNominalFwhmForRatio(cleanFwhm, ratio, beta, 1.0, 0.0, 0.5, 4.0);
+            clock.Stop();
+            var realised = TianWen.Lib.Imaging.Degradation.MoffatComposition.ComposedFwhm(
+                cleanFwhm, TianWen.Lib.Imaging.Degradation.MoffatComposition.DefaultCoreBeta,
+                TianWen.Lib.Imaging.Degradation.PsfKernel.Moffat(nominal, beta)) / cleanFwhm;
+            var quadrature = cleanFwhm * Math.Sqrt((ratio * ratio) - 1.0);
+            output.WriteLine($"core {cleanFwhm} px beta {beta}: ratio {ratio} needs nominal {nominal:F3} px (quadrature {quadrature:F3}), realised {realised:F4}x, solved in {clock.Elapsed.TotalMilliseconds:F1} ms");
+            realised.ShouldBe(ratio, 0.005);
+
+            // The bounds are honoured: a target below what the floor kernel gives returns the floor.
+            DatasetDegradationExporter.SolveNominalFwhmForRatio(cleanFwhm, 1.0001, beta, 1.0, 0.0, 2.0, 4.0).ShouldBe(2.0);
         }
 
         /// <summary>
