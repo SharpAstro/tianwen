@@ -747,9 +747,13 @@ masters lean the same way. It was first read as far-wing background residue (a f
 profile's outer level was built and withdrawn within the hour: the annulus already leaves the outer bins
 at 0.03 to 0.07 percent, and the relative floor turned a detached halo's `PoorFit` into
 `TooFewFitBins`); the fit's `Diagnostics` now carry the stacked profile, so the shape is read rather
-than inferred. **Owed (E1g-2 in `docs/plans/deconvolver-training.md`):** a core-weighted fit, linear
-residual or the log fit stopped near 2 FWHM with the far wing reported beside it, measured on E1e's
-180 rows and the sharp masters.
+than inferred. **The fix (E1g-2 in `docs/plans/deconvolver-training.md`)** is the log fit over the
+bins above 2 percent of the peak (`PsfProfileFit.CoreFitFloor`, about 2 FWHM) with the wing reported
+beside it (`Result.WingAt2Fwhm` / `WingAt3Fwhm`). On the sharp masters every refused profile returns
+with the accepted widths unchanged to the hundredth; over E1e's 180 oracle rows the fit's own
+refusals fell from nine entries to one, though the row count only fell 30 to 25, because behind the
+shape refusal on the Eta Car 24 mm frame sits a star budget (the brightness band holds 38 / 10 / 2 / 0
+stars at 1 / 2 / 3 / 4 px of injected blur), which no fit cures.
 
 ## GPU / rendering
 
