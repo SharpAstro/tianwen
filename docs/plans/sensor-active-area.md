@@ -25,7 +25,7 @@ Canon raw is cropped to its active area on import".
 | 5D Mark IV | 6888x4546 | (156, 58) 6720x4480 |
 | EOS M50 | 6288x4056 | (276, 48) 6000x4000 |
 | EOS R5 | 5248x3510 | (144, 108) 5088x3392 |
-| CR2 (5D Mk III) | 5568x3708 | (84, 50) 5472x3648 |
+| CR2 (6D) | 5568x3708 | (84, 50) 5472x3648 |
 
 **QHY has the bindings and calls none of them.** `QHYCCD.SDK/include/QHYCamera.cs` declares
 `GetQHYCCDEffectiveArea` (821), `GetQHYCCDOverScanArea` (825) and

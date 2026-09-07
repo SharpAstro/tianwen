@@ -127,7 +127,7 @@ edges.
 | 5D Mark IV | 6888x4546 | 6720x4480 at (156, 58) |
 | EOS M50 | 6288x4056 | 6000x4000 at (276, 48) |
 | EOS R5 | 5248x3510 | 5088x3392 at (144, 108) |
-| CR2 (5D Mk III) | 5568x3708 | 5472x3648 at (84, 50) |
+| CR2 (6D) | 5568x3708 | 5472x3648 at (84, 50) |
 
 Uncropped, that margin was a flat black L on any stretched render and ~3% of the frame sitting at the
 black level inside every statistic computed over it -- including the subsampled median/MAD the stretch
