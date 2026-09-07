@@ -148,6 +148,36 @@ namespace TianWen.Lib.Tests
             diagnostics.StarsOffered.ShouldBe(0);
         }
 
+        [Theory]
+        [InlineData(PsfProfileFit.StarSelection.PercentileBand)]
+        [InlineData(PsfProfileFit.StarSelection.SignalFloor)]
+        public void Measure_RecoversTheExponentUnderEitherStarSelection(PsfProfileFit.StarSelection selection)
+        {
+            // The synthetic field's stars are all equally bright, so both selections stack the same
+            // population and must agree; the point is that the signal-floor path runs the whole fit.
+            var image = RenderMoffatField(fwhm: 3.2, beta: 4.0, seed: 7);
+            var result = PsfProfileFit.Measure(image, channel: 0, DetectSyntheticStars(image), out var diagnostics, selection: selection)
+                .ShouldNotBeNull();
+            diagnostics.Refusal.ShouldBe(PsfProfileFit.Refusal.None);
+            result.Fwhm.ShouldBe(3.2, tolerance: 0.35);
+            result.MoffatBeta.ShouldBeInRange(4.0 / 1.6, 4.0 * 1.6);
+        }
+
+        [Fact]
+        public void SignalFloor_TakesEveryStarOverTheBar_WhereThePercentileBandTakesAFifth()
+        {
+            var image = RenderMoffatField(fwhm: 3.2, beta: 4.0, seed: 7);
+            var stars = DetectSyntheticStars(image);
+
+            PsfProfileFit.Measure(image, channel: 0, stars, out var band).ShouldNotBeNull();
+            PsfProfileFit.Measure(image, channel: 0, stars, out var floor, selection: PsfProfileFit.StarSelection.SignalFloor).ShouldNotBeNull();
+
+            // Every synthetic star peaks at ~3000 over a 200 background with MAD ~1, so all of them
+            // clear fifty MADs and only the brightest percent is guarded off.
+            floor.InBrightnessBand.ShouldBeGreaterThan(band.InBrightnessBand);
+            floor.InBrightnessBand.ShouldBeGreaterThanOrEqualTo((int)(stars.Count * 0.95));
+        }
+
         [Fact]
         public void Measure_OnAGoodField_ReportsNoRefusalAndTheCountsBehindTheFit()
         {

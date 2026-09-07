@@ -71,7 +71,29 @@ namespace TianWen.Lib.Imaging.Dataset
             double GaussianLogRms,
             int StarsStacked);
 
-        /// <summary>Why <see cref="Measure(Image, int, IReadOnlyCollection{ImagedStar}, out Diagnostics, int)"/>
+        /// <summary>How the stars to stack are chosen from the detections.</summary>
+        public enum StarSelection
+        {
+            /// <summary>The 55th to 75th percentile of the frame's own peak distribution, brightest first
+            /// up to the cap. The archive survey (E0) was measured with this and it stays the default.</summary>
+            PercentileBand,
+
+            /// <summary>Every star whose peak stands at least <see cref="SignalFloorMads"/> background
+            /// MADs over the frame median, excluding the brightest percent as a clipping guard, brightest
+            /// first up to the cap. The E1c probe found the percentile band is what refuses a RICH field:
+            /// with 4,600 to 7,000 detections the 60th-percentile star is faint, its wings reach the noise
+            /// floor within a few pixels, and the log-space fit over the remaining 15 to 28 bins reads a
+            /// residual of 0.76 to 1.29 where a healthy fit reads 0.07 to 0.22. An absolute floor stacks
+            /// the same bright isolated stars on a rich field as on a sparse one.</summary>
+            SignalFloor,
+        }
+
+        /// <summary>The <see cref="StarSelection.SignalFloor"/> bar, in background MADs over the frame
+        /// median. Fifty is ten times the detector's floor and, on the archive's masters, keeps a star's
+        /// wings above the profile's own noise floor out to the radii the fit needs; chosen, not tuned.</summary>
+        public const double SignalFloorMads = 50.0;
+
+        /// <summary>Why <see cref="Measure(Image, int, IReadOnlyCollection{ImagedStar}, out Diagnostics, int, StarSelection)"/>
         /// answered null, in the order the checks run. <see cref="None"/> is a measurement.</summary>
         public enum Refusal
         {
@@ -161,12 +183,15 @@ namespace TianWen.Lib.Imaging.Dataset
 
         /// <inheritdoc cref="Measure(Image, int, IReadOnlyCollection{ImagedStar}, int)"/>
         /// <param name="diagnostics">What the measurement saw, and which check refused when it did.</param>
+        /// <param name="selection">Which stars are stacked; the percentile band unless a caller has a
+        /// reason (see <see cref="StarSelection.SignalFloor"/>).</param>
         public static Result? Measure(
             Image image,
             int channel,
             IReadOnlyCollection<ImagedStar> stars,
             out Diagnostics diagnostics,
-            int maxStars = 400)
+            int maxStars = 400,
+            StarSelection selection = StarSelection.PercentileBand)
         {
             ArgumentNullException.ThrowIfNull(image);
             ArgumentNullException.ThrowIfNull(stars);
@@ -193,8 +218,19 @@ namespace TianWen.Lib.Imaging.Dataset
             // A band around the middle of the brightness distribution: bright enough that the
             // background residue is a small fraction of the peak, faint enough to be far from any
             // clipping, and populous enough to stack.
-            var lowPeak = Percentile(peaks, 0.55);
-            var highPeak = Percentile(peaks, 0.75);
+            float lowPeak;
+            float highPeak;
+            if (selection == StarSelection.SignalFloor)
+            {
+                var (frameMedian, frameMad) = FrameBackground(plane);
+                lowPeak = frameMedian + (float)(SignalFloorMads * frameMad);
+                highPeak = Percentile(peaks, 0.99);
+            }
+            else
+            {
+                lowPeak = Percentile(peaks, 0.55);
+                highPeak = Percentile(peaks, 0.75);
+            }
 
             var samples = new List<float>[Bins];
             for (var b = 0; b < Bins; b++)
@@ -514,6 +550,32 @@ namespace TianWen.Lib.Imaging.Dataset
             var copy = (float[])values.Clone();
             Array.Sort(copy);
             return copy[Math.Clamp((int)(copy.Length * p), 0, copy.Length - 1)];
+        }
+
+        /// <summary>Frame median and background MAD from every seventh finite pixel, which stars are
+        /// far too sparse to move; the <see cref="StarSelection.SignalFloor"/> bar is set from it.</summary>
+        private static (float Median, float Mad) FrameBackground(float[] plane)
+        {
+            var sample = new List<float>((plane.Length / 7) + 1);
+            for (var i = 0; i < plane.Length; i += 7)
+            {
+                if (float.IsFinite(plane[i]))
+                {
+                    sample.Add(plane[i]);
+                }
+            }
+            if (sample.Count == 0)
+            {
+                return (0f, 0f);
+            }
+
+            var median = Median(sample);
+            var deviations = new List<float>(sample.Count);
+            foreach (var v in sample)
+            {
+                deviations.Add(Math.Abs(v - median));
+            }
+            return (median, Median(deviations));
         }
     }
 }

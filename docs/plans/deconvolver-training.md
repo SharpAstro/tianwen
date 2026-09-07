@@ -831,6 +831,25 @@ arithmetic and sits in the MEASUREMENT of the blurred frame (the brightness band
 stars once the peaks drop, and the faint-star widening `PsfProfileFit` documents), which is a different
 fix.
 
+#### E1e, pre-registered 2026-09-07: the stack by an absolute signal floor
+
+*Change.* `PsfProfileFit.StarSelection.SignalFloor`, opt-in beside the default percentile band so
+E0's archive survey is untouched: every star whose peak stands at least 50 background MADs over the
+frame median (ten times the detector's floor; chosen, not tuned), excluding the brightest percent as a
+clipping guard, brightest first up to the 400 cap. The probe selects it with `TIANWEN_ORACLE_BAND=signal`.
+Same 180 rows, `exact,estimated-composed`, 60 iterations.
+
+*Prediction.* The refused rows fall from 75 to under 30: the four clean channels that refuse on
+`PoorFit` at 4,600 to 7,000 detections fit (their bins-above-floor count rising from 15 to 24 into the
+thirties), and most of the 20 noisy observed refusals fit with them; the two `TooFewStacked` refusals
+(the 7 px channel, the sparse crops) stay. Where both selections fit, `est-c`'s width ratio is
+unchanged within 0.05, since the composition does not care which stars made the profile as long as the
+profile is right. Confidence moderate: the floor may still admit too faint a star on the noisiest
+observed frames, and the residual bound of 0.5 may then bind there.
+
+*Kill.* Refusals stay above 60 of 180. Then the band is not the cause and the acceptance rule or the
+log-space weighting is, which is a different fix again.
+
 **Verdict on H11.** Conditional pass. Where the estimator answers and the shape is co-estimated,
 the ceiling survives estimation to within a few hundredths of the exact kernel through 2x; the
 width estimate carries a ratio-dependent bias of up to a quarter that an unrolled-RL layer would

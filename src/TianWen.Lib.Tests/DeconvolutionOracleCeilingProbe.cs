@@ -79,6 +79,7 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
     private const string MastersVar = "TIANWEN_ORACLE_MASTERS";
     private const string ItersVar = "TIANWEN_ORACLE_ITERS";
     private const string KernelVar = "TIANWEN_ORACLE_KERNEL";
+    private const string BandVar = "TIANWEN_ORACLE_BAND";
 
     /// <summary>Crop side in pixels. Large enough to hold a few hundred stars and small enough that a
     /// serial convolution over the whole sweep finishes; taken from the frame centre, which is also
@@ -337,6 +338,13 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
     /// what a deployed estimator has: no truth, no star list handed in. The fit is null when the plane
     /// cannot support one, and the diagnostics say which check refused and what it saw.
     /// </summary>
+    /// <summary>Which stars the estimator stacks: <c>TIANWEN_ORACLE_BAND=signal</c> selects
+    /// <see cref="PsfProfileFit.StarSelection.SignalFloor"/> (E1e); anything else is the percentile band.</summary>
+    private static PsfProfileFit.StarSelection SelectionFromEnvironment()
+        => string.Equals(Environment.GetEnvironmentVariable(BandVar), "signal", StringComparison.OrdinalIgnoreCase)
+            ? PsfProfileFit.StarSelection.SignalFloor
+            : PsfProfileFit.StarSelection.PercentileBand;
+
     private static async Task<(PsfProfileFit.Result? Fit, PsfProfileFit.Diagnostics Diagnostics)> FitProfileAsync(
         float[] plane, int width, int height, CancellationToken ct)
     {
@@ -344,7 +352,7 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
         try
         {
             var stars = await image.FindStarsAsync(channel: 0, snrMin: EstimatorSnrMin, maxStars: EstimatorMaxStars, cancellationToken: ct);
-            var fit = PsfProfileFit.Measure(image, 0, stars, out var diagnostics);
+            var fit = PsfProfileFit.Measure(image, 0, stars, out var diagnostics, selection: SelectionFromEnvironment());
             return (fit, diagnostics);
         }
         finally
@@ -622,8 +630,9 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
             + "exact = the injected Moffat, est-w = width from the frame with beta exact, est-wb = width and beta from the frame");
         if (estimating)
         {
-            output.WriteLine($"estimator PsfProfileFit on the frame's own detections (snr >= {EstimatorSnrMin}, <= {EstimatorMaxStars} stars): "
-                + "observed crop and clean crop, difference width sqrt(obs^2 - clean^2); 'frame' = crop could not be fitted, whole blurred frame used");
+            output.WriteLine($"estimator PsfProfileFit on the frame's own detections (snr >= {EstimatorSnrMin}, <= {EstimatorMaxStars} stars), "
+                + $"stars stacked by {SelectionFromEnvironment()} ({BandVar}): observed crop and clean crop, difference width "
+                + "sqrt(obs^2 - clean^2) (est-w, est-wb) or by Moffat composition (est-c); 'frame' = crop could not be fitted, whole blurred frame used");
         }
 
         output.WriteLine($"psf01     encoded over [0.5, 4.0] px radius, E1's pick");
