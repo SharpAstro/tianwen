@@ -399,7 +399,7 @@ everything and above it recovers little.
 | E2.8c | **RUN 2026-09-07, prediction failed, not killed** (under E2.8b's results). Arm N with the weight fixed at 1.84e-3: two of five seeds hold both (selected 1.238 and 1.163 at 0.74 to 0.76 stars, observer 11 and 10x), sharpening only after step 3,000; three never leave the input. Every seed honest on the observer (1.5 to 11x against 34 to 45). The weight was part of the cause, the optimisation the rest; the profile of a regulariser, which is how it enters the unrolled operator. **The fork is decided below: the unrolled operator, the estimator step under it, no capacity arm.** | 5 x ~10 min GPU | the honest recipe has an operating point on two seeds in five |
 | E2.9 | **RUN 2026-09-07, kill line reached for 2.1c** (section below). FWHM against air mass over 79 sessions, 8,507 subs re-measured in 62.6 min: 0 of 67 fitted sessions reach a 1.3x FWHM span explained by air mass; slopes centre on zero (SH61 -0.15 over 14 sessions, 135 mm -0.04 over 34), only the two ZS61 sessions read where Kolmogorov predicts (+0.29, +0.46) and their spans are too short. The within-night spread (p90/p10 to 1.47x) is real and not altitude. Computed air mass agrees with N.I.N.A.'s card to 0.015 on 50 of 52 sessions; SharpCap writes no site cards, so 27 sessions have none computed (a header fallback covers 15). | 62.6 min CPU | Air-mass pairs cannot reach the range; real blur is E2.10's seeing split |
 | E2.10 | **Candidates listed 2026-09-07** (section below): 7 of 79 sessions reach p90/p10 of 1.15 on the gate-surviving subs, two of them 1.3x sharp-to-soft (a 60-sub Orion at 1.43, a 35-sub HD 71272 at 1.28 that is held back over a pointing question), four at 1.11 to 1.18. Seeing-split pairs: per session, the sharpest and softest thirds of the subs stacked into two masters of one night, the first real-blur validation set. Next: `stack --manifest` A and B for the Orion session. | minutes a session | The light end of the range, on real seeing |
-| D1 | **BUILT 2026-09-07, off by default; both halves measured** (under "The next four"). Per-tile psf01 at inference: `ChunkedNafnetRunner` extras per chunk, `OnnxNonStellarDeconvolver` estimating per chunk region with a frame-level fallback, so inference matches the per-cell training label. CPU half: on the seven Rim masters the per-tile radius spans 8 to 61 percent p10 to p90 and 10 to 16 percent of tiles starve. GPU half: a NULL on the shipped SAS graph, per-tile and whole-image outputs within 0.01 px and one percent in count on every master, including four where 250 of 289 tiles carried a different label; the switch stays off for that graph and ships for E7's own. Side finding: on stars the shipped graph widens soft cores and drops most of the outer third's stars. A fixed-psf01 sensitivity check is queued. | half a day | The field-varying half of the optics blur |
+| D1 | **BUILT 2026-09-07, off by default; both halves measured** (under "The next four"). Per-tile psf01 at inference: `ChunkedNafnetRunner` extras per chunk, `OnnxNonStellarDeconvolver` estimating per chunk region with a frame-level fallback, so inference matches the per-cell training label. CPU half: on the seven Rim masters the per-tile radius spans 8 to 61 percent p10 to p90 and 10 to 16 percent of tiles starve. GPU half: a NULL on the shipped SAS graph, per-tile and whole-image outputs within 0.01 px and one percent in count on every master, including four where 250 of 289 tiles carried a different label; the switch stays off for that graph and ships for E7's own. Side finding: on stars the shipped graph widens soft cores and drops most of the outer third's stars. The fixed-psf01 check (0 / 0.5 / 1 over the whole shipped range) moves the output by 0.03 to 0.06 px and three percent in count: the shipped graph's conditioning input is inert on a real master's stars, so the null is the graph's property. | half a day | The field-varying half of the optics blur |
 | E4 | Stationary vs position-varying (H7) on the refractor trains. | 2 x 3 x 11 min | H7 |
 | E5 | On-the-fly torch degradation with the MTF pin, if E3 is sample-hungry. | a day | Sample efficiency |
 | E6 | Ladder capture on three nights (hardware queue); H6 scoring. | nights | The advertised range |
@@ -866,8 +866,21 @@ E2.10a's baseline on the Orion pair will read the same graph against a real trut
 would absent a measured gain, and the machinery ships for `OnnxTianWenDeconvolver` (E7), whose label
 is per cell by construction. Whether the null is a graph that ignores its conditioning input at this
 scale, or a label spread too small to see, is one more run: the same graph at fixed psf01 0, 0.5 and
-1 on the 2025-05-02 master (`TIANWEN_PSF_PROBE_SENSITIVITY=1`, queued behind E2.10a on the GPU);
-three identical rows say the input is inert on this graph for a real master's stars.
+1 on the 2025-05-02 master (`TIANWEN_PSF_PROBE_SENSITIVITY=1`); three identical rows say the input is
+inert on this graph for a real master's stars.
+
+**The sensitivity check ran the same day (1.7 min, `C:/temp/e2/d1-psf01-sensitivity.txt`), and the
+rows are identical to within the measurement:** across the WHOLE shipped range, psf01 0 / 0.5 / 1
+(a radius of 1 / 2.8 / 8 px), the inner third reads 3.86 / 3.85 / 3.88 px, the middle 3.41 / 3.39 /
+3.37, the outer 2.82 / 2.79 / 2.76, with star counts within three percent (158 / 157 / 160, 424 / 435
+/ 429, 79 / 82 / 81), against an input of 3.55 / 3.19 / 2.83. So the shipped SAS AI4 graph's
+conditioning input does close to nothing on a real master's stars, and D1's null is the graph's
+property, not the labels' spread. Per-tile conditioning is therefore moot for the shipped graph and
+stays off; it is built for the graph E7 exports, whose label is per cell and whose response to it
+will be measured before the switch is turned on. The one-word lesson for E7: a conditioning scalar a
+graph learns to ignore costs nothing to carry and buys nothing, so E3's arms must show the operator's
+output MOVES with its kernel (which for an unrolled Richardson-Lucy is true by construction) before
+any per-tile machinery is credited.
 
 ### E1b's results, 2026-09-07: the estimate is good where it exists, and it exists for half the rows
 
