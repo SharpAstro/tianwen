@@ -783,6 +783,34 @@ majority points at the acceptance rule and the noise weighting of the log-space 
 `TooFewStacked` majority at the band and the isolation radius; `NoHalfMaximum` or bins at the sampled
 radius.
 
+#### E1d, pre-registered 2026-09-07: the difference width by Moffat composition
+
+*Why.* The 1.24 over-read at 1.3-1.6x was guessed above to be what quadrature does to a Moffat, and a
+numeric check (two profiles composed on a 0.05 px grid, no detection, no noise) says so: a 2 px beta-4
+kernel on a 2.15 px core reads 1.21x through `sqrt(obs^2 - clean^2)` at beta 5 and 1.28x at beta 3;
+at 1.6-2.0x the same arithmetic gives 1.14 to 1.19 (E1b: 1.16) and at 2-3x 1.10 to 1.14 (E1b: 1.11).
+Only the light end disagrees (predicted 1.30 to 1.45, E1b 0.92 to 0.94), where a 0.1 px error in the
+observed width moves the quadrature by 15 percent and the measurement, not the arithmetic, is in
+charge.
+
+*Change.* `MoffatComposition` (`TianWen.Lib/Imaging/Degradation/`): the composed FWHM of two Moffats
+by direct radial integration, and its inverse by bisection, pinned by tests on the Gaussian limit, the
+round trip and the size of the quadrature error. A fourth kernel source in the probe,
+`estimated-composed` (`est-c`): the same two `PsfProfileFit` fits as arm i, the width by
+`DifferenceFwhm(clean, observed, beta 4)` instead of quadrature, shape exact. Same rows, same seeds,
+60 iterations, alongside `exact` and `estimated` so the paired difference reads against both.
+
+*Prediction.* `est-c`'s estW/true at 1.3-1.6x lands within 0.95 to 1.05 (from 1.24), at 1.6-2.0x
+and 2-3x within 0.95 to 1.05 (from 1.16 and 1.11); its paired d(rec/truth) at 1.3-1.6x within 0.03
+of exact with the stars column back at or under 1.02 noise-free, so the fabrication of arm i is gone;
+at 1.1-1.3x no change (the estimate there is noise-dominated). The refusal count is unchanged, since
+the fits are the same fits. Confidence high on the width ratios, moderate on the recovery columns.
+
+*Kill.* `est-c`'s estW/true at 1.3-1.6x still above 1.10. Then the bias is not the composition
+arithmetic and sits in the MEASUREMENT of the blurred frame (the brightness band selecting different
+stars once the peaks drop, and the faint-star widening `PsfProfileFit` documents), which is a different
+fix.
+
 **Verdict on H11.** Conditional pass. Where the estimator answers and the shape is co-estimated,
 the ceiling survives estimation to within a few hundredths of the exact kernel through 2x; the
 width estimate carries a ratio-dependent bias of up to a quarter that an unrolled-RL layer would

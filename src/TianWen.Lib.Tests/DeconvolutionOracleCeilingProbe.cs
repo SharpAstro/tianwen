@@ -115,6 +115,10 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
 
         /// <summary>Width and shape both read off the frame. E1b arm ii.</summary>
         EstimatedShape,
+
+        /// <summary>Width by Moffat COMPOSITION of the two fitted profiles rather than a quadrature of
+        /// their FWHMs, shape exact. E1d.</summary>
+        EstimatedComposed,
     }
 
     private static string ArmLabel(KernelSource source) => source switch
@@ -122,6 +126,7 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
         KernelSource.Exact => "exact",
         KernelSource.Estimated => "est-w",
         KernelSource.EstimatedShape => "est-wb",
+        KernelSource.EstimatedComposed => "est-c",
         _ => throw new ArgumentOutOfRangeException(nameof(source)),
     };
 
@@ -140,7 +145,8 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
                 "exact" => KernelSource.Exact,
                 "estimated" => KernelSource.Estimated,
                 "estimated-shape" => KernelSource.EstimatedShape,
-                _ => throw new ArgumentException($"{KernelVar}: unknown kernel source '{token}' (exact, estimated, estimated-shape)"),
+                "estimated-composed" => KernelSource.EstimatedComposed,
+                _ => throw new ArgumentException($"{KernelVar}: unknown kernel source '{token}' (exact, estimated, estimated-shape, estimated-composed)"),
             };
             if (!sources.Contains(source))
             {
@@ -774,16 +780,25 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
                             }
                         }
 
+                        // Two width estimates from the same two fits: the quadrature the plan first
+                        // wrote (E1b arms i and ii), and the Moffat composition that inverts what the
+                        // convolution actually does to a half-maximum crossing (E1d). Both floor at a
+                        // near-delta when the observed profile is no wider than the clean one.
                         var estWidth = double.NaN;
+                        var composedWidth = double.NaN;
                         var estBeta = double.NaN;
                         var fromWholeFrame = false;
                         if (observedFit is { } ofit && clean is { } cfit)
                         {
                             var diff2 = (ofit.Fwhm * ofit.Fwhm) - (cfit.Fwhm * cfit.Fwhm);
                             estWidth = diff2 > 0 ? Math.Max(MinEstimatedFwhm, Math.Sqrt(diff2)) : MinEstimatedFwhm;
+                            var composed = MoffatComposition.DifferenceFwhm(cfit.Fwhm, cfit.Beta, ofit.Fwhm, Beta);
+                            composedWidth = double.IsFinite(composed) ? Math.Max(MinEstimatedFwhm, composed) : MinEstimatedFwhm;
                             estBeta = ofit.Beta;
                             fromWholeFrame = ofit.FromWholeFrame || cfit.FromWholeFrame;
                         }
+
+                        double WidthOf(KernelSource arm) => arm == KernelSource.EstimatedComposed ? composedWidth : estWidth;
 
                         var kernels = new PsfKernel?[arms.Length];
                         for (var a = 0; a < arms.Length; a++)
@@ -795,6 +810,7 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
                                 KernelSource.EstimatedShape => double.IsFinite(estWidth) && double.IsFinite(estBeta)
                                     ? PsfKernel.Moffat(estWidth, estBeta)
                                     : null,
+                                KernelSource.EstimatedComposed => double.IsFinite(composedWidth) ? PsfKernel.Moffat(composedWidth, Beta) : null,
                                 _ => throw new ArgumentOutOfRangeException(nameof(arms)),
                             };
                         }
@@ -818,7 +834,6 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
                         var (blurFwhm, _) = await MeasuredFwhmAsync(observed, Crop, ct);
                         var blurRatio = float.IsFinite(blurFwhm) ? blurFwhm / (double)truthFwhm : double.NaN;
                         var psf01 = HfdPsfEstimator.EncodeRadiusToPsf01(blurFwhm * 0.5f, 0.5f, 4.0f);
-                        var estWidthRatio = estWidth / injected;
                         var estBetaRatio = estBeta / Beta;
 
                         for (var a = 0; a < arms.Length; a++)
@@ -848,6 +863,7 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
                             var starRatio = truthStars > 0 ? (double)recStars / truthStars : double.NaN;
                             var recOverTruth = float.IsFinite(recFwhm) ? recFwhm / (double)truthFwhm : double.NaN;
                             var estimatedArm = arm != KernelSource.Exact;
+                            var estWidthRatio = WidthOf(arm) / injected;
 
                             if (double.IsFinite(blurRatio))
                             {
