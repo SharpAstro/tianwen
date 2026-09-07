@@ -40,6 +40,12 @@ import n2n_smoke as S
 # width needs a profile, not just a peak: a marginal detection's half-maximum crossing is noise.
 STAR_SIGMA = 12.0
 
+# A second, LOWER bar for the star COUNT only, reported beside the 12 MAD one and never selected on.
+# E2.8 trains a term on the stars `detect()` finds at STAR_SIGMA, and a net could satisfy it by
+# sharpening exactly those while suppressing the population underneath; a count at half the bar is
+# what would show that. Report-only: nobody has measured what value it should read.
+STAR_SIGMA_LOW = 6.0
+
 # Annulus for the ring statistic, in multiples of the measured truth width.
 RING_INNER = 1.2
 RING_OUTER = 2.5
@@ -96,7 +102,7 @@ def star_fwhm(tile, ys, xs, med, max_r=10):
     return float(np.median(widths)) if widths else float("nan")
 
 
-def detect(tile, med, mad, margin=4):
+def detect(tile, med, mad, margin=4, sigma=STAR_SIGMA):
     """Peak detections on one tile, with the SAME edge margin everywhere it is used.
 
     Factored out because it was inlined twice with different margins, and that asymmetry is a bug
@@ -105,12 +111,53 @@ def detect(tile, med, mad, margin=4):
     including the rim. The two therefore covered different AREAS, and the truth scored 1.096 against
     ITSELF where a self-consistency null has to be 1.000. Every stars_kept ever printed by this gate
     before 2026-09-06 is inflated by about a tenth for that reason.
+
+    `sigma` exists for the report-only low-bar count (STAR_SIGMA_LOW); the width and the loss both
+    stay on STAR_SIGMA.
     """
-    det = (tile >= maximum_filter(tile, size=5)) & (tile > med + STAR_SIGMA * mad)
+    det = (tile >= maximum_filter(tile, size=5)) & (tile > med + sigma * mad)
     ys, xs = np.nonzero(det)
     ok = ((ys >= margin) & (ys < tile.shape[0] - margin)
           & (xs >= margin) & (xs < tile.shape[1] - margin))
     return ys[ok], xs[ok]
+
+
+# The star-term loss reads a 7x7 window per star, so a star needs 3 px of tile on every side; detect()'s
+# margin of 4 already guarantees that on the CROPPED tile the loss and the gate both work on.
+STAR_TARGET_COLUMNS = ("y", "x", "peak_mad", "valid")
+
+
+def star_targets(tile, med, mad, max_per_tile=32):
+    """The per-tile star set E2.8's star-term loss is trained on: `detect()` on the CLEAN target.
+
+    Returns float32 [max_per_tile, 4] rows of (y, x, peak over median in MAD, valid), zero-padded, in
+    the coordinates of the tile handed in (the caller hands the CROPPED luminance, so the loss indexes
+    the cropped prediction directly and the positions agree with the gate's).
+
+    The same detector as the gate, deliberately: a loss trained on one star set and a gate judging on
+    another would let the net satisfy the loss on stars the gate never looks at. Where a tile holds more
+    than `max_per_tile` detections the kept ones are EVENLY SPACED IN PEAK RANK rather than the
+    brightest: L2 already looks after the bright stars, and the faint end is the population E2.7
+    measured being traded away, so a selection that kept only the bright ones would put the term's
+    weight where it is least needed.
+    """
+    ys, xs = detect(tile, med, mad)
+    out = np.zeros((max_per_tile, len(STAR_TARGET_COLUMNS)), dtype=np.float32)
+    if len(ys) == 0:
+        return out
+
+    peaks = (tile[ys, xs] - med) / mad
+    order = np.argsort(-peaks, kind="stable")
+    if len(order) > max_per_tile:
+        step = len(order) / max_per_tile
+        order = order[[int(j * step) for j in range(max_per_tile)]]
+
+    n = len(order)
+    out[:n, 0] = ys[order]
+    out[:n, 1] = xs[order]
+    out[:n, 2] = peaks[order]
+    out[:n, 3] = 1.0
+    return out
 
 
 def ring_excess(tile, ys, xs, fwhm, med, mad):
@@ -177,6 +224,7 @@ class DeconvGate:
         self.stars = []
         self.truth_fwhm = []
         self.truth_stats = []
+        truth_stars_lo = []
         for t in self.lm:
             med = float(np.median(t))
             _, mad = M.bg_stats(t)
@@ -184,9 +232,11 @@ class DeconvGate:
             self.stars.append((ys, xs))
             self.truth_stats.append((med, mad))
             self.truth_fwhm.append(star_fwhm(t, ys, xs, med))
+            truth_stars_lo.append(len(detect(t, med, mad, sigma=STAR_SIGMA_LOW)[0]))
 
         self.truth_fwhm = np.array(self.truth_fwhm, dtype=np.float64)
         self.truth_stars = np.array([len(s[0]) for s in self.stars], dtype=np.float64)
+        self.truth_stars_lo = np.array(truth_stars_lo, dtype=np.float64)
 
         # The ring NULL, measured on the input each arm actually receives, so the excess reported
         # below is the model's doing and not the noise floor's.
@@ -209,11 +259,16 @@ class DeconvGate:
         # input's own value. A criterion whose null sits outside its pass band cannot be met, and
         # reads in the log as the model failing rather than the gate.
         null = []
+        null_lo = []
         for i in range(len(self.lm)):
             if self.truth_stars[i] > 0:
                 iy, ix = detect(self.li[i], *self.truth_stats[i])
                 null.append(len(iy) / self.truth_stars[i])
+            if self.truth_stars_lo[i] > 0:
+                iy, _ = detect(self.li[i], *self.truth_stats[i], sigma=STAR_SIGMA_LOW)
+                null_lo.append(len(iy) / self.truth_stars_lo[i])
         self.stars_null = float(np.median(null)) if null else float("nan")
+        self.stars_null_lo = float(np.median(null_lo)) if null_lo else float("nan")
 
     def _forward(self, model, src):
         out = []
@@ -233,7 +288,7 @@ class DeconvGate:
             if was_training:
                 model.train()
 
-        ratios, residuals, excess, kept = [], [], [], []
+        ratios, residuals, excess, kept, kept_lo = [], [], [], [], []
         for i in range(len(den)):
             ys, xs = self.stars[i]
             med, mad = self.truth_stats[i]
@@ -254,6 +309,12 @@ class DeconvGate:
             if self.truth_stars[i] > 0:
                 kept.append(len(oy) / self.truth_stars[i])
 
+            # The low-bar count. Same truth-fixed threshold units, half the bar: a net that keeps
+            # the 12 MAD stars while erasing the 6 MAD ones reads fine in `kept` and falls here.
+            oy, _ = detect(den[i], med, mad, sigma=STAR_SIGMA_LOW)
+            if self.truth_stars_lo[i] > 0:
+                kept_lo.append(len(oy) / self.truth_stars_lo[i])
+
         def med_of(v):
             return float(np.median(v)) if v else float("nan")
 
@@ -262,17 +323,19 @@ class DeconvGate:
             "residual_px": med_of(residuals),
             "ring_excess": med_of(excess),
             "stars_kept": med_of(kept),
+            "stars_kept_lo": med_of(kept_lo),
             "input_ratio": float(np.nanmedian(self.input_fwhm / self.truth_fwhm)),
         }
 
     @staticmethod
     def header():
-        return (f"{'in/truth':>9} {'out/truth':>10} {'resid px':>9} {'ring MAD':>9} {'stars':>6}")
+        return (f"{'in/truth':>9} {'out/truth':>10} {'resid px':>9} {'ring MAD':>9} {'stars':>6} "
+                f"{'stars@' + str(int(STAR_SIGMA_LOW)):>8}")
 
     @staticmethod
     def format(m):
         return (f"{m['input_ratio']:9.3f} {m['fwhm_ratio']:10.3f} {m['residual_px']:+9.3f} "
-                f"{m['ring_excess']:+9.2f} {m['stars_kept']:6.2f}")
+                f"{m['ring_excess']:+9.2f} {m['stars_kept']:6.2f} {m.get('stars_kept_lo', float('nan')):8.2f}")
 
 
 def _self_test():

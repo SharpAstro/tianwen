@@ -360,6 +360,49 @@ def prepare(args):
         json.dump(meta, fh, indent=1)
     gb = os.path.getsize(path) / 2**30
     print(f"cached {n} cells ({gb:.2f} GiB) in {(time.perf_counter()-t0)/60:.1f} min -> {path}")
+    prepare_stars(args.cache, args.star_max)
+
+
+STARS_FILE = "stars.npy"
+
+
+def prepare_stars(cache, max_per_tile=32):
+    """Write `stars.npy` beside the tiles: each cell's CLEAN target (slot 0) run through the gate's own
+    detector, so the star-term loss (--star-loss) and the gate see the same stars.
+
+    A separate stage from the tile packing, and re-runnable on an EXISTING cache (--prepare-stars),
+    because E2.8 has to train on the very cache E2.7 trained on: re-preparing would re-read 1.9 GiB
+    of tiles from the export and put an assumption ("the bytes came out the same") between the arm
+    and its paired control. This touches nothing but the new file.
+
+    Layout: float32 [cells, max_per_tile, 4] of (y, x, peak over median in MAD, valid), in CROPPED
+    coordinates (BORDER removed), which is the frame the loss and the gate both work in. The sidecar
+    `stars.json` records the detector bar and the selection rule so a later reader need not guess.
+    """
+    import n2n_deconv_gate as DG           # imported here: it imports this module back
+    import n2n_metrics as M
+    mm, meta = open_cache(cache)
+    n = meta["cells"]
+    out = np.zeros((n, max_per_tile, len(DG.STAR_TARGET_COLUMNS)), dtype=np.float32)
+    counts = []
+    t0 = time.perf_counter()
+    for i in range(n):
+        t = crop(np.asarray(mm[i, SLOT_MASTER], dtype=np.float32)).mean(axis=0)
+        med = float(np.median(t))
+        _, mad = M.bg_stats(t)
+        out[i] = DG.star_targets(t, med, mad, max_per_tile)
+        counts.append(int(out[i, :, 3].sum()))
+    np.save(os.path.join(cache, STARS_FILE), out)
+    with open(os.path.join(cache, "stars.json"), "w", encoding="utf-8") as fh:
+        json.dump({"columns": list(DG.STAR_TARGET_COLUMNS), "sigma": DG.STAR_SIGMA,
+                   "max_per_tile": max_per_tile, "coordinates": f"cropped by BORDER={BORDER}",
+                   "selection": "evenly spaced in peak rank when a tile exceeds max_per_tile",
+                   "cells": n, "cells_with_stars": int(sum(c > 0 for c in counts))}, fh, indent=1)
+    counts = np.array(counts)
+    print(f"star targets: {n} cells, stars/tile p10 {np.percentile(counts, 10):.0f} "
+          f"p50 {np.median(counts):.0f} p90 {np.percentile(counts, 90):.0f}, "
+          f"{int((counts == 0).sum())} cells with none, {int((counts == max_per_tile).sum())} at the "
+          f"{max_per_tile} cap, in {time.perf_counter() - t0:.0f} s -> {os.path.join(cache, STARS_FILE)}")
 
 
 # --------------------------------------------------------------------------- model
@@ -568,6 +611,91 @@ def _blur(t, k):
     return F.conv2d(F.pad(t, (0, 0, r, r), mode="reflect"), kv, groups=c)
 
 
+# The star-term loss's window: 7x7 around each detected star, an aperture of radius 3 (29 px) and a
+# core of radius 1.5 (the 3x3 block, 9 px). The core is a block rather than a 5-px plus so a peak that
+# lands half a pixel off the detected maximum still sits inside it.
+STAR_WINDOW_R = 3
+STAR_APERTURE_R = 3.0
+STAR_CORE_R = 1.5
+
+
+class StarTerm:
+    """E2.8 / H10: a loss that counts STARS, because L2 counts pixels.
+
+    Pixel-wise L2, banded or not, weights error by amplitude squared times pixel count, and a faint
+    star is ten pixels at a few sigma: about 1e-4 of a tile's loss, so suppressing it is free. E2.7
+    measured that arithmetic working (width 1.328 with 0.54 of the truth's stars against a 0.62
+    floor). This term gives every detected star EQUAL weight regardless of its brightness or size, in
+    three ratios that are each dimensionless and each about the star rather than the background:
+
+      |log flux_out / flux_target|   over the aperture (r <= 3), so the star keeps its light;
+      |log peak_out / peak_target|   the brightest core pixel, so it keeps its height;
+      |log conc_out / conc_target|   concentration = core energy over aperture energy, which RISES
+                                     when a star tightens, so it must tighten exactly as much as the
+                                     target did and no more.
+
+    Everything is background-subtracted against the TARGET tile's median and clamped at zero, with one
+    MAD of the target's darkest half added inside every log so a star the output has erased reads a
+    finite, large penalty instead of an infinite one. The luminance (channel mean) is used, which is
+    what the gate measures on.
+
+    The weight is set ONCE, so the term equals the L2 term on the first batch that carries a star, and
+    is then fixed and logged. Never tuned on the gate: a weight chosen by watching the selection metric
+    would be a second selection on the same held-out session.
+    """
+
+    def __init__(self, stars, device):
+        import torch
+        self.stars = torch.as_tensor(stars, device=device, dtype=torch.float32)  # [cells, S, 4]
+        off = torch.arange(-STAR_WINDOW_R, STAR_WINDOW_R + 1, device=device)
+        self.oy = off.view(1, 1, -1, 1)
+        self.ox = off.view(1, 1, 1, -1)
+        dist = torch.sqrt((off.view(-1, 1) ** 2 + off.view(1, -1) ** 2).float())
+        self.aperture = (dist <= STAR_APERTURE_R).float()
+        self.core = (dist <= STAR_CORE_R).float()
+        self.n_aperture = float(self.aperture.sum())
+        self.n_core = float(self.core.sum())
+
+    def __call__(self, pc, yc, idx):
+        """Mean of the three-ratio penalty over every valid star in the batch, and the star count.
+
+        pc, yc: [B, C, H, W] CROPPED prediction and target; idx: the batch's cache cell indices.
+        Returns a zero (still attached) when the batch carries no star, and 0 as the count.
+        """
+        import torch
+        st = self.stars[torch.as_tensor(idx, device=self.stars.device)]  # [B, S, 4]
+        valid = st[..., 3] > 0
+        n = int(valid.sum())
+        if n == 0:
+            return pc.sum() * 0.0, 0
+
+        lo = pc.mean(1)      # [B, H, W]
+        lt = yc.mean(1)
+        flat = lt.flatten(1)
+        med = flat.median(dim=1).values                                   # [B]
+        mad = (med - flat.quantile(0.25, dim=1)).clamp_min(1e-6)          # bg_sigma_torch's closed form
+        ys = st[..., 0].long()
+        xs = st[..., 1].long()
+        yy = ys[..., None, None] + self.oy                                 # [B, S, 7, 7]
+        xx = xs[..., None, None] + self.ox
+        b = torch.arange(pc.shape[0], device=pc.device).view(-1, 1, 1, 1)
+        so = (lo[b, yy, xx] - med.view(-1, 1, 1, 1)).clamp_min(0)
+        stt = (lt[b, yy, xx] - med.view(-1, 1, 1, 1)).clamp_min(0)
+        eps = mad.view(-1, 1)                                              # one MAD per pixel
+
+        flux_o = (so * self.aperture).sum((-1, -2)) + eps * self.n_aperture
+        flux_t = (stt * self.aperture).sum((-1, -2)) + eps * self.n_aperture
+        peak_o = (so * self.core).amax((-1, -2)) + eps
+        peak_t = (stt * self.core).amax((-1, -2)) + eps
+        core_o = (so * self.core).sum((-1, -2)) + eps * self.n_core
+        core_t = (stt * self.core).sum((-1, -2)) + eps * self.n_core
+
+        per_star = ((torch.log(flux_o) - torch.log(flux_t)).abs()
+                    + (torch.log(peak_o) - torch.log(peak_t)).abs()
+                    + (torch.log(core_o / flux_o) - torch.log(core_t / flux_t)).abs())
+        return (per_star * valid).sum() / n, n
+
+
 def gate_cells(meta, n_sessions, limit):
     """Val cells belonging to the FIRST n_sessions val sessions, for the mid-training probe.
 
@@ -736,6 +864,28 @@ def train(args):
     print(f"device {dev}, U-Net base={args.base}, {params/1e6:.2f} M params, "
           f"{n_train} train cells, conditioning planes {cond_planes}")
 
+    # E2.8's star term. Only meaningful against the CLEAN target the stars were detected on, so it
+    # is refused on any regime whose target is a noisy view (the stars.npy positions would then
+    # index a tile nobody detected on).
+    star_term = None
+    star_w = None
+    if args.star_loss is not None:
+        if not args.synthetic or args.synthetic_target != "master":
+            raise SystemExit("--star-loss needs --synthetic against the master: the star targets in "
+                             "stars.npy were detected on slot 0")
+        stars_path = os.path.join(args.cache, STARS_FILE)
+        if not os.path.exists(stars_path):
+            raise SystemExit(f"--star-loss needs {stars_path}; run --prepare-stars --cache {args.cache} "
+                             f"(it adds the file to an existing cache without touching the tiles)")
+        stars = np.load(stars_path)
+        if stars.shape[0] != n:
+            raise SystemExit(f"{stars_path} holds {stars.shape[0]} cells for a cache of {n}")
+        star_term = StarTerm(stars, dev)
+        with_stars = int((stars[:n_train, :, 3] > 0).any(axis=1).sum())
+        print(f"star-term loss ON: {int(stars[:n_train, :, 3].sum())} star targets over {with_stars}/{n_train} "
+              f"train cells (<= {stars.shape[1]} a tile); weight "
+              f"{'matched to the pixel term on the first starred batch, then FIXED' if args.star_loss == 'auto' else args.star_loss}")
+
     # The mid-training probe. Loss cannot select a denoiser here (it falls fastest for a model
     # that irons the frame flat, because the background is most of the pixels) and neither can
     # PSNR. So selection runs on the two measures that reversed verdicts in the smoke runs.
@@ -834,6 +984,7 @@ def train(args):
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps)
     t0 = time.perf_counter()
     running = []
+    running_star = []
     regime_steps = defaultdict(int)
     best = (-1.0, 0, None, None)      # (score, step, metrics, state_dict)
     # The same tuple, tracked WITHOUT the noise threshold: the best-by-noise probe among those
@@ -930,8 +1081,9 @@ def train(args):
         # at the background: an L1 N2N erases faint stars while scoring well on PSNR, because
         # PSNR is dominated by the background pixels it cleans beautifully. L2 converges to the
         # conditional MEAN, which is unbiased and preserves faint flux in expectation.
-        loss = (nn.functional.l1_loss(pc, yc) if args.loss == "l1"
-                else nn.functional.mse_loss(pc, yc))
+        pixel = (nn.functional.l1_loss(pc, yc) if args.loss == "l1"
+                 else nn.functional.mse_loss(pc, yc))
+        loss = pixel
 
         # Structure-preserving term. Plain L2 is dominated by the flat background, which is
         # most of the frame, so the cheapest way for the model to lower it is to iron out fine
@@ -954,6 +1106,24 @@ def train(args):
                 band = band + nn.functional.mse_loss(
                     _blur(pc, k1) - _blur(pc, k2), _blur(yc, k1) - _blur(yc, k2))
             loss = loss + args.band_loss * band / len(band_scales)
+
+        # The star term (E2.8). Its weight is set on the FIRST batch that carries a star so the term
+        # equals the pixel term there, then never moves: logged once, saved in the checkpoint, and
+        # never tuned on the gate.
+        if star_term is not None:
+            s_term, n_stars = star_term(pc, yc, idx)
+            if n_stars > 0:
+                if star_w is None:
+                    if args.star_loss == "auto":
+                        star_w = float(pixel.item()) / max(float(s_term.item()), 1e-12)
+                        print(f"  star-loss weight FIXED at {star_w:.4e} on step {step}: pixel term "
+                              f"{pixel.item():.4e} / star term {s_term.item():.4e} over {n_stars} stars",
+                              flush=True)
+                    else:
+                        star_w = float(args.star_loss)
+                        print(f"  star-loss weight {star_w:.4e} (given)", flush=True)
+                loss = loss + star_w * s_term
+                running_star.append(float(s_term.item()))
         opt.zero_grad(set_to_none=True)
         loss.backward()
         opt.step()
@@ -962,7 +1132,9 @@ def train(args):
 
         if step % args.log_every == 0 or step == steps:
             el = time.perf_counter() - t0
-            print(f"  step {step:6d}/{steps}  loss {np.mean(running[-args.log_every:]):.5f}  "
+            star_note = (f"  star {np.mean(running_star[-args.log_every:]):.4f}"
+                         if star_term is not None and running_star else "")
+            print(f"  step {step:6d}/{steps}  loss {np.mean(running[-args.log_every:]):.5f}{star_note}  "
                   f"{step*args.batch/el:5.1f} tiles/s  elapsed {el/60:5.1f} min", flush=True)
 
         if gate is not None and (step % args.gate_every == 0 or step == steps):
@@ -1066,7 +1238,7 @@ def train(args):
         torch.save({"model": state, "base": args.base, "upsample": args.upsample,
                     "cond": cond_planes, "half_pairs": args.half_pairs,
                     "regimes": [str(k) for k in regimes], "selected_at_step": selected_at,
-                    "pair_time": args.pair_time},
+                    "pair_time": args.pair_time, "star_loss_w": star_w},
                    os.path.join(args.cache, path))
         print(f"saved -> {os.path.join(args.cache, path)}")
 
@@ -1272,6 +1444,19 @@ if __name__ == "__main__":
                         "number was labelling two different distributions")
     p.add_argument("--band-loss", type=float, default=0.0)
     p.add_argument("--band-scales", default="1,2 2,4 4,8")
+    p.add_argument("--star-loss", default=None,
+                   help="E2.8: add the star-term loss (StarTerm) over the stars.npy targets. 'auto' "
+                        "sets its weight ONCE so the term equals the pixel term on the first starred "
+                        "batch and then fixes it (logged, saved in the checkpoint); a number is used as "
+                        "given. Needs --synthetic against the master and a cache with stars.npy "
+                        "(--prepare writes it; --prepare-stars adds it to an existing cache). Never "
+                        "tune this on the gate: that is a second selection on the same session")
+    p.add_argument("--star-max", type=int, default=32,
+                   help="star targets kept per tile for stars.npy (evenly spaced in peak rank when a "
+                        "tile has more; the faint end is the population L2 trades away)")
+    p.add_argument("--prepare-stars", action="store_true",
+                   help="write stars.npy for an EXISTING cache without touching its tiles, so an arm "
+                        "can add the star term while staying paired against runs on the same cache")
     p.add_argument("--out", default="n2n.pt")
     p.add_argument("--out-final", default=None,
                    help="where the LAST step's weights go when a gate selected an earlier one "
@@ -1350,6 +1535,8 @@ if __name__ == "__main__":
         p.error("--prepare needs --root, the bake to read tiles from (no default; see --root)")
     if a.prepare:
         prepare(a)
+    if a.prepare_stars and not a.prepare:
+        prepare_stars(a.cache, a.star_max)
     if a.train:
         train(a)
     if a.eval:
