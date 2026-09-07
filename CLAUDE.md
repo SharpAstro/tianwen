@@ -1358,8 +1358,15 @@ matrix, the two full-scale numbers and the header parse:
 - **A demosaic the viewer OFFERS must have its own branch in `image.frag`** -- the screen shows the
   shader's output while a Save CPU-debayers the same frame, so an algorithm without one silently
   writes a different picture from the one on screen. That is why `ViewerActions.DebayerAlgorithms`
-  drops AHD (no GPU branch, and 1258 ms per save) and defaults to VNG (no ring at a star core,
-  measured), while `DebayerAlgorithm` keeps AHD for the batch paths. `debayerVng` / `debayerMhc`
+  drops AHD (no GPU branch, and 1258 ms per save), while `DebayerAlgorithm` keeps AHD for the batch
+  paths. **`DebayerAlgorithm.Auto` is the one offered entry with no branch, and only because it is
+  never asked for one**: it is a UI intent resolved by `ResolveAuto` at every consumer (GPU upload,
+  both save paths, document load, enhance) before `GpuDebayerMode`, which **throws** on an
+  unresolved Auto rather than falling through to MHC. It is the default, and resolves a still CFA
+  mosaic to VNG (no ring at a star core, measured), a SER to MHC (**parity with `PlanetaryMaster`,
+  not speed**: VNG's advantage was measured AT STARS and a planetary disk has none), a mono frame to
+  `BilinearMono` and an already-colour frame to `None`. The container is only a PROXY for a
+  planetary subject, so a lunar still resolves to VNG and wants a manual MHC. `debayerVng` / `debayerMhc`
   mirror `Image.DebayerVNGAsync` / `DebayerMHCAsync` down to the epsilons, and **VNG's thresholds are
   ABSOLUTE, so both sides must be fed a `[0, 1]` mosaic**. Pinned by `GpuVngDebayerParityTests`
   (which also carries why a mean byte diff cannot see a demosaic bug);

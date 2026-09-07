@@ -1,4 +1,4 @@
-// TODO high priority: cached offscreen framebuffer for partial UI redraws
+﻿// TODO high priority: cached offscreen framebuffer for partial UI redraws
 //
 // Problem: every mouse move that changes the status bar pixel readout triggers a full
 // Vulkan render pass (image quad + stretch shader + histogram + stars + toolbar + status bar).
@@ -130,10 +130,18 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>In-shader Bayer demosaic for the RawBayer path (see <see cref="GpuDebayerMode"/> for
         /// the full mode list). Derived from <see cref="ViewerState.DebayerAlgorithm"/> and refreshed in
-        /// <see cref="UploadDocumentTextures"/>; the initial value matches
-        /// <see cref="ViewerActions.DefaultDebayerAlgorithm"/> so the first frame after an upload is not a
-        /// different demosaic from every frame after it.</summary>
-        public int RawBayerDebayerMode { get; set; } = GpuDebayerMode(ViewerActions.DefaultDebayerAlgorithm);
+        /// <see cref="UploadDocumentTextures"/>; the initial value is what the default resolves to for a
+        /// still CFA frame, so the first frame after an upload is not a different demosaic from every
+        /// frame after it.
+        ///
+        /// <para>Resolved rather than taken raw: the default is
+        /// <see cref="DebayerAlgorithm.Auto"/>, which has no shader mode, and this is a field
+        /// initialiser -- it runs in the constructor of every viewer, before any frame exists to resolve
+        /// against. A still CFA mosaic is the right assumption because it is the only shape this value
+        /// is ever read for, and an upload overwrites it before anything is drawn.</para></summary>
+        public int RawBayerDebayerMode { get; set; } = GpuDebayerMode(
+            ViewerActions.DefaultDebayerAlgorithm.ResolveAuto(
+                isBayerMosaic: true, isColour: false, isVideoStream: false));
 
         /// <summary>Maps a <see cref="DebayerAlgorithm"/> to the GPU live-demosaic mode written into
         /// <c>stretchBlend.z</c> for the RawBayer shader path: <c>0</c> = bilinear colour, <c>1</c> = MHC colour,
@@ -152,6 +160,12 @@ namespace TianWen.UI.Abstractions
             DebayerAlgorithm.None => 2,         // raw mosaic, no demosaic
             DebayerAlgorithm.BilinearMono => 3, // monochrome
             DebayerAlgorithm.VNG => 4,          // VNG colour
+            // Auto is a UI intent with no shader branch, and reaching here means a producer forgot to
+            // call ResolveAuto. Throwing rather than falling through to MHC on purpose: silently
+            // rendering as MHC is the exact failure this whole area exists to prevent, and it would
+            // look like a working viewer that ignores three quarters of the rule.
+            DebayerAlgorithm.Auto => throw new ArgumentOutOfRangeException(nameof(algorithm), algorithm,
+                "DebayerAlgorithm.Auto must be resolved via ResolveAuto before the shader mode is asked."),
             _ => 1,                             // MHC colour (AHD, no longer selectable, falls back to MHC)
         };
 
@@ -609,7 +623,11 @@ namespace TianWen.UI.Abstractions
                 uploadedSlots = 1;     // ... from ONE mosaic texture; see ReleaseUnusedChannelTextures
                 BayerOffsetX = source.BayerOffsetX;
                 BayerOffsetY = source.BayerOffsetY;
-                RawBayerDebayerMode = GpuDebayerMode(state.DebayerAlgorithm);
+                // Resolved HERE rather than passed through: Auto is a UI intent and the shader has no
+                // branch for it, exactly as StretchMode.Auto never reaches the stretch. isBayerMosaic is
+                // true by the branch condition above.
+                RawBayerDebayerMode = GpuDebayerMode(state.DebayerAlgorithm.ResolveAuto(
+                    isBayerMosaic: true, isColour: false, isVideoStream: source.IsVideoStream));
                 if (!TryUploadRetainedRaster(source, 0, 0, pixelWidth, pixelHeight))
                 {
                     UploadChannelTexture(source.GetChannelData(0), 0, pixelWidth, pixelHeight);

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.UI.Abstractions;
@@ -73,6 +73,18 @@ public interface IPreviewSource
 
     /// <summary>Number of frames (1 for a still image).</summary>
     int FrameCount { get; }
+
+    /// <summary>
+    /// A planetary/lunar VIDEO source, as opposed to a still frame or a sequence of stills. Read by
+    /// <see cref="DebayerAlgorithmExtensions.ResolveAuto"/> to pick MHC over VNG, for the reason given
+    /// there.
+    ///
+    /// <para>Stated explicitly, and defaulted to <c>false</c>, rather than derived from
+    /// <see cref="FrameCount"/>: a live session preview accumulates frames too, so a frame count above
+    /// one is true of an ordinary deep-sky run and would flip it to the planetary answer partway
+    /// through.</para>
+    /// </summary>
+    bool IsVideoStream => false;
 
     /// <summary>Index of the currently selected frame (0 for a still image).</summary>
     int FrameIndex { get; }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -474,7 +474,7 @@ public sealed class ViewerController(
                 state.CurvesBoost, state.CurvesMode, state.CurveData, background,
                 state.HdrAmount, state.HdrKnee,
                 displayedChannel: state.ChannelView.DisplayedSourceChannel(image.ChannelCount),
-                debayerAlgorithm: state.DebayerAlgorithm,
+                debayerAlgorithm: state.DebayerAlgorithm.ResolveAuto(image),
                 cancellationToken: token).ConfigureAwait(false);
 
             LogSaved(target, format.DisplayName(), saveStarted);
@@ -659,7 +659,7 @@ public sealed class ViewerController(
                     state.NeedsRedraw = true;
                     // Snapshot the backend preference into immutable options per click (no global).
                     var options = new EnhanceOptions(state.PreferredEnhanceBackend);
-                    var debayer = state.DebayerAlgorithm;
+                    var debayer = state.DebayerAlgorithm.ResolveAuto(enhanceDoc.UnstretchedImage);
                     // Off the render thread: ProcessAsync's sync prefix (sanitise + noise estimate) and the
                     // AI work all run on the pool, so the render loop never hitches (important on integrated
                     // GPUs where the AI work itself contends for the GPU -- we do NOT spin-render meanwhile).
