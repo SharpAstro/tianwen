@@ -58,7 +58,9 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
     /// <summary>A crop with more uncovered pixels than this in either master is shrunk and recentred.</summary>
     private const double MaxUncoveredFraction = 0.02;
 
-    private sealed record Master(Image Image, string Path, int OriginX, int OriginY)
+    /// <summary>A master in the deployed estimator's UNIT range (<see cref="Image"/>, a rewrap of
+    /// <see cref="Original"/>), with its origin in reference-frame pixels.</summary>
+    private sealed record Master(Image Image, Image Original, string Path, int OriginX, int OriginY)
     {
         public int Width => Image.Shape.Width;
         public int Height => Image.Shape.Height;
@@ -68,13 +70,14 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
     {
         public void Dispose()
         {
-            Sharp.Image.Release();
-            Soft.Image.Release();
+            Sharp.Original.Release();
+            Soft.Original.Release();
         }
     }
 
-    /// <summary>A square common to both masters: its top-left in each master's own pixels, and its side.</summary>
-    private readonly record struct Region(int SharpX, int SharpY, int SoftX, int SoftY, int Side);
+    /// <summary>A square common to both masters: its top-left in each master's own pixels, its side,
+    /// and the stars the sharp master's crop offers at snr 20, which is what chose it.</summary>
+    private readonly record struct Region(int SharpX, int SharpY, int SoftX, int SoftY, int Side, int SharpStars);
 
     private static string? FindMaster(string dir)
         => Directory.Exists(dir)
@@ -115,8 +118,11 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
             return null;
         }
 
+        // The deployed deconvolver measures its PSF on a unit-range image, so every width and count
+        // here is taken in that domain too; the first run measured the sharp master in native units
+        // and the soft one in unit range and read a B/A of 0.37 that was the domain, not the sky.
         skip = string.Empty;
-        return new Master(image, path, origin.X, origin.Y);
+        return new Master(image.ScaleFloatValuesToUnitInPlace(), image, path, origin.X, origin.Y);
     }
 
     private static Pair? Load(out string skip)
@@ -162,12 +168,15 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// A centred square inside the region BOTH masters cover, in reference-frame space through the
-    /// origin cards, then checked against the pixels: a square with more than two percent of
-    /// uncovered (NaN or exact zero) pixels in either master is shrunk and recentred, since the union
-    /// canvas's corners are empty where only some frames reached.
+    /// The square inside the region BOTH masters cover that offers the sharp master the MOST stars.
+    /// The common region is found in reference-frame space through the origin cards; candidate squares
+    /// step across it at half a side; one with more than two percent of uncovered (NaN or exact zero)
+    /// pixels in either master is dropped, since the union canvas's corners are empty where only some
+    /// frames reached; the rest are ranked by the sharp crop's star count at snr 20. Chosen by count
+    /// rather than by geometry because the geometric centre of this first pair was M42's core, where a
+    /// 1024 px crop held 17 stars and the profile fit refused on both sides.
     /// </summary>
-    private static Region? CommonSquare(Pair pair, int channel)
+    private static async Task<Region?> CommonSquareAsync(Pair pair, int channel, CancellationToken ct)
     {
         var a = pair.Sharp;
         var b = pair.Soft;
@@ -182,17 +191,42 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
         }
 
         var side = Math.Min(MaxSide, Math.Min(right - left, bottom - top));
-        var centreX = (left + right) / 2;
-        var centreY = (top + bottom) / 2;
         while (side >= MinSide)
         {
-            var x0 = centreX - (side / 2);
-            var y0 = centreY - (side / 2);
-            var region = new Region(x0 - a.OriginX, y0 - a.OriginY, x0 - b.OriginX, y0 - b.OriginY, side);
-            if (UncoveredFraction(a.Image, channel, region.SharpX, region.SharpY, side) <= MaxUncoveredFraction
-                && UncoveredFraction(b.Image, channel, region.SoftX, region.SoftY, side) <= MaxUncoveredFraction)
+            Region? best = null;
+            var step = Math.Max(64, side / 2);
+            for (var y0 = top; y0 + side <= bottom; y0 += step)
             {
-                return region;
+                for (var x0 = left; x0 + side <= right; x0 += step)
+                {
+                    var region = new Region(x0 - a.OriginX, y0 - a.OriginY, x0 - b.OriginX, y0 - b.OriginY, side, 0);
+                    if (UncoveredFraction(a.Image, channel, region.SharpX, region.SharpY, side) > MaxUncoveredFraction
+                        || UncoveredFraction(b.Image, channel, region.SoftX, region.SoftY, side) > MaxUncoveredFraction)
+                    {
+                        continue;
+                    }
+
+                    var crop = Wrap(Cut(a.Image, channel, region.SharpX, region.SharpY, side, side), side, side);
+                    int stars;
+                    try
+                    {
+                        stars = (await crop.FindStarsAsync(channel: 0, snrMin: 20f, cancellationToken: ct)).Count;
+                    }
+                    finally
+                    {
+                        crop.Release();
+                    }
+
+                    if (best is null || stars > best.Value.SharpStars)
+                    {
+                        best = region with { SharpStars = stars };
+                    }
+                }
+            }
+
+            if (best is { } found)
+            {
+                return found;
             }
 
             side = (int)(side * 0.875);
@@ -231,7 +265,8 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
 
         output.WriteLine($"sharp     {pair.Sharp.Path} ({pair.Sharp.Width} x {pair.Sharp.Height}, origin {pair.Sharp.OriginX}, {pair.Sharp.OriginY} in reference px)");
         output.WriteLine($"soft      {pair.Soft.Path} ({pair.Soft.Width} x {pair.Soft.Height}, origin {pair.Soft.OriginX}, {pair.Soft.OriginY})");
-        output.WriteLine($"crop      a centred square of the region both cover, at most {MaxSide} px, overlaid through CANVASX0/CANVASY0; {channels} channel(s)");
+        output.WriteLine($"crop      the square of the region both cover (overlaid through CANVASX0/CANVASY0) with the most sharp-master stars at snr 20, at most {MaxSide} px; "
+            + $"{channels} channel(s); both masters in the deployed estimator's unit range");
         output.WriteLine($"estimator PsfProfileFit on each crop's own detections (snr >= {EstimatorSnrMin}, <= {EstimatorMaxStars} stars, SignalFloor); "
             + $"kernel width by Moffat composition; est-c takes beta {SyntheticKernelBeta}, est-cb the soft frame's fitted beta");
         output.WriteLine($"oracle    Richardson-Lucy, {Iterations} iterations, read at {string.Join(", ", Checkpoints)}; widths are the deployed estimator's median FWHM in px");
@@ -240,7 +275,7 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
 
         for (var c = 0; c < channels; c++)
         {
-            if (CommonSquare(pair, c) is not { } r)
+            if (await CommonSquareAsync(pair, c, ct) is not { } r)
             {
                 output.WriteLine($"{c,2} (no common covered square of at least {MinSide} px; skipped)");
                 continue;
@@ -272,7 +307,7 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
             var (fitB, diagB) = await FitStarProfileAsync(observed, r.Side, r.Side, PsfProfileFit.StarSelection.SignalFloor, EstimatorSnrMin, EstimatorMaxStars, ct);
             var (nullRing, nullOver) = Ringing(observed, r.Side, stars, bg, mad);
 
-            output.WriteLine($"{c,2} crop {r.Side} px at sharp ({r.SharpX}, {r.SharpY}) / soft ({r.SoftX}, {r.SoftY}); A (sharp) {truthFwhm:F2} px over {truthStars} stars, "
+            output.WriteLine($"{c,2} crop {r.Side} px at sharp ({r.SharpX}, {r.SharpY}) / soft ({r.SoftX}, {r.SoftY}), chosen for {r.SharpStars} sharp stars at snr 20; A (sharp) {truthFwhm:F2} px over {truthStars} stars, "
                 + $"B (soft) {blurFwhm:F2} px over {blurStars}, B/A {blurFwhm / truthFwhm:F3}; {stars.Count} truth stars at snr 20; B's own ring null {nullRing:F2} MAD, {nullOver:P0} over one");
             output.WriteLine($"{c,2} fit A {(fitA is { } a ? $"{a.Fwhm:F2} px beta {a.MoffatBeta:F2}" : Describe(diagA))}; "
                 + $"fit B {(fitB is { } b ? $"{b.Fwhm:F2} px beta {b.MoffatBeta:F2}" : Describe(diagB))}"
@@ -343,11 +378,12 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
 
         var ct = TestContext.Current.CancellationToken;
         var channels = pair!.Sharp.Image.Shape.ChannelCount;
-        var region = CommonSquare(pair, 0);
+        var region = await CommonSquareAsync(pair, 0, ct);
         Assert.SkipWhen(region is null, "no common covered square");
         var r = region!.Value;
 
-        // The soft crop with every channel, in the deconvolver's unit range (the rescale REWRAPS; use its result).
+        // The soft crop with every channel. The masters are already in unit range, so the crop is too;
+        // MaxValue is the crop's own peak, which the deconvolver's range check reads.
         var planes = new float[channels][,];
         var max = 0f;
         for (var c = 0; c < channels; c++)
@@ -365,9 +401,8 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
             }
         }
 
-        var input = new Image(planes, BitDepth.Float32, max <= 0f ? 1f : max, 0f, 0f,
+        var unit = new Image(planes, BitDepth.Float32, max <= 0f ? 1f : max, 0f, 0f,
             new ImageMeta { SensorType = channels == 1 ? SensorType.Monochrome : SensorType.Color });
-        var unit = input.ScaleFloatValuesToUnitInPlace();
         using var deconvolver = new OnnxNonStellarDeconvolver(resolver, new HfdPsfEstimator(), chunkSize: 256, overlap: 64);
 
         output.WriteLine($"sharp     {pair.Sharp.Path}");
