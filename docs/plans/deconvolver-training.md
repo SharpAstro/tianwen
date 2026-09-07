@@ -783,6 +783,26 @@ majority points at the acceptance rule and the noise weighting of the log-space 
 `TooFewStacked` majority at the band and the isolation radius; `NoHalfMaximum` or bins at the sampled
 radius.
 
+**E1c's results, 2026-09-07 (11 minutes at one iteration, `C:/temp/e2/oracle-e1c.txt`).** Thirty
+whole-frame refusal events reproduce E1b's 75 refused rows exactly (five CLEAN channels refuse and
+take all ten of their rows; 25 observed frames refuse, 20 of them noisy). **28 of the 30 are
+`PoorFit`**, two are `TooFewStacked` (the 7 px Eta Car channel, 38 stacked against a floor of 40).
+The first half of the prediction holds: every noisy refusal is `PoorFit`. The second half is wrong in
+an instructive way: the narrowband masters are not star-poor, they refuse on SHAPE, with 4,600 to
+7,000 detections, the stack at its 400 cap, and residuals of 0.76 to 1.29 on the clean master (0.57 to
+1.08 on the observed), against the 0.07 to 0.22 a healthy fit reads. The tell is the bin count: 15 to
+28 of 48 radial bins sit above the noise floor where a fitted frame has 35 to 42. The brightness band
+is a PERCENTILE of the frame's detections (55th to 75th), so on a rich field it lands on faint stars,
+their wings reach the floor within three or four pixels, and the log-space fit that weights every
+decade equally is fitting the noise in the outer bins. The crop never fits for the plain reason the
+counts give: 7 to 19 stacked from a band of 12 to 41, against a floor of 40.
+
+So the estimator step's first fix is the band, not the acceptance rule: select the stack by an
+absolute signal floor (a peak in MADs, below saturation) rather than by the frame's own percentiles,
+so a rich field stacks its bright isolated stars instead of its 60th-percentile ones. To be
+pre-registered as E1e on the same 180 rows once E1d has run, since the two fixes are separable and
+E1d's width composition uses whatever fit the band produces.
+
 #### E1d, pre-registered 2026-09-07: the difference width by Moffat composition
 
 *Why.* The 1.24 over-read at 1.3-1.6x was guessed above to be what quadrature does to a Moffat, and a
