@@ -609,6 +609,29 @@ build (the profile's site, or a `--site lat,lon` switch) so the computed value e
 sessions too; sixty minutes of measure stage once built. Check the header inventory of every capture
 software in an archive before pre-registering a per-sub computed quantity.
 
+### A night whose cooler drifts across a degree stacks as several masters, and two filters of one target share a master file name
+
+`LightGroupKey` wraps `MasterGroupKey`, whose temperature is `CCD-TEMP` rounded to the degree, so
+`tianwen stack` partitions lights by that integer: the Great Orion Nebula session of 2025-10-15
+(SV605CC, 13.7 to 12.1 C over the night) came out as three masters of 49, 18 and 4 frames, each with
+its own reference frame and canvas, and the L-Ultimate Orion night beside it (6 to 8 C) as three more.
+Nothing downstream can put those back together, since the references differ. Found 2026-09-07 when
+E2.10 needed one manifest for one night (`docs/plans/deconvolver-training.md`, E2.10a).
+
+**Fixed as an opt-in.** `--group-temp-tolerance <C>` (`StackingOptions.LightGroupTemperatureToleranceC`,
+default 0 so every existing invocation groups exactly as before) sorts a target's frames by temperature
+and cuts only where consecutive readings are further apart than the tolerance, so a drift stays whole
+and a different night's 8 C still separates; the cluster's key carries its rounded median temperature
+for the dark match and the slug. The default is not changed because the rounding is also what pairs a
+group with a dark at its temperature, and a wider default would silently widen every dark match.
+
+**Still open: the LIGHT slug carries no filter.** `MasterGroupKey.Slug` appends the filter only for
+flats, so two light groups that differ ONLY by filter (same object, exposure, temperature, gain) map to
+one file name, `master_<object>_light_<exp>s_<T>C_g<gain>.fits`, and the second overwrites the first
+in one run. The grouping itself is correct (the filter is in the KEY); only the name collides, and a
+`--group-filter` cannot separate them either. Adding the filter to the light slug changes every light
+master's file name, so it is recorded rather than done here.
+
 ## GPU / rendering
 
 ### Dangling stack pointer via single-argument Vortice ctors

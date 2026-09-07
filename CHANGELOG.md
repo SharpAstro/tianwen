@@ -153,6 +153,16 @@ shipped whole-image graph reads, because that graph was trained on whole-image l
 whose radii sit under the shipped range's 1 px floor clamps every tile to the same value and cannot
 be told apart either way.
 
+**`tianwen stack --group-temp-tolerance <C>`** (`StackingOptions.LightGroupTemperatureToleranceC`)
+lets a night whose cooler drifted across a degree stack as ONE master. The light grouping reuses the
+calibration key, whose temperature is rounded to the degree, so a real 13.7 to 12.1 C session came
+out as three masters of 49, 18 and 4 frames with three reference frames, which nothing downstream
+can recombine. With a tolerance, a target's frames are cut only where consecutive temperatures are
+further apart than it (a drift is one cluster, a different night's 8 C another) and the group's dark
+is matched at its median temperature. The default stays 0, grouping exactly as before, because the
+same rounding is what pairs a group with a dark at its temperature. `LightGroupKey.Assign` is the
+one implementation; five facts pin it. Found by E2.10, which needs one manifest for one night.
+
 ## 7.0
 
 Two releases: `v7.0.1513` on 2026-09-04 and `v7.0.1532` on 2026-09-06, the second carrying 60 more
