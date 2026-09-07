@@ -752,6 +752,44 @@ its `OBJECT` card another, and it is the one session whose computed and header a
 means: these spreads are within-night seeing, focus and wind, not altitude, so a pair is a real blur
 of unknown shape, which is exactly what the synthetic arms cannot supply.
 
+**E2.10a, pre-registered 2026-09-07: the estimator step and the oracle on the Orion pair.**
+
+*Setup.* The whole session stacked once against the archive root (`tianwen stack D:/Astro-Organized
+--group-filter Orion --group-exclude Ultimate --strategy Float16Staged`), its manifest split by
+`psf-seeing-split.py` into the sharpest and softest thirds by the store's `SubFwhm` (twenty frames
+each plus the shared reference), each third stacked from its manifest into its own output. Then
+`SeeingSplitPairProbe` (`TIANWEN_E210_PAIR_DIR`): on a centred square of up to 1024 px of the region
+both cover, per channel, the deployed estimator's width and star count on A and B, `PsfProfileFit`
+with the signal floor on each, the difference kernel by composition in two shape arms (`est-c`, beta
+4 as the synthetic arms injected; `est-cb`, the soft frame's own fitted beta, since the shape of real
+seeing is not known), Richardson-Lucy on B at 20, 40 and 60 iterations, read against A: recovered
+width over A's, stars over A's truth-anchored count, ring excess over B's own null. Float16Staged on
+all three stacks so A and B are integrated alike; the deployed master was BayerDrizzle, a 4 to 9
+percent PSF difference the plan already records.
+
+*Prediction.* Both fits succeed on all three channels (twenty-frame masters of a rich field, under the
+floor). B/A as the estimator reads it on the masters lands at 1.3 to 1.45 (the thirds' sub medians
+were 1.73 and 2.47 px, 1.43; a stack of subs sits near their mean and registration adds a little to
+both). At 60 iterations `est-c` reads rec/A at 1.00 to 1.10 on at least two of three channels with
+stars over A at 0.55 to 0.85 and ring excess under 40 percent: E1d's noisy 1.3-1.6x row (rec/truth
+1.03, stars 0.63, ring 23 percent) with a shape error on top, since a beta-4 kernel is a guess for
+seeing. `est-cb` is within 0.05 of `est-c` on rec/A, because composition takes the shape into account
+either way and the two betas differ by less than the fit's own scatter. Confidence moderate on the
+width, low on the stars column: A is a twenty-frame master and carries noise of its own, so the count
+ratio is against a noisy truth, which the synthetic rows never were.
+
+*Kill.* rec/A above 1.20 on every channel at 60 iterations with both fits present. Then the difference
+kernel estimated from stars does not transfer from drawn Moffats to real blur (the wings of seeing
+are not a Moffat's, or the two masters' registration residuals dominate the difference), and the
+estimator step needs a real-blur calibration before the unrolled operator can lean on it. A second
+kill: stars over A above 1.10 with rec/A under 1.00, fabrication on real data, which the synthetic
+rows never showed for `est-c`.
+
+*Then.* The same probe's GPU arm (`TIANWEN_E210_SAS=1`): the shipped SAS AI4 graph on B, read the
+same way, which is the first time the shipped deconvolver is scored against a real truth. Not
+pre-registered as a pass or fail: it is the baseline any trained arm must beat on this pair, and its
+number is the finding.
+
 #### D1: per-tile psf01 at inference
 
 Training labels psf01 per 256 px cell; inference hands `OnnxNonStellarDeconvolver` ONE radius per
@@ -1188,7 +1226,7 @@ had fallen 20 to 50x by step 400), and the fabrication barely moved: a lower wei
 is does not make it honest. Matching the weight at the plateau is not the mechanism; the term's
 incentive is, which is what the counterpart changes.
 
-*Trajectories (added at 13:20 from the same logs, `training/denoise/n2n_gatetrace.py`, the time axis
+*Trajectories (added at 13:10 from the same logs, `training/denoise/n2n_gatetrace.py`, the time axis
 `n2n_gatelog.py` collapses).* Gate out/truth at probe steps 200 / 1000 / 2000 / 4000, then the
 observer's stars at the same steps:
 
