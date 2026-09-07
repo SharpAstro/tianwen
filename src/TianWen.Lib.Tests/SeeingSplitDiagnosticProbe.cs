@@ -116,6 +116,14 @@ public class SeeingSplitDiagnosticProbe(ITestOutputHelper output)
             ("whole night (Float16Staged, 71)", Directory.GetFiles(pairDir!, "master_*.fits").FirstOrDefault(p => !p.Contains("autocrop") && !p.Contains("rejection"))),
             ("retained master (BayerDrizzle, 60)", Directory.GetFiles(Path.Combine(storeDir!, "session-masters"), "*.fits").FirstOrDefault(p => Path.GetFileName(p).Contains("Great-Orion-Nebula_2025-10-15", StringComparison.OrdinalIgnoreCase))),
         };
+        // Stage stacks (exp-<label>/): the reference alone, the reference plus one and plus two sharp
+        // frames, so the blur a stack adds over its subs can be placed at calibration + debayer, at
+        // the bilinear warp, or at the averaging of frames whose PSF differs.
+        foreach (var dir in Directory.GetDirectories(pairDir!, "exp-*").OrderBy(d => d, StringComparer.Ordinal))
+        {
+            masters.Add(($"stage: {Path.GetFileName(dir)} (Float16Staged)",
+                Directory.GetFiles(dir, "master_*.fits").FirstOrDefault(p => !p.Contains("autocrop") && !p.Contains("rejection"))));
+        }
         foreach (var (label, path) in masters)
         {
             if (path is null || !Image.TryReadFitsFile(path, out var master) || master is null)
