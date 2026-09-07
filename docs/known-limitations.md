@@ -564,6 +564,51 @@ a short `DARK` as a dark-flat on exposure alone: a genuine short dark library wo
 indistinguishable. Preferring an exposure-matched dark-flat as the flat pedestal is the change that
 would make the labels start to matter; bias was chosen partly to avoid depending on them.
 
+### A `PsfKernel` narrower than about 1.5 px does not blur by its label
+
+`PsfKernel.Build` evaluates the Moffat (or Gaussian) at pixel CENTRES and renormalises the truncated
+taps. That is exact enough from 2 px FWHM up (the composed width lands within three percent of the
+continuous profile's), and wrong below it: a nominal 1 px beta-4 Moffat puts 65 percent of its mass in
+one pixel and widens a 2.15 px core as a 0.73 px continuous kernel would (0.59 on a 1.53 px core, 0.79
+on 2.81), and a nominal 0.5 px kernel is a near-delta worth 0.1 px. Area sampling does not rescue it
+(4x4 gets 1 px to 0.91 to 1.07 and 0.5 px to 0.56 to 0.81), because a half-pixel profile has no
+representation on the pixel grid at all. Measured 2026-09-07 by composing the sampled taps with a
+continuous core (`docs/plans/deconvolver-training.md`, E1d).
+
+**What it did.** The estimated-kernel oracle probe read its width estimates against the nominal
+width and reported a 0.65 under-read at 1.1 to 1.3x blur, while quadrature "read 0.92" there only
+because its own 1.3x over-read cancelled the kernel's 0.7x under-delivery; against the width applied
+the composed estimate was within 0.92 to 1.07. E1b's and E1d's light-end bins were run at effective
+blur ratios nearer 1.12 and 1.005 than their labels. **What it did not do:** the trainer conditions on
+`Psf01Estimated`, measured on the degraded cell, so no training label carries the error.
+
+**Where it stands.** `MoffatComposition.ComposedFwhm(core, beta, PsfKernel)` composes with the kernel
+as sampled and `EffectiveKernelFwhm` inverts it; the probe prints `effK` and `estW/e`; the exporter's
+training-only `Psf01FromKernel` composes with the kernel applied. Still open: the exporter DRAWS a
+nominal width, so a draw under about 1.5 px realises a lighter blur than `degradations.jsonl` records
+and the light end of the training distribution is lighter than intended; drawing the blur RATIO and
+solving for the kernel is the fix, and needs a re-export to take effect. The general rule is the
+same one denoiser-training H8 learned on a point-sampled Gaussian: the truth of an injected blur is
+the kernel APPLIED, and a sub-2 px result must never be read against a label.
+
+### SharpCap frames carry no site, so a per-sub quantity that needs one is NaN for a third of the archive
+
+Every SharpCap capture in the archive (all 27 sessions checked, 4.0 and 4.1) writes `OBJCTRA`,
+`OBJCTDEC`, `RA`, `DEC` and `DATE-OBS` and **no `SITELAT` / `SITELONG` / `SITEELEV`**; N.I.N.A. writes
+all of them. `SiteContext.Airmass` answers NaN without a site, so `SessionPsf.SubAirmass` is NaN for
+those 27 of 79 sessions and E2.9's per-session fit could not run on them (`docs/plans/
+deconvolver-training.md`, E2.9). SharpCap 4.1 writes an `AIRMASS` card of its own (15 of the 27), 4.0
+did not (the nine Vela SNR panels, Omega Cen, the 2022 Eta Car, the SII Eta Car).
+
+**Why the card can stand in, and only where it does.** On the 52 sessions carrying both, the computed
+air mass and the card agree to a median 0.001 to 0.015 (one 0.034, one 0.311 on a session whose folder
+and `OBJECT` name different stars), so `tools/psf-airmass-report.py --airmass either` uses the card
+where the computation has no site, labelled as such. The store itself still records the card only as
+a cross-check (`SubHeaderAirmass`), never in `SubAirmass`. **Owed:** a site fallback for the dataset
+build (the profile's site, or a `--site lat,lon` switch) so the computed value exists for SharpCap
+sessions too; sixty minutes of measure stage once built. Check the header inventory of every capture
+software in an archive before pre-registering a per-sub computed quantity.
+
 ## GPU / rendering
 
 ### Dangling stack pointer via single-argument Vortice ctors
