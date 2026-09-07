@@ -720,9 +720,20 @@ sessions on the same camera are flatter (8 to 22 percent). The whole-image value
 the tile median on every master (a median over all detections weights the dense regions, which here
 are the sharp ones). And 10 to 16 percent of tiles starve at eight stars and take the whole-image
 value, so the fallback is a real fraction of a frame, not a corner case. The GPU half, whether the
-graph's output is better when told the local width, waits for E2.8b to release the card; it is a
-probe over the same seven masters with per-tile against whole-image, judged by the gate's width and
-star columns per field radius.
+graph's output is better when told the local width, waits for E2.8b to release the card.
+
+*The GPU half, pre-registered.* `PerChunkPsfOutputProbe`: the shipped SAS AI4 graph run twice on each
+of the seven Rim masters (rescaled to unit range), whole-image and per-tile, and the stars of the
+input and both outputs measured in three field-radius bins (inner, middle, outer third of the
+half-diagonal). Off-label for a non-stellar deconvolver, but stars are the only PSF probe a frame
+offers, and the comparison is relative. *Prediction:* per-tile moves the output's centre-to-corner
+FWHM ratio toward 1 on the four 2025-26 sessions (the soft centre is told it is soft and is
+deconvolved more), by at least a third of the whole-image output's departure from 1; star counts
+per bin within 10 percent of the whole-image run's; the three flatter 2024 sessions change by less
+than the encoding resolves. *Kill:* per-tile makes any bin's stars narrower than the INPUT's sharpest
+bin (a deconvolver told the truth about local width should not cross the frame's own best), or a
+bin's star count departs from the whole-image run's by over 20 percent. Then per-tile conditioning
+is not safe on a graph trained with whole-image labels and stays off.
 
 ### E1b's results, 2026-09-07: the estimate is good where it exists, and it exists for half the rows
 
