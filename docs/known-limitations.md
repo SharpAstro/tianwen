@@ -699,8 +699,32 @@ pre-registered and measured on the Orion night's moved and unmoved populations b
 because it touches every consumer of the star list and the fixtures pin star counts. **Shipped the
 same evening** (`Image.SinglePhotositeFractionMax`, 0.85): the real RGGB fixture loses 1.2 percent of
 its detections, all of them the narrow spikes; on the Orion frames the lists halve and the unmoved
-pairs fall from hundreds to a handful. The store re-measure with the guarded detector decides whether
-the three sessions' green fits run.
+pairs fall from hundreds to a handful. **The store re-measure with the guarded detector (79 sessions,
+8,507 subs, 96 minutes, the same evening) gave two of the three sessions their green fits back and
+not the third:** Orion L-Quad 2025-10-15 fits 55 of 68 (green 1.82 / 2.17 / 2.46 px at p10 / p50 /
+p90, the widest within-night spread in the archive at 1.36), Orion L-Ultimate 2025-10-14 64 of 77,
+Tarantula L-Ultimate 2025-10-14 still 0 of 84; the archive's green fit fraction moved 73 to 74
+percent (5,987 of 8,037), E2.9's slopes are unchanged (1 of 78 sessions at a 1.3x air-mass span),
+and E2.10's candidate list grew from 14 to 19 with the Orion L-Quad night now its best pair (1.89
+against 2.38 px, 1.26x). **What the third session shows, measured on its own subs
+(`ReportWhyTheGreenFitRefusesASessionsSubs`, `C:/temp/e2/green-fit-refusals-tarantula-*.txt`):** a
+population the 0.85 guard does not reach. On that night (sensor 12.7 to 9.0 C, no dark warmer than
+-5 C) the fit refuses `PoorFit` at a log residual of 0.5 to 1.0 on the warm early subs and passes at
+0.26 to 0.31 once the sensor has cooled, raw or calibrated alike; the stacked profile it refused is a
+spike (0.04 of peak at 0.9 px against 0.21 on a passing sub) with a bump at 1.5 px, which is a hot
+photosite as VNG renders it on the green plane, not a star. The detections the guard KEPT split by
+their peak-photosite share into a class under 0.5 (about 1,000 to 1,200 a frame, stable through the
+night: the stars) and a class between 0.5 and 0.85 (2,260 on the 12.7 C sub, 1,076 at 9.0 C: warm
+pixels whose eight neighbours' noise pulls the share under the threshold, and pairs). The cooled
+sister night (-10 C) carries as many of the second class and fits anyway, because there they are
+faint; at 12.7 C they are an order of magnitude brighter and the profile fit stacks its 400 brightest
+by PEAK over the signal floor, so they fill it. The single-photosite guard was measured on the
+unmoved-versus-moved pairing, which admits only detections bright enough to pair, so this faint
+class never entered the measurement. **Owed:** a guard that is noise-aware (the neighbours'
+background-subtracted sum against their noise, not a fixed share), or the fit's stack ranked by flux
+rather than peak, or both; pre-register with the share classes above as the readout, on this night,
+its cooled sister and an Orion warm night (where the class is 15 to 53 a frame on L-Quad and 103 to
+142 on L-Ultimate).
 
 ### A stacked master is its subs plus the warp kernel's own blur, and bilinear costs about a pixel of FWHM in quadrature at 2 px seeing
 

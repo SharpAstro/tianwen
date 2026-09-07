@@ -398,7 +398,7 @@ everything and above it recovers little.
 | E2.8b | **RUN 2026-09-07, not killed by one seed** (under E2.8's results). Arm N, the star term's counterpart over EMPTY target windows: observer fabrication 34-45x to 2.6-9.7x (four of five under the input's own null) as predicted, but four of five seeds lose the sharpening (selected 1.32-1.34 against an input of 1.38, stars 0.63, trained toward the identity); seed 1, the lowest weight, keeps both (1.183 selected, observer 9.7x). Arm W, the weight re-fixed at step 400: observer 22-42x, three of five under 1.30; not the mechanism. E2.8c (arm N at seed 1's fixed weight) pre-registered to say whether the weight was the cause. | 10 x ~10 min GPU | a per-star term can be honest; whether it can be honest AND sharp rides on the weight |
 | E2.8c | **RUN 2026-09-07, prediction failed, not killed** (under E2.8b's results). Arm N with the weight fixed at 1.84e-3: two of five seeds hold both (selected 1.238 and 1.163 at 0.74 to 0.76 stars, observer 11 and 10x), sharpening only after step 3,000; three never leave the input. Every seed honest on the observer (1.5 to 11x against 34 to 45). The weight was part of the cause, the optimisation the rest; the profile of a regulariser, which is how it enters the unrolled operator. **The fork is decided below: the unrolled operator, the estimator step under it, no capacity arm.** | 5 x ~10 min GPU | the honest recipe has an operating point on two seeds in five |
 | E2.9 | **RUN 2026-09-07, then WITHDRAWN to inconclusive the same afternoon** (section below). FWHM against air mass over 79 sessions, 8,507 subs re-measured in 62.6 min, read 0 of 67 sessions reaching a 1.3x span explained by air mass; but E2.10a's diagnostic showed the store's per-sub width is the mosaic mono path's, which reads 1.70 on every sub of an OSC night whatever the seeing, so the slopes measure an instrument floor. Standing: computed air mass agrees with N.I.N.A.'s card to 0.015 on 50 of 52 sessions; SharpCap writes no site cards (27 sessions uncomputed, `--site` supplies one now). **Re-read on `SubFwhmGreen` the same evening: the kill line stands in substance.** 76 of 79 fitted; 1 reaches a 1.3x explained span with a slope of +3.15 (five times what seeing can give); slopes in [0.3, 0.9] on 12 of 76, medians near zero on every train but ZS61 and the ASI1600; within-night p90/p10 on green 1.04 to 1.21x. The green fit refused 27 percent of subs and every sub of the three warmest SV605CC sessions, whose lists were half warm pixels (fixed in the detector that evening; re-measure running). | 62.6 min CPU, plus two re-measures of 87 min | Air-mass pairing is dead as a real-blur source; the heavy end stays synthetic |
-| E2.10 | **E2.10a RUN 2026-09-07: no pair to score** (section below). The Orion night's sharp and soft thirds, built as pre-registered, measure the same width (2.82 against 2.72 px on the green fit, B/A 0.97 to 1.03), and the oracle correctly did nothing. Diagnosed stage by stage: the store's per-sub width is the mosaic mono path's floor (1.70 on every sub) so the split was ranked on noise; the subs do differ on the green plane by 1.15 to 1.25x; and every stack of the night, drizzle included, sits at 2.7 to 2.8 px from 1.7 to 2.5 px subs. Two stacker fixes came out of it (`--group-temp-tolerance`, the `CANVASX0/Y0` cards). **The evening placed the stack's blur** ("the third finding placed"): the registration refiner HALVED every shift under 5 px because half of each frame's detections were warm pixels pairing with themselves (fixed, validated to 0.03 px), the detector accepted a single warm photosite as a star (fixed; the "1.70 floor" was their width), and what remains is the bilinear warp (a master is the mean of its warped frames to 0.3 percent; frames at fractional phase widen from 2.15 to 2.4 to 2.7 px). Candidates on green: 14 of 75 at p90/p10 1.15, thirds only 1.10 to 1.25x, the sampled trains 1.15 to 1.17x (SH61 Statue 251 subs, Rosette 115, Helix 119). A second attempt waits on R1. | two days, eight launches | No real-blur pair yet; the archive offers 1.15 to 1.17x at best, and the stack must first keep its inputs' width (R1) |
+| E2.10 | **E2.10a RUN 2026-09-07: no pair to score** (section below). The Orion night's sharp and soft thirds, built as pre-registered, measure the same width (2.82 against 2.72 px on the green fit, B/A 0.97 to 1.03), and the oracle correctly did nothing. Diagnosed stage by stage: the store's per-sub width is the mosaic mono path's floor (1.70 on every sub) so the split was ranked on noise; the subs do differ on the green plane by 1.15 to 1.25x; and every stack of the night, drizzle included, sits at 2.7 to 2.8 px from 1.7 to 2.5 px subs. Two stacker fixes came out of it (`--group-temp-tolerance`, the `CANVASX0/Y0` cards). **The evening placed the stack's blur** ("the third finding placed"): the registration refiner HALVED every shift under 5 px because half of each frame's detections were warm pixels pairing with themselves (fixed, validated to 0.03 px), the detector accepted a single warm photosite as a star (fixed; the "1.70 floor" was their width), and what remains is the bilinear warp (a master is the mean of its warped frames to 0.3 percent; frames at fractional phase widen from 2.15 to 2.4 to 2.7 px). Candidates on green: 14 of 75 at p90/p10 1.15, thirds only 1.10 to 1.25x, the sampled trains 1.15 to 1.17x (SH61 Statue 251 subs, Rosette 115, Helix 119). On the guarded store (re-measured the same evening): 19 of 77 candidates, the best now the Orion L-Quad 2025-10-15 night itself at 1.26 (sharp third 1.89 px against soft 2.38 on 55 green fits), the night E2.10a found no pair in on the floor-ranked list. E2.10b runs on the Statue (below); the Orion night on its clean ranking is the natural E2.10c. | two days, nine launches | No real-blur pair yet; the archive offers 1.15 to 1.26x at best, and the stack must keep its inputs' width (R1) |
 | R1 | **RUN 2026-09-07 evening: Lanczos-3 removes the kernel's blur, no ringing measurable** (section below). Synthetic half-pixel shift: +1.15 px in quadrature under bilinear (predicted 1.1 to 1.3), +0.00 under Lanczos-3 (under 0.4). Real: the near6 master reads 2.15 px per star against the bilinear twin's 2.39 (predicted under 2.25), the frames rank by their own subs' seeing rather than by phase; the whole night 2.48 against 2.70 per star, fit 2.61 against 2.81 (the "under 2.5" missed because the night's subs average 2.4, not the 2.2 the six near frames suggested), still the mean of its frames. Ringing identical to bilinear on the annulus undershoot, the radial profile and the synthetic dip. `PsfProfileFit` refused the sharper near6 master (rms 0.83): its log-space fit reads far-wing background residue, which a narrower core exposes (E1g). Default stays bilinear; the flip is the user's. | an hour of code, two stacks, four probes | A master can keep its subs' width at 2 px seeing; every retained master carries about a pixel in quadrature it need not |
 | E1g, E1g-2 | **E1g KILLED, E1g-2 RUN, both 2026-09-07 evening** (sections under R1). The profile fit refused every sharp input (the R1 Lanczos master, a two-frame stack, a 1.8 px sub). E1g, a floor relative to the profile's outer level, changed nothing (30 refusals of 180, the same 30 as E1e) and broke a detached-halo refusal's reason: the fit's annulus already leaves the outer bins near zero, and the fit's own profile, now exposed in `Diagnostics`, shows a Gaussian core with a faint wing that no fixed-width Moffat follows. E1g-2 fits the core (bins above 2 percent of peak) and reports the wing at 2 and 3 FWHM: every refused profile returns (2.32, 2.20, 1.73 to 1.90 px), accepted widths unchanged to 0.01, exponents up by 1 to 3 everywhere, exponents above about 6 no longer told apart. The store's `MoffatBeta` is the old quantity until a re-measure. Oracle rows over E1e's 180: 25 refusals against 30, the prediction of under 10 MISSED; the fit's own refusals fell from nine entries to one, and 24 of the 25 rows left are `TooFewStacked` on the Eta Car 24 mm frame, whose brightness band holds 38 / 10 / 2 / 0 stars at 1 / 2 / 3 / 4 px of blur (a star budget, not a fit); fitted widths identical on every row, recovery unchanged at p50, composed kernel estimates 0.01 to 0.06 wider through the higher clean exponent. | two builds, two oracle runs | The estimator step measures sharp inputs; the store's beta semantics changed |
 | D1 | **BUILT 2026-09-07, off by default; both halves measured** (under "The next four"). Per-tile psf01 at inference: `ChunkedNafnetRunner` extras per chunk, `OnnxNonStellarDeconvolver` estimating per chunk region with a frame-level fallback, so inference matches the per-cell training label. CPU half: on the seven Rim masters the per-tile radius spans 8 to 61 percent p10 to p90 and 10 to 16 percent of tiles starve. GPU half: a NULL on the shipped SAS graph, per-tile and whole-image outputs within 0.01 px and one percent in count on every master, including four where 250 of 289 tiles carried a different label; the switch stays off for that graph and ships for E7's own. Side finding: on stars the shipped graph widens soft cores and drops most of the outer third's stars. The fixed-psf01 check (0 / 0.5 / 1 over the whole shipped range) moves the output by 0.03 to 0.06 px and three percent in count: the shipped graph's conditioning input is inert on a real master's stars, so the null is the graph's property. | half a day | The field-varying half of the optics blur |
@@ -815,11 +815,14 @@ so the SH61 sessions' fits stop refusing a third of their subs.
 width.** Both blockers moved during the evening (the registration fixes, R1's Lanczos-3, E1g-2's fit
 that reads a sharp core), so the recipe runs once more on the best sampled candidate.
 
-*Setup.* Statue of Liberty Nebula 2026-02-14 (SV605CC, L-Quad, 256 subs of 120 s at -5 C, 251 green
+*Setup.* Statue of Liberty Nebula 2026-02-14 (SV605CC, L-Quad, 256 subs of 60 s at -5 C, 251 green
 fits at 1.40 / 1.60 / 1.70 px for p10 / p50 / p90, the sharpest and softest thirds' medians 1.45 and
-1.69 on the store). The whole session stacked once (`--group-filter StatueOfLibertyNebula_light_120s
---group-temp-tolerance 2 --strategy Float16Staged --warp-interpolation Lanczos3`, reference the run's
-pick), its manifest split by `psf-seeing-split.py --width green` into the sharpest and softest thirds
+1.69 on the store; this paragraph first said 120 s, and the first launch at 20:12 stacked the night's
+thirteen 120 s frames in four minutes before the split refused a session key that matched two store
+records, since 45 of the night's 303 frames carry the OBJECT card "Skull and Crossbones Nebula";
+group and key corrected, relaunched 20:25). The whole session stacked once (`--group-filter
+StatueOfLibertyNebula_light_60s --group-temp-tolerance 2 --strategy Float16Staged
+--warp-interpolation Lanczos3`, reference the run's pick), its manifest split by `psf-seeing-split.py --width green` into the sharpest and softest thirds
 (about 85 frames each plus the shared reference), each third stacked from its manifest with the same
 options into its own directory, then `SeeingSplitPairProbe` exactly as E2.10a: the estimator's width on
 A and B, the profile fit on each (E1g-2's), `est-c` and `est-cb` difference kernels by composition,
@@ -1005,6 +1008,33 @@ SNR of 5; this population's median SNR is 59 to 92, the stars' 110 to 184), and 
 the 6 arcsec trains can reach 0.65 to 0.75 when centred on a photosite. So the threshold sits at 0.85,
 and the faint tail is the 2000-star retry's to stop pulling in. The guard itself (task 17) is the next
 detector change, pre-registered against the star-detection fixtures and the three sessions' fit fractions.
+
+*The guard's store validation, read at 20:10 the same evening (`--remeasure-subs` over 79 sessions and
+8,507 subs, 96 minutes, `C:/temp/e2/store-green-counts-guard.txt` and the two `*-guard.txt`
+readouts).* Two of the three warm sessions have their green fits: Orion L-Quad 2025-10-15 fits 55 of
+68 (1.82 / 2.17 / 2.46 px at p10 / p50 / p90, p90 over p10 1.36, the widest in the archive) and Orion
+L-Ultimate 2025-10-14 64 of 77 (1.33 / 1.48 / 1.62); Tarantula L-Ultimate 2025-10-14 is still 0 of 84.
+The archive's fit fraction moved 73 to 74 percent (5,987 of 8,037); E2.9 is unchanged (1 of 78 sessions
+reaches a 1.3x span attributable to air mass; the Orion night's slope is -0.49); E2.10's candidate list
+grew from 14 to 19 sessions at p90 over p10 of 1.15, and its best pair is now the Orion L-Quad night
+itself at 1.26 (sharp third 1.89 px against soft 2.38), which E2.10a built on the floor-ranked list and
+found no pair in. The Tarantula session's refusal was then measured on its own subs
+(`ReportWhyTheGreenFitRefusesASessionsSubs`, raw and calibrated, six subs spread through the night,
+`C:/temp/e2/green-fit-refusals-tarantula-*.txt`): the fit refuses `PoorFit` at a log residual of 0.5 to
+1.0 on the warm early subs (12.7 to 10.1 C) and passes at 0.26 to 0.31 once cooled to 9 C; the refused
+stacked profile is a spike (0.04 of peak at 0.9 px against 0.21 on a passing sub, a bump at 1.5 px),
+which is a hot photosite as VNG renders it on the green plane. The detections the guard kept split by
+peak-photosite share into a class under 0.5 that holds at 1,000 to 1,200 a frame through the night (the
+stars) and a class between 0.5 and 0.85 that falls 2,260 to 1,076 as the sensor cools (warm pixels
+whose neighbours' noise pulls the share under 0.85, and pairs). The cooled sister night (-10 C) carries
+1,200 to 2,100 of that class and fits at 0.14 to 0.36 because there they are faint; at 12.7 C they are
+an order of magnitude brighter and the fit's stack is the 400 brightest by PEAK over the signal floor,
+so they fill it. That is the caveat the signature measurement stated (a faint spike's share drops
+toward 0.6) turning out to be a population, not a tail, on the warmest night; the unmoved-versus-moved
+pairing that chose 0.85 admits only detections bright enough to pair, so it never saw them. Owed as
+task 21, pre-registered in `known-limitations.md`: a noise-aware guard or a flux-ranked stack, read on
+the share classes of this night, its cooled sister and the two Orion warm nights (where the class is
+15 to 53 a frame on L-Quad and 103 to 142 on L-Ultimate).
 
 *Validation, pre-registered before the run.* The whole night stacked again with the fix
 (Float16Staged, reference pinned to frame 0033), its manifest split to the same six frames and those
@@ -1886,6 +1916,26 @@ reached alone; kill, no seed improves on E3.0's stars column at equal width, whi
 learned prior is not earning its place and the operator ships as a physics-only deconvolver with
 the estimator step. Cost: K RL steps are 2K convolutions per forward pass, so about three to five
 times E2.7's step time at K = 20; five seeds a day on the 1070.
+
+*Ground-work pre-registered before E3.0 (2026-09-07, late evening): the estimator's kernel on the
+row.* The operator trains on the kernel the estimator reads, and the stored tiles are stretched, so
+only the exporter can take that reading (a tone curve moves the half-maximum crossing). Opt-in
+(`EstimateKernels`, `--estimate-kernels`), per channel of each draw: `PsfProfileFit` with the signal
+floor on the LINEAR clean cell (once per cell) and on the linear degraded cell, the kernel width by
+composition (`MoffatComposition.DifferenceFwhm` of the two fits) and the shape from the degraded
+fit, written as `EstimatedKernelFwhmPx` / `EstimatedKernelBeta` beside the clean and observed fits
+and the drawn kernel's own effective width (`EffectiveKernelFwhmPx`, E1f's number, the truth the
+estimate is read against). Where either fit refuses, the row says which check
+(`KernelEstimateRefusal`) and carries the drawn kernel's effective width with `KernelSource` "drawn",
+the exporter's stand-in for the whole-frame kernel the pre-registration names (blurring the whole
+master once per draw is what a whole-frame observed fit would cost). Prediction, on the fixture and
+on one real session: where both fits return and the realised ratio is 1.3x or more, the estimated
+width is within 5 percent of the effective width (E1d read 0.98 to 1.02 there); under 1.3x it reads
+0.9 to 1.1 of it (the sampling floor); the crop refusal fraction on 512 px cells is 20 to 50 percent
+(E1g-2's oracle fell back to the whole frame on 71 of 180 arm rows); the cost is under one second a
+draw. Kill: the estimate is off by more than 20 percent at 1.3x and up (which would contradict E1d
+on the exporter's own cells), or refusals above 70 percent (the operator would then train mostly on
+the drawn kernel, and H2 could not move inside it).
 
 *What this does not decide.* E4 (position-varying kernels) and E7 (the export and the runtime) stand
 as written; the shipped SAS graph remains the deployed deconvolver until E7, and E2.10a's baseline on

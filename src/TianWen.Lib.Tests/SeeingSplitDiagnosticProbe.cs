@@ -1063,4 +1063,93 @@ public class SeeingSplitDiagnosticProbe(ITestOutputHelper output)
             }
         }
     }
+
+    /// <summary>
+    /// Why the store's green fit refuses a whole session's subs. The guarded re-measure (2026-09-07)
+    /// gave two of the three warm SV605CC sessions their green fits back (Orion L-Quad 55 of 68,
+    /// Orion L-Ultimate 64 of 77) and left the third at 0 of 84 (Tarantula L-Ultimate 2025-10-14,
+    /// sensor at 12.7 C); the store keeps the width and not the reason. This runs the store's own
+    /// measure (VNG debayer, the detector at snr 5 with the 2000-star retry, the profile fit on the
+    /// green plane by the signal floor) on a spread of the session's raw subs and prints the check
+    /// that refused with what it saw. Raw, not calibrated: a reason that holds without the dark
+    /// (too few stars over the floor) holds with it.
+    /// </summary>
+    /// <remarks><c>TIANWEN_E210_SUBS_DIR</c> names the lights folder; <c>TIANWEN_E210_SUBS_N</c> the
+    /// number of subs read, spread evenly through the night (default 6).</remarks>
+    [Fact]
+    public async Task ReportWhyTheGreenFitRefusesASessionsSubs()
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable("TIANWEN_E210_DIAG") == "1", "TIANWEN_E210_DIAG is not 1");
+        var subsDir = Environment.GetEnvironmentVariable("TIANWEN_E210_SUBS_DIR");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(subsDir) || !Directory.Exists(subsDir), "TIANWEN_E210_SUBS_DIR not set or missing");
+        var take = int.TryParse(Environment.GetEnvironmentVariable("TIANWEN_E210_SUBS_N"), out var n) ? Math.Max(1, n) : 6;
+        var files = Directory.GetFiles(subsDir!, "*.fits").OrderBy(p => p, StringComparer.Ordinal).ToArray();
+        Assert.SkipWhen(files.Length == 0, "no subs");
+        var ct = TestContext.Current.CancellationToken;
+
+        // TIANWEN_E210_DARK / TIANWEN_E210_FLAT (optional) reproduce the store's calibrated measure;
+        // without them the subs are read raw.
+        var darkPath = Environment.GetEnvironmentVariable("TIANWEN_E210_DARK");
+        var flatPath = Environment.GetEnvironmentVariable("TIANWEN_E210_FLAT");
+        var calibrator = string.IsNullOrWhiteSpace(darkPath) && string.IsNullOrWhiteSpace(flatPath)
+            ? null
+            : new Calibrator(
+                Dark: string.IsNullOrWhiteSpace(darkPath) ? null : LoadMaster(darkPath!),
+                Flat: string.IsNullOrWhiteSpace(flatPath) ? null : LoadMaster(flatPath!));
+
+        var step = Math.Max(1, files.Length / take);
+        output.WriteLine($"{subsDir}: {files.Length} subs, reading every {step}th; detector snr 5 / 2000 stars on VNG, fit by SignalFloor on green; "
+            + (calibrator is null ? "RAW subs" : $"calibrated (dark {Path.GetFileName(darkPath ?? "none")}, flat {Path.GetFileName(flatPath ?? "none")})"));
+        output.WriteLine("peak share = the peak photosite's share of the background-subtracted 3 by 3 on the mosaic, over the detections the guard kept: "
+            + "counts under 0.5 / 0.5 to 0.85 / over 0.85, all detections then the 400 brightest by flux (the fit's stack is the brightest over the floor)");
+        output.WriteLine($"{"sub",-44} {"stars",5} {"mosaic",6} {"green fit",9} {"refusal",-12} {"offered",7} {"band",5} {"stacked",7} {"bins",4} {"rms",5} | {"share all",18} | {"share top400",18} {"fwhm400",7}");
+        foreach (var file in files.Where((_, i) => i % step == 0).Take(take))
+        {
+            if (!Image.TryReadFitsFile(file, out var raw) || raw is null)
+            {
+                output.WriteLine($"{Path.GetFileName(file),-44} unreadable");
+                continue;
+            }
+
+            var frame = calibrator?.Apply(raw) ?? raw;
+            var (stars, debayered) = await FrameRegistration.DetectAsync(frame, DebayerAlgorithm.VNG, 5f, 2000, ct);
+            var metrics = FrameRegistration.MetricsFrom(stars);
+            var green = Math.Min(1, debayered.ChannelCount - 1);
+            var fit = PsfProfileFit.Measure(debayered, green, stars, out var diag, selection: PsfProfileFit.StarSelection.SignalFloor);
+
+            var (_, width, height) = frame.Shape;
+            var plane = frame.GetChannelSpan(0).ToArray();
+            static string Histogram(IEnumerable<float> shares)
+            {
+                int lo = 0, mid = 0, hi = 0;
+                foreach (var s in shares)
+                {
+                    if (float.IsNaN(s)) continue;
+                    if (s < 0.5f) lo++;
+                    else if (s <= 0.85f) mid++;
+                    else hi++;
+                }
+
+                return $"{lo,5} /{mid,5} /{hi,5}";
+            }
+
+            var shares = stars.Select(s => (Share: PeakPhotositeFraction(plane, width, height, s.XCentroid, s.YCentroid), Star: s)).ToArray();
+            var top = shares.OrderByDescending(t => t.Star.Flux).Take(400).ToArray();
+            var topFwhm = top.Length > 0 ? top.Select(t => t.Star.StarFWHM).Order().ElementAt(top.Length / 2) : float.NaN;
+            output.WriteLine($"{Path.GetFileName(file),-44} {stars.Count,5} {metrics.MedianFwhm,6:F2} {(fit is { } f ? f.Fwhm.ToString("F2") : "refused"),9} "
+                + $"{diag.Refusal,-12} {diag.StarsOffered,7} {diag.InBrightnessBand,5} {diag.Stacked,7} {diag.FitBins,4} {(double.IsFinite(diag.MoffatLogRms) ? diag.MoffatLogRms.ToString("F2") : "-"),5} "
+                + $"| {Histogram(shares.Select(t => t.Share)),18} | {Histogram(top.Select(t => t.Share)),18} {topFwhm,7:F2}");
+            if (diag.Profile is { } profile)
+            {
+                // The stacked profile the fit saw, peak-normalised, one value per quarter-pixel bin out
+                // to 3 px: a refused shape is read here rather than inferred from the residual.
+                var peak = profile.Length > 0 && double.IsFinite(profile[0]) && profile[0] > 0 ? profile[0] : 1.0;
+                var bins = profile.Take(12).Select(v => double.IsFinite(v) ? (v / peak).ToString("F3") : "  nan");
+                output.WriteLine($"{"",-44} profile/peak by {diag.BinWidthPx:F2} px: {string.Join(" ", bins)}");
+            }
+
+            debayered.Release();
+            frame.Release();
+        }
+    }
 }
