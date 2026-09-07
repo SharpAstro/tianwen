@@ -390,7 +390,7 @@ everything and above it recovers little.
 | E2.5 | **DONE 2026-09-06** (details below the table). `--prepare` reads `degradations.jsonl` into a `psf01.npy` beside the tiles; `--cond-psf01` conditions on that stored label instead of on measured noise; `n2n_deconv_gate.DeconvGate` selects on width, ringing and star count. Validated end to end on a two-session blur export, which is also what caught the gate's own first bug. Originally recorded as: **discovered 2026-09-06, and the reason the row above cannot start.** The trainer cannot train a deconvolver at all yet: `--prepare` reads `tiles-manifest.jsonl` only and never `degradations.jsonl`, so the psf01 the exporter now writes never reaches the cache; the conditioning plane comes from `with_sigma`, which MEASURES the input's noise rather than reading a stored label; and `n2n_gate.py`'s metrics are noise, faint amplitude and spurious sources, every one of them noise-oriented. **The gate is the consequential half: as it stands it would select the checkpoint that removes the most noise while doing nothing about sharpness, which is selecting a deconvolver for BLURRING.** It needs FWHM recovery and ringing, scored against E1's ceiling at 60 iterations. | 1 to 2 days | Whether E3 can run |
 | E2.6 | **DONE 2026-09-06, and it answered a different question** (results below): no seed selected a checkpoint, the gate's star criterion had no measured null, and the loss never looked at the star scales. As planned: the power check the denoiser campaign paid for: ONE arm at six seeds, seed spread measured against the effect each of H2/H3/H4/H8 expects, then the rest sized from it. On the denoiser's E2 the seed sd beat the between-regime sd 2 to 3x, so three-seed arms could not read a one-point effect and about 31 seeds would have been needed. H4 and H8 are plausibly large enough to read at three; H2 and H3 are the ones at risk. | 6 x 11 min | E3's seed count |
 | E2.7 | **DONE 2026-09-06** (results below). Band placement control, two arms x three seeds on E2.6's own seeds: the loss can see the scale now (every minimum at steps 3100 to 3400, paired deltas -0.038 and -0.043), the arms are inseparable at three seeds, and under the corrected gate not one best-width checkpoint survives, because width is bought by suppressing faint stars (0.54 of the truth's against a 0.62 floor). A high-pass, not a deconvolution. | 6 x 10 min | Whether band placement was the lever (it was not) |
-| E1b | **Pre-registered 2026-09-06** (section below). E1's exact-kernel ceiling re-run with the kernel ESTIMATED from the blurred crop's own stars, two arms: width estimated with the injected shape, then both estimated. Decides whether the unrolled-RL route is viable at deployment before any of it is built. | ~45 min CPU, no training | H11 |
+| E1b | **RUN 2026-09-07, conditional pass** (results section below). E1's exact-kernel ceiling re-run with the kernel ESTIMATED from the blurred frame's own stars, two arms: width estimated with the injected shape, then both estimated. Where the estimator answers, the paired rec/truth is within 0.01 to 0.05 of exact except at 1.3-1.6x, where a systematic 1.24x width over-read makes arm i fabricate (stars 1.15x truth, rec/truth 0.95 under noise) and arm ii pass only because an over-read beta cancels it. The estimator refused 75 of 180 rows (half the noisy ones), never fitted the 512 crop, and its refusals sit on the narrowband masters. Kill line not crossed; the pre-stated refusal rule makes the estimator its own step before any unrolled RL. | 22.6 min CPU, no training | H11 |
 | E2.8 | **Pre-registered 2026-09-06** (section below). The star-term loss: per-star flux, peak and width ratios against the clean target's own detections, added to E2.7 arm B's objective, same 78-session cache, five seeds paired against E2.7. | 5 x 10 to 15 min | H10; whether pixel-domain losses are exhausted for this net |
 | E2.9 | **Pre-registered 2026-09-06** (section below). FWHM against airmass over the archive: `SessionPsf` gains per-sub file, epoch and airmass, one measure-only re-run, one plot. The first step of 2.1c, and it needs no sky. | ~2.5 h CPU unattended, one field and one switch | Whether the archive holds real seeing pairs, and how much range they reach |
 | E2.10 | Seeing-split pairs: per session, the sharpest and softest thirds of the subs stacked into two masters of one night, the first real-blur validation set. Needs E2.9's per-sub identity. | minutes a session | The light end of the range, on real seeing |
@@ -689,6 +689,89 @@ per chunk region with `HfdPsfEstimator.MeasureRadiusPxAsync`, falling back to th
 N stars. Measure on Rim. Ships with E7, once E2.8 says the route is alive; not needed for E1b or
 E2.8.
 
+### E1b's results, 2026-09-07: the estimate is good where it exists, and it exists for half the rows
+
+Run as pre-registered (`TIANWEN_ORACLE_KERNEL=exact,estimated,estimated-shape`, 60 iterations, the
+same six masters and noise seeds, all three arms on one observed frame per row so the comparison is
+paired), 22.6 minutes with the arms in parallel. One thing was added to the launch header before the
+run, from a one-master smoke: the 512 px crop never supported a `PsfProfileFit`, and several noisy
+whole-frame fits were refused too, so the summary counts refusals per bin and a high refusal rate on
+the noisy arm was declared a kill-class finding in advance. Output: `C:/temp/e2/oracle-e1b.txt`.
+
+| blurred/truth | noise | arm | n | rec/truth | ring excess | stars vs truth | d(rec/truth) p50 / p90 | estW/true | estB/true | no fit |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1.1-1.3x | no | exact | 17 | 1.00 | 15 % | 1.00 | | | | |
+| 1.1-1.3x | no | est-w | 17 | 1.03 | 11 % | 1.02 | +0.03 / +0.07 | 0.92 | 1.10 | 6 |
+| 1.1-1.3x | no | est-wb | 17 | 1.03 | 13 % | 1.01 | +0.03 / +0.06 | 0.92 | 1.10 | 6 |
+| 1.1-1.3x | yes | exact | 15 | 0.98 | 9 % | 0.91 | | | | |
+| 1.1-1.3x | yes | est-w | 15 | 1.02 | 7 % | 0.97 | +0.04 / +0.08 | 0.94 | 1.26 | 9 |
+| 1.1-1.3x | yes | est-wb | 15 | 1.03 | 7 % | 0.97 | +0.05 / +0.10 | 0.94 | 1.26 | 9 |
+| 1.3-1.6x | no | exact | 9 | 1.02 | 48 % | 0.96 | | | | |
+| 1.3-1.6x | no | est-w | 9 | 1.00 | 69 % | **1.15** | -0.05 / -0.04 | **1.24** | 1.57 | 3 |
+| 1.3-1.6x | no | est-wb | 9 | 1.02 | 65 % | 1.09 | -0.04 / +0.01 | 1.24 | 1.57 | 3 |
+| 1.3-1.6x | yes | exact | 9 | 1.01 | 23 % | 0.65 | | | | |
+| 1.3-1.6x | yes | est-w | 9 | **0.95** | 25 % | 0.70 | -0.02 / -0.01 | 1.23 | 1.50 | 5 |
+| 1.3-1.6x | yes | est-wb | 9 | 1.00 | 23 % | 0.68 | +0.00 / +0.00 | 1.23 | 1.50 | 5 |
+| 1.6-2.0x | no | exact | 14 | 1.15 | 82 % | 1.04 | | | | |
+| 1.6-2.0x | no | est-w | 14 | 1.10 | 83 % | 0.94 | -0.03 / +0.03 | 1.16 | 1.35 | 5 |
+| 1.6-2.0x | no | est-wb | 14 | 1.12 | 83 % | 0.95 | -0.03 / +0.02 | 1.16 | 1.35 | 5 |
+| 1.6-2.0x | yes | exact | 17 | 1.09 | 42 % | 0.73 | | | | |
+| 1.6-2.0x | yes | est-w | 17 | 1.07 | 48 % | 0.76 | -0.01 / +0.02 | 1.16 | 1.42 | 8 |
+| 1.6-2.0x | yes | est-wb | 17 | 1.07 | 50 % | 0.73 | -0.01 / +0.02 | 1.16 | 1.42 | 8 |
+| 2.0-3.0x | no | exact | 20 | 1.59 | 95 % | 0.80 | | | | |
+| 2.0-3.0x | no | est-w | 20 | 1.54 | 96 % | 0.59 | -0.01 / +0.06 | 1.11 | 1.10 | 5 |
+| 2.0-3.0x | yes | exact | 18 | 1.64 | 81 % | 0.51 | | | | |
+| 2.0-3.0x | yes | est-w | 18 | 1.68 | 74 % | 0.43 | +0.02 / +0.09 | 1.11 | 1.14 | 5 |
+
+The `<1.1x` and `3.0x+` bands are in the file and add nothing: the first is at d = +0.01 with the
+width estimate meaningless by construction (a 0.5 px injection on a 3 px star is a quadrature
+difference of two nearly equal numbers, estW/true 0.32 to 0.47), the second has four or five rows.
+`n` counts every row in the band; `no fit` is how many of those the estimator refused, and the
+other columns are medians over the rest, so a bin with a high refusal count is conditional on the
+rows the estimator found easy.
+
+**The kill line is not crossed.** Arm ii's rec/truth at 1.3-1.6x is 1.00 to 1.02 against the 1.15
+limit, and the 1.1-1.3x ring excess is 7 to 13 percent against 50. **The prediction largely
+holds**: arm i is within 0.03 of exact through 1.3x noise-free (+0.03, at the bound; +0.04 noisy,
+just over), within 0.05 at 1.6-2.0x (-0.01 to -0.03) with ring excess up 1 to 8 points, and the
+noisy stars column never falls below exact's.
+
+**The one miss is the 1.3-1.6x band, and it is a systematic width error, not noise.** The
+estimated difference width reads 1.23 to 1.25 times the injected one on three different masters
+there (and 1.16 at 1.6-2.0x, 1.11 at 2-3x, 0.92 to 0.94 at 1.1-1.3x, so the bias runs with the
+ratio and is not a constant). Handed a kernel a quarter too wide, arm i over-deconvolves:
+noise-free it lands AT the truth width (1.00 against exact's 1.02) while detecting 15 percent more
+stars than the truth has, which is the fabrication signature E1 defined, and ringing rises 21
+points; under noise it recovers to 0.95 of the truth, below the line an oracle never crosses (one
+row reads 0.88 with 17 percent more stars). **Arm ii is better in exactly that band, the opposite
+of the prediction, and for the wrong reason**: the observed profile's beta over-reads the
+difference kernel's by 1.45 to 1.62x there, a lighter-winged kernel of the same core width
+deconvolves less, and the two errors cancel to within 0.00 to 0.04 of exact. A cancellation is not
+an estimator that works; it says the shape estimate is as wrong as the width estimate and happens
+to be wrong the helpful way.
+
+**The finding that matters is availability.** The estimator refused 75 of 180 rows: 30 of 90
+noise-free and 45 of 90 noisy, so at the frame depth a trained net is actually given it answered
+half the time. It never once fitted the 512 px crop (every fit in the table is the whole-frame
+fallback), and the refusals are not spread evenly: the ASI533 L-Ultimate master accounts for 33,
+the SV605 L-Ultimate for 15 and the 7 px Eta Car channel for 14, so 62 of 75 are narrowband
+frames or a very wide PSF. Narrowband is 5,385 of the archive's 8,573 lights. `PsfProfileFit`
+returns null without saying which of its five refusals fired (too few stars in the brightness
+band, too few stacked after isolation, no half-maximum crossing, fewer than eight fit bins above
+the noise floor, or a log-space residual over 0.5), so the reason is not yet known; instrumenting
+that is the first move of whatever comes next.
+
+**Verdict on H11.** Conditional pass. Where the estimator answers and the shape is co-estimated,
+the ceiling survives estimation to within a few hundredths of the exact kernel through 2x; the
+width estimate carries a ratio-dependent bias of up to a quarter that an unrolled-RL layer would
+inherit, and the estimator declines half the noisy frames outright, most of them the archive's
+majority filter class. By the header's pre-stated rule that refusal rate is kill-class: **the
+kernel estimator becomes its own step before any unrolled RL is built**, whatever E2.8 says. Its
+brief, from these numbers: instrument the refusal reasons; estimate the DIFFERENCE kernel by
+composing Moffats rather than by a quadrature of FWHMs (the 1.24 is what quadrature does to a
+Moffat); and measure the width bias against the injected truth on the same 180 rows, which this
+probe already prints per row.
+
 ### Reproducing E0 and E1
 
 Every number in the two sections below comes from a probe in `TianWen.Lib.Tests`, gated on an
@@ -745,7 +828,8 @@ that aggregation itself, in the plan's own bands.)
 
 **Captured output from the 2026-09-06 runs**, kept for comparison rather than as an input:
 `C:/temp/e2/psf-encoding-spread.txt`, `oracle-ceiling.txt` (30 iterations), `oracle-ceiling-60.txt`,
-`oracle-iterations.txt`. Scratch, not backed up.
+`oracle-iterations.txt`; from 2026-09-07, `oracle-e1b.txt` (E1b, all three arms). Scratch, not
+backed up.
 
 ### E0's results, 2026-09-06
 
