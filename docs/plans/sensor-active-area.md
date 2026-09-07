@@ -168,6 +168,27 @@ shares one geometry. Rects are x, y, width, height with coordinates starting at 
   PixInisght will not improve the calibration result." This is the external argument for P1 being
   measurement only, and for stopping there if the measurement says stable.
 
+**They are different EDGES, not merely different concepts.** QHY's own annotated 300 s dark
+(`Astro-Info/QHY_FRAME_OVERSCAN_OPTICAL_BLACK.png`) puts the optic black area down the LEFT and the
+overscan area across the BOTTOM, with the effective area between them. The worked QHY600 rectangles
+in the procedure thread agree: an image region starting at `x = 25` leaves 25 optically black columns
+on the left, while the overscan SOURCE region is `(0, 6388, 9600, 34)`, thirty-four rows spanning the
+full width at the bottom. So a body can expose both at once, on different edges, and the correction
+in that thread is driven from the bottom strip while the left strip is simply cropped away.
+
+**A long dark tells them apart by eye, and that is the cheapest P1 measurement.** In that 300 s
+frame the hot pixels speckling the effective area run straight through the optic black strip and are
+absent from the overscan strip. That is Conejero's "the value computed from the optically black area
+would additionally contain the average dark current" made visible: optic black is a photosite with a
+lid on it and integrates dark current for the full exposure, overscan is clocked readout with no
+photosite behind it. Once a body is attached, expose long, look at both strips, and the geometry
+question and the which-reference question are answered at once.
+
+**Whatever statistic we take must be robust.** QHY annotate the overscan strip "some dot lines within
+overscan area is normal", which is the same disclaimer as their "does not guranttee the signal
+quality in the overscan area". Outliers are expected there BY THE VENDOR, so a median (which is what
+PixInsight takes) rather than a mean, and the same caution for any per-row or per-column variant.
+
 **A second algorithm exists, and PixInsight does not implement it.** Rather than one scalar, subtract
 per column and per row; STScI's STIS Data Handbook calls this BLEVCORR, section 3.4.4 "Large Scale
 Bias & Overscan Subtraction". Worth knowing before anyone assumes the scalar median is the only
