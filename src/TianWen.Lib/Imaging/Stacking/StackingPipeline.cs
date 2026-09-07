@@ -1063,11 +1063,11 @@ public sealed class StackingPipeline(
                         break;
                     default:
                         logger.LogInformation(
-                            "  [{Name}] stars={Stars} quads={Quads} hfd={Hfd:F2} fwhm={Fwhm:F2} ecc={Ecc:F3} -> MATCH qt={Tol:F3} refine: rot={Rot:F3}° s={Scale:F5} t=({Tx:F2},{Ty:F2}) rms={Rms:F2}px from {RefMatched} pairs",
+                            "  [{Name}] stars={Stars} quads={Quads} hfd={Hfd:F2} fwhm={Fwhm:F2} ecc={Ecc:F3} -> MATCH qt={Tol:F3} refine: rot={Rot:F3}° s={Scale:F5} t=({Tx:F2},{Ty:F2}) rms={Rms:F2}px from {RefMatched} pairs, {Unmoved} unmoved dropped",
                             name, candidate.Stars.Count, attempt.LightQuads,
                             frameMetrics.MedianHfd, frameMetrics.MedianFwhm, frameMetrics.MedianEllipticity,
                             attempt.QuadTolerance, attempt.RefineRotationDeg, attempt.RefineScale,
-                            attempt.RefineTx, attempt.RefineTy, attempt.RefineRmsPx, attempt.RefineMatchedPairs);
+                            attempt.RefineTx, attempt.RefineTy, attempt.RefineRmsPx, attempt.RefineMatchedPairs, attempt.RefineUnmovedDropped);
                         break;
                 }
             }

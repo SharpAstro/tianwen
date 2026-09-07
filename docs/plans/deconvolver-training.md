@@ -730,6 +730,26 @@ it is built.
 says: real-blur validation is E2.10's within-night seeing split, cause-agnostic, and the heavy end
 stays synthetic as a known limit of the advertised range.
 
+**Re-read on the green width, 2026-09-07 evening (`SubFwhmGreen`, `--site -37.877,145.1775`, 79 sub
+sets re-measured in 87 min; `C:/temp/e2/e29-airmass-report-green.txt`).** The kill line is reached
+in substance and the verdict above stands, now on a width that reads seeing. 76 of 79 sessions fitted;
+one reaches a 1.3x span attributable to air mass (SMC, ZS61, 40 subs: slope +3.15 over a 1.12x span,
+1.43x explained) and its slope is five times what seeing can give, so it is focus or wind that
+happened to run with altitude, not the atmosphere. Slopes in [0.3, 0.9]: 12 of 76. Medians by train:
+SH61 -0.13 (2 of 11), Samyang 135 at 130 mm +0.12 (5 of 34) and +0.15 (3 of 19), ZS61 +0.45 (1 of 2),
+ASI1600 at 180 mm +0.42 (1 of 1), RC51 -0.24, QHY SII -0.16. The prediction failed as before on SH61
+and held on ZS61 and the ASI1600 alone. The within-night spread on green, p90/p10, is 1.04 to 1.21x
+across the archive, smaller than the mosaic read's 1.01 to 1.47x: what the mosaic width called a
+spread was the retry, and the real one is at the light end everywhere.
+
+Two facts about the width itself, both owed to E2.10. The green profile fit was refused on 27 percent
+of subs (5,876 of 8,034 fitted), unevenly: 100 percent on the mono trains, 92 percent on the ASI533
+at 130 mm, 63 percent on the SV605CC and 0 of 60, 78 and 84 on its three warmest sessions (Orion
+L-Quad 2025-10-15, Orion L-Ultimate 2025-10-14, Tarantula L-Ultimate 2025-10-14), which are the
+sessions whose star lists are half residual warm pixels (the registration finding above); the fit runs
+at the detector's positions, so the same defect refuses it. And the site fallback did its job: all 27
+SharpCap sessions carry a computed air mass now, and the header cross-check stands unchanged.
+
 #### E2.10: seeing-split pairs (real-blur validation at the light end)
 
 Given E2.9's per-sub identity, for each session whose `SubFwhm` p90/p10 is at least 1.15: the
@@ -763,6 +783,31 @@ its `OBJECT` card another, and it is the one session whose computed and header a
 (0.31), so its pointing is checked before a pair is built from it. E2.9 also says what the split
 means: these spreads are within-night seeing, focus and wind, not altitude, so a pair is a real blur
 of unknown shape, which is exactly what the synthetic arms cannot supply.
+
+**The candidate list on the green width, 2026-09-07 evening (`C:/temp/e2/e210-seeing-split-green.txt`;
+the table above was ranked on the mosaic width and is superseded).** 14 of 75 sessions reach p90/p10
+of 1.15 on `SubFwhmGreen`, but the thirds now differ by 1.10 to 1.25x rather than 1.13 to 1.43x, and
+the largest ratios are on the undersampled trains (Rim SII at 6 arcsec a pixel: 0.90 against 1.12 px,
+a width below the sampling that no kernel can be drawn for). On the trains that sample their stars:
+
+| session | train | subs (green fitted) | p90/p10 | sharp third px | soft third px | soft/sharp |
+|---|---|---:|---:|---:|---:|---:|
+| Statue of Liberty, L-Quad | SH61 at 270 mm | 251 | 1.21 | 1.45 | 1.69 | 1.16 |
+| Rosette, L-Quad | SH61 at 270 mm | 115 | 1.20 | 1.38 | 1.61 | 1.17 |
+| Helix, L-Ultimate | SH61 at 270 mm | 119 | 1.20 | 1.50 | 1.74 | 1.16 |
+| Pleiades, L-Quad | SH61 at 270 mm | 49 | 1.18 | 1.63 | 1.89 | 1.16 |
+| Tarantula, L-Ultimate, 2025-11-01 | SH61 at 270 mm | 63 | 1.19 | 1.24 | 1.42 | 1.15 |
+| SMC, 2024-10-02 | ZS61 at 289 mm | 40 | 1.18 | 2.18 | 2.51 | 1.15 |
+| Horsehead, L-Quad | SH61 at 270 mm | 51 | 1.16 | 1.72 | 1.92 | 1.12 |
+
+The Orion 2025-10-15 night that E2.10a paired is absent: none of its 60 subs fitted on green (the
+warm-pixel star lists, above), so its split is known only from the diagnostic's six frames (1.15 to
+1.25x). No session reaches the 1.3x where E1 says the range begins to matter; the real-blur pairs this
+archive can supply are 1.15 to 1.17x on the SH61, and a 1.16x pair at 1.45 against 1.69 px is exactly
+the light end where E1d read the kernel at 0.65 to 1.07 of its label. E2.10's second attempt therefore
+waits on two things this day supplied one of: a stacking path whose output width follows its input
+(the registration fix below, being validated) and a detector that does not hand the fit warm pixels,
+so the SH61 sessions' fits stop refusing a third of their subs.
 
 **E2.10a, pre-registered 2026-09-07: the estimator step and the oracle on the Orion pair.**
 
@@ -851,6 +896,61 @@ quadrature and erases a 1.2x split. Which stage does it (the warp's interpolatio
 averaging of frames whose PSF varies 1.5x) is not separated here and is the first thing to measure
 before E2.10 is attempted again; the plan already records that a drizzled and a staged master differ
 4 to 9 percent, and this says both sit far above their subs.
+
+**The third finding placed, 2026-09-07 evening: the registration halved every shift under 5 px, and
+the stack's blur is misregistration, not resampling.** Measured in three steps on the six frames
+nearest the reference (`exp-near6-norm`, stacked in RAM with `--save-normalized` so each warped frame
+is on disk on the shared canvas):
+
+1. *Where each warped frame sits* (`ReportTheRegistrationScatterOfTheWarpedFrames`, its stars matched
+   to the reference frame's): medians of (0.81, 0.30), (-0.75, 0.64), (1.80, -0.60) and (0.76, -0.82)
+   px for the four frames within 2 px of the reference, (0.00, 0.02) for the one 6 px away, each with an
+   rms about its median of 0.14 to 0.50 px. Whole frames sit off, stars are not scattered; and each
+   offset is minus the manifest's own translation for that frame.
+2. *The true drift*, from a phase correlation of the raw subs on one green photosite plane: about twice
+   the manifest's translation for the four (3.7 px against 1.72 for frame 0036) and equal to it for the
+   one at 6 px. The transform was applied faithfully (the residual fixed pattern moves by exactly it);
+   the transform itself was half.
+3. *Where the half comes from* (`ReportWhereTheRegistrationLosesHalfTheShift`, the pipeline's own
+   calibration and detection re-run on the subs, `C:/temp/e2/e210-registration-half.txt`):
+
+| frame | manifest t | detections | unmoved of the raw pairs | true drift (mode) | bulk quad t | refined t (rms px) | refined, unmoved removed (rms px) |
+|---|---|---:|---:|---|---|---|---|
+| 0032 | (-0.87, -0.50) | 1259 | 647 of 1254 | (-1.57, -0.59) | (-1.71, -0.81) | (-0.87, -0.50) (0.87) | (-1.67, -0.76) (0.47) |
+| 0030 | (0.86, -0.76) | 817 | 377 of 808 | (1.61, -1.36) | (1.58, -1.35) | (0.86, -0.76) (1.07) | (1.60, -1.43) (0.27) |
+| 0036 | (-1.72, 0.58) | 1210 | 610 of 1193 | (-3.57, 1.18) | (-3.60, 1.19) | (-1.72, 0.58) (1.89) | (-3.54, 1.26) (0.49) |
+| 0037 | (-0.82, 0.87) | 1099 | 521 of 1089 | (-1.60, 1.70) | (-1.64, 1.69) | (-0.82, 0.87) (1.20) | (-1.57, 1.71) (0.51) |
+| 0040 | (-5.04, 3.22) | 1447 | 744 of 761 | 6 px, outside the pairing | (-5.00, 3.24) | (-5.04, 3.22) (0.45) | (-5.04, 3.22) (0.33) |
+
+The bulk quad solution is right on every frame. The rigid refiner then pairs each detection with its
+nearest reference detection within 5 px and fits a Procrustes over all pairs; on this night about half
+of every frame's detections are residual warm pixels (the group's dark is a -5 C one under 12 C lights,
+and the 2000-star retry lowers the threshold until it reaches them), which sit at the same sensor
+position in both frames and pair with themselves at a residual of minus the drift. The fit averages
+the two populations: half, reproduced to the hundredth of a pixel on all five frames. Frame 0040
+escapes because its 6 px drift puts its own copies outside the 5 px tolerance. Every stack of the
+night is therefore a sum of frames each misplaced by half its own drift, up to 2.5 px, which is the
+two pixels in quadrature the table above could not place; the frame-count dependence (two or three
+frames at the subs' width, six or more at 2.6 to 2.8) is the drift distribution filling in.
+
+*Fix (`RegistrationRefiner.UnmovedTolerancePx`, 0.35 px).* A pair whose raw positions coincide within
+the tolerance while the bulk affine moved the detection by more than twice it is a sensor-fixed
+detection and is dropped from the refinement, in both refiner variants; the count is logged per frame
+("N unmoved dropped"). A frame that drifted under 0.7 px cannot be separated this way and keeps them,
+with a bias bounded by half its own drift. Pinned by `RegistrationRefinerTests`. The detector accepting
+a single warm photosite as a star (the mono fold turns it into a 2 by 2 blob that passes the size
+floor) is the cause one level down and is recorded as owed: it also refuses the green profile fit on
+the three warmest SV605CC sessions (0 of 60, 78 and 84 subs fitted, against 42 to 100 percent
+elsewhere) and feeds the quality gate's medians and the reference pick.
+
+*Validation, pre-registered before the run.* The whole night stacked again with the fix
+(Float16Staged, reference pinned to frame 0033), its manifest split to the same six frames and those
+stacked in RAM with the warped frames saved (`exp-near6-fixed`). *Prediction:* the register log shows
+300 to 700 unmoved dropped per frame and a refine rms under 0.6 px; the six warped frames' median
+offsets against the reference all fall under 0.15 px; the near6 master's green width falls from 2.65
+px to under 2.3, the whole night's from 2.73 to under 2.4 (the subs' 1.9 to 2.5 plus the bilinear
+warp). *Kill:* any of the six frames still off by more than 0.5 px, or the whole-night master not
+under 2.6 px. Then the halving was not the only mechanism and the resampling stage is measured next.
 
 *What E2.10 needs before a second attempt.* A per-sub width that reads seeing: the bright-star
 profile fit on the debayered GREEN plane, beside the mosaic width in the store (owed: a

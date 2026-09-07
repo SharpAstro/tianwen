@@ -55,7 +55,8 @@ namespace TianWen.Lib.Imaging.Stacking
             float RefineTx,
             float RefineTy,
             float RefineRmsPx,
-            int RefineMatchedPairs);
+            int RefineMatchedPairs,
+            int RefineUnmovedDropped);
 
         private readonly SortedStarList _referenceSorted;
         private readonly int _quadStars;
@@ -116,7 +117,7 @@ namespace TianWen.Lib.Imaging.Stacking
             if (stars.Count < FrameRegistration.MinStarsForMatch)
             {
                 SkippedTooFewStars++;
-                return new Attempt(null, SkipCause.TooFewStars, 0, float.NaN, float.NaN, float.NaN, float.NaN, float.NaN, float.NaN, float.NaN, 0);
+                return new Attempt(null, SkipCause.TooFewStars, 0, float.NaN, float.NaN, float.NaN, float.NaN, float.NaN, float.NaN, float.NaN, 0, 0);
             }
             using var lightSorted = new SortedStarList(stars);
             var lightQuads = await lightSorted.FindQuadsAsync(maxStars: _quadStars, cancellationToken: cancellationToken);
@@ -125,15 +126,18 @@ namespace TianWen.Lib.Imaging.Stacking
             if (solution is null)
             {
                 SkippedNoQuadFit++;
-                return new Attempt(null, SkipCause.NoQuadFit, lightQuads.Count, quadTolerance, matchRmsPx, float.NaN, float.NaN, float.NaN, float.NaN, float.NaN, 0);
+                return new Attempt(null, SkipCause.NoQuadFit, lightQuads.Count, quadTolerance, matchRmsPx, float.NaN, float.NaN, float.NaN, float.NaN, float.NaN, 0, 0);
             }
             // Rigid (rotation + isotropic scale + translation) refinement on top of the bulk quad
             // fit -- closes the sub-pixel residual the fingerprint match averages away, which
             // drizzle would otherwise preserve as a "dumbbell" stretch on every star. Essentially
-            // free (~1 ms per frame, brute-force NN over ~100 stars), so always applied.
-            var (refined, scale, rotationDeg, tx, ty, refineRmsPx, matchedPairs) =
+            // free (~1 ms per frame, brute-force NN over ~100 stars), so always applied. Detections
+            // fixed to the sensor (residual warm pixels) are dropped from the pairing rather than
+            // averaged in; the count is carried for the log, because a large one says the frame's
+            // calibration left the defects in (RegistrationRefiner's remarks have the numbers).
+            var (refined, scale, rotationDeg, tx, ty, refineRmsPx, matchedPairs, unmovedDropped) =
                 RegistrationRefiner.RefineRigid(lightSorted, _referenceSorted, solution.Value);
-            return new Attempt(refined, SkipCause.None, lightQuads.Count, quadTolerance, matchRmsPx, scale, rotationDeg, tx, ty, refineRmsPx, matchedPairs);
+            return new Attempt(refined, SkipCause.None, lightQuads.Count, quadTolerance, matchRmsPx, scale, rotationDeg, tx, ty, refineRmsPx, matchedPairs, unmovedDropped);
         }
 
         /// <summary>The census over every frame this loop saw, in the order it saw them.</summary>

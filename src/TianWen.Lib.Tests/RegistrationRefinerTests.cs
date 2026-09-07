@@ -247,7 +247,7 @@ public class RegistrationRefinerTests
         var light = SeededStarField(30);
         var refPoints = light.Select(p => p + new Vector2(3f, -2f));
 
-        var (refined, dx, dy, matched) = RegistrationRefiner.RefineTranslation(
+        var (refined, dx, dy, matched, _) = RegistrationRefiner.RefineTranslation(
             Stars(light), Stars(refPoints), Matrix3x2.Identity);
 
         matched.ShouldBe(30);
@@ -255,6 +255,91 @@ public class RegistrationRefinerTests
         dy.ShouldBe(-2f, tolerance: 1e-3f);
         refined.M31.ShouldBe(3f, tolerance: 1e-3f);
         refined.M32.ShouldBe(-2f, tolerance: 1e-3f);
+    }
+
+    /// <summary>
+    /// Thirty positions at the midpoints of <see cref="SeededStarField"/>'s grid, at least 32 px from
+    /// every star, standing in for detections fixed to the sensor: the same coordinates in the light
+    /// and in the reference whatever the frame did.
+    /// </summary>
+    private static Vector2[] FixedGrid()
+    {
+        var points = new List<Vector2>(30);
+        for (var row = 0; row < 5; row++)
+        {
+            for (var col = 0; col < 6; col++)
+            {
+                points.Add(new Vector2(130f + (80f * col), 130f + (80f * row)));
+            }
+        }
+
+        return points.ToArray();
+    }
+
+    /// <summary>
+    /// The Orion 2025-10-15 failure in miniature: a field the reference sees shifted by (3.4, -1.2) px,
+    /// the bulk affine right, and as many detections again at the same position in both lists (warm
+    /// pixels a colder dark did not remove). They pair with themselves at minus the shift, and before
+    /// the unmoved rule the Procrustes fit returned half the shift on every frame of that night.
+    /// </summary>
+    [Fact]
+    public void RefineRigid_DropsTheDetectionsThatDidNotMove_InsteadOfAveragingThemIn()
+    {
+        var shift = new Vector2(3.4f, -1.2f);
+        var stars = SeededStarField(30);
+        var fixedPoints = FixedGrid();
+        var light = stars.Concat(fixedPoints);
+        var reference = stars.Select(p => p + shift).Concat(fixedPoints);
+
+        var result = RegistrationRefiner.RefineRigid(Stars(light), Stars(reference), Matrix3x2.CreateTranslation(shift));
+
+        result.UnmovedCount.ShouldBe(30);
+        result.MatchedCount.ShouldBe(30);
+        result.Refined.M31.ShouldBe(shift.X, tolerance: 1e-3f);
+        result.Refined.M32.ShouldBe(shift.Y, tolerance: 1e-3f);
+        result.RmsResidualPx.ShouldBeLessThan(0.01f);
+    }
+
+    /// <summary>
+    /// Under a drift below twice <see cref="RegistrationRefiner.UnmovedTolerancePx"/> the two populations
+    /// cannot be told apart by position, so nothing is dropped and the fit lands between them: the bias
+    /// is bounded by half the drift, which is the documented limit of the rule.
+    /// </summary>
+    [Fact]
+    public void RefineRigid_UnderASubPixelDriftKeepsThemAndTheBiasIsBoundedByHalfTheDrift()
+    {
+        var shift = new Vector2(0.3f, -0.2f);
+        var stars = SeededStarField(30);
+        var fixedPoints = FixedGrid();
+        var light = stars.Concat(fixedPoints);
+        var reference = stars.Select(p => p + shift).Concat(fixedPoints);
+
+        var result = RegistrationRefiner.RefineRigid(Stars(light), Stars(reference), Matrix3x2.CreateTranslation(shift));
+
+        result.UnmovedCount.ShouldBe(0);
+        result.MatchedCount.ShouldBe(60);
+        MathF.Abs(result.Refined.M31 - shift.X).ShouldBeLessThanOrEqualTo((MathF.Abs(shift.X) / 2f) + 1e-3f);
+        MathF.Abs(result.Refined.M32 - shift.Y).ShouldBeLessThanOrEqualTo((MathF.Abs(shift.Y) / 2f) + 1e-3f);
+    }
+
+    [Fact]
+    public void RefineTranslation_DropsTheDetectionsThatDidNotMoveToo()
+    {
+        var shift = new Vector2(3.4f, -1.2f);
+        var stars = SeededStarField(30);
+        var fixedPoints = FixedGrid();
+        var light = stars.Concat(fixedPoints);
+        var reference = stars.Select(p => p + shift).Concat(fixedPoints);
+
+        var (refined, dx, dy, matched, unmoved) = RegistrationRefiner.RefineTranslation(
+            Stars(light), Stars(reference), Matrix3x2.CreateTranslation(shift));
+
+        unmoved.ShouldBe(30);
+        matched.ShouldBe(30);
+        dx.ShouldBe(0f, tolerance: 1e-3f);
+        dy.ShouldBe(0f, tolerance: 1e-3f);
+        refined.M31.ShouldBe(shift.X, tolerance: 1e-3f);
+        refined.M32.ShouldBe(shift.Y, tolerance: 1e-3f);
     }
 
     /// <summary>
