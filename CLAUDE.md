@@ -1462,6 +1462,30 @@ evicted image emitted nothing and the in-place rescale threw on `plane[0, 0]`.
 extracted temp file path, not an `Image` -- two parallel collections sharing one cached `Image`
 through `AdoptImageAsync` produced a "1 ms / 0 stars" `FindStarsAsync` flake.
 
+### A Canon raw is cropped to its active area on import
+
+**The decoded raster is not the photograph.** Every Canon body records shielded photosites down the
+left edge and across the top (the camera's own black reference), a narrow partly-shielded transition
+after them, and a few spare columns and rows at the far edges. `Image.TryReadCanonRaw` crops to
+`CanonRawFile.ActiveArea` (FC.SDK.Raw 3.1+), so `Image` is the picture: 6720x4480 from a 5D Mark IV's
+6888x4546, 5088x3392 from an R5's 5248x3510. Uncropped it reached a stretched display as a flat black
+L and put ~3% of the frame, pinned at the black level, into every statistic taken over it.
+
+- **FC.SDK.Raw does not crop `BayerMosaic` and must not start**: its CR3 decoder is byte-exact
+  against LibRaw's uncropped `unprocessed_raw`, the only reason to trust it. The crop is metadata;
+  applying it is ours. The overscan therefore stays reachable through `CanonRaw.Open` for anything
+  that wants a per-frame bias or read-noise reference -- it is simply not carried on `Image`.
+- **Ask `ActiveArea.CfaPattern`, never `CanonRawFile.CfaPattern`, after cropping.** An odd offset
+  re-phases the CFA, and the uncropped answer would hand the Bayer pipeline a frame with red and blue
+  exchanged: a plausible picture in the wrong colours, not an error. Every body measured offsets
+  evenly, so today they agree.
+- **Measure MaxValue over the pixels you keep.** It used to scan the whole mosaic, so a margin pixel
+  could set the peak the stretch pipeline divides by.
+- **A dimension assertion is not enough in a test.** A crop from the wrong corner is still a
+  photograph; `Cr3ImportTests.Cr3_CropsFromTheDeclaredOrigin` pins the offset, and has to SEARCH for a
+  pixel where cropped and uncropped reads differ because the R5 fixture is almost all zero after black
+  subtraction and every fixed block matched on both sides.
+
 ### Float TIFF Convention (`SharpAstro.Tiff` I/O; Magick.NET fully removed)
 
 Magick.NET is gone from every project; float TIFF I/O is `SharpAstro.Tiff.TiffWriter`/`TiffReader`

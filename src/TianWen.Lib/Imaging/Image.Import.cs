@@ -90,11 +90,27 @@ public partial class Image
         {
             var raw = CanonRaw.Open(fileName);
 
+            // The decoded raster is NOT the photograph. Every Canon body records shielded
+            // photosites down the left edge and across the top -- the camera's own black-level
+            // reference -- then a narrow partly-shielded transition, then a few spare columns and
+            // rows at the far edges. On a 5D Mark IV that is 6888x4546 decoded for a 6720x4480
+            // picture. Carried through, it reaches a stretched display as a flat black L and puts
+            // 3% of the frame, pinned at the black level, into every statistic taken over it.
+            // FC.SDK.Raw declines to crop the mosaic itself (its CR3 decoder is byte-exact against
+            // LibRaw's uncropped unprocessed_raw, and that oracle is why the decoder is trusted),
+            // so applying the rectangle is ours to do.
+            var area = raw.ActiveArea;
+
             // Only RGGB CFA is currently mapped to SensorType. Other Canon
             // patterns would need BayerOffset mapping (RGGB+offset encodes
             // BGGR/GBRG/GRBG in TianWen's convention). Fall through to
             // Magick.NET for now.
-            if (raw.CfaPattern != CanonCfaPattern.Rggb)
+            //
+            // Asked of the CROPPED pattern, not the raster's: an odd crop offset re-phases the CFA,
+            // and taking the uncropped answer there would hand the Bayer pipeline a frame whose red
+            // and blue are exchanged -- a plausible picture in the wrong colours rather than an
+            // error. Every body measured offsets evenly, so today the two agree.
+            if (area.CfaPattern != CanonCfaPattern.Rggb)
             {
                 image = null;
                 return false;
@@ -103,19 +119,27 @@ public partial class Image
             // Fused ushort -> float + black-subtract + per-CFA-cell WB.
             var mosaic = CanonRaw.PreprocessMosaic(raw);
 
-            // Reshape flat float[] to channel-planar [height, width].
-            var channel = new float[raw.Height, raw.Width];
-            for (var y = 0; y < raw.Height; y++)
-            for (var x = 0; x < raw.Width; x++)
-                channel[y, x] = mosaic[y * raw.Width + x];
-
-            // Data-driven MaxValue: walk the post-WB mosaic to find the
-            // actual peak. For daylight WB it tops out around 2.0 (R channel);
-            // narrow-band or extreme WB can push higher. The downstream
-            // stretch pipeline divides by MaxValue, so accuracy here keeps
-            // [0, 1] normalisation correct.
+            // Reshape flat float[] to channel-planar [height, width], taking only the active area.
+            //
+            // MaxValue is measured in the SAME pass and over the SAME pixels, which is the half that
+            // is easy to get wrong: it used to scan the whole mosaic, so a margin pixel could set the
+            // peak the entire stretch pipeline then divides by. (It never did in practice -- the
+            // margin sits at the black level and black-subtract takes it to ~0 -- but the frame we
+            // keep and the frame we measure should not be two different frames.) For daylight WB the
+            // peak lands around 2.0 on the R channel; narrow-band or extreme WB pushes higher.
+            var channel = new float[area.Height, area.Width];
             var max = 0f;
-            foreach (var v in mosaic) if (v > max) max = v;
+            for (var y = 0; y < area.Height; y++)
+            {
+                var srcRow = ((y + area.Top) * raw.Width) + area.Left;
+                for (var x = 0; x < area.Width; x++)
+                {
+                    var v = mosaic[srcRow + x];
+                    channel[y, x] = v;
+                    if (v > max) max = v;
+                }
+            }
+
             if (max < 1f) max = 1f; // defensive: never below the natural 1.0 ceiling
 
             // Camera -> sRGB matrix: spectral (SASP) first when the database is
