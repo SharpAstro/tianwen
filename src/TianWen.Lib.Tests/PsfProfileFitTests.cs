@@ -124,7 +124,17 @@ namespace TianWen.Lib.Tests
                     + (r > 6 && r < 10 ? 0.45 : 0.0),
                 alpha: 3.2 / (2 * Math.Sqrt(Math.Pow(2, 1.0 / 4.0) - 1)));
 
-            PsfProfileFit.Measure(image, channel: 0, DetectSyntheticStars(image)).ShouldBeNull();
+            var stars = DetectSyntheticStars(image);
+            PsfProfileFit.Measure(image, channel: 0, stars).ShouldBeNull();
+
+            // And the refusal SAYS it was the fit: the stack was fine (enough stars, a half-maximum, bins
+            // to fit), the shape was not. A caller tallying refusals over an archive needs that distinction.
+            PsfProfileFit.Measure(image, channel: 0, stars, out var diagnostics).ShouldBeNull();
+            diagnostics.Refusal.ShouldBe(PsfProfileFit.Refusal.PoorFit);
+            diagnostics.Stacked.ShouldBeGreaterThanOrEqualTo(40);
+            diagnostics.FitBins.ShouldBeGreaterThanOrEqualTo(8);
+            diagnostics.MoffatLogRms.ShouldBeGreaterThan(0.5);
+            double.IsFinite(diagnostics.Fwhm).ShouldBeTrue();
         }
 
         [Fact]
@@ -133,6 +143,25 @@ namespace TianWen.Lib.Tests
             var image = RenderMoffatField(fwhm: 3.0, beta: 4.0, seed: 3);
 
             PsfProfileFit.Measure(image, channel: 0, new List<ImagedStar>()).ShouldBeNull();
+            PsfProfileFit.Measure(image, channel: 0, new List<ImagedStar>(), out var diagnostics).ShouldBeNull();
+            diagnostics.Refusal.ShouldBe(PsfProfileFit.Refusal.TooFewStars);
+            diagnostics.StarsOffered.ShouldBe(0);
+        }
+
+        [Fact]
+        public void Measure_OnAGoodField_ReportsNoRefusalAndTheCountsBehindTheFit()
+        {
+            var image = RenderMoffatField(fwhm: 3.2, beta: 4.0, seed: 7);
+            var stars = DetectSyntheticStars(image);
+
+            var result = PsfProfileFit.Measure(image, channel: 0, stars, out var diagnostics).ShouldNotBeNull();
+            diagnostics.Refusal.ShouldBe(PsfProfileFit.Refusal.None);
+            diagnostics.StarsOffered.ShouldBe(stars.Count);
+            diagnostics.InBrightnessBand.ShouldBeGreaterThanOrEqualTo(diagnostics.Stacked);
+            diagnostics.Stacked.ShouldBe(result.StarsStacked);
+            diagnostics.Fwhm.ShouldBe(result.Fwhm);
+            diagnostics.MoffatBeta.ShouldBe(result.MoffatBeta);
+            diagnostics.MoffatLogRms.ShouldBe(result.MoffatLogRms);
         }
 
         /// <summary>Grid of well-separated identical stars on a flat background, so the stacked

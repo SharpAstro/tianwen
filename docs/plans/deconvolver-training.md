@@ -761,6 +761,28 @@ band, too few stacked after isolation, no half-maximum crossing, fewer than eigh
 the noise floor, or a log-space residual over 0.5), so the reason is not yet known; instrumenting
 that is the first move of whatever comes next.
 
+#### E1c, pre-registered 2026-09-07: which check refuses
+
+*Change.* `PsfProfileFit.Measure` gains an overload with a `Diagnostics` out-parameter naming the check
+that refused (`TooFewStars`, `TooFewStacked`, `NoHalfMaximum`, `TooFewFitBins`, `PoorFit`) and the
+counts it tested; the probe prints it per refused row and tallies whole-frame refusals by check, by
+noise arm and by master. Re-run at ONE RL iteration (the recovery columns are not read; the tally
+is), `TIANWEN_ORACLE_KERNEL=exact,estimated`, same masters and seeds, minutes rather than an hour.
+
+*Prediction.* The noisy refusals are `PoorFit`: the fit is in log space over the wings, the noisy
+arm adds a sigma equal to the frame's own MAD, and the outer bins the fit weights most are the ones
+noise moves most (E0 saw the same failure signature, a residual of 0.77 to 0.98 with beta collapsing
+toward the grid floor). The noise-free refusals on the narrowband masters are `TooFewStacked` or
+`TooFewStars`: a 3 nm filter leaves few stars, the brightness band keeps a fifth of them, and the 16 px
+isolation radius removes more. The 7 px channel refuses as `PoorFit` or `NoHalfMaximum`: its wings run
+past the 12 px background annulus, so the subtracted profile is wrong before it is fitted. Confidence
+moderate on the first, low on the split between the other two.
+
+*Kill.* None, it is a diagnostic. What it decides is the estimator step's first fix: a `PoorFit`
+majority points at the acceptance rule and the noise weighting of the log-space fit; a
+`TooFewStacked` majority at the band and the isolation radius; `NoHalfMaximum` or bins at the sampled
+radius.
+
 **Verdict on H11.** Conditional pass. Where the estimator answers and the shape is co-estimated,
 the ceiling survives estimation to within a few hundredths of the exact kernel through 2x; the
 width estimate carries a ratio-dependent bias of up to a quarter that an unrolled-RL layer would

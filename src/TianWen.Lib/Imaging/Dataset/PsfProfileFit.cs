@@ -71,10 +71,62 @@ namespace TianWen.Lib.Imaging.Dataset
             double GaussianLogRms,
             int StarsStacked);
 
+        /// <summary>Why <see cref="Measure(Image, int, IReadOnlyCollection{ImagedStar}, out Diagnostics, int)"/>
+        /// answered null, in the order the checks run. <see cref="None"/> is a measurement.</summary>
+        public enum Refusal
+        {
+            /// <summary>A profile was fitted and reported.</summary>
+            None,
+
+            /// <summary>Fewer than 40 stars were offered at all.</summary>
+            TooFewStars,
+
+            /// <summary>Fewer than 40 of the brightness band's stars survived the edge, isolation and
+            /// local-background checks to be stacked.</summary>
+            TooFewStacked,
+
+            /// <summary>The stacked profile never fell through half its peak inside the sampled radius.</summary>
+            NoHalfMaximum,
+
+            /// <summary>Fewer than eight radial bins sat above the noise floor, too few to fit a shape.</summary>
+            TooFewFitBins,
+
+            /// <summary>The best Moffat's log-space residual exceeded the acceptance bound, so no shape
+            /// describes the stack and the minimising beta would be an artefact.</summary>
+            PoorFit,
+        }
+
+        /// <summary>
+        /// What the measurement saw on the way to its answer, whichever way it went. Exists because the
+        /// null return said nothing for two years and then a deconvolution probe (E1b) found the fit
+        /// refusing half its rows on noisy narrowband frames with no way to say which of the five
+        /// checks was firing; the counts here are the ones each check tests.
+        /// </summary>
+        /// <param name="Refusal">Which check refused, or <see cref="Refusal.None"/>.</param>
+        /// <param name="StarsOffered">Stars handed in.</param>
+        /// <param name="InBrightnessBand">Stars inside the 55th to 75th percentile peak band.</param>
+        /// <param name="Stacked">Band stars that passed the edge, isolation and background checks and
+        /// were accumulated.</param>
+        /// <param name="FitBins">Radial bins above the noise floor the fit used, or 0 before that point.</param>
+        /// <param name="Fwhm">The stacked profile's half-maximum width, or NaN before that point.</param>
+        /// <param name="MoffatBeta">The best-fit exponent, whether or not it was accepted, or NaN before
+        /// that point.</param>
+        /// <param name="MoffatLogRms">That fit's log-space residual, or NaN before that point.</param>
+        public sealed record Diagnostics(
+            Refusal Refusal,
+            int StarsOffered,
+            int InBrightnessBand,
+            int Stacked,
+            int FitBins,
+            double Fwhm,
+            double MoffatBeta,
+            double MoffatLogRms);
+
         /// <summary>
         /// Stacks the radial profiles of isolated, brightness-controlled stars and fits a Moffat to
         /// the result. Returns null when the frame cannot support a measurement (too few usable
-        /// stars, or a stack with no half-maximum crossing).
+        /// stars, or a stack with no half-maximum crossing); the overload with a
+        /// <see cref="Diagnostics"/> parameter says which.
         /// </summary>
         /// <remarks>
         /// <para><b>Brightness is controlled, and that is not optional.</b> Measured FWHM depends
@@ -105,6 +157,16 @@ namespace TianWen.Lib.Imaging.Dataset
             int channel,
             IReadOnlyCollection<ImagedStar> stars,
             int maxStars = 400)
+            => Measure(image, channel, stars, out _, maxStars);
+
+        /// <inheritdoc cref="Measure(Image, int, IReadOnlyCollection{ImagedStar}, int)"/>
+        /// <param name="diagnostics">What the measurement saw, and which check refused when it did.</param>
+        public static Result? Measure(
+            Image image,
+            int channel,
+            IReadOnlyCollection<ImagedStar> stars,
+            out Diagnostics diagnostics,
+            int maxStars = 400)
         {
             ArgumentNullException.ThrowIfNull(image);
             ArgumentNullException.ThrowIfNull(stars);
@@ -112,6 +174,7 @@ namespace TianWen.Lib.Imaging.Dataset
             var (_, width, height) = image.Shape;
             if (stars.Count < 40)
             {
+                diagnostics = new Diagnostics(Refusal.TooFewStars, stars.Count, 0, 0, 0, double.NaN, double.NaN, double.NaN);
                 return null;
             }
 
@@ -208,6 +271,7 @@ namespace TianWen.Lib.Imaging.Dataset
 
             if (stacked < 40)
             {
+                diagnostics = new Diagnostics(Refusal.TooFewStacked, starArray.Length, candidates.Count, stacked, 0, double.NaN, double.NaN, double.NaN);
                 return null;
             }
 
@@ -222,6 +286,7 @@ namespace TianWen.Lib.Imaging.Dataset
             var fwhm = HalfMaximumWidth(profile, radii);
             if (double.IsNaN(fwhm) || fwhm <= 0)
             {
+                diagnostics = new Diagnostics(Refusal.NoHalfMaximum, starArray.Length, candidates.Count, stacked, 0, double.NaN, double.NaN, double.NaN);
                 return null;
             }
 
@@ -235,10 +300,14 @@ namespace TianWen.Lib.Imaging.Dataset
             }
             if (fitBins.Count < 8)
             {
+                diagnostics = new Diagnostics(Refusal.TooFewFitBins, starArray.Length, candidates.Count, stacked, fitBins.Count, fwhm, double.NaN, double.NaN);
                 return null;
             }
 
             var (beta, moffatRms) = FitMoffatBeta(profile, radii, fitBins, fwhm);
+            diagnostics = new Diagnostics(
+                moffatRms > MaxAcceptableLogRms ? Refusal.PoorFit : Refusal.None,
+                starArray.Length, candidates.Count, stacked, fitBins.Count, fwhm, beta, moffatRms);
             if (moffatRms > MaxAcceptableLogRms)
             {
                 // Refuse rather than report. The beta search is an exhaustive grid from 1 to 25, so a

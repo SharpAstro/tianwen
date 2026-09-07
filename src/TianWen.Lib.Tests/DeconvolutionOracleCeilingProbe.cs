@@ -328,22 +328,29 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
 
     /// <summary>
     /// The frame's PSF shape as <see cref="PsfProfileFit"/> reads it from its OWN detections, which is
-    /// what a deployed estimator has: no truth, no star list handed in. Null when the plane cannot
-    /// support a fit (too few stars in the brightness band, or a profile no Moffat describes).
+    /// what a deployed estimator has: no truth, no star list handed in. The fit is null when the plane
+    /// cannot support one, and the diagnostics say which check refused and what it saw.
     /// </summary>
-    private static async Task<PsfProfileFit.Result?> FitProfileAsync(float[] plane, int width, int height, CancellationToken ct)
+    private static async Task<(PsfProfileFit.Result? Fit, PsfProfileFit.Diagnostics Diagnostics)> FitProfileAsync(
+        float[] plane, int width, int height, CancellationToken ct)
     {
         var image = Wrap(plane, width, height);
         try
         {
             var stars = await image.FindStarsAsync(channel: 0, snrMin: EstimatorSnrMin, maxStars: EstimatorMaxStars, cancellationToken: ct);
-            return PsfProfileFit.Measure(image, 0, stars);
+            var fit = PsfProfileFit.Measure(image, 0, stars, out var diagnostics);
+            return (fit, diagnostics);
         }
         finally
         {
             image.Release();
         }
     }
+
+    /// <summary>One line of refusal detail: the check that fired and the counts it tested.</summary>
+    private static string Describe(PsfProfileFit.Diagnostics d)
+        => $"{d.Refusal} (stars {d.StarsOffered}, band {d.InBrightnessBand}, stacked {d.Stacked}, bins {d.FitBins}"
+            + (double.IsFinite(d.MoffatLogRms) ? $", rms {d.MoffatLogRms:F2}" : "") + ")";
 
     /// <summary>
     /// The deepest undershoot below local background in the annulus around each star, in MAD units, and
@@ -621,6 +628,9 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
 
         var rows = new List<ArmRow>();
         var noEstimate = 0;
+        // Every whole-frame refusal, once per (master, channel, noise, side): the clean side refuses once
+        // per channel and the observed side once per row, and the tally below is by check and by master.
+        var refusals = new List<(string Master, int Channel, bool Noisy, string Side, PsfProfileFit.Refusal Refusal)>();
 
         foreach (var masterPath in masters)
         {
@@ -697,16 +707,26 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
                 // The clean side of the difference, fitted once per channel: on the crop, else on the
                 // whole frame, else this channel has no estimate at all and every estimated arm says so.
                 ProfileEstimate? clean = null;
+                var cleanRefusal = "";
                 if (estimating)
                 {
-                    var cropFit = await FitProfileAsync(truth, Crop, Crop, ct);
+                    var (cropFit, cropDiag) = await FitProfileAsync(truth, Crop, Crop, ct);
                     if (cropFit is { } cf)
                     {
                         clean = new ProfileEstimate(cf.Fwhm, cf.MoffatBeta, false);
                     }
-                    else if (await FitProfileAsync(fullPlanes[c], fullWidth, fullHeight, ct) is { } ff)
+                    else
                     {
-                        clean = new ProfileEstimate(ff.Fwhm, ff.MoffatBeta, true);
+                        var (frameFit, frameDiag) = await FitProfileAsync(fullPlanes[c], fullWidth, fullHeight, ct);
+                        if (frameFit is { } ff)
+                        {
+                            clean = new ProfileEstimate(ff.Fwhm, ff.MoffatBeta, true);
+                        }
+                        else
+                        {
+                            cleanRefusal = $"clean crop {Describe(cropDiag)}; clean frame {Describe(frameDiag)}";
+                            refusals.Add((name, c, false, "clean", frameDiag.Refusal));
+                        }
                     }
                 }
 
@@ -729,9 +749,10 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
 
                         // The estimate, from the observed frame alone, as deployment would have to.
                         ProfileEstimate? observedFit = null;
+                        var observedRefusal = cleanRefusal;
                         if (estimating && clean is not null)
                         {
-                            var cropFit = await FitProfileAsync(observed, Crop, Crop, ct);
+                            var (cropFit, cropDiag) = await FitProfileAsync(observed, Crop, Crop, ct);
                             if (cropFit is { } of)
                             {
                                 observedFit = new ProfileEstimate(of.Fwhm, of.MoffatBeta, false);
@@ -740,9 +761,15 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
                             {
                                 blurredFull ??= exactPsf.Convolve(fullPlanes[c], fullWidth, fullHeight);
                                 var observedFull = noisy ? AddNoise(blurredFull, mad, new Random(seed ^ 0x5bd1e995)) : blurredFull;
-                                if (await FitProfileAsync(observedFull, fullWidth, fullHeight, ct) is { } ff)
+                                var (frameFit, frameDiag) = await FitProfileAsync(observedFull, fullWidth, fullHeight, ct);
+                                if (frameFit is { } ff)
                                 {
                                     observedFit = new ProfileEstimate(ff.Fwhm, ff.MoffatBeta, true);
+                                }
+                                else
+                                {
+                                    observedRefusal = $"observed crop {Describe(cropDiag)}; observed frame {Describe(frameDiag)}";
+                                    refusals.Add((name, c, noisy, "observed", frameDiag.Refusal));
                                 }
                             }
                         }
@@ -808,7 +835,7 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
                                         double.NaN, double.NaN, double.NaN, double.NaN, false, NoEstimate: true));
                                 }
 
-                                output.WriteLine($"{prefix} (no estimate: the frame's stars could not be fitted)");
+                                output.WriteLine($"{prefix} (no estimate: {observedRefusal})");
                                 continue;
                             }
 
@@ -903,6 +930,26 @@ public class DeconvolutionOracleCeilingProbe(ITestOutputHelper output)
         {
             output.WriteLine("");
             output.WriteLine($"arm rows the estimator refused (counted in n and no-fit above, measured in none of the other columns): {noEstimate}");
+
+            // Which check refused, on the WHOLE-FRAME attempt (the crop never fits and is not the
+            // question), by noise arm and then by master. The clean side's refusal is per channel and
+            // removes every row of that channel from both estimated arms, so it is listed separately.
+            output.WriteLine("");
+            output.WriteLine($"{"whole-frame refusal",-20} {"side",-9} {"noise",5} {"n",4}");
+            foreach (var group in refusals
+                .GroupBy(r => (r.Side, r.Noisy, r.Refusal))
+                .OrderBy(g => g.Key.Side).ThenBy(g => g.Key.Noisy).ThenByDescending(g => g.Count()))
+            {
+                output.WriteLine($"{group.Key.Refusal,-20} {group.Key.Side,-9} {(group.Key.Noisy ? "yes" : "no"),5} {group.Count(),4}");
+            }
+
+            output.WriteLine("");
+            output.WriteLine($"{"master",-30} {"ch",2} {"refusals",8}  by check");
+            foreach (var group in refusals.GroupBy(r => (r.Master, r.Channel)).OrderByDescending(g => g.Count()))
+            {
+                var byCheck = string.Join(", ", group.GroupBy(r => r.Refusal).OrderByDescending(g => g.Count()).Select(g => $"{g.Key} {g.Count()}"));
+                output.WriteLine($"{group.Key.Master[..Math.Min(30, group.Key.Master.Length)],-30} {group.Key.Channel,2} {group.Count(),8}  {byCheck}");
+            }
         }
 
         output.WriteLine("");
