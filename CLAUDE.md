@@ -1486,6 +1486,12 @@ L and put ~3% of the frame, pinned at the black level, into every statistic take
   pixel where cropped and uncropped reads differ because the R5 fixture is almost all zero after black
   subtraction and every fixed block matched on both sides.
 
+**Canon is the only sensor this is wired for.** QHY exposes the same geometry
+(`GetQHYCCDEffectiveArea` / `GetQHYCCDOverScanArea` / `CAM_IGNOREOVERSCAN_INTERFACE`) and nothing calls
+any of it; nothing anywhere reads or writes the IRAF `DATASEC`/`BIASSEC`/`TRIMSEC` sections, whose
+1-based inclusive coordinates are the same trap as CRPIX. Design, phasing and the measurements:
+[docs/plans/sensor-active-area.md](docs/plans/sensor-active-area.md).
+
 ### Float TIFF Convention (`SharpAstro.Tiff` I/O; Magick.NET fully removed)
 
 Magick.NET is gone from every project; float TIFF I/O is `SharpAstro.Tiff.TiffWriter`/`TiffReader`
