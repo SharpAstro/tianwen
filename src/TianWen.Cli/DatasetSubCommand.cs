@@ -172,6 +172,17 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                           "superseded records stay in the file and remain readable for comparison. " +
                           "Use with --resume and the SAME roots and gates as the original run.",
         };
+        var remeasureSubsOpt = new Option<bool>("--remeasure-subs")
+        {
+            Description = "Re-run the MEASURE stage alone for every exported session that has a " +
+                          "record, rewriting its per-sub widths and giving each sub an identity " +
+                          "(file, epoch, computed air mass, header AIRMASS) the older records lack; " +
+                          "the master-derived fields are carried over unchanged. About two minutes " +
+                          "a session against ten for the re-registration --force-psf falls back to. " +
+                          "The subs described are the quality gate's survivors, and the record says " +
+                          "so. Not combinable with --force-psf: run that as a second pass. Use with " +
+                          "--resume and the SAME roots and gates as the original run.",
+        };
         var resumeOpt = new Option<bool>("--resume")
         {
             Description = "Continue a stopped run: keep the existing manifest as the checkpoint and " +
@@ -197,7 +208,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             {
                 archiveRootOpt, outOpt,
                 minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, minSubsOpt,
-                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, hotPixelSigmaOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt, forcePsfOpt, scratchRootOpt,
+                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, hotPixelSigmaOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt, forcePsfOpt, remeasureSubsOpt, scratchRootOpt,
             },
         };
         buildCommand.SetAction(async (parseResult, ct) =>
@@ -242,6 +253,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                 Resume = parseResult.GetValue(resumeOpt),
                 RegenPsfForExportedSessions = parseResult.GetValue(regenPsfOpt),
                 ForcePsfRemeasure = parseResult.GetValue(forcePsfOpt),
+                RemeasureSubs = parseResult.GetValue(remeasureSubsOpt),
             };
 
             // User path exclusions append to the built-in processed-data defaults (never replace them).

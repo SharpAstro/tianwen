@@ -88,6 +88,56 @@ namespace TianWen.Lib.Tests
             }
         }
 
+        /// <summary>
+        /// The per-sub identity (file, epoch, computed and header air mass) travels aligned with the
+        /// widths, NaN included, and a record from before it existed reads back with none rather than
+        /// with an invented one. The alignment is the whole value of the columns: a width with no way
+        /// to say which frame it belongs to cannot be split into a sharp and a soft manifest.
+        /// </summary>
+        [Fact]
+        public async Task RoundTrip_KeepsThePerSubIdentityAlignedWithTheWidths()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var path = Path.Combine(_dir, DatasetPsfStore.FileName);
+            var plain = Record("2026-01-01|ASI533|M42", "ZWO ASI533MC Pro / Samyang @ 135mm", 2.5f, 0.004);
+            DatasetPsfNoiseReport.SubIdentity.From(plain).ShouldBeNull("a record without the columns has no identity to carry");
+
+            var epochs = new[]
+            {
+                new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero),
+                new DateTimeOffset(2026, 1, 1, 12, 5, 0, TimeSpan.Zero),
+                new DateTimeOffset(2026, 1, 1, 12, 10, 0, TimeSpan.Zero),
+            };
+            var written = plain with
+            {
+                SubFile = ["D:/a/L_001.fits", "D:/a/L_002.fits", "D:/a/L_003.fits"],
+                SubEpochUtc = epochs,
+                SubAirmass = [1.05f, float.NaN, 1.31f],
+                SubHeaderAirmass = [float.NaN, float.NaN, 1.30f],
+                SubSelection = DatasetPsfNoiseReport.SubsRegistered,
+            };
+
+            await DatasetPsfStore.AppendAsync(path, written, ct);
+            var back = (await DatasetPsfStore.ReadAsync(path, cancellationToken: ct))[written.SessionId];
+
+            back.SubFile.ShouldBe(written.SubFile);
+            back.SubEpochUtc.ShouldBe(epochs);
+            back.SubSelection.ShouldBe(DatasetPsfNoiseReport.SubsRegistered);
+            back.SubAirmass.ShouldNotBeNull();
+            back.SubAirmass.Length.ShouldBe(back.SubFwhm.Length);
+            back.SubAirmass[0].ShouldBe(1.05f);
+            float.IsNaN(back.SubAirmass[1]).ShouldBeTrue("an unknown air mass stays unknown through the file");
+            back.SubAirmass[2].ShouldBe(1.31f);
+            back.SubHeaderAirmass.ShouldNotBeNull();
+            float.IsNaN(back.SubHeaderAirmass[0]).ShouldBeTrue();
+            back.SubHeaderAirmass[2].ShouldBe(1.30f);
+
+            var identity = DatasetPsfNoiseReport.SubIdentity.From(back);
+            identity.ShouldNotBeNull();
+            identity.File.ShouldBe(written.SubFile);
+            identity.Selection.ShouldBe(DatasetPsfNoiseReport.SubsRegistered);
+        }
+
         [Fact]
         public async Task RoundTrip_KeepsEachChannelsProfileSeparate_IncludingAnUnmeasurableOne()
         {

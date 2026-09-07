@@ -119,6 +119,39 @@ public readonly record struct SiteContext
     }
 
     /// <summary>
+    /// Plane-parallel air mass (sec z) from a topocentric altitude, clamped below 5 degrees, where the
+    /// plane-parallel form diverges and no frame in this archive is taken anyway.
+    /// </summary>
+    /// <remarks>The one formula for air mass. <c>Session</c>'s sky gauge and the dataset reports all
+    /// forward here, so a change to the model (a Kasten-Young fit, say) lands everywhere at once.</remarks>
+    public static double AirmassFromAltitude(double altitudeDeg)
+    {
+        var alt = Math.Clamp(altitudeDeg, 5.0, 90.0);
+        return 1.0 / Math.Sin(alt * Math.PI / 180.0);
+    }
+
+    /// <summary>
+    /// Air mass of a target at an instant from a site, the way the dataset reports compute it for a
+    /// master and, per sub, for the archive's seeing-against-airmass measurement.
+    /// </summary>
+    /// <returns>NaN when any input is unknown (a NaN coordinate or site, an epoch before 1900) or the
+    /// target is geometrically below the horizon, where an air mass has no meaning and a clamped value
+    /// would read as a legitimate, very deep observation.</returns>
+    public static double Airmass(DateTimeOffset utc, double latitudeDeg, double longitudeDeg, double raHours, double decDeg)
+    {
+        if (utc.Year < 1900 || double.IsNaN(latitudeDeg) || double.IsNaN(longitudeDeg)
+            || double.IsNaN(raHours) || double.IsNaN(decDeg))
+        {
+            return double.NaN;
+        }
+
+        var lst = ComputeLST(utc, longitudeDeg);
+        var ha = CoordinateUtils.ConditionHA(lst - raHours);
+        var alt = AltitudeDegrees(latitudeDeg, ha, decDeg);
+        return double.IsNaN(alt) || alt <= 0.0 ? double.NaN : AirmassFromAltitude(alt);
+    }
+
+    /// <summary>
     /// <b>The one implementation of geometric altitude.</b> Everything above funnels here.
     /// </summary>
     /// <remarks>

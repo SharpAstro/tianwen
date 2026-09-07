@@ -56,6 +56,10 @@ namespace TianWen.Lib.Imaging;
 /// <param name="RowOrder">Pixel row order: TopDown or BottomUp (FITS: ROWORDER).</param>
 /// <param name="Latitude">Observatory latitude in decimal degrees (FITS: SITELAT). NaN if unknown.</param>
 /// <param name="Longitude">Observatory longitude in decimal degrees (FITS: SITELONG). NaN if unknown.</param>
+/// <param name="Airmass">The air mass the CAPTURE software wrote (FITS: AIRMASS), NaN when the card is
+/// absent. Read back as a cross-check only: TianWen derives its own air mass from the epoch, the site
+/// and the target (<c>SiteContext.Airmass</c>), and a header value is whatever the capture software
+/// believed at whatever instant it evaluated it, so the two are compared, never substituted.</param>
 /// <param name="ColourCalibration">The white balance this frame was calibrated with, and where it came
 /// from (FITS: <c>WBSOURCE</c>, <c>WBRED</c>, <c>WBGREEN</c>, <c>WBBLUE</c>). Null when the frame states
 /// no calibration.
@@ -189,7 +193,8 @@ public record struct ImageMeta(
     float DeclaredPixelScale = float.NaN,
     float SiteElevation = float.NaN,
     ColourCalibration? ColourCalibration = null,
-    GuidingStats? Guiding = null
+    GuidingStats? Guiding = null,
+    float Airmass = float.NaN
 )
 {
     /// <summary>

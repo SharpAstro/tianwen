@@ -8,6 +8,8 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry.SOFA;
+using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib.Stat;
 
@@ -140,6 +142,28 @@ public static class DatasetPsfNoiseReport
     /// is how the manifest's FWHM column drifted into being authoritative and wrong (see that
     /// record's remarks). One home, joined on <paramref name="SessionId"/>.</para>
     /// </param>
+    /// <param name="SubFile">Per sub, ALIGNED INDEX FOR INDEX with <paramref name="SubFwhm"/>: the
+    /// light's archive path. Null on a record written before the subs carried an identity, when
+    /// <paramref name="SubFwhm"/> was a bag of widths with no way to say which frame each one was.
+    /// The identity is what makes a seeing-split possible at all (the sharpest third of a session to
+    /// one manifest, the softest to another), and what joins a width to the epoch and air mass
+    /// beside it.</param>
+    /// <param name="SubEpochUtc">Per sub, aligned: the exposure START (DATE-OBS), UTC.</param>
+    /// <param name="SubAirmass">Per sub, aligned: the air mass TianWen computes from that epoch, the
+    /// header's site and the header's target, the way <c>DatasetGradientReport</c> computes it per
+    /// master (<c>SiteContext.Airmass</c>). NaN where the header lacks a site or a target, or the
+    /// target is below the horizon. This is the abscissa of the archive's FWHM-against-airmass
+    /// measurement (deconvolver-training.md, E2.9).</param>
+    /// <param name="SubHeaderAirmass">Per sub, aligned: the AIRMASS card the capture software wrote,
+    /// NaN where absent. A CROSS-CHECK on <paramref name="SubAirmass"/> and never a substitute for
+    /// it: the two disagreeing says something about the header's clock or site, and only one of them
+    /// is under this code's control.</param>
+    /// <param name="SubSelection">Which subs the per-sub arrays describe. <see cref="SubsRegistered"/>
+    /// on a record written at registration (the subs that survived the gate AND registered, in
+    /// registration order); <see cref="SubsGateSurvivors"/> on a record whose sub arrays were
+    /// re-measured alone (<c>DatasetBuildOptions.RemeasureSubs</c>), which measures every light and
+    /// keeps the gate's survivors but cannot know which of them would have registered. Null on a
+    /// record from before the distinction existed, which is <see cref="SubsRegistered"/> in fact.</param>
     public sealed record SessionPsf(
         string SessionId,
         string OpticalTrain,
@@ -150,7 +174,70 @@ public static class DatasetPsfNoiseReport
         RadiusSamples[][]? BinsByChannel,
         PsfProfileFit.Result?[]? MasterProfiles = null,
         string? MasterStrategy = null,
-        string? RadiusSampling = null);
+        string? RadiusSampling = null,
+        string[]? SubFile = null,
+        DateTimeOffset[]? SubEpochUtc = null,
+        float[]? SubAirmass = null,
+        float[]? SubHeaderAirmass = null,
+        string? SubSelection = null);
+
+    /// <summary>Value of <see cref="SessionPsf.SubSelection"/> when the sub arrays describe the
+    /// registered subs, in registration order.</summary>
+    public const string SubsRegistered = "registered";
+
+    /// <summary>Value of <see cref="SessionPsf.SubSelection"/> when the sub arrays were re-measured
+    /// alone and describe the quality gate's survivors, in light order.</summary>
+    public const string SubsGateSurvivors = "gate-survivors";
+
+    /// <summary>
+    /// The per-sub identity columns of a <see cref="SessionPsf"/>, built once from the frames and
+    /// carried through any re-measure of the master, since a master cannot say which subs made it.
+    /// </summary>
+    /// <param name="File">Archive path per sub.</param>
+    /// <param name="EpochUtc">Exposure start per sub.</param>
+    /// <param name="Airmass">Computed air mass per sub (<see cref="SiteContext.Airmass"/>).</param>
+    /// <param name="HeaderAirmass">The capture software's AIRMASS card per sub, NaN where absent.</param>
+    /// <param name="Selection"><see cref="SubsRegistered"/> or <see cref="SubsGateSurvivors"/>.</param>
+    public sealed record SubIdentity(
+        string[] File,
+        DateTimeOffset[] EpochUtc,
+        float[] Airmass,
+        float[] HeaderAirmass,
+        string Selection)
+    {
+        /// <summary>The identity columns of <paramref name="frames"/>, in the order given.</summary>
+        public static SubIdentity From(IReadOnlyList<FrameInfo> frames, string selection)
+        {
+            ArgumentNullException.ThrowIfNull(frames);
+            var file = new string[frames.Count];
+            var epoch = new DateTimeOffset[frames.Count];
+            var airmass = new float[frames.Count];
+            var headerAirmass = new float[frames.Count];
+            for (var i = 0; i < frames.Count; i++)
+            {
+                var meta = frames[i].Meta;
+                file[i] = frames[i].Path;
+                epoch[i] = meta.ExposureStartTime;
+                // The START epoch, as the gradient report evaluates a master's covariates at its
+                // DATE-OBS: consistent with it, and over a sub's few minutes the difference to
+                // mid-exposure is under a thousandth of an air mass.
+                airmass[i] = (float)SiteContext.Airmass(meta.ExposureStartTime, meta.Latitude, meta.Longitude, meta.TargetRA, meta.TargetDec);
+                headerAirmass[i] = meta.Airmass;
+            }
+
+            return new SubIdentity(file, epoch, airmass, headerAirmass, selection);
+        }
+
+        /// <summary>The identity a stored record carries, or null on a record from before it existed
+        /// (whose sub arrays then travel through a re-measure exactly as they did before).</summary>
+        public static SubIdentity? From(SessionPsf record)
+        {
+            ArgumentNullException.ThrowIfNull(record);
+            return record is { SubFile: { } file, SubEpochUtc: { } epoch, SubAirmass: { } airmass, SubHeaderAirmass: { } header }
+                ? new SubIdentity(file, epoch, airmass, header, record.SubSelection ?? SubsRegistered)
+                : null;
+        }
+    }
 
     /// <summary>
     /// The filter encoded in a <see cref="SessionPsf.SessionId"/>, or empty when the session had
@@ -301,18 +388,80 @@ public static class DatasetPsfNoiseReport
         var subFwhm = new float[session.Subs.Length];
         var subHfd = new float[session.Subs.Length];
         var subEcc = new float[session.Subs.Length];
+        var sources = new FrameInfo[session.Subs.Length];
         for (var i = 0; i < session.Subs.Length; i++)
         {
             var metrics = session.Subs[i].Metrics;
             subFwhm[i] = metrics.MedianFwhm;
             subHfd[i] = metrics.MedianHfd;
             subEcc[i] = metrics.MedianEllipticity;
+            sources[i] = session.Subs[i].Source;
         }
 
         return await MeasureMasterAsync(
             session.Session.Id, label, session.Master, session.CanvasWidth, session.CanvasHeight,
             subFwhm, subHfd, subEcc, session.MasterStrategy.ToString(),
+            SubIdentity.From(sources, SubsRegistered),
             radiusBins, snrMin, maxStars, logger, cancellationToken);
+    }
+
+    /// <summary>
+    /// The per-sub half of a record from the measure pass ALONE: every light measured, the session's
+    /// quality gate applied, and the survivors' widths and identities written over the prior record's,
+    /// with everything the master supplied carried through untouched. This is what
+    /// <c>DatasetBuildOptions.RemeasureSubs</c> runs, at the cost of the measure stage (about two
+    /// minutes a session on this archive) instead of a re-registration (about ten).
+    /// </summary>
+    /// <remarks>
+    /// The survivors are <see cref="SubsGateSurvivors"/>, not the registered set the prior record
+    /// described: registration is the expensive half this path exists to skip, so which survivors would
+    /// have failed to register is unknowable here. The difference is a frame or two a session on this
+    /// archive (83 lights, 81 registered), and the record says which selection it holds.
+    /// </remarks>
+    public static async Task<SessionPsf> RemeasureSubsAsync(
+        SessionPsf prior,
+        ImagingSession session,
+        Calibrator? calibrator,
+        float qualityRejectSigma,
+        float qualityMaxRejectFraction,
+        DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(prior);
+        ArgumentNullException.ThrowIfNull(session);
+
+        var analyzed = new List<SessionFrameAnalyzer.AnalyzedFrame>(session.Lights.Length);
+        foreach (var light in session.Lights)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            analyzed.Add(await SessionFrameAnalyzer.MeasureAsync(light, calibrator, debayerAlgorithm, cancellationToken: cancellationToken));
+        }
+
+        var kept = SessionFrameAnalyzer.ApplyGate(analyzed, qualityRejectSigma, qualityMaxRejectFraction).Kept;
+        var subFwhm = new float[kept.Length];
+        var subHfd = new float[kept.Length];
+        var subEcc = new float[kept.Length];
+        var sources = new FrameInfo[kept.Length];
+        for (var i = 0; i < kept.Length; i++)
+        {
+            subFwhm[i] = kept[i].Metrics.MedianFwhm;
+            subHfd[i] = kept[i].Metrics.MedianHfd;
+            subEcc[i] = kept[i].Metrics.MedianEllipticity;
+            sources[i] = kept[i].Frame;
+        }
+
+        var identity = SubIdentity.From(sources, SubsGateSurvivors);
+        return prior with
+        {
+            SubFwhm = subFwhm,
+            SubHfd = subHfd,
+            SubEllipticity = subEcc,
+            SubFile = identity.File,
+            SubEpochUtc = identity.EpochUtc,
+            SubAirmass = identity.Airmass,
+            SubHeaderAirmass = identity.HeaderAirmass,
+            SubSelection = identity.Selection,
+        };
     }
 
     /// <summary>
@@ -334,6 +483,9 @@ public static class DatasetPsfNoiseReport
     /// re-measure must pass the STORED value through. A drizzled master relabelled as AHD would
     /// silently corrupt the per-channel comparison this report exists to make, since the difference
     /// between those two integrators is most of the apparent per-channel spread.</param>
+    /// <param name="subs">The per-sub identity columns aligned with <paramref name="subFwhm"/>, carried
+    /// through for the same reason the three sub arrays are: a master cannot say which frames made it.
+    /// Null on a re-measure of a record that never had them.</param>
     public static async Task<SessionPsf> MeasureMasterAsync(
         string sessionId,
         string opticalTrain,
@@ -344,6 +496,7 @@ public static class DatasetPsfNoiseReport
         float[] subHfd,
         float[] subEllipticity,
         string? masterStrategy,
+        SubIdentity? subs = null,
         int radiusBins = 5,
         float snrMin = 5f,
         int maxStars = 3000,
@@ -435,7 +588,12 @@ public static class DatasetPsfNoiseReport
             BinsByChannel: binsByChannel,
             MasterProfiles: masterProfiles,
             MasterStrategy: masterStrategy,
-            RadiusSampling: binsByChannel is null ? null : CommonStarSampling);
+            RadiusSampling: binsByChannel is null ? null : CommonStarSampling,
+            SubFile: subs?.File,
+            SubEpochUtc: subs?.EpochUtc,
+            SubAirmass: subs?.Airmass,
+            SubHeaderAirmass: subs?.HeaderAirmass,
+            SubSelection: subs?.Selection);
     }
 
     /// <summary>Value of <see cref="SessionPsf.RadiusSampling"/> for a record whose field-radius

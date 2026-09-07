@@ -366,7 +366,7 @@ namespace TianWen.Lib.Imaging.Dataset
             var ha = CoordinateUtils.ConditionHA(lst - raHours);
             var alt = SiteContext.AltitudeDegrees(lat, ha, decDeg);
             var az = SiteContext.AzimuthDegrees(lat, ha, decDeg);
-            var airmass = double.IsNaN(alt) ? double.NaN : Session.AirmassFromAltitude(alt);
+            var airmass = double.IsNaN(alt) ? double.NaN : SiteContext.AirmassFromAltitude(alt);
             var parallactic = double.IsNaN(ha) || double.IsNaN(decDeg) || double.IsNaN(lat) ? double.NaN : CoordinateUtils.ParallacticAngleDeg(ha, decDeg, lat);
             // The zenith is at the parallactic angle; the horizon (where sky glow comes from) is opposite.
             var horizonInFrame = solution is { } horizonWcs && !double.IsNaN(parallactic)

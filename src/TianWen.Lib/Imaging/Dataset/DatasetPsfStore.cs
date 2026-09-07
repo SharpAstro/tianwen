@@ -46,7 +46,11 @@ namespace TianWen.Lib.Imaging.Dataset
             JsonLinesFile.AppendRecordAsync(path, record, DatasetPsfJsonContext.Default.SessionPsf, cancellationToken);
     }
 
+    // AllowNamedFloatingPointLiterals because the per-sub air mass is NaN for every light whose header
+    // carries no site or target, which is most of the older archive, and the default writer throws on
+    // a NaN. Without it the first record with an unknown air mass failed its append, the runner's
+    // per-session catch counted the session FAILED, and every runner test went red at once.
     [JsonSerializable(typeof(DatasetPsfNoiseReport.SessionPsf))]
-    [JsonSourceGenerationOptions(WriteIndented = false)]
+    [JsonSourceGenerationOptions(WriteIndented = false, NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals)]
     internal partial class DatasetPsfJsonContext : JsonSerializerContext;
 }

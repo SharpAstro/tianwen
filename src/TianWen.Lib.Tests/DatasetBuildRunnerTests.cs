@@ -569,6 +569,88 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// The measure-only pass (<c>RemeasureSubs</c>) gives an existing record's subs an identity by
+        /// re-reading the lights and nothing else: nothing registers, the master's fields carry over
+        /// byte for byte, and the record says its subs are now the gate's survivors. Beside it, a record
+        /// written by a fresh run already carries the identity, aligned with its widths, so the pass is
+        /// for the archive's older records and not a step every build needs.
+        /// </summary>
+        [Fact]
+        public async Task Run_RemeasureSubs_RewritesThePerSubArraysWithoutRegistering_AndKeepsTheMastersFields()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var root = Path.Combine(_dir, "subs-archive");
+            var m42 = Path.Combine(root, "M42", "LIGHT");
+            Directory.CreateDirectory(m42);
+            Directory.CreateDirectory(Path.Combine(root, "DARK"));
+            RgbBayerSyntheticFixture.WriteSyntheticLights(m42);
+            RgbBayerSyntheticFixture.WriteSyntheticDarks(Path.Combine(root, "DARK"));
+
+            var outDir = Path.Combine(_dir, "subs-out");
+            var options = new DatasetBuildOptions
+            {
+                ArchiveRoots = [root],
+                OutputDir = outDir,
+                MinExposure = TimeSpan.FromSeconds(0.5),
+                MaxExposure = TimeSpan.FromMinutes(5),
+                MinSubsPerSession = 4,
+                TileSize = 64,
+                CellsPerSession = 20,
+                SubsPerCell = 3,
+            };
+
+            var first = await DatasetBuildRunner.RunAsync(options, cancellationToken: ct);
+            first.Registered.ShouldBe(1);
+            var prior = (await DatasetPsfStore.ReadAsync(first.PsfStorePath, null, ct)).Values.Single();
+
+            // A fresh record carries the identity already, aligned with the widths, and names the
+            // registered set as what the arrays describe.
+            prior.SubSelection.ShouldBe(DatasetPsfNoiseReport.SubsRegistered);
+            prior.SubFile.ShouldNotBeNull();
+            prior.SubFile.Length.ShouldBe(prior.SubFwhm.Length);
+            prior.SubEpochUtc.ShouldNotBeNull();
+            prior.SubEpochUtc.Length.ShouldBe(prior.SubFwhm.Length);
+            prior.SubAirmass.ShouldNotBeNull();
+            prior.SubAirmass.Length.ShouldBe(prior.SubFwhm.Length);
+            prior.SubFile.ShouldAllBe(f => File.Exists(f), "each sub names the light it was measured on");
+            // The synthetic lights carry no site and no target, so the air mass is unknown, not a number.
+            prior.SubAirmass.ShouldAllBe(a => float.IsNaN(a));
+
+            var subs = await DatasetBuildRunner.RunAsync(
+                options with { Resume = true, RemeasureSubs = true }, cancellationToken: ct);
+            subs.PsfSubsRemeasured.ShouldBe(1);
+            subs.Registered.ShouldBe(0, "the measure-only pass registers nothing");
+            subs.PsfRemeasured.ShouldBe(0, "and it is not a master re-measure");
+
+            var after = (await DatasetPsfStore.ReadAsync(subs.PsfStorePath, null, ct)).Values.Single();
+            after.SubSelection.ShouldBe(DatasetPsfNoiseReport.SubsGateSurvivors);
+            after.SubFile.ShouldNotBeNull();
+            after.SubFile.Length.ShouldBe(after.SubFwhm.Length);
+            after.SubFile.Length.ShouldBeGreaterThan(0);
+            // Every light the fixture writes registers, so the survivors ARE the registered set here and
+            // the same frame measures the same width on the same pixels through the same analyzer.
+            after.SubFile.OrderBy(f => f, StringComparer.Ordinal).ShouldBe(prior.SubFile.OrderBy(f => f, StringComparer.Ordinal));
+            for (var i = 0; i < after.SubFile.Length; i++)
+            {
+                var j = Array.IndexOf(prior.SubFile, after.SubFile[i]);
+                after.SubFwhm[i].ShouldBe(prior.SubFwhm[j]);
+                after.SubEpochUtc![i].ShouldBe(prior.SubEpochUtc[j]);
+            }
+
+            // Carried over, never re-derived: the master did not change.
+            after.MasterNoiseRelative.ShouldBe(prior.MasterNoiseRelative);
+            after.MasterStrategy.ShouldBe(prior.MasterStrategy);
+            after.OpticalTrain.ShouldBe(prior.OpticalTrain);
+            after.RadiusSampling.ShouldBe(prior.RadiusSampling);
+
+            // The two passes are separate by construction.
+            await Should.ThrowAsync<ArgumentException>(() => DatasetBuildRunner.RunAsync(
+                options with { Resume = true, RemeasureSubs = true, ForcePsfRemeasure = true }, cancellationToken: ct));
+
+            output.WriteLine($"subs re-measure: {subs.PsfSubsRemeasured} session(s), {after.SubFile.Length} subs, selection {after.SubSelection}");
+        }
+
+        /// <summary>
         /// A resumed run must not narrow the PSF/noise report. It used to: the report was in-memory
         /// derived state rewritten at the end of every run, so resuming an archive where only one
         /// session needed work replaced a whole-archive report with a one-session one, and the rest

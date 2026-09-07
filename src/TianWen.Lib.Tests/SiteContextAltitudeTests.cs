@@ -80,4 +80,42 @@ public class SiteContextAltitudeTests
         double.IsNaN(alt).ShouldBeFalse();
         alt.ShouldBe(90.0, tolerance: 1e-9);
     }
+
+    // SiteContext.Airmass is the one air-mass computation the dataset reports use, per master
+    // (gradient report) and per sub (the archive's FWHM-against-airmass measurement), so its
+    // geometry is pinned here beside the altitude it is derived from.
+
+    [Fact]
+    public void AirmassAtTheZenithIsOneAndAtSixtyDegreesZenithDistanceIsTwo()
+    {
+        // A target on the meridian (RA = LST) at the site's own declination is overhead; sixty
+        // degrees south of that on the meridian sits at altitude 30, where sec z is exactly 2.
+        var lst = SiteContext.ComputeLST(Epoch, Lon);
+        SiteContext.Airmass(Epoch, Lat, Lon, lst, Lat).ShouldBe(1.0, tolerance: 1e-6);
+        SiteContext.Airmass(Epoch, Lat, Lon, lst, Lat - 60.0).ShouldBe(2.0, tolerance: 1e-6);
+    }
+
+    [Fact]
+    public void AirmassBelowTheHorizonIsUnknownNotClamped()
+    {
+        // The clamp at five degrees is for a target barely up; a target ten degrees UNDER the horizon
+        // has no air mass, and reporting the clamped 11.5 there would read as a legitimate, very deep
+        // observation in a per-sub table.
+        var lst = SiteContext.ComputeLST(Epoch, Lon);
+        SiteContext.Airmass(Epoch, Lat, Lon, lst, Lat - 100.0).ShouldBe(double.NaN);
+        SiteContext.AirmassFromAltitude(2.0).ShouldBe(SiteContext.AirmassFromAltitude(5.0));
+        SiteContext.AirmassFromAltitude(5.0).ShouldBe(1.0 / Math.Sin(5.0 * Math.PI / 180.0), tolerance: 1e-12);
+    }
+
+    [Fact]
+    public void AirmassWithAnyUnknownInputIsUnknown()
+    {
+        var lst = SiteContext.ComputeLST(Epoch, Lon);
+        SiteContext.Airmass(Epoch, double.NaN, Lon, lst, Lat).ShouldBe(double.NaN);
+        SiteContext.Airmass(Epoch, Lat, double.NaN, lst, Lat).ShouldBe(double.NaN);
+        SiteContext.Airmass(Epoch, Lat, Lon, double.NaN, Lat).ShouldBe(double.NaN);
+        SiteContext.Airmass(Epoch, Lat, Lon, lst, double.NaN).ShouldBe(double.NaN);
+        // A header with no DATE-OBS parses to an epoch far in the past; that is "unknown", not year 1.
+        SiteContext.Airmass(new DateTimeOffset(1, 1, 1, 0, 0, 0, TimeSpan.Zero), Lat, Lon, lst, Lat).ShouldBe(double.NaN);
+    }
 }

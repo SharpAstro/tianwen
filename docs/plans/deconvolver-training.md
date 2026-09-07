@@ -718,15 +718,30 @@ TIANWEN_ORACLE_MASTERS=6 TIANWEN_ORACLE_ITERS=60 dotnet test TianWen.Lib.Tests \
 # E1 / H1, the iteration sweep that picked 60. ~22 min; reads 5..120 off ONE run per combination.
 TIANWEN_ORACLE_MASTERS=3 dotnet test TianWen.Lib.Tests \
   --filter "FullyQualifiedName~ReportWhereTheIterationCountStopsHelping" --logger "console;verbosity=detailed"
+
+# E1b / H11, the ESTIMATED-kernel ceiling: every listed arm runs on the same observed frame, in parallel,
+# and the summary pairs each estimated arm against exact row by row. ~1 h at 60 iterations including
+# the whole-frame fallback fits. Release, because the direct convolution is the cost.
+TIANWEN_ORACLE_MASTERS=6 TIANWEN_ORACLE_ITERS=60 TIANWEN_ORACLE_KERNEL=exact,estimated,estimated-shape \
+  dotnet test TianWen.Lib.Tests -c Release \
+  --filter "FullyQualifiedName~ReportHowMuchOfAKnownBlurAnOracleRecovers" --logger "console;verbosity=detailed"
+
+# E2.9, the per-sub identity and air mass: the measure stage alone over every recorded session of the
+# bake (~2 min a session, ~2.5 h for 79), then the readout. From the repo root, in pwsh; the launcher
+# builds Release, refuses a binary that is not HEAD, runs detached and writes bake-provenance.json.
+./tools/run-dataset-bake.ps1 -Out D:/Astro-Dataset/2026-09-full `
+  -ArchiveRoot D:/Astro-Organized/lights,D:/Astro-Organized/flats,D:/Astro-Organized/calibration,D:/Astro-Unsorted `
+  -ScratchRoot C:/temp/tianwen-bake-scratch--2026-09-full -ExtraArgs '--resume','--remeasure-subs'
+python tools/psf-airmass-report.py D:/Astro-Dataset/2026-09-full --png C:/temp/e2/e29-fwhm-airmass.png
 ```
 
-**Two things the raw output does not give you.** The ceiling probe prints per-row detail and bins by
-psf01, which E1 found to be the wrong axis; the tables in this plan are re-aggregated by BLUR RATIO
-(`blurred / truth`) from those rows, and the per-cell fits behind E0 come from parsing
+**One thing the raw output does not give you.** The per-cell fits behind E0 come from parsing
 `stats/psf-sessions.jsonl` directly (`MasterProfiles[]` per channel, filter = the 4th `|`-delimited
-field of `SessionId`, rows with `MoffatBeta > 20` dropped as railed). Both are small scripts, not
-committed, and a re-run should redo them from the stored output rather than trusting a remembered
-number.
+field of `SessionId`, rows with `MoffatBeta > 20` dropped as railed); that is a small script, not
+committed, and a re-run should redo it from the stored output rather than trusting a remembered
+number. (The ceiling probe used to bin by psf01, which E1 found to be the wrong axis, and the tables
+below were re-aggregated by BLUR RATIO with a second uncommitted script; since E1b the probe prints
+that aggregation itself, in the plan's own bands.)
 
 **Captured output from the 2026-09-06 runs**, kept for comparison rather than as an input:
 `C:/temp/e2/psf-encoding-spread.txt`, `oracle-ceiling.txt` (30 iterations), `oracle-ceiling-60.txt`,

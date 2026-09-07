@@ -256,6 +256,28 @@ public sealed record DatasetBuildOptions
     public bool ForcePsfRemeasure { get; init; }
 
     /// <summary>
+    /// Re-run the MEASURE stage alone for every exported session that already has a record, and
+    /// rewrite that record's per-sub arrays: the widths, and the per-sub identity (file, epoch, computed
+    /// air mass, header air mass) that records written before 2026-09-07 do not carry. The master-derived
+    /// fields are carried over from the prior record untouched, because the master has not changed.
+    ///
+    /// <para><b>Why a third switch.</b> <see cref="ForcePsfRemeasure"/> re-measures the MASTER, cheaply
+    /// from the retained file, and can only carry the sub arrays through, since a master cannot say
+    /// which frames made it; giving the subs an identity therefore needs the frames read again, and the
+    /// full re-registration that implies costs about ten minutes a session against about two for the
+    /// measure stage (measured over the 2026-09-full bake: 112 s a session, 147 minutes for 79, against
+    /// 13.3 hours). This runs only that stage.</para>
+    ///
+    /// <para>The subs it describes are the quality gate's SURVIVORS, not the registered set (the record
+    /// says so in <c>SessionPsf.SubSelection</c>); which survivors would have failed to register is
+    /// exactly the expensive half this skips. Sessions with no record are left alone (that is
+    /// <see cref="RegenPsfForExportedSessions"/>'s job), and it is refused together with
+    /// <see cref="ForcePsfRemeasure"/>: run them as two passes, subs first, so the forced master
+    /// re-measure has an identity to carry.</para>
+    /// </summary>
+    public bool RemeasureSubs { get; init; }
+
+    /// <summary>
     /// Re-render the PSF/noise report from <see cref="DatasetPsfStore"/> and stop. No archive scan,
     /// no registration, no export; nothing is measured and no tile is touched.
     ///
