@@ -219,7 +219,8 @@ public class SeeingSplitDiagnosticProbe(ITestOutputHelper output)
         var calibrator = new Calibrator(Dark: dark, Flat: flat);
         output.WriteLine($"calibration: dark {(dark is null ? "none" : "120s -5C g120")}, flat {(flat is null ? "none" : "7s 10C L-QuadEnhance g120")}; detection snr 5, min stars 2000 (the pipeline's)");
 
-        var refStars = await DetectAsync(referencePath, calibrator, ct);
+        var (refStars, refCalibrated) = await DetectAsync(referencePath, calibrator, ct);
+        refCalibrated.Release();
         using var refSorted = new SortedStarList(refStars);
         output.WriteLine($"reference {Path.GetFileName(referencePath)}: {refStars.Count} detections");
         output.WriteLine($"{"frame",-44} {"manifest t",15} {"stars",5} | {"raw pairs",9} {"unmoved",7} {"moved at",22} | {"bulk t",15} {"refined t",15} {"pairs",5} {"rms",5} | {"unmoved removed",15} {"pairs",5} {"rms",5}");
@@ -230,7 +231,8 @@ public class SeeingSplitDiagnosticProbe(ITestOutputHelper output)
                 continue;
             }
 
-            var stars = await DetectAsync(path, calibrator, ct);
+            var (stars, calibrated) = await DetectAsync(path, calibrator, ct);
+            calibrated.Release();
             using var lightSorted = new SortedStarList(stars);
 
             // (a) Nearest-neighbour pairing with NO transform inside the refiner's 5 px: the residuals
@@ -283,20 +285,212 @@ public class SeeingSplitDiagnosticProbe(ITestOutputHelper output)
     private static Image? LoadMaster(string path)
         => File.Exists(path) && Image.TryReadFitsFile(path, out var image) ? image : null;
 
-    private static async Task<StarList> DetectAsync(string path, Calibrator calibrator, CancellationToken ct)
+    /// <summary>
+    /// The signature that would let the detector refuse the unmoved detections at the source. For each
+    /// near6 frame against the reference, every detection is classed by the reference pairing (unmoved:
+    /// a reference detection within 0.35 px of the same raw position while the bulk affine moved it by
+    /// more than 0.7; moved: paired within 1 px after the bulk affine) and measured on the CALIBRATED
+    /// MOSAIC as the fraction of its background-subtracted 3 by 3 flux that the peak photosite carries.
+    /// The detector's own HFD, FWHM and SNR are printed beside it, to see whether any of them separates
+    /// the two populations already. Pre-registered in the plan (E2.10a, "the third finding placed").
+    /// </summary>
+    [Fact]
+    public async Task ReportTheSinglePhotositeSignatureOfTheUnmovedDetections()
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable("TIANWEN_E210_DIAG") == "1", "TIANWEN_E210_DIAG is not 1");
+        var pairDir = Environment.GetEnvironmentVariable("TIANWEN_E210_PAIR_DIR");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(pairDir), "TIANWEN_E210_PAIR_DIR not set");
+        var manifestPath = Directory.GetFiles(pairDir!, "master_*-near6.manifest.json").FirstOrDefault();
+        Assert.SkipWhen(manifestPath is null, "no near6 manifest");
+        var ct = TestContext.Current.CancellationToken;
+
+        using var manifest = System.Text.Json.JsonDocument.Parse(File.ReadAllText(manifestPath!));
+        var referencePath = manifest.RootElement.GetProperty("ReferencePath").GetString() ?? "";
+        var paths = manifest.RootElement.GetProperty("Frames").EnumerateArray()
+            .Select(f => f.GetProperty("Path").GetString() ?? "")
+            .Where(p => p.Length > 0)
+            .ToList();
+        Assert.SkipWhen(!paths.Any(p => p.Equals(referencePath, StringComparison.OrdinalIgnoreCase)), "manifest lacks the reference");
+
+        var mastersDir = Path.Combine(pairDir!, "masters");
+        var calibrator = new Calibrator(
+            Dark: LoadMaster(Path.Combine(mastersDir, "master_dark_120s_-5C_g120.fits")),
+            Flat: LoadMaster(Path.Combine(mastersDir, "master_flat_7s_10C_OptolongL-QuadEnhance_g120_ps.fits")));
+
+        var (refStars, refCalibrated) = await DetectAsync(referencePath, calibrator, ct);
+        refCalibrated.Release();
+        using var refSorted = new SortedStarList(refStars);
+        var refX = refSorted.Select(s => s.XCentroid).ToArray();
+        var refY = refSorted.Select(s => s.YCentroid).ToArray();
+        output.WriteLine($"reference {Path.GetFileName(referencePath)}: {refStars.Count} detections; peak fraction = (peak photosite - background) / sum of the positive background-subtracted 3x3 about it, on the calibrated mosaic");
+        output.WriteLine($"{"frame",-44} {"unmoved",7} {"moved",5} | {"peak fraction p10/p50/p90, unmoved",34} {"moved",20} | {"share over 0.85 / 0.70 / 0.60: unmoved",40} {"moved",20} | {"hfd p50 u/m",12} {"fwhm p50 u/m",13} {"snr p50 u/m",12}");
+        foreach (var path in paths)
+        {
+            if (path.Equals(referencePath, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var (stars, calibrated) = await DetectAsync(path, calibrator, ct);
+            try
+            {
+                var (_, width, height) = calibrated.Shape;
+                var plane = FullPlane(calibrated, 0);
+                using var lightSorted = new SortedStarList(stars);
+                var (solution, _, _) = await FrameRegistration.TryMatchAsync(lightSorted, refSorted, FrameRegistration.DefaultQuadStars);
+                var name = Path.GetFileName(path);
+                if (solution is not { } bulk)
+                {
+                    output.WriteLine($"{name[..Math.Min(44, name.Length)],-44} no quad fit");
+                    continue;
+                }
+
+                var unmoved = new List<(float Pf, ImagedStar S)>();
+                var moved = new List<(float Pf, ImagedStar S)>();
+                foreach (var s in stars)
+                {
+                    var raw = new Vector2(s.XCentroid, s.YCentroid);
+                    var predicted = Vector2.Transform(raw, bulk);
+                    var pf = PeakPhotositeFraction(plane, width, height, s.XCentroid, s.YCentroid);
+                    if (float.IsNaN(pf))
+                    {
+                        continue;
+                    }
+
+                    if (NearestDistance(refX, refY, raw) <= RegistrationRefiner.UnmovedTolerancePx
+                        && Vector2.Distance(predicted, raw) > 2f * RegistrationRefiner.UnmovedTolerancePx)
+                    {
+                        unmoved.Add((pf, s));
+                    }
+                    else if (NearestDistance(refX, refY, predicted) <= 1.0f)
+                    {
+                        moved.Add((pf, s));
+                    }
+                }
+
+                static string Percentiles(List<(float Pf, ImagedStar S)> set)
+                {
+                    if (set.Count == 0)
+                    {
+                        return "n/a";
+                    }
+
+                    var v = set.Select(t => (double)t.Pf).OrderBy(x => x).ToList();
+                    return $"{Percentile(v, 0.1):F2}/{Percentile(v, 0.5):F2}/{Percentile(v, 0.9):F2}";
+                }
+
+                static string Shares(List<(float Pf, ImagedStar S)> set)
+                    => set.Count == 0 ? "n/a" : $"{set.Count(t => t.Pf > 0.85f) / (float)set.Count:F2} / {set.Count(t => t.Pf > 0.70f) / (float)set.Count:F2} / {set.Count(t => t.Pf > 0.60f) / (float)set.Count:F2}";
+
+                static double P50(List<(float Pf, ImagedStar S)> set, Func<ImagedStar, float> pick)
+                    => set.Count == 0 ? double.NaN : Percentile(set.Select(t => (double)pick(t.S)).OrderBy(x => x).ToList(), 0.5);
+
+                output.WriteLine($"{name[..Math.Min(44, name.Length)],-44} {unmoved.Count,7} {moved.Count,5} | {Percentiles(unmoved),34} {Percentiles(moved),20} | {Shares(unmoved),40} {Shares(moved),20} | {P50(unmoved, s => s.HFD),5:F2}/{P50(moved, s => s.HFD),5:F2} {P50(unmoved, s => s.StarFWHM),6:F2}/{P50(moved, s => s.StarFWHM),5:F2} {P50(unmoved, s => s.SNR),5:F0}/{P50(moved, s => s.SNR),5:F0}");
+            }
+            finally
+            {
+                calibrated.Release();
+            }
+        }
+    }
+
+    private static float NearestDistance(float[] xs, float[] ys, Vector2 p)
+    {
+        var bestSq = float.MaxValue;
+        for (var j = 0; j < xs.Length; j++)
+        {
+            var dx = xs[j] - p.X;
+            var dy = ys[j] - p.Y;
+            var sq = (dx * dx) + (dy * dy);
+            if (sq < bestSq)
+            {
+                bestSq = sq;
+            }
+        }
+
+        return MathF.Sqrt(bestSq);
+    }
+
+    /// <summary>The share of a detection's background-subtracted 3 by 3 flux carried by its peak
+    /// photosite, on the raw mosaic: near 1 for a single warm photosite, well under that for a star
+    /// sampled over several. Background is the median of the 9 by 9 ring outside the 5 by 5.</summary>
+    private static float PeakPhotositeFraction(float[] plane, int width, int height, float xc, float yc)
+    {
+        var cx = (int)MathF.Round(xc);
+        var cy = (int)MathF.Round(yc);
+        if (cx < 5 || cy < 5 || cx >= width - 5 || cy >= height - 5)
+        {
+            return float.NaN;
+        }
+
+        var ring = new List<float>(56);
+        for (var dy = -4; dy <= 4; dy++)
+        {
+            for (var dx = -4; dx <= 4; dx++)
+            {
+                if (Math.Abs(dx) > 2 || Math.Abs(dy) > 2)
+                {
+                    var v = plane[((cy + dy) * width) + cx + dx];
+                    if (!float.IsNaN(v))
+                    {
+                        ring.Add(v);
+                    }
+                }
+            }
+        }
+
+        if (ring.Count == 0)
+        {
+            return float.NaN;
+        }
+
+        ring.Sort();
+        var bg = ring[ring.Count / 2];
+
+        // The peak photosite within the 3x3 about the centroid (a centroid can sit between photosites),
+        // then the 3x3 about IT.
+        var px = cx;
+        var py = cy;
+        var peak = float.MinValue;
+        for (var dy = -1; dy <= 1; dy++)
+        {
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                var v = plane[((cy + dy) * width) + cx + dx];
+                if (v > peak)
+                {
+                    peak = v;
+                    px = cx + dx;
+                    py = cy + dy;
+                }
+            }
+        }
+
+        var sum = 0f;
+        for (var dy = -1; dy <= 1; dy++)
+        {
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                var v = plane[((py + dy) * width) + px + dx] - bg;
+                if (v > 0f)
+                {
+                    sum += v;
+                }
+            }
+        }
+
+        return sum > 0f ? (peak - bg) / sum : float.NaN;
+    }
+
+    /// <summary>The pipeline's detection on a sub: calibrate, detect on the mosaic through the mono path.
+    /// The caller releases the calibrated frame (the raw one is consumed by the calibrator).</summary>
+    private static async Task<(StarList Stars, Image Calibrated)> DetectAsync(string path, Calibrator calibrator, CancellationToken ct)
     {
         Image.TryReadFitsFile(path, out var raw).ShouldBeTrue(path);
         var calibrated = calibrator.Apply(raw!);
-        try
-        {
-            var (stars, debayered) = await FrameRegistration.DetectAsync(calibrated, DebayerAlgorithm.VNG, 5f, 2000, ct);
-            debayered.Release();
-            return stars;
-        }
-        finally
-        {
-            calibrated.Release();
-        }
+        var (stars, debayered) = await FrameRegistration.DetectAsync(calibrated, DebayerAlgorithm.VNG, 5f, 2000, ct);
+        debayered.Release();
+        return (stars, calibrated);
     }
 
     private static List<Vector2> NearestResiduals(SortedStarList light, SortedStarList reference, Matrix3x2 transform, float tolerancePx)

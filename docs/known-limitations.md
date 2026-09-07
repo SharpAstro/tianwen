@@ -653,6 +653,51 @@ mosaic detections' positions (no second detection), filled by `--remeasure-subs`
 OSC subs on nothing in the store, and treat a per-channel width on a debayered OSC sub as a property
 of the interpolation (AHD and VNG disagree by two on red).
 
+**Corrected 2026-09-07 evening: the 1.70 is not the mono path's floor.** The unmoved detections of
+that night (residual warm pixels, half of every list) read FWHM 1.69 to 1.71 and HFD 1.70 to 1.71 on
+the mono plane, the stars 2.55 to 2.86 and 3.38 to 3.75; a median over such a list is the warm pixels'
+width, and that is what the store, the estimator and the gate reported for every sub. The mono path
+reads a star's width, widened by the fold; it is the LIST that is wrong (two entries down). The
+`SubFwhmGreen` column exists now, and its fit refuses on exactly the sessions whose lists are half warm
+pixels, so the owed item is the detector guard, not another column.
+
+### FIXED: the registration refiner averaged sensor-fixed detections into the shift, halving it under 5 px of drift (2026-09-07)
+
+`RegistrationRefiner` closes the sub-pixel residual the quad match leaves by pairing each detection
+with its nearest reference detection within 5 px and fitting a Procrustes over the pairs. A detection
+fixed to the sensor (a residual warm pixel: the Orion 2025-10-15 group's dark was a -5 C one under
+12 C lights, and the 2000-star retry lowers the detection threshold until it reaches them) is in both
+lists at the same raw position, so under the bulk affine it pairs with its own copy at a residual of
+minus the frame's drift, and a least-squares fit over stars and copies together lands between them.
+With half the list warm pixels the refined shift was half the bulk one on every frame within 5 px of
+the reference (frame 0036: -1.72 px for a true -3.57), the refine RMS read 0.9 to 1.9 px where it
+should read 0.3, and every stack of the night sat at 2.7 px on green from subs of 1.7 to 2.5: a sum of
+frames each misplaced by half its own drift, which grows with the frame count and looked like a
+resampling cost. The bulk quad solution (RANSAC over the brightest quads) was right throughout.
+
+Fixed by `UnmovedTolerancePx`: a pair whose raw positions coincide within 0.35 px while the bulk
+affine moved the detection by more than 0.7 px is dropped and counted (`N unmoved dropped` in the
+register log). **What remains:** a frame that drifted under 0.7 px cannot be separated by position,
+keeps them, and is biased by up to half its drift; and the count is a calibration diagnostic in its own
+right (hundreds a frame mean the dark did not match). The measurement, the three probes and the
+pre-registered validation: `docs/plans/deconvolver-training.md`, E2.10a, "the third finding placed".
+Every master stacked before the fix from a well-guided night with residual warm pixels carries this
+blur, the retained dataset masters included.
+
+### A single warm photosite passes the star detector on an OSC mosaic
+
+On an RGGB frame `Image.FindStarsAsync` measures on a `BilinearMono` fold of the mosaic, which turns one
+hot photosite into a 2 by 2 blob of a quarter of its excess; that blob has an HFD near 1 px and passes
+the detector's size floor (`HFD > 0.8`, "at least 2 pixels in size"), so a residual warm pixel is a star
+to every consumer of the list: the registration (fixed above, downstream of it), the quality gate's HFD
+and FWHM medians and the reference pick, the PSF store's per-sub fit (`SubFwhmGreen` refused on 0 of
+60, 78 and 84 subs of the three warmest SV605CC sessions, against 42 to 100 percent elsewhere), and
+the plate solver's candidate list. The 2000-star retry makes it worse: on a field with 700 real stars
+it lowers the threshold until warm pixels fill the list. **Owed:** a guard in the RGGB branch of
+`DetectStarsAsync` on the raw mosaic (a detection whose flux sits in one photosite is not a star),
+pre-registered and measured on the Orion night's moved and unmoved populations before it ships,
+because it touches every consumer of the star list and the fixtures pin star counts.
+
 ## GPU / rendering
 
 ### Dangling stack pointer via single-argument Vortice ctors

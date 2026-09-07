@@ -883,7 +883,9 @@ Three findings, in order of reach. **First, the store's per-sub width is not a s
 frame.** `FrameRegistration.DetectAsync` measures on the pre-debayer mosaic through the mono path,
 for registration reasons the code documents, and that measure reads 1.70 on every sub here, the
 sharp ones and the frame that both debayers put at 2.8 to 2.9; the store's spread from 1.71 to 2.60 is
-that floor plus what the 2000-star retry does to a median, not seeing. E2.9's slopes and E2.10's
+that floor plus what the 2000-star retry does to a median, not seeing (corrected the same evening: the
+1.70 is the warm pixels' own width dominating the median, not a floor of the mono path; the photosite
+measurement below has the numbers). E2.9's slopes and E2.10's
 candidate list were both computed on it, so E2.9 is withdrawn to inconclusive (its section says so)
 and the candidate list is unreliable; the ranking here put the night's softest frame in the sharp
 third. **Second, the subs DO differ on the green plane**, by 1.15 to 1.25x on the bright-star fit
@@ -941,7 +943,35 @@ with a bias bounded by half its own drift. Pinned by `RegistrationRefinerTests`.
 a single warm photosite as a star (the mono fold turns it into a 2 by 2 blob that passes the size
 floor) is the cause one level down and is recorded as owed: it also refuses the green profile fit on
 the three warmest SV605CC sessions (0 of 60, 78 and 84 subs fitted, against 42 to 100 percent
-elsewhere) and feeds the quality gate's medians and the reference pick.
+elsewhere) and feeds the quality gate's medians and the reference pick. *Its measurement,
+pre-registered* (`ReportTheSinglePhotositeSignatureOfTheUnmovedDetections`): on the same five frames,
+each detection classed by the reference pairing (unmoved, or moved and paired within 1 px after the
+bulk affine) and measured on the calibrated mosaic as the fraction of its background-subtracted 3 by 3
+flux that the peak photosite carries, beside the detector's own HFD, FWHM and SNR. *Prediction:* the
+unmoved population reads above 0.85 on nine in ten and the moved below 0.6 on nine in ten, so one
+threshold on the mosaic separates them; the detector's HFD does not (both populations straddle 1.0 to
+1.5 px), which is why the size floor let them through. *Kill:* more than one in ten of either
+population on the wrong side of every threshold between 0.6 and 0.85. Then a per-frame photosite test
+cannot carry the guard and it needs persistence across frames instead.
+
+**Measured the same evening (`C:/temp/e2/e210-photosite-signature.txt`): the prediction held on the
+mosaic and failed, in the useful direction, on the detector's own width.** On all five frames the
+unmoved population reads a peak fraction of 0.92 / 0.97 / 0.99 at p10 / p50 / p90 and the moved 0.15 to
+0.18 / 0.28 to 0.31 / 0.37 to 0.41; 98 to 99 percent of the unmoved are over 0.85 and none of the moved
+is over 0.60, so any threshold from 0.45 to 0.85 separates them completely (377 to 742 unmoved against
+430 to 650 moved a frame). The detector's HFD and FWHM separate them too, which the prediction denied:
+every unmoved detection reads FWHM 1.69 to 1.71 and HFD 1.70 to 1.71 on the mono plane, the stars 2.55
+to 2.86 and 3.38 to 3.75. That 1.70 is the number the store, the estimator and the quality gate
+reported for every sub of this night: not the mono path's floor, as the first finding above and
+`docs/known-limitations.md` said until this evening, but the warm pixels' own width (a single photosite
+folded into a 2 by 2 blob) dominating a median over a list half made of them; the mono path reads a
+star's width, widened by the fold. A size floor at 2 px would clear this night and fail a finer-sampled
+one, so the guard is the photosite fraction, with two caveats the measurement leaves: a faint spike near
+the detection threshold has noise in its eight neighbours that lowers its fraction (to about 0.6 at an
+SNR of 5; this population's median SNR is 59 to 92, the stars' 110 to 184), and an undersampled star on
+the 6 arcsec trains can reach 0.65 to 0.75 when centred on a photosite. So the threshold sits at 0.85,
+and the faint tail is the 2000-star retry's to stop pulling in. The guard itself (task 17) is the next
+detector change, pre-registered against the star-detection fixtures and the three sessions' fit fractions.
 
 *Validation, pre-registered before the run.* The whole night stacked again with the fix
 (Float16Staged, reference pinned to frame 0033), its manifest split to the same six frames and those

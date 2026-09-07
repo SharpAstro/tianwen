@@ -182,6 +182,20 @@ an autocrop moves it by its offset (`ForCrop`), and a master written before the 
 none (SharpCap writes no site cards), used only where the header is silent and recorded on the
 session (`SessionPsf.SubSiteFromFallback`), so the per-sub air mass exists for those sessions too.
 
+**The registration's rigid refiner no longer averages sensor-fixed detections into a frame's shift.**
+A residual warm pixel (a dark colder than its lights leaves them) sits at the same sensor position in
+every frame and passes the star detector; the refiner paired each one with its own copy in the
+reference inside its 5 px tolerance, and its least-squares fit landed between the stars and them. On a
+night whose star lists were half warm pixels, every frame within 5 px of the reference was placed at
+HALF its drift, reproduced to the hundredth of a pixel, and every stack of it sat at 2.7 px on green
+from subs of 1.7 to 2.5, the blur growing with the frame count as if resampling cost it. A pair whose
+raw positions coincide while the bulk affine moved the detection by more than 0.7 px is now dropped and
+counted ("N unmoved dropped" in the register log; hundreds a frame say the calibration left the defects
+in). A frame drifting under 0.7 px cannot be separated this way and keeps them, with a bias bounded by
+half its own drift. Pinned by `RegistrationRefinerTests`; the measurement is in
+`docs/plans/deconvolver-training.md` (E2.10a, "the third finding placed"). Masters stacked before this
+from a well-guided night with residual warm pixels carry the blur, the retained dataset masters included.
+
 ## 7.0
 
 Two releases: `v7.0.1513` on 2026-09-04 and `v7.0.1532` on 2026-09-06, the second carrying 60 more
