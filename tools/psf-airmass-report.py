@@ -51,14 +51,28 @@ def _finite(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v > 0
 
 
-def finite_pairs(record, source="computed"):
+def sub_widths(record, width):
+    """The per-sub width to fit, and which column it came from. `green` is SubFwhmGreen, the debayered
+    green plane's bright-star fit, the one that reads seeing; `mosaic` is SubFwhm, the registration
+    detector's statistic on the pre-debayer mosaic, which on an OSC frame reads about 1.70 px whatever
+    the sky did, so a slope fitted on it is a slope of an instrument floor (the 2026-09-07 run's, since
+    withdrawn; docs/known-limitations.md). A record without the green column falls back to mosaic and
+    the table says so."""
+    green = record.get("SubFwhmGreen")
+    if width == "green" and green:
+        return green, "green"
+    return record.get("SubFwhm") or [], "mosaic"
+
+
+def finite_pairs(record, source="computed", width="green"):
     """(air mass, FWHM) per sub. `source` is which air mass: `computed` (SubAirmass, from the header's
     site and target, the pre-registered readout), `header` (the capture software's AIRMASS card), or
     `either` (computed where finite, else header). The 2026-09-07 run measured the two agreeing to a
     median 0.001 to 0.015 on 50 of the 52 sessions carrying both, which is what makes `either` a
     labelled extension rather than a substitution: SharpCap writes no site cards, so 27 sessions have
-    no computed value at all, and 21 of them carry the card."""
-    fwhm = record.get("SubFwhm") or []
+    no computed value at all, and 15 of them carry the card. `width` picks the FWHM column (see
+    sub_widths)."""
+    fwhm, _ = sub_widths(record, width)
     computed = record.get("SubAirmass") or []
     header = record.get("SubHeaderAirmass") or []
     n = len(fwhm)
@@ -117,6 +131,10 @@ def main():
                    help="which air mass to fit on: computed from the header's site and target (default, "
                         "the pre-registered readout), the capture software's AIRMASS card, or computed "
                         "where finite else the card (covers SharpCap sessions, which carry no site)")
+    p.add_argument("--width", choices=("green", "mosaic"), default="green",
+                   help="which per-sub width to fit: green (SubFwhmGreen, the debayered green plane's bright-star fit, "
+                        "the one that reads seeing; the default) or mosaic (SubFwhm, the registration detector's, which "
+                        "reads a 1.7 px floor on OSC frames). A record without the green column falls back to mosaic and is marked.")
     args = p.parse_args()
 
     store = os.path.join(args.outdir, "stats", "psf-sessions.jsonl")
@@ -126,12 +144,14 @@ def main():
           f"{sum(1 for r in records.values() if r.get('SubAirmass'))}; "
           f"selection: {dict(_count(r.get('SubSelection') or 'registered (pre-identity)' for r in records.values() if r.get('SubAirmass')))}")
     print(f"air mass: {args.airmass}" + (" (computed where finite, else the header AIRMASS card)" if args.airmass == "either" else ""))
+    print(f"width: {args.width}; records carrying SubFwhmGreen: {sum(1 for r in records.values() if r.get('SubFwhmGreen'))}")
     print()
 
     rows = []
     unfitted = []
     for sid, r in sorted(records.items()):
-        pairs = finite_pairs(r, args.airmass)
+        pairs = finite_pairs(r, args.airmass, args.width)
+        _, width_source = sub_widths(r, args.width)
         header = r.get("SubHeaderAirmass") or []
         n_header = sum(1 for h in header if isinstance(h, (int, float)) and math.isfinite(h))
         if len(pairs) < args.min_subs:
@@ -155,15 +175,16 @@ def main():
             "explained": explained, "observed": observed,
             "fwhm_p50": percentile(fw, 0.5), "header_n": n_header,
             "header_absdiff_p50": percentile(diffs, 0.5) if diffs else float("nan"),
+            "width": width_source,
         })
 
-    print(f"| session | train | filter | subs | slope b | airmass min-max | span | explained FWHM span | observed p90/p10 | FWHM p50 px | header AIRMASS n / abs diff p50 |")
-    print(f"|---|---|---|---:|---:|---|---:|---:|---:|---:|---|")
+    print(f"| session | train | filter | subs | slope b | airmass min-max | span | explained FWHM span | observed p90/p10 | FWHM p50 px | header AIRMASS n / abs diff p50 | width |")
+    print(f"|---|---|---|---:|---:|---|---:|---:|---:|---:|---|---|")
     for row in sorted(rows, key=lambda x: (x["train"], x["session"])):
         print(f"| {row['session'].split('|')[0][:40]} | {row['train'][:28]} | {row['filter'][:14]} | {row['subs']} | "
               f"{row['slope']:+.2f} | {row['am_min']:.2f}-{row['am_max']:.2f} | {row['am_span']:.2f}x | "
               f"{row['explained']:.3f}x | {row['observed']:.3f}x | {row['fwhm_p50']:.2f} | "
-              f"{row['header_n']} / {row['header_absdiff_p50']:.3f} |")
+              f"{row['header_n']} / {row['header_absdiff_p50']:.3f} | {row['width']} |")
     print()
 
     by_train = defaultdict(list)
@@ -189,7 +210,7 @@ def main():
             print(f"  {sid.split('|')[0][:50]:50} subs {n_sub:4d}  with airmass {n_pairs:4d}  header AIRMASS {n_header:4d}")
 
     if args.png:
-        _scatter(rows, records, args.png, args.airmass)
+        _scatter(rows, records, args.png, args.airmass, args.width)
 
 
 def _count(values):
@@ -199,7 +220,7 @@ def _count(values):
     return c
 
 
-def _scatter(rows, records, path, source):
+def _scatter(rows, records, path, source, width="green"):
     try:
         from PIL import Image, ImageDraw
     except ImportError:
@@ -213,7 +234,7 @@ def _scatter(rows, records, path, source):
     for sid, r in records.items():
         if sid not in fitted:
             continue
-        for a, f in finite_pairs(r, source):
+        for a, f in finite_pairs(r, source, width):
             pts.append((math.log10(a), math.log10(f), train_of(r)))
     if not pts:
         return

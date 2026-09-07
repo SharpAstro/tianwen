@@ -54,13 +54,26 @@ def finite(v):
     return isinstance(v, (int, float)) and math.isfinite(v)
 
 
-def session_subs(record):
-    """(file, fwhm) for every sub the record identifies, in store order."""
+def sub_widths(record, width):
+    """The per-sub width column to rank on, and which one it is. `green` is SubFwhmGreen, the
+    debayered green plane's bright-star fit, the one that reads seeing; `mosaic` is SubFwhm, the
+    registration detector's statistic on the pre-debayer mosaic, which on an OSC frame reads about
+    1.70 px whatever the sky did (found 2026-09-07 when a split ranked on it put the night's softest
+    frame in the sharp third; docs/known-limitations.md). A record without the green column falls
+    back to the mosaic and says so."""
+    green = record.get("SubFwhmGreen")
+    if width == "green" and green:
+        return green, "green"
+    return record.get("SubFwhm") or [], "mosaic"
+
+
+def session_subs(record, width="green"):
+    """(file, fwhm) for every sub the record identifies, in store order, plus which width column."""
     files = record.get("SubFile")
-    fwhm = record.get("SubFwhm") or []
+    fwhm, source = sub_widths(record, width)
     if not files or len(files) != len(fwhm):
-        return []
-    return [(f, w) for f, w in zip(files, fwhm) if f and finite(w) and w > 0]
+        return [], source
+    return [(f, w) for f, w in zip(files, fwhm) if f and finite(w) and w > 0], source
 
 
 def thirds(subs):
@@ -80,6 +93,10 @@ def main():
     p.add_argument("--session", default=None, help="a substring of the SessionId to split (with --manifest)")
     p.add_argument("--manifest", default=None, help="the full-session master_<slug>.manifest.json to split")
     p.add_argument("--out-dir", default=None, help="where the -sharp and -soft manifests go (default: beside the input)")
+    p.add_argument("--width", choices=("green", "mosaic"), default="green",
+                   help="which per-sub width to rank on: green (SubFwhmGreen, the debayered green plane's bright-star "
+                        "fit, the one that reads seeing; the default) or mosaic (SubFwhm, the registration detector's, "
+                        "which reads a 1.7 px floor on OSC frames). A record without the green column falls back to mosaic.")
     args = p.parse_args()
 
     store = os.path.join(args.outdir, "stats", "psf-sessions.jsonl")
@@ -87,7 +104,7 @@ def main():
 
     qualifying = []
     for sid, r in sorted(records.items()):
-        subs = session_subs(r)
+        subs, source = session_subs(r, args.width)
         if len(subs) < args.min_subs:
             continue
         widths = [w for _, w in subs]
@@ -95,18 +112,18 @@ def main():
         sharp, soft = thirds(subs)
         a = percentile([w for _, w in sharp], 0.5)
         b = percentile([w for _, w in soft], 0.5)
-        qualifying.append((sid, r.get("OpticalTrain", "?"), len(subs), ratio, a, b, r.get("SubSelection")))
+        qualifying.append((sid, r.get("OpticalTrain", "?"), len(subs), ratio, a, b, r.get("SubSelection"), source))
 
     print(f"store: {store}")
-    print(f"sessions: {len(records)}; with per-sub identity and >= {args.min_subs} subs: {len(qualifying)}")
+    print(f"sessions: {len(records)}; with per-sub identity and >= {args.min_subs} subs: {len(qualifying)}; width asked: {args.width}")
     print()
-    print(f"| session | train | subs | p90/p10 | sharp third p50 px | soft third p50 px | soft/sharp | qualifies (>= {args.min_ratio:.2f}) | subs are |")
-    print("|---|---|---:|---:|---:|---:|---:|---|---|")
+    print(f"| session | train | subs | p90/p10 | sharp third p50 px | soft third p50 px | soft/sharp | qualifies (>= {args.min_ratio:.2f}) | subs are | width |")
+    print("|---|---|---:|---:|---:|---:|---:|---|---|---|")
     n_q = 0
-    for sid, train, n, ratio, a, b, sel in sorted(qualifying, key=lambda t: -t[3]):
+    for sid, train, n, ratio, a, b, sel, source in sorted(qualifying, key=lambda t: -t[3]):
         q = ratio >= args.min_ratio
         n_q += q
-        print(f"| {sid.split('|')[0][:44]} | {train[:26]} | {n} | {ratio:.3f} | {a:.2f} | {b:.2f} | {b / a:.3f} | {'YES' if q else 'no'} | {sel or 'registered'} |")
+        print(f"| {sid.split('|')[0][:44]} | {train[:26]} | {n} | {ratio:.3f} | {a:.2f} | {b:.2f} | {b / a:.3f} | {'YES' if q else 'no'} | {sel or 'registered'} | {source} |")
     print()
     print(f"{n_q} session(s) reach p90/p10 >= {args.min_ratio:.2f}")
 
@@ -119,9 +136,12 @@ def main():
     if len(matches) != 1:
         sys.exit(f"--session '{args.session}' matches {len(matches)} record(s): {matches[:5]}")
     record = records[matches[0]]
-    subs = session_subs(record)
+    subs, source = session_subs(record, args.width)
     if len(subs) < args.min_subs:
         sys.exit(f"{matches[0]} identifies only {len(subs)} subs")
+    if args.width == "green" and source != "green":
+        sys.exit(f"{matches[0]} has no SubFwhmGreen column; a split on the mosaic width ranks on a floor (re-measure the subs first, or pass --width mosaic knowingly)")
+    print(f"  ranking on the {source} width")
 
     by_name = {}
     dupes = set()

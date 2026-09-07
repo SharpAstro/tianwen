@@ -351,6 +351,7 @@ public static class DatasetBuildRunner
                             priorPsf.SubFwhm, priorPsf.SubHfd, priorPsf.SubEllipticity,
                             priorPsf.MasterStrategy,
                             DatasetPsfNoiseReport.SubIdentity.From(priorPsf),
+                            subFwhmGreen: priorPsf.SubFwhmGreen,
                             logger: logger, cancellationToken: cancellationToken);
 
                         await DatasetPsfStore.AppendAsync(psfStorePath, remeasured, cancellationToken);

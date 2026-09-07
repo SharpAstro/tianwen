@@ -118,6 +118,7 @@ namespace TianWen.Lib.Tests
                 SubHeaderAirmass = [float.NaN, float.NaN, 1.30f],
                 SubSelection = DatasetPsfNoiseReport.SubsRegistered,
                 SubSiteFromFallback = true,
+                SubFwhmGreen = [1.92f, float.NaN, 2.45f],
             };
 
             await DatasetPsfStore.AppendAsync(path, written, ct);
@@ -128,6 +129,10 @@ namespace TianWen.Lib.Tests
             back.SubSelection.ShouldBe(DatasetPsfNoiseReport.SubsRegistered);
             back.SubSiteFromFallback.ShouldBe(true);
             plain.SubSiteFromFallback.ShouldBeNull("a record from before the column has no answer");
+            back.SubFwhmGreen.ShouldNotBeNull();
+            back.SubFwhmGreen[0].ShouldBe(1.92f);
+            float.IsNaN(back.SubFwhmGreen[1]).ShouldBeTrue("a refused fit stays NaN through the file");
+            plain.SubFwhmGreen.ShouldBeNull();
             DatasetPsfNoiseReport.SubIdentity.From(back).ShouldNotBeNull().UsedFallbackSite.ShouldBeTrue();
             back.SubAirmass.ShouldNotBeNull();
             back.SubAirmass.Length.ShouldBe(back.SubFwhm.Length);

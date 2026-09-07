@@ -170,6 +170,11 @@ public static class DatasetPsfNoiseReport
     /// before the column existed. SharpCap writes no <c>SITELAT</c>/<c>SITELONG</c>, which left 27 of 79
     /// sessions with no computed air mass at all (E2.9); a consumer that wants only header-sited values
     /// filters on this.</param>
+    /// <param name="SubFwhmGreen">Per sub, aligned: the bright-star profile fit's FWHM on the debayered
+    /// GREEN plane (<c>FrameMetrics.FitFwhmGreen</c>), NaN where the fit refused. <b>This is the per-sub
+    /// width that reads seeing</b>; <paramref name="SubFwhm"/> is the registration detector's statistic
+    /// on the pre-debayer mosaic, which on an OSC frame reads a floor of about 1.7 px whatever the sky
+    /// did (found 2026-09-07, E2.10a). Null on a record written before the column existed.</param>
     public sealed record SessionPsf(
         string SessionId,
         string OpticalTrain,
@@ -186,7 +191,8 @@ public static class DatasetPsfNoiseReport
         float[]? SubAirmass = null,
         float[]? SubHeaderAirmass = null,
         string? SubSelection = null,
-        bool? SubSiteFromFallback = null);
+        bool? SubSiteFromFallback = null,
+        float[]? SubFwhmGreen = null);
 
     /// <summary>Value of <see cref="SessionPsf.SubSelection"/> when the sub arrays describe the
     /// registered subs, in registration order.</summary>
@@ -413,6 +419,7 @@ public static class DatasetPsfNoiseReport
         var label = CalibrationResolver.CalTrain.OpticalTrain(session.Session.Lights[0]).Describe();
 
         var subFwhm = new float[session.Subs.Length];
+        var subFwhmGreen = new float[session.Subs.Length];
         var subHfd = new float[session.Subs.Length];
         var subEcc = new float[session.Subs.Length];
         var sources = new FrameInfo[session.Subs.Length];
@@ -420,6 +427,7 @@ public static class DatasetPsfNoiseReport
         {
             var metrics = session.Subs[i].Metrics;
             subFwhm[i] = metrics.MedianFwhm;
+            subFwhmGreen[i] = metrics.FitFwhmGreen;
             subHfd[i] = metrics.MedianHfd;
             subEcc[i] = metrics.MedianEllipticity;
             sources[i] = session.Subs[i].Source;
@@ -429,7 +437,8 @@ public static class DatasetPsfNoiseReport
             session.Session.Id, label, session.Master, session.CanvasWidth, session.CanvasHeight,
             subFwhm, subHfd, subEcc, session.MasterStrategy.ToString(),
             SubIdentity.From(sources, SubsRegistered, fallbackSite),
-            radiusBins, snrMin, maxStars, logger, cancellationToken);
+            subFwhmGreen: subFwhmGreen,
+            radiusBins: radiusBins, snrMin: snrMin, maxStars: maxStars, logger: logger, cancellationToken: cancellationToken);
     }
 
     /// <summary>
@@ -467,12 +476,14 @@ public static class DatasetPsfNoiseReport
 
         var kept = SessionFrameAnalyzer.ApplyGate(analyzed, qualityRejectSigma, qualityMaxRejectFraction).Kept;
         var subFwhm = new float[kept.Length];
+        var subFwhmGreen = new float[kept.Length];
         var subHfd = new float[kept.Length];
         var subEcc = new float[kept.Length];
         var sources = new FrameInfo[kept.Length];
         for (var i = 0; i < kept.Length; i++)
         {
             subFwhm[i] = kept[i].Metrics.MedianFwhm;
+            subFwhmGreen[i] = kept[i].Metrics.FitFwhmGreen;
             subHfd[i] = kept[i].Metrics.MedianHfd;
             subEcc[i] = kept[i].Metrics.MedianEllipticity;
             sources[i] = kept[i].Frame;
@@ -482,6 +493,7 @@ public static class DatasetPsfNoiseReport
         return prior with
         {
             SubFwhm = subFwhm,
+            SubFwhmGreen = subFwhmGreen,
             SubHfd = subHfd,
             SubEllipticity = subEcc,
             SubFile = identity.File,
@@ -526,6 +538,7 @@ public static class DatasetPsfNoiseReport
         float[] subEllipticity,
         string? masterStrategy,
         SubIdentity? subs = null,
+        float[]? subFwhmGreen = null,
         int radiusBins = 5,
         float snrMin = 5f,
         int maxStars = 3000,
@@ -623,7 +636,8 @@ public static class DatasetPsfNoiseReport
             SubAirmass: subs?.Airmass,
             SubHeaderAirmass: subs?.HeaderAirmass,
             SubSelection: subs?.Selection,
-            SubSiteFromFallback: subs?.UsedFallbackSite);
+            SubSiteFromFallback: subs?.UsedFallbackSite,
+            SubFwhmGreen: subFwhmGreen);
     }
 
     /// <summary>Value of <see cref="SessionPsf.RadiusSampling"/> for a record whose field-radius
