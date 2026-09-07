@@ -76,6 +76,16 @@ internal sealed class StackSubCommand(
             Description = "Debayer algorithm for the integration pass (colour fidelity).",
             DefaultValueFactory = _ => DebayerAlgorithm.AHD,
         };
+        var warpInterpolationOpt = new Option<WarpInterpolation>("--warp-interpolation")
+        {
+            Description = "Resampling kernel that places each frame on the reference grid. Bilinear (the default, and every master "
+                        + "built before it was an option) adds phase times one minus phase of a pixel's variance per axis: about a "
+                        + "pixel of FWHM in quadrature at 2 px seeing, measured star by star on a real night, where a master is the "
+                        + "mean of its warped frames and the frames at fractional shifts widen from 2.15 to 2.4 to 2.7 px. Lanczos3 "
+                        + "(six taps an axis) keeps a 2 px star's width to within a few percent at the price of faint ringing around "
+                        + "bright stars. docs/plans/deconvolver-training.md, R1.",
+            DefaultValueFactory = _ => WarpInterpolation.Bilinear,
+        };
         var snrMinOpt = new Option<float>("--snr-min")
         {
             Description = "FindStarsAsync SNR floor.",
@@ -285,7 +295,7 @@ internal sealed class StackSubCommand(
             Options =
             {
                 outputOpt, groupFilterOpt, groupExcludeOpt, groupTempToleranceOpt, strategyOpt,
-                centroidDebayerOpt, stackDebayerOpt,
+                centroidDebayerOpt, stackDebayerOpt, warpInterpolationOpt,
                 snrMinOpt, minStarsOpt, quadStarsOpt,
                 formatOpt, hdrPeakNitsOpt, noPlateSolveOpt,
                 drizzlePixfracOpt, drizzleMinFramesOpt,
@@ -443,6 +453,7 @@ internal sealed class StackSubCommand(
                 ForcedStrategy: forcedStrategy,
                 CentroidDebayerAlg: parseResult.GetValue(centroidDebayerOpt),
                 StackDebayerAlg: parseResult.GetValue(stackDebayerOpt),
+                WarpInterpolation: parseResult.GetValue(warpInterpolationOpt),
                 SnrMin: parseResult.GetValue(snrMinOpt),
                 MinStars: parseResult.GetValue(minStarsOpt),
                 QuadStars: parseResult.GetValue(quadStarsOpt),

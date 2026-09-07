@@ -90,7 +90,16 @@ public partial class Image
     /// <param name="refWidth">Output (reference grid) width in pixels.</param>
     /// <param name="refHeight">Output (reference grid) height in pixels.</param>
     /// <exception cref="ArgumentException"><paramref name="transform"/> is not invertible.</exception>
-    public async Task<Image> WarpToReferenceGridAsync(Matrix3x2 transform, int refWidth, int refHeight, CancellationToken cancellationToken = default)
+    public Task<Image> WarpToReferenceGridAsync(Matrix3x2 transform, int refWidth, int refHeight, CancellationToken cancellationToken = default)
+        => WarpToReferenceGridAsync(transform, refWidth, refHeight, WarpInterpolation.Bilinear, cancellationToken);
+
+    /// <summary>
+    /// <see cref="WarpToReferenceGridAsync(Matrix3x2, int, int, CancellationToken)"/> with the resampling
+    /// kernel chosen: <see cref="WarpInterpolation.Bilinear"/> is that method exactly, and
+    /// <see cref="WarpInterpolation.Lanczos3"/> keeps a 2 px star's width where bilinear adds up to a
+    /// pixel of it in quadrature (the enum's remarks carry the measurement).
+    /// </summary>
+    public async Task<Image> WarpToReferenceGridAsync(Matrix3x2 transform, int refWidth, int refHeight, WarpInterpolation interpolation, CancellationToken cancellationToken = default)
     {
         // Identity-skip fast path. The reference frame in StackingPipeline
         // is registered against itself with transform = Matrix3x2.Identity
@@ -137,7 +146,7 @@ public partial class Image
                 {
                     var srcPos = Vector2.Transform(new Vector2(x, y), inverseTransform);
                     dstChannel[y, x] = srcPos.X >= 0 && srcPos.X < srcW && srcPos.Y >= 0 && srcPos.Y < srcH
-                        ? SubpixelValue(srcPlane, srcPos.X, srcPos.Y)
+                        ? Sample(srcPlane, srcPos.X, srcPos.Y, interpolation)
                         : float.NaN;
                 }
                 return ValueTask.CompletedTask;
@@ -173,11 +182,22 @@ public partial class Image
     /// against <paramref name="canvasRegion"/>).</param>
     /// <param name="canvasHeight">Full canvas height (informational; bounds-checked
     /// against <paramref name="canvasRegion"/>).</param>
+    public Task<Image> WarpRegionAsync(
+        Matrix3x2 transform,
+        Rectangle canvasRegion,
+        int canvasWidth,
+        int canvasHeight,
+        CancellationToken cancellationToken = default)
+        => WarpRegionAsync(transform, canvasRegion, canvasWidth, canvasHeight, WarpInterpolation.Bilinear, cancellationToken);
+
+    /// <summary>The region warp with the resampling kernel chosen; see
+    /// <see cref="WarpToReferenceGridAsync(Matrix3x2, int, int, WarpInterpolation, CancellationToken)"/>.</summary>
     public async Task<Image> WarpRegionAsync(
         Matrix3x2 transform,
         Rectangle canvasRegion,
         int canvasWidth,
         int canvasHeight,
+        WarpInterpolation interpolation,
         CancellationToken cancellationToken = default)
     {
         if (canvasRegion.X < 0 || canvasRegion.Y < 0
@@ -273,7 +293,7 @@ public partial class Image
                     var canvasX = x0 + dx;
                     var srcPos = Vector2.Transform(new Vector2(canvasX, canvasY), inverseTransform);
                     dstChannel[dy, dx] = srcPos.X >= 0 && srcPos.X < srcW && srcPos.Y >= 0 && srcPos.Y < srcH
-                        ? SubpixelValue(srcPlane, srcPos.X, srcPos.Y)
+                        ? Sample(srcPlane, srcPos.X, srcPos.Y, interpolation)
                         : float.NaN;
                 }
             });
@@ -284,6 +304,81 @@ public partial class Image
         // keeps callers consistent with WarpToReferenceGridAsync.
         await Task.CompletedTask;
         return new Image(output, BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
+    }
+
+    /// <summary>One source sample at a fractional position, by the kernel chosen. The caller has
+    /// already checked the position lies inside the source.</summary>
+    private float Sample(float[,] plane, float x, float y, WarpInterpolation interpolation)
+        => interpolation == WarpInterpolation.Lanczos3 ? Lanczos3Value(plane, x, y) : SubpixelValue(plane, x, y);
+
+    /// <summary>
+    /// Lanczos-3 resampling: the sinc kernel windowed to a = 3, six taps an axis about the position,
+    /// weights normalised over the taps that exist (a tap outside the plane or on a NaN drops out), so
+    /// a constant plane stays constant and an integer position returns the pixel exactly (the kernel
+    /// is 1 at zero and 0 at every other integer). NaN where no tap is left.
+    /// </summary>
+    internal static float Lanczos3Value(float[,] plane, float x, float y)
+    {
+        var height = plane.GetLength(0);
+        var width = plane.GetLength(1);
+        var x0 = (int)MathF.Floor(x);
+        var y0 = (int)MathF.Floor(y);
+        Span<float> wx = stackalloc float[6];
+        Span<float> wy = stackalloc float[6];
+        for (var i = 0; i < 6; i++)
+        {
+            wx[i] = Lanczos3(x - (x0 - 2 + i));
+            wy[i] = Lanczos3(y - (y0 - 2 + i));
+        }
+
+        var sum = 0f;
+        var weight = 0f;
+        for (var j = 0; j < 6; j++)
+        {
+            var sy = y0 - 2 + j;
+            if (sy < 0 || sy >= height || wy[j] == 0f)
+            {
+                continue;
+            }
+
+            for (var i = 0; i < 6; i++)
+            {
+                var sx = x0 - 2 + i;
+                if (sx < 0 || sx >= width || wx[i] == 0f)
+                {
+                    continue;
+                }
+
+                var v = plane[sy, sx];
+                if (float.IsNaN(v))
+                {
+                    continue;
+                }
+
+                var w = wx[i] * wy[j];
+                sum += w * v;
+                weight += w;
+            }
+        }
+
+        return MathF.Abs(weight) > 1e-6f ? sum / weight : float.NaN;
+    }
+
+    /// <summary>The Lanczos window with a = 3: sinc(t) times sinc(t / 3) for |t| under 3, else 0.</summary>
+    private static float Lanczos3(float t)
+    {
+        if (t == 0f)
+        {
+            return 1f;
+        }
+
+        if (t <= -3f || t >= 3f)
+        {
+            return 0f;
+        }
+
+        var pt = MathF.PI * t;
+        return 3f * MathF.Sin(pt) * MathF.Sin(pt / 3f) / (pt * pt);
     }
 
     private async Task<Image> DoTransformationAsync(Matrix3x2 transform, Vector2 tl, Vector2 br, CancellationToken cancellationToken = default)

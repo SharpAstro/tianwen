@@ -154,11 +154,12 @@ public static class FrameRegistration
         DebayerAlgorithm debayerAlgorithm,
         int canvasWidth,
         int canvasHeight,
+        WarpInterpolation interpolation = WarpInterpolation.Bilinear,
         CancellationToken cancellationToken = default)
     {
         var debayered = await calibrated.DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
         var shifted = transformToReference * canvasShift;
-        var warped = await debayered.WarpToReferenceGridAsync(shifted, canvasWidth, canvasHeight, cancellationToken);
+        var warped = await debayered.WarpToReferenceGridAsync(shifted, canvasWidth, canvasHeight, interpolation, cancellationToken);
         return (warped, shifted);
     }
 }

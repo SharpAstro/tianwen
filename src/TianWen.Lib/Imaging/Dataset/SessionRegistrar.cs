@@ -490,7 +490,7 @@ public static class SessionRegistrar
             // The shared debayer + warp step (FrameRegistration.WarpToCanvasAsync) -- the same
             // three lines StackingPipeline's producer runs, so the two paths cannot drift here.
             var (warped, shifted) = await FrameRegistration.WarpToCanvasAsync(
-                calibrated, transform, canvasShift, debayerAlgorithm, canvasW, canvasH, cancellationToken);
+                calibrated, transform, canvasShift, debayerAlgorithm, canvasW, canvasH, WarpInterpolation.Bilinear, cancellationToken);
             var warpedPath = Path.Combine(sessionScratch, $"warped_{i:D4}.fits");
             warped.WriteToFitsFile(warpedPath);
             subs.Add(new RegisteredSub(f.Frame, warpedPath, shifted, f.Metrics));

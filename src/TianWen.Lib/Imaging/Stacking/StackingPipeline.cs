@@ -1522,7 +1522,7 @@ public sealed class StackingPipeline(
                     // The shared debayer + warp step (FrameRegistration.WarpToCanvasAsync) -- the same
                     // three lines the dataset registrar runs, so the two paths cannot drift here.
                     var (warped, _) = await FrameRegistration.WarpToCanvasAsync(
-                        calibrated, transformOrig, canvasShift, options.StackDebayerAlg, outWidth, outHeight, token);
+                        calibrated, transformOrig, canvasShift, options.StackDebayerAlg, outWidth, outHeight, options.WarpInterpolation, token);
                     yield return warped;
                 }
             }
@@ -1686,6 +1686,7 @@ public sealed class StackingPipeline(
                 RawLightSources: rawSources,
                 Calibrator: layerCalibrator,
                 DebayerAlgorithm: options.StackDebayerAlg,
+                WarpInterpolation: options.WarpInterpolation,
                 CanvasWidth: outWidth,
                 CanvasHeight: outHeight,
                 Progress: integrationProgress,

@@ -296,5 +296,10 @@ public sealed record StackingOptions(
     // genuinely different night (8 C against 12 C) still separates; the cluster's key carries its
     // median temperature, rounded, which is what the dark match and the slug then see. Two degrees
     // covers a cooled camera's drift over a night at roughly a quarter of one dark-current doubling.
-    double LightGroupTemperatureToleranceC = 0);
+    double LightGroupTemperatureToleranceC = 0,
+    // The resampling kernel that places each frame on the reference grid. Bilinear is every master
+    // built before R1 and adds phase times one minus phase of a pixel's variance per axis, about a
+    // pixel of FWHM in quadrature at 2 px seeing; Lanczos3 keeps the width at the price of faint
+    // ringing. The measurement and the pre-registration: docs/plans/deconvolver-training.md, R1.
+    WarpInterpolation WarpInterpolation = WarpInterpolation.Bilinear);
 

@@ -208,6 +208,17 @@ against 0.15 to 0.41 for stars, no overlap). On the real RGGB test frame the cou
 and the removed detections are the narrow spikes; on the Orion night the lists halve and the fit that
 refused every sub is expected to run. Pinned by `StarDetectionWarmPixelTests`.
 
+**`tianwen stack --warp-interpolation Bilinear|Lanczos3`** (`StackingOptions.WarpInterpolation`,
+`Image.WarpToReferenceGridAsync` and `WarpRegionAsync` overloads). The kernel that places each frame on
+the reference grid was bilinear and only bilinear, and it costs a star phase times one minus phase of a
+pixel's variance per axis: measured star by star on a real night, a master is the mean of its warped
+frames to 0.3 percent, and the frames at fractional shifts widen from their subs' 2.15 px to 2.4 to 2.7
+while the frames at integer shifts keep 2.15; on a synthetic 2.15 px star a half-pixel shift adds 1.15
+px of FWHM in quadrature under bilinear and none under Lanczos-3 (`WarpInterpolationTests`). The
+default stays bilinear, byte-identical to before; Lanczos-3 (six taps an axis, normalised over the
+taps present, exact at integer shifts) is opt-in while its ringing on real frames is measured
+(`docs/plans/deconvolver-training.md`, R1).
+
 ## 7.0
 
 Two releases: `v7.0.1513` on 2026-09-04 and `v7.0.1532` on 2026-09-06, the second carrying 60 more

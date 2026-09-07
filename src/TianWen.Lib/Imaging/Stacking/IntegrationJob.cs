@@ -116,7 +116,11 @@ public sealed record IntegrationJob(
     // strategies ignore -- their integrator's MeanCombiner already
     // sigma-clips hot-pixel outliers across N frames, so the mask isn't
     // a net win for them and would just spread NaN through Debayer.
-    BitMatrix[]? BadPixelMask = null);
+    BitMatrix[]? BadPixelMask = null,
+    // The resampling kernel every strategy that warps places its frames with (the WarpedFrames
+    // producer applies it upstream; TilePipelined warps per strip and reads it here). Bilinear is
+    // every master built before R1; see WarpInterpolation for what it costs.
+    WarpInterpolation WarpInterpolation = WarpInterpolation.Bilinear);
 
 /// <summary>
 /// Coarse-grained pipeline phase reported by integration strategies. Phases
