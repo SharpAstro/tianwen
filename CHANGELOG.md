@@ -110,7 +110,48 @@ whose header has no site.
 the session's sky gauge and the gradient report forward to it. The per-sub form answers NaN for a
 target below the horizon rather than a clamped value that would read as a deep observation.
 **`ImageMeta.Airmass`** reads the capture software's `AIRMASS` card, recorded beside the computed
-value as a cross-check and never substituted for it.
+value as a cross-check and never substituted for it. The archive-wide measurement it was built for
+(E2.9) then found that computed and card agree to a median 0.015 on 50 of the 52 sessions carrying
+both, that every SharpCap capture writes no `SITELAT`/`SITELONG` at all (27 of 79 sessions have no
+computed value), and that no session's FWHM spread is explained by air mass at these focal lengths;
+`tools/psf-airmass-report.py --airmass either` uses the card where the computation has no site,
+labelled as such, on the strength of that agreement.
+
+**`MoffatComposition` (`TianWen.Lib/Imaging/Degradation`)** is the width of one Moffat convolved
+with another and its inverse, the kernel that takes a clean profile to an observed one. It exists
+because a quadrature of FWHMs is the Gaussian rule and a Moffat is not a Gaussian: read as an
+estimator does, `sqrt(obs^2 - clean^2)` over-reads a difference kernel by 1.11 to 1.24 on the
+archive's cores (measured numerically, then found as the 1.24 the estimated-kernel oracle showed at
+1.3 to 1.6x blur), and the composed inverse lands within 0.02 of the truth at every band from 1.3x up.
+It also composes a continuous core with a `PsfKernel` **as sampled**, and inverts that into the
+kernel's `EffectiveKernelFwhm`, because `PsfKernel` samples its profile at pixel centres and a
+kernel narrower than about 1.5 px does not blur by its label: a nominal 1 px beta-4 Moffat widens a
+2.15 px core as a 0.73 px continuous one would, and a nominal 0.5 px kernel is a near-delta. Nothing
+downstream had noticed, since the training label is measured on the degraded cell; the oracle probe
+had, reading a correct estimate as a 0.65 under-read against a width the kernel never applied. The
+exporter's training-only `Psf01FromKernel` now composes the clean width with the kernel applied
+instead of a quadrature with the drawn width.
+
+**`PsfProfileFit` says why it refuses, and can select its stack by an absolute floor.** A
+`Diagnostics` overload returns which of the five checks declined (`Refusal`) with the counts at each
+stage, after two years of a bare null; the first tally over 180 oracle rows put 28 of 30 whole-frame
+refusals on ONE check (`PoorFit`) on RICH fields, because the default brightness band is a
+percentile of the frame's own detections and on a field with 5,000 stars it stacks faint ones whose
+wings meet the noise floor within a few pixels. `StarSelection.SignalFloor` (opt-in, the default
+band is unchanged so the archive survey stays comparable) takes every star over fifty background
+MADs, brightest first, and cut the refusals to 30 of 180 with the widths unchanged; the ones that
+remain are sparse or heavily blurred frames with too few such stars, a different and honest refusal.
+
+**`OnnxNonStellarDeconvolver(perChunkPsf:)`**, off by default, conditions each inference tile on
+its own region's PSF instead of one frame-wide value: `ChunkedInference.Layout` is the tile grid
+without the pixels, `ChunkedNafnetRunner` takes its extra inputs per chunk, `IPsfEstimator` gains an
+`EstimateChunkAsync` overload carrying the whole-image value as the fallback, and `HfdPsfEstimator`
+answers it under `MinChunkStars` (8) stars. Measured on the seven Rim masters, the per-tile radius
+spans 45 to 61 percent from p10 to p90 on the 2025-26 sessions with the CENTRE the soft end, so one
+value tells most tiles the wrong width; the switch stays off until the output comparison against the
+shipped whole-image graph reads, because that graph was trained on whole-image labels, and a master
+whose radii sit under the shipped range's 1 px floor clamps every tile to the same value and cannot
+be told apart either way.
 
 ## 7.0
 
