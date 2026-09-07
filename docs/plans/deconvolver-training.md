@@ -393,11 +393,12 @@ everything and above it recovers little.
 | E1b | **RUN 2026-09-07, conditional pass** (results section below). E1's exact-kernel ceiling re-run with the kernel ESTIMATED from the blurred frame's own stars, two arms: width estimated with the injected shape, then both estimated. Where the estimator answers, the paired rec/truth is within 0.01 to 0.05 of exact except at 1.3-1.6x, where a systematic 1.24x width over-read makes arm i fabricate (stars 1.15x truth, rec/truth 0.95 under noise) and arm ii pass only because an over-read beta cancels it. The estimator refused 75 of 180 rows (half the noisy ones), never fitted the 512 crop, and its refusals sit on the narrowband masters. Kill line not crossed; the pre-stated refusal rule makes the estimator its own step before any unrolled RL. | 22.6 min CPU, no training | H11 |
 | E2.8 | **RUN 2026-09-07, gate-level pass, observer-level fabrication** (results section below). The star-term loss: per-star flux, peak and concentration ratios against the clean target's own detections, added to E2.7 arm B's objective, same 78-session cache, five seeds paired against E2.7. Selects on 5 of 5 at out/truth 1.10 to 1.17 holding 0.84 to 0.95 of the truth's stars (control: one seed at 1.365, minima unselectable at 0.54 to 0.63 stars); on the observer session (three times quieter truth) the same checkpoints read 34 to 45x the truth's stars and widths under 1.0. E2.8b (a no-star counterpart, and the weight matched at plateau) is pre-registered; the capacity arm waits on it. | 48 min for five seeds | H10 confirmed at the gate; the recipe fabricates on transfer |
 | E1c | **RUN 2026-09-07** (under E1b's results). Which of `PsfProfileFit`'s five checks refuses, tallied over E1b's rows at one RL iteration: 28 of 30 whole-frame refusals are `PoorFit`, on RICH fields (4,600 to 7,000 detections, the stack at its cap, 15 to 28 of 48 bins above the noise floor), because the percentile brightness band lands on faint stars there. The fix is the band, not the acceptance rule. | 11 min CPU | the estimator step's first fix |
-| E1d | **Pre-registered 2026-09-07, RUNNING** (under E1b's results). The difference width by Moffat COMPOSITION (`MoffatComposition.DifferenceFwhm`, arm `est-c`) instead of a quadrature of FWHMs; a numeric check already reproduces E1b's 1.24, 1.16 and 1.11 over-reads from the arithmetic alone. Predicts est-c's width ratio at 1.3-1.6x within 0.95 to 1.05 and arm i's fabrication gone. | ~25 min CPU | whether the width bias is arithmetic or measurement |
-| E1e | **Pre-registered 2026-09-07** (under E1b's results), runs after E1d. `PsfProfileFit.StarSelection.SignalFloor` (opt-in; every star over fifty MADs, brightest first) in place of the percentile band, `TIANWEN_ORACLE_BAND=signal`. Predicts refusals from 75 to under 30 of 180; killed above 60. | ~25 min CPU | whether the refusals are the band |
-| E2.8b | **Pre-registered 2026-09-07, RUNNING** (under E2.8's results). Arm N: the star term's counterpart over EMPTY target windows (`--star-loss-empty`); arm W: the weight re-fixed to the pixel term at step 400 (`--star-loss-refix 400`). Five seeds each against E2.8's five; the observer columns are the primary readout (predicted under 14x for N from 34 to 45x). Killed if neither arm gets the observer under 2x its input null with the gate session still selectable under 1.30. | 2 x 5 x ~10 min GPU | whether a per-star term can be made honest |
-| E2.9 | **Pre-registered 2026-09-06** (section below). FWHM against airmass over the archive: `SessionPsf` gains per-sub file, epoch and airmass, one measure-only re-run, one plot. The first step of 2.1c, and it needs no sky. | ~2.5 h CPU unattended, one field and one switch | Whether the archive holds real seeing pairs, and how much range they reach |
-| E2.10 | Seeing-split pairs: per session, the sharpest and softest thirds of the subs stacked into two masters of one night, the first real-blur validation set. Needs E2.9's per-sub identity. | minutes a session | The light end of the range, on real seeing |
+| E1d | **RUN 2026-09-07, pass** (under E1b's results). The difference width by Moffat COMPOSITION (`MoffatComposition.DifferenceFwhm`, arm `est-c`) instead of a quadrature of FWHMs: estW/true 0.99 to 1.02 at every bin from 1.3x up where quadrature read 1.11 to 1.24, paired recovery within 0.02 of exact, arm i's fabrication gone (stars 0.95 against 1.15). The apparent 0.65 under-read at 1.1-1.3x is the PROBE: `PsfKernel.Build` point-samples at pixel centres, so a nominal 1 px kernel blurs like 0.6 to 0.8 px and a 0.5 px one like 0.1; against the applied kernel est-c reads 0.92 to 1.07 there too. Training labels are measured on the degraded cell and unaffected. | 25 min CPU | the width bias was arithmetic; the light end was the kernel |
+| E1e | **RUN 2026-09-07** (under E1b's results). `PsfProfileFit.StarSelection.SignalFloor` (opt-in; every star over fifty MADs, brightest first) in place of the percentile band: refusals 30 of 180 from 75 (prediction under 30, kill 60); clean PoorFit 4 to 1, noisy observed PoorFit 20 to 4, TooFewStacked 2 to 7 on sparse and heavily blurred frames; width ratios unchanged within 0.02. The band was the cause. | 23.5 min CPU | the refusals were the band |
+| E2.8b | **RUN 2026-09-07, not killed by one seed** (under E2.8's results). Arm N, the star term's counterpart over EMPTY target windows: observer fabrication 34-45x to 2.6-9.7x (four of five under the input's own null) as predicted, but four of five seeds lose the sharpening (selected 1.32-1.34 against an input of 1.38, stars 0.63, trained toward the identity); seed 1, the lowest weight, keeps both (1.183 selected, observer 9.7x). Arm W, the weight re-fixed at step 400: observer 22-42x, three of five under 1.30; not the mechanism. E2.8c (arm N at seed 1's fixed weight) pre-registered to say whether the weight was the cause. | 10 x ~10 min GPU | a per-star term can be honest; whether it can be honest AND sharp rides on the weight |
+| E2.8c | **Pre-registered 2026-09-07** (under E2.8b's results), runs when D1's probe releases the GPU. Arm N with the star term's weight fixed at 1.8e-3 on every seed. Predicts three of five seeds at or under 1.25 selected with the observer under 14x; killed at one or none under 1.30, which sends the counterpart into the unrolled operator as a regulariser only. | 5 x ~10 min GPU | whether the honest recipe has an operating point |
+| E2.9 | **RUN 2026-09-07, kill line reached for 2.1c** (section below). FWHM against air mass over 79 sessions, 8,507 subs re-measured in 62.6 min: 0 of 67 fitted sessions reach a 1.3x FWHM span explained by air mass; slopes centre on zero (SH61 -0.15 over 14 sessions, 135 mm -0.04 over 34), only the two ZS61 sessions read where Kolmogorov predicts (+0.29, +0.46) and their spans are too short. The within-night spread (p90/p10 to 1.47x) is real and not altitude. Computed air mass agrees with N.I.N.A.'s card to 0.015 on 50 of 52 sessions; SharpCap writes no site cards, so 27 sessions have none computed (a header fallback covers 15). | 62.6 min CPU | Air-mass pairs cannot reach the range; real blur is E2.10's seeing split |
+| E2.10 | **Candidates listed 2026-09-07** (section below): 7 of 79 sessions reach p90/p10 of 1.15 on the gate-surviving subs, two of them 1.3x sharp-to-soft (a 60-sub Orion at 1.43, a 35-sub HD 71272 at 1.28 that is held back over a pointing question), four at 1.11 to 1.18. Seeing-split pairs: per session, the sharpest and softest thirds of the subs stacked into two masters of one night, the first real-blur validation set. Next: `stack --manifest` A and B for the Orion session. | minutes a session | The light end of the range, on real seeing |
 | D1 | **BUILT 2026-09-07, off by default; CPU half measured** (under "The next four"). Per-tile psf01 at inference: `ChunkedNafnetRunner` extras per chunk, `OnnxNonStellarDeconvolver` estimating per chunk region with a frame-level fallback, so inference matches the per-cell training label. On the seven Rim masters the per-tile radius spans 8 to 61 percent p10 to p90 and 10 to 16 percent of tiles starve; the output comparison waits for the GPU. Ships with E7, once E2.8 says the route is alive. | half a day | The field-varying half of the optics blur |
 | E4 | Stationary vs position-varying (H7) on the refractor trains. | 2 x 3 x 11 min | H7 |
 | E5 | On-the-fly torch degradation with the MTF pin, if E3 is sample-hungry. | a day | Sample efficiency |
@@ -673,6 +674,50 @@ rather than an assumption.
 
 *Cost.* One field, one switch, about 2.5 hours of unattended CPU, one python plot.
 
+**E2.9 ran 2026-09-07: 62.6 min for 8,507 subs over 79 sessions (428 ms a sub, measure stage only),
+`C:/temp/e2/e29-airmass-report.txt`, `-either.txt`, plot `e29-fwhm-airmass.png`. Kill line reached
+for 2.1c: 0 of 67 fitted sessions reach a 1.3x FWHM span attributable to air mass.**
+
+| train | sessions | slope p50 | in [0.3, 0.9] | air-mass span p50 | explained span, best |
+|---|---:|---:|---:|---:|---:|
+| SH61 EDPH at 270 mm (SV605CC) | 14 | -0.15 | 1 of 14 | 1.35x | 1.14x |
+| Samyang 135 at 130 mm (ASI533, 2025-26) | 34 | -0.04 | 1 of 34 | 1.13x | 1.04x |
+| Samyang 135 at 130 mm (ASI533, 2024, header air mass) | 9 | -0.08 | 0 of 9 | 1.27x | 1.02x |
+| SAMYANG 135mm at 130 mm (ASI533, 2025) | 3 | +0.03 | 0 of 3 | 1.78x | 1.04x |
+| ZS61 at 289 mm (ASI585, header air mass) | 2 | +0.29 and +0.46 | 1 of 2 | 1.16x | 1.09x |
+| RC51 at 250 mm (ASI1600) | 1 | -0.38 | 0 of 1 | 1.16x | 0.95x |
+| ASI1600 at 180 mm (header air mass) | 1 | +0.17 | 0 of 1 | 1.31x | 1.05x |
+| ASI585 at 369 / 36 / 24 mm (header air mass) | 3 | -0.88, +0.22, -0.03 | 0 of 3 | 1.12 to 1.22x | 1.03x |
+
+The prediction held for ZS61 alone (the two sessions read where Kolmogorov puts them, over spans of
+1.16x and 1.32x that let them explain 1.07x and 1.09x) and failed for SH61, whose fourteen sessions
+centre on a slope of -0.15; the 135 mm sessions are flat as predicted; and the "few sessions span
+enough air mass" clause was the binding one, since 1.3x of FWHM at slope 0.6 needs a 1.55x span and the
+median session has 1.13x to 1.35x. The observed within-night spread is real and is not air mass:
+p90/p10 runs 1.01x to 1.47x, and the session with the largest (1.47x, SH61, 60 subs) has slope -0.59,
+sharper as it set. Focus, wind and the night's own seeing move a sub more than its altitude does at
+these focal lengths.
+
+*Cross-check.* Computed against the capture software's `AIRMASS` card where both exist: median
+absolute difference 0.000 to 0.015 on 50 of the 52 sessions carrying both, 0.034 on one, 0.311 on
+one 35-sub Samyang session (which is also an E2.10 candidate, and gets checked before it is paired).
+`SiteContext.Airmass` is therefore validated against N.I.N.A.'s, which is what makes the report's
+`--airmass either` an evidence-based extension rather than the substitution the pre-registration
+forbade.
+
+*A gap the run found.* 27 of 79 sessions have no computed air mass at all, and one sub of each says
+why: every SharpCap capture in the archive writes `OBJCTRA`/`OBJCTDEC`, `RA`/`DEC` and `DATE-OBS`
+and **no `SITELAT`/`SITELONG`** (27 of 27); N.I.N.A. sessions carry all of them. SharpCap 4.1 writes
+`AIRMASS` itself and 4.0 did not, which is why the header fallback fits 15 of the 27 and the twelve
+SharpCap 4.0 sessions (nine Vela SNR panels, Omega Cen, the 2022 Eta Car, the SII Eta Car) stay
+unfitted. Owed: a site fallback for the dataset build (the profile's site, or a `--site lat,lon`
+switch) so `SubAirmass` is computed for SharpCap sessions too. Sixty minutes of measure stage, when
+it is built.
+
+*Consequence.* Air-mass pairing is dead as a real-blur source in this archive, as the kill clause
+says: real-blur validation is E2.10's within-night seeing split, cause-agnostic, and the heavy end
+stays synthetic as a known limit of the advertised range.
+
 #### E2.10: seeing-split pairs (real-blur validation at the light end)
 
 Given E2.9's per-sub identity, for each session whose `SubFwhm` p90/p10 is at least 1.15: the
@@ -683,6 +728,29 @@ width (E1's readout), and run the gate's observers on the pair. *Prediction:* 2 
 (the earlier store found two of 51 at 1.2), and a deconvolver passing E2.8's gate moves B toward A
 on width without dropping below A's star count. *Cost:* minutes a session; no new code beyond the
 manifest writer. *Data:* none from the sky.
+
+**E2.9's store lists the candidates (2026-09-07, `tools/psf-seeing-split.py`,
+`C:/temp/e2/e210-seeing-split.txt`): 7 of 79 sessions reach p90/p10 of 1.15, one over the predicted
+2 to 6.** Sharpest third against softest third of the gate-surviving subs, median FWHM in px:
+
+| session | train | subs | p90/p10 | sharp third | soft third | soft/sharp |
+|---|---|---:|---:|---:|---:|---:|
+| Great Orion Nebula, 2025-10-15, L-Quad | SH61 at 270 mm | 60 | 1.47 | 1.73 | 2.47 | 1.43 |
+| HD 71272 (folder HD-258924), 2026-01-20, L-Ultimate | Samyang 135 at 130 mm | 35 | 1.35 | 2.17 | 2.78 | 1.28 |
+| Eta Car SII, 2024-03-02 | QHY at 360 mm | 36 | 1.25 | 2.83 | 3.14 | 1.11 |
+| Great Orion Nebula, 2025-12-17, L-Ultimate | Samyang 135 at 130 mm | 126 | 1.24 | 2.07 | 2.41 | 1.17 |
+| Tarantula Nebula, 2025-10-18, L-Quad | SH61 at 270 mm | 171 | 1.20 | 2.20 | 2.59 | 1.18 |
+| SMC, 2024-09-27, L-eNhance | ASI585 at 369 mm | 120 | 1.19 | 2.72 | 3.13 | 1.15 |
+| Lagoon HaOIII, 2024-07-03 | ASI533 at 130 mm | 38 | 1.15 | 2.14 | 2.41 | 1.13 |
+
+Two reach the 1.3x where E1 says the range begins to matter and four sit at 1.11 to 1.18, the
+lightest end. Thirds of a 35-sub session are twelve-sub masters, noisier than anything the deconvolver
+is deployed on, so the first pair is the 60-sub Orion session at 1.43 (twenty-sub halves), then the
+171-sub Tarantula at 1.18 for depth. The HD 71272 session is held back: its folder names one star and
+its `OBJECT` card another, and it is the one session whose computed and header air mass disagree
+(0.31), so its pointing is checked before a pair is built from it. E2.9 also says what the split
+means: these spreads are within-night seeing, focus and wind, not altitude, so a pair is a real blur
+of unknown shape, which is exactly what the synthetic arms cannot supply.
 
 #### D1: per-tile psf01 at inference
 
@@ -877,6 +945,68 @@ arithmetic and sits in the MEASUREMENT of the blurred frame (the brightness band
 stars once the peaks drop, and the faint-star widening `PsfProfileFit` documents), which is a different
 fix.
 
+**E1d ran 2026-09-07, 25.1 min, 60 iterations, `C:/temp/e2/oracle-e1d.txt`. Pass at every bin from
+1.3x up, and the light end is the probe's kernel, not the estimator.** Refusals 75 an arm, the same
+30 whole-frame refusals as E1b and E1c, as predicted (the fits are the same fits). The width ratio,
+the paired recovery and the two fabrication observers, `est-w` beside `est-c` on the same rows:
+
+| blur | noise | estW/true, est-w | estW/true, est-c | est-c d(rec/true) p50 / p90 | stars vs truth, exact / est-w / est-c | ring excess, exact / est-w / est-c |
+|---|---|---:|---:|---:|---:|---:|
+| 1.3-1.6x | no | 1.24 | 0.99 | +0.01 / +0.02 | 0.96 / 1.15 / 0.95 | 48 / 69 / 44 % |
+| 1.3-1.6x | yes | 1.23 | 1.00 | +0.02 / +0.03 | 0.65 / 0.70 / 0.63 | 23 / 25 / 23 % |
+| 1.6-2.0x | no | 1.16 | 0.99 | +0.00 / +0.02 | 1.04 / 0.94 / 0.94 | 82 / 83 / 76 % |
+| 1.6-2.0x | yes | 1.16 | 0.99 | +0.00 / +0.03 | 0.73 / 0.76 / 0.73 | 42 / 48 / 47 % |
+| 2.0-3.0x | no | 1.11 | 1.00 | +0.00 / +0.01 | 0.80 / 0.59 / 0.76 | 95 / 96 / 95 % |
+| 2.0-3.0x | yes | 1.11 | 1.00 | +0.00 / +0.01 | 0.51 / 0.43 / 0.42 | 81 / 74 / 74 % |
+| 3.0x+ | no | 1.13 | 1.02 | +0.00 / +0.03 | 0.83 / 0.91 / 0.83 | 29 / 33 / 30 % |
+| 3.0x+ | yes | 1.11 | 1.02 | +0.01 / +0.01 | 0.88 / 0.96 / 0.83 | 39 / 39 / 39 % |
+| 1.1-1.3x | no | 0.92 | 0.65 | +0.11 / +0.12 | 1.00 / 1.02 / 1.03 | 15 / 11 / 3 % |
+| 1.1-1.3x | yes | 0.94 | 0.67 | +0.12 / +0.13 | 0.91 / 0.97 / 0.97 | 9 / 7 / 2 % |
+| under 1.1x | no | 0.32 | 0.20 | +0.01 / +0.05 | 1.00 / 1.00 / 1.00 | 0 / 0 / 0 % |
+| under 1.1x | yes | 0.47 | 0.29 | +0.01 / +0.12 | 0.89 / 0.89 / 0.89 | 0 / 0 / 0 % |
+
+Every prediction from 1.3x up held with room: the width within 0.02 of truth at four bins where
+quadrature read 1.11 to 1.24 over, the paired recovery within 0.02 of the exact kernel at p50, and
+arm i's fabrication gone (stars 0.95 against 1.15, ring 44 against 69 percent, both at or under
+exact). The estimate never exceeds 1.02 of truth in any bin, so an unrolled RL seeded from it would
+never start over-wide, which is the failure that rings.
+
+*The light end, and what it was.* At 1.1-1.3x `est-c` read 0.65 to 0.67 of the injected width where
+quadrature read 0.92 to 0.94, and its recovery lagged exact by 0.11; the pre-registration's "no
+change there" was wrong, and so was its reasoning. It is not conditioning: composed on a fine grid,
+composition's forward curve is STEEPER than quadrature's at every kernel width (slope of the
+observed/clean ratio against kernel/core 0.53 to 0.59 against 0.29 at 0.3 of the core, beta 2.5 to
+5), so its inverse is the better conditioned of the two. Working back from both arms' readings on the
+same two fits, the fitted observed/clean ratio has to sit 9 to 16 percent under what a continuous 1 px
+beta-4 Moffat on these cores would give, and the probe's own blur column agrees: it reads 1.12 where
+composition says 1.32 on the 1.53 px core, and matches composition to 0.01 at 2, 3 and 4 px. **The
+kernel is the cause. `PsfKernel.Build` samples the profile at pixel CENTRES**, so a 1 px FWHM
+Moffat lands 65 percent of its mass in one pixel and a 0.5 px one is a delta with four percent in its
+neighbours. Composing the DISCRETE kernel with a Moffat core numerically and inverting through the
+composition model (`moffat_discrete_kernel.py`, scratch): a nominal 1.0 px kernel is worth 0.59 px on
+a 1.53 px core, 0.73 on 2.15, 0.79 on 2.81; a nominal 0.5 px kernel 0.09 to 0.14 px; 2 px and above
+within 1 to 3 percent of nominal. Re-scoring E1d's rows against that effective width
+(`e1d_effective_width.py`, core beta 3, which moves the answer by under 0.03): `est-c` at the 1 px
+kernel reads 0.92 of the applied blur noise-free (p10 0.80, p90 1.10) and 0.94 noisy, at the 0.5 px
+kernel 1.00 and 1.07 (the 0.1 px floor it reports IS the kernel), while `est-w` reads 1.32 and 1.34,
+the same over-read it shows at 1.3-1.6x. So composition is right at every width, E1b's "noise-
+dominated" caveat and the kill paragraph's "measurement is in charge" were both the kernel, and the
+bins labelled 1.1-1.3x and under 1.1x in E1b and E1d were run at effective blur ratios nearer 1.12
+and 1.005 than their labels say. The same trap as the area-sampled Gaussian in
+`denoiser-training.md` H8, in a second place: a profile narrower than about 1.5 px cannot be
+represented by point samples on the pixel grid.
+
+*What it touches.* Training pairs are safe: the trainer conditions on `Psf01Estimated`, measured on
+the degraded cell, never on the drawn width. But the exporter's realised blur at a draw under about
+1.5 px is lighter than `degradations.jsonl`'s drawn width says, so the light end of the training
+distribution is lighter than intended, and `Psf01FromKernel` inherits this on top of its quadrature.
+Owed, as ground-work (E1f below): the effective width as a first-class number on the kernel and in
+the probe's columns, composition in the kernel label, and the exporter drawing the blur RATIO and
+solving for the kernel that realises it.
+
+*Verdict.* Pass. The estimator step's width arithmetic is Moffat composition from here on, in the
+probe and in the exporter's kernel label; quadrature stays only as E1b's recorded control.
+
 #### E1e, pre-registered 2026-09-07: the stack by an absolute signal floor
 
 *Change.* `PsfProfileFit.StarSelection.SignalFloor`, opt-in beside the default percentile band so
@@ -895,6 +1025,25 @@ observed frames, and the residual bound of 0.5 may then bind there.
 
 *Kill.* Refusals stay above 60 of 180. Then the band is not the cause and the acceptance rule or the
 log-space weighting is, which is a different fix again.
+
+**E1e ran 2026-09-07, 23.5 min, `C:/temp/e2/oracle-e1e.txt`. Refusals 30 of 180, from 75, against
+a prediction of under 30 and a kill at 60: one row short of the number, the mechanism confirmed.**
+Whole-frame refusals by check: clean `PoorFit` 4 to 1, noisy observed `PoorFit` 20 to 4,
+`TooFewStacked` 2 to 7 (clean 1, observed noise-free 3, noisy 3). By master: the 5,290-detection
+L-Quad channel and the L-Ultimate channel that refused every clean row now fit all of them; the 24 mm
+Eta Car frame's 7 px channel refuses all six of its noisy rows on `TooFewStacked` where it had refused
+one clean row, and the L-Ultimate master keeps four `PoorFit` across two channels. So the floor does
+on the rich fields what the band could not, and where it gives ground it is the sparse or heavily
+blurred frames whose fifty-MAD stars number under the stack minimum: a different refusal, honestly
+named, and one a lower or per-frame floor could revisit. Width ratios where both selections fit,
+`est-c`: 0.98 / 0.99 at 1.3-1.6x (E1d 0.99 / 1.00), 0.99 / 0.99 at 1.6-2.0x, 1.00 / 1.01 at 2-3x,
+0.69 / 0.68 at 1.1-1.3x (0.65 / 0.67): unchanged within 0.05 as predicted, and the light-end reading
+is the kernel finding above, not the band. Paired recovery at p50 within 0.01 of exact from 1.3x up;
+the 1.3-1.6x p90 widened from +0.02 to +0.12 noise-free and +0.15 noisy with 0 no-fit rows in the bin
+where E1d had 3 and 5, so the rows the floor newly fits are the harder ones and the tail grew with
+the coverage. *Verdict.* The band was the cause. `SignalFloor` is the estimator step's selection for
+the difference-kernel path; the archive survey (E0) keeps the percentile band until its own
+comparison is run, as pre-registered.
 
 **Verdict on H11.** Conditional pass. Where the estimator answers and the shape is co-estimated,
 the ceiling survives estimation to within a few hundredths of the exact kernel through 2x; the
@@ -993,6 +1142,80 @@ selection under 1.30. Then a per-star term cannot be made honest by construction
 reopens on the objective, not the capacity.
 
 *Readout.* `n2n_gatelog.py` on both logs; the observer columns are the primary readout this time.
+
+**E2.8b ran 2026-09-07, 11:04 to 12:39, ten runs of 9 to 10 min, `C:/temp/e2/p2-star-b.log`, readout
+`p2-star-b.gatelog.txt`. Not killed, by one seed. Arm N's prediction held on the observer and failed
+on the gate session in four of five seeds; arm W's held as written and fixes nothing.** The gate
+session's input sits at 1.382x the truth, the observer's null (its INPUT's star count over the truth's
+at the gate's threshold) at 6.9; E2.8's five runs are the control:
+
+| arm | seed | selected step | selected out/truth | stars there | width minimum | stars there | observer out/truth | observer stars, x truth | observer stars@6 | weight at step 1 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| control | 0 | 3200 | 1.148 | 0.93 | 1.148 | 0.93 | 0.922 | 39.1 | 5.5 | 2.29e-3 |
+| control | 1 | 3700 | 1.099 | 0.95 | 1.099 | 0.95 | 0.874 | 34.2 | 4.4 | 1.29e-3 |
+| control | 2 | 2400 | 1.126 | 0.84 | 1.126 | 0.84 | 0.937 | 34.2 | 5.7 | 2.33e-3 |
+| control | 3 | 2900 | 1.143 | 0.94 | 1.143 | 0.94 | 0.906 | 40.4 | 5.3 | 5.62e-3 |
+| control | 4 | 3800 | 1.173 | 0.88 | 1.173 | 0.88 | 1.045 | 45.0 | 5.3 | 8.62e-3 |
+| N, empty windows | 0 | 1200 | 1.339 | 0.63 | 1.267 | 0.59 | 1.159 | 6.3 | 5.7 | 3.56e-3 |
+| N | 1 | 3700 | **1.183** | 0.75 | 1.183 | 0.75 | 0.975 | **9.7** | 3.8 | 1.84e-3 |
+| N | 2 | 400 | 1.331 | 0.63 | 1.218 | 0.56 | 1.162 | 4.6 | 6.1 | 3.36e-3 |
+| N | 3 | 900 | 1.327 | 0.63 | 1.296 | 0.59 | 1.161 | 4.6 | 6.4 | 6.95e-3 |
+| N | 4 | 900 | 1.323 | 0.63 | 1.185 | 0.55 | 1.119 | 2.6 | 4.2 | 5.88e-3 |
+| W, re-fixed at 400 | 0 | 3700 | 1.227 | 0.79 | 1.227 | 0.79 | 1.025 | 22.0 | 4.6 | 2.29e-3 |
+| W | 1 | 2900 | 1.094 | 0.92 | 1.094 | 0.92 | 0.886 | 27.7 | 3.7 | 1.29e-3 |
+| W | 2 | 2500 | 1.143 | 0.85 | 1.143 | 0.85 | 0.921 | 22.5 | 4.6 | 2.33e-3 |
+| W | 3 | 400 | 1.321 | 0.63 | 1.321 | 0.63 | 1.207 | 25.4 | 6.7 | 5.62e-3 |
+| W | 4 | 2900 | 1.364 | 0.67 | 1.364 | 0.67 | 1.244 | 41.9 | 6.6 | 8.62e-3 |
+
+*Arm N.* The counterpart does exactly what it was built to do to the observer: star counts of 2.6
+to 9.7 times the truth's against the control's 34 to 45, four of five UNDER the input's own null of
+6.9 (the output has fewer false peaks than the frame it was given), and the observer width back over
+1.0 on four of five. The cost is the sharpening. Four seeds select at 1.32 to 1.34 against an input of
+1.38 and hold 0.63 of the truth's stars there, their width minima (1.19 to 1.30) hold 0.55 to 0.59
+and are not gate-eligible, they select EARLY (steps 400 to 1200, 21 to 35 of 40 probes passing) and
+their final widths (1.35 to 1.43) sit at or past the input: under the empty-window term at a
+first-batch weight the net trains TOWARD leaving the frame alone, since a penalty on every raised peak
+over empty sky is a smoothing prior that grows as the pixel term shrinks. Seed 1 is the exception and
+meets the kill clause's both halves alone: 1.183 selected at step 3700 holding 0.75, observer 9.7x
+with width 0.975. It has the arm's lowest weight (1.84e-3; the other four 3.4e-3 to 7.0e-3), and E2.8
+had already noted that the control's lowest weight gave its narrowest selection. One seed is a
+lead, not a result.
+
+*Arm W.* As predicted and no better: the observer improves only partly (22 to 42x, median 25 against
+39) and the gate session keeps three of five under 1.30 with two at 1.32 and 1.36. The re-fix took the
+weight DOWN, to 4.1e-4 to 9.8e-4 (a third to a fourteenth of the step-1 value, since the pixel term
+had fallen 20 to 50x by step 400), and the fabrication barely moved: a lower weight on the term as it
+is does not make it honest. Matching the weight at the plateau is not the mechanism; the term's
+incentive is, which is what the counterpart changes.
+
+*Verdict.* The kill line ("neither arm ... while keeping selection under 1.30") is not crossed, on
+one seed of ten. The pre-registered N prediction (selected at or under 1.20, stars at or over 0.80,
+observer under 14x) is met on its observer half by every seed and on its gate half by one, so a
+per-star term with its counterpart CAN be honest and CAN be sharp, and whether it can be both at a
+weight one can set is exactly the axis this arm left random. That is E2.8c below, fifty minutes of
+GPU, before the fork is written down rather than after.
+
+#### E2.8c, pre-registered 2026-09-07: arm N at a fixed weight
+
+*Change.* Arm N's recipe (`--star-loss-empty`) with the star term's weight FIXED at 1.84e-3 on every
+seed instead of matched on the first batch, the value seed 1 drew (1.8386e-3). Seeds 0 to 4, same cache, gate
+and observer; arm N's five runs are the paired control, and seed 1 of arm N is the run this arm
+should reproduce five times if the weight is the cause.
+
+*Prediction.* At least three of five seeds select at or under 1.25 on the gate session while the
+observer stays under 2x its null (14) and over 1.0 in width; the width minima hold at least 0.65 of
+the stars. Then the weight was the cause, the honest recipe has an operating point, and the unrolled
+operator carries the term at that weight. Confidence moderate: a fixed weight removes one random
+variable and leaves the seed's own, which E2.7 measured at 0.008 to 0.031 on width.
+
+*Kill.* At most one of five seeds selects under 1.30 with the observer under 14. Then seed 1 was the
+seed and not the weight, the smoothing reading above stands, and the counterpart goes into the
+unrolled operator as a REGULARISER only (where the physics does the sharpening and a term that
+prefers leaving the frame alone costs nothing), never as the sharpening objective of a pixel-domain
+net.
+
+*Cost.* 5 x 10 min on the 1070, once D1's output probe has released it. Launch script
+`run-p2-starloss-c.ps1` with this header, as the others.
 
 ### Reproducing E0 and E1
 
