@@ -117,9 +117,17 @@ public partial class Image
     /// 3008² float32 frame, ~4 s saved on a 100-frame folder scan.
     /// </summary>
     /// <remarks>
-    /// Header-parsing logic mirrors <see cref="TryReadFitsFile(Fits, out Image?, out WCS?)"/>
-    ///; keep in sync until the two paths are refactored onto a shared
-    /// <c>ParseHduMetadata</c> helper.
+    /// <para><b>This is a second ENTRY POINT, not a second parser.</b> It and
+    /// <see cref="TryReadFitsFile(Fits, out Image?, out WCS?)"/> both call
+    /// <c>ParseImageMetaFromHeader</c>, and a card added to one is therefore present in the other by
+    /// construction. They used to keep their own copies -- this remark used to say "keep in sync" --
+    /// and they drifted: one dropped <c>PIXSCALE</c>, and an <c>EXPOSURE</c> fallback read
+    /// <c>{ EXPTIME, EXPTIME, 0 }</c>, so a frame carrying only that card was a zero-second exposure
+    /// and <c>MasterGroupKey</c> picked its dark by it. Pinned since by
+    /// <c>FitsPixelScaleTests.TheTwoReadPathsAgreeOnEveryMetadataField</c>.</para>
+    /// <para>What differs is only whether the pixel block is read, which is the whole point: the
+    /// folder scans, the calibration matcher and the dataset exporters group thousands of frames by
+    /// header alone.</para>
     /// </remarks>
     public static bool TryReadFitsHeader(string fileName, [NotNullWhen(true)] out Calibration.FrameInfo? frameInfo)
     {
