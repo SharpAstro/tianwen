@@ -61,6 +61,22 @@ original subs, so the `STACK_N` check alone misses them, and they silently
 re-stack into a ghost master). The `ScanSummary` is reported on the progress
 channel -- silent re-ingestion was the footgun this closes.
 
+**Registration, and what a master's width is made of (2026-09-07).** Detection runs once per light on
+the pre-debayer mosaic (`FrameRegistration.DetectAsync`), where a single warm photosite is refused by
+its peak-photosite share of the 3 by 3 flux (`Image.SinglePhotositeFractionMax`, measured 0.92 to 0.99
+for warm pixels against 0.15 to 0.41 for stars); the bulk affine is a RANSAC over quad centres
+(`StarReferenceTable`), and `RegistrationRefiner.RefineRigid` closes its residual with a Procrustes over
+nearest-neighbour pairs, dropping any pair whose raw positions coincide while the bulk affine moved the
+detection (`UnmovedTolerancePx`): a detection fixed to the sensor pairs with its own copy at minus the
+drift, and averaging those in halved every shift under 5 px on a warm night. Each frame is then placed
+on the union canvas by `Image.WarpToReferenceGridAsync` with the kernel `--warp-interpolation` names:
+bilinear (the default) adds phase times one minus phase of a pixel's variance per axis, about a pixel
+of FWHM in quadrature at 2 px seeing, Lanczos-3 adds none measurable. **A master is the mean of its
+warped frames to 0.3 percent**, star by star: the combine, the rejection and the normalisation add no
+width, so a master's width is its subs' plus the kernel's plus any misregistration, and nothing else.
+The measurements behind each clause: `docs/plans/deconvolver-training.md`, E2.10a "the third finding
+placed" and R1; the traps: `docs/known-limitations.md`.
+
 ---
 
 ## 2. Post-processing: `MasterPostProcessor.WriteMasterAsync`
