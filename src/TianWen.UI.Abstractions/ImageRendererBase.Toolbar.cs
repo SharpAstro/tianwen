@@ -34,8 +34,8 @@ namespace TianWen.UI.Abstractions
             // One control, not two: the label is computed per frame (Fit / 1:1 / a percentage), so the
             // text here is only the measurement seed and the widest state it has to fit.
             ("Fit", ToolbarAction.Zoom, 3),
-            ("Solve", ToolbarAction.PlateSolve, 4),
             ("Crop", ToolbarAction.AutoCrop, 4),
+            ("Solve", ToolbarAction.PlateSolve, 4),
             ("Grid", ToolbarAction.Grid, 4),
             ("Objects", ToolbarAction.Overlays, 4),
             ("Stars", ToolbarAction.Stars, 4),
@@ -1596,8 +1596,11 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.Channel => HasToolbarMark(ToolbarAction.Channel, state)
                     ? string.Empty
                     : $"{state.ChannelView}",
-                // No label at all: the folder and the tray say it, and the tooltip carries the rest.
-                ToolbarAction.Open or ToolbarAction.Save => string.Empty,
+                // No label at all: the folder, the tray and the two right angles say it, and the tooltip
+                // carries the rest. A crop is a two-state action unlike the other two, but the state it
+                // has to report is carried by the button's own background, not by a word, so the label
+                // was saying the same thing twice.
+                ToolbarAction.Open or ToolbarAction.Save or ToolbarAction.AutoCrop => string.Empty,
                 // Auto names what it resolved to, exactly as StretchLink above does.
                 ToolbarAction.Debayer => state.DebayerAlgorithm is DebayerAlgorithm.Auto
                     ? $"Auto ({ResolvedDebayerLabel()})"
