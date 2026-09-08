@@ -45,9 +45,9 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void AnExplicitModeSurvivesTheNewFact()
         {
-            StretchMode.Linked.ResolveAuto(isColour: true, calibrationActive: true, isNarrowbandCalibration: true)
+            StretchMode.Linked.ResolveAuto(isColour: true, calibrationActive: true, colourIsNotPhotometric: true)
                 .ShouldBe(StretchMode.Linked);
-            StretchMode.Luma.ResolveAuto(isColour: true, calibrationActive: true, isNarrowbandCalibration: true)
+            StretchMode.Luma.ResolveAuto(isColour: true, calibrationActive: true, colourIsNotPhotometric: true)
                 .ShouldBe(StretchMode.Luma);
         }
 
@@ -150,6 +150,121 @@ namespace TianWen.Lib.Tests
             enhanced.InheritColorCalibration(original);
 
             enhanced.IsNarrowbandColorCalibration.ShouldBeTrue();
+        }
+
+        /// <summary>
+        /// The case the reported file actually is, and the one the filter-curve test above cannot reach.
+        /// </summary>
+        /// <remarks>
+        /// Measured on <c>Sag_Triplet_OIII-HOO_1.fits</c>, an Astro Pixel Processor composite: green and
+        /// blue are identical in <b>100.0% of its 9,477,205 pixels</b>, and the header carries no FILTER,
+        /// no INSTRUME and no sensor (its filter is in APP's own <c>FILT-1 = 'HOO 1 composite'</c>). So the
+        /// throughput route has nothing to read, SPCC never runs, and the calibration on that file comes
+        /// from the sky-background path, which needs only stars. The frame itself is what says the colour
+        /// is not a measurement: three gains cannot be fitted to two independent channels.
+        /// </remarks>
+        [Fact]
+        public async Task AnHooCompositeRendersUnlinkedEvenWithNoFilterHeader()
+        {
+            var document = await AstroImageDocument.AdoptImageAsync(HooComposite(), DebayerAlgorithm.None,
+                wcs: null, filePath: "Sag_Triplet_OIII-HOO_1.fits", TestContext.Current.CancellationToken);
+
+            // The sky-background path, which is what a file with no filter or sensor header gets.
+            document.InheritColorCalibration((1.4f, 1f, 0.7f), summary: null, isNarrowband: false);
+
+            document.ColourIsNotPhotometric.ShouldBeTrue("green and blue hold the same OIII measurement");
+
+            var auto = document.ComputeStretchUniforms(StretchMode.Auto, StretchParameters.Default);
+            auto.ShouldBe(document.ComputeStretchUniforms(StretchMode.Unlinked, StretchParameters.Default));
+            auto.ShouldNotBe(document.ComputeStretchUniforms(StretchMode.Linked, StretchParameters.Default));
+        }
+
+        /// <summary>
+        /// The counting itself, which is the whole basis of the test above: a duplicated plane is not an
+        /// independent measurement, and an ordinary frame is unaffected.
+        /// </summary>
+        [Fact]
+        public void ADuplicatedPlaneIsNotAnIndependentChannel()
+        {
+            HooComposite().IndependentChannelCount().ShouldBe(2);
+            ColourFrame().IndependentChannelCount().ShouldBe(3);
+            MonoFrame().IndependentChannelCount().ShouldBe(1);
+        }
+
+        /// <summary>
+        /// An SHO or HOO frame is a THREE-channel frame with two measurements, and an ordinary RGB frame
+        /// whose channels merely look alike is not: the test is bit-for-bit equality, so a frame that is
+        /// nearly grey still calibrates.
+        /// </summary>
+        [Fact]
+        public async Task ANearlyGreyFrameIsStillPhotometric()
+        {
+            var document = await AstroImageDocument.AdoptImageAsync(NearlyGreyFrame(), DebayerAlgorithm.None,
+                wcs: null, filePath: "grey.fits", TestContext.Current.CancellationToken);
+            document.InheritColorCalibration((1.02f, 1f, 0.99f), summary: null, isNarrowband: false);
+
+            document.ColourIsNotPhotometric.ShouldBeFalse();
+            document.ComputeStretchUniforms(StretchMode.Auto, StretchParameters.Default)
+                .ShouldBe(document.ComputeStretchUniforms(StretchMode.Linked, StretchParameters.Default));
+        }
+
+        /// <summary>An HOO palette: Ha in red, one OIII plane in BOTH green and blue.</summary>
+        private static Image HooComposite()
+        {
+            const int W = 24, H = 16;
+            var ha = new float[H, W];
+            var oiii = new float[H, W];
+            for (var y = 0; y < H; y++)
+            {
+                for (var x = 0; x < W; x++)
+                {
+                    ha[y, x] = 0.10f + (0.01f * ((x + y) % 5));
+                    oiii[y, x] = 0.06f + (0.008f * ((x + (2 * y)) % 7));
+                }
+            }
+
+            return new Image([ha, oiii, oiii], BitDepth.Float32,
+                maxValue: 1f, minValue: 0f, pedestal: 0f,
+                imageMeta: new ImageMeta { Instrument = "synth", SensorType = SensorType.Monochrome });
+        }
+
+        /// <summary>Three planes that are close but not equal, which must NOT read as rank-deficient.</summary>
+        private static Image NearlyGreyFrame()
+        {
+            const int W = 24, H = 16;
+            var planes = new float[3][,];
+            for (var c = 0; c < 3; c++)
+            {
+                var plane = new float[H, W];
+                for (var y = 0; y < H; y++)
+                {
+                    for (var x = 0; x < W; x++)
+                    {
+                        plane[y, x] = 0.09f + (0.01f * ((x + y) % 5)) + (0.0001f * c);
+                    }
+                }
+
+                planes[c] = plane;
+            }
+
+            return new Image([planes[0], planes[1], planes[2]], BitDepth.Float32,
+                maxValue: 1f, minValue: 0f, pedestal: 0f,
+                imageMeta: new ImageMeta { Instrument = "synth", SensorType = SensorType.Monochrome });
+        }
+
+        private static Image MonoFrame()
+        {
+            var plane = new float[16, 24];
+            for (var y = 0; y < 16; y++)
+            {
+                for (var x = 0; x < 24; x++)
+                {
+                    plane[y, x] = 0.1f + (0.01f * ((x + y) % 5));
+                }
+            }
+
+            return new Image([plane], BitDepth.Float32, maxValue: 1f, minValue: 0f, pedestal: 0f,
+                imageMeta: new ImageMeta { Instrument = "synth", SensorType = SensorType.Monochrome });
         }
 
         /// <summary>Three planes at different levels, so a per-channel curve cannot coincide with a shared

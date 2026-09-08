@@ -156,6 +156,25 @@ public sealed class AstroImageDocument : IPreviewSource
     private bool _isNarrowbandColorCalibration;
 
     /// <summary>
+    /// Whether this frame's colour can be read as a measurement of the sky at all: false for a frame
+    /// calibrated through a line-selective filter, and false for one whose channels are not independent.
+    /// </summary>
+    /// <remarks>
+    /// The second half is what reaches real files. An HOO composite assigns OIII to green AND blue, so a
+    /// three-gain fit is being asked of two measurements; and the composite that prompted this carries no
+    /// FILTER, INSTRUME or sensor card at all (Astro Pixel Processor writes its own FILT-1), so the
+    /// filter-curve test has nothing to read while the duplicate plane is right there in the pixels.
+    /// <para>
+    /// Measured once, at construction, off the render thread. <see cref="ComputeStretchUniforms"/> runs
+    /// per frame and must never scan a plane.
+    /// </para>
+    /// </remarks>
+    public bool ColourIsNotPhotometric
+        => IsNarrowbandColorCalibration || Basis._hasDuplicateChannels || _hasDuplicateChannels;
+
+    private readonly bool _hasDuplicateChannels;
+
+    /// <summary>
     /// Provenance for <see cref="ColorCalibration"/>: which method produced it, how many stars it
     /// stood on, and what it declared white. Null until a calibration has run.
     /// <para>
@@ -310,6 +329,11 @@ public sealed class AstroImageDocument : IPreviewSource
             stats[c] = image.Statistics(c);
         }
         ChannelStatistics = stats;
+
+        // Measured here for two reasons: the planes are still resident, so it costs a read rather than a
+        // rebuild, and it must not happen on the render thread. An ordinary frame exits at the first
+        // differing pixel; only a genuinely duplicated pair is scanned in full.
+        _hasDuplicateChannels = image.ChannelCount > 1 && image.IndependentChannelCount() < image.ChannelCount;
 
         // D1: the stats pass was the last thing that needed the float planes at load, and for a
         // document whose source was 8-bit they are pure duplication of a raster that can rebuild them
@@ -615,7 +639,7 @@ public sealed class AstroImageDocument : IPreviewSource
         // Linked so the WB shows; an uncalibrated one Unlinked so each channel's background neutralises.
         var isColour = UnstretchedImage.ChannelCount >= 3
             || UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB;
-        mode = mode.ResolveAuto(isColour, autoWb is not null, IsNarrowbandColorCalibration);
+        mode = mode.ResolveAuto(isColour, autoWb is not null, ColourIsNotPhotometric);
 
         if (UseIterativeConvergence && Basis.StarMaskedStats is { } masked)
         {

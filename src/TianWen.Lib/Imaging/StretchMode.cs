@@ -34,17 +34,24 @@ public static class StretchModeExtensions
         /// coincide). Called by the producers before a <see cref="StretchUniforms"/> is built, so Auto
         /// never reaches the shader.
         /// </summary>
-        /// <param name="isNarrowbandCalibration">
-        /// True when the calibration was fitted through a LINE-SELECTIVE filter, which makes it Unlinked
-        /// regardless. A photometric white balance assumes a stellar continuum through a broad passband;
-        /// through an Ha + OIII filter that premise never held, so Linked would preserve a fit of nothing
-        /// as a strong cast, which is what an HOO master looked like. Ignored when no calibration is
-        /// active, where the answer is already Unlinked.
+        /// <param name="colourIsNotPhotometric">
+        /// True when the frame's colour is not a measurement of the sky, which makes it Unlinked whatever
+        /// the calibration says. Two things say so, and the second is the one that reaches real files.
+        /// <list type="bullet">
+        /// <item>The calibration was fitted through a LINE-SELECTIVE filter. A photometric white balance
+        /// assumes a stellar continuum through a broad passband, and through an Ha + OIII filter that
+        /// premise never held, so Linked preserves a fit of nothing as a strong cast.</item>
+        /// <item>The frame is RANK-DEFICIENT: an HOO composite puts OIII in both green and blue, so three
+        /// gains are being fitted to two independent measurements. This is the case an HOO master from
+        /// another tool actually hits, because such a file often carries no filter, instrument or sensor
+        /// header for the first test to read.</item>
+        /// </list>
+        /// Ignored when no calibration is active, where the answer is already Unlinked.
         /// </param>
         public StretchMode ResolveAuto(bool isColour, bool calibrationActive,
-            bool isNarrowbandCalibration = false)
+            bool colourIsNotPhotometric = false)
             => mode is not StretchMode.Auto ? mode
                 : !isColour ? StretchMode.Linked
-                : calibrationActive && !isNarrowbandCalibration ? StretchMode.Linked : StretchMode.Unlinked;
+                : calibrationActive && !colourIsNotPhotometric ? StretchMode.Linked : StretchMode.Unlinked;
     }
 }

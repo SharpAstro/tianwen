@@ -861,6 +861,13 @@ Three things to decide when it is picked up:
   explicit action, not this button's default.
 - **What counts as absent.** NaN and exact zero in EVERY channel: a zero in one channel of three is a
   dead pixel or a genuinely black one, not a place no frame covered.
+- **It has to be the largest RECTANGLE, not the bounding box of the good pixels**, and a real file says so
+  rather than the argument saying so. On `Sag_Triplet_OIII-HOO_1.fits` (an APP composite, 3073 x 3085),
+  **97,589 pixels (1.029%) are exact zero in all three channels and none are NaN**, and those absent
+  pixels **touch every edge**: they span rows 0 to 3084 and columns 0 to 3072. A bounding box of the good
+  pixels therefore trims essentially nothing while leaving the ragged border in. The largest absent-free
+  rectangle is **2987 x 3061 at (25, 8), 96.45% of the frame**, trimming 25 left, 8 top, 61 right and 16
+  bottom. That is the number the button has to produce.
 - **What it does on a frame with nothing to crop**, which has to be visibly nothing rather than a
   one-pixel nibble.
 

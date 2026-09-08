@@ -551,6 +551,50 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     public Channel GetChannel(int channel) => Planes[channel];
 
     /// <summary>
+    /// How many of this image's channels carry INDEPENDENT measurements, i.e. the count after channels
+    /// that are bit-for-bit copies of an earlier one are discarded. Three for an ordinary colour frame,
+    /// two for an HOO composite, one for mono.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>A synthetic narrowband palette is rank-deficient by construction</b>: HOO assigns OIII to
+    /// both green and blue, so the frame holds two measurements presented as three. Nothing photometric
+    /// can be fitted to that, since three gains cannot be solved from two independent values, and any
+    /// colour a fit does produce is an artefact of the duplication rather than of the sky.</para>
+    /// <para>Measured rather than read off a header, which is what makes it work on the frames it is for:
+    /// the file this was written against is an Astro Pixel Processor composite carrying no FILTER card at
+    /// all (its filter is in APP's own FILT-1), no instrument and no sensor, so every name-based and
+    /// curve-based route answers nothing while its green and blue planes are identical in 100.0% of
+    /// 9,477,205 pixels.</para>
+    /// <para>Cheap in the case that matters: the comparison exits at the first differing pixel, so an
+    /// ordinary frame costs a few elements and only a genuinely duplicated pair is scanned in full.</para>
+    /// </remarks>
+    public int IndependentChannelCount()
+    {
+        var count = ChannelCount;
+        if (count <= 1)
+        {
+            return count;
+        }
+
+        var independent = 1;
+        for (var c = 1; c < count; c++)
+        {
+            var isCopy = false;
+            for (var earlier = 0; earlier < c && !isCopy; earlier++)
+            {
+                isCopy = GetChannelSpan(c).SequenceEqual(GetChannelSpan(earlier));
+            }
+
+            if (!isCopy)
+            {
+                independent++;
+            }
+        }
+
+        return independent;
+    }
+
+    /// <summary>
     /// Returns a flat span over the pixel data for a single channel plane (height * width floats).
     /// </summary>
     public ReadOnlySpan<float> GetChannelSpan(int channel)

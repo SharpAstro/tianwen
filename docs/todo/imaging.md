@@ -580,6 +580,24 @@ Two items added by the 2026-09-08 Slack sweep, both from the user working on an 
     overlap a genuine R channel in width, so no threshold separates them and calling a real R filter
     narrowband is the worse error. `OPTOLONG_L_QUAD_ENHANCE` measuring 206 nm is not a contradiction; a
     quad-band *enhance* passes the continuum between the sodium lines.
+  - **That first cut did NOT fix the reported file, and opening it is what said so.**
+    `Sag_Triplet_OIII-HOO_1.fits` is an Astro Pixel Processor composite carrying **no `FILTER`, no
+    `INSTRUME` and no sensor card** (its filter lives in APP's own `FILT-1 = 'HOO 1 composite'`, which
+    nothing reads), so `BuildChannelThroughputs` returns null, SPCC never runs, and the triple on it comes
+    from the **sky-background** path (`ComputeColorCalibrationAsync`), which needs only stars. The
+    throughput classifier had nothing to classify.
+  - **The frame itself is the signal that works: it is RANK-DEFICIENT.** HOO puts the same OIII plane in
+    green and blue, so three gains are being fitted to two measurements. Measured on that file: green and
+    blue are identical in **100.0% of its 9,477,205 pixels**, max abs difference exactly 0. `Image`
+    reports `IndependentChannelCount()` (bit-for-bit, exits at the first differing pixel, so an ordinary
+    frame costs a few elements), the document measures it once at construction while the planes are still
+    resident, and `ColourIsNotPhotometric` folds it together with the narrowband verdict. Auto now
+    resolves **Unlinked** on the real file, confirmed end to end through `AstroImageDocument.OpenAsync`.
+  - **`ResolveAuto`'s third parameter is named for the meaning, not the cause** (`colourIsNotPhotometric`):
+    a line-selective passband and a duplicated channel are two ways of saying the colour is not a
+    measurement of the sky.
+  - **The equality test is bit-for-bit on purpose.** A nearly grey RGB frame still calibrates; only a
+    plane that IS another plane counts, which is what a synthetic palette produces.
   - **The calibration is still computed and still shown**; what changed is only that Auto will not ASSERT
     it as colour. The wider question below stands.
   - Pinned by `NarrowbandStretchModeTests`, whose broadband control is what stops the fix degenerating
