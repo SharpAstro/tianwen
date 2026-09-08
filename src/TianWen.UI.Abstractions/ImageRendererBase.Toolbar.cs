@@ -834,7 +834,10 @@ namespace TianWen.UI.Abstractions
                 && (document.UnstretchedImage.ChannelCount >= 3
                     || document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB),
             ToolbarAction.PlateSolve => document is not null && !document.IsPlateSolved,
-            ToolbarAction.AutoCrop => document is not null,
+            // Disabled once an enhance has BAKED a crop in: the pixels are the crop, so there is no
+            // border left to take off and no way to put one back. Reverting the enhance restores both
+            // the full frame and the crop that was on it.
+            ToolbarAction.AutoCrop => document is { SourceCrop: null },
             ToolbarAction.ZoomFit or ToolbarAction.ZoomActual or ToolbarAction.Zoom => document is not null,
             // Only in the button set when EnhanceAvailable, so the gate here is just "have an image".
             // Re-click while a pass runs is harmless -- the controller guards on IsEnhancing.

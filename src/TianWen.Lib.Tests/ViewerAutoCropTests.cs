@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Threading.Tasks;
 using DIR.Lib;
 using Shouldly;
 using TianWen.Lib.Astrometry;
@@ -65,6 +66,49 @@ namespace TianWen.Lib.Tests
             public override void UploadHistogramData(IPreviewSource source) { }
 
             protected override HistogramDisplay? GetHistogramDisplay() => null;
+
+            // ---- the cached-layer seam, so a test can drive the path the GPU hosts take ----
+            //
+            // Every hook defaults to "unsupported", so the tests that do not opt in
+            // (UseCachedImageLayer stays false) render exactly as they did.
+
+            protected override int CachedLayerSlotCount => 1;
+
+            protected override bool TryEnsureCachedLayerTargets(int width, int height,
+                out int capacityWidth, out int capacityHeight)
+            {
+                capacityWidth = width;
+                capacityHeight = height;
+                CapacityW = width;
+                CapacityH = height;
+                return true;
+            }
+
+            protected override bool TryBeginCachedLayerPass(int width, int height) => true;
+
+            protected override void EndCachedLayerPass() { }
+
+            protected override bool TryDrawCachedLayer(int slot, float x, float y, float w, float h,
+                float u0, float v0, float u1, float v1)
+            {
+                Blit = new RectF32(x, y, w, h);
+                BlitU = (u0, u1);
+                BlitV = (v0, v1);
+                Blits++;
+                return true;
+            }
+
+            public RectF32 Blit { get; private set; }
+
+            public (float Lo, float Hi) BlitU { get; private set; }
+
+            public (float Lo, float Hi) BlitV { get; private set; }
+
+            public int Blits { get; private set; }
+
+            public int CapacityW { get; private set; }
+
+            public int CapacityH { get; private set; }
 
             public float QuadLeft { get; private set; }
 
@@ -237,6 +281,128 @@ namespace TianWen.Lib.Tests
             imgY0.ShouldBeGreaterThanOrEqualTo(crop.Y - Tolerance);
             imgX1.ShouldBeLessThanOrEqualTo(crop.Right + Tolerance);
             imgY1.ShouldBeLessThanOrEqualTo(crop.Bottom + Tolerance);
+        }
+
+        /// <summary>
+        /// The CACHED-LAYER blit is narrowed to the crop too. Reported 2026-09-09: zoom out and the
+        /// discarded border comes back, while the status bar still says the frame is cropped.
+        /// </summary>
+        /// <remarks>
+        /// <para>The uncached path clips the quad to the shown region; the cached path returned before
+        /// ever reaching that, clipping to the PANE alone. At fit the border falls outside the pane, so
+        /// the pane clip hid it -- zoom out and the whole frame fits inside the pane, and the blit
+        /// painted the border back. With 1309 blits against 253 renders in the reported session, the
+        /// cached path is the one a user actually looks at.</para>
+        /// <para><b>This asserts what the renderer DECLARED, which is the point.</b> Its sibling above
+        /// re-derives the clip from the placement inside the test body, so it models ClipToShown rather
+        /// than observing it and stayed green through the whole bug. Delete the narrowing in
+        /// TryDrawImageFromCachedLayer and this fails; that one still passes.</para>
+        /// </remarks>
+        [Fact]
+        public void TheCachedLayerBlitIsNarrowedToTheCrop()
+        {
+            var (viewer, state) = NewViewer();
+            var crop = new Rectangle(40, 30, 200, 150);
+            viewer.UseCachedImageLayer = true;
+            state.DisplayCrop = crop;
+
+            // Zoomed OUT far enough that the whole frame, border included, fits inside the pane. That is
+            // the regime the pane clip cannot help with.
+            state.ZoomToFit = false;
+            state.Zoom = 0.5f;
+
+            // PrepareCachedImageLayer renders the layer, Render then blits out of it -- both in the
+            // same frame, which is how the hosts drive it.
+            viewer.PrepareFrame(null, state);
+            viewer.PrepareCachedImageLayer();
+            viewer.Render(null, state);
+
+            viewer.Blits.ShouldBe(1, "the frame must come from the layer, or this proves nothing");
+
+            var shown = viewer.Shown;
+            var blit = viewer.Blit;
+            const float Tolerance = 0.01f;
+            blit.X.ShouldBeGreaterThanOrEqualTo(shown.X - Tolerance);
+            blit.Y.ShouldBeGreaterThanOrEqualTo(shown.Y - Tolerance);
+            (blit.X + blit.Width).ShouldBeLessThanOrEqualTo(shown.X + shown.Width + Tolerance);
+            (blit.Y + blit.Height).ShouldBeLessThanOrEqualTo(shown.Y + shown.Height + Tolerance);
+
+            // Not degenerate: the crop itself is what is drawn, at this zoom entirely inside the pane.
+            blit.Width.ShouldBe(crop.Width * state.Zoom, Tolerance);
+            blit.Height.ShouldBe(crop.Height * state.Zoom, Tolerance);
+
+            // The SOURCE rectangle has to shrink with the destination. Narrowing the destination alone
+            // would sample the whole pane into the crop's rectangle, which squashes the picture rather
+            // than cropping it -- and it would still look plausible at a glance.
+            ((viewer.BlitU.Hi - viewer.BlitU.Lo) * viewer.CapacityW).ShouldBe(blit.Width, Tolerance);
+            ((viewer.BlitV.Hi - viewer.BlitV.Lo) * viewer.CapacityH).ShouldBe(blit.Height, Tolerance);
+        }
+
+        /// <summary>
+        /// Once an enhance has BAKED a crop in, the crop button is disabled: the pixels are the crop, so
+        /// there is nothing left to take off -- and nothing to put back either, since both scan tiers are
+        /// blind on enhanced pixels. Reverting the enhance is what restores the full frame and its crop.
+        /// </summary>
+        /// <remarks>
+        /// Asserted through <c>TryGetPaintedToolbarRect</c>, which answers only for REGISTERED buttons,
+        /// i.e. the clickable ones. <c>PaintedToolbarButtons</c> would not do: a disabled button is still
+        /// laid out, so it stays in that list by design.
+        /// </remarks>
+        [Fact]
+        public async Task TheCropButtonIsDisabledOnceAnEnhanceHasBakedACropIn()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var (viewer, state) = NewViewer();
+
+            var whole = await AstroImageDocument.AdoptImageAsync(SyntheticFrame(), DebayerAlgorithm.None,
+                filePath: "master.fits", cancellationToken: ct);
+            viewer.Render(whole, state);
+            viewer.TryGetPaintedToolbarRect(ToolbarAction.AutoCrop, out _)
+                .ShouldBeTrue("a whole frame is exactly what the crop button is for");
+
+            var baked = await AstroImageDocument.AdoptImageAsync(SyntheticFrame(), DebayerAlgorithm.None,
+                filePath: "master.fits", sourceCrop: new Rectangle(8, 6, ImageW, ImageH), cancellationToken: ct);
+            viewer.Render(baked, state);
+            viewer.TryGetPaintedToolbarRect(ToolbarAction.AutoCrop, out _)
+                .ShouldBeFalse("these pixels ARE the crop");
+        }
+
+        private static Image SyntheticFrame()
+        {
+            var plane = new float[ImageH, ImageW];
+            for (var y = 0; y < ImageH; y++)
+            {
+                for (var x = 0; x < ImageW; x++)
+                {
+                    plane[y, x] = 0.25f;
+                }
+            }
+
+            return new Image([plane], BitDepth.Float32, maxValue: 1f, minValue: 0f, pedestal: 0f,
+                imageMeta: new ImageMeta { Instrument = "synth", SensorType = SensorType.Monochrome });
+        }
+
+        /// <summary>With no crop the blit is the whole pane, unchanged: the ordinary path must not pay
+        /// for the crop's narrowing.</summary>
+        [Fact]
+        public void WithoutACropTheCachedLayerBlitIsTheWholePane()
+        {
+            var (viewer, state) = NewViewer();
+            viewer.UseCachedImageLayer = true;
+            state.ZoomToFit = false;
+            state.Zoom = 0.5f;
+
+            viewer.PrepareFrame(null, state);
+            viewer.PrepareCachedImageLayer();
+            viewer.Render(null, state);
+
+            viewer.Blits.ShouldBe(1);
+            var area = viewer.ImageArea;
+            const float Tolerance = 0.01f;
+            viewer.Blit.X.ShouldBe(area.X, Tolerance);
+            viewer.Blit.Y.ShouldBe(area.Y, Tolerance);
+            viewer.Blit.Width.ShouldBe(area.Width, Tolerance);
+            viewer.Blit.Height.ShouldBe(area.Height, Tolerance);
         }
     }
 }

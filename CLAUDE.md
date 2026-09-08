@@ -1548,7 +1548,16 @@ visible inside 5% of the span is refused, not trimmed to the bound**; and the co
 16x16 BLOCK, since per-pixel drizzle weight scatters ~10% in a fully covered interior and a per-pixel
 threshold collapses the answer to 0.7% of the frame. Measurements, the corpus and the three refuted
 rules: [docs/plans/viewer-prerelease-fixes.md](docs/plans/viewer-prerelease-fixes.md) P25; harness in
-`tools/coverage-edge-walk/`.
+`tools/coverage-edge-walk/`. **A crop is a CLIP, so every draw path owes it one** -- the cached image
+layer returns before `ClipToShown` and needs its own narrowing (destination AND source UVs), or the
+border is blitted back at any zoom that brings it inside the pane while the status bar still says
+cropped. It reaches the renderer, the status bar, the toolbar state, both exports and **the enhance
+INPUT** -- the enhancers are spatial models and the ring is exact zero, which a CNN reads as structure
+and smears inward (NaN is no escape: `SharpenPipeline` fills non-finite with the channel mean by
+design). So an enhance on a cropped view is CUT first: the result is the crop, `WCS.CroppedTo`
+translates the solution, `AstroImageDocument.SourceCrop` records it, and the crop button gates on that.
+A crop also **cannot be re-derived after an enhance** (both tiers need evidence the enhancers destroy),
+so it is REMEMBERED across the toggle rather than re-scanned, and a revert restores frame and crop.
 
 **One viewer, no mini viewer.** Live Session preview, polar-align and guide-cam host this viewer
 chromeless (`ViewerState.HideChrome`), fed by `LiveFramePreviewSource : IPreviewSource` (normalises to

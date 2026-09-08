@@ -248,11 +248,26 @@ namespace TianWen.UI.Abstractions
                 return false;
             }
 
-            // The pane's position inside the layer: one margin in, less however far the image has been
-            // panned since the layer was rendered.
+            // What a crop leaves showing, which is the pane itself when there is no crop. This path
+            // RETURNS before the uncached one reaches its ClipToShown, so the narrowing has to happen
+            // here as well -- and it is the blit that is narrowed, not merely the scissor, because the
+            // destination rectangle is the one thing a backend cannot get wrong. Without it the border
+            // a crop discards is painted back from the layer as soon as the view is zoomed out far
+            // enough to bring it inside the pane, while the status bar still says the frame is cropped
+            // (reported 2026-09-09; at fit the border falls outside the pane, so the pane clip hid the
+            // bug for every zoom anyone had looked at).
+            var visible = ClipToShown(pane);
+            if (visible.Width <= 0f || visible.Height <= 0f)
+            {
+                _cachedLayerLastMiss = "the crop leaves nothing of the pane showing";
+                return false;
+            }
+
+            // The visible rectangle's position inside the layer: one margin in, less however far the
+            // image has been panned since the layer was rendered.
             var (originX, originY) = CachedLayerOrigin(pane);
-            var srcX = pane.X - originX - dx;
-            var srcY = pane.Y - originY - dy;
+            var srcX = visible.X - originX - dx;
+            var srcY = visible.Y - originY - dy;
 
             // Texture coordinates, so normalised by the texture's size: the CAPACITY the backend
             // allocated, of which this layer occupies the top-left layerW x layerH. Dividing by the
@@ -260,11 +275,11 @@ namespace TianWen.UI.Abstractions
             // pane shrinks (see TryEnsureCachedLayerTargets).
             var u0 = srcX / _cachedLayerCapacityW;
             var v0 = srcY / _cachedLayerCapacityH;
-            var u1 = (srcX + pane.Width) / _cachedLayerCapacityW;
-            var v1 = (srcY + pane.Height) / _cachedLayerCapacityH;
+            var u1 = (srcX + visible.Width) / _cachedLayerCapacityW;
+            var v1 = (srcY + visible.Height) / _cachedLayerCapacityH;
 
-            PushClip((int)pane.X, (int)pane.Y, (int)pane.Width, (int)pane.Height);
-            var drawn = TryDrawCachedLayer(slot, pane.X, pane.Y, pane.Width, pane.Height, u0, v0, u1, v1);
+            PushClip((int)visible.X, (int)visible.Y, (int)visible.Width, (int)visible.Height);
+            var drawn = TryDrawCachedLayer(slot, visible.X, visible.Y, visible.Width, visible.Height, u0, v0, u1, v1);
             PopClip();
 
             if (drawn)

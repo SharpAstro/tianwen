@@ -39,7 +39,7 @@ public class PreStretchDetectionTests
         var image = Flat(64, 64, level);
 
         var doc = await AstroImageDocument.AdoptImageAsync(
-            image, DebayerAlgorithm.None, wcs: null, filePath: "synthetic.fits", CancellationToken.None);
+            image, DebayerAlgorithm.None, wcs: null, filePath: "synthetic.fits", cancellationToken: CancellationToken.None);
 
         doc.IsPreStretched.ShouldBe(expected);
     }
@@ -66,7 +66,7 @@ public class PreStretchDetectionTests
     {
         var doc = await AstroImageDocument.AdoptImageAsync(
             Flat(64, 64, level, depth), DebayerAlgorithm.None, wcs: null, filePath: "synthetic.fits",
-            CancellationToken.None);
+            cancellationToken: CancellationToken.None);
 
         doc.IsPreStretched.ShouldBe(expected);
     }

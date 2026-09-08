@@ -69,7 +69,7 @@ public class DisplayCarryTests
 
     private static Task<AstroImageDocument> DocumentAsync(Image image, string fileName)
         => AstroImageDocument.AdoptImageAsync(image, DebayerAlgorithm.None, wcs: null, filePath: fileName,
-            TestContext.Current.CancellationToken);
+            cancellationToken: TestContext.Current.CancellationToken);
 
     private static StretchUniforms Uniforms(AstroImageDocument document)
         => document.ComputeStretchUniforms(StretchMode.Unlinked, StretchParameters.Default);

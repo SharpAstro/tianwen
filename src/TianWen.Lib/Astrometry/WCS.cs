@@ -63,6 +63,21 @@ public record struct WCS(double CenterRA, double CenterDec)
     /// <summary>The FITS standard's coordinate of the first pixel's centre: the offset between header and memory.</summary>
     private const double FitsPixelOrigin = 1.0;
 
+    /// <summary>
+    /// The same solution read against a CROPPED frame: the sky is untouched, the pixel grid's origin
+    /// moves to <paramref name="cropX"/>, <paramref name="cropY"/>.
+    /// </summary>
+    /// <remarks>
+    /// A crop is a pure TRANSLATION of the pixel grid, so only the reference pixel moves -- the CD
+    /// matrix is a derivative and the SIP coefficients are relative to CRPIX, both unchanged. Exists so
+    /// no caller hand-edits CRPIX: these are the 0-BASED in-memory values (see the type remarks), the
+    /// header's plus-one is applied on write, and a caller subtracting one here would inject the very
+    /// off-by-one <c>WcsPixelOriginTests</c> exists to prevent. NaN in means NaN out, which is what an
+    /// unsolved frame carries.
+    /// </remarks>
+    public readonly WCS CroppedTo(int cropX, int cropY)
+        => this with { CRPix1 = CRPix1 - cropX, CRPix2 = CRPix2 - cropY };
+
     /// <summary>Partial derivative ∂RA/∂x in degrees per pixel.</summary>
     public double CD1_1 { get; init; } = double.NaN;
 
