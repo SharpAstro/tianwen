@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Numerics;
@@ -41,6 +42,21 @@ public static class IntegrationFitsWriter
     /// <c>TianWen.Imaging.Calibration.Integrator</c> before the namespace
     /// split -- both share this prefix).</summary>
     private const string SoftwareCreatorPrefix = "TianWen.";
+
+    /// <summary>Header card naming which kind of map a <c>.rejection.fits</c> sidecar holds.</summary>
+    /// <remarks>
+    /// Absent on every sidecar written before 2026-09-08, and its absence must never be read as either
+    /// kind: a reader that wants coverage has to see <see cref="CoverageMapKind"/> stated. An older
+    /// drizzle sidecar IS coverage and simply cannot say so, which costs its master the exact crop and
+    /// leaves it the estimated one.
+    /// </remarks>
+    public const string MapKindCard = "MAPKIND";
+
+    /// <summary>Accumulated per-pixel weight: high means well covered. What drizzle emits.</summary>
+    public const string CoverageMapKind = "COVERAGE";
+
+    /// <summary>Per-pixel rejected/total: high means heavily rejected. What kappa-sigma emits.</summary>
+    public const string RejectionMapKind = "REJECTION";
 
     /// <summary>
     /// Writes <paramref name="result"/> to <paramref name="masterPath"/>
@@ -120,12 +136,19 @@ public static class IntegrationFitsWriter
         if (result.TotalRejections > 0)
         {
             var rejectionPath = RejectionPathFor(masterPath);
+            // MAPKIND, not IMAGETYP, says which of the two maps this is: the drizzle strategies put the
+            // accumulated per-pixel WEIGHT here rather than a rejection fraction, and the two are
+            // opposite in sense and different in range. IMAGETYP stays REJECTION for both, because
+            // third-party readers key on it and the file is a per-pixel diagnostic map either way.
             var rejExtras = new Dictionary<string, (object Value, string Comment)>
             {
                 ["STACK_N"] = (result.FrameCount, "Frames the rejection map was computed against"),
                 ["REJ_RATE"] = (result.MeanRejectionRate, "Mean rejection rate (this map's average)"),
                 ["SWCREATE"] = (SoftwareCreator, "Software that created this rejection map"),
                 ["IMAGETYP"] = ("REJECTION", "Per-pixel rejection-fraction map [0, 1]"),
+                ["MAPKIND"] = result.RejectionMapIsCoverage
+                    ? (CoverageMapKind, "Accumulated per-pixel weight; high is well covered")
+                    : (RejectionMapKind, "Per-pixel rejected/total; high is heavily rejected"),
             };
             if (strategy is { } s2)
             {
@@ -210,6 +233,51 @@ public static class IntegrationFitsWriter
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Loads the coverage plane that sits beside <paramref name="masterPath"/>, when there is one and it
+    /// says it is coverage. This is what lets a consumer read a master's exact covered area instead of
+    /// estimating it -- see <see cref="Image.LargestCoveredRectangle(Image, double, int)"/> against
+    /// <see cref="CoverageEdgeWalk"/>.
+    /// </summary>
+    /// <remarks>
+    /// The header is read on its own first, so a sidecar that turns out to be a rejection map costs one
+    /// 2880-byte block rather than a full-frame decode. False for a missing file, an unreadable one, a
+    /// rejection map, and a sidecar written before <see cref="MapKindCard"/> existed: none of those can
+    /// be shown to be coverage, and guessing is how a rejection FRACTION would be read as a frame count
+    /// and crop the master to nothing.
+    /// </remarks>
+    public static bool TryReadCoverageMap(string masterPath, [NotNullWhen(true)] out Image? coverage)
+    {
+        coverage = null;
+        if (string.IsNullOrEmpty(masterPath))
+        {
+            return false;
+        }
+
+        var path = RejectionPathFor(masterPath);
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var bufferedReader = new BufferedFile(path, FileAccess.Read, FileShare.Read, 4 * 2880);
+            using var fitsFile = new Fits(bufferedReader, path.EndsWith(".gz", StringComparison.OrdinalIgnoreCase));
+            var kind = fitsFile.ReadFirstImageHduHeaderOnly()?.Header?.GetStringValue(MapKindCard);
+            if (!string.Equals(kind?.Trim(), CoverageMapKind, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        return Image.TryReadFitsFile(path, out coverage);
     }
 
     /// <summary>Computes the rejection-map sibling path for a given master path.</summary>
