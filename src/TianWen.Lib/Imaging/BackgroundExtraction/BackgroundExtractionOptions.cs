@@ -172,6 +172,38 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
         /// <summary>Regions the fit must not look at, in full-image pixel coordinates.</summary>
         public ImmutableArray<ExclusionPolygon> Exclusions { get; init; } = [];
 
+        /// <summary>
+        /// Keep the fit out of a stacked master's under-exposed border as well as off its canvas ring
+        /// (default OFF, and the measurement below is why). The ring is exact zero and already excluded
+        /// by being non-finite; the band INSIDE it is real data that fewer subs reached, so it has
+        /// essentially the same sky and up to 60% more noise.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Off by default because the stiff fit turns out not to care.</b> The band is not
+        /// rejected by anything -- a robust fit rejects on residual sigma and the band's sigma IS the
+        /// frame's own -- so the expectation was that it would pull the model's corners. Measured
+        /// instead, on a 1536 x 1152 planar ramp with a 32 px border carrying 6x the noise and the 0.3%
+        /// low sky the real file shows: the interior model moves 0.018 sigma of the frame's noise with
+        /// the band in the fit and 0.001 sigma with it out. That is a 16x reduction of a quantity too
+        /// small to see, because a degree-2 surface cannot follow a 32 px border however noisy it is.
+        /// Adding the flexible surface stage did not change the conclusion (0.005 against 0.001).
+        /// Pinned by <c>ClassicalBackgroundExtractorTests.ANoisierBorderIsKeptOutOfTheFit</c>, which
+        /// prints both pairs.</para>
+        /// <para><b>So a border still visible after a gradient correction is a NOISE band, and no fit
+        /// removes it.</b> It has to be cropped -- the viewer's auto-crop does that now, via the same
+        /// walk. This option exists for a caller that wants the model itself to be independent of the
+        /// border (a measurement run, or a corrector more flexible than this one), not as the answer to
+        /// a ring that shows on screen.</para>
+        /// <para>Found from <see cref="CoverageEdgeWalk"/>, so it inherits that walk's refusal: an edge
+        /// whose noise is still falling at the bound is left in the fit rather than guessed at. The walk
+        /// runs at a coarse step here, because the fit works on a block-mean grid and could not use a
+        /// 4 px answer.</para>
+        /// <para>Turning it on changes model amplitudes on a master that HAS a band, so the
+        /// <c>stats/gradient-masters.jsonl</c> rows from <c>tianwen dataset gradient-report</c> are only
+        /// comparable across runs that agree on it. That is the second reason the default is off.</para>
+        /// </remarks>
+        public bool ExcludeUnsettledEdges { get; init; }
+
         /// <summary>Throws when a value is outside the range the fit is defined for.</summary>
         public void Validate()
         {

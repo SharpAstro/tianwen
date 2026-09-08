@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -95,6 +96,10 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
             var hs = Math.Max(1, planeHeight / factor);
 
             var excluded = RasterizeExclusions(options.Exclusions, ws, hs, fullPixelsPerWorkingPixel);
+            if (options.ExcludeUnsettledEdges)
+            {
+                excluded = ExcludeOutside(excluded, SettledRegion(source), ws, hs, fullPixelsPerWorkingPixel);
+            }
             var smallModels = Image.CreateChannelData(planeCount, hs, ws);
             var small = new float[ws * hs];
             var outcomes = new RobustBackgroundFit.FitOutcome[planeCount];
@@ -186,6 +191,60 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
                     dst[y * ws + x] = count > 0 ? (float)(sum / count) : float.NaN;
                 }
             }
+        }
+
+        /// <summary>
+        /// The part of a stacked master that is exposed as deeply as its interior, in FULL-IMAGE pixels:
+        /// the zero-free rectangle with each edge's under-exposed band walked off. The whole frame for
+        /// anything that is not a stack, and for an edge the walk refuses.
+        /// </summary>
+        /// <remarks>
+        /// A coarse step, since the fit reduces the frame to a block-mean grid and a 4 px answer would be
+        /// rounded away anyway. Costs one pass over four bands, against a fit that iterates the whole
+        /// grid to convergence.
+        /// </remarks>
+        private static Rectangle SettledRegion(Image source)
+        {
+            var union = source.LargestCoveredRectangle();
+            if (union.Width <= 0 || union.Height <= 0)
+            {
+                return new Rectangle(0, 0, source.Width, source.Height);
+            }
+            var options = new CoverageEdgeWalkOptions { Step = 16, BandThickness = 16 };
+            return CoverageEdgeWalk.Trim(source, union, options);
+        }
+
+        /// <summary>
+        /// Adds everything outside <paramref name="keep"/> to the fit's exclusion mask, mapping working
+        /// pixels to full-image ones the same way <see cref="RasterizeExclusions"/> does.
+        /// </summary>
+        private static bool[] ExcludeOutside(bool[] excluded, Rectangle keep, int ws, int hs, int fullPixelsPerWorkingPixel)
+        {
+            if (keep.Width <= 0 || keep.Height <= 0)
+            {
+                return excluded;
+            }
+
+            var mask = excluded.Length == ws * hs ? excluded : new bool[ws * hs];
+            var any = false;
+            for (var y = 0; y < hs; y++)
+            {
+                var fy = (y + 0.5f) * fullPixelsPerWorkingPixel;
+                var outsideRow = fy < keep.Top || fy >= keep.Bottom;
+                for (var x = 0; x < ws; x++)
+                {
+                    var fx = (x + 0.5f) * fullPixelsPerWorkingPixel;
+                    if (outsideRow || fx < keep.Left || fx >= keep.Right)
+                    {
+                        mask[y * ws + x] = true;
+                        any = true;
+                    }
+                }
+            }
+
+            // Nothing to exclude and nothing was excluded before: hand back the empty array the fit reads
+            // as "no mask at all" rather than a full-size one of falses.
+            return any || excluded.Length == ws * hs ? mask : excluded;
         }
 
         private static bool[] RasterizeExclusions(ImmutableArray<ExclusionPolygon> exclusions, int ws, int hs, int fullPixelsPerWorkingPixel)
