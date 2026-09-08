@@ -56,7 +56,8 @@ the 35 TIFF / import / codec tests pass against it.
 | P23 | Blink toggles on every auto-repeat of Space, and the blinked frame can be off-screen | **FIXED** 2026-09-08 (with DIR.Lib 8.14 + SdlVulkan.Renderer 7.33) |
 | P24 | The A/B divider leaves its bar behind in the letterbox around the image | **FIXED** 2026-09-08 |
 | P25 | No auto-crop: a master's stack artefacts and NaN margins have to be cropped elsewhere | **FIXED** 2026-09-08 |
-| P26 | The `?` panel cannot report a bug: no issue, no logs, no version attached | OPEN (reported 2026-09-07) |
+| P26 | The `?` panel cannot report a bug: no issue, no logs, no version attached | **FIXED** 2026-09-08 |
+| P27 | Escape quits the viewer instead of dismissing the open panel | **FIXED** 2026-09-08 |
 
 ---
 
@@ -944,7 +945,7 @@ must equal the same sub-rectangle of the uncropped save, byte for byte. A dimens
 file that re-derived its stretch from the cropped pixels and came out brighter than the window it was
 cropped in. All three were seen red with the crop removed.
 
-## P26. The `?` panel cannot report a bug  (OPEN)
+## P26. The `?` panel cannot report a bug  (FIXED 2026-09-08)
 
 From the user's notes 2026-09-07: *"in the help menu allow to auto-create an issue, with attaching logs
 etc"*.
@@ -962,3 +963,47 @@ a specific file rather than a guess.
   places and target names.
 - **It composes with P13's documentation** (shipped on the org site) rather than duplicating it: the
   panel gains a second link, not a second body of text.
+
+**Shipped as two action rows on the panel**, sitting between the AI block and the shortcut list: "Open
+the user guide in a browser" and "Report a problem (prepares an issue, sends nothing)". Everything else
+on that panel is a fact and still does nothing when clicked. `BugReportLink` builds both URLs and is
+where the reasoning lives.
+
+**The report is PREPARED, not filed**, which is a deliberate narrowing of the note's "auto-create an
+issue, with attaching logs etc". The link carries a title and an environment block (build, OS, and the
+panel's own AI lines) and opens in the browser, so there is no token, no API client, no network code and
+nothing that can rot; it also works for someone not signed in, since GitHub keeps the draft through the
+sign-in. And it leaves the user reading what they are about to send, which a silent POST does not.
+
+**No log is attached and no absolute path appears anywhere in it.** The detail a maintainer wants is in
+the log, and a log lists every folder opened: folder names carry target and site names, and a run of them
+says where someone was and when they were not at home. So the body says where the logs are in
+`%LOCALAPPDATA%`-relative form, states that one was deliberately withheld, and asks for it. An absolute
+path would carry the account name; the open document's path would carry the target being shot. Pinned by
+`BugReportLinkTests.TheBodyNamesNoAbsolutePathAndAttachesNoLog`, seen red with an absolute path
+substituted, which is exactly the shape a well-meaning "attach this file" convenience would take.
+
+**Both rows post `OpenUrlSignal`** rather than starting a process, because opening a URL is a shell call
+and this assembly is shared with the WebAssembly build. That exposed a real gap: only the GUI subscribed
+to that signal, so the FITS viewer's own host would have shown two rows that silently did nothing. It now
+subscribes too, best-effort, on the same reasoning the GUI states.
+
+**The AI block is the only unbounded part** (one line per probed directory), so an oversized one is
+dropped with a note rather than risking a link a browser truncates: a body cut off mid-word is obvious to
+the user, a dropped query parameter is not. `MaxUrlLength` is 6000, well inside every browser's limit.
+
+## P27. Escape quits instead of dismissing what is open  (FIXED 2026-09-08)
+
+Found by using the thing: with the `?` panel open, Escape closed the whole viewer. Escape is bound to
+Quit and the panel did not consume it, so the key that everywhere else means "dismiss this" discarded the
+loaded folder and every display setting with it.
+
+**It is the one key where failing to consume an event is destructive rather than merely wrong**, which is
+why it is worth its own entry rather than a line in P26. Every other unhandled key does nothing.
+
+The fix is "dismiss first", not "stop quitting": an open dropdown closes and swallows the key, and Escape
+with nothing open still asks to exit. The dropdown is the one modal surface on this widget, which is
+already stated by `ViewerState.OverlayOwnsPointer` being defined as its `IsOpen` and nothing else, so
+there is no list of overlays to keep in step. Pinned by `ViewerEscapeTests`, including the two-press
+sequence a user actually performs; removing the fix fails exactly the two cases that depend on it and
+leaves the quit case green.
