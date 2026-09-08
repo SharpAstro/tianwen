@@ -488,6 +488,6 @@ The bulk of the backlog, the done-archive, and the unsorted inbox live under `do
 - [UI & Rendering](docs/todo/ui.md)
 - [Guider](docs/todo/guider.md)
 - [Infrastructure, Quality & Testing](docs/todo/infra.md)
-- [Inbox (unsorted Slack self-notes)](docs/todo/inbox.md): swept through **2026-08-02**; re-read the DM only back to that watermark, and check `imaging.md` too (one earlier pass filed notes straight there)
+- [Inbox (unsorted Slack self-notes)](docs/todo/inbox.md): swept through **2026-09-08**; re-read the DM only back to that watermark, and check `imaging.md`, `ui.md` and `docs/plans/viewer-prerelease-fixes.md` too (several passes filed notes straight there rather than through the inbox)
 
 Root-cause notes for limitations/bugs: [docs/known-limitations.md](docs/known-limitations.md).

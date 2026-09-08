@@ -467,6 +467,28 @@ reading and the next person will reach for it again.
     autocorrected -- *"Aromatically calc"*); the interpretation above is inferred from SGP being
     RA-only, not stated. Cheap to check, expensive to get wrong, because the whole item hangs on it.
 
+## Selected text is invisible in every text field (reported 2026-09-07, seen on the web atlas)
+
+- [ ] **The selection highlight is painted OVER the glyphs**, so selected text disappears.
+  `TextInputRenderer` (DIR.Lib) draws the text run first and fills the selection rect afterwards
+  (`colors.Selection`, default `RGBAColor32(60, 90, 150, 180)`); at alpha 180 over thin glyph ink there
+  is nothing left to read. The user's screenshot (web sky atlas, F3) shows the field as a plain
+  blue-grey block, with the result row beneath it already narrowed to `C30`, which is the text that
+  should have been legible in the box.
+  - **Not atlas-specific and not web-specific.** `SkyMapSearchActions.OpenSearch` ends with
+    `Activate()` then `SelectAll()`, so every F3 arrives with the previous query selected. That is
+    correct behaviour (the next keystroke replaces it) and merely the most common way to meet the bug:
+    the same renderer serves every `Layout.Builder.TextInput` in the GUI, the viewer and the web build,
+    so Ctrl+A, a double-click or a drag-select hides its own text anywhere.
+  - **Two candidate fixes, both in DIR.Lib.** Paint the highlight BEFORE the run, which is the
+    conventional order and costs nothing; or keep the order and repaint the selected sub-run in a
+    contrasting colour on top, which is what an opaque highlight would need and which adds a
+    `SelectedText` palette entry every theme then has to state. Prefer the first. The colour is not the
+    culprit: no highlight drawn last can leave dark glyphs legible under it.
+  - **Pin it where the ink is.** `LayoutTextInputTests` is the home, and the assertion that catches this
+    is that a selected span is not a uniform rectangle, i.e. some glyph ink survives the highlight. A
+    geometry-only test cannot see it, which is how it shipped.
+
 ## Charts and the web showcase (user's notes 2026-08-27)
 
 - [ ] **Log / time-compressed graphs.** The session and guider graphs plot linear time, so a long night

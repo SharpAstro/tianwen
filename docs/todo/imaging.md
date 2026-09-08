@@ -545,3 +545,35 @@ Summary of what was decided, so this file is not misleading on its own:
   reproduces true spectral intensities and true SHO intensities are green-dominated, so the Hubble palette
   is not something a photometric calibrator should be producing.
 
+Two items added by the 2026-09-08 Slack sweep, both from the user working on an HOO master:
+
+- [ ] **Auto stretch resolves to Linked on a narrowband master, and that is where the cast comes from**
+  (reported 2026-09-06: *"Auto mode for HOO SPCC looks wrong (it switches to Linked which gives it a
+  strong colour cast), unlinked works better there"*). `StretchModeExtensions.ResolveAuto` is handed two
+  facts and neither can tell an HOO master from an RGB one: whether the frame is colour, and whether a
+  calibration is being applied (`AstroImageDocument`, `mode.ResolveAuto(isColour, autoWb is not null)`).
+  A calibration exists on the document, so Auto picks Linked, which is what preserves a white balance as
+  colour. On a broadband frame that is exactly the point. On HOO it preserves a fit whose premise, a
+  Pickles SED integrated over a broad passband, never held; Unlinked neutralises each channel's own
+  background and looks right, which is what the user found by hand.
+  - The narrow fix is a third input: whether the frame's filters are narrowband. The FITS `FILTER` cards
+    state it and `FilterCurveDatabase` can classify by passband width, so Auto would resolve colour plus
+    narrowband to Unlinked whatever the calibration says.
+  - The wider question is whether SPCC should have produced a triple at all, which is Phase 4 above and
+    blocked on Gaia. A frame we cannot calibrate should probably not display as calibrated; settle that
+    and the Auto rule falls out instead of being a special case.
+  - Watch the mono boundary while changing it: `isColour` is true for a 3-plane HOO master, and a mono
+    frame already resolves to Linked, where the two modes coincide.
+
+- [ ] **`Ionfreefly01/siril-spectral-extract` as a reference for Phase 1-2** (user's link, 2026-09-05,
+  sent without comment). A Siril plug-in that SYNTHESISES a narrowband-ish layer from OSC data: it fits
+  three coefficients weighting R, G and B to approximate a requested transmission curve (wavelength plus
+  FWHM), with optional continuum rejection to suppress broadband starlight, and writes the extracted
+  layers plus a combine step with per-layer blending. Inputs are an OSC image and, optionally, a sensor
+  QE curve as CSV, which is the same spectral input `FilterCurveDatabase` already holds.
+  - **Its own stated limit is our ADR-3 in one line**: three broadband measurements cannot be unmixed
+    into a 3 nm passband, so it claims usefulness at 40 nm and up and for continuum suppression, not
+    narrowband fidelity. It is a palette and enhancement tool, explicitly not photometric, so it informs
+    Phase 1-2 and the Phase 3 crosstalk algebra rather than Phase 4.
+  - **GPL-3.0-or-later**, matching Siril. Under ADR-2 (revised 2026-08-11) vendoring would be lawful now
+    that TianWen is AGPL-3.0-or-later, and the preference there still stands: reimplement from the maths.

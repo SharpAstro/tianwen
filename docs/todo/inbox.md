@@ -9,7 +9,7 @@ deduped against the rest of this file. Date in parens is when the note was writt
 sections above when picked up. Notes that turned out to be already DONE or already tracked elsewhere are
 intentionally NOT repeated here.
 
-**Sweep watermark: the Slack self-DM is swept through 2026-08-29.** Three earlier passes are folded in: the
+**Sweep watermark: the Slack self-DM is swept through 2026-09-08.** Earlier passes are folded in below: the
 2026-06-02 consolidation below (Mar-May), and a 2026-07-07 pass that filed the ROEBA banding and Hough
 star-halo notes **straight into [imaging.md](imaging.md)** with full detail rather than through this file,
 which is why they are absent here, and a 2026-08-27/28 pass that filed the whole FITS-viewer band straight
@@ -176,3 +176,27 @@ TianWen; there were no other-repo strays to leave behind.
 - [ ] Resume an interrupted session, e.g. a mosaic stopped by dew (08-28 item 3) -> [sequencing.md](sequencing.md)
 - [ ] Airmass-paired real degradation pairs (08-28 item 4, second half) -> [ai-denoise-deconv.md § 2.1c](../plans/ai-denoise-deconv.md)
 
+## Inbox: Slack self-notes, 2026-08-29 -> 2026-09-08 (swept 2026-09-08)
+
+Eight notes, and the band is unusual in two ways. There is a nine-day gap in the middle (nothing at all
+between 2026-08-28 and 2026-09-05), and unlike the previous sweep none of it had been filed in advance,
+so this pass did the triage rather than drawing a map. Six notes are TianWen, one is a bare link, one
+belongs to another repo. Three of the six already had a root cause in the code by the time they were
+filed, and it is recorded where the fix goes rather than here.
+
+### Filed by this sweep
+
+| Note (date written) | Home | What it turned out to be |
+|---|---|---|
+| Viewer: holding Space while blinking start/stops rapidly, and blink should keep the frame in view (09-07) | [viewer-prerelease-fixes](../plans/viewer-prerelease-fixes.md) P23 | Two defects, neither of them in the blink: the host drops SDL's repeat flag, so a toggle runs once per auto-repeat, and `ViewerActions.SelectFile` never scrolls the list |
+| Viewer: the A/B divider bar leaves residue in the non-imaging canvas area (09-07) | P24 | P15's class again, but the sweep rect already spans the letterbox, so the suspect is what PAINTS that band, not what declares it |
+| Viewer: an auto-crop button for stack artefacts and NaN areas (09-07) | P25 | The rectangle exists on the stacking side (`_autocrop.fits`); what is missing is reaching it for an opened, possibly foreign, master |
+| Viewer: the help menu should auto-create an issue with logs attached (09-07) | P26 | The `?` panel already knows the version and the AI status; a prepared issue beats an API call, and a log is never attached unseen |
+| Web atlas: F3 with something already selected renders the text unreadable (09-07, screenshot) | [ui.md](ui.md) | Root cause found, and it is not the atlas: `TextInputRenderer` fills the selection OVER the glyphs, so every text field in every host does this |
+| Viewer: Auto picks Linked on an HOO master and casts, Unlinked looks right (09-06) | [imaging.md, Colour: narrowband](imaging.md) | `ResolveAuto` cannot see a narrowband frame; it knows only that the frame is colour and that a calibration exists |
+| `Ionfreefly01/siril-spectral-extract` (09-05, link with no comment) | same section | Synthesises narrowband layers from OSC by fitting R/G/B weights to a requested passband, with continuum rejection; GPL-3.0-or-later; informs Phase 1-2, not the blocked Phase 4 |
+
+### Not TianWen
+
+The PDF viewer note (09-05: hovering a 3D object makes the wheel zoom the model rather than the page).
+Left in Slack, where the repo that owns it can pick it up.

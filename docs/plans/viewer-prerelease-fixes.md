@@ -53,6 +53,10 @@ the 35 TIFF / import / codec tests pass against it.
 | P20 | A share link to the web viewer (needs `&t=`) | **FIXED** 2026-09-04 |
 | P21 | A mosaic's channel views show the mosaic, not the debayered planes | BACKLOG |
 | P22 | Save the ANNOTATED view (grid, markers, labels), beside P18's clean raster | **FIXED** 2026-09-06 |
+| P23 | Blink toggles on every auto-repeat of Space, and the blinked frame can be off-screen | OPEN (reported 2026-09-07) |
+| P24 | The A/B divider leaves its bar behind in the letterbox around the image | OPEN (reported 2026-09-07) |
+| P25 | No auto-crop: a master's stack artefacts and NaN margins have to be cropped elsewhere | OPEN (reported 2026-09-07) |
+| P26 | The `?` panel cannot report a bug: no issue, no logs, no version attached | OPEN (reported 2026-09-07) |
 
 ---
 
@@ -704,3 +708,126 @@ The strongest of those tests is the one that asserts the annotated save with not
 the clean save **pixel for pixel**: the two files are of one picture, and the annotation is the only
 thing allowed to differ.
 
+
+## P23. Blink: Space repeats, and the blinked frame can be off-screen  (OPEN)
+
+From the user's notes 2026-09-07: *"holding down space when we are blinking should pause it, right now
+it start/stops rapidly. blinking should also always put the current frame into view."* Two independent
+defects in what P19 shipped, and neither one is in the blink.
+
+**The repeat is a seam that drops a fact.** SDL delivers auto-repeat as a stream of key-down events,
+and nothing on the viewer's path carries the repeat flag. `TianWen.UI.FitsViewer/Program.cs` wires
+`loop.OnKeyDown = (inputKey, inputModifier) => imageRenderer.HandleInput(new InputEvent.KeyDown(...))`,
+so `case InputKey.Space` in `ImageRendererBase.Input.cs`, which TOGGLES
+(`state.IsBlinking = !(state.IsBlinking && state.BlinkStep == step)`), runs once per repeat at the OS
+repeat rate. That is the stutter, and it is not specific to Space: every key on that switch repeats.
+Space is where it SHOWS, because it is the only one whose action is a toggle rather than a step, and a
+step is what auto-repeat exists for.
+
+**The fix belongs at the seam, not in the case.** An `InputEvent.KeyDown` that says whether it is a
+repeat (SDL's `key.repeat`, surfaced through SdlVulkan.Renderer's loop) lets a toggle ignore repeats
+while `Up`/`Down`/`Left`/`Right` keep benefiting from them. A viewer-local "Space is already down"
+latch would fix this key and leave the shape wrong for the next toggle anyone adds; there is one on
+the same switch already (`Shift+H`, hold/release), which repeats today for the identical reason and
+has gone unnoticed only because nobody holds it down.
+
+**One ambiguity to settle before building it.** *"holding down space ... should pause it"* reads two
+ways: either suppressing the repeat is the whole ask (one press pauses, holding does nothing more), or
+hold is meant to be MOMENTARY, pausing while held and resuming on release. The second is a different
+gesture and would take Space away from the toggle it currently is. Suppressing the repeat is the
+reading the observed bug demands, and it is a subset of the other, so it is safe to do first either
+way.
+
+**The scroll is a missing side effect.** `ViewerActions.SelectFile` sets `SelectedFileIndex` and
+`RequestedFilePath` and nothing else; the only writer of `ViewerState.PendingFileListScrollTop` is
+`ScanFolder`, on open. So a blink walks the selection out of the visible window while the file list
+goes on showing whatever it was showing. `Up`/`Down` stepping does the same, and so does P19's
+`Ctrl+Space` snap back to the anchor, which is the worst of the three: it exists to return you to the
+reference frame, and the list does not follow it there. Blink is where it got noticed, because the
+selected row is the only on-screen statement of WHICH frame is being compared.
+
+**`ScanFolder`'s rule is not the one wanted, and the right one already exists.** `Math.Max(0, index - 5)`
+puts the selection near the TOP, which per blink tick would scroll the list continuously. The clamp is
+`ListScrollController.EnsureVisible(atom, marginAtoms)` in DIR.Lib: a no-op while the atom is visible,
+otherwise the least offset that brings it back, clamped to `MaxOffset`. The planner (GUI and TUI), the
+equipment device list and the session config list all call it on a selection change, and the viewer's
+file list holds the same controller (`_fileListScroll`). This is a call, not a mechanism, and nothing
+about it belongs in DIR.Lib.
+
+**Where the call goes matters twice.** It has to run after `SetExtent` in the paint, because
+`VisibleAtoms` is derived from the viewport handed over there. And it has to fire on a selection CHANGE
+rather than every frame: called unconditionally, the list would drag itself back to the loaded file and
+the user could never scroll away from it. That is exactly what `PendingFileListScrollTop` already
+models, a one-shot written by the action and consumed once at paint, so the shape to copy is beside it.
+`ViewerActions.SelectFile` is the natural writer; it already early-returns on an unchanged index, which
+is the change test.
+
+## P24. The A/B divider leaves its bar behind outside the image  (OPEN)
+
+From the user's notes 2026-09-07: *"the A|B slider vertical bar can leave residue in the non-imaging
+canvas area"*. The fourth report in P15's class and the second on this divider, but not the same rect. P15
+fixed the divider's LABELS (measured extents in place of a guessed 220-unit margin) and the
+hover-versus-readout narrowing collision. This is the BAR, in the letterbox: the part of the image pane
+the picture does not fill.
+
+**The declared damage already covers it, which is what makes this different from P15.**
+`ImageRendererBase` calls `Split.SetTrack(_layout.ImageArea)`, the PANE rather than the drawn picture,
+and `SweepBetween` returns `new RectF32(x0, _track.Y, x1 - x0, _track.Height)`: the full height of that
+pane, letterbox included. P15's defect was a sweep narrower than what had been painted. Here the sweep
+is not the suspect, so the question is what PAINTS the letterbox on a narrowed frame. Nothing in
+`TianWen.UI.Abstractions` fills the image area's background, so that band is covered by the host's
+clear, and a damage-scissored clear is exactly the kind of thing that covers a region on some frames
+and not on others.
+
+**Reproduce it with the harness P15 was given, rather than by eye.** `ViewerRepaintResidueTests` paints
+both frames in full, composites the old one with the new one inside the damage box, and counts
+differing pixels. The case to add is a drag where the image does NOT fill the pane (a wide window on a
+tall frame); none of the six existing cases arrange that. Keep P15's two harness rules: the surface must
+be CLEARED between frames, or an alpha-blended background converges across repaints and swamps the
+count, and a no-input control is what says the number means anything. Expect it to be intermittent on
+screen, since damage is tracked per swapchain image. That is why P15's tooltip read as a flicker rather
+than as a stuck tooltip.
+
+## P25. No auto-crop for stack artefacts and NaN margins  (OPEN)
+
+From the user's notes 2026-09-07: *"we should have an auto-crop button that crops away stack artifacts,
+NaN areas, etc"*.
+
+**The rectangle already exists on the stacking side, and is not the viewer's to invent.**
+`MasterPostProcessor` writes a `_autocrop.fits` sibling whenever the autocrop rect is a proper
+sub-rectangle of the master, so the pipeline holds both the definition of the artefact ring and the code
+that finds it. What the viewer needs is that computation reachable for a document it merely OPENED,
+including a foreign master from another tool. That is the case which makes the button worth having,
+since our own masters ship the cropped sibling beside them.
+
+Three things to decide when it is picked up:
+
+- **Whether it crops the DOCUMENT or only the view.** A view-only crop is reversible, costs no pixels,
+  and composes with Save (P18 / P22) writing what is displayed. A real crop changes what a subsequent
+  plate solve and every statistic run on. Reversible is the better default; a destructive one needs its
+  own affordance.
+- **What "artefact" means for a frame that is not a TianWen master.** The exact-zero canvas ring is ours
+  by construction (the gradient report masks it to NaN before fitting); a foreign master may carry NaN,
+  zero, or partially covered edges with no marker at all. The honest form is a detector over the frame,
+  with our own marker as the fast path.
+- **What it does on a frame with nothing to crop**, which has to be visibly nothing rather than a
+  one-pixel nibble.
+
+## P26. The `?` panel cannot report a bug  (OPEN)
+
+From the user's notes 2026-09-07: *"in the help menu allow to auto-create an issue, with attaching logs
+etc"*.
+
+The `?` panel is already where the answers a report needs are known: P11 put the version there, and
+`AiCapabilities.ProbeAsync` puts the enhancer status and the searched directories beside it. Logs sit at
+`%LOCALAPPDATA%/TianWen/Logs/<date>/FitsViewer_*.log`, one file per process, so "this session's log" is
+a specific file rather than a guess.
+
+- **Prefer a PREPARED issue over an automatic one.** Opening the browser at a GitHub issue URL with the
+  title and a filled-in environment block is one `Process.Start`: no token, no API, no dependency. It
+  also leaves the user reading what they are about to file, which a silent POST does not. The log is
+  attached by the user (GitHub takes a drag-drop), or the button copies its path.
+- **Never attach a log the user has not seen.** The log carries folder names, and folder names carry
+  places and target names.
+- **It composes with P13's documentation** (shipped on the org site) rather than duplicating it: the
+  panel gains a second link, not a second body of text.
