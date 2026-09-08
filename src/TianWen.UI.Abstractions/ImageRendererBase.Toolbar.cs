@@ -1006,6 +1006,17 @@ namespace TianWen.UI.Abstractions
             _ => false,
         };
 
+        /// <summary>Test seam: whether this action reserves mark width in the button's measurement.</summary>
+        internal bool ReservesToolbarMark(ToolbarAction action, ViewerState state)
+            => HasToolbarMark(action, state);
+
+        /// <summary>Test seam: draws one action's mark, so a reserved width that paints NOTHING is
+        /// catchable. Reserving and drawing are two separate switches and nothing paired them, which is
+        /// how the Crop button shipped reserving 13 px for a picture that had no case (P25).</summary>
+        internal void DrawToolbarMarkForTest(ToolbarAction action, float x, float btnY, float btnH,
+            ViewerState state, RGBAColor32 ink)
+            => DrawToolbarMark(action, x, btnY, btnH, state, ink, enabled: true);
+
         private void DrawToolbarMark(ToolbarAction action, float x, float btnY, float btnH,
             ViewerState state, RGBAColor32 ink, bool enabled)
         {
@@ -1021,6 +1032,7 @@ namespace TianWen.UI.Abstractions
                 case ToolbarAction.Enhance: DrawBakedMark(BakedIcons.Sparkles, x, btnY, btnH, ink); break;
                 case ToolbarAction.Zoom: DrawBakedMark(BakedIcons.Magnifier, x, btnY, btnH, ink); break;
                 case ToolbarAction.PlateSolve: DrawBakedMark(BakedIcons.Telescope, x, btnY, btnH, ink); break;
+                case ToolbarAction.AutoCrop: DrawCropMark(x, btnY, btnH, ink); break;
             }
         }
 
@@ -1151,6 +1163,39 @@ namespace TianWen.UI.Abstractions
         /// nothing sits INSIDE the rectangle -- an outline with anything in it reads as an eye at
         /// this size, which is the trap the spiral mark was redrawn three times to escape.</para>
         /// </remarks>
+        /// <summary>
+        /// The crop mark: two right angles overlapping, which is the sign every editor uses for this.
+        /// </summary>
+        /// <remarks>
+        /// <para>Stroked here rather than baked, because <see cref="BakedIcons"/> bakes from an EMOJI face
+        /// (Noto-COLRv1) and no emoji face carries a crop tool. Four lines cost less than a coverage mask
+        /// and stay sharp at any DPI, which is the same trade the folder and save marks make.</para>
+        /// <para>The arms OVERHANG their corners, and that is what makes it read as a crop rather than as
+        /// a hash: each angle is a frame corner, and the overhang is the part being cut away. The two are
+        /// one shape turned through 180 degrees, so the mark is symmetric under rotation, which is how the
+        /// eye recognises it at 13 px.</para>
+        /// </remarks>
+        private void DrawCropMark(float x, float btnY, float btnH, RGBAColor32 ink)
+        {
+            var size = BaseToolbarMarkSize * DpiScale;
+            var y = btnY + (btnH - size) / 2f;
+            var t = MathF.Max(1f, DpiScale);
+
+            // The overhang, the corner, and the far corner each arm runs to.
+            var lo = size * 0.08f;
+            var near = size * 0.28f;
+            var far = size * 0.72f;
+            var hi = size * 0.92f;
+
+            // The angle that closes top-left: down the left edge, then right along the top.
+            DrawLineOverlay(x + near, y + lo, x + near, y + far, ink, t);
+            DrawLineOverlay(x + lo, y + near, x + far, y + near, ink, t);
+
+            // The same angle turned through 180 degrees, closing bottom-right.
+            DrawLineOverlay(x + far, y + near, x + far, y + hi, ink, t);
+            DrawLineOverlay(x + near, y + far, x + hi, y + far, ink, t);
+        }
+
         private void DrawFolderMark(float x, float btnY, float btnH, RGBAColor32 ink)
         {
             var size = BaseToolbarMarkSize * DpiScale;
