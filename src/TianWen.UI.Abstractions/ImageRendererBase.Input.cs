@@ -73,6 +73,7 @@ namespace TianWen.UI.Abstractions
             return evt switch
             {
                 InputEvent.KeyDown k => HandleViewerKey(k.Key, k.Modifiers, k.Repeat),
+                InputEvent.KeyUp u => HandleViewerKeyUp(u.Key),
                 InputEvent.MouseDown(var px, var py, _, _, _) => HandleViewerMouseDown(px, py, evt),
                 InputEvent.MouseMove(var px, var py) => HandleViewerMouseMove(px, py, evt),
                 InputEvent.MouseUp(_, _, _) => HandleViewerMouseUp(evt),
@@ -107,6 +108,14 @@ namespace TianWen.UI.Abstractions
             // check so an overlay that owns the keyboard keeps its own arrow repeats.
             if (repeat && !RepeatsAsAStep(key))
             {
+                // A repeat is the only evidence the platform gives that a key is being HELD rather than
+                // tapped, and holding Space suspends a blink for as long as it is down. Everything else
+                // reaching here wants the repeat dropped, which is what P23 fixed.
+                if (key is InputKey.Space && _blinkStoppedByThisPress)
+                {
+                    state.BlinkResumeOnRelease = true;
+                }
+
                 return true;
             }
 
@@ -307,8 +316,16 @@ namespace TianWen.UI.Abstractions
                         // already running THAT way pauses; pressing the other one reverses rather than
                         // stopping, so a comparison never needs two presses to turn around.
                         var step = shift ? -1 : 1;
+                        var wasBlinking = state.IsBlinking;
                         state.IsBlinking = !(state.IsBlinking && state.BlinkStep == step);
                         state.BlinkStep = step;
+
+                        // Only a press that STOPPED a running blink can be promoted to a hold by the
+                        // repeat that may follow; one that started a blink has nothing to restore.
+                        // Cleared unconditionally, so a release lost to a focus change cannot be
+                        // collected by the next press.
+                        _blinkStoppedByThisPress = wasBlinking && !state.IsBlinking;
+                        state.BlinkResumeOnRelease = false;
                     }
                     state.NeedsRedraw = true;
                     return true;
@@ -336,6 +353,45 @@ namespace TianWen.UI.Abstractions
         /// stepping or seeking a sequence, and zooming. Holding one of these is a request for more of it,
         /// which is what auto-repeat is for.
         /// </summary>
+        /// <summary>
+        /// Whether the press currently down was the one that stopped a running blink, and so is a
+        /// candidate for promotion to a hold. Render-thread only, and deliberately NOT on
+        /// <see cref="ViewerState"/>: it is dead the moment the key comes up, so nothing outside the
+        /// press has any business reading it.
+        /// </summary>
+        private bool _blinkStoppedByThisPress;
+
+        /// <summary>
+        /// A key coming back up. Only Space means anything here: released after being HELD, it resumes
+        /// the blink that the press suspended.
+        /// </summary>
+        /// <remarks>
+        /// Returns false for anything else rather than claiming the event, so a host stays free to route
+        /// releases elsewhere. Reported 2026-09-07: "holding down space when we are blinking should pause
+        /// it". Suppressing the repeat (P23) made a hold ONE stop instead of a stream of them, which is
+        /// the half that needed no new event; this is the other half, and it needed
+        /// <c>InputEvent.KeyUp</c> to exist at all (DIR.Lib 8.14).
+        /// </remarks>
+        private bool HandleViewerKeyUp(InputKey key)
+        {
+            if (key is not InputKey.Space || _state is not { } state)
+            {
+                return false;
+            }
+
+            _blinkStoppedByThisPress = false;
+            if (!state.BlinkResumeOnRelease)
+            {
+                // A tap, so the stop it performed stands. This is the path that keeps Space a toggle.
+                return false;
+            }
+
+            state.BlinkResumeOnRelease = false;
+            state.IsBlinking = true;
+            state.NeedsRedraw = true;
+            return true;
+        }
+
         private static bool RepeatsAsAStep(InputKey key)
             => key is InputKey.Up or InputKey.Down or InputKey.Left or InputKey.Right
                 or InputKey.PageUp or InputKey.PageDown or InputKey.Plus or InputKey.Minus;

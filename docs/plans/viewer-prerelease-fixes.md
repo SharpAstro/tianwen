@@ -763,11 +763,24 @@ repeats, so the fix cannot degenerate into swallowing the key.
 visible run scrolls, and a step inside the run does not scroll at all, which is what makes it a clamp
 rather than a re-centring. Every assertion here was seen red with its fix removed (three of the six).
 
-**Still open, and it is a question rather than work**: whether *"holding down space ... should pause it"*
-meant only this (one press pauses, holding does nothing more) or a MOMENTARY hold, pausing while held and
-resuming on release. The second is a different gesture, it would take Space away from the toggle it
-currently is, and it is not expressible today: `InputEvent` has no `KeyUp`, so nothing tells a widget when
-a key was let go.
+**The momentary hold was the reading meant, and it is now shipped too** (asked 2026-09-08, answered
+"yes KeyUp it is"). Holding Space suspends a running blink and releasing resumes it, while a TAP still
+stops it, so the toggle that existed is not taken away. The two are told apart by the platform's own
+auto-repeat rather than by a duration: a tap produces no repeat, a held key produces a stream, so the
+first repeat is what promotes the press from "stopped it" to "is holding it". No timer, no clock reading,
+and nothing that has to be tuned.
+
+This needed a new event. `InputEvent.KeyUp` (DIR.Lib 8.14) is the release half, dispatched by
+`SdlEventLoop` through `SdlWindowView.OnKeyUp` (SdlVulkan.Renderer 7.33) and only to a host that binds it,
+so a host wanting nothing pays nothing. It is a separate record rather than a flag on `KeyDown`, because
+every existing consumer reads a `KeyDown` as "a press happened" and a release arriving through that type
+would fire all of them a second time.
+
+**It fails safe, which is the part worth keeping.** SDL sends no key-up when the window loses focus
+mid-hold, so a lost release leaves the blink STOPPED: visible, and one press from running again, rather
+than running with nothing able to stop it. Any fresh Space press clears the pending resume, so a stale
+flag cannot outlive the press that set it. `ViewerBlinkTransportTests` pins all five paths, the lost
+release included.
 
 **`ScanFolder`'s rule is not the one wanted, and the right one already exists.** `Math.Max(0, index - 5)`
 puts the selection near the TOP, which per blink tick would scroll the list continuously. The clamp is

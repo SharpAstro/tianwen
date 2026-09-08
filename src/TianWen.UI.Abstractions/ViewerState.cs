@@ -214,6 +214,23 @@ public sealed class ViewerState
     /// <summary>Whether to automatically fit the image to the viewport.</summary>
     public bool ZoomToFit { get; set; } = true;
 
+    /// <summary>
+    /// Set while a blink is suspended by Space being HELD, so that releasing it resumes.
+    /// </summary>
+    /// <remarks>
+    /// A tap of Space stops a blink and a HOLD only suspends it, and the two have to be told apart from
+    /// the same key. The evidence is the platform's own auto-repeat: a tap produces none, a held key
+    /// produces a stream, so the first repeat is what promotes the press from "stopped it" to "is holding
+    /// it". No timer and no clock reading is involved.
+    /// <para>
+    /// It fails SAFE. SDL sends no key-up when the window loses focus mid-hold, so a lost release leaves
+    /// the blink STOPPED, which is visible and one press away from running again, rather than running
+    /// with nothing able to stop it. Any fresh Space press clears it, so a stale flag cannot outlive the
+    /// press that set it.
+    /// </para>
+    /// </remarks>
+    public bool BlinkResumeOnRelease { get; set; }
+
     /// <summary>Zoom as actual display scale: 1.0 = 100% (1 image pixel = 1 screen pixel).</summary>
     public float Zoom { get; set; } = 1.0f;
 

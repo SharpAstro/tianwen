@@ -587,6 +587,14 @@ loop.OnKeyDown = keyEvent =>
     return true;
 };
 
+// The release half. Bound because holding Space suspends a blink, which is the one binding here whose
+// meaning lasts as long as the key is down; SdlEventLoop dispatches key-up only to a host that asks.
+loop.OnKeyUp = keyEvent =>
+{
+    imageRenderer.HandleInput(keyEvent);
+    return true;
+};
+
 #if SIBLING_DEBUG_INSPECTORS
 // Live UI debug inspector (DEBUG only -- compiled out of Release). Exposes this process to the
 // SdlVulkan.Renderer.Inspector MCP sidecar so an agent can discover it, read the clickable-region

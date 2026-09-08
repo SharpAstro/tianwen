@@ -88,6 +88,19 @@ namespace TianWen.Lib.Tests
         private static void Press(BlinkViewer viewer, InputKey key, bool repeat = false)
             => viewer.HandleInput(new InputEvent.KeyDown(key) { Repeat = repeat });
 
+        private static void Release(BlinkViewer viewer, InputKey key)
+            => viewer.HandleInput(new InputEvent.KeyUp(key));
+
+        /// <summary>A held key as the platform actually delivers it: one press, then repeats.</summary>
+        private static void Hold(BlinkViewer viewer, InputKey key, int repeats = 3)
+        {
+            Press(viewer, key);
+            for (var i = 0; i < repeats; i++)
+            {
+                Press(viewer, key, repeat: true);
+            }
+        }
+
         /// <summary>
         /// The reported symptom in one assertion: holding Space made the blink "start/stop rapidly". SDL
         /// sends a held key as a stream of KeyDown events, and the Space case toggles, so the blink flipped
@@ -198,6 +211,112 @@ namespace TianWen.Lib.Tests
             viewer.Render(null, state);
 
             viewer.FirstVisibleRow.ShouldBe(before);
+        }
+
+        /// <summary>
+        /// The other half of the reported note, and the half that needed a new event: "holding down space
+        /// when we are blinking should pause it". Held, the blink stops for as long as the key is down and
+        /// comes back on release.
+        /// </summary>
+        [Fact]
+        public void AHeldSpaceSuspendsTheBlinkAndReleasingResumesIt()
+        {
+            var (viewer, state) = NewViewer(fileCount: 12);
+
+            Press(viewer, InputKey.Space);
+            state.IsBlinking.ShouldBeTrue("the first press starts it");
+
+            Hold(viewer, InputKey.Space);
+            state.IsBlinking.ShouldBeFalse("held, the blink is suspended rather than flipping per repeat");
+            state.BlinkResumeOnRelease.ShouldBeTrue();
+
+            Release(viewer, InputKey.Space);
+            state.IsBlinking.ShouldBeTrue("releasing resumes what the hold suspended");
+            state.BlinkResumeOnRelease.ShouldBeFalse();
+        }
+
+        /// <summary>
+        /// A TAP still stops it, which is the gesture that existed before and the reason the hold is
+        /// detected from the platform's repeat rather than from how long the key was down.
+        /// </summary>
+        /// <remarks>
+        /// Without this the feature would be a regression dressed as a fix: making Space momentary
+        /// outright would leave no way to stop a blink at all.
+        /// </remarks>
+        [Fact]
+        public void ATappedSpaceStillStopsTheBlink()
+        {
+            var (viewer, state) = NewViewer(fileCount: 12);
+
+            Press(viewer, InputKey.Space);
+            state.IsBlinking.ShouldBeTrue();
+
+            // No repeat between them: that is the whole difference from a hold.
+            Press(viewer, InputKey.Space);
+            Release(viewer, InputKey.Space);
+
+            state.IsBlinking.ShouldBeFalse("a tap is the toggle it always was");
+            state.BlinkResumeOnRelease.ShouldBeFalse();
+        }
+
+        /// <summary>
+        /// Holding the key that STARTED a blink is not a hold: there is nothing suspended, so the release
+        /// must not turn anything on or off.
+        /// </summary>
+        [Fact]
+        public void HoldingSpaceThatStartedABlinkLeavesItRunning()
+        {
+            var (viewer, state) = NewViewer(fileCount: 12);
+
+            Hold(viewer, InputKey.Space);
+            state.IsBlinking.ShouldBeTrue();
+            state.BlinkResumeOnRelease.ShouldBeFalse("this press started the blink, it suspended nothing");
+
+            Release(viewer, InputKey.Space);
+            state.IsBlinking.ShouldBeTrue();
+        }
+
+        /// <summary>
+        /// A release lost to a focus change leaves the blink STOPPED, and the next press starts clean.
+        /// </summary>
+        /// <remarks>
+        /// SDL sends no key-up when the window loses focus mid-hold, so this is a real sequence and not a
+        /// contrived one. Stopped is the safe end of it: visible, and one press from running again. The
+        /// assertion that matters is the second one, since a flag left set would make some later,
+        /// unrelated release resume a blink nobody asked for.
+        /// </remarks>
+        [Fact]
+        public void AReleaseLostToAFocusChangeLeavesTheBlinkStopped()
+        {
+            var (viewer, state) = NewViewer(fileCount: 12);
+
+            Press(viewer, InputKey.Space);
+            Hold(viewer, InputKey.Space);
+            state.IsBlinking.ShouldBeFalse();
+            state.BlinkResumeOnRelease.ShouldBeTrue();
+
+            // The window loses focus, so no KeyUp ever arrives. The user presses Space again later.
+            Press(viewer, InputKey.Space);
+
+            state.IsBlinking.ShouldBeTrue("the fresh press starts it");
+            state.BlinkResumeOnRelease.ShouldBeFalse("the stale hold cannot outlive the press that set it");
+
+            Release(viewer, InputKey.Space);
+            state.IsBlinking.ShouldBeTrue("and that release resumes nothing, having suspended nothing");
+        }
+
+        /// <summary>A release of any other key is not claimed, so a host can keep routing it.</summary>
+        [Fact]
+        public void ReleasingAnyOtherKeyIsNotClaimed()
+        {
+            var (viewer, state) = NewViewer(fileCount: 12);
+
+            Press(viewer, InputKey.Space);
+            var blinking = state.IsBlinking;
+
+            Release(viewer, InputKey.Up);
+
+            state.IsBlinking.ShouldBe(blinking);
         }
     }
 }
