@@ -57,7 +57,7 @@ the 35 TIFF / import / codec tests pass against it.
 | P24 | The A/B divider leaves its bar behind in the letterbox around the image | **FIXED** 2026-09-08 |
 | P25 | No auto-crop: a master's stack artefacts and NaN margins have to be cropped elsewhere | **FIXED** 2026-09-08 |
 | P26 | The `?` panel cannot report a bug: no issue, no logs, no version attached | **FIXED** 2026-09-08 |
-| P27 | Escape quits the viewer instead of dismissing the open panel | **FIXED** 2026-09-08 |
+| P27 | Escape and an open panel: NOT a defect, and now pinned. My first diagnosis was wrong | **VERIFIED** 2026-09-08 |
 
 ---
 
@@ -1031,18 +1031,36 @@ subscribes too, best-effort, on the same reasoning the GUI states.
 dropped with a note rather than risking a link a browser truncates: a body cut off mid-word is obvious to
 the user, a dropped query parameter is not. `MaxUrlLength` is 6000, well inside every browser's limit.
 
-## P27. Escape quits instead of dismissing what is open  (FIXED 2026-09-08)
+## P27. Escape with a panel open: verified, not fixed, because it was never broken  (2026-09-08)
 
-Found by using the thing: with the `?` panel open, Escape closed the whole viewer. Escape is bound to
-Quit and the panel did not consume it, so the key that everywhere else means "dismiss this" discarded the
-loaded folder and every display setting with it.
+The viewer closed while the `?` panel was open and Escape had just been sent, so this was written up as
+"the panel does not consume Escape" and a check was added to the Escape branch. **That diagnosis was
+wrong and the check has been removed.** Kept as an entry because the investigation is the useful part.
 
-**It is the one key where failing to consume an event is destructive rather than merely wrong**, which is
-why it is worth its own entry rather than a line in P26. Every other unhandled key does nothing.
+**The mechanism was already complete.** `DropdownMenuState<T>` implements `IKeyboardClaimant`,
+`PixelWidgetBase.RenderDropdownMenu` assigns `Ui.KeyboardClaimant = dropdown` **as it paints**, its
+`HandleKeyDown` closes on Escape and returns true, and `HandleViewerKey` asks the claimant before
+anything else. Escape never reaches the exit while a panel is open. Verified three ways: a unit test with
+the added check disabled, and twice in the running viewer, which survived both times.
 
-The fix is "dismiss first", not "stop quitting": an open dropdown closes and swallows the key, and Escape
-with nothing open still asks to exit. The dropdown is the one modal surface on this widget, which is
-already stated by `ViewerState.OverlayOwnsPointer` being defined as its `IsOpen` and nothing else, so
-there is no list of overlays to keep in step. Pinned by `ViewerEscapeTests`, including the two-press
-sequence a user actually performs; removing the fix fails exactly the two cases that depend on it and
-leaves the quit case green.
+**What the added check really was: a second copy of a rule**, and of the one rule whose own comment says
+it exists so that "a second overlay added here would otherwise need its own line". Worse, it worked in a
+test that could not have caught its own uselessness: setting `IsOpen` and sending the key WITHOUT a
+render skips the claim, so the test drove a state the viewer is never in, passed against the special
+case, and would have passed with the real mechanism deleted.
+
+**What was genuinely missing was the test**, so that is what remains. `ViewerEscapeTests` now opens a
+panel and PAINTS it, which is what makes it the claimant, then asserts Escape closes it and asks for no
+exit; that Escape with nothing open still exits; and that the second of two presses exits, which is the
+sequence a user performs and which also pins the release rule (a closed overlay declines the key rather
+than being cleared, which is what makes a stale claim harmless). Disabling the claimant call fails
+exactly the two cases that depend on it and leaves the exit case green.
+
+**The original close is unexplained and could not be reproduced**, including with the same
+click-screenshot-Escape sequence that preceded it. The likeliest reading is that the panel was already
+closed when the synthetic key landed, in which case exiting was correct behaviour.
+
+**Two dead properties turned up while auditing what else Escape should dismiss.**
+`ViewerState.ShowDebayerMenu` and `ShowStretchFactorMenu` have no reader and no writer anywhere in the
+tree, left over from before the shared dropdown. They cannot trap a key, but state that looks like a live
+overlay is a trap for exactly the question that found them, so they are worth deleting.
