@@ -72,7 +72,8 @@ namespace TianWen.Lib.Tests
             position.Payload.ShouldBe("12 34");
             position.Label.ShouldBe("Copy position   (12, 34)");
 
-            items[^1].Description.ShouldBe("sky atlas link");
+            items[^1].Description.ShouldBe("sky atlas");
+            items[^1].Action.ShouldBe(ImageContextMenuAction.OpenUrl, "the one entry that is not a copy");
         }
 
         [Fact]
@@ -82,19 +83,19 @@ namespace TianWen.Lib.Tests
 
             var items = ImageContextMenu.ItemsFor(Pixel([0.1f], ra: 1.0, dec: 2.0), fovDeg: 1.5, capturedUtc: captured);
 
-            var link = items.First(i => i.Description == "sky atlas link");
+            var link = items.First(i => i.Description == "sky atlas");
             link.Payload.ShouldBe(SkyAtlasLink.For(1.0, 2.0, 1.5, captured),
                 "the menu is not a second place the URL vocabulary is spelled out");
         }
 
         [Fact]
-        public void AFrameWithNoWcsOffersNoShareLink()
+        public void AFrameWithNoWcsOffersNoAtlasAction()
         {
             // There is nothing to point the atlas AT. The link would otherwise be built from a null
             // coordinate and land at RA 0 / Dec 0, which is a real place in the sky and therefore the
             // worst kind of wrong answer.
             ImageContextMenu.ItemsFor(Pixel([0.5f]))
-                .Select(i => i.Description).ShouldNotContain("sky atlas link");
+                .Select(i => i.Description).ShouldNotContain("sky atlas");
         }
 
         [Fact]
@@ -121,14 +122,14 @@ namespace TianWen.Lib.Tests
             // The menu is also a readout: someone who right-clicks to check a coordinate should not have to
             // paste it somewhere to see it. Every label therefore ends in its own value.
             //
-            // The share link is the one deliberate exception, and it is exempted BY NAME rather than by
+            // The atlas entry is the one deliberate exception, and it is exempted BY NAME rather than by
             // relaxing the rule to "most labels": its value is a hundred-character URL, which would be
-            // the widest thing in the menu and unreadable at that size, so it is the one item where
-            // what gets copied is worth more than what is shown. Any OTHER item that stops carrying its
-            // value is still a failure here.
+            // the widest thing in the menu and unreadable at that size -- and it is the one entry that
+            // does something rather than answering something, so there is no value to show. Any OTHER
+            // item that stops carrying its value is still a failure here.
             foreach (var item in ImageContextMenu.ItemsFor(Pixel([0.5f], ra: 3.0, dec: 4.0)))
             {
-                if (item.Description == "sky atlas link")
+                if (item.Description == "sky atlas")
                 {
                     continue;
                 }
@@ -136,5 +137,44 @@ namespace TianWen.Lib.Tests
                 item.Label.Length.ShouldBeGreaterThan($"Copy {item.Description}".Length);
             }
         }
+
+        /// <summary>
+        /// A click on a marked object is nearly always about the object, so its two entries lead. Both
+        /// halves are offered because they answer different questions: the name is what a person
+        /// searches for, the designation is what another tool takes.
+        /// </summary>
+        [Fact]
+        public void AClickOnACataloguedObjectOffersItsNameAndItsDesignation()
+        {
+            var items = ImageContextMenu.ItemsFor(
+                Pixel([0.1f], ra: 18.06, dec: -24.38),
+                nearest: new ImageContextMenuObject("Lagoon Nebula", "NGC 6523"));
+
+            items[0].Description.ShouldBe("object name");
+            items[0].Payload.ShouldBe("Lagoon Nebula");
+            items[0].Label.ShouldBe("Copy object name   Lagoon Nebula");
+            items[1].Description.ShouldBe("catalogue number");
+            items[1].Payload.ShouldBe("NGC 6523");
+            items[2].Description.ShouldBe("RA / Dec");
+        }
+
+        /// <summary>An object with no common name has its designation AS its name, and two entries
+        /// carrying the same string is noise rather than a choice.</summary>
+        [Fact]
+        public void AnObjectWithNoCommonNameOffersOneEntryRatherThanTwoIdenticalOnes()
+        {
+            var items = ImageContextMenu.ItemsFor(
+                Pixel([0.1f], ra: 1.0, dec: 2.0),
+                nearest: new ImageContextMenuObject("IC 4606", "IC 4606"));
+
+            items.Count(i => i.Description is "object name" or "catalogue number").ShouldBe(1);
+            items[0].Payload.ShouldBe("IC 4606");
+        }
+
+        [Fact]
+        public void AClickOnNothingCataloguedOffersNoObjectEntries()
+            => ImageContextMenu.ItemsFor(Pixel([0.1f], ra: 1.0, dec: 2.0))
+                .Select(i => i.Description)
+                .ShouldNotContain("object name");
     }
 }

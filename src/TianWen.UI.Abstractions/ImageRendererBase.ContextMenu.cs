@@ -3,6 +3,8 @@ using System.Collections.Immutable;
 using System.Linq;
 using System.Numerics;
 using DIR.Lib;
+using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.UI.Abstractions
 {
@@ -70,9 +72,21 @@ namespace TianWen.UI.Abstractions
                 items.Select(static i => i.Label).ToImmutableArray(),
                 (index, _) =>
                 {
-                    if ((uint)index < (uint)items.Length)
+                    if ((uint)index >= (uint)items.Length)
                     {
-                        CopyToClipboard(state, items[index].Description, items[index].Payload);
+                        return;
+                    }
+                    var item = items[index];
+                    switch (item.Action)
+                    {
+                        case ImageContextMenuAction.OpenUrl:
+                            PostSignal(new OpenUrlSignal(item.Payload));
+                            state.StatusMessage = $"Opening the {item.Description}...";
+                            state.NeedsRedraw = true;
+                            break;
+                        default:
+                            CopyToClipboard(state, item.Description, item.Payload);
+                            break;
                     }
                 });
             return true;
@@ -115,7 +129,78 @@ namespace TianWen.UI.Abstractions
                 ? SkyAtlasLink.FieldOfViewDeg(_document?.Wcs, img.Width, img.Height)
                 : null;
 
-            return ImageContextMenu.ItemsFor(pixel, fovDeg, image?.ImageMeta.ExposureStartTime);
+            return ImageContextMenu.ItemsFor(
+                pixel, fovDeg, image?.ImageMeta.ExposureStartTime, FindObjectAt(pixel, fovDeg));
+        }
+
+        /// <summary>
+        /// The catalogued deep-sky object the click landed on, or null.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Never blocks and never triggers the catalogue load.</b> Reads
+        /// <see cref="CelestialObjectDB"/> only when it has already been created -- the same test the
+        /// Overlays button uses -- so a right-click on a fresh viewer costs nothing and simply offers no
+        /// object entries. Waiting here would freeze the menu on the first press for a full Tycho-2
+        /// init.</para>
+        /// <para><b>The tolerance is a fraction of the FIELD, not a fixed radius.</b> A click is a
+        /// gesture aimed at something on screen, so what counts as "on it" scales with how much sky the
+        /// frame covers: 2% of the field width, floored at half an arcminute so a deep zoom still has a
+        /// target, capped at half a degree so a wide field does not claim a galaxy across the frame.
+        /// Without a plate scale (no <paramref name="fovDeg"/>) there is no field to take a fraction of,
+        /// and the answer is nothing rather than a guess.</para>
+        /// <para>Nearest wins, over the coordinate grid's own cell -- the same
+        /// <see cref="ICelestialObjectDB.DeepSkyCoordinateGrid"/> the overlay engine gathers from, so
+        /// the menu can only ever name something the overlay would have drawn.</para>
+        /// </remarks>
+        private ImageContextMenuObject? FindObjectAt(PixelInfo pixel, double? fovDeg)
+        {
+            if (pixel.RA is not { } raHours || pixel.Dec is not { } dec
+                || fovDeg is not { } fov || !double.IsFinite(fov) || fov <= 0
+                || CelestialObjectDB?.Value?.Value is not { } db)
+            {
+                return null;
+            }
+
+            var toleranceDeg = Math.Clamp(0.02 * fov, 0.5 / 60.0, 0.5);
+            var best = double.MaxValue;
+            CelestialObject? found = null;
+            foreach (var index in db.DeepSkyCoordinateGrid[raHours, dec])
+            {
+                if (!db.TryLookupByIndex(index, out var candidate))
+                {
+                    continue;
+                }
+                var candidateRa = candidate.RA;
+                var candidateDec = candidate.Dec;
+                if (!double.IsFinite(candidateRa) || !double.IsFinite(candidateDec))
+                {
+                    // Solar-system bodies live in the DB at NaN/NaN by design; they are not what a
+                    // click on a still frame is asking about.
+                    continue;
+                }
+
+                // Flat-sky separation with the cos(dec) term on RA: the tolerance is arcminutes, so
+                // nothing here needs a spherical law of cosines.
+                var dRa = (candidateRa - raHours) * 15.0 * Math.Cos(dec * Math.PI / 180.0);
+                var dDec = candidateDec - dec;
+                var separation = Math.Sqrt((dRa * dRa) + (dDec * dDec));
+                if (separation < best && separation <= toleranceDeg)
+                {
+                    best = separation;
+                    found = candidate;
+                }
+            }
+
+            if (found is not { } obj)
+            {
+                return null;
+            }
+
+            var designation = obj.Index.ToCanonical();
+            // DisplayName is the overlay label's own pick (priority, then longest-then-alphabetical),
+            // so the menu names an object exactly as the marker beside it does.
+            var name = obj.CommonNames.Count > 0 ? obj.DisplayName : designation;
+            return new ImageContextMenuObject(name, designation);
         }
 
         private void CopyToClipboard(ViewerState state, string description, string payload)

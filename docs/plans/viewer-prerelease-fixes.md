@@ -1141,3 +1141,38 @@ closed when the synthetic key landed, in which case exiting was correct behaviou
 `ViewerState.ShowDebayerMenu` and `ShowStretchFactorMenu` have no reader and no writer anywhere in the
 tree, left over from before the shared dropdown. They cannot trap a key, but state that looks like a live
 overlay is a trap for exactly the question that found them, so they are worth deleting.
+
+## P28. The menu can name the object under the cursor, and the atlas link opens the atlas  (FIXED 2026-09-08)
+
+Two additions to P17's menu, both about the distance between what it already knew and what it did.
+
+**A click on a marked object is nearly always about the object**, and the menu could offer that
+object's coordinates but not its name. Two entries now lead when one resolves -- `Copy object name`
+and `Copy catalogue number` -- because they answer different questions: the name is what a person
+searches for, the designation is what another tool takes. An object whose only name IS its
+designation gets one entry, not two carrying the same string.
+
+**It never blocks and never triggers the catalogue load.** `FindObjectAt` reads the object DB only
+where it has already been created, the same test the Overlays button uses, so a right-click on a
+freshly opened viewer costs nothing and simply offers no object entries. Waiting there would freeze
+the menu on the first press for a full Tycho-2 init, which is the one thing a context menu may not
+do.
+
+**The tolerance is a fraction of the FIELD, not a fixed radius**: 2% of the field width, floored at
+half an arcminute so a deep zoom still has a target and capped at half a degree so a wide field does
+not claim a galaxy on the far side of the frame. A click is a gesture aimed at something on screen,
+so what counts as "on it" scales with how much sky the frame covers. Without a plate scale there is
+no field to take a fraction of, and the answer is nothing rather than a guess.
+
+**Nearest wins, over the overlay's own grid cell** (`ICelestialObjectDB.DeepSkyCoordinateGrid`, the
+same gather `OverlayEngine` draws from), so the menu can only ever name something the overlay would
+have drawn. Solar-system bodies are skipped explicitly: they live in the DB at NaN/NaN by design,
+and a still frame's click is not asking about them.
+
+**`Copy sky atlas link` became `Open in sky atlas`.** Copying was the first shape and it left the
+reader the other half of the job -- paste the link somewhere, in a browser they had to find
+themselves, to see the sky they had just clicked on. Nothing is lost, since a browser's address bar
+holds the same link with the page it names in front of it. It goes out as an `OpenUrlSignal` rather
+than starting a process, because opening a URL is a shell call and `TianWen.UI.Abstractions` is
+shared with the WebAssembly build; that is also why `ImageContextMenuItem` grew an `Action` instead
+of the handler special-casing one label.
