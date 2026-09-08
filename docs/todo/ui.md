@@ -469,7 +469,7 @@ reading and the next person will reach for it again.
 
 ## Selected text is invisible in every text field (reported 2026-09-07, seen on the web atlas)
 
-- [ ] **The selection highlight is painted OVER the glyphs**, so selected text disappears.
+- [x] **The selection highlight was painted OVER the glyphs**, so selected text disappeared (fixed 2026-09-08, DIR.Lib 8.14).
   `TextInputRenderer` (DIR.Lib) draws the text run first and fills the selection rect afterwards
   (`colors.Selection`, default `RGBAColor32(60, 90, 150, 180)`); at alpha 180 over thin glyph ink there
   is nothing left to read. The user's screenshot (web sky atlas, F3) shows the field as a plain
@@ -485,9 +485,15 @@ reading and the next person will reach for it again.
     contrasting colour on top, which is what an opaque highlight would need and which adds a
     `SelectedText` palette entry every theme then has to state. Prefer the first. The colour is not the
     culprit: no highlight drawn last can leave dark glyphs legible under it.
-  - **Pin it where the ink is.** `LayoutTextInputTests` is the home, and the assertion that catches this
-    is that a selected span is not a uniform rectangle, i.e. some glyph ink survives the highlight. A
-    geometry-only test cannot see it, which is how it shipped.
+  - **Fixed by moving the fill under the run**, the first of the two candidates: two lines, no new palette
+    entry. Pinned in DIR.Lib by
+    `LayoutTextInputTests.SelectedText_KeepsItsContrast_BecauseTheHighlightIsPaintedUnderTheGlyphs`, which
+    renders a real face and measures mean ink contrast against the field's own local background rather than
+    asserting geometry (a geometry-only test cannot see this, which is how it shipped). Measured: **125.3
+    unselected, 106.5 with the highlight underneath (85%), 37.1 with it over the top (29.6%, the alpha
+    residual exactly)**; the bound is 60%, and the test was seen to fail at 37.1 with the fill moved back.
+  - Reaches TianWen when DIR.Lib 8.14 is published and `src/Directory.Packages.props` re-pins from
+    `8.13.*`. Every field in the GUI, the viewer and the web build gets it at once.
 
 ## Charts and the web showcase (user's notes 2026-08-27)
 

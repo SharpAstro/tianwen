@@ -349,6 +349,11 @@ public static class ViewerActions
 
         state.SelectedFileIndex = index;
         state.RequestedFilePath = Path.Combine(state.CurrentFolder, state.ImageFileNames[index]);
+
+        // The selection moved, so the list has to follow it: a blink, an arrow step or a snap back to the
+        // blink anchor can all walk the loaded file off-screen, and the selected row is the only thing on
+        // screen that says which file is being shown. One-shot, consumed by the next paint.
+        state.PendingFileListEnsureVisible = index;
     }
 
     /// <summary>

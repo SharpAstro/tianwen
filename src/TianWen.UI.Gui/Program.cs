@@ -692,11 +692,10 @@ loop.OnPostFrame = () =>
     }
 };
 
-loop.OnKeyDown = (inputKey, inputModifier) =>
+loop.OnKeyDown = evt =>
 {
     if (appState.ShuttingDown) return false; // ignore keys during shutdown
 
-    var evt = new InputEvent.KeyDown(inputKey, inputModifier);
     if (handlers.HandleInput(evt))
     {
         return true;
@@ -709,7 +708,7 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
     }
 
     // Global keys (not consumed by active tab or text input)
-    switch (inputKey)
+    switch (evt.Key)
     {
         case InputKey.Escape:
             var now2 = timeProvider.GetTimestamp();

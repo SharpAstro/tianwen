@@ -58,6 +58,13 @@ namespace TianWen.UI.Abstractions
         public bool HandleFileListInput(InputEvent evt) => _fileListScroll.HandleInput(evt);
 
         /// <summary>
+        /// First file row the scroll controller is showing. Internal because the controller owns the
+        /// offset (which is what keeps a wheel accumulator alive across frames), so a test asking whether
+        /// the list followed the selection has nothing else to read.
+        /// </summary>
+        internal int FileListFirstVisibleRow => _fileListScroll.AtomOffset;
+
+        /// <summary>
         /// The pane header: <c>Files</c>, plus the containing folder in brackets when there is room for
         /// it, with the full path as a hover tooltip.
         ///
@@ -187,6 +194,16 @@ namespace TianWen.UI.Abstractions
             {
                 _fileListScroll.AtomOffset = top;
                 state.PendingFileListScrollTop = null;
+            }
+
+            // A selection that moved without a click asks to be brought into view, minimally: EnsureVisible
+            // is a no-op while the row is already on screen, so a blink through a visible run does not
+            // scroll at all and one that walks off the end scrolls by a row. It has to run HERE, after
+            // SetExtent, because how many rows are visible is a property of the geometry handed over above.
+            if (state.PendingFileListEnsureVisible is { } visible)
+            {
+                _fileListScroll.EnsureVisible(visible);
+                state.PendingFileListEnsureVisible = null;
             }
 
             var mouseX = state.MouseScreenPosition.X;

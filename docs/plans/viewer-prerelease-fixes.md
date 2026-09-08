@@ -53,7 +53,7 @@ the 35 TIFF / import / codec tests pass against it.
 | P20 | A share link to the web viewer (needs `&t=`) | **FIXED** 2026-09-04 |
 | P21 | A mosaic's channel views show the mosaic, not the debayered planes | BACKLOG |
 | P22 | Save the ANNOTATED view (grid, markers, labels), beside P18's clean raster | **FIXED** 2026-09-06 |
-| P23 | Blink toggles on every auto-repeat of Space, and the blinked frame can be off-screen | OPEN (reported 2026-09-07) |
+| P23 | Blink toggles on every auto-repeat of Space, and the blinked frame can be off-screen | **FIXED** 2026-09-08 (with DIR.Lib 8.14 + SdlVulkan.Renderer 7.33) |
 | P24 | The A/B divider leaves its bar behind in the letterbox around the image | OPEN (reported 2026-09-07) |
 | P25 | No auto-crop: a master's stack artefacts and NaN margins have to be cropped elsewhere | OPEN (reported 2026-09-07) |
 | P26 | The `?` panel cannot report a bug: no issue, no logs, no version attached | OPEN (reported 2026-09-07) |
@@ -709,7 +709,7 @@ the clean save **pixel for pixel**: the two files are of one picture, and the an
 thing allowed to differ.
 
 
-## P23. Blink: Space repeats, and the blinked frame can be off-screen  (OPEN)
+## P23. Blink: Space repeats, and the blinked frame can be off-screen  (FIXED 2026-09-08)
 
 From the user's notes 2026-09-07: *"holding down space when we are blinking should pause it, right now
 it start/stops rapidly. blinking should also always put the current frame into view."* Two independent
@@ -745,6 +745,29 @@ goes on showing whatever it was showing. `Up`/`Down` stepping does the same, and
 `Ctrl+Space` snap back to the anchor, which is the worst of the three: it exists to return you to the
 reference frame, and the list does not follow it there. Blink is where it got noticed, because the
 selected row is the only on-screen statement of WHICH frame is being compared.
+
+**Fixed as diagnosed, in three repos, and the seam is where most of it landed.** `InputEvent.KeyDown`
+gained an init-only `Repeat` (DIR.Lib 8.14; init-only because consumers match this record as
+`KeyDown(var key, var mods)` in dozens of places), `SdlWindowView.OnKeyDown` now takes that event rather
+than `(key, modifiers)` and the loop fills `Repeat` in from SDL (SdlVulkan.Renderer 7.33, a breaking change
+whose port deletes a line at both call sites, since each was already rebuilding the record by hand), and
+the viewer states the rule ONCE at the top of `HandleViewerKey`: a repeat acts only for a key in
+`RepeatsAsAStep` (arrows, page keys, zoom). Everything else on that switch either toggles or is a one-shot,
+so the allow-list is the short half. `Shift+H` was carrying the same latent bug and is fixed by the same
+line. Pinned by `ViewerBlinkTransportTests`, whose Space case asserts a real press either side of five
+repeats, so the fix cannot degenerate into swallowing the key.
+
+**The scroll is one call and a one-shot.** `ViewerActions.SelectFile` sets
+`ViewerState.PendingFileListEnsureVisible`; the paint consumes it after `SetExtent` through
+`ListScrollController.EnsureVisible`. Two tests bound it from both sides: a selection that walks off the
+visible run scrolls, and a step inside the run does not scroll at all, which is what makes it a clamp
+rather than a re-centring. Every assertion here was seen red with its fix removed (three of the six).
+
+**Still open, and it is a question rather than work**: whether *"holding down space ... should pause it"*
+meant only this (one press pauses, holding does nothing more) or a MOMENTARY hold, pausing while held and
+resuming on release. The second is a different gesture, it would take Space away from the toggle it
+currently is, and it is not expressible today: `InputEvent` has no `KeyUp`, so nothing tells a widget when
+a key was let go.
 
 **`ScanFolder`'s rule is not the one wanted, and the right one already exists.** `Math.Max(0, index - 5)`
 puts the selection near the TOP, which per blink tick would scroll the list continuously. The clamp is

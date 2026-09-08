@@ -72,7 +72,7 @@ namespace TianWen.UI.Abstractions
 
             return evt switch
             {
-                InputEvent.KeyDown(var key, var modifiers) => HandleViewerKey(key, modifiers),
+                InputEvent.KeyDown k => HandleViewerKey(k.Key, k.Modifiers, k.Repeat),
                 InputEvent.MouseDown(var px, var py, _, _, _) => HandleViewerMouseDown(px, py, evt),
                 InputEvent.MouseMove(var px, var py) => HandleViewerMouseMove(px, py, evt),
                 InputEvent.MouseUp(_, _, _) => HandleViewerMouseUp(evt),
@@ -81,7 +81,7 @@ namespace TianWen.UI.Abstractions
             };
         }
 
-        private bool HandleViewerKey(InputKey key, InputModifier modifiers)
+        private bool HandleViewerKey(InputKey key, InputModifier modifiers, bool repeat)
         {
             if (_state is not { } state)
             {
@@ -96,6 +96,17 @@ namespace TianWen.UI.Abstractions
             if (Ui.KeyboardClaimant?.HandleKeyDown(key) == true)
             {
                 state.NeedsRedraw = true;
+                return true;
+            }
+
+            // An auto-repeat is the same press arriving again at the OS repeat rate, so only a STEP may
+            // act on one. Every other key here either toggles something or is a one-shot, and a toggle
+            // driven by auto-repeat flips several times a second: held Space started and stopped the blink
+            // continuously, which is how this was reported. Stated once rather than per case, because the
+            // list of keys that genuinely want repeating is the short half. Placed after the claimant
+            // check so an overlay that owns the keyboard keeps its own arrow repeats.
+            if (repeat && !RepeatsAsAStep(key))
+            {
                 return true;
             }
 
@@ -313,6 +324,15 @@ namespace TianWen.UI.Abstractions
 
         // SER transport keys (sequence-only): play/pause, step, jump to ends, speed. Step/Home/End pause
         // and request a frame; the SequencePlayer decodes it off the render thread next tick.
+        /// <summary>
+        /// Keys whose action is a STEP, so repeating the key repeats the action: walking the file list,
+        /// stepping or seeking a sequence, and zooming. Holding one of these is a request for more of it,
+        /// which is what auto-repeat is for.
+        /// </summary>
+        private static bool RepeatsAsAStep(InputKey key)
+            => key is InputKey.Up or InputKey.Down or InputKey.Left or InputKey.Right
+                or InputKey.PageUp or InputKey.PageDown or InputKey.Plus or InputKey.Minus;
+
         private bool HandleTransportKey(InputKey key, ViewerState state)
         {
             switch (key)

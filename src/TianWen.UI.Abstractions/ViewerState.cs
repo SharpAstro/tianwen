@@ -320,6 +320,21 @@ public sealed class ViewerState
     /// the controller, not here, so the trackpad wheel accumulator is never reset frame-to-frame.</summary>
     public int? PendingFileListScrollTop { get; set; }
 
+    /// <summary>
+    /// One-shot request to bring a file-list row into view, set by <see cref=ViewerActions.SelectFile/>
+    /// when the selection MOVES and consumed once by the next paint.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref=PendingFileListScrollTop/> because it asks a different question: that one
+    /// places the list at a top index, this one asks for the least scroll that makes a row visible
+    /// (<c>ListScrollController.EnsureVisible</c>), and is a no-op while the row already is. Both are
+    /// one-shots for the same reason: applied every frame instead, the list would drag itself back to the
+    /// loaded file and the wheel could never leave it. Blink, arrow stepping and the snap back to the
+    /// display anchor all move the selection without a click, and before this the list simply stayed
+    /// where it was while the picture changed.
+    /// </remarks>
+    public int? PendingFileListEnsureVisible { get; set; }
+
     /// <summary>User-adjusted file list panel width in DPI-independent units. Default 300px;
     /// the actual rendered width is this value multiplied by the DPI scale. Clamped to
     /// <see cref="FileListWidthBaseMin"/>..<see cref="FileListWidthBaseMax"/> when set.</summary>

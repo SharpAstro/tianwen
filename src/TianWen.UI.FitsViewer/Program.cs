@@ -572,9 +572,9 @@ loop.OnBeforeFrame = () =>
 };
 
 // OnKeyDown wired separately: imageRenderer.HandleInput handles F11 via signal bus
-loop.OnKeyDown = (inputKey, inputModifier) =>
+loop.OnKeyDown = keyEvent =>
 {
-    imageRenderer.HandleInput(new InputEvent.KeyDown(inputKey, inputModifier));
+    imageRenderer.HandleInput(keyEvent);
     return true;
 };
 
