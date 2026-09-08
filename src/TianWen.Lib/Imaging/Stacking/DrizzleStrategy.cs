@@ -299,6 +299,7 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
             RejectionMap: coverageMap,
             FrameCount: frameCount,
             TotalRejections: uncovered,
-            MeanRejectionRate: (double)uncovered / totalCells);
+            MeanRejectionRate: (double)uncovered / totalCells,
+            RejectionMapIsCoverage: true);
     }
 }

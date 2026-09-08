@@ -352,7 +352,8 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
             RejectionMap: coverageMap,
             FrameCount: n,
             TotalRejections: uncovered,
-            MeanRejectionRate: (double)uncovered / totalCells);
+            MeanRejectionRate: (double)uncovered / totalCells,
+            RejectionMapIsCoverage: true);
     }
 
     /// <summary>Load + calibrate, no debayer. Same contract as

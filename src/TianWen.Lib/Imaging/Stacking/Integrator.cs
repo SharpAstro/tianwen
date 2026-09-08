@@ -35,12 +35,22 @@ public sealed record IntegrationOptions(
 /// image whose pixel values are <c>rejected / total</c> for that output
 /// position averaged across input channels.
 /// </summary>
+/// <param name="RejectionMapIsCoverage">
+/// True when <paramref name="RejectionMap"/> is not a rejection fraction at all but the accumulated
+/// per-pixel WEIGHT -- what the drizzle strategies put there, since drizzle has no kappa-sigma
+/// rejection to report and the weight is the natural mask. The two are opposite in sense (high is bad
+/// in one and good in the other) and different in range (a fraction in [0, 1] against a frame count),
+/// so a consumer that guesses gets it exactly wrong. <see cref="Image.LargestCoveredRectangle(Image,
+/// double, int)"/> needs the coverage kind, and <see cref="IntegrationFitsWriter"/> stamps this into
+/// the sidecar's <c>MAPKIND</c> card so a reader can tell them apart later.
+/// </param>
 public sealed record IntegrationResult(
     Image Master,
     Image RejectionMap,
     int FrameCount,
     long TotalRejections,
-    double MeanRejectionRate);
+    double MeanRejectionRate,
+    bool RejectionMapIsCoverage = false);
 
 /// <summary>
 /// Stack integrator. Combines N pre-aligned light frames into a single master
