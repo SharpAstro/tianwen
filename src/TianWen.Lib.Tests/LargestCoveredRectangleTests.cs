@@ -1,3 +1,4 @@
+using System;
 using System.Drawing;
 using Shouldly;
 using TianWen.Lib.Imaging;
@@ -116,5 +117,113 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void AnEntirelyAbsentFrameKeepsNothing()
             => Frame(["...", "..."]).LargestCoveredRectangle().ShouldBe(Rectangle.Empty);
+
+        /// <summary>A flat frame of the given size, so a coverage plane has something to be measured
+        /// against; the pixel values do not matter to the coverage overload.</summary>
+        private static Image Flat(int width, int height, int channels = 1)
+            => Synthetic(width, height, channels, static (_, _, _) => 0.25f);
+
+        private static Image Synthetic(int width, int height, int channels, Func<int, int, int, float> valueAt)
+        {
+            var planes = new float[channels][,];
+            for (var c = 0; c < channels; c++)
+            {
+                var plane = new float[height, width];
+                for (var y = 0; y < height; y++)
+                {
+                    for (var x = 0; x < width; x++)
+                    {
+                        plane[y, x] = valueAt(c, x, y);
+                    }
+                }
+                planes[c] = plane;
+            }
+
+            return new Image([.. planes], BitDepth.Float32, maxValue: 1f, minValue: 0f, pedestal: 0f,
+                imageMeta: new ImageMeta { Instrument = "synth", SensorType = SensorType.Monochrome });
+        }
+
+        /// <summary>The exact tier: a ramp in the weight map is cut at the requested fraction.</summary>
+        [Fact]
+        public void ACoveragePlaneCutsWhereTheWeightFallsOff()
+        {
+            var image = Flat(256, 128);
+            // Full weight is 40; the left 32 px only ever saw a quarter of the frames.
+            var coverage = Synthetic(256, 128, 1, static (_, x, _) => x < 32 ? 10f : 40f);
+
+            var rect = image.LargestCoveredRectangle(coverage, minFraction: 0.95, blockSize: 16);
+
+            rect.ShouldBe(new Rectangle(32, 0, 224, 128));
+        }
+
+        /// <summary>
+        /// The regression for the block mean. A drizzle canvas gives neighbouring cells different drop
+        /// counts, so a fully covered interior scatters about 10% either way -- 0.847 of the median at
+        /// p0.1 on the 10P master. Comparing per PIXEL rejects pixels everywhere and collapses the
+        /// answer (measured: 207 x 404 of a 4215 x 2884 frame); comparing per block keeps the frame.
+        /// </summary>
+        [Fact]
+        public void PerPixelWeightScatterInsideAFullyCoveredFrameKeepsAllOfIt()
+        {
+            var rng = new Random(20260908);
+            var image = Flat(256, 128);
+            var coverage = Synthetic(256, 128, 1, (_, _, _) => (float)(40.0 * (0.85 + (0.3 * rng.NextDouble()))));
+
+            var rect = image.LargestCoveredRectangle(coverage, minFraction: 0.95, blockSize: 16);
+
+            rect.ShouldBe(new Rectangle(0, 0, 256, 128));
+        }
+
+        /// <summary>An unknown weight is not a full one.</summary>
+        [Fact]
+        public void ANaNWeightIsNotCoverage()
+        {
+            var image = Flat(256, 128);
+            var coverage = Synthetic(256, 128, 1, static (_, x, y) => x < 16 && y < 16 ? float.NaN : 40f);
+
+            var rect = image.LargestCoveredRectangle(coverage, minFraction: 0.95, blockSize: 16);
+
+            rect.Contains(new Point(0, 0)).ShouldBeFalse();
+            rect.Width.ShouldBe(240);
+        }
+
+        /// <summary>
+        /// Every channel has to pass. A Bayer-drizzle canvas covers green twice as often as red, so the
+        /// levels are per channel -- and a pixel under-covered in one channel of three renders as colour
+        /// noise, which is worse than luminance noise.
+        /// </summary>
+        [Fact]
+        public void TheWorstChannelDecides()
+        {
+            var image = Flat(256, 128, channels: 3);
+            var coverage = Synthetic(256, 128, 3, static (c, x, _) => c switch
+            {
+                1 => x < 48 ? 20f : 80f,       // green: full is 80, its own falloff reaches 48 px
+                _ => x < 16 ? 10f : 40f,       // red and blue: full is 40, falloff reaches 16 px
+            });
+
+            image.LargestCoveredRectangle(coverage, minFraction: 0.95, blockSize: 16)
+                .ShouldBe(new Rectangle(48, 0, 208, 128));
+        }
+
+        /// <summary>One coverage channel is broadcast: a mono weight map for a colour master is legal.</summary>
+        [Fact]
+        public void ASingleCoverageChannelServesEveryImageChannel()
+        {
+            var image = Flat(256, 128, channels: 3);
+            var coverage = Synthetic(256, 128, 1, static (_, x, _) => x < 32 ? 10f : 40f);
+
+            image.LargestCoveredRectangle(coverage, minFraction: 0.95, blockSize: 16)
+                .ShouldBe(new Rectangle(32, 0, 224, 128));
+        }
+
+        [Fact]
+        public void ACoveragePlaneOfTheWrongShapeIsRefused()
+        {
+            var image = Flat(256, 128, channels: 3);
+
+            Should.Throw<ArgumentException>(() => image.LargestCoveredRectangle(Flat(128, 128)));
+            Should.Throw<ArgumentException>(() => image.LargestCoveredRectangle(Flat(256, 128, channels: 2)));
+        }
     }
 }

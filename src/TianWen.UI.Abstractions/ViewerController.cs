@@ -34,10 +34,10 @@ public sealed class ViewerController(
 
     /// <summary>
     /// The pending auto-crop scan. Held as a Task rather than written into state from the pool: the
-    /// result is a <see cref="Rectangle"/>, whose write is wider than a pointer and so not atomic, and
-    /// the Task IS the synchronisation primitive (see the concurrency rules in CLAUDE.md).
+    /// result carries a <see cref="Rectangle"/>, whose write is wider than a pointer and so not atomic,
+    /// and the Task IS the synchronisation primitive (see the concurrency rules in CLAUDE.md).
     /// </summary>
-    private Task<Rectangle>? _cropTask;
+    private Task<ViewerActions.CropScan>? _cropTask;
     private CancellationTokenSource? _starDetectionCts;
 
     // Per-RUN enhance cancellation, so pressing the button while it computes stops THAT run. It used
@@ -601,11 +601,14 @@ public sealed class ViewerController(
                 }
                 else if (Document is { } cropDoc && _cropTask is null)
                 {
-                    // Off the render thread: the scan reads every channel of every pixel, measured at
-                    // 52.6 ms on a 3073 x 3085 x 3 master, which is several dropped frames on a press.
+                    // Off the render thread: the absent-pixel scan reads every channel of every pixel
+                    // (52.6 ms on a 3073 x 3085 x 3 master), a coverage sidecar decodes a second
+                    // full-frame FITS, and the edge walk profiles four bands on top of that -- 0.5 to
+                    // 2.3 s measured in Debug on the corpus. Any of those is dropped frames on a press.
                     state.StatusMessage = "Finding the covered area...";
                     var image = cropDoc.UnstretchedImage;
-                    _cropTask = Task.Run(image.LargestCoveredRectangle, appToken);
+                    var path = cropDoc.FilePath;
+                    _cropTask = Task.Run(() => ViewerActions.ScanForCrop(image, path, logger), appToken);
                     _ = _cropTask.ContinueWith(_ => state.NeedsRedraw = true, TaskScheduler.Default);
                 }
                 break;
@@ -856,7 +859,8 @@ public sealed class ViewerController(
             return;
         }
 
-        var rect = task.Result;
+        var scan = task.Result;
+        var rect = scan.Rect;
         var image = Document?.UnstretchedImage;
         if (image is null)
         {
@@ -876,7 +880,11 @@ public sealed class ViewerController(
             state.DisplayCrop = rect;
             state.ZoomToFit = true;
             var kept = 100.0 * rect.Width * rect.Height / (image.Width * (double)image.Height);
-            state.StatusMessage = $"Cropped to {rect.Width}x{rect.Height} ({kept:F1}% of the frame)";
+            // Which tier answered is worth a word: one is the master's own record of what it covered, the
+            // other is measured off the noise and can be short of the mark. "Edge held" names the case
+            // where an edge was left alone because its noise had not settled -- see CoverageEdgeWalk.
+            var how = scan.FromCoverage ? ", by coverage" : scan.Declined ? ", edge held" : "";
+            state.StatusMessage = $"Cropped to {rect.Width}x{rect.Height} ({kept:F1}% of the frame{how})";
         }
 
         state.NeedsRedraw = true;

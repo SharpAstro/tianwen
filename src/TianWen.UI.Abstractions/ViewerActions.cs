@@ -2,12 +2,14 @@
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib.IO;
 
 namespace TianWen.UI.Abstractions;
@@ -764,5 +766,73 @@ public static class ViewerActions
             default:
                 return false;
         }
+    }
+
+    /// <summary>
+    /// What one auto-crop scan found: the rectangle, which of the two tiers answered, and whether the
+    /// walk refused an edge. All three are needed at the status bar, because a crop is a border that is
+    /// missing and the only other evidence is the file looking different.
+    /// </summary>
+    /// <param name="Rect">The area to keep, in full-frame pixels.</param>
+    /// <param name="FromCoverage">True when the master's own coverage plane answered (exact), false when
+    /// the edge-noise walk did (an estimate).</param>
+    /// <param name="Declined">True when at least one edge refused: its noise was still falling at the
+    /// bound, so that edge was left alone. Only meaningful for the walk.</param>
+    public readonly record struct CropScan(Rectangle Rect, bool FromCoverage, bool Declined);
+
+    /// <summary>
+    /// Finds the area of a stacked master worth showing. Runs off the render thread: reading a coverage
+    /// sidecar decodes a second full-frame FITS, and the walk measures four edge profiles.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The exact tier wins wherever it exists.</b> A TianWen drizzle master writes its
+    /// accumulated per-pixel weight to <c>&lt;master&gt;.rejection.fits</c>, which states the covered
+    /// area outright; everything else -- another program's composite, an older sidecar that cannot say
+    /// which kind of map it is -- gets the estimate. The same split as the mount limits' mechanical
+    /// tier: a fallback, never a cross-check.</para>
+    /// <para>Both tiers start from <see cref="Image.LargestCoveredRectangle()"/>, and the walk runs even
+    /// when that keeps the whole frame. A frame with no canvas ring can still carry the band -- a stack
+    /// someone has already cropped to its zero-free rectangle is exactly that shape, and it is the file
+    /// most likely to be handed to a viewer. Skipping the walk there to save a second was the first
+    /// version, and it made the feature silently not apply to the case that needs it most. An ordinary
+    /// photograph answers "nothing to trim" on its own: vignetting LOWERS a corner's absolute noise
+    /// along with its signal, so the outermost band is never the noisiest part of the profile.</para>
+    /// </remarks>
+    public static CropScan ScanForCrop(Image image, string? filePath, ILogger? logger = null)
+    {
+        var union = image.LargestCoveredRectangle();
+        if (union.Width <= 0 || union.Height <= 0)
+        {
+            return new CropScan(union, FromCoverage: false, Declined: false);
+        }
+
+        if (filePath is { Length: > 0 } path)
+        {
+            try
+            {
+                if (IntegrationFitsWriter.TryReadCoverageMap(path, out var coverage))
+                {
+                    var exact = image.LargestCoveredRectangle(coverage);
+                    if (exact.Width > 0 && exact.Height > 0)
+                    {
+                        logger?.LogDebug("Auto-crop from the coverage plane: {W}x{H} at ({X},{Y})",
+                            exact.Width, exact.Height, exact.X, exact.Y);
+                        return new CropScan(exact, FromCoverage: true, Declined: false);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // A sidecar that cannot be read is not a reason to refuse the crop: fall through to the
+                // walk, which needs nothing but the pixels already in hand.
+                logger?.LogDebug(ex, "Coverage sidecar beside {Path} could not be used", path);
+            }
+        }
+
+        var trims = CoverageEdgeWalk.Measure(image, union);
+        logger?.LogDebug(
+            "Auto-crop edge walk: left {L} top {T} right {R} bottom {B} (declined: {Declined})",
+            trims.Left.Depth, trims.Top.Depth, trims.Right.Depth, trims.Bottom.Depth, trims.AnyDeclined);
+        return new CropScan(trims.Apply(union), FromCoverage: false, trims.AnyDeclined);
     }
 }
