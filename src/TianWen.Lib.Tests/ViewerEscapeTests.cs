@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Immutable;
+using System.Linq;
 using DIR.Lib;
 using Shouldly;
 using TianWen.Lib.Astrometry;
@@ -12,10 +14,14 @@ namespace TianWen.Lib.Tests
     /// Escape dismisses what is open before it quits the viewer.
     /// </summary>
     /// <remarks>
-    /// This is the one key where not consuming an event is destructive rather than merely wrong.
-    /// Escape is bound to Quit, so the "?" panel failing to absorb it meant that pressing Escape to
-    /// dismiss the panel closed the whole viewer, losing the loaded folder and every display setting
-    /// with it. Reported 2026-09-08 after doing exactly that.
+    /// <para>This is the one key where not consuming an event is destructive rather than merely wrong:
+    /// Escape is bound to Quit, so an overlay that fails to absorb it discards the loaded folder and
+    /// every display setting instead of closing itself.</para>
+    /// <para><b>The dropdown claims the keyboard AS IT PAINTS</b>, which is why every case here opens it
+    /// and then renders. An earlier version of this file set <c>IsOpen</c> and sent the key without a
+    /// render, which skips the claim entirely and so tested a state the viewer is never in: it passed
+    /// against a hand-written special case in the Escape branch and would have passed with the real
+    /// mechanism deleted. The claim is the thing worth pinning, so these drive it.</para>
     /// </remarks>
     [Collection("UI")]
     public class ViewerEscapeTests
@@ -54,6 +60,9 @@ namespace TianWen.Lib.Tests
             public override void UploadHistogramData(IPreviewSource source) { }
 
             protected override HistogramDisplay? GetHistogramDisplay() => null;
+
+            /// <summary>Who owns the keyboard, per the shared per-window settings.</summary>
+            public IKeyboardClaimant? ClaimantForTest => Ui.KeyboardClaimant;
         }
 
         private static (EscapeViewer Viewer, ViewerState State, SignalBus Bus, Func<int> Exits) NewViewer()
@@ -73,6 +82,17 @@ namespace TianWen.Lib.Tests
             bus.ProcessPending();
         }
 
+        /// <summary>
+        /// Opens a panel the way the toolbar does, and paints it, which is what makes it the keyboard
+        /// claimant. Opening without painting leaves the claim unset.
+        /// </summary>
+        private static void OpenAPanel(EscapeViewer viewer, ViewerState state)
+        {
+            var items = new[] { "one", "two", "three" }.Select(DropdownItem.Text).ToImmutableArray();
+            state.ToolbarDropdown.Open(20f, 40f, 200f, items);
+            viewer.Render(null, state);
+        }
+
         /// <summary>An open panel absorbs the key: it closes, and nothing asks to exit.</summary>
         [Fact]
         public void EscapeClosesAnOpenPanelRatherThanQuitting()
@@ -80,7 +100,9 @@ namespace TianWen.Lib.Tests
             var (viewer, state, bus, exits) = NewViewer();
             viewer.Render(null, state);
 
-            state.ToolbarDropdown.IsOpen = true;
+            OpenAPanel(viewer, state);
+            viewer.ClaimantForTest.ShouldNotBeNull("painting the menu is what claims the keyboard");
+
             Escape(viewer, bus);
 
             state.ToolbarDropdown.IsOpen.ShouldBeFalse();
@@ -113,10 +135,12 @@ namespace TianWen.Lib.Tests
             var (viewer, state, bus, exits) = NewViewer();
             viewer.Render(null, state);
 
-            state.ToolbarDropdown.IsOpen = true;
+            OpenAPanel(viewer, state);
             Escape(viewer, bus);
             exits().ShouldBe(0);
 
+            // The closed dropdown now DECLINES the key rather than being cleared, which is what makes a
+            // stale claim harmless, so the second press falls through to the exit.
             Escape(viewer, bus);
             exits().ShouldBe(1);
         }
