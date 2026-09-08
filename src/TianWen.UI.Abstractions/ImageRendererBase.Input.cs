@@ -156,6 +156,20 @@ namespace TianWen.UI.Abstractions
             switch (key)
             {
                 case InputKey.Escape:
+                    // An open overlay eats Escape, and this is the ONLY key where failing to do that
+                    // is destructive: Escape is also Quit, so the ? panel not consuming it meant
+                    // "dismiss this" closed the viewer. Reported 2026-09-08, having done exactly that.
+                    //
+                    // The dropdown is the one modal surface here, which is why ViewerState defines
+                    // OverlayOwnsPointer as its IsOpen and nothing else: everything else on this
+                    // widget is a toggle that Escape has no business touching.
+                    if (state.ToolbarDropdown.IsOpen)
+                    {
+                        state.ToolbarDropdown.Close();
+                        state.NeedsRedraw = true;
+                        return true;
+                    }
+
                     PostSignal(new RequestExitSignal());
                     return true;
                 case InputKey.F11:

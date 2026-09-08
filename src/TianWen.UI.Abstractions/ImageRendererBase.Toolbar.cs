@@ -631,8 +631,9 @@ namespace TianWen.UI.Abstractions
                     return true;
 
                 case ToolbarAction.Shortcuts:
-                    // A list, not a menu: selecting a row does nothing. The dropdown is reused because
-                    // it already solves the two hard parts -- painting over everything, and scrolling
+                    // Mostly a list rather than a menu: two rows act (the guide, and a bug report) and
+                    // every other row is a fact that does nothing. The dropdown is reused because it
+                    // already solves the two hard parts -- painting over everything, and scrolling
                     // when the list outgrows the window (DIR.Lib 6.19).
                     //
                     // Remember the bounds: when the AI probe lands a moment later, the panel is
@@ -640,7 +641,7 @@ namespace TianWen.UI.Abstractions
                     // somewhere to anchor.
                     _shortcutsBounds = bounds;
                     StartAiCapabilityProbe();
-                    OpenDropdown(state, bounds, BuildHelpLines(), (_, _) => { });
+                    OpenDropdown(state, bounds, BuildHelpLines(), (idx, _) => HandleHelpSelection(idx));
                     return true;
 
                 case ToolbarAction.StretchLink:
@@ -1462,7 +1463,7 @@ namespace TianWen.UI.Abstractions
             // the reset happens once and before anyone has scrolled.
             if (state.ToolbarDropdown.IsOpen && _shortcutsBounds is { } bounds)
             {
-                OpenDropdown(state, bounds, BuildHelpLines(), (_, _) => { });
+                OpenDropdown(state, bounds, BuildHelpLines(), (idx, _) => HandleHelpSelection(idx));
             }
         }
 
@@ -1499,8 +1500,50 @@ namespace TianWen.UI.Abstractions
             }
             lines.Add("");
 
+            // The two things this panel can DO, above the reference material: it is the screen
+            // someone opens when the viewer has just misbehaved, so the way to report that belongs
+            // where they already are rather than in a menu they would have to go looking for.
+            _helpDocsLine = lines.Count;
+            lines.Add("Open the user guide in a browser");
+            _helpReportLine = lines.Count;
+            lines.Add("Report a problem (prepares an issue, sends nothing)");
+            lines.Add("");
+
             lines.AddRange(ShortcutLines);
             return lines.ToImmutable();
+        }
+
+        /// <summary>
+        /// Which rows of the "?" panel are actions rather than facts. Captured as indices when the
+        /// panel is built, because the labels are ellipsized to fit the window and comparing against a
+        /// trimmed string would work until the day the window is narrow.
+        /// </summary>
+        private int _helpDocsLine = -1;
+
+        private int _helpReportLine = -1;
+
+        /// <summary>
+        /// A click on one of the "?" panel's action rows. Every other row is a fact and does nothing,
+        /// which is why this keys on the index and not on "did anything get clicked".
+        /// </summary>
+        /// <remarks>
+        /// Both go out as <see cref="OpenUrlSignal"/> rather than starting a process here: opening a
+        /// URL is a shell call, and this assembly is shared with the WebAssembly build, where there is
+        /// no shell. The host decides, as it already does for the planner's Wikipedia links.
+        /// </remarks>
+        private void HandleHelpSelection(int index)
+        {
+            if (index == _helpDocsLine)
+            {
+                PostSignal(new OpenUrlSignal(BugReportLink.DocumentationUrl));
+            }
+            else if (index == _helpReportLine)
+            {
+                PostSignal(new OpenUrlSignal(BugReportLink.ForViewer(
+                    TianWen.Lib.BuildInfo.Describe(),
+                    System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+                    _aiLines)));
+            }
         }
 
         /// <summary>

@@ -509,6 +509,24 @@ bus.Subscribe<EnhanceImageSignal>(_ =>
 bus.Subscribe<AutoCropSignal>(_ =>
     controller.HandleToolbarAction(ToolbarAction.AutoCrop, reverse: false, cts.Token));
 
+// The "?" panel's two action rows (the user guide, and a prepared bug report). Host-level and
+// desktop-only on purpose: UseShellExecute routes a URL through the shell, which the WASM-shared
+// abstraction layer cannot do, so the widget posts a signal and the host decides. Best-effort,
+// exactly as the GUI's own subscription is: a browser that will not open must not take the viewer
+// down with it.
+bus.Subscribe<OpenUrlSignal>(sig =>
+{
+    try
+    {
+        using var _ = System.Diagnostics.Process.Start(
+            new System.Diagnostics.ProcessStartInfo(sig.Url) { UseShellExecute = true });
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Failed to open URL {Url}", sig.Url);
+    }
+});
+
 // The Save dropdown's two rows. The annotation is read off the renderer here rather than reached for
 // inside the controller, because the renderer is what holds it -- so a plate-solve verification or a
 // polar-alignment overlay lands in the saved file too.
