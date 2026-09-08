@@ -34,9 +34,17 @@ public static class StretchModeExtensions
         /// coincide). Called by the producers before a <see cref="StretchUniforms"/> is built, so Auto
         /// never reaches the shader.
         /// </summary>
-        public StretchMode ResolveAuto(bool isColour, bool calibrationActive)
+        /// <param name="isNarrowbandCalibration">
+        /// True when the calibration was fitted through a LINE-SELECTIVE filter, which makes it Unlinked
+        /// regardless. A photometric white balance assumes a stellar continuum through a broad passband;
+        /// through an Ha + OIII filter that premise never held, so Linked would preserve a fit of nothing
+        /// as a strong cast, which is what an HOO master looked like. Ignored when no calibration is
+        /// active, where the answer is already Unlinked.
+        /// </param>
+        public StretchMode ResolveAuto(bool isColour, bool calibrationActive,
+            bool isNarrowbandCalibration = false)
             => mode is not StretchMode.Auto ? mode
                 : !isColour ? StretchMode.Linked
-                : calibrationActive ? StretchMode.Linked : StretchMode.Unlinked;
+                : calibrationActive && !isNarrowbandCalibration ? StretchMode.Linked : StretchMode.Unlinked;
     }
 }

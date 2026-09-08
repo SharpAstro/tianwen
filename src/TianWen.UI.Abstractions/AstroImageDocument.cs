@@ -143,6 +143,19 @@ public sealed class AstroImageDocument : IPreviewSource
     private (float R, float G, float B)? _colorCalibration;
 
     /// <summary>
+    /// Whether <see cref="ColorCalibration"/> was fitted through a LINE-SELECTIVE filter, i.e. one that
+    /// passes emission lines rather than a stellar continuum.
+    /// </summary>
+    /// <remarks>
+    /// Read through <see cref="Basis"/> exactly as the calibration itself is, so a blink run shows every
+    /// frame with the answer its anchor gave; a run where one frame disagreed would flicker between two
+    /// stretch modes, which is the flicker the carry exists to remove.
+    /// </remarks>
+    public bool IsNarrowbandColorCalibration => Basis._isNarrowbandColorCalibration || _isNarrowbandColorCalibration;
+
+    private bool _isNarrowbandColorCalibration;
+
+    /// <summary>
     /// Provenance for <see cref="ColorCalibration"/>: which method produced it, how many stars it
     /// stood on, and what it declared white. Null until a calibration has run.
     /// <para>
@@ -173,7 +186,7 @@ public sealed class AstroImageDocument : IPreviewSource
         {
             return;
         }
-        InheritColorCalibration(wb, from.ColorCalibrationSummary);
+        InheritColorCalibration(wb, from.ColorCalibrationSummary, from.IsNarrowbandColorCalibration);
     }
 
     /// <summary>
@@ -182,10 +195,14 @@ public sealed class AstroImageDocument : IPreviewSource
     /// from a loaded document -- a test's, or a future sidecar's -- has one way in rather than a second
     /// assignment path that could set the triple without its summary.
     /// </summary>
-    internal void InheritColorCalibration((float R, float G, float B) whiteBalance, ColorCalibrationSummary? summary)
+    internal void InheritColorCalibration((float R, float G, float B) whiteBalance, ColorCalibrationSummary? summary,
+        bool isNarrowband = false)
     {
         _colorCalibration = whiteBalance;
         _colorCalibrationSummary = summary;
+        // An enhanced plate is the same light through the same filter, so it inherits how the calibration
+        // was arrived at along with the calibration.
+        _isNarrowbandColorCalibration = isNarrowband;
     }
 
     // SPCC in-flight gate. The compute task runs on a thread-pool thread and
@@ -598,7 +615,7 @@ public sealed class AstroImageDocument : IPreviewSource
         // Linked so the WB shows; an uncalibrated one Unlinked so each channel's background neutralises.
         var isColour = UnstretchedImage.ChannelCount >= 3
             || UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB;
-        mode = mode.ResolveAuto(isColour, autoWb is not null);
+        mode = mode.ResolveAuto(isColour, autoWb is not null, IsNarrowbandColorCalibration);
 
         if (UseIterativeConvergence && Basis.StarMaskedStats is { } masked)
         {
@@ -867,6 +884,13 @@ public sealed class AstroImageDocument : IPreviewSource
         if (channels is null)
             return (0, $"No throughput for {meta.Instrument}/{meta.SensorModel}/{meta.Filter.FilterNameForFits}");
         var (tsysR, tsysG, tsysB) = channels.Value;
+
+        // Measured here, from the very curves the fit is about to use, rather than from the filter's name:
+        // through an Ha + OIII filter a photometric white balance has no continuum to measure and the
+        // triple it returns is a fit of nothing. It is still computed and still shown, because the user
+        // asked for it and because the manual sliders sit on top of it; what changes is that Auto will not
+        // ASSERT it as colour (StretchModeExtensions.ResolveAuto).
+        _isNarrowbandColorCalibration = FilterCurveDatabase.IsLineSelective(tsysR, tsysG, tsysB);
 
         var result = await Task.Run(() =>
             Tycho2ColorCalibration.ComputeSpectrophotometricWhiteBalance(

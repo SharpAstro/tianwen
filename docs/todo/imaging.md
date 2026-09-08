@@ -547,7 +547,8 @@ Summary of what was decided, so this file is not misleading on its own:
 
 Two items added by the 2026-09-08 Slack sweep, both from the user working on an HOO master:
 
-- [ ] **Auto stretch resolves to Linked on a narrowband master, and that is where the cast comes from**
+- [x] **Auto stretch resolved to Linked on a narrowband master, and that was where the cast came from**
+  (FIXED 2026-09-08)
   (reported 2026-09-06: *"Auto mode for HOO SPCC looks wrong (it switches to Linked which gives it a
   strong colour cast), unlinked works better there"*). `StretchModeExtensions.ResolveAuto` is handed two
   facts and neither can tell an HOO master from an RGB one: whether the frame is colour, and whether a
@@ -564,6 +565,25 @@ Two items added by the 2026-09-08 Slack sweep, both from the user working on an 
     and the Auto rule falls out instead of being a special case.
   - Watch the mono boundary while changing it: `isColour` is true for a 3-plane HOO master, and a mono
     frame already resolves to Linked, where the two modes coincide.
+  - **Shipped as a third input to `ResolveAuto`, measured from the throughputs SPCC itself integrates**
+    (`FilterCurveDatabase.IsLineSelective(tsysR, tsysG, tsysB)`, recorded on the document as
+    `IsNarrowbandColorCalibration` and read through the same `Basis` as the calibration, so a blink run
+    cannot flicker between two stretch modes). Never from the filter's NAME: that would have to go back
+    through the token matcher and could answer differently from what the fit used, and `Filter.Bandpass`
+    is no help at all, being populated only for canonically-named filters while the headers this is about
+    ("Ha 3nm", "L-eXtreme", "Antlia ALP-T") all canonicalise to `Unknown` with `Bandpass.None`.
+  - **The 38 nm cut was measured over all 183 shipped curves, not chosen**, summing each curve's width
+    above half peak: dual-band filters land at 3 to 8 nm (L-Ultimate, ALP-T), the tri-band and
+    duo-narrowband family at 24 to 34 (IDAS NBZ, L-eNhance, Antlia Triband), then **nothing at all until
+    42**, where UHC-style filters start and run straight into the broadband camera channels (Johnson U 53,
+    Nikon R 50 to 60, Canon R 68 to 70). UHC and wider therefore count as broadband, deliberately: they
+    overlap a genuine R channel in width, so no threshold separates them and calling a real R filter
+    narrowband is the worse error. `OPTOLONG_L_QUAD_ENHANCE` measuring 206 nm is not a contradiction; a
+    quad-band *enhance* passes the continuum between the sodium lines.
+  - **The calibration is still computed and still shown**; what changed is only that Auto will not ASSERT
+    it as colour. The wider question below stands.
+  - Pinned by `NarrowbandStretchModeTests`, whose broadband control is what stops the fix degenerating
+    into "Auto never picks Linked again"; both narrowband cases were seen red with the rule reverted.
 
 - [ ] **`Ionfreefly01/siril-spectral-extract` as a reference for Phase 1-2** (user's link, 2026-09-05,
   sent without comment). A Siril plug-in that SYNTHESISES a narrowband-ish layer from OSC data: it fits

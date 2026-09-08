@@ -19,6 +19,50 @@ public readonly record struct FilterCurve(
     public int Count => Wavelengths.Length;
 
     /// <summary>
+    /// Total width in NANOMETRES of everything this curve passes at half its peak transmission or
+    /// better, summed over separated bands. Zero for an empty or dead curve.
+    /// </summary>
+    /// <remarks>
+    /// Summed rather than measured as one FWHM because a dual- or tri-band filter has no single peak to
+    /// take a width around: an Ha + OIII filter is two bands 160 nm apart, and the gap between them is
+    /// the part it deliberately blocks. What this answers is "how much of the spectrum reaches the
+    /// sensor", which is the question a photometric calibration cares about.
+    /// </remarks>
+    public double PassbandWidthNm()
+    {
+        // IsDefaultOrEmpty, not Length: a default(FilterCurve) holds an uninitialised ImmutableArray whose
+        // Length throws rather than answering zero, and a struct with no curve in it is exactly what a
+        // caller with nothing to measure hands over.
+        if (Wavelengths.IsDefaultOrEmpty || Throughputs.IsDefaultOrEmpty || Wavelengths.Length < 2)
+        {
+            return 0;
+        }
+
+        var peak = 0.0;
+        foreach (var t in Throughputs)
+        {
+            if (t > peak) { peak = t; }
+        }
+
+        if (peak <= 0)
+        {
+            return 0;
+        }
+
+        var half = peak * 0.5;
+        var sum = 0.0;
+        for (var i = 1; i < Wavelengths.Length; i++)
+        {
+            if (Throughputs[i] >= half)
+            {
+                sum += (Wavelengths[i] - Wavelengths[i - 1]) / 10.0;
+            }
+        }
+
+        return sum;
+    }
+
+    /// <summary>
     /// Wavelength in Angstroms at index <paramref name="i"/>.
     /// </summary>
     public double WavelengthAt(int i) => Wavelengths[i];

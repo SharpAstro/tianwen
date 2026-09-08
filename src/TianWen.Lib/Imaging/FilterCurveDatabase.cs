@@ -622,6 +622,40 @@ public static class FilterCurveDatabase
     /// optical filters: T_sys(λ) = QE(λ) × filter₁(λ) × filter₂(λ) × …
     /// Returns null if the sensor model or any filter name cannot be resolved.
     /// </summary>
+    /// <summary>
+    /// Widest total passband, in nanometres, that still counts as LINE-SELECTIVE: a filter that passes
+    /// emission lines rather than a stellar continuum.
+    /// </summary>
+    /// <remarks>
+    /// <b>Measured over all 183 shipped curves rather than chosen</b>, and there is a real gap to put it
+    /// in. Summing each curve's width above half peak (<see cref="FilterCurve.PassbandWidthNm"/>): true
+    /// dual-band filters land at 3 to 8 nm (L-Ultimate, Antlia ALP-T, L-eXtreme), the tri-band and
+    /// duo-narrowband family at 24 to 34 nm (IDAS NBZ, L-eNhance, Antlia Triband), and then nothing at all
+    /// until 42 nm, where the UHC-style light-pollution filters begin and run into the broadband camera
+    /// channels (Nikon R at 50 to 60 nm, Johnson U at 53, Canon R at 68 to 70). 38 sits in that gap.
+    /// <para>
+    /// UHC and broader therefore count as broadband here. That is deliberate: those overlap a genuine
+    /// broadband R channel in width, so no threshold can separate them, and calling a real R filter
+    /// narrowband would be the worse error.
+    /// </para>
+    /// </remarks>
+    public const double LineSelectiveMaxWidthNm = 38.0;
+
+    /// <summary>
+    /// Whether every channel of a system throughput is line-selective, i.e. the frame was taken through a
+    /// filter that passes emission lines instead of a continuum.
+    /// </summary>
+    /// <remarks>
+    /// Asked of the throughputs a caller already has rather than of a filter NAME, so it cannot disagree
+    /// with what those throughputs were used for: <see cref="BuildChannelThroughputs"/> is what SPCC
+    /// integrates its SEDs against, and this is a property of that same product of sensor and filter. A
+    /// name would have to go back through the matcher and could answer differently.
+    /// </remarks>
+    public static bool IsLineSelective(in FilterCurve r, in FilterCurve g, in FilterCurve b)
+        => r.PassbandWidthNm() is > 0 and <= LineSelectiveMaxWidthNm
+        && g.PassbandWidthNm() is > 0 and <= LineSelectiveMaxWidthNm
+        && b.PassbandWidthNm() is > 0 and <= LineSelectiveMaxWidthNm;
+
     public static FilterCurve? ComputeSystemThroughput(string sensorModel, params string[] filterNames)
     {
         if (!TryGetSensor(sensorModel, out var qe))
