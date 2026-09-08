@@ -187,5 +187,56 @@ namespace TianWen.Lib.Tests
             viewer.QuadLeft.ShouldBe(area.X + ((area.Width - (ImageW * scale)) / 2f), 0.01f);
             viewer.Shown.Width.ShouldBe(ImageW * scale, 0.01f);
         }
+
+        /// <summary>
+        /// Nothing outside the crop can reach the screen, at ANY zoom or pan. Reported 2026-09-08 as a
+        /// ragged top edge still showing with a crop applied, at a zoom well above fit.
+        /// </summary>
+        /// <remarks>
+        /// Fit is the easy case and the other tests cover it. Zoomed IN, the shown region is larger than
+        /// the pane, so the clip degenerates to the pane and the quad extends past it in both
+        /// directions: what then keeps the border off screen is ConfineToViewport clamping the pan, not
+        /// the clip. This maps the clip back through the placement into image coordinates and asserts
+        /// the result lies inside the crop, which is the property the user was looking at.
+        /// </remarks>
+        [Theory]
+        [InlineData(400f, 300f)]
+        [InlineData(-400f, -300f)]
+        [InlineData(5000f, 5000f)]
+        [InlineData(-5000f, -5000f)]
+        public void NothingOutsideTheCropReachesTheScreenWhenZoomedIn(float panX, float panY)
+        {
+            var (viewer, state) = NewViewer();
+            var crop = new Rectangle(40, 30, 200, 150);
+            state.DisplayCrop = crop;
+
+            // Well above fit, so the shown region overflows the pane on both axes.
+            state.ZoomToFit = false;
+            state.Zoom = 4f;
+            state.PanOffset = (panX, panY);
+            viewer.Render(null, state);
+
+            var area = viewer.ImageArea;
+            var shown = viewer.Shown;
+            var scale = state.Zoom;
+
+            // The clip the renderer declares: the pane narrowed to the shown region.
+            var clipX0 = MathF.Max(area.X, shown.X);
+            var clipY0 = MathF.Max(area.Y, shown.Y);
+            var clipX1 = MathF.Min(area.X + area.Width, shown.X + shown.Width);
+            var clipY1 = MathF.Min(area.Y + area.Height, shown.Y + shown.Height);
+
+            // Back through the placement into image pixels.
+            var imgX0 = (clipX0 - viewer.QuadLeft) / scale;
+            var imgY0 = (clipY0 - viewer.QuadTop) / scale;
+            var imgX1 = (clipX1 - viewer.QuadLeft) / scale;
+            var imgY1 = (clipY1 - viewer.QuadTop) / scale;
+
+            const float Tolerance = 0.01f;
+            imgX0.ShouldBeGreaterThanOrEqualTo(crop.X - Tolerance);
+            imgY0.ShouldBeGreaterThanOrEqualTo(crop.Y - Tolerance);
+            imgX1.ShouldBeLessThanOrEqualTo(crop.Right + Tolerance);
+            imgY1.ShouldBeLessThanOrEqualTo(crop.Bottom + Tolerance);
+        }
     }
 }
