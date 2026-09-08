@@ -1535,6 +1535,21 @@ TEXTURE space, so divide UVs by the CAPACITY
 (`TheBlitSamplesInTextureSpaceWhenTheTargetIsLargerThanTheLayer`). **Run under `SDLVK_VALIDATION=1
 SDLVK_SYNC_VALIDATION=1` and read `validation_report`** whenever this area is touched.
 
+**The auto-crop asks in two tiers, and the noise walk is the one that can be blind.**
+`Image.LargestCoveredRectangle()` finds where NO sub reached, so it is the UNION and keeps the
+under-exposed band inside it; `ViewerActions.ScanForCrop` therefore prefers the master's own coverage
+plane (`Image.LargestCoveredRectangle(coverage, ...)`, from a `MAPKIND=COVERAGE` `.rejection.fits`
+sidecar -- drizzle writes weight where every other strategy writes a rejection FRACTION, so the card is
+what tells them apart and its absence is never read as either) and falls back to `CoverageEdgeWalk`.
+**Three rules that bite:** the walk's reference is the edge's OWN level just inside, never the frame
+interior (a drizzle canvas edge reads 1.8-2.5x the centre at FULL coverage, decaying over ~460 px, so
+every interior-relative rule trimmed 300+ px where the weight map said 4); **a band whose end is not
+visible inside 5% of the span is refused, not trimmed to the bound**; and the coverage comparison is per
+16x16 BLOCK, since per-pixel drizzle weight scatters ~10% in a fully covered interior and a per-pixel
+threshold collapses the answer to 0.7% of the frame. Measurements, the corpus and the three refuted
+rules: [docs/plans/viewer-prerelease-fixes.md](docs/plans/viewer-prerelease-fixes.md) P25; harness in
+`tools/coverage-edge-walk/`.
+
 **One viewer, no mini viewer.** Live Session preview, polar-align and guide-cam host this viewer
 chromeless (`ViewerState.HideChrome`), fed by `LiveFramePreviewSource : IPreviewSource` (normalises to
 `[0,1]`, subsampled median/MAD stats, `AcceptFrame(image, freezeStats)` for

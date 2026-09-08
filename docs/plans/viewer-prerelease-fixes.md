@@ -945,7 +945,7 @@ must equal the same sub-rectangle of the uncropped save, byte for byte. A dimens
 file that re-derived its stretch from the cropped pixels and came out brighter than the window it was
 cropped in. All three were seen red with the crop removed.
 
-### Known limitation: it crops the UNION, and the name says intersection (open, found 2026-09-08)
+### It cropped the UNION, and the name said intersection (found and FIXED 2026-09-08)
 
 The detector marks a pixel absent when it is exactly zero in every channel or NaN in any, which finds
 where NO sub reached. It therefore answers "the largest rectangle inside the area at least one sub
@@ -980,9 +980,75 @@ medians hold at 0.997 of the interior all the way to row 8), so brightness canno
 is noise, and the band's depth is not predictable from the ragged zero region either, since the zeros
 reach only to row 11 while the noisy band reaches 32. The self-calibrating shape is to walk in from each
 edge until the local noise settles to within a small margin of the interior, which needs its threshold
-measured over real masters rather than picked, exactly as the 38 nm filter cut was. Until then the crop
-removes the ring and leaves the thin under-exposed band, which is a real improvement over no crop and
-short of what its name says.
+measured over real masters rather than picked, exactly as the 38 nm filter cut was.
+
+### The band is now cropped, in two tiers, and the walk the paragraph above proposed was refuted first  (FIXED 2026-09-08)
+
+**Measured, not picked.** The corpus is four real masters -- three Astro Pixel Processor composites
+(3073 x 3085, one of them the reported file) and TianWen's own 10P Bayer-drizzle master, whose
+`.rejection.fits` sidecar is the accumulated per-pixel WEIGHT and therefore ground truth for what its
+coverage actually was. The harness is `tools/coverage-edge-walk/`, kept so this can be re-measured
+rather than re-argued.
+
+**The statistic that works is p10 of the per-tile sigma of adjacent differences ALONG the band** (tiles
+of 64 px, bands 16 px deep). Differencing along the band kills any gradient across it, which is the
+direction a coverage ramp runs; the tile percentile keeps a star, a trail or a nebula edge from deciding
+the answer. p10 specifically, because it is the one that converged to 1.00x deep inside a real master
+where the median stayed at 1.25x -- the quietest tiles carry the least structure.
+
+**"Until the local noise settles to within a small margin of the interior" is wrong, and the 10P
+master's left edge is why.** Its vertical-difference noise reads 1.66x the centre at the edge, PEAKS at
+2.05x 76 px in, and decays over about 460 px -- all at full coverage, per its own weight map, which puts
+the band at 4 px. A canvas edge is fed by fewer distinct dither phases, so its noise is less correlated
+and a difference-based sigma reads high there whatever the exposure. Against the frame interior that is
+a 312 to 460 px false trim. Three rules were tried and all three took it: a fixed margin against the
+interior, the same against the edge's own deep plateau, and a knee/slope test.
+
+| 10P edge | coverage plane says | interior-relative | plateau | slope/knee |
+|---|---|---|---|---|
+| top | 56 px | 68-76 | 68-76 | 68-76 |
+| bottom | 56 px | 48-52 | 48-52 | 48-56 |
+| right | 20 px | 12-16 | 12-16 | 8-16 |
+| **left** | **4 px** | **312-460** | **312** | **432-456** |
+
+**What ships instead: a band whose END is not visible is not trimmed.** `CoverageEdgeWalk` takes the
+shallowest depth from which every sample out to 5% of the span is within 1.15x of the settled level, and
+answers `Settled: false` with a trim of zero when there is no such depth. Two independent protections
+fall out of that and both are load-bearing: an edge that is not the noisiest part of its own profile is
+"nothing to trim" (`MinimumRise`, which is what spares the 10P left edge), and a band deeper than the
+bound is refused outright rather than trimmed as far as the bound allows (which would leave a frame
+smaller on every edge that still shows the band it was cropped to remove). Pinned by
+`CoverageEdgeWalkTests`, whose two synthetic frames are exactly those two shapes.
+
+**On the real corpus, running the shipped code:** the reported file goes from 96.3% of the frame (union)
+to 88.5% (left 56, top 92, right 16, bottom 92 px), its two siblings to 89.0% and 89.9%. The 10P master
+trims top 72 and bottom 28, refuses its left edge, and finds nothing to do on its right. Its own
+`_autocrop.fits` -- which the stacking pipeline builds from the geometric INTERSECTION of the frame
+footprints, and which measures clean at every edge -- is left completely untouched, which is the
+strongest single check available: the walk declines the file that needs nothing.
+
+**A drizzled frame can defeat the walk outright, so the exact tier wins wherever it exists.** On the
+same master's right edge, 69% coverage reads as 1.08x: partial coverage raises the sample noise and
+correlates the neighbours at the same time, and the two nearly cancel. So
+`Image.LargestCoveredRectangle(Image coverage, ...)` reads the answer off the weight map instead, and
+`ViewerActions.ScanForCrop` prefers it -- a fallback, never a cross-check, the same shape as the mount
+limits' mechanical tier. Two things make that work:
+
+- **`IntegrationFitsWriter` now stamps `MAPKIND`** (`COVERAGE` or `REJECTION`) into the sidecar,
+  because the drizzle strategies put weight where every other strategy puts a rejection FRACTION -- and
+  the two are opposite in sense and different in range, so a consumer that guesses gets it exactly
+  wrong. Absence is never read as either: a sidecar from before today cannot say it is coverage, so its
+  master gets the estimate.
+- **The coverage comparison is per 16 x 16 BLOCK, not per pixel.** A drizzle canvas hands neighbouring
+  cells different drop counts, so a fully covered interior scatters about 10% either way (the 10P red
+  channel's interior p0.1 is 0.847 of its median). Per pixel at 0.95 that rejects pixels everywhere and
+  the largest rectangle collapses to 207 x 404 of a 4215 x 2884 frame -- measured, before the block mean
+  went in. Over blocks the same interior reads p0.1 = 0.990. 0.99 as the fraction is not usable for the
+  same reason; 0.95 is the default, and keeps the noise inside 1.026x of the interior's.
+
+**The status bar says which tier answered** (", by coverage") and when an edge was left alone
+(", edge held"), for the same reason it declares the crop at all: the only other evidence is a border
+that is missing.
 
 ## P26. The `?` panel cannot report a bug  (FIXED 2026-09-08)
 
