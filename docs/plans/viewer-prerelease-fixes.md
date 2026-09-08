@@ -1050,6 +1050,17 @@ limits' mechanical tier. Two things make that work:
 (", edge held"), for the same reason it declares the crop at all: the only other evidence is a border
 that is missing.
 
+**A border still visible after a GRADIENT CORRECTION is a noise band, and no fit removes it.** That was
+the other half of the report, and the measurement says the fit is not the problem:
+`BackgroundExtractionOptions.ExcludeUnsettledEdges` exists but defaults OFF, because on a 1536 x 1152
+planar ramp with a 32 px border carrying 6x the noise and the 0.3% low sky the real file shows, the
+interior model moves 0.018 sigma of the frame's noise with the band in the fit and 0.001 sigma with it
+out -- a 16x reduction of a quantity too small to see, since a degree-2 surface cannot follow a 32 px
+border however noisy it is. Turning the flexible surface stage on did not change the conclusion (0.005
+against 0.001). So the answer to that ring is to CROP it, which is now available; the option is there
+for a caller that wants the model itself independent of the border. Pinned, with both pairs of numbers
+printed, by `ClassicalBackgroundExtractorTests.ANoisierBorderIsKeptOutOfTheFit`.
+
 ## P26. The `?` panel cannot report a bug  (FIXED 2026-09-08)
 
 From the user's notes 2026-09-07: *"in the help menu allow to auto-create an issue, with attaching logs

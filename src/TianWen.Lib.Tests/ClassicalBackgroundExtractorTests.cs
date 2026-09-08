@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Immutable;
 using System.Numerics;
 using System.Runtime.InteropServices;
@@ -640,6 +640,102 @@ public class ClassicalBackgroundExtractorTests(ITestOutputHelper output)
         Should.Throw<ArgumentOutOfRangeException>(() => (BackgroundExtractionOptions.Default with { Downsample = 0 }).Validate());
         Should.Throw<ArgumentOutOfRangeException>(() => (BackgroundExtractionOptions.Default with { StructureAmount = 1f }).Validate());
         Should.NotThrow(() => BackgroundExtractionOptions.Default.Validate());
+    }
+
+    /// <summary>
+    /// What a stacked master's under-exposed border does to the model fitted to the rest of it, which is
+    /// the measurement that made <see cref="BackgroundExtractionOptions.ExcludeUnsettledEdges"/> default
+    /// to OFF. The band has essentially the same sky (row medians hold at 0.997 of the interior on the
+    /// reported file) and up to 60% more noise, so nothing in a residual-sigma rejection excludes it --
+    /// yet the interior model barely moves either way, because a degree-2 surface cannot follow a 32 px
+    /// border however noisy it is. Both pairs of numbers are printed rather than only asserted: the
+    /// direction is what this pins, and the magnitude is what says the option is not a fix for a ring
+    /// anyone can see.
+    /// </summary>
+    /// <remarks>
+    /// The comparison is against the model of a frame with NO band whose interior pixels are identical,
+    /// so the only thing that can move the answer is the border. Asserting on the banded frame alone
+    /// cannot show this: a tilt of the model is invisible against the truth it was fitted to.
+    /// </remarks>
+    [Fact]
+    public async Task ANoisierBorderIsKeptOutOfTheFit()
+    {
+        // Large enough for the walk to have somewhere to measure: it needs three tiles along a band and
+        // a settled reference beyond its own bound, which a 256 x 192 fixture cannot offer.
+        const int w = 1536;
+        const int h = 1152;
+        const int band = 32;
+        float Truth(int x, int y) => Sky + (0.004f * x / (w - 1)) + (0.002f * y / (h - 1));
+
+        var rng = new Random(20260908);
+        var clean = new float[h, w];
+        var banded = new float[h, w];
+        for (var y = 0; y < h; y++)
+        {
+            for (var x = 0; x < w; x++)
+            {
+                var u1 = 1.0 - rng.NextDouble();
+                var u2 = rng.NextDouble();
+                var gauss = (float)(Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2));
+                var value = Truth(x, y) + (Noise * gauss);
+                clean[y, x] = value;
+                var inBand = y < band || y >= h - band || x < band || x >= w - band;
+                // Same value in the interior, so a model difference can only come from the border. In
+                // the band: 6x the noise, and the sky 0.3% low -- both taken from the reported file,
+                // whose row medians hold at 0.997 of the interior all the way to the edge.
+                banded[y, x] = inBand ? (0.997f * value) + (5f * Noise * gauss) : value;
+            }
+        }
+
+        var extractor = new ClassicalBackgroundExtractor();
+        var options = BackgroundExtractionOptions.Default;
+        var reference = await extractor.ExtractAsync(Mono(clean), options with { ExcludeUnsettledEdges = false },
+            TestContext.Current.CancellationToken);
+        var kept = await extractor.ExtractAsync(Mono(banded), options with { ExcludeUnsettledEdges = true },
+            TestContext.Current.CancellationToken);
+        var included = await extractor.ExtractAsync(Mono(banded), options with { ExcludeUnsettledEdges = false },
+            TestContext.Current.CancellationToken);
+
+        // Compared over the interior only: the border's own model values are not what a fit is for.
+        float InteriorDrift(Image model)
+        {
+            var a = model.GetChannelSpan(0);
+            var b = reference.Background.GetChannelSpan(0);
+            var sumSq = 0.0;
+            var n = 0;
+            for (var y = band * 2; y < h - (band * 2); y++)
+            {
+                for (var x = band * 2; x < w - (band * 2); x++)
+                {
+                    var d = a[(y * w) + x] - b[(y * w) + x];
+                    sumSq += (double)d * d;
+                    n++;
+                }
+            }
+            return (float)(Math.Sqrt(sumSq / n) / Noise);
+        }
+
+        var driftKept = InteriorDrift(kept.Background);
+        var driftIncluded = InteriorDrift(included.Background);
+        output.WriteLine($"polynomial: interior model drift from the no-band fit -- excluded {driftKept:F3} sigma, included {driftIncluded:F3} sigma");
+
+        driftKept.ShouldBeLessThan(driftIncluded,
+            "a border 6x noisier than the sky must not move the model fitted to the sky");
+
+        // Then the same thing with the flexible surface stage on, which was the expectation for where a
+        // border WOULD move a model -- and does not: 0.005 sigma against the polynomial's 0.018. A local
+        // surface absorbs the border locally instead of tilting the interior.
+        var surface = WithSurface(options);
+        var surfaceReference = await extractor.ExtractAsync(Mono(clean), surface with { ExcludeUnsettledEdges = false },
+            TestContext.Current.CancellationToken);
+        reference = surfaceReference;
+        var surfaceKept = InteriorDrift((await extractor.ExtractAsync(Mono(banded),
+            surface with { ExcludeUnsettledEdges = true }, TestContext.Current.CancellationToken)).Background);
+        var surfaceIncluded = InteriorDrift((await extractor.ExtractAsync(Mono(banded),
+            surface with { ExcludeUnsettledEdges = false }, TestContext.Current.CancellationToken)).Background);
+        output.WriteLine($"with surface: excluded {surfaceKept:F3} sigma, included {surfaceIncluded:F3} sigma");
+
+        surfaceKept.ShouldBeLessThan(surfaceIncluded, "the direction holds for the surface stage too");
     }
 
     [Fact]
