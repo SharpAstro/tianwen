@@ -214,11 +214,8 @@ namespace TianWen.UI.Abstractions
         /// lets a crop survive a step to the next file without anyone having to clear it.
         /// </summary>
         private Rectangle VisibleImageRegion(ViewerState state)
-            => state.DisplayCrop is { Width: > 0, Height: > 0 } crop
-                && crop.X >= 0 && crop.Y >= 0
-                && crop.Right <= ImageWidth && crop.Bottom <= ImageHeight
-                ? crop
-                : new Rectangle(0, 0, ImageWidth, ImageHeight);
+            => ViewerState.ResolveDisplayCrop(state.DisplayCrop, ImageWidth, ImageHeight)
+                ?? new Rectangle(0, 0, ImageWidth, ImageHeight);
 
         private void ComputeImagePlacement(ViewerState state)
         {

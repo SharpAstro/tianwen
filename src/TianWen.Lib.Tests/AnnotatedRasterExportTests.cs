@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Drawing;
 using System.IO;
 using System.Threading.Tasks;
 using SharpAstro.Png;
@@ -95,6 +96,51 @@ namespace TianWen.Lib.Tests
             state.ShowInfoPanel.ShouldBeTrue();
             state.ShowFileList.ShouldBeTrue();
             state.HideChrome.ShouldBeFalse();
+        }
+
+        /// <summary>
+        /// A view crop reaches the annotated file too, and every annotation stays exactly where it was.
+        /// </summary>
+        /// <remarks>
+        /// This path crops the finished RASTER rather than the pixels going in, and the parity half is
+        /// what says so. Annotations are placed through the document's WCS in FULL-frame coordinates, so
+        /// an implementation that cropped the input instead would shift every marker by the crop's
+        /// origin while the sky it points at stayed put: the file would still be the right SIZE, and
+        /// every label would be in the wrong place.
+        /// </remarks>
+        [Fact]
+        public async Task TheAnnotatedCropIsASubRectangleWithTheAnnotationsUnmoved()
+        {
+            var document = await NewDocumentAsync();
+            var state = NewState();
+
+            var full = await ExportAnnotatedAsync(document, state);
+
+            // Asymmetric on both axes, so a transposed crop and an origin-ignoring one are different
+            // failures rather than the same one.
+            var region = new Rectangle(3, 2, full.Width - 7, full.Height - 5);
+            state.DisplayCrop = region;
+            var cropped = await ExportAnnotatedAsync(document, state);
+
+            cropped.Width.ShouldBe(region.Width);
+            cropped.Height.ShouldBe(region.Height);
+
+            var samples = SamplesPerPixel(full);
+            SamplesPerPixel(cropped).ShouldBe(samples);
+
+            for (var y = 0; y < region.Height; y++)
+            {
+                for (var x = 0; x < region.Width; x++)
+                {
+                    for (var c = 0; c < samples; c++)
+                    {
+                        var from = ((((y + region.Y) * full.Width) + x + region.X) * samples) + c;
+                        var to = (((y * region.Width) + x) * samples) + c;
+                        cropped.Pixels[to].ShouldBe(full.Pixels[from],
+                            $"pixel ({x},{y}) sample {c} moved, so an annotation did not stay put");
+                    }
+                }
+            }
         }
 
         private static (int MinX, int MinY, int MaxX, int MaxY) ChangedBounds(PngImage a, PngImage b)

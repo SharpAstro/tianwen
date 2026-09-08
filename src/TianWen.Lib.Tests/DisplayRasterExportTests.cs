@@ -1,6 +1,7 @@
 using Shouldly;
 using SharpAstro.Png;
 using System;
+using System.Drawing;
 using System.IO;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
@@ -267,4 +268,59 @@ public class DisplayRasterExportTests
 
     private static uint ReadBigEndianUInt32(byte[] bytes, int offset)
         => ((uint)bytes[offset] << 24) | ((uint)bytes[offset + 1] << 16) | ((uint)bytes[offset + 2] << 8) | bytes[offset + 3];
+
+    /// <summary>
+    /// A view crop reaches the file, and the pixels inside it are the SAME pixels.
+    /// </summary>
+    /// <remarks>
+    /// The parity half is the point. The stretch uniforms are computed from the WHOLE frame, because
+    /// that is what the screen stretched by, so a crop that re-derived them would save a file brighter
+    /// or darker than the window it was cropped in, in a way no dimension check could see. Comparing
+    /// against the sub-rectangle of the uncropped save is what pins that.
+    /// </remarks>
+    [Theory]
+    [InlineData(DisplayRasterFormat.Png8)]
+    [InlineData(DisplayRasterFormat.Png16)]
+    public async Task TheCropIsASubRectangleOfTheFullSave(DisplayRasterFormat format)
+    {
+        var fullPath = TempPath(".png");
+        var croppedPath = TempPath(".png");
+
+        // Neither at the origin nor the whole frame, so an ignored offset and an ignored crop are
+        // different failures.
+        var region = new Rectangle(2, 1, 4, 3);
+        try
+        {
+            await DisplayRasterExport.WriteAsync(ColourImage(), fullPath, format, Uniforms(),
+                cancellationToken: TestContext.Current.CancellationToken);
+            await DisplayRasterExport.WriteAsync(ColourImage(), croppedPath, format, Uniforms(),
+                crop: region, cancellationToken: TestContext.Current.CancellationToken);
+
+            var full = PngReader.Decode(await File.ReadAllBytesAsync(fullPath, TestContext.Current.CancellationToken));
+            var cropped = PngReader.Decode(await File.ReadAllBytesAsync(croppedPath, TestContext.Current.CancellationToken));
+
+            cropped.Width.ShouldBe(region.Width);
+            cropped.Height.ShouldBe(region.Height);
+
+            var bytesPerSample = format == DisplayRasterFormat.Png16 ? 2 : 1;
+            for (var y = 0; y < region.Height; y++)
+            {
+                for (var x = 0; x < region.Width; x++)
+                {
+                    for (var b = 0; b < 3 * bytesPerSample; b++)
+                    {
+                        var from = ((((y + region.Y) * Width) + x + region.X) * 3 * bytesPerSample) + b;
+                        var to = ((((y * region.Width) + x) * 3 * bytesPerSample)) + b;
+                        cropped.Pixels[to].ShouldBe(full.Pixels[from],
+                            $"pixel ({x},{y}) byte {b} differs from the same pixel of the uncropped save");
+                    }
+                }
+            }
+        }
+        finally
+        {
+            File.Delete(fullPath);
+            File.Delete(croppedPath);
+        }
+    }
 }

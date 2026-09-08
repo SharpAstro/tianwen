@@ -345,6 +345,22 @@ public sealed class ViewerState
     /// </remarks>
     public Rectangle? DisplayCrop { get; set; }
 
+    /// <summary>
+    /// The crop to show, or null for none: <see cref="DisplayCrop"/> when it is set and fits the frame.
+    /// </summary>
+    /// <remarks>
+    /// One rule in one place, because three consumers ask it: the renderer's placement, and both save
+    /// paths. A crop that does not fit the frame is IGNORED rather than clamped or cleared, which is
+    /// what lets one survive a step to the next file. A folder of masters off one rig shares its canvas
+    /// ring, and a frame of another size simply shows in full.
+    /// </remarks>
+    public static Rectangle? ResolveDisplayCrop(Rectangle? crop, int imageWidth, int imageHeight)
+        => crop is { Width: > 0, Height: > 0 } c
+            && c.X >= 0 && c.Y >= 0
+            && c.Right <= imageWidth && c.Bottom <= imageHeight
+            ? c
+            : null;
+
     /// <summary>Whether the file list sidebar is visible.</summary>
     public bool ShowFileList { get; set; } = true;
 
@@ -497,6 +513,16 @@ public sealed class ViewerState
     /// rendered pixels or the overlays belongs in this list; one that changes the window does not.
     /// Omitting a display setting makes the saved file differ from the screen in exactly that one
     /// respect, silently, so add it here in the same edit that adds the property.</para>
+    ///
+    /// <para><b><see cref="DisplayCrop"/> is the one deliberate exception, and must NOT be added.</b>
+    /// It reaches the annotated file, but by cropping the finished raster in
+    /// <c>AnnotatedRasterExport</c> rather than by travelling in this state. Two reasons, and both
+    /// break quietly if it is put here. The overlays are placed from the document's WCS, which is in
+    /// FULL-frame pixel coordinates, so the render has to happen at full size for a marker to land on
+    /// the star it names. And the exporter's own <c>RenderImageQuad</c> blits the pixels 1:1 on the
+    /// stated assumption that the surface IS the image, ignoring the quad geometry entirely, so the
+    /// offset placement a crop produces would move the annotations while leaving the picture where it
+    /// was. Carried here it would also crop twice.</para>
     /// </remarks>
     public ViewerState ForAnnotatedExport() => new ViewerState
     {

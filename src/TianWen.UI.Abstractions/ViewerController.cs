@@ -483,6 +483,7 @@ public sealed class ViewerController(
                 state.HdrAmount, state.HdrKnee,
                 displayedChannel: state.ChannelView.DisplayedSourceChannel(image.ChannelCount),
                 debayerAlgorithm: state.DebayerAlgorithm.ResolveAuto(image),
+                crop: ViewerState.ResolveDisplayCrop(state.DisplayCrop, image.Width, image.Height),
                 cancellationToken: token).ConfigureAwait(false);
 
             LogSaved(target, format.DisplayName(), saveStarted);

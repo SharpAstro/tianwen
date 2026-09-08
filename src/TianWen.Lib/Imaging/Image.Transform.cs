@@ -588,6 +588,52 @@ public partial class Image
     /// <paramref name="factor"/> to get back to original pixel space (and
     /// account for the half-pixel offset, see code).</para>
     /// </remarks>
+    /// <summary>
+    /// A copy of the rectangle given, in image pixels, clamped to the frame.
+    /// </summary>
+    /// <remarks>
+    /// <para>Copies rather than views, because <see cref="Image"/> owns rectangular planes and every
+    /// consumer indexes them as such; a stride-and-origin view would change that contract for one
+    /// caller. So this costs a full set of planes at the cropped size, which is why nothing calls it
+    /// per frame: the viewer's own crop is a clip, not this (see ViewerState.DisplayCrop).</para>
+    /// <para>Statistics come across unchanged, deliberately. MaxValue, MinValue and the pedestal
+    /// describe the EXPOSURE, and cropping a border away does not re-expose it. Recomputing them here
+    /// would silently re-stretch a saved crop relative to the screen it was cropped on.</para>
+    /// </remarks>
+    /// <param name="rect">The region to keep, in image pixels. Clamped to the frame.</param>
+    /// <exception cref="ArgumentException">The rectangle keeps nothing once clamped.</exception>
+    public Image Crop(Rectangle rect)
+    {
+        var x0 = Math.Max(0, rect.X);
+        var y0 = Math.Max(0, rect.Y);
+        var x1 = Math.Min(Width, rect.Right);
+        var y1 = Math.Min(Height, rect.Bottom);
+        var cw = x1 - x0;
+        var ch = y1 - y0;
+        if (cw <= 0 || ch <= 0)
+        {
+            throw new ArgumentException(
+                $"Crop rect {rect} produces empty image after clamping to {Width}x{Height}.", nameof(rect));
+        }
+
+        var channelCount = ChannelCount;
+        var data = new float[channelCount][,];
+        for (var c = 0; c < channelCount; c++)
+        {
+            var dst = new float[ch, cw];
+            for (var y = 0; y < ch; y++)
+            {
+                for (var x = 0; x < cw; x++)
+                {
+                    dst[y, x] = this[c, y0 + y, x0 + x];
+                }
+            }
+            data[c] = dst;
+        }
+
+        return new Image(data, BitDepth.Float32, MaxValue, MinValue, Pedestal, ImageMeta);
+    }
+
     /// <param name="factor">Bin factor (must be &gt;= 2). 1 returns the
     /// caller unchanged.</param>
     public Image Downsample(int factor)

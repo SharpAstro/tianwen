@@ -916,6 +916,34 @@ discard says so ("Nothing to crop: the frame is covered edge to edge") instead o
 Pinned by `LargestCoveredRectangleTests` (7, including a ragged ring whose covered-pixel bounding box is
 the whole frame) and `ViewerAutoCropTests` (8, three of which were seen red with the crop ignored).
 
+**The save honours it, and the two save paths do it at opposite ends for stated reasons** (added
+2026-09-08, after the crop shipped view-only and P18's "save as seen on screen" would otherwise have
+contradicted it). `ViewerState.ResolveDisplayCrop` is now the ONE rule for whether a crop applies, asked
+by the renderer's placement and by both exports.
+
+- **The plain export crops the PIXELS, after the debayer.** `DisplayRasterExport.WriteAsync` takes a
+  `Rectangle? crop` and applies it to `source`, which by that point is already colour. Never before the
+  debayer: a crop origin with an odd coordinate re-phases a CFA mosaic, which would exchange red and
+  blue in the file while the screen, which debayers the whole frame and only then clips, stayed correct.
+  The auto-crop's own origin is (25, 8), so that is a live case and not a hypothetical.
+- **The annotated export crops the finished RASTER.** Annotations are placed through the document's WCS
+  in FULL-frame coordinates, so cropping its input would shift every marker by the crop origin while the
+  sky it names stayed put: right size, wrong labels. Cropping the output is also exactly what the screen
+  does, so the file and the window agree by construction.
+- **`ForAnnotatedExport` deliberately does NOT carry `DisplayCrop`**, which is the one exception to that
+  method's own "copy every display setting" rule, and its doc now says so: the exporter's
+  `RenderImageQuad` blits 1:1 on the stated assumption that the surface IS the image, so an offset
+  placement would move the annotations and leave the picture where it was, and the raster crop would then
+  apply a second time.
+- **`Image.Crop`** is the single crop, hoisted out of `MasterPostProcessor`, which now delegates to it.
+  Statistics ride across unchanged on purpose: `MaxValue`, `MinValue` and the pedestal describe the
+  EXPOSURE, and cropping a border away does not re-expose it.
+
+Both are pinned by parity rather than by dimensions, which is the assertion that matters: the saved crop
+must equal the same sub-rectangle of the uncropped save, byte for byte. A dimension check passes on a
+file that re-derived its stretch from the cropped pixels and came out brighter than the window it was
+cropped in. All three were seen red with the crop removed.
+
 ## P26. The `?` panel cannot report a bug  (OPEN)
 
 From the user's notes 2026-09-07: *"in the help menu allow to auto-create an issue, with attaching logs

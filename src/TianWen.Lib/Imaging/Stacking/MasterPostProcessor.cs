@@ -686,34 +686,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         return new Image(data, src.BitDepth, src.MaxValue, src.MinValue, src.Pedestal, meta, src.SamplesAreUnitReferred);
     }
 
-    private static Image CropImage(Image src, Rectangle rect)
-    {
-        var x0 = Math.Max(0, rect.X);
-        var y0 = Math.Max(0, rect.Y);
-        var x1 = Math.Min(src.Width,  rect.Right);
-        var y1 = Math.Min(src.Height, rect.Bottom);
-        var cw = x1 - x0;
-        var ch = y1 - y0;
-        if (cw <= 0 || ch <= 0)
-        {
-            throw new ArgumentException(
-                $"Crop rect {rect} produces empty image after clamping to {src.Width}x{src.Height}.", nameof(rect));
-        }
-
-        var channelCount = src.ChannelCount;
-        var data = new float[channelCount][,];
-        for (var c = 0; c < channelCount; c++)
-        {
-            var dst = new float[ch, cw];
-            for (var y = 0; y < ch; y++)
-            {
-                for (var x = 0; x < cw; x++)
-                {
-                    dst[y, x] = src[c, y0 + y, x0 + x];
-                }
-            }
-            data[c] = dst;
-        }
-        return new Image(data, BitDepth.Float32, src.MaxValue, src.MinValue, src.Pedestal, src.ImageMeta);
-    }
+    // Hoisted onto Image so the viewer's save can crop the same way this does. Kept as a named
+    // local here because the call sites read as pipeline steps, not as image arithmetic.
+    private static Image CropImage(Image src, Rectangle rect) => src.Crop(rect);
 }

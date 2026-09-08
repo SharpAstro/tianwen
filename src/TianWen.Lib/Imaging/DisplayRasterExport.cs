@@ -1,4 +1,5 @@
 using SharpAstro.Color.Icc;
+using System.Drawing;
 using SharpAstro.Jpeg;
 using SharpAstro.Png;
 using SharpAstro.Tiff;
@@ -186,6 +187,7 @@ public static class DisplayRasterExport
         int? displayedChannel = null,
         DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG,
         int jpegQuality = 92,
+        Rectangle? crop = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(image);
@@ -199,6 +201,15 @@ public static class DisplayRasterExport
         var source = image.ImageMeta.SensorType is SensorType.RGGB && image.Shape.ChannelCount == 1 && isComposite
             ? await image.DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken).ConfigureAwait(false)
             : image;
+
+        // A view crop is part of "as seen on screen", so it reaches the file. Applied AFTER the
+        // debayer above and never before it: a crop origin with an odd coordinate re-phases a CFA
+        // mosaic, which would exchange red and blue in the saved file while the screen, which debayers
+        // the whole frame and only then clips, stayed correct. By here a mosaic is already colour.
+        if (crop is { Width: > 0, Height: > 0 } region)
+        {
+            source = source.Crop(region);
+        }
 
         var (channelCount, width, height) = source.Shape;
         var pixelCount = width * height;

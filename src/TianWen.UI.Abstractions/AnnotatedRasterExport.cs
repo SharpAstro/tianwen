@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Drawing;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -178,6 +179,21 @@ namespace TianWen.UI.Abstractions
             cancellationToken.ThrowIfCancellationRequested();
 
             var rgba = renderer.Surface.Pixels;
+
+            // A view crop reaches the file here too, but from the finished RASTER rather than from the
+            // pixels going in, which is the opposite of what the plain export does. Annotations are
+            // placed through the document's own WCS, which is in FULL-frame pixel coordinates, so
+            // cropping the input would move every marker by the crop's origin while the sky it points
+            // at stayed where it was. Cropping the output is also precisely what the screen does: it
+            // draws the whole quad and clips, so the file and the window agree by construction rather
+            // than by two pieces of arithmetic being kept in step.
+            if (ViewerState.ResolveDisplayCrop(state.DisplayCrop, width, height) is { } region)
+            {
+                rgba = CropRaster(rgba, width, region);
+                width = region.Width;
+                height = region.Height;
+            }
+
             byte[] encoded;
             switch (format)
             {
@@ -218,6 +234,27 @@ namespace TianWen.UI.Abstractions
             }
 
             await File.WriteAllBytesAsync(path, encoded, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>Copies a sub-rectangle out of an RGBA raster, one row at a time.</summary>
+        /// <remarks>
+        /// The rectangle is already known to fit, having come from
+        /// <see cref="ViewerState.ResolveDisplayCrop"/>, so this does no clamping of its own: a second
+        /// opinion on what fits is how two of them come to disagree.
+        /// </remarks>
+        private static byte[] CropRaster(byte[] rgba, int width, Rectangle region)
+        {
+            var stride = region.Width * 4;
+            var cropped = new byte[stride * region.Height];
+            for (var y = 0; y < region.Height; y++)
+            {
+                Buffer.BlockCopy(
+                    rgba, (((region.Y + y) * width) + region.X) * 4,
+                    cropped, y * stride,
+                    stride);
+            }
+
+            return cropped;
         }
 
         /// <summary>
