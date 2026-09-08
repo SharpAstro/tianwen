@@ -1147,6 +1147,15 @@ namespace TianWen.UI.Abstractions
 
             var area = _layout.ImageArea;
 
+            // The pane paints its own ground before anything is drawn into it, exactly as every panel in
+            // this widget does. Two things depend on it, and the second is why it exists at all: the
+            // letterbox around a fitted image has to be a stated colour rather than whatever the window
+            // was cleared to, and a PARTIAL frame is not cleared at all. The host loads the previous image
+            // and scissors to the damage box (VulkanContext.BeginFrameRenderPass takes the load-op pass),
+            // so a pixel nobody draws keeps what it had; without this fill, a dragged A/B divider left its
+            // bar behind everywhere the picture does not reach (P24).
+            FillRect(area.X, area.Y, area.Width, area.Height, CanvasBackground);
+
             if (Split.ResolveDividerX(HasBeforeImageTextures, DpiScale) is not { } splitX)
             {
                 // Clipped to the pane, for the same reason the split halves below are: the quad is

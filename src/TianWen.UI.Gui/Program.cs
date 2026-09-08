@@ -292,9 +292,15 @@ bus.Post(new DiscoverDevicesSignal(IncludeFake: includeFakeOnStartup));
 var _lastSessionRedrawTimestamp = timeProvider.GetTimestamp();
 long _lastSlowFrameLogTimestamp = 0;
 
+// One literal for the window's clear and for the image pane the viewer tab hosts, for the reason stated
+// on ImageRendererBase.CanvasBackground: a partial frame is not cleared, so the pane paints its own ground
+// and the two colours have to be the same one.
+var canvasBackground = new RGBAColor32(0x12, 0x12, 0x18, 0xff);
+guiRenderer.CanvasBackground = canvasBackground;
+
 var loop = new SdlEventLoop(sdlWindow, renderer)
 {
-    BackgroundColor = new RGBAColor32(0x12, 0x12, 0x18, 0xff),
+    BackgroundColor = canvasBackground,
 
     OnResize = (rw, rh) =>
     {

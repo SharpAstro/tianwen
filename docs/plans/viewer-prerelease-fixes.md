@@ -54,7 +54,7 @@ the 35 TIFF / import / codec tests pass against it.
 | P21 | A mosaic's channel views show the mosaic, not the debayered planes | BACKLOG |
 | P22 | Save the ANNOTATED view (grid, markers, labels), beside P18's clean raster | **FIXED** 2026-09-06 |
 | P23 | Blink toggles on every auto-repeat of Space, and the blinked frame can be off-screen | **FIXED** 2026-09-08 (with DIR.Lib 8.14 + SdlVulkan.Renderer 7.33) |
-| P24 | The A/B divider leaves its bar behind in the letterbox around the image | OPEN (reported 2026-09-07) |
+| P24 | The A/B divider leaves its bar behind in the letterbox around the image | **FIXED** 2026-09-08 |
 | P25 | No auto-crop: a master's stack artefacts and NaN margins have to be cropped elsewhere | OPEN (reported 2026-09-07) |
 | P26 | The `?` panel cannot report a bug: no issue, no logs, no version attached | OPEN (reported 2026-09-07) |
 
@@ -785,13 +785,40 @@ models, a one-shot written by the action and consumed once at paint, so the shap
 `ViewerActions.SelectFile` is the natural writer; it already early-returns on an unchanged index, which
 is the change test.
 
-## P24. The A/B divider leaves its bar behind outside the image  (OPEN)
+## P24. The A/B divider leaves its bar behind outside the image  (FIXED 2026-09-08)
 
 From the user's notes 2026-09-07: *"the A|B slider vertical bar can leave residue in the non-imaging
 canvas area"*. The fourth report in P15's class and the second on this divider, but not the same rect. P15
 fixed the divider's LABELS (measured extents in place of a guessed 220-unit margin) and the
 hover-versus-readout narrowing collision. This is the BAR, in the letterbox: the part of the image pane
 the picture does not fill.
+
+**Nothing was painting the pane, and the harness could not have said so.** The sweep was never the
+suspect and is not the fix: what was missing is that the image pane had no ground of its own. On a FULL
+frame the letterbox is the render pass's clear colour, so it looks deliberate; on a partial frame
+`VulkanContext.BeginFrameRenderPass` takes the `VkAttachmentLoadOp.Load` pass and scissors to the damage
+box, so a pixel nobody draws keeps what it had. The divider bar had been drawn there the frame before.
+
+**The harness said zero because it was painting over a cleared surface**, where an undrawn pixel is the
+same black in the partial frame and in the reference. `ViewerRepaintResidueTests` now measures which
+pixels a frame actually draws, by painting it over two different sentinel grounds and treating a pixel as
+untouched only when it comes back as its own sentinel both times. Compositing the new frame onto the old
+one instead would answer the same question and answer it wrongly: an alpha-blended panel over its own
+previous pixels converges to a different colour than over a cleared surface, which is the 150,307-pixel
+effect P15 already documents. All five older cases were moved onto the stricter model and still pass, so
+the two superseded helpers are gone.
+
+**Measured on the drag the report describes: 4,072 stale pixels in x[733..1095], y[40..875]**, a
+full-height strip from the divider's old position to its new one, and zero with the fill in place. The
+first number this produced was 556,776, which is the harness stubbing `RenderImageQuad`: with no picture
+drawn at all, the whole pane is letterbox. That is why the count to quote is the one taken with the
+sabotage applied to the FIX rather than the one taken before the model was corrected.
+
+**`ImageRendererBase.CanvasBackground` is stated by the HOST**, because it has to equal the colour that
+host clears its window to (`SdlWindowView.BackgroundColor`: `0x1a1a1a` in tianwen-fits, `0x121218` in the
+GUI, each now a single literal used for both). A palette colour would have been the obvious choice and
+the wrong one: the two would drift, and the letterbox would then change colour with the repaint PATH,
+which is far worse than the residue. `VkGuiRenderer` fans the value out to the three viewers it hosts.
 
 **The declared damage already covers it, which is what makes this different from P15.**
 `ImageRendererBase` calls `Split.SetTrack(_layout.ImageArea)`, the PANE rather than the drawn picture,
@@ -802,14 +829,10 @@ is not the suspect, so the question is what PAINTS the letterbox on a narrowed f
 clear, and a damage-scissored clear is exactly the kind of thing that covers a region on some frames
 and not on others.
 
-**Reproduce it with the harness P15 was given, rather than by eye.** `ViewerRepaintResidueTests` paints
-both frames in full, composites the old one with the new one inside the damage box, and counts
-differing pixels. The case to add is a drag where the image does NOT fill the pane (a wide window on a
-tall frame); none of the six existing cases arrange that. Keep P15's two harness rules: the surface must
-be CLEARED between frames, or an alpha-blended background converges across repaints and swamps the
-count, and a no-input control is what says the number means anything. Expect it to be intermittent on
-screen, since damage is tracked per swapchain image. That is why P15's tooltip read as a flicker rather
-than as a stuck tooltip.
+The case is pinned by `DraggingTheSplitDividerLeavesNothingBehindWhereThePictureIsNot`, beside the label
+case P15 fixed. On screen the two behaved differently in one way worth remembering: this one is
+intermittent, because damage is tracked per swapchain image, which is also why P15's tooltip read as a
+flicker rather than as a stuck tooltip.
 
 ## P25. No auto-crop for stack artefacts and NaN margins  (OPEN)
 

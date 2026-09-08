@@ -367,9 +367,15 @@ controller.FileLoaded += name =>
 var partialFrames = 0;
 var fullFrames = 0;
 
+// One literal for the window's clear and the image pane's own ground. They have to agree: a full frame
+// clears the window to this, a partial one does not clear at all and the pane fills its own rect, so two
+// values would make the letterbox change colour with the repaint path rather than with anything visible.
+var canvasBackground = new RGBAColor32(0x1a, 0x1a, 0x1a, 0xff);
+imageRenderer.CanvasBackground = canvasBackground;
+
 var loop = new SdlEventLoop(sdlWindow, renderer)
 {
-    BackgroundColor = new RGBAColor32(0x1a, 0x1a, 0x1a, 0xff),
+    BackgroundColor = canvasBackground,
 
     OnResize = (rw, rh) =>
     {

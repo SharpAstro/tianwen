@@ -19,17 +19,23 @@ namespace TianWen.Lib.Tests
     /// too small.</b> Every residue bug found here passed there: the mouse-move narrowing really does
     /// declare the two rects a readout is shown in, and the split drag really does declare the strip its
     /// divider crossed. Neither covers the chrome that TRAVELS with the pointer.</para>
-    /// <para>It models the real thing exactly, because the real thing is simple: the host preserves the
-    /// previous frame and confines painting to the union of the declared rects (a bounding box -- one
-    /// scissor per draw), so the screen is the OLD frame everywhere and the NEW frame inside the box.
-    /// Paint both frames in full, composite, and compare against the new frame painted in full. Any
-    /// differing pixel is a stale one the user can see.</para>
-    /// <para>Two properties of the harness are load-bearing. The surface is CLEARED before each frame:
-    /// painting over the previous contents let an alpha-blended panel background converge across
-    /// repaints, and a no-input control frame then differed from its predecessor by 150,307 pixels --
-    /// swamping any real residue and reading exactly like one. And the control test below is what says
-    /// the number means anything at all: it must be zero, or every assertion here is measuring the
-    /// harness.</para>
+    /// <para>It models the real thing, and the model got one thing wrong for a while. The host preserves
+    /// the previous frame and confines painting to the union of the declared rects (a bounding box, one
+    /// scissor per draw), so the screen is the OLD frame everywhere and, inside the box, whatever this
+    /// frame actually DREW. The first version read that second half as "the new frame's pixels", which is
+    /// the same statement only where the app paints every pixel of the box. It does not: nothing filled
+    /// the image pane, so its letterbox was the render pass's clear colour on a full frame and last
+    /// frame's contents on a partial one. That is P24, and this suite could not see it (an unpainted pixel
+    /// is the same black in both frames when both are painted over a cleared surface).</para>
+    /// <para>So which pixels are drawn is MEASURED: the frame is painted over two different sentinel
+    /// grounds, and a pixel is untouched exactly when it comes back as its own sentinel both times.
+    /// Compositing the new frame straight onto the old one would answer the same question and answer it
+    /// wrongly, because an alpha-blended panel over its own previous pixels converges to a different
+    /// colour than the same panel over a cleared surface: that effect differed a no-input control frame
+    /// from its predecessor by 150,307 pixels, swamping any real residue and reading exactly like one.
+    /// Every frame here is therefore painted over a uniform ground, never over another frame.</para>
+    /// <para>The control test below is what says the number means anything at all: it must be zero, or
+    /// every assertion here is measuring the harness.</para>
     /// </remarks>
     [Collection("UI")]
     public class ViewerRepaintResidueTests
@@ -92,7 +98,44 @@ namespace TianWen.Lib.Tests
             // A slow, deliberate drag to the RIGHT -- the gesture the narrowing exists for.
             viewer.HandleInput(new InputEvent.MouseMove(track.X + track.Width * 0.56f, track.Y + 40f));
 
-            Residue(viewer, document, state, before).ShouldBe(0);
+            LoadOpResidue(viewer, document, state, before, out _).ShouldBe(0);
+        }
+
+        /// <summary>
+        /// The divider's BAR, where the picture is not: reported 2026-09-07 as
+        /// <i>"the A|B slider vertical bar can leave residue in the non-imaging canvas area"</i> (P24).
+        /// </summary>
+        /// <remarks>
+        /// <para>Same class as the label residue above and the same gesture, but a different question, and
+        /// the reason the label test could not see it: the sweep DOES cover this strip
+        /// (<c>Split.SetTrack(_layout.ImageArea)</c> is the pane and <c>SweepBetween</c> spans its full
+        /// height), so damage is not under-declared. What fails is the assumption that a declared pixel is
+        /// a repainted one.</para>
+        /// <para>Measured through <see cref="LoadOpResidue"/>, which is the host's real arithmetic: a
+        /// partial frame loads the previous image and scissors to the box, so a pixel nobody draws keeps
+        /// what it had. Every other test in this file paints over a cleared surface, where an undrawn
+        /// pixel is black in both frames and cannot differ.</para>
+        /// </remarks>
+        [Fact]
+        public async Task DraggingTheSplitDividerLeavesNothingBehindWhereThePictureIsNot()
+        {
+            var (viewer, state, document) = await NewViewerAsync();
+
+            state.CurvesBoost = 0.6f;
+            viewer.Split.Toggle(hasBeforePixels: false);
+            Paint(viewer, document, state);
+            state.CurvesBoost = 0f;
+            state.ManualWhiteBalance = (1.3f, 1f, 0.8f);
+            Paint(viewer, document, state);
+            viewer.TryTakeFrameDamage([]);
+
+            var track = viewer.ImageArea;
+            viewer.Split.BeginDrag();
+            var before = Snapshot(viewer);
+
+            viewer.HandleInput(new InputEvent.MouseMove(track.X + track.Width * 0.56f, track.Y + 40f));
+
+            LoadOpResidue(viewer, document, state, before, out var where).ShouldBe(0, where);
         }
 
         /// <summary>
@@ -123,7 +166,7 @@ namespace TianWen.Lib.Tests
             var image = viewer.CurrentImageRect;
             viewer.HandleInput(new InputEvent.MouseMove(image.Center.X, image.Center.Y));
 
-            Residue(viewer, document, state, before).ShouldBe(0);
+            LoadOpResidue(viewer, document, state, before, out _).ShouldBe(0);
         }
 
         /// <summary>
@@ -151,7 +194,7 @@ namespace TianWen.Lib.Tests
             var list = viewer.FileList;
             viewer.HandleInput(new InputEvent.MouseMove(list.X + list.Width / 2f, list.Y + 40f));
 
-            Residue(viewer, document, state, before).ShouldBe(0);
+            LoadOpResidue(viewer, document, state, before, out _).ShouldBe(0);
         }
 
         /// <summary>
@@ -183,21 +226,110 @@ namespace TianWen.Lib.Tests
         /// How many pixels the screen would show stale: the previous frame everywhere, the new frame
         /// inside the declared box, compared against the new frame painted in full.
         /// </summary>
-        private static int Residue(ResidueViewer viewer, IPreviewSource source, ViewerState state, byte[] before)
+        /// <summary>
+        /// The residue a partial frame really shows, which is stricter than <see cref="Residue"/> in the
+        /// one way that matters outside a filled region.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>The host does not clear a partial frame.</b> <c>VulkanContext.BeginFrameRenderPass</c>
+        /// takes the <c>VkAttachmentLoadOp.Load</c> pass and sets the scissor to the damage box, so inside
+        /// that box a pixel is replaced only by what the app actually DRAWS. <see cref="Residue"/> models
+        /// the box as "the new frame's pixels", which is the same thing only where the app paints every
+        /// pixel in it, and the image pane's letterbox is where it does not.</para>
+        /// <para><b>Which pixels are drawn is measured, not assumed</b>, by painting the frame twice over
+        /// two different sentinel grounds: a pixel is untouched exactly when it comes back as its own
+        /// sentinel both times. Compositing the new frame straight onto the old one would answer this
+        /// question too, and wrongly: an alpha-blended panel over its own previous pixels converges to a
+        /// different colour than the same panel over a cleared surface, which is the effect that swamped
+        /// the first version of this file (150,307 pixels on a no-input frame) and swamps this measurement
+        /// the same way.</para>
+        /// </remarks>
+        private static int LoadOpResidue(ResidueViewer viewer, IPreviewSource source, ViewerState state,
+            byte[] before, out string where)
         {
+            where = "none";
             var damage = new List<RectF32>();
             var narrow = viewer.TryTakeFrameDamage(damage);
+
+            // What a full repaint would show: the answer the partial frame has to match.
             Paint(viewer, source, state);
-            var painted = Snapshot(viewer);
+            var expected = Snapshot(viewer);
             if (!narrow)
             {
-                // A full repaint cannot be stale. That it satisfies these assertions is the reason
-                // AMoveWithinTheImageStillRepaintsOnlyTheReadout exists: without it, "narrow nothing,
-                // ever" would pass every test in this file.
                 return 0;
             }
 
-            return Differences(Composite(before, painted, BoundingBox(damage)), painted);
+            var onMagenta = PaintOver(viewer, source, state, new RGBAColor32(0xff, 0x00, 0xff, 0xff));
+            var onGreen = PaintOver(viewer, source, state, new RGBAColor32(0x00, 0xff, 0x00, 0xff));
+
+            var box = BoundingBox(damage);
+            var x0 = box.X < 0f ? 0 : (int)box.X;
+            var y0 = box.Y < 0f ? 0 : (int)box.Y;
+            var x1 = Math.Min((int)SurfaceW, (int)MathF.Ceiling(box.X + box.Width));
+            var y1 = Math.Min((int)SurfaceH, (int)MathF.Ceiling(box.Y + box.Height));
+
+            // The frame as the host builds it: last frame's pixels everywhere, replaced inside the box
+            // only where this frame drew something.
+            var shown = (byte[])before.Clone();
+            for (var y = y0; y < y1; y++)
+            {
+                for (var x = x0; x < x1; x++)
+                {
+                    var i = ((y * (int)SurfaceW) + x) * 4;
+                    var untouched = onMagenta[i] == 0xff && onMagenta[i + 1] == 0x00 && onMagenta[i + 2] == 0xff
+                        && onGreen[i] == 0x00 && onGreen[i + 1] == 0xff && onGreen[i + 2] == 0x00;
+                    if (untouched)
+                    {
+                        continue;
+                    }
+
+                    shown[i] = expected[i];
+                    shown[i + 1] = expected[i + 1];
+                    shown[i + 2] = expected[i + 2];
+                    shown[i + 3] = expected[i + 3];
+                }
+            }
+
+            where = $"{DiffBounds(shown, expected)}; damage box {box}";
+            return Differences(shown, expected);
+        }
+
+        /// <summary>A frame painted over a uniform sentinel ground, for the drawn-pixel mask.</summary>
+        private static byte[] PaintOver(ResidueViewer viewer, IPreviewSource source, ViewerState state,
+            RGBAColor32 ground)
+        {
+            var pixels = viewer.Pixels;
+            for (var i = 0; i < pixels.Length; i += 4)
+            {
+                pixels[i] = ground.Red;
+                pixels[i + 1] = ground.Green;
+                pixels[i + 2] = ground.Blue;
+                pixels[i + 3] = ground.Alpha;
+            }
+
+            viewer.Render(source, state);
+            return Snapshot(viewer);
+        }
+
+        private static string DiffBounds(byte[] shown, byte[] expected)
+        {
+            int x0 = int.MaxValue, y0 = int.MaxValue, x1 = int.MinValue, y1 = int.MinValue, n = 0;
+            for (var y = 0; y < (int)SurfaceH; y++)
+            {
+                for (var x = 0; x < (int)SurfaceW; x++)
+                {
+                    var i = ((y * (int)SurfaceW) + x) * 4;
+                    if (shown[i] != expected[i] || shown[i + 1] != expected[i + 1] || shown[i + 2] != expected[i + 2])
+                    {
+                        n++;
+                        if (x < x0) { x0 = x; }
+                        if (x > x1) { x1 = x; }
+                        if (y < y0) { y0 = y; }
+                        if (y > y1) { y1 = y; }
+                    }
+                }
+            }
+            return n == 0 ? "none" : $"{n} px in x[{x0}..{x1}] y[{y0}..{y1}]";
         }
 
         /// <summary>The one scissor the host sets: a bounding box over every declared rect.</summary>
@@ -226,30 +358,6 @@ namespace TianWen.Lib.Tests
         }
 
         private static byte[] Snapshot(ResidueViewer viewer) => (byte[])viewer.Pixels.Clone();
-
-        private static byte[] Composite(byte[] previous, byte[] painted, RectF32 box)
-        {
-            var result = (byte[])previous.Clone();
-            // The host's own rounding: truncate the near edge, ceiling the far one, so a box ending
-            // mid-pixel still covers that pixel.
-            var x0 = box.X < 0f ? 0 : (int)box.X;
-            var y0 = box.Y < 0f ? 0 : (int)box.Y;
-            var x1 = Math.Min((int)SurfaceW, (int)MathF.Ceiling(box.X + box.Width));
-            var y1 = Math.Min((int)SurfaceH, (int)MathF.Ceiling(box.Y + box.Height));
-            for (var y = y0; y < y1; y++)
-            {
-                var row = y * (int)SurfaceW;
-                for (var x = x0; x < x1; x++)
-                {
-                    var i = (row + x) * 4;
-                    result[i] = painted[i];
-                    result[i + 1] = painted[i + 1];
-                    result[i + 2] = painted[i + 2];
-                    result[i + 3] = painted[i + 3];
-                }
-            }
-            return result;
-        }
 
         private static int Differences(byte[] shown, byte[] expected)
         {
@@ -317,6 +425,9 @@ namespace TianWen.Lib.Tests
             }
 
             public byte[] Pixels => ((RgbaImageRenderer)Renderer).Surface.Pixels;
+
+            /// <summary>The surface itself, for the clip that models the host's scissor.</summary>
+            public RgbaImage Surface => ((RgbaImageRenderer)Renderer).Surface;
 
             public RectF32 StatusBar => StatusBarRect;
 

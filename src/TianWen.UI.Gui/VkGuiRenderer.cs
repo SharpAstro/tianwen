@@ -437,6 +437,30 @@ namespace TianWen.UI.Gui
             ResolveFontPath();
         }
 
+        /// <summary>
+        /// The ground the embedded image viewers paint where a picture does not reach. The host sets it to
+        /// the colour it clears the window to; see <c>ImageRendererBase.CanvasBackground</c> for why the
+        /// two have to be the same value.
+        /// </summary>
+        /// <remarks>
+        /// Fanned out to the three hosted viewers rather than shared through <see cref="ShareUiContext"/>,
+        /// which carries the DIR.Lib per-window settings (scale, faces) that every widget reads. This is
+        /// not one of those: only a widget with an image pane has anywhere to put it.
+        /// </remarks>
+        public RGBAColor32 CanvasBackground
+        {
+            get => _canvasBackground;
+            set
+            {
+                _canvasBackground = value;
+                _previewViewer.CanvasBackground = value;
+                _guiderViewer.CanvasBackground = value;
+                _planetaryTab.CanvasBackground = value;
+            }
+        }
+
+        private RGBAColor32 _canvasBackground = new RGBAColor32(0x12, 0x12, 0x18, 0xff);
+
         public void Resize(uint width, uint height)
         {
             _width = width;

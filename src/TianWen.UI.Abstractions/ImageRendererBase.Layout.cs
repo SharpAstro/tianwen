@@ -76,6 +76,19 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         protected RectF32 ImageAreaRect => _layout.ImageArea;
 
+        /// <summary>
+        /// What the image pane shows where the picture does not reach: the letterbox around a fitted
+        /// image, and the whole pane before one is loaded.
+        /// </summary>
+        /// <remarks>
+        /// Stated by the HOST rather than taken from the palette, because it has to agree with the colour
+        /// that host clears its window to (<c>SdlWindowView.BackgroundColor</c>, which is 0x1a1a1a in
+        /// tianwen-fits and 0x121218 in the GUI). If the two disagree, a full repaint and a partial one
+        /// show different backgrounds, which is a worse bug than the one the fill exists to remove. A host
+        /// that states neither gets the viewer's own default and is consistent with itself.
+        /// </remarks>
+        public RGBAColor32 CanvasBackground { get; set; } = new RGBAColor32(0x1a, 0x1a, 0x1a, 0xff);
+
 
         /// <summary>The arranged file-list rect. Test seam: the file-list width the user actually sees is
         /// what the Split GRANTED, which is not the same as the width that was requested.</summary>
