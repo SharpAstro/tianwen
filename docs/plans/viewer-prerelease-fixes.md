@@ -839,23 +839,28 @@ flicker rather than as a stuck tooltip.
 From the user's notes 2026-09-07: *"we should have an auto-crop button that crops away stack artifacts,
 NaN areas, etc"*.
 
-**The rectangle already exists on the stacking side, and is not the viewer's to invent.**
-`MasterPostProcessor` writes a `_autocrop.fits` sibling whenever the autocrop rect is a proper
-sub-rectangle of the master, so the pipeline holds both the definition of the artefact ring and the code
-that finds it. What the viewer needs is that computation reachable for a document it merely OPENED,
-including a foreign master from another tool. That is the case which makes the button worth having,
-since our own masters ship the cropped sibling beside them.
+**The rectangle is NOT reusable, which this entry assumed on the way in and the code says otherwise.**
+`MasterPostProcessor` writes a `_autocrop.fits` sibling from a rect it is HANDED, and what computes it is
+`CanvasGeometry.ComputeFootprintsAndStatsRect`: the intersection polygon of every frame's footprint on the
+canvas, derived from the registration TRANSFORMS. That exists only while frames are being registered. A
+document the viewer merely opened has none, ours or foreign, so there is nothing to reach for.
+
+**So the viewer needs a pixel detector, and the marker is only a hint.** Mark a pixel absent where it is
+NaN or exact zero in every channel, then take the largest axis-aligned rectangle containing no absent
+pixel (largest-rectangle-in-histogram over the mask, one pass, O(W*H)). Our own ring is exact zero by
+construction and about 0.3 percent of a frame at the median, which is the sanity check the result has to
+land near on a TianWen master; a foreign master may carry NaN, zero, or partially covered edges with no
+marker at all, and the detector is what covers all three.
 
 Three things to decide when it is picked up:
 
-- **Whether it crops the DOCUMENT or only the view.** A view-only crop is reversible, costs no pixels,
-  and composes with Save (P18 / P22) writing what is displayed. A real crop changes what a subsequent
-  plate solve and every statistic run on. Reversible is the better default; a destructive one needs its
-  own affordance.
-- **What "artefact" means for a frame that is not a TianWen master.** The exact-zero canvas ring is ours
-  by construction (the gradient report masks it to NaN before fitting); a foreign master may carry NaN,
-  zero, or partially covered edges with no marker at all. The honest form is a detector over the frame,
-  with our own marker as the fast path.
+- **Whether it crops the DOCUMENT or only the view. Taken: only the view.** It is reversible, costs no
+  pixels, and composes with Save (P18 / P22) writing what is displayed. A real crop changes what a
+  subsequent plate solve and every statistic run on, and it is one keystroke from being irreversible on a
+  master someone spent a night collecting. If a destructive crop is wanted later it is a separate,
+  explicit action, not this button's default.
+- **What counts as absent.** NaN and exact zero in EVERY channel: a zero in one channel of three is a
+  dead pixel or a genuinely black one, not a place no frame covered.
 - **What it does on a frame with nothing to crop**, which has to be visibly nothing rather than a
   one-pixel nibble.
 
