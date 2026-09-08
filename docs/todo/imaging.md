@@ -593,6 +593,10 @@ Two items added by the 2026-09-08 Slack sweep, both from the user working on an 
     frame costs a few elements), the document measures it once at construction while the planes are still
     resident, and `ColourIsNotPhotometric` folds it together with the narrowband verdict. Auto now
     resolves **Unlinked** on the real file, confirmed end to end through `AstroImageDocument.OpenAsync`.
+  - **Cost, measured on that 3073 x 3085 x 3 frame in Release:** the duplicate pair is the worst case and
+    takes **3.8 ms**; a frame whose channels differ at the first pixel takes **0.002 ms**. Against a
+    403 ms `OpenAsync` and the **12.95 ms** each of the three `Statistics()` passes the constructor
+    already runs, that is 0.9% of a load, paid once per document and never per frame.
   - **`ResolveAuto`'s third parameter is named for the meaning, not the cause** (`colourIsNotPhotometric`):
     a line-selective passband and a duplicated channel are two ways of saying the colour is not a
     measurement of the sky.
