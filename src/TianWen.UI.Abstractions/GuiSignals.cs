@@ -136,6 +136,11 @@ public readonly record struct PlateSolveSignal;
 /// fires into the void where no SharpenPipeline is wired (the toolbar button is hidden there anyway).</summary>
 public readonly record struct EnhanceImageSignal;
 
+/// <summary>Show only the area every sub covered, or show the whole frame again. The host's handler
+/// routes to <see cref="ViewerController.HandleToolbarAction"/>, which runs the scan off the render
+/// thread and applies it through <see cref="ViewerController.TryApplyPendingCrop"/>.</summary>
+public readonly record struct AutoCropSignal;
+
 /// <summary>
 /// Request a save of the displayed image, with or without the overlays drawn over it.
 /// </summary>

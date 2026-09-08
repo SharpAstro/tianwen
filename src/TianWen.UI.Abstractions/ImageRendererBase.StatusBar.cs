@@ -63,6 +63,13 @@ namespace TianWen.UI.Abstractions
                 statusParts.Add("Blink");
             }
 
+            // A crop hides part of the frame, so it has to be declared for the same reason the carry is:
+            // otherwise the only evidence is a border that is missing, which looks like the file.
+            if (state.DisplayCrop is { } crop)
+            {
+                statusParts.Add($"Crop {crop.Width}x{crop.Height}");
+            }
+
             if (state.StatusMessage is { } msg)
             {
                 statusParts.Add(msg);

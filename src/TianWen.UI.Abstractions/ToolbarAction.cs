@@ -20,6 +20,19 @@ public enum ToolbarAction
     /// </remarks>
     Save,
 
+    /// <summary>
+    /// Show only the part of the frame every sub covered, discarding the ragged canvas ring a stack
+    /// leaves. A toggle: pressing it again shows the whole frame.
+    /// </summary>
+    /// <remarks>
+    /// A VIEW crop. No pixel is moved and nothing is discarded, so the readout still reports the frame's
+    /// own coordinates, a plate solve still runs on all of it, and turning it off is one press. The
+    /// rectangle comes from <see cref="TianWen.Lib.Imaging.Image.LargestCoveredRectangle"/> and is
+    /// computed off the render thread, because it reads every channel of every pixel: 52.6 ms on a
+    /// 3073 x 3085 x 3 master.
+    /// </remarks>
+    AutoCrop,
+
     StretchToggle,
     StretchLink,
     StretchParams,

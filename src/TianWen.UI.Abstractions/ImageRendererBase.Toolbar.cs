@@ -35,6 +35,7 @@ namespace TianWen.UI.Abstractions
             // text here is only the measurement seed and the widest state it has to fit.
             ("Fit", ToolbarAction.Zoom, 3),
             ("Solve", ToolbarAction.PlateSolve, 4),
+            ("Crop", ToolbarAction.AutoCrop, 4),
             ("Grid", ToolbarAction.Grid, 4),
             ("Objects", ToolbarAction.Overlays, 4),
             ("Stars", ToolbarAction.Stars, 4),
@@ -832,6 +833,7 @@ namespace TianWen.UI.Abstractions
                 && (document.UnstretchedImage.ChannelCount >= 3
                     || document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB),
             ToolbarAction.PlateSolve => document is not null && !document.IsPlateSolved,
+            ToolbarAction.AutoCrop => document is not null,
             ToolbarAction.ZoomFit or ToolbarAction.ZoomActual or ToolbarAction.Zoom => document is not null,
             // Only in the button set when EnhanceAvailable, so the gate here is just "have an image".
             // Re-click while a pass runs is harmless -- the controller guards on IsEnhancing.
@@ -874,6 +876,7 @@ namespace TianWen.UI.Abstractions
                 // for first: whether this frame has a WCS decides what the grid and the object
                 // overlay can draw at all, so it is worth carrying across the bar as a highlight.
                 ToolbarAction.PlateSolve => document?.IsPlateSolved == true,
+                ToolbarAction.AutoCrop => state.DisplayCrop is not null,
 
                 _ => false,
             };
@@ -996,6 +999,7 @@ namespace TianWen.UI.Abstractions
             // The telescope says which button this is, so the label spends itself entirely on the
             // state -- "?" / an ellipsis / a tick, instead of "Solve" / "Solving..." / "Solved".
             ToolbarAction.PlateSolve => true,
+            ToolbarAction.AutoCrop => true,
             // The mark is what makes the tri-state label affordable: "Fit" / "1:1" / "43%" needs no word
             // saying it is a zoom, so the label spends all its width on the value.
             ToolbarAction.Zoom => true,
@@ -1314,6 +1318,7 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.CurvesBoost => "Curves boost; right-click switches curve mode (B / Shift+B)",
             ToolbarAction.Hdr => "HDR highlight compression (H cycles)",
             ToolbarAction.Compare => "Before / after split; right-click re-pins (A / Shift+A)",
+            ToolbarAction.AutoCrop => "Show only the area every sub covered, discarding the stack's ragged border (Shift+C)",
             ToolbarAction.ZoomFit => "Fit the image to the window (F / Ctrl+0)",
             ToolbarAction.ZoomActual => "Zoom to 1:1 (R / Ctrl+1)",
             // Fitting is the only state whose label is a word, so the tooltip is where its actual scale
@@ -1490,6 +1495,7 @@ namespace TianWen.UI.Abstractions
             "Shift+Space          Blink backward",
             "Ctrl+Space           Back to the frame the display is held to",
             "Shift+H              Hold / release the display across frames",
+            "Shift+C              Crop to the area every sub covered / show all",
             "Left / Right         Step one frame",
             "Home / End           First / last frame",
             "Up / Down            Previous / next file",

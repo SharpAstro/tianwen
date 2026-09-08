@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Drawing;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -30,6 +31,13 @@ public sealed class ViewerController(
     private Task? _loadTask;
     private Task? _starDetectionTask;
     private Task<AstroImageDocument?>? _enhanceTask;
+
+    /// <summary>
+    /// The pending auto-crop scan. Held as a Task rather than written into state from the pool: the
+    /// result is a <see cref="Rectangle"/>, whose write is wider than a pointer and so not atomic, and
+    /// the Task IS the synchronisation primitive (see the concurrency rules in CLAUDE.md).
+    /// </summary>
+    private Task<Rectangle>? _cropTask;
     private CancellationTokenSource? _starDetectionCts;
 
     // Per-RUN enhance cancellation, so pressing the button while it computes stops THAT run. It used
@@ -580,6 +588,27 @@ public sealed class ViewerController(
                 SaveImage(withOverlays: false, PngDepth.SixteenBit, appToken);
                 break;
 
+            case ToolbarAction.AutoCrop:
+                if (state.DisplayCrop is not null)
+                {
+                    // Off is immediate and needs no scan: the crop only ever hid pixels that were there
+                    // the whole time.
+                    state.DisplayCrop = null;
+                    state.ZoomToFit = true;
+                    state.StatusMessage = "Showing the whole frame";
+                    state.NeedsRedraw = true;
+                }
+                else if (Document is { } cropDoc && _cropTask is null)
+                {
+                    // Off the render thread: the scan reads every channel of every pixel, measured at
+                    // 52.6 ms on a 3073 x 3085 x 3 master, which is several dropped frames on a press.
+                    state.StatusMessage = "Finding the covered area...";
+                    var image = cropDoc.UnstretchedImage;
+                    _cropTask = Task.Run(image.LargestCoveredRectangle, appToken);
+                    _ = _cropTask.ContinueWith(_ => state.NeedsRedraw = true, TaskScheduler.Default);
+                }
+                break;
+
             case ToolbarAction.PlateSolve:
                 if (Document is { } solveDoc && !state.IsPlateSolving && !solveDoc.IsPlateSolved)
                 {
@@ -802,6 +831,56 @@ public sealed class ViewerController(
     /// the revert route retained -- a run that produced no document leaves nothing to revert TO.
     /// </remarks>
     /// <param name="appToken">Ties the star detection it starts to the app's lifetime.</param>
+    /// <summary>
+    /// Applies a finished auto-crop scan, if one is pending. Call from the frame loop beside
+    /// <see cref="TryApplyPendingEnhance"/>.
+    /// </summary>
+    /// <remarks>
+    /// A crop that would keep the whole frame is reported as such and NOT set, so the button says
+    /// "nothing to crop" rather than appearing to do nothing: a frame with no ring is the common case for
+    /// anything that is not a stacked master.
+    /// </remarks>
+    public void TryApplyPendingCrop()
+    {
+        if (_cropTask is not { IsCompleted: true } task)
+        {
+            return;
+        }
+
+        _cropTask = null;
+        if (!task.IsCompletedSuccessfully)
+        {
+            state.StatusMessage = "Auto-crop failed";
+            state.NeedsRedraw = true;
+            return;
+        }
+
+        var rect = task.Result;
+        var image = Document?.UnstretchedImage;
+        if (image is null)
+        {
+            return;
+        }
+
+        if (rect.Width <= 0 || rect.Height <= 0)
+        {
+            state.StatusMessage = "Nothing covered by every sub";
+        }
+        else if (rect.Width >= image.Width && rect.Height >= image.Height)
+        {
+            state.StatusMessage = "Nothing to crop: the frame is covered edge to edge";
+        }
+        else
+        {
+            state.DisplayCrop = rect;
+            state.ZoomToFit = true;
+            var kept = 100.0 * rect.Width * rect.Height / (image.Width * (double)image.Height);
+            state.StatusMessage = $"Cropped to {rect.Width}x{rect.Height} ({kept:F1}% of the frame)";
+        }
+
+        state.NeedsRedraw = true;
+    }
+
     public void TryApplyPendingEnhance(CancellationToken appToken = default)
     {
         if (_enhanceTask is not { IsCompleted: true } task)

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Collections.Immutable;
 using DIR.Lib;
 using TianWen.Lib.Imaging;
@@ -311,6 +312,21 @@ public sealed class ViewerState
 
     /// <summary>Index of the currently loaded file in <see cref="ImageFileNames"/>, or -1 if none.</summary>
     public int SelectedFileIndex { get; set; } = -1;
+
+    /// <summary>
+    /// The part of the image the viewer is showing, in IMAGE pixels, or null for all of it. Set by the
+    /// auto-crop action from <see cref="Image.LargestCoveredRectangle"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>A view crop, not a document one.</b> No pixel moves and nothing is discarded: the same
+    /// image is drawn and the parts outside this rectangle are clipped away, so the readout still reports
+    /// the frame's own coordinates and a plate solve still runs on the whole frame. Turning it off is one
+    /// press.</para>
+    /// <para>Ignored when it does not fit the image currently loaded, which is what makes it safe to keep
+    /// across a file step: a folder of masters off one rig shares its canvas ring, and a frame of another
+    /// size simply shows in full rather than needing the crop cleared by whoever changed the document.</para>
+    /// </remarks>
+    public Rectangle? DisplayCrop { get; set; }
 
     /// <summary>Whether the file list sidebar is visible.</summary>
     public bool ShowFileList { get; set; } = true;

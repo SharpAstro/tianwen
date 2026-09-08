@@ -1,4 +1,5 @@
 using System;
+using System.Drawing;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading;
@@ -175,16 +176,68 @@ namespace TianWen.UI.Abstractions
             _layout = new ViewerLayout(toolbar, fileList, image, infoPanel, statusBar);
         }
 
+        /// <summary>
+        /// The image region on screen: the drawn quad clipped to the crop when one is in force. The image
+        /// pane's own rect is the other bound, applied where this is used.
+        /// </summary>
+        protected RectF32 ShownImageRect => _shownRect;
+
+        private RectF32 _shownRect;
+
+        private bool _cropActive;
+
+        /// <summary>
+        /// Narrows a clip rect to the region actually being shown, so a crop discards the border by never
+        /// rasterising it. With no crop this is the quad's own rect, which is a no-op against the pane:
+        /// zoomed in the quad covers the pane, and zoomed out nothing is drawn outside it anyway.
+        /// </summary>
+        protected RectF32 ClipToShown(in RectF32 rect)
+        {
+            // Only a crop narrows anything. Without one the shown region is the quad itself, and clipping
+            // to it would be invisible on screen (nothing is drawn outside the quad) but would still
+            // change the declared clip, which the split and damage suites pin as the PANE.
+            if (!_cropActive)
+            {
+                return rect;
+            }
+
+            var x0 = MathF.Max(rect.X, _shownRect.X);
+            var y0 = MathF.Max(rect.Y, _shownRect.Y);
+            var x1 = MathF.Min(rect.X + rect.Width, _shownRect.X + _shownRect.Width);
+            var y1 = MathF.Min(rect.Y + rect.Height, _shownRect.Y + _shownRect.Height);
+            return new RectF32(x0, y0, MathF.Max(0f, x1 - x0), MathF.Max(0f, y1 - y0));
+        }
+
+        /// <summary>
+        /// The part of the image to show, in image pixels: <see cref="ViewerState.DisplayCrop"/> when it is
+        /// set AND fits the image that is currently loaded, the whole frame otherwise. The fit test is what
+        /// lets a crop survive a step to the next file without anyone having to clear it.
+        /// </summary>
+        private Rectangle VisibleImageRegion(ViewerState state)
+            => state.DisplayCrop is { Width: > 0, Height: > 0 } crop
+                && crop.X >= 0 && crop.Y >= 0
+                && crop.Right <= ImageWidth && crop.Bottom <= ImageHeight
+                ? crop
+                : new Rectangle(0, 0, ImageWidth, ImageHeight);
+
         private void ComputeImagePlacement(ViewerState state)
         {
             var area = _layout.ImageArea;
             if (ImageWidth <= 0 || ImageHeight <= 0)
             {
                 _placement = new ImagePlacement(area.X, area.Y, 0f, 0f, state.Zoom);
+                _shownRect = area;
+                _cropActive = false;
                 return;
             }
 
-            var fitScale = MathF.Min(area.Width / ImageWidth, area.Height / ImageHeight);
+            // What the viewer is SHOWING: the crop when one is set and fits, the whole frame otherwise.
+            // Everything below is expressed against it, so fit, centring and the pan clamp all apply to
+            // what is on screen rather than to a border that has been clipped away. With no crop the two
+            // are the same rectangle and the arithmetic is unchanged.
+            var shown = VisibleImageRegion(state);
+            _cropActive = shown.Width < ImageWidth || shown.Height < ImageHeight;
+            var fitScale = MathF.Min(area.Width / shown.Width, area.Height / shown.Height);
             if (state.ZoomToFit)
             {
                 state.Zoom = fitScale;
@@ -193,21 +246,28 @@ namespace TianWen.UI.Abstractions
             var scale = state.Zoom;
             var drawW = ImageWidth * scale;
             var drawH = ImageHeight * scale;
-            var centeredX = area.X + (area.Width - drawW) / 2f;
-            var centeredY = area.Y + (area.Height - drawH) / 2f;
+            var shownW = shown.Width * scale;
+            var shownH = shown.Height * scale;
+            var centeredX = area.X + (area.Width - shownW) / 2f;
+            var centeredY = area.Y + (area.Height - shownH) / 2f;
             var offsetX = centeredX + state.PanOffset.X;
             var offsetY = centeredY + state.PanOffset.Y;
 
             // Confine the image to its viewport: zoomed IN (image larger than the area) it must stay covering
             // the area; zoomed OUT (smaller) it must stay fully inside. So a drag can't fling the image off
             // into the chrome / off-screen. Both cases reduce to clamping the top-left into the slack range.
-            offsetX = ConfineToViewport(offsetX, area.X, area.Width, drawW);
-            offsetY = ConfineToViewport(offsetY, area.Y, area.Height, drawH);
+            offsetX = ConfineToViewport(offsetX, area.X, area.Width, shownW);
+            offsetY = ConfineToViewport(offsetY, area.Y, area.Height, shownH);
 
             // Write the clamped position back so a drag held against the edge doesn't accumulate hidden offset
             // (the image would otherwise "stick" until you dragged all the slack back).
             state.PanOffset = (offsetX - centeredX, offsetY - centeredY);
-            _placement = new ImagePlacement(offsetX, offsetY, drawW, drawH, scale);
+
+            // offsetX/Y is where the SHOWN region starts; the quad still covers the whole image, so its
+            // origin sits back by the crop's own offset. With no crop that subtraction is zero.
+            _shownRect = new RectF32(offsetX, offsetY, shownW, shownH);
+            _placement = new ImagePlacement(
+                offsetX - (shown.X * scale), offsetY - (shown.Y * scale), drawW, drawH, scale);
         }
 
         // Clamp a top-left coordinate so a draw of <paramref name="drawSize"/> stays confined to the viewport

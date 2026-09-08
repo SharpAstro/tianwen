@@ -159,7 +159,14 @@ namespace TianWen.UI.Abstractions
                     state.ShowStarOverlay = !state.ShowStarOverlay;
                     return true;
                 case InputKey.C:
-                    if (_document is not null)
+                    // Shift is the crop, because C on its own has cycled the channel view since before
+                    // there was one. Posted rather than done here for the reason P and E are: the scan
+                    // is tens of milliseconds and belongs off this thread.
+                    if (shift)
+                    {
+                        PostSignal(new AutoCropSignal());
+                    }
+                    else if (_document is not null)
                     {
                         ViewerActions.CycleChannelView(state, _document.UnstretchedImage.ChannelCount);
                     }

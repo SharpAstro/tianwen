@@ -55,7 +55,7 @@ the 35 TIFF / import / codec tests pass against it.
 | P22 | Save the ANNOTATED view (grid, markers, labels), beside P18's clean raster | **FIXED** 2026-09-06 |
 | P23 | Blink toggles on every auto-repeat of Space, and the blinked frame can be off-screen | **FIXED** 2026-09-08 (with DIR.Lib 8.14 + SdlVulkan.Renderer 7.33) |
 | P24 | The A/B divider leaves its bar behind in the letterbox around the image | **FIXED** 2026-09-08 |
-| P25 | No auto-crop: a master's stack artefacts and NaN margins have to be cropped elsewhere | OPEN (reported 2026-09-07) |
+| P25 | No auto-crop: a master's stack artefacts and NaN margins have to be cropped elsewhere | **FIXED** 2026-09-08 |
 | P26 | The `?` panel cannot report a bug: no issue, no logs, no version attached | OPEN (reported 2026-09-07) |
 
 ---
@@ -834,7 +834,7 @@ case P15 fixed. On screen the two behaved differently in one way worth rememberi
 intermittent, because damage is tracked per swapchain image, which is also why P15's tooltip read as a
 flicker rather than as a stuck tooltip.
 
-## P25. No auto-crop for stack artefacts and NaN margins  (OPEN)
+## P25. No auto-crop for stack artefacts and NaN margins  (FIXED 2026-09-08)
 
 From the user's notes 2026-09-07: *"we should have an auto-crop button that crops away stack artifacts,
 NaN areas, etc"*.
@@ -870,6 +870,38 @@ Three things to decide when it is picked up:
   bottom. That is the number the button has to produce.
 - **What it does on a frame with nothing to crop**, which has to be visibly nothing rather than a
   one-pixel nibble.
+
+**Shipped, and the detector is verified against an independent implementation.**
+`Image.LargestCoveredRectangle()` (`Image.Coverage.cs`) marks a pixel absent when it is exactly zero in
+EVERY channel or NaN in any, then runs one largest-rectangle-under-a-histogram pass with a monotonic
+stack: O(width x height) time, O(width) space, channels read one at a time down the outer loop so every
+read is sequential and nothing image-sized is allocated. On the reported composite it answers
+**2987 x 3061 at (25, 8), 96.45% of the frame, trimming 25 / 8 / 61 / 16**, which is digit for digit what
+a throwaway numpy implementation of the same problem produced, in **52.6 ms**. That timing is the reason
+it sits behind a press rather than at load, and the reason the scan runs on the pool: it would be several
+dropped frames on the render thread.
+
+**The viewer half is geometry only.** `ViewerState.DisplayCrop` (image pixels) is what
+`ComputeImagePlacement` fits, centres and clamps the pan against; the quad still covers the whole image
+and the border is simply never rasterised, so the readout keeps reporting the frame's own coordinates and
+a plate solve still runs on all of it. `ClipToShown` narrows the three draw clips **only while a crop is
+in force**: without one it returns the rect untouched, because clipping to the quad instead would be
+invisible on screen yet would change the declared clip, which `ViewerSplitTests` and the damage suites
+pin as the PANE. Three of them said so by going red, which is how that came to be gated rather than
+guessed.
+
+**A crop that does not fit the loaded frame is ignored rather than obeyed or cleared.** That is what lets
+it survive a step to the next file: a folder of masters off one rig shares its canvas ring, and a frame
+of another size shows in full without anyone having to remember to clear anything.
+
+**Reachable three ways, all one toggle**: the Crop button (group 4, beside Solve and Enhance), `Shift+C`
+(C alone has cycled the channel view since before there was one), and `AutoCropSignal` for a host. The
+status bar declares `Crop WxH` while one is in force, for the same reason it declares a held display: the
+only other evidence is a border that is missing, which looks like the file. A frame with nothing to
+discard says so ("Nothing to crop: the frame is covered edge to edge") instead of appearing to do nothing.
+
+Pinned by `LargestCoveredRectangleTests` (7, including a ragged ring whose covered-pixel bounding box is
+the whole frame) and `ViewerAutoCropTests` (8, three of which were seen red with the crop ignored).
 
 ## P26. The `?` panel cannot report a bug  (OPEN)
 

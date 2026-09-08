@@ -1175,7 +1175,11 @@ namespace TianWen.UI.Abstractions
                     return;
                 }
 
-                PushClip(area.X, area.Y, area.Width, area.Height);
+                // Clipped to what is SHOWN, which is the pane and, when a crop is in force, the crop
+                // inside it. The quad still covers the whole image; the border a crop discards is simply
+                // never rasterised, which is what makes the crop free and reversible.
+                var visible = ClipToShown(area);
+                PushClip(visible.X, visible.Y, visible.Width, visible.Height);
                 RenderImageQuad(source, state, live, gridWcs,
                     p.OffsetX, p.OffsetY, p.OffsetX + p.DrawW, p.OffsetY + p.DrawH, Width, Height,
                     RenditionSlot.Live, sampleBeforeChannels: false);
@@ -1194,13 +1198,15 @@ namespace TianWen.UI.Abstractions
             // BEYOND the image area when zoomed in (ConfineToViewport lets it cover the pane rather than
             // sit inside it), and a scissor set here would REPLACE an enclosing clip instead of narrowing
             // it, with nothing to put it back.
-            PushClip(area.X, area.Y, splitX - area.X, area.Height);
+            var leftHalf = ClipToShown(new RectF32(area.X, area.Y, splitX - area.X, area.Height));
+            PushClip(leftHalf.X, leftHalf.Y, leftHalf.Width, leftHalf.Height);
             RenderImageQuad(source, state, comparison, gridWcs,
                 p.OffsetX, p.OffsetY, p.OffsetX + p.DrawW, p.OffsetY + p.DrawH, Width, Height,
                 RenditionSlot.Comparison, sampleBeforeChannels: comparesPixels);
             PopClip();
 
-            PushClip(splitX, area.Y, area.Right - splitX, area.Height);
+            var rightHalf = ClipToShown(new RectF32(splitX, area.Y, area.Right - splitX, area.Height));
+            PushClip(rightHalf.X, rightHalf.Y, rightHalf.Width, rightHalf.Height);
             RenderImageQuad(source, state, live, gridWcs,
                 p.OffsetX, p.OffsetY, p.OffsetX + p.DrawW, p.OffsetY + p.DrawH, Width, Height,
                 RenditionSlot.Live, sampleBeforeChannels: false);

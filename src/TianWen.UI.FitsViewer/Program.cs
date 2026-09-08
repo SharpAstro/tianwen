@@ -506,6 +506,8 @@ bus.Subscribe<PlateSolveSignal>(_ =>
     controller.HandleToolbarAction(ToolbarAction.PlateSolve, reverse: false, cts.Token));
 bus.Subscribe<EnhanceImageSignal>(_ =>
     controller.HandleToolbarAction(ToolbarAction.Enhance, reverse: false, cts.Token));
+bus.Subscribe<AutoCropSignal>(_ =>
+    controller.HandleToolbarAction(ToolbarAction.AutoCrop, reverse: false, cts.Token));
 
 // The Save dropdown's two rows. The annotation is read off the renderer here rather than reached for
 // inside the controller, because the renderer is what holds it -- so a plate-solve verification or a
@@ -549,6 +551,7 @@ loop.OnBeforeFrame = () =>
     // Apply a finished AI-enhance result (swaps in the enhanced document + flags a texture
     // re-upload). No-op until the background enhance task completes.
     controller.TryApplyPendingEnhance(cts.Token);
+    controller.TryApplyPendingCrop();
 
     if (state.NeedsReprocess)
     {
