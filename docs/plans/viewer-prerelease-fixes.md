@@ -945,6 +945,45 @@ must equal the same sub-rectangle of the uncropped save, byte for byte. A dimens
 file that re-derived its stretch from the cropped pixels and came out brighter than the window it was
 cropped in. All three were seen red with the crop removed.
 
+### Known limitation: it crops the UNION, and the name says intersection (open, found 2026-09-08)
+
+The detector marks a pixel absent when it is exactly zero in every channel or NaN in any, which finds
+where NO sub reached. It therefore answers "the largest rectangle inside the area at least one sub
+covered", and the commit that shipped it claims "the area every sub covered". Those are different
+regions and the difference is visible: reported as a top edge that still looks ragged with a crop
+applied.
+
+**Measured on the reported file** (OIII channel, across the crop's own columns, MAD against the interior
+at rows 1400 to 1500):
+
+| Rows inside the crop | Noise vs interior |
+|---|---|
+| 8 to 24 | 1.52x to 1.60x |
+| 24 to 32 | 1.31x |
+| 32 to 48 | 1.05x |
+| 48 and beyond | settled, 0.94x and below |
+| 3061 to 3069 (bottom edge) | 1.50x |
+
+So a band roughly 24 to 40 px deep at the top, and about 24 at the bottom, sits INSIDE the crop with up
+to 60% more noise: no zeros in it, real data, but fewer subs reached it. Under a stretch that reads as a
+grainy border, which is what the crop was asked to remove.
+
+**What is NOT wrong**, both checked before concluding anything: the rectangle contains zero absent pixels
+by the shipped definition, and every remaining zero in the top band sits in the 25-column left and
+61-column right strips the crop already removes; and no pixel outside the crop can reach the screen at
+any zoom or pan, which `ViewerAutoCropTests.NothingOutsideTheCropReachesTheScreenWhenZoomedIn` now pins
+at 4x with the pan driven to each limit. The geometry and the clip are correct. The DEFINITION is what
+falls short.
+
+**Fixing it needs a coverage estimate, not a threshold guess.** Partial coverage is not darker (the row
+medians hold at 0.997 of the interior all the way to row 8), so brightness cannot find it; the signature
+is noise, and the band's depth is not predictable from the ragged zero region either, since the zeros
+reach only to row 11 while the noisy band reaches 32. The self-calibrating shape is to walk in from each
+edge until the local noise settles to within a small margin of the interior, which needs its threshold
+measured over real masters rather than picked, exactly as the 38 nm filter cut was. Until then the crop
+removes the ring and leaves the thin under-exposed band, which is a real improvement over no crop and
+short of what its name says.
+
 ## P26. The `?` panel cannot report a bug  (FIXED 2026-09-08)
 
 From the user's notes 2026-09-07: *"in the help menu allow to auto-create an issue, with attaching logs
