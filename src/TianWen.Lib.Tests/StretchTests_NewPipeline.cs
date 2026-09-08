@@ -392,7 +392,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         wcs.HasCDMatrix.ShouldBeTrue();
         output.WriteLine($"Synthetic WCS: center=({wcs.CenterRA:F4}h, {wcs.CenterDec:F3}°)  scale={pixelScaleArcsec:F3}\"/px");
 
-        var doc = await AstroImageDocument.AdoptImageAsync(bayerImage, DebayerAlgorithm.AHD, wcs, filePath: "synthetic.fits", ct);
+        var doc = await AstroImageDocument.AdoptImageAsync(bayerImage, DebayerAlgorithm.AHD, wcs, filePath: "synthetic.fits", cancellationToken: ct);
         doc.IsPlateSolved.ShouldBeTrue();
 
         var sw = Stopwatch.StartNew();

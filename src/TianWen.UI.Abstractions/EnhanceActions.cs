@@ -1,4 +1,5 @@
 using System;
+using System.Drawing;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
@@ -31,15 +32,35 @@ public static class EnhanceActions
         SharpenPipeline pipeline,
         EnhanceOptions options,
         DebayerAlgorithm debayerAlgorithm,
+        Rectangle? crop = null,
         CancellationToken cancellationToken = default)
     {
+        // A crop is applied to the INPUT, not left for the display to hide afterwards. Every enhancer
+        // here is a spatial model, and the canvas ring is exact zero -- a hard cliff a CNN reads as
+        // structure and smears inward, which is what a border still visible after a gradient correction
+        // actually is. Note the pipeline cannot be told to ignore it instead: SharpenPipeline fills
+        // non-finite samples with the channel mean at its boundary (SAS ONNX and RC-Astro both
+        // normalise without NaN awareness), so masking is not available, and exact zeros pass through
+        // untouched.
+        //
+        // The result IS the crop: smaller pixels, a WCS translated to match, and SourceCrop recording
+        // where it came from. Costs one full-size copy of the kept region, against a pipeline that runs
+        // for a minute and a half.
+        var input = source.UnstretchedImage;
+        var wcs = source.Wcs;
+        if (crop is { } region)
+        {
+            input = input.Crop(region);
+            wcs = wcs?.CroppedTo(region.X, region.Y);
+        }
+
         // BlurX-first program when a deblurrer is registered (RC-Astro), else the SAS-shaped
         // canonical -- the same selection MasterPostProcessor makes, via the shared factories
         // (single source of truth for the step program). Linear in / linear out: the viewer
         // applies its own stretch, so no final stretch step is included.
         var request = pipeline.SupportsDeblur
-            ? SharpenRequest.DeblurFirst(source.UnstretchedImage)
-            : SharpenRequest.Canonical(source.UnstretchedImage);
+            ? SharpenRequest.DeblurFirst(input)
+            : SharpenRequest.Canonical(input);
 
         // Per-step progress -> viewer status line. Runs on the background thread; these scalar
         // writes to ViewerState are the only writers during the run and the render thread reads
@@ -81,7 +102,7 @@ public static class EnhanceActions
         // output, never the caller's buffer). WCS + provenance path carry over so overlays/coords
         // still resolve on the enhanced view.
         var doc = await AstroImageDocument.AdoptImageAsync(
-            enhanced, debayerAlgorithm, source.Wcs, source.FilePath, cancellationToken).ConfigureAwait(false);
+            enhanced, debayerAlgorithm, wcs, source.FilePath, crop, cancellationToken).ConfigureAwait(false);
         state.StatusMessage = $"Enhanced ({(pipeline.SupportsDeblur ? "BlurX-first" : "SAS")})";
         return doc;
     }

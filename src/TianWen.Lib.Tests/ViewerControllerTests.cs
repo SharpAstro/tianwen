@@ -318,6 +318,116 @@ public class ViewerControllerTests
         state.IsBlinking.ShouldBeFalse();
     }
 
+    // --- auto-crop ---
+
+    /// <summary>
+    /// A crop takes a border away and changes NOTHING else about the view. Raised by the user
+    /// 2026-09-09: "it shouldn't actually refit the frame on crop, just cropping it".
+    /// </summary>
+    /// <remarks>
+    /// It used to set <c>ZoomToFit</c> alongside the rectangle, so the picture jumped and grew at the
+    /// exact moment the user was studying its edge -- a second change nobody asked for, on top of the
+    /// one they did. Fit stays one keypress away, and with a crop in force it fits the CROP
+    /// (<c>ViewerAutoCropTests.FitScalesToTheCropRatherThanTheFrame</c>), which is what makes leaving
+    /// the view alone here safe rather than merely quieter.
+    /// </remarks>
+    [Fact]
+    public async Task ApplyingACropLeavesTheZoomAndPanAlone()
+    {
+        var (controller, state, cache, _, _) = CreateSut();
+        cache.GetOrLoadAsync(Arg.Any<string>(), Arg.Any<DebayerAlgorithm>(), Arg.Any<CancellationToken>())
+            .Returns(_ => RingDocumentAsync(TestContext.Current.CancellationToken));
+
+        state.RequestedFilePath = "ring.fits";
+        controller.HandleFileRequest(TestContext.Current.CancellationToken);
+        await WaitForLoadAsync(controller);
+        controller.Document.ShouldNotBeNull();
+
+        state.ZoomToFit = false;
+        state.Zoom = 2f;
+        state.PanOffset = (17f, -23f);
+
+        controller.HandleToolbarAction(ToolbarAction.AutoCrop, reverse: false, TestContext.Current.CancellationToken);
+        await WaitForCropAsync(controller, state);
+
+        state.DisplayCrop.ShouldNotBeNull("the ring is what the crop is for");
+        state.ZoomToFit.ShouldBeFalse("cropping is not a request to re-frame what is left");
+        state.Zoom.ShouldBe(2f);
+        state.PanOffset.ShouldBe((17f, -23f));
+    }
+
+    /// <summary>
+    /// Switching the crop off and on again restores the SAME rectangle, without scanning. Raised by the
+    /// user 2026-09-09 as "the crop is removed once auto-enhance finishes".
+    /// </summary>
+    /// <remarks>
+    /// The crop turned out to survive an enhance untouched (verified in the running viewer); what the
+    /// report had actually caught is that the toggle is one-way afterwards. Both scan tiers look for
+    /// evidence a deblur, a gradient correction and a denoise destroy -- exact zeros, a noise step at the
+    /// edge, a coverage sidecar belonging to the file on disk -- so a fresh scan on an enhanced frame
+    /// answers "covered edge to edge" and the crop can never come back. The restore is SYNCHRONOUS,
+    /// which is what this asserts: a scan would leave DisplayCrop null until its task completed.
+    /// </remarks>
+    [Fact]
+    public async Task SwitchingTheCropOffAndOnAgainRestoresItWithoutScanning()
+    {
+        var (controller, state, cache, _, _) = CreateSut();
+        cache.GetOrLoadAsync(Arg.Any<string>(), Arg.Any<DebayerAlgorithm>(), Arg.Any<CancellationToken>())
+            .Returns(_ => RingDocumentAsync(TestContext.Current.CancellationToken));
+
+        state.RequestedFilePath = "ring.fits";
+        controller.HandleFileRequest(TestContext.Current.CancellationToken);
+        await WaitForLoadAsync(controller);
+
+        controller.HandleToolbarAction(ToolbarAction.AutoCrop, reverse: false, TestContext.Current.CancellationToken);
+        await WaitForCropAsync(controller, state);
+        var cropped = state.DisplayCrop.ShouldNotBeNull();
+
+        controller.HandleToolbarAction(ToolbarAction.AutoCrop, reverse: false, TestContext.Current.CancellationToken);
+        state.DisplayCrop.ShouldBeNull("the first press switches it off");
+
+        controller.HandleToolbarAction(ToolbarAction.AutoCrop, reverse: false, TestContext.Current.CancellationToken);
+        state.DisplayCrop.ShouldBe(cropped, "restored from memory, in the same press rather than a scan later");
+        state.StatusMessage.ShouldEndWith("remembered)");
+    }
+
+    /// <summary>The ring frame as a loaded document. Declared nullable to match what the cache
+    /// returns; AdoptImageAsync's own task is not, and handing that over warns (CS8620).</summary>
+    private static async Task<AstroImageDocument?> RingDocumentAsync(CancellationToken cancellationToken)
+        => await AstroImageDocument.AdoptImageAsync(FrameWithAZeroRing(), DebayerAlgorithm.None,
+            filePath: "ring.fits", cancellationToken: cancellationToken).ConfigureAwait(false);
+
+    /// <summary>A 64 x 64 frame with an 8 px border of exact zero: the canvas ring of a stacked
+    /// master, in miniature, so the crop actually lands.</summary>
+    private static Image FrameWithAZeroRing(int size = 64, int border = 8)
+    {
+        var plane = new float[size, size];
+        for (var y = border; y < size - border; y++)
+        {
+            for (var x = border; x < size - border; x++)
+            {
+                plane[y, x] = 0.25f;
+            }
+        }
+
+        return new Image([plane], BitDepth.Float32, maxValue: 1f, minValue: 0f, pedestal: 0f,
+            imageMeta: new ImageMeta { Instrument = "synth", SensorType = SensorType.Monochrome });
+    }
+
+    /// <summary>
+    /// Polls until the crop scan has been applied, up to a timeout. TryApplyPendingCrop returns at once
+    /// while the scan is still running, so calling it in the loop is how the host drives it too.
+    /// </summary>
+    private static async Task WaitForCropAsync(ViewerController controller, ViewerState state, int timeoutMs = 5000)
+    {
+        var deadline = Environment.TickCount64 + timeoutMs;
+        while (state.DisplayCrop is null && Environment.TickCount64 < deadline)
+        {
+            controller.TryApplyPendingCrop();
+            await Task.Delay(10);
+        }
+    }
+
     /// <summary>
     /// Polls until the controller's load task completes, up to a timeout.
     /// </summary>

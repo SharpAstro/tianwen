@@ -1061,6 +1061,96 @@ against 0.001). So the answer to that ring is to CROP it, which is now available
 for a caller that wants the model itself independent of the border. Pinned, with both pairs of numbers
 printed, by `ClassicalBackgroundExtractorTests.ANoisierBorderIsKeptOutOfTheFit`.
 
+### The crop was drawn, not enforced: the cached layer blitted the border back  (found and FIXED 2026-09-09)
+
+Reported the day after the crop shipped: with a crop applied, zooming out brings the ragged corner
+back, while the status bar still says `Cropped to 2915x2877 (88.5% of the frame)` and the toolbar
+toggle is still lit. The state was never lost -- the border was being painted.
+
+**`TryDrawImageFromCachedLayer` returns before the uncached path's `ClipToShown`.** The direct path
+clips the quad to the pane narrowed by the crop; the cached path clipped to the PANE alone. At fit
+the discarded border falls outside the pane, so the pane clip hid it, and every zoom anyone had
+looked at was at or above fit. Zoom out and the whole frame fits inside the pane, so the blit paints
+what the crop had removed. The session that found it had **1309 blits against 253 renders**: the
+cached path is not an optimisation the user sees occasionally, it is the one they look at.
+
+**The blit is narrowed, not merely scissored.** The destination rectangle is the intersection of the
+pane and the shown region, and the source UVs shrink with it -- narrowing the destination alone
+samples the whole pane into the crop's rectangle, which squashes the picture instead of cropping it
+and still looks plausible.
+
+**The test that existed re-derived the clip instead of observing it.**
+`NothingOutsideTheCropReachesTheScreenWhenZoomedIn` recomputes `ClipToShown` in its own body from the
+placement, so it models the rule rather than asserting what the renderer declared, and it stays green
+with the bug present (verified: back the fix out and exactly one test fails, the new one).
+`TheCachedLayerBlitIsNarrowedToTheCrop` asserts the rectangle handed to `TryDrawCachedLayer`, driving
+the cached-layer seam through its `protected virtual` hooks -- which is also the first test coverage
+that path has had.
+
+**A crop no longer re-fits the view** (raised in the same breath: *"it shouldn't actually refit the
+frame on crop, just cropping it"*). Setting `ZoomToFit` alongside the rectangle made the picture jump
+and grow at the moment the user was studying its edge -- a second change nobody asked for on top of
+the one they did. Fit stays one keypress away and, with a crop in force, fits the CROP. Pinned by
+`ViewerControllerTests.ApplyingACropLeavesTheZoomAndPanAlone`.
+
+**The crop SURVIVES an enhance; what does not survive is switching it off.** Reported as "the crop is
+removed once auto-enhance finishes", and the code says otherwise -- neither `TryApplyPendingEnhance`
+nor `RevertEnhance` touches `DisplayCrop`, and driving the running viewer confirmed it: after a
+93-second BlurX + GraXpert + StarXTerminator + denoise program the status bar still read
+`Crop 2915x2877` and the ring was still gone. What the report caught is the TOGGLE. Switching the crop
+off and pressing again re-SCANS, and on enhanced pixels both tiers are blind -- the coverage sidecar
+belongs to the file on disk, the absent-pixel test needs exact zeros, and the edge walk needs a noise
+step, and a deblur, a gradient correction and a denoise leave none of the three. The second press
+therefore answered `Nothing to crop: the frame is covered edge to edge` and the crop could never come
+back. `ViewerController._rememberedCrop` keeps the rectangle, so switching it back on restores it in
+the same press rather than scanning; the restore is synchronous, which is what
+`SwitchingTheCropOffAndOnAgainRestoresItWithoutScanning` asserts (a scan would leave it null until its
+task landed). Un-cropping no longer re-fits either, for the same reason cropping does not.
+
+**Enhance is fed the CROP (decided 2026-09-09, on the evidence below).** `DisplayCrop` used to reach
+the renderer, the status bar, the toolbar state and both exports, and nothing else, so GraXpert, BlurX
+and NoiseX all saw the canvas ring. They are spatial models and the ring is exact ZERO -- a cliff a CNN
+reads as structure and smears inward, which is what a border still visible after a gradient correction
+IS. Masking it was not available either: `SharpenPipeline` fills non-finite samples with the CHANNEL
+MEAN at its boundary, deliberately ("the enhancers ... compute non-NaN-aware global normalisation, so a
+single NaN poisons the whole output"), and exact zeros pass through untouched. So the crop is cut
+before the pipeline sees anything, and four things follow:
+
+- **The result IS the crop.** `EnhanceActions.EnhanceAsync` takes the rectangle, `Image.Crop`s the
+  input, and the enhanced document is that size.
+- **`WCS.CroppedTo` translates the solution**, because a crop is a pure translation of the pixel grid:
+  only CRPIX moves, the CD matrix is a derivative and SIP is relative to CRPIX. It exists so no caller
+  hand-edits CRPIX -- these are the 0-based in-memory values and a stray -1 here is exactly the
+  off-by-one `WcsPixelOriginTests` exists to prevent. Star detection re-runs on the cropped pixels, so
+  the object and star overlays land without further work; a sign error would put every marker off by
+  the crop origin and still look plausible, which is why the test asserts the SKY position of the
+  crop's own corner rather than the CRPIX numbers.
+- **`AstroImageDocument.SourceCrop` records where the pixels came from**, and the crop button gates on
+  it: there is nothing left to take off, and nothing to put back either, since both scan tiers are
+  blind on enhanced pixels. The document owning that rather than the viewer holding a flag is what
+  keeps it true -- a flag would need clearing on every path that replaces the document.
+- **Reverting restores both** the full frame and the crop that was on it.
+
+Pinned by `EnhanceActionsTests.ACropIsCutBeforeThePipelineAndTravelsWithTheResult` (+ its no-crop
+twin) and `ViewerAutoCropTests.TheCropButtonIsDisabledOnceAnEnhanceHasBakedACropIn`.
+
+**The measurement that decided it, and what is still unmeasured:** `DisplayCrop` reaches the
+renderer, the status bar, the toolbar state, `DisplayRasterExport` and `AnnotatedRasterExport`, and
+nothing else -- so GraXpert, BlurX and NoiseX all see the canvas ring and the under-exposed band. That
+is defensible for a VIEW crop -- the viewer must not quietly destroy data an enhance then works from --
+and questionable for the gradient corrector, which masks the canvas ring as absent anyway
+([background-extraction.md](background-extraction.md), 0.3 percent of a frame at the median) but has
+no such protection against the under-exposed BAND inside it. The live run is evidence for changing it:
+enhanced with the ring in, the frame comes back with a soft bright band right around its edge and the
+ragged corner intact, while the interior improves (stars 5887 -> 12905, HFR 2.49 -> 1.65). And note
+`SharpenPipeline` sanitises non-finite samples to the CHANNEL MEAN at its boundary -- deliberately,
+since "the enhancers ... compute non-NaN-aware global normalisation, so a single NaN poisons the whole
+output" -- so **NaN is a fill here, not a mask**, and exact zeros pass through untouched. Of the three candidates -- crop the input, fill
+outside-crop with the channel mean, mirror-pad and discard -- the first shipped: it is the only one
+that hands the models no fabricated pixels at all. **Not measured: how far inside the frame the smear
+actually reaches**, i.e. whether the 56/92/16/92 px this crop removes is deep enough to contain it.
+Cropping first makes the question moot for a cropped view and leaves it open for an uncropped one.
+
 ## P26. The `?` panel cannot report a bug  (FIXED 2026-09-08)
 
 From the user's notes 2026-09-07: *"in the help menu allow to auto-create an issue, with attaching logs

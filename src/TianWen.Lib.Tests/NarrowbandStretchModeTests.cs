@@ -107,7 +107,7 @@ namespace TianWen.Lib.Tests
         public async Task ADocumentCalibratedThroughANarrowbandFilterRendersUnlinked()
         {
             var document = await AstroImageDocument.AdoptImageAsync(ColourFrame(), DebayerAlgorithm.None,
-                wcs: null, filePath: "hoo.fits", TestContext.Current.CancellationToken);
+                wcs: null, filePath: "hoo.fits", cancellationToken: TestContext.Current.CancellationToken);
             var summary = new ColorCalibrationSummary("SPCC", 1.4f, 1f, 0.7f, StarCount: 120, WhiteReference: "G2V");
 
             document.InheritColorCalibration((1.4f, 1f, 0.7f), summary, isNarrowband: true);
@@ -127,7 +127,7 @@ namespace TianWen.Lib.Tests
         public async Task ADocumentCalibratedThroughABroadbandFilterStillRendersLinked()
         {
             var document = await AstroImageDocument.AdoptImageAsync(ColourFrame(), DebayerAlgorithm.None,
-                wcs: null, filePath: "rgb.fits", TestContext.Current.CancellationToken);
+                wcs: null, filePath: "rgb.fits", cancellationToken: TestContext.Current.CancellationToken);
             var summary = new ColorCalibrationSummary("SPCC", 1.4f, 1f, 0.7f, StarCount: 120, WhiteReference: "G2V");
 
             document.InheritColorCalibration((1.4f, 1f, 0.7f), summary, isNarrowband: false);
@@ -142,9 +142,9 @@ namespace TianWen.Lib.Tests
         public async Task AnEnhancedPlateInheritsHowTheCalibrationWasArrivedAt()
         {
             var original = await AstroImageDocument.AdoptImageAsync(ColourFrame(), DebayerAlgorithm.None,
-                wcs: null, filePath: "hoo.fits", TestContext.Current.CancellationToken);
+                wcs: null, filePath: "hoo.fits", cancellationToken: TestContext.Current.CancellationToken);
             var enhanced = await AstroImageDocument.AdoptImageAsync(ColourFrame(), DebayerAlgorithm.None,
-                wcs: null, filePath: "hoo_enhanced.fits", TestContext.Current.CancellationToken);
+                wcs: null, filePath: "hoo_enhanced.fits", cancellationToken: TestContext.Current.CancellationToken);
             original.InheritColorCalibration((1.4f, 1f, 0.7f), summary: null, isNarrowband: true);
 
             enhanced.InheritColorCalibration(original);
@@ -167,7 +167,7 @@ namespace TianWen.Lib.Tests
         public async Task AnHooCompositeRendersUnlinkedEvenWithNoFilterHeader()
         {
             var document = await AstroImageDocument.AdoptImageAsync(HooComposite(), DebayerAlgorithm.None,
-                wcs: null, filePath: "Sag_Triplet_OIII-HOO_1.fits", TestContext.Current.CancellationToken);
+                wcs: null, filePath: "Sag_Triplet_OIII-HOO_1.fits", cancellationToken: TestContext.Current.CancellationToken);
 
             // The sky-background path, which is what a file with no filter or sensor header gets.
             document.InheritColorCalibration((1.4f, 1f, 0.7f), summary: null, isNarrowband: false);
@@ -200,7 +200,7 @@ namespace TianWen.Lib.Tests
         public async Task ANearlyGreyFrameIsStillPhotometric()
         {
             var document = await AstroImageDocument.AdoptImageAsync(NearlyGreyFrame(), DebayerAlgorithm.None,
-                wcs: null, filePath: "grey.fits", TestContext.Current.CancellationToken);
+                wcs: null, filePath: "grey.fits", cancellationToken: TestContext.Current.CancellationToken);
             document.InheritColorCalibration((1.02f, 1f, 0.99f), summary: null, isNarrowband: false);
 
             document.ColourIsNotPhotometric.ShouldBeFalse();

@@ -38,6 +38,22 @@ public sealed class ViewerController(
     /// and the Task IS the synchronisation primitive (see the concurrency rules in CLAUDE.md).
     /// </summary>
     private Task<ViewerActions.CropScan>? _cropTask;
+
+    /// <summary>
+    /// The last rectangle a crop settled on, kept after the crop is switched off so switching it back
+    /// on restores it instead of scanning again.
+    /// </summary>
+    /// <remarks>
+    /// <b>Re-scanning is not equivalent, and on an ENHANCED frame it cannot work at all.</b> Both tiers
+    /// look for evidence the enhancers destroy: the coverage plane belongs to the file on disk, the
+    /// absent-pixel test needs exact zeros, and the edge walk needs a noise step -- and a deblur,
+    /// gradient correction and denoise leave none of the three. A fresh scan there answers "covered edge
+    /// to edge", so without this the toggle is one-way: switch the crop off after an enhance and it can
+    /// never come back. Verified live 2026-09-09 on the Sagittarius Triplet master, which is also the
+    /// session that showed the crop itself survives an enhance untouched.
+    /// </remarks>
+    private Rectangle? _rememberedCrop;
+
     private CancellationTokenSource? _starDetectionCts;
 
     // Per-RUN enhance cancellation, so pressing the button while it computes stops THAT run. It used
@@ -593,10 +609,23 @@ public sealed class ViewerController(
                 if (state.DisplayCrop is not null)
                 {
                     // Off is immediate and needs no scan: the crop only ever hid pixels that were there
-                    // the whole time.
+                    // the whole time. The rectangle is REMEMBERED on the way out -- see _rememberedCrop
+                    // for why switching it back on must not mean scanning again.
+                    _rememberedCrop = state.DisplayCrop;
                     state.DisplayCrop = null;
-                    state.ZoomToFit = true;
                     state.StatusMessage = "Showing the whole frame";
+                    state.NeedsRedraw = true;
+                }
+                else if (Document is { } rememberedDoc
+                    && ViewerState.ResolveDisplayCrop(_rememberedCrop,
+                        rememberedDoc.UnstretchedImage.Width, rememberedDoc.UnstretchedImage.Height) is { } remembered)
+                {
+                    state.DisplayCrop = remembered;
+                    var rememberedImage = rememberedDoc.UnstretchedImage;
+                    var rememberedKept = 100.0 * remembered.Width * remembered.Height
+                        / (rememberedImage.Width * (double)rememberedImage.Height);
+                    state.StatusMessage =
+                        $"Cropped to {remembered.Width}x{remembered.Height} ({rememberedKept:F1}% of the frame, remembered)";
                     state.NeedsRedraw = true;
                 }
                 else if (Document is { } cropDoc && _cropTask is null)
@@ -710,8 +739,12 @@ public sealed class ViewerController(
                     _enhanceCts?.Dispose();
                     _enhanceCts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
                     var enhanceToken = _enhanceCts.Token;
+                    // The crop goes to the PIPELINE, not just the display: see EnhanceActions for why a
+                    // spatial model must not be shown the canvas ring at all.
+                    var enhanceCrop = ViewerState.ResolveDisplayCrop(state.DisplayCrop,
+                        enhanceDoc.UnstretchedImage.Width, enhanceDoc.UnstretchedImage.Height);
                     _enhanceTask = Task.Run(
-                        () => EnhanceActions.EnhanceAsync(enhanceDoc, state, pipeline, options, debayer, enhanceToken),
+                        () => EnhanceActions.EnhanceAsync(enhanceDoc, state, pipeline, options, debayer, enhanceCrop, enhanceToken),
                         enhanceToken);
                     _ = _enhanceTask.ContinueWith(_ => state.NeedsRedraw = true, TaskScheduler.Default);
                 }
@@ -737,6 +770,12 @@ public sealed class ViewerController(
             _rawSource = retained;
             _liveSource = null;
             state.IsSequence = false;
+            // The full frame is back, so the crop that was taken off when the enhance baked it in goes
+            // back on: reverting means returning to the view the enhance was launched from, and the
+            // border is once again there to hide. Nothing happens when there was no crop, and a
+            // rectangle that does not fit the restored frame resolves to null rather than being obeyed.
+            state.DisplayCrop = ViewerState.ResolveDisplayCrop(_rememberedCrop,
+                retained.UnstretchedImage.Width, retained.UnstretchedImage.Height);
             state.NotifySourceReplaced();
             state.NeedsTextureUpdate = true;
             // Deliberately no status message. The upload path clears StatusMessage once the pixels
@@ -877,8 +916,12 @@ public sealed class ViewerController(
         }
         else
         {
+            // The zoom and the pan are left exactly as they were: a crop takes a border away, and
+            // re-fitting on top of that is a second, unasked-for change to the view -- the picture
+            // jumps and grows at the moment the user was looking at its edge. Fit remains one keypress
+            // away (F), and with a crop in force it fits the CROP, which is the whole point of it.
             state.DisplayCrop = rect;
-            state.ZoomToFit = true;
+            _rememberedCrop = rect;
             var kept = 100.0 * rect.Width * rect.Height / (image.Width * (double)image.Height);
             // Which tier answered is worth a word: one is the master's own record of what it covered, the
             // other is measured off the noise and can be short of the mark. "Edge held" names the case
@@ -919,6 +962,12 @@ public sealed class ViewerController(
             if (Document is { } original)
             {
                 enhancedDoc.InheritColorCalibration(original);
+            }
+            // The enhanced pixels ARE the crop, so the display crop has to come off -- left on, it would
+            // crop the crop. It is remembered (as every crop is), which is what puts it back on revert.
+            if (enhancedDoc.SourceCrop is not null)
+            {
+                state.DisplayCrop = null;
             }
             Document = enhancedDoc;
             _rawSource = enhancedDoc;

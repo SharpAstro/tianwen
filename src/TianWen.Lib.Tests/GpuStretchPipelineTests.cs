@@ -210,7 +210,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
             CD2_2 = -pixelScaleDeg,
         };
 
-        var doc = await AstroImageDocument.AdoptImageAsync(bayerImage, DebayerAlgorithm.AHD, wcs, filePath: "synthetic.fits", ct);
+        var doc = await AstroImageDocument.AdoptImageAsync(bayerImage, DebayerAlgorithm.AHD, wcs, filePath: "synthetic.fits", cancellationToken: ct);
         await doc.DetectStarsAsync(ct);
         await doc.ComputeSpccColorCalibrationAsync(db, ct);
         doc.ColorCalibration.ShouldNotBeNull();

@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -49,6 +50,20 @@ public sealed class AstroImageDocument : IPreviewSource
 
     /// <summary>WCS solution, available after plate solving.</summary>
     public WCS? Wcs { get; private set; }
+
+    /// <summary>
+    /// Where this document's pixels came from in a LARGER frame, or null when they are the whole frame.
+    /// Set when an enhance is run on a cropped view: the pipeline is handed the crop, so the result IS
+    /// the crop and there is no border left to hide.
+    /// </summary>
+    /// <remarks>
+    /// The document owning this rather than the viewer holding a flag is what keeps the rules in one
+    /// place: the crop button gates on it (there is nothing left to crop), <see cref="Wcs"/> has already
+    /// been translated by it, and anything wanting the original frame's pixel coordinates adds its
+    /// origin. A UI flag would have to be cleared on every path that replaces the document, and the one
+    /// that was missed would be a document claiming a crop it does not have.
+    /// </remarks>
+    public Rectangle? SourceCrop { get; private init; }
 
     /// <summary>Per-channel statistics computed from the raw image.</summary>
     public ImageHistogram[] ChannelStatistics { get; }
@@ -357,7 +372,7 @@ public sealed class AstroImageDocument : IPreviewSource
     /// <c>Adopt</c> in the name states, per the rule that ownership transfer is visible in the name.
     /// See the frame-ownership notes on <see cref="Image"/>.</para>
     /// </remarks>
-    public static async Task<AstroImageDocument> AdoptImageAsync(Image image, DebayerAlgorithm algorithm = DebayerAlgorithm.VNG, WCS? wcs = null, string filePath = "", CancellationToken cancellationToken = default)
+    public static async Task<AstroImageDocument> AdoptImageAsync(Image image, DebayerAlgorithm algorithm = DebayerAlgorithm.VNG, WCS? wcs = null, string filePath = "", Rectangle? sourceCrop = null, CancellationToken cancellationToken = default)
     {
         // For Bayer images: skip CPU debayer but normalize to [0,1] so stretch stats
         // match the existing histogram-based computation, and because the shader's VNG thresholds
@@ -399,7 +414,10 @@ public sealed class AstroImageDocument : IPreviewSource
             perChannelBg,
             lumaBg,
             wcs,
-            DetectPreStretched(viewImage, perChannelStats));
+            DetectPreStretched(viewImage, perChannelStats))
+        {
+            SourceCrop = sourceCrop,
+        };
     }
 
     /// <summary>
@@ -440,7 +458,7 @@ public sealed class AstroImageDocument : IPreviewSource
             }
         }
 
-        return await AdoptImageAsync(rawImage, algorithm, fileWcs, filePath, cancellationToken);
+        return await AdoptImageAsync(rawImage, algorithm, fileWcs, filePath, cancellationToken: cancellationToken);
     }
 
     private static async Task<AstroImageDocument?> OpenImageFileAsync(string filePath, CancellationToken cancellationToken)
