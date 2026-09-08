@@ -7,14 +7,43 @@ using TianWen.Lib.Imaging;
 
 namespace TianWen.UI.Abstractions
 {
-    /// <summary>One entry in the image context menu: what it says, what it copies, and how the status
+    /// <summary>What picking an entry does with its payload.</summary>
+    public enum ImageContextMenuAction
+    {
+        /// <summary>Put the payload on the clipboard. The default, and what every entry did before an
+        /// entry existed that could not sensibly be one.</summary>
+        Copy,
+
+        /// <summary>Open the payload as a URL in the reader's browser. Goes out as an
+        /// <c>OpenUrlSignal</c> rather than starting a process, because opening a URL is a shell call
+        /// and this assembly is shared with the WebAssembly build.</summary>
+        OpenUrl,
+    }
+
+    /// <summary>One entry in the image context menu: what it says, what it carries, and how the status
     /// bar names it afterwards.</summary>
     /// <param name="Label">Menu text. Carries the value itself, so the menu answers the question
     /// without anything being copied at all.</param>
     /// <param name="Description">What the status line calls it ("Copied RA / Dec").</param>
-    /// <param name="Payload">Clipboard text. May be multi-line: a second line is an alternative
-    /// notation of the same value, never a different value.</param>
-    public readonly record struct ImageContextMenuItem(string Label, string Description, string Payload);
+    /// <param name="Payload">Clipboard text, or the URL for <see cref="ImageContextMenuAction.OpenUrl"/>.
+    /// May be multi-line: a second line is an alternative notation of the same value, never a different
+    /// value.</param>
+    /// <param name="Action">What to do with <paramref name="Payload"/>. Copy unless stated, which is
+    /// also what <c>default</c> gives.</param>
+    public readonly record struct ImageContextMenuItem(
+        string Label,
+        string Description,
+        string Payload,
+        ImageContextMenuAction Action = ImageContextMenuAction.Copy);
+
+    /// <summary>
+    /// The catalogued object the click landed on, resolved by the caller because only it holds the
+    /// object database. Both halves are worth their own entry: the NAME is what a person searches for
+    /// and the DESIGNATION is what a tool takes.
+    /// </summary>
+    /// <param name="Name">Best common name, or the canonical designation when the object has none.</param>
+    /// <param name="Designation">Canonical catalogue designation, e.g. "NGC 6523".</param>
+    public readonly record struct ImageContextMenuObject(string Name, string Designation);
 
     /// <summary>
     /// Builds the right-click menu for a pixel. Pure and non-generic on purpose: the renderer that
@@ -40,8 +69,13 @@ namespace TianWen.UI.Abstractions
         /// When the frame was taken, for the share link's <c>t=</c>. Null (or a sentinel) drops that
         /// parameter and the atlas opens at the reader's "now".
         /// </param>
+        /// <param name="nearest">
+        /// The catalogued object under the cursor, when the caller could resolve one. Its two entries
+        /// lead, because a click on a marked object is nearly always about the object.
+        /// </param>
         public static ImmutableArray<ImageContextMenuItem> ItemsFor(
-            PixelInfo pixel, double? fovDeg = null, DateTimeOffset? capturedUtc = null)
+            PixelInfo pixel, double? fovDeg = null, DateTimeOffset? capturedUtc = null,
+            ImageContextMenuObject? nearest = null)
         {
             var hasSky = pixel.RA.HasValue && pixel.Dec.HasValue;
             if (pixel.Values.Length == 0 && !hasSky)
@@ -49,7 +83,21 @@ namespace TianWen.UI.Abstractions
                 return ImmutableArray<ImageContextMenuItem>.Empty;
             }
 
-            var builder = ImmutableArray.CreateBuilder<ImageContextMenuItem>(4);
+            var builder = ImmutableArray.CreateBuilder<ImageContextMenuItem>(6);
+
+            if (nearest is { } obj)
+            {
+                builder.Add(new ImageContextMenuItem(
+                    $"Copy object name   {obj.Name}", "object name", obj.Name));
+
+                // Only when it says something the name did not: an object with no common name has its
+                // designation AS its name, and two entries with the same value is noise.
+                if (!string.Equals(obj.Designation, obj.Name, StringComparison.Ordinal))
+                {
+                    builder.Add(new ImageContextMenuItem(
+                        $"Copy catalogue number   {obj.Designation}", "catalogue number", obj.Designation));
+                }
+            }
 
             if (hasSky)
             {
@@ -85,12 +133,18 @@ namespace TianWen.UI.Abstractions
             // atlas at. The label does not carry the URL the way the others carry their values -- a
             // hundred-character link would be the widest thing in the menu and unreadable at that size,
             // so this is the one item where the payload is worth more than the preview.
+            //
+            // It OPENS the atlas rather than copying its link. Copying was the first shape and it made
+            // the reader do the other half of the job: paste it somewhere, in a browser they had to find
+            // themselves, to see the sky they had just clicked on. Nothing is lost -- a browser's address
+            // bar holds the same link, now with the page it names in front of it.
             if (hasSky)
             {
                 builder.Add(new ImageContextMenuItem(
-                    "Copy sky atlas link",
-                    "sky atlas link",
-                    SkyAtlasLink.For(pixel.RA!.Value, pixel.Dec!.Value, fovDeg, capturedUtc)));
+                    "Open in sky atlas",
+                    "sky atlas",
+                    SkyAtlasLink.For(pixel.RA!.Value, pixel.Dec!.Value, fovDeg, capturedUtc),
+                    ImageContextMenuAction.OpenUrl));
             }
 
             return builder.ToImmutable();
