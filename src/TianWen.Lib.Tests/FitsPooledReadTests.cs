@@ -140,15 +140,32 @@ namespace TianWen.Lib.Tests
             var before = Array2DPool<float>.RetainedBytes;
             var evictionsBefore = Array2DPool<float>.BudgetEvictionCount;
 
-            // 40 distinct shapes x 8 MiB each is 320 MiB, comfortably past the 256 MiB ceiling.
+            const long Budget = 256L * 1024 * 1024;
+
+            // Accumulation across distinct shapes: 40 x ~8 MiB, none of which fills its own bucket.
+            // The assertion inside the loop is the CEILING, which is trim-safe by construction: the
+            // Gen2 trim only ever lowers the retained total, so it can make this pass sooner but
+            // never fail it.
             const int side = 1448; // 1448^2 x 4 B ~ 8 MiB
             for (var i = 0; i < 40; i++)
             {
                 Array2DPool<float>.Return(new float[side + i, side]);
+                Array2DPool<float>.RetainedBytes.ShouldBeLessThanOrEqualTo(Budget,
+                    "the budget must refuse a return rather than let the pool grow past its ceiling");
             }
 
-            Array2DPool<float>.RetainedBytes.ShouldBeLessThanOrEqualTo(256L * 1024 * 1024);
-            Array2DPool<float>.BudgetEvictionCount.ShouldBeGreaterThan(evictionsBefore);
+            // The REFUSAL itself, proved in one return rather than by accumulating to the ceiling and
+            // hoping it is still there. One array larger than the whole budget is over it from any
+            // starting state, including an empty pool, so this cannot race the trim.
+            //
+            // It is what the loop above used to assert, and could only assert while the pool survived
+            // 320 MiB of allocation: measured on a box at 88% memory load, that loop itself takes the
+            // machine to 95%, where the trim drops every pooled array and the ceiling is never
+            // reached. The eviction count then never moves and the test fails having exercised the
+            // right code with the wrong preconditions.
+            Array2DPool<float>.Return(new float[8192, 8256]); // 258 MiB, past the 256 MiB budget alone
+            Array2DPool<float>.BudgetEvictionCount.ShouldBeGreaterThan(evictionsBefore,
+                "a single array bigger than the whole budget must be refused whatever else is pooled");
 
             // Renting each shape back must leave the accounting non-negative -- a mismatched
             // credit here would make the pool believe it is permanently full.
@@ -187,7 +204,14 @@ namespace TianWen.Lib.Tests
             }
 
             var returnsBefore = Array2DPool<float>.ReturnCount;
-            var hitsBefore = Array2DPool<float>.HitCount;
+
+            // Rents, counted as hits + misses, because whether a rent HITS is not this build's to
+            // decide. A median needs every frame resident at once, so CombinePooledAsync loads them
+            // all and releases them only in its finally: no rent here can reuse an earlier frame of
+            // this same build, and a hit could only come from what some earlier test happened to
+            // leave in the pool. Asserting one made this depend on test order and on the pool
+            // surviving the Gen2 trim, which drops everything above 90% memory load by design.
+            var rentsBefore = Array2DPool<float>.HitCount + Array2DPool<float>.MissCount;
 
             var master = await MasterFrameBuilder.BuildBiasMasterAsync(infos, TestContext.Current.CancellationToken);
 
@@ -204,8 +228,9 @@ namespace TianWen.Lib.Tests
             // being written down.
             Array2DPool<float>.ReturnCount.ShouldBeGreaterThanOrEqualTo(returnsBefore + Frames,
                 "each loaded frame is released once the combine has read it");
-            Array2DPool<float>.HitCount.ShouldBeGreaterThan(hitsBefore,
-                "and the second frame onwards must be renting what the first handed back");
+            (Array2DPool<float>.HitCount + Array2DPool<float>.MissCount)
+                .ShouldBeGreaterThanOrEqualTo(rentsBefore + Frames,
+                    "every frame is read THROUGH the pool, which is what pooling being reverted would undo");
 
             // The master itself is NOT pooled: it outlives the build and is the thing the caller keeps.
             master.GetChannel(0).Buffer.ShouldBeNull();
