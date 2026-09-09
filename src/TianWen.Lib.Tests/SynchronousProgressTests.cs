@@ -46,7 +46,7 @@ namespace TianWen.Lib.Tests
             {
                 progress.Report("step 1");
                 progress.Report("step 2");
-            });
+            }, TestContext.Current.CancellationToken);
             status = "done";
 
             status.ShouldBe("done");

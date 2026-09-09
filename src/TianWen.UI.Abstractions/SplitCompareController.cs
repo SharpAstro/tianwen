@@ -173,7 +173,7 @@ namespace TianWen.UI.Abstractions
         /// to compare PIXELS -- which also makes the mode a consequence of what exists rather than a
         /// setting to learn.
         /// </remarks>
-        public void Toggle(bool hasBeforePixels)
+        public void Toggle(bool hasBeforePixels, bool hasCrop = false)
         {
             if (IsOn)
             {
@@ -185,6 +185,13 @@ namespace TianWen.UI.Abstractions
             if (hasBeforePixels)
             {
                 Mode = SplitCompare.BeforePixels;
+            }
+            else if (hasCrop)
+            {
+                // A crop with nothing enhanced yet: what the user just did IS the difference, and the
+                // question it raises -- what did that take off? -- has no other answer in the app.
+                // Pinning the settings here would put two identically-framed halves on screen instead.
+                Mode = SplitCompare.CropExtent;
             }
             else
             {
@@ -212,7 +219,7 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         public void AdoptBeforePixels()
         {
-            if (IsOn && Mode is SplitCompare.PinnedSettings)
+            if (IsOn && Mode is SplitCompare.PinnedSettings or SplitCompare.CropExtent)
             {
                 Mode = SplitCompare.BeforePixels;
             }
@@ -285,7 +292,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         /// <param name="hasBeforePixels">Whether the backend is holding pre-enhance pixels.</param>
         /// <param name="dpiScale">Scales <see cref="MinHalfWidth"/> into surface pixels.</param>
-        public float? ResolveDividerX(bool hasBeforePixels, float dpiScale)
+        public float? ResolveDividerX(bool hasBeforePixels, float dpiScale, bool hasCrop = false)
         {
             if (Fraction is not { } fraction)
             {
@@ -297,6 +304,7 @@ namespace TianWen.UI.Abstractions
             var available = Mode switch
             {
                 SplitCompare.BeforePixels => hasBeforePixels,
+                SplitCompare.CropExtent => hasCrop,
                 _ => Pinned is not null,
             };
             if (!available)
@@ -316,10 +324,17 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>The rendition the left half draws with, given the one being displayed live.</summary>
         public DisplayRendition ComparisonRendition(in DisplayRendition live)
-            => Mode is SplitCompare.BeforePixels ? live : Pinned ?? live;
+            => Mode is SplitCompare.BeforePixels or SplitCompare.CropExtent ? live : Pinned ?? live;
 
         /// <summary>Whether the left half samples the retained pixels rather than the live ones.</summary>
         public bool ComparesPixels => Mode is SplitCompare.BeforePixels;
+
+        /// <summary>
+        /// Whether the left half is the same pixels WITHOUT the display crop. The one mode whose halves
+        /// deliberately cover different areas of the frame; every other one differs in what is drawn,
+        /// not in how much.
+        /// </summary>
+        public bool ComparesCropExtent => Mode is SplitCompare.CropExtent;
 
         /// <summary>What each half is, named for the user.</summary>
         /// <remarks>
@@ -342,6 +357,13 @@ namespace TianWen.UI.Abstractions
         /// </param>
         public (string Left, string Right) HalfLabels(in DisplayControls live, bool pixelsEnhanced = false)
         {
+            if (Mode is SplitCompare.CropExtent)
+            {
+                // Names the axis, which here is the FRAME rather than the pixels: same data, same dials,
+                // one side showing what the crop took off.
+                return ("Uncropped", "Cropped");
+            }
+
             if (Mode is SplitCompare.BeforePixels)
             {
                 // Pixel comparison: the display settings are IDENTICAL on both halves by construction

@@ -335,7 +335,7 @@ namespace TianWen.UI.Abstractions
             // The split draws two renditions into complementary clips of one pane. Caching it would need
             // a layer per rendition, and the split is a deliberate, transient comparison gesture -- not
             // the state a viewer sits in while the user reads the status bar. So it renders directly.
-            if (Split.ResolveDividerX(HasBeforeImageTextures, DpiScale) is not null)
+            if (Split.ResolveDividerX(HasBeforeImageTextures, DpiScale, _cropActive) is not null)
             {
                 _cachedLayerLastMiss = "before/after split is open";
                 return false;

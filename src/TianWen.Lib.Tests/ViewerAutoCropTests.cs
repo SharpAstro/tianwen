@@ -139,6 +139,10 @@ namespace TianWen.Lib.Tests
 
             public RectF32 Shown => ShownImageRect;
 
+            public RectF32 LastComparisonHalfClipForTest => LastComparisonHalfClip;
+
+            public RectF32 LastLiveHalfClipForTest => LastLiveHalfClip;
+
             public RectF32 ImageArea => ImageAreaRect;
         }
 
@@ -424,6 +428,98 @@ namespace TianWen.Lib.Tests
             // ...and offset so the crop's own origin lands on the live half's origin.
             (compare.X + (crop.X * scale)).ShouldBe(viewer.QuadLeft, 0.01f);
             (compare.Y + (crop.Y * scale)).ShouldBe(viewer.QuadTop, 0.01f);
+        }
+
+        /// <summary>
+        /// Crop, then A/B, with nothing enhanced: the halves compare CROPPED against UNCROPPED, which is
+        /// the question a crop raises and which no other mode can answer.
+        /// </summary>
+        /// <remarks>
+        /// Comparing pixels needs an enhance to have retained some, and comparing settings puts two
+        /// identically-framed halves on screen. So a crop with nothing enhanced used to light up the
+        /// settings comparison, i.e. the least informative of the three. The implementation is one
+        /// clip: the quad already covers the whole frame at the right place, so the comparison half
+        /// simply is not narrowed to the crop.
+        /// </remarks>
+        [Fact]
+        public void ACropWithNoEnhanceComparesCroppedAgainstUncropped()
+        {
+            var (viewer, state) = NewViewer();
+            state.DisplayCrop = new Rectangle(40, 30, 200, 150);
+            viewer.Render(null, state);
+
+            viewer.Split.Toggle(hasBeforePixels: false, hasCrop: true);
+            viewer.Split.Mode.ShouldBe(SplitCompare.CropExtent);
+            viewer.Split.HalfLabels(DisplayControls.Defaults).ShouldBe(("Uncropped", "Cropped"));
+
+            viewer.Render(null, state);
+
+            // Both halves must actually have been drawn: an empty clip would satisfy every bound below
+            // by drawing nothing, which is how a split that never engaged reads as a passing test.
+            viewer.LastComparisonHalfClipForTest.Width.ShouldBeGreaterThan(1f);
+            viewer.LastLiveHalfClipForTest.Width.ShouldBeGreaterThan(1f);
+
+            // The live half is bounded by the crop; the comparison half is not, which is what lets it
+            // show the band the crop took off.
+            var shown = viewer.Shown;
+            const float Tolerance = 0.01f;
+            viewer.LastLiveHalfClipForTest.Width.ShouldBeLessThanOrEqualTo(shown.Width + Tolerance);
+            viewer.LastComparisonHalfClipForTest.X.ShouldBeLessThan(shown.X - Tolerance);
+        }
+
+        /// <summary>
+        /// The BUTTON picks the same comparison as the key. The viewer has two press dispatchers and
+        /// they have silently disagreed before (P17's single-click), so the toolbar path is asserted
+        /// separately rather than assumed to share the keyboard's.
+        /// </summary>
+        [Fact]
+        public void TheCompareButtonPicksTheCropComparisonToo()
+        {
+            var (viewer, state) = NewViewer();
+            state.DisplayCrop = new Rectangle(40, 30, 200, 150);
+            viewer.Render(null, state);
+
+            ViewerActions.HandleToolbarAction(state, document: null, ToolbarAction.Compare,
+                split: viewer.Split, hasBeforePixels: false, hasCrop: viewer.HasDisplayCrop);
+
+            viewer.HasDisplayCrop.ShouldBeTrue("the renderer is what knows a crop is in force");
+            viewer.Split.Mode.ShouldBe(SplitCompare.CropExtent);
+            viewer.Split.IsOn.ShouldBeTrue();
+        }
+
+        /// <summary>
+        /// After an enhance BAKED a crop in, the two halves show the SAME region and differ only by the
+        /// enhancement -- the opposite rule to the one above, and deliberately so.
+        /// </summary>
+        /// <remarks>
+        /// The retained texture is the uncropped original, so without this the left half also changes
+        /// the FRAME and the comparison answers two questions at once. The placement already aligns the
+        /// two; this bounds the before half to the live quad so it stops there.
+        /// </remarks>
+        [Fact]
+        public async Task AnEnhancedCropComparesTheSameRegionOnBothHalves()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var (viewer, state) = NewViewer();
+            var crop = new Rectangle(8, 6, ImageW - 16, ImageH - 18);
+
+            var baked = await AstroImageDocument.AdoptImageAsync(SyntheticFrame(crop.Width, crop.Height),
+                DebayerAlgorithm.None, filePath: "master.fits", sourceCrop: crop, cancellationToken: ct);
+            viewer.UploadChannelTexture(ReadOnlySpan<float>.Empty, 0, crop.Width, crop.Height);
+            viewer.BeforeSize = (ImageW, ImageH);
+            viewer.Split.Mode = SplitCompare.BeforePixels;
+            viewer.Split.Toggle(hasBeforePixels: true);
+
+            viewer.Render(baked, state);
+
+            // The comparison half stops at the live quad: no part of it shows frame the After half lacks.
+            var compare = viewer.LastComparisonHalfClipForTest;
+            compare.Width.ShouldBeGreaterThan(1f, "an empty clip would pass every bound below");
+            const float Tolerance = 0.01f;
+            compare.X.ShouldBeGreaterThanOrEqualTo(viewer.QuadLeft - Tolerance);
+            compare.Y.ShouldBeGreaterThanOrEqualTo(viewer.QuadTop - Tolerance);
+            (compare.X + compare.Width).ShouldBeLessThanOrEqualTo(viewer.QuadLeft + viewer.QuadWidth + Tolerance);
+            (compare.Y + compare.Height).ShouldBeLessThanOrEqualTo(viewer.QuadTop + viewer.QuadHeight + Tolerance);
         }
 
         private static Image SyntheticFrame(int width = ImageW, int height = ImageH)

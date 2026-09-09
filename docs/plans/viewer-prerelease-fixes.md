@@ -1147,6 +1147,35 @@ what makes the two frames comparable at all; zero means "same frame as live", wh
 comparison was until now. Pinned by
 `ViewerAutoCropTests.TheBeforeHalfIsPlacedByItsOwnFrameWhenAnEnhanceBakedACropIn`.
 
+### A/B is TWO comparisons where a crop is involved, and they want opposite things  (2026-09-09)
+
+Stated by the user after driving the aligned split: *"there's two behaviours. open frame, press crop,
+A|B should compare crop vs uncrop. open frame, crop, run enhance, A|B should compare before=crop vs
+after=cropped + enhanced."* Both are right, and the rules are opposites -- which is why one clip could
+never serve both, and why the first attempt at this section argued for keeping the extents different
+and the second for clipping them the same.
+
+- **Crop, no enhance -> `SplitCompare.CropExtent`,** labelled "Uncropped | Cropped". The halves
+  deliberately cover DIFFERENT areas: same pixels, same dials, one side showing the band and ring the
+  crop took off. It answers the question a crop actually raises, and nothing else in the app can --
+  comparing pixels needs an enhance to have retained some, and comparing settings puts two
+  identically-framed halves on screen, which is what a crop used to light up. The implementation is one
+  clip: the quad already covers the whole frame at the right place (the placement backs its origin off
+  by the crop), so the comparison half is simply NOT narrowed.
+- **Crop then enhance -> `BeforePixels`, bounded to the live quad.** Here the retained texture is the
+  uncropped original and the live frame is the crop, so an unbounded half changes the FRAME as well as
+  the pixels and the comparison answers two questions at once. Both halves show the same region and
+  differ only by the enhancement.
+
+**Retained pixels still win** (`Toggle`, and `AdoptBeforePixels` for an enhance that lands while the
+split is already up, which now also switches out of `CropExtent`): a user who just enhanced is asking
+about the enhance. **Both press dispatchers pass the crop state** -- the keyboard through
+`Split.Toggle`, the button through `ViewerActions.HandleToolbarAction` -- because those two have
+silently disagreed before (P17's single-click) and a mode chosen one way and not the other is exactly
+the shape that survives review. Pinned by `ACropWithNoEnhanceComparesCroppedAgainstUncropped`,
+`AnEnhancedCropComparesTheSameRegionOnBothHalves` and `TheCompareButtonPicksTheCropComparisonToo`, each
+red with only its own rule removed.
+
 **One real race fell out of the full suite, in the status line rather than the pixels.**
 `EnhanceActions` built its progress sink with `Progress<T>`, which posts each report to the captured
 context -- and inside `Task.Run` there is none, so reports go to the pool and one queued during the run

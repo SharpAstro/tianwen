@@ -756,7 +756,8 @@ bool HandleMouseDown(InputEvent.MouseDown down)
             // Base handles pure state; controller handles DI-dependent actions
             var reverse = down.Button == MouseButton.Right;
             if (!ViewerActions.HandleToolbarAction(state, controller.Document, toolbarAction, reverse,
-                    split: imageRenderer.Split, hasBeforePixels: imageRenderer.HasBeforeImageTextures))
+                    split: imageRenderer.Split, hasBeforePixels: imageRenderer.HasBeforeImageTextures,
+                    hasCrop: imageRenderer.HasDisplayCrop))
             {
                 controller.HandleToolbarAction(toolbarAction, reverse, cts.Token);
             }

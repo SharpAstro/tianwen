@@ -438,6 +438,15 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         public virtual bool HasBeforeImageTextures => false;
 
+        /// <summary>The clip the A/B comparison (left) half was last drawn under. A read-back for tests:
+        /// the clip is where each split mode's rule actually lands, and it cannot be observed from the
+        /// pixels of a stub renderer.</summary>
+        internal RectF32 LastComparisonHalfClip { get; private set; }
+
+        /// <summary>The clip the A/B live (right) half was last drawn under. See
+        /// <see cref="LastComparisonHalfClip"/>.</summary>
+        internal RectF32 LastLiveHalfClip { get; private set; }
+
         /// <summary>
         /// Size of the retained "before" textures, or (0, 0) when the backend has none. Zero means "the
         /// same frame as the live image", which is what every comparison was until an enhance could bake
@@ -1163,7 +1172,7 @@ namespace TianWen.UI.Abstractions
             // bar behind everywhere the picture does not reach (P24).
             FillRect(area.X, area.Y, area.Width, area.Height, CanvasBackground);
 
-            if (Split.ResolveDividerX(HasBeforeImageTextures, DpiScale) is not { } splitX)
+            if (Split.ResolveDividerX(HasBeforeImageTextures, DpiScale, _cropActive) is not { } splitX)
             {
                 // Clipped to the pane, for the same reason the split halves below are: the quad is
                 // sized to the ZOOMED image, so once it exceeds the pane it reaches under the file
@@ -1223,7 +1232,25 @@ namespace TianWen.UI.Abstractions
             // BEYOND the image area when zoomed in (ConfineToViewport lets it cover the pane rather than
             // sit inside it), and a scissor set here would REPLACE an enclosing clip instead of narrowing
             // it, with nothing to put it back.
-            var leftHalf = ClipToShown(new RectF32(area.X, area.Y, splitX - area.X, area.Height));
+            // Each mode wants a different left half, and the difference is the whole point of it:
+            //
+            //  - CropExtent shows what the crop TOOK OFF, so its half must NOT be narrowed to the crop.
+            //    The quad already covers the whole frame at the right place (the placement backs its
+            //    origin off by the crop), so simply not narrowing is the entire implementation.
+            //  - BeforePixels after a crop was baked into an enhance is the opposite: the retained
+            //    texture is the uncropped original, and a comparison that also changed the FRAME would
+            //    be answering two questions at once. Bounded to the live quad, so both halves show the
+            //    same region and only the enhancement differs.
+            //  - Anything else is the same frame on both sides and takes the ordinary narrowing.
+            var leftRect = new RectF32(area.X, area.Y, splitX - area.X, area.Height);
+            var leftHalf = Split.ComparesCropExtent
+                ? leftRect
+                : ClipToShown(leftRect);
+            if (comparesPixels && (compareLeft != p.OffsetX || compareTop != p.OffsetY))
+            {
+                leftHalf = Intersect(leftHalf, new RectF32(p.OffsetX, p.OffsetY, p.DrawW, p.DrawH));
+            }
+            LastComparisonHalfClip = leftHalf;
             PushClip(leftHalf.X, leftHalf.Y, leftHalf.Width, leftHalf.Height);
             RenderImageQuad(source, state, comparison, gridWcs,
                 compareLeft, compareTop, compareLeft + compareW, compareTop + compareH, Width, Height,
@@ -1231,6 +1258,7 @@ namespace TianWen.UI.Abstractions
             PopClip();
 
             var rightHalf = ClipToShown(new RectF32(splitX, area.Y, area.Right - splitX, area.Height));
+            LastLiveHalfClip = rightHalf;
             PushClip(rightHalf.X, rightHalf.Y, rightHalf.Width, rightHalf.Height);
             RenderImageQuad(source, state, live, gridWcs,
                 p.OffsetX, p.OffsetY, p.OffsetX + p.DrawW, p.OffsetY + p.DrawH, Width, Height,
