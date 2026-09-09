@@ -45,6 +45,28 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public const float TopOffset = Margin;
 
+        /// <summary>Untouched for this long, the panel starts to recede. Seconds.</summary>
+        public const float IdleDelaySeconds = 2.5f;
+
+        /// <summary>How long the recede takes once it starts. Seconds.</summary>
+        public const float FadeSeconds = 0.4f;
+
+        /// <summary>
+        /// What the panel fades TO, as a factor on every colour's alpha. Not to nothing: a reader who
+        /// has forgotten the panel is there should still see that it is, and which layers are lit,
+        /// without moving the pointer to find out.
+        /// </summary>
+        public const float IdleAlpha = 0.40f;
+
+        /// <summary>
+        /// The fade factor for a panel last engaged <paramref name="idleSeconds"/> ago. Hover or a
+        /// live drag holds it fully present. Pure, so the curve is testable without a clock.
+        /// </summary>
+        public static float FadeFor(float idleSeconds, bool engaged)
+            => engaged || idleSeconds <= IdleDelaySeconds ? 1f
+                : idleSeconds >= IdleDelaySeconds + FadeSeconds ? IdleAlpha
+                : 1f - (1f - IdleAlpha) * ((idleSeconds - IdleDelaySeconds) / FadeSeconds);
+
         // Alpha is the point of these, not decoration. This panel sits ON the sky, and an opaque card
         // is a hole punched in the thing the reader came to look at -- the first cut set 0xE0 on the
         // panel and then 0xFF on every row, which is most of its area, so it was opaque in all but
@@ -81,12 +103,27 @@ namespace TianWen.UI.Abstractions
         /// <param name="state">Read for each layer's on/off and availability.</param>
         /// <param name="fontSize">Row text size in DESIGN units.</param>
         /// <param name="onToggle">Invoked with the layer a click landed on.</param>
-        public static Layout.Node Build(SkyMapState state, float fontSize, Action<SkyMapLayer> onToggle)
+        /// <param name="onGripPress">
+        /// Invoked when the grip is pressed, to begin a drag. A press, not a release: the host
+        /// dispatches a widget's clickable regions from its mouse-DOWN handler, which is also why the
+        /// grip has to be a region at all rather than a rect the tab hit-tests itself -- a press that
+        /// lands on any region never reaches the tab's own <c>MouseDown</c> path.
+        /// </param>
+        /// <param name="fade">
+        /// Alpha factor over every colour in the panel, from <see cref="FadeFor"/>. 1 is fully
+        /// present; lower is the idle recede.
+        /// </param>
+        public static Layout.Node Build(SkyMapState state, float fontSize, Action<SkyMapLayer> onToggle,
+            Action onGripPress, float fade = 1f)
         {
             ArgumentNullException.ThrowIfNull(state);
             ArgumentNullException.ThrowIfNull(onToggle);
+            ArgumentNullException.ThrowIfNull(onGripPress);
 
             var layers = SkyMapLayers.All;
+            // WithAlpha PREMULTIPLIES by the mask it is given, so the mask IS the fade -- passing
+            // "this colour's alpha times the fade" would apply the alpha twice and dim a panel at rest.
+            RGBAColor32 Faded(RGBAColor32 c) => c.WithAlpha((byte)Math.Clamp(fade * 255f, 0f, 255f));
 
             // Header plus one row per layer. Built into an array rather than a params span because the
             // count is the table's, not a literal.
@@ -94,13 +131,13 @@ namespace TianWen.UI.Abstractions
 
             // The header IS the grip. A separate handle would cost a row and teach nothing: a title
             // bar is where a reader already tries to drag a panel from, and the Move cursor over it
-            // says so before they try. The drag itself is the tab's (it owns the pointer), and this
-            // only has to be findable in the arranged tree -- hence the action id.
-            children[0] = Layout.Builder.Text("LAYERS", fontSize * 0.85f, HeaderInk,
+            // says so before they try. Pressing it BEGINS the drag; the moves and the release are the
+            // tab's, since only the tab sees them.
+            children[0] = Layout.Builder.Text("LAYERS", fontSize * 0.85f, Faded(HeaderInk),
                     TextAlign.Near, TextAlign.Center)
                 .RowH(RowHeight * 0.9f)
-                .Bg(GripBg)
-                .Clickable(new HitResult.ButtonHit(GripAction), _ => { }, CursorKind.Move);
+                .Bg(Faded(GripBg))
+                .Clickable(new HitResult.ButtonHit(GripAction), _ => onGripPress(), CursorKind.Move);
 
             for (var i = 0; i < layers.Length; i++)
             {
@@ -109,25 +146,25 @@ namespace TianWen.UI.Abstractions
                 var layer = layers[i];
                 var available = layer.Available(state);
                 var on = available && layer.IsOn(state);
-                var ink = !available ? DisabledInk : on ? OnInk : OffInk;
+                var ink = Faded(!available ? DisabledInk : on ? OnInk : OffInk);
 
                 var row = Layout.Builder.HStack(
                         Layout.Builder.Text(layer.KeyLabel, fontSize, ink,
                                 TextAlign.Center, TextAlign.Center)
-                            .WFixed(13f).HStar().Bg(KeyChipBg),
+                            .WFixed(13f).HStar().Bg(Faded(KeyChipBg)),
                         Layout.Builder.Text(layer.Label, fontSize, ink,
                                 TextAlign.Near, TextAlign.Center)
                             .WStar().HStar())
                     .WithGap(5f)
                     .RowH(RowHeight)
-                    .Bg(on ? RowOnBg : RowOffBg);
+                    .Bg(Faded(on ? RowOnBg : RowOffBg));
 
                 // A layer with nothing to draw is shown and dimmed rather than hidden: a row that comes
                 // and goes is a palette whose shape moves under the pointer, and "Milky Way, greyed"
                 // tells the reader the texture is missing where an absent row tells them nothing.
                 if (available)
                 {
-                    row = row.BgHover(RowHoverBg)
+                    row = row.BgHover(Faded(RowHoverBg))
                         .Clickable(new HitResult.ButtonHit(RowAction(in layer)),
                             _ => onToggle(layer), CursorKind.Pointer);
                 }
@@ -137,7 +174,7 @@ namespace TianWen.UI.Abstractions
 
             var panel = Layout.Builder.VStack(children)
                 .WFixed(PanelWidth)
-                .Bg(PanelBg)
+                .Bg(Faded(PanelBg))
                 .Pad(5f)
                 .WithGap(2f);
 

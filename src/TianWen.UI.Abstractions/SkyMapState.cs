@@ -106,13 +106,6 @@ namespace TianWen.UI.Abstractions
         public float LayerPaletteOffset { get; set; } = SkyMapLayerPalette.TopOffset;
 
         /// <summary>
-        /// The palette grip's arranged rect, stashed by the render pass so a mouse-down can be tested
-        /// against the same rect that was drawn. Render-thread only, like
-        /// <see cref="LastContentRect"/>.
-        /// </summary>
-        public RectF32 LayerPaletteGripRect { get; set; }
-
-        /// <summary>
         /// A grip drag in flight: where the pointer went down, and the offset the palette had then.
         /// Null when no drag is running. Anchoring to the START of both means the palette tracks the
         /// pointer exactly rather than accumulating rounding per move event.
