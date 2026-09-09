@@ -4,6 +4,7 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.Comets;
@@ -204,6 +205,58 @@ public class CometRepositoryTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// JPL being SLOW rather than absent, in the exact shape <see cref="HttpClient"/> reports it: a
+    /// <see cref="TaskCanceledException"/> -- which derives from <see cref="OperationCanceledException"/>
+    /// -- wrapping a <see cref="TimeoutException"/>. Nothing on the fetch path is cancellable, so this
+    /// is the only way an OCE can arise there, and a type-based `is not OperationCanceledException`
+    /// filter excludes exactly it.
+    /// </summary>
+    private sealed class TimingOutHorizons : IHorizonsCometSource
+    {
+        public int FetchCount;
+
+        public Task<CometElements?> TryFetchCurrentApparitionAsync(CometElements baseElements, DateTimeOffset at, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref FetchCount);
+            throw new TaskCanceledException(
+                "The request was canceled due to the configured HttpClient.Timeout of 120 seconds elapsing.",
+                new TimeoutException("A task was canceled."));
+        }
+    }
+
+    /// <summary>Records what actually reached the log, which is how a skipped catch is observed.</summary>
+    private sealed class RecordingLogger : ILogger<CometRepository>
+    {
+        private readonly List<Exception?> _entries = [];
+
+        /// <summary>True once an entry carrying a <typeparamref name="T"/> has been logged.</summary>
+        public bool Logged<T>() where T : Exception
+        {
+            lock (_entries)
+            {
+                foreach (var e in _entries)
+                {
+                    if (e is T)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            lock (_entries) { _entries.Add(exception); }
+        }
+    }
+
     // A stale periodic comet: epoch two revolutions back, which is the shape that puts a marker degrees
     // off and the only shape worth a network round-trip.
     private static CometElements StaleComet()
@@ -216,9 +269,10 @@ public class CometRepositoryTests(ITestOutputHelper output)
     private static CometElements RefreshedComet()
         => StaleComet() with { PerihelionJdTt = 2461254.615, EpochJdTt = 2461258.5 };
 
-    private static async Task<CometRepository> LoadedWithStaleCometAsync(FakeExternal external, IHorizonsCometSource horizons, ApparitionCacheFile? seed, CancellationToken ct)
+    private static async Task<CometRepository> LoadedWithStaleCometAsync(FakeExternal external, IHorizonsCometSource horizons, ApparitionCacheFile? seed, CancellationToken ct,
+        ILogger<CometRepository>? logger = null)
     {
-        var repo = new CometRepository(new FakeSbdbCometSource([StaleComet()]), horizons, new FakeApparitionSeed(seed), external, external.TimeProvider, NullLogger<CometRepository>.Instance);
+        var repo = new CometRepository(new FakeSbdbCometSource([StaleComet()]), horizons, new FakeApparitionSeed(seed), external, external.TimeProvider, logger ?? NullLogger<CometRepository>.Instance);
         await repo.EnsureLoadedAsync(ct);
         return repo;
     }
@@ -448,5 +502,55 @@ public class CometRepositoryTests(ITestOutputHelper output)
         var dRa = (ra1Hours - ra2Hours) * 15.0 * d2r;
         var cosSep = Math.Sin(d1) * Math.Sin(d2) + Math.Cos(d1) * Math.Cos(d2) * Math.Cos(dRa);
         return Math.Acos(Math.Clamp(cosSep, -1.0, 1.0)) / d2r;
+    }
+
+    /// <summary>
+    /// A Horizons request that TIMES OUT is a failed fetch like any other -- logged, backed off, and
+    /// never fatal.
+    /// </summary>
+    /// <remarks>
+    /// <para>The regression: <c>HttpClient.Timeout</c> reports itself by throwing
+    /// <c>TaskCanceledException</c>, which derives from <c>OperationCanceledException</c>, so the
+    /// <c>catch (Exception ex) when (ex is not OperationCanceledException)</c> this used to carry
+    /// excluded the one failure mode it was written for. Nothing on this path is given a cancellable
+    /// token -- every call takes <c>CancellationToken.None</c> -- so a genuine cancellation cannot
+    /// arise and that filter could only ever mean "let timeouts through".</para>
+    /// <para>The assertion is on the LOG, not on the elements, because the elements survive either way:
+    /// the fetch runs in a discarded <c>Task.Run</c>, so an escaped timeout became an unobserved
+    /// exception that changed nothing observable except that JPL being slow left no trace while a 404
+    /// from the same endpoint logged normally. The same filter in <c>tools/bake-comets</c>, where the
+    /// throw is NOT inside a discarded task, took the pages deploy down with exit 134.</para>
+    /// </remarks>
+    [Fact]
+    public async Task AHorizonsTimeoutIsLoggedAndBackedOffRatherThanEscaping()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var tp = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 8, 6, 0, 0, 0, TimeSpan.Zero));
+        var external = CreateExternal(tp);
+        var horizons = new TimingOutHorizons();
+        var logger = new RecordingLogger();
+        var repo = await LoadedWithStaleCometAsync(external, horizons, seed: null, ct, logger);
+        var index = StaleComet().CatalogIndex.ShouldNotBeNull();
+
+        repo.RequestCurrentApparition(index);
+        (await WaitForAsync(() => Volatile.Read(ref horizons.FetchCount) == 1)).ShouldBeTrue();
+
+        // The timeout was CAUGHT: it reached the log carrying its own exception. Without the fix the
+        // catch is skipped entirely and nothing is ever recorded.
+        (await WaitForAsync(logger.Logged<TaskCanceledException>)).ShouldBeTrue(
+            "an HttpClient timeout must be handled like any other failed fetch, not escape the catch");
+
+        // And it still counts as a failure for backoff, so a per-frame request storm buys nothing.
+        tp.Advance(TimeSpan.FromMinutes(30));
+        for (var i = 0; i < 50; i++)
+        {
+            repo.RequestCurrentApparition(index);
+        }
+        await Task.Delay(100, ct);
+        Volatile.Read(ref horizons.FetchCount).ShouldBe(1);
+
+        // The bulk elements stay in use throughout.
+        repo.TryGet(index, out var elements).ShouldBeTrue();
+        elements.PerihelionJdTt.ShouldBe(2457340.741, tolerance: 0.001);
     }
 }

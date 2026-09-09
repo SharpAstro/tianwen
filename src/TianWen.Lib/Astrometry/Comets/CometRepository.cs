@@ -313,7 +313,15 @@ internal sealed class CometRepository : ICometRepository
 
                 await PersistApparitionsAsync(CancellationToken.None);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            // No filter, deliberately. Nothing in this lambda is given a cancellable token -- every call
+            // takes CancellationToken.None -- so an OperationCanceledException reaching here can only be
+            // `HttpClient.Timeout` reporting itself as a TaskCanceledException, which derives from it.
+            // The `ex is not OperationCanceledException` filter this used to carry therefore excluded
+            // JPL being SLOW, the one failure mode most worth seeing: the task is discarded (`_ =
+            // Task.Run`), so it went out as an unobserved exception and the line below was never
+            // written, while a 404 from the same endpoint logged normally. The `finally` recorded the
+            // backoff either way, which is why this never presented as a retry storm.
+            catch (Exception ex)
             {
                 // Silent and harmless by design: the bulk elements stay in use and IsElementSetStale
                 // keeps reporting true, so the UI keeps flagging the position as approximate.
