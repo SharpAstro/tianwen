@@ -98,7 +98,7 @@ namespace TianWen.Lib.Tests
         public void ThePaletteBindsOneClickableRowPerAvailableLayer()
         {
             var state = StateWithMilkyWay();
-            var tree = SkyMapLayerPalette.Build(state, 12f, _ => { });
+            var tree = SkyMapLayerPalette.Build(state, 12f, _ => { }, () => { });
 
             var actions = ClickActions(tree);
 
@@ -119,7 +119,7 @@ namespace TianWen.Lib.Tests
             // stashing the rect. Rename the action or drop the binding and dragging silently stops
             // working, with nothing else failing: the panel still draws and every row still toggles.
             var arranged = Layout.Engine.Arrange(
-                SkyMapLayerPalette.Build(StateWithMilkyWay(), 12f, _ => { }),
+                SkyMapLayerPalette.Build(StateWithMilkyWay(), 12f, _ => { }, () => { }),
                 new Rect<float>(0f, 0f, 900f, 600f), new StubMeasure());
 
             var grip = arranged.Single(
@@ -127,6 +127,36 @@ namespace TianWen.Lib.Tests
 
             grip.Bounds.Width.ShouldBeGreaterThan(0f);
             grip.Bounds.Height.ShouldBeGreaterThan(0f);
+        }
+
+        [Fact]
+        public void PressingTheGripCallsBackSoTheTabCanBeginADrag()
+        {
+            // The host dispatches a widget's clickable regions from its MOUSE-DOWN handler and only
+            // forwards the press to the tab when NO region was hit, so a grip that is a region can
+            // never be picked up by the tab's own mouse-down path. This binding IS the drag's entry
+            // point; without it the cursor still turns into the move cross over a panel that cannot
+            // be moved, which is exactly how the first cut failed.
+            var pressed = 0;
+            var tree = SkyMapLayerPalette.Build(StateWithMilkyWay(), 12f, _ => { }, () => pressed++);
+
+            ClickActions(tree)[SkyMapLayerPalette.GripAction].Invoke(InputModifier.None);
+
+            pressed.ShouldBe(1);
+        }
+
+        [Theory]
+        [InlineData(0f, false, 1f)]
+        [InlineData(2.5f, false, 1f)]
+        [InlineData(2.7f, false, 0.7f)]
+        [InlineData(2.9f, false, 0.4f)]
+        [InlineData(60f, false, 0.4f)]
+        [InlineData(60f, true, 1f)]
+        public void TheIdleFadeHoldsThenRecedesAndStops(float idleSeconds, bool engaged, float expected)
+        {
+            // Engaged (hover or a live drag) pins it fully present at any age, which is what stops the
+            // panel receding out from under the pointer that is using it.
+            SkyMapLayerPalette.FadeFor(idleSeconds, engaged).ShouldBe(expected, 0.001f);
         }
 
         [Fact]
@@ -141,7 +171,7 @@ namespace TianWen.Lib.Tests
             far.LayerPaletteOffset = near.LayerPaletteOffset + 120f;
 
             static float PanelY(SkyMapState s, Rect<float> b) => Layout.Engine
-                .Arrange(SkyMapLayerPalette.Build(s, 12f, _ => { }), b, new StubMeasure())
+                .Arrange(SkyMapLayerPalette.Build(s, 12f, _ => { }, () => { }), b, new StubMeasure())
                 .First(a => a.Node is Layout.Node.Stack { Axis: Layout.Axis.Vertical })
                 .Bounds.Y;
 
@@ -156,7 +186,7 @@ namespace TianWen.Lib.Tests
             var state = StateWithMilkyWay(available: false);
             var milkyWay = SkyMapLayers.All.Single(l => l.Key == InputKey.S);
 
-            var tree = SkyMapLayerPalette.Build(state, 12f, _ => { });
+            var tree = SkyMapLayerPalette.Build(state, 12f, _ => { }, () => { });
 
             ClickActions(tree).ShouldNotContainKey(SkyMapLayerPalette.RowAction(in milkyWay));
             TextRuns(tree).ShouldContain(milkyWay.Label);
@@ -171,7 +201,7 @@ namespace TianWen.Lib.Tests
             {
                 toggled.Add(layer.Label);
                 layer.Toggle(state);
-            });
+            }, () => { });
 
             var grid = SkyMapLayers.All.Single(l => l.Key == InputKey.G);
             var before = state.ShowGrid;
@@ -192,7 +222,7 @@ namespace TianWen.Lib.Tests
             var bounds = new Rect<float>(40f, 20f, 900f, 600f);
 
             var arranged = Layout.Engine.Arrange(
-                SkyMapLayerPalette.Build(state, 12f, _ => { }), bounds, new StubMeasure());
+                SkyMapLayerPalette.Build(state, 12f, _ => { }, () => { }), bounds, new StubMeasure());
 
             var panel = arranged.First(a => a.Node is Layout.Node.Stack { Axis: Layout.Axis.Vertical });
 
@@ -211,7 +241,7 @@ namespace TianWen.Lib.Tests
             // is green while the screen is empty. Assert the rects, not just the bindings.
             var state = StateWithMilkyWay();
             var arranged = Layout.Engine.Arrange(
-                SkyMapLayerPalette.Build(state, 12f, _ => { }),
+                SkyMapLayerPalette.Build(state, 12f, _ => { }, () => { }),
                 new Rect<float>(0f, 0f, 900f, 600f), new StubMeasure());
 
             var rows = arranged
@@ -240,7 +270,7 @@ namespace TianWen.Lib.Tests
             var bounds = new Rect<float>(0f, 0f, 100f, 400f);
 
             var arranged = Layout.Engine.Arrange(
-                SkyMapLayerPalette.Build(state, 12f, _ => { }), bounds, new StubMeasure());
+                SkyMapLayerPalette.Build(state, 12f, _ => { }, () => { }), bounds, new StubMeasure());
             var panel = arranged.First(a => a.Node is Layout.Node.Stack { Axis: Layout.Axis.Vertical });
 
             panel.Bounds.X.ShouldBeGreaterThanOrEqualTo(bounds.X);
