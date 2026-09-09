@@ -45,7 +45,24 @@ namespace TianWen.Lib.Tests
                 QuadWidth = right - left;
                 QuadHeight = bottom - top;
                 Quads++;
+                if (slot == RenditionSlot.Comparison)
+                {
+                    ComparisonQuad = new RectF32(left, top, right - left, bottom - top);
+                    ComparisonSampledBefore = sampleBeforeChannels;
+                }
             }
+
+            /// <summary>Where the A/B comparison half's quad was placed, and whether it sampled the
+            /// retained pixels rather than the live ones.</summary>
+            public RectF32 ComparisonQuad { get; private set; }
+
+            public bool ComparisonSampledBefore { get; private set; }
+
+            public override bool HasBeforeImageTextures => BeforeSize is { Width: > 0 };
+
+            public override (int Width, int Height) BeforeImageSize => BeforeSize;
+
+            public (int Width, int Height) BeforeSize { get; set; }
 
             protected override void RenderHistogramQuad(StretchUniforms stretch, HistogramDisplay histogram,
                 ViewerState state, float left, float top, float right, float bottom, uint projW, uint projH) { }
@@ -367,12 +384,54 @@ namespace TianWen.Lib.Tests
                 .ShouldBeFalse("these pixels ARE the crop");
         }
 
-        private static Image SyntheticFrame()
+        /// <summary>
+        /// The A/B "before" half is placed by ITS OWN frame. Reported 2026-09-09 as "A|B is warping",
+        /// with the before half showing the uncropped image.
+        /// </summary>
+        /// <remarks>
+        /// An enhance on a cropped view is cut before the pipeline sees it, so the live frame is the crop
+        /// while the retained textures are the uncropped original -- two different frames in one
+        /// comparison. Drawn on the live quad the before half stretches by the crop's ratio (here
+        /// 400/384 across and 300/282 down) and brings the canvas ring back with it. The fix is pure
+        /// geometry: same scale, origin backed off by the crop's offset, so the crop's pixel (0,0) lands
+        /// where the live half draws it.
+        /// </remarks>
+        [Fact]
+        public async Task TheBeforeHalfIsPlacedByItsOwnFrameWhenAnEnhanceBakedACropIn()
         {
-            var plane = new float[ImageH, ImageW];
-            for (var y = 0; y < ImageH; y++)
+            var ct = TestContext.Current.CancellationToken;
+            var (viewer, state) = NewViewer();
+            var crop = new Rectangle(8, 6, ImageW - 16, ImageH - 18);
+
+            // The live document is the crop; the retained textures are the frame it came from.
+            var baked = await AstroImageDocument.AdoptImageAsync(SyntheticFrame(crop.Width, crop.Height),
+                DebayerAlgorithm.None, filePath: "master.fits", sourceCrop: crop, cancellationToken: ct);
+            viewer.UploadChannelTexture(ReadOnlySpan<float>.Empty, 0, crop.Width, crop.Height);
+            viewer.BeforeSize = (ImageW, ImageH);
+            viewer.Split.Mode = SplitCompare.BeforePixels;
+            viewer.Split.Toggle(hasBeforePixels: true);
+
+            viewer.Render(baked, state);
+
+            viewer.ComparisonSampledBefore.ShouldBeTrue("the left half is the retained pixels");
+            var scale = state.Zoom;
+            var compare = viewer.ComparisonQuad;
+
+            // Same scale as the live half, sized to the ORIGINAL frame...
+            compare.Width.ShouldBe(ImageW * scale, 0.01f);
+            compare.Height.ShouldBe(ImageH * scale, 0.01f);
+
+            // ...and offset so the crop's own origin lands on the live half's origin.
+            (compare.X + (crop.X * scale)).ShouldBe(viewer.QuadLeft, 0.01f);
+            (compare.Y + (crop.Y * scale)).ShouldBe(viewer.QuadTop, 0.01f);
+        }
+
+        private static Image SyntheticFrame(int width = ImageW, int height = ImageH)
+        {
+            var plane = new float[height, width];
+            for (var y = 0; y < height; y++)
             {
-                for (var x = 0; x < ImageW; x++)
+                for (var x = 0; x < width; x++)
                 {
                     plane[y, x] = 0.25f;
                 }

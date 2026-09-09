@@ -319,6 +319,10 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
     /// <inheritdoc/>
     public override bool HasBeforeImageTextures => _fitsPipeline.HasBeforeChannels;
 
+    /// <inheritdoc />
+    public override (int Width, int Height) BeforeImageSize
+        => (_fitsPipeline.BeforeChannelWidth, _fitsPipeline.BeforeChannelHeight);
+
     /// <inheritdoc/>
     public override long BeforeImageTextureBytes => _fitsPipeline.BeforeChannelBytes;
 
