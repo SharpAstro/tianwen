@@ -186,7 +186,19 @@ internal static class Program
                     failed++;
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            // A REQUEST TIMEOUT IS NOT A CANCELLATION, and only the token can tell them apart.
+            // `HttpClient.Timeout` reports by throwing `TaskCanceledException`, which derives from
+            // `OperationCanceledException` -- so the type-based filter this used to carry
+            // (`when (ex is not OperationCanceledException)`) excluded the exact failure the comment
+            // below describes, and one slow Horizons request took the whole bake down with exit 134,
+            // skipping the deploy. Ask `ct` instead: cancelled means the run is being torn down and
+            // must propagate; not cancelled means JPL was merely slow, which is this comet's problem
+            // and not the deploy's.
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
             {
                 // One comet Horizons will not answer for must not fail the deploy: the asset is written
                 // without it, that comet keeps its bulk record, and the next run tries again.

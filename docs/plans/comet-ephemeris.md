@@ -86,6 +86,35 @@ cumulative request time in one four-minute session, all for comet 5D.** An offli
 outage take the same path. The comment in `SkyMapTab` that calling it per drawn marker per frame is
 free is true only once a fetch *can* succeed.
 
+### A REQUEST TIMEOUT IS NOT A CANCELLATION, and only the token can tell them apart
+
+Both Horizons call sites carried `catch (Exception ex) when (ex is not OperationCanceledException)`,
+written to mean "a real cancellation is a teardown and must propagate". **`HttpClient.Timeout`
+reports itself by throwing `TaskCanceledException`, which DERIVES from `OperationCanceledException`**
+-- so that filter excluded, by type, exactly the failure mode each catch had been written for. The
+two sites failed differently, which is why only one was visible:
+
+- **`tools/bake-comets` (fatal).** The throw is not inside a discarded task, so one slow Horizons
+  request ended the process with **exit 134**, the pages build failed and the deploy was skipped.
+  Observed 2026-09-09: `comets-sbdb.json` and the 484-entry seed both written, then a single request
+  hit the 120 s client timeout four minutes in and took the whole bake with it. The comment beside
+  that catch already said "one comet Horizons will not answer for must not fail the deploy".
+- **`CometRepository` (silent).** The fetch runs in a discarded `Task.Run`, so an escaped timeout
+  became an unobserved exception. The `finally` records the backoff stamp whether or not the catch
+  ran, so there was never a retry storm -- the only symptom was that **JPL being SLOW left no trace
+  in the log while a 404 from the same endpoint logged normally**, which is precisely backwards.
+
+**The discriminator is the TOKEN, never the type.** In the bake, `catch (OperationCanceledException)
+when (ct.IsCancellationRequested) { throw; }` ahead of an unfiltered catch. In the repository there is
+no filter at all and there should not be: every call on that path takes `CancellationToken.None`, so
+an OCE reaching it *can only* be a timeout. (Since .NET 6 the inner exception is a `TimeoutException`,
+a second discriminator -- but the token works regardless of runtime detail, and is the same rule the
+remote-rig client already follows for its per-request budgets.)
+
+Pinned by `CometRepositoryTests.AHorizonsTimeoutIsLoggedAndBackedOffRatherThanEscaping`, whose fake
+throws the exact shape `HttpClient` produces and which asserts on the LOG -- the elements survive
+either way, so an assertion on them cannot see this.
+
 ### JPL sends no CORS headers from EITHER comet host, so the browser bakes BOTH
 
 SBDB (the bulk fetch) was baked long ago. **Horizons -- the per-object apparition refinement -- is a

@@ -547,6 +547,12 @@ Four rules that bite before you get there:
 - **JPL sends no CORS headers from EITHER comet host, so the browser bakes BOTH** (SBDB *and*
   Horizons, which is a different host reached from a different class -- missing it was that retry
   storm). Nothing detects the host, deliberately.
+- **A request TIMEOUT is not a cancellation, and only the TOKEN tells them apart.**
+  `HttpClient.Timeout` throws `TaskCanceledException`, which *derives from*
+  `OperationCanceledException`, so both Horizons call sites' `when (ex is not
+  OperationCanceledException)` filter excluded the one failure each was written for: the bake died
+  with exit 134 and skipped a pages deploy, and the repository logged every failure EXCEPT a slow
+  one. Filter on `ct.IsCancellationRequested`, or on nothing where the token is `None`.
 - **The path and sparkline caches key on `(index, time-BUCKET)` and must hit regardless of sample
   count** -- an all-failed-to-solve empty result still caches, or it re-samples ~49 ephemerides every
   frame.
