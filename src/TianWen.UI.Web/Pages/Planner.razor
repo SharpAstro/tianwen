@@ -46,6 +46,35 @@
         }
         <span class="spacer"></span>
         <span class="status" aria-live="polite">@_status</span>
+        @* The demo is where most people meet this project, and it had no way back to the site that
+           explains what it is: the canvas fills the window, so there was no chrome to click. Same tab
+           on purpose - the active view rides in the query string, so the back button returns you to
+           exactly the atlas or planner you left. *@
+        <a class="home" href="https://sharpastro.github.io/" title="SharpAstro: what this is, and the rest of what it comes from">
+            <svg class="home-mark" viewBox="0 0 32 32" width="18" height="18" aria-hidden="true" focusable="false">
+                <defs>
+                    <linearGradient id="homeUmbra" x1="0.15" y1="0.15" x2="0.85" y2="0.95">
+                        <stop offset="0" stop-color="#ffc98a" />
+                        <stop offset="0.45" stop-color="#d4552a" />
+                        <stop offset="1" stop-color="#5c1409" />
+                    </linearGradient>
+                    <mask id="homeBite">
+                        <rect width="32" height="32" fill="#fff" />
+                        <circle cx="24.5" cy="8" r="10.4" fill="#000" />
+                    </mask>
+                </defs>
+                <circle cx="14.6" cy="17.4" r="12.2" fill="url(#homeUmbra)" mask="url(#homeBite)" />
+                <g class="mark-sharp">
+                    <rect x="20.4" y="1.6" width="1.6" height="14.6" rx="0.8" />
+                    <rect x="26.4" y="1.6" width="1.6" height="14.6" rx="0.8" />
+                    <g transform="rotate(-12 24.2 8.9)">
+                        <rect x="17.4" y="5.2" width="13.6" height="2.7" rx="1.35" />
+                        <rect x="17.4" y="10.8" width="13.6" height="2.7" rx="1.35" />
+                    </g>
+                </g>
+            </svg>
+            <span class="home-text">SharpAstro</span>
+        </a>
     </div>
 
     <div class="toolbar">

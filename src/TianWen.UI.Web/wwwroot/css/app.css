@@ -69,6 +69,30 @@ html, body {
 
 .titlebar .spacer { flex: 1; }
 
+/* Back to the project site. The mark's copper is its own on any ground, so it stays literal; the
+   sharp takes the app's accent, which is the same teal the site header uses. flex:none keeps it
+   whole while the status text beside it is the part allowed to ellipsise. */
+.titlebar .home {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.titlebar .home:hover,
+.titlebar .home:focus-visible { text-decoration: underline; }
+
+.titlebar .home .mark-sharp { fill: var(--accent); }
+
+/* Narrow windows keep the mark and drop the word: the moon is the recognisable half. */
+@media (max-width: 620px) {
+    .titlebar .home-text { display: none; }
+}
+
 .titlebar .status {
     color: var(--dim);
     font-size: 0.85rem;
