@@ -303,6 +303,17 @@ namespace TianWen.UI.Abstractions
                     BaseFontSize * dpiScale * 0.85f, InfoText, TextAlign.Near, TextAlign.Center);
             }
 
+            // Layer palette: floated against the content area's RIGHT edge, which is the half of it
+            // the info panel does not use (that one pins itself bottom-left, above the status strip).
+            // Drawn before the modal and the info panel so those still win hit testing.
+            if (State.ShowLayerPalette)
+            {
+                RenderLayout(
+                    SkyMapLayerPalette.Build(State, BaseFontSize * 0.9f,
+                        layer => layer.Toggle(State)),
+                    contentRect, fontPath, dpiScale);
+            }
+
             // Search modal + info panel: drawn LAST so their clickable regions win
             // hit testing (paint order = z-order).
             DrawSearchAndInfoPanel(plannerState, contentRect, db,
@@ -1364,44 +1375,21 @@ namespace TianWen.UI.Abstractions
 
             switch (key)
             {
-                case InputKey.G:
-                    State.ShowGrid = !State.ShowGrid;
-                    State.NeedsRedraw = true;
+                // Every layer toggle (G / A / H / C / B / S / O / D / E / M) resolves through the one
+                // table the palette also renders, so a layer cannot reach the keyboard and not the
+                // panel. TryToggleByKey answers false for a key no layer claims AND for one whose
+                // layer is unavailable, which is what preserves the old `case InputKey.S when
+                // State.MilkyWayAvailable` behaviour: with no texture the press stays unhandled and
+                // goes on to whatever else wants it, rather than being silently swallowed here.
+                case InputKey.G or InputKey.A or InputKey.H or InputKey.C or InputKey.B
+                    or InputKey.S or InputKey.O or InputKey.D or InputKey.E or InputKey.M
+                    when SkyMapLayers.TryToggleByKey(State, key):
                     return true;
-                case InputKey.H:
-                    State.ShowHorizon = !State.ShowHorizon;
-                    State.NeedsRedraw = true;
-                    return true;
-                case InputKey.B:
-                    State.ShowConstellationBoundaries = !State.ShowConstellationBoundaries;
-                    State.NeedsRedraw = true;
-                    return true;
-                case InputKey.C:
-                    State.ShowConstellationFigures = !State.ShowConstellationFigures;
-                    State.NeedsRedraw = true;
-                    return true;
-                case InputKey.S when State.MilkyWayAvailable:
-                    State.ShowMilkyWay = !State.ShowMilkyWay;
-                    State.NeedsRedraw = true;
-                    return true;
-                case InputKey.A:
-                    State.ShowAltAzGrid = !State.ShowAltAzGrid;
-                    State.NeedsRedraw = true;
-                    return true;
-                case InputKey.O:
-                    State.ShowObjectOverlay = !State.ShowObjectOverlay;
-                    State.NeedsRedraw = true;
-                    return true;
-                case InputKey.D:
-                    State.ShowDarkNebulae = !State.ShowDarkNebulae;
-                    State.NeedsRedraw = true;
-                    return true;
-                case InputKey.M:
-                    State.ShowMountOverlay = !State.ShowMountOverlay;
-                    State.NeedsRedraw = true;
-                    return true;
-                case InputKey.E:
-                    State.ShowComets = !State.ShowComets;
+
+                // Put the palette away, and bring it back. The one control the palette cannot carry
+                // itself: a panel that hides on its own button leaves nothing to press.
+                case InputKey.V:
+                    State.ShowLayerPalette = !State.ShowLayerPalette;
                     State.NeedsRedraw = true;
                     return true;
                 // Level the view back to the mode's reference. Needed because a pan owns the roll and
