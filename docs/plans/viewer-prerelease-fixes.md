@@ -1134,6 +1134,19 @@ before the pipeline sees anything, and four things follow:
 Pinned by `EnhanceActionsTests.ACropIsCutBeforeThePipelineAndTravelsWithTheResult` (+ its no-crop
 twin) and `ViewerAutoCropTests.TheCropButtonIsDisabledOnceAnEnhanceHasBakedACropIn`.
 
+**The A/B split then showed two different frames, which is the one thing it must never do** (reported
+2026-09-09 the moment the cropped enhance was first driven: *"A|B is warping, before is showing me the
+uncropped"*). The retained "before" textures are the pre-enhance pixels -- kept by moving three GPU
+handles aside, at no copy -- and after a cropped enhance those are the UNCROPPED original while the live
+half is the crop. Drawn on the live quad they stretch by the crop's ratio and bring the canvas ring back
+with them. The fix is pure geometry and costs nothing: the comparison half gets its OWN quad, same
+scale, origin backed off by `SourceCrop`'s offset, so the crop's pixel (0, 0) lands where the live half
+draws it. Only when that half samples the retained pixels (`SplitCompareController.ComparesPixels`) -- a
+pinned-settings comparison is the same frame and must not move. `BeforeImageSize` on the renderer is
+what makes the two frames comparable at all; zero means "same frame as live", which is what every
+comparison was until now. Pinned by
+`ViewerAutoCropTests.TheBeforeHalfIsPlacedByItsOwnFrameWhenAnEnhanceBakedACropIn`.
+
 **The measurement that decided it, and what is still unmeasured:** `DisplayCrop` reaches the
 renderer, the status bar, the toolbar state, `DisplayRasterExport` and `AnnotatedRasterExport`, and
 nothing else -- so GraXpert, BlurX and NoiseX all see the canvas ring and the under-exposed band. That

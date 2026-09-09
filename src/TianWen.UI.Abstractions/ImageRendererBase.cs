@@ -438,6 +438,13 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         public virtual bool HasBeforeImageTextures => false;
 
+        /// <summary>
+        /// Size of the retained "before" textures, or (0, 0) when the backend has none. Zero means "the
+        /// same frame as the live image", which is what every comparison was until an enhance could bake
+        /// a crop in and leave the two halves showing different frames.
+        /// </summary>
+        public virtual (int Width, int Height) BeforeImageSize => (0, 0);
+
         /// <summary>Device memory held by the retained before pixels, in bytes; 0 when none.</summary>
         public virtual long BeforeImageTextureBytes => 0;
 
@@ -1190,6 +1197,24 @@ namespace TianWen.UI.Abstractions
             var comparesPixels = Split.ComparesPixels;
             var comparison = Split.ComparisonRendition(live);
 
+            // The BEFORE pixels can be a different frame from the live ones: an enhance run on a cropped
+            // view is cut before the pipeline sees it, so the retained textures are the uncropped
+            // original. Drawn on the live quad they stretch by the crop's ratio and bring the canvas
+            // ring back with them, and the two halves stop being a comparison at all -- reported
+            // 2026-09-09 as "A|B is warping". Same scale, origin backed off by the crop's own offset, so
+            // a pixel of the crop lands exactly where the live half draws it.
+            var (compareLeft, compareTop, compareW, compareH) = (p.OffsetX, p.OffsetY, p.DrawW, p.DrawH);
+            if (comparesPixels
+                && _document?.SourceCrop is { } sourceCrop
+                && BeforeImageSize is { Width: > 0, Height: > 0 } beforeSize
+                && (beforeSize.Width != ImageWidth || beforeSize.Height != ImageHeight))
+            {
+                compareLeft = p.OffsetX - (sourceCrop.X * p.Scale);
+                compareTop = p.OffsetY - (sourceCrop.Y * p.Scale);
+                compareW = beforeSize.Width * p.Scale;
+                compareH = beforeSize.Height * p.Scale;
+            }
+
             // Both halves draw the WHOLE quad and are cut down by the clip, so the two renditions stay
             // in identical pan/zoom/projection space and features line up across the divider.
             //
@@ -1201,7 +1226,7 @@ namespace TianWen.UI.Abstractions
             var leftHalf = ClipToShown(new RectF32(area.X, area.Y, splitX - area.X, area.Height));
             PushClip(leftHalf.X, leftHalf.Y, leftHalf.Width, leftHalf.Height);
             RenderImageQuad(source, state, comparison, gridWcs,
-                p.OffsetX, p.OffsetY, p.OffsetX + p.DrawW, p.OffsetY + p.DrawH, Width, Height,
+                compareLeft, compareTop, compareLeft + compareW, compareTop + compareH, Width, Height,
                 RenditionSlot.Comparison, sampleBeforeChannels: comparesPixels);
             PopClip();
 

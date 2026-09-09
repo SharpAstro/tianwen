@@ -428,6 +428,16 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     /// </summary>
     public bool HasBeforeChannels { get; private set; }
 
+    /// <summary>Width of the retained "before" channel textures, or 0 when there are none.</summary>
+    /// <remarks>
+    /// Not always the live frame's width: an enhance run on a cropped view bakes the crop in, so the
+    /// retained textures are the UNCROPPED original and the split has to place them accordingly.
+    /// </remarks>
+    public int BeforeChannelWidth => HasBeforeChannels ? _beforeWidth[0] : 0;
+
+    /// <summary>Height of the retained "before" channel textures, or 0 when there are none.</summary>
+    public int BeforeChannelHeight => HasBeforeChannels ? _beforeHeight[0] : 0;
+
     /// <summary>
     /// Device memory currently held by the retained before textures, in bytes. Reported so the host
     /// can declare it to the GC (<c>GC.AddMemoryPressure</c>): a <c>VkImage</c> is invisible to
