@@ -996,6 +996,16 @@ namespace TianWen.UI.Abstractions
                 : $"FOV: {State.FieldOfViewDeg:F1}\u00B0";
             var modeLabel = State.Mode == SkyMapMode.Equatorial ? "EQ" : "AZ";
             var skyHint = State.MilkyWayAvailable ? " [S]ky" : "";
+
+            // The layer keys were listed here, bracketed, and that list is what the palette replaced:
+            // it says the same letters in a panel that also shows which layers are ON and can be
+            // CLICKED, which this line never could -- and a click is the only route at all on the
+            // browser build's touch devices. Printing both is one legend too many in a strip that also
+            // carries the coordinates, so the keys stay only while the panel is away, and then the
+            // strip is also the one place that can say how to get it back.
+            var layerHints = State.ShowLayerPalette
+                ? "  [V] layers"
+                : $"  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [O]bjects [D]ark [M]ount com[e]t{skyHint}  [V] panel";
             // Surfaced only while the view is actually off its reference, so the way back appears at
             // exactly the moment it is wanted instead of sitting in the strip as one more letter.
             // A pan near the pole rolls the frame by design and this is the only route back.
@@ -1004,7 +1014,9 @@ namespace TianWen.UI.Abstractions
             // Limiting magnitude actually rendered (FOV-aware; grows as you zoom in). Gives the
             // +/- magnitude-floor keys visible feedback, which they previously lacked.
             var magText = $"Lim mag {State.EffectiveMagnitudeLimit:F1}";
-            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    {magText}    [{modeLabel}]  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [P]roj [O]bjects [D]ark [M]ount com[e]t{skyHint}{levelHint}";
+            // [P]roj stays in the strip whatever the palette is doing: the projection is the map's
+            // MODE, not one of its layers, so it is not in the table the panel renders.
+            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    {magText}    [{modeLabel}]  [P]roj{layerHints}{levelHint}";
 
             DrawText(info.AsSpan(), fontPath,
                 rect.X + 8, stripY, rect.Width - 16, stripH,
