@@ -48,9 +48,17 @@
        app's text identical on every host. Without it the viewer resolved the platform monospace, which on
        Windows is Consolas, and Consolas carries no check mark, so a tick in a label drew NOTHING at all.
        The licence travels in FONT-LICENSES.txt at the repo root.
+
+       The EMOJI face is here for the same reason, and was missing for longer: BundledFonts
+       resolves both roles, and with no bundled colour face this app fell through to whatever the
+       platform ships, which is a Windows answer (Segoe UI Emoji) and often no answer at all on
+       Linux. That cost nothing visible while DejaVu happened to cover every mark the viewer drew,
+       and everything the moment one of them was a pictograph Unicode says is drawn in colour.
        (No double hyphen anywhere above: XML forbids it inside a comment, which is a build error here.) -->
   <ItemGroup>
     <Content Include="..\TianWen.UI.Gui\Fonts\DejaVuSans.ttf" Link="Fonts\DejaVuSans.ttf"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\TianWen.UI.Gui\Fonts\Noto-COLRv1.ttf" Link="Fonts\Noto-COLRv1.ttf"
              CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

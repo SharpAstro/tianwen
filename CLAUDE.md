@@ -1733,7 +1733,12 @@ is NEVER a property (`AltitudeChartRenderer`, `SkyMapRenderer` keep theirs). Bre
 together for all three hosts; **a direct `FontResolver.` call in production code is a regression**
 (tests exempt). Resolving a subset is the bug it prevents (the viewer had faces but no
 `FontFallback`, could not ask `CanRender`, and every missing glyph was found by eye); bundled first
-because only a bundled face has known COVERAGE. The `Lazy<FontSet>` cache and what is outstanding:
+because only a bundled face has known COVERAGE. **Both viewer and GUI bundle both faces**, and
+which one draws a given rune is Unicode's DEFAULT PRESENTATION, not coverage order (DIR.Lib 8.15's
+`EmojiPresentation`): a pictograph comes from the emoji face even where DejaVu has an outline for
+it, while text-default marks (checks, stars, arrows, the warning sign) stay on the text face. So a
+NEW mark is picked by what the codepoint IS, and a colour glyph cannot be tinted or dimmed, which
+is what a baked icon is for. The `Lazy<FontSet>` cache and what is outstanding:
 [`docs/plans/font-roles-and-icon-baking.md`](docs/plans/font-roles-and-icon-baking.md).
 
 ### Signal Handler Pattern: Route, Don't Implement
