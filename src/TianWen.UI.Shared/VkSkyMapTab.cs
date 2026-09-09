@@ -12,9 +12,8 @@ using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Overlays;
-using TianWen.UI.Shared;
 
-namespace TianWen.UI.Gui;
+namespace TianWen.UI.Shared;
 
 /// <summary>
 /// Vulkan-pinned Sky Map tab. Renders stars, constellation lines, grid, and horizon
