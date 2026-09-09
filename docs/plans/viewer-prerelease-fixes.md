@@ -1147,6 +1147,18 @@ what makes the two frames comparable at all; zero means "same frame as live", wh
 comparison was until now. Pinned by
 `ViewerAutoCropTests.TheBeforeHalfIsPlacedByItsOwnFrameWhenAnEnhanceBakedACropIn`.
 
+**One real race fell out of the full suite, in the status line rather than the pixels.**
+`EnhanceActions` built its progress sink with `Progress<T>`, which posts each report to the captured
+context -- and inside `Task.Run` there is none, so reports go to the pool and one queued during the run
+can execute AFTER the terminal `Enhanced (...)` message, leaving a finished enhance reading
+`Enhancing: gradient-correction (0%)` for good. It surfaced as one failure in 5,782 tests, never as
+something anyone saw on screen (the upload path clears the line a frame later, most of the time).
+`SynchronousProgress<T>` (TianWen.Lib) reports inline, so the caller's final write always wins; the
+private `SyncProgress` the HOSTING side had already grown for the same reason folds into it, since two
+copies of one rule is how they drift. Pinned by `SynchronousProgressTests`, on the MECHANISM -- an
+ordering bug cannot be pinned by the code that suffers it, which is exactly why this one was a
+one-in-a-suite flake rather than a test.
+
 **The measurement that decided it, and what is still unmeasured:** `DisplayCrop` reaches the
 renderer, the status bar, the toolbar state, `DisplayRasterExport` and `AnnotatedRasterExport`, and
 nothing else -- so GraXpert, BlurX and NoiseX all see the canvas ring and the under-exposed band. That

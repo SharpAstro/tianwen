@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using TianWen.Lib;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
@@ -65,7 +66,10 @@ public static class EnhanceActions
         // Per-step progress -> viewer status line. Runs on the background thread; these scalar
         // writes to ViewerState are the only writers during the run and the render thread reads
         // snapshots (a stale read just shows a slightly old %), matching the load-task pattern.
-        var progress = new Progress<EnhanceProgress>(p =>
+        // SYNCHRONOUS on purpose: Progress<T> posts each report to the pool (there is no context inside
+        // Task.Run), so one queued during the run can land after the final status below and leave the
+        // line reading "Enhancing: ..." on a finished enhance. See SynchronousProgress.
+        var progress = new SynchronousProgress<EnhanceProgress>(p =>
         {
             var overall = p.StepCount > 0
                 ? (p.StepIndex + Math.Clamp(p.StepPercent, 0f, 1f)) / p.StepCount * 100f

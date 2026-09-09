@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Hosting.Dto;
+using TianWen.Lib;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
 
@@ -105,7 +106,7 @@ internal sealed class HostedImageEnhancer(
 
                 // Synchronous relay (NOT Progress<T>): runs inline on this task thread so the status
                 // snapshot updates in order and never overwrites the terminal status set in finally.
-                var progress = new SyncProgress(p =>
+                var progress = new SynchronousProgress<EnhanceProgress>(p =>
                 {
                     _status = new EnhanceStatusDto
                     {
@@ -188,12 +189,6 @@ internal sealed class HostedImageEnhancer(
         return Path.Combine(dir, $"{name}_enhanced.fits");
     }
 
-    /// <summary>Inline <see cref="IProgress{T}"/> that reports synchronously on the caller's thread
-    /// (unlike <see cref="Progress{T}"/>, which posts to the captured context out of order).</summary>
-    private sealed class SyncProgress(Action<EnhanceProgress> sink) : IProgress<EnhanceProgress>
-    {
-        public void Report(EnhanceProgress value) => sink(value);
-    }
 }
 
 /// <summary>Payload for <see cref="HostedImageEnhancer.Completed"/>.</summary>
