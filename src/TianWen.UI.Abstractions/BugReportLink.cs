@@ -28,6 +28,26 @@ namespace TianWen.UI.Abstractions
         /// <summary>The viewer's user guide (P13), on the org site rather than restated in the panel.</summary>
         public const string DocumentationUrl = "https://sharpastro.github.io/guide/viewer.html";
 
+        /// <summary>
+        /// The optional tip jar, opened from the "?" panel.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Nothing may ever be given in return for this, and that is a shipping constraint
+        /// rather than a preference.</b> Microsoft Store Policy 10.8.2 permits a non-game PC product to
+        /// take voluntary donations through a secure third-party provider, but only while the user
+        /// receives no digital goods or services back -- "including but not limited to additional
+        /// features or removal of advertising". The moment a supporter gets anything the viewer
+        /// withholds from everyone else, §10.8.1 requires Microsoft's own in-product purchase API and
+        /// this link stops being allowed at all. So: no supporter-only features, no unlocks, no
+        /// nag removal (there is no nag), no priority anything.</para>
+        /// <para>Naming the provider on the row that opens it is deliberate -- §10.8.2 asks that a
+        /// product identify the commerce transaction provider, and a link that says where it is about
+        /// to send you is the honest shape regardless of policy.</para>
+        /// <para>It lives beside <see cref="DocumentationUrl"/> because this type is already the set of
+        /// links the "?" panel can open, not only the issue builder its name describes.</para>
+        /// </remarks>
+        public const string SupportUrl = "https://buymeacoffee.com/sharpastro";
+
         private const string NewIssueUrl = "https://github.com/SharpAstro/tianwen/issues/new";
 
         /// <summary>

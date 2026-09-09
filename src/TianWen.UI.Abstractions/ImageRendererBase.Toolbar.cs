@@ -1478,7 +1478,7 @@ namespace TianWen.UI.Abstractions
         /// could not tell them which version they were running.
         /// </para>
         /// </summary>
-        private ImmutableArray<string> BuildHelpLines()
+        internal ImmutableArray<string> BuildHelpLines()
         {
             var lines = ImmutableArray.CreateBuilder<string>(ShortcutLines.Length + _aiLines.Length + 6);
             lines.Add($"TianWen {TianWen.Lib.BuildInfo.Describe()}");
@@ -1503,13 +1503,17 @@ namespace TianWen.UI.Abstractions
             }
             lines.Add("");
 
-            // The two things this panel can DO, above the reference material: it is the screen
-            // someone opens when the viewer has just misbehaved, so the way to report that belongs
-            // where they already are rather than in a menu they would have to go looking for.
+            // The things this panel can DO, above the reference material: it is the screen someone
+            // opens when the viewer has just misbehaved, so the way to report that belongs where they
+            // already are rather than in a menu they would have to go looking for. The tip jar goes
+            // last of the three deliberately -- it is the only row nobody came here for, and putting
+            // it above "report a problem" would meet a frustrated user with an ask.
             _helpDocsLine = lines.Count;
             lines.Add("Open the user guide in a browser");
             _helpReportLine = lines.Count;
             lines.Add("Report a problem (prepares an issue, sends nothing)");
+            _helpSupportLine = lines.Count;
+            lines.Add("\u2615 Support development (opens Buy Me a Coffee)");
             lines.Add("");
 
             lines.AddRange(ShortcutLines);
@@ -1525,6 +1529,8 @@ namespace TianWen.UI.Abstractions
 
         private int _helpReportLine = -1;
 
+        private int _helpSupportLine = -1;
+
         /// <summary>
         /// A click on one of the "?" panel's action rows. Every other row is a fact and does nothing,
         /// which is why this keys on the index and not on "did anything get clicked".
@@ -1534,7 +1540,7 @@ namespace TianWen.UI.Abstractions
         /// URL is a shell call, and this assembly is shared with the WebAssembly build, where there is
         /// no shell. The host decides, as it already does for the planner's Wikipedia links.
         /// </remarks>
-        private void HandleHelpSelection(int index)
+        internal void HandleHelpSelection(int index)
         {
             if (index == _helpDocsLine)
             {
@@ -1546,6 +1552,10 @@ namespace TianWen.UI.Abstractions
                     TianWen.Lib.BuildInfo.Describe(),
                     System.Runtime.InteropServices.RuntimeInformation.OSDescription,
                     _aiLines)));
+            }
+            else if (index == _helpSupportLine)
+            {
+                PostSignal(new OpenUrlSignal(BugReportLink.SupportUrl));
             }
         }
 
