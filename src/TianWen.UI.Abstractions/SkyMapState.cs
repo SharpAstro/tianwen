@@ -98,6 +98,28 @@ namespace TianWen.UI.Abstractions
         public bool ShowLayerPalette { get; set; } = true;
 
         /// <summary>
+        /// How far down the right edge the layer palette sits, in design units --
+        /// <c>Layout.Builder.Anchored</c>'s <c>offsetAlong</c>, which is consumer-owned state by
+        /// design: the engine arranges what it is given and a drag on the grip updates this.
+        /// Defaults to <see cref="SkyMapLayerPalette.TopOffset"/>.
+        /// </summary>
+        public float LayerPaletteOffset { get; set; } = SkyMapLayerPalette.TopOffset;
+
+        /// <summary>
+        /// The palette grip's arranged rect, stashed by the render pass so a mouse-down can be tested
+        /// against the same rect that was drawn. Render-thread only, like
+        /// <see cref="LastContentRect"/>.
+        /// </summary>
+        public RectF32 LayerPaletteGripRect { get; set; }
+
+        /// <summary>
+        /// A grip drag in flight: where the pointer went down, and the offset the palette had then.
+        /// Null when no drag is running. Anchoring to the START of both means the palette tracks the
+        /// pointer exactly rather than accumulating rounding per move event.
+        /// </summary>
+        public (float PointerY, float Offset)? LayerPaletteDrag { get; set; }
+
+        /// <summary>
         /// Show the catalog object overlay (Messier / NGC / IC / named stars); same
         /// overlay as the FITS viewer's <c>[O]</c> toggle. Off by default because the
         /// sky map is already dense with stars and constellation figures.

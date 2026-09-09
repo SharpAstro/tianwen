@@ -37,18 +37,36 @@ namespace TianWen.UI.Abstractions
         /// <summary>Inset from the edge it floats against, design units.</summary>
         public const float Margin = 10f;
 
-        /// <summary>How far down the right edge the panel starts, design units.</summary>
-        public const float TopOffset = 8f;
+        /// <summary>
+        /// How far down the right edge the panel starts, design units. Equal to <see cref="Margin"/>
+        /// deliberately: the clamp keeps the panel at least a margin inside the rect on every side, so
+        /// a smaller default is silently overridden and the panel does not sit where the constant
+        /// says. It was 8 against a margin of 10, which measured as a 2-unit lie.
+        /// </summary>
+        public const float TopOffset = Margin;
 
-        private static readonly RGBAColor32 PanelBg     = new(0x18, 0x18, 0x20, 0xE0);
-        private static readonly RGBAColor32 HeaderInk   = new(0x90, 0x90, 0x9C, 0xFF);
-        private static readonly RGBAColor32 RowOnBg     = new(0x33, 0x42, 0x52, 0xFF);
-        private static readonly RGBAColor32 RowOffBg    = new(0x22, 0x22, 0x2A, 0xFF);
-        private static readonly RGBAColor32 RowHoverBg  = new(0x3E, 0x4E, 0x60, 0xFF);
-        private static readonly RGBAColor32 KeyChipBg   = new(0x2C, 0x2C, 0x36, 0xFF);
+        // Alpha is the point of these, not decoration. This panel sits ON the sky, and an opaque card
+        // is a hole punched in the thing the reader came to look at -- the first cut set 0xE0 on the
+        // panel and then 0xFF on every row, which is most of its area, so it was opaque in all but
+        // name. The ON rows stay the most solid of the three because "which layers are on" is the one
+        // thing the panel says that the old status-strip hint could not, and that has to survive a
+        // bright star field behind it.
+        private static readonly RGBAColor32 PanelBg     = new(0x14, 0x14, 0x1C, 0x9C);
+        private static readonly RGBAColor32 HeaderInk   = new(0x9A, 0x9A, 0xA8, 0xFF);
+        private static readonly RGBAColor32 GripBg      = new(0x2A, 0x2A, 0x36, 0xB4);
+        private static readonly RGBAColor32 RowOnBg     = new(0x37, 0x48, 0x5C, 0xDC);
+        private static readonly RGBAColor32 RowOffBg    = new(0x20, 0x20, 0x2A, 0xA0);
+        private static readonly RGBAColor32 RowHoverBg  = new(0x44, 0x56, 0x6A, 0xE6);
+        private static readonly RGBAColor32 KeyChipBg   = new(0x2C, 0x2C, 0x36, 0xC8);
         private static readonly RGBAColor32 OnInk       = new(0xE8, 0xE8, 0xF0, 0xFF);
         private static readonly RGBAColor32 OffInk      = new(0x9A, 0x9A, 0xA6, 0xFF);
         private static readonly RGBAColor32 DisabledInk = new(0x5A, 0x5A, 0x64, 0xFF);
+
+        /// <summary>
+        /// The action id the grip carries, so the render pass can find its arranged rect and a
+        /// mouse-down can be tested against the very rect that was drawn.
+        /// </summary>
+        public const string GripAction = "SkyMapLayerPaletteGrip";
 
         /// <summary>The action id a row's <see cref="HitResult.ButtonHit"/> carries, keyed by the
         /// layer's key label so a test can name a row without depending on its index.</summary>
@@ -73,9 +91,16 @@ namespace TianWen.UI.Abstractions
             // Header plus one row per layer. Built into an array rather than a params span because the
             // count is the table's, not a literal.
             var children = new Layout.Node[layers.Length + 1];
+
+            // The header IS the grip. A separate handle would cost a row and teach nothing: a title
+            // bar is where a reader already tries to drag a panel from, and the Move cursor over it
+            // says so before they try. The drag itself is the tab's (it owns the pointer), and this
+            // only has to be findable in the arranged tree -- hence the action id.
             children[0] = Layout.Builder.Text("LAYERS", fontSize * 0.85f, HeaderInk,
                     TextAlign.Near, TextAlign.Center)
-                .RowH(RowHeight * 0.9f);
+                .RowH(RowHeight * 0.9f)
+                .Bg(GripBg)
+                .Clickable(new HitResult.ButtonHit(GripAction), _ => { }, CursorKind.Move);
 
             for (var i = 0; i < layers.Length; i++)
             {
@@ -117,7 +142,7 @@ namespace TianWen.UI.Abstractions
                 .WithGap(2f);
 
             return Layout.Builder.Anchored(panel, Layout.DockSide.Right,
-                offsetAlong: TopOffset, margin: Margin);
+                offsetAlong: state.LayerPaletteOffset, margin: Margin);
         }
     }
 }

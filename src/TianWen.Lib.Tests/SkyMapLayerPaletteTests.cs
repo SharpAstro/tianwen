@@ -102,11 +102,50 @@ namespace TianWen.Lib.Tests
 
             var actions = ClickActions(tree);
 
-            actions.Count.ShouldBe(SkyMapLayers.All.Length);
+            // One per layer, plus the grip -- named rather than counted loosely, so a row that stops
+            // being bound cannot be masked by a new binding appearing elsewhere in the panel.
+            actions.Count.ShouldBe(SkyMapLayers.All.Length + 1);
+            actions.ShouldContainKey(SkyMapLayerPalette.GripAction);
             foreach (var layer in SkyMapLayers.All)
             {
                 actions.ShouldContainKey(SkyMapLayerPalette.RowAction(in layer));
             }
+        }
+
+        [Fact]
+        public void TheGripArrangesToARectTheTabCanFindByItsAction()
+        {
+            // The drag is wired by the render pass looking this action up in the ARRANGED tree and
+            // stashing the rect. Rename the action or drop the binding and dragging silently stops
+            // working, with nothing else failing: the panel still draws and every row still toggles.
+            var arranged = Layout.Engine.Arrange(
+                SkyMapLayerPalette.Build(StateWithMilkyWay(), 12f, _ => { }),
+                new Rect<float>(0f, 0f, 900f, 600f), new StubMeasure());
+
+            var grip = arranged.Single(
+                a => a.Node.Hit is HitResult.ButtonHit { Action: SkyMapLayerPalette.GripAction });
+
+            grip.Bounds.Width.ShouldBeGreaterThan(0f);
+            grip.Bounds.Height.ShouldBeGreaterThan(0f);
+        }
+
+        [Fact]
+        public void TheOffsetSlidesThePanelDownTheEdge()
+        {
+            // Anchored's offsetAlong is consumer-owned state a drag updates, so the whole grip feature
+            // rests on this one wiring: the offset the tab writes has to be the offset the panel is
+            // placed at.
+            var bounds = new Rect<float>(0f, 0f, 900f, 900f);
+            var near = StateWithMilkyWay();
+            var far = StateWithMilkyWay();
+            far.LayerPaletteOffset = near.LayerPaletteOffset + 120f;
+
+            static float PanelY(SkyMapState s, Rect<float> b) => Layout.Engine
+                .Arrange(SkyMapLayerPalette.Build(s, 12f, _ => { }), b, new StubMeasure())
+                .First(a => a.Node is Layout.Node.Stack { Axis: Layout.Axis.Vertical })
+                .Bounds.Y;
+
+            (PanelY(far, bounds) - PanelY(near, bounds)).ShouldBe(120f, 0.01f);
         }
 
         [Fact]
