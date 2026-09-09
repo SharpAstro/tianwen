@@ -228,7 +228,7 @@ namespace TianWen.UI.Abstractions
                     }
                     else
                     {
-                        Split.Toggle(HasBeforeImageTextures);
+                        Split.Toggle(HasBeforeImageTextures, _cropActive);
                     }
                     state.NeedsRedraw = true;
                     return true;
@@ -611,7 +611,7 @@ namespace TianWen.UI.Abstractions
             if (hit is HitResult.ButtonHit { Action: var action } && Enum.TryParse<ToolbarAction>(action, out var toolbarAction))
             {
                 ViewerActions.HandleToolbarAction(state, _document, toolbarAction,
-                    split: Split, hasBeforePixels: HasBeforeImageTextures);
+                    split: Split, hasBeforePixels: HasBeforeImageTextures, hasCrop: HasDisplayCrop);
                 if (toolbarAction is ToolbarAction.ColorCalibrate or ToolbarAction.SpccCalibrate)
                 {
                     TryStartColorCalibration(state);

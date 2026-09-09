@@ -62,6 +62,20 @@ namespace TianWen.UI.Abstractions
         PinnedSettings,
 
         /// <summary>
+        /// The same pixels and the same settings, with and without the display CROP: the left half
+        /// shows the whole frame, the right the crop. Needs a crop to be in force and nothing else --
+        /// no retained texture, no pinned snapshot, because neither half is a different rendition.
+        /// </summary>
+        /// <remarks>
+        /// It answers the question a crop actually raises -- what did that take off? -- which no other
+        /// mode can: comparing pixels needs an enhance to have retained some, and comparing settings
+        /// shows two identically-framed halves. Distinct from the enhance comparison on purpose: once a
+        /// crop has been baked into an enhance, the two halves must show the SAME region and differ only
+        /// by the enhancement, or the comparison is answering two questions at once.
+        /// </remarks>
+        CropExtent,
+
+        /// <summary>
         /// The retained pre-enhance pixels, rendered with the CURRENT display settings (so moving a
         /// slider moves both halves together and only the pixels differ). Needs the backend to be
         /// holding a before texture set; unavailable otherwise.

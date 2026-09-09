@@ -186,6 +186,10 @@ namespace TianWen.UI.Abstractions
 
         private bool _cropActive;
 
+        /// <summary>Whether a display crop is narrowing what the viewer shows, as of the last arranged
+        /// frame. The split asks, because a crop is something to compare against.</summary>
+        public bool HasDisplayCrop => _cropActive;
+
         /// <summary>
         /// Narrows a clip rect to the region actually being shown, so a crop discards the border by never
         /// rasterising it. With no crop this is the quad's own rect, which is a no-op against the pane:
@@ -201,10 +205,16 @@ namespace TianWen.UI.Abstractions
                 return rect;
             }
 
-            var x0 = MathF.Max(rect.X, _shownRect.X);
-            var y0 = MathF.Max(rect.Y, _shownRect.Y);
-            var x1 = MathF.Min(rect.X + rect.Width, _shownRect.X + _shownRect.Width);
-            var y1 = MathF.Min(rect.Y + rect.Height, _shownRect.Y + _shownRect.Height);
+            return Intersect(rect, _shownRect);
+        }
+
+        /// <summary>The overlap of two rectangles, zero-sized when they do not meet.</summary>
+        protected static RectF32 Intersect(in RectF32 a, in RectF32 b)
+        {
+            var x0 = MathF.Max(a.X, b.X);
+            var y0 = MathF.Max(a.Y, b.Y);
+            var x1 = MathF.Min(a.X + a.Width, b.X + b.Width);
+            var y1 = MathF.Min(a.Y + a.Height, b.Y + b.Height);
             return new RectF32(x0, y0, MathF.Max(0f, x1 - x0), MathF.Max(0f, y1 - y0));
         }
 
