@@ -229,14 +229,19 @@ P1 through P3 are one sitting and leave the GUI complete. P4 and P5 are the view
   needs it more than the viewer does.** `SkyMapState` carries eleven `Show*` toggles, **ten of which
   are bound to a bare letter key and to nothing else**: `G` grid, `H` horizon, `B` boundaries, `C`
   figures, `S` milky way, `A` Alt/Az grid, `O` objects, `D` dark nebulae, `M` mount overlay, `E`
-  comets (`SkyMapTab.cs:1367-1410`). There is no legend, no help overlay and no button for any of
-  them; the only clickable things in the whole map are object labels, the search overlay and the info
-  panel's own buttons. So the GUI atlas has ten invisible switches -- **and because `SkyMapTab` is
-  renderer-agnostic and the web build hosts the same class, on a phone those ten are not
-  undiscoverable but UNREACHABLE**, there being no keyboard to press. That makes the palette the fix
-  for a shipped gap rather than a viewer nicety, and it is why it is P0: it belongs on `SkyMapTab`
-  itself, so the GUI and the web get it now and the viewer inherits it at P4. In the viewer it
-  additionally keeps the top bar describing the IMAGE, which is what a top bar there is for. The precedent is Drawboard's PDF viewer (`../../drawboard/pdf-viewer`,
+  comets (`SkyMapTab.cs:1367-1410`). **Correction to the first draft of this doc, found by running
+  it:** there IS a legend, a bracketed key list crammed into the status strip beside the coordinates
+  (`SkyMapTab.cs:1007`). It states the letters and nothing else -- **never which layers are ON, and
+  never clickable** -- so it is a hint, not a control. The clickable things in the whole map remain
+  object labels, the search overlay and the info panel's own buttons. **And because `SkyMapTab` is
+  renderer-agnostic and the web build hosts the same class, on a phone those ten layers are not
+  merely undiscoverable but UNREACHABLE**, there being no keyboard to press and nothing to tap. That
+  is what makes the palette the fix for a shipped gap rather than a viewer nicety, and it is why it
+  is P0: it belongs on `SkyMapTab` itself, so the GUI and the web get it now and the viewer inherits
+  it at P4. In the viewer it additionally keeps the top bar describing the IMAGE, which is what a top
+  bar there is for. The status strip's key list is then one legend too many, so it yields to the
+  panel and reappears when the panel is put away -- which is also the only place that can say how to
+  bring it back. The precedent is Drawboard's PDF viewer (`../../drawboard/pdf-viewer`,
   `PdfViewer.Abstractions/View/ToolPalette.cs`): `ToolPalette<TSurface> : PixelWidgetBase<TSurface>`,
   627 lines on the same DIR.Lib primitives this repo uses -- `Layout` trees, `Layout.IconKind` marks
   -- giving a grip-dragged palette that docks left / right / top, re-clamps itself into the content

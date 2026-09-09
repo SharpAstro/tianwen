@@ -165,6 +165,34 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public void EveryRowArrangesToAVisibleRect()
+        {
+            // The failure this exists for is the one a binding test cannot see: a panel that measures
+            // to nothing still registers ten clickable regions, all of them zero-sized, and the build
+            // is green while the screen is empty. Assert the rects, not just the bindings.
+            var state = StateWithMilkyWay();
+            var arranged = Layout.Engine.Arrange(
+                SkyMapLayerPalette.Build(state, 12f, _ => { }),
+                new Rect<float>(0f, 0f, 900f, 600f), new StubMeasure());
+
+            var rows = arranged
+                .Where(a => a.Node is Layout.Node.Stack { Axis: Layout.Axis.Horizontal })
+                .ToArray();
+
+            rows.Length.ShouldBe(SkyMapLayers.All.Length);
+            foreach (var row in rows)
+            {
+                row.Bounds.Height.ShouldBe(SkyMapLayerPalette.RowHeight, 0.01f);
+                row.Bounds.Width.ShouldBeGreaterThan(0f);
+            }
+
+            // And the panel is tall enough to hold them, rather than clipping the tail of the list.
+            var panel = arranged.First(a => a.Node is Layout.Node.Stack { Axis: Layout.Axis.Vertical });
+            panel.Bounds.Height.ShouldBeGreaterThanOrEqualTo(
+                SkyMapLayers.All.Length * SkyMapLayerPalette.RowHeight);
+        }
+
+        [Fact]
         public void ANarrowMapStillPlacesTheWholePanelInside()
         {
             // A pane narrower than the panel plus its margins is where a hand-rolled "right edge minus
