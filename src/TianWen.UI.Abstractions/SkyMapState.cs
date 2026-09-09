@@ -77,12 +77,25 @@ namespace TianWen.UI.Abstractions
         /// <summary>Show Alt/Az coordinate grid (A key toggles mode + grid).</summary>
         public bool ShowAltAzGrid { get; set; }
 
-        /// <summary>Show the diffuse Milky Way background texture (W key). Only visible
+        /// <summary>Show the diffuse Milky Way background texture (S key). Only visible
         /// when <see cref="MilkyWayAvailable"/> is true (texture file loaded).</summary>
         public bool ShowMilkyWay { get; set; } = true;
 
         /// <summary>True when the Milky Way texture has been loaded from disk.</summary>
         public bool MilkyWayAvailable { get; set; }
+
+        /// <summary>
+        /// Show the layer palette (V key), the floating panel listing every layer in
+        /// <see cref="SkyMapLayers.All"/> with the key that toggles it.
+        /// <para>
+        /// <b>On by default, which is the point of it.</b> Each of those layers was reachable only by
+        /// a bare letter key with nothing on screen naming it, and the browser build hosts this same
+        /// tab on devices with no keyboard at all, where they were not reachable by any means. A
+        /// reader who wants the sky back can put it away; a reader who does not know the panel exists
+        /// is the one it is for.
+        /// </para>
+        /// </summary>
+        public bool ShowLayerPalette { get; set; } = true;
 
         /// <summary>
         /// Show the catalog object overlay (Messier / NGC / IC / named stars); same
