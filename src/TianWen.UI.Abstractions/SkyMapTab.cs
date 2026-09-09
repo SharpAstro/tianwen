@@ -308,10 +308,31 @@ namespace TianWen.UI.Abstractions
             // Drawn before the modal and the info panel so those still win hit testing.
             if (State.ShowLayerPalette)
             {
-                RenderLayout(
+                var paletteNodes = RenderLayout(
                     SkyMapLayerPalette.Build(State, BaseFontSize * 0.9f,
                         layer => layer.Toggle(State)),
                     contentRect, fontPath, dpiScale);
+
+                // Stash the grip's ARRANGED rect rather than recomputing where it ought to be: the
+                // engine owns the pinning and the clamp, so a hand-computed "right edge minus width"
+                // would disagree with the drawn panel exactly when the clamp bit (a narrow pane, a
+                // resize). Testing the drag against the rect that was drawn is the same draw == hit
+                // rule the click bindings get for free.
+                State.LayerPaletteGripRect = default;
+                foreach (var node in paletteNodes)
+                {
+                    if (node.Node.Hit is HitResult.ButtonHit { Action: SkyMapLayerPalette.GripAction })
+                    {
+                        State.LayerPaletteGripRect = new RectF32(
+                            new Vector2(node.Bounds.X, node.Bounds.Y),
+                            new Vector2(node.Bounds.Width, node.Bounds.Height));
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                State.LayerPaletteGripRect = default;
             }
 
             // Search modal + info panel: drawn LAST so their clickable regions win
@@ -1134,6 +1155,9 @@ namespace TianWen.UI.Abstractions
             InputEvent.PinchEnd => HandlePinchEnd(),
             InputEvent.MouseDown(var x, var y, _, var mods, _) => HandleDragStart(x, y, mods),
             InputEvent.MouseUp(var x, var y, _) => HandleMouseUp(x, y),
+            // Ordered before the map's own drag: while the grip has the pointer, a move belongs to the
+            // palette. The map never sees it, so a palette drag cannot also pan the sky.
+            InputEvent.MouseMove(_, var py) when State.LayerPaletteDrag is not null => HandlePaletteDrag(py),
             InputEvent.MouseMove(var x, var y) when State.IsDragging && !State.IsPinching => HandleDrag(x, y),
             InputEvent.KeyDown(var key, var modifiers) => HandleKey(key, modifiers),
             _ => false
@@ -1141,9 +1165,42 @@ namespace TianWen.UI.Abstractions
 
         private bool HandleMouseUp(float x, float y)
         {
+            // A grip drag ends here and goes no further: TryEmitClickSelect would otherwise read the
+            // release as a click on the sky BEHIND the panel and select whatever sits under it.
+            if (State.LayerPaletteDrag is not null)
+            {
+                State.LayerPaletteDrag = null;
+                State.NeedsRedraw = true;
+                return true;
+            }
+
             // Distinguish a click (emit select signal) from the end of a pan drag.
             TryEmitClickSelect(x, y);
             return HandleDragEnd();
+        }
+
+        /// <summary>
+        /// Slides the palette along the edge it is pinned to. Offsets are DESIGN units and the
+        /// pointer is in surface pixels, so the delta is divided by the DPI scale -- without that the
+        /// panel runs away from the pointer on a scaled display, at exactly the scale factor.
+        /// <para>
+        /// No clamping here on purpose: <c>Layout.Builder.Anchored</c> clamps the arranged panel into
+        /// the content rect, which is the one place that knows both the panel's measured height and
+        /// the rect it floats in. Clamping the offset as well would be a second opinion that disagrees
+        /// with the drawn result the moment either changes.
+        /// </para>
+        /// </summary>
+        private bool HandlePaletteDrag(float pointerY)
+        {
+            if (State.LayerPaletteDrag is not { } drag)
+            {
+                return false;
+            }
+
+            var scale = DpiScale <= 0f ? 1f : DpiScale;
+            State.LayerPaletteOffset = drag.Offset + (pointerY - drag.PointerY) / scale;
+            State.NeedsRedraw = true;
+            return true;
         }
 
         private bool HandlePinchZoom(float scale, float centerX, float centerY, PinchSource source)
@@ -1291,6 +1348,19 @@ namespace TianWen.UI.Abstractions
 
         private bool HandleDragStart(float x, float y, InputModifier modifiers = InputModifier.None)
         {
+            // A press on the palette's grip drags the PALETTE, never the sky. Tested first and
+            // returned from, because the alternative is that a drag begun on the panel also pans the
+            // map underneath it: both would be running, and letting go would leave the sky somewhere
+            // the reader never asked it to be.
+            var grip = State.LayerPaletteGripRect;
+            if (State.ShowLayerPalette && grip.Size.X > 0f && grip.Size.Y > 0f
+                && x >= grip.Position.X && x < grip.Position.X + grip.Size.X
+                && y >= grip.Position.Y && y < grip.Position.Y + grip.Size.Y)
+            {
+                State.LayerPaletteDrag = (y, State.LayerPaletteOffset);
+                return true;
+            }
+
             // Modal swallows click-outside via its backdrop region, so this only runs
             // for clicks on the map itself when the modal is closed. Modifiers are
             // captured here (mouse-down) and replayed on the mouse-up click-select,
