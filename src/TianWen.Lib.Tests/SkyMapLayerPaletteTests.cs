@@ -160,6 +160,51 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public void CollapsedThePanelIsItsOwnTitleBar()
+        {
+            var state = StateWithMilkyWay();
+            state.ShowGrid = true;
+            state.ShowHorizon = true;
+            state.LayerPaletteCollapsed = true;
+
+            var tree = SkyMapLayerPalette.Build(state, 12f, _ => { }, () => { });
+            var actions = ClickActions(tree);
+
+            // The grip survives, because it is the only way back; every layer row goes.
+            actions.Keys.ShouldBe([SkyMapLayerPalette.GripAction]);
+            foreach (var layer in SkyMapLayers.All)
+            {
+                TextRuns(tree).ShouldNotContain(layer.Label);
+            }
+        }
+
+        [Fact]
+        public void CollapsedTheHeaderStillSaysHowManyLayersAreLit()
+        {
+            // Otherwise collapsing throws away the one thing the panel knows that the status strip
+            // never did, and the rolled-up bar is a label with no information in it.
+            var state = new SkyMapState { MilkyWayAvailable = false, LayerPaletteCollapsed = true };
+            foreach (var layer in SkyMapLayers.All)
+            {
+                layer.Set(state, false);
+            }
+            SkyMapLayers.All[0].Set(state, true);
+            SkyMapLayers.All[1].Set(state, true);
+
+            var header = TextRuns(SkyMapLayerPalette.Build(state, 12f, _ => { }, () => { })).First();
+
+            header.ShouldBe($"LAYERS  2/{SkyMapLayers.All.Length}");
+        }
+
+        [Theory]
+        [InlineData(0.1f, true)]
+        [InlineData(0.4f, true)]
+        [InlineData(0.5f, false)]
+        [InlineData(5f, false)]
+        public void TwoGripPressesCloseTogetherAreADoubleClick(float seconds, bool expected)
+            => SkyMapLayerPalette.IsDoubleClick(seconds).ShouldBe(expected);
+
+        [Fact]
         public void TheOffsetSlidesThePanelDownTheEdge()
         {
             // Anchored's offsetAlong is consumer-owned state a drag updates, so the whole grip feature

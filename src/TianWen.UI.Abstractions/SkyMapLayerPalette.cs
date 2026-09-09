@@ -59,6 +59,18 @@ namespace TianWen.UI.Abstractions
         public const float IdleAlpha = 0.40f;
 
         /// <summary>
+        /// Two grip presses closer together than this are a double-click, which collapses the panel.
+        /// Timed here rather than read off the event because a clickable region's handler is given
+        /// modifiers and nothing else: the host counts clicks (<c>GuiEventHandlerBase</c> uses it for
+        /// select-all in a text field) but does not forward the count to a region's callback.
+        /// </summary>
+        public const float DoubleClickSeconds = 0.4f;
+
+        /// <summary>Whether a grip press this soon after the last one is the second of a pair.</summary>
+        public static bool IsDoubleClick(float secondsSinceLastPress)
+            => secondsSinceLastPress <= DoubleClickSeconds;
+
+        /// <summary>
         /// The fade factor for a panel last engaged <paramref name="idleSeconds"/> ago. Hover or a
         /// live drag holds it fully present. Pure, so the curve is testable without a clock.
         /// </summary>
@@ -127,19 +139,33 @@ namespace TianWen.UI.Abstractions
 
             // Header plus one row per layer. Built into an array rather than a params span because the
             // count is the table's, not a literal.
-            var children = new Layout.Node[layers.Length + 1];
+            // Collapsed, the panel is its own title bar: enough to say it is there, where it is, and
+            // how many layers are lit, in one row. Double-clicking the grip is what gets here and back.
+            var rowCount = state.LayerPaletteCollapsed ? 0 : layers.Length;
+            var children = new Layout.Node[rowCount + 1];
 
             // The header IS the grip. A separate handle would cost a row and teach nothing: a title
             // bar is where a reader already tries to drag a panel from, and the Move cursor over it
             // says so before they try. Pressing it BEGINS the drag; the moves and the release are the
             // tab's, since only the tab sees them.
-            children[0] = Layout.Builder.Text("LAYERS", fontSize * 0.85f, Faded(HeaderInk),
+            var lit = 0;
+            foreach (var l in layers)
+            {
+                if (l.Available(state) && l.IsOn(state))
+                {
+                    lit++;
+                }
+            }
+
+            children[0] = Layout.Builder.Text(
+                    state.LayerPaletteCollapsed ? $"LAYERS  {lit}/{layers.Length}" : "LAYERS",
+                    fontSize * 0.85f, Faded(HeaderInk),
                     TextAlign.Near, TextAlign.Center)
                 .RowH(RowHeight * 0.9f)
                 .Bg(Faded(GripBg))
                 .Clickable(new HitResult.ButtonHit(GripAction), _ => onGripPress(), CursorKind.Move);
 
-            for (var i = 0; i < layers.Length; i++)
+            for (var i = 0; i < rowCount; i++)
             {
                 // Copy out of the ImmutableArray so the click lambda captures a value rather than the
                 // loop's index into a collection it would have to re-read.

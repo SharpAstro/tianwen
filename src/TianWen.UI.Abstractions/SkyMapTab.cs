@@ -49,6 +49,11 @@ namespace TianWen.UI.Abstractions
         private RectF32 _palettePanelRect;
         private long _paletteEngagedAt = Stopwatch.GetTimestamp();
 
+        // When the grip was last pressed, so a second press soon after reads as a double-click. The
+        // host counts clicks but does not hand the count to a region's callback, so this is the only
+        // place that can tell a pair from two singles.
+        private long _lastGripPressAt;
+
         // Async Milky Way load: the file read + lzip decompress (~270 ms for the raw BGRA
         // texture) runs on a background thread so it never stalls the first sky-map frame. The
         // Task itself is the cross-thread handoff -- TryApplyPendingMilkyWay polls it and does
@@ -319,7 +324,21 @@ namespace TianWen.UI.Abstractions
             // Layer palette: floated against the content area's RIGHT edge, which is the half of it
             // the info panel does not use (that one pins itself bottom-left, above the status strip).
             // Drawn before the modal and the info panel so those still win hit testing.
-            if (State.ShowLayerPalette)
+            // Search modal + info panel: drawn LAST so their clickable regions win
+            // hit testing (paint order = z-order).
+            DrawSearchAndInfoPanel(plannerState, contentRect, db,
+                siteLat, siteLon, viewingTime, site, ppr, cx, cy);
+            SearchPanelMs += LayerElapsed(ref layerMark);
+
+            // Layer palette LAST, so it is chrome rather than something the sky draws over. The
+            // selected-object reticle is drawn from inside DrawInfoPanel (it is map annotation living
+            // in the panel's method, because that is where the selection is resolved), so a palette
+            // drawn before that pass had a yellow crosshair sitting on top of its rows wherever the
+            // selection happened to fall behind it.
+            //
+            // The one thing that outranks it is the search modal, which owns the screen while it is
+            // open -- so the palette stands down rather than floating over a modal.
+            if (State.ShowLayerPalette && !State.Search.IsOpen)
             {
                 // Hover and a live drag hold the panel fully present; otherwise it recedes. Hover is
                 // measured against the PREVIOUS frame's rect, which is a frame of lag on a 2.5 s delay
@@ -358,12 +377,6 @@ namespace TianWen.UI.Abstractions
                     State.NeedsRedraw = true;
                 }
             }
-
-            // Search modal + info panel: drawn LAST so their clickable regions win
-            // hit testing (paint order = z-order).
-            DrawSearchAndInfoPanel(plannerState, contentRect, db,
-                siteLat, siteLon, viewingTime, site, ppr, cx, cy);
-            SearchPanelMs += LayerElapsed(ref layerMark);
         }
 
         /// <summary>
@@ -1229,8 +1242,23 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void BeginLayerPaletteDrag()
         {
-            State.LayerPaletteDrag = (_lastPointerY, State.LayerPaletteOffset);
             _paletteEngagedAt = Stopwatch.GetTimestamp();
+
+            // Two presses in quick succession roll the panel up instead of moving it. The first press
+            // of the pair has already armed a drag and its release disarmed it, so the only thing to
+            // undo here is any drag this press would otherwise start -- hence toggling and returning
+            // rather than falling through.
+            var sinceLast = (float)Stopwatch.GetElapsedTime(_lastGripPressAt).TotalSeconds;
+            _lastGripPressAt = _paletteEngagedAt;
+            if (SkyMapLayerPalette.IsDoubleClick(sinceLast))
+            {
+                State.LayerPaletteCollapsed = !State.LayerPaletteCollapsed;
+                State.LayerPaletteDrag = null;
+                State.NeedsRedraw = true;
+                return;
+            }
+
+            State.LayerPaletteDrag = (_lastPointerY, State.LayerPaletteOffset);
         }
 
         /// <summary>Toggling a layer counts as engagement, so the panel does not fade under the click.</summary>
