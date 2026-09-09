@@ -419,6 +419,15 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         return handled;
     },
 
+    // A touchscreen pinch is its own input path -- a finger gesture, not a wheel -- so it has to be
+    // wired even though OnPointerInput above already forwards everything it carries. Without these two
+    // the events were raised and dropped, which is exactly what "pinch zoom does nothing" looked like.
+    // The viewer decides what to do with the source; this host only forwards.
+    OnPinch = (scale, mx, my, source) =>
+        imageRenderer.HandleInput(new InputEvent.Pinch(scale, mx, my) { Source = source }),
+
+    OnPinchEnd = () => imageRenderer.HandleInput(new InputEvent.PinchEnd()),
+
     OnDropFile = (path) => { if (path is not null) ViewerActions.HandleFileDrop(state, path); },
 
     // TickPlayback() FIRST (and always, via || short-circuit order): it runs every loop iteration --

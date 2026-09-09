@@ -100,6 +100,13 @@ chromeless Live Session / polar / guide-cam previews (`ViewerState.HideChrome`).
 4. **Hosts route, apps wire one callback**: pointer wiring goes through `SdlWindowView.OnPointerInput`
    (never four hand-wired lambdas), and any new inspector input command must go through
    `SdlWindowView.DispatchPointer*`.
+
+   **A touch gesture is NOT a pointer event and is not carried by that callback.** `OnPinch` /
+   `OnPinchEnd` are their own pair, so a host that wires only `OnPointerInput` has no pinch zoom at all
+   -- the renderer recognises the gesture, classifies the device and raises into a null delegate.
+   `tianwen-fits` shipped that way, and it presents as the touchscreen not being read rather than as a
+   missing branch: **a dropped event and an unread device are indistinguishable from the glass.** Check
+   both ends when a gesture does nothing -- the host's wiring AND the widget's input switch.
 5. **Place by arrangement, not arithmetic** (goal: ~99% layout-driven,
    [../plans/layout-driven-ui.md](../plans/layout-driven-ui.md)): chrome geometry comes from an
    arranged `Layout` tree; hand-computed `pad * dpiScale` offsets and `cursor +=` stitching are the
