@@ -60,6 +60,30 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// The emoji face reaches the chain as a declared ROLE, not merely resolved beside it.
+        /// </summary>
+        /// <remarks>
+        /// DIR.Lib 8.15 sends a codepoint whose Unicode DEFAULT PRESENTATION is emoji to the declared
+        /// emoji face even where the primary covers it, which is what draws the tip jar's coffee cup in
+        /// colour instead of DejaVu Sans's monochrome outline. Only a chain built by
+        /// <c>FromRoles</c> carries that declaration: one built from a bare fallback list covers exactly
+        /// the same glyphs, looks correct, and silently loses the rule.
+        /// </remarks>
+        [Fact]
+        public void TheEmojiFaceIsDeclaredAsARoleOnTheChain()
+        {
+            var fonts = BundledFonts.Resolve();
+
+            if (fonts.Text.Length == 0 || fonts.Emoji.Length == 0)
+            {
+                Assert.Skip("This host has no text face, no emoji face, or neither, so there is no role to declare.");
+            }
+
+            fonts.Fallback.ShouldNotBeNull();
+            fonts.Fallback.EmojiFontPath.ShouldBe(fonts.Emoji);
+        }
+
+        /// <summary>
         /// Resolving twice yields the SAME chain instance, not an equal one.
         /// </summary>
         /// <remarks>
