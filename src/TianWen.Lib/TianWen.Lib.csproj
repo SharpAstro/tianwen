@@ -7,6 +7,8 @@
     <!-- Derived; the version itself lives in src/Directory.Build.props (VersionMajorMinor). -->
     <AssemblyVersion>$(VersionMajorMinor).0.0</AssemblyVersion>
     <PackageID>TianWen.Lib</PackageID>
+    <Description>Astronomical imaging and device-control library for .NET: cameras, mounts, focusers, filter wheels, cover/calibrators and guiders over ASCOM, Alpaca, ZWO, QHYCCD, Meade LX200, Skywatcher, OnStep and PHD2, plus plate solving, deep-sky and planetary stacking, auto-focus and unattended session automation. First-class multi-OTA (dual rig) support. AOT compatible.</Description>
+    <PackageTags>astronomy astrophotography ascom alpaca fits telescope camera guiding plate-solving stacking</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <!-- A file, not a PackageLicenseExpression: the terms are AGPL-3.0-or-later PLUS the section-7
          additional permission in LICENSE.EXCEPTION (which lets TianWen link the proprietary vendor
