@@ -58,6 +58,8 @@ the 35 TIFF / import / codec tests pass against it.
 | P25 | No auto-crop: a master's stack artefacts and NaN margins have to be cropped elsewhere | **FIXED** 2026-09-08 |
 | P26 | The `?` panel cannot report a bug: no issue, no logs, no version attached | **FIXED** 2026-09-08 |
 | P27 | Escape and an open panel: NOT a defect, and now pinned. My first diagnosis was wrong | **VERIFIED** 2026-09-08 |
+| P28 | The menu cannot name the object under the cursor, and the atlas link only copies | **FIXED** 2026-09-08 |
+| P29 | A touchscreen pinch does not zoom: the events were raised and dropped | **FIXED** 2026-09-09 |
 
 ---
 
@@ -1320,3 +1322,59 @@ holds the same link with the page it names in front of it. It goes out as an `Op
 than starting a process, because opening a URL is a shell call and `TianWen.UI.Abstractions` is
 shared with the WebAssembly build; that is also why `ImageContextMenuItem` grew an `Action` instead
 of the handler special-casing one label.
+
+---
+
+## P29. A touchscreen pinch does not zoom  (FIXED 2026-09-09)
+
+**Nothing was wrong with the gesture recognition.** `SdlEventLoop` has recognised two-finger pinches
+for as long as the sky map has zoomed with them, and it classifies the device while it is at it
+(`TouchDeviceType.Direct` -> `PinchSource.Touchscreen`, anything else -> `Touchpad`). Both halves of
+the viewer's path then threw the result away: `tianwen-fits`'s `Program.cs` wired no `OnPinch` at all,
+so the event was raised into a null delegate, and `ImageRendererBase`'s input switch had no case for
+one, so the GUI -- which does forward it -- dropped it at the tab. **A dropped event and an unread
+device look identical from the glass**, which is why this reads as "the touchscreen does not work"
+rather than as a missing branch.
+
+**The zoom itself is the wheel's, seeded the same way.** `PanZoomController.ZoomByFactor` already
+existed for exactly this ("for keyboard / pinch"), so a pinch is the wheel path with a factor that
+comes from the fingers instead of a notch: seed the controller from `ViewerState`, run it, write the
+transform back. The anchor is the finger midpoint, gated to the image pane like the wheel is, so the
+image point between the fingers stays between the fingers.
+
+**The scale is per EVENT, not cumulative from the start of the gesture**, and every piece of prose
+around it said otherwise. `InputEvent.Pinch`'s XML doc in DIR.Lib said "absolute from pinch start",
+`SdlWindowView.OnPinch`'s said "absolute since start", and inside one method of `SdlEventLoop` the
+comment above the division said absolute while the comment on the re-base three lines below said
+per-frame. The code was right and both consumers (this and `SkyMapTab`) already treated it as
+relative; reading it as absolute would leave a whole pinch stuck at its first event's factor. All
+four are corrected, and the field the wrong comments were describing is renamed `PinchStartDist` ->
+`PinchRefDist` (internal, SdlVulkan.Renderer) -- it is the start distance only for the first
+dispatch, so the name was the load-bearing half of the error and a comment saying "not the start
+distance" beside a field called `PinchStartDist` would have rotted straight back.
+
+**A TOUCHPAD pinch is deliberately left alone**, which is the opposite of what `SkyMapTab` does with
+the same event, and the divergence is in the wheel rather than in the pinch. Windows fires the finger
+events AND a mouse wheel for one touchpad pinch: the sky map anchors its wheel zoom at the view CENTRE
+(cursor-anchoring spins the field near the pole), so it has to prefer the pinch and suppress the wheel
+for a 300 ms grace window to get a cursor anchor at all. This viewer's wheel is already
+cursor-anchored, and a touchpad pinch reports the cursor as its midpoint -- so the wheel path already
+gives the answer the pinch would, and acting on both would simply zoom twice per gesture. Trackpad
+zoom is therefore untouched by this change.
+
+**The gesture must not also PAN, and that is the half with no visible symptom until it is wrong.** A
+touchscreen synthesizes mouse events from the FIRST finger, so the press that opens a pinch reads as
+a press-and-drag: without suppression the image is dragged by one finger while the same gesture zooms
+it. `BeginViewportPan` refuses to arm while a pinch is live -- refused there because both hosts arm
+the pan themselves (the standalone viewer has its own press dispatch), so it is the one place both go
+through -- and each pinch event ends any pan already in flight. After `PinchEnd` the pan stays
+disarmed until a fresh press, so the finger still on the glass when its partner lifts cannot resume a
+drag from an anchor the zoom has since moved out from under.
+
+**The pre-pinch travel is deliberately kept**, unlike `SkyMapTab`, which rewinds the centre to where
+the drag started. Between the two fingers landing, finger one moves a few pixels and rewinding that
+is invisible -- but the same rewind teleports the view when a deliberate one-finger pan turns into a
+pinch without lifting, and on an image that is the more likely gesture.
+
+Pinned by `ViewerPinchZoomTests` (8 tests; 6 fail with the switch cases removed -- the two that
+survive are the negative ones, which a dropped event satisfies for free).

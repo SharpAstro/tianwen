@@ -38,12 +38,86 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public void BeginViewportPan(float x, float y)
         {
-            if (_state is not { } state)
+            // A touchscreen synthesizes mouse events from the FIRST finger, so a two-finger pinch is
+            // also a press-and-drag as far as this path can tell. Arming a pan from one would drag the
+            // image with that finger while the same gesture zooms it. Refused here rather than in each
+            // caller because both hosts arm the pan themselves (the standalone viewer's Program.cs has
+            // its own press dispatch), so this is the one place both go through.
+            if (_isPinching || _state is not { } state)
             {
                 return;
             }
             _panZoom.PanOffset = new Vector2(state.PanOffset.X, state.PanOffset.Y);
             _panZoom.BeginPan(x, y);
+        }
+
+        /// <summary>
+        /// True from the first <see cref="InputEvent.Pinch"/> of a touchscreen gesture until its
+        /// <see cref="InputEvent.PinchEnd"/>. Derived, render-thread only -- not view state: it exists
+        /// solely to keep the first finger's synthesized mouse drag from panning mid-pinch.
+        /// </summary>
+        private bool _isPinching;
+
+        /// <summary>
+        /// Two-finger pinch zoom over the image, anchored at the finger midpoint.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Only a TOUCHSCREEN pinch is acted on.</b> A Windows precision touchpad fires the
+        /// FingerMotion events this arrives as <em>and</em> a mouse wheel for one pinch gesture, and the
+        /// wheel is what this viewer has always zoomed on -- so acting on both would zoom twice per
+        /// gesture. <see cref="SkyMapTab"/> resolves the same dual-fire the other way round (pinch wins,
+        /// the wheel is suppressed for a grace window) because its wheel zoom anchors at the view centre
+        /// and a touchpad pinch wants the cursor; here the wheel path is already cursor-anchored, which
+        /// is the same answer this would give.</para>
+        /// <para><b>The scale is per-EVENT, not cumulative since the gesture began</b> -- the renderer
+        /// re-bases its reference distance after each dispatch -- so it multiplies straight onto the
+        /// current zoom.</para>
+        /// <para>The pan the first finger drove before the second one landed is deliberately left
+        /// applied: it is travel the user made, and undoing it would teleport the view whenever a
+        /// deliberate one-finger pan turns into a pinch without lifting.</para>
+        /// </remarks>
+        private bool HandleViewerPinch(float scale, float centerX, float centerY, PinchSource source)
+        {
+            if (source != PinchSource.Touchscreen || _state is not { } state)
+            {
+                return false;
+            }
+
+            _isPinching = true;
+            _panZoom.EndPan();
+
+            // Anchored on the image pane, like the wheel: a midpoint over the file list or the toolbar
+            // is not a gesture on the image, and the anchor arithmetic is expressed against this rect.
+            var area = _layout.ImageArea;
+            if (!float.IsFinite(scale) || scale <= 0f || !area.Contains(centerX, centerY))
+            {
+                return false;
+            }
+
+            // Same seed-run-write-back as the wheel: the controller owns the gesture, the display
+            // transform stays on ViewerState. A clamped no-op (already at the floor) changes nothing,
+            // ZoomToFit included -- it only clears when the zoom actually moves.
+            _panZoom.Zoom = state.Zoom;
+            _panZoom.PanOffset = new Vector2(state.PanOffset.X, state.PanOffset.Y);
+            if (!_panZoom.ZoomByFactor(scale, centerX, centerY, area))
+            {
+                return false;
+            }
+
+            state.Zoom = _panZoom.Zoom;
+            state.PanOffset = (_panZoom.PanOffset.X, _panZoom.PanOffset.Y);
+            state.ZoomToFit = false;
+            return true;
+        }
+
+        /// <summary>
+        /// End of a pinch. The pan stays disarmed until the next press, so the finger still on the glass
+        /// when its partner lifts cannot resume a drag from an anchor the zoom has since moved under.
+        /// </summary>
+        private bool HandleViewerPinchEnd()
+        {
+            _isPinching = false;
+            return false; // nothing moved, so nothing to repaint
         }
 
         // Called only through HandleInput, which forces full damage for anything that asks for a
@@ -78,6 +152,8 @@ namespace TianWen.UI.Abstractions
                 InputEvent.MouseMove(var px, var py) => HandleViewerMouseMove(px, py, evt),
                 InputEvent.MouseUp(_, _, _) => HandleViewerMouseUp(evt),
                 InputEvent.Scroll(var delta, var mx, var my, _) => HandleViewerScroll(delta, mx, my),
+                InputEvent.Pinch p => HandleViewerPinch(p.Scale, p.X, p.Y, p.Source),
+                InputEvent.PinchEnd => HandleViewerPinchEnd(),
                 _ => false
             };
         }
