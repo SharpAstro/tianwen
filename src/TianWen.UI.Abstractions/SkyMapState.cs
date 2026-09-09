@@ -106,6 +106,14 @@ namespace TianWen.UI.Abstractions
         public float LayerPaletteOffset { get; set; } = SkyMapLayerPalette.TopOffset;
 
         /// <summary>
+        /// Whether the layer palette is rolled up to its title bar. Double-clicking the grip toggles
+        /// it. Separate from <see cref="ShowLayerPalette"/> because they answer different questions:
+        /// collapsed still says where the panel is and how many layers are lit, where hidden is gone
+        /// and only the status strip can say how to bring it back.
+        /// </summary>
+        public bool LayerPaletteCollapsed { get; set; }
+
+        /// <summary>
         /// A grip drag in flight: where the pointer went down, and the offset the palette had then.
         /// Null when no drag is running. Anchoring to the START of both means the palette tracks the
         /// pointer exactly rather than accumulating rounding per move event.
