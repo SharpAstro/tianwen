@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
@@ -225,8 +226,15 @@ internal static class Program
     /// Reads the previous overlay so this run only refreshes what has expired. The seed is normally the
     /// CURRENTLY DEPLOYED asset, which makes the published site its own incremental state: nothing to
     /// keep in sync with what is live, and no cache to be evicted out from under a deploy that happens
-    /// less often than a CI cache is retained. Any failure -- the first ever run, a 404, a truncated
-    /// file -- is a cold start, which is a slow bake and never a wrong one.
+    /// less often than a CI cache is retained.
+    ///
+    /// <para><b>A MISSING seed and an UNREADABLE one mean opposite things.</b> This used to treat every
+    /// failure as a cold start, which is wrong in the case that matters: a cold bake is capped by
+    /// <c>--max-fetches</c>, so one failed GET would publish an overlay of at most that many entries
+    /// OVER a deployed one holding hundreds. The deploy is the backup, and that silently spent it. So
+    /// only "the asset is not there" (404/410, or no such file) is a cold start; anything else -- a 5xx,
+    /// a DNS failure, a timeout, a truncated file -- throws, which fails the build job and leaves the
+    /// deployed assets exactly where they are.</para>
     /// </summary>
     private static async Task<Dictionary<CatalogIndex, ApparitionEntry>> TryLoadSeedAsync(HttpClient http, string? seed, CancellationToken ct)
     {
@@ -236,24 +244,42 @@ internal static class Program
             return result;
         }
 
-        try
+        string json;
+        if (Uri.TryCreate(seed, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https")
         {
-            var json = Uri.TryCreate(seed, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https"
-                ? await http.GetStringAsync(uri, ct)
-                : await File.ReadAllTextAsync(seed, ct);
+            using var response = await http.GetAsync(uri, ct);
 
-            foreach (var entry in JsonSerializer.Deserialize(json, SbdbJsonContext.Default.ApparitionCacheFile)?.Entries ?? [])
+            // Not published yet: the first ever run, or an asset deliberately cleared. There is nothing
+            // to preserve, so a cold bake is the right answer rather than a failure.
+            if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Gone)
             {
-                if (entry.Elements.CatalogIndex is { } index)
-                {
-                    result[index] = entry;
-                }
+                Console.WriteLine($"[bake-comets] seed absent ({(int)response.StatusCode}); this run is a cold bake");
+                return result;
             }
+
+            // Every other status means the seed exists and this run could not read it. Throwing keeps
+            // the deployed overlay alive; continuing would overwrite it with a fraction of itself.
+            response.EnsureSuccessStatusCode();
+            json = await response.Content.ReadAsStringAsync(ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        else if (!File.Exists(seed))
         {
-            Console.WriteLine($"[bake-comets] no usable seed ({ex.Message}); this run is a cold bake");
-            result.Clear();
+            Console.WriteLine($"[bake-comets] no seed file at '{seed}'; this run is a cold bake");
+            return result;
+        }
+        else
+        {
+            json = await File.ReadAllTextAsync(seed, ct);
+        }
+
+        // A truncated or non-JSON seed is a read that did not complete, not an absent one, so a parse
+        // failure propagates for the same reason a 5xx does.
+        foreach (var entry in JsonSerializer.Deserialize(json, SbdbJsonContext.Default.ApparitionCacheFile)?.Entries ?? [])
+        {
+            if (entry.Elements.CatalogIndex is { } index)
+            {
+                result[index] = entry;
+            }
         }
 
         return result;
