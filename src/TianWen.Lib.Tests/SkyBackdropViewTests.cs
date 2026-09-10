@@ -430,6 +430,45 @@ public class SkyBackdropViewTests
     }
 
     /// <summary>
+    /// The four-corner measure IS the single-point one, taken at the worst corner. One definition, so
+    /// the grid handover and the off-frame click bound cannot drift apart.
+    /// </summary>
+    /// <remarks>
+    /// Worth its own case because the two are used for different decisions at different scales -- 20
+    /// degrees for which grid draws, 5 for how far a click may be resolved -- and a second copy of
+    /// <c>atan(r * scale)</c> would agree today and diverge the first time either is corrected.
+    /// </remarks>
+    [Fact]
+    public void TheWorstCornerIsTheSinglePointMeasureAtThatCorner()
+    {
+        var wcs = ChartOriented();
+        var scale = Pane.Width / ImageWidth / 8f;
+
+        var worst = 0.0;
+        for (var i = 0; i < 4; i++)
+        {
+            var cornerX = (i & 1) == 0 ? Pane.X : Pane.X + Pane.Width;
+            var cornerY = (i & 2) == 0 ? Pane.Y : Pane.Y + Pane.Height;
+            var angle = SkyBackdropView.TangentAngleDeg(in wcs,
+                ((cornerX - Pane.X) / scale) + 1.0, ((cornerY - Pane.Y) / scale) + 1.0);
+            worst = Math.Max(worst, angle);
+        }
+
+        SkyBackdropView.MaxTangentAngleDeg(in wcs, Pane, Pane.X, Pane.Y, scale)
+            .ShouldBe(worst, 1e-12);
+        worst.ShouldBeGreaterThan(0.0, "the fixture has to put the corners off the tangent point");
+    }
+
+    /// <summary>The single-point measure is zero AT the reference pixel, by construction.</summary>
+    [Fact]
+    public void TheMeasureIsZeroAtTheReferencePixel()
+    {
+        var wcs = ChartOriented();
+
+        SkyBackdropView.TangentAngleDeg(in wcs, wcs.CRPix1, wcs.CRPix2).ShouldBe(0.0, 1e-12);
+    }
+
+    /// <summary>
     /// A frame with no usable astrometry answers NaN rather than a number, so a caller comparing it
     /// against a bound gets false and the spherical grid -- correct everywhere -- wins by default.
     /// </summary>
