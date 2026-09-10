@@ -1574,6 +1574,17 @@ layer palette floating over the frame. **Everything, with the measurements:
 [`docs/plans/in-app-sky-atlas.md`](docs/plans/in-app-sky-atlas.md) § What shipped in the viewer.**
 The rules:
 
+- **Read the object catalogue through `ImageRendererBase.LoadedCatalog`, never
+  `CelestialObjectDB.Value.Value`.** `AsyncLazy<T>.Value` is a non-blocking PEEK (`Result<T>?`), which
+  is what keeps the ~500 ms build off the render thread -- the frame simply draws without objects and
+  they appear when it lands. But **`Result<T>.Value` RETHROWS a failed load**, so three draw paths
+  would have faulted on EVERY frame after a catalogue error instead of reporting it once.
+  `LoadedCatalog` asks with `TryGet`. An `IsValueCreated` guard is redundant, not safer.
+- **A hidden widget consumes no input.** A scroll controller's extent is set where its widget PAINTS,
+  so a collapsed panel leaves it holding the band the panel had and it claims presses landing there --
+  which is how pan went dead in a strip of the picture with nothing drawn in it
+  (`HandleFileListScroll` gates on `ShowFileList`; the sky palette gates on `SkyBackdropActive`). Gate
+  the consult, do not zero the extent, so there is one place that says it.
 - **The PHOTOGRAPH is the master.** `SkyBackdropView.Solve` reads the viewer's own placement back
   through the frame's WCS and states it as the map's centre / roll / FOV / handedness, by PROBING
   (`PixelToSky`) rather than deriving it from the CD matrix -- so no FITS or matrix convention is
@@ -1596,14 +1607,22 @@ The rules:
 - **The pan is confined to the viewport EXCEPT while the sky is drawn behind the frame**, gated on
   `SkyBackdropActive` (drawn, not merely switched on) so an unsolved frame keeps the clamp instead of
   turning loose over blank ground. Confining the pan to the picture is what stops the sky beside it
-  being brought to the middle of the pane; `F` / `Ctrl+0` is the way back.
+  being brought to the middle of the pane; `F` / `Ctrl+0` is the way back. Pinned by
+  `ViewerSkyPanTests`, whose third case -- sky ON over an UNSOLVED frame -- is the only one a naive
+  `ShowSkyBackdrop` gate fails, and neither user report would have asked for it.
 - **ONE grid switch with two faces, and GEOMETRY picks which grid draws.** The ladder and `G` write
   the viewer's flag, the palette's Grid row writes the map's, whichever moved wins
   (`_lastSkyGridFlag`); the row is always listed, because a layer that answers its key and appears
-  nowhere defeats the panel. The frame's per-pixel grid spans the pane under
-  `PaneGridMaxFovDeg = 20.0` and the map's spherical one takes over beyond it -- **a tangent plane
-  cannot represent a point 90 degrees away**, which is meridians sweeping past the pole instead of
-  converging. A second checkbox is the wrong fix: it makes "grid off" show MORE grid.
+  nowhere defeats the panel. The frame's per-pixel grid spans the pane while the pane's furthest
+  corner is within `PaneGridMaxTangentAngleDeg = 20.0` of the frame's TANGENT POINT
+  (`SkyBackdropView.MaxTangentAngleDeg`), and the map's spherical one takes over beyond that -- **a
+  tangent plane cannot represent a point 90 degrees away**, which is meridians sweeping past the pole
+  instead of converging. **The measure is a DISTANCE FROM THE TANGENT POINT, never a field of view**:
+  the gate first read the map's nominal FOV, which says nothing about how far past its reference the
+  frame's deprojection is being extrapolated, so the frame's grid ran at a view with the SCP on screen
+  ("at 10 percent the grid looks okay, at 12 percent not" -- 60-plus degrees of tangent angle at a
+  nominal field a fraction of that). A second checkbox is the wrong fix: it makes "grid off" show MORE
+  grid.
 - **A rotation cannot fix PARITY.** About half of all light paths mirror the field, and no roll undoes
   that; `SkyMapState.MirrorView` negates the view's right axis AFTER the roll (from a negated right,
   `up` would flip too and it becomes a 180 degree rotation). Still orthogonal, so the inverse stays
