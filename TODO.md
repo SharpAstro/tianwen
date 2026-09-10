@@ -22,10 +22,16 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   and is wired to right-click ONLY; the viewer has no notion of a selected object, so a left click or
   a hover has nowhere to put the answer. Independent of the sky map (WCS plus catalog). Whether it is
   hover or click was deliberately left open. Clicking a STAR is a separate nearest-centroid search
-  over `document.Stars`, not this. Plus: constellation-figure stars should reach the overlay at wider
-  fields (move `GetStarMagCutoff`, not the label tier).
+  over `document.Stars`, not this.
   [docs/plans/in-app-sky-atlas.md](docs/plans/in-app-sky-atlas.md), "Deferred from the 2026-09-10
   sitting".
+  - [x] **Constellation-figure stars now reach the overlay at wider fields** (2026-09-10):
+    `OverlayEngine.FigureStarMagCutoff = 5.0` is a FLOOR under the field-of-view tiers for a star a
+    figure line runs through, resolved through the cross-references since the figure set is keyed by
+    HIP. A floor rather than a waiver (a thousand figure stars would flood a wide view) and rather
+    than an assignment (which would DARKEN a 100 percent view). **Still open, as the user left it:
+    whether it should apply only to figure stars inside the FRAME** -- one line, and it wants an
+    eyeball at a wide zoom, along with whether 5.0 is the number.
 
 
 - [x] **Finalise never stopped tracking; it only checked** (SHIPPED 2026-08-29). The step logged
