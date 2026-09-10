@@ -157,21 +157,38 @@ namespace TianWen.Lib.Tests
             throw new Xunit.Sdk.XunitException($"no row contains '{text}'");
         }
 
+        /// <summary>
+        /// Every row of the panel that opens something, and that each opens its OWN thing.
+        /// </summary>
+        /// <remarks>
+        /// The count is deliberately exact and this test is meant to go red when a row is added --
+        /// which is what it did when the install-folder row became clickable, correctly, on the run
+        /// that added it. Note the fourth destination is a local PATH rather than a URL: it travels on
+        /// the same <c>OpenUrlSignal</c> because the host's handler is the platform shell call
+        /// (Explorer / xdg-open / open), all of which take a directory, and introducing a second way to
+        /// ask the OS to open something is the thing worth avoiding here.
+        /// </remarks>
         [Fact]
-        public void ExactlyThreeRowsOpenALinkAndEachOpensItsOwn()
+        public void ExactlyFourRowsOpenSomethingAndEachOpensItsOwn()
         {
             var opened = OpenedLinksPerRow();
 
-            opened.Count.ShouldBe(3, "the ? panel has three action rows; a new one needs a case here");
+            opened.Count.ShouldBe(4, "the ? panel has four action rows; a new one needs a case here");
 
-            // In panel order: guide, report, tip jar.
-            opened[0].Url.ShouldBe(BugReportLink.DocumentationUrl);
-            opened[1].Url.ShouldStartWith("https://github.com/SharpAstro/tianwen/issues/new");
-            opened[2].Url.ShouldBe(BugReportLink.SupportUrl);
+            // In panel order: the install folder, then guide, report, tip jar.
+            opened[0].Url.ShouldBe(TianWen.Lib.BuildInfo.InstallFolder);
+            opened[1].Url.ShouldBe(BugReportLink.DocumentationUrl);
+            opened[2].Url.ShouldStartWith("https://github.com/SharpAstro/tianwen/issues/new");
+            opened[3].Url.ShouldBe(BugReportLink.SupportUrl);
+
+            // The folder is a filesystem path, not a web address -- stated because the two share a
+            // signal and a row that quietly started opening a browser would still pass everything above.
+            opened[0].Url.ShouldNotStartWith("http");
 
             // Distinct rows: the whole failure mode this guards is two rows sharing an index.
             opened[0].Index.ShouldBeLessThan(opened[1].Index);
             opened[1].Index.ShouldBeLessThan(opened[2].Index);
+            opened[2].Index.ShouldBeLessThan(opened[3].Index);
         }
 
         /// <summary>

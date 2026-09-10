@@ -738,7 +738,9 @@ namespace TianWen.UI.Abstractions
             // Unclaimed press over the file list falls through to the scroll controller (viewport-gated):
             // arms drag-to-scroll / grabs the thumb. Select fires on the tap RELEASE (TakeAtomTap in
             // HandleViewerMouseUp), so a touch drag scrolls instead of selecting the row under the finger.
-            if (_fileListScroll.HandleInput(evt))
+            // Through HandleFileListScroll, which stands the controller down while the list is hidden --
+            // its extent is stale then, and it would eat the press as a scroll gesture.
+            if (HandleFileListScroll(state, evt))
             {
                 state.NeedsRedraw = true;
                 return true;
@@ -846,8 +848,9 @@ namespace TianWen.UI.Abstractions
             }
 
             // File-list drag-to-scroll / thumb drag in progress (returns false when its gesture is idle,
-            // so ordinary moves fall through to the branches below).
-            if (_fileListScroll.HandleInput(evt))
+            // so ordinary moves fall through to the branches below). Gated with the press above: a
+            // collapsed list must not steer a drag that began on the picture either.
+            if (HandleFileListScroll(state, evt))
             {
                 state.NeedsRedraw = true;
                 return true;

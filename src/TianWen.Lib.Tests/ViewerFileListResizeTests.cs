@@ -197,5 +197,78 @@ namespace TianWen.Lib.Tests
 
             after.ShouldBeGreaterThanOrEqualTo(ViewerState.FileListWidthBaseMin - 1f);
         }
+
+        /// <summary>
+        /// With the list COLLAPSED, a drag in the strip it used to occupy must pan the picture.
+        /// </summary>
+        /// <remarks>
+        /// <para>Reported as "even when the list is collapsed, pan doesn't work in that region (where
+        /// it was before)". Not a stale hit REGION -- those are cleared every frame and only honoured
+        /// when the current frame registered them. It is the scroll controller: its extent is set
+        /// inside <c>RenderFileList</c>, which the caller gates on <c>ShowFileList</c>, so a collapsed
+        /// list leaves it holding the band the list had and it claimed any press landing there as a
+        /// scroll gesture.</para>
+        /// <para>What made it findable was the asymmetry the user spotted: the INFO panel on the right
+        /// owns no such controller, so a press there falls through and the image drags from on top of
+        /// it. Same gesture, opposite outcome, and only one of the two panels has a controller.</para>
+        /// <para>The list is painted open FIRST, because that is what gives the controller its extent:
+        /// a viewer that never showed the list cannot reproduce this at all.</para>
+        /// </remarks>
+        [Fact]
+        public void APressWhereTheCollapsedListUsedToBeDragsThePicture()
+        {
+            using var renderer = new RgbaImageRenderer(NarrowW, NarrowH);
+            var viewer = NewViewer(renderer);
+            var state = NewState();
+            state.ImageFileNames = ["a.fits", "b.fits", "c.fits", "d.fits", "e.fits", "f.fits"];
+            state.ZoomToFit = false;
+            state.Zoom = 2f;
+
+            viewer.Render(null, state);
+            var band = viewer.FileList;
+            band.Width.ShouldBeGreaterThan(0f, "the list has to have been shown for this to mean anything");
+
+            state.ShowFileList = false;
+            viewer.Render(null, state);
+
+            var before = state.PanOffset;
+            var x = band.X + (band.Width / 2f);
+            var y = band.Y + (band.Height / 2f);
+
+            viewer.HandleInput(new InputEvent.MouseDown(x, y));
+            viewer.HandleInput(new InputEvent.MouseMove(x + 40f, y + 30f));
+            viewer.HandleInput(new InputEvent.MouseUp(x + 40f, y + 30f));
+
+            state.PanOffset.ShouldNotBe(before, "a drag in the collapsed list's band must pan the image");
+        }
+
+        /// <summary>
+        /// And with the list OPEN the same gesture must NOT pan -- it is the list's. This is the half
+        /// the gate must not cost, and it fails if the gate is written as "never consult the
+        /// controller" rather than "not while hidden".
+        /// </summary>
+        [Fact]
+        public void APressOnTheOpenListDoesNotDragThePicture()
+        {
+            using var renderer = new RgbaImageRenderer(NarrowW, NarrowH);
+            var viewer = NewViewer(renderer);
+            var state = NewState();
+            state.ImageFileNames = ["a.fits", "b.fits", "c.fits", "d.fits", "e.fits", "f.fits"];
+            state.ZoomToFit = false;
+            state.Zoom = 2f;
+
+            viewer.Render(null, state);
+            var band = viewer.FileList;
+            var before = state.PanOffset;
+            var x = band.X + (band.Width / 2f);
+            var y = band.Y + (band.Height / 2f);
+
+            viewer.HandleInput(new InputEvent.MouseDown(x, y));
+            viewer.HandleInput(new InputEvent.MouseMove(x + 40f, y + 30f));
+            viewer.HandleInput(new InputEvent.MouseUp(x + 40f, y + 30f));
+
+            state.PanOffset.ShouldBe(before, "a press on the visible list belongs to the list");
+        }
+
     }
 }

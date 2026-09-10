@@ -138,10 +138,20 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         private bool PaneWideGrid
             => SkyBackdropActive && _state is { ShowGrid: true }
-               && SkyBackdrop is { State.FieldOfViewDeg: <= PaneGridMaxFovDeg };
+               && _paneTangentAngleDeg <= PaneGridMaxTangentAngleDeg;
 
         /// <summary>
-        /// How wide the view may get before the frame's own grid stops being the right one.
+        /// How far the pane's furthest corner is from the frame's tangent point, in degrees, as of the
+        /// last solve. <see cref="double.PositiveInfinity"/> until one has run, so the frame's grid is
+        /// never chosen on an absent measurement -- the map's spherical grid is correct everywhere and
+        /// is therefore the safe default of the two.
+        /// </summary>
+        private double _paneTangentAngleDeg = double.PositiveInfinity;
+
+        /// <summary>
+        /// How far from the frame's TANGENT POINT the pane may reach before the frame's own grid stops
+        /// being the right one -- see <see cref="SkyBackdropView.MaxTangentAngleDeg"/> for why the
+        /// measure is a distance from that point rather than a field of view.
         /// </summary>
         /// <remarks>
         /// <b>A frame's grid is drawn on its TANGENT PLANE, and a tangent plane is not the sky.</b>
@@ -153,10 +163,13 @@ namespace TianWen.UI.Abstractions
         /// over, and that one is drawn on the sphere and is correct everywhere -- coarser, because it
         /// is baked geometry, which is the right trade at constellation scale.
         /// </remarks>
-        private const double PaneGridMaxFovDeg = 20.0;
+        private const double PaneGridMaxTangentAngleDeg = 20.0;
 
         /// <summary>The map's grid flag as of the last frame, to tell which side moved the switch.</summary>
         private bool _lastSkyGridFlag;
+
+        /// <summary>The map's object-overlay flag as of the last frame, for the same reason.</summary>
+        private bool _lastSkyObjectsFlag;
 
         /// <summary>
         /// Whether the sky map wants another frame -- a star buffer that finished building off-thread,
@@ -201,6 +214,11 @@ namespace TianWen.UI.Abstractions
             }
 
             SkyBackdropView.ApplyTo(tab.State, in solution);
+
+            // Which of the two grids is right depends on how far past the frame's reference the pane
+            // reaches, so it is measured HERE, where the placement that decides it is in hand.
+            _paneTangentAngleDeg = SkyBackdropView.MaxTangentAngleDeg(
+                in wcs, area, p.OffsetX, p.OffsetY, p.Scale);
             ApplyFrameContext(planner);
 
             // ONE grid switch with two faces: the ladder and the G key write the viewer's flag, the
@@ -217,6 +235,26 @@ namespace TianWen.UI.Abstractions
             }
 
             _lastSkyGridFlag = tab.State.ShowGrid;
+
+            // The OBJECT overlay is the same idea drawn either side of the frame's edge -- the viewer's
+            // own from the frame's WCS inside it, the map's from the view matrix around it -- so it
+            // gets the same one-switch-two-faces treatment. Without this the ladder's Objects rung lit
+            // the markers on the photograph and left the palette's row dark beside an overlay plainly
+            // on, which is the exact confusion the grid arrangement was rebuilt three times to avoid.
+            //
+            // Turning it off cannot collapse the ladder: OverlayLevel is cumulative and reads
+            // ShowSkyBackdrop FIRST, so the rung stays Sky whatever these two say -- which is also what
+            // makes the grid mirror above safe.
+            if (tab.State.ShowObjectOverlay != _lastSkyObjectsFlag)
+            {
+                state.ShowOverlays = tab.State.ShowObjectOverlay;
+            }
+            else
+            {
+                tab.State.ShowObjectOverlay = state.ShowOverlays;
+            }
+
+            _lastSkyObjectsFlag = tab.State.ShowObjectOverlay;
 
             // Which of the two grids is drawn is then GEOMETRY, not a second choice: the frame's own
             // while its tangent plane holds, the map's spherical one once the view outgrows it. The
@@ -294,7 +332,11 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         private void PublishCatalogToSky()
         {
-            if (SkyPlannerState is { ObjectDb: null } planner && CelestialObjectDB?.Value?.Value is { } db)
+            // Through LoadedCatalog, which is the only safe read from a draw path: the underlying
+            // peek answers null while the build is in flight -- so the catalog's cost stays off the
+            // frame, the sky draws without objects, and they appear once it lands -- but the result it
+            // wraps RETHROWS a failed load, which would then fault every frame rather than once.
+            if (SkyPlannerState is { ObjectDb: null } planner && LoadedCatalog is { } db)
             {
                 planner.ObjectDb = db;
             }
