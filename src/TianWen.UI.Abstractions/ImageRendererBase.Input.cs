@@ -25,7 +25,12 @@ namespace TianWen.UI.Abstractions
         // display transform stays on ViewerState (render/persistence/toolbar contracts untouched), so
         // each gesture seeds the controller from state and writes the result back. Defaults match the
         // viewer's historical behaviour (floor 0.01, step 1.15, no upper clamp).
-        private readonly PanZoomController _panZoom = new PanZoomController();
+        // MaxZoom, because the controller's own default is float.PositiveInfinity: the wheel and a
+        // pinch go through ZoomByFactor, which clamps to this and to nothing else.
+        private readonly PanZoomController _panZoom = new PanZoomController
+        {
+            MaxZoom = ViewerActions.MaxZoom,
+        };
 
         // Which toolbar button the pointer was last over, so a move that changes it can ask for the
         // repaint that hover chrome needs. Derived, render-thread only -- not view state.
@@ -280,6 +285,13 @@ namespace TianWen.UI.Abstractions
                 case InputKey.L:
                     state.ShowFileList = !state.ShowFileList;
                     return true;
+                // F1 is where every application puts help, and this one had it behind a "?" button
+                // alone. Through OpenToolbarDropdown so the key and the button are ONE path: it
+                // anchors under the button, starts the AI capability probe and opens the root page.
+                // It answers false when the button was never painted (a chromeless embedded host),
+                // which is the right no-op rather than a panel anchored at nothing.
+                case InputKey.F1:
+                    return OpenToolbarDropdown(state, ToolbarAction.Shortcuts);
                 case InputKey.Plus:
                     ViewerActions.CycleStretchPreset(state);
                     return true;

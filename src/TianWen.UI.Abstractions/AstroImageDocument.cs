@@ -129,6 +129,24 @@ public sealed class AstroImageDocument : IPreviewSource
     /// </summary>
     private AstroImageDocument Basis => _displayAnchor ?? this;
 
+    /// <summary>
+    /// Whether a display anchor is held, i.e. whether this document's auto-stretch is solved from
+    /// ANOTHER document's statistics.
+    /// </summary>
+    /// <remarks>
+    /// Internal for diagnostics rather than reflection (the house rule). It matters because
+    /// <see cref="ComputeStretchUniforms"/> reads <c>Basis.PerChannelStats</c> while
+    /// <see cref="PerChannelStats"/> is this document's OWN -- so a log that prints the latter can
+    /// disagree with what the shader was actually given, which is the one thing a diagnostic must not
+    /// do. See viewer-prerelease-fixes P30, where an anchor held across an enhance is one of the
+    /// candidate explanations: the enhancer flattens the background, and a curve solved from the
+    /// PRE-enhance pixels then has nothing to do with the pixels it is applied to.
+    /// </remarks>
+    internal bool HasDisplayAnchor => _displayAnchor is not null;
+
+    /// <summary>The per-channel statistics <see cref="ComputeStretchUniforms"/> actually solves from.</summary>
+    internal ChannelStretchStats[] BasisPerChannelStats => Basis.PerChannelStats;
+
     /// <summary>Per-channel stretch stats recomputed with star mask exclusion. Only available after star detection.</summary>
     public ChannelStretchStats[]? StarMaskedStats { get; private set; }
 

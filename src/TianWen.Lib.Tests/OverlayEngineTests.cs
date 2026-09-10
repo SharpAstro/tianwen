@@ -222,6 +222,48 @@ public class OverlayEngineTests
         lines[0].ShouldBe(CatalogIndex.NGC1976.ToCanonical());
     }
 
+    /// <summary>
+    /// At full zoom the identification stack is only for objects the PHOTOGRAPH contains. An object
+    /// on the sky drawn around the frame keeps its one-line name however far in the view is.
+    /// </summary>
+    /// <remarks>
+    /// Reported from a 1:1 view with the sky behind the frame: a star carried five stacked lines
+    /// (tau PsA / 15 PsA / HIP 109422 / HR 8447 / HD 210302). That is information over a subject and
+    /// decoration over bare sky, and with a backdrop most of what projects into the pane is the
+    /// latter. The zoom tiers themselves are untouched -- 100 percent stays right for the stars a
+    /// frame is of.
+    /// </remarks>
+    [Fact]
+    public void BuildOverlayLabel_FullZoom_OutsideTheFrame_ShowsNameOnly()
+    {
+        var obj = MakeObject(CatalogIndex.NGC1976,
+            commonNames: new HashSet<string> { "Orion Nebula", "42 Ori" });
+        var db = new FakeDB(obj);
+
+        var inside = OverlayEngine.BuildOverlayLabel(obj, CatalogIndex.NGC1976, db, zoom: 2f, inFrame: true);
+        var outside = OverlayEngine.BuildOverlayLabel(obj, CatalogIndex.NGC1976, db, zoom: 2f, inFrame: false);
+
+        outside.Count.ShouldBe(1, "outside the picture the name is the whole label");
+        outside[0].ShouldBe("Orion Nebula");
+        inside.Count.ShouldBeGreaterThan(outside.Count, "inside it, the full stack is the point");
+    }
+
+    /// <summary>
+    /// The gate applies to the FULL-zoom tier only: below it the label was already one or two lines,
+    /// so an object outside the frame must read exactly as it did before.
+    /// </summary>
+    [Theory]
+    [InlineData(0.3f)]
+    [InlineData(0.7f)]
+    public void BuildOverlayLabel_BelowFullZoom_TheFrameGateChangesNothing(float zoom)
+    {
+        var obj = MakeObject(CatalogIndex.NGC1976, commonNames: new HashSet<string> { "Orion Nebula" });
+        var db = new FakeDB(obj);
+
+        OverlayEngine.BuildOverlayLabel(obj, CatalogIndex.NGC1976, db, zoom, inFrame: false)
+            .ShouldBe(OverlayEngine.BuildOverlayLabel(obj, CatalogIndex.NGC1976, db, zoom, inFrame: true));
+    }
+
     [Fact]
     public void BuildOverlayLabel_MediumZoom_ShowsNameAndCanonical()
     {
