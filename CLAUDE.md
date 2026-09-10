@@ -1589,6 +1589,14 @@ The rules:
   KIND: imagery (milky way, star field, twilight ground, horizon fill) under, continuous geometry
   (figures, boundaries, grid, horizon, meridian, Alt/Az) over, labels riding with what they name.
   **Point markers stay UNDER** -- the photograph shows those objects itself.
+- **The EQ grid's colour has ONE definition, `SkyMapGpuGeometry.GridLineColor`**, read by both GPU
+  backends, the CPU renderer AND `image.frag` (through the stretch UBO, written unconditionally by
+  `VkFitsImagePipeline` rather than passed as a parameter a caller can forget). Two literals meant
+  the 20 degree handover changed colour as well as density.
+- **The pan is confined to the viewport EXCEPT while the sky is drawn behind the frame**, gated on
+  `SkyBackdropActive` (drawn, not merely switched on) so an unsolved frame keeps the clamp instead of
+  turning loose over blank ground. Confining the pan to the picture is what stops the sky beside it
+  being brought to the middle of the pane; `F` / `Ctrl+0` is the way back.
 - **ONE grid switch with two faces, and GEOMETRY picks which grid draws.** The ladder and `G` write
   the viewer's flag, the palette's Grid row writes the map's, whichever moved wins
   (`_lastSkyGridFlag`); the row is always listed, because a layer that answers its key and appears
@@ -1613,6 +1621,16 @@ The rules:
   promote a display site to an astrometric one.**
 - **Assert the composite on CORNERS, never the centre** (`SkyBackdropViewTests`): a wrong roll, scale
   or parity all leave the centre exactly where it was.
+- **A toolbar button whose label changes width drags every button after it sideways** -- the run is
+  packed left to right, and Zoom relabels continuously as the wheel turns ("Fit" / a ratio / a
+  percentage). `ReservedLabelWidth` gives Zoom and Enhance their widest label so the text changes
+  inside a fixed box; the rest change on a discrete action, where a re-layout is the button reporting
+  what it did. Measured at 26.4 px of travel across ten buttons. **This is NOT the damage tracker** --
+  per-swapchain-image damage is a real flicker mechanism (P15's tooltip) and the wrong suspect here.
+- **A share link about an object carries `object=`**, which the web build already parses and re-tries
+  as the catalog loads: a pointing is not a selection. `SkyAtlasLink` owns the whole vocabulary
+  INCLUDING the escaping (`EscapeObjectToken` keeps "/" literal so "10P/Tempel" stays readable) --
+  both ends call it, because two copies of an escaping rule is how the ends of one URL drift.
 - **The "?" panel is a MENU** (`HelpPage`), because it had grown past a laptop screen and is the one
   panel opened when the viewer has misbehaved. Row 0 of a sub-page is the way back. **A page change
   re-opens the dropdown NEXT frame** (`PumpHelpPanel`): the dropdown closes itself after its
