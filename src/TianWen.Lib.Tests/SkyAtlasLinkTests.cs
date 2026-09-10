@@ -44,6 +44,43 @@ public class SkyAtlasLinkTests
                 new DateTimeOffset(2026, 1, 18, 23, 26, 51, TimeSpan.Zero))
             .ShouldBe("https://sharpastro.github.io/tianwen/?view=sky&ra=83.822085&dec=-5.391111&fov=2.5000&t=2026-01-18T23:26:51Z");
 
+    /// <summary>
+    /// A link about an OBJECT names it, so the atlas selects it instead of merely pointing at where it
+    /// is. Reported from the viewer: the context menu knew "NGC 7204A" -- it is drawn on the frame and
+    /// sits at the top of the same menu -- and the link it produced dropped the name, so the atlas
+    /// opened on the right patch of sky with nothing picked out of it.
+    /// </summary>
+    /// <remarks>
+    /// The reader has needed no work: the web build already parses <c>object=</c> and re-tries the
+    /// resolve as the catalog and the comet set arrive. Only the writer was throwing the name away.
+    /// </remarks>
+    [Fact]
+    public void ALinkAboutAnObjectNamesIt()
+        => SkyAtlasLink.For(OrionRaHours, OrionDecDeg, objectToken: "NGC 7204A")
+            .ShouldEndWith("&object=NGC%207204A");
+
+    /// <summary>
+    /// A comet designation keeps its slash. <see cref="Uri.EscapeDataString"/> turns "/" into
+    /// <c>%2F</c>, which is right for a path segment and needless in a query value -- RFC 3986 lists
+    /// "/" among the characters a query may contain literally -- and "10P%2FTempel" in an address bar
+    /// is the kind of link nobody trusts enough to click.
+    /// </summary>
+    [Fact]
+    public void ACometDesignationKeepsItsSlash()
+        => SkyAtlasLink.For(OrionRaHours, OrionDecDeg, objectToken: "10P/Tempel")
+            .ShouldEndWith("&object=10P/Tempel");
+
+    /// <summary>
+    /// No object, no parameter -- a right-click on empty sky is a pointing, not a selection, and an
+    /// empty <c>object=</c> would ask the atlas to resolve nothing.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void WithoutAnObjectTheParameterIsAbsent(string? token)
+        => SkyAtlasLink.For(OrionRaHours, OrionDecDeg, objectToken: token).ShouldNotContain("object=");
+
     [Fact]
     public void ALinkOpensTheAtlas()
         => SkyAtlasLink.For(OrionRaHours, OrionDecDeg)

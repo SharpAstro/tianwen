@@ -75,7 +75,17 @@ namespace TianWen.UI.Abstractions
         /// shared link of a planet, the Moon or a comet points at anything at all. Omitted unless
         /// <see cref="IsKnownCaptureTime"/>.
         /// </param>
-        public static string For(double raHours, double decDeg, double? fovDeg = null, DateTimeOffset? capturedUtc = null)
+        /// <param name="objectToken">
+        /// The object the link is ABOUT, when there is one -- a name or catalogue designation the
+        /// atlas's search resolver can look up. It arrives as <c>object=</c>, which the atlas already
+        /// reads and re-tries until the catalog (and the comet set) has loaded.
+        /// <para><b>A pointing is not a selection.</b> Centring the atlas on an object's coordinates
+        /// leaves it unselected: no info panel, no highlight, and nothing saying WHICH of the objects
+        /// now on screen was the one clicked. The viewer knows the name -- it is drawn on the frame and
+        /// sits at the top of the same menu -- so dropping it on the way out was pure loss.</para>
+        /// </param>
+        public static string For(double raHours, double decDeg, double? fovDeg = null,
+            DateTimeOffset? capturedUtc = null, string? objectToken = null)
         {
             // Wrapped and clamped here rather than trusted: a solve near the RA seam legitimately
             // answers just outside [0, 24), and the atlas would take 24.03h as "past the end" instead
@@ -101,7 +111,26 @@ namespace TianWen.UI.Abstractions
                 url.Append("&t=").Append(captured.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture));
             }
 
+            if (objectToken is { Length: > 0 } token && !string.IsNullOrWhiteSpace(token))
+            {
+                url.Append("&object=").Append(EscapeObjectToken(token));
+            }
+
             return url.ToString();
         }
+
+        /// <summary>
+        /// Escapes an object token for the <c>object=</c> parameter.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="Uri.EscapeDataString"/> escapes "/" to <c>%2F</c>, which is right for a path
+        /// segment and needless in a query value -- RFC 3986 lists "/" among the characters a query may
+        /// contain literally. Restoring it keeps "10P/Tempel" readable in an address bar instead of
+        /// "10P%2FTempel", and it round-trips because <see cref="Uri.UnescapeDataString"/> leaves a bare
+        /// "/" alone. Lives here because this class is where the link's vocabulary is defined for BOTH
+        /// ends; the web build writes the same parameter as the atlas is panned and calls this too.
+        /// </remarks>
+        public static string EscapeObjectToken(string token)
+            => Uri.EscapeDataString(token).Replace("%2F", "/", StringComparison.Ordinal);
     }
 }

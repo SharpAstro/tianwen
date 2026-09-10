@@ -146,10 +146,20 @@ namespace TianWen.UI.Abstractions
             // of docs/plans/in-app-sky-atlas.md.
             if (hasSky)
             {
+                // The object rides along when the click resolved one, so the atlas SELECTS it rather
+                // than merely pointing at where it is -- centring on an object's coordinates leaves it
+                // unhighlighted and unnamed among everything else in the field. The DESIGNATION is the
+                // token, falling back to the name: a catalogue number is what the atlas's search
+                // resolves unambiguously, while a common name can be shared or absent. They are equal
+                // for an object whose designation IS its name, which is the common case.
+                var token = nearest is { } named
+                    ? (named.Designation is { Length: > 0 } d ? d : named.Name)
+                    : null;
+
                 builder.Add(new ImageContextMenuItem(
                     "Open in sky atlas (web)",
                     "sky atlas",
-                    SkyAtlasLink.For(pixel.RA!.Value, pixel.Dec!.Value, fovDeg, capturedUtc),
+                    SkyAtlasLink.For(pixel.RA!.Value, pixel.Dec!.Value, fovDeg, capturedUtc, token),
                     ImageContextMenuAction.OpenUrl));
             }
 
