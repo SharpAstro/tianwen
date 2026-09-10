@@ -1565,6 +1565,38 @@ translates the solution, `AstroImageDocument.SourceCrop` records it, and the cro
 A crop also **cannot be re-derived after an enhance** (both tiers need evidence the enhancers destroy),
 so it is REMEMBERED across the toggle rather than re-scanned, and a revert restores frame and crop.
 
+**Context is a LADDER, and its top rung draws the sky the photograph came from BEHIND it.** `O` steps
+`none -> grid -> grid + objects -> sky` (the Grid and Objects buttons are one button whose mark says
+the rung); the rung is DERIVED from the three layer flags, so `G` moves the ladder rather than
+leaving the button lit for a layer that is off. The sky is the same renderer-agnostic `SkyMapTab` the
+GUI's atlas tab is, HOSTED (`ImageRendererBase.SkyBackdrop`) rather than reimplemented, with its
+layer palette floating over the frame. **Everything, with the measurements:
+[`docs/plans/in-app-sky-atlas.md`](docs/plans/in-app-sky-atlas.md) § What shipped in the viewer.**
+The rules:
+
+- **The PHOTOGRAPH is the master.** `SkyBackdropView.Solve` reads the viewer's own placement back
+  through the frame's WCS and states it as the map's centre / roll / FOV / handedness, by PROBING
+  (`PixelToSky` at the pane centre, one pixel right, one pixel up) rather than deriving it from the
+  CD matrix -- so no FITS or matrix convention is restated here and a change on either side moves
+  both probes. Never re-point the map from anything else while `SkyMapState.ViewDrivenExternally`.
+- **A rotation cannot fix PARITY.** About half of all light paths mirror the field, and no roll undoes
+  that; `SkyMapState.MirrorView` negates the view's right axis AFTER the roll (from a negated right,
+  `up` would flip too and it becomes a 180 degree rotation). Still orthogonal, so the inverse stays
+  the transpose and the projection maths is untouched.
+- **`ViewDrivenExternally` turns off the home pass, the roll servo and the map's own pan/zoom**, plus
+  its info strip and crosshair. It is not a mode: everything else is identical either way.
+- **The cached image layer stands down while the sky is behind the frame** -- it clears opaque black
+  across the whole pane, so it would blit the sky out exactly where the sky is worth looking at.
+- **The gnomonic-vs-stereographic difference needs no modelling** (theta squared over four of the
+  distance out: 0.01 px on a one-degree frame, 1.85 px on a ten-degree one) and shows only at the
+  frame's BORDER. A NON-CONFORMAL CD is the case the rigid view cannot express.
+- **Site and instant come from the frame and degrade separately** (`FrameSiteResolver`, provenance on
+  `FrameSite`): no instant means the wall clock, no site means no horizon and no Alt/Az. An exact
+  `SITELAT`/`SITELONG` of (0, 0) is an unfilled capture profile, not the Gulf of Guinea. **Never
+  promote a display site to an astrometric one.**
+- **Assert the composite on CORNERS, never the centre** (`SkyBackdropViewTests`): a wrong roll, scale
+  or parity all leave the centre exactly where it was.
+
 **One viewer, no mini viewer.** Live Session preview, polar-align and guide-cam host this viewer
 chromeless (`ViewerState.HideChrome`), fed by `LiveFramePreviewSource : IPreviewSource` (normalises to
 `[0,1]`, subsampled median/MAD stats, `AcceptFrame(image, freezeStats)` for

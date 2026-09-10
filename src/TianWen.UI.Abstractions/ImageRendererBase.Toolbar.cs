@@ -1648,6 +1648,11 @@ namespace TianWen.UI.Abstractions
             "Ctrl + / -           Zoom in / out",
             "Ctrl+2 .. Ctrl+9     Zoom 1:N",
             "Z                    Zoom menu (fit / 1:1 / 1:N)",
+            // The one key here whose states are not obvious from pressing it once, and the only place
+            // the sky behind the frame is named at all: a reader who never presses O a third time has
+            // no way to learn it exists.
+            "O / Shift+O          Context: grid, catalog objects, then the sky behind the frame",
+            "G                    WCS grid on its own",
             "V / Shift+V          Histogram / log scale",
             "I                    Info panel",
             "L                    File list",
