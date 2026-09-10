@@ -315,6 +315,68 @@ reports `PaintedRegions()` rather than its own registered ones, because the rend
 `CompositeWidget` now and the palette's rows live on the map: without it an agent could see a panel
 in a screenshot and had no way to address it.
 
+### What the live review changed
+
+Six rounds of driving it against a real frame, each of which moved a decision the desk could not
+have settled:
+
+**The sky's LINES cross the photograph; its IMAGERY stays behind it.** The first build drew the
+whole map behind the frame, which is right for a star field and wrong for a constellation: a figure
+line that stops at the frame's edge and resumes on the far side reads as two unrelated marks, and
+the boundary you most want to place is the one running through your subject. The pass is now split
+by KIND (`SkyMapDrawPhase.Backdrop` / `Lines`), not by convenience -- imagery (twilight ground,
+milky way, star field, horizon fill) under, continuous geometry (figures, boundaries, the grid, the
+horizon line, the meridian, Alt/Az) over, with each label riding with the thing it names. **Point
+markers stay UNDER**, because the photograph shows those objects itself and a marker over a star it
+is a marker FOR hides the evidence.
+
+**One grid switch, two grids, and geometry picks which -- the third arrangement, not the first.**
+The first put a second checkbox in the palette, so turning "grid" off showed MORE grid (the fine
+per-pixel one going away, the map's coarse one appearing behind it), which is correct and
+unreadable. The second removed the palette's row, which left a layer that answered its key and
+appeared nowhere, on the panel whose whole purpose is to make the layers visible. What shipped is
+ONE switch with two faces: the ladder and `G` write the viewer's flag, the palette's Grid row writes
+the map's, and whichever moved since the last frame wins (`_lastSkyGridFlag`). Which grid then
+DRAWS is not a choice at all.
+
+**That handover is at 20 degrees, and the pole is why it exists.** The frame's grid is drawn on the
+frame's own TANGENT PLANE, and a tangent plane cannot represent a point 90 degrees away: near the
+south celestial pole the meridians swept past it instead of converging, which is what the live
+review caught. `PaneGridMaxFovDeg = 20.0` hands over to the map's spherical grid before that can
+happen. **The bound is a judgement, not a measurement**: the gnomonic-stereographic separation is
+about 0.8 percent of the distance out at 10 degrees and 7 percent at 30, so 20 is where a
+whole-pane grid stops being worth its error. One constant if it proves wrong in use. What the
+reader sees at the handover is a change of DENSITY and colour, which is honest -- they are grids of
+different things -- and the alternative considered (matching the map's grid colour to the viewer's)
+stays available as a one-line change.
+
+**A pane-wide grid needs its own shader mode, and its own UBO slot.** `image.frag` gained a
+`gridMode == 2` branch that returns the grid alone on transparent black, drawn as a second pass over
+the whole pane rather than the image quad; `StretchUboSlots` went to 3 because a Vulkan UBO is read
+at EXECUTE time, so two draws sharing a slot both get the second one's uniforms.
+
+**The zoom flip was the solver extrapolating outside the sensor.** Zooming out far enough made the
+sky snap to a mirrored orientation. The probes were being taken at the PANE centre, which at a
+wide-enough zoom is far outside the frame, where a gnomonic deprojection wraps past 90 degrees and
+comes back with a direction on the other side of the sky. They are taken at `CRPix` and one pixel
+either side now -- always inside the sensor, whatever the view does -- and the view is fitted as a
+rigid rotation through those three points. **The first regression test for it passed against the
+sabotaged code**, because zooming about the frame's centre keeps the probe on top of the answer; it
+zooms about a fixed off-centre anchor now and fails at 8 percent on the old probe.
+
+**The "?" panel is a menu.** It had grown to about 35 rows, which runs off a laptop screen -- and
+the one panel someone opens when the viewer has misbehaved is the worst one to have running off the
+bottom. The root is now nine rows with marks, drilling into *Keyboard shortcuts* and *AI
+enhancement*, each page's row 0 being the way back so the handler needs no per-page bookkeeping.
+**The re-open has to be DEFERRED by a frame**: the dropdown closes itself after its selection
+callback returns, so opening the next page from inside that callback is undone a moment later and
+the panel simply vanishes.
+
+**Two smaller ones from the same session.** The palette's default position is derived from the
+histogram's own metrics rather than a constant, because it opened on top of it; and the context
+menu's "Open in sky atlas" says "(web)", because in a viewer that now draws the sky itself, an entry
+that opens a browser owes the reader that word.
+
 **Open questions the draft listed, as answered by what shipped:** the sky FOLLOWS the file (site and
 instant are restated per frame, with the site remembered when a frame does not carry one); the chrome
 does NOT change when the view zooms out past the frame (the toolbar and histogram keep describing the

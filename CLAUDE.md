@@ -1576,9 +1576,26 @@ The rules:
 
 - **The PHOTOGRAPH is the master.** `SkyBackdropView.Solve` reads the viewer's own placement back
   through the frame's WCS and states it as the map's centre / roll / FOV / handedness, by PROBING
-  (`PixelToSky` at the pane centre, one pixel right, one pixel up) rather than deriving it from the
-  CD matrix -- so no FITS or matrix convention is restated here and a change on either side moves
-  both probes. Never re-point the map from anything else while `SkyMapState.ViewDrivenExternally`.
+  (`PixelToSky`) rather than deriving it from the CD matrix -- so no FITS or matrix convention is
+  restated here and a change on either side moves both probes. Never re-point the map from anything
+  else while `SkyMapState.ViewDrivenExternally`.
+- **Probe INSIDE the sensor (`CRPix` and one pixel either side), never at the pane centre**, and fit
+  a rigid rotation through the three points. Zoomed out, the pane centre is far outside the frame,
+  where a gnomonic deprojection wraps past 90 degrees and answers with a direction on the other side
+  of the sky: that was the sky snapping to a mirrored orientation on zoom-out. **A regression test
+  for it must zoom about a FIXED OFF-CENTRE anchor** -- zooming about the frame's centre keeps the
+  probe on top of the answer and passes against the broken solver.
+- **The sky's LINES cross the photograph; its IMAGERY stays behind it** (`SkyMapDrawPhase`). Split by
+  KIND: imagery (milky way, star field, twilight ground, horizon fill) under, continuous geometry
+  (figures, boundaries, grid, horizon, meridian, Alt/Az) over, labels riding with what they name.
+  **Point markers stay UNDER** -- the photograph shows those objects itself.
+- **ONE grid switch with two faces, and GEOMETRY picks which grid draws.** The ladder and `G` write
+  the viewer's flag, the palette's Grid row writes the map's, whichever moved wins
+  (`_lastSkyGridFlag`); the row is always listed, because a layer that answers its key and appears
+  nowhere defeats the panel. The frame's per-pixel grid spans the pane under
+  `PaneGridMaxFovDeg = 20.0` and the map's spherical one takes over beyond it -- **a tangent plane
+  cannot represent a point 90 degrees away**, which is meridians sweeping past the pole instead of
+  converging. A second checkbox is the wrong fix: it makes "grid off" show MORE grid.
 - **A rotation cannot fix PARITY.** About half of all light paths mirror the field, and no roll undoes
   that; `SkyMapState.MirrorView` negates the view's right axis AFTER the roll (from a negated right,
   `up` would flip too and it becomes a 180 degree rotation). Still orthogonal, so the inverse stays
@@ -1596,6 +1613,12 @@ The rules:
   promote a display site to an astrometric one.**
 - **Assert the composite on CORNERS, never the centre** (`SkyBackdropViewTests`): a wrong roll, scale
   or parity all leave the centre exactly where it was.
+- **The "?" panel is a MENU** (`HelpPage`), because it had grown past a laptop screen and is the one
+  panel opened when the viewer has misbehaved. Row 0 of a sub-page is the way back. **A page change
+  re-opens the dropdown NEXT frame** (`PumpHelpPanel`): the dropdown closes itself after its
+  selection callback returns, so opening from inside that callback just makes the panel vanish. Its
+  tests drive ONE page at a time, on a FRESH viewer per row, and call `BuildHelpLines()` first --
+  indices are assigned at build.
 
 **One viewer, no mini viewer.** Live Session preview, polar-align and guide-cam host this viewer
 chromeless (`ViewerState.HideChrome`), fed by `LiveFramePreviewSource : IPreviewSource` (normalises to
