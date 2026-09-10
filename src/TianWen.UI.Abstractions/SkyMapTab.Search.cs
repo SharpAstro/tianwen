@@ -30,6 +30,36 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 GotoButtonBg     = new(0x5A, 0x3A, 0x5A, 0xFF);
         private static readonly RGBAColor32 GotoDisabledBg   = new(0x38, 0x38, 0x3C, 0xFF);
 
+        /// <summary>
+        /// The atlas's own chrome for the shared object panel.
+        /// </summary>
+        /// <remarks>
+        /// Hand-picked literals from before there was a palette, kept verbatim so hoisting the panel's
+        /// layout into <see cref="ObjectInfoPanel"/> changed nothing a user can see. The viewer passes
+        /// theme-derived colours to the same panel, which is why the colours are a parameter rather
+        /// than something the shared class decides: re-tinting a shipped panel is not part of sharing
+        /// its layout, and doing it silently would have been.
+        /// </remarks>
+        private static ObjectInfoPanel.PanelPalette InfoPanelPalette
+            => new ObjectInfoPanel.PanelPalette(
+                Background: InfoPanelBg,
+                Border: SearchPanelBorder,
+                Text: SearchText,
+                DimText: SearchDimText,
+                ButtonText: SearchText,
+                GotoBg: GotoButtonBg,
+                DisabledBg: GotoDisabledBg,
+                ViewBg: ViewButtonBg,
+                PinBg: PinButtonBg,
+                UnpinBg: UnpinButtonBg);
+
+        /// <summary>Dismisses the info panel. The <c>Close</c> action handed to the shared panel.</summary>
+        private void CloseInfoPanel()
+        {
+            State.Search.InfoPanel = null;
+            State.NeedsRedraw = true;
+        }
+
         // Selection-ellipse sizing (see TryDrawShapeMarker). Both factors scale the ellipse
         // UNIFORMLY, so the marker always keeps the object's real axis ratio and position angle:
         // the floor is a legibility minimum on the projected semi-major axis (most galaxies
@@ -280,156 +310,74 @@ namespace TianWen.UI.Abstractions
             RenderLayout(Layout.Builder.Spacer().Bg(SearchPanelBorder), new RectF32(px - 1, py - 1, pw + 2, ph + 2));
             RenderLayout(Layout.Builder.Spacer().Bg(InfoPanelBg), new RectF32(px, py, pw, ph));
 
-            var rowH = fontSize * 1.35f;
+            // Text inset from the panel edge, and narrow enough to clear the close affordance.
             var textX = px + 10f;
             var textW = pw - 40f;
-            const float dFont = 12f; // design font (fontSize = 12 * dpiScale here); RenderLayout re-applies dpiScale
-            var dRow = dFont * 1.35f;
 
-            // Designation + constellation + type -- show whichever pieces are known, joined by two
-            // spaces. Planets carry no catalog designation but DO have a type (Planet) and a current
-            // constellation, so an empty designation must NOT suppress those (nor show the misleading
-            // "(no designation)" placeholder when there's still real info to show).
-            var canon = info.Canonical ?? "";
-            var constell = info.Constellation != default ? info.Constellation.ToIAUAbbreviation() : "";
-            var objType = info.ObjType != ObjectType.Unknown ? info.ObjType.ToName() : "";
-            var subtitle = canon;
-            if (constell.Length > 0) subtitle = subtitle.Length > 0 ? $"{subtitle}  {constell}" : constell;
-            if (objType.Length > 0) subtitle = subtitle.Length > 0 ? $"{subtitle}  {objType}" : objType;
-            if (subtitle.Length == 0) subtitle = "(no designation)";
+            // What the panel SAYS and which buttons it has are ObjectInfoPanel's, shared with the
+            // FITS viewer; where it sits is still this method's. The atlas passes its own hand-picked
+            // chrome colours rather than the theme's, so the shipped panel is unchanged by the move.
+            var palette = InfoPanelPalette;
+            var options = new ObjectInfoPanel.PanelDisplayOptions(
+                ShowAltAz: true,
+                ShowRiseSet: true,
+                TimeZone: plannerState.SiteTimeZone,
+                Sparkline: hasCurve);
 
-            var raDec = $"RA {CoordinateUtils.HoursToHMS(info.RA)}   Dec {CoordinateUtils.DegreesToDMS(info.Dec)}";
-
-            // Magnitude + surface brightness + B-V + size (SB compact, no unit -- the panel is narrow
-            // and mag/arcsec² is the astronomer default; the planner details panel spells the unit out).
-            var magPart = float.IsNaN(info.VMag) ? "mag -" : $"mag {info.VMag:F2}";
-            var sbPart = float.IsNaN(info.SurfaceBrightness) ? "" : $"   SB {info.SurfaceBrightness:F2}";
-            var bvPart = float.IsNaN(info.BMinusV) ? "" : $"   B-V {info.BMinusV:F2}";
-            var sizePart = info.AngularSizeDeg is { } s ? $"   size {s * 60:F1}'" : "";
-            var magLine = $"{magPart}{sbPart}{bvPart}{sizePart}";
-
-            var altAz = double.IsNaN(info.AltDeg)
-                ? "Alt -  Az -"
-                : $"Alt {info.AltDeg:+0.0;-0.0}°   Az {info.AzDeg:F1}°";
-
-            // Rise / Transit / Set -- three fields or one combined line when space is tight.
-            var tz = plannerState.SiteTimeZone;
-            var rtsLine = info.NeverRises ? "Never rises (below horizon)"
-                        : info.Circumpolar ? $"Circumpolar   Transit {FormatHHMM(info.TransitTime, tz)}"
-                        : $"Rise {FormatHHMM(info.RiseTime, tz)}   Transit {FormatHHMM(info.TransitTime, tz)}   Set {FormatHHMM(info.SetTime, tz)}";
-
-            // The six text rows as one VStack (was a `row +=` cursor threaded through six DrawTexts).
-            var textTree = Layout.Builder.VStack(
-                Layout.Builder.Text(info.Name, dFont * 1.1f, SearchText, TextAlign.Near, TextAlign.Near).RowH(dRow * 1.15f),
-                Layout.Builder.Text(subtitle, dFont * 0.9f, SearchDimText).RowH(dRow),
-                Layout.Builder.Text(raDec, dFont, SearchText).RowH(dRow),
-                Layout.Builder.Text(magLine, dFont, SearchText).RowH(dRow),
-                Layout.Builder.Text(altAz, dFont, SearchText).RowH(dRow),
-                Layout.Builder.Text(rtsLine, dFont, SearchText).RowH(dRow));
-            var textBlockH = rowH * 1.15f + rowH * 5f;
-            RenderLayout(textTree, new RectF32(textX, py, textW, textBlockH), dpiScale: dpiScale);
-            var row = textBlockH;
-
-            // Comet vmag sparkline (brighter = up), auto-scaled to the sampled +/-45-day window. The "now"
-            // sample (window centre) is dotted, so the user reads the current trend at a glance.
-            if (hasCurve)
-            {
-                DrawMagnitudeSparkline(magCurve,
-                    textX, py + row + 2f * dpiScale, textW, 30f * dpiScale,
-                    fontSize);
-            }
-
-            // Action buttons along the bottom of the panel, as ONE right-aligned HStack tree (was a
-            // per-button `x -= btnW + gap` right-to-left cursor). Leading Star spacer pushes the row
-            // right; a trailing fixed spacer holds the 10px right margin; buttons are Clickable Text
-            // nodes (draw == hit). Widths/gaps are DESIGN units (RenderLayout re-applies dpiScale).
-            // Copy the in-parameter fields into locals so the click lambdas can capture them (can't
-            // close over 'in' parameters directly).
+            // Copied into locals because a click lambda cannot close over an `in` parameter.
             var pinName = info.Name;
             var pinRA = info.RA;
             var pinDec = info.Dec;
             var pinIndex = info.Index;
             var pinType = info.ObjType;
             var isPinned = pinIndex is { } catIdx && IsPinned(plannerState, catIdx);
-            var btnH = 24f * dpiScale;
+
+            // The mount entry gets Solve & Sync INSTEAD of the other three; the handler remains the
+            // source of truth for the session / camera / CanSync gates, as it is for Goto's.
+            var actions = info.IsMount
+                ? new ObjectInfoPanel.PanelActions(
+                    Close: CloseInfoPanel,
+                    SolveSync: () => PostSignal(new SkyMapSolveSyncSignal()),
+                    SolveInProgress: State.SolveSyncInProgress)
+                : new ObjectInfoPanel.PanelActions(
+                    Close: CloseInfoPanel,
+                    Goto: () => PostSignal(
+                        new SkyMapSlewToObjectSignal(pinName, pinRA, pinDec, pinIndex, pinType)),
+                    GotoEnabled: !info.NeverRises,
+                    ViewInPlanner: () => PostSignal(
+                        new ViewInPlannerSignal(pinName, pinRA, pinDec, pinIndex, pinType)),
+                    TogglePin: () => PostSignal(
+                        new SkyMapPinObjectSignal(pinName, pinRA, pinDec, pinIndex, pinType)),
+                    IsPinned: isPinned);
+
+            var textBlockH = ObjectInfoPanel.DesignTextBlockHeight(in options) * dpiScale;
+            RenderLayout(ObjectInfoPanel.BuildTextRows(in info, in options, in palette),
+                new RectF32(textX, py, textW, textBlockH), dpiScale: dpiScale);
+            var row = textBlockH;
+
+            // Comet vmag sparkline (brighter = up), auto-scaled to the sampled +/-45-day window. The
+            // "now" sample (window centre) is dotted, so the current trend reads at a glance.
+            if (hasCurve)
+            {
+                DrawMagnitudeSparkline(magCurve,
+                    textX, py + row + 2f * dpiScale, textW, ObjectInfoPanel.DesignSparklineHeight * dpiScale,
+                    fontSize);
+            }
+
+            var btnH = ObjectInfoPanel.DesignButtonHeight * dpiScale;
             var btnY = py + ph - btnH - 8f * dpiScale;
-
-            Layout.Node buttonRow;
-            if (info.IsMount)
+            if (ObjectInfoPanel.BuildButtonRow(in actions, in palette) is { } buttonRow)
             {
-                // Mount entry: the one meaningful action is Solve & Sync (a goto to the mount's own
-                // reported position is a no-op, and pinning it makes no sense). The handler is the
-                // source of truth for the session / camera / CanSync gates. While a solve is in flight
-                // the button shows "Solving ..." (dimmed, no click handler) so it reads as busy and
-                // can't be re-triggered mid-solve.
-                var solving = State.SolveSyncInProgress;
-                var ssNode = Layout.Builder.Text(solving ? "Solving ..." : "Solve & Sync", dFont, SearchText,
-                        TextAlign.Center, TextAlign.Center)
-                    .WFixed(110f).HStar().Bg(solving ? GotoDisabledBg : GotoButtonBg);
-                if (!solving)
-                {
-                    ssNode = ssNode.Clickable(new HitResult.ButtonHit("SkyMapSolveSync"),
-                        _ => PostSignal(new SkyMapSolveSyncSignal()));
-                }
-                buttonRow = Layout.Builder.HStack(
-                    Layout.Builder.Spacer().WStar(),
-                    ssNode,
-                    Layout.Builder.Spacer().WFixed(10f).HStar());
-            }
-            else
-            {
-                // Goto (leftmost). Slews the connected mount to the object. Grayed when the target
-                // never rises from the current site; the handler is still the source of truth for the
-                // actual horizon / connection gate.
-                var canGoto = !info.NeverRises;
-                var gotoNode = Layout.Builder.Text("Goto", dFont, SearchText, TextAlign.Center, TextAlign.Center)
-                    .WFixed(90f).HStar().Bg(canGoto ? GotoButtonBg : GotoDisabledBg);
-                if (canGoto)
-                {
-                    gotoNode = gotoNode.Clickable(new HitResult.ButtonHit("SkyMapGoto"),
-                        _ => PostSignal(new SkyMapSlewToObjectSignal(pinName, pinRA, pinDec, pinIndex, pinType)));
-                }
-
-                // View-in-Planner (middle). Jumps to the planner tab with this target scored, selected,
-                // and scrolled into view. Wider than the short Goto / Pin buttons so the longer label
-                // doesn't clip (and a smaller font).
-                var viewNode = Layout.Builder.Text("View in Planner", dFont * 0.9f, SearchText,
-                        TextAlign.Center, TextAlign.Center)
-                    .WFixed(116f).HStar().Bg(ViewButtonBg)
-                    .Clickable(new HitResult.ButtonHit("SkyMapViewInPlanner"),
-                        _ => PostSignal(new ViewInPlannerSignal(pinName, pinRA, pinDec, pinIndex, pinType)));
-
-                // Pin / Unpin (right edge).
-                var pinNode = Layout.Builder.Text(isPinned ? "Unpin" : "Pin", dFont, SearchText,
-                        TextAlign.Center, TextAlign.Center)
-                    .WFixed(90f).HStar().Bg(isPinned ? UnpinButtonBg : PinButtonBg)
-                    .Clickable(new HitResult.ButtonHit("SkyMapPinToggle"),
-                        _ => PostSignal(new SkyMapPinObjectSignal(pinName, pinRA, pinDec, pinIndex, pinType)));
-
-                buttonRow = Layout.Builder.HStack(
-                    Layout.Builder.Spacer().WStar(),
-                    gotoNode,
-                    Layout.Builder.Spacer().WFixed(8f).HStar(),
-                    viewNode,
-                    Layout.Builder.Spacer().WFixed(8f).HStar(),
-                    pinNode,
-                    Layout.Builder.Spacer().WFixed(10f).HStar());
+                RenderLayout(buttonRow, new RectF32(px, btnY, pw, btnH), dpiScale: dpiScale);
             }
 
-            RenderLayout(buttonRow, new RectF32(px, btnY, pw, btnH), dpiScale: dpiScale);
-
-            // Close button -- top-right of the info panel. Draw==hit Text leaf so the
-            // glyph box and the click surface are the same arranged rect.
-            var closeSize = 20f * dpiScale;
-            RenderLayout(
-                Layout.Builder.Text("X", fontSize / dpiScale * 0.9f, SearchDimText, TextAlign.Center, TextAlign.Center)
-                    .Stretch()
-                    .Clickable(new HitResult.ButtonHit("InfoPanelClose"), _ =>
-                    {
-                        State.Search.InfoPanel = null;
-                        State.NeedsRedraw = true;
-                    }),
-                new RectF32(px + pw - closeSize, py, closeSize, closeSize), dpiScale: dpiScale);
+            // Close affordance -- top-right of the panel, its tree shared with the viewer's.
+            var closeSize = ObjectInfoPanel.DesignCloseSize * dpiScale;
+            if (ObjectInfoPanel.BuildCloseButton(in actions, in palette) is { } closeNode)
+            {
+                RenderLayout(closeNode,
+                    new RectF32(px + pw - closeSize, py, closeSize, closeSize), dpiScale: dpiScale);
+            }
 
             // Path across the sky for a selected solar-system body (planet / comet): a thin polyline of its
             // motion over a body-appropriate window + labelled event markers (stations, elongation,
