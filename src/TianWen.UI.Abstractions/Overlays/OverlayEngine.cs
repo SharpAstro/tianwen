@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Buffers;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Numerics;
 using DIR.Lib;
+using TianWen.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
@@ -416,6 +418,92 @@ public static class OverlayEngine
     };
 
     /// <summary>
+    /// The faintest a CONSTELLATION-FIGURE star may be and still be drawn, whatever the field of view.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>A star that draws a constellation line is not competing with the rest of the sky for
+    /// the reader's attention -- it IS the reader's landmark</b>, so the field-of-view tiers above are
+    /// the wrong gate for it. At a wide field they leave only magnitude 1.0, which drops most of every
+    /// figure: tau PsA is about 4.9 and needed the field under a degree before it appeared at all.
+    /// Reported as "esp. the ones in the constellation should certainly trigger earlier", with "100
+    /// percent makes still sense for the constellation stars".</para>
+    /// <para><b>5.0 rather than a waiver.</b> The figure set is roughly a thousand stars and its
+    /// faintest members are around the naked-eye limit, so waiving the cutoff outright would put every
+    /// one of them in a wide view; 5.0 keeps the stars a figure is actually READ by (about 1600 over
+    /// the whole sky) and drops the rest back onto the tiers. It is a floor, never a ceiling -- a
+    /// narrow field still shows fainter stars through <see cref="GetStarMagCutoff"/>, figure member or
+    /// not.</para>
+    /// <para><b>This is the DRAW gate, not the label tier.</b> Making figure stars appear earlier is
+    /// the ask; making them show a five-line identification stack earlier is not, and
+    /// <see cref="BuildOverlayLabel"/> still decides that from the zoom (and from whether the star is
+    /// in the frame at all).</para>
+    /// </remarks>
+    public const double FigureStarMagCutoff = 5.0;
+
+    /// <summary>
+    /// The constellation-figure stars as HIP <see cref="CatalogIndex"/> values, so a candidate can be
+    /// tested by identity rather than by re-deriving a HIP number per frame.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ConstellationFigures.AllFigureStarHipNumbers"/> is keyed by HIP NUMBER (it is what
+    /// the figure polylines are drawn from), while an overlay candidate arrives as whatever catalogue
+    /// the object was found under -- commonly TYC or HD. Packing the numbers into indices once, here,
+    /// is what makes the per-candidate test a set lookup against the index and its cross-references.
+    /// </remarks>
+    private static readonly FrozenSet<CatalogIndex> _figureStarIndices = BuildFigureStarIndices();
+
+    private static FrozenSet<CatalogIndex> BuildFigureStarIndices()
+    {
+        var hipNumbers = ConstellationFigures.AllFigureStarHipNumbers;
+        var digits = Catalog.HIP.GetNumericalIndexSize();
+        var set = new HashSet<CatalogIndex>(hipNumbers.Count);
+
+        foreach (var hip in hipNumbers)
+        {
+            var idx = EnumHelper.PrefixedNumericToASCIIPackedInt<CatalogIndex>(
+                (ulong)Catalog.HIP, hip, digits);
+            if (idx != default)
+            {
+                set.Add(idx);
+            }
+        }
+
+        return set.ToFrozenSet();
+    }
+
+    /// <summary>
+    /// Whether <paramref name="index"/> -- or any catalogue it cross-references -- is one of the stars
+    /// a constellation figure is drawn through.
+    /// </summary>
+    /// <remarks>
+    /// The cross-references are why this is not a single lookup: the same star is HIP 109422, HR 8447
+    /// and HD 210302, and which of those an overlay candidate arrives as depends on the catalogue it
+    /// was found in rather than on anything about the star.
+    /// </remarks>
+    public static bool IsConstellationFigureStar(CatalogIndex index, IReadOnlySet<CatalogIndex>? crossIndices)
+    {
+        if (_figureStarIndices.Contains(index))
+        {
+            return true;
+        }
+
+        if (crossIndices is null)
+        {
+            return false;
+        }
+
+        foreach (var cross in crossIndices)
+        {
+            if (_figureStarIndices.Contains(cross))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Computes all overlay items for the current viewport.
     /// </summary>
     /// <param name="layout">Viewport geometry.</param>
@@ -546,8 +634,14 @@ public static class OverlayEngine
                         continue;
                     }
 
+                    // Resolved once and used twice: for the duplicate test below and, for a star, to
+                    // ask whether it is one a constellation figure is drawn through -- which it can
+                    // only answer through the cross-references, since the figure set is keyed by HIP
+                    // and a candidate arrives under whatever catalogue it was found in.
+                    var hasCrossIndices = db.TryGetCrossIndices(idx, out var crossIndices);
+
                     // Deduplicate cross-catalog entries (e.g. HIP/HD/HR for the same star)
-                    if (db.TryGetCrossIndices(idx, out var crossIndices))
+                    if (hasCrossIndices)
                     {
                         var isDuplicate = false;
                         foreach (var crossIdx in crossIndices)
@@ -564,8 +658,17 @@ public static class OverlayEngine
                         }
                     }
 
-                    // Magnitude cutoff
+                    // Magnitude cutoff. A constellation-figure star takes the FigureStarMagCutoff
+                    // floor, so it survives a wide field the tiers would have dropped it from -- see
+                    // that constant for why it is a floor and not a waiver.
                     var effectiveMagCutoff = isStar ? starMagCutoff : magCutoff;
+                    if (isStar
+                        && effectiveMagCutoff < FigureStarMagCutoff
+                        && IsConstellationFigureStar(idx, hasCrossIndices ? crossIndices : null))
+                    {
+                        effectiveMagCutoff = FigureStarMagCutoff;
+                    }
+
                     if (!Half.IsNaN(obj.V_Mag) && (double)obj.V_Mag > effectiveMagCutoff)
                     {
                         continue;

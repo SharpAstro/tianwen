@@ -460,24 +460,47 @@ locking the release scope was *"as long as we track everything we skipped in a p
 - **Clicking a STAR is a different resolver.** `document.Stars` holds DETECTED CENTROIDS, not
   catalogue entries, so it is a nearest-centroid search over the star list, not `FindObjectAt`. Worth
   saying because "click an object or a star" reads like one feature and is two.
-- **Constellation stars appearing at wider fields.** Whether a star is drawn at all is
-  `OverlayEngine.GetStarMagCutoff(fovArcmin)` -- mag <= 1.0 above 5 degrees, 2.5 at 2-5, 4.0 at 1-2,
-  5.5 at 0.5-1, 7.0 below. tau PsA at about mag 4.9 therefore needs the field under one degree, which
-  is what "esp. the ones in the constellation should certainly trigger earlier" is about. The
-  mechanism is already to hand: `ConstellationFigures.AllFigureStarHipNumbers` is the roughly 1000
-  figure stars the sky map uses for its bright-star seed, and membership in it means "this star draws
-  a constellation" -- so it can raise or waive the cutoff for those alone. **The gate to move is the
-  magnitude cutoff, NOT the label tier**: making figure stars appear earlier is the ask, making them
-  show five lines earlier is not.
+- ~~**Constellation stars appearing at wider fields.**~~ **DONE 2026-09-10.** Whether a star is drawn
+  at all is `OverlayEngine.GetStarMagCutoff(fovArcmin)` -- mag <= 1.0 above 5 degrees, 2.5 at 2-5, 4.0
+  at 1-2, 5.5 at 0.5-1, 7.0 below -- so tau PsA at about mag 4.9 needed the field under one degree
+  before it appeared at all, which is what *"esp. the ones in the constellation should certainly
+  trigger earlier"* was about. A constellation-figure star now takes an
+  `OverlayEngine.FigureStarMagCutoff = 5.0` **floor** instead, resolved through
+  `ConstellationFigures.AllFigureStarHipNumbers` (the roughly 1000 stars the figure polylines are
+  drawn through, which the sky map already uses for its bright-star seed).
+  - **A floor, not a waiver, and not an assignment.** Waiving the cutoff would put all thousand in a
+    wide view; assigning 5.0 would DARKEN a 100 percent view, hiding stars that are on screen today.
+    5.0 keeps the stars a figure is read by (about 1600 over the whole sky) and leaves every narrower
+    tier alone, since all of them already admit fainter stars than the floor.
+  - **It is the DRAW gate, not the label tier**: making figure stars appear earlier was the ask,
+    making them show a five-line stack earlier was not.
+  - **The membership test goes through the CROSS-REFERENCES**, because the figure set is keyed by HIP
+    number while a candidate arrives under whatever catalogue it was found in -- the same star is HIP
+    109422, HR 8447 and HD 210302. The HIP numbers are packed into indices once, statically.
+  - **The failure mode this could have had is SILENCE**, so the test for it uses an independent
+    oracle. A wrong packing would leave a set matching nothing, every star would take the plain tier,
+    and the overlay would simply look as it did before with nothing red. `OverlayEngineTests` asserts
+    membership against the `CatalogIndex` enum's own hand-written literals (HIP 4427 in Cassiopeia's
+    W, HIP 16537 in Eridanus, HIP 25281 in no figure), an encoding this code did not produce.
+    Sabotaging the packing fails three tests; sabotaging the floor fails the wide-field one alone.
+  - **STILL OPEN, and the user left it open on purpose:** *"or maybe only for the ones in the image?
+    not quite sure"*. The floor currently applies to every figure star the view reaches, in the frame
+    or beside it on the sky behind. Restricting it to in-frame stars is a one-line change (the
+    `inFrame` flag is already computed on the candidate a few lines below), and it is the more
+    conservative of the two -- a photograph's field holds few figure stars, so the label count barely
+    moves. **This wants an eyeball at a wide zoom before either is called right**, along with whether
+    5.0 is the number.
 - **Trimming the identification stack itself.** Five lines (tau PsA / 15 PsA / HIP 109422 / HR 8447 /
   HD 210302) is correct and probably more than a reader wants; the Bayer name plus one catalogue
   number may be the right full-zoom label, with the rest left to the right-click menu and the info
   panel. Raised by the assistant, not decided by the user. The in-frame gate shipped instead, which
   removes the stack where it was pure decoration without answering this.
-- **Matching the two grids' DENSITY at the 20 degree handover.** The colour is now one definition, so
-  what still changes across the handover is density (the frame's fine per-pixel grid, the map's
-  coarser spherical one). It is honest -- they are grids of different things -- but if it reads as a
-  seam, the map's grid can take the viewer's spacing.
+- **Matching the two grids' DENSITY at the handover -- NOT outstanding, on the user's own look.** The
+  colour is now one definition, so what still changes across the handover is density (the frame's fine
+  per-pixel grid, the map's coarser spherical one). It is honest -- they are grids of different things
+  -- and after the tangent-angle fix the user looked at the handover and said *"looks good"*, which is
+  the only evidence that could settle it. Kept written down because the option remains a one-line
+  change (the map's grid taking the viewer's spacing) if it ever reads as a seam.
 - **`PaneGridMaxTangentAngleDeg = 20.0` is a judgement, not a measurement.** It comes from the
   gnomonic-stereographic separation being about 0.8 percent of the distance out at 10 degrees and 7
   percent at 30. If it hands over too early or too late in use, it is one constant. (What the bound is

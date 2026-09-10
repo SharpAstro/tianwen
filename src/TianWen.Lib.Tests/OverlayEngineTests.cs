@@ -793,6 +793,104 @@ public class OverlayEngineTests
 
     // --- Helpers ---
 
+    // --- constellation-figure stars appear at wider fields ---
+
+    /// <summary>
+    /// The figure set resolves to the same <see cref="CatalogIndex"/> encoding the enum itself uses.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the test that stops the whole feature being silently inert.</b>
+    /// <see cref="ConstellationFigures.AllFigureStarHipNumbers"/> is keyed by HIP NUMBER, and
+    /// <see cref="OverlayEngine"/> packs those into indices to compare against a candidate. If the
+    /// packing were wrong, the set would hold a thousand values matching nothing, every star would
+    /// take the plain tier, and NOTHING would fail -- the overlay would just look like it did before.
+    /// So the oracle here is the enum's own hand-written literals, which is an encoding this code did
+    /// not produce: HIP 4427 draws Cassiopeia's W and HIP 16537 (eps Eri) draws Eridanus, while
+    /// HIP 25281 is in no figure at all.
+    /// </remarks>
+    [Fact]
+    public void TheFigureStarSetPacksToTheEnumsOwnEncoding()
+    {
+        OverlayEngine.IsConstellationFigureStar(CatalogIndex.HIP004427, null)
+            .ShouldBeTrue("HIP 4427 is one of Cassiopeia's figure stars");
+        OverlayEngine.IsConstellationFigureStar(CatalogIndex.HIP016537, null)
+            .ShouldBeTrue("HIP 16537 (eps Eri) is one of Eridanus' figure stars");
+        OverlayEngine.IsConstellationFigureStar(CatalogIndex.HIP025281, null)
+            .ShouldBeFalse("HIP 25281 draws no constellation line");
+    }
+
+    /// <summary>
+    /// A figure star found under some OTHER catalogue is still recognised, through its
+    /// cross-references -- which is the normal case, not the exception: the same star is HIP 109422,
+    /// HR 8447 and HD 210302, and which one an overlay candidate arrives as depends on the catalogue
+    /// it was found in rather than on anything about the star.
+    /// </summary>
+    [Fact]
+    public void AFigureStarIsRecognisedThroughItsCrossReferences()
+    {
+        var crossIndices = new HashSet<CatalogIndex> { CatalogIndex.HIP004427 };
+
+        OverlayEngine.IsConstellationFigureStar(CatalogIndex.NGC1976, crossIndices).ShouldBeTrue();
+        OverlayEngine.IsConstellationFigureStar(CatalogIndex.NGC1976, null).ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The floor can only ever RAISE a cutoff: every field narrow enough to have its own opinion
+    /// already admits fainter stars than the floor does.
+    /// </summary>
+    /// <remarks>
+    /// Asserted directly rather than through a rendered frame because it is a property of the two
+    /// numbers, and it is the half that would be lost by writing the rule as an assignment instead of
+    /// a floor -- a "figure stars use 5.0" rule would DARKEN a 100 percent view, hiding stars that are
+    /// on screen today.
+    /// </remarks>
+    [Fact]
+    public void TheFigureFloorNeverDarkensANarrowField()
+    {
+        OverlayEngine.GetStarMagCutoff(20.0).ShouldBeGreaterThan(OverlayEngine.FigureStarMagCutoff);
+        OverlayEngine.GetStarMagCutoff(45.0).ShouldBeGreaterThan(OverlayEngine.FigureStarMagCutoff);
+
+        // And the wide tiers are the ones it exists to lift.
+        OverlayEngine.GetStarMagCutoff(1000.0).ShouldBeLessThan(OverlayEngine.FigureStarMagCutoff);
+    }
+
+    /// <summary>
+    /// <b>The report.</b> At a wide field the tiers admit magnitude 1.0 only, which drops most of
+    /// every constellation -- "esp. the ones in the constellation should certainly trigger earlier".
+    /// A figure star now survives it; its twin, identical in every respect except that no
+    /// constellation line runs through it, still does not.
+    /// </summary>
+    [Fact]
+    public void AtAWideFieldAFigureStarDrawsAndItsTwinDoesNot()
+    {
+        var wcs = MakeSimpleWCS();
+
+        // Magnitude 4.5: under the figure floor, far over the 1.0 the wide tier allows.
+        var figure = new CelestialObject(
+            CatalogIndex.HIP004427, ObjectType.Star, 5.0, -2.0,
+            Constellation.Cassiopeia, (Half)4.5, Half.NaN, (Half)0.65, new HashSet<string>());
+        var plain = new CelestialObject(
+            CatalogIndex.HIP025281, ObjectType.Star, 5.001, -2.001,
+            Constellation.Orion, (Half)4.5, Half.NaN, (Half)0.65, new HashSet<string>());
+
+        var db = new FakeDB();
+        db.AddObject(figure, gridRA: 5.0, gridDec: -2.0);
+        db.AddObject(plain, gridRA: 5.0, gridDec: -2.0);
+
+        // Zoom 0.1 over a ~6"/px frame puts the field near 1000 arcmin, well into the widest tier.
+        var layout = new ViewportLayout(1920, 1080, 1000, 1000, 0.1f, (0, 0), 0, 40, 1920, 1000, 1.0f);
+        OverlayEngine.GetStarMagCutoff(1000.0).ShouldBeLessThan(4.5, "the fixture must be a wide field");
+
+        var items = OverlayEngine.ComputeOverlays(layout, wcs, db, (_, _) => 50f, 18f);
+
+        items.Count.ShouldBe(1, "only the constellation-figure star may survive the widest tier");
+
+        // An OverlayItem carries no catalogue index, so the two are told apart by position -- which is
+        // why the twin was placed a thousandth of an hour away rather than on top of it.
+        items[0].RA.ShouldBe(5.0, 1e-6);
+        items[0].Dec.ShouldBe(-2.0, 1e-6);
+    }
+
     private static WCS MakeSimpleWCS()
     {
         // Simple WCS centered at RA=5h, Dec=-2° with ~6"/px scale
