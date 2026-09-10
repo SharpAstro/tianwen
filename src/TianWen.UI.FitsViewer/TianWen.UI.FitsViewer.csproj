@@ -62,4 +62,13 @@
              CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- The Milky Way texture the sky map draws behind a solved frame, LINKED from the GUI for the same
+       reason the two faces above are: one copy in the repo, and it is an LFS object. The map degrades
+       without it (SkyMapState.MilkyWayAvailable is false and the layer says unavailable in the
+       palette), so this is a bundled asset rather than a dependency. -->
+  <ItemGroup>
+    <None Include="..\TianWen.UI.Gui\Resources\milkyway.bgra.lz" Link="milkyway.bgra.lz"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

@@ -303,6 +303,34 @@ var renderer = gpu.Renderer;
 var imageRenderer = gpu.Top;
 StartupTrace.Mark("gpu");
 
+// The sky the photograph came from, drawn behind it on the context ladder's top rung (O, three
+// times). The map is the SAME class the GUI's atlas tab is -- renderer-agnostic, already on this
+// app's compile path -- pointed at the frame every render instead of at a site's zenith.
+//
+// Nothing here starts: the pipeline is built on the map's first draw, the catalog is the lazy above
+// (which the ladder warms when a rung needs it), and the milky-way texture decodes off-thread. A
+// viewer that never reaches the top rung pays for none of it.
+var skyBackdrop = new VkSkyMapTab(renderer) { Bus = bus, Logger = logger };
+skyBackdrop.State.ViewDrivenExternally = true;
+// Defaults chosen for a sky drawn BEHIND a picture rather than for an atlas: the grid and the
+// objects are the ladder's own lower rungs and are already drawn over the frame by the viewer, so
+// switching the map's copies on would double every label. The palette is how any of them is changed.
+skyBackdrop.State.ShowGrid = false;
+skyBackdrop.State.ShowObjectOverlay = false;
+skyBackdrop.State.ShowAltAzGrid = false;
+skyBackdrop.State.ShowLayerPalette = true;
+
+// The map reads its catalog, site and instant off a PlannerState. The viewer has no planner, so this
+// is a carrier: the site and the instant are re-stated per frame from the photograph's own header,
+// and the catalog arrives when the lazy lands.
+var skyPlannerState = new PlannerState();
+imageRenderer.SkyBackdrop = skyBackdrop;
+imageRenderer.SkyPlannerState = skyPlannerState;
+imageRenderer.SkyTimeProvider = sp.GetRequiredService<TianWen.Lib.Devices.ITimeProvider>();
+// Registered on the viewer state so a pointer over the palette does not also count as a pointer over
+// the picture -- see ViewerState.OverlayOwnsPointer, which is the one place that rule is stated.
+state.SkyLayerPalette = skyBackdrop.State.LayerPalette;
+
 // Once-only latches for the start-up trace. The three phases after "gpu" are all inside per-frame
 // callbacks, and only their FIRST run is start-up.
 var firstPrepareTraced = false;
@@ -453,7 +481,11 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         // Same rule for the blink: it paces the file-list step from this call, so it may not sit on the
         // right of a || either.
         var blinked = controller.TickBlink();
-        return handedOff || playback || blinked
+        // And the same rule again for the sky: the ask is CONSUMED by reading it, so on the right of a
+        // || a frame requested by the star buffer landing would be swallowed by an unrelated true and
+        // never drawn. The map keeps its own flag because it has its own off-thread work.
+        var skyMoved = imageRenderer.TakeSkyRedrawRequest();
+        return handedOff || playback || blinked || skyMoved
             || state.NeedsRedraw || state.NeedsTextureUpdate || state.RequestedFilePath is not null
             || controller.IsLoadPending;
     },
@@ -625,13 +657,17 @@ loop.OnKeyUp = keyEvent =>
 #if SIBLING_DEBUG_INSPECTORS
 // Live UI debug inspector (DEBUG only -- compiled out of Release). Exposes this process to the
 // SdlVulkan.Renderer.Inspector MCP sidecar so an agent can discover it, read the clickable-region
-// tree, and screenshot the window. The viewer renders all chrome through the single imageRenderer
-// widget, so its registered regions are the whole UI. This block is the only wiring.
+// tree, and screenshot the window. The viewer renders its chrome through the single imageRenderer
+// widget, which is a COMPOSITE (it hosts the sky map), so the whole UI is its painted regions rather
+// than only the ones it registered itself. This block is the only wiring.
 using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
 {
     AppName = "FitsViewer",
     WindowTitle = () => "Fits viewer",
-    GetRegions = () => imageRenderer.GetRegisteredRegions(),
+    // PaintedRegions, not GetRegisteredRegions: the sky map the viewer hosts registers its layer
+    // palette on ITSELF, so the widget's own list is no longer the whole UI and an agent asking for
+    // the tree would find a panel it can see in a screenshot and cannot address.
+    GetRegions = () => imageRenderer.PaintedRegions(),
     GetLayout = () => imageRenderer.GetCapturedLayout(),
     // The cached image layer is not observable any other way: when it works, the frame is
     // byte-identical to a re-render, so a screenshot cannot show it and a frame-time average cannot
@@ -648,6 +684,19 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
         w.Set("fullFrames", fullFrames);
         w.Set("zoom", state.Zoom);
         w.Set("file", controller.Source is AstroImageDocument d ? System.IO.Path.GetFileName(d.FilePath) : "");
+
+        // The driven sky view, which is otherwise unmeasurable from outside: a backdrop pointing at
+        // the wrong place, turned the wrong way or drawn at the wrong scale still LOOKS like a star
+        // field, and a screenshot of one is indistinguishable from a screenshot of the other. These
+        // are the four numbers that say which, against what the frame's own header implies.
+        w.Set("skyBackdrop", state.ShowSkyBackdrop);
+        w.Set("skyCentreRaHours", skyBackdrop.State.CenterRA);
+        w.Set("skyCentreDecDeg", skyBackdrop.State.CenterDec);
+        w.Set("skyFovDeg", skyBackdrop.State.FieldOfViewDeg);
+        w.Set("skyRollDeg", double.RadiansToDegrees(skyBackdrop.State.CenterRoll));
+        w.Set("skyMirrored", skyBackdrop.State.MirrorView);
+        w.Set("skySite", imageRenderer.SkySite.Describe());
+        w.Set("skyAtCaptureTime", imageRenderer.SkyIsAtCaptureTime);
     },
 });
 #endif

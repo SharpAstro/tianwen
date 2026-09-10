@@ -74,7 +74,16 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>Projects the layer table onto the palette's row type against a given state.</summary>
-        public static ImmutableArray<PaletteItem> ItemsFor(SkyMapState state)
+        /// <param name="state">Read for each layer's on/off and availability.</param>
+        /// <param name="includeKeyHints">
+        /// Whether each row prints the key that toggles it. True where this map owns the keyboard,
+        /// which is the tab hosts; FALSE where it does not, and the viewer is that case -- every one
+        /// of these ten letters already means something else there (<c>S</c> detects stars, <c>C</c>
+        /// cycles the channel, <c>D</c> the demosaic), so a printed key would be a row teaching a
+        /// shortcut that does something quite different. A palette is a control first and a legend
+        /// second; where it cannot be the legend it stays the control.
+        /// </param>
+        public static ImmutableArray<PaletteItem> ItemsFor(SkyMapState state, bool includeKeyHints = true)
         {
             ArgumentNullException.ThrowIfNull(state);
 
@@ -86,7 +95,7 @@ namespace TianWen.UI.Abstractions
                     Label: layer.Label,
                     Action: RowAction(in layer),
                     IsOn: available && layer.IsOn(state),
-                    KeyHint: layer.KeyLabel,
+                    KeyHint: includeKeyHints ? layer.KeyLabel : null,
                     IsAvailable: available));
             }
 
@@ -102,8 +111,10 @@ namespace TianWen.UI.Abstractions
         /// <param name="fontSize">Row text size in DESIGN units.</param>
         /// <param name="onToggle">Invoked with the layer a click landed on.</param>
         /// <param name="onGripPress">Invoked when the grip is pressed, to begin a drag or collapse.</param>
+        /// <param name="includeKeyHints">See <see cref="ItemsFor"/>: false in a host whose keyboard
+        /// these letters do not belong to.</param>
         public static Layout.Node Build(SkyMapState state, float fontSize,
-            Action<SkyMapLayer> onToggle, Action onGripPress)
+            Action<SkyMapLayer> onToggle, Action onGripPress, bool includeKeyHints = true)
         {
             ArgumentNullException.ThrowIfNull(state);
             ArgumentNullException.ThrowIfNull(onToggle);
@@ -111,7 +122,7 @@ namespace TianWen.UI.Abstractions
             return FloatingPalette.Build(
                 state.LayerPalette,
                 "LAYERS",
-                ItemsFor(state).AsSpan(),
+                ItemsFor(state, includeKeyHints).AsSpan(),
                 in Colors,
                 fontSize,
                 GripAction,

@@ -91,7 +91,7 @@ namespace TianWen.UI.Abstractions
     /// star overlay, object overlay, histogram chrome, keyboard and mouse wheel handling.
     /// Subclasses implement 6 abstract methods for the GPU-specific rendering.
     /// </summary>
-    public abstract partial class ImageRendererBase<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer), ISelfDispatchingInputWidget
+    public abstract partial class ImageRendererBase<TSurface>(Renderer<TSurface> renderer) : CompositeWidget<TSurface>(renderer), ISelfDispatchingInputWidget
     {
         /// <summary>Reference to the viewer state from the last Render call.</summary>
         private ViewerState? _state;
@@ -940,8 +940,9 @@ namespace TianWen.UI.Abstractions
             }
 
             // The rung asks for the catalog it needs; one-shot, off-thread, and a no-op at every rung
-            // below Objects.
+            // below Objects. The sky map reads the same one, through its carrier.
             WarmCatalogIfContextNeedsIt(state);
+            PublishCatalogToSky();
 
             if (state.ShowOverlays && document?.Wcs is { HasCDMatrix: true } overlayWcs && CelestialObjectDB?.Value?.Value is { } db)
             {
@@ -978,6 +979,12 @@ namespace TianWen.UI.Abstractions
             {
                 RenderTransportBar(state);
             }
+
+            // The sky's own controls, floating over the frame and everything drawn on it. It has to be
+            // ABOVE the picture (the sky pass that opened this frame ran under it) and above the
+            // histogram and info panel it can overlap, and below only the dropdowns -- the same
+            // z-order it has in a tab host, where the search modal is the one thing that outranks it.
+            RenderSkyPalette(_layout.ImageArea);
 
             if (!state.HideChrome)
             {
@@ -1239,6 +1246,12 @@ namespace TianWen.UI.Abstractions
             // so a pixel nobody draws keeps what it had; without this fill, a dragged A/B divider left its
             // bar behind everywhere the picture does not reach (P24).
             FillRect(area.X, area.Y, area.Width, area.Height, CanvasBackground);
+
+            // The sky the frame was taken from, drawn into the same ground the letterbox uses and
+            // under everything below -- the photograph is composited on top of it at its solved place.
+            // Nothing downstream changes: the image quad, the crop clip and the overlays are drawn
+            // exactly as they are without it.
+            RenderSkyBackdrop(state, area);
 
             if (Split.ResolveDividerX(HasBeforeImageTextures, DpiScale, _cropActive) is not { } splitX)
             {

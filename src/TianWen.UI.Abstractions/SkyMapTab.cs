@@ -94,7 +94,26 @@ namespace TianWen.UI.Abstractions
         private float _constellNamesFontSizeKey;
         private readonly List<(string Name, double RA, double Dec, float SX, float SY, float TextW)> _constellNamesCache = [];
 
+        /// <summary>
+        /// The whole tab: the sky, its labels, and the layer palette floating on top of it. What a
+        /// host that gives the map a screen to itself calls.
+        /// </summary>
         public void Render(
+            PlannerState plannerState,
+            RectF32 contentRect,
+            ITimeProvider timeProvider)
+        {
+            RenderSkyBehind(plannerState, contentRect, timeProvider);
+            RenderLayerPalette(contentRect);
+        }
+
+        /// <summary>
+        /// The sky and its labels WITHOUT the palette, for a host that draws its own content over the
+        /// sky and needs the palette above that rather than under it -- the FITS viewer, which
+        /// composites a photograph onto the sky it was taken from. Begins the frame; pair it with
+        /// <see cref="RenderLayerPalette"/>, which does not.
+        /// </summary>
+        public void RenderSkyBehind(
             PlannerState plannerState,
             RectF32 contentRect,
             ITimeProvider timeProvider)
@@ -111,6 +130,15 @@ namespace TianWen.UI.Abstractions
             var db = plannerState.ObjectDb;
             if (db is null)
             {
+                // A BACKDROP with no catalog draws nothing at all, rather than a dark rectangle and a
+                // message: the host owns this rect and has its own content to put in it, so the sky
+                // simply is not there yet. The placeholder below is for a host that gave the map the
+                // screen, where an empty rect would be the app looking broken.
+                if (State.ViewDrivenExternally)
+                {
+                    return;
+                }
+
                 RenderLayout(Layout.Builder.Spacer().Bg(new RGBAColor32(0x06, 0x06, 0x10, 0xFF)), contentRect);
 
                 // Distinguish "catalog is loading" from "catalog isn't loading because
@@ -174,7 +202,9 @@ namespace TianWen.UI.Abstractions
 
             // Initialize view to zenith on first valid site, or re-center on profile switch
             var site = SiteContext.Create(siteLat, siteLon, viewingTime);
-            if (site.IsValid && (!State.Initialized || siteLat != _lastSiteLat || siteLon != _lastSiteLon))
+            State.SiteAvailable = site.IsValid;
+            if (!State.ViewDrivenExternally
+                && site.IsValid && (!State.Initialized || siteLat != _lastSiteLat || siteLon != _lastSiteLon))
             {
                 _lastSiteLat = siteLat;
                 _lastSiteLon = siteLon;
@@ -289,15 +319,22 @@ namespace TianWen.UI.Abstractions
             RenderFixedPointMarkers(contentRect, BaseFontSize, ppr, cx, cy, site);
             FixedMarkerMs += LayerElapsed(ref layerMark);
 
-            var isTimeShifted = plannerState.PlanningDate.HasValue || State.TimeOffset != TimeSpan.Zero;
-            DrawInfoStrip(contentRect, fontSize, cx, cy,
-                viewingTime, plannerState.SiteTimeZone, isTimeShifted);
-            InfoStripMs += LayerElapsed(ref layerMark);
+            // The strip and the crosshair say where the VIEW is pointing and where its centre is, and
+            // a driven host has already answered both -- its own status bar names the frame, and its
+            // own content is what the middle of the rect is for. They would also be drawn UNDER that
+            // content, so at most they show around the edges of it.
+            if (!State.ViewDrivenExternally)
+            {
+                var isTimeShifted = plannerState.PlanningDate.HasValue || State.TimeOffset != TimeSpan.Zero;
+                DrawInfoStrip(contentRect, fontSize, cx, cy,
+                    viewingTime, plannerState.SiteTimeZone, isTimeShifted);
+                InfoStripMs += LayerElapsed(ref layerMark);
 
-            // Crosshair
-            var crossColor = new RGBAColor32(0xFF, 0xFF, 0xFF, 0x40);
-            FillRect(cx - 10, cy, 20, 1, crossColor);
-            FillRect(cx, cy - 10, 1, 20, crossColor);
+                // Crosshair
+                var crossColor = new RGBAColor32(0xFF, 0xFF, 0xFF, 0x40);
+                FillRect(cx - 10, cy, 20, 1, crossColor);
+                FillRect(cx, cy - 10, 1, 20, crossColor);
+            }
 
             // First-load hint: while the full Tycho-2 star field is still building off-thread
             // (the first frame shows only the HIP bright-star seed), show an unobtrusive top-left
@@ -312,21 +349,35 @@ namespace TianWen.UI.Abstractions
                     BaseFontSize * dpiScale * 0.85f, InfoText, TextAlign.Near, TextAlign.Center);
             }
 
-            // Layer palette: floated against the content area's RIGHT edge, which is the half of it
-            // the info panel does not use (that one pins itself bottom-left, above the status strip).
-            // Drawn before the modal and the info panel so those still win hit testing.
-            // Search modal + info panel: drawn LAST so their clickable regions win
-            // hit testing (paint order = z-order).
+            // Search modal + info panel: drawn LAST of this pass so their clickable regions win hit
+            // testing against the map's own (paint order = z-order). Only the palette outranks them,
+            // and it is a pass of its own -- see RenderLayerPalette.
             DrawSearchAndInfoPanel(plannerState, contentRect, db,
                 siteLat, siteLon, viewingTime, site, ppr, cx, cy);
             SearchPanelMs += LayerElapsed(ref layerMark);
+        }
 
-            // Layer palette LAST, so it is chrome rather than something the sky draws over. The
-            // selected-object reticle is drawn from inside DrawInfoPanel (it is map annotation living
-            // in the panel's method, because that is where the selection is resolved), so a palette
-            // drawn before that pass had a yellow crosshair sitting on top of its rows wherever the
-            // selection happened to fall behind it.
-            //
+        /// <summary>
+        /// The layer palette on its own, floated against the right edge of <paramref name="contentRect"/>
+        /// -- the half of the content area the info panel does not use, since that one pins itself
+        /// bottom-left above the status strip.
+        /// </summary>
+        /// <remarks>
+        /// Its own pass, and the LAST one, so it is chrome rather than something the sky draws over.
+        /// The selected-object reticle is drawn from inside DrawInfoPanel (map annotation living in the
+        /// panel's method, because that is where the selection is resolved), so a palette drawn before
+        /// that pass had a yellow crosshair sitting on top of its rows wherever the selection happened
+        /// to fall behind it. Separating it also lets a host that composites its own content over the
+        /// sky put the palette above THAT -- which is the whole reason it is public.
+        /// <para>
+        /// Does not begin the frame: it is the second half of one <see cref="RenderSkyBehind"/> opened.
+        /// </para>
+        /// </remarks>
+        public void RenderLayerPalette(RectF32 contentRect, bool includeKeyHints = true)
+        {
+            var dpiScale = DpiScale;
+            var fontPath = FontPath;
+
             // The one thing that outranks it is the search modal, which owns the screen while it is
             // open -- so the palette stands down rather than floating over a modal.
             if (State.ShowLayerPalette && !State.Search.IsOpen)
@@ -334,7 +385,8 @@ namespace TianWen.UI.Abstractions
                 var paletteNodes = RenderLayout(
                     SkyMapLayerPalette.Build(State, BaseFontSize * 0.9f,
                         ToggleLayerFromPalette,
-                        BeginLayerPaletteDrag),
+                        BeginLayerPaletteDrag,
+                        includeKeyHints),
                     contentRect, fontPath, dpiScale);
 
                 foreach (var node in paletteNodes)
@@ -1166,7 +1218,27 @@ namespace TianWen.UI.Abstractions
 
         // ── Input handling ──
 
-        public override bool HandleInput(InputEvent evt) => evt switch
+        public override bool HandleInput(InputEvent evt)
+        {
+            // A driven view is not this map's to move, so every gesture that would move it is left
+            // UNHANDLED for the host that owns it -- the viewer pans and zooms the photograph, and the
+            // sky follows from where that lands. What still belongs here is the palette's own pointer
+            // handling: it is chrome floating on the map rather than part of the sky, and its grip
+            // drag is the one thing in this class the host cannot do for it.
+            if (State.ViewDrivenExternally)
+            {
+                return evt switch
+                {
+                    InputEvent.MouseUp => ReleasePaletteGrip(),
+                    InputEvent.MouseMove(var mx, var my) => TrackPalettePointer(mx, my),
+                    _ => false,
+                };
+            }
+
+            return HandleOwnedInput(evt);
+        }
+
+        private bool HandleOwnedInput(InputEvent evt) => evt switch
         {
             InputEvent.Scroll(var scrollY, var mx, var my, _) => HandleZoom(scrollY, mx, my),
             InputEvent.Pinch p => HandlePinchZoom(p.Scale, p.X, p.Y, p.Source),
@@ -1182,15 +1254,26 @@ namespace TianWen.UI.Abstractions
         {
             // A grip drag ends here and goes no further: TryEmitClickSelect would otherwise read the
             // release as a click on the sky BEHIND the panel and select whatever sits under it.
-            if (State.LayerPalette.ReleaseGrip())
+            if (ReleasePaletteGrip())
             {
-                State.NeedsRedraw = true;
                 return true;
             }
 
             // Distinguish a click (emit select signal) from the end of a pan drag.
             TryEmitClickSelect(x, y);
             return HandleDragEnd();
+        }
+
+        /// <summary>Ends a palette grip drag, if one is in progress.</summary>
+        private bool ReleasePaletteGrip()
+        {
+            if (!State.LayerPalette.ReleaseGrip())
+            {
+                return false;
+            }
+
+            State.NeedsRedraw = true;
+            return true;
         }
 
         /// <summary>
@@ -1202,19 +1285,27 @@ namespace TianWen.UI.Abstractions
         /// registered region never reaches the tab's own mouse-down path at all.
         /// </summary>
         private bool HandleMouseMove(float x, float y)
+            // While the grip has the pointer the move belongs to the palette, and the map never sees
+            // it -- so a palette drag cannot also pan the sky underneath it.
+            => TrackPalettePointer(x, y)
+               || (State.IsDragging && !State.IsPinching && HandleDrag(x, y));
+
+        /// <summary>
+        /// Records where the pointer is for the palette and advances a grip drag if one is running.
+        /// True when the palette consumed the move.
+        /// </summary>
+        private bool TrackPalettePointer(float x, float y)
         {
             _lastPointerY = y;
             State.LayerPalette.NotePointer(x, y);
 
-            // While the grip has the pointer the move belongs to the palette, and the map never sees
-            // it -- so a palette drag cannot also pan the sky underneath it.
-            if (State.LayerPalette.DragTo(y, DpiScale))
+            if (!State.LayerPalette.DragTo(y, DpiScale))
             {
-                State.NeedsRedraw = true;
-                return true;
+                return false;
             }
 
-            return State.IsDragging && !State.IsPinching && HandleDrag(x, y);
+            State.NeedsRedraw = true;
+            return true;
         }
 
         /// <summary>
