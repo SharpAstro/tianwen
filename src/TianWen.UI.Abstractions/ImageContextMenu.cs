@@ -73,9 +73,17 @@ namespace TianWen.UI.Abstractions
         /// The catalogued object under the cursor, when the caller could resolve one. Its two entries
         /// lead, because a click on a marked object is nearly always about the object.
         /// </param>
+        /// <param name="selection">
+        /// The object the viewer currently has SELECTED, when there is one. It earns its OWN atlas
+        /// entry rather than replacing the positional one: the entry that already exists opens the
+        /// atlas at the pixel that was right-clicked, and quietly re-pointing it at something
+        /// elsewhere on the frame would make a positional action mean something else depending on
+        /// state. Two entries, each labelled with what it acts on, and the selection's is skipped when
+        /// the right-click resolved that same object anyway.
+        /// </param>
         public static ImmutableArray<ImageContextMenuItem> ItemsFor(
             PixelInfo pixel, double? fovDeg = null, DateTimeOffset? capturedUtc = null,
-            ImageContextMenuObject? nearest = null)
+            ImageContextMenuObject? nearest = null, ViewerObjectSelection? selection = null)
         {
             var hasSky = pixel.RA.HasValue && pixel.Dec.HasValue;
             if (pixel.Values.Length == 0 && !hasSky)
@@ -161,6 +169,19 @@ namespace TianWen.UI.Abstractions
                     "sky atlas",
                     SkyAtlasLink.For(pixel.RA!.Value, pixel.Dec!.Value, fovDeg, capturedUtc, token),
                     ImageContextMenuAction.OpenUrl));
+
+                // The SELECTION's own entry, centred on the object rather than on the click. Named, so
+                // the two are told apart by reading them; and skipped when the click already resolved
+                // the selected object, since both entries would then do the same thing.
+                if (selection is { } selected
+                    && !string.Equals(selected.Token, token, StringComparison.Ordinal))
+                {
+                    builder.Add(new ImageContextMenuItem(
+                        $"Open {selected.Name} in sky atlas (web)",
+                        "sky atlas",
+                        SkyAtlasLink.For(selected.RaHours, selected.Dec, fovDeg, capturedUtc, selected.Token),
+                        ImageContextMenuAction.OpenUrl));
+                }
             }
 
             return builder.ToImmutable();

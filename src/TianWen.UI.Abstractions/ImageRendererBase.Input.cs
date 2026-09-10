@@ -54,7 +54,35 @@ namespace TianWen.UI.Abstractions
             }
             _panZoom.PanOffset = new Vector2(state.PanOffset.X, state.PanOffset.Y);
             _panZoom.BeginPan(x, y);
+
+            // Where the press landed, so the release can tell a TAP from a drag. Recorded here because
+            // this is the one place both hosts arm the pan -- the standalone viewer has its own press
+            // dispatch (Program.cs) and would otherwise never record it, so click-to-select would be
+            // dead in the only host that has a context ladder to select from.
+            _pressToSelect = (x, y);
         }
+
+        /// <summary>
+        /// Where an unclaimed press on the picture landed, or null when no such press is outstanding.
+        /// </summary>
+        /// <remarks>
+        /// <b>A selection fires on the tap RELEASE, not the press</b>, because a press on the picture
+        /// is also the start of a pan: selecting there would fire on every drag, and a drag that ends
+        /// somewhere else would leave whatever happened to be under the finger selected. Same
+        /// tap-on-release model the file list uses (<c>TakeAtomTap</c>) and for the same reason.
+        /// </remarks>
+        private (float X, float Y)? _pressToSelect;
+
+        /// <summary>
+        /// How far a press may travel and still count as a tap rather than a drag, in screen pixels.
+        /// </summary>
+        /// <remarks>
+        /// Not zero: a mouse moves a pixel or two under a real finger, and a touchscreen more, so an
+        /// exact-equality test would make selection work on a trackpad and fail on a touchscreen. Not
+        /// large either -- past a few pixels the gesture has visibly panned the picture, and the user
+        /// is not asking about whatever is under the pointer at the end of that.
+        /// </remarks>
+        private const float TapSlopPx = 4f;
 
         /// <summary>
         /// True from the first <see cref="InputEvent.Pinch"/> of a touchscreen gesture until its
@@ -237,6 +265,20 @@ namespace TianWen.UI.Abstractions
             switch (key)
             {
                 case InputKey.Escape:
+                    // A SELECTION is dismissed before Escape means "quit". Not a second copy of the
+                    // claimant rule above -- a selection is not a painted overlay and owns no
+                    // keyboard, so nothing else can answer for it -- but it IS the same principle:
+                    // Escape retires the most recent thing it can, and only quits when there is
+                    // nothing left to retire. Without this the only way to clear a selection is a
+                    // click on empty sky, which is not available when the frame is full of objects.
+                    if (state.SelectedObject is not null)
+                    {
+                        state.SelectedObject = null;
+                        state.StatusMessage = null;
+                        state.NeedsRedraw = true;
+                        return true;
+                    }
+
                     // Reached only when nothing on screen claimed the keyboard: an open dropdown eats
                     // Escape at the KeyboardClaimant check above, which is the mechanism's whole point
                     // and is pinned by ViewerEscapeTests. A special case here would be a second copy of
@@ -933,6 +975,13 @@ namespace TianWen.UI.Abstractions
 
         private bool HandleViewerMouseUp(InputEvent evt)
         {
+            // Taken and cleared FIRST, so an armed tap cannot outlive its own release. Every path
+            // below either uses it or drops it: a press whose release is claimed by something else
+            // (the palette grip, just below) would otherwise leave it set for a LATER release
+            // somewhere else to act on, and this is the one release path both hosts share.
+            var press = _pressToSelect;
+            _pressToSelect = null;
+
             // Ends a palette grip drag, and goes no further when it does -- the same reason the map's
             // own release path stops there: a release consumed by the panel must not also read as a
             // click on what is behind it.
@@ -976,6 +1025,20 @@ namespace TianWen.UI.Abstractions
                     state.IsResizingFileList = false;
                     state.NeedsRedraw = true;
                 }
+
+                // A LEFT tap on the picture that never became a drag asks what is there. Gated on
+                // _pressToSelect, which is set ONLY by an unclaimed press inside the image viewport --
+                // so a release ending a slider drag, a transport scrub or a file-list gesture cannot
+                // reach this, without any of them being named here.
+                if (evt is InputEvent.MouseUp { Button: MouseButton.Left } up
+                    && press is { } from
+                    && MathF.Abs(up.X - from.X) <= TapSlopPx
+                    && MathF.Abs(up.Y - from.Y) <= TapSlopPx
+                    && TrySelectObjectAt(state, up.X, up.Y))
+                {
+                    state.NeedsRedraw = true;
+                }
+
                 _panZoom.EndPan();
                 return true;
             }

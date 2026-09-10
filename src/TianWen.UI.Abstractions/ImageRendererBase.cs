@@ -987,6 +987,15 @@ namespace TianWen.UI.Abstractions
                 RenderOverlays(state, overlayWcs, db);
             }
 
+            // The selection rings whatever is selected LAST, so it sits over that object's own marker
+            // rather than under it, and it is NOT gated on ShowOverlays: a click resolves an object at
+            // every rung of the ladder, and a selection that draws nothing cannot be told from a click
+            // that missed. Inside the clip above, like every other overlay drawn in image space.
+            if (document?.Wcs is { HasCDMatrix: true } selectionWcs)
+            {
+                RenderSelectionHighlight(state, selectionWcs);
+            }
+
             // Caller-driven sky annotations (polar alignment, plate-solve verification,
             // target markers, mosaic panel boundaries...). Generic primitive; the
             // renderer doesn't know what the markers represent.
