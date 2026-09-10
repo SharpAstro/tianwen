@@ -587,8 +587,18 @@ public sealed class ViewerController(
         var stats = doc.BasisPerChannelStats;
         var own = doc.PerChannelStats;
         var bg = doc.PerChannelBackground;
-        logger.LogDebug("Stretch basis [{Occasion}]: anchored={Anchored} channels={Channels}",
-            occasion, doc.HasDisplayAnchor, stats.Length);
+        // MaxValue is in here because it becomes the shader's NormFactor (1/MaxValue): every value
+        // is scaled by it, so a flattened frame whose observed PEAK collapsed would render bright
+        // with a perfectly healthy-looking set of medians. The calibration and neutralisation flags
+        // are here because they gate multipliers applied BESIDE the per-channel curve, and the curve
+        // alone was measured to render this frame's background neutral -- so what is left is what
+        // sits beside it.
+        logger.LogDebug(
+            "Stretch basis [{Occasion}]: anchored={Anchored} channels={Channels} imageMax={Max:G6} imageMin={Min:G6} mode={Mode} calibrated={Calibrated} neutralised={Neutralised} wbInherited={Wb}",
+            occasion, doc.HasDisplayAnchor, stats.Length,
+            doc.UnstretchedImage.MaxValue, doc.UnstretchedImage.MinValue,
+            state.StretchMode, state.ColorCalibrationEnabled, state.BackgroundNeutralizationEnabled,
+            doc.ColorCalibration is { } cc ? $"{cc.R:G6}/{cc.G:G6}/{cc.B:G6}" : "none");
 
         for (var c = 0; c < stats.Length; c++)
         {

@@ -1652,7 +1652,12 @@ namespace TianWen.UI.Abstractions
         {
             var lines = ImmutableArray.CreateBuilder<string>(10);
             lines.Add($"TianWen {TianWen.Lib.BuildInfo.Describe()}");
-            lines.Add(Ellipsize(TianWen.Lib.BuildInfo.InstallFolder));
+
+            // The install path OPENS, which is what anyone reading a truncated path off a panel wants
+            // to do next -- and it carries a mark, because every other row that does something here
+            // does, and a clickable row with no affordance is the gap the file-list button just closed.
+            _helpFolderLine = lines.Count;
+            lines.Add("\U0001F4C2 " + Ellipsize(TianWen.Lib.BuildInfo.InstallFolder));
             lines.Add("");
 
             // The two long sections, as one row each. The AI row carries its own SUMMARY rather than
@@ -1745,6 +1750,8 @@ namespace TianWen.UI.Abstractions
         /// needs no per-page bookkeeping to find it.</summary>
         private const string BackRow = "\u2190 Back";
 
+        private int _helpFolderLine = -1;
+
         private int _helpShortcutsLine = -1;
 
         private int _helpAiLine = -1;
@@ -1793,6 +1800,15 @@ namespace TianWen.UI.Abstractions
             {
                 _helpPage = HelpPage.AiEnhancement;
                 ReopenHelpPanel();
+            }
+            else if (index == _helpFolderLine)
+            {
+                // Through OpenUrlSignal like every other row here, which is ALREADY the
+                // platform-independent shell call: its host handler is Process.Start with
+                // UseShellExecute, so Windows hands the path to Explorer, Linux to xdg-open and macOS
+                // to open -- all of which take a directory. Nothing new is needed and, more to the
+                // point, no second way of asking the OS to do something is introduced.
+                PostSignal(new OpenUrlSignal(TianWen.Lib.BuildInfo.InstallFolder));
             }
             else if (index == _helpDocsLine)
             {
@@ -1904,7 +1920,11 @@ namespace TianWen.UI.Abstractions
                 && (d.UnstretchedImage.ChannelCount >= 3
                     || d.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB);
             var calibrationActive = state.ColorCalibrationEnabled && document?.ColorCalibration is not null;
-            return StretchMode.Auto.ResolveAuto(isColour, calibrationActive) switch
+            // The same four inputs the render resolves from, or the button names a mode the picture is
+            // not in -- which is the one thing a label that exists to say "Auto picked this" must not do.
+            return StretchMode.Auto.ResolveAuto(isColour, calibrationActive,
+                document?.ColourIsNotPhotometric ?? false,
+                document?.BackgroundAlreadyExtracted ?? false) switch
             {
                 StretchMode.Unlinked => "Unlinked",
                 _ => "Linked",

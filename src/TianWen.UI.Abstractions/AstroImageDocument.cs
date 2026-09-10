@@ -205,6 +205,26 @@ public sealed class AstroImageDocument : IPreviewSource
     public bool ColourIsNotPhotometric
         => IsNarrowbandColorCalibration || Basis._hasDuplicateChannels || _hasDuplicateChannels;
 
+    /// <summary>
+    /// Whether this frame's background has already been flattened and levelled by a gradient
+    /// correction, so nothing downstream should try to neutralise it a second time.
+    /// </summary>
+    /// <remarks>
+    /// Set by the enhance path, which always runs a <c>GradientCorrectionStep</c> (both canonical
+    /// programs include one). Provenance rather than inference on purpose: it is knowable exactly
+    /// where it happens, and the alternative -- deciding from the pixels that three channel
+    /// backgrounds "look equal enough" -- needs a threshold nobody can defend. That alternative is
+    /// still worth having eventually, because a frame FLATTENED IN ANOTHER TOOL and then opened here
+    /// carries no provenance at all and hits the same wrong answer; see viewer-prerelease-fixes P30.
+    /// </remarks>
+    public bool BackgroundAlreadyExtracted { get; private set; }
+
+    /// <summary>
+    /// Records that this document's background was extracted upstream. Called by the enhance path on
+    /// the document it just produced, beside <see cref="InheritColorCalibration"/>.
+    /// </summary>
+    public void MarkBackgroundExtracted() => BackgroundAlreadyExtracted = true;
+
     private readonly bool _hasDuplicateChannels;
 
     /// <summary>
@@ -675,7 +695,8 @@ public sealed class AstroImageDocument : IPreviewSource
         // Linked so the WB shows; an uncalibrated one Unlinked so each channel's background neutralises.
         var isColour = UnstretchedImage.ChannelCount >= 3
             || UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB;
-        mode = mode.ResolveAuto(isColour, autoWb is not null, ColourIsNotPhotometric);
+        mode = mode.ResolveAuto(isColour, autoWb is not null, ColourIsNotPhotometric,
+            BackgroundAlreadyExtracted);
 
         if (UseIterativeConvergence && Basis.StarMaskedStats is { } masked)
         {
