@@ -101,24 +101,17 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private ImmutableArray<ImageContextMenuItem> BuildContextMenuItems(ViewerState state, float px, float py)
         {
-            var area = _layout.ImageArea;
-
-            // Resolve the pixel from THIS press rather than trusting the last mouse-move to have left
-            // one: a press is not always preceded by a move over the image (a synthesized click, a
-            // touch tap, a window that just took focus under the pointer), and a menu that silently
-            // fails to open in those cases is indistinguishable from the feature being absent.
-            // Through the same converter the readout uses, so there is no second copy of the zoom and
-            // pan arithmetic.
-            ViewerActions.UpdateCursorFromScreenPosition(
-                _document, state, px, py, area.X, area.Y, area.Width, area.Height);
-
-            // Ask for EVERY channel where a document can answer: the per-move readout samples only the
-            // channel on screen (deliberately -- it runs on every mouse move over a large master), and
-            // a copied value naming one of three channels is the ambiguity this avoids. One call per
-            // right-click, so the reason for that thrift does not apply here.
-            var info = _document is { } document && state.CursorImagePosition is { } at
-                ? document.GetPixelInfo(at.X, at.Y)
-                : state.CursorPixelInfo;
+            // Resolved from THIS press rather than trusting the last mouse-move to have left one: a
+            // press is not always preceded by a move over the image (a synthesized click, a touch tap,
+            // a window that just took focus under the pointer), and a menu that silently fails to open
+            // in those cases is indistinguishable from the feature being absent.
+            //
+            // ResolveSkyPixelAt asks for EVERY channel where a document can answer -- the per-move
+            // readout samples only the channel on screen (deliberately, since it runs on every mouse
+            // move over a large master), and a copied value naming one of three channels is the
+            // ambiguity this avoids. It also answers for a press BESIDE the picture, where there is no
+            // pixel but there is still a sky position, so the menu opens there too.
+            var info = ResolveSkyPixelAt(state, px, py);
 
             if (info is not { } pixel)
             {
@@ -166,6 +159,96 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private static string NameOf(CelestialObject obj)
             => obj.CommonNames.Count > 0 ? obj.DisplayName : obj.Index.ToCanonical();
+
+        /// <summary>
+        /// How far outside the sensor a click may still be resolved to a sky position, in degrees from
+        /// the frame's tangent point.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>A bound is needed, and it is not about the projection's maths.</b> A gnomonic
+        /// deprojection is exact and single-valued anywhere short of 90 degrees, so nothing breaks
+        /// arithmetically just outside the frame. What does not hold is the SOLUTION: a plate solve is
+        /// fitted to stars ON the sensor, and asking it about a point far beyond one answers with a
+        /// confidence it never earned -- which for a click means naming an object that is not
+        /// there.</para>
+        /// <para>Five degrees because it comfortably covers everything the frame's overlay can DRAW
+        /// outside the picture: that gather runs over the image's own bounds expanded by one degree, so
+        /// any marker beside the frame is within about a degree of it. Objects further out belong to
+        /// the sky map behind, which places them from ITS projection and would have to answer for them
+        /// itself -- see the note in the plan.</para>
+        /// </remarks>
+        private const double MaxOffFrameClickAngleDeg = 5.0;
+
+        /// <summary>
+        /// The pixel a screen position names, for the purpose of asking WHERE IN THE SKY it is -- which
+        /// a position outside the sensor still has an answer for.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>The bug this exists for:</b> a click beside the picture could not select anything.
+        /// <see cref="ViewerActions.UpdateCursorFromScreenPosition"/> is the pixel READOUT's resolver
+        /// and nulls both cursor fields off-raster -- correctly, since there is no pixel there to
+        /// report -- so the selection path got nothing and cleared instead. But the overlay draws
+        /// objects the gather found beside the frame as well as in it (that is what the in-frame label
+        /// tier is about), and a marker you can see is a marker you expect to be able to click.</para>
+        /// <para>On the raster it defers to that same resolver, so the sample, the readout and the
+        /// selection cannot disagree about what is under the pointer. Off it, the pixel VALUES are
+        /// genuinely absent and the position is synthesised from the WCS alone --
+        /// <see cref="PixelInfo"/> carries RA/Dec independently of the values, and both consumers here
+        /// read only those.</para>
+        /// </remarks>
+        private PixelInfo? ResolveSkyPixelAt(ViewerState state, float px, float py)
+        {
+            var area = _layout.ImageArea;
+
+            ViewerActions.UpdateCursorFromScreenPosition(
+                _document, state, px, py, area.X, area.Y, area.Width, area.Height);
+
+            if (_document is { } document && state.CursorImagePosition is { } at)
+            {
+                return document.GetPixelInfo(at.X, at.Y);
+            }
+
+            if (state.CursorPixelInfo is { } reported)
+            {
+                return reported;
+            }
+
+            // Off the raster: the frame's own placement back into its pixel grid, then the WCS. Through
+            // _placement rather than re-deriving from Zoom and PanOffset, because that is what the
+            // image quad was actually drawn with -- it carries the crop, which the readout's own
+            // arithmetic does not have to.
+            if (_document?.Wcs is not { HasCDMatrix: true } wcs)
+            {
+                return null;
+            }
+
+            var p = _placement;
+            if (p.Scale <= 0f)
+            {
+                return null;
+            }
+
+            var imageX = ((px - p.OffsetX) / p.Scale) + 1.0;
+            var imageY = ((py - p.OffsetY) / p.Scale) + 1.0;
+
+            var angle = SkyBackdropView.TangentAngleDeg(in wcs, imageX, imageY);
+            if (!(angle <= MaxOffFrameClickAngleDeg))
+            {
+                // NaN lands here too, which is the answer for a frame with no usable scale.
+                return null;
+            }
+
+            if (wcs.PixelToSky(imageX, imageY) is not { } sky)
+            {
+                return null;
+            }
+
+            // The pixel indices are reported in the readout's own 0-based convention for consistency,
+            // and are deliberately outside the raster: nothing may sample them, and the empty value
+            // array is what says so.
+            return new PixelInfo((int)Math.Floor(imageX - 1.0), (int)Math.Floor(imageY - 1.0),
+                [], sky.RA, sky.Dec);
+        }
 
         /// <summary>
         /// The nearest catalogued object to <paramref name="pixel"/>, as the catalogue holds it.
@@ -252,18 +335,12 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         private bool TrySelectObjectAt(ViewerState state, float px, float py)
         {
-            var area = _layout.ImageArea;
-
-            // Resolve the pixel from THIS release, through the same converter the readout and the
-            // context menu use -- the pointer may never have moved over the image (a synthesized
-            // click, a touch tap), and a selection that silently fails then is indistinguishable from
-            // the feature being absent.
-            ViewerActions.UpdateCursorFromScreenPosition(
-                _document, state, px, py, area.X, area.Y, area.Width, area.Height);
-
-            var info = _document is { } document && state.CursorImagePosition is { } at
-                ? document.GetPixelInfo(at.X, at.Y)
-                : state.CursorPixelInfo;
+            // Resolved from THIS release rather than from the last mouse-move: the pointer may never
+            // have moved over the image (a synthesized click, a touch tap), and a selection that
+            // silently fails then is indistinguishable from the feature being absent. Through
+            // ResolveSkyPixelAt, so a click BESIDE the picture still has a sky position -- the overlay
+            // draws objects out there and a marker you can see is one you expect to be able to click.
+            var info = ResolveSkyPixelAt(state, px, py);
 
             var image = _document?.UnstretchedImage;
             var fovDeg = image is { } img

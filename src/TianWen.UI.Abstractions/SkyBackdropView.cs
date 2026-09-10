@@ -103,7 +103,6 @@ public static class SkyBackdropView
             return double.NaN;
         }
 
-        var radPerPixel = wcs.PixelScaleArcsec / 3600.0 * Math.PI / 180.0;
         var worst = 0.0;
 
         // The pane's four corners, back through the placement into the frame's own pixel grid. The
@@ -116,16 +115,43 @@ public static class SkyBackdropView
             var imageX = ((cornerX - imageOriginX) / scale) + 1.0;
             var imageY = ((cornerY - imageOriginY) / scale) + 1.0;
 
-            var dx = imageX - wcs.CRPix1;
-            var dy = imageY - wcs.CRPix2;
-            var theta = Math.Atan(Math.Sqrt((dx * dx) + (dy * dy)) * radPerPixel);
+            var theta = TangentAngleDeg(in wcs, imageX, imageY);
             if (theta > worst)
             {
                 worst = theta;
             }
         }
 
-        return worst * 180.0 / Math.PI;
+        return worst;
+    }
+
+    /// <summary>
+    /// How far one image position lies from the frame's tangent point, in degrees. NaN when the frame
+    /// carries no usable scale or reference. Takes the position in the 1-BASED convention
+    /// <see cref="WCS.SkyToPixel"/> answers in, like every other pixel coordinate here.
+    /// </summary>
+    /// <remarks>
+    /// The single-point form of <see cref="MaxTangentAngleDeg"/>, which is written in terms of it --
+    /// one definition of the measure, so the grid handover and any other caller cannot drift apart.
+    /// Its other use is bounding how far outside the sensor the frame's own solution may be
+    /// extrapolated: a plate solution is fitted to the stars ON the sensor, so deprojecting a point
+    /// far beyond it answers with confidence it never earned.
+    /// </remarks>
+    public static double TangentAngleDeg(in WCS wcs, double imageX, double imageY)
+    {
+        if (!wcs.HasCDMatrix
+            || !double.IsFinite(wcs.CRPix1) || !double.IsFinite(wcs.CRPix2)
+            || !double.IsFinite(wcs.PixelScaleArcsec) || wcs.PixelScaleArcsec <= 0.0
+            || !double.IsFinite(imageX) || !double.IsFinite(imageY))
+        {
+            return double.NaN;
+        }
+
+        var radPerPixel = wcs.PixelScaleArcsec / 3600.0 * Math.PI / 180.0;
+        var dx = imageX - wcs.CRPix1;
+        var dy = imageY - wcs.CRPix2;
+
+        return Math.Atan(Math.Sqrt((dx * dx) + (dy * dy)) * radPerPixel) * 180.0 / Math.PI;
     }
 
     public static Solution? Solve(in WCS wcs, RectF32 pane, float imageOriginX, float imageOriginY, float scale)
