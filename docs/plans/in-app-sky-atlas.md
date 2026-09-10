@@ -377,6 +377,40 @@ histogram's own metrics rather than a constant, because it opened on top of it; 
 menu's "Open in sky atlas" says "(web)", because in a viewer that now draws the sky itself, an entry
 that opens a browser owes the reader that word.
 
+**Four more from a second sitting at the same frame, of which three were only visible from the
+arranged geometry rather than from any screenshot:**
+
+- **The EQ grid has ONE colour because it now has one definition.** `SkyMapGpuGeometry.GridLineColor`
+  was already canonical -- both GPU backends read it, the CPU renderer held a duplicate literal of the
+  same numbers -- and `image.frag` was the outlier with a cyan of its own, so the 20 degree handover
+  changed colour as well as density. The shader reads it from the UBO now, written there
+  unconditionally rather than passed as a parameter: it is not a per-draw choice, and a parameter is
+  something a caller can forget.
+- **The pan lets go of the frame while the sky is behind it.** The clamp confined the frame to cover
+  the pane zoomed in and sit inside it zoomed out, which is right for a picture on a background and
+  wrong for a picture on the SKY -- it is what stops the sky beside the photograph being brought to
+  the middle of the pane. Free only while `SkyBackdropActive`, i.e. while the backdrop is DRAWN and
+  not merely switched on, so an unsolved frame keeps the confined pan instead of turning loose over
+  blank ground. An intermediate version that kept a quarter of the frame on screen was tried and
+  rejected by the user on sight: it still reads as clipped, only later.
+- **"The top bar is flickering" was a relabelling button dragging the run sideways.** The toolbar is
+  packed left to right, so a button whose label changes width shoves every button after it along, and
+  Zoom relabels continuously as the wheel turns ("Fit", a ratio, a percentage). Measured from two
+  inspector snapshots one zoom apart: Zoom 107.1 -> 133.5 px, with AutoCrop, Overlays, Stars and
+  Enhance each moving by exactly that 26.4 px. Zoom and Enhance reserve their widest label now. **Not
+  a damage-tracking bug**, which is where this looked like it was going -- the per-swapchain-image
+  damage that made P15's tooltip read as a flicker is a real mechanism and was the wrong suspect here.
+  The tests say which cases have teeth: with the reservation removed only "800%" and "1:16" move the
+  run, while "Fit", "51%" and "1:4" all measure the same, so a suite of three-character zooms would
+  have passed straight over it.
+- **A share link about an OBJECT names it.** The menu knew "NGC 7204A" and the link carried
+  ra/dec/fov/t alone, so the atlas opened on the right sky with nothing picked out of it. Writer-side
+  only -- the web build already parses `object=` and re-tries the resolve as the catalog and the comet
+  set arrive. The token is the DESIGNATION falling back to the name (a catalogue number is what the
+  search resolves unambiguously), and `EscapeObjectToken` moved onto `SkyAtlasLink` because that class
+  is where the link's vocabulary is defined for both ends and the web had grown its own copy of the
+  keep-the-slash-literal rule.
+
 **Open questions the draft listed, as answered by what shipped:** the sky FOLLOWS the file (site and
 instant are restated per frame, with the site remembered when a frame does not carry one); the chrome
 does NOT change when the view zooms out past the frame (the toolbar and histogram keep describing the
