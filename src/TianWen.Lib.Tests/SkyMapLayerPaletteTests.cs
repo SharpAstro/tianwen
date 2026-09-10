@@ -173,6 +173,27 @@ namespace TianWen.Lib.Tests
             }
         }
 
+        /// <summary>
+        /// A host that draws its own grid takes the row away rather than offering a second one. The
+        /// FITS viewer is that host: its grid is per-pixel from the frame's WCS and stays fine at any
+        /// zoom, where this map's is baked geometry that thins to about one line across a frame.
+        /// </summary>
+        [Fact]
+        public void WhereTheHostDrawsTheGrid_TheMapDoesNotOfferItsOwn()
+        {
+            var state = FullyAvailable();
+            state.GridDrawnByHost = true;
+
+            // Not listed at all -- not listed and dimmed, which reads as a broken button.
+            SkyMapLayers.Offered(state).ShouldNotContain(l => l.Label == "Grid");
+            SkyMapLayerPalette.ItemsFor(state).ShouldNotContain(i => i.Label == "Grid");
+            SkyMapLayers.TryToggleByKey(state, InputKey.G).ShouldBeFalse();
+
+            // And the map draws no grid of its own, however its flag was left.
+            state.ShowGrid = true;
+            state.DrawOwnGrid.ShouldBeFalse();
+        }
+
         [Fact]
         public void ClickingARowTogglesThatLayerAndNoOther()
         {

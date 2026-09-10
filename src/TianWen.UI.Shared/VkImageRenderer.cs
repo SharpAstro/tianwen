@@ -215,8 +215,14 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
     protected override bool ImageShaderInputChanged(RenditionSlot slot)
         => _fitsPipeline.StretchUboChanged((int)slot);
 
+    /// <param name="uboSlotOverride">Which UBO slot to write, when it is not the rendition's own --
+    /// the pane-wide grid pass has a slot of its own so it cannot disturb the image draw already
+    /// recorded against slot 0.</param>
+    /// <param name="gridModeOverride">2 for the grid-only pass; -1 to derive it from
+    /// <paramref name="gridWcs"/> as an image draw does.</param>
     private void WriteImageUniforms(IPreviewSource? source, ViewerState state,
-        in DisplayRendition rendition, WCS? gridWcs, RenditionSlot slot)
+        in DisplayRendition rendition, WCS? gridWcs, RenditionSlot slot,
+        int uboSlotOverride = -1, int gridModeOverride = -1)
     {
         // Everything below reads the RENDITION, never state.Curves*/Hdr* directly: the split's
         // comparison half is a pinned snapshot of those dials, so reading state here would leak the
@@ -227,7 +233,7 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
             : 0.15f;
 
         // WCS grid parameters
-        bool gridEnabled = gridWcs is not null;
+        var gridMode = gridModeOverride >= 0 ? gridModeOverride : (gridWcs is not null ? 1 : 0);
         float gridSpacingRA = 0f, gridSpacingDec = 0f, gridLineWidth = 0f;
         float crPix1 = 0f, crPix2 = 0f, crValRA = 0f, crValDec = 0f;
         Span<float> cdMatrix = stackalloc float[4];
@@ -294,7 +300,7 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
             bgNeutralization: (stretch.BackgroundNeutralization.R, stretch.BackgroundNeutralization.G, stretch.BackgroundNeutralization.B),
             curvesMode: rendition.CurvesMode,
             curveData: rendition.CurveSpan,
-            gridEnabled: gridEnabled,
+            gridMode: gridMode,
             gridSpacingRA: gridSpacingRA,
             gridSpacingDec: gridSpacingDec,
             gridLineWidth: gridLineWidth,
@@ -313,7 +319,7 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
             lumaBlend: stretch.LumaBlend,
             normalizeScale: stretch.NormalizeScale,
             debayerMode: RawBayerDebayerMode,
-            slot: (int)slot);
+            slot: uboSlotOverride >= 0 ? uboSlotOverride : (int)slot);
     }
 
     /// <inheritdoc/>
@@ -360,6 +366,33 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
             bottom: bottom,
             projW: projW,
             projH: projH);
+    }
+
+    /// <inheritdoc/>
+    protected override void RenderPaneWideGrid(in WCS wcs, RectF32 pane,
+        float imageLeft, float imageTop, float imageWidth, float imageHeight)
+    {
+        if (CurrentViewerState is not { } state)
+        {
+            return;
+        }
+
+        // The SAME uniform writer the image quad's grid goes through -- same spacing ladder, same
+        // line width, same WCS -- so the two halves of one grid cannot drift. Only two things differ:
+        // the slot (its own, because the GPU reads a UBO at execute time) and the grid mode, which
+        // tells the shader to emit the grid and nothing else.
+        //
+        // The rendition's stretch fields are written and never read: mode 2 returns before any of the
+        // image path runs. Passing the live one anyway costs nothing and keeps this a plain call.
+        WriteImageUniforms(CurrentPreviewSource, state, DisplayRendition.FromState(default, state), wcs,
+            RenditionSlot.Live,
+            uboSlotOverride: VkFitsImagePipeline.UboSlotPaneGrid,
+            gridModeOverride: 2);
+
+        _fitsPipeline.RecordPaneGridDraw(_renderer.CurrentCommandBuffer, _renderer.Context,
+            pane.X, pane.Y, pane.X + pane.Width, pane.Y + pane.Height,
+            imageLeft, imageTop, imageWidth, imageHeight,
+            Width, Height);
     }
 
     protected override void DrawEllipseOverlay(float cx, float cy,

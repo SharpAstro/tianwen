@@ -80,45 +80,33 @@ public static class SkyBackdropView
             return null;
         }
 
-        // The image pixel under the middle of the pane, which is where the map projects from. The half
-        // pixel is the centre convention the overlay engine draws by: image pixel (x, y) has its
-        // CENTRE at origin + (x + 0.5) * scale, and a WCS is in centroid coordinates.
-        var centreX = (pane.X + pane.Width * 0.5 - imageOriginX) / scale - 0.5;
-        var centreY = (pane.Y + pane.Height * 0.5 - imageOriginY) / scale - 0.5;
+        // Probe the FRAME's own reference pixel and one pixel either side of it -- never the pane's
+        // centre. A WCS deprojects gnomonically about that reference, so asking it about a point far
+        // outside the sensor is not merely inaccurate: past 90 degrees away the tangent plane wraps
+        // and the answer jumps to the OPPOSITE side of the sky. Zoomed out, the pane's centre IS that
+        // far off the sensor -- tens of thousands of virtual pixels, some 65 degrees on a 4.7 arcsec
+        // frame at 2% zoom -- so probing there flipped the whole sky as the view widened.
+        var anchorX = double.IsFinite(wcs.CRPix1) ? wcs.CRPix1 : 0.0;
+        var anchorY = double.IsFinite(wcs.CRPix2) ? wcs.CRPix2 : 0.0;
 
         // One pixel right and one pixel UP the screen. Row indices grow downward in a drawn frame, so
         // screen-up is the MINUS y probe; getting that backwards turns the sky upside down rather
         // than failing, which is what the corner test in SkyBackdropViewTests is for.
-        if (wcs.PixelToSky(centreX, centreY) is not { } centre
-            || wcs.PixelToSky(centreX + 1.0, centreY) is not { } rightward
-            || wcs.PixelToSky(centreX, centreY - 1.0) is not { } upward)
+        if (wcs.PixelToSky(anchorX, anchorY) is not { } anchor
+            || wcs.PixelToSky(anchorX + 1.0, anchorY) is not { } rightward
+            || wcs.PixelToSky(anchorX, anchorY - 1.0) is not { } upward)
         {
             return null;
         }
 
-        var c = UnitVector(centre.RA, centre.Dec);
-        var r = UnitVector(rightward.RA, rightward.Dec);
-        var u = UnitVector(upward.RA, upward.Dec);
-        var (right0, up0) = ReferenceAxes(centre.RA, centre.Dec);
-
-        // The roll that carries the frame's up onto the screen's up. In the map's camera space a sky
-        // direction lands at x = cos(roll)*a + sin(roll)*b and y = -sin(roll)*a + cos(roll)*b, where a
-        // and b are its components along the reference frame's right and up axes; screen-up is x = 0
-        // with y positive, which is this one root of the first equation and the sign that satisfies
-        // the second.
-        var a = Dot(right0, u);
-        var b = Dot(up0, u);
-        if (a == 0.0 && b == 0.0)
-        {
-            return null;
-        }
-
-        var roll = Math.Atan2(-a, b);
+        var skyAnchor = UnitVector(anchor.RA, anchor.Dec);
+        var skyRight = UnitVector(rightward.RA, rightward.Dec);
+        var skyUp = UnitVector(upward.RA, upward.Dec);
 
         // The vertical pixel scale, because the map states its field over the pane's HEIGHT. Taken as
         // atan2 of the cross product against the dot rather than as an arccosine: the angle across one
         // pixel is of order 1e-5 rad, where acos(1 - 5e-11) has lost most of its significant digits.
-        var radiansPerPixel = Math.Atan2(CrossLength(c, u), Dot(c, u));
+        var radiansPerPixel = Math.Atan2(CrossLength(skyAnchor, skyUp), Dot(skyAnchor, skyUp));
         if (!(radiansPerPixel > 0.0))
         {
             return null;
@@ -129,19 +117,138 @@ public static class SkyBackdropView
         var pixelsPerRadian = scale / radiansPerPixel;
         var fieldOfViewDeg = double.RadiansToDegrees(4.0 * Math.Atan(pane.Height / (4.0 * pixelsPerRadian)));
 
-        // Handedness, asked of the frame rather than of the CD matrix's determinant: with the roll
-        // solved, the screen-right probe must land on the RIGHT. When it lands left, the light path
-        // reversed the field and no rotation can undo that -- see SkyMapState.MirrorView.
-        var (sinRoll, cosRoll) = Math.SinCos(roll);
-        var mirror = cosRoll * Dot(right0, r) + sinRoll * Dot(up0, r) < 0.0;
+        // Where those three probes are DRAWN, and therefore which camera direction each has to end up
+        // pointing along. The map projects about the pane's centre, so a screen offset from there
+        // inverts through the stereographic into a camera direction -- the same inverse
+        // SkyMapProjection.UnprojectWithMatrix uses, minus the rotation, which is what is being solved
+        // for here. Nothing is extrapolated: all three points sit inside the sensor.
+        var paneCentreX = pane.X + pane.Width * 0.5;
+        var paneCentreY = pane.Y + pane.Height * 0.5;
+        var camAnchor = CameraDirection(imageOriginX, imageOriginY, scale, anchorX, anchorY,
+            paneCentreX, paneCentreY, pixelsPerRadian);
+        var camRight = CameraDirection(imageOriginX, imageOriginY, scale, anchorX + 1.0, anchorY,
+            paneCentreX, paneCentreY, pixelsPerRadian);
+        var camUp = CameraDirection(imageOriginX, imageOriginY, scale, anchorX, anchorY - 1.0,
+            paneCentreX, paneCentreY, pixelsPerRadian);
+
+        // The view is a rigid rotation of the sphere, and a reflection too where the light path
+        // mirrored the field. Build an orthonormal frame on each side of the correspondence and read
+        // the transform off as the one carrying the sky frame onto the camera frame.
+        if (Frame(skyAnchor, skyUp) is not { } skyFrame || Frame(camAnchor, camUp) is not { } camFrame)
+        {
+            return null;
+        }
+
+        // Handedness comes from the THIRD probe, which the two frames above do not constrain: with
+        // the up axis matched, screen-right decides which side east ends up on, and no rotation can
+        // move it to the other one. Compared in the frame's own coordinates so the test is a sign
+        // rather than a distance.
+        var skyRightComp = Dot(skyRight, skyFrame.E3) - Dot(skyAnchor, skyFrame.E3);
+        var camRightComp = Dot(camRight, camFrame.E3) - Dot(camAnchor, camFrame.E3);
+        var mirror = skyRightComp * camRightComp < 0.0;
+
+        // R maps sky to camera. Its rows are the camera axes expressed in sky coordinates, which is
+        // exactly what SkyMapState.ComputeViewMatrix builds from a centre and a roll -- so the rows
+        // are what gets decomposed back into those below.
+        var e3 = mirror ? Negate(camFrame.E3) : camFrame.E3;
+        var rowRight = RowOf(camFrame.E1, camFrame.E2, e3, skyFrame.E1.X, skyFrame.E2.X, skyFrame.E3.X);
+        var rowUp = RowOf(camFrame.E1, camFrame.E2, e3, skyFrame.E1.Y, skyFrame.E2.Y, skyFrame.E3.Y);
+        var rowBack = RowOf(camFrame.E1, camFrame.E2, e3, skyFrame.E1.Z, skyFrame.E2.Z, skyFrame.E3.Z);
+
+        // The view axis is the sky direction that maps onto camera -Z; the roll is where the camera's
+        // right axis sits relative to the reference frame there. A mirrored view stores the roll of
+        // the UNMIRRORED right axis, because ComputeViewMatrix applies the mirror after the roll.
+        var forward = Negate((rowRight.Z, rowUp.Z, rowBack.Z));
+        var centreDec = double.RadiansToDegrees(Math.Asin(Math.Clamp(forward.Z, -1.0, 1.0)));
+        var centreRa = Math.Atan2(forward.Y, forward.X) / (Math.PI / 12.0);
+
+        var (right0, up0) = ReferenceAxes(centreRa, centreDec);
+        var rightAxis = (X: rowRight.X, Y: rowUp.X, Z: rowBack.X);
+        if (mirror)
+        {
+            rightAxis = Negate(rightAxis);
+        }
+
+        var roll = Math.Atan2(Dot(rightAxis, up0), Dot(rightAxis, right0));
 
         return new Solution(
-            CenterRaHours: ((centre.RA % 24.0) + 24.0) % 24.0,
-            CenterDecDeg: centre.Dec,
+            CenterRaHours: ((centreRa % 24.0) + 24.0) % 24.0,
+            CenterDecDeg: centreDec,
             CenterRollRad: roll,
             FieldOfViewDeg: Math.Clamp(fieldOfViewDeg, MinFieldOfViewDeg, MaxFieldOfViewDeg),
             Mirror: mirror);
     }
+
+    /// <summary>
+    /// The camera-space direction one IMAGE pixel has to end up pointing along, from where the viewer
+    /// draws it: its screen position, then the inverse of the map's stereographic about the pane's
+    /// centre. Forward is -Z and screen y grows downward, exactly as
+    /// <see cref="SkyMapProjection.UnprojectWithMatrix"/> has it.
+    /// </summary>
+    private static (double X, double Y, double Z) CameraDirection(
+        float imageOriginX, float imageOriginY, float scale,
+        double pixelX, double pixelY,
+        double paneCentreX, double paneCentreY, double pixelsPerRadian)
+    {
+        var screenX = imageOriginX + (pixelX + 0.5) * scale;
+        var screenY = imageOriginY + (pixelY + 0.5) * scale;
+
+        var px = (screenX - paneCentreX) / pixelsPerRadian;
+        var py = -(screenY - paneCentreY) / pixelsPerRadian;
+        var rho = Math.Sqrt(px * px + py * py);
+        if (rho < 1e-15)
+        {
+            return (0.0, 0.0, -1.0);
+        }
+
+        var c = 2.0 * Math.Atan(rho * 0.5);
+        var (sinC, cosC) = Math.SinCos(c);
+        return (sinC * px / rho, sinC * py / rho, -cosC);
+    }
+
+    /// <summary>
+    /// An orthonormal frame from two directions: the first as its primary axis, the second
+    /// orthogonalised against it. Null when the two are parallel, which for a one-pixel probe means
+    /// the placement has no scale at all.
+    /// </summary>
+    private static ((double X, double Y, double Z) E1, (double X, double Y, double Z) E2,
+        (double X, double Y, double Z) E3)? Frame(
+        (double X, double Y, double Z) primary, (double X, double Y, double Z) secondary)
+    {
+        var e1 = Normalize(primary);
+        var d = Dot(secondary, e1);
+        var perp = (X: secondary.X - d * e1.X, Y: secondary.Y - d * e1.Y, Z: secondary.Z - d * e1.Z);
+        var len = Math.Sqrt(Dot(perp, perp));
+        if (!(len > 1e-12))
+        {
+            return null;
+        }
+
+        var e2 = (X: perp.X / len, Y: perp.Y / len, Z: perp.Z / len);
+        return (e1, e2, Cross(e1, e2));
+    }
+
+    /// <summary>One row of the sky-to-camera transform: the camera basis weighted by a column of the
+    /// sky frame, which is the product of the two frames without materialising either matrix.</summary>
+    private static (double X, double Y, double Z) RowOf(
+        (double X, double Y, double Z) f1, (double X, double Y, double Z) f2, (double X, double Y, double Z) f3,
+        double a, double b, double c)
+        => (f1.X * a + f2.X * b + f3.X * c,
+            f1.Y * a + f2.Y * b + f3.Y * c,
+            f1.Z * a + f2.Z * b + f3.Z * c);
+
+    private static (double X, double Y, double Z) Negate((double X, double Y, double Z) v)
+        => (-v.X, -v.Y, -v.Z);
+
+    private static (double X, double Y, double Z) Normalize((double X, double Y, double Z) v)
+    {
+        var len = Math.Sqrt(Dot(v, v));
+        return len > 0.0 ? (v.X / len, v.Y / len, v.Z / len) : v;
+    }
+
+    private static (double X, double Y, double Z) Cross(
+        (double X, double Y, double Z) a, (double X, double Y, double Z) b)
+        => (a.Y * b.Z - a.Z * b.Y, a.Z * b.X - a.X * b.Z, a.X * b.Y - a.Y * b.X);
 
     /// <summary>
     /// Writes a solution onto the map's view. Deliberately does NOT declare the view driven

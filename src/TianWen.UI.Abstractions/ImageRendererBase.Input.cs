@@ -772,7 +772,7 @@ namespace TianWen.UI.Abstractions
             // fade open from the pointer, and while its grip is dragging the move is ITS move -- a
             // palette dragged across the picture must not also pan the picture. It answers false the
             // moment the grip is not held, so the ordinary path below is unaffected.
-            if (SkyBackdrop is { } sky && sky.HandleInput(evt))
+            if (PaintedSkyBackdrop is { } sky && sky.HandleInput(evt))
             {
                 state.NeedsRedraw = true;
                 return true;
@@ -921,7 +921,7 @@ namespace TianWen.UI.Abstractions
             // Ends a palette grip drag, and goes no further when it does -- the same reason the map's
             // own release path stops there: a release consumed by the panel must not also read as a
             // click on what is behind it.
-            if (SkyBackdrop is { } sky && sky.HandleInput(evt))
+            if (PaintedSkyBackdrop is { } sky && sky.HandleInput(evt))
             {
                 return true;
             }

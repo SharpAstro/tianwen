@@ -29,9 +29,10 @@ public sealed class SkyMapObjectOverlayRenderTests
     {
         protected override void RenderSkyMap(
             ICelestialObjectDB db, RectF32 contentRect,
-            DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site)
+            DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site,
+            SkyMapDrawPhase phase = SkyMapDrawPhase.All)
         {
-            base.RenderSkyMap(db, contentRect, viewingTime, siteLat, siteLon, site); // background fill
+            base.RenderSkyMap(db, contentRect, viewingTime, siteLat, siteLon, site, phase); // background fill
             State.CurrentViewMatrix = State.ComputeViewMatrix();
         }
 

@@ -737,7 +737,7 @@ namespace TianWen.UI.Web.SkyMap
 
             _renderer.UsePipeline(_linePipeline);
 
-            if (state.ShowGrid)
+            if (state.DrawOwnGrid)
             {
                 var fov = state.FieldOfViewDeg;
                 for (var i = 0; i < _grids.Length; i++)

@@ -32,13 +32,21 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     /// whatever was written last, so the "before" half would render with the after's settings and the
     /// comparison would show no difference at all -- a silent wrong answer, not a crash.</para>
     /// </summary>
-    private const int StretchUboSlots = 2;
+    private const int StretchUboSlots = 3;
 
     /// <summary>Slot 0 of the stretch UBO: the live rendition (the only slot a non-split draw uses).</summary>
     public const int UboSlotPrimary = 0;
 
     /// <summary>Slot 1 of the stretch UBO: the comparison ("before") rendition.</summary>
     public const int UboSlotComparison = 1;
+
+    /// <summary>
+    /// Slot 2 of the stretch UBO: the PANE-WIDE grid pass, which draws the same WCS grid the image
+    /// quad draws but across the whole pane and nothing else. It needs its own slot for exactly the
+    /// reason the comparison slot does -- the GPU reads a UBO at execute time, so a second draw that
+    /// rewrote slot 0's grid mode would change the image draw already recorded against it.
+    /// </summary>
+    public const int UboSlotPaneGrid = 2;
 
     /// <summary>
     /// std140 HistogramUBO: 4 x int/float fields = 16 bytes.
@@ -65,6 +73,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     // UBO + image samplers + before-image samplers (both PER FRAME IN FLIGHT) + histogram samplers.
     private VkDescriptorSet _imageUboSet;
     private VkDescriptorSet _imageUboSetComparison;
+    private VkDescriptorSet _imageUboSetPaneGrid;
     private VkDescriptorSet _histogramUboSet;
     private VkDescriptorSet _histogramSamplerSet;
 
@@ -638,7 +647,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         (float R, float G, float B) midtones,
         (float R, float G, float B) highlights,
         (float R, float G, float B) rescale,
-        bool gridEnabled, float gridSpacingRA, float gridSpacingDec, float gridLineWidth,
+        int gridMode, float gridSpacingRA, float gridSpacingDec, float gridLineWidth,
         float imageW, float imageH, float crPix1, float crPix2,
         float crValRA, float crValDec,
         ReadOnlySpan<float> cdMatrix,
@@ -699,7 +708,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         WriteFloat(p, 104, rescale.B);
         WriteFloat(p, 108, 0f);
 
-        WriteInt(p, 112, gridEnabled ? 1 : 0);
+        WriteInt(p, 112, gridMode);
         WriteFloat(p, 116, gridSpacingRA);
         WriteFloat(p, 120, gridSpacingDec);
         WriteFloat(p, 124, gridLineWidth);
@@ -865,7 +874,12 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
         // Bind set 0 (UBO) and set 1 (samplers). The sampler set is THIS frame's slot's copy, brought
         // up to date first if a view changed since that slot last drew; see the sampler-set fields.
-        var uboSet = uboSlot == UboSlotComparison ? _imageUboSetComparison : _imageUboSet;
+        var uboSet = uboSlot switch
+        {
+            UboSlotComparison => _imageUboSetComparison,
+            UboSlotPaneGrid => _imageUboSetPaneGrid,
+            _ => _imageUboSet,
+        };
         var frameSlot = ctx.CurrentFrame;
         var samplerSet = sampleBeforeChannels && HasBeforeChannels
             ? EnsureSamplerSet(frameSlot, _beforeSamplerSets, _beforeSamplerSetStamp, _beforeViews)
@@ -1021,7 +1035,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         poolSizes[0] = new VkDescriptorPoolSize
         {
             type = VkDescriptorType.UniformBuffer,
-            descriptorCount = 3
+            descriptorCount = 4
         };
         poolSizes[1] = new VkDescriptorPoolSize
         {
@@ -1031,7 +1045,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
         VkDescriptorPoolCreateInfo dpCI = new()
         {
-            maxSets = 3 + SamplerSets,
+            maxSets = 4 + SamplerSets,
             poolSizeCount = 2,
             pPoolSizes = poolSizes
         };
@@ -1042,16 +1056,17 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     {
         var api = _ctx.DeviceApi;
 
-        // Allocate every set at once: the three UBO sets, the histogram sampler set, then one image
+        // Allocate every set at once: the four UBO sets, the histogram sampler set, then one image
         // sampler set and one before-image sampler set per frame in flight.
         const int Frames = VulkanContext.MaxFramesInFlight;
-        const int SetCount = 4 + 2 * Frames;
+        const int SetCount = 5 + 2 * Frames;
         var layouts = stackalloc VkDescriptorSetLayout[SetCount];
         layouts[0] = _uboSetLayout;       // image UBO, slot 0 (live)
         layouts[1] = _uboSetLayout;       // image UBO, slot 1 (comparison)
-        layouts[2] = _uboSetLayout;       // histogram UBO
-        layouts[3] = _samplerSetLayout;   // histogram samplers
-        for (var i = 4; i < SetCount; i++)
+        layouts[2] = _uboSetLayout;       // image UBO, slot 2 (pane-wide grid)
+        layouts[3] = _uboSetLayout;       // histogram UBO
+        layouts[4] = _samplerSetLayout;   // histogram samplers
+        for (var i = 5; i < SetCount; i++)
         {
             layouts[i] = _samplerSetLayout;   // image samplers x Frames, then before-image samplers x Frames
         }
@@ -1067,12 +1082,13 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
         _imageUboSet = sets[0];
         _imageUboSetComparison = sets[1];
-        _histogramUboSet = sets[2];
-        _histogramSamplerSet = sets[3];
+        _imageUboSetPaneGrid = sets[2];
+        _histogramUboSet = sets[3];
+        _histogramSamplerSet = sets[4];
         for (var f = 0; f < Frames; f++)
         {
-            _imageSamplerSets[f] = sets[4 + f];
-            _beforeSamplerSets[f] = sets[4 + Frames + f];
+            _imageSamplerSets[f] = sets[5 + f];
+            _beforeSamplerSets[f] = sets[5 + Frames + f];
         }
     }
 
@@ -1154,6 +1170,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             offset: UboSlotPrimary * _stretchUboSlotStride);
         BindUboDescriptor(_imageUboSetComparison, _stretchUboBuffer, StretchUboSize,
             offset: UboSlotComparison * _stretchUboSlotStride);
+        BindUboDescriptor(_imageUboSetPaneGrid, _stretchUboBuffer, StretchUboSize,
+            offset: UboSlotPaneGrid * _stretchUboSlotStride);
         BindUboDescriptor(_histogramUboSet, _histogramUboBuffer, HistogramUboSize);
     }
 
@@ -1815,7 +1833,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         VkCommandBuffer cmd,
         VulkanContext ctx,
         float left, float top, float right, float bottom,
-        float projW, float projH)
+        float projW, float projH,
+        float u0 = 0f, float v0 = 0f, float u1 = 1f, float v1 = 1f)
     {
         var api = ctx.DeviceApi;
 
@@ -1842,15 +1861,18 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         api.vkCmdPushConstants(cmd, _pipelineLayout,
             VkShaderStageFlags.Vertex, 0, 64, proj);
 
-        // Quad vertices: 2 triangles, 6 vertices, each with vec2 pos + vec2 uv
+        // Quad vertices: 2 triangles, 6 vertices, each with vec2 pos + vec2 uv. The texture
+        // coordinates are a parameter because the pane-wide grid pass draws a quad LARGER than the
+        // image and needs them to run outside [0, 1]: the shader turns them back into image pixels,
+        // and a WCS extrapolates to pixels beyond the sensor exactly as it interpolates inside it.
         ReadOnlySpan<float> vertices =
         [
-            left,  top,    0f, 0f,
-            right, top,    1f, 0f,
-            right, bottom, 1f, 1f,
-            left,  top,    0f, 0f,
-            right, bottom, 1f, 1f,
-            left,  bottom, 0f, 1f
+            left,  top,    u0, v0,
+            right, top,    u1, v0,
+            right, bottom, u1, v1,
+            left,  top,    u0, v0,
+            right, bottom, u1, v1,
+            left,  bottom, u0, v1
         ];
 
         var offset = ctx.WriteVertices(vertices);
@@ -1858,6 +1880,56 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         var vkOffset = (ulong)offset;
         api.vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &vkOffset);
         api.vkCmdDraw(cmd, 6, 1, 0, 0);
+    }
+
+    /// <summary>
+    /// Draws the WCS grid ALONE, across a rect larger than the picture -- the whole image pane -- so
+    /// one grid spans the sky behind a photograph and the photograph itself.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Same shader, same geometry, one different uniform: the fragment path returns the grid's ink
+    /// with an alpha and nothing else (<c>gridEnabled == 2</c>), and the pipeline already blends, so
+    /// no second pipeline and no new state. The quad's texture coordinates are the pane expressed in
+    /// IMAGE pixels, which is what makes the grid continue past the sensor's edge.
+    /// </para>
+    /// <para>
+    /// Its own UBO slot, for the reason the comparison rendition has one: the GPU reads a uniform
+    /// buffer at execute time, so writing this pass's grid mode into the image draw's slot would
+    /// change the image draw that was already recorded against it.
+    /// </para>
+    /// </remarks>
+    public void RecordPaneGridDraw(
+        VkCommandBuffer cmd,
+        VulkanContext ctx,
+        float paneLeft, float paneTop, float paneRight, float paneBottom,
+        float imageLeft, float imageTop, float imageWidth, float imageHeight,
+        float projW, float projH)
+    {
+        if (imageWidth <= 0f || imageHeight <= 0f)
+        {
+            return;
+        }
+
+        var api = ctx.DeviceApi;
+        api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _imagePipeline);
+
+        var uboSet = _imageUboSetPaneGrid;
+        var samplerSet = EnsureSamplerSet(ctx.CurrentFrame, _imageSamplerSets, _imageSamplerSetStamp, _channelViews);
+        api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _pipelineLayout,
+            0, 1, &uboSet, 0, null);
+        api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _pipelineLayout,
+            1, 1, &samplerSet, 0, null);
+
+        // The pane, in the image's own texture coordinates. Outside [0, 1] wherever the pane reaches
+        // past the picture, which is the point.
+        var u0 = (paneLeft - imageLeft) / imageWidth;
+        var u1 = (paneRight - imageLeft) / imageWidth;
+        var v0 = (paneTop - imageTop) / imageHeight;
+        var v1 = (paneBottom - imageTop) / imageHeight;
+
+        PushProjectionAndDraw(cmd, ctx, paneLeft, paneTop, paneRight, paneBottom, projW, projH,
+            u0, v0, u1, v1);
     }
 
     // ------------------------------------------------------------------ Byte-level UBO write helpers
