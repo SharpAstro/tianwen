@@ -174,24 +174,31 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// A host that draws its own grid takes the row away rather than offering a second one. The
-        /// FITS viewer is that host: its grid is per-pixel from the frame's WCS and stays fine at any
-        /// zoom, where this map's is baked geometry that thins to about one line across a frame.
+        /// A host drawing the grid ITSELF suppresses this map's, without taking the row away: the row
+        /// is the switch either way, and which grid it lights is the host's business.
         /// </summary>
+        /// <remarks>
+        /// Both halves matter. Two grids at once is what the FITS viewer produced while it had a
+        /// second checkbox -- turning "grid" off showed MORE grid, the fine one going away and the
+        /// coarse one appearing behind it. And removing the row instead left a layer that answered its
+        /// key but appeared nowhere, on the panel whose whole purpose is to make the layers visible.
+        /// </remarks>
         [Fact]
-        public void WhereTheHostDrawsTheGrid_TheMapDoesNotOfferItsOwn()
+        public void AHostDrawingTheGrid_SuppressesTheMapsOwnWithoutHidingTheRow()
         {
             var state = FullyAvailable();
-            state.GridDrawnByHost = true;
-
-            // Not listed at all -- not listed and dimmed, which reads as a broken button.
-            SkyMapLayers.Offered(state).ShouldNotContain(l => l.Label == "Grid");
-            SkyMapLayerPalette.ItemsFor(state).ShouldNotContain(i => i.Label == "Grid");
-            SkyMapLayers.TryToggleByKey(state, InputKey.G).ShouldBeFalse();
-
-            // And the map draws no grid of its own, however its flag was left.
             state.ShowGrid = true;
+
+            state.SuppressOwnGrid = true;
             state.DrawOwnGrid.ShouldBeFalse();
+            SkyMapLayerPalette.ItemsFor(state).ShouldContain(i => i.Label == "Grid");
+            SkyMapLayers.TryToggleByKey(state, InputKey.G).ShouldBeTrue("the row is still the switch");
+
+            // And once the host stops drawing it -- the view outgrows a tangent plane -- the same
+            // switch turns this map's own grid on, so the reader never loses it entirely.
+            state.ShowGrid = true;
+            state.SuppressOwnGrid = false;
+            state.DrawOwnGrid.ShouldBeTrue();
         }
 
         [Fact]

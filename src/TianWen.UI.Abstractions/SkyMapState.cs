@@ -85,24 +85,22 @@ namespace TianWen.UI.Abstractions
         public bool MilkyWayAvailable { get; set; }
 
         /// <summary>
-        /// Whether the HOST draws the coordinate grid itself, in which case this map's own grid layer
-        /// is unavailable rather than a second one.
+        /// Set per frame by a host that is drawing the grid ITSELF this frame, so this map draws none.
         /// </summary>
         /// <remarks>
-        /// The FITS viewer sets it: its grid is evaluated per pixel from the frame's WCS, so it stays
-        /// fine at any zoom, while this one is baked whole-sphere geometry whose finest scale is 10
-        /// minutes of RA -- about one line across a telescope frame. Offering both produced the exact
-        /// confusion it looks like it would avoid: turning "grid" off showed MORE grid, because the
-        /// fine one went away and the coarse one appeared behind it.
+        /// The FITS viewer sets it while the view is narrow enough for the frame's own grid -- which is
+        /// evaluated per pixel from the WCS and so is fine at any zoom -- to be the better one, and
+        /// clears it when the view widens past what a tangent plane can represent. See
+        /// <c>ImageRendererBase.PaneWideGrid</c>.
         /// </remarks>
-        public bool GridDrawnByHost { get; set; }
+        public bool SuppressOwnGrid { get; set; }
 
         /// <summary>
-        /// Whether THIS map draws the coordinate grid: it is switched on and no host has claimed it.
-        /// Every grid draw and every grid label reads this rather than <see cref="ShowGrid"/>, so a
-        /// flag left on from before a host claimed it cannot paint a second grid.
+        /// Whether THIS map draws the coordinate grid: it is switched on and no host is drawing it
+        /// this frame. Every grid draw and every grid label reads this rather than
+        /// <see cref="ShowGrid"/>, so the two grids can never both appear.
         /// </summary>
-        public bool DrawOwnGrid => ShowGrid && !GridDrawnByHost;
+        public bool DrawOwnGrid => ShowGrid && !SuppressOwnGrid;
 
         /// <summary>
         /// Whether the view has a site to draw local sky in: stamped from the resolved

@@ -959,6 +959,10 @@ namespace TianWen.UI.Abstractions
             WarmCatalogIfContextNeedsIt(state);
             PublishCatalogToSky();
 
+            // A "?" page change asked for last frame, opened now: the dropdown closes itself after a
+            // selection, so the re-open has to land on the far side of that.
+            PumpHelpPanel();
+
             if (state.ShowOverlays && document?.Wcs is { HasCDMatrix: true } overlayWcs && CelestialObjectDB?.Value?.Value is { } db)
             {
                 RenderOverlays(state, overlayWcs, db);

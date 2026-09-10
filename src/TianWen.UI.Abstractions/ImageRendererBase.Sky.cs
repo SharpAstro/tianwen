@@ -136,7 +136,27 @@ namespace TianWen.UI.Abstractions
         /// confusion it looks like it avoids -- turning "grid" off showed MORE grid, because the
         /// frame's fine one went away and the sky map's coarse one appeared behind it.
         /// </remarks>
-        private bool PaneWideGrid => SkyBackdropActive && _state is { ShowGrid: true };
+        private bool PaneWideGrid
+            => SkyBackdropActive && _state is { ShowGrid: true }
+               && SkyBackdrop is { State.FieldOfViewDeg: <= PaneGridMaxFovDeg };
+
+        /// <summary>
+        /// How wide the view may get before the frame's own grid stops being the right one.
+        /// </summary>
+        /// <remarks>
+        /// <b>A frame's grid is drawn on its TANGENT PLANE, and a tangent plane is not the sky.</b>
+        /// The shader deprojects gnomonically about the frame's reference, which is faithful near it
+        /// and diverges as the square of the angle away -- under a percent at 10 degrees out, some
+        /// seven at 30. Zoomed right out it stops being a grid at all: the meridians sweep PAST the
+        /// celestial pole in broad arcs instead of converging on it, which is what a tangent plane
+        /// does with a point 90 degrees from its centre. Past this bound the sky map's own grid takes
+        /// over, and that one is drawn on the sphere and is correct everywhere -- coarser, because it
+        /// is baked geometry, which is the right trade at constellation scale.
+        /// </remarks>
+        private const double PaneGridMaxFovDeg = 20.0;
+
+        /// <summary>The map's grid flag as of the last frame, to tell which side moved the switch.</summary>
+        private bool _lastSkyGridFlag;
 
         /// <summary>
         /// Whether the sky map wants another frame -- a star buffer that finished building off-thread,
@@ -182,6 +202,27 @@ namespace TianWen.UI.Abstractions
 
             SkyBackdropView.ApplyTo(tab.State, in solution);
             ApplyFrameContext(planner);
+
+            // ONE grid switch with two faces: the ladder and the G key write the viewer's flag, the
+            // palette's Grid row writes the map's, and whichever moved since the last frame wins. The
+            // palette has to keep the row -- it is this view's only visible control surface, and a
+            // layer you can toggle with a key but cannot see is exactly what the panel exists to fix.
+            if (tab.State.ShowGrid != _lastSkyGridFlag)
+            {
+                state.ShowGrid = tab.State.ShowGrid;
+            }
+            else
+            {
+                tab.State.ShowGrid = state.ShowGrid;
+            }
+
+            _lastSkyGridFlag = tab.State.ShowGrid;
+
+            // Which of the two grids is drawn is then GEOMETRY, not a second choice: the frame's own
+            // while its tangent plane holds, the map's spherical one once the view outgrows it. The
+            // reader never loses the grid at the handover -- only its density changes, along with
+            // what it is a grid OF.
+            tab.State.SuppressOwnGrid = PaneWideGrid;
 
             // The map paints its own ground (a sky colour driven by the sun's altitude) across the
             // whole rect it is given, so it replaces the canvas fill rather than sitting on it -- and
