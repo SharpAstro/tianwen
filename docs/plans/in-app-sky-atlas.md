@@ -339,16 +339,32 @@ ONE switch with two faces: the ladder and `G` write the viewer's flag, the palet
 the map's, and whichever moved since the last frame wins (`_lastSkyGridFlag`). Which grid then
 DRAWS is not a choice at all.
 
-**That handover is at 20 degrees, and the pole is why it exists.** The frame's grid is drawn on the
-frame's own TANGENT PLANE, and a tangent plane cannot represent a point 90 degrees away: near the
-south celestial pole the meridians swept past it instead of converging, which is what the live
-review caught. `PaneGridMaxFovDeg = 20.0` hands over to the map's spherical grid before that can
-happen. **The bound is a judgement, not a measurement**: the gnomonic-stereographic separation is
-about 0.8 percent of the distance out at 10 degrees and 7 percent at 30, so 20 is where a
-whole-pane grid stops being worth its error. One constant if it proves wrong in use. What the
-reader sees at the handover is a change of DENSITY and colour, which is honest -- they are grids of
-different things -- and the alternative considered (matching the map's grid colour to the viewer's)
-stays available as a one-line change.
+**That handover is at 20 degrees FROM THE TANGENT POINT, and the pole is why it exists.** The frame's
+grid is drawn on the frame's own TANGENT PLANE, and a tangent plane cannot represent a point 90
+degrees away: near the south celestial pole the meridians swept past it instead of converging, which
+is what the live review caught. `PaneGridMaxTangentAngleDeg = 20.0`, compared against
+`SkyBackdropView.MaxTangentAngleDeg` -- how far the pane's furthest corner lies from the frame's
+reference pixel -- hands over to the map's spherical grid before that can happen. **The bound is a
+judgement, not a measurement**: the gnomonic-stereographic separation is about 0.8 percent of the
+distance out at 10 degrees and 7 percent at 30, so 20 is where a whole-pane grid stops being worth
+its error. One constant if it proves wrong in use. What the reader sees at the handover is a change
+of DENSITY, which is honest -- they are grids of different things -- while the COLOUR is now one
+definition (`SkyMapGpuGeometry.GridLineColor`, read by both GPU backends, the CPU renderer and
+`image.frag`) and no longer changes with it.
+
+**The first version of that gate read a FIELD OF VIEW, and that is the whole bug.** It asked the map
+for `State.FieldOfViewDeg`, which is the map's own projection parameter and says nothing about how far
+past its reference the FRAME's deprojection is being extrapolated -- so the frame's tangent-plane grid
+went on drawing at a view with the south celestial pole on screen. Reported as *"at 10 percent, grid
+looks okay, at 12 percent, not"*, where the good one was the map's spherical grid and the bad one the
+tangent plane; measured, the tangent angle at that zoom is over 60 degrees while the nominal field is
+a small fraction of it. The measure is computed IN the tangent plane (`theta = atan(r * scale)`, exact
+for a gnomonic projection, monotonic in r, cannot wrap) rather than by deprojecting the pane's corners
+through the WCS -- **asking the WCS about a corner far outside the sensor is the very extrapolation
+the gate exists to catch**, so a guard built on it would share the failure. Default
+`double.PositiveInfinity` until a solve has run, because the spherical grid is correct everywhere and
+is therefore the safe default of the two. Pinned by four cases in `SkyBackdropViewTests`, including
+monotonicity across nine zooms and the NaN answer for a frame with no usable scale.
 
 **A pane-wide grid needs its own shader mode, and its own UBO slot.** `image.frag` gained a
 `gridMode == 2` branch that returns the grid alone on transparent black, drawn as a second pass over
@@ -462,13 +478,20 @@ locking the release scope was *"as long as we track everything we skipped in a p
   what still changes across the handover is density (the frame's fine per-pixel grid, the map's
   coarser spherical one). It is honest -- they are grids of different things -- but if it reads as a
   seam, the map's grid can take the viewer's spacing.
-- **`PaneGridMaxFovDeg = 20.0` is a judgement, not a measurement.** It comes from the
+- **`PaneGridMaxTangentAngleDeg = 20.0` is a judgement, not a measurement.** It comes from the
   gnomonic-stereographic separation being about 0.8 percent of the distance out at 10 degrees and 7
-  percent at 30. If it hands over too early or too late in use, it is one constant.
-- **The pan gate has no test.** Free panning is gated on `SkyBackdropActive`, and standing that up
-  offline needs a map, a clock, a catalog AND a document carrying a CD-matrix WCS --
-  `AstroImageDocument.Wcs` is `private set`, so it wants a synthetic FITS with CD cards rather than a
-  constructed object. The confined half is covered indirectly by `ViewerAutoCropTests`.
+  percent at 30. If it hands over too early or too late in use, it is one constant. (What the bound is
+  MEASURED AGAINST is no longer a judgement -- see the tangent-angle section above.)
+- ~~**The pan gate has no test.**~~ **DONE 2026-09-10** (`ViewerSkyPanTests`, three cases). **The
+  blocker recorded here was wrong**: `AstroImageDocument.Wcs` is `private set`, but
+  `AdoptImageAsync(image, algorithm, wcs, ...)` takes the WCS as a parameter, so an in-memory frame
+  with a CD matrix needs no synthetic FITS at all -- the stand-up is a plain `SkyMapTab<RgbaImage>`, a
+  `FakeTimeProviderWrapper`, `SharedCatalogDB` and that document. **The case worth having is the third
+  one, which neither report would have asked for**: the sky switched ON over an UNSOLVED frame, where
+  nothing is drawn behind the picture and the clamp must therefore stay. Sabotaging the gate three ways
+  confirmed the split -- always-clamp kills only the free-pan case, no-clamp kills the other two, and
+  the naive `ShowSkyBackdrop` gate kills the unsolved-frame case ALONE, which is exactly what that
+  third test is for.
 - **The enhance colour cast is NOT tracked here**: it is a viewer defect with nothing to do with the
   atlas, and it is [`viewer-prerelease-fixes.md`](viewer-prerelease-fixes.md) P30, open and high
   priority.

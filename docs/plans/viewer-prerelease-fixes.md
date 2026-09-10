@@ -1503,3 +1503,52 @@ and an anchor surviving an enhance was a fourth candidate nothing had considered
 INPUTS alone was not enough: it distinguished the four candidate faults and then could not see the
 curve derived from them, which is exactly where the second investigation stalled.
 
+## P31. Pan is dead in the strip where the collapsed file list used to be  (FIXED 2026-09-10)
+
+Reported as *"even when the list is collapsed, pan doesn't work in that region (where it was
+before)"* -- a band of the picture, with nothing drawn in it, in which a drag did nothing.
+
+**Not a stale hit region.** `ClickableRegionTracker.BeginFrame()` clears regions every frame and hits
+are honoured only while `RegionsAreCurrent`, so the obvious suspect was already impossible. It is the
+scroll controller: its extent is set inside `RenderFileList`, which the caller gates on
+`ViewerState.ShowFileList`, so a collapsed list leaves `_fileListScroll` holding the band the list
+had. It viewport-gates against that stale extent, claims any press landing inside it as a scroll
+gesture and returns true, so the press never reached the pan.
+
+**The user's own diagnostic is what identified it**: *"funnily enough it doesn't behave like that in
+the RIGHT panel, where you can drag even though you are on the panel"*. The info panel owns no scroll
+controller, so a press there falls through and the image drags from on top of it -- same gesture,
+opposite outcome, and only one of the two panels has a controller. That comparison went straight past
+the region tracker to the one component that differs.
+
+The fix is one gate, `HandleFileListScroll(state, evt) => state.ShowFileList && _fileListScroll.HandleInput(evt)`,
+used by both the press and the move call sites (a collapsed list must not steer a drag that began on
+the picture either). Gated rather than extent-zeroed, so there is ONE place that says **a hidden
+widget consumes no input** -- the same rule the sky palette follows through `SkyBackdropActive`.
+Pinned by two cases in `ViewerFileListResizeTests`: the collapsed band pans, and the OPEN list still
+does not (the half a "never consult the controller" fix would cost). The list is painted open FIRST in
+both, because that is what gives the controller its extent -- a viewer that never showed the list
+cannot reproduce this at all.
+
+## P32. A failed catalogue load would rethrow on every frame  (FIXED 2026-09-10)
+
+Nobody reported this one. It came out of the user asking *"AsyncLazy&lt;T&gt;.Value you sure? any
+pointers?"* about a claim in a code comment. The claim held -- `AsyncLazy<T>.Value` is
+`Nullable<Result<T>>`, a non-blocking PEEK, which is what keeps the catalogue's build off the render
+thread -- but checking it one level down found the real hazard: **`Result<T>.Value` RETHROWS when the
+result is a failure** ("Extracts the actual result. Exception: this result is not successful"), and
+three draw paths reached for it directly (the frame's object overlay, the context menu's
+nearest-object lookup, the sky map's catalogue hand-off).
+
+A catalogue that fails to load is an anticipated state, not a theoretical one -- the warm path has an
+`onError` that puts the reason in the status bar. Before the fix, that same failure would then have
+been rethrown from every subsequent frame instead of once. `ImageRendererBase.LoadedCatalog`
+(`CelestialObjectDB?.Value is { } result && result.TryGet(out var db) ? db : null`) is now the only
+read from a draw path: `TryGet` asks without throwing, and the null-while-building behaviour that
+hides the build cost is unchanged.
+
+**Two things worth keeping.** An `IsValueCreated` guard was added here first, for the wrong reason, and
+reverted -- the peek needs no guard, and adding one implies the property blocks. And the challenge that
+found this was aimed at a comment, not at a bug: the comment was right, and answering it properly is
+what surfaced a defect one call deeper that no test and no session had reached.
+
