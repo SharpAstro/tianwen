@@ -156,7 +156,7 @@ namespace TianWen.UI.Abstractions
         {
             if (pixel.RA is not { } raHours || pixel.Dec is not { } dec
                 || fovDeg is not { } fov || !double.IsFinite(fov) || fov <= 0
-                || CelestialObjectDB?.Value?.Value is not { } db)
+                || LoadedCatalog is not { } db)
             {
                 return null;
             }

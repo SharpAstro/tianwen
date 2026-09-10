@@ -362,4 +362,88 @@ public class SkyBackdropViewTests
 
         state.CenterRoll.ShouldBe(driven);
     }
+
+    // ---------------------------------------------------------------- the grid handover's measure
+
+    /// <summary>
+    /// Zoomed so the frame fills the pane, the furthest corner is barely off the tangent point -- so
+    /// the frame's own grid is the right one and the handover must not fire.
+    /// </summary>
+    [Fact]
+    public void AtTheFramesOwnScaleThePaneBarelyLeavesTheTangentPoint()
+    {
+        var wcs = ChartOriented();
+
+        // Scale that fits the frame's width across the pane: the corners then sit about the frame's
+        // own half-diagonal away, which for a 1.1 x 0.8 degree frame is under a degree.
+        var scale = Pane.Width / ImageWidth;
+        var angle = SkyBackdropView.MaxTangentAngleDeg(in wcs, Pane, Pane.X, Pane.Y, scale);
+
+        angle.ShouldBeLessThan(1.0);
+    }
+
+    /// <summary>
+    /// <b>The bug this measure exists for.</b> Zoomed far out, the pane reaches tens of degrees past
+    /// the frame's reference -- and a tangent plane cannot represent a point 90 degrees away, which is
+    /// what put the south celestial pole on screen with the meridians sweeping past it in broad arcs
+    /// instead of converging.
+    /// </summary>
+    /// <remarks>
+    /// Reported as "at 10 percent the grid looks okay, at 12 percent not": the good one was the sky
+    /// map's spherical grid, the bad one the frame's tangent plane, and the gate that chose between
+    /// them read the map's nominal FIELD OF VIEW -- which says nothing about how far from the tangent
+    /// point the pane actually reaches. The angle below is over 60 degrees at a zoom whose nominal
+    /// field is a small fraction of that, which is exactly how the old gate was fooled.
+    /// </remarks>
+    [Fact]
+    public void ZoomedOutThePaneReachesFarPastTheTangentPoint()
+    {
+        var wcs = ChartOriented();
+
+        // A hundredth of the frame's own scale: the pane now spans a hundred frame widths.
+        var scale = Pane.Width / ImageWidth / 100f;
+        var angle = SkyBackdropView.MaxTangentAngleDeg(in wcs, Pane, Pane.X, Pane.Y, scale);
+
+        angle.ShouldBeGreaterThan(20.0, "past the handover, so the map's spherical grid must take over");
+        angle.ShouldBeLessThan(90.0, "atan cannot reach a right angle, which is what makes it safe here");
+    }
+
+    /// <summary>
+    /// The measure grows as the view widens, with no wrap-around at any zoom. A guard that folded back
+    /// on itself would answer "close to the tangent point" for a view showing half the sky, which is
+    /// the failure mode the earlier zoom-out flip had.
+    /// </summary>
+    [Fact]
+    public void TheMeasureGrowsMonotonicallyAsTheViewWidens()
+    {
+        var wcs = ChartOriented();
+        var baseScale = Pane.Width / ImageWidth;
+
+        var previous = -1.0;
+        foreach (var divisor in new[] { 1f, 2f, 5f, 10f, 25f, 50f, 100f, 250f, 1000f })
+        {
+            var angle = SkyBackdropView.MaxTangentAngleDeg(in wcs, Pane, Pane.X, Pane.Y, baseScale / divisor);
+            angle.ShouldBeGreaterThan(previous, $"at 1/{divisor} of the frame's scale");
+            angle.ShouldBeLessThan(90.0);
+            previous = angle;
+        }
+    }
+
+    /// <summary>
+    /// A frame with no usable astrometry answers NaN rather than a number, so a caller comparing it
+    /// against a bound gets false and the spherical grid -- correct everywhere -- wins by default.
+    /// </summary>
+    [Fact]
+    public void WithoutAScaleTheMeasureIsNotANumber()
+    {
+        var wcs = new WCS(5.0, -25.0);
+
+        SkyBackdropView.MaxTangentAngleDeg(in wcs, Pane, Pane.X, Pane.Y, 1f)
+            .ShouldBe(double.NaN);
+
+        // NaN <= bound is false, which is the property the gate relies on.
+        (SkyBackdropView.MaxTangentAngleDeg(in wcs, Pane, Pane.X, Pane.Y, 1f) <= 20.0)
+            .ShouldBeFalse();
+    }
+
 }

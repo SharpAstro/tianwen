@@ -73,6 +73,61 @@ public static class SkyBackdropView
     /// <param name="imageOriginX">Screen x of image pixel column 0's left edge.</param>
     /// <param name="imageOriginY">Screen y of image pixel row 0's top edge.</param>
     /// <param name="scale">Screen pixels per image pixel.</param>
+    /// <summary>
+    /// How far, in degrees, the FURTHEST corner of <paramref name="pane"/> lies from the frame's own
+    /// tangent point -- i.e. how far past its reference pixel the frame's gnomonic deprojection is
+    /// being asked to extrapolate. NaN when the frame carries no usable scale or reference.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>This, and not a field of view, is what decides whether the frame's own grid is still
+    /// the right one.</b> That grid is drawn on the frame's TANGENT PLANE, so what breaks it is
+    /// DISTANCE FROM THE TANGENT POINT -- and a nominal field of view does not state that, because it
+    /// describes the map's projection parameter rather than how much sky the pane reaches. Gating on
+    /// it let the frame's grid run at a view with the south celestial pole on screen: reported as "at
+    /// 10 percent the grid looks okay, at 12 percent not", where the good one was the map's spherical
+    /// grid taking over and the bad one was the tangent plane sweeping PAST the pole in broad arcs
+    /// instead of converging on it.</para>
+    /// <para>Computed IN the tangent plane rather than by deprojecting the corners, deliberately:
+    /// <c>theta = atan(r * scale)</c> is exact for a gnomonic projection, monotonic in r, and cannot
+    /// wrap -- whereas asking the WCS about a pane corner far outside the sensor is the very
+    /// extrapolation that produced the zoom-out flip, so a guard built on it would share the failure
+    /// it exists to catch.</para>
+    /// </remarks>
+    public static double MaxTangentAngleDeg(in WCS wcs, RectF32 pane,
+        float imageOriginX, float imageOriginY, float scale)
+    {
+        if (!wcs.HasCDMatrix || scale <= 0f || pane.Width <= 0f || pane.Height <= 0f
+            || !double.IsFinite(wcs.CRPix1) || !double.IsFinite(wcs.CRPix2)
+            || !double.IsFinite(wcs.PixelScaleArcsec) || wcs.PixelScaleArcsec <= 0.0)
+        {
+            return double.NaN;
+        }
+
+        var radPerPixel = wcs.PixelScaleArcsec / 3600.0 * Math.PI / 180.0;
+        var worst = 0.0;
+
+        // The pane's four corners, back through the placement into the frame's own pixel grid. The
+        // +1 matches the convention every other screen<->image conversion here uses.
+        for (var i = 0; i < 4; i++)
+        {
+            var cornerX = (i & 1) == 0 ? pane.X : pane.X + pane.Width;
+            var cornerY = (i & 2) == 0 ? pane.Y : pane.Y + pane.Height;
+
+            var imageX = ((cornerX - imageOriginX) / scale) + 1.0;
+            var imageY = ((cornerY - imageOriginY) / scale) + 1.0;
+
+            var dx = imageX - wcs.CRPix1;
+            var dy = imageY - wcs.CRPix2;
+            var theta = Math.Atan(Math.Sqrt((dx * dx) + (dy * dy)) * radPerPixel);
+            if (theta > worst)
+            {
+                worst = theta;
+            }
+        }
+
+        return worst * 180.0 / Math.PI;
+    }
+
     public static Solution? Solve(in WCS wcs, RectF32 pane, float imageOriginX, float imageOriginY, float scale)
     {
         if (!wcs.HasCDMatrix || scale <= 0f || pane.Height <= 0f || pane.Width <= 0f)

@@ -178,6 +178,25 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public DotNext.Threading.AsyncLazy<ICelestialObjectDB>? CelestialObjectDB { get; set; }
 
+        /// <summary>
+        /// The object catalog if it has finished loading AND loaded successfully; null otherwise.
+        /// <b>The only safe way to read <see cref="CelestialObjectDB"/> from a draw path.</b>
+        /// </summary>
+        /// <remarks>
+        /// <para><c>AsyncLazy&lt;T&gt;.Value</c> is <c>Result&lt;T&gt;?</c> -- null until the value is
+        /// computed, so reading it never waits, which is what makes the catalog's ~500 ms build
+        /// invisible: the frame draws without objects and they appear once it lands.</para>
+        /// <para><b>But <c>Result&lt;T&gt;.Value</c> RETHROWS when the result is a failure</b>
+        /// ("Extracts the actual result. Exception: this result is not successful"), and three draw
+        /// paths reached for it directly -- the frame's object overlay, the context menu's
+        /// nearest-object lookup, and the sky map's catalog hand-off. A catalog that failed to load is
+        /// an anticipated state, not a theoretical one: the warm path has an <c>onError</c> that puts
+        /// the reason in the status bar. Before this, that same failure would have been rethrown from
+        /// every subsequent frame instead. <c>TryGet</c> is the accessor that asks without throwing.</para>
+        /// </remarks>
+        protected ICelestialObjectDB? LoadedCatalog
+            => CelestialObjectDB?.Value is { } result && result.TryGet(out var db) ? db : null;
+
         /// <summary>The viewer state the last render pass was given, for a backend that needs it
         /// outside the render call it was handed to.</summary>
         protected ViewerState? CurrentViewerState => _state;
@@ -963,7 +982,7 @@ namespace TianWen.UI.Abstractions
             // selection, so the re-open has to land on the far side of that.
             PumpHelpPanel();
 
-            if (state.ShowOverlays && document?.Wcs is { HasCDMatrix: true } overlayWcs && CelestialObjectDB?.Value?.Value is { } db)
+            if (state.ShowOverlays && document?.Wcs is { HasCDMatrix: true } overlayWcs && LoadedCatalog is { } db)
             {
                 RenderOverlays(state, overlayWcs, db);
             }

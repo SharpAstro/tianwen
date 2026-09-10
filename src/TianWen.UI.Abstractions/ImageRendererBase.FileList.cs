@@ -58,6 +58,26 @@ namespace TianWen.UI.Abstractions
         public bool HandleFileListInput(InputEvent evt) => _fileListScroll.HandleInput(evt);
 
         /// <summary>
+        /// The file list's scroll gestures, but only while the list is on screen.
+        /// </summary>
+        /// <remarks>
+        /// <b>The controller's extent is set where the list PAINTS</b>
+        /// (<c>SetExtent</c> in <see cref="RenderFileList"/>, which the caller gates on
+        /// <see cref="ViewerState.ShowFileList"/>), so a collapsed list leaves it holding the band the
+        /// list used to occupy. It viewport-gates against that stale extent, claims any press landing
+        /// inside it, and returns true -- so the press never reached the pan and dragging was dead in
+        /// a strip of the picture with nothing drawn in it. Reported as "even when the list is
+        /// collapsed, pan doesn't work in that region".
+        /// <para>The asymmetry that made it obvious: the INFO panel on the right has no such
+        /// controller, so a press there falls through and you can drag the image from on top of it.</para>
+        /// <para>Gated here rather than by zeroing the extent, so there is one place that says "a
+        /// hidden widget consumes no input" -- the same rule the sky map's palette follows through
+        /// <c>SkyBackdropActive</c>.</para>
+        /// </remarks>
+        private bool HandleFileListScroll(ViewerState state, InputEvent evt)
+            => state.ShowFileList && _fileListScroll.HandleInput(evt);
+
+        /// <summary>
         /// First file row the scroll controller is showing. Internal because the controller owns the
         /// offset (which is what keeps a wheel accumulator alive across frames), so a test asking whether
         /// the list followed the selection has nothing else to read.
