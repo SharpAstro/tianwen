@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using DIR.Lib;
 using Shouldly;
 using TianWen.Lib.Astrometry;
@@ -62,23 +63,32 @@ namespace TianWen.Lib.Tests
             protected override HistogramDisplay? GetHistogramDisplay() => null;
         }
 
-        /// <summary>Drives every row of the panel and reports the ones that opened a URL.</summary>
+        /// <summary>
+        /// Drives every row of the panel's ROOT page and reports the ones that opened a URL.
+        /// </summary>
+        /// <remarks>
+        /// A FRESH viewer per row, because the panel is a menu now: two of its rows change the page
+        /// rather than opening a link, and once the page has changed the same indices mean the rows of
+        /// a different list. Driving one viewer down the whole list therefore stops testing the root
+        /// after the first navigation row -- which is exactly how this read when the menu landed, as
+        /// two links that had silently stopped being reachable.
+        /// </remarks>
         private static List<(int Index, string Url)> OpenedLinksPerRow()
         {
-            var bus = new SignalBus();
-            var urls = new List<string>();
-            bus.Subscribe<OpenUrlSignal>(sig => urls.Add(sig.Url));
-
-            using var renderer = new RgbaImageRenderer(900, 700);
-            var viewer = new HelpViewer(renderer) { Bus = bus };
-
-            var lines = viewer.BuildHelpLines();
-            lines.Length.ShouldBeGreaterThan(0);
-
             var opened = new List<(int, string)>();
-            for (var i = 0; i < lines.Length; i++)
+            for (var i = 0; i < RootRowCount(); i++)
             {
-                urls.Clear();
+                var bus = new SignalBus();
+                var urls = new List<string>();
+                bus.Subscribe<OpenUrlSignal>(sig => urls.Add(sig.Url));
+
+                using var renderer = new RgbaImageRenderer(900, 700);
+                var viewer = new HelpViewer(renderer) { Bus = bus };
+
+                // BUILD first: a row index only means anything once the page it belongs to has been
+                // built, which is what assigns them -- and in the app a panel is always built before
+                // it can be clicked.
+                viewer.BuildHelpLines();
                 viewer.HandleHelpSelection(i);
                 bus.ProcessPending(); // Post enqueues; delivery is the frame's job
                 foreach (var url in urls)
@@ -88,6 +98,63 @@ namespace TianWen.Lib.Tests
             }
 
             return opened;
+        }
+
+        private static int RootRowCount()
+        {
+            using var renderer = new RgbaImageRenderer(900, 700);
+            var lines = new HelpViewer(renderer).BuildHelpLines();
+            lines.Length.ShouldBeGreaterThan(0);
+            return lines.Length;
+        }
+
+        /// <summary>
+        /// The two navigation rows open a PAGE rather than a link, and the page's first row comes back.
+        /// </summary>
+        /// <remarks>
+        /// The panel became a menu because it had grown past a laptop screen -- about 35 rows -- and
+        /// the one screen someone opens when the viewer has misbehaved is the worst to have running off
+        /// the bottom. What that trades away is a flat list, so this pins the navigation: forward into
+        /// each page, and back out of it.
+        /// </remarks>
+        [Fact]
+        public void TheLongSectionsArePagesReachedFromTheRootAndReturnedFrom()
+        {
+            using var renderer = new RgbaImageRenderer(900, 700);
+            var viewer = new HelpViewer(renderer);
+
+            var root = viewer.BuildHelpLines();
+            root.Length.ShouldBeLessThan(12, "the root page is a menu, not the whole panel");
+
+            var shortcutsRow = IndexOfRowContaining(root, "Keyboard shortcuts");
+            viewer.HandleHelpSelection(shortcutsRow);
+            var shortcuts = viewer.BuildHelpLines();
+            shortcuts[0].ShouldContain("Back");
+            shortcuts.ShouldContain(l => l.Contains("Fullscreen"), "the shortcut list is what this page is");
+
+            // Row 0 of any sub-page is the way back, so the handler needs no per-page bookkeeping.
+            viewer.HandleHelpSelection(0);
+            viewer.BuildHelpLines().ShouldBe(root);
+
+            var aiRow = IndexOfRowContaining(root, "AI enhancement");
+            viewer.HandleHelpSelection(aiRow);
+            viewer.BuildHelpLines()[0].ShouldContain("Back");
+
+            viewer.HandleHelpSelection(0);
+            viewer.BuildHelpLines().ShouldBe(root);
+        }
+
+        private static int IndexOfRowContaining(ImmutableArray<string> lines, string text)
+        {
+            for (var i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].Contains(text, StringComparison.Ordinal))
+                {
+                    return i;
+                }
+            }
+
+            throw new Xunit.Sdk.XunitException($"no row contains '{text}'");
         }
 
         [Fact]
