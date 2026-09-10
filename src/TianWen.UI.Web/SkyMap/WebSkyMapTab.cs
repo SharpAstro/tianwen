@@ -35,7 +35,8 @@ namespace TianWen.UI.Web.SkyMap
 
         protected override void RenderSkyMap(
             ICelestialObjectDB db, RectF32 contentRect,
-            System.DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site)
+            System.DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site,
+            SkyMapDrawPhase phase = SkyMapDrawPhase.All)
         {
             // Sun-altitude-tinted sky background (the base implementation).
             var mark = System.Diagnostics.Stopwatch.GetTimestamp();

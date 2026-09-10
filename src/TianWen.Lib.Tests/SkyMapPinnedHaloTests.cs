@@ -68,9 +68,10 @@ public sealed class SkyMapPinnedHaloTests
     {
         protected override void RenderSkyMap(
             ICelestialObjectDB db, RectF32 contentRect,
-            DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site)
+            DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site,
+            SkyMapDrawPhase phase = SkyMapDrawPhase.All)
         {
-            base.RenderSkyMap(db, contentRect, viewingTime, siteLat, siteLon, site);
+            base.RenderSkyMap(db, contentRect, viewingTime, siteLat, siteLon, site, phase);
             State.CurrentViewMatrix = State.ComputeViewMatrix();
         }
 

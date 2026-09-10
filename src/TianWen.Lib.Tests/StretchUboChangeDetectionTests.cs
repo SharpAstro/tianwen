@@ -156,7 +156,7 @@ namespace TianWen.Lib.Tests
                 midtones: (0.5f, 0.5f, 0.5f),
                 highlights: (1f, 1f, 1f),
                 rescale: (1f, 1f, 1f),
-                gridEnabled: false, gridSpacingRA: 0f, gridSpacingDec: 0f, gridLineWidth: 0f,
+                gridMode: 0, gridSpacingRA: 0f, gridSpacingDec: 0f, gridLineWidth: 0f,
                 imageW: 64f, imageH: 64f, crPix1: 0f, crPix2: 0f, crValRA: 0f, crValDec: 0f,
                 cdMatrix: cd,
                 debayerMode: debayerMode,

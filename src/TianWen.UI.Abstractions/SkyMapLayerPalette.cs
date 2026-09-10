@@ -88,7 +88,7 @@ namespace TianWen.UI.Abstractions
             ArgumentNullException.ThrowIfNull(state);
 
             var builder = ImmutableArray.CreateBuilder<PaletteItem>(SkyMapLayers.All.Length);
-            foreach (var layer in SkyMapLayers.All)
+            foreach (var layer in SkyMapLayers.Offered(state))
             {
                 var available = layer.Available(state);
                 builder.Add(new PaletteItem(
@@ -99,7 +99,7 @@ namespace TianWen.UI.Abstractions
                     IsAvailable: available));
             }
 
-            return builder.MoveToImmutable();
+            return builder.ToImmutable();
         }
 
         /// <summary>

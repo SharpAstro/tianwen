@@ -65,7 +65,7 @@ namespace TianWen.UI.Abstractions
                     i => (antiLst, 90.0 - i * 180.0 / steps));
             }
 
-            if (state.ShowGrid)
+            if (state.DrawOwnGrid)
             {
                 DrawGrid(image, cRA, cDec, ppr, cx, cy, w, h, state.FieldOfViewDeg);
             }

@@ -524,7 +524,8 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         (VkBuffer Buffer, uint ByteOffset, uint VertexCount) horizon,
         (VkBuffer Buffer, uint ByteOffset, uint VertexCount) meridian,
         (VkBuffer Buffer, uint ByteOffset, uint VertexCount) altAzGrid,
-        (VkBuffer Buffer, uint ByteOffset, uint VertexCount) fovOutlines = default)
+        (VkBuffer Buffer, uint ByteOffset, uint VertexCount) fovOutlines = default,
+        SkyMapDrawPhase phase = SkyMapDrawPhase.All)
     {
         if (!_geometryBuilt)
         {
@@ -557,8 +558,11 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _pipelineLayout,
             0, 1, &uboSet, 0, null);
 
+        var drawImagery = phase is not SkyMapDrawPhase.Lines;
+        var drawLines = phase is not SkyMapDrawPhase.Backdrop;
+
         // ── Milky Way background (drawn first, behind everything) ──
-        if (state.ShowMilkyWay && milkyWayAlpha > 0.005f
+        if (drawImagery && state.ShowMilkyWay && milkyWayAlpha > 0.005f
             && _milkyWayTexture is not null && _milkyWayPipeline != VkPipeline.Null)
         {
             api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _milkyWayPipeline);
@@ -576,7 +580,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         }
 
         // ── Horizon fill ──
-        if (state.ShowHorizon && _horizonFillPipeline != VkPipeline.Null)
+        if (drawImagery && state.ShowHorizon && _horizonFillPipeline != VkPipeline.Null)
         {
             api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _horizonFillPipeline);
             // Re-bind UBO after pipeline change
@@ -586,66 +590,70 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         }
 
         // ── Lines: grid, meridian, boundaries, constellation figures, horizon ──
-        api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _linePipeline);
-
-        // Grid (back to front: coarsest first)
-        if (state.ShowGrid)
+        if (drawLines)
         {
-            DrawGrid(cmd, state);
-        }
+            api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _linePipeline);
 
-        // Alt/Az grid
-        if (state.ShowAltAzGrid && altAzGrid.VertexCount > 0)
-        {
-            PushLineColor(cmd, 0x80, 0xA0, 0x30, 0x80); // olive/yellow-green, semi-transparent
-            DrawLineBuffer(cmd, altAzGrid.Buffer, altAzGrid.ByteOffset, altAzGrid.VertexCount);
-        }
+            // Grid (back to front: coarsest first)
+            if (state.DrawOwnGrid)
+            {
+                DrawGrid(cmd, state);
+            }
 
-        // Meridian
-        if (meridian.VertexCount > 0)
-        {
-            PushLineColor(cmd, 0x30, 0xDD, 0x30, 0xA0); // green
-            DrawLineBuffer(cmd, meridian.Buffer, meridian.ByteOffset, meridian.VertexCount);
-        }
+            // Alt/Az grid
+            if (state.ShowAltAzGrid && altAzGrid.VertexCount > 0)
+            {
+                PushLineColor(cmd, 0x80, 0xA0, 0x30, 0x80); // olive/yellow-green, semi-transparent
+                DrawLineBuffer(cmd, altAzGrid.Buffer, altAzGrid.ByteOffset, altAzGrid.VertexCount);
+            }
 
-        // Ecliptic -- Sun's annual path on the celestial sphere. Always drawn in
-        // warm yellow so it reads as "Sun-related" against the cool blue grid and
-        // constellation figures. Built once at startup as a great circle inclined
-        // by the J2000 obliquity (~23.44 deg) -- planets stay within ~7 deg of it,
-        // so it doubles as a "where to look for ecliptic objects" guide.
-        if (_eclipticVertexCount > 0)
-        {
-            PushLineColor(cmd, 0xE0, 0xC0, 0x40, 0xB0); // warm yellow
-            DrawLineBuffer(cmd, _eclipticBuffer, 0, _eclipticVertexCount);
-        }
+            // Meridian
+            if (meridian.VertexCount > 0)
+            {
+                PushLineColor(cmd, 0x30, 0xDD, 0x30, 0xA0); // green
+                DrawLineBuffer(cmd, meridian.Buffer, meridian.ByteOffset, meridian.VertexCount);
+            }
 
-        // Constellation boundaries
-        if (state.ShowConstellationBoundaries && _boundaryVertexCount > 0)
-        {
-            PushLineColor(cmd, 0xAA, 0x44, 0x44, 0x80); // red, semi-transparent
-            DrawLineBuffer(cmd, _boundaryBuffer, 0, _boundaryVertexCount);
-        }
+            // Ecliptic -- Sun's annual path on the celestial sphere. Always drawn in
+            // warm yellow so it reads as "Sun-related" against the cool blue grid and
+            // constellation figures. Built once at startup as a great circle inclined
+            // by the J2000 obliquity (~23.44 deg) -- planets stay within ~7 deg of it,
+            // so it doubles as a "where to look for ecliptic objects" guide.
+            if (_eclipticVertexCount > 0)
+            {
+                PushLineColor(cmd, 0xE0, 0xC0, 0x40, 0xB0); // warm yellow
+                DrawLineBuffer(cmd, _eclipticBuffer, 0, _eclipticVertexCount);
+            }
 
-        // Constellation figures
-        if (state.ShowConstellationFigures && _figureVertexCount > 0)
-        {
-            PushLineColor(cmd, 0x40, 0x80, 0xDD, 0x90); // blue stick figures
-            DrawLineBuffer(cmd, _figureBuffer, 0, _figureVertexCount);
-        }
+            // Constellation boundaries
+            if (state.ShowConstellationBoundaries && _boundaryVertexCount > 0)
+            {
+                PushLineColor(cmd, 0xAA, 0x44, 0x44, 0x80); // red, semi-transparent
+                DrawLineBuffer(cmd, _boundaryBuffer, 0, _boundaryVertexCount);
+            }
 
-        // Horizon
-        if (state.ShowHorizon && horizon.VertexCount > 0)
-        {
-            PushLineColor(cmd, 0x80, 0x40, 0x20, 0xFF); // brown
-            DrawLineBuffer(cmd, horizon.Buffer, horizon.ByteOffset, horizon.VertexCount);
-        }
+            // Constellation figures
+            if (state.ShowConstellationFigures && _figureVertexCount > 0)
+            {
+                PushLineColor(cmd, 0x40, 0x80, 0xDD, 0x90); // blue stick figures
+                DrawLineBuffer(cmd, _figureBuffer, 0, _figureVertexCount);
+            }
 
-        // Sensor FOV rectangle + mosaic panel outlines (on top of all line geometry,
-        // below stars so the reticle and star dots remain visible)
-        if (fovOutlines.VertexCount > 0)
-        {
-            PushLineColor(cmd, 0xDD, 0x33, 0x33, 0xDD); // Stellarium-style red
-            DrawLineBuffer(cmd, fovOutlines.Buffer, fovOutlines.ByteOffset, fovOutlines.VertexCount);
+            // Horizon
+            if (state.ShowHorizon && horizon.VertexCount > 0)
+            {
+                PushLineColor(cmd, 0x80, 0x40, 0x20, 0xFF); // brown
+                DrawLineBuffer(cmd, horizon.Buffer, horizon.ByteOffset, horizon.VertexCount);
+            }
+
+            // Sensor FOV rectangle + mosaic panel outlines (on top of all line geometry,
+            // below stars so the reticle and star dots remain visible)
+            if (fovOutlines.VertexCount > 0)
+            {
+                PushLineColor(cmd, 0xDD, 0x33, 0x33, 0xDD); // Stellarium-style red
+                DrawLineBuffer(cmd, fovOutlines.Buffer, fovOutlines.ByteOffset, fovOutlines.VertexCount);
+            }
+
         }
 
         // ── Stars ──
@@ -654,7 +662,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         // draw only each visible chunk's magnitude-prefix. A deep zoom (small FOV, high
         // effective magnitude) touches a handful of chunks instead of streaming the whole
         // ~2M-star catalog to the GPU: the unbounded version TDR'd the Adreno X1-85.
-        if (_starChunks.Length > 0 && _starCount > 0)
+        if (drawImagery && _starChunks.Length > 0 && _starCount > 0)
         {
             var effMag = state.EffectiveMagnitudeLimit;
 

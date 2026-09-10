@@ -434,6 +434,21 @@ float debayerMono(vec2 uv) {
 }
 
 void main() {
+    // gridEnabled == 2: draw the GRID AND NOTHING ELSE, over whatever is already in the framebuffer.
+    // The quad is the pane rather than the picture, and its texture coordinates run outside [0, 1] --
+    // pixelToSky is a linear map followed by a deprojection, so it extrapolates to virtual image
+    // pixels beyond the sensor exactly as it interpolates inside it. That is what lets ONE grid, at
+    // this shader's per-pixel density, span the sky behind a photograph and the photograph itself
+    // instead of stopping at its edge. Every sample outside a grid line is transparent (the pipeline
+    // blends), so nothing else on the pane is disturbed.
+    if (ubo.gridEnabled == 2) {
+        vec2 gridPixel = vec2(vTexCoord.x * ubo.imageSize.x + 1.0,
+                              vTexCoord.y * ubo.imageSize.y + 1.0);
+        float gridOnly = gridIntensity(gridPixel);
+        FragColor = vec4(0.55, 0.85, 0.95, gridOnly * 0.45);
+        return;
+    }
+
     int src = ubo.imgSource;
     // RawBayer demosaic mode (stretchBlend.z): 0 = bilinear colour, 1 = MHC colour, 2 = raw mosaic,
     // 3 = mono, 4 = VNG colour.

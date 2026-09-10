@@ -85,6 +85,26 @@ namespace TianWen.UI.Abstractions
         public bool MilkyWayAvailable { get; set; }
 
         /// <summary>
+        /// Whether the HOST draws the coordinate grid itself, in which case this map's own grid layer
+        /// is unavailable rather than a second one.
+        /// </summary>
+        /// <remarks>
+        /// The FITS viewer sets it: its grid is evaluated per pixel from the frame's WCS, so it stays
+        /// fine at any zoom, while this one is baked whole-sphere geometry whose finest scale is 10
+        /// minutes of RA -- about one line across a telescope frame. Offering both produced the exact
+        /// confusion it looks like it would avoid: turning "grid" off showed MORE grid, because the
+        /// fine one went away and the coarse one appeared behind it.
+        /// </remarks>
+        public bool GridDrawnByHost { get; set; }
+
+        /// <summary>
+        /// Whether THIS map draws the coordinate grid: it is switched on and no host has claimed it.
+        /// Every grid draw and every grid label reads this rather than <see cref="ShowGrid"/>, so a
+        /// flag left on from before a host claimed it cannot paint a second grid.
+        /// </summary>
+        public bool DrawOwnGrid => ShowGrid && !GridDrawnByHost;
+
+        /// <summary>
         /// Whether the view has a site to draw local sky in: stamped from the resolved
         /// <see cref="SiteContext"/> every frame, so the layers that only mean something at a place on
         /// Earth -- the horizon and the Alt/Az grid -- can say they are unavailable instead of

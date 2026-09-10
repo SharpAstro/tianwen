@@ -116,9 +116,11 @@ namespace TianWen.UI.Abstractions
         public void RenderSkyBehind(
             PlannerState plannerState,
             RectF32 contentRect,
-            ITimeProvider timeProvider)
+            ITimeProvider timeProvider,
+            bool deferLines = false)
         {
             BeginFrame();
+            _deferredLines = null;
             // DPI + font come from the inherited DpiScale / FontPath (host-set); the input path
             // (tap-vs-drag slop) reads DpiScale directly, which retired the old render-time
             // _lastDpiScale cache.
@@ -229,7 +231,8 @@ namespace TianWen.UI.Abstractions
             // Pass the already-built SiteContext so the override does not rebuild it; the two
             // callers (this + VkSkyMapTab.RenderSkyMap) previously produced the same SiteContext
             // from the same inputs on every frame.
-            RenderSkyMap(db, contentRect, viewingTime, siteLat, siteLon, site);
+            RenderSkyMap(db, contentRect, viewingTime, siteLat, siteLon, site,
+                deferLines ? SkyMapDrawPhase.Backdrop : SkyMapDrawPhase.All);
 
             // Draw text overlays natively (GPU text rendering on top of cached texture)
             var ppr = SkyMapProjection.PixelsPerRadian(contentRect.Height, State.FieldOfViewDeg);
@@ -244,20 +247,31 @@ namespace TianWen.UI.Abstractions
             // what it costs. Cheap: one timestamp pair per layer per frame.
             var layerMark = System.Diagnostics.Stopwatch.GetTimestamp();
 
-            if (State.ShowGrid)
-            {
-                DrawGridLabels(contentRect, fontSize * 0.8f, ppr, cx, cy);
-            }
-            GridLabelMs += LayerElapsed(ref layerMark);
-
             // Horizon dimming: when the user has horizon clipping on, sub-horizon labels
             // get their alpha cut so they clearly read as "not currently visible" without
             // being hidden entirely (user can still see where a constellation will rise).
             var dimBelowHorizon = State.ShowHorizon && site.IsValid;
 
-            // Constellation names at boundary centroids (always shown)
-            DrawConstellationNames(contentRect, fontSize * 0.85f, ppr, cx, cy, site, dimBelowHorizon);
-            ConstellationNameMs += LayerElapsed(ref layerMark);
+            // The grid's labels and the constellation names belong WITH the lines they name, so a
+            // host drawing its own content between the two passes gets label and line on the same
+            // side of it. Everything below this stays with the imagery: those are point annotations
+            // for objects the host's own content shows, and drawing them over it would double them.
+            if (deferLines)
+            {
+                _deferredLines = new DeferredLinePass(ppr, cx, cy, fontSize, site, dimBelowHorizon);
+            }
+            else
+            {
+                if (State.DrawOwnGrid)
+                {
+                    DrawGridLabels(contentRect, fontSize * 0.8f, ppr, cx, cy);
+                }
+                GridLabelMs += LayerElapsed(ref layerMark);
+
+                // Constellation names at boundary centroids (always shown)
+                DrawConstellationNames(contentRect, fontSize * 0.85f, ppr, cx, cy, site, dimBelowHorizon);
+                ConstellationNameMs += LayerElapsed(ref layerMark);
+            }
 
             DrawPlanetLabels(db, viewingTime, siteLat, siteLon, contentRect, fontSize, ppr, cx, cy, site, dimBelowHorizon);
             PlanetLabelMs += LayerElapsed(ref layerMark);
@@ -356,6 +370,46 @@ namespace TianWen.UI.Abstractions
                 siteLat, siteLon, viewingTime, site, ppr, cx, cy);
             SearchPanelMs += LayerElapsed(ref layerMark);
         }
+
+        /// <summary>
+        /// What the backdrop pass held back: the line geometry, the grid's labels and the
+        /// constellation names, drawn OVER whatever the host put on top of the sky.
+        /// </summary>
+        /// <remarks>
+        /// A no-op unless <see cref="RenderSkyBehind"/> ran this frame with <c>deferLines</c>, so a
+        /// host that forgets the second call loses the lines rather than drawing them twice. It
+        /// reuses the geometry that pass already wrote to the frame's ring buffer -- same frame, same
+        /// offsets -- so the split costs one extra command recording and no extra CPU work.
+        /// </remarks>
+        public void RenderSkyLines(RectF32 contentRect)
+        {
+            if (_deferredLines is not { } deferred)
+            {
+                return;
+            }
+
+            _deferredLines = null;
+            var layerMark = System.Diagnostics.Stopwatch.GetTimestamp();
+
+            RenderSkyMapLines(contentRect);
+
+            if (State.DrawOwnGrid)
+            {
+                DrawGridLabels(contentRect, deferred.FontSize * 0.8f, deferred.Ppr, deferred.CenterX, deferred.CenterY);
+            }
+            GridLabelMs += LayerElapsed(ref layerMark);
+
+            DrawConstellationNames(contentRect, deferred.FontSize * 0.85f, deferred.Ppr,
+                deferred.CenterX, deferred.CenterY, deferred.Site, deferred.DimBelowHorizon);
+            ConstellationNameMs += LayerElapsed(ref layerMark);
+        }
+
+        /// <summary>What the line pass needs that the backdrop pass computed.</summary>
+        private readonly record struct DeferredLinePass(
+            double Ppr, float CenterX, float CenterY, float FontSize,
+            SiteContext Site, bool DimBelowHorizon);
+
+        private DeferredLinePass? _deferredLines;
 
         /// <summary>
         /// The layer palette on its own, floated against the right edge of <paramref name="contentRect"/>
@@ -535,10 +589,26 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         protected virtual void RenderSkyMap(
             ICelestialObjectDB db, RectF32 contentRect,
-            DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site)
+            DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site,
+            SkyMapDrawPhase phase = SkyMapDrawPhase.All)
         {
+            if (phase is SkyMapDrawPhase.Lines)
+            {
+                // This fallback paints a ground and nothing else, and a ground is imagery.
+                return;
+            }
+
             double sunAltDeg = State.GetSunAltitudeDegCached(viewingTime, siteLat, siteLon);
             RenderLayout(Layout.Builder.Spacer().Bg(SkyMapState.SkyBackgroundColorForSunAltitude(sunAltDeg)), contentRect);
+        }
+
+        /// <summary>
+        /// Records the line half of the map -- see <see cref="SkyMapDrawPhase"/> -- reusing the
+        /// geometry the backdrop pass already wrote for this frame. Only a host that splits the two
+        /// calls this, and only after it has drawn whatever goes between them.
+        /// </summary>
+        protected virtual void RenderSkyMapLines(RectF32 contentRect)
+        {
         }
 
         // ── Text overlay methods (use native GPU DrawText, drawn on top of cached texture) ──

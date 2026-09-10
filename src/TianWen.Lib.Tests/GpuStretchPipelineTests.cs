@@ -554,7 +554,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
             midtones: u.Midtones,
             highlights: u.Highlights,
             rescale: u.Rescale,
-            gridEnabled: false,
+            gridMode: 0,
             gridSpacingRA: 0f, gridSpacingDec: 0f, gridLineWidth: 0f,
             imageW: width, imageH: height,
             crPix1: 0, crPix2: 0, crValRA: 0, crValDec: 0,

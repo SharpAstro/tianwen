@@ -127,6 +127,32 @@ public class SkyBackdropViewTests
         return worst;
     }
 
+    /// <summary>
+    /// How far one IMAGE pixel lands from where the viewer draws it, in screen pixels, through the
+    /// solved sky view.
+    /// </summary>
+    private static double PlacementErrorPx(in WCS wcs, double pixelX, double pixelY,
+        float originX, float originY, float scale)
+    {
+        var solution = SkyBackdropView.Solve(in wcs, Pane, originX, originY, scale);
+        solution.ShouldNotBeNull();
+
+        var state = new SkyMapState();
+        SkyBackdropView.ApplyTo(state, solution.Value);
+
+        var view = state.ComputeViewMatrix();
+        var pixelsPerRadian = SkyMapProjection.PixelsPerRadian(Pane.Height, state.FieldOfViewDeg);
+        var sky = wcs.PixelToSky(pixelX, pixelY);
+        sky.ShouldNotBeNull();
+
+        SkyMapProjection.ProjectWithMatrix(sky.Value.RA, sky.Value.Dec, in view, pixelsPerRadian,
+            Pane.X + Pane.Width * 0.5f, Pane.Y + Pane.Height * 0.5f, out var sx, out var sy).ShouldBeTrue();
+
+        var drawnX = originX + (pixelX + 0.5) * scale;
+        var drawnY = originY + (pixelY + 0.5) * scale;
+        return Math.Sqrt((sx - drawnX) * (sx - drawnX) + (sy - drawnY) * (sy - drawnY));
+    }
+
     /// <summary>Fitted to the pane: the frame fills it, which is what the viewer opens a file into.</summary>
     [Fact]
     public void AFittedFrame_HasItsCornersWhereTheSkyPutsThem()
@@ -232,6 +258,71 @@ public class SkyBackdropViewTests
         // 800 pane pixels at 0.5 covers 1600 image pixels, at 0.125 covers 6400: four times the sky.
         fitted.ShouldBe(1600 * ScaleDeg, 0.002);
         zoomedOut.ShouldBe(4 * fitted, 0.01);
+    }
+
+    /// <summary>
+    /// Zoomed far out, where the frame is a postage stamp on a whole-sky view. Reported from the app:
+    /// the sky flipped through 180 degrees as the view widened, and kept flipping.
+    /// </summary>
+    /// <remarks>
+    /// <b>The cause was a probe outside the sensor.</b> The solver used to ask the WCS what was at the
+    /// PANE's centre, which at these zooms is tens of thousands of virtual pixels off the frame -- 65
+    /// degrees away on this fixture at 2%. A gnomonic deprojection is meaningless that far out and
+    /// past 90 degrees it wraps to the antipode, so the view centre jumped to the other side of the
+    /// sky. It now probes the frame's own reference pixel and fits the rotation to where those probes
+    /// are DRAWN, which is exactly as valid at 2% as at 200%.
+    /// <para>
+    /// Asserted as a CONTINUOUS walk rather than at one zoom, because a flip is a discontinuity: any
+    /// single zoom looks fine on its own, and the bug was one step to the next.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void ZoomingRightOut_NeverFlipsTheSky()
+    {
+        var wcs = ChartOriented();
+
+        // 0.5 down to about 0.008, the viewer's floor, in steps small enough that a real rotation
+        // would move less between them than the tolerance below.
+        for (var scale = 0.5f; scale > 0.008f; scale *= 0.9f)
+        {
+            // Zoomed around a fixed anchor rather than re-centred, which is what a wheel zoom does:
+            // the frame shrinks toward a corner of the pane and the pane's own centre ends up well
+            // OFF it. That is the condition the bug needed -- centred, the old probe landed on the
+            // frame and behaved -- and the viewer allows it, since its placement only confines the
+            // image to the pane, not to the middle of it.
+            var originX = Pane.X + 40f;
+            var originY = Pane.Y + 30f;
+
+            var solution = SkyBackdropView.Solve(in wcs, Pane, originX, originY, scale);
+            solution.ShouldNotBeNull($"scale {scale}");
+
+            // WHERE THE FRAME IS, at every zoom: this is what a flip breaks, and it is exact by
+            // construction when the view is right, because the solver fits the rotation through this
+            // very pixel. Under the old probe it lands on the far side of the sky.
+            PlacementErrorPx(wcs, wcs.CRPix1, wcs.CRPix2, originX, originY, scale)
+                .ShouldBeLessThan(1.0, $"the frame is not where it is drawn at scale {scale}");
+
+            // Its full extent, while the frame is still big enough on screen for its extent to mean
+            // anything. Below that the two projections' scales differ by a few percent where the
+            // frame has drifted tens of degrees off the view axis -- 1.1 px on an 18 px frame at 0.9%
+            // zoom -- which is the gnomonic-against-stereographic difference this file documents,
+            // showing up as SIZE rather than position because the frame is far off-axis. Asserting a
+            // flat pixel there would be asserting the projections are the same, which they are not.
+            if (ImageWidth * scale >= 100f)
+            {
+                WorstCornerErrorPx(wcs, originX, originY, scale).ShouldBeLessThan(1.0, $"scale {scale}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// The same trap one step further: a frame PANNED so the pane's centre is off it entirely. The old
+    /// solver read the sky at a pixel the sensor never covered; this one never asks.
+    /// </summary>
+    [Fact]
+    public void AFramePannedOffTheCentre_IsStillPlacedWhereItIsDrawn()
+    {
+        WorstCornerErrorPx(ChartOriented(), originX: 900f, originY: 700f, scale: 0.5f).ShouldBeLessThan(1.0);
     }
 
     [Fact]

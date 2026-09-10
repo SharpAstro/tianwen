@@ -316,6 +316,9 @@ skyBackdrop.State.ViewDrivenExternally = true;
 // objects are the ladder's own lower rungs and are already drawn over the frame by the viewer, so
 // switching the map's copies on would double every label. The palette is how any of them is changed.
 skyBackdrop.State.ShowGrid = false;
+// The viewer draws the coordinate grid itself, across the whole pane, from the frame's own WCS -- so
+// the map's coarse celestial one is not an alternative, it is a second grid. Its row says so.
+skyBackdrop.State.GridDrawnByHost = true;
 skyBackdrop.State.ShowObjectOverlay = false;
 skyBackdrop.State.ShowAltAzGrid = false;
 skyBackdrop.State.ShowLayerPalette = true;

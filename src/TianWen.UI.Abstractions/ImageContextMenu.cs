@@ -138,10 +138,16 @@ namespace TianWen.UI.Abstractions
             // the reader do the other half of the job: paste it somewhere, in a browser they had to find
             // themselves, to see the sky they had just clicked on. Nothing is lost -- a browser's address
             // bar holds the same link, now with the page it names in front of it.
+            //
+            // It says (web) because this viewer now HAS an atlas: the context ladder's top rung draws
+            // the sky behind the frame in this window. Two things called "sky atlas", one of which
+            // leaves the application, and only the label can say which is which -- so it names the
+            // destination rather than the action. The in-process entry that will sit beside it is P2/P3
+            // of docs/plans/in-app-sky-atlas.md.
             if (hasSky)
             {
                 builder.Add(new ImageContextMenuItem(
-                    "Open in sky atlas",
+                    "Open in sky atlas (web)",
                     "sky atlas",
                     SkyAtlasLink.For(pixel.RA!.Value, pixel.Dec!.Value, fovDeg, capturedUtc),
                     ImageContextMenuAction.OpenUrl));

@@ -126,7 +126,8 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
     protected override void RenderSkyMap(
         ICelestialObjectDB db, RectF32 contentRect,
-        DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site)
+        DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site,
+        SkyMapDrawPhase phase = SkyMapDrawPhase.All)
     {
         var mapW = contentRect.Width;
         var mapH = contentRect.Height;
@@ -240,9 +241,16 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
               * MathF.Max(MathF.Min(40f / (float)State.FieldOfViewDeg, 1f), 0.3f)
             : 0f;
 
-        // Draw all sky map layers
+        // Draw the sky map layers this phase covers. A host splitting the two (the FITS viewer,
+        // which puts a photograph between them) gets the imagery here and the lines from
+        // RenderSkyMapLines below, reusing the ring-buffer writes above: same frame, same offsets,
+        // so the geometry is built once however many passes read it.
         _pipeline.Draw(cmd, State, mapW, mapH, contentRect.X, contentRect.Y,
-            milkyWayAlpha, horizonInfo, meridianInfo, altAzGridInfo, fovInfo);
+            milkyWayAlpha, horizonInfo, meridianInfo, altAzGridInfo, fovInfo, phase);
+
+        _deferredGeometry = phase is SkyMapDrawPhase.Backdrop
+            ? new DeferredGeometry(mapW, mapH, milkyWayAlpha, horizonInfo, meridianInfo, altAzGridInfo, fovInfo)
+            : null;
 
         // Restore the full-window viewport/scissor for text overlay rendering
         // (the pipeline sets a clipped viewport/scissor for the sky map area)
@@ -258,6 +266,47 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         Vortice.Vulkan.VkRect2D fullScissor = new(0, 0, ctx2.SwapchainWidth, ctx2.SwapchainHeight);
         api.vkCmdSetViewport(cmd2, 0, 1, &fullVp);
         api.vkCmdSetScissor(cmd2, 0, fullScissor);
+    }
+
+    /// <summary>What the line pass needs from the backdrop pass: the map rect it was drawn into and
+    /// the ring-buffer slices the dynamic geometry went to, all valid for THIS frame only.</summary>
+    private readonly record struct DeferredGeometry(
+        float MapWidth, float MapHeight, float MilkyWayAlpha,
+        (Vortice.Vulkan.VkBuffer Buffer, uint ByteOffset, uint VertexCount) Horizon,
+        (Vortice.Vulkan.VkBuffer Buffer, uint ByteOffset, uint VertexCount) Meridian,
+        (Vortice.Vulkan.VkBuffer Buffer, uint ByteOffset, uint VertexCount) AltAzGrid,
+        (Vortice.Vulkan.VkBuffer Buffer, uint ByteOffset, uint VertexCount) FovOutlines);
+
+    private DeferredGeometry? _deferredGeometry;
+
+    /// <inheritdoc/>
+    protected override void RenderSkyMapLines(RectF32 contentRect)
+    {
+        if (_pipeline is null || _deferredGeometry is not { } g)
+        {
+            return;
+        }
+
+        _deferredGeometry = null;
+
+        var ctx = renderer.Context;
+        var cmd = renderer.CurrentCommandBuffer;
+        _pipeline.Draw(cmd, State, g.MapWidth, g.MapHeight, contentRect.X, contentRect.Y,
+            g.MilkyWayAlpha, g.Horizon, g.Meridian, g.AltAzGrid, g.FovOutlines,
+            SkyMapDrawPhase.Lines);
+
+        // The pipeline clips its viewport to the map rect; everything drawn after this is in window
+        // coordinates, exactly as at the end of the backdrop pass.
+        var api = ctx.DeviceApi;
+        Vortice.Vulkan.VkViewport fullVp = new()
+        {
+            x = 0, y = 0,
+            width = ctx.SwapchainWidth, height = ctx.SwapchainHeight,
+            minDepth = 0f, maxDepth = 1f
+        };
+        Vortice.Vulkan.VkRect2D fullScissor = new(0, 0, ctx.SwapchainWidth, ctx.SwapchainHeight);
+        api.vkCmdSetViewport(cmd, 0, 1, &fullVp);
+        api.vkCmdSetScissor(cmd, 0, fullScissor);
     }
 
     /// <summary>

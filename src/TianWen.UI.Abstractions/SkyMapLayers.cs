@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using DIR.Lib;
 
@@ -98,12 +99,37 @@ namespace TianWen.UI.Abstractions
         ];
 
         /// <summary>
-        /// Toggles the layer <paramref name="key"/> names, if any. False when no layer claims the key
-        /// or the one that does is unavailable, so the caller goes on looking for a handler.
+        /// The layers a host should OFFER, which is <see cref="All"/> minus any the host draws itself.
+        /// </summary>
+        /// <remarks>
+        /// <b>Offered is not the same as available.</b> An unavailable layer is listed and dimmed --
+        /// it is one of this map's layers and it simply has nothing to draw right now, which is worth
+        /// saying. A layer the HOST draws is not this map's at all: listing it dimmed reads as a
+        /// broken button, and listing it live would give the reader two grids. The FITS viewer is the
+        /// case: its grid comes per-pixel from the frame's own WCS, stays fine at any zoom, and has
+        /// its own key and toolbar rung.
+        /// </remarks>
+        public static IEnumerable<SkyMapLayer> Offered(SkyMapState state)
+        {
+            foreach (var layer in All)
+            {
+                if (layer.Key is InputKey.G && state.GridDrawnByHost)
+                {
+                    continue;
+                }
+
+                yield return layer;
+            }
+        }
+
+        /// <summary>
+        /// Toggles the layer <paramref name="key"/> names, if any. False when no layer claims the key,
+        /// the one that does is unavailable, or the host draws it -- so the caller goes on looking for
+        /// a handler.
         /// </summary>
         public static bool TryToggleByKey(SkyMapState state, InputKey key)
         {
-            foreach (var layer in All)
+            foreach (var layer in Offered(state))
             {
                 if (layer.Key == key)
                 {

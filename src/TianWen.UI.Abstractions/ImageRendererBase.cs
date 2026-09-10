@@ -178,6 +178,13 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public DotNext.Threading.AsyncLazy<ICelestialObjectDB>? CelestialObjectDB { get; set; }
 
+        /// <summary>The viewer state the last render pass was given, for a backend that needs it
+        /// outside the render call it was handed to.</summary>
+        protected ViewerState? CurrentViewerState => _state;
+
+        /// <summary>The preview source the last render pass was given, for the same reason.</summary>
+        protected IPreviewSource? CurrentPreviewSource => _source;
+
         /// <summary>Whether this frame has already asked the catalog to load, so the ladder's ask is
         /// one-shot rather than a task allocation per frame while it loads.</summary>
         private bool _catalogWarmRequested;
@@ -891,6 +898,11 @@ namespace TianWen.UI.Abstractions
             if (ImageWidth > 0 && ImageHeight > 0)
             {
                 RenderImage(source, state, _preparedStretch, _preparedGridWcs);
+
+                // The half of the sky the photograph must NOT interrupt: constellation figures and
+                // boundaries, the grid, the horizon. The imagery half went under the picture inside
+                // RenderImage; this goes over it, and the viewer's own overlays then go over this.
+                RenderSkyLinesOverImage(_layout.ImageArea);
             }
 
             // Hand-off point for the AI capability probe: the Task IS the synchronisation primitive,
@@ -929,6 +941,9 @@ namespace TianWen.UI.Abstractions
             var overlayArea = _layout.ImageArea;
             PushClip(overlayArea.X, overlayArea.Y, overlayArea.Width, overlayArea.Height);
 
+            // The labels stay with their lines either way: the pane-wide pass draws the same grid from
+            // the same WCS, so these still name it -- at the picture's edge rather than the pane's,
+            // which is where the frame they belong to is.
             if (state.ShowGrid && document?.Wcs is { HasCDMatrix: true } wcs)
             {
                 RenderGridLabels(state, wcs);
@@ -1098,7 +1113,11 @@ namespace TianWen.UI.Abstractions
             // Grid WCS: the document's (still image), or the caller-supplied OverrideWcs for a
             // document-less live source (a plate-solved preview frame). GPU grid only; the RA/Dec labels
             // stay document-gated in RenderGridLabels (a live preview shows grid lines, not labels).
-            _preparedGridWcs = !state.ShowGrid
+            //
+            // ONE grid, never two. With the sky behind the frame the SAME grid is drawn across the
+            // whole pane in its own pass (RenderPaneWideGrid), so drawing it on the image quad as well
+            // would double every line inside the picture.
+            _preparedGridWcs = !state.ShowGrid || PaneWideGrid
                 ? null as WCS?
                 : (document?.Wcs is { HasCDMatrix: true } w
                     ? w

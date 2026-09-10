@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using DIR.Lib;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 
@@ -47,6 +48,18 @@ namespace TianWen.UI.Abstractions
                 // backdrop, which is what makes a host that wired none behave exactly as before.
                 _children = value is null ? [] : [value];
                 ShareUiContext(value is null ? [] : [value]);
+
+                if (value is not null)
+                {
+                    // Start the palette BELOW the histogram. Both float against the pane's top right,
+                    // so the map's own default (a margin from the top, which is right in a host whose
+                    // corner is empty) lands the panel squarely on top of it. Derived from the
+                    // histogram's own metrics rather than guessed, and only a DEFAULT: it is the
+                    // palette's stored offset, so the first drag replaces it and nothing here fights
+                    // the user afterwards.
+                    value.State.LayerPalette.OffsetAlong =
+                        BaseHistogramMargin + BaseHistogramHeight + FloatingPalette.Margin;
+                }
             }
         }
 
@@ -54,7 +67,15 @@ namespace TianWen.UI.Abstractions
         private IReadOnlyList<PixelWidgetBase<TSurface>> _children = [];
 
         /// <inheritdoc/>
-        protected override IReadOnlyList<PixelWidgetBase<TSurface>> Children => _children;
+        /// <remarks>
+        /// Gated on the map actually being DRAWN this frame, not merely attached. A widget keeps the
+        /// regions it registered on its last paint, so a map that has stopped painting -- the ladder
+        /// stepped off the sky rung, the frame lost its solution -- would go on answering hit tests
+        /// for a palette that is no longer on screen, and a click on the picture would toggle an
+        /// invisible layer row.
+        /// </remarks>
+        protected override IReadOnlyList<PixelWidgetBase<TSurface>> Children
+            => SkyBackdropActive ? _children : [];
 
         // The sky map paints UNDER everything this widget draws -- except its palette, which paints
         // over all of it. So the composite's default z-order (this widget's own regions first, then
@@ -63,17 +84,20 @@ namespace TianWen.UI.Abstractions
         // answered, in exchange for not restating the composition. A dispatch cannot double-fire on
         // that second ask, because reaching it means nothing on the map was hit.
 
+        /// <summary>The map, but only while it is on screen -- see the note on <see cref="Children"/>.</summary>
+        private SkyMapTab<TSurface>? PaintedSkyBackdrop => SkyBackdropActive ? _skyBackdrop : null;
+
         /// <inheritdoc/>
         public override HitResult? HitTest(float x, float y)
-            => _skyBackdrop?.HitTest(x, y) ?? base.HitTest(x, y);
+            => PaintedSkyBackdrop?.HitTest(x, y) ?? base.HitTest(x, y);
 
         /// <inheritdoc/>
         public override HitResult? HitTestAndDispatch(float x, float y, InputModifier modifiers = InputModifier.None)
-            => _skyBackdrop?.HitTestAndDispatch(x, y, modifiers) ?? base.HitTestAndDispatch(x, y, modifiers);
+            => PaintedSkyBackdrop?.HitTestAndDispatch(x, y, modifiers) ?? base.HitTestAndDispatch(x, y, modifiers);
 
         /// <inheritdoc/>
         public override CursorKind? HitTestCursor(float x, float y)
-            => _skyBackdrop?.HitTestCursor(x, y) ?? base.HitTestCursor(x, y);
+            => PaintedSkyBackdrop?.HitTestCursor(x, y) ?? base.HitTestCursor(x, y);
 
         /// <summary>
         /// What the sky map reads its catalog, site and instant from, supplied by the host. The viewer
@@ -100,6 +124,19 @@ namespace TianWen.UI.Abstractions
                && SkyTimeProvider is not null
                && SkyPlannerState is { ObjectDb: not null }
                && _document?.Wcs is { HasCDMatrix: true };
+
+        /// <summary>
+        /// Whether the coordinate grid spans the whole PANE rather than just the picture. The grid is
+        /// dual-state: the same layer, on the same key, drawn frame-wide at the ladder's lower rungs
+        /// and pane-wide the moment the sky is behind the frame -- which is the only arrangement in
+        /// which a grid over a photograph AND a grid over the sky are one grid rather than two.
+        /// </summary>
+        /// <remarks>
+        /// It is not a separate toggle and deliberately so: a second switch produced exactly the
+        /// confusion it looks like it avoids -- turning "grid" off showed MORE grid, because the
+        /// frame's fine one went away and the sky map's coarse one appeared behind it.
+        /// </remarks>
+        private bool PaneWideGrid => SkyBackdropActive && _state is { ShowGrid: true };
 
         /// <summary>
         /// Whether the sky map wants another frame -- a star buffer that finished building off-thread,
@@ -151,9 +188,58 @@ namespace TianWen.UI.Abstractions
             // it must be clipped to the pane, or a star field reaches under the toolbar and the file
             // list exactly as the image quad would.
             PushClip(area.X, area.Y, area.Width, area.Height);
-            tab.RenderSkyBehind(planner, area, clock);
+            tab.RenderSkyBehind(planner, area, clock, deferLines: true);
             PopClip();
             return true;
+        }
+
+        /// <summary>
+        /// Draws the sky's LINE geometry over the photograph -- constellation figures and boundaries,
+        /// the coordinate grid, the horizon, the meridian -- and the labels that name them. Called
+        /// straight after the image quad, before the viewer's own overlays, so the frame's own
+        /// markers still sit on top.
+        /// </summary>
+        /// <remarks>
+        /// A constellation line that stops at the edge of a photograph and resumes on the other side
+        /// reads as BROKEN, not as occluded, which is why these cross the frame while the star field
+        /// and the milky way behind it do not: the photograph is a better picture of the same stars,
+        /// and it is not a picture of the figure at all.
+        /// </remarks>
+        private void RenderSkyLinesOverImage(RectF32 area)
+        {
+            if (!SkyBackdropActive || SkyBackdrop is not { } tab)
+            {
+                return;
+            }
+
+            PushClip(area.X, area.Y, area.Width, area.Height);
+            tab.RenderSkyLines(area);
+
+            // The frame's own grid, now spanning the pane: drawn with the sky's lines because it is
+            // one of them here, and over the photograph for the same reason they are.
+            if (PaneWideGrid && _document?.Wcs is { HasCDMatrix: true } gridWcs)
+            {
+                var p = _placement;
+                RenderPaneWideGrid(gridWcs, area, p.OffsetX, p.OffsetY, p.DrawW, p.DrawH);
+            }
+
+            PopClip();
+        }
+
+        /// <summary>
+        /// Draws the WCS grid across the whole image pane rather than only over the picture, so one
+        /// grid covers the photograph and the sky it sits on. A backend that cannot do it draws
+        /// nothing extra and the grid simply stops at the frame, as it did before.
+        /// </summary>
+        /// <param name="wcs">The frame's solution; the grid is evaluated from it per pixel.</param>
+        /// <param name="pane">The whole image pane, which is what the grid now covers.</param>
+        /// <param name="imageLeft">Screen x of the drawn picture's left edge.</param>
+        /// <param name="imageTop">Screen y of the drawn picture's top edge.</param>
+        /// <param name="imageWidth">Drawn width of the picture in screen pixels.</param>
+        /// <param name="imageHeight">Drawn height of the picture in screen pixels.</param>
+        protected virtual void RenderPaneWideGrid(in WCS wcs, RectF32 pane,
+            float imageLeft, float imageTop, float imageWidth, float imageHeight)
+        {
         }
 
         /// <summary>
