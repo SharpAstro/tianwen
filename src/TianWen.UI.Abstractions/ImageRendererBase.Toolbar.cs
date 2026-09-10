@@ -1908,8 +1908,11 @@ namespace TianWen.UI.Abstractions
             "Left / Right         Step one frame",
             "Home / End           First / last frame",
             "Up / Down            Previous / next file",
+            "Click                Select the catalogued object under the pointer",
             "F11                  Fullscreen",
-            "Esc                  Quit",
+            // Esc does BOTH, in that order, which is worth one row rather than two: a reader who has
+            // just selected something needs to know the key is not going to close the viewer.
+            "Esc                  Clear the selection, else quit",
         ];
 
         // What Auto resolved to for the frame on screen, named for the StretchLink button. Mirrors the

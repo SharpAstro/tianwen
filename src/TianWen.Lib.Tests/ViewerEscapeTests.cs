@@ -144,5 +144,60 @@ namespace TianWen.Lib.Tests
             Escape(viewer, bus);
             exits().ShouldBe(1);
         }
+
+        // --- a SELECTION is one of the things Escape dismisses ---
+
+        private static ViewerObjectSelection Selected()
+            => new ViewerObjectSelection("Lagoon Nebula", "NGC 6523", 18.06, -24.38, ["Lagoon Nebula"]);
+
+        /// <summary>
+        /// A selection is dismissed rather than the viewer quitting -- the same contract the dropdown
+        /// has, and the one that makes Escape safe to press at all.
+        /// </summary>
+        /// <remarks>
+        /// Unlike a dropdown, a selection is NOT a keyboard claimant: it paints no panel and owns no
+        /// keys, so nothing else can absorb the press on its behalf and the Escape branch has to know
+        /// about it. That is the difference this case exists to pin.
+        /// </remarks>
+        [Fact]
+        public void EscapeClearsASelectionRatherThanQuitting()
+        {
+            var (viewer, state, bus, exits) = NewViewer();
+            viewer.Render(null, state);
+            state.SelectedObject = Selected();
+
+            Escape(viewer, bus);
+
+            state.SelectedObject.ShouldBeNull();
+            exits().ShouldBe(0);
+
+            // And the second press exits, exactly as it does after a dropdown.
+            Escape(viewer, bus);
+            exits().ShouldBe(1);
+        }
+
+        /// <summary>
+        /// With BOTH open, the panel goes first: it claimed the keyboard by painting, so the press
+        /// never reaches the selection.
+        /// </summary>
+        /// <remarks>
+        /// The ordering matters because the panel is the thing in front of the reader. Getting it the
+        /// other way round would clear a selection the user cannot even see past the open menu, and
+        /// leave the menu open.
+        /// </remarks>
+        [Fact]
+        public void AnOpenPanelIsDismissedBeforeTheSelection()
+        {
+            var (viewer, state, bus, exits) = NewViewer();
+            viewer.Render(null, state);
+            state.SelectedObject = Selected();
+
+            OpenAPanel(viewer, state);
+            Escape(viewer, bus);
+
+            state.ToolbarDropdown.IsOpen.ShouldBeFalse();
+            state.SelectedObject.ShouldNotBeNull("the panel absorbed the key, so the selection stands");
+            exits().ShouldBe(0);
+        }
     }
 }

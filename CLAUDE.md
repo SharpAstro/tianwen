@@ -1646,6 +1646,16 @@ The rules:
   inside a fixed box; the rest change on a discrete action, where a re-layout is the button reporting
   what it did. Measured at 26.4 px of travel across ten buttons. **This is NOT the damage tracker** --
   per-swapchain-image damage is a real flicker mechanism (P15's tooltip) and the wrong suspect here.
+- **A left click SELECTS the catalogued object under it, and a selection is not a hover.**
+  `ViewerState.SelectedObject` is resolved ONCE at the click (name, designation, the OBJECT's
+  coordinates, the identification stack), so the ring, the info panel and the atlas link agree by
+  construction and none of them asks the catalogue per frame. Three rules: it fires on the tap
+  RELEASE, never the press (a press on the picture starts a pan, so on the press every drag would
+  select); **the resolver applies the OVERLAY's type gate**, or it names things drawn nowhere -- a
+  click on M42's core answered "HH 1146" until it did, and the same hole had been in the right-click
+  menu since P28; and it ignores EXTENT, so at a nebula's centre "nearest" can legitimately answer an
+  embedded star (M42 has three catalogued objects within 0.2 arcseconds, against a click quantised to
+  a whole pixel). Escape clears it before Escape means quit, after any open dropdown.
 - **A share link about an object carries `object=`**, which the web build already parses and re-tries
   as the catalog loads: a pointing is not a selection. `SkyAtlasLink` owns the whole vocabulary
   INCLUDING the escaping (`EscapeObjectToken` keeps "/" literal so "10P/Tempel" stays readable) --

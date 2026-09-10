@@ -5,6 +5,7 @@ using System.Numerics;
 using DIR.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
+using TianWen.UI.Abstractions.Overlays;
 
 namespace TianWen.UI.Abstractions
 {
@@ -130,7 +131,8 @@ namespace TianWen.UI.Abstractions
                 : null;
 
             return ImageContextMenu.ItemsFor(
-                pixel, fovDeg, image?.ImageMeta.ExposureStartTime, FindObjectAt(pixel, fovDeg));
+                pixel, fovDeg, image?.ImageMeta.ExposureStartTime, FindObjectAt(pixel, fovDeg),
+                state.SelectedObject);
         }
 
         /// <summary>
@@ -153,6 +155,29 @@ namespace TianWen.UI.Abstractions
         /// the menu can only ever name something the overlay would have drawn.</para>
         /// </remarks>
         private ImageContextMenuObject? FindObjectAt(PixelInfo pixel, double? fovDeg)
+            => FindCatalogObjectAt(pixel, fovDeg) is { } found
+                ? new ImageContextMenuObject(NameOf(found.Object), found.Object.Index.ToCanonical())
+                : null;
+
+        /// <summary>
+        /// How an object is NAMED, once. <see cref="CelestialObject.DisplayName"/> is the overlay
+        /// label's own pick (priority, then longest-then-alphabetical), so the menu, the selection and
+        /// the marker beside them all name an object the same way.
+        /// </summary>
+        private static string NameOf(CelestialObject obj)
+            => obj.CommonNames.Count > 0 ? obj.DisplayName : obj.Index.ToCanonical();
+
+        /// <summary>
+        /// The nearest catalogued object to <paramref name="pixel"/>, as the catalogue holds it.
+        /// </summary>
+        /// <remarks>
+        /// <b>The search itself, with nothing projected out of it yet</b>, because two callers want
+        /// different halves: the context menu needs a name and a designation, while a SELECTION also
+        /// needs the object's own coordinates and its full identification stack. Splitting it this way
+        /// rather than widening <see cref="ImageContextMenuObject"/> keeps the menu's payload record
+        /// about the menu, and keeps one implementation of "which object is under this pixel".
+        /// </remarks>
+        private (CelestialObject Object, CatalogIndex Index)? FindCatalogObjectAt(PixelInfo pixel, double? fovDeg)
         {
             if (pixel.RA is not { } raHours || pixel.Dec is not { } dec
                 || fovDeg is not { } fov || !double.IsFinite(fov) || fov <= 0
@@ -179,6 +204,20 @@ namespace TianWen.UI.Abstractions
                     continue;
                 }
 
+                // The overlay's OWN type gate, so this can only name something the overlay would have
+                // drawn -- which is what the remarks above have always claimed and, until a
+                // click-to-select test went looking for M42, was not true. The Orion Nebula's core is
+                // full of catalogued objects of types the overlay deliberately filters out, and
+                // "nearest wins" was picking one: a click on the middle of M42 answered HH 1146, a
+                // Herbig-Haro object that is drawn nowhere, named nowhere else, and not what anyone
+                // clicking a nebula is asking about. Same two predicates the overlay uses, from the
+                // same class, rather than a list of types repeated here.
+                var type = candidate.ObjectType;
+                if (!OverlayEngine.IsExtendedObjectType(type) && !OverlayEngine.IsStarType(type))
+                {
+                    continue;
+                }
+
                 // Flat-sky separation with the cos(dec) term on RA: the tolerance is arcminutes, so
                 // nothing here needs a spherical law of cosines.
                 var dRa = (candidateRa - raHours) * 15.0 * Math.Cos(dec * Math.PI / 180.0);
@@ -191,16 +230,77 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
-            if (found is not { } obj)
+            return found is { } obj ? (obj, obj.Index) : null;
+        }
+
+        /// <summary>
+        /// Selects the catalogued object at a screen position, or clears the selection when there is
+        /// nothing there. Returns whether the selection CHANGED, which is what tells the caller a
+        /// repaint is owed.
+        /// </summary>
+        /// <remarks>
+        /// <para>Reached from a tap RELEASE, never a press: a press on the picture is the start of a
+        /// pan, so selecting there would fire on every drag. See <c>_pressToSelect</c>.</para>
+        /// <para><b>A click on empty sky CLEARS.</b> That is what makes the selection dismissable
+        /// without a second gesture to learn, and it is the reason this returns a bool rather than the
+        /// selection: "nothing changed" and "nothing is selected" are different answers, and only the
+        /// first one means no repaint.</para>
+        /// <para>The identification lines come from <see cref="OverlayEngine.BuildOverlayLabel"/> at
+        /// the full-zoom, in-frame tier, deliberately: the panel is the place a person goes for the
+        /// FULL identity, and asking for it at the current zoom would make the panel's content change
+        /// as the wheel turns.</para>
+        /// </remarks>
+        private bool TrySelectObjectAt(ViewerState state, float px, float py)
+        {
+            var area = _layout.ImageArea;
+
+            // Resolve the pixel from THIS release, through the same converter the readout and the
+            // context menu use -- the pointer may never have moved over the image (a synthesized
+            // click, a touch tap), and a selection that silently fails then is indistinguishable from
+            // the feature being absent.
+            ViewerActions.UpdateCursorFromScreenPosition(
+                _document, state, px, py, area.X, area.Y, area.Width, area.Height);
+
+            var info = _document is { } document && state.CursorImagePosition is { } at
+                ? document.GetPixelInfo(at.X, at.Y)
+                : state.CursorPixelInfo;
+
+            var image = _document?.UnstretchedImage;
+            var fovDeg = image is { } img
+                ? SkyAtlasLink.FieldOfViewDeg(_document?.Wcs, img.Width, img.Height)
+                : null;
+
+            var resolved = info is { } pixel ? FindCatalogObjectAt(pixel, fovDeg) : null;
+
+            if (resolved is not { } hit)
             {
-                return null;
+                if (state.SelectedObject is null)
+                {
+                    return false;
+                }
+
+                state.SelectedObject = null;
+                state.StatusMessage = null;
+                return true;
             }
 
+            var (obj, idx) = hit;
             var designation = obj.Index.ToCanonical();
-            // DisplayName is the overlay label's own pick (priority, then longest-then-alphabetical),
-            // so the menu names an object exactly as the marker beside it does.
-            var name = obj.CommonNames.Count > 0 ? obj.DisplayName : designation;
-            return new ImageContextMenuObject(name, designation);
+            var lines = LoadedCatalog is { } db
+                ? OverlayEngine.BuildOverlayLabel(obj, idx, db, zoom: 1f).ToImmutableArray()
+                : [NameOf(obj)];
+
+            var selection = new ViewerObjectSelection(
+                NameOf(obj), designation, obj.RA, obj.Dec, lines);
+
+            if (state.SelectedObject == selection)
+            {
+                return false;
+            }
+
+            state.SelectedObject = selection;
+            state.StatusMessage = $"Selected {selection.Name}";
+            return true;
         }
 
         private void CopyToClipboard(ViewerState state, string description, string payload)

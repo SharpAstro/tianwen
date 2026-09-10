@@ -17,14 +17,24 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     wrong answer, since the fix keys on `BackgroundAlreadyExtracted` which only the enhance path sets.
     Deciding it from the pixels needs a threshold; that is the open question.
 
-- [ ] **Selecting an object in the viewer: the resolver exists, the selection does not**
-  (raised 2026-09-10). `FindObjectAt` already answers "which catalogued object is under this pixel"
-  and is wired to right-click ONLY; the viewer has no notion of a selected object, so a left click or
-  a hover has nowhere to put the answer. Independent of the sky map (WCS plus catalog). Whether it is
-  hover or click was deliberately left open. Clicking a STAR is a separate nearest-centroid search
-  over `document.Stars`, not this.
+- [x] **Selecting an object in the viewer** (raised and SHIPPED 2026-09-10). `FindObjectAt` already
+  answered "which catalogued object is under this pixel" and had been wired to right-click ONLY; the
+  viewer had no notion of a selected object, so a left click had nowhere to put the answer. **The user
+  chose CLICK over hover.** `ViewerState.SelectedObject` resolves once at the click and carries the
+  name, designation, the object's own coordinates and the identification stack; the ring draws with
+  the overlay OFF, the info panel gets a Selection section, the context menu gains the selection's own
+  atlas entry, and Escape clears it before Escape means quit. Fires on the tap RELEASE, never the
+  press. **A real defect fell out of the tests: the resolver named types the overlay never draws** (a
+  click on M42's core answered "HH 1146"), now gated by the overlay's own two predicates -- which also
+  closes the same hole in the right-click menu.
   [docs/plans/in-app-sky-atlas.md](docs/plans/in-app-sky-atlas.md), "Deferred from the 2026-09-10
   sitting".
+  - [ ] **Still open: clicking a STAR is a separate resolver.** `document.Stars` holds DETECTED
+    CENTROIDS, not catalogue entries, so it is a nearest-centroid search over the star list rather
+    than `FindObjectAt`. "Click an object or a star" reads like one feature and is two.
+  - [ ] **Still open (judgement, not a bug): whether the resolver should also apply the overlay's
+    MAGNITUDE cutoff.** It would complete the "only ever names something the overlay drew" promise,
+    at the cost of making the answer depend on zoom.
   - [x] **Constellation-figure stars now reach the overlay at wider fields** (2026-09-10):
     `OverlayEngine.FigureStarMagCutoff = 5.0` is a FLOOR under the field-of-view tiers for a star a
     figure line runs through, resolved through the cross-references since the figure set is keyed by

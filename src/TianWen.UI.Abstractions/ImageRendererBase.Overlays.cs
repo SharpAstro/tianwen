@@ -551,6 +551,72 @@ namespace TianWen.UI.Abstractions
             }
         }
 
+        /// <summary>
+        /// Rings the SELECTED object and names it, at whatever rung of the context ladder the viewer
+        /// is on.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Independent of <see cref="ViewerState.ShowOverlays"/> on purpose.</b> The resolver
+        /// behind a selection needs only a WCS and the catalogue, so an object can be selected with the
+        /// overlay off -- and a selection that answers a click by drawing nothing is indistinguishable
+        /// from a click that missed. The NAME is drawn beside the ring for the same reason: with the
+        /// overlay off there is no label anywhere else, and a bare ring says "something" rather than
+        /// "tau PsA".</para>
+        /// <para><b>Two rings rather than one, and the accent colour rather than a marker colour.</b>
+        /// A single ring in a marker's own palette is a marker; the pair plus the theme's
+        /// <see cref="UiPalette.Accent"/> cannot be mistaken for one. Accent, not a literal, so Night
+        /// mode gets a ring with no blue in it instead of a cyan one on a red-on-black sky.</para>
+        /// <para>Drawn from the OBJECT's coordinates through the same
+        /// <see cref="ViewportLayout"/> the markers use, so the ring lands on the marker rather than
+        /// beside it -- and it is the object's position, never the click's, so it stays put when the
+        /// pointer moves on.</para>
+        /// </remarks>
+        private void RenderSelectionHighlight(ViewerState state, WCS wcs)
+        {
+            if (state.SelectedObject is not { } selection || ImageWidth <= 0 || ImageHeight <= 0)
+            {
+                return;
+            }
+
+            if (wcs.SkyToPixel(selection.RaHours, selection.Dec) is not { } px)
+            {
+                return;
+            }
+
+            var area = _layout.ImageArea;
+            var layout = new ViewportLayout(
+                WindowWidth: Width,
+                WindowHeight: Height,
+                ImageWidth: ImageWidth,
+                ImageHeight: ImageHeight,
+                Zoom: state.Zoom,
+                PanOffset: state.PanOffset,
+                AreaLeft: area.X,
+                AreaTop: area.Y,
+                AreaWidth: area.Width,
+                AreaHeight: area.Height,
+                DpiScale: DpiScale);
+
+            // SkyToPixel answers in the 1-based FITS convention and ImageToScreen takes 0-based, the
+            // same subtraction OverlayEngine makes at its own projection.
+            var (sx, sy) = WcsAnnotationLayer.ImageToScreen(px.X - 1, px.Y - 1, layout);
+            var screenX = (float)sx;
+            var screenY = (float)sy;
+
+            var accent = ViewerTheme.Palette.Accent;
+            var inner = 9f * DpiScale;
+            var outer = inner + (3f * DpiScale);
+
+            DrawEllipseOverlay(screenX, screenY, inner, inner, 0f, accent, 1.5f);
+            DrawEllipseOverlay(screenX, screenY, outer, outer, 0f, accent, 1.5f);
+
+            if (!string.IsNullOrEmpty(FontPath))
+            {
+                DrawText(selection.Name, screenX + outer + (4f * DpiScale),
+                    screenY - (FontSize * 0.5f), FontSize * 0.85f, accent);
+            }
+        }
+
         private static RGBAColor32 FloatToColor(float r, float g, float b, float a)
             => RGBAColor32.FromFloat(r, g, b, a);
 

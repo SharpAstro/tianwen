@@ -206,5 +206,70 @@ namespace TianWen.Lib.Tests
             => ImageContextMenu.ItemsFor(Pixel([0.1f], ra: 1.0, dec: 2.0))
                 .Select(i => i.Description)
                 .ShouldNotContain("object name");
+
+        // --- the SELECTION's atlas entry ---
+
+        private static ViewerObjectSelection Selected(string name = "Lagoon Nebula",
+            string designation = "NGC 6523", double raHours = 18.06, double dec = -24.38)
+            => new ViewerObjectSelection(name, designation, raHours, dec, [name]);
+
+        /// <summary>
+        /// A selection earns its OWN atlas entry, centred on the object rather than on the click.
+        /// </summary>
+        /// <remarks>
+        /// <b>A second entry rather than re-pointing the first.</b> The existing entry opens the atlas
+        /// at the pixel that was right-clicked, and quietly aiming it somewhere else on the frame
+        /// whenever a selection happens to exist would make a positional action mean different things
+        /// depending on state. So both are offered, each labelled with what it acts on -- and the
+        /// coordinates prove which is which, since the click here is nowhere near the selection.
+        /// </remarks>
+        [Fact]
+        public void ASelectionAddsItsOwnAtlasEntryPointedAtTheObject()
+        {
+            var items = ImageContextMenu.ItemsFor(
+                Pixel([0.1f], ra: 1.0, dec: 2.0), fovDeg: 1.5, selection: Selected());
+
+            var atlas = items.Where(i => i.Description == "sky atlas").ToArray();
+            atlas.Length.ShouldBe(2, "the positional entry and the selection's own");
+
+            // The positional one carries the CLICK: 1.0 h = 15 deg.
+            atlas[0].Payload.ShouldContain("ra=15");
+            atlas[0].Label.ShouldBe("Open in sky atlas (web)");
+
+            // The selection's carries the OBJECT, and says whose it is. The space is %20 rather than
+            // "+": SkyAtlasLink escapes with Uri.EscapeDataString, which is the whole reason the
+            // escaping lives there and not at each end of the link.
+            atlas[1].Label.ShouldBe("Open Lagoon Nebula in sky atlas (web)");
+            atlas[1].Payload.ShouldContain("object=NGC%206523");
+
+            // 18.06 h = 270.9 deg, so the two entries really are pointed at different places.
+            atlas[1].Payload.ShouldContain("ra=270.9");
+        }
+
+        /// <summary>
+        /// When the right-click resolved the SAME object that is selected, the second entry is not
+        /// offered: two rows doing the same thing is the noise the designation/name pair above avoids
+        /// for the same reason.
+        /// </summary>
+        [Fact]
+        public void ASelectionAlreadyUnderTheClickAddsNoSecondEntry()
+        {
+            var items = ImageContextMenu.ItemsFor(
+                Pixel([0.1f], ra: 18.06, dec: -24.38), fovDeg: 1.5,
+                nearest: new ImageContextMenuObject("Lagoon Nebula", "NGC 6523"),
+                selection: Selected());
+
+            items.Count(i => i.Description == "sky atlas").ShouldBe(1);
+        }
+
+        /// <summary>
+        /// A pixel with no sky position offers no atlas entry at all, selection or not -- the link
+        /// needs coordinates to centre on, and the selection's entry rides inside that same gate.
+        /// </summary>
+        [Fact]
+        public void WithoutAWcsASelectionStillOffersNoAtlasEntry()
+            => ImageContextMenu.ItemsFor(Pixel([0.1f]), fovDeg: 1.5, selection: Selected())
+                .Count(i => i.Description == "sky atlas")
+                .ShouldBe(0);
     }
 }

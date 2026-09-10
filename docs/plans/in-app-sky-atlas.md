@@ -446,17 +446,51 @@ Everything raised while driving the shipped backdrop that was deliberately NOT b
 the next pass starts from the findings rather than from the screenshots. The user's instruction on
 locking the release scope was *"as long as we track everything we skipped in a plan, with high prio"*.
 
-- **P5's click-select, and the fact that most of it already exists.** `FindObjectAt`
-  (`ImageRendererBase.ContextMenu.cs`) already resolves the nearest catalogued object at a pixel from
-  the frame's own WCS and `DeepSkyCoordinateGrid`, with an FOV-scaled tolerance, and deliberately
-  gathers from the same grid the overlay draws from so it can only ever name something the overlay
-  would have drawn. **It is wired to right-click only.** What is missing is downstream: the viewer has
-  no notion of a SELECTED object (the sky map has `Search.InfoPanel`; the viewer has nothing), so
-  there is nowhere for a left click's answer to go and nothing drawn to show it landed. **It needs no
-  sky map** -- the resolver is WCS plus catalog, so this works at every rung of the ladder.
-- **Hover versus click was left undecided, on purpose.** The user went "just a hover thing would be
-  okay" -> "or just clicking on it" -> "scratch that maybe" within a minute. Both need the same
-  missing piece above; pick one deliberately rather than inferring it from that exchange.
+- ~~**P5's click-select**~~ / ~~**hover versus click**~~ -- **CLICK, chosen by the user 2026-09-10, and
+  SHIPPED.** `FindObjectAt` (`ImageRendererBase.ContextMenu.cs`) already resolved the nearest
+  catalogued object at a pixel from the frame's own WCS and `DeepSkyCoordinateGrid`, with an FOV-scaled
+  tolerance, and had been wired to right-click ALONE for weeks: what was missing was downstream, since
+  the viewer had no notion of a SELECTED object and so nowhere for a left click's answer to go. It
+  needs no sky map -- the resolver is WCS plus catalogue -- so it works at every rung of the ladder.
+  - **`ViewerState.SelectedObject`** (a `ViewerObjectSelection`) is the missing half: name,
+    designation, the OBJECT's own coordinates, and the identification stack, all resolved ONCE at the
+    click. The highlight, the info panel and the atlas link then agree by construction, none of them
+    touches the catalogue on the render thread, and a selection survives the catalogue becoming
+    unavailable afterwards.
+  - **It fires on the tap RELEASE, never the press** (`_pressToSelect`, `TapSlopPx = 4`), because a
+    press on the picture is the start of a pan: on the press, every drag would select whatever was
+    under the finger. Same tap-on-release model the file list uses.
+  - **Dismissal has two routes**: a click on empty sky, and Escape -- which clears the selection
+    BEFORE it means quit, and is itself preceded by any open dropdown, since that claimed the
+    keyboard by painting. A selection is not a keyboard claimant (it paints no panel), so the Escape
+    branch has to know about it; that asymmetry is what `ViewerEscapeTests` now pins.
+  - **The ring draws with the OVERLAY OFF** and carries the name, because a click resolves an object
+    at every rung and a selection that draws nothing cannot be told from a click that missed. Two
+    concentric rings in `UiPalette.Accent` -- a pair so it cannot read as a marker, and the accent so
+    Night mode gets a ring with no blue in it.
+  - **The selection gets its OWN atlas entry** rather than re-pointing the positional one. The
+    existing entry opens the atlas at the pixel that was right-clicked; quietly aiming it elsewhere
+    whenever a selection exists would make a positional action mean different things depending on
+    state. Both are offered, each labelled with what it acts on, and the selection's is skipped when
+    the click resolved that same object.
+  - **A real defect fell out of writing the tests: the resolver named objects the overlay never
+    draws.** Its own remarks claimed it "can only ever name something the overlay would have drawn",
+    and it applied no TYPE gate -- so a click on the middle of M42 answered **HH 1146**, a Herbig-Haro
+    object (`ObjectType.HerbigHaroObj` is in neither `IsExtendedObjectType` nor `IsStarType`, exactly
+    like the star-forming regions the overlay filters out on purpose). Fixed with the overlay's own two
+    predicates, asked from the same class. It reached the right-click menu too, which had been naming
+    them since P28.
+  - **What that investigation measured, worth keeping:** M42's core holds NGC 1976, HIP 26221 and
+    HD 37022 (the last two being one star) within **0.2 arcseconds** of each other, plus five HH
+    objects inside 12 arcseconds -- while a click quantises to a whole image pixel (2 arcseconds at
+    2"/px). So at the centre of a bright nebula "nearest centre" is decided by the rounding, and a
+    click there can legitimately answer the embedded star rather than the nebula. **The resolver
+    ignores EXTENT by design** (an object's shape is not consulted), which is why the test fixture is
+    M51 -- nearest other drawn object 265 arcseconds, an order of magnitude outside the tolerance --
+    and why M42 is the right fixture for the type-gate case and the wrong one for everything else.
+  - **Still open:** whether the resolver should also apply the overlay's MAGNITUDE cutoff. That would
+    complete the "only what is drawn" promise, but it makes the answer depend on zoom, so it is a
+    judgement rather than a bug. And clicking a STAR is still a different resolver (below).
 - **Clicking a STAR is a different resolver.** `document.Stars` holds DETECTED CENTROIDS, not
   catalogue entries, so it is a nearest-centroid search over the star list, not `FindObjectAt`. Worth
   saying because "click an object or a star" reads like one feature and is two.

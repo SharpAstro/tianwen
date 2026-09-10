@@ -61,6 +61,18 @@ public sealed class ViewerState
     /// <summary>Pixel info at the current cursor position.</summary>
     public PixelInfo? CursorPixelInfo { get; set; }
 
+    /// <summary>
+    /// The catalogued object a click selected, or null. Persists until it is dismissed -- a click on
+    /// empty sky, Escape, or a new document.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately NOT derived from the pointer: a hover answer would be a different feature (it
+    /// disappears the moment you move to act on it), and the whole point of a selection is that the
+    /// info panel and the atlas link have something stable to act on. See
+    /// <see cref="ViewerObjectSelection"/>.
+    /// </remarks>
+    public ViewerObjectSelection? SelectedObject { get; set; }
+
     /// <summary>Whether a plate solve is currently in progress.</summary>
     public bool IsPlateSolving { get; set; }
 

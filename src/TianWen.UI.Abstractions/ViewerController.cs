@@ -313,6 +313,12 @@ public sealed class ViewerController(
                 state.CursorPixelInfo = null;
                 state.StatusMessage = null;
 
+                // The selection named an object in the frame that just went away, so it goes with the
+                // cursor readout above and for the same reason. Cleared HERE rather than on every
+                // source replacement: an enhance replaces the document too and its sky is the same
+                // one, so a selection made before it is still about the object on screen.
+                state.SelectedObject = null;
+
                 // Disable stretch for pre-stretched images, re-enable for linear images
                 if (newDoc.IsPreStretched)
                 {
