@@ -88,6 +88,36 @@ namespace TianWen.Lib.Tests
                 "the menu is not a second place the URL vocabulary is spelled out");
         }
 
+        /// <summary>
+        /// A click that resolved an object hands the atlas that object, not just its coordinates.
+        /// </summary>
+        /// <remarks>
+        /// The gap this closes was visible in one screenshot: the menu's own first row read "Copy
+        /// object name   NGC 7204A" while the link below it carried ra/dec/fov/t and nothing else, so
+        /// the atlas opened on the right sky with the object unselected and unnamed among its
+        /// neighbours. The DESIGNATION is the token because it is what the atlas's search resolves
+        /// unambiguously; a common name can be shared between objects or missing entirely.
+        /// </remarks>
+        [Fact]
+        public void TheShareLinkCarriesTheObjectTheClickResolved()
+        {
+            var items = ImageContextMenu.ItemsFor(
+                Pixel([0.1f], ra: 1.0, dec: 2.0),
+                nearest: new ImageContextMenuObject("Lagoon Nebula", "NGC 6523"));
+
+            items.First(i => i.Description == "sky atlas").Payload
+                .ShouldEndWith("&object=NGC%206523");
+        }
+
+        /// <summary>
+        /// A right-click on empty sky is a pointing, so the link stays one.
+        /// </summary>
+        [Fact]
+        public void AClickOnNoObjectSharesAPointingOnly()
+            => ImageContextMenu.ItemsFor(Pixel([0.1f], ra: 1.0, dec: 2.0))
+                .First(i => i.Description == "sky atlas").Payload
+                .ShouldNotContain("object=");
+
         [Fact]
         public void AFrameWithNoWcsOffersNoAtlasAction()
         {

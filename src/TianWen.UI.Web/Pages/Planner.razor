@@ -2001,11 +2001,10 @@
             ? panel.Name
             : (string.IsNullOrWhiteSpace(panel.Canonical) ? panel.Name : panel.Canonical);
 
-    // Uri.EscapeDataString escapes "/" to %2F, which is correct for a path segment and needless in a
-    // query value -- RFC 3986 lists "/" among the characters a query may contain literally. Restoring
-    // it keeps "10P/Tempel" readable in the address bar instead of "10P%2FTempel", and it round-trips
-    // because UnescapeDataString leaves a bare "/" alone.
-    static string EscapeObjectToken(string token) => Uri.EscapeDataString(token).Replace("%2F", "/", StringComparison.Ordinal);
+    // Through SkyAtlasLink, which is where the link's vocabulary is defined for both ends -- the
+    // desktop viewer writes the same "object=" parameter now, and two copies of an escaping rule is
+    // how the two ends of one URL drift apart.
+    static string EscapeObjectToken(string token) => SkyAtlasLink.EscapeObjectToken(token);
 
     // Apply "?object=" from the address bar (deep link, refresh, back/forward). Resolves through the
     // SEARCH resolver rather than a catalog lookup, so a comet designation restores too -- comets are
