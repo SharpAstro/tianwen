@@ -5,6 +5,26 @@ Checks that only a real device or a real night can answer live in ONE place, ind
 
 ## High Priority
 
+- [ ] **`Auto` renders an enhanced frame as a flat colour field** (reported 2026-09-10). After
+  Enhance with no SPCC, the 10P drizzle master renders crimson. The viewer's DEFAULT stretch mode is
+  `Auto`, so an enhanced image cannot be viewed in the mode the viewer opens in. The likely mechanism
+  is already documented for the other renderer -- a GraXpert-flattened master needs the zero-pedestal
+  path, and the viewer's `AstroImageDocument.ComputeStretchUniforms` has no equivalent of
+  `MasterPreviewRenderer.WithZeroPedestal` -- but **two different faults produce the same screen**, so
+  read the post-enhance per-channel medians before fixing.
+  [docs/plans/viewer-prerelease-fixes.md](docs/plans/viewer-prerelease-fixes.md) P30.
+
+- [ ] **Selecting an object in the viewer: the resolver exists, the selection does not**
+  (raised 2026-09-10). `FindObjectAt` already answers "which catalogued object is under this pixel"
+  and is wired to right-click ONLY; the viewer has no notion of a selected object, so a left click or
+  a hover has nowhere to put the answer. Independent of the sky map (WCS plus catalog). Whether it is
+  hover or click was deliberately left open. Clicking a STAR is a separate nearest-centroid search
+  over `document.Stars`, not this. Plus: constellation-figure stars should reach the overlay at wider
+  fields (move `GetStarMagCutoff`, not the label tier).
+  [docs/plans/in-app-sky-atlas.md](docs/plans/in-app-sky-atlas.md), "Deferred from the 2026-09-10
+  sitting".
+
+
 - [x] **Finalise never stopped tracking; it only checked** (SHIPPED 2026-08-29). The step logged
   "Finalise: stopping tracking..." and then read `IsTracking` -- `SetTrackingAsync(false)` was called
   nowhere in the shutdown path, the only such call in `Session` being the sky-flat routine's.

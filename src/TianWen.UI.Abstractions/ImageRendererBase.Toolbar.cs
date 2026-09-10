@@ -19,43 +19,48 @@ namespace TianWen.UI.Abstractions
         // Full toolbar button set (label, action, group) -- the standalone FITS viewer (tianwen-fits) shows
         // all of these. Group breaks insert extra spacing: 0 file, 1 stretch, 2 channel/debayer/curves,
         // 3 zoom, 4 astrometry/stars/colour.
+        // Group numbers matter only by INEQUALITY with the previous button's -- a change inserts
+        // ButtonGroupSpacing -- so they are renumbered from 0 rather than the file list borrowing one.
+        // Its own group at the head is what makes it read as a window control instead of a third file
+        // action, and the leading button takes no gap of its own (prevGroup starts at -1).
         private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> CoreToolbarButtons =
         [
-            ("Open", ToolbarAction.Open, 0),
-            ("Save", ToolbarAction.Save, 0),
-            ("STF", ToolbarAction.StretchToggle, 1),
-            ("Link", ToolbarAction.StretchLink, 1),
-            ("Params", ToolbarAction.StretchParams, 1),
-            ("Channel", ToolbarAction.Channel, 2),
-            ("Debayer", ToolbarAction.Debayer, 2),
-            ("Boost", ToolbarAction.CurvesBoost, 2),
-            ("HDR", ToolbarAction.Hdr, 2),
-            ("A/B", ToolbarAction.Compare, 2),
+            ("Files", ToolbarAction.FileList, 0),
+            ("Open", ToolbarAction.Open, 1),
+            ("Save", ToolbarAction.Save, 1),
+            ("STF", ToolbarAction.StretchToggle, 2),
+            ("Link", ToolbarAction.StretchLink, 2),
+            ("Params", ToolbarAction.StretchParams, 2),
+            ("Channel", ToolbarAction.Channel, 3),
+            ("Debayer", ToolbarAction.Debayer, 3),
+            ("Boost", ToolbarAction.CurvesBoost, 3),
+            ("HDR", ToolbarAction.Hdr, 3),
+            ("A/B", ToolbarAction.Compare, 3),
             // One control, not two: the label is computed per frame (Fit / 1:1 / a percentage), so the
             // text here is only the measurement seed and the widest state it has to fit.
-            ("Fit", ToolbarAction.Zoom, 3),
-            ("Crop", ToolbarAction.AutoCrop, 4),
-            ("Solve", ToolbarAction.PlateSolve, 4),
+            ("Fit", ToolbarAction.Zoom, 4),
+            ("Crop", ToolbarAction.AutoCrop, 5),
+            ("Solve", ToolbarAction.PlateSolve, 5),
             // One control, not two: the mark says which rung of the context ladder the view is on
             // (grid / objects / the sky behind), and the text here is only the measurement seed.
-            ("Objects", ToolbarAction.Overlays, 4),
-            ("Stars", ToolbarAction.Stars, 4),
-            ("Calibrate", ToolbarAction.ColorCalibrate, 4),
-            ("NeutBg", ToolbarAction.BackgroundNeutralize, 4),
-            ("SPCC", ToolbarAction.SpccCalibrate, 4),
+            ("Objects", ToolbarAction.Overlays, 5),
+            ("Stars", ToolbarAction.Stars, 5),
+            ("Calibrate", ToolbarAction.ColorCalibrate, 5),
+            ("NeutBg", ToolbarAction.BackgroundNeutralize, 5),
+            ("SPCC", ToolbarAction.SpccCalibrate, 5),
         ];
 
         // The default set: the core plus the trailing help button. "?" is appended HERE rather than
         // living in the core table so every variant below can keep it last -- see the Enhance table,
         // which used to Add() past it and so ran group 5 before group 4.
         private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> DefaultToolbarButtons =
-            CoreToolbarButtons.Add(("?", ToolbarAction.Shortcuts, 5));
+            CoreToolbarButtons.Add(("?", ToolbarAction.Shortcuts, 6));
 
         // The full set plus the AI "Enhance" button (group 4). A separate static array (not an
         // append-per-frame) keeps the per-frame render + hit-test loops allocation-free. Selected by
         // ToolbarButtons when the host sets EnhanceAvailable.
         private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> DefaultToolbarButtonsWithEnhance =
-            CoreToolbarButtons.Add(("Enhance", ToolbarAction.Enhance, 4)).Add(("?", ToolbarAction.Shortcuts, 5));
+            CoreToolbarButtons.Add(("Enhance", ToolbarAction.Enhance, 5)).Add(("?", ToolbarAction.Shortcuts, 6));
 
         /// <summary>
         /// Set by the host when an AI <see cref="TianWen.Lib.Imaging.Enhancement.SharpenPipeline"/> is wired
@@ -344,7 +349,7 @@ namespace TianWen.UI.Abstractions
                 case ToolbarAction.Zoom:
                 {
                     // Every label this button can show: Fit, each ratio, or a percentage.
-                    var widest = MeasureText(WidestZoomPercentLabel, ToolbarFontSize);
+                    var widest = MeasureText(UiFormat.Percent0(ViewerActions.MaxZoom), ToolbarFontSize);
                     foreach (var candidate in ZoomMenuLabels)
                     {
                         widest = MathF.Max(widest, MeasureText(candidate, ToolbarFontSize));
@@ -363,8 +368,6 @@ namespace TianWen.UI.Abstractions
             }
         }
 
-        /// <summary>The widest percentage <see cref="ToolbarAction.Zoom"/> can report.</summary>
-        private const string WidestZoomPercentLabel = "1000%";
 
         /// <summary>
         /// The space between a mark and the label after it, which exists only when there is both.
@@ -913,6 +916,7 @@ namespace TianWen.UI.Abstractions
         {
             return action switch
             {
+                ToolbarAction.FileList => state.ShowFileList,
                 ToolbarAction.StretchToggle or ToolbarAction.StretchLink or ToolbarAction.StretchParams
                     => state.StretchMode is not StretchMode.None,
                 // Highlight whenever a Bayer source is loaded and a demosaic is selected -- the GPU
@@ -1049,6 +1053,7 @@ namespace TianWen.UI.Abstractions
             // the head of a bar that had already run out of room and wrapped, and "Open" / "Save" are
             // the two labels a picture replaces without losing anything -- unlike a stateful label
             // such as the zoom's, they never had a value to say.
+            ToolbarAction.FileList => true,
             ToolbarAction.Open => true,
             ToolbarAction.Save => true,
             ToolbarAction.Debayer => _source?.SensorType is SensorType.RGGB,
@@ -1085,6 +1090,7 @@ namespace TianWen.UI.Abstractions
         {
             switch (action)
             {
+                case ToolbarAction.FileList: DrawFileListMark(x, btnY, btnH, ink); break;
                 case ToolbarAction.Open: DrawFolderMark(x, btnY, btnH, ink); break;
                 case ToolbarAction.Save: DrawSaveMark(x, btnY, btnH, ink); break;
                 case ToolbarAction.Debayer: DrawBayerSwatch(x, btnY, btnH, enabled); break;
@@ -1336,6 +1342,28 @@ namespace TianWen.UI.Abstractions
         /// than baked. The tray is open at the top (two walls and a floor, no lid) so it cannot read
         /// as a second rectangle beside the folder's.
         /// </remarks>
+        /// <summary>
+        /// Three stacked bars: the list of files, and the shape every application uses for "show or
+        /// hide the panel". Drawn rather than set as a glyph -- a face without the codepoint draws
+        /// .notdef, and a colour emoji could not be dimmed along with the rest of the bar.
+        /// </summary>
+        private void DrawFileListMark(float x, float btnY, float btnH, RGBAColor32 ink)
+        {
+            var size = BaseToolbarMarkSize * DpiScale;
+            var y = btnY + (btnH - size) / 2f;
+            var t = MathF.Max(1f, DpiScale);
+
+            // Inset across so the bars clear the button's padding, and spread over the middle so the
+            // group reads as a stack rather than as an underline.
+            var x0 = x + size * 0.16f;
+            var x1 = x + size * 0.84f;
+            for (var i = 0; i < 3; i++)
+            {
+                var by = y + size * (0.28f + (i * 0.22f));
+                DrawLineOverlay(x0, by, x1, by, ink, t);
+            }
+        }
+
         private void DrawSaveMark(float x, float btnY, float btnH, RGBAColor32 ink)
         {
             var size = BaseToolbarMarkSize * DpiScale;
@@ -1463,6 +1491,7 @@ namespace TianWen.UI.Abstractions
         private static string? GetToolbarButtonTooltip(
             ToolbarAction action, ViewerState state, AstroImageDocument? document) => action switch
         {
+            ToolbarAction.FileList => "Show / hide the file list (L)",
             ToolbarAction.Open => "Open a FITS / TIFF / SER file",
             ToolbarAction.Save => "Save the image as displayed (PNG / JPEG / TIFF), at full resolution",
             ToolbarAction.StretchToggle => "Screen transfer function on / off (T)",
@@ -1919,7 +1948,8 @@ namespace TianWen.UI.Abstractions
                 // carries the rest. A crop is a two-state action unlike the other two, but the state it
                 // has to report is carried by the button's own background, not by a word, so the label
                 // was saying the same thing twice.
-                ToolbarAction.Open or ToolbarAction.Save or ToolbarAction.AutoCrop => string.Empty,
+                ToolbarAction.FileList or ToolbarAction.Open or ToolbarAction.Save
+                    or ToolbarAction.AutoCrop => string.Empty,
                 // Auto names what it resolved to, exactly as StretchLink above does.
                 ToolbarAction.Debayer => state.DebayerAlgorithm is DebayerAlgorithm.Auto
                     ? $"Auto ({ResolvedDebayerLabel()})"

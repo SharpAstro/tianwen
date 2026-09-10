@@ -5,6 +5,15 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public enum ToolbarAction
 {
+    /// <summary>Show or hide the file list down the left side. A toggle, mirroring the <c>L</c> key.</summary>
+    /// <remarks>
+    /// It exists because the list could only be dismissed by a key nothing on screen mentioned --
+    /// the same gap the toolbar hover state and the sky palette rows were: reachable, and invisible.
+    /// First in the run and in a group of its own, because it is the only button that changes the
+    /// WINDOW rather than the picture or the file.
+    /// </remarks>
+    FileList,
+
     Open,
 
     /// <summary>

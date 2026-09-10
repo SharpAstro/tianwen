@@ -1378,3 +1378,41 @@ pinch without lifting, and on an image that is the more likely gesture.
 
 Pinned by `ViewerPinchZoomTests` (8 tests; 6 fail with the switch cases removed -- the two that
 survive are the negative ones, which a dropped event satisfies for free).
+
+## P30. `Auto` renders an enhanced frame as a flat colour field  (OPEN, HIGH PRIORITY)
+
+Reported 2026-09-10 from the 10P drizzle master: after Enhance, with **no SPCC**, the whole frame
+renders crimson. The user's own hypothesis on sight -- *"this might be graxpert doing auto-bkg
+balancing"* -- points at the right mechanism.
+
+**This is a defect, not a tuning miss.** The viewer's default stretch mode is `Auto`, so an enhanced
+image currently cannot be viewed in the mode it opens in.
+
+**The trap is already documented once, and the guard exists in the wrong renderer.** From CLAUDE.md's
+stacking section: *"Shadows derive from the pedestal-SUBTRACTED median -- a no-op on raw masters, but
+an enhanced (GraXpert-flattened) master needs `MasterPreviewRenderer.WithZeroPedestal` or subtracting
+the floor explodes or blacks out a drizzle frame."* That switch is on `MasterPreviewRenderer`, the
+STACKING pipeline's renderer. The viewer renders through `AstroImageDocument.ComputeStretchUniforms`,
+which reads `PerChannelStats[c].Pedestal` in four places and has no equivalent.
+
+**The hypothesis, stated so it can be refuted:** GraXpert flattens the background toward zero, so on
+the enhanced pixels each channel's pedestal and median very nearly coincide. `Auto` resolves to
+**Unlinked** with no calibration (the toolbar in the report reads "Auto (Unlinked)"), and Unlinked
+gives every channel its OWN curve -- so three nearly-zero denominators yield three very different
+gains and whichever channel wins paints the frame.
+
+**Measure before fixing, because two different faults produce this same screen:**
+
+- If the post-enhance per-channel MEDIANS are near-identical and only the rescale diverges, it is the
+  zero-pedestal case, and the fix is the viewer's own version of `WithZeroPedestal`.
+- If the medians themselves are far apart, GraXpert has genuinely moved the colour balance, and the
+  fix is inheritance (as `InheritColorCalibration` already does for the SPCC triple) rather than
+  re-solving background neutralisation on flattened pixels.
+
+The info panel already prints per-channel median / MAD / bg, so one enhance with that panel open
+answers it.
+
+**Note `InheritColorCalibration` does NOT cover this case.** It carries the SPCC triple measured on
+the original stars, and the report has no SPCC at all -- so nothing is inherited and neutralisation is
+re-solved on the enhanced pixels, which is exactly the path in question.
+

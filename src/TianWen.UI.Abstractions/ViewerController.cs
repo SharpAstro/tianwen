@@ -297,6 +297,7 @@ public sealed class ViewerController(
             if (newDoc is not null)
             {
                 Document = newDoc;
+                LogStretchBasis("opened", newDoc);
                 _rawSource = newDoc;
                 _liveSource = null;
                 state.NotifySourceReplaced();
@@ -551,6 +552,70 @@ public sealed class ViewerController(
         path.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? path : Path.ChangeExtension(path, ".png");
 
     /// <summary>
+    /// Logs the statistics a document's auto-stretch is solved FROM, once per document rather than
+    /// per frame.
+    /// </summary>
+    /// <remarks>
+    /// <para>Written for the enhance colour cast (viewer-prerelease-fixes P30): an enhanced frame
+    /// renders as a flat colour field in <see cref="StretchMode.Auto"/>, and three different faults
+    /// produce that same screen. <b>All three are visible in these inputs</b>, which is why the
+    /// derived uniforms are not logged here -- reproducing the renderer's full argument list just to
+    /// print it invites the log and the screen disagreeing:</para>
+    /// <list type="bullet">
+    /// <item>pedestal ~= median -- the zero-pedestal case, where the shadow subtraction leaves nearly
+    /// nothing and the rescale explodes (the trap <c>MasterPreviewRenderer.WithZeroPedestal</c> exists
+    /// for on the stacking side).</item>
+    /// <item>medians far apart, having been close before -- the enhancer moved the colour balance, so
+    /// the answer is inheritance rather than re-solving neutralisation on flattened pixels.</item>
+    /// <item>MAD collapsing toward zero -- rescale goes as 1/(k*MAD), so it explodes on a flattened
+    /// background whatever the pedestal does, and wants a MAD floor.</item>
+    /// </list>
+    /// <para>Logged at Debug on document REPLACEMENT only (an open, and an enhance landing), so the
+    /// before/after pair a diagnosis needs is in the log with no per-frame cost. The viewer had no
+    /// logging on this path at all, so the numbers were previously only readable by eye off the info
+    /// panel.</para>
+    /// </remarks>
+    private void LogStretchBasis(string occasion, AstroImageDocument? document)
+    {
+        if (document is not { } doc || !logger.IsEnabled(LogLevel.Debug))
+        {
+            return;
+        }
+
+        // What the SHADER gets, not what this document measured -- those differ whenever a display
+        // anchor is held, and an anchor surviving an enhance is itself one of P30's candidates.
+        var stats = doc.BasisPerChannelStats;
+        var own = doc.PerChannelStats;
+        var bg = doc.PerChannelBackground;
+        logger.LogDebug("Stretch basis [{Occasion}]: anchored={Anchored} channels={Channels}",
+            occasion, doc.HasDisplayAnchor, stats.Length);
+
+        for (var c = 0; c < stats.Length; c++)
+        {
+            logger.LogDebug(
+                "Stretch basis [{Occasion}] ch{Channel}: pedestal={Pedestal:G6} median={Median:G6} mad={Mad:G6} bg={Bg:G6}",
+                occasion, c, stats[c].Pedestal, stats[c].Median, stats[c].Mad,
+                c < bg.Length ? bg[c] : float.NaN);
+
+            // Only when they disagree, so a normal open logs nothing extra and the line that does
+            // appear is the finding rather than noise.
+            if (doc.HasDisplayAnchor && c < own.Length && own[c] != stats[c])
+            {
+                logger.LogDebug(
+                    "Stretch basis [{Occasion}] ch{Channel}: THIS document measured pedestal={Pedestal:G6} median={Median:G6} mad={Mad:G6} -- the curve is solved from the anchor above, not from these",
+                    occasion, c, own[c].Pedestal, own[c].Median, own[c].Mad);
+            }
+        }
+
+        if (doc.LumaStats is { } luma)
+        {
+            logger.LogDebug(
+                "Stretch basis [{Occasion}] luma: pedestal={Pedestal:G6} median={Median:G6} mad={Mad:G6}",
+                occasion, luma.Pedestal, luma.Median, luma.Mad);
+        }
+    }
+
+    /// <summary>
     /// Handles toolbar actions that require DI (Open, PlateSolve).
     /// Call after <see cref="ViewerActions.HandleToolbarAction"/> returns <c>false</c>.
     /// </summary>
@@ -767,6 +832,7 @@ public sealed class ViewerController(
             // (the pipeline consumes its own outputs, never the caller's buffers).
             _preEnhanceDocument = null;
             Document = retained;
+            LogStretchBasis("reverted", retained);
             _rawSource = retained;
             _liveSource = null;
             state.IsSequence = false;
@@ -970,6 +1036,8 @@ public sealed class ViewerController(
                 state.DisplayCrop = null;
             }
             Document = enhancedDoc;
+            // The "after" half of the pair P30 needs: same file, same panel, one enhance apart.
+            LogStretchBasis("enhanced", enhancedDoc);
             _rawSource = enhancedDoc;
             _liveSource = null;
             state.IsSequence = false;

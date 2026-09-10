@@ -80,7 +80,20 @@ public static class OverlayEngine
     /// Builds label lines for an overlay object based on zoom level.
     /// ≤50%: best name only. 50-100%: name + catalog designation. ≥100%: all names + cross indices.
     /// </summary>
-    public static List<string> BuildOverlayLabel(CelestialObject obj, CatalogIndex idx, ICelestialObjectDB db, float zoom)
+    /// <param name="inFrame">
+    /// Whether the object falls inside the PHOTOGRAPH, as opposed to on the sky drawn around it.
+    /// </param>
+    /// <remarks>
+    /// <b>The full stack is only for objects the photograph actually contains.</b> Five stacked
+    /// identifications (tau PsA / 15 PsA / HIP 109422 / HR 8447 / HD 210302 was the reported case) are
+    /// information when they name a star in your subject and decoration when they name a star sitting
+    /// on bare sky beside it -- and the sky map behind the frame means most of what projects into the
+    /// pane is now the latter. Everything outside the frame keeps the one-line name it had at 50
+    /// percent, whatever the zoom. The zoom tiers themselves are unchanged: 100 percent is the right
+    /// threshold for the stars a frame is of.
+    /// </remarks>
+    public static List<string> BuildOverlayLabel(CelestialObject obj, CatalogIndex idx, ICelestialObjectDB db,
+        float zoom, bool inFrame = true)
     {
         var lines = new List<string>(4);
         var canonical = obj.Index.ToCanonical();
@@ -109,6 +122,12 @@ public static class OverlayEngine
             {
                 lines.Add(canonical);
             }
+        }
+        else if (!inFrame)
+        {
+            // Outside the picture: the name, and nothing else. Same as the zoomed-out tier, because
+            // what it is competing with for the reader's attention is the photograph.
+            lines.Add(bestName ?? canonical);
         }
         else
         {
@@ -493,7 +512,7 @@ public static class OverlayEngine
         // Query the spatial index for candidate objects (deep-sky only, no Tycho2)
         var grid = db.DeepSkyCoordinateGrid;
         var seen = new HashSet<CatalogIndex>();
-        var candidates = new List<(CatalogIndex Index, CelestialObject Obj, float ScreenX, float ScreenY)>();
+        var candidates = new List<(CatalogIndex Index, CelestialObject Obj, float ScreenX, float ScreenY, bool InFrame)>();
 
         // Iterate over 1-degree RA/Dec cells covering the viewport
         var decStep = 1.0;
@@ -576,7 +595,12 @@ public static class OverlayEngine
                         continue;
                     }
 
-                    candidates.Add((idx, obj, screenX, screenY));
+                    // Inside the sensor's own raster, in the 1-based pixel convention SkyToPixel
+                    // answers in. This is what separates an object the frame CONTAINS from one merely
+                    // drawn beside it on the sky behind.
+                    var inFrame = px.X >= 1 && px.X <= layout.ImageWidth
+                        && px.Y >= 1 && px.Y <= layout.ImageHeight;
+                    candidates.Add((idx, obj, screenX, screenY, inFrame));
                 }
             }
         }
@@ -602,7 +626,7 @@ public static class OverlayEngine
         var arcminToPixels = scale / (pixelScaleArcsec / 60.0);
         var labelSize = baseFontSize * layout.DpiScale * 0.85f;
 
-        foreach (var (idx, obj, cx, cy) in candidates)
+        foreach (var (idx, obj, cx, cy, inFrame) in candidates)
         {
             var color = GetOverlayColor(obj.ObjectType);
 
@@ -640,7 +664,7 @@ public static class OverlayEngine
                 }
             }
 
-            var lines = BuildOverlayLabel(obj, idx, db, scale);
+            var lines = BuildOverlayLabel(obj, idx, db, scale, inFrame);
 
             result.Add(new OverlayItem
             {

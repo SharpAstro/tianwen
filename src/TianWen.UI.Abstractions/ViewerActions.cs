@@ -415,9 +415,26 @@ public static class ViewerActions
     public static void ZoomTo(ViewerState state, float zoom)
     {
         state.ZoomToFit = false;
-        state.Zoom = zoom;
+        state.Zoom = MathF.Min(zoom, MaxZoom);
         state.PanOffset = (0f, 0f);
     }
+
+    /// <summary>
+    /// The furthest a USER-DRIVEN zoom goes: 1500 percent, fifteen screen pixels per image pixel.
+    /// </summary>
+    /// <remarks>
+    /// <para>There was no upper bound at all. <see cref="ZoomIn"/> guarded only the low end
+    /// (<c>MathF.Max(0.01f, ...)</c>) and <c>PanZoomController.MaxZoom</c> defaults to
+    /// <see cref="float.PositiveInfinity"/>, so the wheel, the keys and a pinch all ran away without
+    /// limit -- and past a few hundred percent every further step shows the same handful of pixels
+    /// larger, while the pane-wide grid and the sky solve are asked for geometry from a sliver of
+    /// sensor.</para>
+    /// <para><b>It does NOT clamp the fit scale.</b> Fit is a computed answer, not a gesture: a small
+    /// frame -- a planetary ROI, a guide-camera crop -- legitimately fits at more than this, and
+    /// clamping it would mean "fit" no longer fitting. A frame already above the bound simply cannot be
+    /// zoomed in further, which is the right answer rather than a special case.</para>
+    /// </remarks>
+    public const float MaxZoom = 15f;
 
     private const float ZoomStepFactor = 1.15f;
 
@@ -427,7 +444,7 @@ public static class ViewerActions
     public static void ZoomIn(ViewerState state)
     {
         state.ZoomToFit = false;
-        state.Zoom = MathF.Max(0.01f, state.Zoom * ZoomStepFactor);
+        state.Zoom = Math.Clamp(state.Zoom * ZoomStepFactor, 0.01f, MaxZoom);
         state.NeedsRedraw = true;
     }
 
@@ -722,6 +739,11 @@ public static class ViewerActions
     {
         switch (action)
         {
+            // The same one line the L key runs. The button is the affordance, not a second path.
+            case ToolbarAction.FileList:
+                state.ShowFileList = !state.ShowFileList;
+                state.NeedsRedraw = true;
+                return true;
             case ToolbarAction.StretchToggle:
                 ToggleStretch(state);
                 return true;

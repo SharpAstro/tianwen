@@ -424,6 +424,55 @@ measured on this machine: a 45 ms seed build plus a 654 ms async Tycho-2 build o
 on the render thread to swap -- the map's own existing behaviour, not new.
 
 
+### Deferred from the 2026-09-10 sitting (HIGH PRIORITY)
+
+Everything raised while driving the shipped backdrop that was deliberately NOT built, recorded here so
+the next pass starts from the findings rather than from the screenshots. The user's instruction on
+locking the release scope was *"as long as we track everything we skipped in a plan, with high prio"*.
+
+- **P5's click-select, and the fact that most of it already exists.** `FindObjectAt`
+  (`ImageRendererBase.ContextMenu.cs`) already resolves the nearest catalogued object at a pixel from
+  the frame's own WCS and `DeepSkyCoordinateGrid`, with an FOV-scaled tolerance, and deliberately
+  gathers from the same grid the overlay draws from so it can only ever name something the overlay
+  would have drawn. **It is wired to right-click only.** What is missing is downstream: the viewer has
+  no notion of a SELECTED object (the sky map has `Search.InfoPanel`; the viewer has nothing), so
+  there is nowhere for a left click's answer to go and nothing drawn to show it landed. **It needs no
+  sky map** -- the resolver is WCS plus catalog, so this works at every rung of the ladder.
+- **Hover versus click was left undecided, on purpose.** The user went "just a hover thing would be
+  okay" -> "or just clicking on it" -> "scratch that maybe" within a minute. Both need the same
+  missing piece above; pick one deliberately rather than inferring it from that exchange.
+- **Clicking a STAR is a different resolver.** `document.Stars` holds DETECTED CENTROIDS, not
+  catalogue entries, so it is a nearest-centroid search over the star list, not `FindObjectAt`. Worth
+  saying because "click an object or a star" reads like one feature and is two.
+- **Constellation stars appearing at wider fields.** Whether a star is drawn at all is
+  `OverlayEngine.GetStarMagCutoff(fovArcmin)` -- mag <= 1.0 above 5 degrees, 2.5 at 2-5, 4.0 at 1-2,
+  5.5 at 0.5-1, 7.0 below. tau PsA at about mag 4.9 therefore needs the field under one degree, which
+  is what "esp. the ones in the constellation should certainly trigger earlier" is about. The
+  mechanism is already to hand: `ConstellationFigures.AllFigureStarHipNumbers` is the roughly 1000
+  figure stars the sky map uses for its bright-star seed, and membership in it means "this star draws
+  a constellation" -- so it can raise or waive the cutoff for those alone. **The gate to move is the
+  magnitude cutoff, NOT the label tier**: making figure stars appear earlier is the ask, making them
+  show five lines earlier is not.
+- **Trimming the identification stack itself.** Five lines (tau PsA / 15 PsA / HIP 109422 / HR 8447 /
+  HD 210302) is correct and probably more than a reader wants; the Bayer name plus one catalogue
+  number may be the right full-zoom label, with the rest left to the right-click menu and the info
+  panel. Raised by the assistant, not decided by the user. The in-frame gate shipped instead, which
+  removes the stack where it was pure decoration without answering this.
+- **Matching the two grids' DENSITY at the 20 degree handover.** The colour is now one definition, so
+  what still changes across the handover is density (the frame's fine per-pixel grid, the map's
+  coarser spherical one). It is honest -- they are grids of different things -- but if it reads as a
+  seam, the map's grid can take the viewer's spacing.
+- **`PaneGridMaxFovDeg = 20.0` is a judgement, not a measurement.** It comes from the
+  gnomonic-stereographic separation being about 0.8 percent of the distance out at 10 degrees and 7
+  percent at 30. If it hands over too early or too late in use, it is one constant.
+- **The pan gate has no test.** Free panning is gated on `SkyBackdropActive`, and standing that up
+  offline needs a map, a clock, a catalog AND a document carrying a CD-matrix WCS --
+  `AstroImageDocument.Wcs` is `private set`, so it wants a synthetic FITS with CD cards rather than a
+  constructed object. The confined half is covered indirectly by `ViewerAutoCropTests`.
+- **The enhance colour cast is NOT tracked here**: it is a viewer defect with nothing to do with the
+  atlas, and it is [`viewer-prerelease-fixes.md`](viewer-prerelease-fixes.md) P30, open and high
+  priority.
+
 ## What bites
 
 - **RA travels in DEGREES in a link and in HOURS everywhere else.** Settled once on `SkyAtlasLink`,
