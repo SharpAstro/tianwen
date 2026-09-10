@@ -309,11 +309,12 @@ namespace TianWen.UI.Abstractions
                     state.NeedsRedraw = true;
                     return true;
                 case InputKey.G:
-                    state.ShowGrid = !state.ShowGrid;
+                    ViewerActions.ToggleGrid(state);
                     return true;
                 case InputKey.O:
-                    state.ShowOverlays = !state.ShowOverlays;
-                    state.NeedsRedraw = true;
+                    // Shift steps back down the ladder, the direction every other cycler here gives
+                    // Shift. The ladder wraps either way, so neither end is a dead end.
+                    ViewerActions.CycleOverlayLevel(state, reverse: shift);
                     return true;
                 case InputKey.H:
                     // Shift holds or releases the display mapping the blink is measured against. It
@@ -532,23 +533,11 @@ namespace TianWen.UI.Abstractions
                 // saying "Calibrating color..." with no way out, and shutdown abandoned the work
                 // instead of draining it. RunGuardedAsync is exposed static for exactly the
                 // no-tracker case, so the error routing is identical on both paths.
-                var logger = Logger ?? NullLogger.Instance;
-                if (Tracker is { } tracker)
-                {
-                    tracker.RunGuarded(
-                        ct => CalibrateColorAsync(docForTask, state, ct),
-                        AppToken, logger, "Colour calibration",
-                        onError: ex => state.StatusMessage = $"Calibration failed: {StatusText.FromException(ex)}",
-                        onFinally: () => EndColorCalibration(docForTask, state));
-                }
-                else
-                {
-                    _ = BackgroundTaskTracker.RunGuardedAsync(
-                        ct => CalibrateColorAsync(docForTask, state, ct),
-                        AppToken, logger, "Colour calibration",
-                        onError: ex => state.StatusMessage = $"Calibration failed: {StatusText.FromException(ex)}",
-                        onFinally: () => EndColorCalibration(docForTask, state));
-                }
+                RunGuarded(
+                    ct => CalibrateColorAsync(docForTask, state, ct),
+                    "Colour calibration",
+                    onError: ex => state.StatusMessage = $"Calibration failed: {StatusText.FromException(ex)}",
+                    onFinally: () => EndColorCalibration(docForTask, state));
             }
         }
 

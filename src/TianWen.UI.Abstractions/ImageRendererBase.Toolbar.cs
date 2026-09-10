@@ -36,7 +36,8 @@ namespace TianWen.UI.Abstractions
             ("Fit", ToolbarAction.Zoom, 3),
             ("Crop", ToolbarAction.AutoCrop, 4),
             ("Solve", ToolbarAction.PlateSolve, 4),
-            ("Grid", ToolbarAction.Grid, 4),
+            // One control, not two: the mark says which rung of the context ladder the view is on
+            // (grid / objects / the sky behind), and the text here is only the measurement seed.
             ("Objects", ToolbarAction.Overlays, 4),
             ("Stars", ToolbarAction.Stars, 4),
             ("Calibrate", ToolbarAction.ColorCalibrate, 4),
@@ -819,8 +820,13 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.Save => document is not null,
             ToolbarAction.StretchToggle => document is not null,
             ToolbarAction.StretchLink or ToolbarAction.StretchParams => document is not null,
-            ToolbarAction.Grid => document?.Wcs is { HasCDMatrix: true },
-            ToolbarAction.Overlays => document?.Wcs is { HasCDMatrix: true } && CelestialObjectDB?.IsValueCreated == true,
+            // A WCS is the whole requirement, because the ladder's FIRST rung is the grid, which needs
+            // nothing else. The rungs above it need the object database, and pressing into them is
+            // what starts it loading (see CycleOverlayContext) -- which is why this no longer demands
+            // an already-created one: that rule disabled the button on a frame whose WCS came from its
+            // own header rather than from a solve here, and a disabled button cannot warm the catalog
+            // it is waiting for.
+            ToolbarAction.Overlays => document?.Wcs is { HasCDMatrix: true },
             ToolbarAction.Stars => document?.Stars is { Count: > 0 },
             ToolbarAction.ColorCalibrate => document?.Stars is { Count: >= 5 }
                 && document.Stars.StarMask is not null
@@ -863,8 +869,9 @@ namespace TianWen.UI.Abstractions
                     && state.DebayerAlgorithm is not DebayerAlgorithm.None,
                 ToolbarAction.CurvesBoost => state.CurvesBoost > 0f,
                 ToolbarAction.Hdr => state.HdrAmount > 0f,
-                ToolbarAction.Grid => state.ShowGrid,
-                ToolbarAction.Overlays => state.ShowOverlays,
+                // Lit from the RUNG rather than from one layer: the mark below already says which
+                // rung, so the highlight is only answering "is any of this on".
+                ToolbarAction.Overlays => state.OverlayLevel is not ViewerOverlayLevel.None,
                 ToolbarAction.Stars => state.ShowStarOverlay,
                 ToolbarAction.ColorCalibrate => state.ColorCalibrationEnabled,
                 ToolbarAction.BackgroundNeutralize => state.BackgroundNeutralizationEnabled,
@@ -996,7 +1003,6 @@ namespace TianWen.UI.Abstractions
             // colours at all, so the mark would be inventing one.
             ToolbarAction.Channel => state.ChannelView
                 is ChannelView.Composite or ChannelView.Red or ChannelView.Green or ChannelView.Blue,
-            ToolbarAction.Grid => true,
             ToolbarAction.Overlays => true,
             ToolbarAction.Stars => true,
             ToolbarAction.Enhance => true,
@@ -1030,8 +1036,17 @@ namespace TianWen.UI.Abstractions
                 case ToolbarAction.Save: DrawSaveMark(x, btnY, btnH, ink); break;
                 case ToolbarAction.Debayer: DrawBayerSwatch(x, btnY, btnH, enabled); break;
                 case ToolbarAction.Channel: DrawChannelBars(x, btnY, btnH, state, enabled); break;
-                case ToolbarAction.Grid: DrawBakedMark(BakedIcons.Globe, x, btnY, btnH, ink); break;
-                case ToolbarAction.Overlays: DrawGalaxyMark(x, btnY, btnH, ink); break;
+                // The ladder's rung IS the mark: a globe for the grid, a galaxy for the objects, an
+                // asterism for the sky behind. Off, it shows the rung a press would land on, so the
+                // button says what it does rather than what it did.
+                case ToolbarAction.Overlays:
+                    switch (state.OverlayLevel)
+                    {
+                        case ViewerOverlayLevel.Objects: DrawGalaxyMark(x, btnY, btnH, ink); break;
+                        case ViewerOverlayLevel.Sky: DrawSkyMark(x, btnY, btnH, ink); break;
+                        default: DrawBakedMark(BakedIcons.Globe, x, btnY, btnH, ink); break;
+                    }
+                    break;
                 case ToolbarAction.Stars: DrawStarMark(x, btnY, btnH, ink); break;
                 case ToolbarAction.Enhance: DrawBakedMark(BakedIcons.Sparkles, x, btnY, btnH, ink); break;
                 case ToolbarAction.Zoom: DrawBakedMark(BakedIcons.Magnifier, x, btnY, btnH, ink); break;
@@ -1108,6 +1123,44 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         private void DrawGalaxyMark(float x, float btnY, float btnH, RGBAColor32 ink)
             => DrawBakedMark(BakedIcons.Spiral, x, btnY, btnH, ink);
+
+        /// <summary>
+        /// An asterism: four stars joined into a figure, which is what the sky-behind rung adds that
+        /// the two below it do not -- the constellations the frame sits inside.
+        /// </summary>
+        /// <remarks>
+        /// Drawn rather than baked because no bundled face carries a constellation, and because the
+        /// mark has to read at 13 px: a real asterism's proportions do not survive that, so this is
+        /// four dots placed for legibility (a bent line with one star off it) rather than a
+        /// particular figure. The dots are ellipses whose stroke exceeds their radii, the same way
+        /// <see cref="DrawStarMark"/> inks its core solid.
+        /// </remarks>
+        private void DrawSkyMark(float x, float btnY, float btnH, RGBAColor32 ink)
+        {
+            var size = BaseToolbarMarkSize * DpiScale;
+            var y = btnY + (btnH - size) / 2f;
+            var t = MathF.Max(1f, DpiScale);
+            var dot = size * 0.09f;
+
+            // Four stars: three in a bent line, the fourth off the bend.
+            Span<(float X, float Y)> stars =
+            [
+                (x + size * 0.16f, y + size * 0.74f),
+                (x + size * 0.44f, y + size * 0.50f),
+                (x + size * 0.84f, y + size * 0.30f),
+                (x + size * 0.62f, y + size * 0.84f),
+            ];
+
+            // The figure first, so the dots sit on top of the lines rather than the lines across them.
+            DrawLineOverlay(stars[0].X, stars[0].Y, stars[1].X, stars[1].Y, ink, t);
+            DrawLineOverlay(stars[1].X, stars[1].Y, stars[2].X, stars[2].Y, ink, t);
+            DrawLineOverlay(stars[1].X, stars[1].Y, stars[3].X, stars[3].Y, ink, t);
+
+            foreach (var (sx, sy) in stars)
+            {
+                DrawEllipseOverlay(sx, sy, dot, dot, 0f, ink, dot * 1.4f);
+            }
+        }
 
         /// <summary>
         /// Draws a baked glyph mark, centred in the button and sized to the DPI.
@@ -1376,8 +1429,15 @@ namespace TianWen.UI.Abstractions
                 $"Zoom: fitting at {UiFormat.Percent0(state.Zoom)} -- click or Z to pick 1:1 / 1:N, right-click for 1:1 (F, R, Ctrl+0..9)",
             ToolbarAction.Zoom => "Zoom: click or Z to pick fit / 1:1 / 1:N, right-click fits (F, R, Ctrl+0..9)",
             ToolbarAction.PlateSolve => "Plate solve this frame (P)",
-            ToolbarAction.Grid => "WCS coordinate grid (G)",
-            ToolbarAction.Overlays => "Deep-sky object overlays (O)",
+            // Names the rung it is ON and the one a press moves to, because the ladder wraps: without
+            // the second half, the state where everything is on looks like a dead end.
+            ToolbarAction.Overlays => state.OverlayLevel switch
+            {
+                ViewerOverlayLevel.Grid => "Context: WCS grid -- O adds the catalog objects (G toggles the grid)",
+                ViewerOverlayLevel.Objects => "Context: grid + deep-sky objects -- O adds the sky behind the frame",
+                ViewerOverlayLevel.Sky => "Context: grid + objects + the sky this frame was taken from -- O clears it",
+                _ => "Context: off -- O steps through grid, objects, and the sky behind the frame (G, O)",
+            },
             ToolbarAction.Stars => "Detect stars and show HFD / FWHM (S)",
             // A calibration that has RUN reports what it measured. This is the whole answer to "did
             // SPCC do anything, and can I trust it": the triple, the survivor count and the white
@@ -1676,20 +1736,22 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.Zoom when CurrentZoomMenuIndex(state) is var zoomRow && zoomRow > 0 =>
                     ZoomMenuLabels[zoomRow],
                 ToolbarAction.Zoom => UiFormat.Percent0(state.Zoom),
-                // Mark-only, like Channel: the point of a mark on this toolbar is the WIDTH it gives
-                // back, and a mark sitting beside the word it replaces gives back nothing. The tooltip
-                // carries the name.
-                ToolbarAction.Grid => string.Empty,
                 // The ellipsis survives on its own, because it is not the button's NAME -- it is the
                 // warning that the first press pays for loading the object database. Three characters
                 // keeps a signal that the mark cannot draw and the tooltip only shows on hover, which
                 // is too late for something whose whole job is to set an expectation before the click.
-                ToolbarAction.Overlays when CelestialObjectDB is { IsValueCreated: false } => "...",
+                // Only while a rung that NEEDS the catalog is on: at the grid rung nothing is waiting
+                // on it, so the ellipsis would be warning about a cost this press does not pay.
+                ToolbarAction.Overlays when CelestialObjectDB is { IsValueCreated: false }
+                    && state.OverlayLevel >= ViewerOverlayLevel.Objects => "...",
+                // Mark-only, like Channel: the point of a mark on this toolbar is the WIDTH it gives
+                // back, and a mark sitting beside the word it replaces gives back nothing. The tooltip
+                // carries the name.
                 ToolbarAction.Overlays => string.Empty,
                 // The mark says what these are, so the label only has to say how many. Before the pass
                 // has run there is no number, and the WORD standing where a count will be is what marks
-                // it as not-yet-run -- which is why this drops the "..." that Objects keeps: Objects is a
-                // toggle with no count to switch to, so there the ellipsis is the only such signal.
+                // it as not-yet-run -- which is why this drops the "..." that Objects keeps: the context
+                // ladder has no count to switch to, so there the ellipsis is the only such signal.
                 ToolbarAction.Stars when document?.Stars is null => "Stars",
                 ToolbarAction.Stars when document?.Stars is { } s => $"{s.Count}",
                 ToolbarAction.BackgroundNeutralize when state.BackgroundNeutralizationEnabled =>

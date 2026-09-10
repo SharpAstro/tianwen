@@ -55,7 +55,18 @@ public enum ToolbarAction
     /// keyboard and the planetary tab's own toolbar still dispatch them.
     /// </remarks>
     Zoom,
-    Grid,
+
+    /// <summary>
+    /// Steps the context ladder -- <see cref="ViewerOverlayLevel"/> -- one rung: nothing, the WCS
+    /// grid, the grid plus catalog objects, then the sky the frame came from drawn behind it.
+    /// </summary>
+    /// <remarks>
+    /// There was a separate <c>Grid</c> button beside this one until the ladder existed, and merging
+    /// the two is what paid for the third rung: a toolbar that had run out of room could not add a
+    /// button for the sky, and two buttons for two of the three layers was the arrangement that made
+    /// the third look like a new feature rather than more of the same one. The grid keeps its own key
+    /// (<c>G</c>), which now moves the rung with it -- see <see cref="ViewerState.OverlayLevel"/>.
+    /// </remarks>
     Overlays,
     PlateSolve,
     Stars,

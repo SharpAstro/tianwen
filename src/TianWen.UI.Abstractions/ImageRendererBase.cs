@@ -71,6 +71,7 @@
 using System;
 using System.IO;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading;
@@ -176,6 +177,69 @@ namespace TianWen.UI.Abstractions
         /// Lazy-initialized celestial object database used for object overlays.
         /// </summary>
         public DotNext.Threading.AsyncLazy<ICelestialObjectDB>? CelestialObjectDB { get; set; }
+
+        /// <summary>Whether this frame has already asked the catalog to load, so the ladder's ask is
+        /// one-shot rather than a task allocation per frame while it loads.</summary>
+        private bool _catalogWarmRequested;
+
+        /// <summary>
+        /// Starts the object-catalog load when a context rung needs it and it is not loaded. Cheap and
+        /// idempotent; the load itself is off-thread and the overlays appear when it lands.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Asked once per FRAME rather than from the key, the click and the wheel that each move the
+        /// ladder, because those are three call sites for one rule and the fourth (a state restored
+        /// with the rung already up) has no press to hang off at all. The state is the question; the
+        /// render pass is where it is asked.
+        /// </para>
+        /// <para>
+        /// It lives here rather than in <see cref="ViewerActions"/> because the database handle does:
+        /// that class is pure over <see cref="ViewerState"/>. Before this, the Objects button was
+        /// DISABLED until something else warmed the catalog, so a frame carrying its own WCS -- rather
+        /// than one solved here, which warms it on the way past -- could never reach the overlays.
+        /// </para>
+        /// </remarks>
+        private void WarmCatalogIfContextNeedsIt(ViewerState state)
+        {
+            if (_catalogWarmRequested
+                || state.OverlayLevel < ViewerOverlayLevel.Objects
+                || CelestialObjectDB is not { IsValueCreated: false } lazy)
+            {
+                return;
+            }
+
+            _catalogWarmRequested = true;
+            RunGuarded(async ct =>
+            {
+                await lazy.WithCancellation(ct).ConfigureAwait(false);
+                // The frame that asked is long gone by the time a cold catalog lands (~500 ms), and
+                // nothing else is redrawing while the user waits for it.
+                state.NeedsRedraw = true;
+            },
+            "Object catalog load",
+            onError: ex => state.StatusMessage = $"Catalog unavailable: {StatusText.FromException(ex)}");
+        }
+
+        /// <summary>
+        /// Runs background work under the host's tracker when it set one, and standalone when it did
+        /// not -- guarded and logged either way, so the two paths differ only in whether shutdown
+        /// drains it.
+        /// </summary>
+        private void RunGuarded(Func<CancellationToken, Task> work, string label,
+            Action<Exception> onError, Action? onFinally = null)
+        {
+            var logger = Logger ?? NullLogger.Instance;
+            if (Tracker is { } tracker)
+            {
+                tracker.RunGuarded(work, AppToken, logger, label, onError: onError, onFinally: onFinally);
+            }
+            else
+            {
+                _ = BackgroundTaskTracker.RunGuardedAsync(work, AppToken, logger, label,
+                    onError: onError, onFinally: onFinally);
+            }
+        }
 
         /// <summary>
         /// Caller-driven sky-position annotations rendered through the active WCS.
@@ -874,6 +938,10 @@ namespace TianWen.UI.Abstractions
             {
                 RenderStarOverlay(state, stars);
             }
+
+            // The rung asks for the catalog it needs; one-shot, off-thread, and a no-op at every rung
+            // below Objects.
+            WarmCatalogIfContextNeedsIt(state);
 
             if (state.ShowOverlays && document?.Wcs is { HasCDMatrix: true } overlayWcs && CelestialObjectDB?.Value?.Value is { } db)
             {

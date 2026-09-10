@@ -96,6 +96,29 @@ public sealed class ViewerState
     /// <summary>Whether deep-sky object overlays (galaxy ellipses, markers, labels) are visible.</summary>
     public bool ShowOverlays { get; set; }
 
+    /// <summary>
+    /// Whether the sky the frame was taken from is drawn BEHIND it -- star field, constellations,
+    /// milky way, planets and (given a site and an instant) the horizon, with the photograph
+    /// composited on top at its solved place. Needs a host that supplied a sky map to draw with; a
+    /// host that did not simply draws nothing extra.
+    /// </summary>
+    public bool ShowSkyBackdrop { get; set; }
+
+    /// <summary>
+    /// The context ladder's current rung, DERIVED from the three layer flags rather than stored
+    /// beside them, so a layer key that flips one on its own cannot leave the button describing a
+    /// state the screen does not show. The highest active layer names the rung: the rungs are
+    /// cumulative, so with the sky on this is <see cref="ViewerOverlayLevel.Sky"/> whatever the two
+    /// below it say.
+    /// </summary>
+    public ViewerOverlayLevel OverlayLevel => ShowSkyBackdrop
+        ? ViewerOverlayLevel.Sky
+        : ShowOverlays
+            ? ViewerOverlayLevel.Objects
+            : ShowGrid
+                ? ViewerOverlayLevel.Grid
+                : ViewerOverlayLevel.None;
+
     /// <summary>Whether Tycho-2 photometric color calibration is active.</summary>
     public bool ColorCalibrationEnabled { get; set; }
 
@@ -550,6 +573,11 @@ public sealed class ViewerState
         ShowGrid = ShowGrid,
         ShowOverlays = ShowOverlays,
         ShowStarOverlay = ShowStarOverlay,
+
+        // The sky behind, deliberately NOT carried. The export is the frame at zoom 1 with no pan, so
+        // the photograph covers every pixel of the raster and a backdrop could only ever be invisible
+        // -- and the surface it renders onto is a CPU raster with no sky pipeline to draw one with.
+        ShowSkyBackdrop = false,
 
         // The window, removed. Zoom 1 with no pan is what makes the surface and the image one
         // coordinate space; the rest is chrome that has no meaning in a file.
