@@ -1,7 +1,13 @@
 # The atlas the app already has, instead of a link to the one on the web
 
-**Status: DRAFT (raised by the user 2026-09-10).** *"Lets draft out what needs to be done to use the
-actual atlas. Not the browser link."*
+**Status: P0 SHIPPED (PR #237, 2026-09-10); P4 + P4b(header) + P4c SHIPPED 2026-09-10; P1-P3, P5, P6
+and the rest of P4b OPEN.** Raised by the user as *"Lets draft out what needs to be done to use the
+actual atlas. Not the browser link."*, and the shape of the viewer half was settled by them once P0
+was merged: *"P4c, but with horizon and take time from when we took the frame (this is optional if we
+do not have the time or the site), use that new floating thing that is activated if the overlay + sky
+mode is selected... grid + overlay become one button, where pressing O once is grid, second item is
+grid + overlay, third one is the more advanced sky view. this works as we will show the toolbox that
+gives more freedom once in this mode."* See [What shipped](#what-shipped-in-the-viewer) below.
 
 Right-clicking a plate-solved pixel offers **"Open in sky atlas"** (`ImageContextMenu.cs:144`). It
 builds a `SkyAtlasLink.For(...)` URL, posts `OpenUrlSignal`, and the host hands it to the shell
@@ -193,17 +199,134 @@ no atlas of its own keeps opening the browser, which is what makes P2 shippable 
 
 | # | What | Where | Risk |
 |---|---|---|---|
-| **P0** | `FloatingPalette<TSurface>` (DIR.Lib) + a palette on `SkyMapTab` itself carrying the ten layer toggles, the mode and the time / FOV controls. **Independent of every other phase and the first one worth doing**: it is the GUI atlas's first visible control surface and the web atlas's only reachable one. The DIR-level foundation (`Layout.Builder.Anchored` + the palette marks) is already in the pinned 8.15, so this generalises the PDF viewer's `ToolPalette` into DIR.Lib rather than starting one; the viewer inherits it free at P4 | DIR.Lib, `TianWen.UI.Abstractions` | Medium |
+| **P0 DONE** | `FloatingPalette<TSurface>` (DIR.Lib) + a palette on `SkyMapTab` itself carrying the ten layer toggles, the mode and the time / FOV controls. **Independent of every other phase and the first one worth doing**: it is the GUI atlas's first visible control surface and the web atlas's only reachable one. The DIR-level foundation (`Layout.Builder.Anchored` + the palette marks) is already in the pinned 8.15, so this generalises the PDF viewer's `ToolPalette` into DIR.Lib rather than starting one; the viewer inherits it free at P4 | DIR.Lib, `TianWen.UI.Abstractions` | Medium |
 | **P1** | Hoist the pointing recipe out of Razor into `SkyMapViewActions.ApplyPointing(state, plannerState, raHours, decDeg, fovDeg, capturedUtc)` -- time first, `SetView`, `ExternalViewPending` -- and re-point `Planner.razor` at it. No behaviour change; the existing E2E is the guard | `SkyMapViewActions.cs`, `Planner.razor` | Low |
 | **P2** | GUI: a `ShowInSkyAtlasSignal(ra, dec, fov, capturedUtc)` whose handler calls P1's helper and sets `ActiveTab = GuiTab.SkyMap`. Route-only, per the signal-handler rule | `GuiSignals.cs`, `AppSignalHandler.SkyMap.cs` | Low |
 | **P3** | Menu vocabulary: the atlas entry posts a signal instead of carrying a URL, gated on a host-declared "I have an atlas" capability, with the browser link as the fallback item and the copy-link item beside it | `ImageContextMenu.cs`, `ImageRendererBase.ContextMenu.cs` | Low |
-| **P4** | Viewer hosts `VkSkyMapTab`: the milky-way asset, a `PlannerState`, input routing, and the DB init kicked off without blocking the render thread. Ships site-free (equatorial, no horizon), so it does not wait on P4b | `TianWen.UI.FitsViewer` | **The bulk of it** |
-| **P4b** | `FrameSiteResolver` (pure, in `TianWen.Lib`, testable against the 10P headers): `SITELAT`/`SITELONG` -> solved from `CENTALT`/`CENTAZ` + centre + `DATE-OBS` -> single-profile read -> remembered -> typed, each answer carrying its provenance so the UI can say which. Turns the horizon and Alt/Az layers on | `TianWen.Lib`, viewer | Low |
-| **P4c** | The composite: `O` draws the sky behind the frame, image on top, as a tessellated WCS-projected quad inside the sky pipeline; zoom is continuous from pixel to constellation | `TianWen.UI.Shared`, viewer | Medium |
+| **P4 DONE** | Viewer hosts `VkSkyMapTab`: the milky-way asset, a `PlannerState`, input routing, and the DB init kicked off without blocking the render thread. Ships site-free (equatorial, no horizon), so it does not wait on P4b | `TianWen.UI.FitsViewer` | **The bulk of it** |
+| **P4b HALF** (header + remembered tiers shipped; the `CENTALT`/`CENTAZ` solve and the profile read are open) | `FrameSiteResolver` (pure, in `TianWen.Lib`, testable against the 10P headers): `SITELAT`/`SITELONG` -> solved from `CENTALT`/`CENTAZ` + centre + `DATE-OBS` -> single-profile read -> remembered -> typed, each answer carrying its provenance so the UI can say which. Turns the horizon and Alt/Az layers on | `TianWen.Lib`, viewer | Low |
+| **P4c DONE** (as a rung of the context ladder, and WITHOUT the tessellated quad -- see below) | The composite: `O` draws the sky behind the frame, image on top, as a tessellated WCS-projected quad inside the sky pipeline; zoom is continuous from pixel to constellation | `TianWen.UI.Shared`, viewer | Medium |
 | **P5** | Viewer signal subset: answer search / click-select / info-panel; deliberately do NOT offer pin, slew, planner or solve-sync. Decide whether this is a second small router or a shared one with the GUI's | `TianWen.UI.FitsViewer`, possibly `AppSignalHandler.SkyMap.cs` | Medium |
 | **P6** | Web: the item applies the pointing in-process through P1's helper rather than navigating; the URL stays the shareable artifact it already is | `Planner.razor` | Low |
 
 P1 through P3 are one sitting and leave the GUI complete. P4 and P5 are the viewer.
+
+## What shipped in the viewer
+
+**A rung of a ladder, not a mode.** The user's call, and a better shape than either the draft's "O
+toggles the sky" or the checklist the *What bites* section below argued for: `O` now steps
+`none -> grid -> grid + objects -> grid + objects + sky`, the toolbar's Grid and Objects buttons
+became ONE button whose mark says which rung, and the palette is what gives per-layer freedom once
+the sky is up. The rung is DERIVED from the three layer flags rather than stored beside them, so `G`
+-- which still toggles the grid alone -- moves the ladder with it instead of leaving the button lit
+for a layer that is off. `Shift+O` and a wheel over the button walk it backwards.
+
+**The photograph stays the master; the sky follows it.** The draft proposed drawing the image as a
+tessellated WCS-projected quad INSIDE the sky pipeline. What shipped is the reverse and is far
+smaller: `SkyBackdropView.Solve` reads the viewer's existing placement (zoom, pan, fit, crop) back
+through the frame's own WCS and states the same view in the map's terms -- centre, roll, field of
+view and handedness -- and the map draws under the image quad. Nothing about the image pipeline
+changes and every existing gesture keeps working. The tessellation the draft wanted was for the
+projection difference, which turns out not to need modelling (below).
+
+**Measured against the frame's own header** (a 10P/Tempel drizzle master, 4114x2711 at 4.72"/px,
+5.4 degrees across, driven live and read back through the inspector's new `skyCentre*` telemetry):
+
+| | header | live | agreement |
+|---|---|---|---|
+| centre RA | 22.136114 h | 22.136064 h | 2.7 arcsec (0.57 px) |
+| centre Dec | -30.315830 deg | -30.315138 deg | 2.5 arcsec (0.53 px) |
+| field of view | 4.6993 deg | 4.7002 deg | 0.019 percent |
+| roll | rotation 92.654 deg | -87.348 deg | exactly rotation - 180 |
+| parity | det(CD) > 0 | not mirrored | consistent |
+
+The half-pixel residual is the pixel-centre convention plus `CRPIX` not being exactly the image
+centre. `SkyBackdropViewTests` pins the same claim in units nobody has to interpret: it projects the
+frame's four CORNERS through the map's own projection and asserts they land where the image quad
+draws them, under rotation, both parities, near the pole, panned and zoomed. Disabling the roll fails
+7 of its 15 cases; asserting only the centre would fail none of them, which is why it asserts corners.
+The live composite was then checked a second way, which is the one worth repeating on a new frame:
+turn the map's own object layer on and both engines draw the same catalogue objects outside the
+frame -- the image's overlay from its WCS, the map's from the view matrix -- and their markers
+coincide.
+
+**Three findings the draft did not have, each of which fails silently:**
+
+- **A rotation cannot fix PARITY.** Roughly half of all light paths put east on the other side of the
+  frame, and a star chart laid behind such a photograph is its mirror image however it is rolled --
+  every star lines up along one axis and walks off along the other, which reads as a wrong plate
+  solution rather than as handedness. `SkyMapState.MirrorView` negates the view's right axis AFTER
+  the roll (taking `up` from a negated right would be a 180 degree rotation instead, leaving the
+  handedness exactly as it was). A reflection is still ORTHOGONAL, so the projection maths is
+  untouched: the inverse stays the transpose, which is what `UnprojectWithMatrix` assumes.
+- **The cached image layer would blit OVER the sky.** It clears to opaque black across the whole
+  pane, so everywhere the picture does not reach -- exactly where the sky is worth looking at -- the
+  blit would paint it out. It stands down while the backdrop is on and says so in its own miss
+  diagnostic (`the sky is drawn behind the frame`, readable from the inspector).
+- **The two projections do not need reconciling.** A frame's WCS is gnomonic and the map is
+  stereographic; they agree exactly at the view centre and separate by about `theta^2 / 4` of the
+  distance out to a point `theta` away. That is a hundredth of a pixel at the corner of a
+  one-degree frame and 1.85 px on a ten-degree one -- and it is only ever visible at the frame's
+  BORDER, since the photograph is drawn opaque over everything inside it.
+
+**The view is solved by PROBING, not derived from the CD matrix**: three `WCS.PixelToSky` calls (the
+pane centre, one pixel right, one pixel up) answer all four unknowns, so the solver needs no opinion
+about FITS conventions, matrix handedness or which way the map's east points, and a convention that
+changes on either side moves both probes together. What it cannot express is a NON-CONFORMAL frame (a
+sheared CD, or different column and row scales): the map's view is rigid, so such a frame matches
+along the vertical and drifts along the horizontal. Real frames are square-pixel and shear-free to
+well under a pixel, and one that is not is already drawn with the wrong aspect ratio by the image
+quad.
+
+**What `ViewDrivenExternally` turns off, and why each matters.** The home pass (which overwrites the
+pointing on the first frame and again whenever the site changes), the roll servo (which walks a
+matched rotation back to celestial north over about a second), and the map's own pan and zoom (which
+would move the sky out from under the picture). Also the map's info strip and centre crosshair, which
+the viewer's own status bar and content have already answered -- and which would be drawn UNDER the
+photograph anyway. It is deliberately not a MODE: everything else about the map is identical either
+way, and a mode invites a second answer for each of them.
+
+**Site and time come from the frame, and degrade separately.** `FrameSiteResolver` (pure, in
+`TianWen.Lib`, with `FrameSite` carrying provenance) reads `SITELAT`/`SITELONG`, remembers the last
+site across frames so a folder walk does not lose the horizon on an arrow key, and reads an exact
+`(0, 0)` as UNSET rather than as the Gulf of Guinea -- capture software writes the profile's site
+whether or not anyone filled it in. `DATE-OBS` puts the planets, the comets and the horizon where
+they were while the shutter was open (a missing one parses to year 1, so the test is for a plausible
+instant rather than for a null). No instant means the wall clock; no site means no horizon and no
+Alt/Az grid, and everything else is unchanged.
+
+**Layer availability became honest, which the GUI needed too.** `SkyMapLayer.IsAvailable` was carried
+by the milky way alone; the horizon and the Alt/Az grid now require a site
+(`SkyMapState.SiteAvailable`, stamped per frame from the resolved `SiteContext`) and the mount
+reticle requires a mount. The viewer is the host where all three are routinely absent, and an
+unavailable layer is drawn dimmed and leaves its key UNHANDLED rather than swallowing it.
+
+**The palette comes along without its key hints.** It doubles as the map's legend in a tab host,
+where those ten letters are the only way to reach the layers; in the viewer every one of them already
+means something else (`S` detects stars, `C` cycles the channel, `D` the demosaic), so a printed key
+would be a row teaching a shortcut that does something quite different.
+
+**Two things fixed on the way past.** The Objects button demanded an ALREADY-created object catalog
+to be enabled at all, so a frame carrying its own WCS -- rather than one solved here, which warms the
+catalog on the way -- could never reach the overlays: a disabled button cannot warm the database it
+is waiting for. The rung now asks for the catalog itself, once, off-thread, from the render pass
+rather than from each of the three inputs that can move the ladder. And the viewer's inspector now
+reports `PaintedRegions()` rather than its own registered ones, because the renderer is a
+`CompositeWidget` now and the palette's rows live on the map: without it an agent could see a panel
+in a screenshot and had no way to address it.
+
+**Open questions the draft listed, as answered by what shipped:** the sky FOLLOWS the file (site and
+instant are restated per frame, with the site remembered when a frame does not carry one); the chrome
+does NOT change when the view zooms out past the frame (the toolbar and histogram keep describing the
+image, and the map's own chrome stands down instead); Grid and Objects DID lose their separate
+buttons, which is what paid for the third rung. Search in the viewer (P5) is still open.
+
+**What is left here:** P4b's geometric solve from `CENTALT`/`CENTAZ` and its single-profile read (the
+header tier covers every N.I.N.A. and TianWen frame measured, so this is for third-party captures);
+P1-P3, which are the GUI half and unblocked; P5's signal subset; and P6's web build. First-open cost
+measured on this machine: a 45 ms seed build plus a 654 ms async Tycho-2 build off-thread, 6 ms of it
+on the render thread to swap -- the map's own existing behaviour, not new.
+
 
 ## What bites
 
