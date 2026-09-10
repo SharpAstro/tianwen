@@ -229,7 +229,15 @@ public sealed class ViewerState
     /// second overlay would have had to find all three. Add an overlay here, not at the call sites.
     /// </para>
     /// </summary>
-    public bool OverlayOwnsPointer => ToolbarDropdown.IsOpen;
+    public bool OverlayOwnsPointer => ToolbarDropdown.IsOpen
+        || (ShowSkyBackdrop && SkyLayerPalette is { IsEngaged: true });
+
+    /// <summary>
+    /// The sky map's layer palette, when the host wired a sky backdrop -- the floating panel that
+    /// appears with the sky and is the only interactive thing it brings. Registered here so the rule
+    /// above can see it; null in a host with no backdrop.
+    /// </summary>
+    public FloatingPaletteState? SkyLayerPalette { get; set; }
 
     /// <summary>Index into <see cref="StretchParameters.Presets"/> for the selected stretch preset.</summary>
     public int StretchPresetIndex { get; set; } = 0; // (0.1, -5.0) default

@@ -85,6 +85,19 @@ namespace TianWen.UI.Abstractions
         public bool MilkyWayAvailable { get; set; }
 
         /// <summary>
+        /// Whether the view has a site to draw local sky in: stamped from the resolved
+        /// <see cref="SiteContext"/> every frame, so the layers that only mean something at a place on
+        /// Earth -- the horizon and the Alt/Az grid -- can say they are unavailable instead of
+        /// answering a key with nothing.
+        /// </summary>
+        /// <remarks>
+        /// The GUI is nearly always sited (a profile carries one), which is why this had not been
+        /// needed; the FITS viewer is the opposite case, since a photograph only knows where it was
+        /// taken if its own header says so.
+        /// </remarks>
+        public bool SiteAvailable { get; set; }
+
+        /// <summary>
         /// Show the layer palette (V key), the floating panel listing every layer in
         /// <see cref="SkyMapLayers.All"/> with the key that toggles it.
         /// <para>
@@ -990,6 +1003,50 @@ namespace TianWen.UI.Abstractions
         public double CenterRoll { get; set; }
 
         /// <summary>
+        /// The view is being POSITIONED BY THE HOST every frame rather than by this map's own
+        /// gestures, so nothing here may move it: no home pass on the first frame or a site change, no
+        /// roll servo toward the mode's reference, and no pan or zoom from the pointer.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Set by the FITS viewer, which draws this map BEHIND a photograph: there the centre, the
+        /// scale and the roll are all functions of where the frame's own solution puts it on screen,
+        /// and every one of them is a value the map would otherwise compute for itself. The three
+        /// things it turns off are the three that would fight the driver, and each fails differently
+        /// -- the home pass overwrites the pointing on the first frame (and again whenever the site
+        /// changes), the roll servo walks a matched rotation back to north over about a second, and a
+        /// drag pans the sky out from under the image.
+        /// </para>
+        /// <para>
+        /// It is deliberately NOT a mode: everything else about the map -- the layers, the labels, the
+        /// object overlay, the palette -- is identical either way, and a mode would invite a second
+        /// answer for each of them.
+        /// </para>
+        /// </remarks>
+        public bool ViewDrivenExternally { get; set; }
+
+        /// <summary>
+        /// Mirrors the view's RIGHT axis, so the sky is drawn with the handedness of a frame that went
+        /// through an odd number of reflections.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Only <see cref="ViewDrivenExternally"/> hosts set it, and it exists because a rotation
+        /// cannot fix a parity flip: about half of all telescope trains put east on the other side of
+        /// the frame, and a star chart laid behind such a photograph is its mirror image no matter how
+        /// it is rolled. Every star lines up along one axis and walks off along the other, which reads
+        /// as the solution being wrong rather than as handedness.
+        /// </para>
+        /// <para>
+        /// A reflection is still ORTHOGONAL, so the projection maths is untouched by it: the inverse
+        /// is the transpose either way, which is what <see cref="SkyMapProjection.UnprojectWithMatrix"/>
+        /// assumes. It also cannot change the ROLL that matches a frame -- negating the right axis
+        /// leaves the up axis alone -- so the driver solves the two independently.
+        /// </para>
+        /// </remarks>
+        public bool MirrorView { get; set; }
+
+        /// <summary>
         /// How close the view axis may come to the mode's reference direction before
         /// <see cref="UpdateRollForReference"/> stops trusting it, as the sine of the angle between
         /// them (about 5 degrees). Inside that cone the reference cannot say which way is up, so the
@@ -1121,6 +1178,14 @@ namespace TianWen.UI.Abstractions
             var right = (float)cosRoll * right0 + (float)sinRoll * up0;
             var up = Vector3.Cross(right, forward);
 
+            // The mirror is applied AFTER up is taken, so it flips the screen's x sense and nothing
+            // else: taking up from a negated right would flip the y sense too, which is a 180 degree
+            // rotation rather than a reflection and leaves the handedness exactly as it was.
+            if (MirrorView)
+            {
+                right = -right;
+            }
+
             // View matrix: rows are (right, up, -forward)
             // Matrix4x4 constructor takes row-major arguments (M11..M44)
             return new Matrix4x4(
@@ -1154,6 +1219,16 @@ namespace TianWen.UI.Abstractions
             // Stamped before every exit so a held roll (dragging, inside the cone, no usable
             // reference) does not accumulate into one big step the moment the hold ends.
             var elapsed = deltaSeconds ?? MeasureRollFrameSeconds();
+
+            // A driven view's roll is the host's answer, not this map's. Checked HERE rather than at
+            // the call site because there is one call site per GPU backend and both would have to
+            // remember: the UBO writer is where the zenith is known, so it is where the refresh
+            // happens for everyone.
+            if (ViewDrivenExternally)
+            {
+                _hasReferenceRoll = false;
+                return false;
+            }
 
             // A pan OWNS the roll while it is happening. It rotates the whole frame rigidly, so
             // re-deriving the roll underneath it is what made the field jump the instant a drag

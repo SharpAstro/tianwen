@@ -29,13 +29,24 @@ namespace TianWen.Lib.Tests
         private static bool[] Snapshot(SkyMapState state)
             => [.. SkyMapLayers.All.Select(l => l.IsOn(state))];
 
-        private static SkyMapState StateWithMilkyWay(bool available = true)
-            => new SkyMapState { MilkyWayAvailable = available };
+        /// <summary>
+        /// A state in which every layer is AVAILABLE: the three conditional ones each need something
+        /// the map only sometimes has -- a decoded milky-way texture, a site, a mount reporting where
+        /// it points -- and a layer that is unavailable is drawn dimmed and refuses its toggle, which
+        /// would otherwise silently gut the tests below.
+        /// </summary>
+        private static SkyMapState FullyAvailable(bool milkyWay = true)
+            => new SkyMapState
+            {
+                MilkyWayAvailable = milkyWay,
+                SiteAvailable = true,
+                MountOverlay = new SkyMapMountOverlay(5.0, -25.0, "Mount", IsSlewing: false, IsTracking: true),
+            };
 
         [Fact]
         public void EachLayerTogglesItsOwnFlagAndNothingElse()
         {
-            var state = StateWithMilkyWay();
+            var state = FullyAvailable();
 
             for (var i = 0; i < SkyMapLayers.All.Length; i++)
             {
@@ -69,14 +80,14 @@ namespace TianWen.Lib.Tests
 
         [Fact]
         public void AKeyNoLayerClaimsIsNotHandled()
-            => SkyMapLayers.TryToggleByKey(StateWithMilkyWay(), InputKey.Q).ShouldBeFalse();
+            => SkyMapLayers.TryToggleByKey(FullyAvailable(), InputKey.Q).ShouldBeFalse();
 
         [Fact]
         public void TheMilkyWayKeyIsUnhandledWithNoTexture()
         {
             // The behaviour the old `case InputKey.S when State.MilkyWayAvailable` had: with no texture
             // the press must fall THROUGH, so a host binding S to something else still gets it.
-            var state = StateWithMilkyWay(available: false);
+            var state = FullyAvailable(milkyWay: false);
             var before = state.ShowMilkyWay;
 
             SkyMapLayers.TryToggleByKey(state, InputKey.S).ShouldBeFalse();
@@ -103,7 +114,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void TheItemsMirrorTheTableAndItsAvailability()
         {
-            var state = StateWithMilkyWay(available: false);
+            var state = FullyAvailable(milkyWay: false);
             state.ShowGrid = true;
 
             var items = SkyMapLayerPalette.ItemsFor(state);
@@ -120,7 +131,7 @@ namespace TianWen.Lib.Tests
         public void ThePaletteBindsTheGripAndOneRowPerAvailableLayer()
         {
             var tree = SkyMapLayerPalette.Build(
-                StateWithMilkyWay(available: false), 12f, _ => { }, () => { });
+                FullyAvailable(milkyWay: false), 12f, _ => { }, () => { });
 
             var actions = ClickActions(tree);
 
@@ -139,10 +150,33 @@ namespace TianWen.Lib.Tests
             }
         }
 
+        /// <summary>
+        /// The three layers whose subject can be MISSING say so rather than answering a key with
+        /// nothing. Each is a different absence, and all three are the FITS viewer's normal state: a
+        /// host with no milky-way texture beside its executable, a photograph whose header does not
+        /// say where it was taken, and any host at all with no mount reporting.
+        /// </summary>
+        [Fact]
+        public void ALayerWithNothingToDraw_IsUnavailableAndLeavesItsKeyAlone()
+        {
+            var bare = new SkyMapState();
+
+            var unavailable = SkyMapLayers.All.Where(l => !l.Available(bare)).Select(l => l.Label).ToArray();
+            unavailable.ShouldBe(["Alt/Az grid", "Horizon", "Milky Way", "Mount"], ignoreOrder: true);
+
+            foreach (var layer in SkyMapLayers.All.Where(l => !l.Available(bare)))
+            {
+                // False, so the press falls through to whatever else wants the key rather than being
+                // swallowed by a layer that cannot draw.
+                SkyMapLayers.TryToggleByKey(bare, layer.Key).ShouldBeFalse();
+                layer.IsOn(bare).ShouldBe(layer.IsOn(new SkyMapState()));
+            }
+        }
+
         [Fact]
         public void ClickingARowTogglesThatLayerAndNoOther()
         {
-            var state = StateWithMilkyWay();
+            var state = FullyAvailable();
             var toggled = new List<string>();
             var tree = SkyMapLayerPalette.Build(state, 12f, layer =>
             {
@@ -168,7 +202,7 @@ namespace TianWen.Lib.Tests
             // forwards the press to the tab only when nothing was hit, so this binding is the only way
             // a grip drag can begin at all.
             var pressed = 0;
-            var tree = SkyMapLayerPalette.Build(StateWithMilkyWay(), 12f, _ => { }, () => pressed++);
+            var tree = SkyMapLayerPalette.Build(FullyAvailable(), 12f, _ => { }, () => pressed++);
 
             ClickActions(tree)[SkyMapLayerPalette.GripAction].Invoke(InputModifier.None);
 

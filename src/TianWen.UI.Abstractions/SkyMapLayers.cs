@@ -14,9 +14,11 @@ namespace TianWen.UI.Abstractions
     /// <param name="IsOn">Reads the layer's flag.</param>
     /// <param name="Set">Writes it.</param>
     /// <param name="IsAvailable">
-    /// Whether the layer can be shown at all right now. Null means always. The milky way is the one
-    /// that answers no: its texture is a file beside the executable and a host without it has nothing
-    /// to draw (<see cref="SkyMapState.MilkyWayAvailable"/>).
+    /// Whether the layer can be shown at all right now. Null means always. Three answer no, each
+    /// because the thing they draw is not there: the milky way's texture is a file beside the
+    /// executable (<see cref="SkyMapState.MilkyWayAvailable"/>), the horizon and the Alt/Az grid need
+    /// a place on Earth (<see cref="SkyMapState.SiteAvailable"/>), and the mount reticle needs a mount
+    /// reporting where it points.
     /// </param>
     public readonly record struct SkyMapLayer(
         string Label,
@@ -66,10 +68,15 @@ namespace TianWen.UI.Abstractions
         [
             new SkyMapLayer("Grid", "G", InputKey.G,
                 static s => s.ShowGrid, static (s, v) => s.ShowGrid = v),
+            // The two that need a PLACE on Earth. In the GUI a profile always carries one, so these
+            // are effectively always available there; in the FITS viewer the site comes from the
+            // photograph's own header and half the frames in the world do not have it.
             new SkyMapLayer("Alt/Az grid", "A", InputKey.A,
-                static s => s.ShowAltAzGrid, static (s, v) => s.ShowAltAzGrid = v),
+                static s => s.ShowAltAzGrid, static (s, v) => s.ShowAltAzGrid = v,
+                static s => s.SiteAvailable),
             new SkyMapLayer("Horizon", "H", InputKey.H,
-                static s => s.ShowHorizon, static (s, v) => s.ShowHorizon = v),
+                static s => s.ShowHorizon, static (s, v) => s.ShowHorizon = v,
+                static s => s.SiteAvailable),
             new SkyMapLayer("Figures", "C", InputKey.C,
                 static s => s.ShowConstellationFigures, static (s, v) => s.ShowConstellationFigures = v),
             new SkyMapLayer("Boundaries", "B", InputKey.B,
@@ -83,8 +90,11 @@ namespace TianWen.UI.Abstractions
                 static s => s.ShowDarkNebulae, static (s, v) => s.ShowDarkNebulae = v),
             new SkyMapLayer("Comets", "E", InputKey.E,
                 static s => s.ShowComets, static (s, v) => s.ShowComets = v),
+            // Unavailable with no mount reporting, which is every host but the GUI with a rig
+            // connected -- the reticle has nowhere to be.
             new SkyMapLayer("Mount", "M", InputKey.M,
-                static s => s.ShowMountOverlay, static (s, v) => s.ShowMountOverlay = v),
+                static s => s.ShowMountOverlay, static (s, v) => s.ShowMountOverlay = v,
+                static s => s.MountOverlay is not null),
         ];
 
         /// <summary>

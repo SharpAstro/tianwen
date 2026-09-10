@@ -341,6 +341,17 @@ namespace TianWen.UI.Abstractions
                 return false;
             }
 
+            // With the sky behind the frame the layer would be blitted OVER it: the layer pass clears
+            // to opaque black and covers the whole pane, so everywhere the picture does not reach --
+            // which is exactly where the sky is worth looking at -- the blit would paint it out. The
+            // cache is an optimisation for a still image on a plain ground, and a live sky is neither:
+            // the planets move, the star buffer streams in, and the palette fades.
+            if (SkyBackdropActive)
+            {
+                _cachedLayerLastMiss = "the sky is drawn behind the frame";
+                return false;
+            }
+
             pane = _layout.ImageArea;
             if (pane.Width < 1f || pane.Height < 1f)
             {

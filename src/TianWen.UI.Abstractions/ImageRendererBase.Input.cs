@@ -768,6 +768,16 @@ namespace TianWen.UI.Abstractions
 
             state.MouseScreenPosition = (px, py);
 
+            // The sky's palette gets every move, before anything else looks at it: it holds its own
+            // fade open from the pointer, and while its grip is dragging the move is ITS move -- a
+            // palette dragged across the picture must not also pan the picture. It answers false the
+            // moment the grip is not held, so the ordinary path below is unaffected.
+            if (SkyBackdrop is { } sky && sky.HandleInput(evt))
+            {
+                state.NeedsRedraw = true;
+                return true;
+            }
+
             // Set by any branch below that repaints something OTHER than the pixel readout. Every one of
             // them asks for a frame and FALLS THROUGH to the narrowing at the end of this method, which
             // declares the readout's two rects and nothing else -- so without this the narrow region
@@ -908,6 +918,14 @@ namespace TianWen.UI.Abstractions
 
         private bool HandleViewerMouseUp(InputEvent evt)
         {
+            // Ends a palette grip drag, and goes no further when it does -- the same reason the map's
+            // own release path stops there: a release consumed by the panel must not also read as a
+            // click on what is behind it.
+            if (SkyBackdrop is { } sky && sky.HandleInput(evt))
+            {
+                return true;
+            }
+
             if (_state is { } state)
             {
                 // File-list gesture release: a tap selects the row (the Planner/Equipment tap-on-release
