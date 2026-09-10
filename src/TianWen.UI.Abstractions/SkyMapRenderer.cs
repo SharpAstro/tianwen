@@ -16,7 +16,7 @@ namespace TianWen.UI.Abstractions
     {
         // Colors: Stellarium-inspired color scheme
         private static readonly RGBAColor32 BackgroundColor      = new(0x05, 0x05, 0x0C, 0xFF);
-        private static readonly RGBAColor32 GridColor            = new(0x30, 0x60, 0xA0, 0xB0);
+        private static readonly RGBAColor32 GridColor            = SkyMapGpuGeometry.GridLineColor;
         private static readonly RGBAColor32 BoundaryColor        = new(0xAA, 0x44, 0x44, 0x80); // red, like Stellarium
         private static readonly RGBAColor32 ConstellationLabel   = new(0x70, 0x90, 0xC0, 0xE0);
         private static readonly RGBAColor32 FigureColor          = new(0x40, 0x80, 0xDD, 0x90); // blue stick figures, semi-transparent

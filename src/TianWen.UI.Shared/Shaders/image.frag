@@ -35,6 +35,11 @@ layout(set = 0, binding = 0, std140) uniform StretchUBO {
     vec4  lumaWeights;         // offset 368  (xyz = R/G/B luma weights, w = pad). Rec.709 default.
     vec4  lumaStretch;         // offset 384  (x = lumaShadow, y = lumaMidtones, z = lumaRescale, w = pad)
     vec4  stretchBlend;        // offset 400  (x = lumaBlend in [0,1], y = normalizeScale, z = debayerMode 0=bilinear/1=MHC, w = pad)
+    // offset 416 (xyz = RA/Dec grid line RGB, w = its alpha). Written from
+    // SkyMapGpuGeometry.GridLineColor, which is the ONE definition of the EQ grid's colour: the same
+    // value reaches the sky map's own grid, so the two grids this shader hands over to each other
+    // cannot drift apart. It is a constant, not a per-draw choice, which is why no caller passes it.
+    vec4  gridColor;
 } ubo;
 
 layout(set = 1, binding = 0) uniform sampler2D uChannel0;
@@ -445,7 +450,7 @@ void main() {
         vec2 gridPixel = vec2(vTexCoord.x * ubo.imageSize.x + 1.0,
                               vTexCoord.y * ubo.imageSize.y + 1.0);
         float gridOnly = gridIntensity(gridPixel);
-        FragColor = vec4(0.55, 0.85, 0.95, gridOnly * 0.45);
+        FragColor = vec4(ubo.gridColor.rgb, gridOnly * ubo.gridColor.a);
         return;
     }
 
@@ -599,10 +604,10 @@ void main() {
         vec2 pixel = vec2(vTexCoord.x * ubo.imageSize.x + 1.0,
                          vTexCoord.y * ubo.imageSize.y + 1.0);
         float grid = gridIntensity(pixel);
-        vec3 gridColor = vec3(0.55, 0.85, 0.95);
-        r = mix(r, gridColor.r, grid * 0.45);
-        g = mix(g, gridColor.g, grid * 0.45);
-        b = mix(b, gridColor.b, grid * 0.45);
+        float gridA = grid * ubo.gridColor.a;
+        r = mix(r, ubo.gridColor.r, gridA);
+        g = mix(g, ubo.gridColor.g, gridA);
+        b = mix(b, ubo.gridColor.b, gridA);
     }
 
     FragColor = vec4(clamp(r, 0.0, 1.0), clamp(g, 0.0, 1.0), clamp(b, 0.0, 1.0), 1.0);
