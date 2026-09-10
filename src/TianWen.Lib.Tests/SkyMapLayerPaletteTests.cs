@@ -3,37 +3,29 @@ using Shouldly;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Numerics;
 using TianWen.UI.Abstractions;
 using Xunit;
 
 namespace TianWen.Lib.Tests
 {
     /// <summary>
-    /// The sky map's layer table and the palette that renders it.
+    /// The sky map's layer table and the adapter that renders it as DIR.Lib's
+    /// <see cref="FloatingPalette"/>.
     ///
-    /// <para>The table is where this feature can go wrong invisibly: ten entries, each naming a
-    /// property twice (a getter and a setter lambda), which is exactly the shape a copy-paste survives.
-    /// Two entries pointing at one flag would look right in every screenshot -- the palette would draw
-    /// ten rows, nine of which behaved -- so <see cref="EachLayerTogglesItsOwnFlagAndNothingElse"/>
-    /// snapshots every flag around each toggle and insists that precisely one moved.</para>
+    /// <para><b>Scope, deliberately.</b> The palette's own behaviour -- the idle fade, the grip drag,
+    /// the double-click collapse, the clamp reconciliation, an unavailable row being drawn and dimmed
+    /// -- is pinned in DIR.Lib's <c>FloatingPaletteTests</c>, where it was hoisted after two apps had
+    /// each built the same panel. What is left here is what is actually TianWen's: the table, and
+    /// whether this map's rows reach the right layers.</para>
+    ///
+    /// <para>The table is where this can go wrong invisibly: ten entries, each naming a property twice
+    /// (a getter and a setter lambda), which is exactly the shape a copy-paste survives. Two entries
+    /// pointing at one flag would look right in every screenshot -- the palette would draw ten rows,
+    /// nine of which behaved -- so <see cref="EachLayerTogglesItsOwnFlagAndNothingElse"/> snapshots
+    /// every flag around each toggle and insists that precisely one moved.</para>
     /// </summary>
     public class SkyMapLayerPaletteTests
     {
-        /// <summary>
-        /// A measure context with no glyphs behind it: text measures at a fixed cell per character, and
-        /// a design unit is a pixel. Enough for the engine, which is the point of it being an interface
-        /// (<c>Layout.Engine</c> geometry is headless-testable by design).
-        /// </summary>
-        private sealed class StubMeasure : Layout.IMeasureContext<float>
-        {
-            public Layout.Size<float> MeasureText(ReadOnlySpan<char> text, float fontSize)
-                => new Layout.Size<float>(text.Length * fontSize * 0.6f, fontSize * 1.2f);
-
-            public float ToSurface(float designUnits) => designUnits;
-        }
-
-        /// <summary>Reads every layer's flag in table order, so two snapshots can be compared.</summary>
         private static bool[] Snapshot(SkyMapState state)
             => [.. SkyMapLayers.All.Select(l => l.IsOn(state))];
 
@@ -77,9 +69,7 @@ namespace TianWen.Lib.Tests
 
         [Fact]
         public void AKeyNoLayerClaimsIsNotHandled()
-        {
-            SkyMapLayers.TryToggleByKey(StateWithMilkyWay(), InputKey.Q).ShouldBeFalse();
-        }
+            => SkyMapLayers.TryToggleByKey(StateWithMilkyWay(), InputKey.Q).ShouldBeFalse();
 
         [Fact]
         public void TheMilkyWayKeyIsUnhandledWithNoTexture()
@@ -95,188 +85,62 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
-        public void ThePaletteBindsOneClickableRowPerAvailableLayer()
+        public void EveryRowActionResolvesBackToItsLayer()
         {
-            var state = StateWithMilkyWay();
-            var tree = SkyMapLayerPalette.Build(state, 12f, _ => { }, () => { });
+            // The adapter's whole job: a click arrives as an action string, and a wrong mapping would
+            // toggle a different layer than the row that was pressed.
+            foreach (var layer in SkyMapLayers.All)
+            {
+                var resolved = SkyMapLayerPalette.LayerForAction(SkyMapLayerPalette.RowAction(in layer));
+
+                resolved.ShouldNotBeNull();
+                resolved.Value.Key.ShouldBe(layer.Key);
+            }
+
+            SkyMapLayerPalette.LayerForAction("SkyMapLayer:not-a-key").ShouldBeNull();
+        }
+
+        [Fact]
+        public void TheItemsMirrorTheTableAndItsAvailability()
+        {
+            var state = StateWithMilkyWay(available: false);
+            state.ShowGrid = true;
+
+            var items = SkyMapLayerPalette.ItemsFor(state);
+
+            items.Length.ShouldBe(SkyMapLayers.All.Length);
+            items.Select(i => i.Label).ShouldBe(SkyMapLayers.All.Select(l => l.Label));
+            items.Select(i => i.KeyHint).ShouldBe(SkyMapLayers.All.Select(l => (string?)l.KeyLabel));
+
+            items.Single(i => i.KeyHint == "S").IsAvailable.ShouldBeFalse("no texture, no milky way");
+            items.Single(i => i.KeyHint == "G").IsOn.ShouldBeTrue();
+        }
+
+        [Fact]
+        public void ThePaletteBindsTheGripAndOneRowPerAvailableLayer()
+        {
+            var tree = SkyMapLayerPalette.Build(
+                StateWithMilkyWay(available: false), 12f, _ => { }, () => { });
 
             var actions = ClickActions(tree);
 
-            // One per layer, plus the grip -- named rather than counted loosely, so a row that stops
-            // being bound cannot be masked by a new binding appearing elsewhere in the panel.
-            actions.Count.ShouldBe(SkyMapLayers.All.Length + 1);
             actions.ShouldContainKey(SkyMapLayerPalette.GripAction);
             foreach (var layer in SkyMapLayers.All)
             {
-                actions.ShouldContainKey(SkyMapLayerPalette.RowAction(in layer));
+                var action = SkyMapLayerPalette.RowAction(in layer);
+                if (layer.Key == InputKey.S)
+                {
+                    actions.ShouldNotContainKey(action, "an unavailable layer is drawn but not clickable");
+                }
+                else
+                {
+                    actions.ShouldContainKey(action);
+                }
             }
         }
 
         [Fact]
-        public void TheGripArrangesToARectTheTabCanFindByItsAction()
-        {
-            // The drag is wired by the render pass looking this action up in the ARRANGED tree and
-            // stashing the rect. Rename the action or drop the binding and dragging silently stops
-            // working, with nothing else failing: the panel still draws and every row still toggles.
-            var arranged = Layout.Engine.Arrange(
-                SkyMapLayerPalette.Build(StateWithMilkyWay(), 12f, _ => { }, () => { }),
-                new Rect<float>(0f, 0f, 900f, 600f), new StubMeasure());
-
-            var grip = arranged.Single(
-                a => a.Node.Hit is HitResult.ButtonHit { Action: SkyMapLayerPalette.GripAction });
-
-            grip.Bounds.Width.ShouldBeGreaterThan(0f);
-            grip.Bounds.Height.ShouldBeGreaterThan(0f);
-        }
-
-        [Fact]
-        public void PressingTheGripCallsBackSoTheTabCanBeginADrag()
-        {
-            // The host dispatches a widget's clickable regions from its MOUSE-DOWN handler and only
-            // forwards the press to the tab when NO region was hit, so a grip that is a region can
-            // never be picked up by the tab's own mouse-down path. This binding IS the drag's entry
-            // point; without it the cursor still turns into the move cross over a panel that cannot
-            // be moved, which is exactly how the first cut failed.
-            var pressed = 0;
-            var tree = SkyMapLayerPalette.Build(StateWithMilkyWay(), 12f, _ => { }, () => pressed++);
-
-            ClickActions(tree)[SkyMapLayerPalette.GripAction].Invoke(InputModifier.None);
-
-            pressed.ShouldBe(1);
-        }
-
-        [Theory]
-        [InlineData(0f, false, 1f)]
-        [InlineData(2.5f, false, 1f)]
-        [InlineData(2.7f, false, 0.7f)]
-        [InlineData(2.9f, false, 0.4f)]
-        [InlineData(60f, false, 0.4f)]
-        [InlineData(60f, true, 1f)]
-        public void TheIdleFadeHoldsThenRecedesAndStops(float idleSeconds, bool engaged, float expected)
-        {
-            // Engaged (hover or a live drag) pins it fully present at any age, which is what stops the
-            // panel receding out from under the pointer that is using it.
-            SkyMapLayerPalette.FadeFor(idleSeconds, engaged).ShouldBe(expected, 0.001f);
-        }
-
-        [Fact]
-        public void ACollapsedPanelBarelyRecedesAtAll()
-        {
-            // Rolled up, the title bar IS the panel, so fading it to the expanded floor fades the only
-            // thing left: reported as unreadable against a star field, and worse in Night mode.
-            SkyMapLayerPalette.FadeFor(60f, engaged: false, collapsed: true)
-                .ShouldBe(SkyMapLayerPalette.CollapsedIdleAlpha, 0.001f);
-            SkyMapLayerPalette.CollapsedIdleAlpha.ShouldBeGreaterThan(SkyMapLayerPalette.IdleAlpha);
-        }
-
-        [Fact]
-        public void CollapsingDoesNotMoveTheHeaderWhereTheClampWasBiting()
-        {
-            // Near the bottom edge the clamp lifts an EXPANDED panel to make it fit while the stored
-            // offset still says where the pointer left it, and the divergence is invisible until the
-            // height changes -- collapse, the clamp stops binding, and the header drops to the stale
-            // offset. Reported as "collapsing near the bottom moves the header slightly down; in the
-            // middle it stays put". Writing the drawn offset back is what closes it.
-            var bounds = new Rect<float>(0f, 0f, 900f, 400f);
-            var state = StateWithMilkyWay();
-            state.LayerPaletteOffset = 380f; // deep enough that an expanded panel cannot fit below it
-
-            static float PanelTop(SkyMapState s, Rect<float> b) => Layout.Engine
-                .Arrange(SkyMapLayerPalette.Build(s, 12f, _ => { }, () => { }), b, new StubMeasure())
-                .First(a => a.Node is Layout.Node.Stack { Axis: Layout.Axis.Vertical })
-                .Bounds.Y;
-
-            var expandedTop = PanelTop(state, bounds);
-            expandedTop.ShouldBeLessThan(state.LayerPaletteOffset, "the clamp should have lifted it");
-
-            // What the render pass writes back every frame.
-            state.LayerPaletteOffset = SkyMapLayerPalette.DrawnOffset(expandedTop, bounds.Y, 1f);
-            state.LayerPaletteCollapsed = true;
-
-            PanelTop(state, bounds).ShouldBe(expandedTop, 0.01f);
-        }
-
-        [Fact]
-        public void CollapsedThePanelIsItsOwnTitleBar()
-        {
-            var state = StateWithMilkyWay();
-            state.ShowGrid = true;
-            state.ShowHorizon = true;
-            state.LayerPaletteCollapsed = true;
-
-            var tree = SkyMapLayerPalette.Build(state, 12f, _ => { }, () => { });
-            var actions = ClickActions(tree);
-
-            // The grip survives, because it is the only way back; every layer row goes.
-            actions.Keys.ShouldBe([SkyMapLayerPalette.GripAction]);
-            foreach (var layer in SkyMapLayers.All)
-            {
-                TextRuns(tree).ShouldNotContain(layer.Label);
-            }
-        }
-
-        [Fact]
-        public void CollapsedTheHeaderStillSaysHowManyLayersAreLit()
-        {
-            // Otherwise collapsing throws away the one thing the panel knows that the status strip
-            // never did, and the rolled-up bar is a label with no information in it.
-            var state = new SkyMapState { MilkyWayAvailable = false, LayerPaletteCollapsed = true };
-            foreach (var layer in SkyMapLayers.All)
-            {
-                layer.Set(state, false);
-            }
-            SkyMapLayers.All[0].Set(state, true);
-            SkyMapLayers.All[1].Set(state, true);
-
-            // Two runs, not one string: the count carries its own colour, so it is a separate node.
-            var runs = TextRuns(SkyMapLayerPalette.Build(state, 12f, _ => { }, () => { }));
-
-            runs.ShouldBe(["LAYERS", $"2/{SkyMapLayers.All.Length}"]);
-        }
-
-        [Theory]
-        [InlineData(0.1f, true)]
-        [InlineData(0.4f, true)]
-        [InlineData(0.5f, false)]
-        [InlineData(5f, false)]
-        public void TwoGripPressesCloseTogetherAreADoubleClick(float seconds, bool expected)
-            => SkyMapLayerPalette.IsDoubleClick(seconds).ShouldBe(expected);
-
-        [Fact]
-        public void TheOffsetSlidesThePanelDownTheEdge()
-        {
-            // Anchored's offsetAlong is consumer-owned state a drag updates, so the whole grip feature
-            // rests on this one wiring: the offset the tab writes has to be the offset the panel is
-            // placed at.
-            var bounds = new Rect<float>(0f, 0f, 900f, 900f);
-            var near = StateWithMilkyWay();
-            var far = StateWithMilkyWay();
-            far.LayerPaletteOffset = near.LayerPaletteOffset + 120f;
-
-            static float PanelY(SkyMapState s, Rect<float> b) => Layout.Engine
-                .Arrange(SkyMapLayerPalette.Build(s, 12f, _ => { }, () => { }), b, new StubMeasure())
-                .First(a => a.Node is Layout.Node.Stack { Axis: Layout.Axis.Vertical })
-                .Bounds.Y;
-
-            (PanelY(far, bounds) - PanelY(near, bounds)).ShouldBe(120f, 0.01f);
-        }
-
-        [Fact]
-        public void AnUnavailableLayerIsDrawnButNotClickable()
-        {
-            // Shown and dimmed rather than dropped: a row that comes and goes moves every row under it,
-            // and an absent row says nothing about WHY the milky way is missing.
-            var state = StateWithMilkyWay(available: false);
-            var milkyWay = SkyMapLayers.All.Single(l => l.Key == InputKey.S);
-
-            var tree = SkyMapLayerPalette.Build(state, 12f, _ => { }, () => { });
-
-            ClickActions(tree).ShouldNotContainKey(SkyMapLayerPalette.RowAction(in milkyWay));
-            TextRuns(tree).ShouldContain(milkyWay.Label);
-        }
-
-        [Fact]
-        public void ClickingARowTogglesThatLayer()
+        public void ClickingARowTogglesThatLayerAndNoOther()
         {
             var state = StateWithMilkyWay();
             var toggled = new List<string>();
@@ -287,82 +151,30 @@ namespace TianWen.Lib.Tests
             }, () => { });
 
             var grid = SkyMapLayers.All.Single(l => l.Key == InputKey.G);
-            var before = state.ShowGrid;
+            var before = Snapshot(state);
 
             ClickActions(tree)[SkyMapLayerPalette.RowAction(in grid)].Invoke(InputModifier.None);
 
             toggled.ShouldBe(["Grid"]);
-            state.ShowGrid.ShouldBe(!before);
+            var after = Snapshot(state);
+            Enumerable.Range(0, before.Length).Where(j => before[j] != after[j])
+                .ShouldBe([SkyMapLayers.All.IndexOf(grid)]);
         }
 
         [Fact]
-        public void ThePaletteArrangesInsideTheContentRectAgainstItsRightEdge()
+        public void PressingTheGripReachesTheHost()
         {
-            // The whole reason this goes through Layout.Builder.Anchored rather than hand-placed
-            // coordinates: the pinning and the clamp are the engine's, so the panel cannot be arranged
-            // off the edge of the map.
-            var state = StateWithMilkyWay();
-            var bounds = new Rect<float>(40f, 20f, 900f, 600f);
+            // The drag's entry point: a host dispatches clickable regions from the mouse-DOWN and
+            // forwards the press to the tab only when nothing was hit, so this binding is the only way
+            // a grip drag can begin at all.
+            var pressed = 0;
+            var tree = SkyMapLayerPalette.Build(StateWithMilkyWay(), 12f, _ => { }, () => pressed++);
 
-            var arranged = Layout.Engine.Arrange(
-                SkyMapLayerPalette.Build(state, 12f, _ => { }, () => { }), bounds, new StubMeasure());
+            ClickActions(tree)[SkyMapLayerPalette.GripAction].Invoke(InputModifier.None);
 
-            var panel = arranged.First(a => a.Node is Layout.Node.Stack { Axis: Layout.Axis.Vertical });
-
-            panel.Bounds.Width.ShouldBe(SkyMapLayerPalette.PanelWidth, 0.01f);
-            panel.Bounds.X.ShouldBe(
-                bounds.X + bounds.Width - SkyMapLayerPalette.PanelWidth - SkyMapLayerPalette.Margin, 0.01f);
-            (panel.Bounds.Y + panel.Bounds.Height).ShouldBeLessThanOrEqualTo(bounds.Y + bounds.Height);
-            panel.Bounds.Y.ShouldBeGreaterThanOrEqualTo(bounds.Y);
+            pressed.ShouldBe(1);
         }
 
-        [Fact]
-        public void EveryRowArrangesToAVisibleRect()
-        {
-            // The failure this exists for is the one a binding test cannot see: a panel that measures
-            // to nothing still registers ten clickable regions, all of them zero-sized, and the build
-            // is green while the screen is empty. Assert the rects, not just the bindings.
-            var state = StateWithMilkyWay();
-            var arranged = Layout.Engine.Arrange(
-                SkyMapLayerPalette.Build(state, 12f, _ => { }, () => { }),
-                new Rect<float>(0f, 0f, 900f, 600f), new StubMeasure());
-
-            // Identified by the action each row binds, not by node shape: the header is an HStack too
-            // now that its count is its own coloured run, and a shape test silently counted it as a row.
-            var rows = arranged
-                .Where(a => a.Node.Hit is HitResult.ButtonHit { Action: var act }
-                            && act.StartsWith("SkyMapLayer:", StringComparison.Ordinal))
-                .ToArray();
-
-            rows.Length.ShouldBe(SkyMapLayers.All.Length);
-            foreach (var row in rows)
-            {
-                row.Bounds.Height.ShouldBe(SkyMapLayerPalette.RowHeight, 0.01f);
-                row.Bounds.Width.ShouldBeGreaterThan(0f);
-            }
-
-            // And the panel is tall enough to hold them, rather than clipping the tail of the list.
-            var panel = arranged.First(a => a.Node is Layout.Node.Stack { Axis: Layout.Axis.Vertical });
-            panel.Bounds.Height.ShouldBeGreaterThanOrEqualTo(
-                SkyMapLayers.All.Length * SkyMapLayerPalette.RowHeight);
-        }
-
-        [Fact]
-        public void ANarrowMapStillPlacesTheWholePanelInside()
-        {
-            // A pane narrower than the panel plus its margins is where a hand-rolled "right edge minus
-            // width" leaves the thing hanging off the left. The engine's clamp is what stops that.
-            var state = StateWithMilkyWay();
-            var bounds = new Rect<float>(0f, 0f, 100f, 400f);
-
-            var arranged = Layout.Engine.Arrange(
-                SkyMapLayerPalette.Build(state, 12f, _ => { }, () => { }), bounds, new StubMeasure());
-            var panel = arranged.First(a => a.Node is Layout.Node.Stack { Axis: Layout.Axis.Vertical });
-
-            panel.Bounds.X.ShouldBeGreaterThanOrEqualTo(bounds.X);
-        }
-
-        /// <summary>Every bound click in the tree, keyed by its <see cref="HitResult.ButtonHit"/> action.</summary>
         private static Dictionary<string, Action<InputModifier>> ClickActions(Layout.Node root)
         {
             var found = new Dictionary<string, Action<InputModifier>>();
@@ -371,20 +183,6 @@ namespace TianWen.Lib.Tests
                 if (n is { Hit: HitResult.ButtonHit button, OnClick: { } click })
                 {
                     found[button.Action] = click;
-                }
-            });
-            return found;
-        }
-
-        /// <summary>Every text run in the tree, so a test can assert a row is DRAWN and not merely bound.</summary>
-        private static List<string> TextRuns(Layout.Node root)
-        {
-            var found = new List<string>();
-            Walk(root, n =>
-            {
-                if (n is Layout.Node.Leaf { Content: Layout.Content.Text text })
-                {
-                    found.Add(text.Value);
                 }
             });
             return found;

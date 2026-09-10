@@ -40,19 +40,10 @@ namespace TianWen.UI.Abstractions
         // Last pointer Y in surface pixels, refreshed on every mouse move. The palette grip's drag
         // starts from a click binding, which carries modifiers and no coordinates, so this is where
         // the press position comes from.
+        // The grip's drag begins from a click binding, which carries modifiers and no coordinates, so
+        // the press position is the last move's. Everything else about the palette -- placement, drag,
+        // collapse, fade -- is DIR.Lib's, on State.LayerPalette.
         private float _lastPointerY;
-        private float _lastPointerX;
-
-        // Panel rect from the last arranged frame, and when the panel was last engaged. Together they
-        // drive the idle recede: a panel nobody is using should stop competing with the sky, and the
-        // only way to know that is to watch the pointer against the rect that was actually drawn.
-        private RectF32 _palettePanelRect;
-        private long _paletteEngagedAt = Stopwatch.GetTimestamp();
-
-        // When the grip was last pressed, so a second press soon after reads as a double-click. The
-        // host counts clicks but does not hand the count to a region's callback, so this is the only
-        // place that can tell a pair from two singles.
-        private long _lastGripPressAt;
 
         // Async Milky Way load: the file read + lzip decompress (~270 ms for the raw BGRA
         // texture) runs on a background thread so it never stalls the first sky-map frame. The
@@ -340,50 +331,29 @@ namespace TianWen.UI.Abstractions
             // open -- so the palette stands down rather than floating over a modal.
             if (State.ShowLayerPalette && !State.Search.IsOpen)
             {
-                // Hover and a live drag hold the panel fully present; otherwise it recedes. Hover is
-                // measured against the PREVIOUS frame's rect, which is a frame of lag on a 2.5 s delay
-                // and the only ordering available: the rect is a result of the arrange this is an
-                // input to.
-                var engaged = State.LayerPaletteDrag is not null || PointerOverPalette();
-                if (engaged)
-                {
-                    _paletteEngagedAt = Stopwatch.GetTimestamp();
-                }
-
-                var idle = (float)Stopwatch.GetElapsedTime(_paletteEngagedAt).TotalSeconds;
-                var fade = SkyMapLayerPalette.FadeFor(idle, engaged, State.LayerPaletteCollapsed);
-
                 var paletteNodes = RenderLayout(
                     SkyMapLayerPalette.Build(State, BaseFontSize * 0.9f,
-                        layer => ToggleLayerFromPalette(layer),
-                        BeginLayerPaletteDrag,
-                        fade),
+                        ToggleLayerFromPalette,
+                        BeginLayerPaletteDrag),
                     contentRect, fontPath, dpiScale);
 
                 foreach (var node in paletteNodes)
                 {
                     if (node.Node is Layout.Node.Stack { Axis: Layout.Axis.Vertical })
                     {
-                        _palettePanelRect = new RectF32(
-                            node.Bounds.X, node.Bounds.Y, node.Bounds.Width, node.Bounds.Height);
-
-                        // Reconcile the offset with where the panel actually landed. The engine still
-                        // owns the clamp; this only keeps the stored value from drifting away from the
-                        // drawn one, which is what made collapsing near the bottom drop the header.
-                        // Safe during a drag: each move recomputes the offset absolutely from the
-                        // press-time anchor, so this cannot accumulate.
-                        State.LayerPaletteOffset = SkyMapLayerPalette.DrawnOffset(
-                            node.Bounds.Y, contentRect.Y, dpiScale);
+                        // Hands the palette where it actually landed, which is also what reconciles its
+                        // stored offset with the engine's clamp -- the thing that stopped collapsing
+                        // near the bottom from dropping the title bar.
+                        State.LayerPalette.NoteArranged(
+                            new RectF32(node.Bounds.X, node.Bounds.Y, node.Bounds.Width, node.Bounds.Height),
+                            contentRect.Y, dpiScale);
                         break;
                     }
                 }
 
-                // A fade in progress has to keep asking for frames, or it stops wherever the last
-                // event left it: nothing else in this tab redraws while the pointer is still.
-                var floor = State.LayerPaletteCollapsed
-                    ? SkyMapLayerPalette.CollapsedIdleAlpha
-                    : SkyMapLayerPalette.IdleAlpha;
-                if (fade > floor)
+                // A fade in progress has to keep asking for frames, or it stops wherever the last event
+                // left it: nothing else in this tab redraws while the pointer is still.
+                if (State.LayerPalette.IsFading)
                 {
                     State.NeedsRedraw = true;
                 }
@@ -1212,9 +1182,8 @@ namespace TianWen.UI.Abstractions
         {
             // A grip drag ends here and goes no further: TryEmitClickSelect would otherwise read the
             // release as a click on the sky BEHIND the panel and select whatever sits under it.
-            if (State.LayerPaletteDrag is not null)
+            if (State.LayerPalette.ReleaseGrip())
             {
-                State.LayerPaletteDrag = null;
                 State.NeedsRedraw = true;
                 return true;
             }
@@ -1234,14 +1203,15 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private bool HandleMouseMove(float x, float y)
         {
-            _lastPointerX = x;
             _lastPointerY = y;
+            State.LayerPalette.NotePointer(x, y);
 
             // While the grip has the pointer the move belongs to the palette, and the map never sees
             // it -- so a palette drag cannot also pan the sky underneath it.
-            if (State.LayerPaletteDrag is not null)
+            if (State.LayerPalette.DragTo(y, DpiScale))
             {
-                return HandlePaletteDrag(y);
+                State.NeedsRedraw = true;
+                return true;
             }
 
             return State.IsDragging && !State.IsPinching && HandleDrag(x, y);
@@ -1251,64 +1221,22 @@ namespace TianWen.UI.Abstractions
         /// Begins a grip drag from wherever the pointer last was. Called from the palette's own click
         /// binding, which the host dispatches on the PRESS.
         /// </summary>
+        /// <summary>
+        /// Begins a grip drag, or collapses on the second press of a quick pair -- DIR.Lib decides
+        /// which. Called from the palette's own click binding, which the host dispatches on the PRESS
+        /// and which carries no coordinates, so the position is the last move's.
+        /// </summary>
         private void BeginLayerPaletteDrag()
         {
-            _paletteEngagedAt = Stopwatch.GetTimestamp();
-
-            // Two presses in quick succession roll the panel up instead of moving it. The first press
-            // of the pair has already armed a drag and its release disarmed it, so the only thing to
-            // undo here is any drag this press would otherwise start -- hence toggling and returning
-            // rather than falling through.
-            var sinceLast = (float)Stopwatch.GetElapsedTime(_lastGripPressAt).TotalSeconds;
-            _lastGripPressAt = _paletteEngagedAt;
-            if (SkyMapLayerPalette.IsDoubleClick(sinceLast))
-            {
-                State.LayerPaletteCollapsed = !State.LayerPaletteCollapsed;
-                State.LayerPaletteDrag = null;
-                State.NeedsRedraw = true;
-                return;
-            }
-
-            State.LayerPaletteDrag = (_lastPointerY, State.LayerPaletteOffset);
+            State.LayerPalette.PressGrip(_lastPointerY);
+            State.NeedsRedraw = true;
         }
 
         /// <summary>Toggling a layer counts as engagement, so the panel does not fade under the click.</summary>
         private void ToggleLayerFromPalette(SkyMapLayer layer)
         {
             layer.Toggle(State);
-            _paletteEngagedAt = Stopwatch.GetTimestamp();
-        }
-
-        /// <summary>Whether the pointer is over the panel as it was last arranged.</summary>
-        private bool PointerOverPalette()
-            => _palettePanelRect.Size.X > 0f && _palettePanelRect.Size.Y > 0f
-                && _lastPointerX >= _palettePanelRect.X
-                && _lastPointerX < _palettePanelRect.X + _palettePanelRect.Size.X
-                && _lastPointerY >= _palettePanelRect.Y
-                && _lastPointerY < _palettePanelRect.Y + _palettePanelRect.Size.Y;
-
-        /// <summary>
-        /// Slides the palette along the edge it is pinned to. Offsets are DESIGN units and the
-        /// pointer is in surface pixels, so the delta is divided by the DPI scale -- without that the
-        /// panel runs away from the pointer on a scaled display, at exactly the scale factor.
-        /// <para>
-        /// No clamping here on purpose: <c>Layout.Builder.Anchored</c> clamps the arranged panel into
-        /// the content rect, which is the one place that knows both the panel's measured height and
-        /// the rect it floats in. Clamping the offset as well would be a second opinion that disagrees
-        /// with the drawn result the moment either changes.
-        /// </para>
-        /// </summary>
-        private bool HandlePaletteDrag(float pointerY)
-        {
-            if (State.LayerPaletteDrag is not { } drag)
-            {
-                return false;
-            }
-
-            var scale = DpiScale <= 0f ? 1f : DpiScale;
-            State.LayerPaletteOffset = drag.Offset + (pointerY - drag.PointerY) / scale;
-            State.NeedsRedraw = true;
-            return true;
+            State.LayerPalette.NoteEngaged();
         }
 
         private bool HandlePinchZoom(float scale, float centerX, float centerY, PinchSource source)
