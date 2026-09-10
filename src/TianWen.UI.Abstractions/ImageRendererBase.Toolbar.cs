@@ -313,9 +313,58 @@ namespace TianWen.UI.Abstractions
         {
             var label = GetToolbarButtonLabel(entry.Label, entry.Action, document, state);
             var markW = ToolbarMarkWidth(entry.Action, state);
-            return (label, markW,
-                markW + MarkGap(markW, label) + MeasureText(label, ToolbarFontSize) + ButtonPaddingH * 2);
+            var textW = MathF.Max(MeasureText(label, ToolbarFontSize), ReservedLabelWidth(entry.Action, state));
+            return (label, markW, markW + MarkGap(markW, label) + textW + ButtonPaddingH * 2);
         }
+
+        /// <summary>
+        /// The width a button's label reserves whatever it happens to say right now, for the two
+        /// buttons whose label changes THROUGHOUT a gesture rather than once at the end of one.
+        /// </summary>
+        /// <remarks>
+        /// <b>The toolbar is a left-packed run, so a button that changes width shoves every button
+        /// after it sideways.</b> For a label that changes once per discrete action that is fine and
+        /// even useful -- it reads as the button reporting what it just did. For one that changes
+        /// continuously it is not: a wheel zoom walks Zoom's label across "Fit", a ratio and a
+        /// percentage, and each width change slides the ten buttons to its right along with it. That is
+        /// what a "flickering top bar" turned out to be, measured on a real window from two inspector
+        /// snapshots one zoom apart: Zoom 107.1 -> 133.5 px, and AutoCrop, Overlays, Stars and Enhance
+        /// each moved by exactly that 26.4 px.
+        ///
+        /// Deliberately only these two. Stars, PlateSolve and the rest also have state-dependent
+        /// labels, but each changes on a discrete action, and reserving room for every variant would
+        /// spend width the run does not have -- it already wraps to a second row on a narrow window.
+        /// The label is drawn left-aligned after the mark, so the reserved remainder is trailing space
+        /// and the text itself does not move either.
+        /// </remarks>
+        private float ReservedLabelWidth(ToolbarAction action, ViewerState state)
+        {
+            switch (action)
+            {
+                case ToolbarAction.Zoom:
+                {
+                    // Every label this button can show: Fit, each ratio, or a percentage.
+                    var widest = MeasureText(WidestZoomPercentLabel, ToolbarFontSize);
+                    foreach (var candidate in ZoomMenuLabels)
+                    {
+                        widest = MathF.Max(widest, MeasureText(candidate, ToolbarFontSize));
+                    }
+
+                    return widest;
+                }
+
+                // Only while it is counting: at rest the label is a backend name, and a run that is not
+                // happening should not reserve room for a progress readout it is not showing.
+                case ToolbarAction.Enhance when state.IsEnhancing:
+                    return MeasureText("100%", ToolbarFontSize);
+
+                default:
+                    return 0f;
+            }
+        }
+
+        /// <summary>The widest percentage <see cref="ToolbarAction.Zoom"/> can report.</summary>
+        private const string WidestZoomPercentLabel = "1000%";
 
         /// <summary>
         /// The space between a mark and the label after it, which exists only when there is both.
