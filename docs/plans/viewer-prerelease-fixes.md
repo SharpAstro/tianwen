@@ -1379,7 +1379,7 @@ pinch without lifting, and on an image that is the more likely gesture.
 Pinned by `ViewerPinchZoomTests` (8 tests; 6 fail with the switch cases removed -- the two that
 survive are the negative ones, which a dropped event satisfies for free).
 
-## P30. `Auto` renders an enhanced frame as a flat colour field  (OPEN, HIGH PRIORITY)
+## P30. `Auto` renders an enhanced frame as a flat colour field  (FIXED 2026-09-10)
 
 Reported 2026-09-10 from the 10P drizzle master: after Enhance, with **no SPCC**, the whole frame
 renders crimson. The user's own hypothesis on sight -- *"this might be graxpert doing auto-bkg
@@ -1446,4 +1446,60 @@ pedestal switch; if `anchored` comes back True the anchor is the whole answer.
 **Note `InheritColorCalibration` does NOT cover this case.** It carries the SPCC triple measured on
 the original stars, and the report has no SPCC at all -- so nothing is inherited and neutralisation is
 re-solved on the enhanced pixels, which is exactly the path in question.
+
+**What it actually was: the mode CHOICE, not the chosen mode's arithmetic.** The user's first words
+were the diagnosis -- *"the Auto for stretch mode didn't quite work"*, later sharpened to *"that is
+mostly what i was complaining about, that it didn't chose the right mode"* -- and switching to Linked
+by hand rendered the frame correctly. Two investigations went straight past that, both because they
+asked what the curve DID instead of which mode should have been picked.
+
+**The rule, in the one resolver** (`StretchModeExtensions.ResolveAuto`): a colour frame whose
+background has already been extracted resolves **Linked**, even with nothing calibrated. The
+justification is the resolver's own doc comment turned back on itself -- Unlinked exists to neutralise
+a background that has NOT been neutralised. After a gradient correction it has been (the three
+measured medians landed within 0.15 percent of each other), so Unlinked fits three curves to three
+nearly identical inputs and what separates them is the noise rather than the sky: the MADs still
+spanned 1.7x, and the channel with the smallest one took the largest 1/MAD gain and painted the frame.
+
+- **Provenance, not inference.** `AstroImageDocument.BackgroundAlreadyExtracted`, set by the enhance
+  path because both canonical programs run a `GradientCorrectionStep`. The alternative -- deciding
+  from the pixels that three channel backgrounds "look equal enough" -- needs a threshold nobody can
+  defend. **Its cost is a real gap: a frame flattened in ANOTHER tool and opened here carries no
+  provenance and still gets the wrong answer.** That is the outstanding follow-up.
+- **Ordered after the narrowband guard.** A non-photometric frame keeps Unlinked even when flattened:
+  an HOO composite's channels are not brought into agreement by flattening (OIII sits in two of them),
+  and what makes that case avoid Linked is a white balance fitted to a premise that never held, which
+  flattening does not repair.
+- **The toolbar label resolves from the same four inputs**, or the button names a mode the picture is
+  not in.
+- The new parameter defaults to false, so the Explorer thumbnail -- a separate caller of the same
+  resolver, passing neither optional flag -- renders exactly as before. Pinned by
+  `StretchAutoModeTests`, including that default-preservation case.
+
+**Two hypotheses died on the way, and both are worth keeping written down:**
+
+1. **The pedestal double-count -- REAL, fixed, and not this bug.**
+   `GetPedestralMedianAndMADScaledToUnit` computes its median with `removePedestral: true` and then
+   reports the pedestal ALONGSIDE it, so a consumer that subtracts the pedestal from that median
+   subtracts it twice. Latent everywhere and silent while `MinValue` is 0; a gradient correction adds
+   its model's median back per plane onto the pedestal field, which made it 0.019361 against a median
+   of 0.00072 -- twenty-five times over -- and drove every channel negative. `Image.WithZeroPedestal`
+   (hoisted from `MasterPreviewRenderer`, which had always made this call) fixes it, and **hoisting is
+   what exposed that the original guard tested `MinValue` alone and ignored the pedestal**, so the
+   stacking preview would have missed this same frame shape. Kept, with tests. **It did not fix the
+   screen**, which is the point: it was a second real defect sitting on the same path.
+2. **A per-channel MAD spread -- REFUTED by measurement.** The story was that Unlinked's per-channel
+   curves diverge on the 1.7x MAD spread. Driving the MEASURED enhanced statistics through the real
+   solver in Unlinked (`EnhancedFrameStretchTests`) renders the background neutral to within 0.02 --
+   and the raw frame, which renders correctly, has a WIDER spread (1.83x). The test was written to
+   confirm the hypothesis and killed it instead.
+
+**The instrumentation is kept at the user's request** (*"the curves is always useful to check"*):
+`ViewerController.LogStretchBasis` logs the statistics a stretch is solved from on every document
+replacement (open / enhance / revert), and `ImageRendererBase.PreparedStretch` reports the derived
+curve to the inspector. Two rules learned building it. It logs `Basis.PerChannelStats`, what the
+SHADER gets, rather than what the document measured -- those differ whenever a display anchor is held,
+and an anchor surviving an enhance was a fourth candidate nothing had considered. And logging the
+INPUTS alone was not enough: it distinguished the four candidate faults and then could not see the
+curve derived from them, which is exactly where the second investigation stalled.
 

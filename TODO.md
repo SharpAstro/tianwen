@@ -5,14 +5,17 @@ Checks that only a real device or a real night can answer live in ONE place, ind
 
 ## High Priority
 
-- [ ] **`Auto` renders an enhanced frame as a flat colour field** (reported 2026-09-10). After
-  Enhance with no SPCC, the 10P drizzle master renders crimson. The viewer's DEFAULT stretch mode is
-  `Auto`, so an enhanced image cannot be viewed in the mode the viewer opens in. The likely mechanism
-  is already documented for the other renderer -- a GraXpert-flattened master needs the zero-pedestal
-  path, and the viewer's `AstroImageDocument.ComputeStretchUniforms` has no equivalent of
-  `MasterPreviewRenderer.WithZeroPedestal` -- but **two different faults produce the same screen**, so
-  read the post-enhance per-channel medians before fixing.
+- [x] **`Auto` renders an enhanced frame as a flat colour field** (FIXED 2026-09-10). It was the
+  mode CHOICE, not the chosen mode: a background-extracted frame now resolves `Auto` to **Linked**,
+  because Unlinked exists to neutralise a background that has not been neutralised, and re-doing it on
+  channels already within 0.15 percent of each other fits three curves to the noise between them. Two
+  real findings on the way: a pedestal DOUBLE-COUNT (the collected median already has it removed, and
+  the consumer removed it again -- latent everywhere, silent while MinValue is 0) and the discovery
+  that hoisting `WithZeroPedestal` exposed its guard ignoring the pedestal entirely.
   [docs/plans/viewer-prerelease-fixes.md](docs/plans/viewer-prerelease-fixes.md) P30.
+  - [ ] **Still open: a frame flattened in ANOTHER tool carries no provenance** and gets the same
+    wrong answer, since the fix keys on `BackgroundAlreadyExtracted` which only the enhance path sets.
+    Deciding it from the pixels needs a threshold; that is the open question.
 
 - [ ] **Selecting an object in the viewer: the resolver exists, the selection does not**
   (raised 2026-09-10). `FindObjectAt` already answers "which catalogued object is under this pixel"

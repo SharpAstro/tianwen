@@ -1038,6 +1038,20 @@ namespace TianWen.UI.Abstractions
         // the decisions can be made in a different call than the one that draws them.
         private bool _framePrepared;
         private StretchUniforms _preparedStretch;
+
+        /// <summary>
+        /// The uniforms the SHADER was last given, for diagnostics.
+        /// </summary>
+        /// <remarks>
+        /// Public because the host's inspector block reads it from another assembly, exactly as
+        /// <see cref="CachedLayerStats"/> beside it does; the PREPARED set rather than a
+        /// re-computation: reproducing <c>ComputeStretchUniforms</c>' full argument list somewhere else
+        /// just to print it is how a diagnostic ends up disagreeing with the screen, which is worse
+        /// than having none. Added while chasing viewer-prerelease-fixes P30, where the measured INPUTS
+        /// (pedestal, median, MAD) all read healthy and the frame still rendered as a flat wash -- so
+        /// the curve derived FROM them is the only thing left to look at.
+        /// </remarks>
+        public StretchUniforms PreparedStretch => _preparedStretch;
         private WCS? _preparedGridWcs;
 
         /// <summary>

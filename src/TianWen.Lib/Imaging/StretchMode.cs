@@ -48,10 +48,28 @@ public static class StretchModeExtensions
         /// </list>
         /// Ignored when no calibration is active, where the answer is already Unlinked.
         /// </param>
+        /// <param name="backgroundAlreadyExtracted">
+        /// True when this frame's background has already been FLATTENED AND LEVELLED by a gradient
+        /// correction, which makes it Linked even with no calibration to show.
+        /// <para><b>Unlinked exists to neutralise a background that has not been neutralised.</b> Once
+        /// a corrector has done it, three per-channel curves are being fitted to three nearly
+        /// identical inputs, so what separates them is no longer the sky but the noise: measured on an
+        /// enhanced 10P drizzle master, the channel medians landed within 0.15 percent of each other
+        /// while the MADs still spanned 1.7x, and the frame rendered as a flat crimson wash. Linked
+        /// applies ONE curve, which is the honest answer for a frame whose channels have already been
+        /// brought into agreement -- and it is what the user reached for by hand before this rule
+        /// existed.</para>
+        /// <para>Ordered AFTER the narrowband guard deliberately: a non-photometric frame keeps its
+        /// Unlinked answer, because an HOO composite's channels are NOT in agreement (OIII sits in two
+        /// of them) and the reason that case avoids Linked is a bogus white balance, which flattening
+        /// does not make any less bogus.</para>
+        /// </param>
         public StretchMode ResolveAuto(bool isColour, bool calibrationActive,
-            bool colourIsNotPhotometric = false)
+            bool colourIsNotPhotometric = false, bool backgroundAlreadyExtracted = false)
             => mode is not StretchMode.Auto ? mode
                 : !isColour ? StretchMode.Linked
-                : calibrationActive && !colourIsNotPhotometric ? StretchMode.Linked : StretchMode.Unlinked;
+                : colourIsNotPhotometric ? StretchMode.Unlinked
+                : calibrationActive || backgroundAlreadyExtracted ? StretchMode.Linked
+                : StretchMode.Unlinked;
     }
 }

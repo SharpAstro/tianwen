@@ -466,6 +466,40 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// offset here so downstream stretch / stats can subtract it back out.
     /// </summary>
     public float Pedestal => pedestal;
+
+    /// <summary>
+    /// This image rewrapped with a ZERO pedestal and minimum, for a display stretch. Returns
+    /// <c>this</c> when the pedestal is already zero (or NaN), which is the common raw case.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>For a background-EXTRACTED frame, whose pedestal no longer describes its pixels.</b>
+    /// A display stretch derives its shadow point from the pedestal-subtracted median, which is a
+    /// no-op on a raw master. GraXpert (and the AI gradient path generally) adds its model's median
+    /// back per plane and accumulates that level onto the pedestal field, so an enhanced frame can
+    /// carry a pedestal far ABOVE its own median -- measured on a 10P drizzle master, pedestal
+    /// 0.019361 against a median of 0.00072, twenty-five times over. Subtracting it drives every
+    /// channel negative, each channel's curve then diverges from the others, and the frame renders as
+    /// a flat wash of whichever channel won. <c>ClassicalBackgroundExtractor</c> deliberately does not
+    /// do this, which is why the classical path never needed the call.</para>
+    /// <para>Shares the channel arrays BY REFERENCE -- no pixel copy -- so it is cheap enough to call
+    /// per render. The result is a view for measuring and displaying, not a second owner: do not
+    /// release both it and the original.</para>
+    /// </remarks>
+    public Image WithZeroPedestal()
+    {
+        if (MinValue is 0f or float.NaN && Pedestal is 0f or float.NaN)
+        {
+            return this;
+        }
+
+        var data = new float[ChannelCount][,];
+        for (var c = 0; c < ChannelCount; c++)
+        {
+            data[c] = GetChannelArray(c);
+        }
+
+        return new Image(data, BitDepth, MaxValue, 0f, 0f, ImageMeta, SamplesAreUnitReferred);
+    }
     /// <summary>
     /// Image metadata such as instrument, exposure time, focal length, pixel size, ...
     /// </summary>

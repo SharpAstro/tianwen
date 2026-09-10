@@ -371,21 +371,16 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
     }
 
     /// <summary>
-    /// Rewraps <paramref name="img"/> with <c>MinValue = 0</c> so the stretch sees a zero
-    /// pedestal (see the rationale in <see cref="ComputeStretchUniformsAsync"/>). Shares the
-    /// channel arrays by reference -- no pixel copy -- so it is cheap to call per render.
-    /// Returns the input unchanged when its pedestal is already ~0 (the common raw-master case).
+    /// Rewraps <paramref name="img"/> with a zero pedestal so the stretch sees one (see the rationale
+    /// in <see cref="ComputeStretchUniformsAsync"/>, and the fuller one on
+    /// <see cref="Image.WithZeroPedestal"/>).
     /// </summary>
-    private static Image WithZeroPedestal(Image img)
-    {
-        if (img.MinValue is 0f or float.NaN) return img;
-        var data = new float[img.ChannelCount][,];
-        for (var c = 0; c < img.ChannelCount; c++)
-        {
-            data[c] = img.GetChannelArray(c);
-        }
-        return new Image(data, img.BitDepth, img.MaxValue, 0f, 0f, img.ImageMeta, img.SamplesAreUnitReferred);
-    }
+    /// <remarks>
+    /// Hoisted onto <see cref="Image"/> once the VIEWER needed it too: an enhanced document reaches
+    /// the GPU stretch by a different path, and it rendered as a flat colour wash for exactly the
+    /// reason this call exists here.
+    /// </remarks>
+    private static Image WithZeroPedestal(Image img) => img.WithZeroPedestal();
 
     /// <summary>
     /// The shared solve behind both <see cref="RenderAsync"/> (PNG) and

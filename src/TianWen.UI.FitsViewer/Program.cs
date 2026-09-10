@@ -700,6 +700,22 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
         w.Set("skyMirrored", skyBackdrop.State.MirrorView);
         w.Set("skySite", imageRenderer.SkySite.Describe());
         w.Set("skyAtCaptureTime", imageRenderer.SkyIsAtCaptureTime);
+
+        // The CURVE, not the statistics it came from. P30's whole difficulty was that the inputs read
+        // healthy -- pedestal 0, three medians within 0.15 percent -- while the frame rendered as a
+        // flat colour wash, which means the fault is in what was derived from them. Per channel,
+        // because Unlinked gives each its own and a cast IS the three disagreeing.
+        var stretch = imageRenderer.PreparedStretch;
+        w.Set("stretchMode", state.StretchMode.ToString());
+        w.Set("stretchShadows", $"{stretch.Shadows.R:G6}/{stretch.Shadows.G:G6}/{stretch.Shadows.B:G6}");
+        w.Set("stretchMidtones", $"{stretch.Midtones.R:G6}/{stretch.Midtones.G:G6}/{stretch.Midtones.B:G6}");
+        w.Set("stretchRescale", $"{stretch.Rescale.R:G6}/{stretch.Rescale.G:G6}/{stretch.Rescale.B:G6}");
+        w.Set("stretchWhiteBalance", $"{stretch.WhiteBalance.R:G6}/{stretch.WhiteBalance.G:G6}/{stretch.WhiteBalance.B:G6}");
+        w.Set("stretchBgNeutralization",
+            $"{stretch.BackgroundNeutralization.R:G6}/{stretch.BackgroundNeutralization.G:G6}/{stretch.BackgroundNeutralization.B:G6}");
+        w.Set("stretchNormFactor", stretch.NormFactor);
+        w.Set("stretchLumaBlend", stretch.LumaBlend);
+        w.Set("stretchNormalizeScale", stretch.NormalizeScale);
     },
 });
 #endif

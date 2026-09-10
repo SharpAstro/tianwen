@@ -105,8 +105,23 @@ public static class EnhanceActions
         // stretch stats). AdoptImageAsync consumes `enhanced`, which we own outright (a pipeline
         // output, never the caller's buffer). WCS + provenance path carry over so overlays/coords
         // still resolve on the enhanced view.
+        //
+        // WithZeroPedestal FIRST, because a gradient-corrected frame's pedestal no longer describes
+        // its pixels: the AI corrector adds its model's median back per plane and accumulates that
+        // level onto the pedestal field, so the enhanced image can carry a pedestal far above its own
+        // median (0.019361 against 0.00072 on the 10P drizzle master -- twenty-five times over). The
+        // stretch subtracts the pedestal from the median to place its shadow point, so every channel
+        // went negative and the frame rendered as a flat crimson wash. The stats are computed by the
+        // adopt, so the rewrap has to happen on the way IN rather than at render time. Same call the
+        // stacking preview has always made; it shares the arrays, so this costs no pixels.
         var doc = await AstroImageDocument.AdoptImageAsync(
-            enhanced, debayerAlgorithm, wcs, source.FilePath, crop, cancellationToken).ConfigureAwait(false);
+            enhanced.WithZeroPedestal(), debayerAlgorithm, wcs, source.FilePath, crop, cancellationToken)
+            .ConfigureAwait(false);
+        // Both canonical programs run a GradientCorrectionStep, so the background of what comes back
+        // has been flattened and levelled. The display has to know: an Auto stretch would otherwise
+        // resolve to Unlinked and neutralise an already-neutral background per channel, which fits
+        // three curves to the noise between them (P30's crimson frame).
+        doc.MarkBackgroundExtracted();
         state.StatusMessage = $"Enhanced ({(pipeline.SupportsDeblur ? "BlurX-first" : "SAS")})";
         return doc;
     }
