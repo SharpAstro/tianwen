@@ -1,5 +1,6 @@
 using SdlVulkan.Renderer;
 using TianWen.Lib.Imaging;
+using TianWen.UI.Abstractions;
 using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
 
@@ -19,10 +20,10 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
     /// <summary>
     /// std140 StretchUBO: see field layout in struct definition below.
-    /// Total: 416 bytes (192 base + 16 wb + 16 bgNeut + 144 curveData + 16 lumaWeights
-    /// + 16 lumaStretch + 16 stretchBlend).
+    /// Total: 432 bytes (192 base + 16 wb + 16 bgNeut + 144 curveData + 16 lumaWeights
+    /// + 16 lumaStretch + 16 stretchBlend + 16 gridColor).
     /// </summary>
-    private const int StretchUboSize = 416;
+    private const int StretchUboSize = 432;
 
     /// <summary>
     /// How many independent StretchUBO slots the stretch buffer holds.
@@ -792,10 +793,21 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         WriteFloat(p, 408, debayerMode);
         WriteFloat(p, 412, 0f);
 
+        // gridColor (vec4 at offset 416) -- the RA/Dec grid's line colour and its alpha.
+        // <b>Not a parameter, deliberately.</b> An EQ grid is the same grid whether this shader draws
+        // it per-pixel from the frame's own WCS or the sky map draws it spherically behind the frame,
+        // and the two used to be separate literals that looked nothing alike at the handover. Writing
+        // SkyMapGpuGeometry.GridLineColor here unconditionally means there is ONE definition and no
+        // caller can forget to pass it.
+        WriteFloat(p, 416, SkyMapGpuGeometry.GridLineColor.Red / 255f);
+        WriteFloat(p, 420, SkyMapGpuGeometry.GridLineColor.Green / 255f);
+        WriteFloat(p, 424, SkyMapGpuGeometry.GridLineColor.Blue / 255f);
+        WriteFloat(p, 428, SkyMapGpuGeometry.GridLineColor.Alpha / 255f);
+
         // Every 4-byte slot from 0 to StretchUboSize is written on every call, so comparing the whole
         // range against the previous contents is exact: there is no padding hole left holding stale or
         // uninitialised bytes. The read comes back from mapped host-visible memory, which is slower
-        // than normal RAM, but it is 416 bytes -- about seven cache lines -- once per draw. Staging the
+        // than normal RAM, but it is 432 bytes -- about seven cache lines -- once per draw. Staging the
         // writes through a CPU-side array and copying in would avoid the read entirely; it would also
         // mean rewriting every WriteFloat above, for a cost nothing can measure.
         var written = new ReadOnlySpan<byte>(p, StretchUboSize);

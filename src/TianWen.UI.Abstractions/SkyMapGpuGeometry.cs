@@ -33,7 +33,16 @@ namespace TianWen.UI.Abstractions
         /// <summary>Below this alpha a scale is skipped rather than drawn invisibly.</summary>
         private const double MinGridFade = 0.05;
 
-        /// <summary>RA/Dec grid line colour at full fade, shared by both GPU backends.</summary>
+        /// <summary>
+        /// RA/Dec grid line colour at full fade. <b>The ONE definition of it, everywhere.</b>
+        /// </summary>
+        /// <remarks>
+        /// Both GPU backends, the CPU renderer (<c>SkyMapRenderer.GridColor</c>) and the FITS viewer's
+        /// own per-pixel grid (written into <c>image.frag</c>'s UBO by <c>VkFitsImagePipeline</c>) read
+        /// it from here. An EQ grid is the same grid however it is drawn, and the viewer's hands over
+        /// to this one when the view outgrows a tangent plane -- so two literals meant the reader
+        /// watched the grid change colour mid-zoom, which is what the handover must NOT look like.
+        /// </remarks>
         public static readonly RGBAColor32 GridLineColor = new RGBAColor32(0x30, 0x60, 0xA0, 0xB0);
 
         /// <summary>
