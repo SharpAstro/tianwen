@@ -160,6 +160,43 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public void ACollapsedPanelBarelyRecedesAtAll()
+        {
+            // Rolled up, the title bar IS the panel, so fading it to the expanded floor fades the only
+            // thing left: reported as unreadable against a star field, and worse in Night mode.
+            SkyMapLayerPalette.FadeFor(60f, engaged: false, collapsed: true)
+                .ShouldBe(SkyMapLayerPalette.CollapsedIdleAlpha, 0.001f);
+            SkyMapLayerPalette.CollapsedIdleAlpha.ShouldBeGreaterThan(SkyMapLayerPalette.IdleAlpha);
+        }
+
+        [Fact]
+        public void CollapsingDoesNotMoveTheHeaderWhereTheClampWasBiting()
+        {
+            // Near the bottom edge the clamp lifts an EXPANDED panel to make it fit while the stored
+            // offset still says where the pointer left it, and the divergence is invisible until the
+            // height changes -- collapse, the clamp stops binding, and the header drops to the stale
+            // offset. Reported as "collapsing near the bottom moves the header slightly down; in the
+            // middle it stays put". Writing the drawn offset back is what closes it.
+            var bounds = new Rect<float>(0f, 0f, 900f, 400f);
+            var state = StateWithMilkyWay();
+            state.LayerPaletteOffset = 380f; // deep enough that an expanded panel cannot fit below it
+
+            static float PanelTop(SkyMapState s, Rect<float> b) => Layout.Engine
+                .Arrange(SkyMapLayerPalette.Build(s, 12f, _ => { }, () => { }), b, new StubMeasure())
+                .First(a => a.Node is Layout.Node.Stack { Axis: Layout.Axis.Vertical })
+                .Bounds.Y;
+
+            var expandedTop = PanelTop(state, bounds);
+            expandedTop.ShouldBeLessThan(state.LayerPaletteOffset, "the clamp should have lifted it");
+
+            // What the render pass writes back every frame.
+            state.LayerPaletteOffset = SkyMapLayerPalette.DrawnOffset(expandedTop, bounds.Y, 1f);
+            state.LayerPaletteCollapsed = true;
+
+            PanelTop(state, bounds).ShouldBe(expandedTop, 0.01f);
+        }
+
+        [Fact]
         public void CollapsedThePanelIsItsOwnTitleBar()
         {
             var state = StateWithMilkyWay();
@@ -191,9 +228,10 @@ namespace TianWen.Lib.Tests
             SkyMapLayers.All[0].Set(state, true);
             SkyMapLayers.All[1].Set(state, true);
 
-            var header = TextRuns(SkyMapLayerPalette.Build(state, 12f, _ => { }, () => { })).First();
+            // Two runs, not one string: the count carries its own colour, so it is a separate node.
+            var runs = TextRuns(SkyMapLayerPalette.Build(state, 12f, _ => { }, () => { }));
 
-            header.ShouldBe($"LAYERS  2/{SkyMapLayers.All.Length}");
+            runs.ShouldBe(["LAYERS", $"2/{SkyMapLayers.All.Length}"]);
         }
 
         [Theory]
@@ -289,8 +327,11 @@ namespace TianWen.Lib.Tests
                 SkyMapLayerPalette.Build(state, 12f, _ => { }, () => { }),
                 new Rect<float>(0f, 0f, 900f, 600f), new StubMeasure());
 
+            // Identified by the action each row binds, not by node shape: the header is an HStack too
+            // now that its count is its own coloured run, and a shape test silently counted it as a row.
             var rows = arranged
-                .Where(a => a.Node is Layout.Node.Stack { Axis: Layout.Axis.Horizontal })
+                .Where(a => a.Node.Hit is HitResult.ButtonHit { Action: var act }
+                            && act.StartsWith("SkyMapLayer:", StringComparison.Ordinal))
                 .ToArray();
 
             rows.Length.ShouldBe(SkyMapLayers.All.Length);

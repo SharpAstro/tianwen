@@ -59,6 +59,13 @@ namespace TianWen.UI.Abstractions
         public const float IdleAlpha = 0.40f;
 
         /// <summary>
+        /// The floor for a COLLAPSED panel, which recedes far less. Fading a panel already rolled up
+        /// to one bar fades the only thing left of it: at 0.40 the title is barely legible against a
+        /// star field, and a rolled-up bar is not competing with the sky in the first place.
+        /// </summary>
+        public const float CollapsedIdleAlpha = 0.85f;
+
+        /// <summary>
         /// Two grip presses closer together than this are a double-click, which collapses the panel.
         /// Timed here rather than read off the event because a clickable region's handler is given
         /// modifiers and nothing else: the host counts clicks (<c>GuiEventHandlerBase</c> uses it for
@@ -71,13 +78,32 @@ namespace TianWen.UI.Abstractions
             => secondsSinceLastPress <= DoubleClickSeconds;
 
         /// <summary>
+        /// The offset that reproduces where the panel was ACTUALLY drawn, from its arranged top and
+        /// the content rect's, in design units.
+        /// <para>
+        /// Written back after every arrange, so the stored offset and the drawn position can never
+        /// disagree. They diverge wherever the engine's clamp bites -- near the bottom edge, an
+        /// expanded panel is lifted to fit while the offset still says where the pointer left it --
+        /// and the divergence is invisible until the panel's HEIGHT changes: collapsing it makes the
+        /// clamp stop binding, so the header drops to the stale offset. Reported as "collapsing near
+        /// the bottom moves the header slightly down, in the middle it stays put", which is the
+        /// clamp's own shape.
+        /// </para>
+        /// </summary>
+        public static float DrawnOffset(float panelTop, float contentTop, float dpiScale)
+            => dpiScale <= 0f ? panelTop - contentTop : (panelTop - contentTop) / dpiScale;
+
+        /// <summary>
         /// The fade factor for a panel last engaged <paramref name="idleSeconds"/> ago. Hover or a
         /// live drag holds it fully present. Pure, so the curve is testable without a clock.
         /// </summary>
-        public static float FadeFor(float idleSeconds, bool engaged)
-            => engaged || idleSeconds <= IdleDelaySeconds ? 1f
-                : idleSeconds >= IdleDelaySeconds + FadeSeconds ? IdleAlpha
-                : 1f - (1f - IdleAlpha) * ((idleSeconds - IdleDelaySeconds) / FadeSeconds);
+        public static float FadeFor(float idleSeconds, bool engaged, bool collapsed = false)
+        {
+            var floor = collapsed ? CollapsedIdleAlpha : IdleAlpha;
+            return engaged || idleSeconds <= IdleDelaySeconds ? 1f
+                : idleSeconds >= IdleDelaySeconds + FadeSeconds ? floor
+                : 1f - (1f - floor) * ((idleSeconds - IdleDelaySeconds) / FadeSeconds);
+        }
 
         // Alpha is the point of these, not decoration. This panel sits ON the sky, and an opaque card
         // is a hole punched in the thing the reader came to look at -- the first cut set 0xE0 on the
@@ -86,7 +112,11 @@ namespace TianWen.UI.Abstractions
         // thing the panel says that the old status-strip hint could not, and that has to survive a
         // bright star field behind it.
         private static readonly RGBAColor32 PanelBg     = new(0x14, 0x14, 0x1C, 0x9C);
-        private static readonly RGBAColor32 HeaderInk   = new(0x9A, 0x9A, 0xA8, 0xFF);
+        // Warm and bright rather than another grey. The header is the panel's whole identity while it
+        // is collapsed, and grey-on-starfield is the one combination this map has none of: its own
+        // labels are warm (planets) or tinted (constellations), so a neutral title reads as haze.
+        private static readonly RGBAColor32 HeaderInk   = new(0xE8, 0xDC, 0xB4, 0xFF);
+        private static readonly RGBAColor32 CountInk    = new(0xFF, 0xEE, 0x60, 0xFF);
         private static readonly RGBAColor32 GripBg      = new(0x2A, 0x2A, 0x36, 0xB4);
         private static readonly RGBAColor32 RowOnBg     = new(0x37, 0x48, 0x5C, 0xDC);
         private static readonly RGBAColor32 RowOffBg    = new(0x20, 0x20, 0x2A, 0xA0);
@@ -157,10 +187,16 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
-            children[0] = Layout.Builder.Text(
-                    state.LayerPaletteCollapsed ? $"LAYERS  {lit}/{layers.Length}" : "LAYERS",
-                    fontSize * 0.85f, Faded(HeaderInk),
-                    TextAlign.Near, TextAlign.Center)
+            // Title and count are separate runs so the count can carry the map's own selection yellow:
+            // collapsed, "7/10" is the entire state readout and has to win the row.
+            children[0] = Layout.Builder.HStack(
+                    Layout.Builder.Text("LAYERS", fontSize * 0.85f, Faded(HeaderInk),
+                            TextAlign.Near, TextAlign.Center)
+                        .WStar().HStar(),
+                    Layout.Builder.Text($"{lit}/{layers.Length}", fontSize * 0.85f, Faded(CountInk),
+                            TextAlign.Far, TextAlign.Center)
+                        .WFixed(30f).HStar())
+                .WithGap(4f)
                 .RowH(RowHeight * 0.9f)
                 .Bg(Faded(GripBg))
                 .Clickable(new HitResult.ButtonHit(GripAction), _ => onGripPress(), CursorKind.Move);
