@@ -156,6 +156,46 @@ public static class ViewerActions
     }
 
     /// <summary>
+    /// Steps the context ladder one rung and writes the layer flags that rung means. Wraps, like
+    /// every other cycler here, so the key that walks it also leaves it.
+    /// </summary>
+    /// <remarks>
+    /// Reading the rung back out of the flags (<see cref="ViewerState.OverlayLevel"/>) is what makes
+    /// this composable with the layer keys: press <c>G</c> at the grid rung and the next <c>O</c>
+    /// starts from nothing, because that is where the frame actually is.
+    /// </remarks>
+    public static void CycleOverlayLevel(ViewerState state, bool reverse = false)
+    {
+        const int Rungs = 4; // None, Grid, Objects, Sky
+        var next = ((int)state.OverlayLevel + (reverse ? Rungs - 1 : 1)) % Rungs;
+        ApplyOverlayLevel(state, (ViewerOverlayLevel)next);
+    }
+
+    /// <summary>
+    /// Sets every context layer from one rung of the ladder. The rungs are cumulative, so this is the
+    /// one place that states what each means, and the derived <see cref="ViewerState.OverlayLevel"/>
+    /// reads the same relation back.
+    /// </summary>
+    public static void ApplyOverlayLevel(ViewerState state, ViewerOverlayLevel level)
+    {
+        state.ShowGrid = level >= ViewerOverlayLevel.Grid;
+        state.ShowOverlays = level >= ViewerOverlayLevel.Objects;
+        state.ShowSkyBackdrop = level >= ViewerOverlayLevel.Sky;
+        state.NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// Flips the WCS grid on its own, which is what <c>G</c> has always done. It moves the LADDER
+    /// with it, because the rung is derived: switching the grid off at the grid rung is the same
+    /// statement as stepping down to nothing.
+    /// </summary>
+    public static void ToggleGrid(ViewerState state)
+    {
+        state.ShowGrid = !state.ShowGrid;
+        state.NeedsRedraw = true;
+    }
+
+    /// <summary>
     /// Applies a curves-boost preset by index, CLAMPED to the preset range. The single place that
     /// writes the boost state, so a wrapping caller (a click, which has no direction) and a clamping
     /// one (a wheel notch, which does) cannot drift in what else they update.
@@ -656,6 +696,9 @@ public static class ViewerActions
             case ToolbarAction.Debayer:
                 for (var i = 0; i < count; i++) CycleDebayerAlgorithm(state, reverse);
                 return true;
+            case ToolbarAction.Overlays:
+                for (var i = 0; i < count; i++) CycleOverlayLevel(state, reverse);
+                return true;
             case ToolbarAction.Channel:
                 if (document is not null)
                 {
@@ -710,13 +753,8 @@ public static class ViewerActions
             case ToolbarAction.Hdr:
                 CycleHdr(state, reverse);
                 return true;
-            case ToolbarAction.Grid:
-                state.ShowGrid = !state.ShowGrid;
-                state.NeedsRedraw = true;
-                return true;
             case ToolbarAction.Overlays:
-                state.ShowOverlays = !state.ShowOverlays;
-                state.NeedsRedraw = true;
+                CycleOverlayLevel(state, reverse);
                 return true;
             case ToolbarAction.Stars:
                 state.ShowStarOverlay = !state.ShowStarOverlay;

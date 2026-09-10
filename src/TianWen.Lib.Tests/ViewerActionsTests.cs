@@ -225,7 +225,6 @@ public class ViewerActionsTests
     [InlineData(ToolbarAction.Debayer)]
     [InlineData(ToolbarAction.CurvesBoost)]
     [InlineData(ToolbarAction.Hdr)]
-    [InlineData(ToolbarAction.Grid)]
     [InlineData(ToolbarAction.Overlays)]
     [InlineData(ToolbarAction.Stars)]
     [InlineData(ToolbarAction.ZoomFit)]
@@ -487,15 +486,13 @@ public class ViewerActionsTests
     }
 
     /// <summary>
-    /// The whole reason this is not <c>HandleToolbarAction(reverse: !up)</c>. These three overload
+    /// The whole reason this is not <c>HandleToolbarAction(reverse: !up)</c>. These overload
     /// <c>reverse</c> to mean a different action, so the wheel must not reach them: a scroll down on
-    /// Compare would re-pin the before image and discard the comparison baseline, on Zoom it would
-    /// toggle Fit/1:1, and Grid is a plain toggle with no cycle to step. Reporting NOT handled is what
-    /// leaves the event for whatever claims it next.
+    /// Compare would re-pin the before image and discard the comparison baseline, and on Zoom it would
+    /// toggle Fit/1:1. Reporting NOT handled is what leaves the event for whatever claims it next.
     /// </summary>
     [Theory]
     [InlineData(ToolbarAction.Compare)]
-    [InlineData(ToolbarAction.Grid)]
     [InlineData(ToolbarAction.Open)]
     [InlineData(ToolbarAction.Enhance)]
     public void ToolbarWheel_OnAnActionWhoseReverseMeansSomethingElse_IsNotHandled(ToolbarAction action)
@@ -658,5 +655,117 @@ public class ViewerActionsTests
         ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Zoom, steps: -1).ShouldBeTrue();
 
         state.ZoomToFit.ShouldBeTrue();
+    }
+
+    // --- the context ladder (grid -> objects -> the sky behind) ---
+
+    /// <summary>
+    /// The rungs are CUMULATIVE and the ladder wraps, so one key reaches every state and leaves it.
+    /// </summary>
+    [Fact]
+    public void OverlayLadder_StepsUpThroughEveryRungAndWrapsToNothing()
+    {
+        var state = new ViewerState();
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.None);
+
+        ViewerActions.CycleOverlayLevel(state);
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Grid);
+        (state.ShowGrid, state.ShowOverlays, state.ShowSkyBackdrop).ShouldBe((true, false, false));
+
+        ViewerActions.CycleOverlayLevel(state);
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Objects);
+        (state.ShowGrid, state.ShowOverlays, state.ShowSkyBackdrop).ShouldBe((true, true, false));
+
+        ViewerActions.CycleOverlayLevel(state);
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Sky);
+        (state.ShowGrid, state.ShowOverlays, state.ShowSkyBackdrop).ShouldBe((true, true, true));
+
+        ViewerActions.CycleOverlayLevel(state);
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.None);
+        (state.ShowGrid, state.ShowOverlays, state.ShowSkyBackdrop).ShouldBe((false, false, false));
+    }
+
+    [Fact]
+    public void OverlayLadder_Reversed_WalksBackDownFromTheTop()
+    {
+        var state = new ViewerState();
+        ViewerActions.ApplyOverlayLevel(state, ViewerOverlayLevel.Sky);
+
+        ViewerActions.CycleOverlayLevel(state, reverse: true);
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Objects);
+
+        ViewerActions.CycleOverlayLevel(state, reverse: true);
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Grid);
+
+        ViewerActions.CycleOverlayLevel(state, reverse: true);
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.None);
+
+        // Wraps at the bottom too, or Shift+O is a dead end where O is not.
+        ViewerActions.CycleOverlayLevel(state, reverse: true);
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Sky);
+    }
+
+    /// <summary>
+    /// The reason the rung is derived rather than stored: G at the grid rung IS stepping off the
+    /// ladder, and the next O has to start from where the frame actually is.
+    /// </summary>
+    [Fact]
+    public void OverlayLadder_GridSwitchedOffAtTheGridRung_LeavesTheLadderAtNothing()
+    {
+        var state = new ViewerState();
+        ViewerActions.ApplyOverlayLevel(state, ViewerOverlayLevel.Grid);
+
+        ViewerActions.ToggleGrid(state);
+
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.None);
+        ViewerActions.CycleOverlayLevel(state);
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Grid);
+    }
+
+    /// <summary>
+    /// Above its own rung the grid is just one layer of several, so switching it off adjusts the view
+    /// without moving the ladder -- the objects are still what the rung is named for.
+    /// </summary>
+    [Fact]
+    public void OverlayLadder_GridSwitchedOffAboveItsRung_KeepsTheRung()
+    {
+        var state = new ViewerState();
+        ViewerActions.ApplyOverlayLevel(state, ViewerOverlayLevel.Objects);
+
+        ViewerActions.ToggleGrid(state);
+
+        state.ShowGrid.ShouldBeFalse();
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Objects);
+    }
+
+    /// <summary>
+    /// The ladder is a real cycle, so unlike the toggle it replaced it belongs on the wheel -- and a
+    /// multi-notch event moves that many rungs, like every other cycler here.
+    /// </summary>
+    [Fact]
+    public void ToolbarWheel_OnTheContextButton_StepsTheLadder()
+    {
+        var state = new ViewerState();
+
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Overlays, steps: 2).ShouldBeTrue();
+
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Objects);
+    }
+
+    /// <summary>
+    /// The annotated export is the frame at zoom 1: the photograph covers every pixel, so a backdrop
+    /// could only ever be invisible, and the CPU surface it renders onto has no sky pipeline at all.
+    /// </summary>
+    [Fact]
+    public void AnnotatedExportState_NeverCarriesTheSkyBehind()
+    {
+        var state = new ViewerState();
+        ViewerActions.ApplyOverlayLevel(state, ViewerOverlayLevel.Sky);
+
+        var export = state.ForAnnotatedExport();
+
+        export.ShowSkyBackdrop.ShouldBeFalse();
+        export.ShowGrid.ShouldBeTrue();
+        export.ShowOverlays.ShouldBeTrue();
     }
 }
