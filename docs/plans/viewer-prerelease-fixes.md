@@ -1409,8 +1409,39 @@ gains and whichever channel wins paints the frame.
   fix is inheritance (as `InheritColorCalibration` already does for the SPCC triple) rather than
   re-solving background neutralisation on flattened pixels.
 
-The info panel already prints per-channel median / MAD / bg, so one enhance with that panel open
-answers it.
+**Instrumented rather than eyeballed** (`ViewerController.LogStretchBasis`, Debug, on document
+replacement only -- open / enhance / revert). It logs what the SHADER is given,
+`Basis.PerChannelStats`, NOT what the document measured: those differ whenever a display anchor is
+held, and an anchor surviving an enhance is a FOURTH candidate nothing above had considered -- a curve
+solved from the pre-enhance pixels has nothing to do with flattened ones. A diagnostic that can
+disagree with the screen is worse than no diagnostic.
+
+**The pre-enhance reading, measured 2026-09-10 on the 10P drizzle master** (`anchored=False`):
+
+| channel | pedestal | median | MAD | bg |
+|---|---|---|---|---|
+| 0 (R) | 0 | 0.00872816 | 0.00012225 | 0.00850286 |
+| 1 (G) | 0 | 0.0320287 | 0.000223673 | 0.0314466 |
+| 2 (B) | 0 | 0.0195926 | 0.000223881 | 0.0193248 |
+| luma | 0.0250097 | 0.00115969 | 0.00017443 | - |
+
+**Two things this already settles, before the enhanced half is read:**
+
+- **The zero-pedestal story cannot be what the enhance INTRODUCES here, because the pedestal is
+  already 0 on all three channels** -- and this frame renders correctly as it stands. So pedestal ~=
+  median is not sufficient to break the render, and the documented `WithZeroPedestal` trap, which is
+  what the first version of this entry led with off the CLAUDE.md note alone, is the wrong lead.
+  Writing the guess down and then measuring is what caught that.
+- **The channels start far from balanced** -- green is 3.7x red -- and Unlinked's per-channel curves
+  are exactly what normally hides that. So the question is not "did the balance move" in the abstract
+  but whether the enhance WIDENS that spread or collapses the MADs, which are already of order 1e-4:
+  a rescale going as 1/MAD is around 5000x, so a small change in MAD moves the gain a great deal.
+
+**Prediction recorded before the reading** (so it can be refuted): medians drop sharply toward each
+other and toward zero as the flattened background is removed, MADs stay the same order of magnitude,
+`anchored` stays False. If MADs instead collapse an order of magnitude the fix is a MAD FLOOR, not a
+pedestal switch; if `anchored` comes back True the anchor is the whole answer.
+
 
 **Note `InheritColorCalibration` does NOT cover this case.** It carries the SPCC triple measured on
 the original stars, and the report has no SPCC at all -- so nothing is inherited and neutralisation is
