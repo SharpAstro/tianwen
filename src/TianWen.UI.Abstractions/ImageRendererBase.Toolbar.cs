@@ -642,6 +642,10 @@ namespace TianWen.UI.Abstractions
                     // somewhere to anchor.
                     _shortcutsBounds = bounds;
                     StartAiCapabilityProbe();
+                    // A fresh press opens the ROOT page, wherever the last one was left, and records the
+                    // anchor so a page change reopens in the same place instead of re-deriving it.
+                    _helpPage = HelpPage.Root;
+                    _helpAnchor = bounds;
                     OpenDropdown(state, bounds, BuildHelpLines(), (idx, _) => HandleHelpSelection(idx));
                     return true;
 
@@ -1526,26 +1530,111 @@ namespace TianWen.UI.Abstractions
             // the reset happens once and before anyone has scrolled.
             if (state.ToolbarDropdown.IsOpen && _shortcutsBounds is { } bounds)
             {
+                // A fresh press opens the ROOT page, wherever the last one was left, and records the
+                // anchor so a page change reopens in the same place instead of re-deriving it.
+                _helpPage = HelpPage.Root;
+                _helpAnchor = bounds;
                 OpenDropdown(state, bounds, BuildHelpLines(), (idx, _) => HandleHelpSelection(idx));
             }
         }
 
         /// <summary>
-        /// The "?" panel: what this build IS, what it can do, then how to drive it.
+        /// Which page of the "?" panel is open. It is a MENU, not a page: the whole of it -- build,
+        /// AI capabilities, the three actions and twenty-odd shortcuts -- ran to about 35 rows, which
+        /// overflows a laptop screen, and the panel a user opens when something looks wrong is the
+        /// worst one to have running off the bottom.
+        /// </summary>
+        private enum HelpPage
+        {
+            Root = 0,
+            Shortcuts = 1,
+            AiEnhancement = 2,
+        }
+
+        private HelpPage _helpPage;
+
+        /// <summary>
+        /// The "?" panel: what this build IS, then two rows that open the long lists, then what you
+        /// can do from here.
         /// <para>
         /// Provenance leads because it is the half a user can read back to you. The keyboard list was
         /// the whole panel before, which meant the one screen a user opens when something looks wrong
-        /// could not tell them which version they were running.
+        /// could not tell them which version they were running -- and once it could, the panel was too
+        /// tall to fit a small screen, so the two long sections became pages of their own.
         /// </para>
         /// </summary>
-        internal ImmutableArray<string> BuildHelpLines()
+        internal ImmutableArray<string> BuildHelpLines() => _helpPage switch
         {
-            var lines = ImmutableArray.CreateBuilder<string>(ShortcutLines.Length + _aiLines.Length + 6);
+            HelpPage.Shortcuts => BuildShortcutPage(),
+            HelpPage.AiEnhancement => BuildAiPage(),
+            _ => BuildRootPage(),
+        };
+
+        private ImmutableArray<string> BuildRootPage()
+        {
+            var lines = ImmutableArray.CreateBuilder<string>(10);
             lines.Add($"TianWen {TianWen.Lib.BuildInfo.Describe()}");
             lines.Add(Ellipsize(TianWen.Lib.BuildInfo.InstallFolder));
             lines.Add("");
 
-            lines.Add("AI enhancement");
+            // The two long sections, as one row each. The AI row carries its own SUMMARY rather than
+            // just a name: whether an enhancer is there at all is the question people open this panel
+            // with, and making them go a level deeper to learn "none" would be worse than the wall of
+            // text this replaced.
+            _helpShortcutsLine = lines.Count;
+            lines.Add("\U0001F511 Keyboard shortcuts");
+            _helpAiLine = lines.Count;
+            lines.Add("\u2728 AI enhancement: " + AiSummary());
+            lines.Add("");
+
+            // The things this panel can DO. It is the screen someone opens when the viewer has just
+            // misbehaved, so the way to report that belongs where they already are rather than in a
+            // menu they would have to go looking for. The tip jar goes last of the three deliberately
+            // -- it is the only row nobody came here for, and putting it above "report a problem"
+            // would meet a frustrated user with an ask.
+            _helpDocsLine = lines.Count;
+            lines.Add("\U0001F4D6 Open the user guide in a browser");
+            _helpReportLine = lines.Count;
+            lines.Add("\U0001F41E Report a problem (prepares an issue, sends nothing)");
+            _helpSupportLine = lines.Count;
+            lines.Add("\u2615 Support development (opens Buy Me a Coffee)");
+            return lines.ToImmutable();
+        }
+
+        /// <summary>One line for the root row: what the AI stack can do, or that there is none.</summary>
+        private string AiSummary()
+        {
+            if (AiCapabilityProbe is null)
+            {
+                return "not in this build";
+            }
+
+            if (_aiLines.IsEmpty)
+            {
+                return "probing...";
+            }
+
+            // Counted rather than listed: the detail is one row away, and a count answers "is anything
+            // there" without spending the width the version line needs.
+            var available = 0;
+            foreach (var line in _aiLines)
+            {
+                if (line.Contains("available", StringComparison.OrdinalIgnoreCase)
+                    || line.Contains("licensed", StringComparison.OrdinalIgnoreCase))
+                {
+                    available++;
+                }
+            }
+
+            return available == 0 ? "none available" : $"{available} of {_aiLines.Length} available";
+        }
+
+        private ImmutableArray<string> BuildAiPage()
+        {
+            var lines = ImmutableArray.CreateBuilder<string>(_aiLines.Length + 3);
+            lines.Add(BackRow);
+            lines.Add("");
+
             if (AiCapabilityProbe is null)
             {
                 lines.Add("  no AI stack configured in this build");
@@ -1561,24 +1650,26 @@ namespace TianWen.UI.Abstractions
                     lines.Add(Ellipsize("  " + line));
                 }
             }
-            lines.Add("");
 
-            // The things this panel can DO, above the reference material: it is the screen someone
-            // opens when the viewer has just misbehaved, so the way to report that belongs where they
-            // already are rather than in a menu they would have to go looking for. The tip jar goes
-            // last of the three deliberately -- it is the only row nobody came here for, and putting
-            // it above "report a problem" would meet a frustrated user with an ask.
-            _helpDocsLine = lines.Count;
-            lines.Add("Open the user guide in a browser");
-            _helpReportLine = lines.Count;
-            lines.Add("Report a problem (prepares an issue, sends nothing)");
-            _helpSupportLine = lines.Count;
-            lines.Add("\u2615 Support development (opens Buy Me a Coffee)");
-            lines.Add("");
+            return lines.ToImmutable();
+        }
 
+        private ImmutableArray<string> BuildShortcutPage()
+        {
+            var lines = ImmutableArray.CreateBuilder<string>(ShortcutLines.Length + 2);
+            lines.Add(BackRow);
+            lines.Add("");
             lines.AddRange(ShortcutLines);
             return lines.ToImmutable();
         }
+
+        /// <summary>The row that returns to the root page. Index 0 on every sub-page, so the handler
+        /// needs no per-page bookkeeping to find it.</summary>
+        private const string BackRow = "\u2190 Back";
+
+        private int _helpShortcutsLine = -1;
+
+        private int _helpAiLine = -1;
 
         /// <summary>
         /// Which rows of the "?" panel are actions rather than facts. Captured as indices when the
@@ -1602,7 +1693,30 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         internal void HandleHelpSelection(int index)
         {
-            if (index == _helpDocsLine)
+            // A sub-page has exactly one action, its first row, and it goes back. Handled before the
+            // root rows because the two share indices and the page says which set is live.
+            if (_helpPage is not HelpPage.Root)
+            {
+                if (index == 0)
+                {
+                    _helpPage = HelpPage.Root;
+                    ReopenHelpPanel();
+                }
+
+                return;
+            }
+
+            if (index == _helpShortcutsLine)
+            {
+                _helpPage = HelpPage.Shortcuts;
+                ReopenHelpPanel();
+            }
+            else if (index == _helpAiLine)
+            {
+                _helpPage = HelpPage.AiEnhancement;
+                ReopenHelpPanel();
+            }
+            else if (index == _helpDocsLine)
             {
                 PostSignal(new OpenUrlSignal(BugReportLink.DocumentationUrl));
             }
@@ -1618,6 +1732,41 @@ namespace TianWen.UI.Abstractions
                 PostSignal(new OpenUrlSignal(BugReportLink.SupportUrl));
             }
         }
+
+        /// <summary>
+        /// Asks for the "?" dropdown to be re-opened on the page just selected, NEXT frame.
+        /// </summary>
+        /// <remarks>
+        /// <b>Next frame, not now.</b> The dropdown closes itself AFTER its selection callback returns,
+        /// so opening it from inside that callback is undone a moment later -- the panel just
+        /// disappears, which is exactly what the first version did. Deferring by one frame puts the
+        /// open on the far side of that close. It re-opens at the remembered anchor, because a page
+        /// change is not a press on the toolbar and must not move the panel.
+        /// </remarks>
+        private void ReopenHelpPanel() => _helpReopenPending = true;
+
+        private bool _helpReopenPending;
+
+        /// <summary>
+        /// Opens the page a previous frame's selection asked for. Called once per render, before the
+        /// toolbar is drawn.
+        /// </summary>
+        private void PumpHelpPanel()
+        {
+            if (!_helpReopenPending)
+            {
+                return;
+            }
+
+            _helpReopenPending = false;
+            if (_state is { } state && _helpAnchor is { } anchor)
+            {
+                OpenDropdown(state, anchor, BuildHelpLines(), (idx, _) => HandleHelpSelection(idx));
+            }
+        }
+
+        /// <summary>Where the "?" panel was opened, so a page change reopens it in the same place.</summary>
+        private RectF32? _helpAnchor;
 
         /// <summary>
         /// Shortens a line to fit the window, ellipsing in the MIDDLE, via DIR.Lib's
