@@ -116,6 +116,78 @@ namespace TianWen.Lib.Tests
         private static bool Overlaps(in RectF32 a, in RectF32 b)
             => a.X < b.Right && b.X < a.Right && a.Y < b.Bottom && b.Y < a.Bottom;
 
+        /// <summary>
+        /// Changing the zoom must not move any button. The Zoom button relabels as it goes -- "Fit", a
+        /// ratio, a percentage -- and the run is packed left to right, so a label that changes width
+        /// drags every button after it sideways.
+        /// </summary>
+        /// <remarks>
+        /// This is what "the top bar is flickering" was, and it is only visible from the arranged rects:
+        /// any single frame looks perfectly correct. Measured from two inspector snapshots one zoom
+        /// apart on a real window before the fix -- the Zoom button went 107.1 -> 133.5 px and AutoCrop,
+        /// Overlays, Stars and Enhance each moved by exactly that 26.4 px. A wheel zoom walks the label
+        /// continuously, so the whole tail of the bar jitters for as long as the wheel turns.
+        /// </remarks>
+        /// <remarks>
+        /// <b>Only the multi-digit cases have teeth</b>, which the sabotage run is what says: with the
+        /// reservation removed, "Fit", "51%" and "1:4" all measure the same and only "800%" and "1:16"
+        /// move the run. They are kept anyway -- they cost nothing and they are the labels a user
+        /// actually walks through -- but a suite of three-character zooms would have passed over the
+        /// defect it was written for.
+        /// </remarks>
+        [Theory]
+        [InlineData(1.0f)]      // "1:1", a ratio
+        [InlineData(0.5136f)]   // "51%", the wheel's own answer -- no ratio, so the percentage branch
+        [InlineData(0.25f)]     // "1:4"
+        [InlineData(0.0625f)]   // "1:16", the widest ratio
+        [InlineData(8.0f)]      // "800%", and the one that failed without the fix
+        public void ChangingTheZoomMovesNoButton(float zoom)
+        {
+            using var renderer = new RgbaImageRenderer(SurfaceW, SurfaceH);
+            var viewer = NewViewer(renderer);
+
+            var state = NewState();
+            viewer.Render(null, state);
+            var atFit = viewer.PaintedToolbarButtons.ToDictionary(b => b.Action, b => b.Rect);
+
+            state.ZoomToFit = false;
+            state.Zoom = zoom;
+            viewer.Render(null, state);
+
+            foreach (var (action, rect) in viewer.PaintedToolbarButtons.ToArray())
+            {
+                atFit.ShouldContainKey(action);
+                var before = atFit[action];
+                rect.X.ShouldBe(before.X, 0.01, $"{action} moved when the zoom changed");
+                rect.Width.ShouldBe(before.Width, 0.01, $"{action} resized when the zoom changed");
+            }
+        }
+
+        /// <summary>
+        /// The Zoom button itself reserves the same width at every zoom, which is what holds the rest
+        /// of the run still. Stated separately because it is the mechanism: the test above would also
+        /// pass if the button were pinned some other way, and this one fails for the right reason.
+        /// </summary>
+        [Fact]
+        public void TheZoomButtonReservesOneWidthForEveryLabelItCanShow()
+        {
+            using var renderer = new RgbaImageRenderer(SurfaceW, SurfaceH);
+            var viewer = NewViewer(renderer);
+            var state = NewState();
+
+            viewer.Render(null, state);
+            var fitWidth = PlacedRect(viewer, ToolbarAction.Zoom).Width;
+
+            foreach (var zoom in new[] { 1f, 0.5136f, 0.25f, 0.125f, 2f, 8f })
+            {
+                state.ZoomToFit = false;
+                state.Zoom = zoom;
+                viewer.Render(null, state);
+                PlacedRect(viewer, ToolbarAction.Zoom).Width
+                    .ShouldBe(fitWidth, 0.01, $"the button changed width at zoom {zoom}");
+            }
+        }
+
         [Fact]
         public void TheHelpButtonIsPinnedToTheRightEdge()
         {
