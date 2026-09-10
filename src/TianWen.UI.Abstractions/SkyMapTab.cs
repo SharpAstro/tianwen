@@ -351,7 +351,7 @@ namespace TianWen.UI.Abstractions
                 }
 
                 var idle = (float)Stopwatch.GetElapsedTime(_paletteEngagedAt).TotalSeconds;
-                var fade = SkyMapLayerPalette.FadeFor(idle, engaged);
+                var fade = SkyMapLayerPalette.FadeFor(idle, engaged, State.LayerPaletteCollapsed);
 
                 var paletteNodes = RenderLayout(
                     SkyMapLayerPalette.Build(State, BaseFontSize * 0.9f,
@@ -366,13 +366,24 @@ namespace TianWen.UI.Abstractions
                     {
                         _palettePanelRect = new RectF32(
                             node.Bounds.X, node.Bounds.Y, node.Bounds.Width, node.Bounds.Height);
+
+                        // Reconcile the offset with where the panel actually landed. The engine still
+                        // owns the clamp; this only keeps the stored value from drifting away from the
+                        // drawn one, which is what made collapsing near the bottom drop the header.
+                        // Safe during a drag: each move recomputes the offset absolutely from the
+                        // press-time anchor, so this cannot accumulate.
+                        State.LayerPaletteOffset = SkyMapLayerPalette.DrawnOffset(
+                            node.Bounds.Y, contentRect.Y, dpiScale);
                         break;
                     }
                 }
 
                 // A fade in progress has to keep asking for frames, or it stops wherever the last
                 // event left it: nothing else in this tab redraws while the pointer is still.
-                if (fade > SkyMapLayerPalette.IdleAlpha)
+                var floor = State.LayerPaletteCollapsed
+                    ? SkyMapLayerPalette.CollapsedIdleAlpha
+                    : SkyMapLayerPalette.IdleAlpha;
+                if (fade > floor)
                 {
                     State.NeedsRedraw = true;
                 }

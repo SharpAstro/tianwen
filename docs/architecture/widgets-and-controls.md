@@ -116,6 +116,27 @@ chromeless Live Session / polar / guide-cam previews (`ViewerState.HideChrome`).
 
 ---
 
+## A press that lands on a clickable region never reaches the tab's own mouse-down
+
+`GuiEventHandlerBase.HandleMouseDown` hit-tests the chrome, then dispatches the ACTIVE TAB's
+registered clickable regions -- and only forwards `InputEvent.MouseDown` to the tab when **no** region
+was hit. So a widget cannot both register a region and pick that same press up in its own
+`HandleInput`: the region wins, its `OnClick` runs, and the tab's mouse-down path is skipped
+entirely. (The one exception is a tab implementing `ISelfDispatchingInputWidget` -- the shared image
+viewer -- which is handed the raw press because its toolbar and sliders need the coordinates.)
+
+Two consequences worth knowing before building anything draggable:
+
+- **A drag whose handle is a region must START from that region's own click binding.** The sky map's
+  layer palette learned this the expensive way: its grip hit-tested a stashed rect on mouse-down,
+  which never ran, so the panel drew a `CursorKind.Move` cursor over something that could not be
+  moved -- and the map did not pan either, because the region had swallowed the press.
+- **A click binding is handed modifiers and nothing else** -- no position, no click count. Position
+  comes from the last `InputEvent.MouseMove`, which every tab receives unconditionally
+  (`HandleMouseMove` forwards it), and a double-click has to be TIMED from successive presses. The
+  host does count clicks (it uses the count for select-all in a text field) but does not pass the
+  count through to a region's callback.
+
 ## The layout DSL: the engine features TianWen relies on
 
 The engine and its DSL reference live in **DIR.Lib's README** under "Declarative Layout
