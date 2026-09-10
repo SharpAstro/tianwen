@@ -263,8 +263,18 @@ namespace TianWen.UI.Abstractions
             // Confine the image to its viewport: zoomed IN (image larger than the area) it must stay covering
             // the area; zoomed OUT (smaller) it must stay fully inside. So a drag can't fling the image off
             // into the chrome / off-screen. Both cases reduce to clamping the top-left into the slack range.
-            offsetX = ConfineToViewport(offsetX, area.X, area.Width, shownW);
-            offsetY = ConfineToViewport(offsetY, area.Y, area.Height, shownH);
+            //
+            // EXCEPT while the sky is drawn behind the frame, where the clamp is exactly wrong: what is
+            // around the photograph is then real content, and confining the pan to the picture is what
+            // stops you bringing it to the middle of the pane. Nothing is lost by letting go -- the sky
+            // says where you are, and F / Ctrl+0 fits the frame back in one press. The gate is the
+            // backdrop actually being DRAWN rather than merely switched on, so a frame with no
+            // astrometric solution keeps the confined pan instead of turning loose over blank ground.
+            if (!SkyBackdropActive)
+            {
+                offsetX = ConfineToViewport(offsetX, area.X, area.Width, shownW);
+                offsetY = ConfineToViewport(offsetY, area.Y, area.Height, shownH);
+            }
 
             // Write the clamped position back so a drag held against the edge doesn't accumulate hidden offset
             // (the image would otherwise "stick" until you dragged all the slack back).
