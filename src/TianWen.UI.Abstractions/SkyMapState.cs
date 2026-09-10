@@ -98,27 +98,17 @@ namespace TianWen.UI.Abstractions
         public bool ShowLayerPalette { get; set; } = true;
 
         /// <summary>
-        /// How far down the right edge the layer palette sits, in design units --
-        /// <c>Layout.Builder.Anchored</c>'s <c>offsetAlong</c>, which is consumer-owned state by
-        /// design: the engine arranges what it is given and a drag on the grip updates this.
-        /// Defaults to <see cref="SkyMapLayerPalette.TopOffset"/>.
+        /// The layer palette's placement and interaction state: where it sits along the right edge,
+        /// whether it is rolled up, its drag and its idle fade. DIR.Lib owns the rules
+        /// (<see cref="DIR.Lib.FloatingPaletteState"/>); this is only where the sky map keeps them.
+        /// <para>
+        /// Not persisted, so the panel returns to its default place on restart. Deliberate for now:
+        /// persistence is one of the two things neither consumer of the shared palette has proven yet,
+        /// the other being dock-side switching.
+        /// </para>
         /// </summary>
-        public float LayerPaletteOffset { get; set; } = SkyMapLayerPalette.TopOffset;
-
-        /// <summary>
-        /// Whether the layer palette is rolled up to its title bar. Double-clicking the grip toggles
-        /// it. Separate from <see cref="ShowLayerPalette"/> because they answer different questions:
-        /// collapsed still says where the panel is and how many layers are lit, where hidden is gone
-        /// and only the status strip can say how to bring it back.
-        /// </summary>
-        public bool LayerPaletteCollapsed { get; set; }
-
-        /// <summary>
-        /// A grip drag in flight: where the pointer went down, and the offset the palette had then.
-        /// Null when no drag is running. Anchoring to the START of both means the palette tracks the
-        /// pointer exactly rather than accumulating rounding per move event.
-        /// </summary>
-        public (float PointerY, float Offset)? LayerPaletteDrag { get; set; }
+        public DIR.Lib.FloatingPaletteState LayerPalette { get; } =
+            new DIR.Lib.FloatingPaletteState { OffsetAlong = DIR.Lib.FloatingPalette.Margin };
 
         /// <summary>
         /// Show the catalog object overlay (Messier / NGC / IC / named stars); same
