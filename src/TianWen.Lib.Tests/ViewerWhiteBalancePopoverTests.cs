@@ -1,0 +1,277 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using DIR.Lib;
+using Shouldly;
+using TianWen.Lib.Astrometry;
+using TianWen.Lib.Imaging;
+using TianWen.UI.Abstractions;
+using Xunit;
+
+namespace TianWen.Lib.Tests
+{
+    /// <summary>
+    /// The white-balance sliders live in a popover under a toolbar button, not in the info strip.
+    /// </summary>
+    /// <remarks>
+    /// <para>The user's design: "a new button with three colour circles ... that opens a menu with
+    /// those three sliders (and a reset)", lit "if wb is not 1/1/1". The strip's section is gone; the
+    /// button is a mark-only entry in the toolbar's colour group; the popover behaves as a menu --
+    /// Escape closes it, a press anywhere else closes it, and while it is open it owns the pointer.</para>
+    /// <para><b>Observed through the hit tracker.</b> A popover that is open has registered its slider
+    /// bands and its buttons; one that is closed has registered nothing, and a drag where a track was
+    /// does nothing -- the rule that a hidden widget consumes no input.</para>
+    /// </remarks>
+    [Collection("UI")]
+    public class ViewerWhiteBalancePopoverTests
+    {
+        private const uint WindowW = 900;
+        private const uint WindowH = 700;
+        private const int ImageW = 8;
+        private const int ImageH = 6;
+
+        private sealed class PopoverViewer : ImageRendererBase<RgbaImage>
+        {
+            public PopoverViewer(RgbaImageRenderer renderer, SignalBus bus) : base(renderer)
+            {
+                Bus = bus;
+                Width = renderer.Width;
+                Height = renderer.Height;
+                DpiScale = 1f;
+                FontPath = FontResolver.ResolveSystemFont();
+            }
+
+            protected override void RenderImageQuad(IPreviewSource? source, ViewerState state,
+                in DisplayRendition rendition, WCS? wcs,
+                float left, float top, float right, float bottom, uint projW, uint projH,
+                RenditionSlot slot, bool sampleBeforeChannels) { }
+
+            protected override void RenderHistogramQuad(StretchUniforms stretch, HistogramDisplay histogram,
+                ViewerState state, float left, float top, float right, float bottom, uint projW, uint projH) { }
+
+            protected override void DrawEllipseOverlay(float cx, float cy, float semiMajor, float semiMinor,
+                float rotationRad, RGBAColor32 color, float thickness) { }
+
+            protected override void DrawCrossOverlay(float cx, float cy, float armLength, RGBAColor32 color) { }
+
+            protected override void DrawLineOverlay(float x0, float y0, float x1, float y1,
+                RGBAColor32 color, float thickness) { }
+
+            protected override void OnResize(uint width, uint height) { }
+
+            public override void UploadImageTexture(ReadOnlySpan<float> data, int channel,
+                int width, int height) { }
+
+            public override void UploadHistogramData(IPreviewSource source) { }
+
+            protected override HistogramDisplay? GetHistogramDisplay() => null;
+
+            public RectF32 ImageArea => ImageAreaRect;
+        }
+
+        private static async Task<(PopoverViewer Viewer, ViewerState State, AstroImageDocument Document, Func<int> Exits)>
+            NewViewerAsync(RgbaImageRenderer renderer, CancellationToken ct)
+        {
+            var bus = new SignalBus();
+            var exits = 0;
+            bus.Subscribe<RequestExitSignal>(_ => exits++);
+
+            var document = await ViewerInfoPanelCollapseTests.NewColourDocumentAsync(ct);
+            var viewer = new PopoverViewer(renderer, bus);
+            viewer.UploadChannelTexture(ReadOnlySpan<float>.Empty, 0, ImageW, ImageH);
+            var state = new ViewerState
+            {
+                ShowFileList = false,
+                ShowHistogram = false,
+                ShowInfoPanel = true,
+                StretchMode = StretchMode.None,
+                ZoomToFit = false,
+                Zoom = 1f,
+            };
+            viewer.Render(document, state);
+            return (viewer, state, document, () => { bus.ProcessPending(); return exits; });
+        }
+
+        /// <summary>The white-balance button's painted rect, which the popover hangs from.</summary>
+        private static RectF32 Button(PopoverViewer viewer)
+        {
+            viewer.TryGetPaintedToolbarRect(ToolbarAction.WhiteBalance, out var rect)
+                .ShouldBeTrue("the button is on the bar for a colour source");
+            return rect;
+        }
+
+        private static void Press(PopoverViewer viewer, float x, float y)
+        {
+            viewer.HandleInput(new InputEvent.MouseDown(x, y));
+            viewer.HandleInput(new InputEvent.MouseUp(x, y));
+        }
+
+        /// <summary>
+        /// Where the popover's left edge lands: under the button, unless that would run it off the
+        /// window, in which case it is pulled left -- the same placement rule the dropdowns use.
+        /// </summary>
+        private static float PanelX(PopoverViewer viewer)
+            => OverlayPlacement.ClampX(Button(viewer).X, 300f, WindowW);
+
+        /// <summary>
+        /// Everything registered below the toolbar after a render: each button by name at the point it
+        /// was found, and whether any white-balance slider band exists. Scanned across the popover's
+        /// width one pixel row at a time; <see cref="PixelWidgetBase{T}.HitTest"/> looks without
+        /// dispatching, so the scan changes nothing.
+        /// </summary>
+        private static (Dictionary<string, (float X, float Y)> Buttons, bool Sliders) HitsBelowTheBar(PopoverViewer viewer)
+        {
+            var button = Button(viewer);
+            var px = PanelX(viewer);
+            var buttons = new Dictionary<string, (float X, float Y)>();
+            var sliders = false;
+            // Every eighth pixel across the popover's width, so a button is found wherever the face
+            // happens to have put it, and each is remembered at the point it was found -- the point a
+            // press is then sent to. Guessing a column landed a press in the gap between two buttons.
+            for (var y = button.Bottom + 1f; y < WindowH; y += 1f)
+            {
+                for (var x = px + 4f; x < px + 300f; x += 8f)
+                {
+                    switch (viewer.HitTest(x, y))
+                    {
+                        case HitResult.ButtonHit hit:
+                            buttons.TryAdd(hit.Action, (x, y));
+                            break;
+                        case WhiteBalanceSliderHit:
+                            sliders = true;
+                            break;
+                    }
+                }
+            }
+            return (buttons, sliders);
+        }
+
+        [Fact]
+        public async Task TheStripHasNoWhiteBalanceSectionAndTheBarHasTheButton()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, _, _) = await NewViewerAsync(renderer, ct);
+
+            Button(viewer).Width.ShouldBeGreaterThan(0f);
+            state.WhiteBalancePanelOpen.ShouldBeFalse("closed until pressed");
+
+            var (buttons, sliders) = HitsBelowTheBar(viewer);
+            buttons.ShouldNotContainKey("AutoWhiteBalance", "nothing of the white balance is registered while the popover is closed");
+            buttons.ShouldNotContainKey("ToggleWhiteBalance", "and the strip no longer has a section for it");
+            sliders.ShouldBeFalse();
+        }
+
+        [Fact]
+        public async Task PressingTheButtonOpensThePopoverWithItsSlidersAndButtons()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _) = await NewViewerAsync(renderer, ct);
+
+            var button = Button(viewer);
+            Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));
+            state.WhiteBalancePanelOpen.ShouldBeTrue("the button opens it");
+            state.OverlayOwnsPointer.ShouldBeTrue("an open popover owns the pointer, like a dropdown");
+
+            viewer.Render(document, state);
+            var (buttons, sliders) = HitsBelowTheBar(viewer);
+            buttons.ShouldContainKey("AutoWhiteBalance");
+            buttons.ShouldContainKey("ResetWhiteBalance");
+            sliders.ShouldBeTrue("the three tracks are registered");
+        }
+
+        /// <summary>
+        /// A drag on the R track moves the manual factor, and the button lights: it is lit whenever
+        /// the effective white balance is not neutral, and not otherwise.
+        /// </summary>
+        [Fact]
+        public async Task ADragLightsTheButtonAndResetPutsItOut()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _) = await NewViewerAsync(renderer, ct);
+
+            viewer.IsToolbarButtonActiveForTest(ToolbarAction.WhiteBalance, state)
+                .ShouldBeFalse("neutral is unlit");
+
+            var button = Button(viewer);
+            Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));
+            viewer.Render(document, state);
+
+            // Out near the right end of the R track, which sits a slider-label in from the panel's edge.
+            var px = PanelX(viewer);
+            viewer.BeginWhiteBalanceDragAt(0, px + 200f);
+            viewer.HandleInput(new InputEvent.MouseUp(px + 200f, button.Bottom + 40f));
+            state.ManualWhiteBalance.R.ShouldNotBe(1f, "the track took the drag");
+            viewer.IsToolbarButtonActiveForTest(ToolbarAction.WhiteBalance, state)
+                .ShouldBeTrue("a white balance in force lights the button");
+
+            viewer.Render(document, state);
+            var (buttons, _) = HitsBelowTheBar(viewer);
+            var reset = buttons["ResetWhiteBalance"];
+            viewer.HitTestAndDispatch(reset.X, reset.Y);
+            state.ManualWhiteBalance.ShouldBe((1f, 1f, 1f));
+            viewer.IsToolbarButtonActiveForTest(ToolbarAction.WhiteBalance, state)
+                .ShouldBeFalse("reset puts it out");
+        }
+
+        /// <summary>Escape closes the popover and does NOT quit: the claimant takes the key first.</summary>
+        [Fact]
+        public async Task EscapeClosesThePopoverRatherThanQuitting()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, exits) = await NewViewerAsync(renderer, ct);
+
+            var button = Button(viewer);
+            Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));
+            viewer.Render(document, state);
+
+            viewer.HandleInput(new InputEvent.KeyDown(InputKey.Escape));
+
+            state.WhiteBalancePanelOpen.ShouldBeFalse("Escape closes it");
+            exits().ShouldBe(0, "and nothing asked to exit");
+
+            // Closed, it registers nothing and a drag where the R track was does nothing.
+            viewer.Render(document, state);
+            var (_, sliders) = HitsBelowTheBar(viewer);
+            sliders.ShouldBeFalse();
+            var before = state.ManualWhiteBalance;
+            viewer.BeginWhiteBalanceDragAt(0, PanelX(viewer) + 200f);
+            state.ManualWhiteBalance.ShouldBe(before, "a closed popover has no track to drag");
+        }
+
+        /// <summary>A press anywhere else closes it -- on the picture, and on the button that opened it.</summary>
+        [Fact]
+        public async Task APressAnywhereElseClosesIt()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _) = await NewViewerAsync(renderer, ct);
+
+            var button = Button(viewer);
+            var onButton = (X: button.X + (button.Width / 2f), Y: button.Y + (button.Height / 2f));
+
+            Press(viewer, onButton.X, onButton.Y);
+            viewer.Render(document, state);
+            state.WhiteBalancePanelOpen.ShouldBeTrue();
+
+            var area = viewer.ImageArea;
+            Press(viewer, area.X + (area.Width * 0.8f), area.Y + (area.Height * 0.8f));
+            state.WhiteBalancePanelOpen.ShouldBeFalse("a press on the picture closes it");
+
+            // A frame between presses, as there always is: the regions a press lands on are the
+            // ones the last paint registered, and the closed popover has to paint as closed before
+            // the button underneath its backdrop is reachable again.
+            viewer.Render(document, state);
+            Press(viewer, onButton.X, onButton.Y);
+            viewer.Render(document, state);
+            state.WhiteBalancePanelOpen.ShouldBeTrue();
+
+            Press(viewer, onButton.X, onButton.Y);
+            state.WhiteBalancePanelOpen.ShouldBeFalse("a second press on the button closes what the first opened");
+        }
+    }
+}

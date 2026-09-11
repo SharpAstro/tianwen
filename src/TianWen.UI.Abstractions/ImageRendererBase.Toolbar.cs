@@ -48,6 +48,9 @@ namespace TianWen.UI.Abstractions
             ("Calibrate", ToolbarAction.ColorCalibrate, 5),
             ("NeutBg", ToolbarAction.BackgroundNeutralize, 5),
             ("SPCC", ToolbarAction.SpccCalibrate, 5),
+            // Mark only (three colour discs): it opens the white-balance popover, and its highlight
+            // says a white balance is in force. Last in the colour group, beside what sets one.
+            ("", ToolbarAction.WhiteBalance, 5),
         ];
 
         // The default set: the core plus the trailing help button. "?" is appended HERE rather than
@@ -638,6 +641,13 @@ namespace TianWen.UI.Abstractions
 
             switch (action)
             {
+                // Not a dropdown but the same kind of thing: a press opens (or closes) the popover
+                // and there is no cycle to fall through to, so "opened" is the answer either way.
+                case ToolbarAction.WhiteBalance:
+                    state.WhiteBalancePanelOpen = !state.WhiteBalancePanelOpen;
+                    state.NeedsRedraw = true;
+                    return true;
+
                 case ToolbarAction.Zoom:
                     // Index IS the ratio denominator, so "1:N" selects ZoomTo(1/N) with no lookup table
                     // and entry 0 is the one special case. Same set the keyboard reaches, deliberately:
@@ -868,6 +878,11 @@ namespace TianWen.UI.Abstractions
             // so the demosaic selector must stay enabled for it too.
             ToolbarAction.Debayer => _source?.SensorType is SensorType.RGGB,
             ToolbarAction.Channel => document is not null && document.UnstretchedImage.ChannelCount > 1,
+            // A colour source only, on the active SOURCE rather than the document: a SER is a raw RGGB
+            // mosaic the GPU debayers into colour, and it has no document. Same rule the strip's
+            // section used.
+            ToolbarAction.WhiteBalance => _source is { } wbSource
+                && (wbSource.ChannelCount >= 3 || wbSource.SensorType is SensorType.RGGB),
             ToolbarAction.CurvesBoost => document?.Stars is { Count: > 0 },
             ToolbarAction.Hdr => document is not null,
             // There is nothing to write without a document, and a mark-only button that does nothing
@@ -933,6 +948,11 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.ColorCalibrate => state.ColorCalibrationEnabled,
                 ToolbarAction.BackgroundNeutralize => state.BackgroundNeutralizationEnabled,
                 ToolbarAction.SpccCalibrate => state.ColorCalibrationEnabled,
+                // Lit while the EFFECTIVE white balance -- the calibration composed with the manual
+                // fine-tune, what the shader multiplies by -- is anything but neutral. Not while the
+                // popover is open: the popover is its own evidence, and the highlight is reserved for
+                // the fact the strip's section could never carry across the bar.
+                ToolbarAction.WhiteBalance => !IsNeutralWhiteBalance(EffectiveWhiteBalance(state)),
                 // Zoom is deliberately absent: it is a mode DISPLAY, like Channel and StretchLink, and
                 // its label already names the state a highlight would be hinting at.
                 // Lit while running AND while an enhanced result is on screen: the highlight is what
@@ -1056,6 +1076,7 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.FileList => true,
             ToolbarAction.Open => true,
             ToolbarAction.Save => true,
+            ToolbarAction.WhiteBalance => true,
             ToolbarAction.Debayer => _source?.SensorType is SensorType.RGGB,
             // Composite / R / G / B are the three bars and which of them is lit. Channel0..2 are not
             // colours at all, so the mark would be inventing one.
@@ -1085,6 +1106,10 @@ namespace TianWen.UI.Abstractions
             ViewerState state, RGBAColor32 ink)
             => DrawToolbarMark(action, x, btnY, btnH, state, ink, enabled: true);
 
+        /// <summary>Whether a button paints lit for this state. Test seam: the highlight is paint-only.</summary>
+        internal bool IsToolbarButtonActiveForTest(ToolbarAction action, ViewerState state)
+            => IsToolbarButtonActive(action, _document, state);
+
         private void DrawToolbarMark(ToolbarAction action, float x, float btnY, float btnH,
             ViewerState state, RGBAColor32 ink, bool enabled)
         {
@@ -1111,7 +1136,32 @@ namespace TianWen.UI.Abstractions
                 case ToolbarAction.Zoom: DrawBakedMark(BakedIcons.Magnifier, x, btnY, btnH, ink); break;
                 case ToolbarAction.PlateSolve: DrawBakedMark(BakedIcons.Telescope, x, btnY, btnH, ink); break;
                 case ToolbarAction.AutoCrop: DrawCropMark(x, btnY, btnH, ink); break;
+                case ToolbarAction.WhiteBalance: DrawWhiteBalanceMark(x, btnY, btnH, enabled); break;
             }
+        }
+
+        /// <summary>
+        /// Three colour discs, red, green and blue, overlapping the way a colour-mixing diagram does:
+        /// the mark for the white-balance popover.
+        /// </summary>
+        /// <remarks>
+        /// The user's own suggestion ("three colour circles"), and it earns its place the way the
+        /// channel bars do: it replaces a label on a bar that had already wrapped, and it says
+        /// "colour" at a glance where "WB" would need reading. The three swatch colours are the Bayer
+        /// swatch's, so the bar's marks share one red, one green and one blue.
+        /// </remarks>
+        private void DrawWhiteBalanceMark(float x, float btnY, float btnH, bool enabled)
+        {
+            var size = BaseToolbarMarkSize * DpiScale;
+            var top = btnY + ((btnH - size) / 2f);
+            var radius = size * 0.32f;
+
+            // Two above, one below, each overlapping the others by about a third of its radius.
+            var upperY = top + (size * 0.36f);
+            var lowerY = top + (size * 0.68f);
+            DrawEllipseOverlay(x + (size * 0.34f), upperY, radius, radius, 0f, DimIfDisabled(BayerSwatchRed, enabled), 0f);
+            DrawEllipseOverlay(x + (size * 0.66f), upperY, radius, radius, 0f, DimIfDisabled(BayerSwatchGreen, enabled), 0f);
+            DrawEllipseOverlay(x + (size * 0.50f), lowerY, radius, radius, 0f, DimIfDisabled(BayerSwatchBlue, enabled), 0f);
         }
 
         /// <summary>
@@ -1495,6 +1545,7 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.Open => "Open a FITS / TIFF / SER file",
             ToolbarAction.Save => "Save the image as displayed (PNG / JPEG / TIFF), at full resolution",
             ToolbarAction.StretchToggle => "Screen transfer function on / off (T)",
+            ToolbarAction.WhiteBalance => "White balance: R / G / B sliders, Auto and Reset",
             ToolbarAction.StretchLink => "Stretch mode: auto picks linked when calibrated and unlinked otherwise; linked keeps colour, unlinked neutralises the background, luma stretches luminance",
             ToolbarAction.StretchParams => "Stretch strength preset (+ / -)",
             ToolbarAction.Channel => "Channel view: RGB or one channel (C cycles)",

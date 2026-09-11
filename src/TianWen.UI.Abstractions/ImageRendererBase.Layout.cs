@@ -70,6 +70,9 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public RectF32 CurrentImageRect => new RectF32(_placement.OffsetX, _placement.OffsetY, _placement.DrawW, _placement.DrawH);
 
+        /// <summary>The docked info strip's rect from the last layout pass; empty while it is hidden.</summary>
+        public RectF32 CurrentInfoPanelRect => _layout.InfoPanel;
+
         /// <summary>
         /// The arranged image-area rectangle (the region between the toolbar and the info panel / file list /
         /// status bar), in surface pixels, as of the last <see cref="Render"/>. Exposed so a subclass can clamp
