@@ -307,7 +307,13 @@ namespace TianWen.UI.Abstractions
             var py = contentRect.Y + contentRect.Height - ph - 32f * dpiScale; // above status strip
             var fontSize = 12f * dpiScale;
 
-            RenderLayout(Layout.Builder.Spacer().Bg(SearchPanelBorder), new RectF32(px - 1, py - 1, pw + 2, ph + 2));
+            // The border rect is the panel's whole visual extent, so ONE no-op Clickable there swallows
+            // a press anywhere on the panel -- its blank area included, not just its buttons -- rather
+            // than letting it fall through to the map's own click-select underneath. Registered on the
+            // border layer rather than the background one so the two rects do not both claim the region.
+            RenderLayout(Layout.Builder.Spacer().Bg(SearchPanelBorder)
+                    .Clickable(new HitResult.ButtonHit("InfoPanelBackground"), _ => { }),
+                new RectF32(px - 1, py - 1, pw + 2, ph + 2));
             RenderLayout(Layout.Builder.Spacer().Bg(InfoPanelBg), new RectF32(px, py, pw, ph));
 
             // Text inset from the panel edge, and narrow enough to clear the close affordance.

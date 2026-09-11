@@ -517,5 +517,51 @@ namespace TianWen.Lib.Tests
                 + (site.CosLat * Math.Cos(obj.Dec * Math.PI / 180.0) * Math.Cos(ha))) * 180.0 / Math.PI;
             selection.AltDeg.ShouldBe(expectedAlt, 1e-6);
         }
+
+        // --- the floating panel's own BLANK area must not fall through to the picture beneath it ---
+
+        /// <summary>
+        /// A press on the panel's blank body -- not a button, not the close X -- must not fall through
+        /// to the picture underneath it. The panel floats bottom-left of the image area, well away
+        /// from the object at the frame's centre, so an unswallowed press there resolves "nothing
+        /// here" and CLEARS the selection -- indistinguishable from a click on empty sky.
+        /// </summary>
+        /// <remarks>
+        /// Fixed together with the atlas's own copy of this panel (<c>SkyMapInfoPanelClickTests</c>),
+        /// which had the identical gap: both panels share <see cref="ObjectInfoPanel"/>'s layout, and
+        /// both drew their background as a plain fill with no <c>Clickable</c> region.
+        /// </remarks>
+        [Fact]
+        public async Task APressOnThePanelsBlankAreaDoesNotClearTheSelection()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _) = await NewViewerOnAsync(renderer, CatalogIndex.NGC5194, ct);
+
+            viewer.Render(document, state);
+            var (ox, oy) = ObjectOnScreen(viewer, state);
+            TapAt(viewer, ox, oy);
+            var selected = state.SelectedObject.ShouldNotBeNull();
+
+            // Render once more so the panel's background click region is registered for THIS frame --
+            // a widget's clickables live only as long as the paint that produced them.
+            viewer.Render(document, state);
+
+            // The same geometry RenderSelectionPanel itself derives: no site/capture time in this
+            // fixture, so the panel is Close + Atlas only, at ObjectInfoPanel's own computed height.
+            var options = new ObjectInfoPanel.PanelDisplayOptions();
+            var actions = new ObjectInfoPanel.PanelActions(Close: () => { }, OpenInAtlas: () => { });
+            var ph = ObjectInfoPanel.DesignHeight(in options, in actions);
+
+            var area = viewer.ImageArea;
+            var px = area.X + 22f;
+            // 40% of the panel height up from its bottom edge: clear of the close X at the top and
+            // the button row at the bottom.
+            var py = area.Y + area.Height - 12f - (ph * 0.4f);
+            TapAt(viewer, px, py);
+
+            state.SelectedObject.ShouldBe(selected,
+                "the panel's own blank area must swallow the press, not hand it to the picture underneath");
+        }
     }
 }

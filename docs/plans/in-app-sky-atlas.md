@@ -539,11 +539,18 @@ locking the release scope was *"as long as we track everything we skipped in a p
   - **The docked info panel's old "Selection" section is gone.** Everything it printed (an
     identification stack) is now the floating panel's job, with room for what the strip never had
     (Alt/Az, rise/transit/set, a footnote naming the capture instant).
-  - **Still open, deliberately unfixed rather than fixed asymmetrically:** a click on the panel's BLANK
-    area (not a button, not the close X) is not swallowed, in either host -- it falls through to
-    whatever is behind the panel exactly as the atlas's own panel already does, which is why this was
-    not treated as a new defect introduced by the viewer's copy. Closing it is one background
-    `Clickable` no-op, added to both panels together.
+  - ~~**A click on the panel's BLANK area was not swallowed.**~~ **DONE 2026-09-11, in BOTH hosts
+    together.** Only the buttons and the close X registered a clickable region, so a press anywhere
+    else on the panel reached whatever was behind it -- a re-selected map object in the atlas, a
+    cleared selection in the viewer, indistinguishable from a click that missed. Each panel's
+    background/border fill is now ONE no-op `Clickable` (`"InfoPanelBackground"` on the atlas,
+    `"SelectionPanelBackground"` on the viewer) covering the whole panel, registered BEFORE the
+    button/close `RenderLayout` calls so those still win where they overlap it -- the region only
+    ever catches a press the buttons did not. `SkyMapInfoPanelClickTests` (atlas, via
+    `HitTestAndDispatch` directly) and `ViewerObjectSelectionTests.APressOnThePanelsBlankAreaDoesNot-
+    ClearTheSelection` (viewer, end to end through the real input dispatch) both pin it, and both were
+    verified by sabotage: removing the `Clickable` reproduces the reported symptom exactly (the
+    viewer's `SelectedObject` reads back `null`) and fails only that one test.
   - **Still open:** the selection ring is always the two-circle fallback in the viewer, never the
     object's own traced ellipse the atlas draws for an extended object (`SkyMapTab.TryDrawShapeMarker`).
 - ~~**Constellation stars appearing at wider fields.**~~ **DONE 2026-09-10.** Whether a star is drawn
