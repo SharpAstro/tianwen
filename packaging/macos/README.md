@@ -83,11 +83,20 @@ Store lane is a second step, after the folder-access question is decided; it wou
 
 All optional; the job runs without them. Repository secrets in GitHub, base64 where noted.
 
+**Whose membership.** Developer ID certificates and App Store Connect team keys can only be created by
+a team's Account Holder (or an Admin the holder allows); a Developer role on someone else's team --
+an employer's, say -- cannot mint either, and a certificate it did obtain would carry THAT team's
+name in Gatekeeper and make that team answerable for what is notarized under it. SharpAstro needs
+its own membership. An individual one (identity-verified, easiest through the Apple Developer app on
+an iPad or iPhone) signs with the person's legal name, which is what users see; an organisation one
+shows the organisation's name but needs a legal entity with a D-U-N-S number. The same Apple ID can
+hold its own membership and stay a member of other teams.
+
 | secret | what | how |
 |---|---|---|
-| `MACOS_CERTIFICATE_P12` | the Developer ID Application certificate with its private key, PKCS#12, **base64** | `openssl req -new -newkey rsa:2048 -nodes -keyout devid.key -out devid.csr -subj "/CN=SharpAstro/emailAddress=..."`, upload the CSR at developer.apple.com > Certificates > Developer ID Application, download the `.cer`, then `openssl pkcs12 -export -inkey devid.key -in devid.cer -out devid.p12` (you will be asked for the password below), and `base64 -w0 devid.p12` |
+| `MACOS_CERTIFICATE_P12` | the Developer ID Application certificate with its private key, PKCS#12, **base64** | `openssl req -new -newkey rsa:2048 -nodes -keyout devid.key -out devid.csr -subj "/emailAddress=..."` (Apple sets the name from the membership; the CSR's own CN is ignored), upload the CSR at developer.apple.com > Certificates > Developer ID Application, download the `.cer`, then `openssl pkcs12 -export -inkey devid.key -in devid.cer -out devid.p12` (you will be asked for the password below), and `base64 -w0 devid.p12` |
 | `MACOS_CERTIFICATE_PASSWORD` | the password given to `pkcs12 -export` | |
-| `MACOS_SIGN_IDENTITY` | the certificate's common name, e.g. `Developer ID Application: SharpAstro (TEAMID)` | `openssl x509 -in devid.cer -noout -subject` |
+| `MACOS_SIGN_IDENTITY` | the certificate's common name, e.g. `Developer ID Application: Sebastian Godelet (TEAMID)` | `openssl x509 -in devid.cer -noout -subject` |
 | `MACOS_NOTARY_KEY_P8` | an App Store Connect API key, **base64** | App Store Connect > Users and Access > Integrations > App Store Connect API > Team key with the Developer role; it downloads exactly once |
 | `MACOS_NOTARY_KEY_ID`, `MACOS_NOTARY_ISSUER_ID` | shown beside the key | |
 
