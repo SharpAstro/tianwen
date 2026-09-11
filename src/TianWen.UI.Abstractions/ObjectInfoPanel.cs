@@ -28,7 +28,11 @@ namespace TianWen.UI.Abstractions
     /// </remarks>
     public static class ObjectInfoPanel
     {
-        /// <summary>The panel's design width, before DPI. Fits "View in Planner" without clipping.</summary>
+        /// <summary>
+        /// The panel's design width, before DPI. Widened 300 -> 320 -> 348 while it lived in the
+        /// atlas, to fit three action buttons (Goto / View in Planner / Pin) without the longest
+        /// label clipping.
+        /// </summary>
         public const float DesignWidth = 348f;
 
         /// <summary>Design font size for the body rows; the title and subtitle scale off it.</summary>

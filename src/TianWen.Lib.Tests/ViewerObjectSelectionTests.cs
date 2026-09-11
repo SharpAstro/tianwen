@@ -414,11 +414,10 @@ namespace TianWen.Lib.Tests
             // rounding happens to pick out of that core.
             db.TryLookupByIndex(
                 CatalogIndex.NGC1976, out _).ShouldBeTrue();
-            var resolved = state.SelectedObject!.Value;
-            (resolved.Canonical.StartsWith("NGC", StringComparison.Ordinal)
-                || resolved.Canonical.StartsWith("HIP", StringComparison.Ordinal)
-                || resolved.Canonical.StartsWith("HD", StringComparison.Ordinal))
-                .ShouldBeTrue($"expected a drawn type, got {resolved.Canonical}");
+            (selection.Canonical.StartsWith("NGC", StringComparison.Ordinal)
+                || selection.Canonical.StartsWith("HIP", StringComparison.Ordinal)
+                || selection.Canonical.StartsWith("HD", StringComparison.Ordinal))
+                .ShouldBeTrue($"expected a drawn type, got {selection.Canonical}");
         }
 
         /// <summary>
@@ -562,6 +561,76 @@ namespace TianWen.Lib.Tests
 
             state.SelectedObject.ShouldBe(selected,
                 "the panel's own blank area must swallow the press, not hand it to the picture underneath");
+        }
+
+        /// <summary>The panel's own design height for this fixture: no site, so Close + Atlas only.</summary>
+        private static float PanelDesignHeight()
+        {
+            var options = new ObjectInfoPanel.PanelDisplayOptions();
+            var actions = new ObjectInfoPanel.PanelActions(Close: () => { }, OpenInAtlas: () => { });
+            return ObjectInfoPanel.DesignHeight(in options, in actions);
+        }
+
+        /// <summary>
+        /// A CHROMELESS host draws no floating panel. The docked section this replaced was suppressed
+        /// in those hosts by their own <c>ShowInfoPanel: false</c>, and a live preview embedded in a
+        /// session tab is the one place a panel over the picture is an intrusion rather than the point
+        /// -- the same rule the status bar, the dropdowns and the tooltip already follow.
+        /// </summary>
+        [Fact]
+        public async Task AChromelessHostDrawsNoFloatingPanel()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _) = await NewViewerOnAsync(renderer, CatalogIndex.NGC5194, ct);
+
+            viewer.Render(document, state);
+            var (ox, oy) = ObjectOnScreen(viewer, state);
+            TapAt(viewer, ox, oy);
+            state.SelectedObject.ShouldNotBeNull();
+
+            state.HideChrome = true;
+            viewer.Render(document, state);
+
+            var ph = PanelDesignHeight();
+            var area = viewer.ImageArea;
+            var px = area.X + 22f;
+            var py = MathF.Max(area.Y, area.Y + area.Height - ph - 12f) + (ph * 0.5f);
+
+            (viewer.HitTestAndDispatch(px, py) is HitResult.ButtonHit { Action: "SelectionPanelBackground" })
+                .ShouldBeFalse("a chromeless host paints no panel, so nothing there can claim a press");
+        }
+
+        /// <summary>
+        /// In a pane SHORTER than the panel, the panel's top stops at the image area rather than
+        /// climbing out of it. Nothing clips this panel, so it has to overflow somewhere: the clamp
+        /// picks the button row off the bottom over the object's NAME off the top.
+        /// </summary>
+        [Fact]
+        public async Task AShortPaneKeepsThePanelsTopInsideTheImageArea()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, 220);
+            var (viewer, state, document, _) = await NewViewerOnAsync(renderer, CatalogIndex.NGC5194, ct);
+
+            viewer.Render(document, state);
+            var ph = PanelDesignHeight();
+            var area = viewer.ImageArea;
+            area.Height.ShouldBeLessThan(ph + 12f,
+                "the fixture only exercises the clamp while the pane is shorter than the panel");
+
+            var (ox, oy) = ObjectOnScreen(viewer, state);
+            TapAt(viewer, ox, oy);
+            state.SelectedObject.ShouldNotBeNull();
+
+            // Render again so this frame's regions are the ones being probed.
+            viewer.Render(document, state);
+
+            var px = area.X + 22f;
+            (viewer.HitTestAndDispatch(px, area.Y + 4f) is HitResult.ButtonHit { Action: "SelectionPanelBackground" })
+                .ShouldBeTrue("clamped to the top of the image area, the panel starts there");
+            (viewer.HitTestAndDispatch(px, area.Y - 8f) is HitResult.ButtonHit { Action: "SelectionPanelBackground" })
+                .ShouldBeFalse("and it must not reach above the image area into the toolbar");
         }
     }
 }

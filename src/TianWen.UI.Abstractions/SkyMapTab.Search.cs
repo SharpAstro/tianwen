@@ -291,38 +291,18 @@ namespace TianWen.UI.Abstractions
             double pixelsPerRadian, float cx, float cy)
         {
             var dpiScale = DpiScale;
-            // A comet carries a vmag sparkline under the text rows; fetch the state-cached curve (recomputed
-            // only when the comet / viewing day changes) and grow the panel to make room for it.
-            var isComet = info.Index is { } ci && ci.ToCatalog() == Catalog.Comet;
-            var magCurve = isComet
-                ? State.GetCometMagnitudeCurveCached(plannerState.Comets, info.Index!.Value, viewingTime)
+
+            // A comet carries a vmag sparkline under the text rows; fetch the state-cached curve
+            // (recomputed only when the comet / viewing day changes) and grow the panel to fit it.
+            var magCurve = info.Index is { } ci && ci.ToCatalog() == Catalog.Comet
+                ? State.GetCometMagnitudeCurveCached(plannerState.Comets, ci, viewingTime)
                 : default;
             var hasCurve = magCurve.Length > 0;
 
-            // Widened (300 -> 320 -> 348) to fit three action buttons (Goto / View in
-            // Planner / Pin) without the longer "View in Planner" label clipping.
-            var pw = 348f * dpiScale;
-            var ph = (hasCurve ? 250f : 205f) * dpiScale;
-            var px = contentRect.X + 12f * dpiScale;
-            var py = contentRect.Y + contentRect.Height - ph - 32f * dpiScale; // above status strip
-            var fontSize = 12f * dpiScale;
-
-            // The border rect is the panel's whole visual extent, so ONE no-op Clickable there swallows
-            // a press anywhere on the panel -- its blank area included, not just its buttons -- rather
-            // than letting it fall through to the map's own click-select underneath. Registered on the
-            // border layer rather than the background one so the two rects do not both claim the region.
-            RenderLayout(Layout.Builder.Spacer().Bg(SearchPanelBorder)
-                    .Clickable(new HitResult.ButtonHit("InfoPanelBackground"), _ => { }),
-                new RectF32(px - 1, py - 1, pw + 2, ph + 2));
-            RenderLayout(Layout.Builder.Spacer().Bg(InfoPanelBg), new RectF32(px, py, pw, ph));
-
-            // Text inset from the panel edge, and narrow enough to clear the close affordance.
-            var textX = px + 10f;
-            var textW = pw - 40f;
-
-            // What the panel SAYS and which buttons it has are ObjectInfoPanel's, shared with the
-            // FITS viewer; where it sits is still this method's. The atlas passes its own hand-picked
-            // chrome colours rather than the theme's, so the shipped panel is unchanged by the move.
+            // What the panel SAYS, which buttons it offers and how big that makes it are all
+            // ObjectInfoPanel's, shared with the FITS viewer; where it SITS is still this method's.
+            // The atlas passes its own hand-picked chrome colours rather than the theme's, so sharing
+            // the layout re-tints nothing.
             var palette = InfoPanelPalette;
             var options = new ObjectInfoPanel.PanelDisplayOptions(
                 ShowAltAz: true,
@@ -355,6 +335,36 @@ namespace TianWen.UI.Abstractions
                     TogglePin: () => PostSignal(
                         new SkyMapPinObjectSignal(pinName, pinRA, pinDec, pinIndex, pinType)),
                     IsPinned: isPinned);
+
+            // The BOX comes from the same method the content does. It used to be two literals sitting
+            // here (348 wide, 205 or 250 tall) while ObjectInfoPanel computed its own for the viewer,
+            // which is the drift the hoist was meant to close: a row added to the shared panel would
+            // have grown one host and left the other with a box sized for the rows it no longer had.
+            var pw = ObjectInfoPanel.DesignWidth * dpiScale;
+            var ph = ObjectInfoPanel.DesignHeight(in options, in actions) * dpiScale;
+            var px = contentRect.X + 12f * dpiScale;
+
+            // Bottom-left, clear of the status strip -- and never climbing out of the TOP of the
+            // content rect. Nothing clips the panel, so in a rect shorter than it is the clamp only
+            // chooses which end is lost: the button row off the bottom rather than the object's NAME
+            // off the top, which is the row the panel exists for.
+            var py = MathF.Max(
+                contentRect.Y,
+                contentRect.Y + contentRect.Height - ph - 32f * dpiScale);
+            var fontSize = 12f * dpiScale;
+
+            // The border rect is the panel's whole visual extent, so ONE no-op Clickable there swallows
+            // a press anywhere on the panel -- its blank area included, not just its buttons -- rather
+            // than letting it fall through to the map's own click-select underneath. Registered on the
+            // border layer rather than the background one so the two rects do not both claim the region.
+            RenderLayout(Layout.Builder.Spacer().Bg(SearchPanelBorder)
+                    .Clickable(new HitResult.ButtonHit("InfoPanelBackground"), _ => { }),
+                new RectF32(px - 1, py - 1, pw + 2, ph + 2));
+            RenderLayout(Layout.Builder.Spacer().Bg(InfoPanelBg), new RectF32(px, py, pw, ph));
+
+            // Text inset from the panel edge, and narrow enough to clear the close affordance.
+            var textX = px + 10f;
+            var textW = pw - 40f;
 
             var textBlockH = ObjectInfoPanel.DesignTextBlockHeight(in options) * dpiScale;
             RenderLayout(ObjectInfoPanel.BuildTextRows(in info, in options, in palette),
