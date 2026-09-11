@@ -36,6 +36,47 @@ pinned CI tool.
   the same end state, and neither can do better on Windows 10/11: they make the app a *candidate*, and
   the user assigns the default in Settings.
 
+## The macOS `.dmg` lane
+
+`packaging/macos/` builds one disk image per app per architecture on the `macos-latest` leg of a
+release (the `dmg` job in `dotnet.yml`), for `tianwen-fits` as **Astro Photo Viewer** and
+`tianwen-gui` as **TianWen**. There is no Mac in the loop; the runner is the Mac, and every
+Apple-only tool the lane needs is on it. The README beside the script carries the secrets, the
+certificate recipe and the free-versus-paid table; what belongs here is the decisions.
+
+- **A `.dmg`, not the Mac App Store, and the reason is the file list.** App Sandbox is mandatory on
+  the Store, and `ViewerActions.ScanFolder` builds the file list from the folder of whatever file was
+  opened. Under the sandbox a double-clicked `foo.fits` grants access to `foo.fits` alone, so the
+  Finder-open path would silently lose its siblings. The GUI's USB cameras and serial mounts are the
+  same story with fewer exits. Notarization asks for none of that: hardened runtime, Developer ID,
+  a timestamp, and Apple's scan. A Store lane is a second step, after the folder-access question is
+  decided, and it would be a `.pkg` on the same runner rather than a `.dmg`.
+- **It works without an Apple Developer Program and does not pretend otherwise.** No secrets means
+  an ad-hoc signature (what `dotnet publish` already puts on the binary; Apple silicon refuses to
+  run unsigned code at all), no notarization, and a job summary that says so. The consequence is
+  Gatekeeper's "developer cannot be verified" on a downloaded copy, which since macOS 15 means
+  System Settings > Privacy & Security > Open Anyway rather than a right-click. With the secrets the
+  same script signs, notarizes, staples and runs `spctl` the way Gatekeeper would on a download, so
+  a failure there fails the job rather than the user.
+- **The bundle is the publish tree, whole, under `Contents/MacOS`.** `AppContext.BaseDirectory` is
+  the executable's directory, and `ModelResolver`, `BundledFonts` and the licence attachments look
+  there; the tidier layout with data under `Contents/Resources` would break every one of them.
+  `codesign` seals everything under `Contents/` as a resource either way.
+- **Every Mach-O is signed with the same identity, inner-most first, found by magic number** rather
+  than by a list of names, so whatever the osx publish contains (SDL3, MoltenVK, ONNX Runtime, the
+  camera SDKs) is covered. That is what lets library validation stay on: `entitlements.plist`
+  grants nothing, and never `allow-jit`, which a NativeAOT binary does not need and Apple looks at
+  hardest. A signature complaint about a library the script did not sign is fixed by signing it,
+  not by `disable-library-validation`.
+- **Validated on every push without a Mac.** `build-dmg.sh --validate-only` (beside the MSIX
+  `-ValidateOnly` in the build job) parses both plist templates with the version substituted, the
+  entitlements, extracts the icon frame from both `.ico` files and runs `bash -n` on itself;
+  `--bundle-only` assembles the `.app` anywhere. What only a first real run answers: the dylib set
+  (the sign step prints a count) and whether `13.0` is the right `LSMinimumSystemVersion`.
+- **The single-instance hand-off is not exercised on macOS.** Launch Services delivers a document
+  open to the running app as an Apple Event, which SDL turns into a drop-file event, so the second
+  file lands in the same window with no pipe involved.
+
 ## Explorer thumbnails (`tianwen-thumb.dll`)
 
 The full design, the measurements and the caching answer are in

@@ -158,6 +158,11 @@ jobs:
     # (four parts, none over 65535, revision 0). No publish, no packing, about a second.
     - name: Validate the MSIX manifest and assets
       run: pwsh packaging/windows/msix/build-msix.ps1 -ValidateOnly
+    # The macOS lane's equivalent: both Info.plist templates parse once the version is substituted,
+    # the entitlements parse and grant no JIT, the icon extractor finds a PNG frame in both .ico
+    # files, and the script passes bash -n. Needs nothing from macOS, so it runs here on ubuntu.
+    - name: Validate the macOS bundle templates and assets
+      run: bash packaging/macos/build-dmg.sh --validate-only
     - name: Restore dependencies
       run: dotnet restore
       working-directory: src
@@ -765,12 +770,108 @@ jobs:
         # hand, which may not happen the same day the run is dispatched.
         retention-days: 30
 
+  # The macOS disk images for the FITS viewer (as Astro Photo Viewer) and the GUI, one per
+  # architecture, from the two osx publishes above. There is no Mac in the loop: this runner is it.
+  #
+  # Unlike the Store lanes there is nobody to re-sign after us, so this job signs and notarizes
+  # itself when the Developer ID secrets are present, and signs AD-HOC when they are not -- the
+  # lane stays green on a fork or before the Apple Developer Program exists, and the result still
+  # runs (via System Settings > Privacy & Security > Open Anyway, since Gatekeeper cannot verify
+  # the developer). The five secrets and how to mint them: packaging/macos/README.md.
+  #
+  # Gated on publish-apps because it consumes those publishes rather than building its own. The
+  # release job waits for it, so a release always carries its Mac installers; a notary-service
+  # outage therefore blocks a release rather than shipping one without them, which is the right
+  # way round -- re-dispatch.
+  dmg:
+    timeout-minutes: 30   # notarization waits on Apple: usually minutes, occasionally longer
+    needs: [build, publish-apps]
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    env:
+      VERSION_PREFIX: ${{ needs.build.outputs.version-prefix }}
+      MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+      MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+      MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        submodules: false   # only packaging/macos and the two .ico files are needed
+        lfs: false
+    - name: Download the viewer's macOS publishes
+      uses: actions/download-artifact@v8
+      with:
+        pattern: tianwen-fits-osx-*
+        path: publish
+    - name: Download the GUI's macOS publishes
+      uses: actions/download-artifact@v8
+      with:
+        pattern: tianwen-gui-osx-*
+        path: publish
+    # A throwaway keychain that nothing outlives, unlocked and put first in the search list so a
+    # non-interactive codesign finds the identity; the partition list is what lets it use the
+    # private key without a prompt. The identities it lists at the end are the first thing to read
+    # when a signature fails.
+    - name: Import the Developer ID certificate
+      if: ${{ secrets.MACOS_CERTIFICATE_P12 != '' }}
+      env:
+        P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+        P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      shell: bash
+      run: |
+        keychain="$RUNNER_TEMP/signing.keychain-db"
+        keychain_password="$(uuidgen)"
+        echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+        security create-keychain -p "$keychain_password" "$keychain"
+        security set-keychain-settings -lut 21600 "$keychain"
+        security unlock-keychain -p "$keychain_password" "$keychain"
+        security import "$RUNNER_TEMP/certificate.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+        security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
+        security list-keychains -d user -s "$keychain"
+        rm "$RUNNER_TEMP/certificate.p12"
+        security find-identity -v -p codesigning "$keychain"
+    - name: Materialise the notary key
+      if: ${{ secrets.MACOS_NOTARY_KEY_P8 != '' }}
+      env:
+        KEY_BASE64: ${{ secrets.MACOS_NOTARY_KEY_P8 }}
+      shell: bash
+      run: |
+        echo "$KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+        echo "MACOS_NOTARY_KEY=$RUNNER_TEMP/notary.p8" >> "$GITHUB_ENV"
+    - name: Build, sign and notarize the disk images
+      shell: bash
+      run: |
+        for app in fits gui; do
+          for arch in arm64 x64; do
+            bash packaging/macos/build-dmg.sh --app "$app" \
+              --publish-dir "publish/tianwen-$app-osx-$arch" \
+              --version "$VERSION_PREFIX" \
+              --out "dmg/tianwen-$app-osx-$arch.dmg"
+          done
+        done
+    - name: Say what came out
+      shell: bash
+      run: |
+        if [ -n "${MACOS_SIGN_IDENTITY:-}" ]; then
+          echo "### macOS images: Developer ID signed (${MACOS_SIGN_IDENTITY}), ${VERSION_PREFIX}" >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "### macOS images: AD-HOC signed, ${VERSION_PREFIX}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "No MACOS_SIGN_IDENTITY secret, so a downloaded copy needs Privacy & Security > Open Anyway." >> "$GITHUB_STEP_SUMMARY"
+        fi
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        ls -la dmg/*.dmg >> "$GITHUB_STEP_SUMMARY"
+    - uses: actions/upload-artifact@v7
+      with:
+        name: macos-dmg
+        path: dmg/*.dmg
+
   # Gating: only ship binaries to a GitHub Release when tests pass AND all
   # target-platform publishes succeeded. Workflow_dispatch only -- piggybacks
   # off publish-apps, which is also dispatch-gated.
   release:
     timeout-minutes: 15   # uploads only
-    needs: [build, test-unit, test-functional, publish-apps]
+    needs: [build, test-unit, test-functional, publish-apps, dmg]
     # Dispatch AND main, because the tag below is derived from the version rather than from the
     # ref: a dispatch on a feature branch would publish v<major>.<minor>.<run> pointing at a commit
     # that is not on main, and there is nothing in the name to say so. The dispatch-only gate reads
@@ -794,6 +895,9 @@ jobs:
           name="${dir%/}"
           tar -czf "../${name}.tar.gz" -C "$dir" .
         done
+        # The macOS images ship as they are: a .dmg is already the archive. The artifact is named
+        # so the tarball glob above cannot pick it up.
+        cp macos-dmg/*.dmg ..
     - name: Create GitHub Release
       uses: SharpAstro/action-gh-release@v3
       with:
@@ -805,6 +909,8 @@ jobs:
           tianwen-fits-*.tar.gz
           tianwen-gui-*.tar.gz
           tianwen-server-*.tar.gz
+          tianwen-fits-osx-*.dmg
+          tianwen-gui-osx-*.dmg
 
   # NuGet push still gates on tests -- once a version is pushed to nuget.org
   # we can't take it back, so being on the safer side is worth the serial wait.

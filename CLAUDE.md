@@ -1357,6 +1357,15 @@ rather than a signed installer, the activation bug that shipped and both MSIX tr
   (59.6 MB to 3 MB, pinned by `EmbeddedCatalogFeatureSwitchTests`); the CLSID is written in three
   places and never changes (`build-msix.ps1` checks); caching is the shell's (`thumbcache_*.db`), so
   the handler is stateless.
+- **macOS ships as a `.dmg` per app per architecture, built on the release's `macos-latest` leg**
+  (`packaging/macos/build-dmg.sh`, the `dmg` job; no Mac in the loop). **It is a `.dmg` and not the
+  Mac App Store because the sandbox would take the file list away**: `ScanFolder` reads the opened
+  file's siblings, and a sandboxed Finder-open grants the one file. **Without the Apple secrets the
+  apps are AD-HOC signed and the lane says so**; with them, Developer ID + notarized + stapled, same
+  script. **The bundle keeps the whole publish tree under `Contents/MacOS`** (`AppContext.BaseDirectory`
+  is where `ModelResolver` and `BundledFonts` look), **every Mach-O is signed by magic number,
+  inner-most first**, and `entitlements.plist` grants nothing -- never `allow-jit`.
+  `--validate-only` runs on every push beside the MSIX validation.
 
 ### Image Pipeline & Buffer Lifecycle
 

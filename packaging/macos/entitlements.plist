@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for both apps. Notarization requires the hardened runtime, and the
+  hardened runtime forbids four things by default: JIT, unsigned executable memory, loading code
+  signed by another team, and DYLD environment variables. A NativeAOT binary needs none of them
+  (there is no JIT and no runtime-generated code), and build-dmg.sh re-signs every Mach-O it finds
+  in the bundle (SDL3, MoltenVK, ONNX Runtime, the camera SDKs) with the same identity as the
+  executable, so library validation passes without being switched off.
+
+  The two below are therefore NOT granted. If a first notarization or a first launch reports
+  "code signature invalid for library" for something the script did not sign (a dylib loaded from
+  outside the bundle, say), the fix is to sign that library, and only failing that to enable
+  disable-library-validation here. Never enable allow-jit: it is not needed and it is the one
+  Apple looks at hardest.
+
+    <key>com.apple.security.cs.disable-library-validation</key><true/>
+    <key>com.apple.security.cs.allow-jit</key><true/>
+
+  App Sandbox is deliberately absent: it is a Mac App Store requirement, not a notarization one, and
+  the viewer's file list scans the folder of whatever file was opened, which a sandbox refuses
+  (see packaging/macos/README.md).
+-->
+<plist version="1.0">
+<dict>
+</dict>
+</plist>

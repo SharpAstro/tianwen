@@ -1,6 +1,6 @@
 ---
 name: release-tianwen
-description: Cut a TianWen binary release. Triggers a workflow_dispatch run of `.github/workflows/dotnet.yml` on `main`, which builds AOT publishes for all six RIDs (win-x64, win-arm64, linux-x64, linux-arm64, osx-arm64, osx-x64) and creates a GitHub Release tagged `v<VersionMajorMinor>.<run_number>` with .tar.gz assets for tianwen-cli, tianwen-fits, tianwen-gui, and tianwen-server. Use when the user asks to release, ship, publish, or cut a TianWen release. NOT for sibling NuGet libraries -- use `/release-lib` for those.
+description: Cut a TianWen binary release. Triggers a workflow_dispatch run of `.github/workflows/dotnet.yml` on `main`, which builds AOT publishes for all six RIDs (win-x64, win-arm64, linux-x64, linux-arm64, osx-arm64, osx-x64) and creates a GitHub Release tagged `v<VersionMajorMinor>.<run_number>` with .tar.gz assets for tianwen-cli, tianwen-fits, tianwen-gui, and tianwen-server, plus a .dmg per architecture for tianwen-fits and tianwen-gui on macOS (Developer ID signed and notarized when the Apple secrets exist, ad-hoc otherwise; see packaging/macos/README.md). Use when the user asks to release, ship, publish, or cut a TianWen release. NOT for sibling NuGet libraries -- use `/release-lib` for those.
 ---
 
 Usage: `/release-tianwen` (no arguments).
