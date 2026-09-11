@@ -4,6 +4,7 @@ using System.Linq;
 using System.Numerics;
 using DIR.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions.Overlays;
 
@@ -328,10 +329,6 @@ namespace TianWen.UI.Abstractions
         /// without a second gesture to learn, and it is the reason this returns a bool rather than the
         /// selection: "nothing changed" and "nothing is selected" are different answers, and only the
         /// first one means no repaint.</para>
-        /// <para>The identification lines come from <see cref="OverlayEngine.BuildOverlayLabel"/> at
-        /// the full-zoom, in-frame tier, deliberately: the panel is the place a person goes for the
-        /// FULL identity, and asking for it at the current zoom would make the panel's content change
-        /// as the wheel turns.</para>
         /// </remarks>
         private bool TrySelectObjectAt(ViewerState state, float px, float py)
         {
@@ -362,13 +359,7 @@ namespace TianWen.UI.Abstractions
             }
 
             var (obj, idx) = hit;
-            var designation = obj.Index.ToCanonical();
-            var lines = LoadedCatalog is { } db
-                ? OverlayEngine.BuildOverlayLabel(obj, idx, db, zoom: 1f).ToImmutableArray()
-                : [NameOf(obj)];
-
-            var selection = new ViewerObjectSelection(
-                NameOf(obj), designation, obj.RA, obj.Dec, lines);
+            var selection = BuildSelectionPanelData(obj, idx);
 
             if (state.SelectedObject == selection)
             {
@@ -378,6 +369,45 @@ namespace TianWen.UI.Abstractions
             state.SelectedObject = selection;
             state.StatusMessage = $"Selected {selection.Name}";
             return true;
+        }
+
+        /// <summary>
+        /// Bakes a selection's floating-panel payload at the CAPTURE instant, once, here -- never off a
+        /// live clock, which is right for the sky backdrop's horizon but wrong for a still photograph's
+        /// "where was it when this was shot".
+        /// </summary>
+        /// <remarks>
+        /// <b>Both the site and the instant have to be known for either to be trusted.</b> Without a
+        /// capture time there is no honest instant to answer "where was it" for, and
+        /// <see cref="RiseTransitSetHelper"/> and <see cref="SiteContext"/> both fail SILENTLY on a NaN
+        /// site (a false return / <c>IsValid: false</c>) rather than reporting the gap -- so the caller
+        /// reads <see cref="SkyMapInfoPanelData.AltDeg"/> being NaN back as the one signal that the
+        /// site-dependent rows are unanswerable, and this method makes sure that signal always means
+        /// the same thing: "the header did not carry both cards", never a fabricated "now".
+        /// </remarks>
+        private SkyMapInfoPanelData BuildSelectionPanelData(CelestialObject obj, CatalogIndex idx)
+        {
+            var shape = LoadedCatalog is { } db && db.TryGetShape(idx, out var s)
+                ? s
+                : (CelestialObjectShape?)null;
+
+            if (_document?.UnstretchedImage.ImageMeta is not { } meta)
+            {
+                return SkyMapInfoPanelData.FromCatalogObject(
+                    obj, double.NaN, double.NaN, default, default, shape);
+            }
+
+            var site = FrameSiteResolver.FromHeader(in meta);
+            var capturedAt = FrameSiteResolver.CapturedAt(in meta);
+            var haveInstant = site.IsKnown && capturedAt is { } cap;
+
+            var siteLat = haveInstant ? site.LatitudeDeg : double.NaN;
+            var siteLon = haveInstant ? site.LongitudeDeg : double.NaN;
+            var viewingUtc = haveInstant ? capturedAt!.Value : default;
+            var siteContext = SiteContext.Create(siteLat, siteLon, viewingUtc);
+
+            return SkyMapInfoPanelData.FromCatalogObject(
+                obj, siteLat, siteLon, viewingUtc, in siteContext, shape);
         }
 
         private void CopyToClipboard(ViewerState state, string description, string payload)

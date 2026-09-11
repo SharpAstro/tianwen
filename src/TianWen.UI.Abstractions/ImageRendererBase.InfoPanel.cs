@@ -111,31 +111,9 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
-            // The SELECTION, when there is one: what a click resolved, held until it is dismissed. Its
-            // presence varies too, so it goes below the sliders by the same rule as the readout -- but
-            // ABOVE it, because a selection changes on a deliberate click while the readout appears and
-            // vanishes with every pointer excursion, and the more stable of two varying sections
-            // belongs first.
-            if (state.SelectedObject is { } selection)
-            {
-                y += FontSize;
-                DrawSectionHeading(ref y, x, "Selection", maxTextWidth);
-
-                // The name in the ACCENT, which is the ring's colour on the picture: the panel entry
-                // and the highlight are then obviously the same object, without either naming the
-                // other. The rest of the stack is body text, so it reads as identification rather
-                // than as five equally-shouted labels.
-                var lines = selection.Lines;
-                for (var i = 0; i < lines.Length; i++)
-                {
-                    DrawWrappedTextLine(ref y, x, lines[i], maxTextWidth,
-                        i == 0 ? ViewerTheme.Palette.Accent : ViewerTheme.Palette.BodyText);
-                }
-
-                // No "Escape clears" hint row here. The nineteen static shortcut rows were removed
-                // from this panel on purpose (see the note at the end of this method), and a key that
-                // has no button belongs in the "?" list -- which is where this one is.
-            }
+            // The SELECTION used to have a section here. It now floats over the picture instead
+            // (ImageRendererBase.SelectionPanel.cs), with a dedicated info panel shared with the sky
+            // atlas -- Alt/Az and rise/transit/set included, which this strip never had room for.
 
             // Cursor readout goes LAST, and that placement is the point: it only exists while the
             // pointer is over the image, so anywhere above the sliders it shoves them up and down as

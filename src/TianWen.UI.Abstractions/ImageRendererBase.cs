@@ -1033,6 +1033,11 @@ namespace TianWen.UI.Abstractions
             // z-order it has in a tab host, where the search modal is the one thing that outranks it.
             RenderSkyPalette(_layout.ImageArea);
 
+            // The selected object's own panel, floating over the picture like the atlas's -- above the
+            // sky's controls (a click resolves at every rung of the ladder, sky backdrop included) and
+            // below only the dropdowns and the tooltip.
+            RenderSelectionPanel(state);
+
             if (!state.HideChrome)
             {
                 RenderStatusBar(document, state);

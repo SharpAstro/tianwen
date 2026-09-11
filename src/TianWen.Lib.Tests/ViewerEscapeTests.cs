@@ -147,8 +147,11 @@ namespace TianWen.Lib.Tests
 
         // --- a SELECTION is one of the things Escape dismisses ---
 
-        private static ViewerObjectSelection Selected()
-            => new ViewerObjectSelection("Lagoon Nebula", "NGC 6523", 18.06, -24.38, ["Lagoon Nebula"]);
+        private static SkyMapInfoPanelData Selected()
+            => SkyMapInfoPanelData.FromPosition(
+                "Lagoon Nebula", 18.06, -24.38, double.NaN, double.NaN, DateTimeOffset.UnixEpoch, default)
+                with
+            { Canonical = "NGC 6523" };
 
         /// <summary>
         /// A selection is dismissed rather than the viewer quitting -- the same contract the dropdown

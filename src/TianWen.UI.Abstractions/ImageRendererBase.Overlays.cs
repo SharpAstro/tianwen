@@ -578,7 +578,7 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            if (wcs.SkyToPixel(selection.RaHours, selection.Dec) is not { } px)
+            if (wcs.SkyToPixel(selection.RA, selection.Dec) is not { } px)
             {
                 return;
             }

@@ -66,12 +66,17 @@ public sealed class ViewerState
     /// empty sky, Escape, or a new document.
     /// </summary>
     /// <remarks>
-    /// Deliberately NOT derived from the pointer: a hover answer would be a different feature (it
-    /// disappears the moment you move to act on it), and the whole point of a selection is that the
-    /// info panel and the atlas link have something stable to act on. See
-    /// <see cref="ViewerObjectSelection"/>.
+    /// <para>Deliberately NOT derived from the pointer: a hover answer would be a different feature
+    /// (it disappears the moment you move to act on it), and the whole point of a selection is that
+    /// the floating panel and the atlas link have something stable to act on.</para>
+    /// <para><b>The same payload the atlas's own selection carries, not a second record.</b> A
+    /// dedicated <c>ViewerObjectSelection</c> (name/designation/RA/Dec) used to sit beside this, and
+    /// every one of its fields duplicated one already on <see cref="SkyMapInfoPanelData"/> -- which
+    /// is what the floating panel needs anyway (Alt/Az, rise/transit/set, brightness), baked in ONCE
+    /// at the click through <c>ImageRendererBase.BuildSelectionPanelData</c> at the frame's CAPTURE
+    /// instant, never re-solved off a live clock a still image has no use for.</para>
     /// </remarks>
-    public ViewerObjectSelection? SelectedObject { get; set; }
+    public SkyMapInfoPanelData? SelectedObject { get; set; }
 
     /// <summary>Whether a plate solve is currently in progress.</summary>
     public bool IsPlateSolving { get; set; }
