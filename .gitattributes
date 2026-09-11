@@ -1,12 +1,18 @@
-# Auto detect text files and normalise line endings
-* text=auto
+# Auto detect text files and normalise line endings. LF in the WORKING COPY too, for every text
+# file: git has always stored LF, so this only decides what a checkout writes -- and with
+# core.autocrlf=true on the Windows boxes a bare text=auto wrote CRLF, while the C# rules below
+# used to say CRLF outright. The result was a worktree split 1720 CRLF / 355 LF across tools that
+# each preserved whatever they found, a standing set of "modified" files with empty diffs, and a
+# "LF will be replaced by CRLF" warning on every diff. Settled 2026-09-11: eol=lf everywhere,
+# matching .editorconfig; nothing in the repo needs CRLF (no .bat/.cmd).
+* text=auto eol=lf
 
-# C# / .NET — CRLF (Windows convention, matches .editorconfig)
-*.cs text eol=crlf
-*.csproj text eol=crlf
-*.props text eol=crlf
-*.targets text eol=crlf
-*.sln text eol=crlf
+# C# / .NET
+*.cs text eol=lf
+*.csproj text eol=lf
+*.props text eol=lf
+*.targets text eol=lf
+*.sln text eol=lf
 # Config / markup
 *.json text eol=lf
 *.xml text eol=lf

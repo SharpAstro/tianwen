@@ -5,7 +5,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Always use extended thinking when analyzing bugs or designing architecture or when refactoring.
 - When running python temp scripts, always use python not python3
 - Always use pwsh not powershell
-- Use CRLF line endings for `.cs` and `.csproj` files
+- Line endings are LF everywhere, in the working copy as well as the repo (`.gitattributes`
+  `* text=auto eol=lf`, `.editorconfig`; settled 2026-09-11). Git always stored LF, so never
+  hand-convert a file to quiet a diff -- a file that shows as modified with an empty diff is a
+  stale stat entry, not a change.
 - **Exit codes 127 and 13x from GUI / CLI / Server processes mean the .NET process crashed**, not
   "command not found" or "shell killed it". Always read the stderr log (e.g. `gui-stderr.log`) for
   the actual .NET exception + stack trace before drawing conclusions from the exit code.
@@ -319,7 +322,7 @@ that bite even after reading it:
 ## Coding Style
 
 Enforced via `src/.editorconfig` (it sits beside the solution, not at the repo root):
-- 4 spaces, CRLF line endings, block-scoped namespaces (`namespace Foo { }`, not file-scoped)
+- 4 spaces, LF line endings, block-scoped namespaces (`namespace Foo { }`, not file-scoped)
 - Primary constructors preferred for DI
 - No implicit `new(...)`, always `new SomeType()`
 - Expression-bodied: properties yes, methods/constructors no
