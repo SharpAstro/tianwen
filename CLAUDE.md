@@ -1707,6 +1707,18 @@ The rules:
   as the catalog loads: a pointing is not a selection. `SkyAtlasLink` owns the whole vocabulary
   INCLUDING the escaping (`EscapeObjectToken` keeps "/" literal so "10P/Tempel" stays readable) --
   both ends call it, because two copies of an escaping rule is how the ends of one URL drift.
+- **The docked info strip REPORTS; it does not hold controls.** Statistics roll up to their heading
+  by default (`DrawCollapsibleHeading`, the equipment tab's `[+]` / `[-]`) and, open, are a TABLE at
+  measured column stops (`InfoPanelData.GetStatisticsTable` + `DrawTable`, numbers right aligned):
+  space-padding aligned nothing once the face stopped being monospaced, and five rows replaced
+  thirteen. **The white balance is a popover under a mark-only toolbar button**
+  (`ToolbarAction.WhiteBalance`, three colour discs, lit while the EFFECTIVE white balance is not
+  neutral), `ImageRendererBase.WhiteBalancePanel.cs`. **A popover is a menu in everything but its
+  contents**: painted with the dropdowns, a full-window backdrop under it closes it on any other
+  press (the button included), it claims the keyboard as it paints so Escape needs no branch of its
+  own, and `OverlayOwnsPointer` names it. Closed, it clears its slider bands. Pinned through the hit
+  tracker, not pixels: a rolled-up section or a closed popover has registered nothing.
+  [docs/plans/viewer-prerelease-fixes.md](docs/plans/viewer-prerelease-fixes.md) P33.
 - **The "?" panel is a MENU** (`HelpPage`), because it had grown past a laptop screen and is the one
   panel opened when the viewer has misbehaved. Row 0 of a sub-page is the way back. **A page change
   re-opens the dropdown NEXT frame** (`PumpHelpPanel`): the dropdown closes itself after its

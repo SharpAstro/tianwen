@@ -1552,3 +1552,46 @@ reverted -- the peek needs no guard, and adding one implies the property blocks.
 found this was aimed at a comment, not at a bug: the comment was right, and answering it properly is
 what surfaced a defect one call deeper that no test and no session had reached.
 
+## P33. The info strip: statistics roll up into a table, white balance moves to a toolbar popover  (DONE 2026-09-11)
+
+**The ask.** "The statistics take a shitton of space and white balance should maybe be something
+that can be uncollapsed"; then, on seeing the first cut, "stats look a bit bad now as we do not use
+monospaced font anymore. We should either have a table or see if we can impl some clever 	 tab
+stuff", "if there's a way to compress it a bit more", and for the white balance "maybe we actually
+introduce a new button with three colour circles or something, that opens a menu with those three
+sliders (and a reset)", which "can be in active state if wb is not 1/1/1".
+
+**Statistics.** The section rolls up to its heading (`DrawCollapsibleHeading`, the equipment tab's
+`[+]` / `[-]` convention, the whole heading row one click target), collapsed by default
+(`ViewerState.InfoPanelStatisticsCollapsed`). Open, it is a TABLE (`InfoPanelData.GetStatisticsTable`
++ `DrawTable`): a header and one row per channel with mean, median, MAD and measured background, plus
+a Luma row carrying only its background -- five rows for a colour frame where there were thirteen
+lines. The old lines aligned their four rows per channel by padding with spaces, which lines nothing
+up in a proportional face; the table draws each cell at a measured column stop, numbers right
+aligned, so decimal points fall under one another whatever the face. Numbers are as short as their
+size allows (`InfoPanelData.Compact`: four decimals below one, two to ten, one to a thousand, none
+beyond; a null median or MAD is a dash).
+
+**White balance.** Gone from the strip. `ToolbarAction.WhiteBalance` is a mark-only button in the
+colour group (three overlapping discs in the Bayer swatch's red, green and blue), enabled for a
+colour source, lit while the EFFECTIVE white balance -- the calibration composed with the manual
+fine-tune, what the shader multiplies by -- is anything but neutral to a thousandth. It opens a
+popover (`ImageRendererBase.WhiteBalancePanel.cs`, the strip's section moved whole: provenance line,
+three sliders, Auto, Reset) that is a menu in everything but its contents: painted with the
+dropdowns so its regions win; a full-window backdrop registered under it closes it on a press
+anywhere else and consumes that press, the button included, which is how a second press closes what
+the first opened; it claims the keyboard as it paints so Escape reaches it through the one claimant
+check rather than a second Escape branch; and `OverlayOwnsPointer` names it, so chrome beneath does
+not hover. Closed, it clears its slider bands: a drag where a track was does nothing.
+
+**How it is pinned.** Through the hit tracker, not pixels (`ViewerInfoPanelCollapseTests`,
+`ViewerWhiteBalancePopoverTests`): a rolled-up section or a closed popover has REGISTERED nothing
+below its heading. Removing the band clearing on close fails exactly one test. Two test lessons: a
+press between two frames lands on the regions the last paint registered, so a test that closes the
+popover must render before pressing the button under its backdrop again; and a button's position in
+a proportional face is not guessable, so the scan records the point it found each button at and
+presses there.
+
+**Not done.** The Wavelet Sharpen section keeps its always-open form (it only appears on the live
+stacked view). A one-line summary on the rolled-up Statistics heading was considered and left out.
+

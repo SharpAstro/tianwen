@@ -38,6 +38,13 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   right-click menu.
   [docs/plans/in-app-sky-atlas.md](docs/plans/in-app-sky-atlas.md), "Deferred from the 2026-09-10
   sitting".
+
+- [x] **Declutter the docked info strip** (SHIPPED 2026-09-11). Statistics roll up to their heading by
+  default and, open, are a five-row TABLE at measured column stops instead of thirteen space-padded
+  lines that a proportional face could not align; the white balance is gone from the strip and lives
+  in a popover under a mark-only toolbar button (three colour discs), lit while the effective white
+  balance is not neutral. The popover is a menu in everything but its contents (backdrop, Escape via
+  the claimant, `OverlayOwnsPointer`). [docs/plans/viewer-prerelease-fixes.md](docs/plans/viewer-prerelease-fixes.md) P33.
   - [x] **The selection ring traces an extended object's own ellipse** (DONE 2026-09-11). The atlas
     had traced the object's shape since it shipped; the viewer always drew the two-circle fallback.
     `ImageRendererBase.TryDrawSelectionShape` now rings the object with its OWN projected outline --
@@ -274,6 +281,17 @@ Checks that only a real device or a real night can answer live in ONE place, ind
 - [x] `SessionFilterTests.GivenSingleFilterPlanWhenImagingThenFramesCapturedWithoutFilterSwitch`: fixed: the LAST hand-rolled pump of eleven sites, migrated to `PumpUntilCompletedAsync`. Same root cause as the three above. This file had never picked up either half of the convention: `ExternalTimePump` was never set, so `SleepAsync` took its auto-advance branch and the test loop AND the session loop both called `_fake.Advance` concurrently (precisely the race that flag exists to prevent), while 30 x `Advance(30s)` outran a 3-minute, 6-tick observation window on roughly 100 ms of real budget per iteration. Measured on an idle box, n=8 per arm: the old pump captured 4 frames of the 6-tick window on all 8 runs, the shared pump 5 on 7 of 8; the old pump dropped to 3 when the box was busier, which is the load-sensitivity the mechanism predicts. **NOT reproduced on demand** (12/12 green under CPU load, 6/6 full-functional-suite runs), and the original assertion message was never captured, so the red-to-green transition is unproven and this rides on CI to confirm. Both async tests also gained the `[Fact(Timeout = 120_000)]` that every other session test carries: `PumpUntilCompletedAsync` waits indefinitely for the loop to re-park, so a genuine hang had no bound, including in this file's sibling test which already used the helper correctly but carried a bare `[Fact]`.
 
 ## Next Up
+
+- [ ] **macOS `.dmg` lane: turn ad-hoc into Developer ID** (lane SHIPPED 2026-09-11, `packaging/macos/`,
+  the `dmg` job; until the secrets exist it signs ad-hoc and a downloaded copy needs Privacy &
+  Security > Open Anyway). Three steps, in order: enrol SharpAstro's OWN Apple Developer Program
+  membership (US$99/yr, about A$149; individual via the Apple Developer app on the iPad, which signs
+  with the person's legal name -- an organisation membership needs a D-U-N-S number; the Drawboard
+  team's Developer role can mint nothing and would put Drawboard's name on it); mint the five secrets
+  per `packaging/macos/README.md`; dispatch `dotnet.yml` from a branch and read the first real run for
+  the two things only it answers (the sign step's dylib count, and whether `13.0` is the right
+  `LSMinimumSystemVersion`).
+
 
 - [x] **SkyWatcher driver: `RaToSteps`/`DecToSteps` only ever produce the Normal-state axis solution.**
   **DONE 2026-08-30 -- `SkyToSteps(ra, dec, PointingState)`**: a goto chooses the solution from

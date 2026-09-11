@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Globalization;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 
@@ -98,36 +100,63 @@ public static class InfoPanelData
         return lines;
     }
 
-    public static List<string> GetStatisticsLines(AstroImageDocument document)
+    /// <summary>
+    /// The statistics as a TABLE: one header row, then one row per channel with its mean, median, MAD
+    /// and measured background, and a Luma row carrying only its background. Five rows for a colour
+    /// frame where there used to be thirteen lines.
+    /// </summary>
+    /// <remarks>
+    /// <para>A table rather than lines because the strip's font is proportional. The old layout
+    /// aligned its four lines per channel by padding with spaces, which lines nothing up in anything
+    /// but a monospaced face; the renderer draws these cells at column stops instead, numbers right
+    /// aligned, so the decimal points fall under one another whatever the face.</para>
+    /// <para>The MEASURED background, never the one the display is currently solved from: this panel
+    /// reports what is in the frame, and while a display anchor is held those two differ.</para>
+    /// </remarks>
+    public static (ImmutableArray<string> Header, ImmutableArray<ImmutableArray<string>> Rows)
+        GetStatisticsTable(AstroImageDocument document)
     {
-        var lines = new List<string>();
+        var rows = ImmutableArray.CreateBuilder<ImmutableArray<string>>();
+        var isColour = document.UnstretchedImage.ChannelCount >= 3;
 
         for (var c = 0; c < document.ChannelStatistics.Length; c++)
         {
             var stats = document.ChannelStatistics[c];
-            var label = document.UnstretchedImage.ChannelCount >= 3
+            var label = isColour
                 ? c switch { 0 => "R", 1 => "G", 2 => "B", _ => $"Ch{c}" }
                 : $"Ch{c}";
-
-            var pad = new string(' ', label.Length + 2);
-            lines.Add($"{label}: mean={stats.Mean:F1}");
-            lines.Add($"{pad}med={stats.Median:F1}");
-            lines.Add($"{pad}MAD={stats.MAD:F1}");
-
-            // The MEASURED background, never the one the display is currently solved from: this panel
-            // reports what is in the frame, and while a display anchor is held those two differ.
             var measured = document.MeasuredPerChannelBackground;
             var bg = c < measured.Length ? measured[c] : measured[0];
-            lines.Add($"{pad}bg={bg:F4}");
+            rows.Add([label, Compact(stats.Mean), Compact(stats.Median), Compact(stats.MAD), Compact(bg)]);
         }
 
-        if (document.UnstretchedImage.ChannelCount >= 3)
+        if (isColour)
         {
-            lines.Add($"Luma bg={document.MeasuredLumaBackground:F4}");
+            rows.Add(["Luma", "", "", "", Compact(document.MeasuredLumaBackground)]);
         }
 
-        return lines;
+        return (["", "mean", "med", "MAD", "bg"], rows.ToImmutable());
     }
+
+    /// <summary>
+    /// A number at the precision its size deserves and no more: four decimals below one (a unit-range
+    /// background is 0.0123), two up to ten, one up to a thousand, none beyond -- so a column of ADU
+    /// means and a column of unit-range backgrounds are each as short as they can be while still
+    /// telling two frames apart.
+    /// </summary>
+    internal static string Compact(double value)
+    {
+        if (double.IsNaN(value))
+        {
+            return "-";
+        }
+        var magnitude = Math.Abs(value);
+        var format = magnitude >= 1000.0 ? "F0" : magnitude >= 10.0 ? "F1" : magnitude >= 1.0 ? "F2" : "F4";
+        return value.ToString(format, CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>A statistic the histogram may not have (a null median or MAD) shows as a dash.</summary>
+    internal static string Compact(double? value) => value is { } v ? Compact(v) : "-";
 
     public static List<string> GetCursorLines(ViewerState state)
     {

@@ -20,6 +20,23 @@ public sealed class ViewerState
     public DebayerAlgorithm DebayerAlgorithm { get; set; } = ViewerActions.DefaultDebayerAlgorithm;
     public bool ShowInfoPanel { get; set; } = true;
 
+    /// <summary>
+    /// Whether the info strip's Statistics section is rolled up to its heading. Collapsed by default:
+    /// thirteen rows of per-channel numbers were the tallest block in the strip, wanted for a moment
+    /// and paid for on every frame, and the heading's [+] is one click away for that moment.
+    /// </summary>
+    public bool InfoPanelStatisticsCollapsed { get; set; } = true;
+
+    /// <summary>
+    /// Whether the white-balance popover (the R / G / B sliders, Auto and Reset, under the toolbar's
+    /// <see cref="ToolbarAction.WhiteBalance"/> button) is open. It behaves as a menu: painted last so
+    /// its regions win, a full-window backdrop closes it on a press anywhere else, Escape closes it
+    /// through the keyboard claimant, and while it is open it owns the pointer
+    /// (<see cref="OverlayOwnsPointer"/>). Closed, it registers no slider band, so nothing under the
+    /// pointer answers a drag it cannot see.
+    /// </summary>
+    public bool WhiteBalancePanelOpen { get; set; }
+
     /// <summary>Curves boost amount applied in the display shader (0.0 = off, up to 1.0).</summary>
     public float CurvesBoost { get; set; }
 
@@ -247,6 +264,7 @@ public sealed class ViewerState
     /// </para>
     /// </summary>
     public bool OverlayOwnsPointer => ToolbarDropdown.IsOpen
+        || WhiteBalancePanelOpen
         || (ShowSkyBackdrop && SkyLayerPalette is { IsEngaged: true });
 
     /// <summary>

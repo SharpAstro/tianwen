@@ -737,6 +737,15 @@ namespace TianWen.UI.Abstractions
 
             if (hit is HitResult.ButtonHit { Action: var action } && Enum.TryParse<ToolbarAction>(action, out var toolbarAction))
             {
+                // The white-balance button opens a popover and cycles nothing, so it takes the
+                // dropdown route here as well as in the standalone host's dispatcher (which consults
+                // OpenToolbarDropdown for every button). One path for the one button on this bar whose
+                // press has no cycle to fall through to.
+                if (toolbarAction is ToolbarAction.WhiteBalance && OpenToolbarDropdown(state, toolbarAction))
+                {
+                    return true;
+                }
+
                 ViewerActions.HandleToolbarAction(state, _document, toolbarAction,
                     split: Split, hasBeforePixels: HasBeforeImageTextures, hasCrop: HasDisplayCrop);
                 if (toolbarAction is ToolbarAction.ColorCalibrate or ToolbarAction.SpccCalibrate)

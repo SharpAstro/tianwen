@@ -44,6 +44,19 @@ public enum ToolbarAction
 
     StretchToggle,
     StretchLink,
+
+    /// <summary>
+    /// Open the white-balance popover: the R / G / B sliders, Auto and Reset that used to be a section
+    /// of the docked info strip. A mark-only button (three colour discs), lit while the effective
+    /// white balance is anything but neutral.
+    /// </summary>
+    /// <remarks>
+    /// Moved off the strip at the user's request: three sliders and two buttons that most frames never
+    /// touch were standing open under thirteen rows of statistics. A popover keeps them one click
+    /// away and gives the strip back to what it reports. The button's highlight is the one thing the
+    /// strip's section could not do: say from across the bar that a white balance is in force.
+    /// </remarks>
+    WhiteBalance,
     StretchParams,
     Channel,
     Debayer,

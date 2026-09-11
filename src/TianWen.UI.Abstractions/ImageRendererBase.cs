@@ -1043,6 +1043,13 @@ namespace TianWen.UI.Abstractions
                 RenderStatusBar(document, state);
             }
 
+            // The white-balance popover, a menu in everything but its contents: painted here with the
+            // dropdowns so its regions win z-order and its backdrop closes it on a press anywhere else.
+            if (!state.HideChrome && !string.IsNullOrEmpty(FontPath))
+            {
+                RenderWhiteBalancePanel(state);
+            }
+
             // Dropdown overlays: rendered last so their clickables win z-order
             // (RegisterClickable resolves by paint order). RenderDropdownMenu is
             // a no-op when the state is closed. Toolbar-driven, so skipped with the chrome.
@@ -1649,6 +1656,90 @@ namespace TianWen.UI.Abstractions
             }
 
             y += TextLineAdvance;
+        }
+
+        /// <summary>
+        /// A section heading that rolls its section up: the title carries a [+] or [-] mark, and the
+        /// whole heading row (rule included) is one click target that runs <paramref name="toggle"/>.
+        /// The caller draws the section's body only when its flag says expanded, so a collapsed
+        /// section registers nothing below the heading -- a hidden control consumes no input.
+        /// </summary>
+        /// <remarks>
+        /// The mark is text rather than an icon on purpose: it is the equipment tab's convention for
+        /// the same thing (<c>Advanced [+]</c>), and ASCII brackets draw on any face. The click target
+        /// is the full row width, not the mark: a target the width of three characters is one you
+        /// miss.
+        /// </remarks>
+        private void DrawCollapsibleHeading(ref float y, float x, string title, float availableWidth,
+            bool collapsed, string action, Action toggle)
+        {
+            var rowY = y;
+            DrawSectionHeading(ref y, x, collapsed ? $"{title} [+]" : $"{title} [-]", availableWidth);
+            RegisterClickable(x, rowY, availableWidth, y - rowY, new HitResult.ButtonHit(action),
+                _ => toggle());
+        }
+
+        /// <summary>
+        /// A small table at column stops: the first column left-aligned, every other column RIGHT
+        /// aligned, so numbers line up on their decimal point in a proportional face. The header row is
+        /// dimmed; each column is as wide as its widest cell, header included.
+        /// </summary>
+        /// <remarks>
+        /// This is what replaced space-padding in the statistics: a run of spaces lines nothing up
+        /// once the strip's font stopped being monospaced, and a tab character has no stop to land on
+        /// in a text run drawn one string at a time. The stops are measured, not assumed. When the
+        /// columns outgrow the width they are given the gap between them shrinks first; the cells
+        /// themselves are never clipped, because a truncated number is a wrong number.
+        /// </remarks>
+        private void DrawTable(ref float y, float x, float availableWidth,
+            ImmutableArray<string> header, ImmutableArray<ImmutableArray<string>> rows)
+        {
+            var columns = header.Length;
+            Span<float> widths = stackalloc float[columns];
+            for (var c = 0; c < columns; c++)
+            {
+                widths[c] = MeasureText(header[c], FontSize);
+                foreach (var row in rows)
+                {
+                    if (c < row.Length)
+                    {
+                        widths[c] = MathF.Max(widths[c], MeasureText(row[c], FontSize));
+                    }
+                }
+            }
+
+            var content = 0f;
+            foreach (var w in widths)
+            {
+                content += w;
+            }
+            var gap = columns > 1
+                ? Math.Clamp((availableWidth - content) / (columns - 1), FontSize * 0.25f, FontSize * 0.75f)
+                : 0f;
+
+            DrawTableRow(y, x, widths, gap, header, ViewerTheme.Palette.DimText);
+            y += TextLineAdvance;
+            foreach (var row in rows)
+            {
+                DrawTableRow(y, x, widths, gap, row, ViewerTheme.Palette.BodyText);
+                y += TextLineAdvance;
+            }
+        }
+
+        private void DrawTableRow(float y, float x, ReadOnlySpan<float> widths, float gap,
+            ImmutableArray<string> cells, RGBAColor32 color)
+        {
+            var cellX = x;
+            for (var c = 0; c < widths.Length; c++)
+            {
+                var text = c < cells.Length ? cells[c] : "";
+                if (text.Length > 0)
+                {
+                    var textX = c == 0 ? cellX : cellX + widths[c] - MeasureText(text, FontSize);
+                    DrawText(text, textX, y, FontSize, color);
+                }
+                cellX += widths[c] + gap;
+            }
         }
 
         private void DrawWrappedTextLine(ref float y, float x, string text, float maxWidth, RGBAColor32 color)
