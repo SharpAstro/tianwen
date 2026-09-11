@@ -41,12 +41,14 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   - [ ] **Still open: the selection ring is a fixed circle even for an extended object.** The atlas
     traces the object's own ellipse (`SkyMapTab.TryDrawShapeMarker`); the viewer's
     `RenderSelectionHighlight` always draws the two-circle fallback. One-time cost, not urgent.
-  - [ ] **Still open, and unfixed on purpose (matches the atlas's own shipped behaviour): a click on
-    the panel's BLANK area is not swallowed.** Only its buttons and close X register a clickable
-    region, so a press there falls through to the picture underneath exactly as it does on the
-    atlas's own info panel -- re-selecting whatever is behind it, or panning. Fixing it means adding
-    one background `Clickable` no-op to BOTH panels; deferred rather than fixed asymmetrically in only
-    one host.
+  - [x] **A click on the panel's BLANK area used to fall through** (FIXED 2026-09-11, in both hosts
+    together). Only the buttons and the close X registered a clickable region, so a press anywhere
+    else on the panel reached the picture (or the sky map) underneath it -- re-selecting whatever was
+    there, or clearing the selection outright. Each panel's background/border fill now carries ONE
+    no-op `Clickable` covering the whole panel, registered before the buttons so they still win where
+    they overlap it. Verified by sabotage in both hosts: removing the `Clickable` reproduces exactly
+    the reported behaviour (the viewer's selection reads back `null` after a tap on the panel body)
+    and fails only that one test.
   - [ ] **Still open: clicking a STAR is a separate resolver.** `document.Stars` holds DETECTED
     CENTROIDS, not catalogue entries, so it is a nearest-centroid search over the star list rather
     than `FindObjectAt`. "Click an object or a star" reads like one feature and is two.

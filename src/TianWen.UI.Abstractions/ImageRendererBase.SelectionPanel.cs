@@ -97,7 +97,14 @@ namespace TianWen.UI.Abstractions
             var px = area.X + (12f * dpiScale);
             var py = area.Y + area.Height - ph - (12f * dpiScale);
 
-            RenderLayout(Layout.Builder.Spacer().Bg(palette.Border), new RectF32(px - 1, py - 1, pw + 2, ph + 2));
+            // The border rect is the panel's whole visual extent, so ONE no-op Clickable there swallows
+            // a press anywhere on the panel -- its blank area included, not just its buttons -- rather
+            // than letting it fall through to a pan or a re-selected object underneath. Registered on
+            // the border layer rather than the background one so the two rects do not both claim the
+            // region; matches the atlas's own panel, fixed together rather than one host at a time.
+            RenderLayout(Layout.Builder.Spacer().Bg(palette.Border)
+                    .Clickable(new HitResult.ButtonHit("SelectionPanelBackground"), _ => { }),
+                new RectF32(px - 1, py - 1, pw + 2, ph + 2));
             RenderLayout(Layout.Builder.Spacer().Bg(palette.Background), new RectF32(px, py, pw, ph));
 
             var textX = px + (10f * dpiScale);
