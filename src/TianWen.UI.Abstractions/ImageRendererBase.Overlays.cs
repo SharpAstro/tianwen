@@ -604,17 +604,118 @@ namespace TianWen.UI.Abstractions
             var screenY = (float)sy;
 
             var accent = ViewerTheme.Palette.Accent;
-            var inner = 9f * DpiScale;
-            var outer = inner + (3f * DpiScale);
 
-            DrawEllipseOverlay(screenX, screenY, inner, inner, 0f, accent, 1.5f);
-            DrawEllipseOverlay(screenX, screenY, outer, outer, 0f, accent, 1.5f);
+            // An extended object is ringed by its OWN outline; only a star or a shapeless entry
+            // falls back to the circle, which is the atlas's rule and now this one's.
+            var labelGap = TryDrawSelectionShape(in selection, in wcs, in layout, screenX, screenY, accent)
+                is { } shapeHalfWidth
+                ? shapeHalfWidth
+                : DrawSelectionCircles(screenX, screenY, accent);
 
             if (!string.IsNullOrEmpty(FontPath))
             {
-                DrawText(selection.Name, screenX + outer + (4f * DpiScale),
+                DrawText(selection.Name, screenX + labelGap + (4f * DpiScale),
                     screenY - (FontSize * 0.5f), FontSize * 0.85f, accent);
             }
+        }
+
+        /// <summary>
+        /// The two concentric circles a shapeless selection gets, returning the half-width the label
+        /// has to clear.
+        /// </summary>
+        private float DrawSelectionCircles(float screenX, float screenY, RGBAColor32 accent)
+        {
+            var inner = 9f * DpiScale;
+            var outer = inner + (3f * DpiScale);
+            DrawEllipseOverlay(screenX, screenY, inner, inner, 0f, accent, 1.5f);
+            DrawEllipseOverlay(screenX, screenY, outer, outer, 0f, accent, 1.5f);
+            return outer;
+        }
+
+        /// <summary>
+        /// Rings the selection with the object's OWN projected ellipse -- true axis ratio, true
+        /// position angle -- or answers null for anything the catalogue gives no usable shape for.
+        /// </summary>
+        /// <returns>
+        /// The ring's screen half-width, so the caller can place the label clear of it; null when no
+        /// ellipse was drawn and the circle fallback is owed.
+        /// </returns>
+        /// <remarks>
+        /// <para><b>Every input is the one the [O] overlay already uses for the same object</b> --
+        /// <see cref="OverlayEngine.ChooseMarkerKind"/>, the same arcmin-to-pixel conversion off
+        /// <see cref="WCS.PixelScaleArcsec"/>, and <see cref="OverlayEngine.ComputeScreenPA"/> for
+        /// the angle. That is what makes the ring sit concentric with the outline the overlay draws
+        /// underneath it instead of merely near it, and it is why the shape is not re-derived from
+        /// the CD matrix here: the overlay probes the WCS and so does this.</para>
+        /// <para><b>The classifier gate is load-bearing, not defensive.</b> A star can carry a stray
+        /// or cross-linked shape -- Antares sits inside the rho Ophiuchi dark-cloud complex -- and
+        /// must still ring as a star rather than acquire a nebula's ellipse. Asking the same
+        /// classifier the overlay markers ask is what keeps the two answers the same one.</para>
+        /// <para><b>A pair, like the circles.</b> The outer ring is a UNIFORM scale of the inner, not
+        /// a constant pixel offset, so an edge-on galaxy's 10:1 ratio survives it -- the same rule
+        /// <see cref="OverlayEngine.EllipseLegibilityScale"/> exists to protect at the small end.</para>
+        /// </remarks>
+        private float? TryDrawSelectionShape(
+            in SkyMapInfoPanelData selection, in WCS wcs, in ViewportLayout layout,
+            float screenX, float screenY, RGBAColor32 accent)
+        {
+            if (selection.Shape is not { } shape
+                || OverlayEngine.ChooseMarkerKind(selection.ObjType, hasShape: true)
+                    != OverlayMarkerKind.Ellipse)
+            {
+                return null;
+            }
+
+            var majorArcmin = (double)shape.MajorAxis;
+            if (double.IsNaN(majorArcmin) || majorArcmin <= 0.0)
+            {
+                return null;
+            }
+
+            // A catalogue entry with a major axis and no minor one is round, not degenerate.
+            var minorArcmin = (double)shape.MinorAxis;
+            var effectiveMinor = double.IsNaN(minorArcmin) || minorArcmin <= 0.0 ? majorArcmin : minorArcmin;
+
+            var pixelScaleArcsec = wcs.PixelScaleArcsec;
+            if (!double.IsFinite(pixelScaleArcsec) || pixelScaleArcsec <= 0.0)
+            {
+                return null;
+            }
+
+            var arcminToPixels = layout.Zoom / (pixelScaleArcsec / 60.0);
+            var semiMajorPx = (float)(majorArcmin * 0.5 * arcminToPixels);
+            var semiMinorPx = (float)(effectiveMinor * 0.5 * arcminToPixels);
+            if (!float.IsFinite(semiMajorPx) || semiMajorPx <= 0f)
+            {
+                return null;
+            }
+
+            // Grows a too-small ellipse to a legibility floor and holds the slack that keeps the ring
+            // outside the overlay's own outline -- one uniform factor, so the ratio is untouched.
+            var inflate = OverlayEngine.EllipseLegibilityScale(
+                semiMajorPx,
+                OverlayEngine.SelectionMinSemiMajorPx * DpiScale,
+                OverlayEngine.SelectionSlack);
+            semiMajorPx *= inflate;
+            semiMinorPx *= inflate;
+
+            var angleRad = OverlayEngine.ComputeScreenPA(wcs, selection.RA, selection.Dec, shape.PositionAngle);
+            DrawEllipseOverlay(screenX, screenY, semiMajorPx, semiMinorPx, angleRad, accent, 1.5f);
+
+            // The outer ring is the inner one scaled so its MAJOR axis gains the same 3 px the circle
+            // fallback's outer gains; the minor axis follows proportionally rather than by the same
+            // absolute amount, which is what keeps an elongated object from rounding off.
+            var outerScale = 1f + (3f * DpiScale / semiMajorPx);
+            var outerMajorPx = semiMajorPx * outerScale;
+            var outerMinorPx = semiMinorPx * outerScale;
+            DrawEllipseOverlay(screenX, screenY, outerMajorPx, outerMinorPx, angleRad, accent, 1.5f);
+
+            // The label clears the ring's widest point on the screen's X axis, which for a rotated
+            // ellipse is neither semi-axis but the projection of both.
+            var (sin, cos) = MathF.SinCos(angleRad);
+            var halfWidth = MathF.Sqrt(
+                (outerMajorPx * cos * (outerMajorPx * cos)) + (outerMinorPx * sin * (outerMinorPx * sin)));
+            return float.IsFinite(halfWidth) ? halfWidth : outerMajorPx;
         }
 
         private static RGBAColor32 FloatToColor(float r, float g, float b, float a)

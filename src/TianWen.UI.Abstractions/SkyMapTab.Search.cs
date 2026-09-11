@@ -60,14 +60,6 @@ namespace TianWen.UI.Abstractions
             State.NeedsRedraw = true;
         }
 
-        // Selection-ellipse sizing (see TryDrawShapeMarker). Both factors scale the ellipse
-        // UNIFORMLY, so the marker always keeps the object's real axis ratio and position angle:
-        // the floor is a legibility minimum on the projected semi-major axis (most galaxies
-        // project to a couple of pixels at ordinary zooms), and the slack keeps the ring just
-        // outside the object's own overlay ellipse rather than coinciding with it.
-        private const float MinSelectionSemiMajorPx = 10f;
-        private const float SelectionSlack = 1.15f;
-
         private const float SearchPanelWidth  = 480f;
         private const float SearchPanelHeight = 500f;
         private const float SearchRowHeight   = 28f;
@@ -543,7 +535,9 @@ namespace TianWen.UI.Abstractions
             // entries: stars, which ChooseMarkerKind already separates out above.
             if (!(semiMajorPx > 0f)) return false;
             var inflate = Overlays.OverlayEngine.EllipseLegibilityScale(
-                semiMajorPx, MinSelectionSemiMajorPx * dpiScale, SelectionSlack);
+                semiMajorPx,
+                Overlays.OverlayEngine.SelectionMinSemiMajorPx * dpiScale,
+                Overlays.OverlayEngine.SelectionSlack);
             semiMajorPx *= inflate;
             semiMinorPx *= inflate;
 

@@ -287,6 +287,26 @@ public static class OverlayEngine
     public const float PinnedHaloStrokePx = 3f;
 
     /// <summary>
+    /// A SELECTION marker's sizing, shared by the sky atlas's crosshair ellipse
+    /// (<c>SkyMapTab.TryDrawShapeMarker</c>) and the FITS viewer's selection ring
+    /// (<c>ImageRendererBase.TryDrawSelectionShape</c>), for the same reason the halo geometry above
+    /// is shared: a selection that changes size or tightness depending on which host drew it is not
+    /// one marker, and the user meets both surfaces in the same session.
+    /// </summary>
+    /// <remarks>
+    /// Both factors scale the ellipse UNIFORMLY through <see cref="EllipseLegibilityScale"/>, so the
+    /// marker always keeps the object's real axis ratio and position angle. The floor is a legibility
+    /// minimum on the projected semi-major axis (most galaxies project to a couple of pixels at
+    /// ordinary zooms); the slack keeps the ring just OUTSIDE the object's own overlay ellipse rather
+    /// than coinciding with it, since a marker drawn exactly on top of that outline does not read as
+    /// "selected".
+    /// </remarks>
+    public const float SelectionMinSemiMajorPx = 10f;
+
+    /// <inheritdoc cref="SelectionMinSemiMajorPx"/>
+    public const float SelectionSlack = 1.15f;
+
+    /// <summary>
     /// The halo's colour, here for the same reason the geometry is: it is drawn by the object overlay
     /// for a pinned catalog target AND by the comet layer for a pinned comet (which cannot go through
     /// the overlay at all, since comets are not in the object DB), and a pinned target that changes
