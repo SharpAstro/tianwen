@@ -551,6 +551,33 @@ locking the release scope was *"as long as we track everything we skipped in a p
     ClearTheSelection` (viewer, end to end through the real input dispatch) both pin it, and both were
     verified by sabotage: removing the `Clickable` reproduces the reported symptom exactly (the
     viewer's `SelectedObject` reads back `null`) and fails only that one test.
+  - **Review pass, 2026-09-11.** Four things the hoist left behind, fixed together.
+    - **The panel's BOX now comes from the same place its content does.** `DrawInfoPanel` still
+      carried `348f` wide and `205f`/`250f` tall as literals while `ObjectInfoPanel` computed its own
+      for the viewer, and a third copy sat in the atlas's click test -- which is precisely the drift
+      the hoist existed to close: a row added to the shared panel would have grown the viewer and left
+      the atlas with a box sized for rows it no longer had. All three now ask
+      `ObjectInfoPanel.DesignWidth` / `DesignHeight`. **This is a visible change to the atlas panel**,
+      and the only one: the literals carried about 57 design units of dead space below the text (86
+      with a sparkline), so the panel's bottom edge stays where it was and its top comes down to meet
+      the content. Nothing about what it says or where its buttons sit moved.
+    - **A chromeless host draws no floating panel** (`ViewerState.HideChrome`, the same gate the
+      status bar, the dropdowns and the tooltip already use). The docked section this replaced was
+      suppressed in the live-session / polar-align / guider previews by their own
+      `ShowInfoPanel: false`, and the floating one inherited no such gate -- it held only by accident
+      of those hosts not routing input to the embedded viewer (`GuiderTab.HandleInput` returns false)
+      and of `ForAnnotatedExport` building a fresh state that never copies `SelectedObject`. Now it is
+      a rule rather than a coincidence, pinned by `AChromelessHostDrawsNoFloatingPanel`.
+    - **Neither panel climbs out of the top of its host rect.** Nothing clips either one (both draw
+      after the content's clip is closed), so in a pane shorter than the panel it has to overflow
+      somewhere, and the clamp only chooses which end is lost: the button row off the bottom rather
+      than the object's NAME off the top, which is the row the panel exists for and the one the ring
+      on the picture is silently agreeing with. Pinned by
+      `AShortPaneKeepsThePanelsTopInsideTheImageArea`.
+    - **The atlas click test names the region it expects.** It asserted only `ShouldNotBeNull`, which
+      any region claiming that pixel satisfies; it now asserts `"InfoPanelBackground"`, matching its
+      own sibling case. Each of the three behavioural changes above was sabotage-verified separately:
+      removing it fails exactly its one test and no other.
   - **Still open:** the selection ring is always the two-circle fallback in the viewer, never the
     object's own traced ellipse the atlas draws for an extended object (`SkyMapTab.TryDrawShapeMarker`).
 - ~~**Constellation stars appearing at wider fields.**~~ **DONE 2026-09-10.** Whether a star is drawn

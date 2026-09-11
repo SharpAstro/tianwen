@@ -1652,7 +1652,12 @@ The rules:
   panel and the atlas link agree by construction and none of them asks the catalogue per frame. The
   panel itself floats over the picture, bottom-left like the atlas's, built from the shared
   `ObjectInfoPanel` (`RenderSelectionPanel` in `ImageRendererBase.SelectionPanel.cs`); the docked info
-  strip's old "Selection" section is gone. **Alt/Az and rise/transit/set are baked in at the frame's
+  strip's old "Selection" section is gone. **Its BOX comes from `ObjectInfoPanel.DesignWidth` /
+  `DesignHeight` in BOTH hosts, never a literal beside the draw** -- the atlas kept its own 348/205
+  for a while and a row added to the shared panel would have grown one host and left the other sized
+  for rows it no longer had. **A chromeless host (`HideChrome`) draws no panel**, the gate the status
+  bar, dropdowns and tooltip already use; and neither host's panel may climb out of the TOP of its
+  rect, since nothing clips it and losing the button row beats losing the object's name. **Alt/Az and rise/transit/set are baked in at the frame's
   CAPTURE instant** (`ImageRendererBase.BuildSelectionPanelData`, `FrameSiteResolver`), never a live
   clock, and BOTH rows are omitted together whenever either the site or the capture time is unknown --
   a NaN `AltDeg` is the one signal the render code trusts for that, since `SiteContext` and

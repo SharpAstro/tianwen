@@ -391,23 +391,21 @@ namespace TianWen.UI.Abstractions
                 ? s
                 : (CelestialObjectShape?)null;
 
-            if (_document?.UnstretchedImage.ImageMeta is not { } meta)
+            if (_document?.UnstretchedImage.ImageMeta is { } meta
+                && FrameSiteResolver.FromHeader(in meta) is { IsKnown: true } site
+                && FrameSiteResolver.CapturedAt(in meta) is { } capturedAt)
             {
+                var siteContext = SiteContext.Create(site.LatitudeDeg, site.LongitudeDeg, capturedAt);
                 return SkyMapInfoPanelData.FromCatalogObject(
-                    obj, double.NaN, double.NaN, default, default, shape);
+                    obj, site.LatitudeDeg, site.LongitudeDeg, capturedAt, in siteContext, shape);
             }
 
-            var site = FrameSiteResolver.FromHeader(in meta);
-            var capturedAt = FrameSiteResolver.CapturedAt(in meta);
-            var haveInstant = site.IsKnown && capturedAt is { } cap;
-
-            var siteLat = haveInstant ? site.LatitudeDeg : double.NaN;
-            var siteLon = haveInstant ? site.LongitudeDeg : double.NaN;
-            var viewingUtc = haveInstant ? capturedAt!.Value : default;
-            var siteContext = SiteContext.Create(siteLat, siteLon, viewingUtc);
-
+            // Either half missing is the SAME answer, which is why there is one path out: without both
+            // there is no instant to answer "where was it" for, and a NaN site is what SiteContext and
+            // RiseTransitSetHelper each read as "do not answer" -- leaving the NaN altitude the panel
+            // gates its site-dependent rows on.
             return SkyMapInfoPanelData.FromCatalogObject(
-                obj, siteLat, siteLon, viewingUtc, in siteContext, shape);
+                obj, double.NaN, double.NaN, default, default, shape);
         }
 
         private void CopyToClipboard(ViewerState state, string description, string payload)

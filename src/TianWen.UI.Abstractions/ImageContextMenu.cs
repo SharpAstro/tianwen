@@ -108,13 +108,14 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
-            if (hasSky)
+            // Bound by pattern rather than re-tested through the hasSky bool: the flow analysis cannot
+            // see a nullable read through a captured condition, and taking the value anyway is what the
+            // null-forgiving operator used to be doing here.
+            if (pixel.RA is { } ra && pixel.Dec is { } dec)
             {
                 // The formatters the info panel uses, so what is pasted is what was read on screen.
                 // The decimal-degree pair rides along on a second line because that is the form most
                 // tools take as input, and RA is stored in HOURS -- hence the x15.
-                var ra = pixel.RA!.Value;
-                var dec = pixel.Dec!.Value;
                 var sexagesimal = $"{CoordinateUtils.HoursToHMS(ra)} {CoordinateUtils.DegreesToDMS(dec)}";
                 builder.Add(new ImageContextMenuItem(
                     $"Copy RA / Dec   {sexagesimal}",
@@ -153,7 +154,7 @@ namespace TianWen.UI.Abstractions
             // leaves the application, and only the label can say which is which -- so it names the
             // destination rather than the action. The in-process entry that will sit beside it is P2/P3
             // of docs/plans/in-app-sky-atlas.md.
-            if (hasSky)
+            if (pixel.RA is { } skyRA && pixel.Dec is { } skyDec)
             {
                 // The object rides along when the click resolved one, so the atlas SELECTS it rather
                 // than merely pointing at where it is -- centring on an object's coordinates leaves it
@@ -163,7 +164,7 @@ namespace TianWen.UI.Abstractions
                 builder.Add(new ImageContextMenuItem(
                     "Open in sky atlas (web)",
                     "sky atlas",
-                    SkyAtlasLink.For(pixel.RA!.Value, pixel.Dec!.Value, fovDeg, capturedUtc, token),
+                    SkyAtlasLink.For(skyRA, skyDec, fovDeg, capturedUtc, token),
                     ImageContextMenuAction.OpenUrl));
 
                 // The SELECTION's own entry, centred on the object rather than on the click. Named, so

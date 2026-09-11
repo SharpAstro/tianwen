@@ -49,6 +49,14 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     they overlap it. Verified by sabotage in both hosts: removing the `Clickable` reproduces exactly
     the reported behaviour (the viewer's selection reads back `null` after a tap on the panel body)
     and fails only that one test.
+  - [x] **Review pass on the three commits** (2026-09-11). The panel's WIDTH and HEIGHT were still
+    literals in `SkyMapTab.Search.cs` (and a third copy in its test) while `ObjectInfoPanel` computed
+    its own for the viewer -- the drift the hoist existed to close; all three ask `DesignWidth` /
+    `DesignHeight` now, which shortens the atlas panel by the ~57 design units of dead space the
+    literals carried (bottom edge unmoved, content unmoved). The floating panel also now honours
+    `HideChrome` like the rest of the chrome, neither panel can climb out of the top of its host rect,
+    and the atlas click test names the region it expects instead of asserting merely non-null. Three
+    new/changed behaviours, each sabotage-verified on its own.
   - [ ] **Still open: clicking a STAR is a separate resolver.** `document.Stars` holds DETECTED
     CENTROIDS, not catalogue entries, so it is a nearest-centroid search over the star list rather
     than `FindObjectAt`. "Click an object or a star" reads like one feature and is two.

@@ -49,7 +49,13 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         private void RenderSelectionPanel(ViewerState state)
         {
-            if (state.SelectedObject is not { } selection || string.IsNullOrEmpty(FontPath))
+            // Chromeless hosts get no panel. The docked section this replaced was suppressed there by
+            // their own ShowInfoPanel: false, and a live preview embedded in a session tab is the one
+            // place a floating panel over the picture would be an intrusion rather than the point.
+            // It is the same rule the status bar, the dropdowns and the tooltip already follow.
+            if (state.HideChrome
+                || state.SelectedObject is not { } selection
+                || string.IsNullOrEmpty(FontPath))
             {
                 return;
             }
@@ -95,7 +101,13 @@ namespace TianWen.UI.Abstractions
             var pw = ObjectInfoPanel.DesignWidth * dpiScale;
             var ph = ObjectInfoPanel.DesignHeight(in options, in actions) * dpiScale;
             var px = area.X + (12f * dpiScale);
-            var py = area.Y + area.Height - ph - (12f * dpiScale);
+
+            // Never climbs out of the TOP of the image area. Nothing clips this panel (the picture's
+            // clip is closed by the time it draws), so in a pane shorter than the panel it has to
+            // overflow SOMEWHERE -- and the clamp chooses which end is lost. Overflowing downward
+            // costs the button row; overflowing upward costs the object's NAME, which is the row the
+            // panel exists for and the one the ring on the picture is silently agreeing with.
+            var py = MathF.Max(area.Y, area.Y + area.Height - ph - (12f * dpiScale));
 
             // The border rect is the panel's whole visual extent, so ONE no-op Clickable there swallows
             // a press anywhere on the panel -- its blank area included, not just its buttons -- rather
