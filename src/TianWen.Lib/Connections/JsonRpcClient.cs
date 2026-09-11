@@ -192,7 +192,13 @@ internal sealed class JsonRpcClient(
             }
 
             using var reg = cancellationToken.Register(
-                static state => ((TaskCompletionSource<JsonDocument>)state!).TrySetCanceled(), pending);
+                static state =>
+                {
+                    if (state is TaskCompletionSource<JsonDocument> tcs)
+                    {
+                        tcs.TrySetCanceled();
+                    }
+                }, pending);
             response = await pending.Task.ConfigureAwait(false);
         }
         finally

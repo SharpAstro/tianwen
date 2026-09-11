@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using System;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Threading;
 
@@ -50,7 +51,7 @@ public static class StartupTrace
     {
         EnsureAnchored();
 
-        var at = _beforeFirstMark + _stopwatch!.Elapsed;
+        var at = _beforeFirstMark + _stopwatch.Elapsed;
         var slot = Interlocked.Increment(ref _count) - 1;
         if (slot < Capacity)
         {
@@ -87,6 +88,7 @@ public static class StartupTrace
             (int)previous.TotalMilliseconds);
     }
 
+    [MemberNotNull(nameof(_stopwatch))]
     private static void EnsureAnchored()
     {
         if (_stopwatch is not null)

@@ -430,7 +430,9 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
                 // delegate may not have run yet.
                 var loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 _loopCts = loopCts;
-                _loopTask = Task.Run(() => RunCaptureLoopAsync(camera, _mount!, loopCts.Token), loopCts.Token);
+                var mount = _mount
+                    ?? throw new InvalidOperationException("The guider has no mount to pulse against.");
+                _loopTask = Task.Run(() => RunCaptureLoopAsync(camera, mount, loopCts.Token), loopCts.Token);
             }
         }
 

@@ -129,7 +129,6 @@ public sealed class FootprintStagedStrategy : IIntegrationStrategy
         // the footprint on stripe reads so the integrator's NaN-skipping
         // handles those pixels transparently. Without footprints, stage the
         // full canvas (v1 format) -- equivalent to the pre-strategy behavior.
-        var hasFootprints = job.FrameFootprints is not null && job.FrameFootprints.Count > 0;
         var staged = new List<StagedAlignedFrame>(job.ExpectedFrameCount);
         // RAM cache for warped frames: every reader registers a weak ref to
         // its warped Image so the chunk integrator can slice from RAM when
@@ -145,7 +144,10 @@ public sealed class FootprintStagedStrategy : IIntegrationStrategy
             var index = 0;
             await foreach (var warped in job.WarpedFrames(ct).WithCancellation(ct))
             {
-                if (index == 0)
+                // Keyed on the cache being absent rather than on index == 0. They are the same
+                // instant -- this is the only assignment -- and saying it this way is what lets every
+                // read below see a cache that exists, instead of asserting it with a `!`.
+                if (cache is null)
                 {
                     var (c, w, h) = warped.Shape;
                     var frameBytes = (long)w * h * c * sizeof(float);
@@ -162,16 +164,16 @@ public sealed class FootprintStagedStrategy : IIntegrationStrategy
                 // as today (footprint-trimmed float32 when the footprint
                 // hint is available; otherwise full canvas).
                 StreamingFrameReader reader;
-                if (index < cache!.StrongCap)
+                if (index < cache.StrongCap)
                 {
                     reader = StreamingFrameReader.InMemoryOnly(warped);
                 }
                 else
                 {
                     var stagingPath = Path.Combine(job.StagingDir, $"frame_{index:D4}.bin");
-                    if (hasFootprints && index < job.FrameFootprints!.Count)
+                    if (job.FrameFootprints is { Count: > 0 } footprints && index < footprints.Count)
                     {
-                        var fp = job.FrameFootprints[index];
+                        var fp = footprints[index];
                         if (fp.Width > 0 && fp.Height > 0)
                         {
                             StreamingFrameStaging.WriteWithFootprint(warped, stagingPath, fp);

@@ -610,10 +610,15 @@ namespace TianWen.UI.Abstractions
             // and a plate-solved frame has usually paid it already (CatalogPlateSolver self-inits).
             var db = CelestialObjectDB is { } lazy
                 ? await lazy.WithCancellation(cancellationToken)
-                : null!;
+                : null;
 
-            // SPCC first, sky-background as the fallback.
-            var (matched, diag) = await document.ComputeSpccColorCalibrationAsync(db);
+            // SPCC first, sky-background as the fallback. With no catalogue SPCC has nothing to match
+            // against, so it is not ATTEMPTED rather than handed a null through a parameter that does
+            // not accept one -- which is what the null-forgiving `!` here used to do. The fallback
+            // needs no catalogue and still runs.
+            var (matched, diag) = db is not null
+                ? await document.ComputeSpccColorCalibrationAsync(db)
+                : (0, "No star catalogue is loaded");
             if (matched <= 0)
             {
                 // Log WHY SPCC declined before the fallback overwrites its diagnostic. Without this
@@ -623,7 +628,7 @@ namespace TianWen.UI.Abstractions
                 // thing reads like a calibration that worked. That is precisely the trail that has to
                 // exist when someone asks why SPCC "did nothing".
                 Logger?.LogInformation("SPCC declined, falling back to sky background: {Reason}", diag);
-                (matched, diag) = await document.ComputeColorCalibrationAsync(db);
+                (matched, diag) = await document.ComputeColorCalibrationAsync();
             }
 
             if (document.ColorCalibration is { } wb)
@@ -686,7 +691,10 @@ namespace TianWen.UI.Abstractions
         {
             if (state.BackgroundNeutralizationEnabled)
             {
-                _document!.BackgroundNeutralization = null;
+                if (_document is { } loaded)
+                {
+                    loaded.BackgroundNeutralization = null;
+                }
                 state.BackgroundNeutralizationEnabled = false;
                 state.NeedsRedraw = true;
                 return;

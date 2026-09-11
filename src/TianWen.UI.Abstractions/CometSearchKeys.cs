@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.Comets;
 
@@ -98,7 +99,11 @@ namespace TianWen.UI.Abstractions
         /// a different one. A bare shared name (pass two) is genuinely ambiguous and still resolves to
         /// the first, which is why a picker must offer <see cref="EnumerateSuggestions"/> instead.</para>
         /// </summary>
-        public static bool TryResolve(ICometRepository? comets, string query, out CatalogIndex index, out string display)
+        /// <remarks>
+        /// <see cref="NotNullWhenAttribute"/> on <paramref name="comets"/>: the body refuses a null
+        /// repository, so a true answer proves one, and a caller can go straight on to query it.
+        /// </remarks>
+        public static bool TryResolve([NotNullWhen(true)] ICometRepository? comets, string query, out CatalogIndex index, out string display)
         {
             index = default;
             display = string.Empty;

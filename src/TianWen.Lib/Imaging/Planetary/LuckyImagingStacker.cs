@@ -68,7 +68,11 @@ public sealed class LuckyImagingStacker
         var ctx = await PrepareAsync(stream, options, includeAlignmentPoints: true, cancellationToken).ConfigureAwait(false);
         var channelAccum = Image.CreateChannelData(ctx.Channels, ctx.Height, ctx.Width);
         var weightAccum = new float[ctx.Height, ctx.Width];
-        var matcher = ctx.Matcher!;
+        // PrepareAsync with includeAlignmentPoints always produces one; said as a check rather
+        // than an assertion, so a future change to that contract fails here by name.
+        var matcher = ctx.Matcher
+            ?? throw new InvalidOperationException(
+                "PrepareAsync(includeAlignmentPoints: true) must produce an alignment-point matcher.");
 
         var used = 0;
         foreach (var index in ctx.Selected)

@@ -468,7 +468,11 @@ public sealed class PlanetaryCaptureController(
 
             var video = camera as IVideoCameraDriver;
             var canJog = video is { CanJogRoi: true };
-            var roi = canJog ? video!.VideoRoi : new RoiRect(0, 0, frame.Width, frame.Height);
+            // Re-stated as the pattern rather than read back off canJog: the compiler narrows `video`
+            // inside the test, which the bool cannot carry.
+            var roi = video is { CanJogRoi: true }
+                ? video.VideoRoi
+                : new RoiRect(0, 0, frame.Width, frame.Height);
             var sensorW = camera.CameraXSize > 0 ? camera.CameraXSize : frame.Width;
             var sensorH = camera.CameraYSize > 0 ? camera.CameraYSize : frame.Height;
 

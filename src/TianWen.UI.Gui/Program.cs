@@ -260,8 +260,11 @@ if (appState.ActiveProfile is not null)
         var (migrated, changed) = EquipmentActions.MigrateSiteFromMountUri(migrData);
         if (changed)
         {
-            appState.ActiveProfile = appState.ActiveProfile.WithData(migrated);
-            tracker.Run(() => appState.ActiveProfile!.SaveAsync(external, backgroundCts.Token),
+            // Captured rather than read back off the state inside the closure: the background save
+            // then writes the profile it just migrated, whatever becomes active in the meantime.
+            var migratedProfile = appState.ActiveProfile.WithData(migrated);
+            appState.ActiveProfile = migratedProfile;
+            tracker.Run(() => migratedProfile.SaveAsync(external, backgroundCts.Token),
                 "Persist migrated site coordinates");
             logger.LogInformation("Migrated site coordinates from Mount URI query into ProfileData for profile {ProfileId}.",
                 appState.ActiveProfile.ProfileId);

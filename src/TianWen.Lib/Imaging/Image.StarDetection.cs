@@ -411,10 +411,12 @@ public partial class Image
                 }
             }, cancellationToken);
 
-            if (passCounters is not null)
+            // The counters exist only when a logger does (see their construction), so asking for
+            // the logger here is the same question -- asked in the form the compiler can read.
+            if (passCounters is not null && logger is not null)
             {
                 var passElapsed = Stopwatch.GetElapsedTime(passStart);
-                logger!.LogDebug(
+                logger.LogDebug(
                     "Image.FindStarsAsync: pass={Pass} detectionLevel={DL:F3} thresholdHits={Hits} analyseStarCalls={Calls} accepted={Accepted} cumulative={Cum} retriesRemaining={Retries} in {Ms:F0}ms",
                     passNumber, passDetectionLevel, passCounters.ThresholdHits, passCounters.AnalyseStarCalls,
                     passCounters.Accepted, starList.Count, retries, passElapsed.TotalMilliseconds);

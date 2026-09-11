@@ -141,16 +141,15 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             IPlateSolver solver,
             CancellationToken ct = default)
         {
+            // Success implies FitsPath populated by CaptureAsync; the file path is the canonical
+            // artifact for guider sources (the image is a lazy optimisation for the incremental
+            // path). Asked for in the SAME condition rather than asserted after it, so a success
+            // that somehow carries no path takes the failure exit instead of throwing later.
             var capture = await CaptureAsync(exposure, ct).ConfigureAwait(false);
-            if (!capture.Success)
+            if (!capture.Success || capture.FitsPath is not { } fitsPath)
             {
                 return new CaptureAndSolveResult(false, null, default, 0, exposure, capture.FitsPath, capture.FailureReason);
             }
-
-            // Success implies FitsPath populated by CaptureAsync; the file path
-            // is the canonical artifact for guider sources (image is a lazy
-            // optimisation for the incremental path).
-            var fitsPath = capture.FitsPath!;
 
             try
             {

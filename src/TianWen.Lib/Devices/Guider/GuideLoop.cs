@@ -657,11 +657,13 @@ internal sealed class GuideLoop
                         _framesSinceTraining = 0;
 
                         // Throttled save
-                        if (_profileFolder is not null && _calibration is not null
+                        // Asks for the model the way the end-of-run save below already does,
+                        // instead of asserting it: an online trainer implies one, but only here.
+                        if (_profileFolder is not null && _neuralModel is not null && _calibration is not null
                             && timestamp - _lastSaveTimestamp >= SaveIntervalSeconds)
                         {
                             await NeuralGuideModelPersistence.SaveAsync(
-                                _neuralModel!, calibration, _profileFolder, cancellationToken);
+                                _neuralModel, calibration, _profileFolder, cancellationToken);
                             _lastSaveTimestamp = timestamp;
                         }
                     }

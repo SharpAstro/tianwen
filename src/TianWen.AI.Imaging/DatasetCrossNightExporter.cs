@@ -621,10 +621,11 @@ namespace TianWen.AI.Imaging
             // triple export carries all three nights rather than a NaN third of the time.
             float[][,]? planesC = null;
             var fwhmAfterC = 0.0;
-            if (!string.IsNullOrWhiteSpace(pair.SessionC))
+            var sessionC = string.IsNullOrWhiteSpace(pair.SessionC) ? null : pair.SessionC;
+            if (sessionC is not null)
             {
                 var third = await WarpThirdNightAsync(
-                    options, pair.SessionC!, starsA, warpedA, halfInverse, Math.Max(fwhmAfterA, fwhmAfterB), logger, ct);
+                    options, sessionC, starsA, warpedA, halfInverse, Math.Max(fwhmAfterA, fwhmAfterB), logger, ct);
                 if (third.Planes is null)
                 {
                     return Outcome.Skip(third.Skip);
@@ -685,9 +686,9 @@ namespace TianWen.AI.Imaging
                 (FrameNightA, stretchedA, pair.SessionA),
                 (FrameNightB, stretchedB, pair.SessionB),
             };
-            if (stretchedC is not null)
+            if (stretchedC is not null && sessionC is not null)
             {
-                frames.Add((FrameNightC, stretchedC, pair.SessionC!));
+                frames.Add((FrameNightC, stretchedC, sessionC));
             }
             foreach (var (frame, image, source) in frames)
             {

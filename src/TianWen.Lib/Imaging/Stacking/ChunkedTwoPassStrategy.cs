@@ -118,7 +118,9 @@ public sealed class ChunkedTwoPassStrategy : IIntegrationStrategy
         await foreach (var warped in job.WarpedFrames(ct).WithCancellation(ct))
         {
             firstFrame ??= warped;
-            if (sumArr is null)
+            // All three are allocated together, so they are CHECKED together -- which is also what
+            // lets the accumulate call below read them without asserting what this branch just did.
+            if (sumArr is null || sumSqArr is null || countArr is null)
             {
                 (channels, width, height) = warped.Shape;
                 sumArr = new float[channels][,];
@@ -132,7 +134,7 @@ public sealed class ChunkedTwoPassStrategy : IIntegrationStrategy
             }
 
             var normalised = NormaliseIfRequested(warped, job);
-            AccumulateStats(normalised, sumArr, sumSqArr!, countArr!);
+            AccumulateStats(normalised, sumArr, sumSqArr, countArr);
             framesSeen++;
             job.Progress?.Report(new IntegrationProgress(IntegrationPhase.LoadingFrames, framesSeen, n, swStrat.Elapsed));
         }

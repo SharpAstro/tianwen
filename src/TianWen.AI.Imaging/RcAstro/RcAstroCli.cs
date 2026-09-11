@@ -205,9 +205,16 @@ namespace TianWen.AI.Imaging.RcAstro
 
         private bool ProbeLicense(string productKey)
         {
+            // No executable, no licence to probe -- asked rather than asserted, since LocateExecutable
+            // is allowed to find nothing and that is the whole reason the field is nullable.
+            if (ExecutablePath is not { } exePath)
+            {
+                return false;
+            }
+
             try
             {
-                var psi = new ProcessStartInfo(ExecutablePath!)
+                var psi = new ProcessStartInfo(exePath)
                 {
                     UseShellExecute = false,
                     CreateNoWindow = true,

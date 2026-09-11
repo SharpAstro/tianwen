@@ -428,10 +428,15 @@ internal class ProfileSubCommand(
         var query = HttpUtility.ParseQueryString(ota.FilterWheel.Query);
 
         // Clear existing filter/offset keys
-        var keysToRemove = query.AllKeys.Where(k => k is not null && (k.StartsWith("filter") || k.StartsWith("offset"))).ToArray();
+        // OfType drops the nulls AllKeys can contain and narrows the element type with it, which
+        // is what the removal below needed and used to assert.
+        var keysToRemove = query.AllKeys
+            .OfType<string>()
+            .Where(k => k.StartsWith("filter") || k.StartsWith("offset"))
+            .ToArray();
         foreach (var key in keysToRemove)
         {
-            query.Remove(key!);
+            query.Remove(key);
         }
 
         // Parse and add new filter specs: "Name:Offset" or just "Name" (offset=0)

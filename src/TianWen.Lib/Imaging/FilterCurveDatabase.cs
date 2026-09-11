@@ -476,9 +476,9 @@ public static class FilterCurveDatabase
             }
         }
 
-        if (bestScore > 0)
+        if (bestScore > 0 && best is { } bestMatch)
         {
-            curve = best!.Value;
+            curve = bestMatch;
             return true;
         }
         return false;

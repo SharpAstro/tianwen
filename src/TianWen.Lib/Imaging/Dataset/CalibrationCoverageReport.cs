@@ -154,7 +154,9 @@ public static class CalibrationCoverageReport
         var darkBiasNeeded = darkGroup is not null
             && darkGroup.Key.Exposure.TotalSeconds > 0.0 && lightKey.Exposure.TotalSeconds > 0.0
             && Math.Abs(darkGroup.Key.Exposure.TotalSeconds - lightKey.Exposure.TotalSeconds) > 0.01;
-        var darkBias = darkBiasNeeded ? CalibrationResolver.BestDarkBias(biases, darkGroup!) : null;
+        var darkBias = darkBiasNeeded && darkGroup is not null
+            ? CalibrationResolver.BestDarkBias(biases, darkGroup)
+            : null;
 
         var (darkCandidates, flatCandidates, flatCandidatesSameFilter, biasGroups, biasFrames, biasMasterPresent) =
             CountAvailability(options, darks, flats, biases, lightKey, lightCamera, lightTrain);

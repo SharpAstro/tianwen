@@ -156,7 +156,7 @@ internal sealed class PlanetaryStackSubCommand(
 
         command.SetAction(async (parseResult, ct) =>
         {
-            var serPath = parseResult.GetValue(serArg)!;
+            var serPath = parseResult.Required(serArg);
             if (!File.Exists(serPath))
             {
                 consoleHost.WriteError($"SER file does not exist: {serPath}");

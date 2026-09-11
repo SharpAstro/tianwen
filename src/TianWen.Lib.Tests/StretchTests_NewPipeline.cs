@@ -74,7 +74,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
             // ComputeColorCalibrationAsync -> ComputeSkyBackgroundWB): samples the darkest 10%
             // of non-star pixels and returns (medG/medR, 1, medG/medB) clamped to [0.5, 2.0].
             // The `db` parameter is unused on the sky-bg path so we pass null.
-            var (matchCount, diag) = await doc.ComputeColorCalibrationAsync(null!, ct);
+            var (matchCount, diag) = await doc.ComputeColorCalibrationAsync(ct);
             output.WriteLine($"WB (sky-bg): matchCount={matchCount} diag={diag}  ColorCalibration={doc.ColorCalibration}");
         }
 

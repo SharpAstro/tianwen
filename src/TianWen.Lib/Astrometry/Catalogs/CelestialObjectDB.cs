@@ -2598,7 +2598,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                     ? null
                     : identifiersRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-                if (MergeNgcRow(entryName!, objectTypeAbbr.ToString(), raHMS.ToString(), decDMS.ToString(), constAbbr!,
+                if (MergeNgcRow(entryName, objectTypeAbbr.ToString(), raHMS.ToString(), decDMS.ToString(), constAbbr,
                         vmagStr ?? "", surfBrStr ?? "", majAxStr ?? "", minAxStr ?? "", posAngStr ?? "",
                         messierSuffix ?? "", ngcSuffix ?? "", icSuffix ?? "",
                         commonNames, identifiers))

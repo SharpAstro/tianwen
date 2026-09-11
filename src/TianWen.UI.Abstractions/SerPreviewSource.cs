@@ -232,7 +232,14 @@ public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, 
         // DisposeAsync.
         if (_decodeTask is { IsCompleted: false } task)
         {
-            task.ContinueWith(static (_, s) => ((SerPreviewSource)s!).DisposeCore(), this, TaskScheduler.Default);
+            task.ContinueWith(
+                static (_, s) =>
+                {
+                    if (s is SerPreviewSource self)
+                    {
+                        self.DisposeCore();
+                    }
+                }, this, TaskScheduler.Default);
         }
         else
         {
@@ -269,7 +276,14 @@ public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, 
                 // The uncancellable decode is still reading the mapped file; freeing the reader now would
                 // fault a freed pointer. Defer the release to a continuation that runs once the read finishes
                 // (intentionally not awaited -- the disposing caller must not block on a stuck disk read).
-                _ = task.ContinueWith(static (_, s) => ((SerPreviewSource)s!).DisposeCore(), this, TaskScheduler.Default);
+                _ = task.ContinueWith(
+                static (_, s) =>
+                {
+                    if (s is SerPreviewSource self)
+                    {
+                        self.DisposeCore();
+                    }
+                }, this, TaskScheduler.Default);
                 return;
             }
             catch

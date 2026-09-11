@@ -202,8 +202,9 @@ public sealed record AiCapabilities(
             foreach (var extra in Models
                 .SelectMany(m => m.Presence.ProbedPaths)
                 .Select(p => Path.GetDirectoryName(p))
-                .Where(d => !string.IsNullOrEmpty(d))
-                .Where(d => seen.Add(d!)))
+                .OfType<string>()
+                .Where(d => d.Length > 0)
+                .Where(seen.Add))
             {
                 lines.Add($"  {extra}  (vendor cache)");
             }

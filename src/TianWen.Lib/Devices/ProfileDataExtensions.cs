@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 namespace TianWen.Lib.Devices;
 
@@ -56,16 +57,16 @@ public static class ProfileDataExtensions
             {
                 if (IsAssigned(profile.Mount)) yield return profile.Mount;
                 if (IsAssigned(profile.Guider)) yield return profile.Guider;
-                if (IsAssigned(profile.GuiderCamera)) yield return profile.GuiderCamera!;
-                if (IsAssigned(profile.GuiderFocuser)) yield return profile.GuiderFocuser!;
-                if (IsAssigned(profile.Weather)) yield return profile.Weather!;
+                if (IsAssigned(profile.GuiderCamera)) yield return profile.GuiderCamera;
+                if (IsAssigned(profile.GuiderFocuser)) yield return profile.GuiderFocuser;
+                if (IsAssigned(profile.Weather)) yield return profile.Weather;
 
                 foreach (var ota in profile.OTAs)
                 {
                     if (IsAssigned(ota.Camera)) yield return ota.Camera;
-                    if (IsAssigned(ota.Cover)) yield return ota.Cover!;
-                    if (IsAssigned(ota.Focuser)) yield return ota.Focuser!;
-                    if (IsAssigned(ota.FilterWheel)) yield return ota.FilterWheel!;
+                    if (IsAssigned(ota.Cover)) yield return ota.Cover;
+                    if (IsAssigned(ota.Focuser)) yield return ota.Focuser;
+                    if (IsAssigned(ota.FilterWheel)) yield return ota.FilterWheel;
                 }
             }
         }
@@ -75,6 +76,11 @@ public static class ProfileDataExtensions
         => uri is not null
            && uri.Host.Equals("FakeDevice", StringComparison.OrdinalIgnoreCase);
 
-    private static bool IsAssigned(Uri? uri)
+    /// <remarks>
+    /// <see cref="NotNullWhenAttribute"/> so a caller that has asked the question can yield the URI
+    /// without re-asserting it: the six slots below are nullable only because a profile may leave
+    /// them empty, and this predicate is the one place that is decided.
+    /// </remarks>
+    private static bool IsAssigned([NotNullWhen(true)] Uri? uri)
         => uri is not null && uri != NoneDevice.Instance.DeviceUri;
 }

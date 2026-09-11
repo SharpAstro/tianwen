@@ -350,12 +350,14 @@ public static class EquipmentActions
             return new SiteReconcileResult(updated, ProfileChanged: true, MountPushed: false, WinnerSource: "mount");
         }
 
-        if (profileHas && !mountHas)
+        // Bound rather than read back off profileHas: the bool cannot carry the two values it was
+        // computed from, which is what the pushes below had to assert.
+        if (!mountHas && data.SiteLatitude is { } pushLat && data.SiteLongitude is { } pushLon)
         {
             logger?.LogInformation("Site reconcile: profile has {Lat}/{Lon} (mount empty), pushing to mount.",
-                data.SiteLatitude, data.SiteLongitude);
-            await mount.SetSiteLatitudeAsync(data.SiteLatitude!.Value, cancellationToken);
-            await mount.SetSiteLongitudeAsync(data.SiteLongitude!.Value, cancellationToken);
+                pushLat, pushLon);
+            await mount.SetSiteLatitudeAsync(pushLat, cancellationToken);
+            await mount.SetSiteLongitudeAsync(pushLon, cancellationToken);
             if (data.SiteElevation is { } elevation)
             {
                 await mount.SetSiteElevationAsync(elevation, cancellationToken);
@@ -379,13 +381,14 @@ public static class EquipmentActions
         }
         else
         {
-            if (data.SiteLatitude != mountLatRaw || data.SiteLongitude != mountLonRaw
-                || (data.SiteElevation is { } pe && !double.IsNaN(mountElevRaw) && pe != mountElevRaw))
+            if (data.SiteLatitude is { } tieLat && data.SiteLongitude is { } tieLon
+                && (tieLat != mountLatRaw || tieLon != mountLonRaw
+                    || (data.SiteElevation is { } pe && !double.IsNaN(mountElevRaw) && pe != mountElevRaw)))
             {
                 logger?.LogInformation("Site reconcile (tie=Profile): profile {PLat}/{PLon} pushed to mount (was {MLat}/{MLon}).",
-                    data.SiteLatitude, data.SiteLongitude, mountLatRaw, mountLonRaw);
-                await mount.SetSiteLatitudeAsync(data.SiteLatitude!.Value, cancellationToken);
-                await mount.SetSiteLongitudeAsync(data.SiteLongitude!.Value, cancellationToken);
+                    tieLat, tieLon, mountLatRaw, mountLonRaw);
+                await mount.SetSiteLatitudeAsync(tieLat, cancellationToken);
+                await mount.SetSiteLongitudeAsync(tieLon, cancellationToken);
                 if (data.SiteElevation is { } elevation)
                 {
                     await mount.SetSiteElevationAsync(elevation, cancellationToken);
@@ -599,7 +602,7 @@ public static class EquipmentActions
         if (DeviceBase.SameDevice(data.Mount, deviceUri))
         {
             // Preserve site query params when clearing mount
-            var builder = new UriBuilder(none) { Query = data.Mount!.Query };
+            var builder = new UriBuilder(none) { Query = data.Mount.Query };
             data = data with { Mount = builder.Uri };
         }
         if (DeviceBase.SameDevice(data.Guider, deviceUri))

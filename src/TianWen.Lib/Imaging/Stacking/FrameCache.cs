@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 
 namespace TianWen.Lib.Imaging.Stacking;
 
@@ -74,11 +75,11 @@ internal sealed class FrameCache
     /// strong reference so subsequent passes can't lose it. Returns false
     /// when no live reference exists in either tier.
     /// </summary>
-    public bool TryGet(int frameIndex, out Image image)
+    public bool TryGet(int frameIndex, [MaybeNullWhen(false)] out Image image)
     {
         if ((uint)frameIndex >= (uint)FrameCount)
         {
-            image = null!;
+            image = null;
             return false;
         }
 
@@ -100,7 +101,7 @@ internal sealed class FrameCache
             return true;
         }
 
-        image = null!;
+        image = null;
         return false;
     }
 

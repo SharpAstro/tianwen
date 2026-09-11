@@ -1033,7 +1033,12 @@ public sealed class StackingPipeline(
             }
             else
             {
-                var attempt = await registerLoop!.RegisterAsync(candidate.Stars, candidate.Metrics, ct);
+                // A null manifest is exactly what builds the register loop above, so arriving here
+                // without one is a contradiction rather than a case to handle.
+                var loop = registerLoop
+                    ?? throw new InvalidOperationException(
+                        "No manifest and no register loop: nothing can register this frame.");
+                var attempt = await loop.RegisterAsync(candidate.Stars, candidate.Metrics, ct);
                 transform = attempt.Transform;
                 manifestFates.Add((candidate.Frame, attempt.Skip switch
                 {
@@ -1050,7 +1055,7 @@ public sealed class StackingPipeline(
                     case RegisterLoop.SkipCause.NoQuadFit:
                         logger.LogInformation(
                             "  [{Name}] stars={Stars} quads={Quads} vs reference quads={RefQuads} -> SKIP (no quad fit at any tolerance)",
-                            name, candidate.Stars.Count, attempt.LightQuads, registerLoop.ReferenceQuadCount);
+                            name, candidate.Stars.Count, attempt.LightQuads, loop.ReferenceQuadCount);
                         break;
                     default:
                         logger.LogInformation(

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 
 namespace TianWen.Lib.Astrometry.Catalogs;
@@ -74,7 +75,7 @@ internal ref struct CsvFieldReader
     /// Returns false if column not found or field is empty.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public readonly bool TryGetFieldString(string name, out string? value)
+    public readonly bool TryGetFieldString(string name, [NotNullWhen(true)] out string? value)
     {
         if (TryGetField(name, out var span))
         {

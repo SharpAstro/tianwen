@@ -315,7 +315,9 @@ namespace TianWen.UI.Abstractions
 
                         // Log exactly what URI moved so site / gain / filter clobbers are
                         // visible in the log instead of silently drifting.
-                        var diffs = EquipmentActions.DiffProfileData(original.Data!.Value, updated.Data!.Value);
+                        var diffs = original.Data is { } originalData && updated.Data is { } updatedData
+                            ? EquipmentActions.DiffProfileData(originalData, updatedData)
+                            : [];
                         foreach (var (field, before, after) in diffs)
                         {
                             logger.LogInformation(
@@ -638,7 +640,8 @@ namespace TianWen.UI.Abstractions
                             // If the catalog hasn't loaded yet because we previously
                             // had no site, fire InitializePlannerAsync now.
                             if (plannerState.ObjectDb is null
-                                && TransformFactory.FromProfile(appState.ActiveProfile!, _timeProvider, out _) is { } rTransform)
+                                && appState.ActiveProfile is { } activeProfile
+                                && TransformFactory.FromProfile(activeProfile, _timeProvider, out _) is { } rTransform)
                             {
                                 _tracker.Run(() => InitializePlannerAsync(rTransform, cts.Token),
                                     "Load catalog after site reconcile");

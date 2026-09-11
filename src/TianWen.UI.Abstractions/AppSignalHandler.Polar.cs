@@ -87,7 +87,14 @@ namespace TianWen.UI.Abstractions
                     Notify(NotificationSeverity.Warning, buildError);
                     return;
                 }
-                var source = built.Source!;
+                // Asked for rather than asserted: a build that reported no error but produced no
+                // source is a contradiction, and the user is owed a message either way.
+                if (built.Source is not { } source)
+                {
+                    Notify(NotificationSeverity.Warning,
+                        "Polar alignment could not open a capture source.");
+                    return;
+                }
                 var activeGuider = built.ActiveGuider;
 
                 var site = PolarAlignmentActions.BuildSite(profileData, hub, lat, lon);

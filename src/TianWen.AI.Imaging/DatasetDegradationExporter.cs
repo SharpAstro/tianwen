@@ -332,8 +332,10 @@ namespace TianWen.AI.Imaging
             Directory.CreateDirectory(tilesDir);
 
             var stackedFrames = ReadStackCount(RetainedMasterStore.PathFor(options.BakeRoot, sessionId));
-            Image unitMaster = null!;
-            Image cleanStretched = null!;
+            // Nullable rather than asserted-non-null: they ARE null until the try assigns them, which
+            // is exactly what the `?.Release()` in the finally below was already written for.
+            Image? unitMaster = null;
+            Image? cleanStretched = null;
             try
             {
                 // The clean side, once: the unit divisor and the MTF parameters measured here are the
@@ -514,7 +516,7 @@ namespace TianWen.AI.Imaging
             }
 
             var cellImage = new Image(planes, BitDepth.Float32, 1f, 0f, unitMaster.Pedestal, unitMaster.ImageMeta);
-            Image stretchedCell = null!;
+            Image? stretchedCell = null;
             try
             {
                 stretchedCell = cellImage.MtfStretchWith(origMin, balances);

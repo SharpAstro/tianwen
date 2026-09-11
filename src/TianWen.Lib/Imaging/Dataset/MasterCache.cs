@@ -271,12 +271,13 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
             using var reader = new BufferedFile(masterPath, FileAccess.Read, FileShare.Read, 4 * 2880);
             using var fits = new Fits(reader, masterPath.EndsWith(".gz", StringComparison.OrdinalIgnoreCase));
             var header = fits.ReadFirstImageHduHeaderOnly()?.Header;
-            var fingerprint = header?.GetStringValue(FingerprintCard);
-            if (fingerprint is null)
+            // Asked as one question: a fingerprint that came back is proof the header did too, which
+            // is what the second read needed and used to assert.
+            if (header?.GetStringValue(FingerprintCard) is not { } fingerprint)
             {
                 return null;
             }
-            var count = header!.GetIntValue(InputCountCard, -1);
+            var count = header.GetIntValue(InputCountCard, -1);
             return (fingerprint, count);
         }
         catch

@@ -92,12 +92,14 @@ namespace TianWen.UI.Abstractions
             var at = 0;
             for (var slot = 0; slot < StarChunkIndex.SlotCount; slot++)
             {
+                // A counted slot always has its array, so the two are asked for together: the
+                // count alone could not tell the compiler that, and could not tell a reader either.
                 var n = _counts[slot];
-                if (n == 0)
+                if (n == 0 || _slots[slot] is not { } slotVerts)
                 {
                     continue;
                 }
-                _slots[slot]!.AsSpan(0, n * FloatsPerStar).CopyTo(verts.AsSpan(at));
+                slotVerts.AsSpan(0, n * FloatsPerStar).CopyTo(verts.AsSpan(at));
                 at += n * FloatsPerStar;
             }
 

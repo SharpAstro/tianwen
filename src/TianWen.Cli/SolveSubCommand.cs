@@ -129,7 +129,7 @@ internal sealed class SolveSubCommand(
         };
         solveCommand.SetAction(async (parseResult, ct) =>
         {
-            var fitsPath = parseResult.GetValue(fitsArg)!;
+            var fitsPath = parseResult.Required(fitsArg);
             if (!File.Exists(fitsPath))
             {
                 consoleHost.WriteError($"FITS file not found: {fitsPath}");
@@ -272,10 +272,10 @@ internal sealed class SolveSubCommand(
         {
             return (null, "--focus-length and --pixel-size must be set together; supplied one without the other.");
         }
-        if (hasFl && hasPx)
+        if (focusLengthMm is { } focalMm && pixelSizeUm is { } pixelUm)
         {
             // arcsec per pixel = 206.265 * pixel_size_um / focal_length_mm
-            var scale = 206.265 * pixelSizeUm!.Value / focusLengthMm!.Value;
+            var scale = 206.265 * pixelUm / focalMm;
             return (scale, null);
         }
         if (hasExplicitScale)

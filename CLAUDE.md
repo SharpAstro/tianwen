@@ -1948,6 +1948,17 @@ Canonical example: `AppSignalHandler.PollCameraTelemetry` and `EquipmentTabState
 - **Correct abstraction levels**: pure math/data in `TianWen.Lib`, UI state in `TianWen.UI.Abstractions`,
   Vulkan-specific rendering in `TianWen.UI.Shared` / `TianWen.UI.Gui`. Never put GPU calls in Lib or Abstractions.
 - **No code duplication**: reuse single sources of truth (e.g., `Image.StretchValue()`)
+- **No null-forgiving `!` in production code.** There are ZERO left across every shipping project
+  (swept 2026-09-11); a new one is a regression, and the fix is almost always to STATE the invariant
+  instead of asserting it: `[MemberNotNullWhen]` / `[NotNullWhen]` / `[MaybeNullWhen]` on the
+  predicate or the `out` that decides it (`WCS.HasSip`, `PulseGuideRouter.UseCamera`,
+  `DeviceBase.SameDevice`, `FrameCache.TryGet`), a pattern bind where a bool was carrying a value it
+  could not (`is { } x`), or a `?? throw` naming what broke. Two compiler traps found doing it: a
+  SECOND property read on a struct receiver DISCARDS the member-null state the first established (so
+  `WCS.WriteToHeader` binds the SIP arrays instead), and `x!.M()` marks `x` non-null for the rest of
+  the block, so removing one `!` can make a later line warn. Tests and benchmarks are deliberately
+  exempt: `= null!` on a `[GlobalSetup]` field is the BenchmarkDotNet idiom, and `null!` passed to
+  prove a guard throws is the point of that test.
 - **Directory walks go through `FileEnumeration` (`TianWen.Lib/IO`), never the `SearchOption`
   overloads of `Directory.EnumerateFiles`/`GetFiles`.** Those run with the legacy defaults: they ENTER
   every reparse point (the organized archive's `targets/` junction farm was scanned once per link, and a

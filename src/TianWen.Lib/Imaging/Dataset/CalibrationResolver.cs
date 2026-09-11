@@ -335,12 +335,14 @@ public static class CalibrationResolver
                         darkBiasGroup.IsMaster, normalizedAduScale, epochSuffix: darkBiasGroup.EpochSuffix,
                         cancellationToken: cancellationToken);
 
-                if (darkBias is not null)
+                // The GROUP is asked for first: it is what the master was built from, so a master
+                // that exists proves it, and naming it in that order is what the log line needs.
+                if (darkBiasGroup is not null && darkBias is not null)
                 {
                     darkScale = (float)(lightSeconds / darkSeconds);
                     logger?.LogInformation(
                         "  [{Session}] dark scaled x{Scale:F3} ({DarkExp:F0}s dark -> {LightExp:F0}s lights) using bias {Bias}",
-                        session.Id, darkScale, darkSeconds, lightSeconds, darkBiasGroup!.Key.Slug());
+                        session.Id, darkScale, darkSeconds, lightSeconds, darkBiasGroup.Key.Slug());
                 }
                 else
                 {

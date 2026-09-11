@@ -77,6 +77,22 @@ public sealed class RollingWindowStacker
     private float[][,]? _sum;     // per-channel weighted sum at reference (sub-plane) resolution
     private float[,]? _weight;    // shared per-pixel weight (coverage)
     private GlobalAligner? _aligner;
+
+    /// <summary>
+    /// The aligner and the two accumulators, which <c>PrepareAsync</c> creates together against the
+    /// reference frame and which therefore exist together or not at all.
+    /// </summary>
+    /// <remarks>
+    /// Asked as one precondition rather than asserted three at a time at each of the four call
+    /// sites: a rolling window with no reference frame cannot add, evict or finish, and saying so by
+    /// name beats a null-forgiving <c>!</c> that would surface as a bare NullReferenceException
+    /// somewhere inside the accumulate.
+    /// </remarks>
+    private (float[][,] Sum, float[,] Weight, GlobalAligner Aligner) Accumulators
+        => (_sum, _weight, _aligner) is ({ } sum, { } weight, { } aligner)
+            ? (sum, weight, aligner)
+            : throw new InvalidOperationException(
+                "The rolling window has no reference frame yet; PrepareAsync must run first.");
     private int _refIndex = -1;
     private int _windowStart = -1;
     private int _windowEnd = -2;  // < _windowStart so "first call" is always a rebuild
@@ -277,8 +293,9 @@ public sealed class RollingWindowStacker
                 return;
             }
 
-            var shift = _aligner!.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
-            frame.AccumulateTranslatedInto(_sum!, _weight!, (float)shift.Dx, (float)shift.Dy, score);
+            var (sum, weight, aligner) = Accumulators;
+            var shift = aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
+            frame.AccumulateTranslatedInto(sum, weight, (float)shift.Dx, (float)shift.Dy, score);
             _window[index] = new Contribution(score, (float)shift.Dx, (float)shift.Dy);
         }
         finally
@@ -300,7 +317,8 @@ public sealed class RollingWindowStacker
         var frame = await _stream.LoadAsync(index, cancellationToken).ConfigureAwait(false);
         try
         {
-            frame.AccumulateTranslatedInto(_sum!, _weight!, c.Dx, c.Dy, -c.Weight);
+            var (sum, weight, _) = Accumulators;
+            frame.AccumulateTranslatedInto(sum, weight, c.Dx, c.Dy, -c.Weight);
         }
         finally
         {
@@ -371,7 +389,8 @@ public sealed class RollingWindowStacker
             dst = Image.CreateChannelData(_channels, _planeH, _planeW);
         }
 
-        var stacked = PlanetaryMaster.NormalizeInto(_sum!, _weight!, dst, _meta);
+        var (sum, weight, _) = Accumulators;
+        var stacked = PlanetaryMaster.NormalizeInto(sum, weight, dst, _meta);
         return await PlanetaryMaster.MergeAndDemosaicAsync(stacked, _stream.Layout, cancellationToken).ConfigureAwait(false);
     }
 

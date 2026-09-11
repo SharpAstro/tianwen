@@ -351,9 +351,12 @@ namespace TianWen.Lib.Imaging.Dataset
                     logger?.LogWarning(ex, "Gradient report: {Master} did not plate-solve; frame directions stay unknown", Path.GetFileName(masterPath));
                 }
             }
-            var solved = wcs is { HasCDMatrix: true };
-            var raHours = solved ? wcs!.Value.CenterRA : meta.TargetRA;
-            var decDeg = solved ? wcs!.Value.CenterDec : meta.TargetDec;
+            // Bound once rather than flagged. `solved` was a bare bool, so each of the four places
+            // that then wanted the solution had to re-assert with `!` what the flag already implied.
+            var solution = wcs is { HasCDMatrix: true } ? wcs.Value : (WCS?)null;
+            var solved = solution.HasValue;
+            var raHours = solution?.CenterRA ?? meta.TargetRA;
+            var decDeg = solution?.CenterDec ?? meta.TargetDec;
 
             var epoch = meta.ExposureStartTime;
             double lat = meta.Latitude;
@@ -366,7 +369,9 @@ namespace TianWen.Lib.Imaging.Dataset
             var airmass = double.IsNaN(alt) ? double.NaN : Session.AirmassFromAltitude(alt);
             var parallactic = double.IsNaN(ha) || double.IsNaN(decDeg) || double.IsNaN(lat) ? double.NaN : CoordinateUtils.ParallacticAngleDeg(ha, decDeg, lat);
             // The zenith is at the parallactic angle; the horizon (where sky glow comes from) is opposite.
-            var horizonInFrame = solved && !double.IsNaN(parallactic) ? wcs!.Value.SkyPositionAngleToPixelAngleDeg(parallactic + 180.0) : double.NaN;
+            var horizonInFrame = solution is { } horizonWcs && !double.IsNaN(parallactic)
+                ? horizonWcs.SkyPositionAngleToPixelAngleDeg(parallactic + 180.0)
+                : double.NaN;
 
             var moonAlt = double.NaN;
             var moonIllumination = double.NaN;
@@ -380,9 +385,10 @@ namespace TianWen.Lib.Imaging.Dataset
                 if (double.IsFinite(raHours) && double.IsFinite(decDeg))
                 {
                     moonSeparation = CoordinateUtils.AngularSeparationDeg(raHours, decDeg, moonRa, moonDec);
-                    if (solved)
+                    if (solution is { } moonWcs)
                     {
-                        moonInFrame = wcs!.Value.SkyPositionAngleToPixelAngleDeg(CoordinateUtils.PositionAngleDeg(raHours, decDeg, moonRa, moonDec));
+                        moonInFrame = moonWcs.SkyPositionAngleToPixelAngleDeg(
+                            CoordinateUtils.PositionAngleDeg(raHours, decDeg, moonRa, moonDec));
                     }
                 }
             }

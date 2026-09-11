@@ -125,7 +125,8 @@ public static class StreamingIntegrator
                 var staged = alignedFrames[f];
                 var floors = staged.PerChannelFloor
                     ?? throw new ArgumentException($"Frame {f} has Median stats but no Floor stats.");
-                var meds = staged.PerChannelMedian!;
+                var meds = staged.PerChannelMedian
+                    ?? throw new ArgumentException($"Frame {f} has Floor stats but no Median stats.");
                 for (var ch = 0; ch < channelCount; ch++)
                 {
                     var floor = floors[ch];
