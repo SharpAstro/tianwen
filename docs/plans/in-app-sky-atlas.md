@@ -494,6 +494,58 @@ locking the release scope was *"as long as we track everything we skipped in a p
 - **Clicking a STAR is a different resolver.** `document.Stars` holds DETECTED CENTROIDS, not
   catalogue entries, so it is a nearest-centroid search over the star list, not `FindObjectAt`. Worth
   saying because "click an object or a star" reads like one feature and is two.
+- ~~**No info panel for a viewer selection.**~~ **DONE 2026-09-11**, in two steps raised by the user in
+  one sitting: *"the GUI sky atlas has clicking on extended objects + labels etc + a dedicated info
+  panel, why don't we have that here?"*, then, once the shape of the answer was in view: *"see if we
+  can put this into shared, with optional extra stuff like PanelDisplayOptions.PinButton etc?"*
+  - **The panel's content is shared with the atlas (`ObjectInfoPanel`, `TianWen.UI.Abstractions`); its
+    placement is not.** Every row's text, which buttons exist, and their sizing all live in one static
+    class the atlas's `SkyMapTab.Search.cs` and the viewer both call into with their own rects and
+    colours -- the split is deliberate, because the atlas floats its panel bottom-left over a
+    whole-sky projection and the viewer puts it over a photograph, so the geometry is legitimately
+    per-host while the strings and the row logic are not. An action is a CALLBACK
+    (`PanelActions.Goto`/`OpenInAtlas`/... ), never a flag, so a host that wires none of the mount
+    actions gets a panel that simply has no mount buttons on it -- the viewer passes only `Close` and
+    `OpenInAtlas`. Equivalence for the atlas was checked ARITHMETICALLY (the design text-block height,
+    row count and button widths matched line for line) rather than assumed, since the whole point of
+    the move was that a shipped panel changes nothing a user can see.
+  - **The viewer's own `ViewerState.SelectedObject` is now a `SkyMapInfoPanelData`, not a bespoke
+    `ViewerObjectSelection`.** The two used to sit side by side, and every field on the bespoke record
+    (name, designation, RA, Dec) duplicated one already on the panel's own payload -- exactly the kind
+    of drift risk the panel hoist itself was built to avoid, just one layer further out. The one thing
+    `ViewerObjectSelection` had that the panel payload does not -- an "identification stack" printed as
+    several lines -- turned out to be unneeded: `CelestialObject.DisplayName` already falls back to the
+    canonical designation with no common name, so `SkyMapInfoPanelData.Name` alone is what the ring
+    label and the panel title both wanted. The atlas-token rule ("designation, falling back to name")
+    that lived on the retired record AND, separately, inline in `ImageContextMenu` is now
+    `SkyAtlasLink.TokenFor` -- one rule, in the one class that already owns the rest of the token
+    vocabulary (including its escaping).
+  - **The user chose "the capture instant" for Alt/Az and rise/transit/set** over "now": *"'Where was
+    it when you shot this' -- reads off DATE-OBS, matches everything else in the panel, and is the
+    question a photograph asks... Omitted entirely when the header carries no site."* Both the site
+    (`FrameSiteResolver.FromHeader`) and the capture time (`FrameSiteResolver.CapturedAt`) are read
+    ONCE, at the click, in `ImageRendererBase.BuildSelectionPanelData` -- never re-solved off a live
+    clock, which is right for the sky backdrop's horizon and wrong for a still photograph's "where was
+    it". **Either being unknown disables BOTH rows, not just the one that is missing**: an Alt/Az with
+    no honest instant to answer for is not more honest than an omitted one, and `SiteContext`/
+    `RiseTransitSetHelper` both fail SILENTLY on a NaN site (a false return, never an exception) rather
+    than reporting the gap -- so the render code reads `SkyMapInfoPanelData.AltDeg` being NaN back as
+    the one reliable signal that neither was answerable, rather than re-deriving the same test a second
+    time from the header. Pinned with an INDEPENDENT altitude formula (not a literal, which would drift
+    the moment the catalogue's coordinate for the fixture object is refreshed) in
+    `ViewerObjectSelectionTests.WithASiteAndACaptureTimeTheSelectionCarriesAltAzAtThatInstant`, and
+    verified by sabotage: forcing the site/time gate to `false` unconditionally fails exactly that one
+    test and no other.
+  - **The docked info panel's old "Selection" section is gone.** Everything it printed (an
+    identification stack) is now the floating panel's job, with room for what the strip never had
+    (Alt/Az, rise/transit/set, a footnote naming the capture instant).
+  - **Still open, deliberately unfixed rather than fixed asymmetrically:** a click on the panel's BLANK
+    area (not a button, not the close X) is not swallowed, in either host -- it falls through to
+    whatever is behind the panel exactly as the atlas's own panel already does, which is why this was
+    not treated as a new defect introduced by the viewer's copy. Closing it is one background
+    `Clickable` no-op, added to both panels together.
+  - **Still open:** the selection ring is always the two-circle fallback in the viewer, never the
+    object's own traced ellipse the atlas draws for an extended object (`SkyMapTab.TryDrawShapeMarker`).
 - ~~**Constellation stars appearing at wider fields.**~~ **DONE 2026-09-10.** Whether a star is drawn
   at all is `OverlayEngine.GetStarMagCutoff(fovArcmin)` -- mag <= 1.0 above 5 degrees, 2.5 at 2-5, 4.0
   at 1-2, 5.5 at 0.5-1, 7.0 below -- so tau PsA at about mag 4.9 needed the field under one degree

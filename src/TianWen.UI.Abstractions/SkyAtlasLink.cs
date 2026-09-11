@@ -120,6 +120,21 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// The token a share link or a selection's own atlas entry carries so the atlas SELECTS the
+        /// object rather than merely pointing at where it is: the designation, falling back to the
+        /// name.
+        /// </summary>
+        /// <remarks>
+        /// One rule, asked from both ends of an object identity -- the right-click menu's resolved
+        /// object and the viewer's own selection -- rather than the two copies it used to be. A
+        /// catalogue designation is what the atlas's search resolves unambiguously, while a common
+        /// name can be shared between objects or absent entirely; they agree for an object whose
+        /// designation IS its name, which is the common case.
+        /// </remarks>
+        public static string TokenFor(string designation, string name)
+            => designation is { Length: > 0 } ? designation : name;
+
+        /// <summary>
         /// Escapes an object token for the <c>object=</c> parameter.
         /// </summary>
         /// <remarks>

@@ -5,6 +5,7 @@ using DIR.Lib;
 using Shouldly;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
@@ -94,7 +95,14 @@ namespace TianWen.Lib.Tests
             CD2_2 = -ScaleDeg,
         };
 
-        private static Image SyntheticFrame()
+        /// <summary>
+        /// A blank frame, defaulting to the UnixEpoch/no-site header the plumbing cases use (which
+        /// <see cref="SkyAtlasLink.IsKnownCaptureTime"/> and <see cref="FrameSite"/> both read as
+        /// UNKNOWN). Site/time are overridable so the site-dependent selection cases can build a
+        /// header that answers both.
+        /// </summary>
+        private static Image SyntheticFrame(
+            DateTimeOffset? exposureStart = null, float latitude = float.NaN, float longitude = float.NaN)
         {
             var plane = new float[ImageH, ImageW];
             for (var y = 0; y < ImageH; y++)
@@ -106,9 +114,9 @@ namespace TianWen.Lib.Tests
             }
 
             return new Image([plane], BitDepth.Int16, 65535f, 0f, 0f,
-                new ImageMeta("synth", DateTimeOffset.UnixEpoch, TimeSpan.Zero, FrameType.Light, "",
-                    0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
-                    RowOrder.TopDown, float.NaN, float.NaN));
+                new ImageMeta("synth", exposureStart ?? DateTimeOffset.UnixEpoch, TimeSpan.Zero,
+                    FrameType.Light, "", 0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN,
+                    SensorType.Monochrome, 0, 0, RowOrder.TopDown, latitude, longitude));
         }
 
         /// <summary>
@@ -124,7 +132,8 @@ namespace TianWen.Lib.Tests
         private static async Task<(SelectionViewer Viewer, ViewerState State, AstroImageDocument Document,
             CelestialObject Object)> NewViewerOnAsync(
             RgbaImageRenderer renderer, CatalogIndex index, CancellationToken ct,
-            double pointOffsetDeg = 0.0)
+            double pointOffsetDeg = 0.0, DateTimeOffset? exposureStart = null,
+            float latitude = float.NaN, float longitude = float.NaN)
         {
             var db = await SharedCatalogDB.InitAsync(ct);
             db.TryLookupByIndex(index, out var obj).ShouldBeTrue($"the catalogue has to hold {index}");
@@ -141,7 +150,7 @@ namespace TianWen.Lib.Tests
             var raOffsetHours = pointOffsetDeg / 15.0 / Math.Cos(obj.Dec * Math.PI / 180.0);
 
             var document = await AstroImageDocument.AdoptImageAsync(
-                SyntheticFrame(), DebayerAlgorithm.None,
+                SyntheticFrame(exposureStart, latitude, longitude), DebayerAlgorithm.None,
                 CentredOn(obj.RA + raOffsetHours, obj.Dec),
                 filePath: "synthetic.fits", cancellationToken: ct);
 
@@ -196,12 +205,11 @@ namespace TianWen.Lib.Tests
             TapAt(viewer, x, y);
 
             var selection = state.SelectedObject.ShouldNotBeNull();
-            selection.Designation.ShouldBe("NGC 5194");
-            selection.Designation.ShouldBe(obj.Index.ToCanonical());
-            selection.RaHours.ShouldBe(obj.RA, 1e-9);
+            selection.Canonical.ShouldBe("NGC 5194");
+            selection.Canonical.ShouldBe(obj.Index.ToCanonical());
+            selection.RA.ShouldBe(obj.RA, 1e-9);
             selection.Dec.ShouldBe(obj.Dec, 1e-9);
-            selection.Lines.Length.ShouldBeGreaterThan(0, "the panel needs something to print");
-            selection.Lines[0].ShouldBe(selection.Name);
+            selection.Name.ShouldNotBeNullOrEmpty("the panel needs something to print");
         }
 
         /// <summary>
@@ -318,7 +326,7 @@ namespace TianWen.Lib.Tests
             TapAt(viewer, sx, sy);
 
             var selection = state.SelectedObject.ShouldNotBeNull();
-            selection.Designation.ShouldBe("NGC 5194");
+            selection.Canonical.ShouldBe("NGC 5194");
         }
 
         /// <summary>
@@ -399,7 +407,7 @@ namespace TianWen.Lib.Tests
             TapAt(viewer, x, y);
 
             var selection = state.SelectedObject.ShouldNotBeNull();
-            selection.Designation.StartsWith("HH ", StringComparison.Ordinal).ShouldBeFalse(
+            selection.Canonical.StartsWith("HH ", StringComparison.Ordinal).ShouldBeFalse(
                 "a Herbig-Haro object is drawn nowhere, so a click may not name one");
 
             // Said as the rule rather than as a list of designations, so it holds for any object the
@@ -407,10 +415,10 @@ namespace TianWen.Lib.Tests
             db.TryLookupByIndex(
                 CatalogIndex.NGC1976, out _).ShouldBeTrue();
             var resolved = state.SelectedObject!.Value;
-            (resolved.Designation.StartsWith("NGC", StringComparison.Ordinal)
-                || resolved.Designation.StartsWith("HIP", StringComparison.Ordinal)
-                || resolved.Designation.StartsWith("HD", StringComparison.Ordinal))
-                .ShouldBeTrue($"expected a drawn type, got {resolved.Designation}");
+            (resolved.Canonical.StartsWith("NGC", StringComparison.Ordinal)
+                || resolved.Canonical.StartsWith("HIP", StringComparison.Ordinal)
+                || resolved.Canonical.StartsWith("HD", StringComparison.Ordinal))
+                .ShouldBeTrue($"expected a drawn type, got {resolved.Canonical}");
         }
 
         /// <summary>
@@ -445,6 +453,69 @@ namespace TianWen.Lib.Tests
 
             viewer.Ellipses.ShouldBe(withoutSelection + 2,
                 "the selection ring is a pair of ellipses, and nothing else changed between the frames");
+        }
+
+        // --- the floating panel's Alt/Az and rise/transit/set are baked in at the CAPTURE instant ---
+
+        /// <summary>
+        /// A frame with no site and no usable capture time carries no Alt/Az on its selection -- the
+        /// "omit rather than lie" rule the shared panel is built around (<see cref="ObjectInfoPanel"/>),
+        /// pinned here at the SOURCE of the value rather than only in the panel's own string-formatting
+        /// cases.
+        /// </summary>
+        [Fact]
+        public async Task WithNoSiteOrCaptureTimeTheSelectionCarriesNoAltAz()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _) = await NewViewerOnAsync(renderer, CatalogIndex.NGC5194, ct);
+
+            viewer.Render(document, state);
+            var (x, y) = ObjectOnScreen(viewer, state);
+            TapAt(viewer, x, y);
+
+            var selection = state.SelectedObject.ShouldNotBeNull();
+            double.IsNaN(selection.AltDeg).ShouldBeTrue(
+                "the header carries neither a site nor a usable capture time, so there is no honest Alt/Az to state");
+        }
+
+        /// <summary>
+        /// With BOTH a site and a real capture time, the selection's Alt/Az is resolved AT THAT
+        /// INSTANT -- never the reader's wall clock, which is the whole reason it is baked in once at
+        /// the click rather than re-solved every frame the panel is open.
+        /// </summary>
+        /// <remarks>
+        /// Checked against an independently-written altitude formula rather than a literal: a fixed
+        /// expected number would drift the moment M51's catalogued position is refreshed, and would
+        /// not tell a genuinely wrong Alt/Az from a stale one -- this instead re-derives what the
+        /// answer OUGHT to be from the same site/time the fixture states, using maths this production
+        /// code did not write.
+        /// </remarks>
+        [Fact]
+        public async Task WithASiteAndACaptureTimeTheSelectionCarriesAltAzAtThatInstant()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+
+            // A real night: 2026-06-16 22:00 UTC from a mid-northern site.
+            var captured = new DateTimeOffset(2026, 6, 16, 22, 0, 0, TimeSpan.Zero);
+            var (viewer, state, document, obj) = await NewViewerOnAsync(
+                renderer, CatalogIndex.NGC5194, ct, exposureStart: captured, latitude: 45f, longitude: -75f);
+
+            viewer.Render(document, state);
+            var (x, y) = ObjectOnScreen(viewer, state);
+            TapAt(viewer, x, y);
+
+            var selection = state.SelectedObject.ShouldNotBeNull();
+            double.IsNaN(selection.AltDeg).ShouldBeFalse("both the site and the capture time are known");
+            selection.TransitTime.ShouldNotBeNull();
+
+            var site = SiteContext.Create(45.0, -75.0, captured);
+            var ha = (site.LST - obj.RA) * Math.PI / 12.0;
+            var expectedAlt = Math.Asin(
+                (site.SinLat * Math.Sin(obj.Dec * Math.PI / 180.0))
+                + (site.CosLat * Math.Cos(obj.Dec * Math.PI / 180.0) * Math.Cos(ha))) * 180.0 / Math.PI;
+            selection.AltDeg.ShouldBe(expectedAlt, 1e-6);
         }
     }
 }

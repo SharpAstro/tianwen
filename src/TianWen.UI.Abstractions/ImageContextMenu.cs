@@ -74,16 +74,17 @@ namespace TianWen.UI.Abstractions
         /// lead, because a click on a marked object is nearly always about the object.
         /// </param>
         /// <param name="selection">
-        /// The object the viewer currently has SELECTED, when there is one. It earns its OWN atlas
-        /// entry rather than replacing the positional one: the entry that already exists opens the
-        /// atlas at the pixel that was right-clicked, and quietly re-pointing it at something
-        /// elsewhere on the frame would make a positional action mean something else depending on
-        /// state. Two entries, each labelled with what it acts on, and the selection's is skipped when
-        /// the right-click resolved that same object anyway.
+        /// The object the viewer currently has SELECTED, when there is one -- the same
+        /// <see cref="SkyMapInfoPanelData"/> the floating panel reads. It earns its OWN atlas entry
+        /// rather than replacing the positional one: the entry that already exists opens the atlas at
+        /// the pixel that was right-clicked, and quietly re-pointing it at something elsewhere on the
+        /// frame would make a positional action mean something else depending on state. Two entries,
+        /// each labelled with what it acts on, and the selection's is skipped when the right-click
+        /// resolved that same object anyway.
         /// </param>
         public static ImmutableArray<ImageContextMenuItem> ItemsFor(
             PixelInfo pixel, double? fovDeg = null, DateTimeOffset? capturedUtc = null,
-            ImageContextMenuObject? nearest = null, ViewerObjectSelection? selection = null)
+            ImageContextMenuObject? nearest = null, SkyMapInfoPanelData? selection = null)
         {
             var hasSky = pixel.RA.HasValue && pixel.Dec.HasValue;
             if (pixel.Values.Length == 0 && !hasSky)
@@ -156,13 +157,8 @@ namespace TianWen.UI.Abstractions
             {
                 // The object rides along when the click resolved one, so the atlas SELECTS it rather
                 // than merely pointing at where it is -- centring on an object's coordinates leaves it
-                // unhighlighted and unnamed among everything else in the field. The DESIGNATION is the
-                // token, falling back to the name: a catalogue number is what the atlas's search
-                // resolves unambiguously, while a common name can be shared or absent. They are equal
-                // for an object whose designation IS its name, which is the common case.
-                var token = nearest is { } named
-                    ? (named.Designation is { Length: > 0 } d ? d : named.Name)
-                    : null;
+                // unhighlighted and unnamed among everything else in the field.
+                var token = nearest is { } named ? SkyAtlasLink.TokenFor(named.Designation, named.Name) : null;
 
                 builder.Add(new ImageContextMenuItem(
                     "Open in sky atlas (web)",
@@ -173,14 +169,17 @@ namespace TianWen.UI.Abstractions
                 // The SELECTION's own entry, centred on the object rather than on the click. Named, so
                 // the two are told apart by reading them; and skipped when the click already resolved
                 // the selected object, since both entries would then do the same thing.
-                if (selection is { } selected
-                    && !string.Equals(selected.Token, token, StringComparison.Ordinal))
+                if (selection is { } selected)
                 {
-                    builder.Add(new ImageContextMenuItem(
-                        $"Open {selected.Name} in sky atlas (web)",
-                        "sky atlas",
-                        SkyAtlasLink.For(selected.RaHours, selected.Dec, fovDeg, capturedUtc, selected.Token),
-                        ImageContextMenuAction.OpenUrl));
+                    var selectedToken = SkyAtlasLink.TokenFor(selected.Canonical, selected.Name);
+                    if (!string.Equals(selectedToken, token, StringComparison.Ordinal))
+                    {
+                        builder.Add(new ImageContextMenuItem(
+                            $"Open {selected.Name} in sky atlas (web)",
+                            "sky atlas",
+                            SkyAtlasLink.For(selected.RA, selected.Dec, fovDeg, capturedUtc, selectedToken),
+                            ImageContextMenuAction.OpenUrl));
+                    }
                 }
             }
 

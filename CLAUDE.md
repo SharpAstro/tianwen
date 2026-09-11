@@ -1647,14 +1647,22 @@ The rules:
   what it did. Measured at 26.4 px of travel across ten buttons. **This is NOT the damage tracker** --
   per-swapchain-image damage is a real flicker mechanism (P15's tooltip) and the wrong suspect here.
 - **A left click SELECTS the catalogued object under it, and a selection is not a hover.**
-  `ViewerState.SelectedObject` is resolved ONCE at the click (name, designation, the OBJECT's
-  coordinates, the identification stack), so the ring, the info panel and the atlas link agree by
-  construction and none of them asks the catalogue per frame. Three rules: it fires on the tap
-  RELEASE, never the press (a press on the picture starts a pan, so on the press every drag would
-  select); **the resolver applies the OVERLAY's type gate**, or it names things drawn nowhere -- a
-  click on M42's core answered "HH 1146" until it did, and the same hole had been in the right-click
-  menu since P28; and it ignores EXTENT, so at a nebula's centre "nearest" can legitimately answer an
-  embedded star (M42 has three catalogued objects within 0.2 arcseconds, against a click quantised to
+  `ViewerState.SelectedObject` is a `SkyMapInfoPanelData` -- the SAME payload the atlas's own
+  selection carries, not a second record -- resolved ONCE at the click, so the ring, the floating
+  panel and the atlas link agree by construction and none of them asks the catalogue per frame. The
+  panel itself floats over the picture, bottom-left like the atlas's, built from the shared
+  `ObjectInfoPanel` (`RenderSelectionPanel` in `ImageRendererBase.SelectionPanel.cs`); the docked info
+  strip's old "Selection" section is gone. **Alt/Az and rise/transit/set are baked in at the frame's
+  CAPTURE instant** (`ImageRendererBase.BuildSelectionPanelData`, `FrameSiteResolver`), never a live
+  clock, and BOTH rows are omitted together whenever either the site or the capture time is unknown --
+  a NaN `AltDeg` is the one signal the render code trusts for that, since `SiteContext` and
+  `RiseTransitSetHelper` fail silently on a NaN site rather than reporting the gap. Three more rules:
+  it fires on the tap RELEASE, never the press (a press on the picture starts a pan, so on the press
+  every drag would select); **the resolver applies the OVERLAY's type gate**, or it names things drawn
+  nowhere -- a click on M42's core answered "HH 1146" until it did, and the same hole had been in the
+  right-click menu since P28; and it ignores EXTENT, so at a nebula's centre "nearest" can legitimately
+  answer an embedded star (M42 has three catalogued objects within 0.2 arcseconds, against a click
+  quantised to
   a whole pixel). Escape clears it before Escape means quit, after any open dropdown.
 - **A share link about an object carries `object=`**, which the web build already parses and re-tries
   as the catalog loads: a pointing is not a selection. `SkyAtlasLink` owns the whole vocabulary

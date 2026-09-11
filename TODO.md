@@ -17,18 +17,36 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     wrong answer, since the fix keys on `BackgroundAlreadyExtracted` which only the enhance path sets.
     Deciding it from the pixels needs a threshold; that is the open question.
 
-- [x] **Selecting an object in the viewer** (raised and SHIPPED 2026-09-10). `FindObjectAt` already
-  answered "which catalogued object is under this pixel" and had been wired to right-click ONLY; the
-  viewer had no notion of a selected object, so a left click had nowhere to put the answer. **The user
-  chose CLICK over hover.** `ViewerState.SelectedObject` resolves once at the click and carries the
-  name, designation, the object's own coordinates and the identification stack; the ring draws with
-  the overlay OFF, the info panel gets a Selection section, the context menu gains the selection's own
-  atlas entry, and Escape clears it before Escape means quit. Fires on the tap RELEASE, never the
-  press. **A real defect fell out of the tests: the resolver named types the overlay never draws** (a
-  click on M42's core answered "HH 1146"), now gated by the overlay's own two predicates -- which also
-  closes the same hole in the right-click menu.
+- [x] **Selecting an object in the viewer, with a floating panel of its own** (raised and SHIPPED
+  2026-09-10 / 2026-09-11). `FindObjectAt` already answered "which catalogued object is under this
+  pixel" and had been wired to right-click ONLY; the viewer had no notion of a selected object, so a
+  left click had nowhere to put the answer. **The user chose CLICK over hover, and asked for the
+  atlas's OWN panel rather than a second one.** `ViewerState.SelectedObject` is a
+  `SkyMapInfoPanelData` -- the same payload the atlas's selection carries, collapsed from a
+  short-lived `ViewerObjectSelection` that duplicated four of its fields -- resolved once at the
+  click and rendered through the shared `ObjectInfoPanel` (hoisted from the atlas) as a panel
+  floating bottom-left of the picture, closed by its own X or by Escape. The ring draws with the
+  overlay OFF, the context menu gains the selection's own atlas entry, and Escape clears the
+  selection before Escape means quit. Fires on the tap RELEASE, never the press. **Alt/Az and
+  rise/transit/set are at the frame's CAPTURE instant, never "now"** -- baked in once at the click
+  from `FrameSiteResolver` and the header's `DATE-OBS`, and OMITTED (not shown as dashes) unless both
+  the site and the capture time are known, which a NaN altitude on the baked struct is the one
+  reliable signal for. The docked info panel's old "Selection" section is gone -- everything it did
+  is now the floating panel's job, with room for what it never had. **A real defect fell out of the
+  tests: the resolver named types the overlay never draws** (a click on M42's core answered
+  "HH 1146"), now gated by the overlay's own two predicates -- which also closes the same hole in the
+  right-click menu.
   [docs/plans/in-app-sky-atlas.md](docs/plans/in-app-sky-atlas.md), "Deferred from the 2026-09-10
   sitting".
+  - [ ] **Still open: the selection ring is a fixed circle even for an extended object.** The atlas
+    traces the object's own ellipse (`SkyMapTab.TryDrawShapeMarker`); the viewer's
+    `RenderSelectionHighlight` always draws the two-circle fallback. One-time cost, not urgent.
+  - [ ] **Still open, and unfixed on purpose (matches the atlas's own shipped behaviour): a click on
+    the panel's BLANK area is not swallowed.** Only its buttons and close X register a clickable
+    region, so a press there falls through to the picture underneath exactly as it does on the
+    atlas's own info panel -- re-selecting whatever is behind it, or panning. Fixing it means adding
+    one background `Clickable` no-op to BOTH panels; deferred rather than fixed asymmetrically in only
+    one host.
   - [ ] **Still open: clicking a STAR is a separate resolver.** `document.Stars` holds DETECTED
     CENTROIDS, not catalogue entries, so it is a nearest-centroid search over the star list rather
     than `FindObjectAt`. "Click an object or a star" reads like one feature and is two.

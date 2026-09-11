@@ -209,9 +209,12 @@ namespace TianWen.Lib.Tests
 
         // --- the SELECTION's atlas entry ---
 
-        private static ViewerObjectSelection Selected(string name = "Lagoon Nebula",
+        private static SkyMapInfoPanelData Selected(string name = "Lagoon Nebula",
             string designation = "NGC 6523", double raHours = 18.06, double dec = -24.38)
-            => new ViewerObjectSelection(name, designation, raHours, dec, [name]);
+            => SkyMapInfoPanelData.FromPosition(
+                name, raHours, dec, double.NaN, double.NaN, DateTimeOffset.UnixEpoch, default)
+                with
+            { Canonical = designation };
 
         /// <summary>
         /// A selection earns its OWN atlas entry, centred on the object rather than on the click.
