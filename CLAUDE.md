@@ -322,7 +322,10 @@ that bite even after reading it:
 ## Coding Style
 
 Enforced via `src/.editorconfig` (it sits beside the solution, not at the repo root):
-- 4 spaces, LF line endings, block-scoped namespaces (`namespace Foo { }`, not file-scoped)
+- 4 spaces, LF line endings. Namespaces are FILE-scoped (`namespace Foo;`) in three files of four
+  (1,253 / 417 on 2026-09-11; `TianWen.Lib` 648 / 79, only `TianWen.UI.Abstractions` leans the other
+  way at 62 / 106): write a new file file-scoped, match the file you are in when editing, and never
+  churn a file from one form to the other. This line used to say the opposite.
 - Primary constructors preferred for DI
 - No implicit `new(...)`, always `new SomeType()`
 - Expression-bodied: properties yes, methods/constructors no
