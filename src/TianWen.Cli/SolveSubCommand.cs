@@ -338,8 +338,9 @@ internal sealed class SolveSubCommand(
         {
             ct.ThrowIfCancellationRequested();
             // PixelToSky returns RA in HOURS; export RA in degrees to match
-            // standard catalog conventions (and the ra_deg column name).
-            var sky = wcs?.PixelToSky(star.XCentroid + 1, star.YCentroid + 1);
+            // standard catalog conventions (and the ra_deg column name). The centroid is already in
+            // the frame the WCS answers in; there is nothing to add to it.
+            var sky = wcs?.PixelToSky(star.XCentroid, star.YCentroid);
             var raDeg = sky is { } s1 ? (double?)(s1.RA * 15.0) : null;
             var decDeg = sky?.Dec;
 

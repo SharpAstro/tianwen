@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
@@ -10,6 +12,7 @@ using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
+using TianWen.UI.Abstractions.Overlays;
 using Xunit;
 
 namespace TianWen.Lib.Tests
@@ -54,7 +57,15 @@ namespace TianWen.Lib.Tests
             protected override void RenderImageQuad(IPreviewSource? source, ViewerState state,
                 in DisplayRendition rendition, WCS? wcs,
                 float left, float top, float right, float bottom, uint projW, uint projH,
-                RenditionSlot slot, bool sampleBeforeChannels) { }
+                RenditionSlot slot, bool sampleBeforeChannels)
+                => ImageQuad = (left, top, right, bottom);
+
+            /// <summary>
+            /// The screen rectangle the picture was last asked to be drawn into. The GROUND TRUTH for
+            /// where a pixel is on screen: pixel i of a frame Width pixels wide occupies the i-th of
+            /// Width equal bands across it, whatever any projection helper says.
+            /// </summary>
+            public (float Left, float Top, float Right, float Bottom) ImageQuad { get; private set; }
 
             protected override void RenderHistogramQuad(StretchUniforms stretch, HistogramDisplay histogram,
                 ViewerState state, float left, float top, float right, float bottom, uint projW, uint projH) { }
@@ -63,7 +74,7 @@ namespace TianWen.Lib.Tests
                 float rotationRad, RGBAColor32 color, float thickness)
             {
                 Ellipses++;
-                DrawnEllipses.Add((semiMajor, semiMinor, rotationRad));
+                DrawnEllipses.Add(new DrawnEllipse(cx, cy, semiMajor, semiMinor, rotationRad));
             }
 
             protected override void DrawCrossOverlay(float cx, float cy, float armLength, RGBAColor32 color) { }
@@ -91,10 +102,15 @@ namespace TianWen.Lib.Tests
             /// <summary>
             /// Every ellipse this frame drew, in draw order. The COUNT answers "is it ringed"; the
             /// geometry is what answers "is it ringed with the object's own shape", which a count
-            /// cannot tell from a circle.
+            /// cannot tell from a circle; and the CENTRE is what answers "is it ringed where the
+            /// object's light actually is", which neither of the other two can see.
             /// </summary>
-            public List<(float SemiMajor, float SemiMinor, float AngleRad)> DrawnEllipses { get; } = [];
+            public List<DrawnEllipse> DrawnEllipses { get; } = [];
         }
+
+        /// <summary>One ellipse as the renderer was asked to draw it, in screen pixels.</summary>
+        private readonly record struct DrawnEllipse(
+            float Cx, float Cy, float SemiMajor, float SemiMinor, float AngleRad);
 
         /// <summary>A frame whose reference pixel is at its own centre, pointed at the given sky position.</summary>
         private static WCS CentredOn(double raHours, double decDeg) => new WCS(raHours, decDeg)
@@ -320,18 +336,24 @@ namespace TianWen.Lib.Tests
 
             viewer.Render(document, state);
 
-            // Where the object projects, in the frame's own 1-based pixels -- outside the raster.
+            // Where the object projects, in the frame's own pixel coordinates -- outside the raster.
             var wcs = document.Wcs.ShouldNotBeNull();
             var px = wcs.SkyToPixel(obj.RA, obj.Dec).ShouldNotBeNull();
-            (px.X < 1 || px.X > ImageW).ShouldBeTrue(
+            (px.X < -0.5 || px.X >= ImageW - 0.5).ShouldBeTrue(
                 $"the object has to be off the sensor for this to test anything (x={px.X:F1})");
 
-            // The same screen mapping the renderer's placement uses: origin, then scale, 0-based.
+            // Where the marker is drawn: the one mapping every overlay uses, over a layout whose
+            // origin is the centred uncropped frame, which is what the viewer's placement is here.
             var area = viewer.ImageArea;
-            var originX = area.X + ((area.Width - (ImageW * state.Zoom)) / 2f) + state.PanOffset.X;
-            var originY = area.Y + ((area.Height - (ImageH * state.Zoom)) / 2f) + state.PanOffset.Y;
-            var sx = originX + ((float)px.X - 1f) * state.Zoom;
-            var sy = originY + ((float)px.Y - 1f) * state.Zoom;
+            var layout = new ViewportLayout(
+                WindowWidth: WindowW, WindowHeight: WindowH,
+                ImageWidth: ImageW, ImageHeight: ImageH,
+                Zoom: state.Zoom, PanOffset: state.PanOffset,
+                AreaLeft: area.X, AreaTop: area.Y, AreaWidth: area.Width, AreaHeight: area.Height,
+                DpiScale: 1f);
+            var (sxd, syd) = WcsAnnotationLayer.ImageToScreen(px.X, px.Y, layout);
+            var sx = (float)sxd;
+            var sy = (float)syd;
 
             (sx >= area.X && sx < area.X + area.Width).ShouldBeTrue("the marker must be on screen");
 
@@ -488,8 +510,7 @@ namespace TianWen.Lib.Tests
         /// The selection's own pair out of the frame's ellipses: exactly two more than the baseline,
         /// and the LAST two, since the highlight draws after the picture's own markers.
         /// </summary>
-        private static ((float SemiMajor, float SemiMinor, float AngleRad) Inner,
-            (float SemiMajor, float SemiMinor, float AngleRad) Outer)
+        private static (DrawnEllipse Inner, DrawnEllipse Outer)
             SelectionRings(SelectionViewer viewer, int baseline)
         {
             var drawn = viewer.DrawnEllipses;
@@ -534,9 +555,9 @@ namespace TianWen.Lib.Tests
 
             var (inner, outer) = SelectionRings(viewer, baseline);
 
-            foreach (var (semiMajor, semiMinor, _) in new[] { inner, outer })
+            foreach (var ring in new[] { inner, outer })
             {
-                (semiMinor / semiMajor).ShouldBe((float)catalogueRatio, 0.01f,
+                (ring.SemiMinor / ring.SemiMajor).ShouldBe((float)catalogueRatio, 0.01f,
                     "each ring carries the object's OWN axis ratio, not a circle's");
             }
 
@@ -582,12 +603,255 @@ namespace TianWen.Lib.Tests
             viewer.Render(document, state);
 
             var (inner, outer) = SelectionRings(viewer, baseline);
-            foreach (var (semiMajor, semiMinor, angle) in new[] { inner, outer })
+            foreach (var ring in new[] { inner, outer })
             {
-                semiMinor.ShouldBe(semiMajor, 1e-3f,
+                ring.SemiMinor.ShouldBe(ring.SemiMajor, 1e-3f,
                     "a star's ring is a circle however elongated the shape hung off it is");
-                angle.ShouldBe(0f, 1e-6f, "and a circle has no position angle to carry");
+                ring.AngleRad.ShouldBe(0f, 1e-6f, "and a circle has no position angle to carry");
             }
+        }
+
+        // --- every WCS-drawn thing lands on the object's own LIGHT ---
+        //
+        // A catalogued object and the detected star at its position are one and the same, and a plate
+        // solve is what makes that true: the solver fits the WCS so that SkyToPixel(catalogue) IS the
+        // detected centroid, to a fraction of a pixel. So the overlay that draws the measured centroid
+        // (RenderStarOverlay) and every overlay that draws from the WCS -- the selection ring, the
+        // catalogue marker, the readout under the pointer -- have to agree on the screen point. Nothing
+        // below asserts a convention; each case asserts that two independent paths through one picture
+        // agree, which is the only form of this question a test can answer on its own.
+        //
+        // The bug these were written for: until 2026-09-11 every WCS consumer in the viewer carried a
+        // private copy of the pixel-to-screen arithmetic written when a WCS answered 1-based, and the
+        // 2026-09-05 fix that made it 0-based could not reach any of them. Measured here first: the
+        // ring 12 screen pixels off the star at 8:1, exactly 1.5 image pixels.
+
+        /// <summary>
+        /// A viewer at 8:1 over a frame whose one detected star sits exactly where the WCS projects
+        /// <paramref name="index"/>, which is what a solved frame means. The picture's own star circle
+        /// is then the ground truth every WCS-drawn thing is measured against.
+        /// </summary>
+        /// <remarks>
+        /// <b>8:1 so the answer is not a rounding.</b> The disagreement this exists for is a fixed number
+        /// of IMAGE pixels, so it scales with the zoom while every tolerance stays in screen pixels: at
+        /// 1:1 a pixel and a half is arguable, at 8:1 it is twelve screen pixels and two circles that do
+        /// not even touch.
+        /// </remarks>
+        private static async Task<(SelectionViewer Viewer, ViewerState State, AstroImageDocument Document,
+            CelestialObject Object, (double X, double Y) Pixel)> NewViewerWithAStarOnAsync(
+            RgbaImageRenderer renderer, CatalogIndex index, CancellationToken ct)
+        {
+            var (viewer, state, document, obj) = await NewViewerOnAsync(renderer, index, ct);
+            state.Zoom = 8f;
+
+            var wcs = document.Wcs.ShouldNotBeNull();
+            var px = wcs.SkyToPixel(obj.RA, obj.Dec).ShouldNotBeNull();
+            document.Stars = new StarList(new ConcurrentBag<ImagedStar>(
+            [
+                new ImagedStar(HFD: 4f, StarFWHM: 3f, SNR: 50f, Flux: 1000f,
+                    XCentroid: (float)px.X, YCentroid: (float)px.Y, Ellipticity: 0f)
+            ]));
+            return (viewer, state, document, obj, px);
+        }
+
+        /// <summary>
+        /// The picture's own circle for its one detected star, and how many ellipses a frame then holds
+        /// with nothing else drawn on it. Counted against a frame with the star overlay OFF rather than
+        /// assumed to be the only ellipse, since the picture draws some of its own.
+        /// </summary>
+        private static (DrawnEllipse Star, int Baseline) StarCircle(
+            SelectionViewer viewer, ViewerState state, AstroImageDocument document)
+        {
+            var heldSelection = state.SelectedObject;
+            var heldOverlays = state.ShowOverlays;
+            state.SelectedObject = null;
+            state.ShowOverlays = false;
+            state.ShowStarOverlay = false;
+            viewer.DrawnEllipses.Clear();
+            viewer.Render(document, state);
+            var baseline = viewer.DrawnEllipses.Count;
+
+            state.ShowStarOverlay = true;
+            viewer.DrawnEllipses.Clear();
+            viewer.Render(document, state);
+            viewer.DrawnEllipses.Count.ShouldBe(baseline + 1,
+                "the star overlay draws one circle for the one detected star");
+            var star = viewer.DrawnEllipses[^1];
+
+            state.SelectedObject = heldSelection;
+            state.ShowOverlays = heldOverlays;
+            return (star, baseline + 1);
+        }
+
+        /// <summary>
+        /// A star-typed selection of <paramref name="obj"/>: it rings as a circle, so a comparison is
+        /// of two centres rather than of two shapes.
+        /// </summary>
+        private static SkyMapInfoPanelData StarSelectionOf(CelestialObject obj)
+            => SkyMapInfoPanelData.FromPosition(
+                    obj.DisplayName, obj.RA, obj.Dec, double.NaN, double.NaN,
+                    DateTimeOffset.UnixEpoch, default)
+                with
+            { ObjType = ObjectType.Star };
+
+        private static void ShouldBeDrawnOn(DrawnEllipse drawn, DrawnEllipse star, string what)
+        {
+            drawn.Cx.ShouldBe(star.Cx, 0.01f, $"{what} names the star the picture shows, so it is drawn on it");
+            drawn.Cy.ShouldBe(star.Cy, 0.01f, $"{what} names the star the picture shows, so it is drawn on it");
+        }
+
+        /// <summary>
+        /// The star's circle sits in the middle of the star's own cell of the picture's quad -- the
+        /// one assertion here that is against the PICTURE and not against another overlay.
+        /// </summary>
+        /// <remarks>
+        /// Every other case in this group compares two overlays, which proves they agree and nothing
+        /// more: route them all through one wrong helper and they agree wrongly together. This one
+        /// takes the rectangle the renderer was asked to draw the picture into, divides it into the
+        /// frame's pixels, and asks that the star's circle be at the centre of the star's pixel.
+        /// Under an off-centre crop as well, because the quad still covers the whole frame and only
+        /// its origin moves.
+        /// </remarks>
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task TheStarCircleIsAtTheCentreOfItsPixelOnThePicturesOwnQuad(bool offCentreCrop)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _, px) = await NewViewerWithAStarOnAsync(renderer, CatalogIndex.NGC5194, ct);
+            if (offCentreCrop)
+            {
+                state.Zoom = 2f;
+                state.DisplayCrop = new System.Drawing.Rectangle(0, 0, 400, 300);
+            }
+
+            var (star, _) = StarCircle(viewer, state, document);
+            var quad = viewer.ImageQuad;
+
+            var cellW = (quad.Right - quad.Left) / ImageW;
+            var cellH = (quad.Bottom - quad.Top) / ImageH;
+            cellW.ShouldBe(state.Zoom, 1e-4f, "the quad is the whole frame at the zoom, crop or no crop");
+            star.Cx.ShouldBe(quad.Left + (((float)px.X + 0.5f) * cellW), 0.01f,
+                "the circle is drawn at the centre of the star's own cell of the picture");
+            star.Cy.ShouldBe(quad.Top + (((float)px.Y + 0.5f) * cellH), 0.01f,
+                "the circle is drawn at the centre of the star's own cell of the picture");
+        }
+
+        /// <summary>The selection ring, the first place the bug was measured.</summary>
+        [Fact]
+        public async Task TheRingIsDrawnWhereTheStarsLightIs()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, obj, _) = await NewViewerWithAStarOnAsync(renderer, CatalogIndex.NGC5194, ct);
+
+            var (star, baseline) = StarCircle(viewer, state, document);
+
+            state.SelectedObject = StarSelectionOf(obj);
+            viewer.DrawnEllipses.Clear();
+            viewer.Render(document, state);
+            var (inner, outer) = SelectionRings(viewer, baseline);
+
+            ShouldBeDrawnOn(inner, star, "the inner ring");
+            ShouldBeDrawnOn(outer, star, "the outer ring");
+        }
+
+        /// <summary>The catalogue overlay's own marker for the object, the same measurement.</summary>
+        /// <remarks>
+        /// The overlay draws every catalogued object in and beside the field, so the object's marker is
+        /// the ellipse drawn NEAREST the star. M51's nearest catalogued neighbour, NGC 5195, is 265
+        /// arcseconds away -- over a thousand screen pixels at this zoom -- so nearest is unambiguous.
+        /// Measured with the star overlay OFF, so the star's own circle cannot be the ellipse found.
+        /// </remarks>
+        [Fact]
+        public async Task TheCatalogueMarkerIsDrawnWhereTheStarsLightIs()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _, _) = await NewViewerWithAStarOnAsync(renderer, CatalogIndex.NGC5194, ct);
+
+            var (star, _) = StarCircle(viewer, state, document);
+
+            state.ShowStarOverlay = false;
+            state.ShowOverlays = true;
+            viewer.DrawnEllipses.Clear();
+            viewer.Render(document, state);
+
+            viewer.DrawnEllipses.ShouldNotBeEmpty("the overlay draws M51's marker as an ellipse");
+            var marker = viewer.DrawnEllipses.MinBy(e =>
+                ((e.Cx - star.Cx) * (e.Cx - star.Cx)) + ((e.Cy - star.Cy) * (e.Cy - star.Cy)));
+            ShouldBeDrawnOn(marker, star, "the object's own marker");
+        }
+
+        /// <summary>
+        /// The readout under the star names the star's pixel and reports the star's sky position.
+        /// </summary>
+        /// <remarks>
+        /// The pixel INDEX is the control: it was right before too. The sky position is the
+        /// measurement. The readout used to ask the WCS about the pixel one to the right and one
+        /// below, two arcseconds off on this plate, so the coordinates shown for a star were never
+        /// the star's.
+        /// </remarks>
+        [Fact]
+        public async Task TheReadoutUnderTheStarNamesItsPixelAndItsSky()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, obj, px) = await NewViewerWithAStarOnAsync(renderer, CatalogIndex.NGC5194, ct);
+
+            var (star, _) = StarCircle(viewer, state, document);
+
+            viewer.HandleInput(new InputEvent.MouseMove(star.Cx, star.Cy));
+
+            var at = state.CursorImagePosition.ShouldNotBeNull();
+            at.X.ShouldBe(WcsAnnotationLayer.PixelIndex(px.X));
+            at.Y.ShouldBe(WcsAnnotationLayer.PixelIndex(px.Y));
+            var info = state.CursorPixelInfo.ShouldNotBeNull();
+            info.RA.ShouldNotBeNull().ShouldBe(obj.RA, 1e-8,
+                "the star's own right ascension, not the next pixel's");
+            info.Dec.ShouldNotBeNull().ShouldBe(obj.Dec, 1e-7,
+                "the star's own declination, not the next pixel's");
+        }
+
+        /// <summary>
+        /// Under an off-centre display crop the ring and the readout still land on the star: every
+        /// overlay's origin is the placement the quad was DRAWN at, which carries the crop.
+        /// </summary>
+        /// <remarks>
+        /// Each overlay used to build its own layout from the zoom and the pan, which derives the
+        /// origin of the centred UNCROPPED frame, while the placement centres the crop. For a crop off
+        /// the frame's centre the two differ by the crop's own offset -- here 100 image pixels in x and
+        /// 50 in y -- so a marker drawn through the derived origin sat that far from its object the
+        /// moment an off-centre auto-crop was on. Centred crops hid it, which is most of them. At 2:1
+        /// rather than 8:1 so the star stays inside the pane with no pan; the offset is still hundreds
+        /// of screen pixels and the half-pixel term still three.
+        /// </remarks>
+        [Fact]
+        public async Task UnderAnOffCentreCropEveryOverlayStillLandsOnTheStar()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, obj, px) = await NewViewerWithAStarOnAsync(renderer, CatalogIndex.NGC5194, ct);
+
+            // The left 400 by 300 of a 600 by 400 frame: the star at the frame's centre is inside it,
+            // 100 pixels right of and 50 below the crop's own centre.
+            state.Zoom = 2f;
+            state.DisplayCrop = new System.Drawing.Rectangle(0, 0, 400, 300);
+
+            var (star, baseline) = StarCircle(viewer, state, document);
+
+            state.SelectedObject = StarSelectionOf(obj);
+            viewer.DrawnEllipses.Clear();
+            viewer.Render(document, state);
+            var (inner, outer) = SelectionRings(viewer, baseline);
+            ShouldBeDrawnOn(inner, star, "the inner ring");
+            ShouldBeDrawnOn(outer, star, "the outer ring");
+
+            viewer.HandleInput(new InputEvent.MouseMove(star.Cx, star.Cy));
+            var at = state.CursorImagePosition.ShouldNotBeNull();
+            at.X.ShouldBe(WcsAnnotationLayer.PixelIndex(px.X), "the readout names the star's pixel, crop or no crop");
+            at.Y.ShouldBe(WcsAnnotationLayer.PixelIndex(px.Y));
         }
 
         // --- the floating panel's Alt/Az and rise/transit/set are baked in at the CAPTURE instant ---

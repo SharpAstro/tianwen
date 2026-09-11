@@ -127,8 +127,9 @@ public static class SkyBackdropView
 
     /// <summary>
     /// How far one image position lies from the frame's tangent point, in degrees. NaN when the frame
-    /// carries no usable scale or reference. Takes the position in the 1-BASED convention
-    /// <see cref="WCS.SkyToPixel"/> answers in, like every other pixel coordinate here.
+    /// carries no usable scale or reference. Takes the position in the frame's own pixel coordinates,
+    /// the 0-based centroid frame <see cref="WCS.SkyToPixel"/> answers in, like every other pixel
+    /// coordinate here.
     /// </summary>
     /// <remarks>
     /// The single-point form of <see cref="MaxTangentAngleDeg"/>, which is written in terms of it --
@@ -271,6 +272,9 @@ public static class SkyBackdropView
         double pixelX, double pixelY,
         double paneCentreX, double paneCentreY, double pixelsPerRadian)
     {
+        // The centre of pixel i is i in the frame and half a cell in on screen: the rule
+        // WcsAnnotationLayer.ImageToScreen states once, restated here only because this solver takes
+        // the placement directly rather than a ViewportLayout.
         var screenX = imageOriginX + (pixelX + 0.5) * scale;
         var screenY = imageOriginY + (pixelY + 0.5) * scale;
 

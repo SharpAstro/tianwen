@@ -26,7 +26,16 @@ public readonly record struct ViewportLayout(
     /// <summary>Height of the image area in screen pixels.</summary>
     float AreaHeight,
     /// <summary>DPI scale factor (1.0 on non-HiDPI displays).</summary>
-    float DpiScale
+    float DpiScale,
+    /// <summary>
+    /// Where the picture's top-left corner was actually DRAWN, in screen pixels -- the viewer's own
+    /// placement, which carries the display crop -- or null to derive it from the area, zoom and pan
+    /// as a centred, uncropped frame. The viewer always passes it: a crop shifts the quad by its
+    /// offset, and a layout that re-derives the origin from the pan alone puts every overlay on the
+    /// uncropped frame's geometry instead of the one on screen. The derived form is for callers with
+    /// no placement to read.
+    /// </summary>
+    (float X, float Y)? ImageOrigin = null
 )
 {
     /// <summary>Computed drawn image width on screen.</summary>
@@ -35,9 +44,18 @@ public readonly record struct ViewportLayout(
     /// <summary>Computed drawn image height on screen.</summary>
     public readonly float DrawHeight => ImageHeight * Zoom;
 
-    /// <summary>X offset where the image starts on screen.</summary>
-    public readonly float ImageOffsetX => AreaLeft + (AreaWidth - DrawWidth) / 2f + PanOffset.X;
+    /// <summary>
+    /// Screen x of the picture's left edge: the placement when the host passed one, the centred
+    /// uncropped geometry otherwise. Pixel 0 of the frame spans <c>[ImageOffsetX, ImageOffsetX + Zoom)</c>;
+    /// the mapping from a frame coordinate to a screen one is <see cref="WcsAnnotationLayer.ImageToScreen"/>
+    /// and nothing else.
+    /// </summary>
+    public readonly float ImageOffsetX => ImageOrigin is { } origin
+        ? origin.X
+        : AreaLeft + (AreaWidth - DrawWidth) / 2f + PanOffset.X;
 
-    /// <summary>Y offset where the image starts on screen.</summary>
-    public readonly float ImageOffsetY => AreaTop + (AreaHeight - DrawHeight) / 2f + PanOffset.Y;
+    /// <summary>Screen y of the picture's top edge. See <see cref="ImageOffsetX"/>.</summary>
+    public readonly float ImageOffsetY => ImageOrigin is { } origin
+        ? origin.Y
+        : AreaTop + (AreaHeight - DrawHeight) / 2f + PanOffset.Y;
 }

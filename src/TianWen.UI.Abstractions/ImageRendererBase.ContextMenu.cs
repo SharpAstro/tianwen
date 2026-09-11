@@ -199,10 +199,9 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         private PixelInfo? ResolveSkyPixelAt(ViewerState state, float px, float py)
         {
-            var area = _layout.ImageArea;
+            var layout = CurrentViewportLayout(state);
 
-            ViewerActions.UpdateCursorFromScreenPosition(
-                _document, state, px, py, area.X, area.Y, area.Width, area.Height);
+            ViewerActions.UpdateCursorFromScreenPosition(_document, state, px, py, layout);
 
             if (_document is { } document && state.CursorImagePosition is { } at)
             {
@@ -214,23 +213,20 @@ namespace TianWen.UI.Abstractions
                 return reported;
             }
 
-            // Off the raster: the frame's own placement back into its pixel grid, then the WCS. Through
-            // _placement rather than re-deriving from Zoom and PanOffset, because that is what the
-            // image quad was actually drawn with -- it carries the crop, which the readout's own
-            // arithmetic does not have to.
+            // Off the raster: the screen position back into the frame's pixel grid through the same
+            // layout every overlay draws with -- its origin is the placement the quad was actually
+            // drawn at, so the crop is carried -- and then the WCS.
             if (_document?.Wcs is not { HasCDMatrix: true } wcs)
             {
                 return null;
             }
 
-            var p = _placement;
-            if (p.Scale <= 0f)
+            if (layout.Zoom <= 0f)
             {
                 return null;
             }
 
-            var imageX = ((px - p.OffsetX) / p.Scale) + 1.0;
-            var imageY = ((py - p.OffsetY) / p.Scale) + 1.0;
+            var (imageX, imageY) = WcsAnnotationLayer.ScreenToImage(px, py, layout);
 
             var angle = SkyBackdropView.TangentAngleDeg(in wcs, imageX, imageY);
             if (!(angle <= MaxOffFrameClickAngleDeg))
@@ -247,7 +243,7 @@ namespace TianWen.UI.Abstractions
             // The pixel indices are reported in the readout's own 0-based convention for consistency,
             // and are deliberately outside the raster: nothing may sample them, and the empty value
             // array is what says so.
-            return new PixelInfo((int)Math.Floor(imageX - 1.0), (int)Math.Floor(imageY - 1.0),
+            return new PixelInfo(WcsAnnotationLayer.PixelIndex(imageX), WcsAnnotationLayer.PixelIndex(imageY),
                 [], sky.RA, sky.Dec);
         }
 

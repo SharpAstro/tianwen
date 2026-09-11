@@ -945,9 +945,8 @@ namespace TianWen.UI.Abstractions
 
             // Only redraw when cursor moves to a different image pixel
             var prevPos = state.CursorImagePosition;
-            // Image-area pane rect (origin + size) from the single layout pass.
-            var area = _layout.ImageArea;
-            ViewerActions.UpdateCursorFromScreenPosition(_document, state, px, py, area.X, area.Y, area.Width, area.Height);
+            // The pane and the placement, both from the single layout pass.
+            ViewerActions.UpdateCursorFromScreenPosition(_document, state, px, py, CurrentViewportLayout(state));
             if (state.CursorImagePosition == prevPos)
             {
                 return false;

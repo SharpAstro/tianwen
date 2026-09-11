@@ -91,7 +91,8 @@ public static class PlateSolveAnnotator
             // Detected centroid -- green circle.
             DrawCircle(renderer, star.XCentroid, star.YCentroid, DetectedRadiusPx, DetectedColor);
 
-            var sky = wcs.PixelToSky(star.XCentroid + 1, star.YCentroid + 1);
+            // A centroid is already in the frame the WCS answers in; there is nothing to add to it.
+            var sky = wcs.PixelToSky(star.XCentroid, star.YCentroid);
             if (sky is not { } pos) continue;
 
             // Find the nearest catalog candidate within the search radius and

@@ -1356,6 +1356,60 @@ is re-derived at whatever pixel CRPIX names, so that is a one-pixel shift in wha
 `CenterDec` mean (about a plate scale of arcseconds), left alone deliberately rather than moving every
 solve. Pinned by `WcsPixelOriginTests`; the Gaia tooling refuses a solved file without the marker.
 
+### ...and the viewer kept ten private copies of the old conversion (2026-09-11)
+
+The boundary fix changed what `SkyToPixel` and `PixelToSky` mean, and could not reach anything that had
+compensated locally. Everything downstream of a WCS in the viewer had. `OverlayEngine` drew a catalogue
+marker at `origin + (px.X - 1) * zoom`; the grid's labels and the selection ring did the same; the
+annotation layer used `+ 0`; the hover readout asked `PixelToSky(x + 1, y + 1)`; the off-raster click
+added one before asking; and in `TianWen.Lib`, SPCC's matcher, the plate-solve annotator and `solve`'s
+star export all asked `PixelToSky(centroid + 1)`. The GPU grid in `image.frag` added one in three
+places. All written between March and May 2026, all correct on the day, all a whole pixel wrong from
+2026-09-05 -- and none visible to a test, because `Tycho2MatchStarsTests` placed its synthetic
+detections at `px - 1` "since MatchStars adds +1", so the suite stayed green with the bias in.
+
+**What a pixel coordinate is on screen.** The picture is a quad `Width * zoom` wide from the placement's
+origin, so pixel `i` covers `[origin + i * zoom, origin + (i + 1) * zoom)`. A frame coordinate puts the
+centre of pixel `i` at `i`. On screen that centre is `origin + (i + 0.5) * zoom`: half a cell in, never
+a whole one out. Two paths had it right all along (`RenderStarOverlay`, `SkyBackdropView.CameraDirection`),
+which is what made the bug measurable without an argument about conventions: a plate solve fits the WCS
+so that `SkyToPixel(catalogue)` IS the detected centroid, so the star overlay's circle and the selection
+ring for the same star have to be drawn at one point. At 8:1 they were 12 screen pixels apart -- 1.5
+image pixels, the stale minus one plus the missing half. Dropping the minus one on its own would have
+left the ring 1.5 px from the marker it sits on, which is why the ring shipped keeping it.
+
+**The fix is one rule in one place, and one origin.** `WcsAnnotationLayer.ImageToScreen` (`+ 0.5`) and
+`ScreenToImage` (`- 0.5`) are the only two conversions, `IsOnImage` and `PixelIndex` the only bounds and
+rounding, and `wcsPixel` in `image.frag` the shader's statement of the same expression (re-baked). Every
+consumer above routes through them and the private arithmetic is gone. The origin those functions read
+is `ViewportLayout.ImageOrigin`, which `ImageRendererBase.CurrentViewportLayout` sets from the placement
+the quad was drawn with. Three overlays and the readout used to re-derive it from `Zoom` and
+`PanOffset`, which is the geometry of the centred UNCROPPED frame, so under an off-centre display crop
+each sat the crop's own offset away from the picture (100 image pixels on the test's crop; centred crops,
+which most auto-crops nearly are, hid it).
+
+**Pinned against the picture, not against the rule.** `ViewerObjectSelectionTests`: the star circle at
+the centre of its pixel on the quad the renderer was asked to draw (the one assertion against the
+picture itself; drop the half pixel from the helper and exactly that, the unit rule and one marker pin
+fail, 5 of 198), the ring, the catalogue marker and both readouts on the star, and the same under the
+off-centre crop (put a private `- 1` back on the ring and exactly those two fail, 2 of 172).
+`WcsAnnotationLayerTests` carries the unit rule; `Tycho2MatchStarsTests` now places its detections where
+it projects them.
+
+**SPCC, measured on a real master rather than argued.** The 10P/Tempel drizzle master (4114 x 2711,
+4.718 arcsec/px, 1,746 detections), matcher with its `+ 1` and without, same file, same catalogue:
+
+| | matched | probe median | effective radius |
+|---|---|---|---|
+| `PixelToSky(centroid + 1)` (before) | 558 | 4.912 arcsec | widened to 5.843 arcsec |
+| `PixelToSky(centroid)` (after) | 576 | 0.198 arcsec | the caller's 5.000 arcsec |
+
+The old query position sat a full plate scale from every star, so the probe pass measured that
+displacement instead of the solve's residual and widened the tolerance to absorb it, spending most of
+the 5 arcsec radius on a bias -- which is how a close pair could hand a detection the wrong star. The
+matched set itself says which position is the star's: over the 576 matches the residual at the
+centroid is 0.68 arcsec and at `centroid + 1` it is 7.04, on both runs.
+
 ### The header hint: `OBJCTRA`/`OBJCTDEC` first, and `RA`/`DEC` is NOT the frame centre
 
 `RA`/`DEC` is the position the *mount reported*; `OBJCTRA`/`OBJCTDEC` is the target the framing put on

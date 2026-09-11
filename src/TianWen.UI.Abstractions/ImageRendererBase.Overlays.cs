@@ -30,6 +30,34 @@ namespace TianWen.UI.Abstractions
         ];
 
         /// <summary>
+        /// The viewport every overlay draws into, from the same placement the picture was drawn with.
+        /// </summary>
+        /// <remarks>
+        /// The origin is the placement's rather than re-derived from the pan, so a display crop moves
+        /// the overlays with the quad; before this each overlay built its own layout from
+        /// <c>Zoom</c> and <c>PanOffset</c>, which is the uncropped frame's geometry. One builder, so
+        /// the markers, the grid, the ring, the star circles and both readouts cannot disagree about
+        /// where pixel (0, 0) is.
+        /// </remarks>
+        private ViewportLayout CurrentViewportLayout(ViewerState state)
+        {
+            var area = _layout.ImageArea;
+            return new ViewportLayout(
+                WindowWidth: Width,
+                WindowHeight: Height,
+                ImageWidth: ImageWidth,
+                ImageHeight: ImageHeight,
+                Zoom: state.Zoom,
+                PanOffset: state.PanOffset,
+                AreaLeft: area.X,
+                AreaTop: area.Y,
+                AreaWidth: area.Width,
+                AreaHeight: area.Height,
+                DpiScale: DpiScale,
+                ImageOrigin: (_placement.OffsetX, _placement.OffsetY));
+        }
+
+        /// <summary>
         /// Renders RA/Dec labels at grid line intersections with image edges.
         /// The grid lines themselves are drawn by the GPU shader.
         /// </summary>
@@ -43,14 +71,19 @@ namespace TianWen.UI.Abstractions
             // All geometry from the single layout pass (arranged image-pane rect + image placement).
             var area = _layout.ImageArea;
             var scale = _placement.Scale;
-            var imgOffsetX = _placement.OffsetX;
-            var imgOffsetY = _placement.OffsetY;
+            var layout = CurrentViewportLayout(state);
 
-            // Visible image pixel bounds (1-based FITS coordinates), clamped to the image-area pane.
-            var visLeft = Math.Max(1.0, (area.X - imgOffsetX) / scale + 1);
-            var visRight = Math.Min((double)ImageWidth, (area.X + area.Width - imgOffsetX) / scale + 1);
-            var visTop = Math.Max(1.0, (area.Y - imgOffsetY) / scale + 1);
-            var visBottom = Math.Min((double)ImageHeight, (area.Y + area.Height - imgOffsetY) / scale + 1);
+            // The visible part of the sensor in the frame's own pixel coordinates: the pane's edges
+            // brought into the frame and clamped to the raster, which runs from -0.5 to Width - 0.5
+            // because the centre of pixel i is i. Labels are then placed where a grid line leaves the
+            // PICTURE, which is where the shader stops drawing it.
+            var (paneLeftPx, paneTopPx) = WcsAnnotationLayer.ScreenToImage(area.X, area.Y, layout);
+            var (paneRightPx, paneBottomPx) = WcsAnnotationLayer.ScreenToImage(
+                area.X + area.Width, area.Y + area.Height, layout);
+            var visLeft = Math.Max(-0.5, paneLeftPx);
+            var visRight = Math.Min(ImageWidth - 0.5, paneRightPx);
+            var visTop = Math.Max(-0.5, paneTopPx);
+            var visBottom = Math.Min(ImageHeight - 0.5, paneBottomPx);
 
             if (visLeft >= visRight || visTop >= visBottom)
             {
@@ -147,10 +180,12 @@ namespace TianWen.UI.Abstractions
                 var showDec = isHoriz != raOnHorizEdges;
                 var isFirstEdge = isHoriz ? (y0 <= visTop + 1) : (x0 <= visLeft + 1);
 
-                var edgeStartX = imgOffsetX + (float)(x0 - 1) * scale;
-                var edgeStartY = imgOffsetY + (float)(y0 - 1) * scale;
-                var edgeEndX = imgOffsetX + (float)(x1 - 1) * scale;
-                var edgeEndY = imgOffsetY + (float)(y1 - 1) * scale;
+                var (edgeStartXd, edgeStartYd) = WcsAnnotationLayer.ImageToScreen(x0, y0, layout);
+                var (edgeEndXd, edgeEndYd) = WcsAnnotationLayer.ImageToScreen(x1, y1, layout);
+                var edgeStartX = (float)edgeStartXd;
+                var edgeStartY = (float)edgeStartYd;
+                var edgeEndX = (float)edgeEndXd;
+                var edgeEndY = (float)edgeEndYd;
 
                 double prevRA = double.NaN, prevDec = double.NaN;
                 float prevScreenX = 0, prevScreenY = 0;
@@ -168,8 +203,9 @@ namespace TianWen.UI.Abstractions
                         continue;
                     }
 
-                    var screenX = imgOffsetX + (float)(px - 1) * scale;
-                    var screenY = imgOffsetY + (float)(py - 1) * scale;
+                    var (screenXd, screenYd) = WcsAnnotationLayer.ImageToScreen(px, py, layout);
+                    var screenX = (float)screenXd;
+                    var screenY = (float)screenYd;
 
                     if (!double.IsNaN(prevRA))
                     {
@@ -300,8 +336,7 @@ namespace TianWen.UI.Abstractions
         {
             // Geometry from the single layout pass -- consistent with the rendered image by construction.
             var area = _layout.ImageArea;
-            var offsetX = _placement.OffsetX;
-            var offsetY = _placement.OffsetY;
+            var layout = CurrentViewportLayout(state);
 
             var clipLeft = area.X;
             var clipTop = area.Y;
@@ -310,8 +345,10 @@ namespace TianWen.UI.Abstractions
 
             foreach (var star in stars)
             {
-                var cx = offsetX + (star.XCentroid + 0.5f) * state.Zoom;
-                var cy = offsetY + (star.YCentroid + 0.5f) * state.Zoom;
+                // A centroid is in the same frame a WCS answers in, so it takes the same mapping.
+                var (sx, sy) = WcsAnnotationLayer.ImageToScreen(star.XCentroid, star.YCentroid, layout);
+                var cx = (float)sx;
+                var cy = (float)sy;
                 var radius = MathF.Max(star.HFD * 0.5f * state.Zoom, 6f);
 
                 if (cx + radius < clipLeft || cx - radius > clipRight ||
@@ -337,22 +374,7 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            // Image-area pane rect from the single layout pass.
-            var area = _layout.ImageArea;
-
-            var layout = new ViewportLayout(
-                WindowWidth: Width,
-                WindowHeight: Height,
-                ImageWidth: ImageWidth,
-                ImageHeight: ImageHeight,
-                Zoom: state.Zoom,
-                PanOffset: state.PanOffset,
-                AreaLeft: area.X,
-                AreaTop: area.Y,
-                AreaWidth: area.Width,
-                AreaHeight: area.Height,
-                DpiScale: DpiScale
-            );
+            var layout = CurrentViewportLayout(state);
 
             var items = OverlayEngine.ComputeOverlays(layout, wcs, db, MeasureText, BaseFontSize);
             if (items.Count == 0)
@@ -410,21 +432,7 @@ namespace TianWen.UI.Abstractions
         {
             if (ImageWidth <= 0 || ImageHeight <= 0) return;
 
-            // Image-area pane rect from the single layout pass.
-            var area = _layout.ImageArea;
-
-            var layout = new ViewportLayout(
-                WindowWidth: Width,
-                WindowHeight: Height,
-                ImageWidth: ImageWidth,
-                ImageHeight: ImageHeight,
-                Zoom: state.Zoom,
-                PanOffset: state.PanOffset,
-                AreaLeft: area.X,
-                AreaTop: area.Y,
-                AreaWidth: area.Width,
-                AreaHeight: area.Height,
-                DpiScale: DpiScale);
+            var layout = CurrentViewportLayout(state);
 
             var labelSize = FontSize * 0.85f;
             var labelPad = 4f;
@@ -583,23 +591,11 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var area = _layout.ImageArea;
-            var layout = new ViewportLayout(
-                WindowWidth: Width,
-                WindowHeight: Height,
-                ImageWidth: ImageWidth,
-                ImageHeight: ImageHeight,
-                Zoom: state.Zoom,
-                PanOffset: state.PanOffset,
-                AreaLeft: area.X,
-                AreaTop: area.Y,
-                AreaWidth: area.Width,
-                AreaHeight: area.Height,
-                DpiScale: DpiScale);
+            var layout = CurrentViewportLayout(state);
 
-            // SkyToPixel answers in the 1-based FITS convention and ImageToScreen takes 0-based, the
-            // same subtraction OverlayEngine makes at its own projection.
-            var (sx, sy) = WcsAnnotationLayer.ImageToScreen(px.X - 1, px.Y - 1, layout);
+            // Through the one mapping every WCS-drawn thing uses, so the ring lands on the object's
+            // marker AND on the object's light -- the second is what the test measures.
+            var (sx, sy) = WcsAnnotationLayer.ImageToScreen(px.X, px.Y, layout);
             var screenX = (float)sx;
             var screenY = (float)sy;
 

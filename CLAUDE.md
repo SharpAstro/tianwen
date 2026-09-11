@@ -476,6 +476,20 @@ absorbing. A TianWen master from before the marker (`STACK_N` or a `TianWen.` SW
 is undetectable and reads one pixel off until re-solved. Subtracting one from `SkyToPixel` in memory
 injects the same bias the other way ((+0.91, +0.89) measured on Vela). Pinned by `WcsPixelOriginTests`.
 
+**And on SCREEN a frame coordinate lands at `origin + (x + 0.5) * zoom`, through
+`WcsAnnotationLayer.ImageToScreen` / `ScreenToImage` and nothing else** (the GPU grid's `wcsPixel` in
+`image.frag` is the shader half of the same rule; re-bake if it moves). The centre of pixel `i` is `i` in
+the frame and the middle of the `i`-th zoomed cell on screen. The 2026-09-05 fix could not reach the
+viewer: ten consumers (catalogue markers, the grid and its labels, the selection ring, the annotation
+layer, both readouts, SPCC's matcher, the annotator, the CLI star export) each carried a private `-1` /
+`+1` from the 1-based days and lived on for six days, measured as the selection ring 12 screen px off
+the star it named at 8:1, exactly 1.5 image px, while `Tycho2MatchStarsTests` placed its synthetic
+detections a pixel back to compensate. **The origin is the placement, never re-derived from the pan**
+(`ViewportLayout.ImageOrigin`, built once in `ImageRendererBase.CurrentViewportLayout`), so a display
+crop moves every overlay with the quad. Pinned against the PICTURE, not the rule, by
+`ViewerObjectSelectionTests.TheStarCircleIsAtTheCentreOfItsPixelOnThePicturesOwnQuad`; the story in
+[docs/plans/plate-solver-performance.md](docs/plans/plate-solver-performance.md).
+
 **`MinSampledFwhmPx` (2.0) re-detects at full resolution when a bin's median `StarFWHM` lands under
 it** -- binning is proposed by the plate scale and vetoed by the measured star width, since a scale
 gate cannot see seeing. It only ever un-does a bin (one wasted pass on the cheap raster); never infer

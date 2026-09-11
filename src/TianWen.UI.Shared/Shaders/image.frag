@@ -127,6 +127,17 @@ vec2 pixelToSky(vec2 pixel) {
     return vec2(ra, dec);
 }
 
+// Where a fragment is in the frame's own pixel coordinates: the 0-based centroid frame every WCS
+// number is in (crPix included), in which the centre of pixel i is i. A texture coordinate u puts
+// the fragment at u * width along the quad, whose pixel i spans [i, i + 1), so the same position is
+// half a pixel earlier in the centroid frame. This is the GPU half of the rule the CPU states once
+// in WcsAnnotationLayer.ImageToScreen, and the two must keep agreeing: the CPU draws the grid's
+// labels where its lines meet the edge of the picture. It used to add ONE instead, from the days a
+// WCS carried its header's 1-based CRPIX verbatim, which put the whole grid 1.5 pixels off the sky.
+vec2 wcsPixel(vec2 uv) {
+    return uv * ubo.imageSize - 0.5;
+}
+
 float gridIntensity(vec2 pixel) {
     vec2 sky = pixelToSky(pixel);
     float ra  = sky.x;
@@ -447,9 +458,7 @@ void main() {
     // instead of stopping at its edge. Every sample outside a grid line is transparent (the pipeline
     // blends), so nothing else on the pane is disturbed.
     if (ubo.gridEnabled == 2) {
-        vec2 gridPixel = vec2(vTexCoord.x * ubo.imageSize.x + 1.0,
-                              vTexCoord.y * ubo.imageSize.y + 1.0);
-        float gridOnly = gridIntensity(gridPixel);
+        float gridOnly = gridIntensity(wcsPixel(vTexCoord));
         FragColor = vec4(ubo.gridColor.rgb, gridOnly * ubo.gridColor.a);
         return;
     }
@@ -500,9 +509,7 @@ void main() {
         }
         r = clamp(r, 0.0, 1.0);
         if (ubo.gridEnabled != 0) {
-            vec2 pixel = vec2(vTexCoord.x * ubo.imageSize.x + 1.0,
-                             vTexCoord.y * ubo.imageSize.y + 1.0);
-            float grid = gridIntensity(pixel);
+            float grid = gridIntensity(wcsPixel(vTexCoord));
             vec3 gridColor = vec3(0.0, 0.8, 0.0);
             FragColor = vec4(
                 mix(r, gridColor.r, grid * 0.45),
@@ -601,9 +608,7 @@ void main() {
     }
 
     if (ubo.gridEnabled != 0) {
-        vec2 pixel = vec2(vTexCoord.x * ubo.imageSize.x + 1.0,
-                         vTexCoord.y * ubo.imageSize.y + 1.0);
-        float grid = gridIntensity(pixel);
+        float grid = gridIntensity(wcsPixel(vTexCoord));
         float gridA = grid * ubo.gridColor.a;
         r = mix(r, ubo.gridColor.r, gridA);
         g = mix(g, ubo.gridColor.g, gridA);
