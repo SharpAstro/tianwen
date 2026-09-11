@@ -548,16 +548,16 @@ public static class OverlayEngine
         }
 
         var scale = layout.Zoom;
-        var imgOffsetX = layout.ImageOffsetX;
-        var imgOffsetY = layout.ImageOffsetY;
 
         // Use the full image extent for RA/Dec query (matching the WCS grid),
         // so overlays are found for all objects on the image regardless of pan position.
         // Off-screen culling below still clips to the visible viewport for rendering.
-        var visLeft = 1.0;
-        var visRight = (double)layout.ImageWidth;
-        var visTop = 1.0;
-        var visBottom = (double)layout.ImageHeight;
+        // In the frame's own pixel coordinates, where the centre of pixel i is i and the raster
+        // therefore runs from -0.5 to Width - 0.5.
+        var visLeft = -0.5;
+        var visRight = layout.ImageWidth - 0.5;
+        var visTop = -0.5;
+        var visBottom = layout.ImageHeight - 0.5;
 
         // Compute FOV for zoom-dependent filtering
         var pixelScaleArcsec = wcs.PixelScaleArcsec;
@@ -702,9 +702,11 @@ public static class OverlayEngine
                         continue;
                     }
 
-                    // Convert to screen coordinates
-                    var screenX = imgOffsetX + (float)(px.X - 1) * scale;
-                    var screenY = imgOffsetY + (float)(px.Y - 1) * scale;
+                    // Convert to screen coordinates through the one mapping every WCS-drawn thing
+                    // uses, so the marker lands where the picture shows the object.
+                    var (screenXd, screenYd) = WcsAnnotationLayer.ImageToScreen(px.X, px.Y, layout);
+                    var screenX = (float)screenXd;
+                    var screenY = (float)screenYd;
 
                     // Skip if off-screen: margin based on actual object extent
                     var margin = 100f;
@@ -719,11 +721,9 @@ public static class OverlayEngine
                         continue;
                     }
 
-                    // Inside the sensor's own raster, in the 1-based pixel convention SkyToPixel
-                    // answers in. This is what separates an object the frame CONTAINS from one merely
-                    // drawn beside it on the sky behind.
-                    var inFrame = px.X >= 1 && px.X <= layout.ImageWidth
-                        && px.Y >= 1 && px.Y <= layout.ImageHeight;
+                    // Inside the sensor's own raster. This is what separates an object the frame
+                    // CONTAINS from one merely drawn beside it on the sky behind.
+                    var inFrame = WcsAnnotationLayer.IsOnImage(px.X, px.Y, layout);
                     candidates.Add((idx, obj, screenX, screenY, inFrame));
                 }
             }

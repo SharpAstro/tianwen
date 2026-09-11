@@ -82,19 +82,63 @@ namespace TianWen.UI.Abstractions.Overlays
                 IsEndOnScreen: IsOnImage(endPx.X, endPx.Y, layout));
         }
 
-        /// <summary>Map an image-pixel position to screen pixels via the layout.</summary>
+        /// <summary>
+        /// Where a position in the frame's own pixel coordinates lands on screen. <b>The one
+        /// definition of that mapping</b>: every marker, ring, grid line, readout and hit-test in the
+        /// viewer goes through this or its inverse, <see cref="ScreenToImage"/>, and none re-derives it.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Half a pixel, and why.</b> A pixel coordinate in TianWen's in-memory frame -- a
+        /// <see cref="WCS.SkyToPixel"/> answer, a detected centroid, <see cref="WCS.CRPix1"/> -- puts
+        /// the CENTRE of pixel <c>[y, x]</c> at <c>(x, y)</c>. The picture is drawn as a quad whose
+        /// pixel <c>i</c> covers the screen band <c>[origin + i * zoom, origin + (i + 1) * zoom)</c>,
+        /// so the centre of that same pixel is half a cell further along. The star overlay and the sky
+        /// backdrop's solver always had this right; the catalogue overlay, the grid, the selection ring
+        /// and this helper did not.</para>
+        /// <para><b>The history, so the trap is recognisable.</b> Until 2026-09-05 a <see cref="WCS"/>
+        /// carried its header's 1-based CRPIX verbatim, and every consumer compensated locally: minus
+        /// one on the way to the screen, plus one on the way into <see cref="WCS.PixelToSky"/>. The
+        /// fix moved the conversion to the FITS boundary and left the WCS 0-based in memory, which
+        /// made every one of those local compensations wrong by a whole pixel -- and they lived on,
+        /// because each was a private line of arithmetic with no single place to correct. Measured on
+        /// the selection ring against the detected star it named: 12 screen pixels apart at 8:1,
+        /// exactly 1.5 image pixels, the stale minus one plus the missing half. Pinned by
+        /// <c>ViewerObjectSelectionTests.TheRingIsDrawnWhereTheStarsLightIs</c> against the PICTURE
+        /// rather than against this rule, so a rewrite has to keep landing the ring on the star. The
+        /// GPU grid in <c>image.frag</c> (<c>wcsPixel</c>) is the shader half of the same rule.</para>
+        /// </remarks>
         public static (double X, double Y) ImageToScreen(double imgX, double imgY, in ViewportLayout layout)
         {
-            // ViewportLayout puts the image origin (0, 0) at (ImageOffsetX, ImageOffsetY)
-            // on screen, then scales by Zoom.
-            double sx = layout.ImageOffsetX + imgX * layout.Zoom;
-            double sy = layout.ImageOffsetY + imgY * layout.Zoom;
+            double sx = layout.ImageOffsetX + ((imgX + 0.5) * layout.Zoom);
+            double sy = layout.ImageOffsetY + ((imgY + 0.5) * layout.Zoom);
             return (sx, sy);
         }
 
-        private static bool IsOnImage(double imgX, double imgY, in ViewportLayout layout) =>
-            imgX >= 0 && imgX <= layout.ImageWidth &&
-            imgY >= 0 && imgY <= layout.ImageHeight;
+        /// <summary>
+        /// The inverse of <see cref="ImageToScreen"/>: the frame pixel coordinate under a screen
+        /// position, continuous, in the centroid frame <see cref="WCS.PixelToSky"/> takes. It keeps
+        /// answering outside the sensor, which is what a click beside the picture needs.
+        /// </summary>
+        public static (double X, double Y) ScreenToImage(double screenX, double screenY, in ViewportLayout layout)
+        {
+            double ix = ((screenX - layout.ImageOffsetX) / layout.Zoom) - 0.5;
+            double iy = ((screenY - layout.ImageOffsetY) / layout.Zoom) - 0.5;
+            return (ix, iy);
+        }
+
+        /// <summary>
+        /// The index of the pixel a continuous frame coordinate falls in: pixel <c>i</c> owns
+        /// <c>[i - 0.5, i + 0.5)</c>, so this is the nearest integer with a tie going up.
+        /// </summary>
+        public static int PixelIndex(double imageCoord) => (int)Math.Floor(imageCoord + 0.5);
+
+        /// <summary>
+        /// Whether a frame coordinate is inside the sensor's own raster: pixel 0 begins at -0.5 and the
+        /// last pixel ends at <c>ImageWidth - 0.5</c>, the same bands <see cref="PixelIndex"/> resolves.
+        /// </summary>
+        public static bool IsOnImage(double imgX, double imgY, in ViewportLayout layout) =>
+            imgX >= -0.5 && imgX < layout.ImageWidth - 0.5 &&
+            imgY >= -0.5 && imgY < layout.ImageHeight - 0.5;
     }
 
     /// <summary>

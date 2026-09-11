@@ -587,7 +587,8 @@ public static class Tycho2ColorCalibration
         var claimed = new HashSet<CatalogIndex>();
         foreach (var star in brightestFirst)
         {
-            var sky = wcs.PixelToSky(star.XCentroid + 1, star.YCentroid + 1);
+            // A centroid is already in the frame the WCS answers in; there is nothing to add to it.
+            var sky = wcs.PixelToSky(star.XCentroid, star.YCentroid);
             if (sky is not { } pos) continue;
 
             var candidates = db.CoordinateGrid[pos.RA, pos.Dec];
@@ -683,7 +684,8 @@ public static class Tycho2ColorCalibration
             var qIdx = (star.XCentroid >= midX ? 1 : 0) | (star.YCentroid >= midY ? 2 : 0);
             qDetected[qIdx]++;
 
-            var sky = wcs.PixelToSky(star.XCentroid + 1, star.YCentroid + 1);
+            // A centroid is already in the frame the WCS answers in; there is nothing to add to it.
+            var sky = wcs.PixelToSky(star.XCentroid, star.YCentroid);
             if (sky is not { } pos) { wcsFail++; continue; }
 
             var candidates = db.CoordinateGrid[pos.RA, pos.Dec];

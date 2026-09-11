@@ -157,9 +157,11 @@ public class Tycho2MatchStarsTests
         var det = new ImagedStar(
             HFD: 2.5f, StarFWHM: 3.0f, SNR: 50f,
             Flux: FluxFor(vMag),
-            // MatchStars adds +1 to centroid to convert 0-based detection to
-            // 1-based FITS pixel for the WCS call, so we subtract 1 here.
-            XCentroid: px - 1, YCentroid: py - 1,
+            // The detection IS the pixel the catalogue star was projected from: a centroid and a
+            // WCS answer share the 0-based frame, and the matcher adds nothing to it. (It used to
+            // add one, and this helper subtracted one to compensate -- which is how the matcher's
+            // one-pixel bias hid behind a green suite.)
+            XCentroid: px, YCentroid: py,
             Ellipticity: 0.05f);
         dets.Add(det);
         return (det, idx);
@@ -254,7 +256,7 @@ public class Tycho2MatchStarsTests
         dets.Add(new ImagedStar(
             HFD: 2.5f, StarFWHM: 3.0f, SNR: 50f,
             Flux: FluxFor(10.0f),
-            XCentroid: detPx - 1, YCentroid: detPy - 1,
+            XCentroid: detPx, YCentroid: detPy,
             Ellipticity: 0.05f));
 
         var (matches, funnel) = Tycho2ColorCalibration.MatchStars(
@@ -266,7 +268,7 @@ public class Tycho2MatchStarsTests
         funnel.Accepted.ShouldBe(25, "all 25 detections matched -- 24 clean, 1 rescued by gate");
 
         // The accepted match for the contaminant detection is the V=10 one, not the V=6 one.
-        var rescued = matches.Find(m => m.Star.XCentroid == detPx - 1 && m.Star.YCentroid == detPy - 1);
+        var rescued = matches.Find(m => m.Star.XCentroid == detPx && m.Star.YCentroid == detPy);
         rescued.Tycho.V_Mag.ShouldBe((Half)10.0f, "mag gate must reject the V=6 contaminant");
     }
 
@@ -297,7 +299,7 @@ public class Tycho2MatchStarsTests
         dets.Add(new ImagedStar(
             HFD: 2.5f, StarFWHM: 3.0f, SNR: 50f,
             Flux: FluxFor(10.0f),
-            XCentroid: detPx - 1, YCentroid: detPy - 1,
+            XCentroid: detPx, YCentroid: detPy,
             Ellipticity: 0.05f));
 
         var (matches, funnel) = Tycho2ColorCalibration.MatchStars(
@@ -337,7 +339,7 @@ public class Tycho2MatchStarsTests
         cat.Add(detSky.RA, detSky.Dec, vMag: 11.0f, bMinusV: 0.5f);
         dets.Add(new ImagedStar(
             HFD: 2.5f, StarFWHM: 3.0f, SNR: 5f, Flux: 0f,
-            XCentroid: detPx - 1, YCentroid: detPy - 1, Ellipticity: 0.05f));
+            XCentroid: detPx, YCentroid: detPy, Ellipticity: 0.05f));
 
         var (matches, funnel) = Tycho2ColorCalibration.MatchStars(
             new StarList(dets), wcs, cat.Build(),
@@ -409,7 +411,7 @@ public class Tycho2MatchStarsTests
                 dets.Add(new ImagedStar(
                     HFD: 2.5f, StarFWHM: 3.0f, SNR: 50f,
                     Flux: FluxFor(10.0f),
-                    XCentroid: px - 1, YCentroid: py - 1,
+                    XCentroid: px, YCentroid: py,
                     Ellipticity: 0.05f));
             }
 

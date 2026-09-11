@@ -11,6 +11,7 @@ using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib.IO;
+using TianWen.UI.Abstractions.Overlays;
 
 namespace TianWen.UI.Abstractions;
 
@@ -502,29 +503,27 @@ public static class ViewerActions
     /// </remarks>
     public static bool UpdateCursorFromScreenPosition(
         AstroImageDocument? document, ViewerState state,
-        float px, float py,
-        float areaX, float areaY, float areaW, float areaH)
+        float px, float py, in ViewportLayout layout)
     {
         if (document?.UnstretchedImage is not { } image)
         {
             return false;
         }
 
-        if (px < areaX || px >= areaX + areaW || py < areaY || py >= areaY + areaH)
+        if (px < layout.AreaLeft || px >= layout.AreaLeft + layout.AreaWidth
+            || py < layout.AreaTop || py >= layout.AreaTop + layout.AreaHeight)
         {
             state.CursorImagePosition = null;
             state.CursorPixelInfo = null;
             return false;
         }
 
-        var scale = state.Zoom;
-        var drawW = image.Width * scale;
-        var drawH = image.Height * scale;
-        var offsetX = areaX + (areaW - drawW) / 2f + state.PanOffset.X;
-        var offsetY = areaY + (areaH - drawH) / 2f + state.PanOffset.Y;
-
-        var imgX = (int)((px - offsetX) / scale);
-        var imgY = (int)((py - offsetY) / scale);
+        // The layout's origin is the placement the picture was drawn with, and the mapping is the
+        // one every overlay uses. The readout used to re-derive both from the zoom and the pan --
+        // the uncropped frame's geometry, and one more private copy of the same arithmetic.
+        var (imageX, imageY) = WcsAnnotationLayer.ScreenToImage(px, py, layout);
+        var imgX = WcsAnnotationLayer.PixelIndex(imageX);
+        var imgY = WcsAnnotationLayer.PixelIndex(imageY);
 
         if (imgX >= 0 && imgX < image.Width && imgY >= 0 && imgY < image.Height)
         {

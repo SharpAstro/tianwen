@@ -1054,7 +1054,8 @@ public sealed class AstroImageDocument : IPreviewSource
         double? ra = null, dec = null;
         if (Wcs is { } wcs)
         {
-            var sky = wcs.PixelToSky(x + 1, y + 1);
+            // The centre of pixel [y, x] is (x, y) in the frame a WCS answers in; nothing to add.
+            var sky = wcs.PixelToSky(x, y);
             if (sky.HasValue)
             {
                 ra = sky.Value.RA;

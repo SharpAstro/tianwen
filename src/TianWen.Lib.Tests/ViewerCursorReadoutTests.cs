@@ -4,6 +4,7 @@ using Shouldly;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
+using TianWen.UI.Abstractions.Overlays;
 using Xunit;
 
 namespace TianWen.Lib.Tests
@@ -168,14 +169,14 @@ namespace TianWen.Lib.Tests
 
             // Inside the pane: a real readout, which is the control for everything below.
             ViewerActions.UpdateCursorFromScreenPosition(document, state,
-                areaX + areaW / 2f, areaY + areaH / 2f, areaX, areaY, areaW, areaH)
+                areaX + areaW / 2f, areaY + areaH / 2f, Pane(state, areaX, areaY, areaW, areaH))
                 .ShouldBeTrue();
             state.CursorImagePosition.ShouldNotBeNull();
 
             // Over the file list (left of the pane). At zoom 40 the image extent easily spans it, so
             // the old image-bounds-only test reported a pixel here.
             ViewerActions.UpdateCursorFromScreenPosition(document, state,
-                areaX - 40f, areaY + areaH / 2f, areaX, areaY, areaW, areaH)
+                areaX - 40f, areaY + areaH / 2f, Pane(state, areaX, areaY, areaW, areaH))
                 .ShouldBeFalse();
             state.CursorImagePosition.ShouldBeNull();
             state.CursorPixelInfo.ShouldBeNull();
@@ -185,23 +186,36 @@ namespace TianWen.Lib.Tests
             for (var dy = 0; dy < 20; dy++)
             {
                 ViewerActions.UpdateCursorFromScreenPosition(document, state,
-                    areaX - 40f, areaY + dy, areaX, areaY, areaW, areaH)
+                    areaX - 40f, areaY + dy, Pane(state, areaX, areaY, areaW, areaH))
                     .ShouldBeFalse();
                 state.CursorImagePosition.ShouldBeNull();
             }
 
             // Over the toolbar (above the pane).
             ViewerActions.UpdateCursorFromScreenPosition(document, state,
-                areaX + areaW / 2f, areaY - 10f, areaX, areaY, areaW, areaH)
+                areaX + areaW / 2f, areaY - 10f, Pane(state, areaX, areaY, areaW, areaH))
                 .ShouldBeFalse();
             state.CursorImagePosition.ShouldBeNull();
 
             // Over the info panel (right of the pane).
             ViewerActions.UpdateCursorFromScreenPosition(document, state,
-                areaX + areaW + 5f, areaY + areaH / 2f, areaX, areaY, areaW, areaH)
+                areaX + areaW + 5f, areaY + areaH / 2f, Pane(state, areaX, areaY, areaW, areaH))
                 .ShouldBeFalse();
             state.CursorImagePosition.ShouldBeNull();
         }
+
+        /// <summary>
+        /// The pane as the readout sees it: an uncropped frame of the fixture's size, centred by the
+        /// zoom and pan (no placement passed, so the layout derives the origin exactly as the viewer's
+        /// own would for a frame with no crop).
+        /// </summary>
+        private static ViewportLayout Pane(ViewerState state, float areaX, float areaY, float areaW, float areaH)
+            => new ViewportLayout(
+                WindowWidth: areaX + areaW, WindowHeight: areaY + areaH,
+                ImageWidth: Width, ImageHeight: Height,
+                Zoom: state.Zoom, PanOffset: state.PanOffset,
+                AreaLeft: areaX, AreaTop: areaY, AreaWidth: areaW, AreaHeight: areaH,
+                DpiScale: 1f);
 
         private static Task<AstroImageDocument> NewMonoDocumentAsync()
         {

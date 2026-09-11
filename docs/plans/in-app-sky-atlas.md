@@ -468,6 +468,15 @@ locking the release scope was *"as long as we track everything we skipped in a p
     at every rung and a selection that draws nothing cannot be told from a click that missed. Two
     concentric rings in `UiPalette.Accent` -- a pair so it cannot read as a marker, and the accent so
     Night mode gets a ring with no blue in it.
+  - **The ring is where it is through `WcsAnnotationLayer.ImageToScreen`, like every other WCS-drawn
+    thing, and that took a second fix (2026-09-11).** The ring shipped with the same private `- 1` the
+    catalogue markers had carried since March, kept deliberately so it stayed concentric with them;
+    measured against the star overlay, which draws the picture's own detected centroids, both were
+    1.5 image pixels off the star (12 screen pixels at 8:1). It was the unswept half of the 2026-09-05
+    CRPIX fix: ten consumers, a GPU shader and one compensating test, none of which that fix could
+    reach. One rule now, one origin (the placement, so a display crop moves every overlay with the
+    quad), pinned against the picture's own quad rather than against the rule. The whole account is in
+    [plate-solver-performance.md](plate-solver-performance.md), beside the CRPIX fix it completes.
   - **The selection gets its OWN atlas entry** rather than re-pointing the positional one. The
     existing entry opens the atlas at the pixel that was right-clicked; quietly aiming it elsewhere
     whenever a selection exists would make a positional action mean different things depending on
