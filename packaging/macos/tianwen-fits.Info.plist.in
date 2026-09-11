@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Info.plist for tianwen-fits, bundled as Astro Photo Viewer (the same name as the Microsoft Store
+  listing; the executable keeps its name). build-dmg.sh substitutes @VERSION@ and @BUILD@; nothing
+  else is templated.
+
+  The document types mirror AstroImageDocument.SupportedExtensions and the MSIX manifest's
+  fileTypeAssociation: FITS and SER are ours to own (nothing on a stock Mac opens them), TIFF and the
+  Canon raws are Alternate, since Preview and Photos claim those. FITS gets an exported UTI of its own
+  because macOS ships none; it conforms to public.data rather than public.image on purpose, so Quick
+  Look does not try to render a 16-bit mosaic as a picture.
+-->
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleExecutable</key>
+  <string>tianwen-fits</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.sharpastro.tianwen.fits</string>
+  <key>CFBundleName</key>
+  <string>Astro Photo Viewer</string>
+  <key>CFBundleDisplayName</key>
+  <string>Astro Photo Viewer</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleSignature</key>
+  <string>????</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleShortVersionString</key>
+  <string>@VERSION@</string>
+  <key>CFBundleVersion</key>
+  <string>@BUILD@</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <!-- .NET 10's macOS floor. The runtime refuses to start below its own floor regardless, so this
+       only decides whether Finder says so politely. Bump if a publish reports a higher one. -->
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.photography</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSHumanReadableCopyright</key>
+  <string>SharpAstro</string>
+
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>FITS image</string>
+      <key>CFBundleTypeRole</key>
+      <string>Viewer</string>
+      <key>LSHandlerRank</key>
+      <string>Default</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>com.sharpastro.fits</string>
+        <string>com.sharpastro.fits-fpack</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>SER video</string>
+      <key>CFBundleTypeRole</key>
+      <string>Viewer</string>
+      <key>LSHandlerRank</key>
+      <string>Default</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>com.sharpastro.ser</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>TIFF image</string>
+      <key>CFBundleTypeRole</key>
+      <string>Viewer</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.tiff</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Canon raw image</string>
+      <key>CFBundleTypeRole</key>
+      <string>Viewer</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>com.canon.cr2-raw-image</string>
+        <string>com.canon.cr3-raw-image</string>
+      </array>
+    </dict>
+  </array>
+
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>com.sharpastro.fits</string>
+      <key>UTTypeDescription</key>
+      <string>FITS image</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.data</string>
+      </array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>fits</string>
+          <string>fit</string>
+          <string>fts</string>
+        </array>
+        <key>public.mime-type</key>
+        <array>
+          <string>image/fits</string>
+          <string>application/fits</string>
+        </array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>com.sharpastro.fits-fpack</string>
+      <key>UTTypeDescription</key>
+      <string>Tile-compressed FITS image</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.data</string>
+      </array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>fz</string>
+        </array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>com.sharpastro.ser</string>
+      <key>UTTypeDescription</key>
+      <string>SER video</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.data</string>
+      </array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>ser</string>
+        </array>
+      </dict>
+    </dict>
+  </array>
+</dict>
+</plist>

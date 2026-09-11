@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Info.plist for tianwen-gui, bundled as TianWen. build-dmg.sh substitutes @VERSION@ and @BUILD@;
+  nothing else is templated. No document types: the GUI is launched, not handed a file.
+-->
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleExecutable</key>
+  <string>tianwen-gui</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.sharpastro.tianwen.gui</string>
+  <key>CFBundleName</key>
+  <string>TianWen</string>
+  <key>CFBundleDisplayName</key>
+  <string>TianWen</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleSignature</key>
+  <string>????</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleShortVersionString</key>
+  <string>@VERSION@</string>
+  <key>CFBundleVersion</key>
+  <string>@BUILD@</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <!-- .NET 10's macOS floor; see the viewer's plist. -->
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.utilities</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSHumanReadableCopyright</key>
+  <string>SharpAstro</string>
+</dict>
+</plist>
