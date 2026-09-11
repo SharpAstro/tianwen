@@ -632,7 +632,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             case CalibrationValidationResult.Valid:
                 Logger.LogInformation("Saved calibration validated, reusing.");
                 _lastCalibration = savedCalibration;
-                _calibrationPierSide = await ReadPointingStateAsync(_mount!, ct);
+                _calibrationPierSide = await ReadPointingStateAsync(
+                    _mount ?? throw new InvalidOperationException(
+                        "A validated calibration needs the mount whose pier side it was taken on."),
+                    ct);
                 return savedCalibration;
 
             case CalibrationValidationResult.RateDrifted:

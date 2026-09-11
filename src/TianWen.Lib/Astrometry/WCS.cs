@@ -1,5 +1,6 @@
 using nom.tam.fits;
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
@@ -123,6 +124,13 @@ public record struct WCS(double CenterRA, double CenterDec)
     /// True when forward SIP terms (<see cref="SipA"/> + <see cref="SipB"/>)
     /// are present and applicable.
     /// </summary>
+    /// <remarks>
+    /// The <see cref="MemberNotNullWhenAttribute"/> is what lets a guarded branch read
+    /// <see cref="SipA"/> / <see cref="SipB"/> without a null-forgiving <c>!</c>: the invariant is
+    /// STATED here once, where it is decided, instead of being re-asserted at each of the six call
+    /// sites that rely on it.
+    /// </remarks>
+    [MemberNotNullWhen(true, nameof(SipA), nameof(SipB))]
     public readonly bool HasSip => SipOrder > 0 && SipA is not null && SipB is not null;
 
     /// <summary>
@@ -131,6 +139,7 @@ public record struct WCS(double CenterRA, double CenterDec)
     /// only forward terms, in which case <see cref="SkyToPixel"/> falls back
     /// to one Newton iteration with the forward polynomial.
     /// </summary>
+    [MemberNotNullWhen(true, nameof(SipAP), nameof(SipBP))]
     public readonly bool HasInverseSip => SipOrder > 0 && SipAP is not null && SipBP is not null;
 
     /// <summary>
@@ -247,8 +256,8 @@ public record struct WCS(double CenterRA, double CenterDec)
         // *corrected* relative-pixel coords into intermediate world coords.
         if (HasSip)
         {
-            var dxC = SipPolynomial.Apply(dx, dy, SipA!);
-            var dyC = SipPolynomial.Apply(dx, dy, SipB!);
+            var dxC = SipPolynomial.Apply(dx, dy, SipA);
+            var dyC = SipPolynomial.Apply(dx, dy, SipB);
             dx += dxC;
             dy += dyC;
         }
@@ -336,8 +345,8 @@ public record struct WCS(double CenterRA, double CenterDec)
         // Capture corrections in temps so both polynomials see the same input.
         if (HasInverseSip)
         {
-            var dxC = SipPolynomial.Apply(dx, dy, SipAP!);
-            var dyC = SipPolynomial.Apply(dx, dy, SipBP!);
+            var dxC = SipPolynomial.Apply(dx, dy, SipAP);
+            var dyC = SipPolynomial.Apply(dx, dy, SipBP);
             dx += dxC;
             dy += dyC;
         }
@@ -348,8 +357,8 @@ public record struct WCS(double CenterRA, double CenterDec)
             // dy_obs + B(dx_obs, dy_obs)) = (dx, dy). Start from (dx, dy) and
             // subtract the forward correction evaluated there. One step is
             // enough for the small (<1 px) corrections SIP typically produces.
-            var dxC = SipPolynomial.Apply(dx, dy, SipA!);
-            var dyC = SipPolynomial.Apply(dx, dy, SipB!);
+            var dxC = SipPolynomial.Apply(dx, dy, SipA);
+            var dyC = SipPolynomial.Apply(dx, dy, SipB);
             dx -= dxC;
             dy -= dyC;
         }
@@ -745,14 +754,20 @@ public record struct WCS(double CenterRA, double CenterDec)
             header.AddCard(new HeaderCard("CD2_2", CD2_2, "dDec/dy [deg/pix]"));
         }
 
-        if (hasSip)
+        // Bound by pattern rather than read through HasSip / HasInverseSip. Those carry
+        // MemberNotNullWhen and it does hold at the projection call sites, but here a SECOND property
+        // read on this struct receiver discards the state the first one established -- so the arrays
+        // say plainly that they are present instead of the call sites asserting it with a `!`.
+        // SipOrder > 0 is already implied by hasSip, which is the only part of HasInverseSip these
+        // two binds do not restate.
+        if (hasSip && SipA is { } sipA && SipB is { } sipB)
         {
-            WriteSipCoefficientMatrix(header, "A", SipA!, SipOrder);
-            WriteSipCoefficientMatrix(header, "B", SipB!, SipOrder);
-            if (HasInverseSip)
+            WriteSipCoefficientMatrix(header, "A", sipA, SipOrder);
+            WriteSipCoefficientMatrix(header, "B", sipB, SipOrder);
+            if (SipAP is { } sipAP && SipBP is { } sipBP)
             {
-                WriteSipCoefficientMatrix(header, "AP", SipAP!, SipOrder);
-                WriteSipCoefficientMatrix(header, "BP", SipBP!, SipOrder);
+                WriteSipCoefficientMatrix(header, "AP", sipAP, SipOrder);
+                WriteSipCoefficientMatrix(header, "BP", sipBP, SipOrder);
             }
         }
     }

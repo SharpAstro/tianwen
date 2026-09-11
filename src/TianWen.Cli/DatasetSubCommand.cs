@@ -202,7 +202,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
         };
         buildCommand.SetAction(async (parseResult, ct) =>
         {
-            var roots = parseResult.GetValue(archiveRootOpt)!;
+            var roots = parseResult.Required(archiveRootOpt);
             foreach (var root in roots)
             {
                 if (!Directory.Exists(root))
@@ -211,7 +211,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                     return 1;
                 }
             }
-            var outDir = parseResult.GetValue(outOpt)!;
+            var outDir = parseResult.Required(outOpt);
             var minExposure = parseResult.GetValue(minExposureOpt);
             var maxExposure = parseResult.GetValue(maxExposureOpt);
             if (minExposure <= 0 || maxExposure <= minExposure)
@@ -226,8 +226,8 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                 OutputDir = outDir,
                 MinExposure = TimeSpan.FromSeconds(minExposure),
                 MaxExposure = TimeSpan.FromSeconds(maxExposure),
-                ExcludeInstrumePattern = parseResult.GetValue(excludeInstrumeOpt)!,
-                ExcludeObjectPattern = parseResult.GetValue(excludeObjectOpt)!,
+                ExcludeInstrumePattern = parseResult.Required(excludeInstrumeOpt),
+                ExcludeObjectPattern = parseResult.Required(excludeObjectOpt),
                 MinSubsPerSession = parseResult.GetValue(minSubsOpt),
                 TileSize = parseResult.GetValue(tileSizeOpt),
                 CellsPerSession = parseResult.GetValue(cellsOpt),
@@ -237,8 +237,8 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                 RequireGainMatch = parseResult.GetValue(requireGainMatchOpt),
                 MaxDarkTemperatureDelta = parseResult.GetValue(maxDarkDeltaTOpt),
                 HotPixelSigma = parseResult.GetValue(hotPixelSigmaOpt),
-                SoftwareIncludePattern = parseResult.GetValue(softwareOpt)!,
-                ScratchRoot = parseResult.GetValue(scratchRootOpt)!,
+                SoftwareIncludePattern = parseResult.Required(softwareOpt),
+                ScratchRoot = parseResult.Required(scratchRootOpt),
                 Resume = parseResult.GetValue(resumeOpt),
                 RegenPsfForExportedSessions = parseResult.GetValue(regenPsfOpt),
                 ForcePsfRemeasure = parseResult.GetValue(forcePsfOpt),
@@ -412,7 +412,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
 
         command.SetAction(async (parseResult, ct) =>
         {
-            var archiveRoots = parseResult.GetValue(archiveRootOpt)!;
+            var archiveRoots = parseResult.Required(archiveRootOpt);
             foreach (var root in archiveRoots)
             {
                 if (!Directory.Exists(root))
@@ -421,7 +421,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                     return 1;
                 }
             }
-            var outDir = parseResult.GetValue(outOpt)!;
+            var outDir = parseResult.Required(outOpt);
 
             var options = new DatasetBuildOptions
             {
@@ -477,7 +477,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
 
         command.SetAction(async (parseResult, ct) =>
         {
-            var outDir = parseResult.GetValue(outOpt)!;
+            var outDir = parseResult.Required(outOpt);
             if (!Directory.Exists(outDir))
             {
                 consoleHost.WriteError($"Dataset output root does not exist: {outDir}");
@@ -579,7 +579,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             }
 
             var result = await DatasetGradientReport.RunAsync(
-                new DatasetGradientReport.RunOptions(files.ToImmutable(), parseResult.GetValue(outOpt)!,
+                new DatasetGradientReport.RunOptions(files.ToImmutable(), parseResult.Required(outOpt),
                     Sweep: !parseResult.GetValue(noSweepOpt), Solve: solve, Force: parseResult.GetValue(forceOpt)),
                 plateSolverFactory, logger,
                 progress: new Progress<string>(line => consoleHost.WriteScrollable(line)),
@@ -693,8 +693,8 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             }
 
             var options = new DatasetDegradationExporter.Options(
-                BakeRoot: parseResult.GetValue(bakeOpt)!,
-                OutDir: parseResult.GetValue(outOpt)!,
+                BakeRoot: parseResult.Required(bakeOpt),
+                OutDir: parseResult.Required(outOpt),
                 Mode: mode,
                 Shape: shape,
                 Draws: parseResult.GetValue(drawsOpt),
@@ -853,8 +853,8 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             }
 
             var options = new DatasetCrossNightExporter.Options(
-                BakeRoot: parseResult.GetValue(bakeOpt)!,
-                OutDir: parseResult.GetValue(outOpt)!,
+                BakeRoot: parseResult.Required(bakeOpt),
+                OutDir: parseResult.Required(outOpt),
                 Pairs: pairs.ToImmutable(),
                 ObjectFilters: [.. parseResult.GetValue(objectOpt) ?? []],
                 Exclude: [.. parseResult.GetValue(excludeOpt) ?? []],
@@ -1066,13 +1066,13 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
 
         command.SetAction(async (parseResult, ct) =>
         {
-            var path = parseResult.GetValue(pathOpt)!;
+            var path = parseResult.Required(pathOpt);
             if (!Directory.Exists(path))
             {
                 consoleHost.WriteError($"Directory does not exist: {path}");
                 return 1;
             }
-            var cardValue = parseResult.GetValue(valueOpt)!;
+            var cardValue = parseResult.Required(valueOpt);
             // A numeric card is parsed ONCE, here, so a malformed number fails before a single file
             // is opened rather than 186 times inside the loop.
             var numericValue = 0.0;
@@ -1089,7 +1089,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             var hardLinks = parseResult.GetValue(hardLinksOpt);
 
             var allowed = new HashSet<FrameType>();
-            foreach (var name in parseResult.GetValue(frameTypesOpt)!)
+            foreach (var name in parseResult.Required(frameTypesOpt))
             {
                 if (FrameType.FromFITSValue(name) is { } ft)
                 {

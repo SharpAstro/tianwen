@@ -401,7 +401,7 @@ internal sealed class ImageSubCommand(
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
-            var input = parseResult.GetValue(inputArg)!;
+            var input = parseResult.Required(inputArg);
             if (!File.Exists(input))
             {
                 consoleHost.WriteError($"Input not found: {input}");
@@ -434,7 +434,7 @@ internal sealed class ImageSubCommand(
                     denoiseIterations >= 1 ? denoiseIterations : null,
                     out var enhanceOptions, out var enhanceError))
             {
-                consoleHost.WriteError(enhanceError!);
+                consoleHost.WriteError(enhanceError);
                 return 1;
             }
             var backend = enhanceOptions.Backend;
@@ -927,7 +927,7 @@ internal sealed class ImageSubCommand(
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
-            var input = parseResult.GetValue(inputArg)!;
+            var input = parseResult.Required(inputArg);
             if (!File.Exists(input))
             {
                 consoleHost.WriteError($"Input not found: {input}");
@@ -1047,7 +1047,7 @@ internal sealed class ImageSubCommand(
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
-            var input = parseResult.GetValue(inputArg)!;
+            var input = parseResult.Required(inputArg);
             if (!File.Exists(input))
             {
                 consoleHost.WriteError($"Input not found: {input}");
@@ -1343,7 +1343,7 @@ internal sealed class ImageSubCommand(
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
-            var input = parseResult.GetValue(inputArg)!;
+            var input = parseResult.Required(inputArg);
             if (!File.Exists(input))
             {
                 consoleHost.WriteError($"Input not found: {input}");
@@ -1435,7 +1435,7 @@ internal sealed class ImageSubCommand(
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
-            var input = parseResult.GetValue(inputArg)!;
+            var input = parseResult.Required(inputArg);
             if (!File.Exists(input))
             {
                 consoleHost.WriteError($"Input not found: {input}");

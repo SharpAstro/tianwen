@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace TianWen.Lib.Imaging.Enhancement;
 
 /// <summary>
@@ -91,7 +93,7 @@ public sealed record EnhanceOptions(EnhanceBackend Backend = EnhanceBackend.Auto
         float? denoiseStrength,
         int? denoiseIterations,
         out EnhanceOptions options,
-        out string? error)
+        [NotNullWhen(false)] out string? error)
     {
         error = null;
         EnhanceBackend parsed;

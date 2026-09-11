@@ -864,7 +864,7 @@ public static class PlannerActions
         // job); an already-proposed comet is selected in place. A real catalog match wins a name tie
         // (it is added first above, so SearchResults[0] stays the catalog object).
         if (CometSearchKeys.TryResolve(comets, query, out var cometIdx, out var cometDisplay)
-            && comets!.TryGetPosition(cometIdx, state.AstroDark, out var cometRa, out var cometDec, out _))
+            && comets.TryGetPosition(cometIdx, state.AstroDark, out var cometRa, out var cometDec, out _))
         {
             var cometExisting = AddCometSearchResult(state, transform, cometIdx, cometDisplay, cometRa, cometDec);
             if (cometExisting >= 0)
@@ -909,7 +909,7 @@ public static class PlannerActions
         // A comet suggestion resolves via the repository (comets are not in objectDb). Handled first
         // so a comet key never falls through to a spurious DB lookup.
         if (CometSearchKeys.TryResolve(comets, suggestion, out var cometIdx, out var cometDisplay)
-            && comets!.TryGetPosition(cometIdx, state.AstroDark, out var cometRa, out var cometDec, out _))
+            && comets.TryGetPosition(cometIdx, state.AstroDark, out var cometRa, out var cometDec, out _))
         {
             var cometExisting = AddCometSearchResult(state, transform, cometIdx, cometDisplay, cometRa, cometDec);
             state.NeedsRedraw = true;

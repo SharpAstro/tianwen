@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
@@ -82,7 +83,7 @@ public sealed class ModelResolver : IModelResolver
     {
         if (TryResolve(modelFileName, out var absolutePath))
         {
-            return absolutePath!;
+            return absolutePath;
         }
 
         var probed = string.Join(Environment.NewLine + "  ", CandidateFiles(modelFileName));
@@ -101,7 +102,7 @@ public sealed class ModelResolver : IModelResolver
             $"AI model '{modelFileName}' not found in any search path. {graXpertRemedy}Third-party weights are populated by tools/tianwen-ai-models-fetch.ps1; the in-house models ship in the repo under src/TianWen.AI.Imaging/models/, so a checkout should already have them (if one is a ~130-byte LFS pointer stub instead, run 'git lfs pull'). Probed:{Environment.NewLine}  {probed}");
     }
 
-    public bool TryResolve(string modelFileName, out string? absolutePath)
+    public bool TryResolve(string modelFileName, [NotNullWhen(true)] out string? absolutePath)
     {
         if (string.IsNullOrWhiteSpace(modelFileName))
             throw new ArgumentException("modelFileName must be non-empty", nameof(modelFileName));

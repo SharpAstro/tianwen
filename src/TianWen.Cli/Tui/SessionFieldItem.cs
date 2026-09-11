@@ -50,7 +50,7 @@ namespace TianWen.Cli.Tui
                 return TuiRowPalette.Body.Rest();
             }
 
-            var label = OtaLabel ?? Field!.Label;
+            var label = OtaLabel ?? Field?.Label ?? "";
             var unit = Field?.Unit is { Length: > 0 } u ? $" {u}" : "";
             var control = Field?.Kind switch
             {

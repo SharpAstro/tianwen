@@ -523,7 +523,12 @@ internal partial record Session
 
         // Bootstrap per-focuser EWMA from disk on first encounter so the very first move
         // of the session uses last-night's overshoot estimate, not the URI seed.
-        await LoadBacklashHistoryIfNeededAsync(focuser, telescope.Focuser!.Device, cancellationToken);
+        // A focuser DRIVER implies a focuser device on the telescope; said as a named failure
+        // rather than asserted, so a contract change surfaces here instead of as an NRE.
+        var focuserDevice = telescope.Focuser?.Device
+            ?? throw new InvalidOperationException(
+                $"Telescope #{telescopeIndex + 1} has a focuser driver but no focuser device.");
+        await LoadBacklashHistoryIfNeededAsync(focuser, focuserDevice, cancellationToken);
 
         var currentPos = await ResilientInvokeAsync(
             focuser, focuser.GetPositionAsync,
@@ -761,7 +766,10 @@ internal partial record Session
                     }
 
                     await UpdateBacklashEstimateFromVerificationAsync(
-                        focuser, telescope.Focuser!.Device, solution.Value,
+                        focuser, telescope.Focuser?.Device
+                            ?? throw new InvalidOperationException(
+                                $"Telescope #{telescopeIndex + 1} has a focuser driver but no focuser device."),
+                        solution.Value,
                         bestPos, currentPosNow, baseline.MedianHfd, overshootUsed, focusDir, telescopeIndex,
                         cancellationToken);
 

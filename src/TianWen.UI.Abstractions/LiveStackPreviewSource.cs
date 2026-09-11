@@ -314,9 +314,12 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
         {
             // Re-stack only when following the playhead; a sharpen-only pass reuses the captured master so it
             // re-runs just the (cheap) wavelet pass, not the window integration.
-            var raw = doStack
-                ? await _stacker.StackToAsync(target, token).ConfigureAwait(false)
-                : rawForSharpen!;
+            // The cached master is what makes a sharpen-only pass possible, so it is ASKED for: with
+            // nothing captured there is nothing to re-sharpen and the window has to be integrated
+            // after all. Asserting it here would have handed the sharpen a null instead.
+            var raw = !doStack && rawForSharpen is { } cachedMaster
+                ? cachedMaster
+                : await _stacker.StackToAsync(target, token).ConfigureAwait(false);
 
             // Always produce a FRESH image to adopt (AdoptImageAsync normalises in place); identity gains
             // when sharpening is off, so the cached raw master is never consumed. WaveletSharpen.Sharpen
@@ -392,7 +395,14 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
         // tearing the stream out from under it. A caller that must await the drain uses DisposeAsync.
         if (_stackTask is { IsCompleted: false } task)
         {
-            task.ContinueWith(static (_, s) => ((LiveStackPreviewSource)s!).DisposeCore(), this, TaskScheduler.Default);
+            task.ContinueWith(
+                static (_, s) =>
+                {
+                    if (s is LiveStackPreviewSource self)
+                    {
+                        self.DisposeCore();
+                    }
+                }, this, TaskScheduler.Default);
         }
         else
         {

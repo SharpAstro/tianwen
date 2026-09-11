@@ -258,9 +258,9 @@ public static class ChunkedNafnetRunner
         //    network output is already in the same domain as the source.
         Image output;
         long unstretchMs;
-        if (stretchApplied)
+        if (stretchApplied && origMin is { } restoreMin && balances is { } restoreBalances)
         {
-            output = inferenceResult.MtfUnstretch(origMin!, balances!);
+            output = inferenceResult.MtfUnstretch(restoreMin, restoreBalances);
             unstretchMs = phaseSw.ElapsedMilliseconds;
         }
         else

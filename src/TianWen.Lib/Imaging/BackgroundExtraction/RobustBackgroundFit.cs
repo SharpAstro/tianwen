@@ -142,19 +142,24 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
                     }
                 }
 
-                if (structure is not null)
+                // The structure-protection scratch is allocated as one SET (see the declarations
+                // above: seed / eligible with ProtectStructure, compact with it or SurfaceRefinement,
+                // temp with compact), so it is asked for as a set rather than each buffer asserting
+                // itself at the point of use.
+                if (structure is not null && temp is not null && compact is not null
+                    && eligible is not null && seed is not null)
                 {
                     // Stars are not structure. On block-mean noise even a star's faint wings clear the seed
                     // threshold, so without this every bright star seeded a five-by-five cluster and grew into
                     // a protected disc (measured: 69 percent kept on a sixty-star field). A star is COMPACT: it
                     // fails a one-pixel high-pass, which a nebula wider than a few blocks passes untouched.
-                    MarkCompact(residual, valid, width, height, options, temp!, scratch, compact!);
+                    MarkCompact(residual, valid, width, height, options, temp, scratch, compact);
                     for (var i = 0; i < n; i++)
                     {
-                        eligible![i] = valid[i] && !compact![i];
+                        eligible[i] = valid[i] && !compact[i];
                     }
-                    MarkStructure(residual, eligible!, width, height, median, options.StructureThresholdSigma * sigma,
-                        radius, options.StructureAmount, seed!, scratch, structure);
+                    MarkStructure(residual, eligible, width, height, median, options.StructureThresholdSigma * sigma,
+                        radius, options.StructureAmount, seed, scratch, structure);
                 }
 
                 var lo = median - options.RejectDarkSigma * sigma;
@@ -184,11 +189,13 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
                 prevFraction = fraction;
             }
 
-            if (options.SurfaceRefinement)
+            // SurfaceRefinement is one of the two things that allocates `compact`, and `temp` comes
+            // with it -- named here rather than asserted at the call.
+            if (options.SurfaceRefinement && temp is not null && compact is not null)
             {
                 ct.ThrowIfCancellationRequested();
                 (keptCount, sigma, rms) = RefineWithSurface(plane, width, height, valid, validCount, minKeep, options, radius,
-                    model, kept, residual, scratch, temp!, compact!, seed, structure);
+                    model, kept, residual, scratch, temp, compact, seed, structure);
             }
 
             return new FitOutcome(iterations, converged, (float)keptCount / validCount, excludedFraction, sigma, rms, coefficients);

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -142,14 +143,14 @@ internal static class OtaEndpoints
         return group;
     }
 
-    private static bool TryGetOta(ISession session, int index, out OTA ota)
+    private static bool TryGetOta(ISession session, int index, [MaybeNullWhen(false)] out OTA ota)
     {
         if (index >= 0 && index < session.Setup.Telescopes.Length)
         {
             ota = session.Setup.Telescopes[index];
             return true;
         }
-        ota = default!;
+        ota = default;
         return false;
     }
 }

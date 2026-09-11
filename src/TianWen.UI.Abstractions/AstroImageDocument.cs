@@ -866,7 +866,7 @@ public sealed class AstroImageDocument : IPreviewSource
     /// Computes Tycho-2 photometric color calibration. Requires plate-solved WCS and detected stars.
     /// Returns the number of matched stars (0 if calibration failed or wasn't attempted).
     /// </summary>
-    public async Task<(int MatchCount, string? Diag)> ComputeColorCalibrationAsync(ICelestialObjectDB db, CancellationToken cancellationToken = default)
+    public async Task<(int MatchCount, string? Diag)> ComputeColorCalibrationAsync(CancellationToken cancellationToken = default)
     {
         if (ColorCalibration.HasValue) return (0, null);
         if (Stars is not { Count: >= 5 } starList) return (0, "Need ≥5 stars");

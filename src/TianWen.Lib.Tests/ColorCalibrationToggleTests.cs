@@ -69,7 +69,7 @@ namespace TianWen.Lib.Tests
             doc.Stars.ShouldNotBeNull();
             doc.Stars!.Count.ShouldBeGreaterThanOrEqualTo(5, "the synthetic field must give the sky-bg path enough stars");
             // Sky-background calibration (no catalog needed) declares the cast sky neutral.
-            await doc.ComputeColorCalibrationAsync(null!, ct);
+            await doc.ComputeColorCalibrationAsync(ct);
             doc.ColorCalibration.ShouldNotBeNull("the cast frame must calibrate to a triple");
             var wb = doc.ColorCalibration!.Value;
             (MathF.Abs(wb.R - 1f) + MathF.Abs(wb.B - 1f)).ShouldBeGreaterThan(0.1f,

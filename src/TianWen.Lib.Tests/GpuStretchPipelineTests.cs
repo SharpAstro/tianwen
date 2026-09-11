@@ -373,7 +373,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         if (applyWb)
         {
             // Production sky-bg WB (db argument unused on the sky-bg path -> null!).
-            await doc.ComputeColorCalibrationAsync(null!, ct);
+            await doc.ComputeColorCalibrationAsync(ct);
         }
 
         var stretchMode = mode == "luma" ? StretchMode.Luma : StretchMode.Linked;

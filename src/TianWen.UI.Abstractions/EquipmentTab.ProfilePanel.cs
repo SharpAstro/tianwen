@@ -50,7 +50,14 @@ namespace TianWen.UI.Abstractions
             var innerX = rect.X + padding;
             var innerW = rect.Width - padding * 2f;
 
-            var profile = appState.ActiveProfile!;
+            // Nothing to draw without one, which is a state the chrome can briefly be in (a
+            // profile switch in flight); previously this asserted a profile and would have thrown on
+            // the render thread instead.
+            if (appState.ActiveProfile is not { } profile)
+            {
+                return;
+            }
+
             var data = profile.Data;
 
             _profilePanelFills.Clear();

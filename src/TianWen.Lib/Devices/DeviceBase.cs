@@ -142,7 +142,12 @@ public abstract record class DeviceBase(Uri DeviceUri)
     /// query parameters and fragment. Query params carry runtime config (e.g. site
     /// coordinates on a mount URI) that should not affect device identity.
     /// </summary>
-    public static bool SameDevice(Uri? a, Uri? b) =>
+    /// <remarks>
+    /// Both <see cref="NotNullWhenAttribute"/>s state what the body decides: a true answer means
+    /// neither side was null, which is what lets a caller read the URI it just compared without a
+    /// null-forgiving <c>!</c>.
+    /// </remarks>
+    public static bool SameDevice([NotNullWhen(true)] Uri? a, [NotNullWhen(true)] Uri? b) =>
         a is not null && b is not null
         && a.GetLeftPart(UriPartial.Path) == b.GetLeftPart(UriPartial.Path);
 

@@ -164,7 +164,9 @@ namespace TianWen.UI.Abstractions
                     && state.Phase is SessionPhase.AutoFocus or SessionPhase.CalibratingGuider or SessionPhase.RoughFocus);
             if (showVCurve)
             {
-                var chartSamples = activeSamples.Length >= 2 ? activeSamples : lastFocusRun!.Value.Curve;
+                var chartSamples = activeSamples.Length >= 2
+                    ? activeSamples
+                    : lastFocusRun?.Curve ?? [];
                 var vcurveKey = $"otaVCurve:{i}";
                 _otaPanelFills[vcurveKey] = r =>
                 {

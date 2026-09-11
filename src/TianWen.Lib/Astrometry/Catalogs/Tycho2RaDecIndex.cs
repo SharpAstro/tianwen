@@ -70,8 +70,10 @@ internal sealed class Tycho2RaDecIndex
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void AddGscToCell(List<ushort>?[,] cellLists, int raIdx, int decIdx, ushort tyc1)
     {
-        cellLists[raIdx, decIdx] ??= new List<ushort>(8);
-        cellLists[raIdx, decIdx]!.Add(tyc1);
+        // The ??= result IS the list, so taking it saves both the second index and the `!` that
+        // asked the compiler to trust an assignment one line above.
+        var list = cellLists[raIdx, decIdx] ??= new List<ushort>(8);
+        list.Add(tyc1);
     }
 
     internal bool Contains(CatalogIndex index, double ra, double dec)

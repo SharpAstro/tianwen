@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
@@ -13,15 +14,26 @@ internal sealed class PulseGuideRouter : IPulseGuideTarget
     private readonly ICameraDriver? _camera;
     private readonly IMountDriver? _mount;
 
-    // Resolved once in constructor to avoid repeated fallback logic
-    private readonly bool _useCamera;
+    /// <summary>
+    /// Which device the route resolved to, decided once in the constructor rather than re-derived
+    /// per pulse.
+    /// </summary>
+    /// <remarks>
+    /// The two <see cref="MemberNotNullWhenAttribute"/>s state what that constructor already
+    /// guarantees -- whichever device this answers for was proved non-null and pulse-capable before
+    /// it threw -- so every member below reads the driver directly instead of re-asserting it with a
+    /// null-forgiving <c>!</c> on the guide hot path.
+    /// </remarks>
+    [MemberNotNullWhen(true, nameof(_camera))]
+    [MemberNotNullWhen(false, nameof(_mount))]
+    private bool UseCamera { get; }
 
     public PulseGuideRouter(PulseGuideSource source, ICameraDriver? camera, IMountDriver? mount)
     {
         _camera = camera;
         _mount = mount;
 
-        _useCamera = source switch
+        UseCamera = source switch
         {
             PulseGuideSource.Camera => camera is { CanPulseGuide: true }
                 ? true
@@ -50,25 +62,25 @@ internal sealed class PulseGuideRouter : IPulseGuideTarget
     /// describe hardware this router is not driving.
     /// </summary>
     public bool CanPulseGuideSimultaneously
-        => _useCamera ? _camera!.CanPulseGuideSimultaneously : _mount!.CanPulseGuideSimultaneously;
+        => UseCamera ? _camera.CanPulseGuideSimultaneously : _mount.CanPulseGuideSimultaneously;
 
     public ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
     {
-        if (_useCamera)
+        if (UseCamera)
         {
-            return _camera!.StartPulseGuideAsync(direction, duration, cancellationToken);
+            return _camera.StartPulseGuideAsync(direction, duration, cancellationToken);
         }
 
-        return _mount!.StartPulseGuideAsync(direction, duration, cancellationToken);
+        return _mount.StartPulseGuideAsync(direction, duration, cancellationToken);
     }
 
     public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken)
     {
-        if (_useCamera)
+        if (UseCamera)
         {
-            return _camera!.GetIsPulseGuidingAsync(cancellationToken);
+            return _camera.GetIsPulseGuidingAsync(cancellationToken);
         }
 
-        return _mount!.IsPulseGuidingAsync(cancellationToken);
+        return _mount.IsPulseGuidingAsync(cancellationToken);
     }
 }

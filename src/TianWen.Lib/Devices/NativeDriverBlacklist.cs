@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 namespace TianWen.Lib.Devices;
 
@@ -60,8 +61,8 @@ internal static class NativeDriverBlacklist
         };
 
     /// <summary>Looks up the native <see cref="DeviceBase.DeviceClass"/> that supersedes an ASCOM ProgID, if any.</summary>
-    public static bool TryGetNativeClass(string progId, out string nativeClass)
-        => _nativeClassByProgId.TryGetValue(progId, out nativeClass!);
+    public static bool TryGetNativeClass(string progId, [MaybeNullWhen(false)] out string nativeClass)
+        => _nativeClassByProgId.TryGetValue(progId, out nativeClass);
 
     /// <summary>
     /// Filters <paramref name="devices"/> (the discovered devices of a single <see cref="DeviceType"/>),

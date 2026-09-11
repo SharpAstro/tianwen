@@ -2,6 +2,7 @@
 using System.Buffers;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using DIR.Lib;
 using TianWen.Lib;
@@ -1512,12 +1513,12 @@ public static class OverlayEngine
             return new LabelOrder { _heap = heap, _count = n };
         }
 
-        public bool TryPop(out OverlayItem item)
+        public bool TryPop([MaybeNullWhen(false)] out OverlayItem item)
         {
             var heap = _heap;
             if (heap is null || _count == 0)
             {
-                item = null!;
+                item = null;
                 return false;
             }
 

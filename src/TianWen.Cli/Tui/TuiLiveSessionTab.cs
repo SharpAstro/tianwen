@@ -205,10 +205,15 @@ internal sealed class TuiLiveSessionTab(
 
     private void RenderTopBar()
     {
+        if (!IsReady)
+        {
+            return;
+        }
+
         // Phase + activity
         var phaseLabel = LiveSessionActions.PhaseLabel(LiveState.Phase);
         var statusText = LiveSessionActions.PhaseStatusText(LiveState, timeProvider);
-        _topBar!.Text($" [{phaseLabel}]  {statusText}");
+        _topBar.Text($" [{phaseLabel}]  {statusText}");
 
         // Right side: obs/frame/exp counter
         var obsIdx = LiveState.CurrentObservationIndex;
@@ -226,11 +231,21 @@ internal sealed class TuiLiveSessionTab(
 
     private void RenderGuideBar()
     {
-        _guideBar!.Text($" {LiveSessionActions.FormatGuideRms(LiveState.LastGuideStats)}");
+        if (!IsReady)
+        {
+            return;
+        }
+
+        _guideBar.Text($" {LiveSessionActions.FormatGuideRms(LiveState.LastGuideStats)}");
     }
 
     private void RenderInfoPanel()
     {
+        if (!IsReady)
+        {
+            return;
+        }
+
         _rows.Clear();
 
         // Polar alignment mode: replaces the preview / session per-OTA panel
@@ -265,7 +280,7 @@ internal sealed class TuiLiveSessionTab(
         BuildFocusHistoryRows();
         BuildExposureLogRows();
 
-        _infoList!.Items(_rows);
+        _infoList.Items(_rows);
     }
 
     private void BuildPreviewRows(ProfileData profileData)
@@ -777,6 +792,11 @@ internal sealed class TuiLiveSessionTab(
 
     private void RenderPreviewToolbar()
     {
+        if (!IsReady)
+        {
+            return;
+        }
+
         var stretchLabel = _viewerState.StretchMode switch
         {
             StretchMode.None => "Off",
@@ -787,7 +807,7 @@ internal sealed class TuiLiveSessionTab(
         };
         var boostLabel = _viewerState.CurvesBoost > 0 ? $"B:{_viewerState.CurvesBoost:F0}%" : "B:Off";
         var zoomLabel = _viewerState.ZoomToFit ? "Fit" : "1:1";
-        _previewToolbar!.Text($" [{zoomLabel}] [{stretchLabel}] [{boostLabel}]");
+        _previewToolbar.Text($" [{zoomLabel}] [{stretchLabel}] [{boostLabel}]");
 
         var paramLabel = _viewerState.StretchMode is not StretchMode.None
             ? $"({_viewerState.StretchParameters.Factor:F1}, {Math.Abs(_viewerState.StretchParameters.ShadowsClipping):F0})"
@@ -797,6 +817,11 @@ internal sealed class TuiLiveSessionTab(
 
     private void RenderStatusBar()
     {
+        if (!IsReady)
+        {
+            return;
+        }
+
         string hint;
         if (LiveState.ShowAbortConfirm)
         {
@@ -821,7 +846,7 @@ internal sealed class TuiLiveSessionTab(
         {
             hint = " Q:quit";
         }
-        _statusBar!.Text(hint);
+        _statusBar.Text(hint);
         _statusBar.RightText(appState.StatusMessage ?? "");
     }
 

@@ -45,7 +45,8 @@ namespace TianWen.UI.Abstractions
             _chrome = chrome;
             _tracker = tracker;
 
-            var bus = chrome.Bus!;
+            var bus = chrome.Bus
+                ?? throw new ArgumentException("The chrome must carry a signal bus.", nameof(chrome));
 
             // Create shared signal handler (all business logic)
             _signalHandler = new AppSignalHandler(sp, appState, plannerState,

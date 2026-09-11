@@ -136,9 +136,10 @@ namespace TianWen.Cli.Tui
                 return BuildLabelledControl(PropertyLabel, PropertyControl(), context.Selected);
             }
 
-            if (Setting is { } setting && DeviceUri is not null)
+            if (Setting is { } setting && DeviceUri is { } settingUri)
             {
-                return BuildLabelledControl(setting.Label, SettingControl(setting), context.Selected);
+                return BuildLabelledControl(
+                    setting.Label, SettingControl(setting, settingUri), context.Selected);
             }
 
             return TuiRowPalette.Body.Rest();
@@ -200,7 +201,7 @@ namespace TianWen.Cli.Tui
 
             return Layout.Builder.HStack(
                 pen.Gap(2),
-                pen.Text(SlotLabel!).WStar(1f, SlotLabelMinColumns, SlotLabelMaxColumns),
+                pen.Text(SlotLabel ?? "").WStar(1f, SlotLabelMinColumns, SlotLabelMaxColumns),
                 pen.Gap(1),
                 pen.Text(SlotDeviceName ?? "(none)").WStar(2f, 4f),
                 BuildToggleStrip(pen),
@@ -256,7 +257,7 @@ namespace TianWen.Cli.Tui
                 pen.Gap(4),
                 pen.Cell($"{FilterIndex}", 2, TextAlign.Far),
                 pen.Gap(2),
-                pen.Text(FilterName!).WStar(1f, 16f),
+                pen.Text(FilterName ?? "").WStar(1f, 16f),
                 pen.Cell(" [←] ", 5),
                 pen.Cell(offset, 5, TextAlign.Far),
                 pen.Cell(" [→]", 4),
@@ -285,9 +286,11 @@ namespace TianWen.Cli.Tui
             ? $"  [{PropertyValue}]"
             : $"  [←] {PropertyValue} [→]";
 
-        private string SettingControl(DeviceSettingDescriptor setting)
+        // The URI is a PARAMETER rather than read back off the property: the caller is where it is
+        // known to exist, and passing it is what carries that knowledge across the call.
+        private string SettingControl(DeviceSettingDescriptor setting, Uri deviceUri)
         {
-            var value = setting.FormatValue(DeviceUri!);
+            var value = setting.FormatValue(deviceUri);
             return setting.Kind switch
             {
                 DeviceSettingKind.BoolToggle => $"  [{value}]",

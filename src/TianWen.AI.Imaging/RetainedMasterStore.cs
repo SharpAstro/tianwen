@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Imaging;
@@ -109,9 +110,9 @@ namespace TianWen.AI.Imaging
         /// cannot be decoded. Both are ordinary: retention is best-effort and a store built before it
         /// existed has none, so a caller treats this as "take the expensive path" rather than an error.
         /// </returns>
-        public static bool TryRead(string outDir, string sessionId, out Image master, ILogger? logger = null)
+        public static bool TryRead(string outDir, string sessionId, [MaybeNullWhen(false)] out Image master, ILogger? logger = null)
         {
-            master = null!;
+            master = null;
             var path = PathFor(outDir, sessionId);
             if (!File.Exists(path))
             {

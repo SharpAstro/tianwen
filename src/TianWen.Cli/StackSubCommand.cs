@@ -293,7 +293,7 @@ internal sealed class StackSubCommand(
         };
         stackCommand.SetAction(async (parseResult, ct) =>
         {
-            var dataRoot = parseResult.GetValue(dataRootArg)!;
+            var dataRoot = parseResult.Required(dataRootArg);
             if (!Directory.Exists(dataRoot))
             {
                 consoleHost.WriteError($"Data root does not exist: {dataRoot}");
@@ -404,7 +404,7 @@ internal sealed class StackSubCommand(
                     denoiseIterations >= 1 ? denoiseIterations : null,
                     out var enhanceOptions, out var enhanceError))
             {
-                consoleHost.WriteError(enhanceError!);
+                consoleHost.WriteError(enhanceError);
                 return 1;
             }
 

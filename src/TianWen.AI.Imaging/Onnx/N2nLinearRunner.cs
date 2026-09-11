@@ -252,7 +252,11 @@ internal static class N2nLinearRunner
         // 4. Back to the input's units with the parameters the stretch returned, exactly as
         //    ChunkedNafnetRunner does; a frame that was fed as it is comes back as it is.
         var inferred = new Image(inferredData, BitDepth.Float32, 1.0f, 0f, 0f, input.ImageMeta);
-        var restored = stretchApplied ? inferred.MtfUnstretch(origMin!, balances!) : inferred;
+        // The stretch parameters are asked for alongside the flag: ApplyInputStretch only reports
+        // applied WITH them, so this is the same condition said in the form that carries the values.
+        var restored = stretchApplied && origMin is { } restoreMin && balances is { } restoreBalances
+            ? inferred.MtfUnstretch(restoreMin, restoreBalances)
+            : inferred;
 
         // 5. Blend back toward the input, in the input's units, in one pass over the plane. The
         //    blend is applied here rather than per chunk because it is linear, so the two are

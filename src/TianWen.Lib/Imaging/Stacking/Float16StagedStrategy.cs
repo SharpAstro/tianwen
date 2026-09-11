@@ -124,7 +124,10 @@ public sealed class Float16StagedStrategy : IIntegrationStrategy
             var index = 0;
             await foreach (var warped in job.WarpedFrames(ct).WithCancellation(ct))
             {
-                if (index == 0)
+                // Keyed on the cache being absent rather than on index == 0. They are the same
+                // instant -- this is the only assignment -- and saying it this way is what lets every
+                // read below see a cache that exists, instead of asserting it with a `!`.
+                if (cache is null)
                 {
                     var (c, w, h) = warped.Shape;
                     var frameBytes = (long)w * h * c * sizeof(float);
@@ -142,7 +145,7 @@ public sealed class Float16StagedStrategy : IIntegrationStrategy
                 // past the cap stage to disk as half precision and read back
                 // with the existing unpack path.
                 StreamingFrameReader reader;
-                if (index < cache!.StrongCap)
+                if (index < cache.StrongCap)
                 {
                     reader = StreamingFrameReader.InMemoryOnly(warped);
                 }

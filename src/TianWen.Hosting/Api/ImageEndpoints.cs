@@ -52,7 +52,7 @@ internal static class ImageEndpoints
                     out var options, out var error))
             {
                 return Results.Json(
-                    ResponseEnvelope<string>.Fail(error!),
+                    ResponseEnvelope<string>.Fail(error),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 

@@ -213,7 +213,7 @@ public readonly record struct DisplayControls(
             {
                 ({ } added, null) => "+" + added,
                 (null, _) => OffName(slot) is { } off ? "No " + off : DescribeDefault(slot),
-                var (changed, _) => changed!,
+                ({ } changed, _) => changed,
             });
         }
 

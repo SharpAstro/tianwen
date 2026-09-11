@@ -2067,9 +2067,11 @@ public partial class Image
             BuildGhsLut(lut, lnD, b, sp, lp, hp);
             lastMedian = ComputePostStretchMedian(lut, bins, halfTotal, invBinMax);
             double metric;
-            if (target == GhsConvergeTarget.Mode)
+            // The scratch bins exist EXACTLY when the target is Mode (see their declaration), so
+            // their presence is the same condition said in the form that carries the array with it.
+            if (postBins is not null)
             {
-                lastMode = ComputePostStretchMode(lut, bins, invBinMax, postBins!);
+                lastMode = ComputePostStretchMode(lut, bins, invBinMax, postBins);
                 metric = lastMode;
             }
             else
