@@ -1661,7 +1661,12 @@ The rules:
   CAPTURE instant** (`ImageRendererBase.BuildSelectionPanelData`, `FrameSiteResolver`), never a live
   clock, and BOTH rows are omitted together whenever either the site or the capture time is unknown --
   a NaN `AltDeg` is the one signal the render code trusts for that, since `SiteContext` and
-  `RiseTransitSetHelper` fail silently on a NaN site rather than reporting the gap. Three more rules:
+  `RiseTransitSetHelper` fail silently on a NaN site rather than reporting the gap.
+  **The ring is the object's OWN outline where the catalogue knows one** -- true axis ratio and
+  position angle, from the same `OverlayEngine` inputs the `[O]` overlay uses for that object
+  (`ChooseMarkerKind`, `WCS.PixelScaleArcsec`, `ComputeScreenPA`), so it lands concentric with the
+  outline underneath; a star keeps the circle even carrying a cross-linked shape, and the outer ring
+  is a UNIFORM scale of the inner or an edge-on galaxy rounds off. Three more rules:
   it fires on the tap RELEASE, never the press (a press on the picture starts a pan, so on the press
   every drag would select); **the resolver applies the OVERLAY's type gate**, or it names things drawn
   nowhere -- a click on M42's core answered "HH 1146" until it did, and the same hole had been in the

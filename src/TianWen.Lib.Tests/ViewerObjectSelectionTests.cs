@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
@@ -59,7 +60,11 @@ namespace TianWen.Lib.Tests
                 ViewerState state, float left, float top, float right, float bottom, uint projW, uint projH) { }
 
             protected override void DrawEllipseOverlay(float cx, float cy, float semiMajor, float semiMinor,
-                float rotationRad, RGBAColor32 color, float thickness) => Ellipses++;
+                float rotationRad, RGBAColor32 color, float thickness)
+            {
+                Ellipses++;
+                DrawnEllipses.Add((semiMajor, semiMinor, rotationRad));
+            }
 
             protected override void DrawCrossOverlay(float cx, float cy, float armLength, RGBAColor32 color) { }
 
@@ -82,6 +87,13 @@ namespace TianWen.Lib.Tests
             /// what makes "is it ringed" answerable without a pixel readback.
             /// </summary>
             public int Ellipses { get; set; }
+
+            /// <summary>
+            /// Every ellipse this frame drew, in draw order. The COUNT answers "is it ringed"; the
+            /// geometry is what answers "is it ringed with the object's own shape", which a count
+            /// cannot tell from a circle.
+            /// </summary>
+            public List<(float SemiMajor, float SemiMinor, float AngleRad)> DrawnEllipses { get; } = [];
         }
 
         /// <summary>A frame whose reference pixel is at its own centre, pointed at the given sky position.</summary>
@@ -452,6 +464,130 @@ namespace TianWen.Lib.Tests
 
             viewer.Ellipses.ShouldBe(withoutSelection + 2,
                 "the selection ring is a pair of ellipses, and nothing else changed between the frames");
+        }
+
+        /// <summary>
+        /// How many ellipses a frame draws with NOTHING selected. The picture draws some of its own
+        /// (a detected-star marker, say), so the selection's pair has to be counted against that
+        /// rather than assumed to be all of them.
+        /// </summary>
+        private static int EllipsesWithoutSelection(
+            SelectionViewer viewer, AstroImageDocument document, ViewerState state,
+            SkyMapInfoPanelData? restore = null)
+        {
+            var held = restore ?? state.SelectedObject;
+            state.SelectedObject = null;
+            viewer.DrawnEllipses.Clear();
+            viewer.Render(document, state);
+            var count = viewer.DrawnEllipses.Count;
+            state.SelectedObject = held;
+            return count;
+        }
+
+        /// <summary>
+        /// The selection's own pair out of the frame's ellipses: exactly two more than the baseline,
+        /// and the LAST two, since the highlight draws after the picture's own markers.
+        /// </summary>
+        private static ((float SemiMajor, float SemiMinor, float AngleRad) Inner,
+            (float SemiMajor, float SemiMinor, float AngleRad) Outer)
+            SelectionRings(SelectionViewer viewer, int baseline)
+        {
+            var drawn = viewer.DrawnEllipses;
+            drawn.Count.ShouldBe(baseline + 2,
+                "the selection ring is a pair, and nothing else changed between the two frames");
+            return (drawn[^2], drawn[^1]);
+        }
+
+        /// <summary>
+        /// An EXTENDED object is ringed by its own outline, not by a circle: both rings carry the
+        /// catalogue's axis ratio, which is the whole difference between "something is selected here"
+        /// and "this galaxy is selected".
+        /// </summary>
+        /// <remarks>
+        /// <b>Checked against the catalogue's own axes rather than a literal.</b> A fixed expected
+        /// ratio would rot the moment an OpenNGC refresh re-measures M51, and would not tell a marker
+        /// that traces the shape from one that merely happens to be elliptical -- this reads the
+        /// major/minor the database holds and asks the ring to match it.
+        /// </remarks>
+        [Fact]
+        public async Task TheRingTracesAnExtendedObjectsOwnEllipse()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _) = await NewViewerOnAsync(renderer, CatalogIndex.NGC5194, ct);
+            var db = await SharedCatalogDB.InitAsync(ct);
+
+            db.TryGetShape(CatalogIndex.NGC5194, out var shape)
+                .ShouldBeTrue("the fixture depends on M51 carrying a catalogued shape");
+            var catalogueRatio = (double)shape.MinorAxis / (double)shape.MajorAxis;
+            catalogueRatio.ShouldBeLessThan(0.95,
+                "an object whose axes are nearly equal could not tell an ellipse from a circle");
+
+            viewer.Render(document, state);
+            var baseline = EllipsesWithoutSelection(viewer, document, state);
+
+            var (x, y) = ObjectOnScreen(viewer, state);
+            TapAt(viewer, x, y);
+
+            viewer.DrawnEllipses.Clear();
+            viewer.Render(document, state);
+
+            var (inner, outer) = SelectionRings(viewer, baseline);
+
+            foreach (var (semiMajor, semiMinor, _) in new[] { inner, outer })
+            {
+                (semiMinor / semiMajor).ShouldBe((float)catalogueRatio, 0.01f,
+                    "each ring carries the object's OWN axis ratio, not a circle's");
+            }
+
+            // The outer ring is a UNIFORM scale of the inner, which is what stops an edge-on galaxy
+            // rounding off: a constant pixel offset would leave the two ratios apart.
+            (outer.SemiMinor / outer.SemiMajor).ShouldBe(inner.SemiMinor / inner.SemiMajor, 0.001f,
+                "the outer ring scales uniformly rather than gaining a constant number of pixels");
+            outer.SemiMajor.ShouldBeGreaterThan(inner.SemiMajor, "and it sits outside the inner one");
+            outer.AngleRad.ShouldBe(inner.AngleRad, 1e-6f, "both rings share the object's position angle");
+            MathF.Abs(inner.AngleRad).ShouldBeGreaterThan(0.01f,
+                "M51's catalogued position angle is not zero, so the ring is not axis-aligned");
+        }
+
+        /// <summary>
+        /// A STAR keeps the circular ring even when the catalogue hands it a shape. Antares sits
+        /// inside the rho Ophiuchi dark-cloud complex, so a cross-linked shape on a star is a real
+        /// case, and it must not acquire a nebula's ellipse.
+        /// </summary>
+        /// <remarks>
+        /// The selection is built directly rather than clicked for: the point is the CLASSIFIER, and
+        /// pointing a synthetic frame at a star that happens to carry a stray shape would test the
+        /// catalogue's current cross-links instead of the rule.
+        /// </remarks>
+        [Fact]
+        public async Task AStarKeepsTheCircularRingEvenCarryingAShape()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, obj) = await NewViewerOnAsync(renderer, CatalogIndex.NGC5194, ct);
+
+            // A star at the frame's centre, carrying an emphatically elongated shape.
+            state.SelectedObject = SkyMapInfoPanelData.FromPosition(
+                    "Antares-like", obj.RA, obj.Dec, double.NaN, double.NaN, DateTimeOffset.UnixEpoch, default)
+                with
+            {
+                ObjType = ObjectType.Star,
+                Shape = new CelestialObjectShape((Half)40f, (Half)4f, (Half)30f),
+            };
+
+            var baseline = EllipsesWithoutSelection(viewer, document, state, restore: state.SelectedObject);
+
+            viewer.DrawnEllipses.Clear();
+            viewer.Render(document, state);
+
+            var (inner, outer) = SelectionRings(viewer, baseline);
+            foreach (var (semiMajor, semiMinor, angle) in new[] { inner, outer })
+            {
+                semiMinor.ShouldBe(semiMajor, 1e-3f,
+                    "a star's ring is a circle however elongated the shape hung off it is");
+                angle.ShouldBe(0f, 1e-6f, "and a circle has no position angle to carry");
+            }
         }
 
         // --- the floating panel's Alt/Az and rise/transit/set are baked in at the CAPTURE instant ---

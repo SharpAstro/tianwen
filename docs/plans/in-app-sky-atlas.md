@@ -578,8 +578,35 @@ locking the release scope was *"as long as we track everything we skipped in a p
       any region claiming that pixel satisfies; it now asserts `"InfoPanelBackground"`, matching its
       own sibling case. Each of the three behavioural changes above was sabotage-verified separately:
       removing it fails exactly its one test and no other.
-  - **Still open:** the selection ring is always the two-circle fallback in the viewer, never the
-    object's own traced ellipse the atlas draws for an extended object (`SkyMapTab.TryDrawShapeMarker`).
+  - ~~**The selection ring is always the two-circle fallback in the viewer.**~~ **DONE 2026-09-11.**
+    `ImageRendererBase.TryDrawSelectionShape` rings an extended object with its own projected ellipse
+    and only a star or a shapeless entry now falls through to the circles. Every input is the one the
+    `[O]` overlay already uses for that same object -- `OverlayEngine.ChooseMarkerKind` for whether an
+    ellipse is owed at all, `layout.Zoom / (WCS.PixelScaleArcsec / 60)` for the arcmin-to-pixel
+    conversion, `OverlayEngine.ComputeScreenPA` for the angle -- which is what makes the ring
+    CONCENTRIC with the outline drawn underneath it rather than approximately on it, and is why
+    nothing here re-derives the shape from the CD matrix: the overlay probes the WCS and so does this.
+    Three decisions worth keeping:
+    - **Still a pair.** The viewer's selection idiom is a double stroke, and changing that for shaped
+      objects would have made "selected" mean two different things on one surface. The outer ring is
+      a UNIFORM scale of the inner (it gains the same 3 px on the MAJOR axis the circle fallback's
+      outer gains, and the minor follows proportionally), because a constant pixel offset rounds an
+      edge-on galaxy off -- the same failure `EllipseLegibilityScale` exists to prevent at the small
+      end. A sabotage swapping the scale for a constant offset fails the ratio assertion even on
+      M51, whose 0.85 axis ratio is far from the worst case.
+    - **The classifier gate is load-bearing.** A star can carry a stray or cross-linked shape
+      (Antares sits inside the rho Ophiuchi complex) and must still ring as a star. Asking the same
+      `ChooseMarkerKind` the overlay markers ask is what keeps the two answers the same one.
+    - **`SelectionMinSemiMajorPx` and `SelectionSlack` moved to `OverlayEngine`**, beside the
+      pinned-halo geometry and for the reason that block already gives: the user meets both surfaces
+      in one session, and a selection that changes size or tightness depending on which host drew it
+      is not one marker. The atlas reads them now instead of its own copies.
+    Pinned by `ViewerObjectSelectionTests.TheRingTracesAnExtendedObjectsOwnEllipse`, which reads
+    M51's major/minor out of the DATABASE and asks the ring to match (a literal would rot on the next
+    OpenNGC refresh, and could not tell a marker that traces the shape from one that merely happens
+    to be elliptical -- the catalogue holds 13.71' x 11.67', not the 11.2' x 6.9' the popular figure
+    quotes), and by `AStarKeepsTheCircularRingEvenCarryingAShape`, which builds the selection
+    directly rather than clicking for one so it tests the RULE and not today's cross-links.
 - ~~**Constellation stars appearing at wider fields.**~~ **DONE 2026-09-10.** Whether a star is drawn
   at all is `OverlayEngine.GetStarMagCutoff(fovArcmin)` -- mag <= 1.0 above 5 degrees, 2.5 at 2-5, 4.0
   at 1-2, 5.5 at 0.5-1, 7.0 below -- so tau PsA at about mag 4.9 needed the field under one degree

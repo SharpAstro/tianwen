@@ -38,9 +38,21 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   right-click menu.
   [docs/plans/in-app-sky-atlas.md](docs/plans/in-app-sky-atlas.md), "Deferred from the 2026-09-10
   sitting".
-  - [ ] **Still open: the selection ring is a fixed circle even for an extended object.** The atlas
-    traces the object's own ellipse (`SkyMapTab.TryDrawShapeMarker`); the viewer's
-    `RenderSelectionHighlight` always draws the two-circle fallback. One-time cost, not urgent.
+  - [x] **The selection ring traces an extended object's own ellipse** (DONE 2026-09-11). The atlas
+    had traced the object's shape since it shipped; the viewer always drew the two-circle fallback.
+    `ImageRendererBase.TryDrawSelectionShape` now rings the object with its OWN projected outline --
+    true axis ratio, true position angle -- built from the inputs the `[O]` overlay already uses for
+    the same object (`OverlayEngine.ChooseMarkerKind`, the arcmin-to-pixel conversion off
+    `WCS.PixelScaleArcsec`, `OverlayEngine.ComputeScreenPA`), so the ring sits concentric with the
+    outline the overlay draws underneath rather than merely near it. Still a PAIR, so the selection
+    reads the same as it always did, and the outer ring is a UNIFORM scale of the inner so an edge-on
+    galaxy does not round off. A star keeps the circle even when the catalogue hands it a
+    cross-linked shape (Antares inside rho Oph), by asking the same classifier the overlay asks. The
+    two sizing constants moved to `OverlayEngine` beside the pinned-halo geometry, for the reason
+    that block gives: a selection that changes size depending on which host drew it is not one
+    marker. Pinned by `TheRingTracesAnExtendedObjectsOwnEllipse` (checked against the catalogue's own
+    axes, not a literal) and `AStarKeepsTheCircularRingEvenCarryingAShape`; three sabotage runs, each
+    failing exactly its one test.
   - [x] **A click on the panel's BLANK area used to fall through** (FIXED 2026-09-11, in both hosts
     together). Only the buttons and the close X registered a clickable region, so a press anywhere
     else on the panel reached the picture (or the sky map) underneath it -- re-selecting whatever was
