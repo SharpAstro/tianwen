@@ -124,3 +124,26 @@ Two things specific to this repo:
   its own, so a local `dotnet build` packed it at the SDK default **1.0.0** while its `AssemblyVersion`
   read 6.1; there was a 43 MB `TianWen.Lib.1.0.0.nupkg` sitting in `bin/Release` to prove it. The
   shared `VersionPrefix` now covers every project.
+
+## The sibling table (moved verbatim from CLAUDE.md, 2026-09-12)
+
+TianWen depends on in-house libraries published to nuget.org under the **SharpAstro** org. Their
+source repos live as siblings under the same parent directory (`../`). csproj layout varies, not
+every sibling uses `src/<Lib>/<Lib>.csproj`.
+
+| Package | Source Repo | csproj path | Auto-detect |
+|---------|-------------|-------------|:-----------:|
+| `DIR.Lib` | `../DIR.Lib` | `src/DIR.Lib/DIR.Lib.csproj` | ✅ |
+| `SdlVulkan.Renderer` | `../SdlVulkan.Renderer` | `src/SdlVulkan.Renderer/SdlVulkan.Renderer.csproj` | ✅ |
+| `Console.Lib` | `../Console.Lib` | `src/Console.Lib/Console.Lib.csproj` | ✅ |
+| `FITS.Lib` | `../FITS.Lib` | `CSharpFITS/CSharpFITS.csproj` (package name is `FITS.Lib`) | ✅ |
+| `FC.SDK` | `../FC.SDK` | `src/FC.SDK/FC.SDK.csproj` | ❌ |
+| `ZWOptical.SDK` | `../zwo-sdk-nuget` | `ZWOptical.SDK.csproj` (repo root) | ❌ |
+| `QHYCCD.SDK` | `../QHYCCD.SDK` | `QHYCCD.SDK.csproj` (repo root) | ✅ |
+| `SharpAstro.Fonts` | `../Fonts.Lib` | `src/SharpAstro.Fonts/SharpAstro.Fonts.csproj` | transitive |
+| `SER.Lib` | `../SER.Lib` | `src/SER.Lib/SER.Lib.csproj` | ✅ |
+| `Lzip.Lib` | `../Lzip.Lib` | `src/Lzip.Lib/Lzip.Lib.csproj` | ✅ |
+| `LAN.Lib` | `../LAN.Lib` | `src/LAN.Lib/LAN.Lib.csproj` | ✅ |
+| `WebGl.Renderer` | `../WebGl.Renderer` | `src/WebGl.Renderer/WebGl.Renderer.csproj` | ✅ |
+| `SharpAstro.AppShell` | `../AppShell` | `src/SharpAstro.AppShell/SharpAstro.AppShell.csproj` | ✅ |
+| `TianWen.DAL` | `../TianWen.DAL` | - | ❌ |

@@ -21,7 +21,7 @@ Canonical project state lives in these markdown files; read the relevant ones be
 |------|---------|
 | `docs/plans/summary.md` | Current status of every plan in `docs/plans/` (DONE / PARTIAL / NOT STARTED) cross-checked against the codebase |
 | `docs/plans/*.md` | Per-feature implementation plans with phasing tables |
-| `docs/architecture/*.md` | Architecture deep-dives: the subject in full, where a section below keeps only the rules (e.g. `image-pipeline.md`, `stacking-render-pipeline.md`, `stretch-pipeline.md`, `viewer-gpu-lifetime.md`, `widgets-and-controls.md`, `hosting-api.md`, `unattended-ui-driving.md`, `desktop-shell.md`, `driver-resilience.md`, `sibling-builds-and-releases.md`) |
+| `docs/architecture/*.md` | Architecture deep-dives, one file per subject, where a section below keeps only the rules that bite (`ls docs/architecture/` is the index) |
 | `TODO.md` | Active / high-priority task list (repo root) |
 | `docs/todo/*.md` | Full backlog + done-archive + unsorted inbox, split by area |
 | `docs/todo/hardware-validation.md` | The bench queue: every check only a real device or night can answer, indexed by GEAR; one home per item (plans keep the *why* + a pointer, never a second checkbox) |
@@ -105,26 +105,14 @@ dotnet test TianWen.Lib.Tests --filter "FullyQualifiedName~Catalog"
 
 ## SharpAstro Sibling Libraries
 
-TianWen depends on in-house libraries published to nuget.org under the **SharpAstro** org. Their
-source repos live as siblings under the same parent directory (`../`). csproj layout varies, not
-every sibling uses `src/<Lib>/<Lib>.csproj`.
-
-| Package | Source Repo | csproj path | Auto-detect |
-|---------|-------------|-------------|:-----------:|
-| `DIR.Lib` | `../DIR.Lib` | `src/DIR.Lib/DIR.Lib.csproj` | ✅ |
-| `SdlVulkan.Renderer` | `../SdlVulkan.Renderer` | `src/SdlVulkan.Renderer/SdlVulkan.Renderer.csproj` | ✅ |
-| `Console.Lib` | `../Console.Lib` | `src/Console.Lib/Console.Lib.csproj` | ✅ |
-| `FITS.Lib` | `../FITS.Lib` | `CSharpFITS/CSharpFITS.csproj` (package name is `FITS.Lib`) | ✅ |
-| `FC.SDK` | `../FC.SDK` | `src/FC.SDK/FC.SDK.csproj` | ❌ |
-| `ZWOptical.SDK` | `../zwo-sdk-nuget` | `ZWOptical.SDK.csproj` (repo root) | ❌ |
-| `QHYCCD.SDK` | `../QHYCCD.SDK` | `QHYCCD.SDK.csproj` (repo root) | ✅ |
-| `SharpAstro.Fonts` | `../Fonts.Lib` | `src/SharpAstro.Fonts/SharpAstro.Fonts.csproj` | transitive |
-| `SER.Lib` | `../SER.Lib` | `src/SER.Lib/SER.Lib.csproj` | ✅ |
-| `Lzip.Lib` | `../Lzip.Lib` | `src/Lzip.Lib/Lzip.Lib.csproj` | ✅ |
-| `LAN.Lib` | `../LAN.Lib` | `src/LAN.Lib/LAN.Lib.csproj` | ✅ |
-| `WebGl.Renderer` | `../WebGl.Renderer` | `src/WebGl.Renderer/WebGl.Renderer.csproj` | ✅ |
-| `SharpAstro.AppShell` | `../AppShell` | `src/SharpAstro.AppShell/SharpAstro.AppShell.csproj` | ✅ |
-| `TianWen.DAL` | `../TianWen.DAL` | - | ❌ |
+TianWen depends on in-house libraries published to nuget.org under the **SharpAstro** org.
+Siblings, each at `../<repo>` (csproj layout varies; the full table with paths and the auto-detect
+column: `docs/architecture/sibling-builds-and-releases.md`): `DIR.Lib`, `SdlVulkan.Renderer`,
+`Console.Lib`, `FITS.Lib` (`../FITS.Lib`, csproj `CSharpFITS/CSharpFITS.csproj`), `FC.SDK` (no
+auto-detect), `ZWOptical.SDK` (`../zwo-sdk-nuget`, csproj at the repo root, no auto-detect),
+`QHYCCD.SDK` (csproj at the repo root), `SharpAstro.Fonts` (`../Fonts.Lib`, transitive), `SER.Lib`,
+`Lzip.Lib`, `LAN.Lib`, `WebGl.Renderer`, `SharpAstro.AppShell` (`../AppShell`), `TianWen.DAL` (no
+auto-detect).
 
 **Auto-detection** (`Directory.Build.props`): a **single** property `UseLocalSiblings` gates them all.
 The build switches to ProjectReference when **every** sibling working copy exists; `DIR.Lib`,
@@ -139,7 +127,7 @@ packages (all-or-nothing), which is fine on a dev box that has them all.
 
 **The history behind the rules below -- the CPM drift, the web projects in CI, the `open-vs.ps1` /
 `Exists(...)` divergence and the release traps -- is in
-[`docs/architecture/sibling-builds-and-releases.md`](docs/architecture/sibling-builds-and-releases.md).**
+`docs/architecture/sibling-builds-and-releases.md`.**
 The rules:
 
 - **No CPM opt-outs left in `src/`**, and a new one needs a real technical justification, not "this
@@ -171,7 +159,7 @@ here. TianWen uses the same shape (`src/Directory.Build.props`; `/bump-version` 
 **a version literal in a csproj or the workflow is a regression** -- delete it and let it derive.
 
 Three traps that doc omits, plus this repo's five-job read-back and the latent 1.0.0 pack it closed:
-[`docs/architecture/sibling-builds-and-releases.md`](docs/architecture/sibling-builds-and-releases.md).
+`docs/architecture/sibling-builds-and-releases.md`.
 In short: `DOTNET_NOLOGO: 1` must be in the workflow `env:` (the version is read off msbuild stdout);
 release notes live in `CHANGELOG.md`, never beside the number; a test step that rebuilds a
 `GeneratePackageOnBuild` project without `-p:Version` publishes a stray `X.Y.0` package that
@@ -220,7 +208,7 @@ so `.github/workflows/simulators.yml` has two entry points: `workflow_dispatch`
 project. Real-time settle waits go through a real `SystemTimeProvider` (never a fake clock -- its
 auto-advancing `SleepAsync` would busy-spin), so the "no raw `Task.Delay`" rule holds even for genuine
 wall-clock waits. The shared `catalogs` job, and what the suite caught on its first run:
-[docs/plans/device-simulator-ci.md](docs/plans/device-simulator-ci.md).
+`docs/plans/device-simulator-ci.md`.
 
 ### Test Collections & Parallelism
 
@@ -233,17 +221,13 @@ from outside every collection because their names did not match: `DeviceOwnershi
 `SessionTestHelper.CreateSessionAsync`, it is a session test.
 
 **A fake-clock `SleepAsync` must throw on a cancelled token, exactly as the real one does, and a guider's
-`StopCaptureAsync` must not return until its loop has exited.** `FakeTimeProviderWrapper.SleepAsync`
-used to `Advance` and return whatever the token said, so a cancelled background loop ran on to its next
-natural exit; and `FakeGuider` / `BuiltInGuiderDriver.StopCaptureAsync` cancelled their capture loop and
-returned at once (cancelling is synchronous, the exit is not). Every target start is "stop guiding,
-slew, start guiding", so the next loop began on the guide camera while the previous one was still
-mid-frame: two consumers of one camera, one guide frame released twice (`ChannelBuffer: more releases
-than refs`), the new loop's `GuideLoop` nulled by the old one's finally, and the session never saw its
-first exposure complete. That is what `DeviceOwnershipTests.AFinishedRunGivesTheRigBack` was -- **a
-race, not starvation** (6 of 9 failures in isolation on a quiet box, 0 of 10 after the fix). It was
-called starvation for a day because every measurement had been taken under load; instrumenting the fake
-clock (fake time traversed, per thread) is what settled it.
+`StopCaptureAsync` must not return until its loop has exited.** Cancelling is synchronous, the exit is
+not: every target start is "stop guiding, slew, start guiding", so the next loop began on the guide
+camera while the previous one was still mid-frame (`ChannelBuffer: more releases than refs`, the new
+loop's `GuideLoop` nulled by the old one's finally). That is what
+`DeviceOwnershipTests.AFinishedRunGivesTheRigBack` was -- **a race, not starvation** (6 of 9 failures
+in isolation, 0 of 10 after the fix); it was called starvation for a day because every measurement
+had been taken under load. The whole story: `docs/architecture/session-test-harness.md`.
 
 **No wall-clock `CancellationTokenSource` timeouts** in session tests; use `[Fact(Timeout = ...)]`
 (inner timeouts cause flakes). **A test that drives a whole run needs that bound**: a wedged run hangs
@@ -273,18 +257,14 @@ await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5)
 ```
 **The budget bounds a STALL, not the run, and the probe is what makes that true.** Waiter pacing alone
 is not enough: `WaiterCount` is global and a fake guider/camera is parked in `SleepAsync` more or less
-permanently, so "is anyone waiting?" answers yes whether or not the driven loop has caught up -- while
-the loop's own tick is a `PeriodicTimer`, which registers no waiter AND **coalesces**, dropping any tick
-whose continuation is still queued. Every advance the loop does not observe is budget spent for nothing,
-and how many there are is a property of the thread pool: measured on one machine, one test, nothing but
-scheduling changing, a 30-minute observation cost **33 to 50 minutes** of budget. A CI runner four
-collections deep is free to be an order worse, and then a healthy loop trips a fake-time cap that reads
-exactly like a hang -- which is what `GivenCloudsRollingInWhenStarCountDropsThenConditionDetected` did
-on 2026-09-02. With the probe the budget resets on progress, so a slow runner merely takes longer, while
-a loop that has genuinely stopped still trips it. A real hang stays bounded by `[Fact(Timeout = ...)]`.
+permanently, while the loop's own tick is a `PeriodicTimer`, which registers no waiter AND
+**coalesces**, so every advance the loop does not observe is budget spent for nothing (a 30-minute
+observation cost **33 to 50 minutes** of budget on one machine; a CI runner is free to be an order
+worse, which is what `GivenCloudsRollingInWhenStarCountDropsThenConditionDetected` did on 2026-09-02).
+With the probe the budget resets on progress; a real hang stays bounded by `[Fact(Timeout = ...)]`.
 Pinned by `FakeTimePumpTests`, whose no-probe case is the old pump kept green as the shape of that
 failure. The pump **throws** with the counters on give-up, so do not read a downstream
-`IsCompleted.ShouldBeTrue` as the diagnosis.
+`IsCompleted.ShouldBeTrue` as the diagnosis. Measurements: `docs/architecture/session-test-harness.md`.
 
 **Never** use `SleepAsync(subExposure)` in a pump loop; it advances fake time even when the `Task.Run`
 hasn't been scheduled yet, causing targets to "set" before imaging starts. `Advance` fires timers
@@ -295,29 +275,25 @@ synchronously; `Task.Delay(1)` yields to the thread pool.
 Drive a full `RunAsync` session against simulated hardware with **no human in the loop and no
 screenshot-poll-and-OCR**. **Every mechanism -- the fake-device URI shapes incl. `port=SkyWatcher` /
 `hasCover=false`, the DEBUG inspector surfaces, the cell-buffer contract -- is in
-[`docs/architecture/unattended-ui-driving.md`](docs/architecture/unattended-ui-driving.md).** The rules
-that bite even after reading it:
+`docs/architecture/unattended-ui-driving.md`.** The rules that bite even after reading it:
 
 - **`ProfileData.SiteLatitude/Longitude` must match the mount URI's `latitude/longitude`** (a split
-  site throws "Could not calculate timezone"). Canonical wiring:
+  site throws "Could not calculate timezone"); canonical wiring
   `SessionTestHelper.CreateSessionAsync(mountPort:"SkyWatcher", latitude, longitude)`.
 - **Anchor the clock with `TIANWEN_NOW`** to a real night at that site, or the session stalls in
-  daylight instead of leaving `WaitingForDark`.
-- **`StartSession` needs >=1 pinned target** (`PlannerState.Proposals.Length > 0`); planner pins
-  persist per-profile, so pin once.
+  daylight instead of leaving `WaitingForDark`. **`StartSession` needs >=1 pinned target**
+  (`PlannerState.Proposals.Length > 0`); planner pins persist per-profile, so pin once.
 - **Ground truth for fine telemetry is the Debug log, not the inspector snapshot.** `AppState` reads
   `LiveSessionState`, which can lag during the guide loop; per-frame guide stats, HA and pier side come
   from `%LOCALAPPDATA%/TianWen/Logs/<date>/GUI_*.log`.
 - **Use `render_liveness`, not a screenshot, to decide IF the render thread is stuck** -- every
-  inspector command runs ON that thread, so screenshot/describe block exactly when it is.
-- **`validation_report` with zero messages is evidence only when `active` is true** (the DEBUG +
-  `SDLVK_VALIDATION=1` gate AND `layerAvailable`) -- a host with no Khronos layer installed used to
-  answer `enabled: true` with zero messages, indistinguishable from a clean run.
-- **A terminal reads back as TEXT, which is the one thing a GPU surface cannot offer.** `screen` /
-  `row` / `cell` report the **front** cell buffer, and `cell` adds the resolved pen, which is how a
-  colour bug is caught at all (`#000000` on `#000000` is invisible on screen yet identical to a correct
-  one in a text dump). One gotcha: the modifier parameter is **`mods`** (`"ctrl+shift"`), not a `ctrl`
-  boolean.
+  inspector command runs ON that thread. **`validation_report` with zero messages is evidence only when
+  `active` is true** (the DEBUG + `SDLVK_VALIDATION=1` gate AND `layerAvailable`); a host with no
+  Khronos layer used to answer `enabled: true` with zero messages.
+- **A terminal reads back as TEXT, the one thing a GPU surface cannot offer.** `screen` / `row` /
+  `cell` report the **front** cell buffer, and `cell` adds the resolved pen (`#000000` on `#000000` is
+  invisible on screen yet identical to a correct one in a text dump). The modifier parameter is
+  **`mods`** (`"ctrl+shift"`), not a `ctrl` boolean.
 
 ## Coding Style
 
@@ -358,7 +334,7 @@ URI-addressed: `DeviceBase` (URI identity), `IDeviceSource<T>` (driver backends)
 `ICombinedDeviceManager` (coordinates sources), `IDeviceUriRegistry` (URI → instance map).
 Each subclass reads query keys (`?key=value`) defined in `DeviceQueryKey`. See class XML doc comments
 for supported keys. Full driver hierarchy (ASCOM / Alpaca / ZWO / QHY / native-serial subgraphs):
-[docs/architecture/device-architecture.md](docs/architecture/device-architecture.md).
+`docs/architecture/device-architecture.md`.
 
 **A profile scan never probes a COM port, and a port that will not TAKE bytes is given up, not retried.**
 `DiscoverOnlyDeviceType(type)` runs the serial probe pass only when a source for that type consumes it (it
@@ -369,7 +345,7 @@ device advertising SPP) accepts an open and then never completes a write, and `S
 token. Only a write the driver never completed raises `ISerialConnection.HasAbandonedIo`, on which the pass
 drops the port for the rest of the discovery; a READ timeout never does -- a device at the wrong baud or
 awaiting another protocol completes the write and stays silent, and still gets every probe and baud. Found
-and measured live 2026-08-30: [docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md),
+and measured live 2026-08-30: `docs/plans/mount-safety-limits.md`,
 "Live verification".
 
 ### Device Ownership (the hub lease)
@@ -448,102 +424,71 @@ time, since `NewInstanceFromDevice(sp)` has no profile context).
 
 ### Plate Solving
 
-`IPlateSolverFactory` selects in priority order:
-- `CatalogPlateSolver`: built-in, ~6 matched stars, no external dep, used by polar alignment refine loop
-- `AstapPlateSolver`: wraps `astap_cli`; needs ~44 stars
-- `AstrometryNetPlateSolver`: wraps `solve-field`; slower fallback
+`IPlateSolverFactory` selects in priority order: `CatalogPlateSolver` (built-in, ~6 matched stars, no
+external dep, used by the polar-alignment refine loop), `AstapPlateSolver` (wraps `astap_cli`, ~44
+stars), `AstrometryNetPlateSolver` (wraps `solve-field`, slower fallback). Every measurement, the
+dataset rationale, phase C's numbers and the quad-seed/parity-cache design:
+`docs/plans/plate-solver-performance.md`.
 
-**`CatalogPlateSolver` requires Tycho-2 to be loaded.** The solver self-inits the
-`ICelestialObjectDB` at the top of `SolveImageAsync` via the idempotent `InitDBAsync`
-fast path (`_isInitialized`), so any caller (CLI, hosted API, tests) works without
-remembering to init upstream. First call pays a full DB init (**~343 ms**, Release + warm);
-subsequent calls are free. **That is no longer a Tycho-2 bulk-decode cost** -- since the
-2026-08-31 build-time expansion the Tycho-2 half is 0.3 ms and its blocking join 0.0 ms, and
-the largest phase is `hd-hip-cross` at 121.8 ms, which is the pre-baked snapshot's
-deserialise-and-apply rather than a recompute
-([docs/plans/catalog-binary-format.md](docs/plans/catalog-binary-format.md)).
+**`CatalogPlateSolver` requires Tycho-2 and self-inits the `ICelestialObjectDB`** at the top of
+`SolveImageAsync` via the idempotent `InitDBAsync` fast path (`_isInitialized`), so any caller works
+without remembering to init upstream. The first call pays a full DB init (**~343 ms**, Release + warm);
+that is no longer a Tycho-2 bulk-decode cost (0.3 ms since the 2026-08-31 build-time expansion), the
+largest phase is `hd-hip-cross` at 121.8 ms, the pre-baked snapshot's deserialise-and-apply
+(`docs/plans/catalog-binary-format.md`).
 
 **A header hint comes from `OBJCTRA`/`OBJCTDEC` first, and `RA`/`DEC` is NOT the frame centre**
-(`RA`/`DEC` is what the *mount reported*, agreeing with the frame only on a synced mount).
-`WCS.FromHeader` and `Image.Fits.ParseTargetCoords` read CRVAL -> OBJCTRA/OBJCTDEC -> RA/DEC in that
-order and must not diverge: the pair-lock anchor pool is the brightest catalog stars projecting inside
-the frame from the hint, so a hint off by most of a field fills it with stars the image does not
-contain and the seed never reaches consensus.
+(`RA`/`DEC` is what the *mount reported*). `WCS.FromHeader` and `Image.Fits.ParseTargetCoords` read
+CRVAL -> OBJCTRA/OBJCTDEC -> RA/DEC in that order and must not diverge: a hint off by most of a field
+fills the pair-lock anchor pool with stars the image does not contain and the seed never reaches
+consensus.
 
 **A `WCS` is in DETECTED-CENTROID coordinates, 0-based, everywhere in memory -- never subtract 1 from
-`SkyToPixel`, and never write CRPIX to a header by hand.** The FITS standard centres the first pixel at
-(1, 1), so the header is the ONE place the two frames differ: `WriteToHeader` adds one and stamps
-`PIXORIG = 1`; `FromHeader` and `FromAstapIniFile` subtract one. Until 2026-09-05 the numbers crossed
-the header unchanged under a "1-based" comment, so every file TianWen solved was one pixel off in
-astropy, PixInsight, Siril and ASTAP, and every third-party WCS one pixel off in TianWen; found as a
-constant (+0.95, +0.91) px offset against Gaia DR3 that a 2.5 px star-match tolerance had been
-absorbing. A TianWen master from before the marker (`STACK_N` or a `TianWen.` SWCREATE, no
-`PIXORIG`) is still read verbatim; a foreign frame solved in place with `--update-fits` before the fix
-is undetectable and reads one pixel off until re-solved. Subtracting one from `SkyToPixel` in memory
-injects the same bias the other way ((+0.91, +0.89) measured on Vela). Pinned by `WcsPixelOriginTests`.
-
+`SkyToPixel`, and never write CRPIX to a header by hand.** The header is the ONE place the two frames
+differ: `WriteToHeader` adds one and stamps `PIXORIG = 1`; `FromHeader` and `FromAstapIniFile` subtract
+one. Until 2026-09-05 the numbers crossed unchanged, so every TianWen-solved file was one pixel off in
+astropy, PixInsight, Siril and ASTAP (found as a constant (+0.95, +0.91) px offset against Gaia DR3
+that a 2.5 px match tolerance had been absorbing); a pre-marker TianWen master (`STACK_N` or a
+`TianWen.` SWCREATE, no `PIXORIG`) is still read verbatim, and a foreign frame solved in place with
+`--update-fits` before the fix reads one pixel off until re-solved. Pinned by `WcsPixelOriginTests`.
 **And on SCREEN a frame coordinate lands at `origin + (x + 0.5) * zoom`, through
 `WcsAnnotationLayer.ImageToScreen` / `ScreenToImage` and nothing else** (the GPU grid's `wcsPixel` in
-`image.frag` is the shader half of the same rule; re-bake if it moves). The centre of pixel `i` is `i` in
-the frame and the middle of the `i`-th zoomed cell on screen. The 2026-09-05 fix could not reach the
-viewer: ten consumers (catalogue markers, the grid and its labels, the selection ring, the annotation
-layer, both readouts, SPCC's matcher, the annotator, the CLI star export) each carried a private `-1` /
-`+1` from the 1-based days and lived on for six days, measured as the selection ring 12 screen px off
-the star it named at 8:1, exactly 1.5 image px, while `Tycho2MatchStarsTests` placed its synthetic
-detections a pixel back to compensate. **The origin is the placement, never re-derived from the pan**
-(`ViewportLayout.ImageOrigin`, built once in `ImageRendererBase.CurrentViewportLayout`), so a display
-crop moves every overlay with the quad. Pinned against the PICTURE, not the rule, by
-`ViewerObjectSelectionTests.TheStarCircleIsAtTheCentreOfItsPixelOnThePicturesOwnQuad`; the story in
-[docs/plans/plate-solver-performance.md](docs/plans/plate-solver-performance.md).
+`image.frag` is the shader half; re-bake if it moves): ten consumers each carried a private `-1` / `+1`
+for six days after that fix, measured as the selection ring 12 screen px off its star at 8:1, while
+`Tycho2MatchStarsTests` placed its detections a pixel back to compensate. **The origin is the
+placement, never re-derived from the pan** (`ViewportLayout.ImageOrigin`, built once in
+`ImageRendererBase.CurrentViewportLayout`), so a display crop moves every overlay with the quad.
+Pinned against the PICTURE, not the rule, by
+`ViewerObjectSelectionTests.TheStarCircleIsAtTheCentreOfItsPixelOnThePicturesOwnQuad`.
 
 **`MinSampledFwhmPx` (2.0) re-detects at full resolution when a bin's median `StarFWHM` lands under
-it** -- binning is proposed by the plate scale and vetoed by the measured star width, since a scale
-gate cannot see seeing. It only ever un-does a bin (one wasted pass on the cheap raster); never infer
-the unbinned width by multiplying back (measured FWHM floors near 1.2 px non-linearly).
+it** -- binning is proposed by the plate scale and vetoed by the measured star width; it only ever
+un-does a bin; never infer the unbinned width by multiplying back (measured FWHM floors near 1.2 px
+non-linearly).
 
 **A remembered parity (`SolveHintCache`) is a hypothesis BUDGET for the other half, never a skip, and
 is keyed on `(Telescope, Instrument, RowOrder, Bin)`, the LIGHT PATH** -- an OAG guide camera is the
-opposite parity to the main camera on the same rig at the same instant, so per-rig or per-camera keying
-is wrong. Skipping the doubted parity inverts the goal: a frame that seeds on neither then runs both in
-SERIES instead of parallel. The parity rides on `SolveAttempt.IsStd` because the acceptance gate can
-overturn the pick and the cache must learn the half that actually answered.
+opposite parity to the main camera on the same rig, so per-rig or per-camera keying is wrong. Skipping
+the doubted parity runs both in SERIES instead of parallel. The parity rides on `SolveAttempt.IsStd`
+because the acceptance gate can overturn the pick and the cache must learn the half that answered.
 
 **The quad seed (`CatalogPlateSolver.TrySeedByQuadMatch`) runs BEFORE the parity race, in ONE parity,
-and answers where the frame IS -- never a solution.** It matches the detected field to the catalog on
-the five scale-free quad ratios and hands the race its origin, scale and parity belief; the pair-lock
-still seeds at full fidelity and the acceptance gate still decides, so a wrong quad seed costs a pass,
-never a wrong WCS. Three rules: the catalog cut is by DENSITY over the area the query box actually
-COVERS of the window (a too-deep cut re-points the neighbours that define a quad); a relocation placed
-AFTER the race saves nothing by construction; and a matcher that tests `Dist1` in pixels beside five
-ratios rejects correct catalog quads (right for stacking, wrong here). Pinned by `RealFrameSolveTests`
-and `QuadCatalogMatchTests`.
+and answers where the frame IS -- never a solution** (the pair-lock still seeds at full fidelity and
+the acceptance gate still decides, so a wrong quad seed costs a pass, never a wrong WCS). Three rules:
+the catalog cut is by DENSITY over the area the query box actually COVERS of the window; a relocation
+placed AFTER the race saves nothing by construction; a matcher that tests `Dist1` in pixels beside
+five ratios rejects correct catalog quads (right for stacking, wrong here). Pinned by
+`RealFrameSolveTests` and `QuadCatalogMatchTests`.
 
 **Frozen real-field regressions: `TianWen.Lib.Tests/Data/vela-mosaic-starlists.json.gz`** -- STAR
-LISTS, not FITS, from 24 real Vela pointings / 96 frames / 78k catalog stars, driven by
-`VelaMosaicFieldTests`. **Three of the four bugs it found would have passed a synthetic suite**,
-because a synthetic field is built from a transform the test already knows.
+LISTS, not FITS, from 24 real Vela pointings / 96 frames / 78k catalog stars (`VelaMosaicFieldTests`).
+Three of the four bugs it found would have passed a synthetic suite, because a synthetic field is
+built from a transform the test already knows.
 
-Every measurement above, the dataset rationale, phase C's numbers and the quad-seed/parity-cache
-design in full: [docs/plans/plate-solver-performance.md](docs/plans/plate-solver-performance.md).
-
-**DI registration uses a factory lambda** (`AstrometryServiceCollectionExtensions.cs`):
-
-```csharp
-.AddSingleton<IPlateSolver>(sp => new CatalogPlateSolver(
-    sp.GetRequiredService<ICelestialObjectDB>(),
-    sp.GetRequiredService<ILogger<CatalogPlateSolver>>()))
-```
-
-The short form `AddSingleton<IPlateSolver, CatalogPlateSolver>()` does NOT work for any
-ctor with a non-generic `ILogger` parameter; `Microsoft.Extensions.Logging` only
-registers `ILogger<T>` (open generic) and `ILoggerFactory`, never `ILogger` directly.
-A ctor `(Foo, ILogger? logger = null)` therefore silently gets `logger = null` from DI,
-and `_logger?.LogDebug(...)` lines never fire, which is exactly how the
-"`CatalogPlateSolver` fails on drizzle outputs from `tianwen solve`" bug hid for weeks.
-**Rule:** ctor params should be `ILogger<TSelf> logger` for direct DI resolution, or
-use a factory lambda when a non-generic `ILogger` ctor parameter must be preserved
-(e.g. so the same class can be manually constructed by another component that already
-holds an `ILogger`).
+**A ctor with a non-generic `ILogger` parameter silently gets `null` from DI** (`Microsoft.Extensions.Logging`
+registers only `ILogger<T>` and `ILoggerFactory`), which is how "`CatalogPlateSolver` fails on drizzle
+outputs" hid for weeks. Take `ILogger<TSelf>`, or register with a factory lambda
+(`AstrometryServiceCollectionExtensions.cs`): `docs/architecture/dependency-injection.md`.
 
 ### Comet & Small-Body Ephemeris (`TianWen.Lib.Astrometry.Comets`)
 
@@ -555,7 +500,7 @@ cached to `AppData/SmallBodies/comets.json`; position and magnitude are then pur
 offline. Consumed by the sky map, the planner and `tianwen-mcp catalog.lookup`.
 
 **Design, math, the bake, and the shipped operational invariants (with the measurements behind them):
-[`docs/plans/comet-ephemeris.md`](docs/plans/comet-ephemeris.md).** Read it before touching this area.
+`docs/plans/comet-ephemeris.md`.** Read it before touching this area.
 Four rules that bite before you get there:
 
 - **Comets are NOT in `ICelestialObjectDB`** (immutable after init). Every consumer augments at its
@@ -612,7 +557,7 @@ Pinned by `PlannerSolarSystemPinTests`.
 Pinning M8 with a wide-field profile auto-groups M20 into the same pointing: the planner derives the
 sensor FOV from the profile and collapses co-framable targets into one scheduled observation
 ("M8 + M20") at the combined-footprint centroid. Plan + invariants:
-[`docs/plans/smart-framing.md`](docs/plans/smart-framing.md).
+`docs/plans/smart-framing.md`.
 
 - **Pure core in Lib** (`FramingGrouper` + `FramingPlanner`, `TianWen.Lib/Sequencing/`): tangent-plane
   fit, greedy nearest-accretion, RA-seam wrap. NOT quadratic -- Dec-sorted band binary-search per seed;
@@ -701,15 +646,15 @@ loop skips the slew and images on upside down with the guider's Dec inverted; a 
 now makes the session COMMAND the flip. `Inconclusive` falls back to the mount's report, or every rig on
 a coordinates-only solver fails every flip. `FakeMountDriver` has a mechanical tube state only MOTION
 changes (**a sync must not touch it**) and `FakeCameraDriver` rolls off that, never off the report.
-[docs/plans/meridian-flip-verification.md](docs/plans/meridian-flip-verification.md)
+`docs/plans/meridian-flip-verification.md`
 
 **Mount safety limits are NOT the meridian flip.** `MountLimits.Evaluate` (`Sequencing/MountLimits.cs`,
 pure, beside `MeridianFlipDecision`) is the mechanical bound -- where the TUBE meets the pier or the
 ground -- while a flip is a *scheduling* choice about a target still imaged from the other side. A rig
 can have one, both or neither. Ported from GSServer's `CheckAxisLimits`; the derivations, phasing, live
 verification and the wider GSServer sweep are in
-[docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md) and
-[docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md). The rules that bite:
+`docs/plans/mount-safety-limits.md` and
+`docs/plans/gss-parity-audit.md`. The rules that bite:
 
 - **The HORIZON test keys on HOUR ANGLE, not pier side** (`HA > 0` IS descending); **the MERIDIAN test
   is the opposite, an RA-AXIS test where the pointing state is load-bearing** (`Evaluate` reads the
@@ -767,7 +712,7 @@ no caller to throw to**, so it parks in `_pendingPulseFault` and is re-thrown fr
 `StartPulseGuideAsync` *and from `IsPulseGuidingAsync`* -- a read that throws on purpose, so the
 fault lands in the guide frame that caused it. Ordering makes that deterministic: the hold parks the
 fault BEFORE lowering the count, and `IsPulseGuidingAsync` checks the fault BEFORE reading it.
-Rationale in [docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md).
+Rationale in `docs/plans/gss-parity-audit.md`.
 
 **A test for the non-blocking starter needs `ExternalTimePump` and a `[Fact(Timeout=…)]`**: under an
 auto-advancing clock the hold can finish before the assertion runs, so the test passes against a
@@ -800,7 +745,7 @@ off the same type every frame). Pinned by `FocusDriftDetectorTests` + `CircularB
 
 All driver calls reachable from the session hot path go through `Session.ResilientInvokeAsync(...)`,
 a thin wrapper over `ResilientCall.InvokeAsync` with `OnDriverReconnect` as the fault callback. See
-[`docs/architecture/driver-resilience.md`](docs/architecture/driver-resilience.md).
+`docs/architecture/driver-resilience.md`.
 
 - **Never introduce a raw `await driver.X(...)` on the session hot path.** Grep PRs for regressions.
 - **Pick the preset:** `IdempotentRead` (status/position polls, 3 attempts, exponential backoff +
@@ -830,7 +775,7 @@ every command** (a recoverable hiccup would become a stopped guider), and when a
 driver, ask which of its commands fail backward -- that set, and only that set, is worth a fault.
 No new plumbing surfaces it: a throw from `StartPulseGuideAsync` becomes a `GuidingErrorEvent`, which the
 session drains, logs and answers by restarting the guider. Pinned by `SkywatcherPulseRestoreTests`;
-rationale in [docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md) Finding 3.
+rationale in `docs/plans/gss-parity-audit.md` Finding 3.
 
 ### Backlash Auto-Tuning
 
@@ -860,7 +805,7 @@ reachable on-demand outside a session via `ISession.RunFlatsOnlyAsync` -> CLI `t
 `POST /api/v1/session/flats` (source/period strings map through the shared `FlatRunParsing`, one parser
 for CLI + API, mirroring `EnhanceOptions.TryParse`). **Capture flows, the exposure solvers, the
 cover-capability model, the GUI mode and the tests are all in
-[`docs/plans/flat-frame-automation.md`](docs/plans/flat-frame-automation.md).** What bites before you
+`docs/plans/flat-frame-automation.md`.** What bites before you
 open it:
 
 - **`SessionConfiguration.FlatSource` has exactly two values**, `Calibrator` (default) and
@@ -868,15 +813,13 @@ open it:
   captured through the **same** `Calibrator` path (one path for every `ICoverDriver`, device kind
   invisible to `TakeFlatsAsync`). A motorised cover with no panel, or no flat device at all, is
   skipped with a warning.
-- **Auto-exposure is a pure solver, and the two paths differ in how often it is asked.** The panel
+- **Auto-exposure is a pure solver, and the two paths differ in how often it is asked:** the panel
   path converges once per filter (metering frames discarded); the sky path re-meters EVERY frame
-  (`SkyFlatExposureSolver.Decide`: `Capture` / `Adjust` / `Wait` / `Stop`) because sky brightness
-  ramps.
-- **Sky flats point near the zenith tilted anti-solar and turn tracking OFF** (field drifts, stars
-  average out, no dither slews); covers are **opened**, the opposite of the panel path. Two
-  independently-gated hooks run both windows in one night: dawn at end-of-session, dusk at session
-  start before wait-for-dark (`TakeSkyFlatsAtDusk`, pre-AutoFocus, a known focus-match tradeoff
-  accepted for the cloud insurance).
+  (`SkyFlatExposureSolver.Decide`: `Capture` / `Adjust` / `Wait` / `Stop`) because sky brightness ramps.
+- **Sky flats point near the zenith tilted anti-solar and turn tracking OFF** (stars average out, no
+  dither slews); covers are **opened**, the opposite of the panel path. Two independently-gated hooks
+  run both windows in one night: dawn at end-of-session, dusk at session start before wait-for-dark
+  (`TakeSkyFlatsAtDusk`, pre-AutoFocus, a known focus-match tradeoff accepted for the cloud insurance).
 - **Output contract, identical for all sources:** `IMAGETYP/FRAMETYP=Flat` under
   `Flats/<date>/<filter>/Flat/` -- the path is **cosmetic**, `MasterFrameBuilder` matches by FITS
   headers (`MasterGroupKey`). **Never make flat-master matching depend on the path.**
@@ -884,8 +827,7 @@ open it:
   sky-flats, **never the guider**); `FinaliseFlatsAsync` is its focused `Finalise` counterpart.
 - **The GUI surface is a MODE on the Live Session tab, not a tab** (`LiveSessionMode.Flats`).
   `FlatsBootstrapper` sets `LiveSessionState.ActiveSession` **without** `IsRunning`, which is exactly
-  why hardware guards must ask `DeviceOwnershipGate` and never a UI flag (see Device Ownership
-  above).
+  why hardware guards must ask `DeviceOwnershipGate` and never a UI flag (see Device Ownership).
 - **Session->UI user-prompt channel** (`ISession.PromptRequested`). **With no subscriber the session
   answers `SessionConfiguration.UnattendedPromptResponse`, which defaults to `Decline`** -- proceeding
   would assert a physical act nobody performed, and blocking forever leaves the rig exposed at dawn.
@@ -893,79 +835,56 @@ open it:
   present-but-`!CanControlBrightness` calibrator.
 - **Native Gemini FlatPanel Lite driver** (`AddGemini()`): an ASCOM-free serial `ICoverDriver` for a
   driver-controlled panel with no flap. Wire spec + its two silent traps (probe-time DTR,
-  `SerialPort.IsOpen` not being a liveness signal):
-  [docs/architecture/gemini-flatpanel-lite-protocol.md](docs/architecture/gemini-flatpanel-lite-protocol.md).
+  `SerialPort.IsOpen` not being a liveness signal): `docs/architecture/gemini-flatpanel-lite-protocol.md`.
 
 ### Deep-Sky Stacking + Enhance Pipeline (`TianWen.Lib.Imaging.Stacking`)
 
-`StackingPipeline.RunAsync` (CLI `tianwen stack`) is the deep-sky integration pipeline:
-scan DataRoot -> build bias/dark/flat masters -> per light group register (star-quad match)
--> integrate (strategy auto-picked: Bayer drizzle on RGGB with >= `DrizzleOptions.MinFrameCount`,
-else AHD + sigma-clip rejection) -> `MasterPostProcessor.WriteMasterAsync` (plate-solve, SPCC
-WB, FITS + autocrop + optional enhance + previews). Sibling of, but **completely separate
-from**, the Planetary stacker below. **Full flowcharts, the render model, the two opt-in display
-stages and the parity notes:
-[`docs/architecture/stacking-render-pipeline.md`](docs/architecture/stacking-render-pipeline.md).**
+`StackingPipeline.RunAsync` (CLI `tianwen stack`): scan DataRoot -> build bias/dark/flat masters -> per
+light group register (star-quad match) -> integrate (strategy auto-picked: Bayer drizzle on RGGB with
+>= `DrizzleOptions.MinFrameCount`, else AHD + sigma-clip rejection) -> `MasterPostProcessor.WriteMasterAsync`
+(plate-solve, SPCC WB, FITS + autocrop + optional enhance + previews). Sibling of, but **completely
+separate from**, the Planetary stacker below. **Full flowcharts, the render model, the two opt-in
+display stages and the parity notes: `docs/architecture/stacking-render-pipeline.md`.**
 
-**Output contract is by data type -- do not regress it:**
-- **Linear (canonical)**: FITS, full-frame `master_<slug>.fits` AND cropped `_autocrop.fits`;
-  `--output-format exr` mirrors both. Full-frame linear pixels live only here.
-- **Display / stretched (ALWAYS autocropped)**: the PNG quick-look and `--split-plates` TIFFs.
-  `MasterPostProcessor`, NOT the CLI, renders ONLY the autocrop -- the rendered image is its own
-  stats source, so WB / bg-neut can never be poisoned by partial-coverage / NaN-ring edges.
+**Output contract is by data type -- do not regress it:** **Linear (canonical)** is FITS, full-frame
+`master_<slug>.fits` AND cropped `_autocrop.fits` (`--output-format exr` mirrors both; full-frame linear
+pixels live only here). **Display / stretched** (the PNG quick-look, `--split-plates` TIFFs) is ALWAYS
+autocropped: `MasterPostProcessor`, NOT the CLI, renders ONLY the autocrop, so WB / bg-neut can never
+be poisoned by partial-coverage / NaN-ring edges.
 
 **Comet / moving-target integration (`stack --comet [designation]`)** registers on the BODY (comet
-sharp, stars trail); the rate derives from the frames (`OBJECT` + site + exposure epochs ->
-topocentric JPL Horizons track fitted through the reference WCS), `--comet-rate dx,dy` is the offline
-override. **Read [docs/plans/comet-integration.md](docs/plans/comet-integration.md) before touching
-this** -- it carries the design, every measurement, and thirteen traps that break the model SILENTLY
-(pooled amplitude, a starless-plate nucleus, a whole-pixel model centre, a slope fitted after the
-pedestal, five epoch/NaN/calibrator preconditions). Four that reach beyond the feature:
+sharp, stars trail); the rate derives from the frames (`OBJECT` + site + exposure epochs -> topocentric
+JPL Horizons track fitted through the reference WCS), `--comet-rate dx,dy` is the offline override.
+**Read `docs/plans/comet-integration.md` before touching this** -- it carries the design, every
+measurement, and thirteen traps that break the model SILENTLY. Four that reach beyond the feature:
 
 - **Registration is the ONE place the pipeline plate-solves anything but the finished master** -- the
-  rate is needed *while* integrating, too late once the master itself solves.
-- **The star layer SUBTRACTS the body; it does not exclude or reject it,** and the model MUST come
-  from star-removed plates. Kappa-sigma cannot substitute (the body sits in a third of the frames,
-  inflating the very sigma meant to catch it), and a model differenced from stars-still-in plates
-  smears every star into a dark streak.
+  rate is needed *while* integrating.
+- **The star layer SUBTRACTS the body; it does not exclude or reject it,** and the model MUST come from
+  star-removed plates. Kappa-sigma cannot substitute (the body inflates the very sigma meant to catch
+  it), and a model differenced from stars-still-in plates smears every star into a dark streak.
 - **A NaN in a rejection sample column disabled rejection everywhere, in every rejector** (NaN
   comparisons are all false), so canvas edges had never been rejected -- fixed via
-  `PixelRejection.MarkAbsent`. Not comet-specific: it affected every stack.
-- **Judge these layers at 1:1, never by a band median** -- edge bars, correlated-noise texture and
-  trail streaks all hid behind a clean radial profile; use p0.5/min for streaks, and never compare
-  differently-integrated layers against each other.
+  `PixelRejection.MarkAbsent`; not comet-specific.
+- **Judge these layers at 1:1, never by a band median** (use p0.5/min for streaks, and never compare
+  differently-integrated layers against each other).
+
 **Provenance skip (never re-ingest our own outputs).** The scan drops any TianWen-produced FITS
-(`STACK_N > 0` OR a TianWen `SWCREATE`, gated by `--include-integrations`) so a processed image parked
-alongside the lights is never re-stacked as a fresh sub. Markers, the ghost-master failure mode and the
-`ScanSummary` reporting:
-[docs/architecture/stacking-render-pipeline.md](docs/architecture/stacking-render-pipeline.md).
+(`STACK_N > 0` OR a TianWen `SWCREATE`, gated by `--include-integrations`). Markers, the ghost-master
+failure mode and the `ScanSummary` reporting: the architecture doc above.
 
 **A CAPTURED frame that is not a light says so in `IMAGETYP`, and never relies on the skip above.**
-`SessionConfiguration.SaveIntermediates` (default OFF, one switch, `Session.IO.cs`'s
-`WriteIntermediateFrameToFitsFileAsync` the one write path) keeps the frames a session takes to
-*measure* something and would otherwise release unseen, under
-`<output>/Intermediates/<date>/<filter>/<frame type>/[group/]`:
-
-- **`FrameType.Focus`** -- every auto-focus V-curve rung plus the verification exposure, grouped one
-  folder per run (`ota<n>_<runStart>/`, a directory rather than a filename convention because our
-  timestamp format contains underscores). This is a real defocus ladder for the deconvolver corpus;
-  [docs/plans/ai-denoise-deconv.md](docs/plans/ai-denoise-deconv.md) 2.1b carries the measurements
-  that say why the archive could not supply one.
-- **`FrameType.Scout`** -- the FOV-obstruction probe and nudge-test frames, kept whatever the star
-  count (a zero-star scout is the interesting one), which is what answers "why did it think the field
-  was blocked?" the morning after.
-
-**Each kind gets its OWN frame type rather than one `Intermediate`,** because path is cosmetic here as
-everywhere and headers are truth: collapse them and the only way to tell an AF rung from a scout is
-the folder. Exclusion from stacking is by frame type -- the scan and the dataset builder both select
-`Light`, so these drop out by the same mechanism that excludes darks, NOT by the provenance heuristic
-(authorship) or the folder. A scout is the one that most needs this: it is in focus and points where
-the lights point, differing only in exposure, so nothing about the pixels would stop a scan ingesting
-it. **Never widen a consumer's filter to admit `Focus` or `Scout`.**
-
-Deliberately NOT covered, so the switch can never fill a disk: condition-recovery test exposures
-(unbounded while cloud lasts), the rough-focus sweep, plate-solve frames and flat-metering frames.
-Each is one `WriteIntermediateFrameToFitsFileAsync` call away if it earns its keep.
+`SessionConfiguration.SaveIntermediates` (default OFF; `Session.IO.cs`'s
+`WriteIntermediateFrameToFitsFileAsync` the one write path) keeps every AF V-curve rung plus the
+verification exposure (`FrameType.Focus`, one folder per run) and the FOV-obstruction probe and
+nudge-test frames (`FrameType.Scout`, kept whatever the star count) under
+`<output>/Intermediates/<date>/<filter>/<frame type>/[group/]`. **Each kind gets its OWN frame type,
+never one `Intermediate`** (path is cosmetic, headers are truth); exclusion from stacking is by frame
+type, NOT the provenance heuristic or the folder, and **never widen a consumer's filter to admit `Focus`
+or `Scout`** (a scout is in focus and points where the lights point). Deliberately NOT covered, so the
+switch can never fill a disk: condition-recovery exposures, the rough-focus sweep, plate-solve and
+flat-metering frames. `docs/architecture/stacking-render-pipeline.md` § 10; the AF ladder's use:
+`docs/plans/ai-denoise-deconv.md` 2.1b.
 
 **`--enhance`** runs `SharpenPipeline` on the master ONCE, writing `_sharpened.fits` (never
 overwriting the linear masters); deblurrer-aware (RC-Astro present -> BlurX-first PixInsight-OSC
@@ -973,39 +892,30 @@ flow, no stellar-sharpen; none -> SAS-shaped remove/sharpen/deconvolve). `--spli
 SAME AI pass exporting the kept stars/starless plates as edit-ready TIFFs -- NO second enhance run.
 
 **Render model: WB once, per-plate self-stretch (the PixInsight OSC order).** ONE SPCC white balance
-on the enhanced master; each plate then computes its OWN background-neutralisation + MTF from its
-own pixels -- sharing only WB is load-bearing, since grafting the master's bg-neut onto a plate whose
-background differs double-corrects it into a colour cast (the original `--split-plates` regression).
-
-**Three colour defects fixed on the SWAN/10P sets, measured in
-[docs/plans/comet-integration.md](docs/plans/comet-integration.md) (colour section):**
-
-- **SPCC's clip test reads the frame's OBSERVED peak from the pixels, never `MaxValue`** -- a
-  rewrapped `MaxValue = 1.0` is a display convention, not a saturation level (10P dropped 545 of 545
-  stars before this fix).
-- **SPCC's matcher claims each catalogue star ONCE, brightest detection first** -- a deep master
-  out-detects Tycho-2, so an unclaimed nearest-neighbour probe measures a random distance and hands a
-  faint neighbour a B-V that isn't its own.
-- **The stacking normaliser anchors every frame on its PEDESTAL (`Image.Pedestal`), never a pixel
-  statistic** -- a per-channel MINIMUM floor let one hot pixel swing a whole frame's gain (red
-  wandered x3.7). Absolute normalised levels quoted before 2026-08-27 are in the old units.
+on the enhanced master; each plate then computes its OWN background-neutralisation + MTF from its own
+pixels -- grafting the master's bg-neut onto a plate double-corrects it into a colour cast (the
+original `--split-plates` regression). **Three colour defects fixed on the SWAN/10P sets, measured in
+`docs/plans/comet-integration.md` (colour section):** SPCC's clip test reads the frame's OBSERVED peak
+from the pixels, never `MaxValue` (a rewrapped `MaxValue = 1.0` is a display convention; 10P dropped
+545 of 545 stars); SPCC's matcher claims each catalogue star ONCE, brightest detection first (a deep
+master out-detects Tycho-2); the stacking normaliser anchors every frame on its PEDESTAL
+(`Image.Pedestal`), never a pixel statistic (a per-channel MINIMUM let one hot pixel swing a frame's
+gain x3.7; absolute normalised levels quoted before 2026-08-27 are in the old units).
 
 **SPCC is BROADBAND-ONLY; a narrowband master has no colour path at all.** Do not extend it by
-swapping a narrow passband over the existing Pickles SEDs -- a spectral *type average* cannot tell
-Ha absorption from emission over 3 nm. **Narrowband SPCC is BLOCKED on data, not maths** (needs
-per-star Gaia DR3 `xp_sampled` spectra, ADR-3). **Naive HOO is rank-deficient** (`G = B = OIII`
-renders uniformly teal by construction, not by bug). Algorithms + thirteen ADRs:
-[docs/plans/narrowband-colour.md](docs/plans/narrowband-colour.md).
+swapping a narrow passband over the existing Pickles SEDs (a spectral type average cannot tell Ha
+absorption from emission over 3 nm). **Narrowband SPCC is BLOCKED on data, not maths** (per-star Gaia
+DR3 `xp_sampled` spectra, ADR-3). **Naive HOO is rank-deficient** (`G = B = OIII` renders uniformly
+teal by construction). Algorithms + thirteen ADRs: `docs/plans/narrowband-colour.md`.
 
 **The filter-curve matcher must never answer with a brand, nor a MORE SPECIFIC product.**
 `FilterCurveDatabase` matches by token overlap over 183 curves; three gates -- a two-token
 (BRAND+CHANNEL) key must be covered in FULL, an unmatched token absent from every other filter name
 refuses the match (by document frequency, not a stop-list), and a two-sided token difference refuses
 it (a ONE-sided difference still resolves, e.g. `Baader R CCD 31mm`). Re-run
-`ReportKnownLightPollutionFilters` after every added curve -- it captures a new curve's own siblings
-too. Seven standalone light-pollution curves are ours, digitised via `tools/digitize-filter-curve/`
-(the **`digitize-filter`** skill); the `L-eNhance` tri-line (Hb 486.1) trap, gate table and coverage:
-[docs/known-limitations.md](docs/known-limitations.md).
+`ReportKnownLightPollutionFilters` after every added curve. Seven standalone light-pollution curves
+are ours, digitised via `tools/digitize-filter-curve/` (the **`digitize-filter`** skill); the
+`L-eNhance` tri-line (Hb 486.1) trap, gate table and coverage: `docs/known-limitations.md`.
 
 **Zero-pedestal render (do not regress).** Shadows derive from the pedestal-SUBTRACTED median -- a
 no-op on raw masters, but an enhanced (GraXpert-flattened) master needs
@@ -1015,34 +925,27 @@ frame.
 **Unified display render** (`MasterPreviewRenderer` + `StretchSolver`, CPU-only, in `TianWen.Lib`) is
 driven in-pipeline by `MasterPostProcessor`. **The CLI renders nothing** -- it only sets
 `RenderPreviewPng`, writes EXR, and prints the SPCC summary; the viewer forwards to the same
-`StretchSolver`, keeping it the single producer.
+`StretchSolver`. **Two opt-in DISPLAY stages** (`--saturation`/`--contrast-boost` via `Image.MaskedBoost`,
+and `--output-format uhdr`) touch **only the display raster**, never the linear masters or split-plate
+TIFFs; **never apply the mask primitives to a LINEAR master** (the luminance mask degenerates to ~0).
+**Stellar-sharpen is opt-in** (default OFF) and **hard-skipped when a deblurrer is live** (BlurX already
+tightens stars; the SAS sharpener turns tight cores into square white blocks):
+`docs/plans/rc-astro-enhancers.md`.
 
-**Two opt-in DISPLAY stages** (`--saturation`/`--contrast-boost` via `Image.MaskedBoost`, and
-`--output-format uhdr`) touch **only the display raster**, never the linear masters or split-plate
-TIFFs. **Never apply the mask primitives to a LINEAR master** (the luminance mask degenerates to ~0
-everywhere). Both stages' invariants + tests: the architecture doc above.
-
-**Stellar-sharpen is opt-in** (default OFF) and **hard-skipped when a deblurrer is live** -- BlurX
-already tightens stars, and the SAS sharpener turns tight cores into square white blocks. RC-vs-SAS
-roles: [docs/plans/rc-astro-enhancers.md](docs/plans/rc-astro-enhancers.md).
-
-**CLI flags + viewer Enhance action.** `--ai-backend auto|rc|sas|n2n` + tuning flags parse through
-the shared **`EnhanceOptions.TryParse`** (also used by the server endpoint) into an immutable
-`EnhanceOptions` -- no mutable settings singleton, so parallel enhances cannot tear.
-`tianwen-fits`'s interactive Enhance action runs off the render thread via
-`ViewerController._enhanceTask`; the GUI has no document-viewer tab yet.
-
-**Server enhance endpoint.** `POST /api/v1/image/enhance` + `GET .../status`, single-flight, tied to
-`ApplicationStopping` not the request:
-[docs/architecture/hosting-api.md](docs/architecture/hosting-api.md).
+**CLI flags + viewer Enhance action.** `--ai-backend auto|rc|sas|n2n` + tuning flags parse through the
+shared **`EnhanceOptions.TryParse`** (also used by the server endpoint) into an immutable
+`EnhanceOptions` -- no mutable settings singleton, so parallel enhances cannot tear. `tianwen-fits`'s
+Enhance action runs off the render thread via `ViewerController._enhanceTask`; the GUI has no
+document-viewer tab yet. **Server enhance endpoint:** `POST /api/v1/image/enhance` + `GET .../status`,
+single-flight, tied to `ApplicationStopping` not the request: `docs/architecture/hosting-api.md`.
 
 ### Planetary Lucky-Imaging Stack (`TianWen.Lib.Imaging.Planetary`)
 
 A CPU-first planetary stacker, **completely separate** from the deep-sky `Imaging.Stacking` pipeline
 (star-quad align + sigma-clip rejection don't apply to a featureless disk). Plan + status:
-[`docs/plans/planetary-stacking.md`](docs/plans/planetary-stacking.md); the live-capture path in detail
+`docs/plans/planetary-stacking.md`; the live-capture path in detail
 (drivers, controls, the fake's noise model, the breadcrumb trail):
-[`docs/plans/live-planetary-capture.md`](docs/plans/live-planetary-capture.md).
+`docs/plans/live-planetary-capture.md`.
 
 - **Batch** (`LuckyImagingStacker`, CLI `tianwen planetary-stack`): grade frames by sharpness
   (`IFrameQualityEstimator`, Laplacian default) -> keep the best N% -> disk-COM + phase-correlation
@@ -1082,113 +985,91 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
 
 `SharpenPipeline` (`TianWen.Lib/Imaging/Enhancement/`) orchestrates role-typed enhancers
 (`IStarRemover` / `IStellarSharpener` / `INonStellarDeconvolver` / `IDenoiseEnhancer` /
-`IGradientCorrector`) over an immutable `SharpenStep[]` program. Three backends implement those roles:
+`IGradientCorrector`) over an immutable `SharpenStep[]` program. Three backends implement those roles;
+design and every measurement: `docs/plans/ai-enhancement.md`, `docs/plans/rc-astro-enhancers.md`,
+`docs/plans/osc-narrowband-denoiser.md` § 1o and `docs/plans/denoiser-training.md` (H0, H2, H8, § 9).
 
 - **SETI Astro (SAS Pro AI4)** -- plain ONNX loaded in-proc via ONNX Runtime
   (`TianWen.AI.Imaging/Onnx/*`, `AddTianWenAi()`). Models under `%LOCALAPPDATA%\TianWen\models`
   (`tools/tianwen-ai-models-fetch.ps1`).
-- **In-house N2N denoiser** (`N2nDenoiser`; OSC-only, throws on mono), whose weights ship **in this
-  repo** at `src/TianWen.AI.Imaging/models/` as an **LFS object under the repo-wide `*.onnx` rule**
-  (a `.gitattributes` exemption made them a plain blob from 2026-08-19 to 2026-09-06, while the LFS
-  budget was dry). A clone without git-lfs therefore holds a pointer stub, which `ModelResolver`
-  refuses, so the failure mode is a logged skip and not an ORT protobuf error. **A new .onnx must go
-  into `lfs-payload.list` in `dotnet.yml` as well**: the publish matrix never pulls LFS, and the
-  weights are `Content`, so an object missing from that artifact ships as a stub inside every release
-  binary (`publish-apps`'s `Verify LFS objects materialised` step is the backstop). **The shipped
-  checkpoint is `tianwen_denoise_osc_e2wide_s2.onnx`** since 2026-09-06, and the file NAME carries the
-  checkpoint identity by design: a retrain gets a new name, never a silent replacement under the old
-  one. **Three ways in, deliberately tiered:**
-  `--ai-backend n2n` selects it per enhance for the denoise role; **Auto rescues with it** when the SAS
-  AI4 weights are absent and the input is OSC at the default variant (it replaces a crash, never a
-  measured backend's result -- with SAS weights present Auto is byte-for-byte the old path); and
-  `AddTianWenN2nDenoiser` makes it the `IDenoiseEnhancer` unconditionally. It is deliberately **not**
-  Auto's preferred denoiser, never having been compared against AI4 on the enhance pipeline's own job.
-  The user-facing strength dial is a **blend**, with the graph's own `strength` pinned to 1.0 (the
-  conditioning-plane dial was measured and rejected). **The net works in the exporter's MTF-stretched
-  domain, not in linear units**: every training tile was stored after
+- **In-house N2N denoiser** (`N2nDenoiser`; OSC-only, throws on mono), weights **in this repo** at
+  `src/TianWen.AI.Imaging/models/` as an **LFS object under the repo-wide `*.onnx` rule** (a
+  `.gitattributes` exemption made them a plain blob 2026-08-19 to 2026-09-06). A clone without git-lfs
+  holds a pointer stub, which `ModelResolver` refuses: a logged skip, never an ORT protobuf error. **A
+  new .onnx must go into `lfs-payload.list` in `dotnet.yml` as well**: the publish matrix never pulls LFS
+  and the weights are `Content`, so a missing object ships as a stub inside every release binary
+  (`publish-apps`'s `Verify LFS objects materialised` step is the backstop). **The shipped checkpoint is
+  `tianwen_denoise_osc_e2wide_s2.onnx`** (since 2026-09-06) and the file NAME carries the checkpoint
+  identity: a retrain gets a new name, never a silent replacement. **Three ways in, deliberately
+  tiered:** `--ai-backend n2n` selects it per enhance for the denoise role; **Auto rescues with it** only
+  when the SAS AI4 weights are absent and the input is OSC at the default variant (with SAS weights
+  present Auto is byte-for-byte the old path); `AddTianWenN2nDenoiser` makes it the `IDenoiseEnhancer`
+  unconditionally. It is deliberately **not** Auto's preferred denoiser, never having been compared
+  against AI4 on the pipeline's own job. The strength dial is a **blend**, the graph's own `strength`
+  pinned to 1.0 (the conditioning-plane dial was measured and rejected). **The net works in the
+  exporter's MTF-stretched domain, not in linear units**: every training tile was stored after
   `ChunkedNafnetRunner.ApplyInputStretch`, so `N2nLinearRunner` applies that same call to the whole
-  frame, runs, and inverts with `MtfUnstretch` before blending; the boundary contract stays linear
-  in, linear out. For two weeks it fed the frame verbatim on the belief the tiles were linear, 100x
-  below the training band, which removed a tenth of the noise and cut every star's peak by 30 percent
-  at every brightness while no metric looked. A parity fixture that runs the same bytes on both sides
-  cannot see a domain error; verify the domain a runner hands a graph against the domain the training
-  bytes are in. Design + measurements:
-  [`docs/plans/osc-narrowband-denoiser.md`](docs/plans/osc-narrowband-denoiser.md) section 1o and
-  [`docs/plans/denoiser-training.md`](docs/plans/denoiser-training.md) H0 / section 9.
+  frame, runs, and inverts with `MtfUnstretch`; the boundary stays linear in, linear out. For two weeks
+  it fed the frame verbatim, 100x below the training band, removing a tenth of the noise and cutting
+  every star's peak by 30 percent while no metric looked: a parity fixture running the same bytes on
+  both sides cannot see a domain error, so verify the domain a runner hands a graph against the domain
+  the training bytes are in.
 - **Training pairs come from `tianwen dataset degrade`** (`DatasetDegradationExporter`, beside
-  `DatasetTileExporter`): a bake's RETAINED LINEAR masters degraded in linear units and exported
-  through the P0 path, `--mode noise` for the denoiser and `--mode blur` for the deconvolver. **Four
-  rules, each the way the naive version is wrong.** (1) **Both sides of a pair take the TARGET's unit
-  divisor and MTF parameters** (`Image.MtfStretchWith`) -- taking each side's own encodes the stretch
-  difference as signal, and injected noise moves the frame's maximum, so `ToUnitRange` alone would
-  rescale the input side; it also makes the transform pointwise, so a draw touches one CELL instead of
-  the canvas. (2) **Cells AND the level anchor come from the P0 manifest**: the injected level is a
-  real sub's measured `NoiseMad` converted to linear through `Image.MidtonesTransferFunctionSlope`,
-  because a MAD taken on a MASTER reads the cell's gradient as noise (7x too high on this project's own
-  fixture). (3) **Parity is against the BAKE's tiles, not against itself** -- the clean tile derived
-  from the retained master is byte-identical to the P0 tile of the same cell (0.0 measured), which a
-  self-parity check cannot see by construction. (4) **The injected noise SHAPE is calibrated by
-  measurement**: white reads band1/band0 0.216 and a bilinear warp 0.328 against a real half-master's
-  0.463, so `--warp-sigma 0.5` (measured, re-measure per bake) is what makes the arms comparable.
-  [`docs/plans/denoiser-training.md`](docs/plans/denoiser-training.md) H2.
-- **Cross-night pairs come from `tianwen dataset pair`** (`DatasetCrossNightExporter`): two nights of
-  one object flattened, level-matched PER CHANNEL, registered onto the MIDPOINT of the fitted transform
-  (each night resampled by half the rotation, so neither side is the sharper one by construction), one
-  MTF for both, written into the trainer's half slots with a `pairs.jsonl` sidecar. Three rules from
-  the first real run: the PSF decision is taken on the MASTERS, never the sub table (a drizzled and a
-  staged integration of matched seeing differ 4 to 9 percent); a "faintest half" mask for any
-  two-sided noise statistic comes from a SMOOTHED scene, never the combined pixel (selecting on the
-  sum being low anticorrelates the sides: -0.23 on independent noise); and the residual correlation
-  is only readable against the same-session halves through `n2n_pairstats.py`, since faint shared
-  SIGNAL leaks through any high-pass. **H8 is REFUTED (2026-09-06), and the reason inverts the hypothesis: a
-  SHARED-noise target is what makes supervised injection work, not its ceiling.** Arm X2 held the input
-  distribution, the cells and the injected draws fixed and moved only the target -- every control seed
-  removes noise (0.94 / 0.92 / 0.88x) and every independent-target seed ADDS it (1.07 / 1.04 / 1.07x).
-  It amplifies rather than underperforming, which is a systematic being learned: N2N needs the target's
-  deviation to be independent of the input AND to have zero conditional mean, and a night's own smooth
-  field (5.5 to 18.6 percent of its deviation) fails the second. Reversing every pair so the independent target is the QUIETER night makes it worse still (-21 to -26 percent removed, extended column -68), which is how the depth confound was excluded rather than argued away. **Arm X was KILLED (2026-09-05): three
-  seeds trained to near-identity**, and the reason is the pool, not the regime: one sky's master-depth halves
-  span a third of the CONDITIONING plane's deployed range (training p5 0.22; Horsehead reads 0.09, the
-  Statue 0.17), and off that range the net amplifies noise rather than removing it. Check the
-  conditioning range per session before a seed, exactly as the level range is checked.
-  [`docs/plans/denoiser-training.md`](docs/plans/denoiser-training.md) H8. **Four more from unparking
-  H8 (2026-09-05):** the PSF match belongs on the EXPORTED tiles, not the masters, because the midpoint
-  warp widens the two sides by different amounts after the master-side kernel has run (3 to 6 percent
-  apart became 0.6 to 1.4); a sub-pixel Gaussian must be AREA sampled, since point-sampling sigma 0.27
-  px gives [0.001, 1, 0.001], a kernel with a thirtieth of the intended second moment, and the pass
-  runs and moves nothing; **a partially overlapping pair is a STARVED matcher, not an unregistrable
-  one** (the budget takes the brightest N a side, so escalate 100 / 200 / 400 before believing "no quad
-  fit" -- Vela SNR joins at 400 on 19 percent overlap, while HD 71272 refuses at the 500-star detection
-  cap and needs a coordinate seed, which means plate-solving first because a retained master carries no
-  WCS); and **three frames of one sky are what separate a night's photon noise from its systematic**
-  (`--pair "A::B::C"` plus `n2n_threeframe.py`: `cov(A-B, A-C)` is night A's own deviation, of which 5.5
-  to 18.6 percent of the variance is structured). A measurement frame must be excluded from the
-  trainer's slots BY NAME -- the cache prepare files every unrecognised frame as a sub.
+  `DatasetTileExporter`; `--mode noise` for the denoiser, `--mode blur` for the deconvolver): a bake's
+  RETAINED LINEAR masters degraded in linear units, exported through the P0 path. **Four rules, each the
+  way the naive version is wrong:** (1) **both sides of a pair take the TARGET's unit divisor and MTF
+  parameters** (`Image.MtfStretchWith`; each side's own encodes the stretch difference as signal, and
+  it keeps the transform pointwise so a draw touches one CELL); (2) **cells AND the level anchor come
+  from the P0 manifest** -- a real sub's `NoiseMad` through `Image.MidtonesTransferFunctionSlope`, since
+  a MAD taken on a MASTER reads the cell's gradient as noise (7x too high); (3) **parity is against the
+  BAKE's tiles, not against itself** (0.0 measured; a self-parity check cannot see it); (4) **the
+  injected noise SHAPE is calibrated by measurement** (white reads band1/band0 0.216, a bilinear warp
+  0.328, a real half-master 0.463, so `--warp-sigma 0.5`, re-measure per bake). H2.
+- **Cross-night pairs come from `tianwen dataset pair`** (`DatasetCrossNightExporter`): two nights
+  flattened, level-matched PER CHANNEL, registered onto the MIDPOINT of the fitted transform (neither
+  side the sharper one by construction), one MTF for both, with a `pairs.jsonl` sidecar. The PSF
+  decision is taken on the MASTERS, never the sub table; a "faintest half" mask comes from a SMOOTHED
+  scene, never the combined pixel (-0.23 anticorrelation on independent noise); the residual
+  correlation is only readable against same-session halves (`n2n_pairstats.py`). **H8 is REFUTED
+  (2026-09-06), and the reason inverts the hypothesis: a SHARED-noise target is what makes supervised
+  injection work** -- arm X2 moved only the target, every control seed removes noise (0.94 / 0.92 /
+  0.88x) and every independent-target seed ADDS it (1.07 / 1.04 / 1.07x), because a night's own smooth
+  field (5.5 to 18.6 percent of its deviation) fails N2N's zero-conditional-mean requirement; reversing
+  the pairs makes it worse still (-21 to -26 percent removed), which excluded the depth confound. **Arm
+  X was KILLED (2026-09-05)**: one sky's halves span a third of the CONDITIONING plane's deployed range
+  (training p5 0.22; Horsehead 0.09, the Statue 0.17) and off it the net amplifies noise -- check the
+  conditioning range per session before a seed, exactly as the level range is checked. Four more: the
+  PSF match belongs on the EXPORTED tiles, not the masters (3 to 6 percent apart became 0.6 to 1.4);
+  a sub-pixel Gaussian must be AREA sampled (point-sampling sigma 0.27 px gives [0.001, 1, 0.001]);
+  **a partially overlapping pair is a STARVED matcher, not an unregistrable one** (escalate 100 / 200 /
+  400 before believing "no quad fit": Vela SNR joins at 400 on 19 percent overlap, HD 71272 refuses at
+  the 500-star cap and needs a coordinate seed, i.e. a plate solve first, a retained master carrying no
+  WCS); and **three frames of one sky separate a night's photon noise from its systematic**
+  (`--pair "A::B::C"` + `n2n_threeframe.py`: `cov(A-B, A-C)` is night A's own deviation), the
+  measurement frame excluded from the trainer's slots BY NAME.
 - **RC-Astro (BlurX / NoiseX / StarXTerminator)** -- `AddRcAstroAi()`. Its `.onnx` files are
   **encrypted at rest** (the license forbids extracting the weights), so they are driven through the
   `rc-astro` CLI's `--json` NDJSON protocol, **never** loaded into ORT: `RcAstroEnhancerBase` writes the
   plate to a temp FITS (BITPIX=-32), runs the product, parses the event stream and reads the result
-  back. RC normalises to [0,1] internally, so no rescaling. Role mapping: sxt -> `IStarRemover`, nxt ->
+  back (RC normalises to [0,1] internally, so no rescaling). Roles: sxt -> `IStarRemover`, nxt ->
   `IDenoiseEnhancer` (noise-adaptive `--dn`), bxt -> `INonStellarDeconvolver` (on the starless plate,
-  auto-PSF). Details: [`docs/plans/rc-astro-enhancers.md`](docs/plans/rc-astro-enhancers.md).
+  auto-PSF).
 
 **Selection is RC-preferred, deferred, and license-gated.** `AddRcAstroAi()` calls `AddTianWenAi()`
 then `Replace`s the three RC-servable roles with **`DeferredEnhancer` proxies**: the RC-vs-SAS choice
 AND its blocking license probe run on the FIRST `EnhanceAsync`, never at DI registration/resolution --
-so composing a service collection (or resolving `SharpenPipeline`) spawns **no** `rc-astro` process. RC
+composing a service collection (or resolving `SharpenPipeline`) spawns **no** `rc-astro` process. RC
 wins only when the CLI is present (`RcAstroCli.LocateExecutable`: `RC_ASTRO_CLI` env -> documented
-per-OS default install dir -> PATH; RC-Astro writes **no** registry footprint, so no
-Uninstall/App-Paths probe) AND the product is licensed (cached); else the SAS ONNX enhancer is used.
-`IStellarSharpener` / `IGradientCorrector` stay SAS (no CLI equivalent).
+per-OS default install dir -> PATH; RC-Astro writes **no** registry footprint) AND the product is
+licensed (cached); else the SAS ONNX enhancer is used. `IStellarSharpener` / `IGradientCorrector` stay
+SAS (no CLI equivalent).
 
 **A vendor's weights are read WHERE THE VENDOR PUT THEM, never only where a dev script copied them.**
 `ModelResolver` probes its three model directories, then GraXpert's own cache (auto-detected, no
-override -- the version subdir is not knowable ahead of time, so a search directory structurally
-cannot reach it) for `graxpert_bge.onnx`. A packaged install cannot run the repo-relative dev script
-that used to be the only bridge, which is exactly how the Store build shipped an Enhance failure
-against 207 MB of GraXpert weights already on disk. **Never make a shipped capability depend on a
-script only a checkout can run.** Mechanism + the SAS-Pro sibling pattern:
-[docs/plans/ai-enhancement.md](docs/plans/ai-enhancement.md).
+override -- the version subdir is not knowable ahead of time) for `graxpert_bge.onnx`; the Store build
+shipped an Enhance failure against 207 MB of GraXpert weights already on disk because the only bridge
+was a repo-relative dev script. **Never make a shipped capability depend on a script only a checkout
+can run.** Mechanism + the SAS-Pro sibling pattern: `docs/plans/ai-enhancement.md`.
 
 ### Classical Background Extraction (`TianWen.Lib.Imaging.BackgroundExtraction`)
 
@@ -1198,7 +1079,7 @@ on a block-mean working grid, with an optional inpainted low-pass surface on its
 `IBackgroundExtractor` (headless, options per call) and `IGradientCorrector`, and `AddTianWenAi()`
 registers `FallbackGradientCorrector` for the pipeline role: GraXpert when `graxpert_bge.onnx` resolves,
 this otherwise, so a machine without GraXpert still flattens. Design, the reference review it came from
-and the measurements: [docs/plans/background-extraction.md](docs/plans/background-extraction.md). The
+and the measurements: `docs/plans/background-extraction.md`. The
 rules that bite:
 
 - **Every threshold is in noise units of the WORKING grid**, a block mean of `Downsample^2` pixels, so
@@ -1233,7 +1114,7 @@ rules that bite:
   brightening direction, and the horizon and Moon geometry from one plate solve. **A TianWen master's
   canvas ring is EXACT ZERO where no frame covered it** (0.3 percent of a frame at the median) and must
   be masked to NaN before fitting, or the fit chases the edge. What it found:
-  [docs/plans/gradient-remover-training.md](docs/plans/gradient-remover-training.md) H1.
+  `docs/plans/gradient-remover-training.md` H1.
 
 ### Hosting API (`TianWen.Hosting` + `TianWen.Server`)
 
@@ -1242,7 +1123,7 @@ Headless REST + WebSocket API plus an ASCOM Alpaca device plane on one ASP.NET C
 (`/v2/api/`, OTA[0], PascalCase, GET) is compatibility. Run `dotnet run --project TianWen.Server` or
 `tianwen-server [--port 1888]`. **Endpoint inventory, the Alpaca plane, the enhance endpoint and the
 full native-AOT rules, and the reasoning behind each rule below:
-[`docs/architecture/hosting-api.md`](docs/architecture/hosting-api.md).** What bites:
+`docs/architecture/hosting-api.md`.** What bites:
 
 1. **A pushed schedule beats the target queue.** `POST /session/schedule` preserves per-filter plans,
    the planner's `Start` and `AcrossMeridian`; `PendingTarget` carries none and `/session/start` stamps
@@ -1267,7 +1148,7 @@ full native-AOT rules, and the reasoning behind each rule below:
 
 ### Remote Rigs (mirror another node's session "as if local")
 
-[`docs/plans/remote-profile.md`](docs/plans/remote-profile.md) is complete P1-P5 and holds the design,
+`docs/plans/remote-profile.md` is complete P1-P5 and holds the design,
 the Home-tab decisions and every measurement; the pieces are `TianWen.Hosting.Contracts` (wire DTOs +
 `HostingJsonContext`) and `TianWen.RemoteClient` (`TianWenNodeClient`, `TianWenEventStream`,
 `RemoteSessionMirror`). The rules:
@@ -1309,7 +1190,7 @@ the `GuiTab` enum, `TabOrder`, `TabChrome`, the Ctrl+letter map, two `VkGuiRende
 `GuiTheme` (`TianWen.UI.Abstractions/GuiTheme.cs`) owns the one palette; `UiThemeState` is **System /
 Light / Dark / Night**, `GuiTheme.Apply(state, desktopIsDark)` swaps it in as one reference write and
 `Palette` is one reference read. The source XML comments carry the rationale (scotopic numbers
-included); design + phasing: [docs/plans/colour-theme.md](docs/plans/colour-theme.md).
+included); design + phasing: `docs/plans/colour-theme.md`.
 
 - **Anything that CACHES a projection of the palette owes `GuiTheme.PaletteGeneration` in its cache
   key** (the planner chart's GPU texture kept the old palette after F12; `Apply`'s `bool` return
@@ -1328,9 +1209,9 @@ included); design + phasing: [docs/plans/colour-theme.md](docs/plans/colour-them
 is what makes the file associations worth having and what makes every double-click a fresh AOT process
 unless the file is handed to the window already open. **Layering, the two CI lanes, why the Store
 rather than a signed installer, the activation bug that shipped and both MSIX traps:
-[`docs/architecture/desktop-shell.md`](docs/architecture/desktop-shell.md)**; packaging in
+`docs/architecture/desktop-shell.md`**; packaging in
 `packaging/windows/msix/` (own README); thumbnails in
-[docs/plans/explorer-thumbnails.md](docs/plans/explorer-thumbnails.md). The rules:
+`docs/plans/explorer-thumbnails.md`. The rules:
 
 - **The gate is folder-scoped and the pipe IS the lock** (`InstanceGate`, SharpAstro.AppShell; one
   primary per normalised folder, no registry of instances). `--new-window` and
@@ -1352,28 +1233,25 @@ rather than a signed installer, the activation bug that shipped and both MSIX tr
 - **Explorer thumbnails are `tianwen-thumb.dll`** (`TianWen.Shell.Thumbnails`, NativeAOT COM, INSIDE
   the viewer's publish tree; imaging in `TianWen.Lib`'s `ThumbnailRenderer`). A packaged handler runs
   only in the shell's surrogate, so it gets a STREAM (`IInitializeWithStream`, container sniffed from
-  the first bytes, one class for five types); **an embedded `ILLink.Substitutions.xml` applies only to
-  its own assembly**, so the catalog strip is the `TianWen.Lib.EmbeddedCatalogs` feature switch
-  (59.6 MB to 3 MB, pinned by `EmbeddedCatalogFeatureSwitchTests`); the CLSID is written in three
-  places and never changes (`build-msix.ps1` checks); caching is the shell's (`thumbcache_*.db`), so
-  the handler is stateless.
-- **macOS ships as a `.dmg` per app per architecture, built on the release's `macos-latest` leg**
-  (`packaging/macos/build-dmg.sh`, the `dmg` job; no Mac in the loop). **It is a `.dmg` and not the
-  Mac App Store because the sandbox would take the file list away**: `ScanFolder` reads the opened
-  file's siblings, and a sandboxed Finder-open grants the one file. **Without the Apple secrets the
-  apps are AD-HOC signed and the lane says so**; with them, Developer ID + notarized + stapled, same
-  script. **The bundle keeps the whole publish tree under `Contents/MacOS`** (`AppContext.BaseDirectory`
-  is where `ModelResolver` and `BundledFonts` look), **every Mach-O is signed by magic number,
-  inner-most first**, and `entitlements.plist` grants nothing -- never `allow-jit`.
-  `--validate-only` runs on every push beside the MSIX validation.
+  the first bytes); **an embedded `ILLink.Substitutions.xml` applies only to its own assembly**, so the
+  catalog strip is the `TianWen.Lib.EmbeddedCatalogs` feature switch (59.6 MB to 3 MB,
+  `EmbeddedCatalogFeatureSwitchTests`); the CLSID is written in three places and never changes
+  (`build-msix.ps1` checks); the handler is stateless (caching is the shell's `thumbcache_*.db`).
+- **macOS ships as a `.dmg` per app per architecture** (`packaging/macos/build-dmg.sh`, the `dmg` job,
+  no Mac in the loop), **not the Mac App Store, because the sandbox would take the file list away**
+  (`ScanFolder` reads the opened file's siblings). Without the Apple secrets the apps are AD-HOC
+  signed and the lane says so. The bundle keeps the whole publish tree under `Contents/MacOS`
+  (`AppContext.BaseDirectory` is where `ModelResolver` and `BundledFonts` look), every Mach-O is
+  signed by magic number inner-most first, and `entitlements.plist` grants nothing -- never
+  `allow-jit`. `--validate-only` runs on every push beside the MSIX validation.
 
 ### Image Pipeline & Buffer Lifecycle
 
 Camera → `ChannelBuffer` → `Image` → consumer → `image.Release()` → camera recycles. **The ownership
 vocabulary (own / borrow / consume), the four conventions, the P1 retirement of fourteen runtime guards
-and the DEBUG leak leg: [docs/plans/frame-lifecycle.md](docs/plans/frame-lifecycle.md). Driver coverage
+and the DEBUG leak leg: `docs/plans/frame-lifecycle.md`. Driver coverage
 matrix, the two full-scale numbers and the header parse:
-[docs/architecture/image-pipeline.md](docs/architecture/image-pipeline.md).** The rules:
+`docs/architecture/image-pipeline.md`.** The rules:
 
 - **Who owns a frame is stated ONCE, in the `<remarks>` on `Image`**; `Release()` spends ownership,
   `TryLease` borrows, `Adopt*` / `*Into*` consume. **Never derive "may I release this?" from a
@@ -1405,7 +1283,7 @@ matrix, the two full-scale numbers and the header parse:
   mirror `Image.DebayerVNGAsync` / `DebayerMHCAsync` down to the epsilons, and **VNG's thresholds are
   ABSOLUTE, so both sides must be fed a `[0, 1]` mosaic**. Pinned by `GpuVngDebayerParityTests`
   (which also carries why a mean byte diff cannot see a demosaic bug);
-  [docs/architecture/image-pipeline.md](docs/architecture/image-pipeline.md).
+  `docs/architecture/image-pipeline.md`.
 - `Array2DPool` is scratch only; camera buffers use `ChannelBuffer`/`_freeBuffers`.
 - **A buffer nobody released is findable in DEBUG** (`ChannelBufferLeakTracker`, weak-referenced, no
   finalizer); `dotnet.yml`'s `test-unit` runs a DEBUG leg on `--filter "Category=DebugOnly"` and
@@ -1453,7 +1331,7 @@ copies once drifted into a `PIXSCALE` one path dropped and an `EXPOSURE` fallbac
 `MasterGroupKey` chose its dark by it. **A card added to one read path is a bug in the other**;
 `FitsPixelScaleTests.TheTwoReadPathsAgreeOnEveryMetadataField` fails on the next divergence. Write-up,
 pixel-scale precedence and the guiding cards:
-[docs/architecture/image-pipeline.md](docs/architecture/image-pipeline.md).
+`docs/architecture/image-pipeline.md`.
 
 - **A declared pixel scale beats `FOCALLEN`, which is only a hint** (`Image.GetImageDim`:
   `ImageMeta.DeclaredPixelScale` from `PIXSCALE`/`SCALE`, else pixel size x binning x focal length,
@@ -1472,8 +1350,8 @@ pixel-scale precedence and the guiding cards:
 
 `Image` is logically immutable (no public setter, `GetChannelSpan -> ReadOnlySpan<float>`). Full
 design + ownership vocabulary (own/borrow/consume):
-[docs/plans/frame-lifecycle.md](docs/plans/frame-lifecycle.md),
-[docs/plans/viewer-memory-footprint.md](docs/plans/viewer-memory-footprint.md). Four things
+`docs/plans/frame-lifecycle.md`,
+`docs/plans/viewer-memory-footprint.md`. Four things
 deliberately mutate `data[c]` or its planes in place; any new caller must respect the same rule:
 
 - **`Image.ScaleFloatValuesToUnitInPlace()`** (internal): rescales to `[0, 1]` reusing the
@@ -1532,7 +1410,7 @@ L and put ~3% of the frame, pinned at the black level, into every statistic take
 (`GetQHYCCDEffectiveArea` / `GetQHYCCDOverScanArea` / `CAM_IGNOREOVERSCAN_INTERFACE`) and nothing calls
 any of it; nothing anywhere reads or writes the IRAF `DATASEC`/`BIASSEC`/`TRIMSEC` sections, whose
 1-based inclusive coordinates are the same trap as CRPIX. Design, phasing and the measurements:
-[docs/plans/sensor-active-area.md](docs/plans/sensor-active-area.md).
+`docs/plans/sensor-active-area.md`.
 
 ### Float TIFF Convention (`SharpAstro.Tiff` I/O; Magick.NET fully removed)
 
@@ -1547,7 +1425,7 @@ Magick.NET is gone from every project; float TIFF I/O is `SharpAstro.Tiff.TiffWr
 scientific tools (`tifffile`, PixInsight, ImageJ) disagree on float TIFF values and `[0, 1]` is the one
 range both read. Rationale, the `SMinSampleValue`/`SMaxSampleValue`/`Q16HdriQuantumMax` mechanics, the
 round-trip guards and the codec surface inventory (16-bit, cICP, `iCCP`, `IccProfiles.SRgbV4`):
-[docs/plans/image-codecs-facade.md](docs/plans/image-codecs-facade.md).
+`docs/plans/image-codecs-facade.md`.
 
 ### FITS Viewer Widget (`ImageRendererBase<TSurface>`)
 
@@ -1555,185 +1433,127 @@ The renderer-agnostic viewer (`tianwen-fits` and the GUI 🪐 tab via `VkImageRe
 class` split by concern (`.Layout`, `.Toolbar`, `.FileList`, `.Overlays`, `.Histogram`, `.InfoPanel`,
 `.StatusBar`, `.Transport`, `.Input`); add a concern as a new partial, never grow the core file back
 into a monolith. All chrome is arranged from ONE layout pass rooted at `ContentRegion`; never
-hand-place chrome at `(0,0,Width,...)`. One slider (`DrawTrackSlider` / `TrackFrac`, DIR.Lib's
-`PixelWidgetBase`) serves WB, wavelet and SER scrub; never re-triplicate it. Details:
-[docs/architecture/widgets-and-controls.md](docs/architecture/widgets-and-controls.md).
+hand-place chrome at `(0,0,Width,...)`. One slider (`DrawTrackSlider` / `TrackFrac`) serves WB, wavelet
+and SER scrub; never re-triplicate it. **One viewer, no mini viewer:** Live Session preview, polar-align
+and guide-cam host it chromeless (`ViewerState.HideChrome`) over `LiveFramePreviewSource : IPreviewSource`
+(`AcceptFrame(image, freezeStats)`, `ImageRendererBase.OverrideWcs` for the WCS, `SetSurfaceSize(w,h)`
+each frame, not `Resize`); **`LiveFramePreviewSource.PerChannelBackground` must be non-empty and
+channel-sized** (`ComputePostStretchBackground` indexes `[0]`; an empty array crashed the GUI;
+`LiveFramePreviewSourceTests`). The partials, the live-preview contract, the `?` menu and the toolbar
+label-width rule in full: `docs/architecture/widgets-and-controls.md` § The FITS viewer widget.
 
 **GPU resource lifetime, with the incidents behind every rule:
-[`docs/architecture/viewer-gpu-lifetime.md`](docs/architecture/viewer-gpu-lifetime.md).** Never call
+`docs/architecture/viewer-gpu-lifetime.md`.** Never call
 `UploadDocumentTextures` from a render callback (textures upload in `PrepareFrame`; a Store
-`VK_ERROR_DEVICE_LOST`, pinned by `ANewDocumentIsUploadedBeforeTheLayerPassThatSamplesIt`); never
-destroy a bound Vulkan object or write a shared descriptor set from an upload path
-(`VulkanContext.DeferDestroy`, one sampler set per frame in flight since SdlVulkan.Renderer 7.28); a
-window resize is its own GPU-lifetime path (drive maximize/restore); the cached image layer samples in
-TEXTURE space, so divide UVs by the CAPACITY
-(`TheBlitSamplesInTextureSpaceWhenTheTargetIsLargerThanTheLayer`). **Run under `SDLVK_VALIDATION=1
+`VK_ERROR_DEVICE_LOST`); never destroy a bound Vulkan object or write a shared descriptor set from an
+upload path (`VulkanContext.DeferDestroy`, one sampler set per frame in flight since SdlVulkan.Renderer
+7.28); a window resize is its own GPU-lifetime path (drive maximize/restore); the cached image layer
+samples in TEXTURE space, so divide UVs by the CAPACITY. **Run under `SDLVK_VALIDATION=1
 SDLVK_SYNC_VALIDATION=1` and read `validation_report`** whenever this area is touched.
 
 **The auto-crop asks in two tiers, and the noise walk is the one that can be blind.**
-`Image.LargestCoveredRectangle()` finds where NO sub reached, so it is the UNION and keeps the
-under-exposed band inside it; `ViewerActions.ScanForCrop` therefore prefers the master's own coverage
-plane (`Image.LargestCoveredRectangle(coverage, ...)`, from a `MAPKIND=COVERAGE` `.rejection.fits`
-sidecar -- drizzle writes weight where every other strategy writes a rejection FRACTION, so the card is
-what tells them apart and its absence is never read as either) and falls back to `CoverageEdgeWalk`.
-**Three rules that bite:** the walk's reference is the edge's OWN level just inside, never the frame
-interior (a drizzle canvas edge reads 1.8-2.5x the centre at FULL coverage, decaying over ~460 px, so
-every interior-relative rule trimmed 300+ px where the weight map said 4); **a band whose end is not
-visible inside 5% of the span is refused, not trimmed to the bound**; and the coverage comparison is per
-16x16 BLOCK, since per-pixel drizzle weight scatters ~10% in a fully covered interior and a per-pixel
-threshold collapses the answer to 0.7% of the frame. Measurements, the corpus and the three refuted
-rules: [docs/plans/viewer-prerelease-fixes.md](docs/plans/viewer-prerelease-fixes.md) P25; harness in
-`tools/coverage-edge-walk/`. **A crop is a CLIP, so every draw path owes it one** -- the cached image
-layer returns before `ClipToShown` and needs its own narrowing (destination AND source UVs), or the
-border is blitted back at any zoom that brings it inside the pane while the status bar still says
-cropped. It reaches the renderer, the status bar, the toolbar state, both exports and **the enhance
-INPUT** -- the enhancers are spatial models and the ring is exact zero, which a CNN reads as structure
-and smears inward (NaN is no escape: `SharpenPipeline` fills non-finite with the channel mean by
-design). So an enhance on a cropped view is CUT first: the result is the crop, `WCS.CroppedTo`
-translates the solution, `AstroImageDocument.SourceCrop` records it, and the crop button gates on that.
-A crop also **cannot be re-derived after an enhance** (both tiers need evidence the enhancers destroy),
-so it is REMEMBERED across the toggle rather than re-scanned, and a revert restores frame and crop.
+`Image.LargestCoveredRectangle()` finds where NO sub reached (the UNION), so `ViewerActions.ScanForCrop`
+prefers the master's own coverage plane (`Image.LargestCoveredRectangle(coverage, ...)`, from a
+`MAPKIND=COVERAGE` `.rejection.fits` sidecar -- drizzle writes WEIGHT where every other strategy writes
+a rejection FRACTION, so the card is what tells them apart and its absence is never read as either)
+and falls back to `CoverageEdgeWalk`. **Three rules that bite:** the walk's reference is the edge's
+OWN level just inside, never the frame interior (a drizzle canvas edge reads 1.8-2.5x the centre at
+FULL coverage, decaying over ~460 px); **a band whose end is not visible inside 5% of the span is
+refused, not trimmed to the bound**; the coverage comparison is per 16x16 BLOCK (per-pixel drizzle
+weight scatters ~10%). **A crop is a CLIP, so every draw path owes it one** -- the cached image layer
+returns before `ClipToShown` and needs its own narrowing (destination AND source UVs). It reaches the
+renderer, the status bar, the toolbar, both exports and **the enhance INPUT** (the ring is exact zero,
+which a CNN reads as structure): an enhance on a cropped view is CUT first, `WCS.CroppedTo` translates
+the solution, `AstroImageDocument.SourceCrop` records it, and the crop is REMEMBERED across the toggle
+rather than re-scanned (the enhancers destroy the evidence). Measurements, corpus and the three
+refuted rules: `docs/plans/viewer-prerelease-fixes.md` P25; harness in `tools/coverage-edge-walk/`.
 
-**Context is a LADDER, and its top rung draws the sky the photograph came from BEHIND it.** `O` steps
-`none -> grid -> grid + objects -> sky` (the Grid and Objects buttons are one button whose mark says
-the rung); the rung is DERIVED from the three layer flags, so `G` moves the ladder rather than
-leaving the button lit for a layer that is off. The sky is the same renderer-agnostic `SkyMapTab` the
-GUI's atlas tab is, HOSTED (`ImageRendererBase.SkyBackdrop`) rather than reimplemented, with its
-layer palette floating over the frame. **Everything, with the measurements:
-[`docs/plans/in-app-sky-atlas.md`](docs/plans/in-app-sky-atlas.md) § What shipped in the viewer.**
-The rules:
+**Context is a LADDER (`O` steps `none -> grid -> grid + objects -> sky`, the rung DERIVED from the
+three layer flags), and its top rung hosts the atlas's own `SkyMapTab` BEHIND the photograph**
+(`ImageRendererBase.SkyBackdrop`), its layer palette floating over the frame. **Everything, with the
+measurements: `docs/plans/in-app-sky-atlas.md` § What shipped in the viewer.** The rules that bite:
 
 - **Read the object catalogue through `ImageRendererBase.LoadedCatalog`, never
   `CelestialObjectDB.Value.Value`.** `AsyncLazy<T>.Value` is a non-blocking PEEK (`Result<T>?`), which
-  is what keeps the ~500 ms build off the render thread -- the frame simply draws without objects and
-  they appear when it lands. But **`Result<T>.Value` RETHROWS a failed load**, so three draw paths
-  would have faulted on EVERY frame after a catalogue error instead of reporting it once.
-  `LoadedCatalog` asks with `TryGet`. An `IsValueCreated` guard is redundant, not safer.
+  keeps the ~500 ms build off the render thread, but **`Result<T>.Value` RETHROWS a failed load** on
+  every frame; `LoadedCatalog` asks with `TryGet`. An `IsValueCreated` guard is redundant, not safer.
 - **A hidden widget consumes no input.** A scroll controller's extent is set where its widget PAINTS,
-  so a collapsed panel leaves it holding the band the panel had and it claims presses landing there --
-  which is how pan went dead in a strip of the picture with nothing drawn in it
-  (`HandleFileListScroll` gates on `ShowFileList`; the sky palette gates on `SkyBackdropActive`). Gate
-  the consult, do not zero the extent, so there is one place that says it.
-- **The PHOTOGRAPH is the master.** `SkyBackdropView.Solve` reads the viewer's own placement back
-  through the frame's WCS and states it as the map's centre / roll / FOV / handedness, by PROBING
-  (`PixelToSky`) rather than deriving it from the CD matrix -- so no FITS or matrix convention is
-  restated here and a change on either side moves both probes. Never re-point the map from anything
-  else while `SkyMapState.ViewDrivenExternally`.
-- **Probe INSIDE the sensor (`CRPix` and one pixel either side), never at the pane centre**, and fit
-  a rigid rotation through the three points. Zoomed out, the pane centre is far outside the frame,
-  where a gnomonic deprojection wraps past 90 degrees and answers with a direction on the other side
-  of the sky: that was the sky snapping to a mirrored orientation on zoom-out. **A regression test
-  for it must zoom about a FIXED OFF-CENTRE anchor** -- zooming about the frame's centre keeps the
-  probe on top of the answer and passes against the broken solver.
-- **The sky's LINES cross the photograph; its IMAGERY stays behind it** (`SkyMapDrawPhase`). Split by
-  KIND: imagery (milky way, star field, twilight ground, horizon fill) under, continuous geometry
-  (figures, boundaries, grid, horizon, meridian, Alt/Az) over, labels riding with what they name.
-  **Point markers stay UNDER** -- the photograph shows those objects itself.
-- **The EQ grid's colour has ONE definition, `SkyMapGpuGeometry.GridLineColor`**, read by both GPU
-  backends, the CPU renderer AND `image.frag` (through the stretch UBO, written unconditionally by
-  `VkFitsImagePipeline` rather than passed as a parameter a caller can forget). Two literals meant
-  the 20 degree handover changed colour as well as density.
+  so gate the CONSULT (`HandleFileListScroll` on `ShowFileList`, the sky palette on
+  `SkyBackdropActive`); do not zero the extent.
+- **The PHOTOGRAPH is the master.** `SkyBackdropView.Solve` states the map's centre / roll / FOV /
+  handedness by PROBING `PixelToSky` INSIDE the sensor (`CRPix` and one pixel either side, a rigid
+  rotation through three points), never at the pane centre (a gnomonic deprojection wraps past 90
+  degrees out there: the sky snapped to a mirrored orientation on zoom-out) and never from the CD
+  matrix. Never re-point the map from anything else while `SkyMapState.ViewDrivenExternally`, which
+  turns off the home pass, the roll servo, the map's own pan/zoom, its info strip and crosshair and is
+  not a mode. **A regression test must zoom about a FIXED OFF-CENTRE anchor.**
+- **The sky's LINES cross the photograph; its IMAGERY stays behind it, and point markers stay UNDER**
+  (`SkyMapDrawPhase`, split by KIND). **The EQ grid's colour has ONE definition,
+  `SkyMapGpuGeometry.GridLineColor`**, read by both GPU backends, the CPU renderer AND `image.frag`
+  (through the stretch UBO, written unconditionally by `VkFitsImagePipeline`).
 - **The pan is confined to the viewport EXCEPT while the sky is drawn behind the frame**, gated on
-  `SkyBackdropActive` (drawn, not merely switched on) so an unsolved frame keeps the clamp instead of
-  turning loose over blank ground. Confining the pan to the picture is what stops the sky beside it
-  being brought to the middle of the pane; `F` / `Ctrl+0` is the way back. Pinned by
-  `ViewerSkyPanTests`, whose third case -- sky ON over an UNSOLVED frame -- is the only one a naive
-  `ShowSkyBackdrop` gate fails, and neither user report would have asked for it.
-- **ONE grid switch with two faces, and GEOMETRY picks which grid draws.** The ladder and `G` write
-  the viewer's flag, the palette's Grid row writes the map's, whichever moved wins
-  (`_lastSkyGridFlag`); the row is always listed, because a layer that answers its key and appears
-  nowhere defeats the panel. The frame's per-pixel grid spans the pane while the pane's furthest
-  corner is within `PaneGridMaxTangentAngleDeg = 20.0` of the frame's TANGENT POINT
-  (`SkyBackdropView.MaxTangentAngleDeg`), and the map's spherical one takes over beyond that -- **a
-  tangent plane cannot represent a point 90 degrees away**, which is meridians sweeping past the pole
-  instead of converging. **The measure is a DISTANCE FROM THE TANGENT POINT, never a field of view**:
-  the gate first read the map's nominal FOV, which says nothing about how far past its reference the
-  frame's deprojection is being extrapolated, so the frame's grid ran at a view with the SCP on screen
-  ("at 10 percent the grid looks okay, at 12 percent not" -- 60-plus degrees of tangent angle at a
-  nominal field a fraction of that). A second checkbox is the wrong fix: it makes "grid off" show MORE
-  grid.
-- **A rotation cannot fix PARITY.** About half of all light paths mirror the field, and no roll undoes
-  that; `SkyMapState.MirrorView` negates the view's right axis AFTER the roll (from a negated right,
-  `up` would flip too and it becomes a 180 degree rotation). Still orthogonal, so the inverse stays
-  the transpose and the projection maths is untouched.
-- **`ViewDrivenExternally` turns off the home pass, the roll servo and the map's own pan/zoom**, plus
-  its info strip and crosshair. It is not a mode: everything else is identical either way.
-- **The cached image layer stands down while the sky is behind the frame** -- it clears opaque black
-  across the whole pane, so it would blit the sky out exactly where the sky is worth looking at.
-- **The gnomonic-vs-stereographic difference needs no modelling** (theta squared over four of the
-  distance out: 0.01 px on a one-degree frame, 1.85 px on a ten-degree one) and shows only at the
-  frame's BORDER. A NON-CONFORMAL CD is the case the rigid view cannot express.
+  `SkyBackdropActive` (drawn, not switched on: an unsolved frame keeps the clamp); `F` / `Ctrl+0` is the
+  way back. `ViewerSkyPanTests`' third case -- sky ON over an UNSOLVED frame -- is the one a naive
+  `ShowSkyBackdrop` gate fails.
+- **ONE grid switch with two faces, and GEOMETRY picks which grid draws** (the ladder and `G` write the
+  viewer's flag, the palette's Grid row the map's, whichever moved wins, `_lastSkyGridFlag`; the row is
+  always listed). The frame's per-pixel grid spans the pane while the pane's furthest corner is within
+  `PaneGridMaxTangentAngleDeg = 20.0` of the frame's TANGENT POINT (`SkyBackdropView.MaxTangentAngleDeg`),
+  the map's spherical one beyond. **The measure is a DISTANCE FROM THE TANGENT POINT, never a field of
+  view** (a nominal FOV says nothing about how far the deprojection is extrapolated: the frame's grid ran
+  with the SCP on screen), and a second checkbox is the wrong fix.
+- **A rotation cannot fix PARITY.** `SkyMapState.MirrorView` negates the view's right axis AFTER the
+  roll; still orthogonal, so the inverse stays the transpose.
+- **The cached image layer stands down while the sky is behind the frame** (it clears opaque black).
+- **The gnomonic-vs-stereographic difference needs no modelling** (0.01 px on a one-degree frame,
+  1.85 px on a ten-degree one, at the BORDER only); a NON-CONFORMAL CD is the case the rigid view
+  cannot express.
 - **Site and instant come from the frame and degrade separately** (`FrameSiteResolver`, provenance on
-  `FrameSite`): no instant means the wall clock, no site means no horizon and no Alt/Az. An exact
-  `SITELAT`/`SITELONG` of (0, 0) is an unfilled capture profile, not the Gulf of Guinea. **Never
-  promote a display site to an astrometric one.**
-- **Assert the composite on CORNERS, never the centre** (`SkyBackdropViewTests`): a wrong roll, scale
-  or parity all leave the centre exactly where it was.
-- **A toolbar button whose label changes width drags every button after it sideways** -- the run is
-  packed left to right, and Zoom relabels continuously as the wheel turns ("Fit" / a ratio / a
-  percentage). `ReservedLabelWidth` gives Zoom and Enhance their widest label so the text changes
-  inside a fixed box; the rest change on a discrete action, where a re-layout is the button reporting
-  what it did. Measured at 26.4 px of travel across ten buttons. **This is NOT the damage tracker** --
-  per-swapchain-image damage is a real flicker mechanism (P15's tooltip) and the wrong suspect here.
+  `FrameSite`): no instant means the wall clock, no site means no horizon and no Alt/Az; an exact
+  `SITELAT`/`SITELONG` of (0, 0) is an unfilled profile. **Never promote a display site to an
+  astrometric one.** Assert the composite on CORNERS, never the centre (`SkyBackdropViewTests`).
 - **A left click SELECTS the catalogued object under it, and a selection is not a hover.**
-  `ViewerState.SelectedObject` is a `SkyMapInfoPanelData` -- the SAME payload the atlas's own
-  selection carries, not a second record -- resolved ONCE at the click, so the ring, the floating
-  panel and the atlas link agree by construction and none of them asks the catalogue per frame. The
-  panel itself floats over the picture, bottom-left like the atlas's, built from the shared
-  `ObjectInfoPanel` (`RenderSelectionPanel` in `ImageRendererBase.SelectionPanel.cs`); the docked info
-  strip's old "Selection" section is gone. **Its BOX comes from `ObjectInfoPanel.DesignWidth` /
-  `DesignHeight` in BOTH hosts, never a literal beside the draw** -- the atlas kept its own 348/205
-  for a while and a row added to the shared panel would have grown one host and left the other sized
-  for rows it no longer had. **A chromeless host (`HideChrome`) draws no panel**, the gate the status
-  bar, dropdowns and tooltip already use; and neither host's panel may climb out of the TOP of its
-  rect, since nothing clips it and losing the button row beats losing the object's name. **Alt/Az and rise/transit/set are baked in at the frame's
-  CAPTURE instant** (`ImageRendererBase.BuildSelectionPanelData`, `FrameSiteResolver`), never a live
-  clock, and BOTH rows are omitted together whenever either the site or the capture time is unknown --
-  a NaN `AltDeg` is the one signal the render code trusts for that, since `SiteContext` and
-  `RiseTransitSetHelper` fail silently on a NaN site rather than reporting the gap.
-  **The ring is the object's OWN outline where the catalogue knows one** -- true axis ratio and
-  position angle, from the same `OverlayEngine` inputs the `[O]` overlay uses for that object
-  (`ChooseMarkerKind`, `WCS.PixelScaleArcsec`, `ComputeScreenPA`), so it lands concentric with the
-  outline underneath; a star keeps the circle even carrying a cross-linked shape, and the outer ring
-  is a UNIFORM scale of the inner or an edge-on galaxy rounds off. Three more rules:
-  it fires on the tap RELEASE, never the press (a press on the picture starts a pan, so on the press
-  every drag would select); **the resolver applies the OVERLAY's type gate**, or it names things drawn
-  nowhere -- a click on M42's core answered "HH 1146" until it did, and the same hole had been in the
-  right-click menu since P28; and it ignores EXTENT, so at a nebula's centre "nearest" can legitimately
-  answer an embedded star (M42 has three catalogued objects within 0.2 arcseconds, against a click
-  quantised to
-  a whole pixel). Escape clears it before Escape means quit, after any open dropdown.
-- **A share link about an object carries `object=`**, which the web build already parses and re-tries
-  as the catalog loads: a pointing is not a selection. `SkyAtlasLink` owns the whole vocabulary
-  INCLUDING the escaping (`EscapeObjectToken` keeps "/" literal so "10P/Tempel" stays readable) --
-  both ends call it, because two copies of an escaping rule is how the ends of one URL drift.
+  `ViewerState.SelectedObject` is the atlas's own `SkyMapInfoPanelData`, resolved ONCE on the tap
+  RELEASE (never the press: a press starts a pan), so the ring, the floating panel and the atlas link
+  agree by construction. The panel is the shared `ObjectInfoPanel` (`RenderSelectionPanel`,
+  `ImageRendererBase.SelectionPanel.cs`), bottom-left like the atlas's; **its BOX comes from
+  `ObjectInfoPanel.DesignWidth` / `DesignHeight` in BOTH hosts, never a literal**; a chromeless host
+  draws no panel; neither host's panel may climb out of the TOP of its rect. **Alt/Az and
+  rise/transit/set are baked at the CAPTURE instant** (`BuildSelectionPanelData`), never a live clock,
+  and BOTH rows are omitted together when site or time is unknown (a NaN `AltDeg` is the one signal).
+  **The ring is the object's OWN outline where the catalogue knows one** (same `OverlayEngine` inputs as
+  the `[O]` marker: `ChooseMarkerKind`, `WCS.PixelScaleArcsec`, `ComputeScreenPA`); a star keeps the
+  circle even carrying a cross-linked shape; the outer ring is a UNIFORM scale of the inner. The
+  resolver applies the OVERLAY's type gate (a click on M42's core answered "HH 1146" until it did) and
+  ignores EXTENT, so at a nebula's centre "nearest" can answer an embedded star (M42 has three objects
+  within 0.2 arcseconds against a click quantised to a whole pixel). Escape clears it before Escape
+  means quit, after any open dropdown. **A share link about an object carries `object=`**; `SkyAtlasLink`
+  owns the vocabulary INCLUDING the escaping (`EscapeObjectToken` keeps "/" literal), both ends call it.
+- **A tap resolves against what is DRAWN before it asks the catalogue, and the catalogue search walks
+  every grid cell the tolerance reaches.** `RenderOverlays` records each marker and its placed label box
+  (`DrawnOverlayObject`, cleared whenever the overlay is not drawn); `TrySelectObjectAt` asks the MARKER
+  enclosing the tap (nearest centre among enclosing outlines, a tie to the smaller), then the LABEL, then
+  the nearest catalogue centre -- both other orders were measured wrong on the 10P master. A circle
+  marker's radius is `RadiusPx` alone (`SemiMinorPx` is zero), and the painted ellipse is the
+  axis-aligned bounding-box one. `DeepSkyCoordinateGrid` answers for ONE 1-degree-by-4-minute cell, so
+  `CandidatesWithin` is what makes "nearest within the tolerance" true across a cell edge. The selected
+  object's overlay label steps aside for the ring's name (`SolveSelectionRing` runs before the overlay
+  pass and reserves the box), or the two copies land on each other. `ViewerObjectSelectionTests`;
+  `docs/plans/viewer-prerelease-fixes.md` P34.
 - **The docked info strip REPORTS; it does not hold controls.** Statistics roll up to their heading
-  by default (`DrawCollapsibleHeading`, the equipment tab's `[+]` / `[-]`) and, open, are a TABLE at
-  measured column stops (`InfoPanelData.GetStatisticsTable` + `DrawTable`, numbers right aligned):
-  space-padding aligned nothing once the face stopped being monospaced, and five rows replaced
-  thirteen. **The white balance is a popover under a mark-only toolbar button**
-  (`ToolbarAction.WhiteBalance`, three colour discs, lit while the EFFECTIVE white balance is not
-  neutral), `ImageRendererBase.WhiteBalancePanel.cs`. **A popover is a menu in everything but its
-  contents**: painted with the dropdowns, a full-window backdrop under it closes it on any other
-  press (the button included), it claims the keyboard as it paints so Escape needs no branch of its
-  own, and `OverlayOwnsPointer` names it. Closed, it clears its slider bands. Pinned through the hit
-  tracker, not pixels: a rolled-up section or a closed popover has registered nothing.
-  [docs/plans/viewer-prerelease-fixes.md](docs/plans/viewer-prerelease-fixes.md) P33.
-- **The "?" panel is a MENU** (`HelpPage`), because it had grown past a laptop screen and is the one
-  panel opened when the viewer has misbehaved. Row 0 of a sub-page is the way back. **A page change
-  re-opens the dropdown NEXT frame** (`PumpHelpPanel`): the dropdown closes itself after its
-  selection callback returns, so opening from inside that callback just makes the panel vanish. Its
-  tests drive ONE page at a time, on a FRESH viewer per row, and call `BuildHelpLines()` first --
-  indices are assigned at build.
-
-**One viewer, no mini viewer.** Live Session preview, polar-align and guide-cam host this viewer
-chromeless (`ViewerState.HideChrome`), fed by `LiveFramePreviewSource : IPreviewSource` (normalises to
-`[0,1]`, subsampled median/MAD stats, `AcceptFrame(image, freezeStats)` for
-`ViewerState.FreezeStretchStats`, delegates to the shared `AstroImageDocument.ComputeStretchUniforms`;
-`ImageRendererBase.OverrideWcs` supplies the WCS). Embedded hosts call `SetSurfaceSize(w,h)` each
-frame, not `Resize`. **`LiveFramePreviewSource.PerChannelBackground` must be non-empty and
-channel-sized** (`ComputePostStretchBackground` indexes `[0]`; an empty array crashed the GUI;
-`LiveFramePreviewSourceTests`).
+  (`DrawCollapsibleHeading`) and, open, are a TABLE at measured column stops (`InfoPanelData.GetStatisticsTable`
+  + `DrawTable`; space-padding aligns nothing in a proportional face). **The white balance is a popover
+  under a mark-only toolbar button** (`ToolbarAction.WhiteBalance`, lit while the EFFECTIVE white balance
+  is not neutral; `ImageRendererBase.WhiteBalancePanel.cs`). **A popover is a menu in everything but its
+  contents**: painted with the dropdowns, a full-window backdrop closes it on any other press (the button
+  included), it claims the keyboard as it paints so Escape needs no branch, `OverlayOwnsPointer` names it;
+  closed, it clears its slider bands. Pinned through the hit tracker, not pixels. P33.
+- **The "?" panel is a MENU** (`HelpPage`); row 0 of a sub-page is the way back. **A page change re-opens
+  the dropdown NEXT frame** (`PumpHelpPanel`: the dropdown closes itself after its selection callback).
+  Its tests drive ONE page at a time on a FRESH viewer and call `BuildHelpLines()` first.
+- **A toolbar button whose label changes width drags every button after it sideways**;
+  `ReservedLabelWidth` gives Zoom and Enhance their widest label (26.4 px of travel measured across ten
+  buttons). **This is NOT the damage tracker** (P15's tooltip was), the wrong suspect here.
 
 ### The star field is culled on TWO axes, and both are load-bearing
 
@@ -1744,7 +1564,7 @@ the other** (magnitude bounds a wide field, ~3% of Tycho-2 at 60 degrees but 81%
 bounds a deep zoom and nothing at full sky). **Submitting the whole ~2.5M-star buffer TDR'd an Adreno
 X1-85** and dropped 944 of 1287 frames in the browser. **A limit past the last bin clamps to
 "everything", never wraps to zero** (pinned by a `[Theory]`). Measurements, the WebGL2 `firstInstance`
-workaround and the two cull details that bite: [`docs/plans/web-tycho2.md`](docs/plans/web-tycho2.md).
+workaround and the two cull details that bite: `docs/plans/web-tycho2.md`.
 
 ### A quantized cache key must not derive its grid from a continuous input
 
@@ -1756,7 +1576,7 @@ step from the BUCKETED value.** **Assert the gather COUNT, never the output**
 the identical frame. **`gathers <= 12` passes on `gathers == 0`** (`ShowObjectOverlay` is off by
 default): pair the bound with `gathers > 0` and see it FAIL with the fix removed. Why it read as jank
 in the browser and a never-settling walk on the desktop:
-[`docs/plans/web-showcase.md`](docs/plans/web-showcase.md).
+`docs/plans/web-showcase.md`.
 
 ### The web host paints per event, so continuous gestures must coalesce onto rAF
 
@@ -1765,7 +1585,7 @@ repaints were superseded inside their own 16.67 ms). `RequestRenderCoalesced()` 
 `wwwroot/raf-pump.js`) is for `OnPointerMove` / `OnWheel` / `OnPinch` **only**. **Clear the dirty flag
 BEFORE painting and on the schedule-failure path**, or the canvas freezes for good. **A trackpad pinch
 is `ctrl`+`wheel`** (Blazor `@onwheel`), a different path from the touch bridge and the densest gesture
-the app sees. Details: [`docs/plans/web-host-carve-out.md`](docs/plans/web-host-carve-out.md).
+the app sees. Details: `docs/plans/web-host-carve-out.md`.
 
 ### Sky Map / FITS Viewer GLSL (pre-baked SPIR-V, no runtime shaderc)
 
@@ -1790,7 +1610,7 @@ viewer; **CPU** `Image.StretchChannelCpu` / `StretchLumaPixelCpu` / `ApplyHdr` /
 pedestal subtract → bg neutralization → WB → shadow/rescale → MTF → luma blend → curves → HDR knee →
 normalize → clamp; in Luma mode the producer populates BOTH `StretchUniforms.LumaStretch` and the
 per-channel `Shadows/Midtones/Rescale` so the shader blends via `LumaBlend`. **The subject in full, with
-the measurements: [`docs/architecture/stretch-pipeline.md`](docs/architecture/stretch-pipeline.md)**
+the measurements: `docs/architecture/stretch-pipeline.md`**
 (and `stacking-render-pipeline.md` sections 5-6). The rules:
 
 - **Wire a new stage into BOTH the GLSL and the CPU helpers**; `StretchTests_NewPipeline` is the
@@ -1824,7 +1644,7 @@ GUI/TUI panels are immutable `Layout.Node` trees: `Layout.Engine.Arrange` measur
 `PixelWidgetBase.PaintLayout` draws and binds clicks **from the same arranged rect** (draw == hit by
 construction). Engine + DSL reference: DIR.Lib's README; the engine features TianWen leans on, the five
 traps in full, the alias and conditional-background rules, the TUI row contract and the pointer-cursor
-rule: [`docs/architecture/widgets-and-controls.md`](docs/architecture/widgets-and-controls.md), read it
+rule: `docs/architecture/widgets-and-controls.md`, read it
 before any layout work. The short form:
 
 - **Build trees with `Layout.Builder`** (`VStack/HStack/Text/Box/Fill/Spacer/Grid/Overlay/Split/Dock`)
@@ -1858,8 +1678,8 @@ before any layout work. The short form:
 
 ### UI Primitives: the cursor, a text field, and who holds focus
 
-Full reasoning: [`docs/architecture/widgets-and-controls.md`](docs/architecture/widgets-and-controls.md)
-(cursor) and [`docs/plans/automatic-text-input.md`](docs/plans/automatic-text-input.md) (field, focus,
+Full reasoning: `docs/architecture/widgets-and-controls.md`
+(cursor) and `docs/plans/automatic-text-input.md` (field, focus,
 key routing). The rules that bite:
 
 - **The pointer's appearance is a property of a REGION, never a host predicate**: declare it beside the
@@ -1888,7 +1708,7 @@ device-px escape hatch and a `PixelMeasureContext` overload covers a per-axis sc
 tree (build it ONCE and pass the same instance to Arrange and Paint). **Do NOT reintroduce these as
 `Render`/helper parameters**: per-window constant -> property, per-call derived -> parameter; `fontSize`
 is NEVER a property (`AltitudeChartRenderer`, `SkyMapRenderer` keep theirs). Breakdown:
-[`docs/plans/dpi-scale.md`](docs/plans/dpi-scale.md).
+`docs/plans/dpi-scale.md`.
 
 **Which FACE they get is one decision, `BundledFonts.Resolve()`**, returning `(Text, Emoji, Fallback)`
 together for all three hosts; **a direct `FontResolver.` call in production code is a regression**
@@ -1900,7 +1720,7 @@ which one draws a given rune is Unicode's DEFAULT PRESENTATION, not coverage ord
 it, while text-default marks (checks, stars, arrows, the warning sign) stay on the text face. So a
 NEW mark is picked by what the codepoint IS, and a colour glyph cannot be tinted or dimmed, which
 is what a baked icon is for. The `Lazy<FontSet>` cache and what is outstanding:
-[`docs/plans/font-roles-and-icon-baking.md`](docs/plans/font-roles-and-icon-baking.md).
+`docs/plans/font-roles-and-icon-baking.md`.
 
 ### Signal Handler Pattern: Route, Don't Implement
 
@@ -1982,7 +1802,7 @@ Canonical example: `AppSignalHandler.PollCameraTelemetry` and `EquipmentTabState
   frame stall -- hand the render thread an immutable snapshot instead); (3) if the lock stays, it must
   be `System.Threading.Lock` (C# 13), never `lock` on an `object`, a collection or any other reachable
   instance (faster, self-documenting, compiler-enforced). Remaining `object`-based sites are inventoried
-  in [docs/todo/infra.md](docs/todo/infra.md). For a most-recent-N window polled by readers (guide
+  in `docs/todo/infra.md`. For a most-recent-N window polled by readers (guide
   samples, frame metrics), prefer the lock-free `CircularBuffer<T>` (`TianWen.Lib/Sequencing`):
   ImmutableArray + CAS replace, torn-free `Snapshot` reads, O(capacity) appends -- right when producers
   are low-rate (per exposure) and pollers high-rate (per frame).

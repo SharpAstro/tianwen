@@ -325,3 +325,34 @@ actually holds -- a sensor-saturated core stays flat. Pinned by `MasterPreviewUl
 `Image.WriteStretchedTiffAsync` (verbatim [0,1] floats -- no `1/MaxValue` rescale -- plus
 `IccProfiles.SRgbV4`) is shared by `stack --split-plates` and `image sharpen`. Do not add a second
 one; the float-TIFF on-disk convention it implements is in `CLAUDE.md` under "Float TIFF Convention".
+
+## 10. Captured intermediates: `SessionConfiguration.SaveIntermediates`
+
+Moved here verbatim from `CLAUDE.md` on 2026-09-12.
+
+**A CAPTURED frame that is not a light says so in `IMAGETYP`, and never relies on the skip above.**
+`SessionConfiguration.SaveIntermediates` (default OFF, one switch, `Session.IO.cs`'s
+`WriteIntermediateFrameToFitsFileAsync` the one write path) keeps the frames a session takes to
+*measure* something and would otherwise release unseen, under
+`<output>/Intermediates/<date>/<filter>/<frame type>/[group/]`:
+
+- **`FrameType.Focus`** -- every auto-focus V-curve rung plus the verification exposure, grouped one
+  folder per run (`ota<n>_<runStart>/`, a directory rather than a filename convention because our
+  timestamp format contains underscores). This is a real defocus ladder for the deconvolver corpus;
+  [docs/plans/ai-denoise-deconv.md](docs/plans/ai-denoise-deconv.md) 2.1b carries the measurements
+  that say why the archive could not supply one.
+- **`FrameType.Scout`** -- the FOV-obstruction probe and nudge-test frames, kept whatever the star
+  count (a zero-star scout is the interesting one), which is what answers "why did it think the field
+  was blocked?" the morning after.
+
+**Each kind gets its OWN frame type rather than one `Intermediate`,** because path is cosmetic here as
+everywhere and headers are truth: collapse them and the only way to tell an AF rung from a scout is
+the folder. Exclusion from stacking is by frame type -- the scan and the dataset builder both select
+`Light`, so these drop out by the same mechanism that excludes darks, NOT by the provenance heuristic
+(authorship) or the folder. A scout is the one that most needs this: it is in focus and points where
+the lights point, differing only in exposure, so nothing about the pixels would stop a scan ingesting
+it. **Never widen a consumer's filter to admit `Focus` or `Scout`.**
+
+Deliberately NOT covered, so the switch can never fill a disk: condition-recovery test exposures
+(unbounded while cloud lasts), the rough-focus sweep, plate-solve frames and flat-metering frames.
+Each is one `WriteIntermediateFrameToFitsFileAsync` call away if it earns its keep.

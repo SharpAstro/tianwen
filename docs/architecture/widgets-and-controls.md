@@ -300,3 +300,38 @@ would have had to find all three. **Add an overlay to that one property, never t
 per-element hover rects themselves stay by design (the
 [../plans/layout-driven-ui.md](../plans/layout-driven-ui.md) DoD tolerates interactive controls
 whose look needs their own arranged rect); it is the z-order term that must not be duplicated.
+
+## The FITS viewer widget: partials, one layout root, one slider, the live-preview host, the `?` menu
+
+Moved here verbatim from `CLAUDE.md` on 2026-09-12; the rules that bite stay there as one-liners.
+
+The renderer-agnostic viewer (`tianwen-fits` and the GUI 🪐 tab via `VkImageRenderer`) is a `partial
+class` split by concern (`.Layout`, `.Toolbar`, `.FileList`, `.Overlays`, `.Histogram`, `.InfoPanel`,
+`.StatusBar`, `.Transport`, `.Input`); add a concern as a new partial, never grow the core file back
+into a monolith. All chrome is arranged from ONE layout pass rooted at `ContentRegion`; never
+hand-place chrome at `(0,0,Width,...)`. One slider (`DrawTrackSlider` / `TrackFrac`, DIR.Lib's
+`PixelWidgetBase`) serves WB, wavelet and SER scrub; never re-triplicate it. Details:
+[docs/architecture/widgets-and-controls.md](docs/architecture/widgets-and-controls.md).
+
+**One viewer, no mini viewer.** Live Session preview, polar-align and guide-cam host this viewer
+chromeless (`ViewerState.HideChrome`), fed by `LiveFramePreviewSource : IPreviewSource` (normalises to
+`[0,1]`, subsampled median/MAD stats, `AcceptFrame(image, freezeStats)` for
+`ViewerState.FreezeStretchStats`, delegates to the shared `AstroImageDocument.ComputeStretchUniforms`;
+`ImageRendererBase.OverrideWcs` supplies the WCS). Embedded hosts call `SetSurfaceSize(w,h)` each
+frame, not `Resize`. **`LiveFramePreviewSource.PerChannelBackground` must be non-empty and
+channel-sized** (`ComputePostStretchBackground` indexes `[0]`; an empty array crashed the GUI;
+`LiveFramePreviewSourceTests`).
+
+- **The "?" panel is a MENU** (`HelpPage`), because it had grown past a laptop screen and is the one
+  panel opened when the viewer has misbehaved. Row 0 of a sub-page is the way back. **A page change
+  re-opens the dropdown NEXT frame** (`PumpHelpPanel`): the dropdown closes itself after its
+  selection callback returns, so opening from inside that callback just makes the panel vanish. Its
+  tests drive ONE page at a time, on a FRESH viewer per row, and call `BuildHelpLines()` first --
+  indices are assigned at build.
+
+- **A toolbar button whose label changes width drags every button after it sideways** -- the run is
+  packed left to right, and Zoom relabels continuously as the wheel turns ("Fit" / a ratio / a
+  percentage). `ReservedLabelWidth` gives Zoom and Enhance their widest label so the text changes
+  inside a fixed box; the rest change on a discrete action, where a re-layout is the button reporting
+  what it did. Measured at 26.4 px of travel across ten buttons. **This is NOT the damage tracker** --
+  per-swapchain-image damage is a real flicker mechanism (P15's tooltip) and the wrong suspect here.
