@@ -1,13 +1,16 @@
 using System;
 using DIR.Lib;
 using SdlVulkan.Renderer;
+using TianWen.UI.Abstractions.Overlays;
 
 namespace TianWen.UI.Shared;
 
 /// <summary>
 /// Shared Vulkan shape helpers for overlay markers (galaxies, stars, DSOs).
-/// Used by both the FITS viewer (<see cref="VkImageRenderer"/>) and the sky map
-/// tab's object overlay so the two paths render identical ellipses / crosses.
+/// Used by the FITS viewer (<see cref="VkImageRenderer"/>); the sky map tab's own
+/// object overlay draws its ellipses through <c>SkyMapTab.ObjectOverlay</c> instead
+/// (it needs renderer-agnostic drawing since the same atlas also runs on WebGL), and
+/// only borrows <see cref="DrawCross"/> / <see cref="DrawReticle"/> from here.
 /// </summary>
 public static class VkOverlayShapes
 {
@@ -23,7 +26,19 @@ public static class VkOverlayShapes
         float semiMajor, float semiMinor, float angleRad,
         RGBAColor32 color, float thickness)
     {
+        // A rotated OUTLINE goes through the one shared walk (OverlayEngine), which also
+        // backs AnnotatedRasterExport's CPU export path -- this call site used to carry
+        // its own copy that silently drifted to bounding-box-only (see the method's doc).
+        if (thickness > 0f && MathF.Abs(angleRad) >= 1e-3f)
+        {
+            OverlayEngine.DrawRotatedEllipseOutline(renderer, cx, cy, semiMajor, semiMinor, angleRad,
+                color, Math.Max(1, (int)MathF.Round(thickness * dpiScale)));
+            return;
+        }
+
         // Bounding box of the rotated ellipse: see https://iquilezles.org/articles/ellipses/
+        // Exact for the unrotated case above, and the fallback for a rotated FILL, which
+        // no caller exercises today -- there is no rotated-fill primitive to reach for.
         var cosA = MathF.Cos(angleRad);
         var sinA = MathF.Sin(angleRad);
         var bboxW = MathF.Sqrt(semiMajor * semiMajor * cosA * cosA + semiMinor * semiMinor * sinA * sinA);

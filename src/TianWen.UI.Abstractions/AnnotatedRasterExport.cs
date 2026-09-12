@@ -346,8 +346,9 @@ namespace TianWen.UI.Abstractions
 
             /// <summary>
             /// An ellipse at any angle. The rasteriser offers only an axis-aligned one, so a rotated
-            /// ellipse is walked as a closed polyline -- which is also what the GPU seam does with a
-            /// curve, and is exact rather than an approximation of the shape (only of its smoothness).
+            /// ellipse goes through the one shared walk (<see cref="OverlayEngine.DrawRotatedEllipseOutline{TSurface}"/>),
+            /// which also backs the FITS viewer's live GPU overlay -- see that method's doc for why
+            /// this used to carry its own copy of the same loop instead.
             /// </summary>
             protected override void DrawEllipseOverlay(float cx, float cy, float semiMajor, float semiMinor,
                 float angleRad, RGBAColor32 color, float thickness)
@@ -363,27 +364,8 @@ namespace TianWen.UI.Abstractions
                     return;
                 }
 
-                // Segment count from the size, so a big marker does not read as a polygon and a small
-                // one does not cost 64 line draws.
-                var segments = Math.Clamp((int)(MathF.Max(semiMajor, semiMinor) * 0.7f), 16, 64);
-                var cos = MathF.Cos(angleRad);
-                var sin = MathF.Sin(angleRad);
-                var prevX = 0f;
-                var prevY = 0f;
-                for (var i = 0; i <= segments; i++)
-                {
-                    var t = i / (float)segments * MathF.Tau;
-                    var ex = semiMajor * MathF.Cos(t);
-                    var ey = semiMinor * MathF.Sin(t);
-                    var x = cx + ex * cos - ey * sin;
-                    var y = cy + ex * sin + ey * cos;
-                    if (i > 0)
-                    {
-                        _renderer.DrawLine(prevX, prevY, x, y, color, (int)MathF.Round(stroke));
-                    }
-                    prevX = x;
-                    prevY = y;
-                }
+                OverlayEngine.DrawRotatedEllipseOutline(_renderer, cx, cy, semiMajor, semiMinor, angleRad,
+                    color, (int)MathF.Round(stroke));
             }
 
             protected override void DrawCrossOverlay(float cx, float cy, float armLength, RGBAColor32 color)

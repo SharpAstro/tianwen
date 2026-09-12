@@ -5,6 +5,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Tests.Helpers;
+using TianWen.UI.Shared;
 using Vortice.Vulkan;
 using Xunit;
 using static Vortice.Vulkan.Vulkan;
@@ -147,6 +148,35 @@ public sealed class VkRendererPrimitiveTests(VkPrimitiveGpuFixture gpuFixture, I
         // Allow 2% headroom.
         await AssertBadPixelFractionUnderAsync(cpu, gpu, perPixelTolerance: 16, badPixelFraction: 0.02,
             nameof(DrawEllipse_RingStroke));
+    }
+
+    /// <summary>
+    /// Regression for <see cref="VkOverlayShapes.DrawEllipse"/> once using the rotation angle
+    /// only to size an axis-aligned bounding box, never actually rotating the drawn shape
+    /// (found on M31: PA 35 degrees rendered upright and barely elongated instead of its true
+    /// 2.5:1 tilt). The CPU side draws the SAME rotated-ellipse polyline
+    /// (<see cref="TianWen.UI.Abstractions.Overlays.OverlayEngine.DrawRotatedEllipseOutline{TSurface}"/>)
+    /// directly, so this pins the GPU wrapper against the shared source of truth rather than
+    /// against a second hand-written reference that could drift the same way the bug did.
+    /// </summary>
+    [Fact]
+    public async Task DrawEllipse_RotatedOutline_MatchesTheSharedPolylineWalk()
+    {
+        const float cx = 128f, cy = 128f, semiMajor = 90f, semiMinor = 30f;
+        var angleRad = 35f * MathF.PI / 180f;
+
+        var (cpu, gpu) = RenderBoth((cpuR, gpuR) =>
+        {
+            TianWen.UI.Abstractions.Overlays.OverlayEngine.DrawRotatedEllipseOutline(
+                cpuR, cx, cy, semiMajor, semiMinor, angleRad, White, thickness: 2);
+            VkOverlayShapes.DrawEllipse(gpuR, dpiScale: 1f, cx, cy, semiMajor, semiMinor, angleRad, White, thickness: 2f);
+        });
+        if (gpu is null) return;
+
+        // Same shared point-generation on both sides; only the polyline rasterisation
+        // itself (CPU per-segment DrawLine loop vs GPU batched DrawPolyline) can disagree.
+        await AssertBadPixelFractionUnderAsync(cpu, gpu, perPixelTolerance: 16, badPixelFraction: 0.02,
+            nameof(DrawEllipse_RotatedOutline_MatchesTheSharedPolylineWalk));
     }
 
     /// <summary>

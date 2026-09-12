@@ -226,6 +226,43 @@ public static class OverlayEngine
     }
 
     /// <summary>
+    /// Single source of truth for drawing a ROTATED ellipse outline, shared by
+    /// <c>VkOverlayShapes.DrawEllipse</c> (the FITS viewer's live GPU overlay) and
+    /// <c>AnnotatedRasterExport.DrawEllipseOverlay</c> (the CPU "save annotated view"
+    /// path). Both used to carry their own copy of this walk; the FITS viewer's copy
+    /// silently drifted to a version that only used <paramref name="angleRad"/> to size
+    /// an axis-aligned bounding box and never actually rotated the drawn shape (found on
+    /// M31: PA 35 degrees rendered upright and barely elongated). Renderer's own ellipse
+    /// primitive is axis-aligned only, so a rotated one is walked as a closed polyline --
+    /// exact rather than an approximation of the shape (only of its smoothness).
+    /// <see cref="TianWen.UI.Abstractions.SkyMapTab"/>'s own atlas markers do NOT go
+    /// through this: that path derives its axis vectors by reprojecting through the
+    /// view matrix every frame (the atlas view rotates freely) rather than from a
+    /// precomputed angle, and is tuned for hundreds of markers a frame, so it keeps its
+    /// own inline walk rather than paying an extra atan2/cos/sin round trip per call.
+    /// </summary>
+    public static void DrawRotatedEllipseOutline<TSurface>(
+        Renderer<TSurface> renderer,
+        float cx, float cy,
+        float semiMajor, float semiMinor, float angleRad,
+        RGBAColor32 color, int thickness)
+    {
+        var segments = Math.Clamp((int)(MathF.Max(semiMajor, semiMinor) * 0.7f), 16, 64);
+        var cos = MathF.Cos(angleRad);
+        var sin = MathF.Sin(angleRad);
+        Span<(float X, float Y)> points = stackalloc (float X, float Y)[segments + 1];
+        for (var i = 0; i <= segments; i++)
+        {
+            var t = i / (float)segments * MathF.Tau;
+            var ex = semiMajor * MathF.Cos(t);
+            var ey = semiMinor * MathF.Sin(t);
+            points[i] = (cx + ex * cos - ey * sin, cy + ex * sin + ey * cos);
+        }
+
+        renderer.DrawPolyline(points, color, thickness);
+    }
+
+    /// <summary>
     /// Single source of truth for overlay-ellipse orientation, shared by the CPU
     /// selection marker (<c>SkyMapTab.TryDrawShapeMarker</c>) and -- as a
     /// hand-maintained GPU mirror -- the sky-map overlay shader
