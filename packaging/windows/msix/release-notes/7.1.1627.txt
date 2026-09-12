@@ -221,6 +221,45 @@ KNOWN ISSUES IN THIS BUILD
          is correct.
 
 
+STORE LISTING: PRODUCT FEATURES
+================================================================================
+A different field from WHAT'S NEW, and a standing one: it describes the product,
+not the release, so it is only edited when the product gains something. Up to 20
+entries of 200 characters each. The listing carried 16, leaving 4 slots, and
+these are the four (measured length in brackets):
+
+  [130]  Save what you see as 16-bit or 8-bit PNG, JPEG or float TIFF, at the
+         image's own resolution, with or without the overlays drawn in
+  [ 79]  AI denoising and automatic gradient removal, applied to the open image
+         in place
+  [122]  Click any catalogued star, galaxy or nebula for its name, type,
+         magnitude and altitude at the moment the picture was taken
+  [106]  The night sky drawn behind your photograph, aligned to its plate solve,
+         with ten map layers you can toggle
+
+Insert them BEFORE "Everything processed on your own computer", which works as
+the closing line and should stay last.
+
+Two of the four are not this release at all. **Saving and AI enhancement were
+missing from the listing entirely** -- P18 shipped Save in 7.0.1568 and the
+enhance pipeline predates that, yet a reader of the 16 would conclude this is a
+viewer that cannot write a file. That is the larger find here; the two 7.1
+features are the smaller half.
+
+**The AI line deliberately claims only denoising and gradient removal.** Both
+work on a bare Store install: the N2N OSC denoiser is bundled
+(tianwen_denoise_osc_e2wide_s2.onnx, in the publish tree) and
+ClassicalBackgroundExtractor is code. Star removal, stellar sharpening and
+deconvolution are NOT claimed, because they need SETI Astro or RC-Astro weights
+that a Store install cannot fetch -- that is P11.2, a known issue in this very
+file, so listing them would advertise a capability the listing elsewhere admits
+is unreachable. The denoiser is also OSC-only and throws on mono, which is the
+other reason the line does not promise more than it does.
+
+Considered and left out, in order, if a slot ever frees up: auto-crop to the
+covered area; A/B and blink; Explorer thumbnails for FITS and SER.
+
+
 SUBMISSION
 ================================================================================
   1. Download the msix-store-package artifact from CI run 1627:
