@@ -47,6 +47,10 @@ public class CatalogUtilTests
     [InlineData("IC0715NW", "I0715_NW", Catalog.IC)]
     [InlineData("IC0133S", "I0133_S", Catalog.IC)]
     [InlineData("HR 4730", "HR4730", Catalog.HR)]
+    [InlineData("UGC 423", "U00423", Catalog.UGC)]
+    [InlineData("UGC   422", "U00422", Catalog.UGC)] // SIMBAD pads UGC with three spaces
+    [InlineData("UGCA 423", "UGCA423", Catalog.UGCA)]
+    [InlineData("UGCA 5", "UGCA005", Catalog.UGCA)]
     [InlineData("XO 1", "XO0001", Catalog.XO)]
     [InlineData("XO-2S", "XO002S", Catalog.XO)]
     [InlineData("XO - 2N", "XO002N", Catalog.XO)]
@@ -158,6 +162,17 @@ public class CatalogUtilTests
     {
         CatalogUtils.TryGetCleanedUpCatalogName(input, out var index).ShouldBeTrue();
         index.ToCatalog().ShouldBe(Catalog.Tycho2);
+    }
+
+    [Fact]
+    public void UGCAndUGCAAreDistinctCatalogsDespiteSharingTheUGPrefix()
+    {
+        CatalogUtils.TryGetCleanedUpCatalogName("UGC 423", out var ugcIndex).ShouldBeTrue();
+        CatalogUtils.TryGetCleanedUpCatalogName("UGCA 423", out var ugcaIndex).ShouldBeTrue();
+
+        ugcIndex.ToCatalog().ShouldBe(Catalog.UGC);
+        ugcaIndex.ToCatalog().ShouldBe(Catalog.UGCA);
+        ugcIndex.ShouldNotBe(ugcaIndex);
     }
 
     [Theory]

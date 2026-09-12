@@ -538,6 +538,10 @@ public static partial class CatalogUtils
             'S' when secondChar is 'H' or 'h' && noSpaces.Length > 2 && noSpaces[2] is '2' or 'a' => ("Sh2-000*", Catalog.Sharpless),
             'T' when secondIsDigit || secondChar == 'r' => ("TrES00", Catalog.TrES),
             'T' when secondChar is 'Y' or 'y' => ("TYC 0000-00000-0", Catalog.Tycho2),
+            // UGCA must be probed before UGC: both start "UG", and UGCA is a distinct catalogue
+            // (Nilson's southern addendum), not a UGC sub-range -- without this arm first, "UGCA 423"
+            // and "UGC 423" silently packed to the identical CatalogIndex.
+            'U' when secondChar == 'G' && noSpaces.Length > 3 && noSpaces[2] == 'C' && noSpaces[3] is 'A' or 'a' => ("UGCA000", Catalog.UGCA),
             'U' when secondIsDigit || secondChar == 'G' => ("U00000", Catalog.UGC),
             // (first char is already folded above, so 'V' alone covers "vdB" and "VdB")
             'V' when secondChar is 'd' or 'D' => ("vdB000*", Catalog.vdB),

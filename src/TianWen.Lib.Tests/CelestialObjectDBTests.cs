@@ -126,6 +126,24 @@ public class CelestialObjectDBTests
         celestialObject.Dec.ShouldBeInRange(expectedDecDeg - 0.001d, expectedDecDeg + 0.001d);
     }
 
+    [Fact]
+    public async Task GivenAUGCAIdentifierWhenLookingItUpThenTheCrossReferencedObjectIsReturnedNotTheUGCOne()
+    {
+        // given: IC 0402's OpenNGC Identifiers column carries "UGCA 099" -- a real cross-reference,
+        // distinct from whatever UGC 99 (a different Uppsala catalogue) happens to map to.
+        var db = await InitDBAsync();
+        CatalogUtils.TryGetCleanedUpCatalogName("IC0402", out var ic0402Index).ShouldBeTrue();
+
+        // when
+        var found = db.TryLookupByIndex("UGCA 99", out var celestialObject);
+
+        // then
+        found.ShouldBeTrue();
+        celestialObject.Index.ShouldBe(ic0402Index);
+        celestialObject.ObjectType.ShouldBe(ObjectType.Galaxy);
+        celestialObject.Constellation.ShouldBe(Constellation.Eridanus);
+    }
+
     [Theory]
     [InlineData("Antennae Galaxies", CatalogIndex.NGC4038, CatalogIndex.NGC4039)]
     [InlineData("Eagle Nebula", CatalogIndex.IC4703, CatalogIndex.NGC6611, CatalogIndex.M016)]
