@@ -39,6 +39,13 @@ The lane is written so both rows work from the same script: without the secrets 
 says so, skips notarization and still produces the image; with them it signs, notarizes and staples.
 Nothing about the build changes between the two, so the day the secrets appear nothing else does.
 
+**How the job tests for the secrets, and the trap it fell into once.** A step's `if` cannot read the
+`secrets` context: the workflow fails to PARSE, the run shows no jobs at all, and `gh run view` says
+only "likely failed because of a workflow file issue" (this lane shipped red twice that way). The
+presence tests are therefore evaluated in the job's `env`, where `secrets` is allowed
+(`HAVE_SIGNING_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12 != '' }}`), and each optional step
+reads the answer (`if: env.HAVE_SIGNING_CERTIFICATE == 'true'`).
+
 ## Why a `.dmg` and not the Mac App Store
 
 App Sandbox is mandatory on the Store, and the viewer's file list is built by scanning the folder of

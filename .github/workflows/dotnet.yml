@@ -793,6 +793,11 @@ jobs:
       MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
       MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
       MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+      # A step's `if` cannot read the secrets context (the workflow fails to PARSE, with no jobs at
+      # all, which is how this lane shipped red twice); a job's `env` can, so the presence tests are
+      # evaluated here and the steps below read the answers.
+      HAVE_SIGNING_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12 != '' }}
+      HAVE_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY_P8 != '' }}
     steps:
     - uses: actions/checkout@v7
       with:
@@ -813,7 +818,7 @@ jobs:
     # private key without a prompt. The identities it lists at the end are the first thing to read
     # when a signature fails.
     - name: Import the Developer ID certificate
-      if: ${{ secrets.MACOS_CERTIFICATE_P12 != '' }}
+      if: env.HAVE_SIGNING_CERTIFICATE == 'true'
       env:
         P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12 }}
         P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -831,7 +836,7 @@ jobs:
         rm "$RUNNER_TEMP/certificate.p12"
         security find-identity -v -p codesigning "$keychain"
     - name: Materialise the notary key
-      if: ${{ secrets.MACOS_NOTARY_KEY_P8 != '' }}
+      if: env.HAVE_NOTARY_KEY == 'true'
       env:
         KEY_BASE64: ${{ secrets.MACOS_NOTARY_KEY_P8 }}
       shell: bash
