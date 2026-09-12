@@ -22,55 +22,40 @@ never reproduced).
 
 
 ================================================================================
-WHAT'S NEW  (Partner Center copy - paste the block between the rules)
+WHAT'S NEW  (Partner Center copy - paste the block between the rules VERBATIM)
 ================================================================================
+THE FIELD IS CAPPED AT 1500 CHARACTERS. The block below is 1387 (1403 if the
+paste turns the newlines into CRLF), so it fits with about a hundred to spare.
+Re-measure after any edit; do not paste the DETAIL section. 7.0.1568.txt's
+block is 4716 characters and cannot ever have gone in whole, so whatever was
+submitted for that release was trimmed by hand at the browser and is not
+recorded anywhere. That is the reason this note exists.
 
 Click a star or galaxy to see what it is
-Left-click any catalogued object drawn on the image and a panel appears with
-its name, type, magnitude, and altitude / rise-transit-set at the moment the
-picture was taken. The ring around the selected object now traces its own
-shape - true axis ratio, true position angle - rather than a plain circle, so
-an inclined galaxy like M31 rings as the elongated disc it actually is. The
-right-click menu can also open the object straight in the web sky atlas, and a
-share link names the selected object for whoever you send it to.
+Left-click any catalogued object on the image for a panel with its name, type, magnitude, and altitude and rise/transit/set at the moment the picture was taken. The ring now traces the object's own shape, true axis ratio and position angle, so an inclined galaxy like M31 rings as the tilted disc it is. Right-click opens it in the web sky atlas.
 
 The night sky behind your photograph
-Press O to bring up a sky map drawn behind the open image, aligned to its plate
-solve: the same star field, constellation lines and deep-sky catalogue the sky
-atlas shows, positioned exactly where your picture sits on the sky. It steps
-through a ladder - grid, then grid and objects, then the full sky - and its own
-floating panel lets you toggle any of ten map layers independently. The panel
-can be moved to any edge, rolled up by double-clicking its grip, and fades back
-when you are not using it.
+Press O for a sky map drawn behind the image and aligned to its plate solve: the same stars, constellation lines and deep-sky catalogue as the sky atlas, exactly where your picture sits on the sky. A floating panel toggles any of ten layers.
 
 Crop a stacked master to the area every frame covered
-A new Crop button trims the ragged, under-exposed border a stack leaves behind,
-using the coverage map where one was written and measuring the edge itself
-otherwise. The crop travels with everything downstream: the plate solution, the
-saved file, the A/B comparison and the AI enhance all see the cropped frame
-rather than the ragged one.
-
-A tidier info panel
-Frame statistics now collapse into a compact table instead of a wall of
-numbers, and white balance moved into a small popover under the toolbar rather
-than crowding the panel.
+The new Crop button trims the ragged, under-exposed border a stack leaves behind. The crop carries through to the plate solution, saved files, the A/B comparison and the AI enhance.
 
 Also in this release
-- Save the fully annotated view (grid, star markers, object labels), and any
-  save now honours the crop at both ends of both paths.
-- The A/B before/after comparison accounts for a crop instead of warping the
-  "before" half.
-- The "?" panel can report a problem with your version and logs attached, and
-  Escape no longer closes the viewer out from under an open panel.
-- Touchscreen pinch-to-zoom, which was recognised but then dropped by both
-  hosts, works again.
-- Holding Space pauses a blink and letting go resumes it; the file list follows
-  the frame being blinked to.
-- The automatic stretch stops claiming a colour calibration it never measured,
-  and picks the right curve for a frame whose background is already extracted.
-- A small "tip jar" link in the "?" panel, for anyone who wants to support
-  development - entirely optional, nothing is unlocked by it.
+- Save the annotated view (grid, markers, labels); every save honours the crop.
+- A/B accounts for a crop instead of warping the "before" half.
+- Statistics collapse into a table; white balance moves to a toolbar popover.
+- The "?" panel can report a problem with your version and logs attached.
+- Touchscreen pinch-to-zoom works again.
+- Hold Space to pause a blink, release to resume.
+- The auto stretch stops claiming a colour calibration it never measured.
 
+================================================================================
+Cut to fit, and worth knowing which way to cut if it ever needs cutting again:
+the three headed sections are the release (selection, sky backdrop, auto-crop)
+and the bullets are the tail. The panel's movable/rollable behaviour, the O
+ladder's three rungs, Escape no longer closing the viewer, and the tip jar all
+came out here; they are in DETAIL and in the guide, which is where someone
+looking for them will be.
 ================================================================================
 
 
