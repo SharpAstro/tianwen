@@ -2178,6 +2178,52 @@ staged 2.81, predates the registration fix); the beta semantics need no re-stack
 4. **The full re-stack as one detached overnight job**, about 11 h with the measure stage done, and
    E3.0's re-export (`--estimate-kernels`, the ratio draw) after it, never before, since the
    degradation cache is cut from the masters.
+   **DONE 2026-09-12 15:24 to 23:14, into a FRESH store, `D:/Astro-Dataset/2026-09-12-clamped`**
+   (`run-dataset-bake.ps1 -Out D:/Astro-Dataset/2026-09-12-clamped ... -ExtraArgs
+   '--site=-37.877,145.1775','--warp-interpolation','Lanczos3Clamped'`, binary at "docs(training):
+   the re-bake's steps 1 to 3 read, and drizzle's kernel cost is a fixed 0.65 px",
+   `bake-provenance.json` carries the kernel).
+   Fresh because the retained-master writer skips a file that exists, so a resume would have kept
+   every bilinear master; `2026-09-full` stays untouched as the pre-clamp control. 79 of 80 sessions,
+   **239,089 tiles** (239,689 before), 8 test sessions held out, parity OK, stderr empty; the one skip
+   is the old bake's (HIP 42861 2025-12-28, 51 of 54 subs with no quad fit, identical numbers). 7.8 h
+   against the original 13.3: calibrate 34.5 min, measure 100.6, register 6.1, warp 129.5 (8006
+   frames at 970 ms), integrate 44.9, halves 31.4, export 116.4, psf 1.0. Two `hot-pixel ... over the
+   budget; not lowering further` warnings (the QHY SII dark, the ASI1600 gain-139 dark) are not new:
+   every kept log of the old store is a measure-only resume that never rebuilt a mask, and the budget
+   code predates that store. The registrar does not log the refiner's unmoved-dropped count (only
+   `tianwen stack` does), so that tell is still missing from a bake log.
+
+   **What the re-stack changed, read as a per-session diff of the two stores' last rows and the
+   masters' headers** (the script is the plan's usual uncommitted one; the store's per-sub columns
+   are the control, since the subs and the detector are the same on both sides):
+
+   - **The subs are identical.** `SubFwhm` reads 1.0000 new over old at every session; `SubFwhmGreen`
+     1.000 at the median with p10 / p90 at 0.994 / 1.005, which is the quality gate re-selecting
+     under the guarded detector: 31 fewer measured subs over 8 sessions, 31 MORE frames stacked
+     (7975 to 8006) over 21 sessions whose count moved by one to eight. One night moved by 27:
+     **Tarantula L-Ultimate 2025-10-14 (the 12.7 C warm night of the guard's residual) registered 84
+     of 84 where the old bake registered 57**, which crossed the 60-frame drizzle floor, so it is a
+     `BayerDrizzle` master now (53 and 26 against 52 and 27).
+   - **The drizzle masters did not move**: banded width ratio new over old **1.000 / 0.999 / 0.999**
+     per channel at the median (n 28 / 49 / 48, p10 to p90 within 0.97 to 1.005), relative noise
+     1.000. Drizzle never warps, so the kernel change cannot reach it, and the registration fixes
+     moved these nights by a frame or two at most.
+   - **The staged masters narrowed by the bilinear pixel, as R1 predicted**: ratio **0.943 / 0.946 /
+     0.940** at the median (n 9 / 13 / 21; p10 to p90 0.90 to 0.97), which in quadrature is
+     **-0.86 / -0.37 / -0.54 px^2**, i.e. 0.93 / 0.61 / 0.73 px removed, bracketing bilinear's
+     phase-averaged 0.96 px (1.03 measured on the near6 night); the three mono staged masters read
+     0.933 (-0.57 px^2). Their relative noise rose 1.4 percent at the median (p90 +4.7): the pixel
+     bilinear averaged away is back.
+   - **The profile fits** per channel: 77 / 76 / 75 became 78 / 75 / 76, railed (beta over 20)
+     34 / 6 / 6 became 36 / 12 / 5, so the E0 re-read on step 1 stands.
+   - **E0's probe on the new store reads 1.000 / 0.000 on all 8 masters** (34 s), the store being
+     current with the detector that wrote it by construction; the old store reads the same since
+     step 1's `--force-psf`, so it is no longer the staleness control the 2026-09-06 run had
+     (`2025-2026-organized` was). The comparison that carries information is the diff above.
+
+   **Calibrate on `2026-09-12-clamped` from here.** `TIANWEN_PSF_STORE_DIR` in the recipe below
+   points at it; the 2026-09-06 numbers under "E0's results" were read on `2026-09-full`.
 
 ### Reproducing E0 and E1
 
@@ -2188,8 +2234,10 @@ plan quotes the results, and without the command lines a re-read cannot re-deriv
 
 ```bash
 # from src/. TIANWEN_PSF_STORE_DIR points at a dataset out-dir (the one holding stats/ and
-# session-masters/); everything below is against the 79-session 2026-09-full bake.
-export TIANWEN_PSF_STORE_DIR="D:/Astro-Dataset/2026-09-full"
+# session-masters/). The numbers quoted under E0 and E1 were read against the 79-session
+# 2026-09-full bake; since the 2026-09-12 re-stack the current store is 2026-09-12-clamped and
+# 2026-09-full is the pre-clamp control (bilinear staged masters, same subs, same detector).
+export TIANWEN_PSF_STORE_DIR="D:/Astro-Dataset/2026-09-12-clamped"
 
 # E0, is the store current? ~35 s for 8 masters. Run it against 2025-2026-organized too: that bake is
 # the CONTROL, and its documented staleness (count 1.038, +0.033 px) is what makes the newer bake's
