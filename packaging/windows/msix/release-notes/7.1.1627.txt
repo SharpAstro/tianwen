@@ -1,0 +1,247 @@
+Astro Photo Viewer (tianwen-fits)
+Store package version 7.1.1627.0   -   supersedes 7.0.1568.0
+Package identity  SharpAstro.AstroPhotoViewer   Store ID  9PMDZP16TGBG
+Git tag  v7.1.1627   -   span  v7.0.1568..v7.1.1627   -   90 commits
+
+This file is the submission record for one Store release: the copy pasted into
+Partner Center's "What's new in this version" field, and the detail behind it.
+Nothing else in the repo records what has been submitted, which is why writing
+it down is worth the file.
+
+First MINOR bump rather than a patch: the span adds object selection, a sky
+backdrop, a layer panel and auto-crop, which is additive, not a bugfix roll-up.
+Per the org convention (../.github/CLAUDE.md, "Versioning") that is X.Y -> X.(Y+1).
+
+Backlog items closed by this release: P23, P24, P25, P26, P28, P29, P30, P31,
+P32, P33, P34, plus P27 which turned out not to be a defect and is now pinned as
+verified behaviour; plus the in-app sky atlas (its own plan doc) and two defects
+found in the pre-release pass that never got a P-number (the selection ring's
+rotation, and two crop lifetime bugs).
+Still open: P21, P11.2 (both stated under KNOWN ISSUES), P9 and P10 (unconfirmed,
+never reproduced).
+
+
+================================================================================
+WHAT'S NEW  (Partner Center copy - paste the block between the rules)
+================================================================================
+
+Click a star or galaxy to see what it is
+Left-click any catalogued object drawn on the image and a panel appears with
+its name, type, magnitude, and altitude / rise-transit-set at the moment the
+picture was taken. The ring around the selected object now traces its own
+shape - true axis ratio, true position angle - rather than a plain circle, so
+an inclined galaxy like M31 rings as the elongated disc it actually is. The
+right-click menu can also open the object straight in the web sky atlas, and a
+share link names the selected object for whoever you send it to.
+
+The night sky behind your photograph
+Press O to bring up a sky map drawn behind the open image, aligned to its plate
+solve: the same star field, constellation lines and deep-sky catalogue the sky
+atlas shows, positioned exactly where your picture sits on the sky. It steps
+through a ladder - grid, then grid and objects, then the full sky - and its own
+floating panel lets you toggle any of ten map layers independently. The panel
+can be moved to any edge, rolled up by double-clicking its grip, and fades back
+when you are not using it.
+
+Crop a stacked master to the area every frame covered
+A new Crop button trims the ragged, under-exposed border a stack leaves behind,
+using the coverage map where one was written and measuring the edge itself
+otherwise. The crop travels with everything downstream: the plate solution, the
+saved file, the A/B comparison and the AI enhance all see the cropped frame
+rather than the ragged one.
+
+A tidier info panel
+Frame statistics now collapse into a compact table instead of a wall of
+numbers, and white balance moved into a small popover under the toolbar rather
+than crowding the panel.
+
+Also in this release
+- Save the fully annotated view (grid, star markers, object labels), and any
+  save now honours the crop at both ends of both paths.
+- The A/B before/after comparison accounts for a crop instead of warping the
+  "before" half.
+- The "?" panel can report a problem with your version and logs attached, and
+  Escape no longer closes the viewer out from under an open panel.
+- Touchscreen pinch-to-zoom, which was recognised but then dropped by both
+  hosts, works again.
+- Holding Space pauses a blink and letting go resumes it; the file list follows
+  the frame being blinked to.
+- The automatic stretch stops claiming a colour calibration it never measured,
+  and picks the right curve for a frame whose background is already extracted.
+- A small "tip jar" link in the "?" panel, for anyone who wants to support
+  development - entirely optional, nothing is unlocked by it.
+
+================================================================================
+
+
+DETAIL
+================================================================================
+
+Viewer - object selection and the sky backdrop (P28, P34, and the atlas plan)
+  b6852312  A left click SELECTS the catalogued object under it. The resolver
+            applies the OVERLAY's type gate - without it a click on M42's core
+            answered "HH 1146" - and ignores extent, so at a nebula's centre
+            "nearest" can still answer an embedded star.
+  48e62beb  The selection gets its own floating panel, with Alt/Az and
+            rise/transit/set baked at the CAPTURE instant, never a live clock.
+  4162d98a  ObjectInfoPanel becomes shared between the viewer and the atlas, so
+            the box comes from the panel rather than literals beside it
+            (aae5169e).
+  8d8b1125  The ring traces an extended object's own ellipse.
+  fe875c76  ...and the ring's ANGLE only ever sized a bounding box, so it never
+            actually rotated. Found on M31: PA 35 degrees drew as an upright,
+            barely-elongated blob instead of its true 2.5:1 tilt. The rotated
+            polyline walk now lives once, in OverlayEngine, shared by the live
+            GPU overlay and the CPU annotated-save export, which had drifted
+            into a second (correct) copy. Pinned by a GPU/CPU parity test.
+  3ac9da5a  P34. A tap resolves against what is DRAWN before it asks the
+            catalogue, and the ring's name is the selected object's only label.
+  afa097d6  The sky the photograph came from, drawn behind it; 03108047 makes
+            grid and objects one button walking a context ladder on O.
+  2447e721  The sky's LINES cross the photograph while its IMAGERY stays behind
+            it; 8957181a gives the grid one switch with two faces.
+  2dc26b09  The grid hands over by DISTANCE from the tangent point, not by field
+            of view - a nominal FOV says nothing about how far the deprojection
+            has been extrapolated.
+  d476162b  The sky map's ten layers get a panel instead of ten letters nobody
+            can see; e183a2a5 / a61a00ae / 0aea6710 / 35d4099f make it movable,
+            rollable and recessive, over DIR.Lib 8.16's FloatingPalette
+            (a2f72e5c).
+  b7b5b877  The pan lets go of the frame while the sky is behind it.
+
+Viewer - auto-crop (P25) and the crop's lifetime
+  cf42304e  P25. Crop to the area every sub covered. Two tiers: the master's own
+            coverage plane from a MAPKIND=COVERAGE sidecar, else a noise walk
+            whose reference is the edge's OWN level just inside, since a drizzle
+            canvas edge reads 1.8-2.5x the centre at FULL coverage.
+  9fd7829d  The rejection sidecar says which kind of map it is - drizzle writes
+            WEIGHT where every other strategy writes a rejection FRACTION.
+  de347d88  The crop was DRAWN, not enforced: it never reached the enhance,
+            where the exact-zero ring reads to a CNN as structure.
+  8a5ded00  A saved file honours the view crop, at both ends of both paths.
+  25390868  A/B is two comparisons where a crop is involved (455dc89e places the
+            "before" half by its own frame).
+  f7008182  Two crop lifetime bugs, found in the pre-release pass. A crop could
+            LEAK across a file switch: ViewerState.DisplayCrop was never reset on
+            a fresh load, so opening another file of the same dimensions carried
+            the previous one's crop. And reverting an Enhance restored the wrong
+            crop or none at all - the retained path trusted a stale cross-document
+            remembered crop instead of the enhanced document's own SourceCrop,
+            and the reload path restored nothing. The test written for the second
+            failed on the first before it ever reached Enhance, which is what
+            said they were two bugs and not one.
+
+Viewer - the info strip, and chrome
+  112bed9e  P33. The strip REPORTS: statistics roll up into a table at measured
+            column stops, and white balance becomes a toolbar popover.
+  42bcbc51  A file-list button, F1 help, a zoom bound, and the stretch basis in
+            the log.
+  89e062ea  P26. The "?" panel can report a problem. P27's Escape check was then
+            REMOVED (d6d22640) because it was a second copy of a rule that
+            already existed - the first diagnosis was wrong.
+  8957181a  The "?" panel becomes a menu; its tests drive one page at a time.
+  ecabd7ba  A relabelling button stops dragging the toolbar sideways
+            (ReservedLabelWidth; 26.4 px of travel measured across ten buttons).
+  4b0b70a9  P24. The image pane paints its own ground, so a moved divider leaves
+            nothing behind.
+  fdbe8787  The EQ grid has one colour because it now has one definition, read by
+            both GPU backends, the CPU renderer and the shader.
+
+Viewer - input and transport
+  88e06b43  P23. Holding Space pauses the blink; letting go resumes it.
+  573597b9  P23. A held key is one press, and the file list follows the frame.
+  681f89c4  P29. The touchscreen pinch was recognised all along, then dropped by
+            both hosts.
+  31 / P31  Pan is no longer dead in the strip a collapsed file list used to
+            occupy: a hidden widget consumes no input, so the CONSULT is gated
+            rather than the extent zeroed.
+
+Imaging and astrometry
+  0e5969b4  One pixel-to-screen rule for every WCS-drawn thing. Ten consumers
+            each carried a private -1/+1 for six days after the CRPIX fix,
+            measured as the selection ring 12 screen px off its star at 8:1.
+  a1fde11e  Auto stops asserting a colour calibration it could not have measured;
+            e6e6fbf3 picks Linked for a frame whose background is already
+            extracted (P30); 3a00796a stops calling an HOO frame photometric.
+  873c93ed  UGCA is its own catalogue, not a UGC sub-range (988aa869 pins the
+            exact reported case).
+  0e4e0696  A comet seed we cannot READ is not a seed that is not THERE, and only
+            one of them may cold-bake.
+  0addaecf  A request TIMEOUT is not a cancellation - HttpClient.Timeout throws
+            TaskCanceledException, which derives from OperationCanceledException,
+            so the filter excluded the one failure it was written for. It had
+            been taking the pages deploy with it.
+  3d596345  Background extraction keeps the fit out of the band, and the
+            measurement says it barely matters.
+
+Housekeeping this release also carried
+  0cff3140  No null-forgiving operator left in production code.
+  892dc523  LF line endings everywhere; git always stored them.
+  3771fce8  CLAUDE.md compressed below the 150k gate, the facts it alone held
+            moved into their owning docs.
+  1a1ada56  macOS .dmg images for the viewer and the GUI (not a Store artefact;
+            see the note below).
+
+Not in the Store build, but in the span
+  The macOS lane shipped in this window and cost two release runs before it
+  worked. Contents/MacOS is nested=true in codesign's default resource rules, so
+  NOTHING in it is sealed as a resource: every file there is code as far as
+  codesign is concerned, and an unsigned data file fails the signing of the
+  EXECUTABLE, several commands before any verify - naming whichever file the walk
+  reached first, which is why it read as one bad file and was a whole class.
+  v7.0.1621 died naming TianWen.AI.Imaging.pdb; stripping the pdbs only promoted
+  LICENSE.EXCEPTION into the message for v7.1.1624. af2beddd signs every file and
+  strips the debug artefacts (177 MB -> 135 MB), measured over seven bundle
+  shapes on a real runner rather than guessed a third time.
+
+
+KNOWN ISSUES IN THIS BUILD
+================================================================================
+  P11.2  The ? panel reports which SAS AI weights are missing and where it
+         looked, but cannot fetch them: tools/tianwen-ai-models-fetch.ps1 is a
+         repo script and a Store install cannot reach it. Closing it means an
+         in-app download into %LOCALAPPDATA%\TianWen\models driven from that
+         panel.
+
+  P21    On a mosaic frame the single-channel views show the raw mosaic rather
+         than the separated colour planes. ChannelView.DisplayedSourceChannel
+         clamps to the channels the IMAGE has, and a 1-channel RGGB frame has
+         one, so Red/Green/Blue all resolve to channel 0.
+
+  P9/P10 A stray text fragment at the left edge, and a hand-off that may select
+         the adjacent row. Both reported once, neither reproduced since; carried
+         forward as unconfirmed rather than closed.
+
+  SPCC   Photometric colour calibration is broadband only. Narrowband is blocked
+         on data rather than maths: it needs per-star Gaia DR3 xp_sampled
+         spectra, since a spectral type average cannot tell Ha absorption from
+         emission over 3 nm.
+
+  Layout Below about 730 px of window width the image pane arrives at zero width
+         and the histogram overlay lands on the file list. Geometrically sound,
+         but nothing has decided what should yield.
+
+  About  The About banner concatenates the run attempt onto the version rather
+         than separating it (7.1.16271 for 7.1.1627 attempt 1). Cosmetic, and
+         present in every release so far: dotnet.yml composes -p:Version as
+         ${VERSION_PREFIX}${VERSION_REV} with no separator, while -p:FileVersion
+         is correct.
+
+
+SUBMISSION
+================================================================================
+  1. Download the msix-store-package artifact from CI run 1627:
+       gh run download 34685156832 -n msix-store-package
+     145 MB. Retention is 30 days.
+  2. Upload AstroPhotoViewer.msixbundle to the draft submission for
+     Store ID 9PMDZP16TGBG. It is unsigned by design; the Store re-signs after
+     certification, so it cannot be installed by double-clicking.
+  3. Paste the WHAT'S NEW block above into "What's new in this version".
+  4. If the bundle was signed locally for testing, re-download before
+     uploading - signing edits the package in place.
+
+  Before submitting, settle the documentation drift this release created:
+    - guide/viewer.html (sharpastro.github.io, which the Store listing points
+      at) predates object selection, the sky backdrop, the layer panel and
+      auto-crop. Its "Known limitations in this version" list should end up
+      matching the section above.
