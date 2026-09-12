@@ -161,6 +161,16 @@ mkdir -p "$contents/MacOS" "$contents/Resources"
 # either way, so nothing here is left out of the signature.
 cp -R "$publish_dir/." "$contents/MacOS/"
 chmod +x "$contents/MacOS/$exe"
+
+# Portable PDBs: the entry assembly already opts out (DebugType=none, Release, in the two viewer
+# csprojs), but that property is per-project and does not reach the referenced assemblies (AI,
+# AI.Imaging, Hosting.Contracts, RemoteClient, UI.Abstractions, UI.Shared), each of which still
+# lands its own .pdb in the publish tree and therefore in Contents/MacOS. They carry no runtime
+# value in a shipped bundle -- symbolication uses the raw publish/ artifact, never the .app -- and
+# 2026-09-12 found one of them (TianWen.AI.Imaging.pdb) is what codesign's hardened-runtime verify
+# named as the failing subcomponent while ad-hoc-signing tianwen-fits (exact mechanism unconfirmed,
+# no Mac to test against; this removes the whole class rather than chasing that one file).
+find "$contents/MacOS" -name '*.pdb' -delete
 render_plist "$template" "$version" "$build" "$contents/Info.plist"
 printf 'APPL????' > "$contents/PkgInfo"
 
