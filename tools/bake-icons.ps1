@@ -16,6 +16,11 @@
     re-bakes and COMPARES possible, which is a stronger check than a timestamp: a timestamp catches a
     forgotten re-bake, a comparison also catches a hand-edited table.
 
+    Line endings are the REPO's, not the baker's: the table is written and compared with LF, which is
+    what .gitattributes checks out (eol=lf everywhere since 2026-09-11). The baker emits CRLF on every
+    host, so a raw byte hash of its output against the checked-out table failed on ubuntu the moment
+    the checkout stopped being CRLF, with the table itself unchanged.
+
 .EXAMPLE
     pwsh tools/bake-icons.ps1
 .EXAMPLE
@@ -83,11 +88,14 @@ Write-Host "baking $($glyphs.Count) glyphs from $(Split-Path -Leaf $fontPath) wi
 & dotnet dnx DIR.Lib.IconBaker --version $settings['baker'] --yes -- @toolArgs
 if ($LASTEXITCODE -ne 0) { throw "bake-icons failed with exit code $LASTEXITCODE" }
 
+# The repo's line endings (see the header): LF, whatever the baker wrote.
+$baked = [System.IO.File]::ReadAllText($target).Replace("`r`n", "`n")
+[System.IO.File]::WriteAllText($target, $baked, [System.Text.UTF8Encoding]::new($false))
+
 if ($Verify) {
     if (-not (Test-Path $outputPath)) { throw "nothing to verify against: $outputPath is missing" }
-    $a = Get-FileHash $target -Algorithm SHA256
-    $b = Get-FileHash $outputPath -Algorithm SHA256
-    if ($a.Hash -ne $b.Hash) {
+    $checkedIn = [System.IO.File]::ReadAllText($outputPath).Replace("`r`n", "`n")
+    if ($baked -ne $checkedIn) {
         Write-Error "$outputPath does not match its recipe. Run: pwsh tools/bake-icons.ps1"
         exit 1
     }
