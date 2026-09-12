@@ -70,6 +70,35 @@ namespace TianWen.Lib.Tests
             ]).LargestCoveredRectangle().Contains(new Point(2, 1)).ShouldBeFalse();
 
         /// <summary>
+        /// A zero surrounded by data is a pixel some calibration clipped, not a canvas ring, and unlike
+        /// NaN it cannot say so by itself: 0.0 is a legal value. A largest RECTANGLE is merciless about
+        /// the difference, which is why this is pinned rather than left to the reader. On the frame that
+        /// reported it, 6230 exact zeros (0.0102% of the pixels, 6108 of them interior) took a
+        /// 9576 x 6388 sub to 2922 x 949.
+        /// </summary>
+        [Fact]
+        public void AnInteriorZeroIsADeadPixelAndNotAbsence()
+            => Frame([
+                "#####",
+                "##.##",
+                "#####",
+            ]).LargestCoveredRectangle().ShouldBe(new Rectangle(0, 0, 5, 3));
+
+        /// <summary>
+        /// Both halves of the rule at once: the ring still goes, and the zero island inside it still
+        /// stays, so neither is expressed at the other's expense.
+        /// </summary>
+        [Fact]
+        public void ARingIsDiscardedWhileTheZeroIslandInsideItIsKept()
+            => Frame([
+                ".......",
+                ".#####.",
+                ".##.##.",
+                ".#####.",
+                ".......",
+            ]).LargestCoveredRectangle().ShouldBe(new Rectangle(1, 1, 5, 3));
+
+        /// <summary>
         /// The shape that makes this a largest-rectangle problem: absent pixels touch every edge, so the
         /// covered pixels' bounding box is the whole 6 x 5 frame while the answer is the 4 x 3 interior.
         /// </summary>

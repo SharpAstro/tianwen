@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Drawing;
 
 namespace TianWen.Lib.Imaging;
@@ -11,12 +12,20 @@ public partial class Image
     /// discard, and <see cref="Rectangle.Empty"/> for an image with no covered pixel at all.
     /// </summary>
     /// <remarks>
-    /// <para><b>A pixel counts as absent when it is exactly zero in EVERY channel, or NaN in any of
-    /// them.</b> The two halves come from different producers: an integration leaves the canvas at exact
-    /// zero where no frame reached (TianWen and Astro Pixel Processor both do), while a tool that flags
-    /// absence explicitly writes NaN. Zero has to hold in every channel, because a zero in one channel of
-    /// three is a dead pixel or a genuinely black one; a NaN in any channel makes the pixel unusable
-    /// whatever the others say.</para>
+    /// <para><b>A pixel counts as absent when it is NaN in any channel, or exactly zero in EVERY channel
+    /// AND reachable from the border.</b> The two halves come from different producers: an integration
+    /// leaves the canvas at exact zero where no frame reached (TianWen and Astro Pixel Processor both
+    /// do), while a tool that flags absence explicitly writes NaN. Zero has to hold in every channel,
+    /// because a zero in one channel of three is a dead pixel or a genuinely black one; a NaN in any
+    /// channel makes the pixel unusable whatever the others say.</para>
+    /// <para><b>The border-reachability half is what separates a canvas ring from a dead pixel, and it
+    /// is not a refinement but the difference between an answer and nonsense.</b> A ring touches the
+    /// border by construction; a zero surrounded by data is a pixel some calibration clipped. NaN needs
+    /// no such test because NaN is unambiguous, which is why it stays absence anywhere (pinned by
+    /// <c>ANaNIsAbsent</c>) while 0.0, a legal pixel value, does not. Without it a CALIBRATED SUB is
+    /// shredded: 6230 exact zeros, 0.0102% of the pixels, 6108 of them interior and spread over 3607 of
+    /// 6388 rows, reduced a 9576 x 6388 frame to 2922 x 949. That is the nature of a largest RECTANGLE
+    /// rather than a bounding box, and it shipped in 7.1.1627 as "auto-crop crops way too much".</para>
     /// <para><b>This is the UNION, and the name says intersection.</b> Absence marks where NO frame
     /// reached, so the answer is the largest rectangle inside the area at least one sub covered -- inside
     /// which a band that fewer subs reached survives, with no zeros in it and up to 60% more noise. That
@@ -48,10 +57,19 @@ public partial class Image
             return Rectangle.Empty;
         }
 
+        // Two bits per pixel, built once. A flood has to see the whole frame, which the per-row probe
+        // below cannot: about 15 MB on a 61 MP frame, against the 244 MB the coverage-plane tier
+        // already decodes for the same question.
+        var pixels = width * height;
+        var absent = new BitArray(pixels);
+        var zero = new BitArray(pixels);
+
         var anyNonZero = new bool[width];
         var anyNaN = new bool[width];
 
-        return LargestRectangle(width, height, (int y, Span<bool> covered) =>
+        // Pass 1: classify. NaN is absence outright; all-channel zero is only a CANDIDATE, settled by
+        // the flood below. Channels are read one at a time so every read stays sequential.
+        for (var y = 0; y < height; y++)
         {
             Array.Clear(anyNonZero);
             Array.Clear(anyNaN);
@@ -76,7 +94,86 @@ public partial class Image
 
             for (var x = 0; x < width; x++)
             {
-                covered[x] = !anyNaN[x] && anyNonZero[x];
+                var i = rowStart + x;
+                if (anyNaN[x])
+                {
+                    absent[i] = true;
+                }
+                else if (!anyNonZero[x])
+                {
+                    zero[i] = true;
+                }
+            }
+        }
+
+        // Pass 2: a canvas ring reaches the border by construction, so only a zero region CONNECTED to
+        // the border is absence. A zero island inside the frame is a dead or clipped pixel, and
+        // treating one as absence is catastrophic rather than merely wrong, because this is a largest
+        // RECTANGLE: 6230 scattered zeros (0.0102% of the pixels) on a 9576 x 6388 calibrated sub took
+        // the answer to 2922 x 949, or 4.5% of the frame. Measured on the file that reported it.
+        //
+        // Propagated by alternating sweeps rather than a queue of pixel indices, which is unbounded
+        // (244 MB in the worst case at this frame size) where a sweep needs no extra memory at all. A
+        // ring settles in two; the cap only binds on a shape that spirals, and stopping early
+        // UNDER-marks absence, which keeps more of the frame rather than cropping more of it.
+        const int maxSweeps = 64;
+        for (var sweep = 0; sweep < maxSweeps; sweep++)
+        {
+            var changed = false;
+
+            for (var y = 0; y < height; y++)
+            {
+                var rowStart = y * width;
+                for (var x = 0; x < width; x++)
+                {
+                    var i = rowStart + x;
+                    if (!zero[i] || absent[i])
+                    {
+                        continue;
+                    }
+
+                    if (x == 0 || y == 0 || x == width - 1 || y == height - 1
+                        || (x > 0 && absent[i - 1])
+                        || (y > 0 && absent[i - width]))
+                    {
+                        absent[i] = true;
+                        changed = true;
+                    }
+                }
+            }
+
+            for (var y = height - 1; y >= 0; y--)
+            {
+                var rowStart = y * width;
+                for (var x = width - 1; x >= 0; x--)
+                {
+                    var i = rowStart + x;
+                    if (!zero[i] || absent[i])
+                    {
+                        continue;
+                    }
+
+                    if ((x < width - 1 && absent[i + 1])
+                        || (y < height - 1 && absent[i + width]))
+                    {
+                        absent[i] = true;
+                        changed = true;
+                    }
+                }
+            }
+
+            if (!changed)
+            {
+                break;
+            }
+        }
+
+        return LargestRectangle(width, height, (int y, Span<bool> covered) =>
+        {
+            var rowStart = y * width;
+            for (var x = 0; x < width; x++)
+            {
+                covered[x] = !absent[rowStart + x];
             }
         });
     }
