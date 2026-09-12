@@ -2031,6 +2031,27 @@ did. The cost prediction is missed: 2.5 s a draw (the export alone is under 0.1)
 the signal floor's retry on a 1024 px window plus the window's convolution; a re-export of E2.6's
 pool for E3.0 is about a day of CPU at that rate, and detecting once per cell and fitting the
 observed side at the clean side's positions (the store's own trick) is the obvious saving, owed.
+
+**The saving was built, measured and refused (2026-09-13, task 23), and the 2.5 s was a Debug
+build.** The same Rosette export in Release on the same store (`C:/temp/e2/e30-cost/`, 12 cells by
+4 draws, window 1024, `--min-blur-ratio 1.1`) runs **28.2 s with the estimator and 9.1 s without**:
+398 ms a draw, not 2.5 s (the 2026-09-07 log carries `dbug:` lines, the Debug floor). The exporter
+now times the estimator apart (`SessionResult.Estimator`, the `[degrade]   estimator:` line in the
+CLI's file log): over the 48 draws the observed WINDOW's build (cut, convolve, noise) is **11.8 s,
+246 ms a draw**, a star detection **20 ms** (241 ms over the 12 clean windows) and a profile fit
+26 ms a draw, so the convolution is 89 percent of the estimator and the detection under a tenth.
+Fitting the observed side at the clean window's detections, one detection per cell, saved 13 percent
+of the estimator (16.6 s against 19.1) and **moved the estimated kernel by up to 0.071 px, 22 of 46
+rows past the pre-registered 0.02** (p90 0.048; in estimated-over-effective 10 of 46 past 0.02, the
+largest 0.134 on a 1.17x row where the kernel is 0.5 px between 2.2 and 2.3 px widths), with the
+observed fit itself within 0.037 px and one row flipping to `drawn` on a `PoorFit` at 574 stars
+offered where the blurred window's own detection had offered 192. The fit's candidate set is the
+detection's, a blurred window detects a different set, and inference detects on the frame it is
+given; so the reuse is out and the observed side keeps its own detection. Pinned by
+`DatasetDegradationExporterTests.TheEstimatorsKernelIsWrittenOnTheRowAndReadsTheEffectiveWidth`
+(one detection per cell plus one per draw). A re-export of E2.6's pool at 0.4 s a draw is hours, not
+a day; the saving worth having, if one is wanted, is the direct convolution of a 1 Mpx window
+(an FFT or overlap-save would take the 246 ms to tens), and it is not owed for E3.0.
 Two readings the rows add: the profile fit's clean width is 0.65 to 0.74 of the HFD estimator's
 (the two widths are different statistics and the operator must use one consistently), and the
 observed fit's exponent ranges 1.9 to 9.9 against drawn 1.5 to 8, so the "shape from the fit" is

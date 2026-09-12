@@ -154,7 +154,8 @@ namespace TianWen.AI.Imaging
         /// estimated.</param>
         /// <param name="CleanFitFwhmPx">The profile fit's width on the linear clean cell's green plane.</param>
         /// <param name="CleanFitBeta">Its exponent (core fit, E1g-2's meaning).</param>
-        /// <param name="ObservedFitFwhmPx">The profile fit's width on the linear degraded cell's green plane.</param>
+        /// <param name="ObservedFitFwhmPx">The profile fit's width on the linear degraded cell's green plane,
+        /// at that plane's own detections.</param>
         /// <param name="ObservedFitBeta">Its exponent.</param>
         /// <param name="EstimatedKernelFwhmPx">The kernel the operator trains on: the difference width by
         /// Moffat composition of the two fits (0 when the degraded fit is no wider), or the drawn kernel's
@@ -246,8 +247,17 @@ namespace TianWen.AI.Imaging
         /// (<see cref="DegradationRow.EstimatedKernelFwhmPx"/>, <see cref="DegradationRow.EstimatedKernelBeta"/>,
         /// <see cref="DegradationRow.KernelSource"/> "estimated"); where either fit refuses the row carries the
         /// drawn kernel's effective width instead, source "drawn", and says which check refused. Opt-in,
-        /// because it is two star detections and two fits per draw. The stored tiles are stretched and a tone
-        /// curve moves the half-maximum crossing, so this reading can only be taken here.</param>
+        /// because it is a window convolution, a star detection and a profile fit per draw, and
+        /// <see cref="SessionResult.Estimator"/> says what each cost. <b>The convolution is the cost, not
+        /// the detection</b>, measured 2026-09-13 on the Rosette session (12 cells by 4 draws, a 1024 px
+        /// window): the observed window's build (cut, convolve, noise) is 246 ms of a 277 ms draw, a
+        /// detection 20 ms, a fit 26 ms. Fitting the observed side at the CLEAN window's detections, one
+        /// detection per cell, was built and measured against that: it saved 13 percent of the estimator
+        /// and moved the estimated kernel by up to 0.07 px (22 of 46 rows past the pre-registered 0.02),
+        /// because the fit's candidate set is the detection's and a blurred window detects a different
+        /// set, so it was taken out again; inference detects on the frame it is given, and so does this.
+        /// The stored tiles are stretched and a tone curve moves the half-maximum crossing, so this reading
+        /// can only be taken here.</param>
         /// <param name="EstimateWindowPx">The square window, centred on the cell, the estimator reads
         /// (<see cref="EstimateKernels"/>); never smaller than the tile. A 256 px cell of a real master holds
         /// about 17 stars where the fit needs 40 (measured 2026-09-07 on the Rosette session: every cell
@@ -282,8 +292,37 @@ namespace TianWen.AI.Imaging
             int EstimateWindowPx = 1024,
             ImmutableArray<string> SessionFilters = default);
 
-        /// <summary>What one session's export produced.</summary>
-        public sealed record SessionResult(string SessionId, int Cells, int CleanTiles, int DegradedTiles, double ParityMaxAbsDiff, long ElapsedMs);
+        /// <summary>What one session's export produced. <paramref name="Estimator"/> is the estimator step's
+        /// own cost, null unless <see cref="Options.EstimateKernels"/>.</summary>
+        public sealed record SessionResult(string SessionId, int Cells, int CleanTiles, int DegradedTiles, double ParityMaxAbsDiff, long ElapsedMs, EstimatorCost? Estimator = null);
+
+        /// <summary>
+        /// Where the estimator step's time went over one session, so its cost per draw is a measurement and
+        /// not an estimate: <paramref name="Detections"/> star detections (one per cell on the clean window
+        /// plus one per draw on the observed window, see <see cref="Options.EstimateKernels"/>) over
+        /// <paramref name="Draws"/> draws, with the observed window's build (cut, convolve, noise), the
+        /// detections and the profile fits timed apart.
+        /// </summary>
+        public sealed record EstimatorCost(int Draws, int Detections, long WindowMs, long DetectMs, long FitMs)
+        {
+            /// <summary>The estimator's whole cost divided over its draws, the per-cell detection included.</summary>
+            public double MsPerDraw => Draws == 0 ? 0.0 : (double)(WindowMs + DetectMs + FitMs) / Draws;
+        }
+
+        /// <summary>The per-session accumulator behind <see cref="EstimatorCost"/>. The cell and draw loops
+        /// are sequential, so plain properties suffice.</summary>
+        private sealed class EstimatorClock
+        {
+            public int Draws { get; set; }
+            public int Detections { get; set; }
+            public long WindowTicks { get; set; }
+            public long DetectTicks { get; set; }
+            public long FitTicks { get; set; }
+
+            public EstimatorCost ToCost() => new EstimatorCost(Draws, Detections, ToMs(WindowTicks), ToMs(DetectTicks), ToMs(FitTicks));
+
+            private static long ToMs(long ticks) => ticks * 1000 / Stopwatch.Frequency;
+        }
 
         /// <summary>What a whole run produced.</summary>
         public sealed record RunResult(
@@ -368,6 +407,12 @@ namespace TianWen.AI.Imaging
                     logger?.LogInformation(
                         "[degrade] {Index}/{Total} {Session}: {Cells} cells, {Degraded} degraded tiles, parity {Parity:E1}, {Ms} ms",
                         index, sessions.Count, sessionId, result.Cells, result.DegradedTiles, result.ParityMaxAbsDiff, result.ElapsedMs);
+                    if (result.Estimator is { } estimator)
+                    {
+                        logger?.LogInformation(
+                            "[degrade]   estimator: {Draws} draws, {Detections} detections, window {WindowMs} ms, detect {DetectMs} ms, fit {FitMs} ms, {PerDraw:F0} ms a draw",
+                            estimator.Draws, estimator.Detections, estimator.WindowMs, estimator.DetectMs, estimator.FitMs, estimator.MsPerDraw);
+                    }
                 }
                 catch (OperationCanceledException)
                 {
@@ -393,6 +438,7 @@ namespace TianWen.AI.Imaging
             CancellationToken cancellationToken)
         {
             var sw = Stopwatch.StartNew();
+            var estimatorClock = options.Mode == DegradationMode.Blur && options.EstimateKernels ? new EstimatorClock() : null;
             if (!RetainedMasterStore.TryRead(options.BakeRoot, sessionId, out var master, logger))
             {
                 throw new IOException($"retained master for {sessionId} could not be read");
@@ -484,14 +530,14 @@ namespace TianWen.AI.Imaging
                     // The estimator's clean-side fit, also once per cell (E3.0 ground-work): the clean
                     // core does not change with the draw either.
                     var (windowOrigin, windowSize) = EstimationWindow(origin, cell.TileSize, options.EstimateWindowPx);
-                    var cleanFit = options.Mode == DegradationMode.Blur && options.EstimateKernels
-                        ? await FitCleanCellAsync(unitMaster, windowOrigin, windowSize, cancellationToken)
+                    var cleanFit = estimatorClock is { } cellClock
+                        ? await FitCleanCellAsync(unitMaster, windowOrigin, windowSize, cellClock, cancellationToken)
                         : (Fit: null, Refusal: null);
 
                     for (var draw = 0; draw < options.Draws; draw++)
                     {
                         var seed = DrawSeed(options.Seed, sessionId, cell.X, cell.Y, draw);
-                        var row = await DegradeCellAsync(options, unitMaster, cell, origin, draw, seed, stackedFrames, fieldRadius, origMin, balances, tilesDir, slug, sessionId, cleanFwhmPx, cleanFit, cancellationToken);
+                        var row = await DegradeCellAsync(options, unitMaster, cell, origin, draw, seed, stackedFrames, fieldRadius, origMin, balances, tilesDir, slug, sessionId, cleanFwhmPx, cleanFit, estimatorClock, cancellationToken);
                         degRows.Add(row);
                         tileRows.Add(new DatasetTileExporter.TileManifestRow(
                             Tile: row.Tile, SessionId: sessionId, Camera: cell.Camera, Frame: row.Frame,
@@ -504,7 +550,7 @@ namespace TianWen.AI.Imaging
                 await DatasetTileExporter.AppendManifestAsync(outTileManifest, tileRows.ToImmutable(), cancellationToken);
                 await DatasetDegradationStore.AppendAsync(outDegManifest, degRows.ToImmutable(), cancellationToken);
 
-                return new SessionResult(sessionId, selected.Count, cleanTiles, degradedTiles, parity, sw.ElapsedMilliseconds);
+                return new SessionResult(sessionId, selected.Count, cleanTiles, degradedTiles, parity, sw.ElapsedMilliseconds, estimatorClock?.ToCost());
             }
             finally
             {
@@ -541,6 +587,7 @@ namespace TianWen.AI.Imaging
             string sessionId,
             double? cleanFwhmPx,
             (PsfProfileFit.Result? Fit, string? Refusal) cleanFit,
+            EstimatorClock? estimatorClock,
             CancellationToken cancellationToken)
         {
             var rng = new Random(seed);
@@ -757,11 +804,14 @@ namespace TianWen.AI.Imaging
                     effectiveKernelFwhmPx = double.IsFinite(effective) ? effective : null;
                 }
 
-                if (options.EstimateKernels)
+                if (options.EstimateKernels && estimatorClock is { } clock)
                 {
                     // The observed side over the estimation window, not the tile: the window's green plane
                     // convolved with green's kernel and noised at this draw's level from its own random
-                    // stream, so the tile's own draw sequence is untouched.
+                    // stream, so the tile's own draw sequence is untouched. Its OWN detections, as inference
+                    // has them: see Options.EstimateKernels for the reuse that was measured and refused.
+                    clock.Draws++;
+                    var windowStarted = Stopwatch.GetTimestamp();
                     var (windowOrigin, windowSize) = EstimationWindow(origin, size, options.EstimateWindowPx);
                     var green = Math.Min(1, channels - 1);
                     var greenKernel = perChannelKernels is null ? drawnKernel : perChannelKernels[green];
@@ -784,10 +834,11 @@ namespace TianWen.AI.Imaging
                     }
 
                     var observedWindow = new Image([windowPlane], BitDepth.Float32, 1f, 0f, unitMaster.Pedestal, unitMaster.ImageMeta);
+                    clock.WindowTicks += Stopwatch.GetTimestamp() - windowStarted;
                     (PsfProfileFit.Result? observedFit, string? observedRefusal) = (null, null);
                     try
                     {
-                        (observedFit, observedRefusal) = await FitProfileOnAsync(observedWindow, cancellationToken);
+                        (observedFit, observedRefusal) = await FitProfileOnAsync(observedWindow, clock, cancellationToken);
                     }
                     finally
                     {
@@ -1241,13 +1292,13 @@ namespace TianWen.AI.Imaging
             return (new Point(origin.X - shift, origin.Y - shift), windowSize);
         }
 
-        /// <summary>The estimator step's fit on the clean linear cell (see <see cref="FitProfileOnAsync"/>).</summary>
-        private static async Task<(PsfProfileFit.Result? Fit, string? Refusal)> FitCleanCellAsync(Image unitMaster, Point origin, int size, CancellationToken cancellationToken)
+        /// <summary>The estimator step's fit on the clean linear cell, once per cell (see <see cref="FitProfileOnAsync"/>).</summary>
+        private static async Task<(PsfProfileFit.Result? Fit, string? Refusal)> FitCleanCellAsync(Image unitMaster, Point origin, int size, EstimatorClock clock, CancellationToken cancellationToken)
         {
             var cell = CutCell(unitMaster, origin, size);
             try
             {
-                return await FitProfileOnAsync(cell, cancellationToken);
+                return await FitProfileOnAsync(cell, clock, cancellationToken);
             }
             finally
             {
@@ -1264,13 +1315,19 @@ namespace TianWen.AI.Imaging
         /// <summary>
         /// The estimator step as the deployed path has it: the cell's OWN detections on the green plane, the
         /// profile fit stacking by the signal floor (E1e), the core fitted (E1g-2). Null with the refusing
-        /// check's name when the cell cannot support a fit.
+        /// check's name when the cell cannot support a fit. The detection and the fit are timed apart on
+        /// <paramref name="clock"/>.
         /// </summary>
-        private static async Task<(PsfProfileFit.Result? Fit, string? Refusal)> FitProfileOnAsync(Image cell, CancellationToken cancellationToken)
+        private static async Task<(PsfProfileFit.Result? Fit, string? Refusal)> FitProfileOnAsync(Image cell, EstimatorClock clock, CancellationToken cancellationToken)
         {
             var green = Math.Min(1, cell.ChannelCount - 1);
+            var detectStarted = Stopwatch.GetTimestamp();
             var stars = await cell.FindStarsAsync(green, snrMin: EstimatorSnrMin, maxStars: EstimatorMaxStars, cancellationToken: cancellationToken);
+            clock.DetectTicks += Stopwatch.GetTimestamp() - detectStarted;
+            clock.Detections++;
+            var fitStarted = Stopwatch.GetTimestamp();
             var fit = PsfProfileFit.Measure(cell, green, stars, out var diagnostics, selection: PsfProfileFit.StarSelection.SignalFloor);
+            clock.FitTicks += Stopwatch.GetTimestamp() - fitStarted;
             return (fit, fit is null
                 ? $"{diagnostics.Refusal} (stars {diagnostics.StarsOffered}, over floor {diagnostics.InBrightnessBand}, stacked {diagnostics.Stacked}, bins {diagnostics.FitBins}, {cell.Width} px)"
                 : null);

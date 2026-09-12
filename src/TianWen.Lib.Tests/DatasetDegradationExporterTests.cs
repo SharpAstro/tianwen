@@ -480,7 +480,7 @@ namespace TianWen.Lib.Tests
             var outDir = Path.Combine(_root, "degraded-kernels");
 
             var clock = System.Diagnostics.Stopwatch.StartNew();
-            await DatasetDegradationExporter.RunAsync(
+            var run = await DatasetDegradationExporter.RunAsync(
                 new DatasetDegradationExporter.Options(
                     bake, outDir, Mode: DatasetDegradationExporter.DegradationMode.Blur,
                     Draws: 8, CellsPerSession: 2, Seed: 17,
@@ -492,6 +492,16 @@ namespace TianWen.Lib.Tests
             var rows = ReadDegradationRows(outDir).Where(r => r.CleanFwhmPx is > 0).ToArray();
             Assert.SkipWhen(rows.Length == 0, "no row carried a clean width");
             output.WriteLine($"{rows.Length} rows in {clock.Elapsed.TotalSeconds:F1} s ({clock.Elapsed.TotalMilliseconds / Math.Max(1, rows.Length):F0} ms a draw, export included)");
+
+            // The estimator's cost is reported per session, timed apart, and its shape is one detection per
+            // cell (the clean side) plus one per draw (the observed window's own, as inference has it).
+            // Fitting the observed side at the clean detections was measured on 2026-09-13 and taken out:
+            // it moved the estimate past the pre-registered 0.02 px for a 13 percent saving.
+            var session = run.Sessions.ShouldHaveSingleItem();
+            var cost = session.Estimator.ShouldNotBeNull();
+            cost.Draws.ShouldBe(session.Cells * 8);
+            cost.Detections.ShouldBe(session.Cells + cost.Draws);
+            output.WriteLine($"estimator: {cost.Draws} draws, {cost.Detections} detections, window {cost.WindowMs} ms, detect {cost.DetectMs} ms, fit {cost.FitMs} ms, {cost.MsPerDraw:F0} ms a draw");
 
             rows.ShouldAllBe(r => r.KernelSource == "estimated" || r.KernelSource == "drawn");
             rows.ShouldAllBe(r => r.EffectiveKernelFwhmPx.HasValue && r.EffectiveKernelFwhmPx.Value > 0);
