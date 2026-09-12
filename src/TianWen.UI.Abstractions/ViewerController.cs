@@ -54,6 +54,14 @@ public sealed class ViewerController(
     /// </remarks>
     private Rectangle? _rememberedCrop;
 
+    /// <summary>
+    /// The crop to reapply once an Enhance-revert reload (<see cref="RevertEnhance"/>'s no-retained-
+    /// document branch) finishes, paired with the path it belongs to so a load superseded by an
+    /// unrelated file open never applies someone else's rectangle. Consumed once, in
+    /// <see cref="HandleFileRequest"/>.
+    /// </summary>
+    private (string Path, Rectangle? Crop)? _pendingRevertCrop;
+
     private CancellationTokenSource? _starDetectionCts;
 
     // Per-RUN enhance cancellation, so pressing the button while it computes stops THAT run. It used
@@ -173,6 +181,11 @@ public sealed class ViewerController(
         // A new file is not an enhanced view of the old one. Done here rather than on the completion
         // path so a load that is later superseded still clears the toggle it invalidated.
         ForgetEnhanceState();
+        // Consumed (and cleared) here, once, regardless of which path below actually finishes -- a
+        // superseded or failed load must not leave someone else's revert crop waiting for the NEXT
+        // unrelated file that happens to load. Applied only if it still names THIS request below.
+        var pendingRevertCrop = _pendingRevertCrop;
+        _pendingRevertCrop = null;
         state.StatusMessage = $"Loading {Path.GetFileName(requestedPath)}...";
 
         // Cancel any in-progress star detection from previous image
@@ -300,6 +313,30 @@ public sealed class ViewerController(
                 LogStretchBasis("opened", newDoc);
                 _rawSource = newDoc;
                 _liveSource = null;
+
+                // A crop is a property of the FRAME it was scanned against, not of the viewer, so a
+                // new document starts uncropped -- neither field carried a document identity to check
+                // itself against, so an ordinary file switch (no Enhance involved at all) silently kept
+                // showing the PREVIOUS file's rectangle whenever the new one happened to share its
+                // dimensions, e.g. two exports of one stacked session. Overridden immediately below for
+                // the one case that legitimately wants a crop restored: the reload half of an Enhance
+                // revert.
+                state.DisplayCrop = null;
+                _rememberedCrop = null;
+
+                // This load is the reload half of an Enhance revert (RevertEnhance stashed it
+                // alongside the exact path it belongs to) -- put the crop that was active before
+                // Enhance ran back on, mirroring the retained-document revert branch. A path
+                // mismatch means a later, unrelated open won the race and this crop is not its to
+                // apply, so it is silently dropped rather than obeyed.
+                if (pendingRevertCrop is { } pending
+                    && string.Equals(pending.Path, requestedPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    state.DisplayCrop = ViewerState.ResolveDisplayCrop(pending.Crop,
+                        newDoc.UnstretchedImage.Width, newDoc.UnstretchedImage.Height);
+                    _rememberedCrop = state.DisplayCrop;
+                }
+
                 state.NotifySourceReplaced();
                 state.ShowStacked = false; // stacking is a sequence-only mode
                 state.IsSequence = false;
@@ -842,6 +879,16 @@ public sealed class ViewerController(
         state.IsEnhanced = false;
         state.EnhanceProgressPct = 0f;
 
+        // The AUTHORITATIVE crop to restore is the one the enhanced document itself was cropped to
+        // (Document is still that document here, whichever route fires below) -- never _rememberedCrop.
+        // That field is sticky across an unrelated file switch (nothing clears it when a new document
+        // loads), so opening a cropped file, switching to an UNCROPPED one, enhancing it and reverting
+        // used to restore the FIRST file's leftover rectangle onto the second: a real crop, just the
+        // wrong one, which reads as "the crop doesn't cover enough of this frame" rather than "no crop
+        // at all". Null here when this enhance never had a crop to begin with, which resolves to no
+        // crop below instead of reawakening someone else's.
+        var cropToRestore = Document?.SourceCrop;
+
         if (_preEnhanceDocument is { } retained)
         {
             // A reference swap: nothing is copied, and the document was never mutated by the run
@@ -856,8 +903,9 @@ public sealed class ViewerController(
             // back on: reverting means returning to the view the enhance was launched from, and the
             // border is once again there to hide. Nothing happens when there was no crop, and a
             // rectangle that does not fit the restored frame resolves to null rather than being obeyed.
-            state.DisplayCrop = ViewerState.ResolveDisplayCrop(_rememberedCrop,
+            state.DisplayCrop = ViewerState.ResolveDisplayCrop(cropToRestore,
                 retained.UnstretchedImage.Width, retained.UnstretchedImage.Height);
+            _rememberedCrop = state.DisplayCrop;
             state.NotifySourceReplaced();
             state.NeedsTextureUpdate = true;
             // Deliberately no status message. The upload path clears StatusMessage once the pixels
@@ -875,9 +923,13 @@ public sealed class ViewerController(
             // Over the retain budget, so the original was not held. Ask for it through the SAME
             // request the file list uses -- HandleFileRequest already owns cancelling an in-flight
             // load, swapping the source, stats and star detection, none of which is worth a
-            // second implementation for this one caller.
+            // second implementation for this one caller. HandleFileRequest has no idea a reload is an
+            // enhance-revert rather than an ordinary open, so the crop has to travel alongside the
+            // path it belongs to -- see _pendingRevertCrop; a plain "restore the last remembered crop"
+            // in the request handler would suffer the same cross-file leak fixed above, for every open.
             state.StatusMessage = "Enhance off \u2014 reloading\u2026";
             state.NeedsRedraw = true;
+            _pendingRevertCrop = (_preEnhancePath, cropToRestore);
             state.RequestedFilePath = _preEnhancePath;
             return;
         }

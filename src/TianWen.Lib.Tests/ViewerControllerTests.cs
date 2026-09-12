@@ -10,6 +10,7 @@ using NSubstitute;
 using Shouldly;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Enhancement;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -391,6 +392,91 @@ public class ViewerControllerTests
         state.StatusMessage.ShouldEndWith("remembered)");
     }
 
+    /// <summary>
+    /// Reverting an Enhance restores the crop the ENHANCED document itself carries -- never a crop
+    /// left over from a DIFFERENT file. Root-caused 2026-09-12: RevertEnhance's retained-document
+    /// branch restored the sticky <c>_rememberedCrop</c> field unconditionally, and nothing clears it
+    /// when a new file loads. So cropping file A, switching to an uncropped file B of the SAME
+    /// dimensions (two exports of one stacked session, exactly what the Astro/My corpus looks like),
+    /// enhancing B and reverting put A's leftover rectangle back on B -- a real crop, just the wrong
+    /// one, which reads as "the crop doesn't cover the whole border" rather than "no crop at all".
+    /// </summary>
+    [Fact]
+    public async Task RevertingAnEnhanceNeverRestoresAnotherDocumentsRememberedCrop()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (controller, state, cache, _, _) = CreateSut();
+        cache.GetOrLoadAsync("a.fits", Arg.Any<DebayerAlgorithm>(), Arg.Any<CancellationToken>())
+            .Returns(_ => RingDocumentAsync(ct));
+        cache.GetOrLoadAsync("b.fits", Arg.Any<DebayerAlgorithm>(), Arg.Any<CancellationToken>())
+            .Returns(_ => AstroImageDocument.AdoptImageAsync(FlatFrame(), DebayerAlgorithm.None,
+                filePath: "b.fits", cancellationToken: ct));
+
+        // Crop file A.
+        state.RequestedFilePath = "a.fits";
+        controller.HandleFileRequest(ct);
+        await WaitForLoadAsync(controller);
+        controller.HandleToolbarAction(ToolbarAction.AutoCrop, reverse: false, ct);
+        await WaitForCropAsync(controller, state);
+        state.DisplayCrop.ShouldNotBeNull("file A is what got cropped");
+
+        // Switch to an UNCROPPED file B of the same dimensions, never touching the crop button.
+        state.RequestedFilePath = "b.fits";
+        controller.HandleFileRequest(ct);
+        await WaitForLoadAsync(controller);
+        state.DisplayCrop.ShouldBeNull("a freshly opened file starts uncropped");
+
+        var clone = new CloneEnhancer();
+        controller.EnhancePipeline = new SharpenPipeline(
+            starRemover: clone, stellarSharpener: clone, nonStellarDeconvolver: clone,
+            denoiser: clone, gradientCorrector: clone);
+        controller.HandleToolbarAction(ToolbarAction.Enhance, reverse: false, ct);
+        await WaitForEnhanceAsync(controller, state);
+        state.IsEnhanced.ShouldBeTrue("the fake pipeline must have completed for this test to mean anything");
+
+        // Turn Enhance back off.
+        controller.HandleToolbarAction(ToolbarAction.Enhance, reverse: false, ct);
+
+        state.DisplayCrop.ShouldBeNull(
+            "B was never cropped -- A's leftover rectangle must not reappear just because it fits");
+    }
+
+    /// <summary>Copies the input, per role, mirroring <c>EnhanceActionsTests.CloneEnhancer</c> --
+    /// a trivial fake pipeline stage with no model files, fast enough to run inline in a unit test.</summary>
+    private sealed class CloneEnhancer : IStarRemover, IStellarSharpener, INonStellarDeconvolver, IDenoiseEnhancer, IGradientCorrector
+    {
+        public string Name => "Test/CloneEnhancer";
+        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
+        {
+            var (channels, w, h) = input.Shape;
+            var data = new float[channels][,];
+            for (var c = 0; c < channels; c++)
+            {
+                var plane = new float[h, w];
+                var src = input.GetChannelSpan(c);
+                for (var y = 0; y < h; y++)
+                    for (var x = 0; x < w; x++)
+                        plane[y, x] = src[y * w + x];
+                data[c] = plane;
+            }
+            return Task.FromResult(new Image(data, BitDepth.Float32, 1.0f, 0f, 0f, input.ImageMeta));
+        }
+    }
+
+    /// <summary>A 64 x 64 frame with NO zero ring -- file B in the cross-file crop-leak test, the same
+    /// dimensions as <see cref="FrameWithAZeroRing"/> so a foreign crop rectangle would (incorrectly)
+    /// fit it.</summary>
+    private static Image FlatFrame(int size = 64)
+    {
+        var plane = new float[size, size];
+        for (var y = 0; y < size; y++)
+            for (var x = 0; x < size; x++)
+                plane[y, x] = 0.25f;
+
+        return new Image([plane], BitDepth.Float32, maxValue: 1f, minValue: 0f, pedestal: 0f,
+            imageMeta: new ImageMeta { Instrument = "synth", SensorType = SensorType.Monochrome });
+    }
+
     /// <summary>The ring frame as a loaded document. Declared nullable to match what the cache
     /// returns; AdoptImageAsync's own task is not, and handing that over warns (CS8620).</summary>
     private static async Task<AstroImageDocument?> RingDocumentAsync(CancellationToken cancellationToken)
@@ -424,6 +510,20 @@ public class ViewerControllerTests
         while (state.DisplayCrop is null && Environment.TickCount64 < deadline)
         {
             controller.TryApplyPendingCrop();
+            await Task.Delay(10);
+        }
+    }
+
+    /// <summary>
+    /// Polls until a pending Enhance run has been applied, up to a timeout, mirroring
+    /// <see cref="WaitForCropAsync"/> for <see cref="ViewerController.TryApplyPendingEnhance"/>.
+    /// </summary>
+    private static async Task WaitForEnhanceAsync(ViewerController controller, ViewerState state, int timeoutMs = 5000)
+    {
+        var deadline = Environment.TickCount64 + timeoutMs;
+        while (!state.IsEnhanced && Environment.TickCount64 < deadline)
+        {
+            controller.TryApplyPendingEnhance();
             await Task.Delay(10);
         }
     }
