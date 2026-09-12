@@ -2059,11 +2059,53 @@ staged 2.81, predates the registration fix); the beta semantics need no re-stack
 
 1. **`--force-psf` on the masters** (measure stage only, minutes): the store's `MoffatBeta` becomes
    the post-E1g-2 quantity and E0's per-channel beta statistics are re-read on it.
+   **DONE 2026-09-12 13:44 to 13:59** (`run-dataset-bake.ps1 ... -ExtraArgs '--resume','--force-psf',
+   '--site=-37.877,145.1775'`, binary at "feat(stacking): clamped Lanczos-3 is the warp default";
+   79 of 79 re-measured from retained masters, one session skipped as before with 2 registered
+   subs). The store is append-only (5 rows per session), so the shift is a per-session diff of the
+   last two rows, no backup needed. E1g-2's prediction holds: the exponent rose at the median by
+   **+3.35 / +1.60 / +1.97** per channel (36 of 39, 43 of 59 and 44 of 52 moved fits rose), **65
+   profiles that had refused now fit** (163 fits became 228), and the railed count went **11 to 46**,
+   34 of them on channel 0 (77 fits, median beta 16.9, p90 at the 24.95 rail), which is E1g-2's
+   "exponents above about 6 no longer told apart" landing on the channel whose profiles E0 already
+   found Gaussian in 9 of 11 railed cases. **E0 re-read on the new column, railed excluded:**
+   r(FWHM, beta) = **+0.356 / -0.228 / -0.279** over 43 / 70 / 69 fits (was +0.508 / -0.238 /
+   -0.104 on the pre-E1g-2 column): blue's support for the joint draw weakened, green and red stay
+   uncorrelated to anticorrelated, so the per-channel conclusion stands and the pooled +0.654 is
+   still the mixture it was.
 2. **Drizzle's kernel cost per star on one night, before choosing the re-bake's strategy**: R1's
    method (the near6 frames stacked `BayerDrizzle`, the master's per-star width against its warped
    frames' mean, beside the bilinear and Lanczos twins). Pre-registered: drizzle sits with bilinear
    (about a pixel in quadrature at 2 px seeing) or with Lanczos (none measurable); the answer decides
    whether the 52 drizzle masters are part of the problem.
+   **READ 2026-09-12 14:20 to 14:40 (`exp-near6-drizzle`: the near6-fixed manifest, `--strategy
+   BayerDrizzle --drizzle-min-frames 6`, pixfrac 1; `C:/temp/e2/e210-r1-drizzle.log`). Neither
+   pre-registered answer: drizzle sits BETWEEN them, at a fixed 0.65 px in quadrature.** Drizzle
+   writes no warped frames (it scatters the raw CFA forward, there is no warp-then-normalise stage),
+   so the clamped twin's six frames were lent to it through a directory junction
+   (`exp-near6-drizzle/_staging/<slug>/normalized`), which is valid because the three masters share
+   the canvas exactly (3016 by 3014, `CANVASX0/Y0` -6/-2, reference 0033). Per star the drizzle
+   master reads **2.24 to 2.26 px** against the same frames the clamped master reads 2.15 to 2.16
+   on (frames 2.02 to 2.36; ratio p50 0.94 to 1.13 by frame), so sqrt(2.25^2 - 2.155^2) = 0.65 px
+   in quadrature, where bilinear's twin read 2.39 (1.03 px). The estimator's median: fixed 2.53,
+   clamped 2.28, drizzle 2.40. The radial profile at 1.75 px: 0.250 bilinear, 0.199 clamped, 0.220
+   drizzle. Ringing: -1.22 MADs undershoot and -0.5 percent of the peak, no dip (its 0.190 share past
+   one MAD is read against a MAD of 0.0014 in drizzle's coverage-normalised units, not comparable
+   to the twins' 0.017).
+
+   The number is the arithmetic's: a unit-square drop at pixfrac 1 is a box of one input pixel
+   deposited at the frame's fractional phase, and a unit box carries a variance of 1/12 px^2 per
+   axis whatever the phase, 2.355 x sqrt(1/12) = **0.68 px of FWHM in quadrature, fixed**, against
+   bilinear's phase x (1 - phase), 0.25 px^2 at half phase (1.18 px) and 0.083 averaged over phases
+   (0.96 px measured as 1.03), and Lanczos-3's none. So the 52 drizzle masters carry about two thirds
+   of the bilinear masters' kernel cost, and every one of them carries it, since the phase does not
+   enter. Two consequences for the strategy choice, which is the user's: `--drizzle-pixfrac` shrinks
+   the box (0.7 gives 0.48 px, 0.5 gives 0.34) at the price of coverage holes when frames are few,
+   which the 60-frame floor already guards; and this reading is against VNG-DEBAYERED frames, so the
+   staged path's "no kernel cost" sits on top of the debayer's own interpolation, which drizzle never
+   performs and which no per-star probe against debayered frames can see. A comparison of the two
+   paths that is fair to drizzle needs the sub's width on its own mosaic (the store's green-plane
+   width) as the reference, not the warped frame.
 3. **The Lanczos-3 default (the user's), then a bake option for the warp kernel**: `SessionRegistrar`
    hard-codes `WarpInterpolation.Bilinear`, so a Lanczos bake needs the option either way.
    **DONE 2026-09-12, as CLAMPED Lanczos-3.** `WarpInterpolation.Lanczos3Clamped` is the default
@@ -2116,10 +2158,23 @@ staged 2.81, predates the registration fix); the beta semantics need no re-stack
    (B-spline, Catmull-Rom, Mitchell) trades width for a ringing the clamp already bounds; area
    resampling is for downsampling, which the unit-scale registration never does.
 
-   **Owed to the re-bake's reading:** every retained master's ring and skirt are now a property of
-   this kernel; the near6 / whole-night per-star probe (R1's method) should be re-read once under
-   `Lanczos3Clamped` beside its `Lanczos3` figures before the overnight re-stack, so the default's
-   width on REAL OSC subs is a number and not the synthetic one.
+   **The clamped kernel re-read on the real near6 frames, 2026-09-12 14:02 to 14:19
+   (`exp-near6-clamped`: the near6-fixed manifest, in RAM, `--save-normalized`,
+   `--warp-interpolation Lanczos3Clamped`; `C:/temp/e2/e210-r1-clamped.log`; R1's three probes
+   with `TIANWEN_E210_NORM_EXP=exp-near6-clamped` and `TIANWEN_E210_RING=exp-near6-fixed,
+   exp-near6-lanczos,exp-near6-clamped`).** On every measure the clamped twin reads the plain
+   Lanczos twin to three decimals: 94 stars at 2.28 px, annulus undershoot -1.68 MADs with 0.117
+   past one MAD and -0.6 percent of the peak, the radial profile identical bin for bin (0.199 at
+   1.75 px, 0.095 at 2.25), and per star the master at 2.15 to 2.16 px against its frames' 2.02 to
+   2.35 (ratio p50 0.91 to 1.09, the same six rows R1 printed). Pixel by pixel the two twins differ
+   everywhere by about a ten-thousandth (the positive and negative parts are now summed apart, so
+   the rounding differs) and by more than that on **0.01 to 0.06 percent of each frame's pixels**
+   (865 to 5287 of 27 million; 88 on the integer-shifted reference), two thirds of them within 3 px
+   of a bright star's core and the rest at isolated spikes (the warm pixels the mask did not take),
+   by 100 to 355 MAD where they differ. So on real OSC subs at 2 px seeing the clamp is inert on
+   every star statistic and bites only where the plain kernel rings on a spike, which is the
+   fixture's case at the fixture's density; the width the default delivers on real data is R1's
+   number, 2.15 px per star from 2.02 to 2.35 px frames.
 4. **The full re-stack as one detached overnight job**, about 11 h with the measure stage done, and
    E3.0's re-export (`--estimate-kernels`, the ratio draw) after it, never before, since the
    degradation cache is cut from the masters.
