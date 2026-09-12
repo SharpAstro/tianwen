@@ -253,6 +253,38 @@ replaced grew one rung per capability (`(width, mode)` -> `(.., isSelected)` -> 
 selectedColumn, columnCount)`) and every rung let an implementation silently opt out of the newest
 information by overriding an older one.
 
+## DIR.Lib's `ListCursor` does not fit our lists, because ours virtualise their regions
+
+DIR.Lib 8.20 (`SharpAstro/DIR.Lib#75`) makes a declared list keyboard-navigable with no state beside
+it: a row saying `.Clickable(new HitResult.ListItemHit("views", i), ...)` is row `i`, and
+`PixelWidgetBase.ListCursor` + `HandleListKey` + `.BgFocus(colour)` are the whole contract.
+**Evaluated for TianWen 2026-09-12 and declined.** Written down because the reason is not visible
+from either side on its own, and the evaluation is expensive to repeat.
+
+**The cursor steps to the nearest row the LAST PAINT REGISTERED** (`TryStepListCursor` walks
+`RegisteredRegions`), and **every list we have registers only the rows currently on screen**. So the
+arrows stop at the edge of the viewport instead of scrolling. Measured on the Session config panel:
+a 200 px-tall viewport over 25 fields, walking `Down` 24 times landed on **field 5**, not 24
+(`SessionTabTests.KeyboardDown_ScrollsSelectedFieldIntoView`, which is what caught it).
+
+**That virtualisation is OURS, not a DIR.Lib limitation** -- the mistake worth not repeating.
+`PaintLayout` registers every node it is handed and `RegisterClickable` does no clip test;
+`SessionTab.RenderConfigForm` drops the non-intersecting nodes itself, before painting, precisely so
+off-screen rows do not become clickable outside the panel. The viewer's file list virtualises the
+same way through `ListScrollController.VisibleRows()`. Restoring the cursor's reach would mean
+scrolling and re-rendering mid-step, which needs the list's length -- reintroducing the
+`SessionTabState.FieldCount` that adopting `ListCursor` was meant to delete.
+
+**DIR.Lib already has the pattern for a scrolled list, and it is the one we use.** Its own dropdown
+does not use `ListCursor`: `DropdownMenuState.HandleKeyDown` keeps a `HighlightIndex` and calls
+`Scroll.EnsureVisible(...)`, which is exactly what `SessionTab.EnsureFieldVisible` and the file
+list's `ViewerState.PendingFileListEnsureVisible` already do. `ListCursor` is for a fully painted
+menu or card; a scrolling panel keeps an index. Two further frictions, if a fully painted list ever
+does turn up here: `HandleListKey` binds Enter to activating the row, which the config panel already
+spends on Increment; and `ActivateListCursor` returns `true` even when the row carries no handler
+(`SharpAstro/DIR.Lib#77`), so Enter is silently swallowed by a list like the file list, whose rows
+deliberately register with no `OnClick` so the press reaches the scroll controller.
+
 ## The pointer's appearance is a property of a region, never a host predicate
 
 `CursorKind` + `ClickableRegion.Cursor` + `RegisterCursor` / `HitTestCursor` (DIR.Lib 7.22), mapped
