@@ -24,38 +24,46 @@ never reproduced).
 ================================================================================
 WHAT'S NEW  (Partner Center copy - paste the block between the rules VERBATIM)
 ================================================================================
-THE FIELD IS CAPPED AT 1500 CHARACTERS. The block below is 1387 (1403 if the
-paste turns the newlines into CRLF), so it fits with about a hundred to spare.
-Re-measure after any edit; do not paste the DETAIL section. 7.0.1568.txt's
-block is 4716 characters and cannot ever have gone in whole, so whatever was
-submitted for that release was trimmed by hand at the browser and is not
-recorded anywhere. That is the reason this note exists.
+THE FIELD IS CAPPED AT 1500 CHARACTERS. The block below is 1438, or 1457 if the
+paste turns the newlines into CRLF, leaving 43 spare. Re-measure after any edit
+and do not paste the DETAIL section.
+
+7.0.1568.txt's block is 4716 characters, so it cannot have gone in whole. Which
+way it failed is NOT known from here and the difference matters: either it was
+trimmed by hand at the browser, or the field silently cropped it and that
+listing has been live ever since ending mid-sentence somewhere around character
+1500. Nobody wrote down which. Worth a look at the current listing next time
+someone is in Partner Center, and worth keeping the measured count beside the
+block from now on so the question cannot come up again.
 
 Click a star or galaxy to see what it is
-Left-click any catalogued object on the image for a panel with its name, type, magnitude, and altitude and rise/transit/set at the moment the picture was taken. The ring now traces the object's own shape, true axis ratio and position angle, so an inclined galaxy like M31 rings as the tilted disc it is. Right-click opens it in the web sky atlas.
+Left-click any catalogued object for its name, type, magnitude, altitude and rise/transit/set at capture. The ring traces the object's true axis ratio and position angle, so a tilted galaxy like M31 rings as the disc it is.
 
 The night sky behind your photograph
-Press O for a sky map drawn behind the image and aligned to its plate solve: the same stars, constellation lines and deep-sky catalogue as the sky atlas, exactly where your picture sits on the sky. A floating panel toggles any of ten layers.
+Press O for a sky map drawn behind the image, aligned to its plate solve: the same stars, constellation lines and catalogue as the sky atlas, exactly where your picture sits. O steps through grid, objects, then full sky; a floating panel toggles ten layers.
 
 Crop a stacked master to the area every frame covered
-The new Crop button trims the ragged, under-exposed border a stack leaves behind. The crop carries through to the plate solution, saved files, the A/B comparison and the AI enhance.
+The Crop button trims the ragged, under-exposed border a stack leaves behind, and the crop carries through to the plate solution, saved files, A/B and the AI enhance.
 
 Also in this release
-- Save the annotated view (grid, markers, labels); every save honours the crop.
-- A/B accounts for a crop instead of warping the "before" half.
+- Right-click an object to open it in the web sky atlas, or copy a link naming it.
+- Save the annotated view (grid, markers, labels); saves and A/B honour the crop.
 - Statistics collapse into a table; white balance moves to a toolbar popover.
-- The "?" panel can report a problem with your version and logs attached.
+- F1 opens help, and a toolbar button shows or hides the file list.
+- Escape closes an open panel instead of the viewer.
+- The "?" panel can report a problem, with your version and logs attached.
 - Touchscreen pinch-to-zoom works again.
 - Hold Space to pause a blink, release to resume.
-- The auto stretch stops claiming a colour calibration it never measured.
+- The auto stretch no longer overstates its colour calibration.
+- An optional tip jar in the "?" panel.
 
 ================================================================================
-Cut to fit, and worth knowing which way to cut if it ever needs cutting again:
-the three headed sections are the release (selection, sky backdrop, auto-crop)
-and the bullets are the tail. The panel's movable/rollable behaviour, the O
-ladder's three rungs, Escape no longer closing the viewer, and the tip jar all
-came out here; they are in DETAIL and in the guide, which is where someone
-looking for them will be.
+Which way to cut if it ever needs cutting again: the three headed sections are
+the release (selection, sky backdrop, auto-crop) and the bullets are the tail.
+Two points were merged rather than dropped -- the annotated save and A/B now
+share a line, since both are really "the crop carries through". What is still
+out: the layer panel being movable and rollable, and the constellation-figure
+stars at wide field. Both are in DETAIL and in the guide.
 ================================================================================
 
 
