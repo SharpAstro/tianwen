@@ -221,6 +221,12 @@ public static class SessionRegistrar
     /// rejection one, so a single number is wrong for one of them. Pass a value only to override
     /// deliberately.</param>
     /// <param name="debayerAlgorithm">Debayer used for both measurement and warping.</param>
+    /// <param name="warpInterpolation">The resampling kernel that places each sub on the canvas, the
+    /// same choice <c>StackingOptions.WarpInterpolation</c> gives the stacker, so a retained master and
+    /// a user's master of the same night are built the same way. Every master baked before 7.1 was
+    /// bilinear, which carries about a pixel of FWHM in quadrature at 2 px seeing
+    /// (<c>docs/plans/deconvolver-training.md</c>, R1); the bake's <c>bake-provenance.json</c> records
+    /// the argument a run was given, which is how two stores are told apart.</param>
     /// <param name="hotPixelSigma">One knob, two producers, and the shipped mask is their UNION:
     /// it is the per-frame outlier sigma of the session-derived <see cref="BadPixelAccumulator"/>
     /// map (built whenever the registered transforms prove the session dithered/drifted enough to
@@ -259,6 +265,7 @@ public static class SessionRegistrar
         int minSubs = 10,
         int? minSubsForHalfMasters = null,
         DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG,
+        WarpInterpolation warpInterpolation = WarpInterpolation.Lanczos3Clamped,
         float hotPixelSigma = 8f,
         string? skipStorePath = null,
         StageTimings? timings = null,
@@ -490,7 +497,7 @@ public static class SessionRegistrar
             // The shared debayer + warp step (FrameRegistration.WarpToCanvasAsync) -- the same
             // three lines StackingPipeline's producer runs, so the two paths cannot drift here.
             var (warped, shifted) = await FrameRegistration.WarpToCanvasAsync(
-                calibrated, transform, canvasShift, debayerAlgorithm, canvasW, canvasH, WarpInterpolation.Bilinear, cancellationToken);
+                calibrated, transform, canvasShift, debayerAlgorithm, canvasW, canvasH, warpInterpolation, cancellationToken);
             var warpedPath = Path.Combine(sessionScratch, $"warped_{i:D4}.fits");
             warped.WriteToFitsFile(warpedPath);
             subs.Add(new RegisteredSub(f.Frame, warpedPath, shifted, f.Metrics));

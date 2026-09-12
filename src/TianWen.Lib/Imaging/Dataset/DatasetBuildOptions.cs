@@ -75,6 +75,13 @@ public sealed record DatasetBuildOptions
     /// </summary>
     public float HotPixelSigma { get; init; } = 8f;
 
+    /// <summary>The resampling kernel that places each sub on the session canvas, handed to
+    /// <see cref="SessionRegistrar.RegisterAsync"/> and so the same choice the stacker makes. Clamped
+    /// Lanczos-3 since 7.1; every store baked before it is bilinear, about a pixel of FWHM in
+    /// quadrature at 2 px seeing, and E3 trains on tiles cut from those masters, which is why a bake
+    /// states its kernel (the launcher's <c>bake-provenance.json</c> records the argument).</summary>
+    public WarpInterpolation WarpInterpolation { get; init; } = WarpInterpolation.Lanczos3Clamped;
+
     /// <summary>Keep-floor for the quality gate: the maximum fraction of a session's frames the
     /// gate may reject before the severity-ranked floor engages. Higher than the stacker's 0.20
     /// because dataset building favours purity over yield (there are 20k+ subs to draw from, so

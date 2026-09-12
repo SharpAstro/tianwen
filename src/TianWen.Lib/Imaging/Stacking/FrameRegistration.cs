@@ -154,7 +154,7 @@ public static class FrameRegistration
         DebayerAlgorithm debayerAlgorithm,
         int canvasWidth,
         int canvasHeight,
-        WarpInterpolation interpolation = WarpInterpolation.Bilinear,
+        WarpInterpolation interpolation = WarpInterpolation.Lanczos3Clamped,
         CancellationToken cancellationToken = default)
     {
         var debayered = await calibrated.DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);

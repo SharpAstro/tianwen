@@ -297,9 +297,11 @@ public sealed record StackingOptions(
     // median temperature, rounded, which is what the dark match and the slug then see. Two degrees
     // covers a cooled camera's drift over a night at roughly a quarter of one dark-current doubling.
     double LightGroupTemperatureToleranceC = 0,
-    // The resampling kernel that places each frame on the reference grid. Bilinear is every master
-    // built before R1 and adds phase times one minus phase of a pixel's variance per axis, about a
-    // pixel of FWHM in quadrature at 2 px seeing; Lanczos3 keeps the width at the price of faint
-    // ringing. The measurement and the pre-registration: docs/plans/deconvolver-training.md, R1.
-    WarpInterpolation WarpInterpolation = WarpInterpolation.Bilinear);
+    // The resampling kernel that places each frame on the reference grid. Clamped Lanczos-3 is the
+    // default since 7.1 (decided 2026-09-12): it keeps a 2 px star's width where bilinear, every
+    // master built before R1, adds phase times one minus phase of a pixel's variance per axis, about
+    // a pixel of FWHM in quadrature at 2 px seeing; the clamp bounds the ring the plain kernel draws
+    // on a debayered OSC plane, where every star is a spike (13 percent of the peak, measured). The
+    // measurements: docs/plans/deconvolver-training.md, R1, and the enum's own remarks.
+    WarpInterpolation WarpInterpolation = WarpInterpolation.Lanczos3Clamped);
 

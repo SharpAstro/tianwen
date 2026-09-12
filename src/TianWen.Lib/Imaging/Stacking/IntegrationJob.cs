@@ -118,9 +118,9 @@ public sealed record IntegrationJob(
     // a net win for them and would just spread NaN through Debayer.
     BitMatrix[]? BadPixelMask = null,
     // The resampling kernel every strategy that warps places its frames with (the WarpedFrames
-    // producer applies it upstream; TilePipelined warps per strip and reads it here). Bilinear is
-    // every master built before R1; see WarpInterpolation for what it costs.
-    WarpInterpolation WarpInterpolation = WarpInterpolation.Bilinear);
+    // producer applies it upstream; TilePipelined warps per strip and reads it here). Clamped
+    // Lanczos-3 since 7.1; bilinear is every master built before R1, see WarpInterpolation.
+    WarpInterpolation WarpInterpolation = WarpInterpolation.Lanczos3Clamped);
 
 /// <summary>
 /// Coarse-grained pipeline phase reported by integration strategies. Phases

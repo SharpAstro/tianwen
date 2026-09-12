@@ -888,9 +888,16 @@ the log's `N unmoved dropped` is a calibration diagnostic); the detector's mono 
 photosite into a 2 by 2 blob that passed the size floor, so half a star list was warm pixels and every
 median over it read their width (the guard is the peak photosite's share of the 3 by 3 flux,
 `Image.SinglePhotositeFractionMax`); and bilinear resampling costs phase times one minus phase of a
-pixel's variance per axis, about a pixel of FWHM in quadrature at 2 px seeing (`--warp-interpolation
-Lanczos3` costs none measurable; the default is still bilinear and the flip is a user decision, since
-it changes every master). Integer-phase frames (the reference, any frame whose shift is near-integer)
+pixel's variance per axis, about a pixel of FWHM in quadrature at 2 px seeing (Lanczos-3 costs none
+measurable, and **`Lanczos3Clamped` is the DEFAULT since 7.1**, decided 2026-09-12, for `stack` and
+the dataset bake alike; every master built before it is bilinear). **The clamp is not optional on
+OSC data: a debayered plane samples a 2 px star on a 2 px pitch, so per plane it is a spike and the
+plain kernel digs a ring of 13 percent of the peak two pixels out on every fractional-phase sub**
+(the synthetic RGGB fixture; a mono 2 px star rings 0.04 percent), deep enough to push the SAS
+auto-detect's min-anchored gate statistic over 0.125 and hand a LINEAR sub to the net unstretched.
+PixInsight's rule at a MEASURED threshold of 0.7, not its 0.3, which lifts every smooth star's skirt
+by 0.73 px of second-moment FWHM in quadrature; the sweep is on `Image.LanczosClampingThreshold`
+and the pin is `WarpInterpolationTests`. Integer-phase frames (the reference, any frame whose shift is near-integer)
 are the free control for the kernel's cost. The star profile fit (`PsfProfileFit`) fits the CORE and
 reports the wing: a fit over the far wing refused every sharp input. Measurements:
 [docs/plans/deconvolver-training.md](docs/plans/deconvolver-training.md) (E2.10a "the third finding

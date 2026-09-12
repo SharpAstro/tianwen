@@ -423,6 +423,7 @@ public static class DatasetBuildRunner
                 var reg = await SessionRegistrar.RegisterAsync(
                     session, calibrator, scratchRoot,
                     options.QualityRejectSigma, options.QualityMaxRejectFraction, options.MinSubsPerSession,
+                    warpInterpolation: options.WarpInterpolation,
                     hotPixelSigma: options.HotPixelSigma,
                     skipStorePath: skipStorePath,
                     timings: timings,

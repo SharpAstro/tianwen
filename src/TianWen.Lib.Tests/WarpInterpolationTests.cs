@@ -5,6 +5,7 @@ using System.Numerics;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Dataset;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -175,6 +176,7 @@ public class WarpInterpolationTests(ITestOutputHelper output)
         var shift = Matrix3x2.CreateTranslation(0.5f, 0.5f);
         var bilinear = PlaneOf(await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Bilinear));
         var lanczos = PlaneOf(await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Lanczos3));
+        var clamped = PlaneOf(await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Lanczos3Clamped));
 
         static double Median(IEnumerable<double> v)
         {
@@ -185,14 +187,17 @@ public class WarpInterpolationTests(ITestOutputHelper output)
         var source = Median(Stars.Select(s => MomentFwhm(plane, s.X, s.Y)));
         var underBilinear = Median(Stars.Select(s => MomentFwhm(bilinear, s.X + 0.5f, s.Y + 0.5f)));
         var underLanczos = Median(Stars.Select(s => MomentFwhm(lanczos, s.X + 0.5f, s.Y + 0.5f)));
+        var underClamped = Median(Stars.Select(s => MomentFwhm(clamped, s.X + 0.5f, s.Y + 0.5f)));
         static double Added(double after, double before) => after > before ? Math.Sqrt((after * after) - (before * before)) : 0.0;
         var bilinearAdd = Added(underBilinear, source);
         var lanczosAdd = Added(underLanczos, source);
+        var clampedAdd = Added(underClamped, source);
 
         var detectorSource = (await image.FindStarsAsync(0, snrMin: 20f)).Where(s => s.StarFWHM > 0f).Select(s => (double)s.StarFWHM).ToList();
         var detectorBilinear = (await (await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Bilinear)).FindStarsAsync(0, snrMin: 20f)).Where(s => s.StarFWHM > 0f).Select(s => (double)s.StarFWHM).ToList();
         var detectorLanczos = (await (await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Lanczos3)).FindStarsAsync(0, snrMin: 20f)).Where(s => s.StarFWHM > 0f).Select(s => (double)s.StarFWHM).ToList();
-        output.WriteLine($"moment FWHM: source {source:F3}, bilinear {underBilinear:F3} (+{bilinearAdd:F2} in quadrature), lanczos3 {underLanczos:F3} (+{lanczosAdd:F2})");
+        var detectorClamped = (await (await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Lanczos3Clamped)).FindStarsAsync(0, snrMin: 20f)).Where(s => s.StarFWHM > 0f).Select(s => (double)s.StarFWHM).ToList();
+        output.WriteLine($"moment FWHM: source {source:F3}, bilinear {underBilinear:F3} (+{bilinearAdd:F2} in quadrature), lanczos3 {underLanczos:F3} (+{lanczosAdd:F2}), lanczos3 clamped {underClamped:F3} (+{clampedAdd:F2})");
 
         // The sinc kernel's negative lobe, as the deepest pixel below the background within 6 px of each
         // star relative to its peak: what a Moffat fit of the wings sees and an annulus minimum on the
@@ -216,11 +221,122 @@ public class WarpInterpolationTests(ITestOutputHelper output)
             return min / peak;
         }
 
-        output.WriteLine($"deepest dip below background within 6 px, over the star's peak: source {Median(Stars.Select(s => DeepestDip(plane, s.X, s.Y))):P2}, bilinear {Median(Stars.Select(s => DeepestDip(bilinear, s.X + 0.5f, s.Y + 0.5f))):P2}, lanczos3 {Median(Stars.Select(s => DeepestDip(lanczos, s.X + 0.5f, s.Y + 0.5f))):P2}");
-        output.WriteLine($"detector median FWHM: source {Median(detectorSource):F3} ({detectorSource.Count}), bilinear {Median(detectorBilinear):F3} ({detectorBilinear.Count}), lanczos3 {Median(detectorLanczos):F3} ({detectorLanczos.Count})");
+        output.WriteLine($"deepest dip below background within 6 px, over the star's peak: source {Median(Stars.Select(s => DeepestDip(plane, s.X, s.Y))):P2}, bilinear {Median(Stars.Select(s => DeepestDip(bilinear, s.X + 0.5f, s.Y + 0.5f))):P2}, lanczos3 {Median(Stars.Select(s => DeepestDip(lanczos, s.X + 0.5f, s.Y + 0.5f))):P2}, lanczos3 clamped {Median(Stars.Select(s => DeepestDip(clamped, s.X + 0.5f, s.Y + 0.5f))):P2}");
+        output.WriteLine($"detector median FWHM: source {Median(detectorSource):F3} ({detectorSource.Count}), bilinear {Median(detectorBilinear):F3} ({detectorBilinear.Count}), lanczos3 {Median(detectorLanczos):F3} ({detectorLanczos.Count}), lanczos3 clamped {Median(detectorClamped):F3} ({detectorClamped.Count})");
 
         source.ShouldBe(2.12, tolerance: 0.15);
         bilinearAdd.ShouldBeInRange(0.9, 1.5);
         lanczosAdd.ShouldBeLessThan(0.4);
+        // The clamp is inert on a smooth profile: a 2 px mono star keeps Lanczos-3's width.
+        clampedAdd.ShouldBeLessThan(0.4);
+    }
+
+    /// <summary>
+    /// A debayered OSC plane samples a 2 px star on a 2 px pitch, so per plane the star is a spike with
+    /// 6 percent at its neighbours, and the plain kernel's negative lobes dig a ring of about 13 percent
+    /// of the peak two pixels out (the synthetic RGGB fixture's subs measured 400 to 2000 ADU below a
+    /// 1000 ADU sky next to a 15000 ADU peak). The clamp at PixInsight's threshold bounds that ring
+    /// while keeping the peak; bilinear never rings and is the floor the clamp is judged against.
+    /// </summary>
+    [Fact]
+    public async Task TheClampBoundsTheRingAPerPlaneSpikeDrawsAndLeavesTheKernelAloneElsewhere()
+    {
+        const int size = 64;
+        const float background = 1000f;
+        const float peak = 15000f;
+        var data = new float[size, size];
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                data[y, x] = background;
+            }
+        }
+
+        // The spike a debayered plane makes of a 0.85 sigma star sampled every 2 px: the centre and,
+        // two pixels out, exp(-4 / (2 * 0.85^2)) of it.
+        var wing = peak * MathF.Exp(-4f / (2f * 0.85f * 0.85f));
+        data[32, 32] = background + peak;
+        data[32, 30] = background + wing;
+        data[32, 34] = background + wing;
+        data[30, 32] = background + wing;
+        data[34, 32] = background + wing;
+        var image = new Image([data], BitDepth.Float32, background + peak, background, 0f, Meta);
+        var shift = Matrix3x2.CreateTranslation(0.5f, 0.5f);
+
+        var plain = PlaneOf(await image.WarpToReferenceGridAsync(shift, size, size, WarpInterpolation.Lanczos3));
+        var clamped = PlaneOf(await image.WarpToReferenceGridAsync(shift, size, size, WarpInterpolation.Lanczos3Clamped));
+        var bilinear = PlaneOf(await image.WarpToReferenceGridAsync(shift, size, size, WarpInterpolation.Bilinear));
+
+        static (float Min, float Max) Extremes(float[,] p)
+        {
+            var min = float.MaxValue;
+            var max = float.MinValue;
+            for (var y = 26; y <= 40; y++)
+            {
+                for (var x = 26; x <= 40; x++)
+                {
+                    min = MathF.Min(min, p[y, x]);
+                    max = MathF.Max(max, p[y, x]);
+                }
+            }
+
+            return (min, max);
+        }
+
+        var (plainMin, plainMax) = Extremes(plain);
+        var (clampedMin, clampedMax) = Extremes(clamped);
+        var (bilinearMin, bilinearMax) = Extremes(bilinear);
+        output.WriteLine($"ring below the sky, over the peak: plain {(background - plainMin) / peak:P1}, clamped {(background - clampedMin) / peak:P1}, bilinear {(background - bilinearMin) / peak:P1}; peak kept: plain {(plainMax - background) / peak:P1}, clamped {(clampedMax - background) / peak:P1}, bilinear {(bilinearMax - background) / peak:P1}");
+
+        // 5.9 percent measured on this clean spike; the VNG-debayered fixture's subs, sharper still, ring 13.
+        ((background - plainMin) / peak).ShouldBeGreaterThan(0.04f, "the plain kernel rings on a spike, which is what the clamp is for");
+        ((background - clampedMin) / peak).ShouldBeLessThan(0.03f);
+        bilinearMin.ShouldBeGreaterThanOrEqualTo(background - 0.01f);
+        // The clamp attenuates negative lobes only: the interpolated peak stays where Lanczos put it,
+        // above bilinear's, which averages a half-phase spike down.
+        clampedMax.ShouldBeGreaterThan(bilinearMax);
+    }
+
+    /// <summary>
+    /// Clamped Lanczos-3 is the default since 7.1 (decided 2026-09-12 on R1's reading and the clamp
+    /// sweep), and a default is a behaviour rather than a declaration: the overload that names no
+    /// kernel must warp exactly as the clamped one does, and the dataset bake must hand the registrar
+    /// the same choice, or a retained master and a user's master of the same night are built
+    /// differently and nothing says so.
+    /// </summary>
+    [Fact]
+    public async Task TheKernelNobodyNamesIsClampedLanczos3()
+    {
+        var (image, _) = Render();
+        var shift = Matrix3x2.CreateTranslation(0.5f, 0.5f);
+
+        var unnamed = PlaneOf(await image.WarpToReferenceGridAsync(shift, Size, Size));
+        var lanczos = PlaneOf(await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Lanczos3Clamped));
+        var bilinear = PlaneOf(await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Bilinear));
+
+        // float.Equals, not ==: a half-pixel shift leaves the first row and column NaN under every
+        // kernel, and NaN != NaN would count those 639 pixels as a difference.
+        var differsFromLanczos = 0;
+        var differsFromBilinear = 0;
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                if (!unnamed[y, x].Equals(lanczos[y, x]))
+                {
+                    differsFromLanczos++;
+                }
+
+                if (!unnamed[y, x].Equals(bilinear[y, x]))
+                {
+                    differsFromBilinear++;
+                }
+            }
+        }
+
+        differsFromLanczos.ShouldBe(0);
+        differsFromBilinear.ShouldBeGreaterThan(0, "a half-pixel shift under the two kernels cannot agree, so the pin is real");
+        new DatasetBuildOptions { ArchiveRoots = [], OutputDir = "unused" }.WarpInterpolation.ShouldBe(WarpInterpolation.Lanczos3Clamped);
     }
 }

@@ -228,13 +228,32 @@ the reference grid was bilinear and only bilinear, and it costs a star phase tim
 pixel's variance per axis: measured star by star on a real night, a master is the mean of its warped
 frames to 0.3 percent, and the frames at fractional shifts widen from their subs' 2.15 px to 2.4 to 2.7
 while the frames at integer shifts keep 2.15; on a synthetic 2.15 px star a half-pixel shift adds 1.15
-px of FWHM in quadrature under bilinear and none under Lanczos-3 (`WarpInterpolationTests`). The
-default stays bilinear, byte-identical to before; Lanczos-3 (six taps an axis, normalised over the
-taps present, exact at integer shifts) is opt-in. Measured on the same night (R1 in
+px of FWHM in quadrature under bilinear and none under Lanczos-3 (`WarpInterpolationTests`).
+**Clamped Lanczos-3 (`WarpInterpolation.Lanczos3Clamped`: six taps an axis, normalised over the taps
+present, exact at integer shifts, PixInsight's clamping rule) is the default**, for `tianwen stack`,
+`tianwen dataset build` (which gained the same `--warp-interpolation` so a bake states its kernel and
+`bake-provenance.json` records it) and the `Image.WarpToReferenceGridAsync` overloads that name no
+kernel; `--warp-interpolation Bilinear` reproduces every master built before this release byte for
+byte, and `Lanczos3` is the plain kernel R1 measured. Measured on the same night (R1 in
 `docs/plans/deconvolver-training.md`): the six-frame master goes 2.39 to 2.15 px per star and the
 whole night's 2.70 to 2.48, each still the mean of its frames, with no ringing on any of four measures
-at 2 px seeing, so the case for the default is made and the flip is the user's, since it changes every
-master. One consequence: the star profile fit refuses the sharper master, and every sharp input, because
+at 2 px seeing, which is the case for the default; it changes every master, which is why it was a
+decision (2026-09-12) rather than a fix. **The clamp turned out to be load-bearing, not a nicety.**
+Flipping the plain kernel on the synthetic RGGB fixture put a ring of 400 to 2000 ADU below a 1000 ADU
+sky two pixels from a 15000 ADU star on seven of eight subs: a mono 2 px star does not ring (0.04
+percent of its peak), but a debayered OSC plane samples it on a 2 px pitch, so per plane it is a spike
+with 6 percent at the neighbours, and the sinc's negative lobes ring on a spike by construction (13
+percent of the peak). That ring set the frame minimum, the SAS auto-detect's median-minus-minimum
+statistic crossed 0.125, and the tile exporter wrote a LINEAR sub unstretched, the domain skew the
+denoiser once hid for two weeks. The clamp is PCL's `LanczosInterpolation` rule verbatim (the
+weighted samples split by sign, negative lobes attenuated smoothly above a threshold and dropped once
+they outweigh the positive ones), at a threshold of **0.7, measured, not PixInsight's 0.3**: on a 2.12
+px mono Gaussian at half phase 0.3 lifts every star's skirt by 0.73 px of second-moment FWHM in
+quadrature (the half-maximum width is untouched at every threshold), the widening is gone from 0.6 up,
+and the spike's ring holds at 0.8 percent through 0.7 before climbing (1.3 at 0.8, 3.9 at 0.9, 5.9
+plain). On the fixture the clamped kernel takes every sub's gate statistic to 0.013 to 0.026. The
+softer cubic kernels were weighed and not added: they trade width for a ringing the clamp already
+bounds. One consequence: the star profile fit refuses the sharper master, and every sharp input, because
 a Gaussian core with a faint wing is not a fixed-width Moffat to an equal-weight log fit
 (`known-limitations.md`). `PsfProfileFit.Diagnostics` now carries the stacked profile, the floor and
 the fitted bins, so a refusal can be read bin by bin.

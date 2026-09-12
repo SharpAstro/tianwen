@@ -78,13 +78,13 @@ internal sealed class StackSubCommand(
         };
         var warpInterpolationOpt = new Option<WarpInterpolation>("--warp-interpolation")
         {
-            Description = "Resampling kernel that places each frame on the reference grid. Bilinear (the default, and every master "
-                        + "built before it was an option) adds phase times one minus phase of a pixel's variance per axis: about a "
-                        + "pixel of FWHM in quadrature at 2 px seeing, measured star by star on a real night, where a master is the "
-                        + "mean of its warped frames and the frames at fractional shifts widen from 2.15 to 2.4 to 2.7 px. Lanczos3 "
-                        + "(six taps an axis) keeps a 2 px star's width to within a few percent at the price of faint ringing around "
-                        + "bright stars. docs/plans/deconvolver-training.md, R1.",
-            DefaultValueFactory = _ => WarpInterpolation.Bilinear,
+            Description = "Resampling kernel that places each frame on the reference grid. Lanczos3Clamped (the default since 7.1; "
+                        + "six taps an axis, PixInsight's clamping rule at a measured threshold) keeps a 2 px star's width and bounds "
+                        + "the ring a debayered OSC plane draws, where every star is a spike per colour. Lanczos3 is the same kernel "
+                        + "unclamped (13 percent of a bright star's peak below the sky on such a plane). Bilinear (every master built "
+                        + "before 7.1) adds phase times one minus phase of a pixel's variance per axis: about a pixel of FWHM in "
+                        + "quadrature at 2 px seeing, measured star by star on a real night. docs/plans/deconvolver-training.md, R1.",
+            DefaultValueFactory = _ => WarpInterpolation.Lanczos3Clamped,
         };
         var snrMinOpt = new Option<float>("--snr-min")
         {

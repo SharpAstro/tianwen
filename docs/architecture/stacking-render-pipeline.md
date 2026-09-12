@@ -70,8 +70,11 @@ nearest-neighbour pairs, dropping any pair whose raw positions coincide while th
 detection (`UnmovedTolerancePx`): a detection fixed to the sensor pairs with its own copy at minus the
 drift, and averaging those in halved every shift under 5 px on a warm night. Each frame is then placed
 on the union canvas by `Image.WarpToReferenceGridAsync` with the kernel `--warp-interpolation` names:
-bilinear (the default) adds phase times one minus phase of a pixel's variance per axis, about a pixel
-of FWHM in quadrature at 2 px seeing, Lanczos-3 adds none measurable. **A master is the mean of its
+clamped Lanczos-3 (`Lanczos3Clamped`, the default since 7.1) adds none measurable and bounds the ring
+the plain kernel draws on a debayered plane (13 percent of a star's peak, since per colour a 2 px
+star is a spike; the clamp is PixInsight's rule at a measured 0.7), bilinear (every master built
+before 7.1) adds phase times one minus phase of a pixel's variance per axis, about a pixel of FWHM in
+quadrature at 2 px seeing. **A master is the mean of its
 warped frames to 0.3 percent**, star by star: the combine, the rejection and the normalisation add no
 width, so a master's width is its subs' plus the kernel's plus any misregistration, and nothing else.
 The measurements behind each clause: `docs/plans/deconvolver-training.md`, E2.10a "the third finding

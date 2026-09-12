@@ -1168,7 +1168,8 @@ under 10 percent of a star's peak, since a 2 px star is at the edge of what a si
 *Kill.* The fractional-phase frames stay above 2.4 px under Lanczos-3, or the ring excess passes 20
 percent. Then the widening is not the interpolation kernel (or the kernel is unusable at this sampling)
 and the warp is measured another way before any default changes. The default stays bilinear until the
-user decides; a flip changes every master.
+user decides; a flip changes every master. (Decided 2026-09-12: CLAMPED Lanczos-3 is the default,
+see "The re-bake" below for why the clamp and for the threshold sweep.)
 
 **R1 read, 2026-09-07 evening (`WarpInterpolationTests`; `exp-near6-lanczos` against `exp-near6-fixed`;
 `C:/temp/e2/e210-perstar-exp-near6-lanczos.txt`, `e210-ringing-near6.txt`, `e210-radial-near6.txt`,
@@ -1221,8 +1222,9 @@ exactly the kernel's contribution, sqrt(2.70 squared minus 2.48 squared) = 1.07 
 over the sharpest subs is the night's own seeing spread averaged in.
 
 *Standing.* Lanczos-3 keeps a 2 px star's width to within the subs' own scatter and rings below what
-any of the four measures can see on this night; the default stays bilinear until the user decides, and
-every master built before this carries about a pixel in quadrature. Then E2.10's second attempt has a
+any of the four measures can see on this night; the default stayed bilinear until the user decided
+(2026-09-12, Lanczos-3 clamped at a measured 0.7, see "The re-bake"), and every master built before
+this carries about a pixel in quadrature. Then E2.10's second attempt has a
 stack whose width follows its input, once the estimator's fit is made to read a sharp master.
 
 #### E1g: the profile fit's floor against the far-wing residue (pre-registered 2026-09-07 evening)
@@ -2064,6 +2066,60 @@ staged 2.81, predates the registration fix); the beta semantics need no re-stack
    whether the 52 drizzle masters are part of the problem.
 3. **The Lanczos-3 default (the user's), then a bake option for the warp kernel**: `SessionRegistrar`
    hard-codes `WarpInterpolation.Bilinear`, so a Lanczos bake needs the option either way.
+   **DONE 2026-09-12, as CLAMPED Lanczos-3.** `WarpInterpolation.Lanczos3Clamped` is the default
+   everywhere a kernel is chosen (`StackingOptions`, `IntegrationJob`, the `Image` overloads that name
+   none, `tianwen stack`), the registrar takes `warpInterpolation` from
+   `DatasetBuildOptions.WarpInterpolation`, and `tianwen dataset build` has `--warp-interpolation`; the
+   launcher's `bake-provenance.json` records the argument, so a store's kernel is readable after the
+   fact. `Lanczos3` stays as the plain kernel R1 measured.
+
+   **Why clamped, found the same day by flipping the plain kernel on the synthetic RGGB fixture.**
+   Seven of eight warped subs carried a ring of 400 to 2000 ADU below a 1000 ADU sky two pixels from
+   the brightest star's 15000 ADU peak (13 percent of it; bilinear: no pixel below the sky anywhere).
+   Not a property of a 2 px star, which rings 0.04 percent under the plain kernel in mono
+   (`WarpInterpolationTests`, the source's own noise), but of a DEBAYERED plane: it samples a 0.85
+   sigma star on a 2 px pitch, so per colour the star is a spike with 6 percent at its neighbours, and
+   a windowed sinc rings on a spike by construction. Two consequences were measured before the fix:
+   the ring set the frame minimum, so the SAS auto-detect's median-minus-minimum statistic read 0.128
+   against its 0.125 threshold on sub 0 and the tile exporter wrote that sub UNSTRETCHED (a linear
+   tile beside stretched ones, H0's domain skew in a new place, caught only because a negative value
+   failed the exporter test's range check); and every sub's profile within 3 px of a bright star was
+   wrong-signed, which is what the deconvolver's estimator step reads. PixInsight's default is
+   clamped Lanczos-3 for this reason (PCL: "strong undershoot (aka ringing) artifacts when the
+   negative lobes of the interpolation function fall over bright isolated pixels or edges").
+
+   **The clamp is PCL `LanczosInterpolation`'s rule verbatim** (weighted samples summed by sign, r =
+   negative over positive; r at or above 1 keeps the positive lobes alone, r above the threshold t
+   scales the negative part by 1 - ((r - t) / (1 - t))^2), **at a threshold of 0.7, measured, not
+   PixInsight's 0.3.** The sweep (a 2.12 px mono Gaussian field, 12 stars, at half phase; a per-plane
+   spike of 15000 over 1000 with 6 percent neighbours):
+
+   | t | second-moment FWHM added, px in quadrature | half-max (detector) added | spike ring, percent of peak |
+   |---|---|---|---|
+   | 0.3 (PixInsight) | 0.73 | 0.49 | 0.7 |
+   | 0.4 | 0.55 | 0.47 | 0.7 |
+   | 0.5 | 0.30 | 0.45 | 0.8 |
+   | 0.6 | 0.00 | 0.45 | 0.8 |
+   | **0.7** | **0.00** | **0.46** | **0.8** |
+   | 0.8 | 0.00 | 0.46 | 1.3 |
+   | 0.9 | 0.00 | 0.46 | 3.9 |
+   | 1.0 (plain) | 0.00 | 0.46 | 5.9 |
+
+   The half-max column is flat, including at 1.0, so it is the half-phase shift's own reading and not
+   the clamp's; the second-moment column is the clamp lifting the skirt of every smooth star (on a
+   skirt the core's negative-lobe contribution exceeds a low threshold of the faint local wing), gone
+   from 0.6 up; the ring is bounded through 0.7 and climbs after. 0.7 is the last value inert on a
+   smooth profile. On the fixture it takes every sub's gate statistic to 0.013 to 0.026 (from 0.128)
+   and the ring to about 2.5 percent. The peak is kept identically at every threshold (36.5 percent of
+   a half-phase spike, bilinear 25). Pinned by `WarpInterpolationTests`; the constant's doc carries
+   the numbers. Weighed and not added: Lanczos-4 buys nothing R1 could measure; the cubic family
+   (B-spline, Catmull-Rom, Mitchell) trades width for a ringing the clamp already bounds; area
+   resampling is for downsampling, which the unit-scale registration never does.
+
+   **Owed to the re-bake's reading:** every retained master's ring and skirt are now a property of
+   this kernel; the near6 / whole-night per-star probe (R1's method) should be re-read once under
+   `Lanczos3Clamped` beside its `Lanczos3` figures before the overnight re-stack, so the default's
+   width on REAL OSC subs is a number and not the synthetic one.
 4. **The full re-stack as one detached overnight job**, about 11 h with the measure stage done, and
    E3.0's re-export (`--estimate-kernels`, the ratio draw) after it, never before, since the
    degradation cache is cut from the masters.

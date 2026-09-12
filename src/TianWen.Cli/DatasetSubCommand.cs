@@ -139,6 +139,15 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                           "pixels). Default 8.",
             DefaultValueFactory = _ => 8f,
         };
+        var warpInterpolationOpt = new Option<WarpInterpolation>("--warp-interpolation")
+        {
+            Description = "Resampling kernel that places each sub on the session canvas, the same choice " +
+                          "'tianwen stack' offers. Lanczos3Clamped (the default since 7.1) keeps a 2 px star's " +
+                          "width and bounds the ring a debayered plane draws; Lanczos3 is unclamped; Bilinear is " +
+                          "every store baked before 7.1 and costs about a pixel of FWHM in quadrature at 2 px " +
+                          "seeing. A store's kernel is in its bake-provenance.json.",
+            DefaultValueFactory = _ => WarpInterpolation.Lanczos3Clamped,
+        };
         var softwareOpt = new Option<string>("--software")
         {
             Description = "Case-insensitive wildcard on SWCREATE; only LIGHTS authored by matching " +
@@ -215,7 +224,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             {
                 archiveRootOpt, outOpt,
                 minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, minSubsOpt,
-                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, hotPixelSigmaOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt, forcePsfOpt, remeasureSubsOpt, siteOpt, scratchRootOpt,
+                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, hotPixelSigmaOpt, warpInterpolationOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt, forcePsfOpt, remeasureSubsOpt, siteOpt, scratchRootOpt,
             },
         };
         buildCommand.SetAction(async (parseResult, ct) =>
@@ -255,6 +264,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                 RequireGainMatch = parseResult.GetValue(requireGainMatchOpt),
                 MaxDarkTemperatureDelta = parseResult.GetValue(maxDarkDeltaTOpt),
                 HotPixelSigma = parseResult.GetValue(hotPixelSigmaOpt),
+                WarpInterpolation = parseResult.GetValue(warpInterpolationOpt),
                 SoftwareIncludePattern = parseResult.Required(softwareOpt),
                 ScratchRoot = parseResult.Required(scratchRootOpt),
                 Resume = parseResult.GetValue(resumeOpt),
