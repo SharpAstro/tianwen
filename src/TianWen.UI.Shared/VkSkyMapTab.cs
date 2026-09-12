@@ -447,7 +447,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
         var placementLabelSize = baseFontSize * dpiScale * 0.85f;
         var measureText = (string text, float size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width;
-        Action<OverlayItem, float, float> record = (item, lx, ly) => _overlayPlacedLabels.Add((item, lx, ly));
+        Action<PlacedLabel> record = label => _overlayPlacedLabels.Add((label.Item, label.X, label.Y));
 
         // Reserve the mount reticle's label footprint (drawn later, in RenderMountOverlay) so
         // an object name never renders on top of it when the mount sits on a catalogued target.

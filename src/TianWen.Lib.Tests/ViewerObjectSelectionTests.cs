@@ -113,14 +113,14 @@ namespace TianWen.Lib.Tests
             float Cx, float Cy, float SemiMajor, float SemiMinor, float AngleRad);
 
         /// <summary>A frame whose reference pixel is at its own centre, pointed at the given sky position.</summary>
-        private static WCS CentredOn(double raHours, double decDeg) => new WCS(raHours, decDeg)
+        private static WCS CentredOn(double raHours, double decDeg, double scaleDeg = ScaleDeg) => new WCS(raHours, decDeg)
         {
             CRPix1 = ImageW / 2.0,
             CRPix2 = ImageH / 2.0,
-            CD1_1 = -ScaleDeg,
+            CD1_1 = -scaleDeg,
             CD1_2 = 0.0,
             CD2_1 = 0.0,
-            CD2_2 = -ScaleDeg,
+            CD2_2 = -scaleDeg,
         };
 
         /// <summary>
@@ -161,7 +161,7 @@ namespace TianWen.Lib.Tests
             CelestialObject Object)> NewViewerOnAsync(
             RgbaImageRenderer renderer, CatalogIndex index, CancellationToken ct,
             double pointOffsetDeg = 0.0, DateTimeOffset? exposureStart = null,
-            float latitude = float.NaN, float longitude = float.NaN)
+            float latitude = float.NaN, float longitude = float.NaN, double scaleDeg = ScaleDeg)
         {
             var db = await SharedCatalogDB.InitAsync(ct);
             db.TryLookupByIndex(index, out var obj).ShouldBeTrue($"the catalogue has to hold {index}");
@@ -179,7 +179,7 @@ namespace TianWen.Lib.Tests
 
             var document = await AstroImageDocument.AdoptImageAsync(
                 SyntheticFrame(exposureStart, latitude, longitude), DebayerAlgorithm.None,
-                CentredOn(obj.RA + raOffsetHours, obj.Dec),
+                CentredOn(obj.RA + raOffsetHours, obj.Dec, scaleDeg),
                 filePath: "synthetic.fits", cancellationToken: ct);
 
             var state = new ViewerState
@@ -361,6 +361,192 @@ namespace TianWen.Lib.Tests
 
             var selection = state.SelectedObject.ShouldNotBeNull();
             selection.Canonical.ShouldBe("NGC 5194");
+        }
+
+        /// <summary>
+        /// A tap on an object's overlay LABEL selects that object, however far from its centre the
+        /// letters were placed.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>The letters are the thing the user is pointing at, and the resolver knew nothing
+        /// about them.</b> It answered with the nearest catalogue CENTRE to the tap, and a label sits
+        /// beside its marker, further away than the click tolerance reaches: on the 10P master, a tap
+        /// on the label of each of seven ellipse-marked galaxies selected a neighbour three times and
+        /// nothing once. The tap here is at the label's far corner, and the case asserts that corner
+        /// is beyond the tolerance first, or a small label near a big marker could pass by proximity
+        /// alone.</para>
+        /// <para>The box comes from the viewer's own record of what it drew, not from re-deriving the
+        /// slot: which side the placement pass chose is its business, and the test only needs to know
+        /// where the letters ended up. At ten arcseconds a pixel rather than the harness's two, so
+        /// M51's own outline is 34 pixels across its semi-major axis and the label's far corner lies
+        /// OUTSIDE it -- a tap inside the outline would select M51 through the marker, and the case
+        /// would pass with the label path deleted. Asserted, since that is what makes it a label
+        /// test.</para>
+        /// </remarks>
+        [Fact]
+        public async Task ATapOnAnObjectsLabelSelectsIt()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _) = await NewViewerOnAsync(
+                renderer, CatalogIndex.NGC5194, ct, scaleDeg: 10.0 / 3600.0);
+            state.ShowOverlays = true;
+
+            viewer.Render(document, state);
+
+            var drawn = viewer.DrawnOverlayObjects.First(d => d.Index == CatalogIndex.NGC5194);
+            var box = drawn.LabelBox.ShouldNotBeNull("the overlay labels M51 at 100 percent");
+
+            // The corner of the label furthest from the marker, one pixel inside the box and inside
+            // the picture, so the press arms a tap at all.
+            var area = viewer.ImageArea;
+            var (cx, cy) = (drawn.ScreenX, drawn.ScreenY);
+            var x = Math.Clamp(MathF.Abs(box.X - cx) > MathF.Abs(box.X + box.W - cx) ? box.X + 1f : box.X + box.W - 1f,
+                area.X + 1f, area.X + area.Width - 1f);
+            var y = Math.Clamp(MathF.Abs(box.Y - cy) > MathF.Abs(box.Y + box.H - cy) ? box.Y + 1f : box.Y + box.H - 1f,
+                area.Y + 1f, area.Y + area.Height - 1f);
+
+            // Two percent of a 1.67 degree field is the tolerance here, 12 pixels at 10 arcseconds
+            // each; and the marker's own extent plus the hit slack is what the marker path reaches.
+            var distancePx = MathF.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy)));
+            distancePx.ShouldBeGreaterThan(30f,
+                "the tap has to be well beyond the click tolerance, or proximity would answer for the label");
+            distancePx.ShouldBeGreaterThan(drawn.Marker.SemiMajorPx + 8f,
+                "and outside M51's own outline, or the marker would answer for the label");
+
+            TapAt(viewer, x, y);
+
+            var selection = state.SelectedObject.ShouldNotBeNull("a tap on the label selects");
+            selection.Canonical.ShouldBe("NGC 5194");
+        }
+
+        /// <summary>
+        /// With the overlay on, the SELECTED object's overlay label is not drawn: the ring names it, and
+        /// the ring's name box is what the overlay records as that object's label.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Two copies of one name on top of each other is what "the text is mangled" was.</b>
+        /// The ring draws the name beside itself in the accent colour, and the overlay placed the same
+        /// name in the label's usual slot beside the marker, which for a right-slot label is the same
+        /// place. So the ring's name is the object's ONE label this frame: the overlay leaves the
+        /// object out of its label pass and reserves the ring's box, which is what keeps a neighbour's
+        /// label off it too.</para>
+        /// <para>Asserted through the viewer's record of what it drew rather than through pixels: a
+        /// label box at the ring's right edge, clear of the ring's own extent, and no other placed
+        /// label intersecting it. A slot-0 placement at the marker's edge fails the first assertion by
+        /// M51's whole semi-minor axis.</para>
+        /// </remarks>
+        [Fact]
+        public async Task TheSelectedObjectsOverlayLabelStepsAsideForTheRingsName()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _) = await NewViewerOnAsync(renderer, CatalogIndex.NGC5194, ct);
+            state.ShowOverlays = true;
+
+            viewer.Render(document, state);
+            var baseline = EllipsesWithoutSelection(viewer, document, state);
+
+            var (x, y) = ObjectOnScreen(viewer, state);
+            TapAt(viewer, x, y);
+            state.SelectedObject.ShouldNotBeNull().Canonical.ShouldBe("NGC 5194");
+
+            viewer.DrawnEllipses.Clear();
+            viewer.Render(document, state);
+            var (_, outer) = SelectionRings(viewer, baseline);
+
+            var drawn = viewer.DrawnOverlayObjects.First(d => d.Index == CatalogIndex.NGC5194);
+            drawn.NamedByRing.ShouldBeTrue(
+                "the overlay draws no label of its own for the selected object; the ring names it");
+            var box = drawn.LabelBox.ShouldNotBeNull("the ring's name stands in as the object's label");
+
+            // Clear of the ring: at least its semi-minor axis to the right of the centre, and no
+            // further than its semi-major axis plus the gap.
+            box.X.ShouldBeGreaterThan(drawn.ScreenX + outer.SemiMinor,
+                "the name sits beyond the ring, not in the overlay's own slot beside the marker");
+            box.X.ShouldBeLessThanOrEqualTo(drawn.ScreenX + outer.SemiMajor + 8f,
+                "and no further than the ring's widest extent plus the gap");
+
+            foreach (var other in viewer.DrawnOverlayObjects)
+            {
+                if (other.Index == CatalogIndex.NGC5194 || other.LabelBox is not { } theirs)
+                {
+                    continue;
+                }
+
+                var overlaps = box.X < theirs.X + theirs.W && box.X + box.W > theirs.X
+                    && box.Y < theirs.Y + theirs.H && box.Y + box.H > theirs.Y;
+                overlaps.ShouldBeFalse($"{other.Index.ToCanonical()}'s label must not land on the ring's name");
+            }
+        }
+
+        /// <summary>
+        /// An object a few arcseconds across a coordinate-grid cell boundary from the tap is still the
+        /// nearest object, and is found.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>The grid answers for ONE cell, a degree of Dec by four minutes of RA, and the
+        /// resolver asked only the cell under the tap.</b> An object across the boundary was invisible
+        /// however close it was: NGC 7204A sits at Dec -31.05, and a tap 20 arcseconds north of it
+        /// resolved nothing with the marker under the pointer. The overlay is OFF here so the drawn
+        /// record cannot answer, which leaves the catalogue search as the whole resolver.</para>
+        /// <para>The object is chosen from the real catalogue for sitting within 4 to 11 arcseconds of
+        /// a whole degree of Dec, and the tap mirrors it across that degree: twice the gap away, inside
+        /// the half-arcminute tolerance, and in the other cell by construction -- which the case
+        /// asserts before tapping, so a catalogue refresh that moves the object cannot turn it into a
+        /// same-cell case that passes for nothing.</para>
+        /// </remarks>
+        [Fact]
+        public async Task AnObjectJustAcrossAGridCellBoundaryIsStillFound()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var db = await SharedCatalogDB.InitAsync(ct);
+
+            CatalogIndex? pick = null;
+            foreach (var index in db.AllObjectIndices)
+            {
+                if (!db.TryLookupByIndex(index, out var candidate)
+                    || !OverlayEngine.IsExtendedObjectType(candidate.ObjectType)
+                    || !double.IsFinite(candidate.RA) || !double.IsFinite(candidate.Dec)
+                    || Math.Abs(candidate.Dec) > 80.0)
+                {
+                    continue;
+                }
+
+                var gapDeg = Math.Abs(candidate.Dec - Math.Round(candidate.Dec));
+                if (gapDeg is > 0.001 and < 0.003 && (pick is not { } p || (ulong)index < (ulong)p))
+                {
+                    pick = index;
+                }
+            }
+
+            var target = pick.ShouldNotBeNull("the catalogue holds thousands of objects; one sits near a whole degree");
+
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, obj) = await NewViewerOnAsync(renderer, target, ct);
+            viewer.Render(document, state);
+
+            var boundary = Math.Round(obj.Dec);
+            var tapDec = boundary + (boundary - obj.Dec);
+            ((int)(tapDec + 90.0)).ShouldNotBe((int)(obj.Dec + 90.0),
+                "the tap has to be in the other grid cell, or the case tests nothing");
+
+            var wcs = document.Wcs.ShouldNotBeNull();
+            var px = wcs.SkyToPixel(obj.RA, tapDec).ShouldNotBeNull();
+            var area = viewer.ImageArea;
+            var layout = new ViewportLayout(
+                WindowWidth: WindowW, WindowHeight: WindowH,
+                ImageWidth: ImageW, ImageHeight: ImageH,
+                Zoom: state.Zoom, PanOffset: state.PanOffset,
+                AreaLeft: area.X, AreaTop: area.Y, AreaWidth: area.Width, AreaHeight: area.Height,
+                DpiScale: 1f);
+            var (sx, sy) = WcsAnnotationLayer.ImageToScreen(px.X, px.Y, layout);
+
+            TapAt(viewer, (float)sx, (float)sy);
+
+            var selection = state.SelectedObject.ShouldNotBeNull(
+                $"{obj.Index.ToCanonical()} is {2 * Math.Abs(boundary - obj.Dec) * 3600:F1} arcseconds from the tap");
+            selection.Canonical.ShouldBe(obj.Index.ToCanonical());
         }
 
         /// <summary>

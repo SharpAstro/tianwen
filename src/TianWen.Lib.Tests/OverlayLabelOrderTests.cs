@@ -51,7 +51,7 @@ namespace TianWen.Lib.Tests
             OverlayEngine.PlaceLabelsBestEffort(
                 items, labelSize: 10f, labelPad: 4f,
                 measureText: (t, s) => t.Length * s * 0.5f,
-                drawLabelLines: (item, _, _) => seen.Add(item.StableSortKey),
+                drawLabelLines: label => seen.Add(label.Item.StableSortKey),
                 maxLabels: maxLabels);
             return seen;
         }
@@ -124,7 +124,7 @@ namespace TianWen.Lib.Tests
             OverlayEngine.PlaceLabels(
                 items, labelSize: 10f, labelPad: 4f,
                 measureText: (t, s) => { examined++; return 400f; },
-                drawLabelLines: (_, _, _) => placed++,
+                drawLabelLines: _ => placed++,
                 maxLabels: 10);
 
             output.WriteLine($"placed {placed} labels after measuring {examined} items");

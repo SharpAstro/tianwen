@@ -290,22 +290,20 @@ namespace TianWen.UI.Abstractions
             var measureText = (string text, float size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width;
             var labelStart = System.Diagnostics.Stopwatch.GetTimestamp();
             OverlayEngine.PlaceLabelsBestEffort(_primOverlayItems, labelSize, 4f, measureText,
-                (item, lx, ly) =>
+                label =>
                 {
+                    var (item, lx, ly, maxLineW, labelH) = label;
                     var a = OverlayEngine.MarkerAlpha(
                         item.IsPinned, item.RA, item.Dec, dimBelowHorizon, site, fovAlpha);
                     var (r, g, b) = item.Color;
                     var col = item.IsPinned
                         ? new RGBAColor32(0xFF, 0x90, 0x50, (byte)(a * 255f))
                         : RGBAColor32.FromFloat(r, g, b, a);
-                    var maxLineW = 0f;
                     for (var i = 0; i < item.LabelLines.Count; i++)
                     {
                         DrawText(item.LabelLines[i].AsSpan(), fontPath,
                             lx, ly + i * lineH, 220f, lineH,
                             labelSize, col, TextAlign.Near, TextAlign.Near);
-                        var w = measureText(item.LabelLines[i], labelSize);
-                        if (w > maxLineW) { maxLineW = w; }
                     }
 
                     // Make the LABEL itself clickable -> selects the same object its marker would (desktop
@@ -319,7 +317,6 @@ namespace TianWen.UI.Abstractions
                     // unchanged. Skip nearly-faded labels so there are no phantom hit targets.
                     if (a > 0.15f && maxLineW > 0f && item.LabelLines.Count > 0)
                     {
-                        var labelH = item.LabelLines.Count * lineH;
                         var objX = item.ScreenX;
                         var objY = item.ScreenY;
                         RegisterClickable(lx, ly, maxLineW, labelH,

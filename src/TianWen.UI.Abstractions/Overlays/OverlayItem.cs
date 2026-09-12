@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using TianWen.Lib.Astrometry.Catalogs;
 
 namespace TianWen.UI.Abstractions.Overlays;
 
@@ -8,6 +9,17 @@ namespace TianWen.UI.Abstractions.Overlays;
 /// </summary>
 public sealed class OverlayItem
 {
+    /// <summary>
+    /// The catalogue entry this item was projected from, so a consumer that recorded WHERE the item
+    /// was drawn can answer "which object is drawn here" without carrying the object along.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="StableSortKey"/> holds this index's raw bits and always has, but it is named for
+    /// what it is used for, an ordering tiebreak, and reading an identity back out of a sort key is
+    /// the kind of reuse that survives exactly until someone changes the key.
+    /// </remarks>
+    public CatalogIndex Index { get; init; }
+
     /// <summary>Screen X coordinate of the object center.</summary>
     public float ScreenX { get; init; }
 

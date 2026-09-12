@@ -792,6 +792,7 @@ public static class OverlayEngine
 
             result.Add(new OverlayItem
             {
+                Index = idx,
                 ScreenX = cx,
                 ScreenY = cy,
                 RA = obj.RA,
@@ -1463,6 +1464,7 @@ public static class OverlayEngine
 
             output.Add(new OverlayItem
             {
+                Index = cand.CatalogIndex,
                 ScreenX = screenX,
                 ScreenY = screenY,
                 RA = cand.RA,
@@ -1599,8 +1601,9 @@ public static class OverlayEngine
     /// <param name="labelSize">Font size in pixels for label lines.</param>
     /// <param name="labelPad">Padding in pixels between the marker and label box.</param>
     /// <param name="measureText">Callback: measure (text, fontSize) → pixel width.</param>
-    /// <param name="drawLabelLines">Callback: draw a label block at (x, y) with the given
-    /// base RGB color. The block's top-left is at (x, y); line-height is <paramref name="labelSize"/> * 1.2.</param>
+    /// <param name="drawLabelLines">Callback: draw a label block in the box the pass settled on --
+    /// its top-left at (<see cref="PlacedLabel.X"/>, <see cref="PlacedLabel.Y"/>), line-height
+    /// <paramref name="labelSize"/> * 1.2 -- for the item it names.</param>
     /// <param name="maxLabels">Label cap to prevent clutter. Defaults to <see cref="MaxOverlayLabels"/>.</param>
     /// <param name="reservedRegions">Screen-space boxes (x, y, w, h) that are already
     /// occupied by something the engine doesn't own, e.g. the live mount-reticle label,
@@ -1611,7 +1614,7 @@ public static class OverlayEngine
         float labelSize,
         float labelPad,
         Func<string, float, float> measureText,
-        Action<OverlayItem, float, float> drawLabelLines,
+        Action<PlacedLabel> drawLabelLines,
         int maxLabels = MaxOverlayLabels,
         IReadOnlyList<(float X, float Y, float W, float H)>? reservedRegions = null)
     {
@@ -1683,7 +1686,7 @@ public static class OverlayEngine
 
                     if (!overlaps)
                     {
-                        drawLabelLines(item, lx, ly);
+                        drawLabelLines(new PlacedLabel(item, lx, ly, maxLineW, totalH));
                         placedLabels.Add((lx, ly, maxLineW, totalH));
                         labelCount++;
                         break;
@@ -1723,7 +1726,7 @@ public static class OverlayEngine
         float labelSize,
         float labelPad,
         Func<string, float, float> measureText,
-        Action<OverlayItem, float, float> drawLabelLines,
+        Action<PlacedLabel> drawLabelLines,
         int maxLabels = MaxOverlayLabels,
         IReadOnlyList<(float X, float Y, float W, float H)>? reservedRegions = null)
     {
@@ -1792,7 +1795,7 @@ public static class OverlayEngine
                     }
                 }
 
-                drawLabelLines(item, lx, ly);
+                drawLabelLines(new PlacedLabel(item, lx, ly, maxLineW, totalH));
                 labelCount++;
             }
         }
