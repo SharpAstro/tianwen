@@ -156,21 +156,27 @@ mkdir -p "$contents/MacOS" "$contents/Resources"
 
 # The WHOLE publish tree goes into Contents/MacOS, data files included (models/, the notices, the
 # fonts). AppContext.BaseDirectory is the executable's directory, and that is where ModelResolver,
-# BundledFonts and the licence attachments look; moving them to Resources would be tidier and
-# would break every one of those lookups. codesign seals everything under Contents/ as a resource
-# either way, so nothing here is left out of the signature.
+# BundledFonts, SkyMapTab's milkyway raster and the licence attachments look; moving them to
+# Resources would be tidier and would break every one of those lookups.
+#
+# This comment used to end "codesign seals everything under Contents/ as a resource either way, so
+# nothing here is left out of the signature". That is FALSE for this one directory, and believing
+# it cost two release runs. Contents/MacOS is nested=true in codesign's default resource rules, so
+# nothing in it is sealed as a resource: every file there is treated as CODE and must carry its own
+# signature. The signing block below therefore signs all of them, not just the Mach-Os.
 cp -R "$publish_dir/." "$contents/MacOS/"
 chmod +x "$contents/MacOS/$exe"
 
-# Portable PDBs: the entry assembly already opts out (DebugType=none, Release, in the two viewer
-# csprojs), but that property is per-project and does not reach the referenced assemblies (AI,
-# AI.Imaging, Hosting.Contracts, RemoteClient, UI.Abstractions, UI.Shared), each of which still
-# lands its own .pdb in the publish tree and therefore in Contents/MacOS. They carry no runtime
-# value in a shipped bundle -- symbolication uses the raw publish/ artifact, never the .app -- and
-# 2026-09-12 found one of them (TianWen.AI.Imaging.pdb) is what codesign's hardened-runtime verify
-# named as the failing subcomponent while ad-hoc-signing tianwen-fits (exact mechanism unconfirmed,
-# no Mac to test against; this removes the whole class rather than chasing that one file).
+# Debug artefacts, dropped before anything is signed. They would sign fine now, but they have no
+# runtime value in a shipped bundle (symbolication uses the raw publish/ artifact, never the .app)
+# and the .dSYM alone is 34.8 of the tree's 177 MB.
+#
+# The .pdb files belong to the referenced assemblies (AI, AI.Imaging, Hosting.Contracts,
+# RemoteClient, UI.Abstractions, UI.Shared): the entry assembly opts out with DebugType=none in the
+# two viewer csprojs, but that property is per-project and does not reach them. The .dSYM is the
+# bundle the AOT publish leaves beside the binary.
 find "$contents/MacOS" -name '*.pdb' -delete
+find "$contents/MacOS" -name '*.dSYM' -type d -prune -exec rm -rf {} +
 render_plist "$template" "$version" "$build" "$contents/Info.plist"
 printf 'APPL????' > "$contents/PkgInfo"
 
@@ -202,9 +208,23 @@ if [ "$mode" = "bundle" ]; then
 fi
 
 # ---------------------------------------------------------------------------------------------
-# Sign: every Mach-O inside first, then the executable, then the bundle. Inner-most first is
-# Apple's rule (--deep is deprecated for good reason: it re-signs in an order that can invalidate
-# what it just signed). Ad-hoc signatures cannot carry a timestamp, so that flag is conditional.
+# Sign: everything inside Contents/MacOS first, then the executable, then the bundle. Inner-most
+# first is Apple's rule (--deep is deprecated for good reason: it re-signs in an order that can
+# invalidate what it just signed). Ad-hoc signatures cannot carry a timestamp, so that flag is
+# conditional.
+#
+# EVERY file, not only the Mach-Os, for the nested=true reason given where the tree is copied in.
+# An unsigned data file under Contents/MacOS fails the signing of the EXECUTABLE, several commands
+# before any verify, with "code object is not signed at all / In subcomponent: <that file>".
+#
+# Measured on macos-latest over seven bundle shapes (2026-09-12), after two release runs died here:
+# leaving the data files unsigned failed naming whichever one the walk reached first --
+# TianWen.AI.Imaging.pdb, then LICENSE.EXCEPTION once the pdbs were stripped, then LICENSE, then
+# milkyway.bgra.lz -- which is what says this is one CLASS, not one bad file. Signing them all
+# passed. So did moving them to Contents/Resources (Apple's own layout, and the thing that breaks
+# AppContext.BaseDirectory). Dropping --deep from the verify below fixed nothing, because the
+# failure is not in the verify. codesign keeps a non-Mach-O file's signature in an extended
+# attribute, which is why it survives the cp -R and hdiutil below.
 # ---------------------------------------------------------------------------------------------
 have codesign || die "codesign is required from here on; use --bundle-only elsewhere"
 identity="${MACOS_SIGN_IDENTITY:--}"
@@ -216,18 +236,23 @@ else
   log "signing AD-HOC (no MACOS_SIGN_IDENTITY); Gatekeeper will need Open Anyway on another Mac"
 fi
 
-signed=0
+signed_code=0
+signed_data=0
 while IFS= read -r -d '' f; do
   [ "$f" = "$contents/MacOS/$exe" ] && continue
+  # Classified before signing, purely so the log line below says what was in there; signing a
+  # Mach-O keeps its magic, but reading it first keeps the count honest whatever codesign does.
   if is_macho "$f"; then
-    codesign "${sign_args[@]}" "$f"
-    signed=$((signed + 1))
+    signed_code=$((signed_code + 1))
+  else
+    signed_data=$((signed_data + 1))
   fi
+  codesign "${sign_args[@]}" "$f"
 done < <(find "$contents/MacOS" -type f -print0)
 codesign "${sign_args[@]}" --entitlements "$here/entitlements.plist" "$contents/MacOS/$exe"
 codesign "${sign_args[@]}" --entitlements "$here/entitlements.plist" "$bundle"
 codesign --verify --deep --strict --verbose=2 "$bundle"
-log "signed $signed libraries, the executable and the bundle"
+log "signed $signed_code Mach-O files, $signed_data data files, the executable and the bundle"
 
 # ---------------------------------------------------------------------------------------------
 # Disk image: the .app beside an /Applications link, compressed, then signed like the app.

@@ -59,12 +59,27 @@ certificate recipe and the free-versus-paid table; what belongs here is the deci
   same script signs, notarizes, staples and runs `spctl` the way Gatekeeper would on a download, so
   a failure there fails the job rather than the user.
 - **The bundle is the publish tree, whole, under `Contents/MacOS`.** `AppContext.BaseDirectory` is
-  the executable's directory, and `ModelResolver`, `BundledFonts` and the licence attachments look
-  there; the tidier layout with data under `Contents/Resources` would break every one of them.
-  `codesign` seals everything under `Contents/` as a resource either way.
-- **Every Mach-O is signed with the same identity, inner-most first, found by magic number** rather
-  than by a list of names, so whatever the osx publish contains (SDL3, MoltenVK, ONNX Runtime, the
-  camera SDKs) is covered. That is what lets library validation stay on: `entitlements.plist`
+  the executable's directory, and `ModelResolver`, `BundledFonts`, `SkyMapTab`'s milkyway raster and
+  the licence attachments look there; the tidier layout with data under `Contents/Resources` would
+  break every one of them.
+- **`Contents/MacOS` is `nested=true` in codesign's default resource rules, so NOTHING in it is
+  sealed as a resource: every file there is code and must carry its own signature.** This line used
+  to say `codesign` seals everything under `Contents/` as a resource either way, and that belief
+  cost two release runs (2026-09-12). An unsigned data file under `Contents/MacOS` fails the signing
+  of the EXECUTABLE, several commands before any verify, with `code object is not signed at all /
+  In subcomponent: <that file>`, naming whichever file the walk reached first -- so it reads like
+  one bad file and is actually a whole class. Stripping the `.pdb`s just promoted `LICENSE.EXCEPTION`
+  into the message. Measured over seven bundle shapes on `macos-latest`: signing every file passes,
+  as does moving the data to `Contents/Resources` (Apple's own layout, and the thing that breaks
+  `AppContext.BaseDirectory`); dropping `--deep` from the verify fixes nothing, because the failure
+  is not in the verify. A non-Mach-O file's signature lives in an extended attribute, which survives
+  the `cp -R` into the image staging and `hdiutil`, verified on the mounted `.dmg`.
+- **Debug artefacts are stripped before signing** (`*.pdb`, and the `*.dSYM` the AOT publish leaves
+  beside the binary). They would sign fine now; they are dropped because symbolication uses the raw
+  `publish/` artifact and never the `.app`, and the `.dSYM` alone is 34.8 MB of a 177 MB tree.
+- **Every file is signed with the same identity, inner-most first**, Mach-Os found by magic number
+  rather than by a list of names, so whatever the osx publish contains (SDL3, MoltenVK, ONNX Runtime,
+  the camera SDKs) is covered. That is what lets library validation stay on: `entitlements.plist`
   grants nothing, and never `allow-jit`, which a NativeAOT binary does not need and Apple looks at
   hardest. A signature complaint about a library the script did not sign is fixed by signing it,
   not by `disable-library-validation`.

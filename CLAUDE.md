@@ -1241,9 +1241,14 @@ rather than a signed installer, the activation bug that shipped and both MSIX tr
   no Mac in the loop), **not the Mac App Store, because the sandbox would take the file list away**
   (`ScanFolder` reads the opened file's siblings). Without the Apple secrets the apps are AD-HOC
   signed and the lane says so. The bundle keeps the whole publish tree under `Contents/MacOS`
-  (`AppContext.BaseDirectory` is where `ModelResolver` and `BundledFonts` look), every Mach-O is
-  signed by magic number inner-most first, and `entitlements.plist` grants nothing -- never
-  `allow-jit`. `--validate-only` runs on every push beside the MSIX validation.
+  (`AppContext.BaseDirectory` is where `ModelResolver` and `BundledFonts` look), and
+  `entitlements.plist` grants nothing -- never `allow-jit`. `--validate-only` runs on every push
+  beside the MSIX validation. **`Contents/MacOS` is `nested=true` in codesign's default resource
+  rules, so nothing in it is sealed as a resource and EVERY file there, not just every Mach-O, must
+  be signed** -- an unsigned data file fails the signing of the EXECUTABLE, before any verify,
+  naming whichever file the walk reached first, so it reads as one bad file and is a whole class
+  (stripping the `.pdb`s just promoted `LICENSE.EXCEPTION` into the message on the next run; two
+  release runs died on this). Debug artefacts (`*.pdb`, `*.dSYM`) are stripped before signing.
 
 ### Image Pipeline & Buffer Lifecycle
 

@@ -61,10 +61,13 @@ Store lane is a second step, after the folder-access question is decided; it wou
 ## What the script does, and the decisions in it
 
 1. **The bundle is the publish tree, whole, under `Contents/MacOS`.** `AppContext.BaseDirectory` is
-   the executable's directory, and that is where `ModelResolver`, `BundledFonts` and the licence
-   attachments look; moving `models/` and the notices to `Contents/Resources` would be tidier and
-   would break every one of those. `codesign` seals everything under `Contents/` as a resource
-   either way. Only `Info.plist`, `PkgInfo` and the icon are added.
+   the executable's directory, and that is where `ModelResolver`, `BundledFonts`, `SkyMapTab`'s
+   milkyway raster and the licence attachments look; moving `models/` and the notices to
+   `Contents/Resources` would be tidier and would break every one of those. Only `Info.plist`,
+   `PkgInfo` and the icon are added, and the debug artefacts (`*.pdb`, `*.dSYM`) are removed: they
+   have no runtime value in a shipped bundle and the `.dSYM` alone is 34.8 MB of a 177 MB tree.
+   **This item used to end "`codesign` seals everything under `Contents/` as a resource either way",
+   which is false and cost two release runs** -- see item 4.
 2. **`Info.plist` comes from a template per app** (`tianwen-fits.Info.plist.in`,
    `tianwen-gui.Info.plist.in`); `@VERSION@` and `@BUILD@` are the only substitutions, and the
    result is parsed back with `plistlib` before it is used. The viewer's declares FITS, SER, TIFF
@@ -74,9 +77,21 @@ Store lane is a second step, after the folder-access question is decided; it wou
 3. **The icon is the `.ico`'s 256 px PNG frame** (`ico-to-iconset.py`, stdlib only), resampled by
    `sips` and packed by `iconutil`. 512 and 1024 are upscaled from it: soft, not wrong, and a larger
    frame in the `.ico` is all it takes to fix.
-4. **Every Mach-O in the bundle is signed with the same identity, inner-most first**, found by
-   magic number rather than by name, so SDL3, MoltenVK, ONNX Runtime and the camera SDKs are covered
-   whatever the publish contains. That is what lets library validation stay ON: `entitlements.plist`
+4. **Every FILE under `Contents/MacOS` is signed with the same identity, inner-most first**, not
+   only the Mach-Os. `Contents/MacOS` is `nested=true` in codesign's default resource rules, so
+   nothing in it is sealed as a resource: every file there is code as far as codesign is concerned,
+   and an unsigned one fails the signing of the **executable**, several commands before any verify,
+   with `code object is not signed at all / In subcomponent: <that file>`. It names whichever file
+   the walk reaches first, so it reads like one bad file and is actually a whole class -- stripping
+   the `.pdb`s merely promoted `LICENSE.EXCEPTION` into the message on the next run. Measured over
+   seven bundle shapes on `macos-latest` (2026-09-12): signing every file passes, as does moving the
+   data to `Contents/Resources`, which is Apple's own layout and the thing item 1 rules out;
+   dropping `--deep` from the verify fixes nothing, because the failure is not in the verify. A
+   non-Mach-O file's signature lives in an extended attribute, which survives the `cp -R` into the
+   image staging and `hdiutil` (verified on the mounted `.dmg`).
+   The Mach-Os are still found by magic number rather than by name, so SDL3, MoltenVK, ONNX Runtime
+   and the camera SDKs are covered whatever the publish contains; that split is now only what the
+   script's closing log line reports. Library validation stays ON: `entitlements.plist`
    grants nothing, and in particular not `allow-jit` (a NativeAOT binary has no JIT and that
    entitlement is the one Apple looks at hardest). If a first launch or notarization ever reports an
    invalid signature for a library the script did not sign, sign that library; enabling
