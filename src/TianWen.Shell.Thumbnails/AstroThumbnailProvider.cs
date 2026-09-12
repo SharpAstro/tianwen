@@ -49,6 +49,10 @@ namespace TianWen.Shell.Thumbnails
                         var hr = pstream.Read(p, (uint)chunk.Length, &read);
                         if (hr < 0)
                         {
+                            // The one step where a cloud-backed file is expected to differ from a local
+                            // one, so it records how far it got: a refusal at offset zero is an access
+                            // decision, one part way through is the stream dying mid-hydration.
+                            ThumbnailDiagnostics.Failure("IStream.Read", hr, $"after {buffered.Length} bytes");
                             return hr;
                         }
 
@@ -70,11 +74,14 @@ namespace TianWen.Shell.Thumbnails
             }
             catch (OutOfMemoryException)
             {
+                ThumbnailDiagnostics.Failure("Initialize", E_OUTOFMEMORY, "out of memory buffering the stream");
                 return E_OUTOFMEMORY;
             }
             catch (Exception ex)
             {
-                return ex.HResult != 0 ? ex.HResult : E_FAIL;
+                var hr = ex.HResult != 0 ? ex.HResult : E_FAIL;
+                ThumbnailDiagnostics.Failure("Initialize", hr, $"{ex.GetType().Name}: {ex.Message}");
+                return hr;
             }
         }
 
@@ -84,6 +91,8 @@ namespace TianWen.Shell.Thumbnails
             *pdwAlpha = 0;
             if (_bytes is null)
             {
+                // The shell asked for the bitmap without a successful Initialize, which it should not do.
+                ThumbnailDiagnostics.Failure("GetThumbnail", E_UNEXPECTED, "called before Initialize succeeded");
                 return E_UNEXPECTED;
             }
 
@@ -103,6 +112,8 @@ namespace TianWen.Shell.Thumbnails
                 var hbmp = Gdi32.CreateTopDownBgra32(raster);
                 if (hbmp == 0)
                 {
+                    ThumbnailDiagnostics.Failure("CreateTopDownBgra32", E_FAIL,
+                        $"{raster.Width}x{raster.Height} raster rendered but no HBITMAP");
                     return E_FAIL;
                 }
 
@@ -112,14 +123,19 @@ namespace TianWen.Shell.Thumbnails
             }
             catch (OutOfMemoryException)
             {
+                ThumbnailDiagnostics.Failure("GetThumbnail", E_OUTOFMEMORY,
+                    $"out of memory rendering {_bytes.Length} bytes at {cx}px");
                 return E_OUTOFMEMORY;
             }
             catch (Exception ex)
             {
                 // A file this handler cannot render (a FITS table with no image, a truncated SER) is an
                 // HRESULT back to the shell, which then draws the generic file icon. Never an exception
-                // across the boundary.
-                return ex.HResult != 0 ? ex.HResult : E_FAIL;
+                // across the boundary. It is still recorded, because "this file has no image in it" and
+                // "the decoder broke" are the same generic icon on screen and different bugs.
+                var hr = ex.HResult != 0 ? ex.HResult : E_FAIL;
+                ThumbnailDiagnostics.Failure("GetThumbnail", hr, $"{ex.GetType().Name}: {ex.Message}");
+                return hr;
             }
         }
     }
