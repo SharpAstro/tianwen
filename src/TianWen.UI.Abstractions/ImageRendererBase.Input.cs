@@ -416,11 +416,13 @@ namespace TianWen.UI.Abstractions
                     TryToggleBackgroundNeutralization(state);
                     return true;
                 case InputKey.W:
-                    // The same gesture as the SPCC toolbar button: toggle the calibration, and start one
-                    // if the document has none yet. It used to only START, which on a calibrated document
-                    // was a no-op, so W could neither switch the calibration off nor back on.
-                    ViewerActions.SetColorCalibrationEnabled(state, !state.ColorCalibrationEnabled);
-                    TryStartColorCalibration(state);
+                    // Opens the white-balance popover, which is where the calibration now lives beside
+                    // the sliders it populates. It used to toggle the calibration directly, from a time
+                    // when that was a toolbar button and the only thing W could usefully reach; now the
+                    // popover holds the toggle, the provenance line and the three sliders, and a key
+                    // that opened only one of them would be the odd way in. Same shape as Z, which
+                    // opens the zoom menu rather than cycling a zoom.
+                    OpenToolbarDropdown(state, ToolbarAction.WhiteBalance);
                     state.NeedsRedraw = true;
                     return true;
                 case InputKey.R:
@@ -748,7 +750,7 @@ namespace TianWen.UI.Abstractions
 
                 ViewerActions.HandleToolbarAction(state, _document, toolbarAction,
                     split: Split, hasBeforePixels: HasBeforeImageTextures, hasCrop: HasDisplayCrop);
-                if (toolbarAction is ToolbarAction.ColorCalibrate or ToolbarAction.SpccCalibrate)
+                if (toolbarAction is ToolbarAction.ColorCalibrate)
                 {
                     TryStartColorCalibration(state);
                 }

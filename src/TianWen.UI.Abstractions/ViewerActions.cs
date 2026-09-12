@@ -789,10 +789,6 @@ public static class ViewerActions
                 state.BackgroundNeutralizationEnabled = !state.BackgroundNeutralizationEnabled;
                 state.NeedsRedraw = true;
                 return true;
-            case ToolbarAction.SpccCalibrate:
-                SetColorCalibrationEnabled(state, !state.ColorCalibrationEnabled);
-                state.NeedsRedraw = true;
-                return true;
             case ToolbarAction.Shortcuts:
                 // The list is opened by the host's dropdown path; nothing to mutate here, but it must
                 // report handled so it does not fall through to the DI-backed action handler.

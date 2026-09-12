@@ -143,7 +143,7 @@ namespace TianWen.UI.Abstractions
 
             // "Reset" and not "Reset WB": with a calibration active this returns to the CALIBRATED
             // triple (manual identity), not to no-white-balance-at-all, and the sliders visibly jump
-            // back to it. Switching the calibration off is the other button.
+            // back to it. Switching the calibration off is the button beside this one.
             var resetLabel = state.ColorCalibrationEnabled && _document?.ColorCalibration is not null
                 ? "Reset to calibrated"
                 : "Reset WB";
@@ -161,6 +161,45 @@ namespace TianWen.UI.Abstractions
                     state.ManualWhiteBalanceBeforeCalibration = null;
                     state.NeedsRedraw = true;
                 });
+
+            // The photometric calibration itself, moved off the toolbar and in here beside the sliders
+            // it populates. It is one flag: "Calibrate" and "SPCC" were two buttons on the strip both
+            // writing ColorCalibrationEnabled, so pressing either lit the other. Here it can also say
+            // WHICH state it is in, where the strip only had room for a lit rectangle.
+            //
+            // Dim rather than absent when the frame has too few stars to fit against (the same >= 5
+            // predicate the toolbar button used): a control that vanishes reads as a bug, one that is
+            // dim reads as a precondition.
+            var canCalibrate = _document?.Stars is { Count: >= 5 };
+            var calibrated = _document?.ColorCalibration is not null;
+            var spccLabel = !calibrated
+                ? "Calibrate"
+                : state.ColorCalibrationEnabled ? "SPCC on" : "SPCC off";
+            // Measured against the widest state, not the current one, so toggling it cannot shuffle the
+            // row sideways -- the same reservation the toolbar makes for Zoom and Enhance.
+            var spccW = MeasureText("SPCC off", FontSize) + gap * 2f;
+            var spccX = resetX + resetW + gap;
+            FillRect(spccX, y, spccW, btnH,
+                calibrated && state.ColorCalibrationEnabled ? ToolbarButtonActiveBg : ToolbarButtonBg);
+            DrawText(spccLabel, spccX + gap, y + gap / 2f, FontSize,
+                canCalibrate ? ViewerTheme.Palette.BodyText : ViewerTheme.Palette.DimText);
+            if (canCalibrate)
+            {
+                // NOT "SpccCalibrate" or any other ToolbarAction name: a ButtonHit whose label parses as
+                // one is ALSO run by the toolbar action handler, so the toggle would fire twice and
+                // cancel itself. The two buttons above avoid it by accident; this one says so.
+                RegisterClickable(spccX, y, spccW, btnH, new HitResult.ButtonHit("ToggleColorCalibration"),
+                    _ =>
+                    {
+                        // Toggle AND start, the same pair W has always run: on a document with no
+                        // calibration yet a bare toggle is a no-op, and on one that has a solution a
+                        // bare start is.
+                        ViewerActions.SetColorCalibrationEnabled(state, !state.ColorCalibrationEnabled);
+                        TryStartColorCalibration(state);
+                        state.NeedsRedraw = true;
+                    });
+            }
+
             y += btnH + FontSize;
         }
 

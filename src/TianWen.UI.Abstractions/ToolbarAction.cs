@@ -94,7 +94,6 @@ public enum ToolbarAction
     Stars,
     ColorCalibrate,
     BackgroundNeutralize,
-    SpccCalibrate,
     Enhance,
 
     /// <summary>Toggle the before/after split. Right-click re-pins the current display settings.</summary>

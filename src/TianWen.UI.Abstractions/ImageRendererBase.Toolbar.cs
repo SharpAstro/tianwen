@@ -45,11 +45,16 @@ namespace TianWen.UI.Abstractions
             // (grid / objects / the sky behind), and the text here is only the measurement seed.
             ("Objects", ToolbarAction.Overlays, 5),
             ("Stars", ToolbarAction.Stars, 5),
-            ("Calibrate", ToolbarAction.ColorCalibrate, 5),
             ("NeutBg", ToolbarAction.BackgroundNeutralize, 5),
-            ("SPCC", ToolbarAction.SpccCalibrate, 5),
             // Mark only (three colour discs): it opens the white-balance popover, and its highlight
             // says a white balance is in force. Last in the colour group, beside what sets one.
+            //
+            // "Calibrate" and "SPCC" used to sit here as well, and they were ONE control wearing two
+            // labels: both ran SetColorCalibrationEnabled on the same flag, so whichever you pressed
+            // lit the other. The photometric fit now lives inside this popover, next to the sliders it
+            // populates, which is also the only place that can show its provenance (method, survivor
+            // count, white reference) rather than three numbers that a grey-world guess could equally
+            // have produced.
             ("", ToolbarAction.WhiteBalance, 5),
         ];
 
@@ -906,10 +911,6 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.BackgroundNeutralize => document?.PerChannelBackground is { Length: >= 3 }
                 && (document.UnstretchedImage.ChannelCount >= 3
                     || document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB),
-            ToolbarAction.SpccCalibrate => document?.Stars is { Count: >= 3 }
-                && document.IsPlateSolved
-                && (document.UnstretchedImage.ChannelCount >= 3
-                    || document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB),
             ToolbarAction.PlateSolve => document is not null && !document.IsPlateSolved,
             // Disabled once an enhance has BAKED a crop in: the pixels are the crop, so there is no
             // border left to take off and no way to put one back. Reverting the enhance restores both
@@ -947,7 +948,6 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.Stars => state.ShowStarOverlay,
                 ToolbarAction.ColorCalibrate => state.ColorCalibrationEnabled,
                 ToolbarAction.BackgroundNeutralize => state.BackgroundNeutralizationEnabled,
-                ToolbarAction.SpccCalibrate => state.ColorCalibrationEnabled,
                 // Lit while the EFFECTIVE white balance -- the calibration composed with the manual
                 // fine-tune, what the shader multiplies by -- is anything but neutral. Not while the
                 // popover is open: the popover is its own evidence, and the highlight is reserved for
@@ -1580,12 +1580,11 @@ namespace TianWen.UI.Abstractions
             //
             // Gated on ColorCalibrationEnabled, not merely on the summary being present, so a
             // switched-OFF calibration does not describe a correction the image is not receiving.
-            ToolbarAction.ColorCalibrate or ToolbarAction.SpccCalibrate
+            ToolbarAction.ColorCalibrate
                 when state.ColorCalibrationEnabled && document?.ColorCalibrationSummary is { } done =>
                 $"{done.Describe()} -- click to turn off (W)",
             ToolbarAction.ColorCalibrate => "Photometric colour calibration (W)",
             ToolbarAction.BackgroundNeutralize => "Neutralise the background (N)",
-            ToolbarAction.SpccCalibrate => "Spectrophotometric colour calibration (W)",
             ToolbarAction.Enhance when state.IsEnhancing => "Cancel this enhance (E)",
             ToolbarAction.Enhance when state.IsEnhanced => "Turn the enhancement off (E); right-click cycles the backend",
             ToolbarAction.Enhance => "AI enhance; right-click cycles the backend (E)",
@@ -1948,6 +1947,11 @@ namespace TianWen.UI.Abstractions
             "O / Shift+O          Context: grid, catalog objects, then the sky behind the frame",
             "G                    WCS grid on its own",
             "V / Shift+V          Histogram / log scale",
+            // W earns a row now that it opens a PANEL rather than toggling one flag: the sliders, the
+            // photometric calibration and its provenance line all live behind it, and none of them is
+            // reachable by guessing. N stays beside it because the two are the colour pair.
+            "W                    White balance: sliders, photometric calibration, reset",
+            "N                    Neutralise the background",
             "I                    Info panel",
             "L                    File list",
             "K                    Raw / stacked view (sequence)",
@@ -2065,7 +2069,6 @@ namespace TianWen.UI.Abstractions
                     state.BackgroundNeutralizationStrength >= 0.9999f
                         ? $"NeutBg: {ShortMethodLabel(state.BackgroundNeutralizationMethod)}"
                         : $"NeutBg: {ShortMethodLabel(state.BackgroundNeutralizationMethod)} {UiFormat.Percent0(state.BackgroundNeutralizationStrength)}",
-                ToolbarAction.SpccCalibrate when state.ColorCalibrationEnabled => $"SPCC: {document?.ColorCalibration?.R:F2}/{document?.ColorCalibration?.B:F2}",
                 // The mark says WHAT this button is, so the label is free to say only the state --
                 // and the state is the whole question a plate solve answers. The tick is paired
                 // with the activated highlight deliberately: whether this frame carries a WCS
