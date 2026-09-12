@@ -54,6 +54,7 @@ public enum Catalog : ulong
     TwoMassX = 'x', // uses MSB = 1
     Tycho2 = 'y', // uses MSB = 1
     UGC = 'U', // Uppsala General Catalogue
+    UGCA = 'U' << 21 | 'G' << 14 | 'C' << 7 | 'A', // UGC Addendum (Nilson's southern supplement, Dec < -2.5): a distinct catalogue from UGC, not a UGC sub-range
     vdB = 'v' << 14 | 'd' << 7 | 'B', // van den Bergh
     WASP = 'W' << 21 | 'A' << 14 | 'S' << 7 | 'P',
     WDS = 'W', // Washington double star catalogue, uses MSB = 1
@@ -128,6 +129,7 @@ public static class CatalogEx
             Catalog.Sharpless => 4,
             Catalog.TrES => 2,
             Catalog.UGC => 5,
+            Catalog.UGCA => 3, // max known designation is UGCA 444
             Catalog.vdB => 4,
             Catalog.WASP => 3,
             Catalog.WDS => 10,

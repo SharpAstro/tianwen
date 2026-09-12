@@ -193,6 +193,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         Catalog.Sharpless,
         Catalog.RCW,
         Catalog.UGC,
+        Catalog.UGCA,
         Catalog.vdB
     ];
 

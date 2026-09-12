@@ -1649,7 +1649,10 @@ arcseconds a pixel so M51's own outline cannot answer for its label, asserted),
 sitting 4 to 11 arcseconds from a whole degree, the tap mirrored across it); each fails with its half
 of the fix disabled.
 
-**Seen on the way, not fixed:** the catalogue cross-links NGC 7176 (Dec -32) to UGC 423 and NGC 204
-(Dec +3), so its label is three lines with two wrong designations. A catalogue merge fault, not a
-viewer one.
+**Seen on the way, fixed separately:** the catalogue cross-linked NGC 7176 (Dec -32) to UGC 423 and
+NGC 204 (Dec +3). A catalogue merge fault, not a viewer one -- `TryGuessCatalogFormat` matched "UGCA"
+on the same arm as "UGC" (both start "UG"), so UGCA 423 (-> NGC 7176) and UGC 423 (-> NGC 204) packed
+to the identical `CatalogIndex` and cross-linked to each other. `Catalog.UGCA` is now its own
+catalogue, probed before UGC; pinned by `UGCAndUGCAAreDistinctCatalogsDespiteSharingTheUGPrefix` and
+`GivenAUGCAIdentifierWhenLookingItUpThenTheCrossReferencedObjectIsReturnedNotTheUGCOne`.
 
