@@ -144,6 +144,42 @@ public class CelestialObjectDBTests
         celestialObject.Constellation.ShouldBe(Constellation.Eridanus);
     }
 
+    [Fact]
+    public async Task GivenTheReportedNGC7176CaseThenItNoLongerCrossLinksToUGC423AndNGC0204()
+    {
+        // given: the exact case from viewer-prerelease-fixes.md P34 -- NGC 0204's Identifiers column
+        // carries "UGC 00423" and NGC 7176's carries "UGCA 423". Before the UGCA fix, both packed to
+        // the same CatalogIndex, so the cross-reference CLOSURE (what a label enumerates) walked from
+        // either object straight into the other: NGC 7176 (Dec -32) "cross-linked to UGC 423 and
+        // NGC 204" (Dec +3), a different, unrelated galaxy.
+        var db = await InitDBAsync();
+        CatalogUtils.TryGetCleanedUpCatalogName("NGC0204", out var ngc0204Index).ShouldBeTrue();
+        CatalogUtils.TryGetCleanedUpCatalogName("NGC7176", out var ngc7176Index).ShouldBeTrue();
+        CatalogUtils.TryGetCleanedUpCatalogName("UGC 423", out var ugc423Index).ShouldBeTrue();
+        CatalogUtils.TryGetCleanedUpCatalogName("UGCA 423", out var ugca423Index).ShouldBeTrue();
+        ugc423Index.ShouldNotBe(ugca423Index);
+
+        // when: direct lookup resolves each designation to its own object
+        db.TryLookupByIndex("UGC 423", out var ugc423Obj).ShouldBeTrue();
+        db.TryLookupByIndex("UGCA 423", out var ugca423Obj).ShouldBeTrue();
+
+        // then
+        ugc423Obj.Index.ShouldBe(ngc0204Index);
+        ugca423Obj.Index.ShouldBe(ngc7176Index);
+
+        // and: the cross-reference closure keeps the two objects apart -- NGC 7176's "other names"
+        // include UGCA 423 but neither UGC 423 nor NGC 0204, and vice versa.
+        db.TryGetCrossIndices(ngc7176Index, out var ngc7176Cross).ShouldBeTrue();
+        ngc7176Cross.ShouldContain(ugca423Index);
+        ngc7176Cross.ShouldNotContain(ugc423Index);
+        ngc7176Cross.ShouldNotContain(ngc0204Index);
+
+        db.TryGetCrossIndices(ngc0204Index, out var ngc0204Cross).ShouldBeTrue();
+        ngc0204Cross.ShouldContain(ugc423Index);
+        ngc0204Cross.ShouldNotContain(ugca423Index);
+        ngc0204Cross.ShouldNotContain(ngc7176Index);
+    }
+
     [Theory]
     [InlineData("Antennae Galaxies", CatalogIndex.NGC4038, CatalogIndex.NGC4039)]
     [InlineData("Eagle Nebula", CatalogIndex.IC4703, CatalogIndex.NGC6611, CatalogIndex.M016)]
