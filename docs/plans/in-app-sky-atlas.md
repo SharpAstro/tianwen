@@ -493,13 +493,22 @@ locking the release scope was *"as long as we track everything we skipped in a p
     HD 37022 (the last two being one star) within **0.2 arcseconds** of each other, plus five HH
     objects inside 12 arcseconds -- while a click quantises to a whole image pixel (2 arcseconds at
     2"/px). So at the centre of a bright nebula "nearest centre" is decided by the rounding, and a
-    click there can legitimately answer the embedded star rather than the nebula. **The resolver
-    ignores EXTENT by design** (an object's shape is not consulted), which is why the test fixture is
-    M51 -- nearest other drawn object 265 arcseconds, an order of magnitude outside the tolerance --
-    and why M42 is the right fixture for the type-gate case and the wrong one for everything else.
-  - **Still open:** whether the resolver should also apply the overlay's MAGNITUDE cutoff. That would
-    complete the "only what is drawn" promise, but it makes the answer depend on zoom, so it is a
-    judgement rather than a bug. And clicking a STAR is still a different resolver (below).
+    click there can legitimately answer the embedded star rather than the nebula. **The catalogue
+    search ignores EXTENT by design** (an object's shape is not consulted), which is why the test
+    fixture is M51 -- nearest other drawn object 265 arcseconds, an order of magnitude outside the
+    tolerance -- and why M42 is the right fixture for the type-gate case and the wrong one for
+    everything else.
+  - **With the overlay ON, what is DRAWN is asked first (2026-09-12,
+    [viewer-prerelease-fixes.md](viewer-prerelease-fixes.md) P34):** the marker enclosing the tap,
+    then the label under it, then the catalogue search above -- which now walks every grid cell the
+    tolerance reaches rather than the one under the tap. A tap on a label used to answer whichever
+    centre was nearest the letters (a neighbour three times in seven on the 10P master, nothing
+    once), and the ring's name landed on the overlay's own label for the same object. The selected
+    object's overlay label now steps aside for the ring's name, whose box is reserved.
+  - **Still open:** whether the catalogue search should also apply the overlay's MAGNITUDE cutoff.
+    That would complete the "only what is drawn" promise for the overlay-OFF case, but it makes the
+    answer depend on zoom, so it is a judgement rather than a bug. And clicking a STAR is still a
+    different resolver (below).
 - **Clicking a STAR is a different resolver.** `document.Stars` holds DETECTED CENTROIDS, not
   catalogue entries, so it is a nearest-centroid search over the star list, not `FindObjectAt`. Worth
   saying because "click an object or a star" reads like one feature and is two.

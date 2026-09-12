@@ -725,7 +725,7 @@ public class OverlayEngineTests
 
         OverlayEngine.PlaceLabels([item], labelSize: 10f, labelPad: 4f,
             measureText: (_, _) => 100f,
-            drawLabelLines: (it, x, y) => placed.Add((it, x, y)));
+            drawLabelLines: label => placed.Add((label.Item, label.X, label.Y)));
 
         placed.Count.ShouldBe(1);
         placed[0].X.ShouldBe(510f); // right slot: cx + labelPad + 6
@@ -745,7 +745,7 @@ public class OverlayEngineTests
 
         OverlayEngine.PlaceLabels([item], labelSize: 10f, labelPad: 4f,
             measureText: (_, _) => 100f,
-            drawLabelLines: (it, x, y) => placed.Add((it, x, y)),
+            drawLabelLines: label => placed.Add((label.Item, label.X, label.Y)),
             reservedRegions: reserved);
 
         placed.Count.ShouldBe(1);
@@ -766,7 +766,7 @@ public class OverlayEngineTests
 
         OverlayEngine.PlaceLabelsBestEffort([item], labelSize: 10f, labelPad: 4f,
             measureText: (_, _) => 100f,
-            drawLabelLines: (it, x, y) => placed.Add((it, x, y)));
+            drawLabelLines: label => placed.Add((label.Item, label.X, label.Y)));
 
         placed.Count.ShouldBe(1);
         placed[0].X.ShouldBe(450f); // below slot: cx - maxLineW/2
@@ -785,7 +785,7 @@ public class OverlayEngineTests
 
         OverlayEngine.PlaceLabelsBestEffort([item], labelSize: 10f, labelPad: 4f,
             measureText: (_, _) => 100f,
-            drawLabelLines: (it, x, y) => placed.Add((it, x, y)),
+            drawLabelLines: label => placed.Add((label.Item, label.X, label.Y)),
             reservedRegions: reserved);
 
         placed.ShouldBeEmpty();

@@ -1595,3 +1595,61 @@ presses there.
 **Not done.** The Wavelet Sharpen section keeps its always-open form (it only appears on the live
 stacked view). A one-line summary on the rolled-up Statistics heading was considered and left out.
 
+## P34. A tap resolves against what is DRAWN; the ring's name is the selected object's only label  (FIXED 2026-09-12)
+
+**Reported** on the 10P master with the overlay on, in two screenshots: *"text is mangled here (also
+click on label didnt work)"*, and before it a selection whose ring was a CIRCLE beside a galaxy's
+ellipse marker, off-centre from it.
+
+**One defect, three faces.** The tap resolver knew nothing about what the overlay had drawn. It
+answered with the nearest catalogue CENTRE to the tap, within two percent of the field, over the one
+coordinate-grid cell under the tap. A label is drawn BESIDE its marker, usually further from the
+centre than that tolerance reaches, so a tap on the letters answered whichever centre was nearest
+them: measured over the seven ellipse-marked galaxies in the frame, a tap on the label selected a
+neighbour three times and nothing once. The "circle ring off-centre" report is the same thing seen
+from the other side: a tap on the label of NGC 7201 selected the STAR NGC 7202, which rings as a
+circle, at its own position. And the "mangled text" was the ring's name, drawn in the accent colour
+to the right of the ring, landing on the overlay's own label for the same object in its right-hand
+slot: two copies of one name on top of each other.
+
+**The grid half.** `DeepSkyCoordinateGrid` answers for ONE cell, a degree of Dec by four minutes of
+RA, keyed by truncation, and the resolver asked only the cell containing the tap. NGC 7204A sits at
+Dec -31.05, so a tap 20 arcseconds north of it was in the cell above and resolved nothing with the
+marker under the pointer. `CandidatesWithin` walks every cell the tolerance reaches (RA span widened
+by cos Dec, capped at the whole ring near the pole); an object lives in exactly one cell, so nothing
+needs deduplicating.
+
+**The drawn half.** `RenderOverlays` records what it drew (`DrawnOverlayObject`: index, marker
+centre and shape, and the label box the placement pass gave it -- `PlaceLabels` now hands its
+callback the whole `PlacedLabel` box rather than a corner, which also let the sky map's label-click
+bridge stop re-measuring the lines). The record is cleared whenever the overlay is not drawn, so a
+label from the last frame it was on cannot be hit after it is switched off. `TrySelectObjectAt` then
+asks, in order: the MARKER enclosing the tap (nearest centre among enclosing outlines, an exact tie
+to the smaller), the LABEL under it, and only then the nearest catalogue centre. Two orderings were
+measured and rejected on the same frame. Label before marker: NGC 7176's three-line label, placed
+above it, covers the centre of NGC 7173's marker 19 pixels away, and a tap on the middle of NGC
+7173's outline answered NGC 7176. Smallest enclosing marker: the NGC 7204 pair is two galaxies four
+pixels apart under the pair's own circle, and a tap on A's exact centre answered B because B's
+outline is thinner. A circle marker carries its radius in `RadiusPx` alone (its `SemiMinorPx` is
+zero), which is the trap the first containment test fell into: treated as an ellipse it is a
+three-pixel sliver that wins every "smallest" contest. The containment test is on the axis-aligned
+bounding-box ellipse, because that is what `VkOverlayShapes.DrawEllipse` paints.
+
+**The name.** `SolveSelectionRing` runs once per frame BEFORE the overlay pass: the overlay leaves
+the selected object out of its label pass and reserves the ring's name box, so no neighbour's label
+lands on it either (the ring is drawn last and cannot dodge). The drawn record marks that object's
+box `NamedByRing`, consulting the placement outcome FIRST, so an overlay that went on labelling the
+selected object reports that rather than the ring's box.
+
+**Measured after.** Same frame, every drawn object: a tap on the marker centre selects it 10 of 10,
+a tap on the middle of its placed label 9 of 9. Pinned by `ATapOnAnObjectsLabelSelectsIt` (at ten
+arcseconds a pixel so M51's own outline cannot answer for its label, asserted),
+`TheSelectedObjectsOverlayLabelStepsAsideForTheRingsName` and
+`AnObjectJustAcrossAGridCellBoundaryIsStillFound` (the object chosen from the real catalogue for
+sitting 4 to 11 arcseconds from a whole degree, the tap mirrored across it); each fails with its half
+of the fix disabled.
+
+**Seen on the way, not fixed:** the catalogue cross-links NGC 7176 (Dec -32) to UGC 423 and NGC 204
+(Dec +3), so its label is three lines with two wrong designations. A catalogue merge fault, not a
+viewer one.
+

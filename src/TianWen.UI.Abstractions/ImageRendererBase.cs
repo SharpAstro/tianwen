@@ -982,18 +982,31 @@ namespace TianWen.UI.Abstractions
             // selection, so the re-open has to land on the far side of that.
             PumpHelpPanel();
 
+            // The selection's ring is solved BEFORE the overlay pass and drawn AFTER it: the overlay
+            // needs the ring's name box to keep every label off it (and to leave the selected object's
+            // own label out, since the ring names it), while the ring itself has to sit over that
+            // object's marker rather than under it.
+            var selectionRing = document?.Wcs is { HasCDMatrix: true } ringWcs
+                ? SolveSelectionRing(state, ringWcs)
+                : null;
+
             if (state.ShowOverlays && document?.Wcs is { HasCDMatrix: true } overlayWcs && LoadedCatalog is { } db)
             {
-                RenderOverlays(state, overlayWcs, db);
+                RenderOverlays(state, overlayWcs, db, selectionRing);
+            }
+            else
+            {
+                // Nothing drawn, nothing for a tap to hit: a label from the last frame the overlay was
+                // on must not go on answering clicks after it is switched off.
+                _drawnOverlayObjects = ImmutableArray<DrawnOverlayObject>.Empty;
             }
 
-            // The selection rings whatever is selected LAST, so it sits over that object's own marker
-            // rather than under it, and it is NOT gated on ShowOverlays: a click resolves an object at
-            // every rung of the ladder, and a selection that draws nothing cannot be told from a click
-            // that missed. Inside the clip above, like every other overlay drawn in image space.
-            if (document?.Wcs is { HasCDMatrix: true } selectionWcs)
+            // NOT gated on ShowOverlays: a click resolves an object at every rung of the ladder, and a
+            // selection that draws nothing cannot be told from a click that missed. Inside the clip
+            // above, like every other overlay drawn in image space.
+            if (selectionRing is { } ring)
             {
-                RenderSelectionHighlight(state, selectionWcs);
+                RenderSelectionHighlight(in ring);
             }
 
             // Caller-driven sky annotations (polar alignment, plate-solve verification,

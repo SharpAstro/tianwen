@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Numerics;
@@ -144,7 +145,8 @@ namespace TianWen.UI.Abstractions
         /// target, capped at half a degree so a wide field does not claim a galaxy across the frame.
         /// Without a plate scale (no <paramref name="fovDeg"/>) there is no field to take a fraction of,
         /// and the answer is nothing rather than a guess.</para>
-        /// <para>Nearest wins, over the coordinate grid's own cell -- the same
+        /// <para>Nearest wins, over every cell of the coordinate grid the tolerance reaches
+        /// (<see cref="CandidatesWithin"/>) -- the same
         /// <see cref="ICelestialObjectDB.DeepSkyCoordinateGrid"/> the overlay engine gathers from, so
         /// the menu can only ever name something the overlay would have drawn.</para>
         /// </remarks>
@@ -269,7 +271,7 @@ namespace TianWen.UI.Abstractions
             var toleranceDeg = Math.Clamp(0.02 * fov, 0.5 / 60.0, 0.5);
             var best = double.MaxValue;
             CelestialObject? found = null;
-            foreach (var index in db.DeepSkyCoordinateGrid[raHours, dec])
+            foreach (var index in CandidatesWithin(db.DeepSkyCoordinateGrid, raHours, dec, toleranceDeg))
             {
                 if (!db.TryLookupByIndex(index, out var candidate))
                 {
@@ -314,6 +316,180 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// Every entry of the coordinate grid within <paramref name="toleranceDeg"/> of a sky
+        /// position -- across cell boundaries, which is the whole point.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>The grid answers for ONE cell, a degree of Dec by four minutes of RA, and the
+        /// tolerance does not respect its edges.</b> Asking only the click's own cell meant an object
+        /// a few arcseconds across a boundary from the click was never seen: NGC 7204A sits at
+        /// Dec -31.05, so a tap 20 arcseconds north of it fell in the cell above and resolved nothing,
+        /// with the object's own marker under the pointer. Walking every cell the tolerance reaches
+        /// is what makes the nearest-centre search mean what its name says.</para>
+        /// <para>Cell width in RA shrinks with cos(Dec), so the span is widened accordingly and
+        /// capped at the whole ring near the pole; an object lives in exactly one cell, so nothing here
+        /// needs deduplicating.</para>
+        /// </remarks>
+        private static IEnumerable<CatalogIndex> CandidatesWithin(
+            IRaDecIndex grid, double raHours, double dec, double toleranceDeg)
+        {
+            // The grid keys Dec by truncating (dec + 90) and RA by truncating ra * 15, so a cell is
+            // [d, d + 1) degrees and [k, k + 1) / 15 hours; each is asked for by its centre.
+            var decLo = Math.Max(0, (int)Math.Floor(dec - toleranceDeg + 90.0));
+            var decHi = Math.Min(180, (int)Math.Floor(dec + toleranceDeg + 90.0));
+
+            var cosDec = Math.Max(Math.Cos(dec * Math.PI / 180.0), 1e-3);
+            var raHalfSpanHours = Math.Min(12.0, toleranceDeg / 15.0 / cosDec);
+            var raLo = (int)Math.Floor((raHours - raHalfSpanHours) * 15.0);
+            var raHi = (int)Math.Floor((raHours + raHalfSpanHours) * 15.0);
+            if (raHi - raLo >= 360)
+            {
+                raLo = 0;
+                raHi = 359;
+            }
+
+            for (var d = decLo; d <= decHi; d++)
+            {
+                var cellDec = Math.Min(90.0, d + 0.5 - 90.0);
+                for (var k = raLo; k <= raHi; k++)
+                {
+                    var cellRa = (((k % 360) + 360) % 360 + 0.5) / 15.0;
+                    foreach (var index in grid[cellRa, cellDec])
+                    {
+                        yield return index;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// The object whose overlay LABEL is under a screen position, or null.
+        /// </summary>
+        /// <remarks>
+        /// <para>Asked after the markers and before the catalogue: a label is unambiguous where no
+        /// marker is, since the placement pass never lets two labels overlap, so the first box
+        /// containing the point is the only one, and the letters name exactly one object however far
+        /// from its centre they were placed. The selected object's label is the ring's name (see
+        /// <see cref="RenderOverlays"/>), so a tap on that re-selects it rather than clearing.</para>
+        /// <para>Not before the markers, though, and that order was measured: NGC 7176's three-line
+        /// label, placed above it, covers the centre of NGC 7173's marker 19 pixels away, and with the
+        /// label asked first a tap on the middle of NGC 7173's outline answered NGC 7176. A box of
+        /// letters is not what the user is pointing at when the pointer is inside an outline.</para>
+        /// </remarks>
+        private (CelestialObject Object, CatalogIndex Index)? FindDrawnLabelAt(float px, float py)
+        {
+            var drawn = _drawnOverlayObjects;
+            if (drawn.IsDefaultOrEmpty || LoadedCatalog is not { } db)
+            {
+                return null;
+            }
+
+            foreach (var d in drawn)
+            {
+                if (d.LabelBox is { } box
+                    && px >= box.X && px < box.X + box.W && py >= box.Y && py < box.Y + box.H
+                    && db.TryLookupByIndex(d.Index, out var labelled))
+                {
+                    return (labelled, d.Index);
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// The object whose overlay MARKER encloses a screen position, or null; among several, the
+        /// one whose centre is nearest.
+        /// </summary>
+        /// <remarks>
+        /// <para>Asked FIRST: an outline drawn around the pointer is the least ambiguous thing on the
+        /// screen, more so than a box of letters that happens to reach over it (see
+        /// <see cref="FindDrawnLabelAt"/> for the measured case) and than the nearest catalogue
+        /// centre, which a tap deep inside a large ellipse is further from than the tolerance
+        /// reaches. The slack keeps a tap a few pixels off a compact object's centre on that object
+        /// rather than on whatever encloses it.</para>
+        /// <para><b>Nearest centre among the enclosing outlines, not the smallest outline.</b> A
+        /// galaxy drawn inside a nebula's outline is nearer a tap on it than the nebula is, so it
+        /// wins either way; where the two rules part is the NGC 7204 pair, two galaxies four pixels
+        /// apart under the pair's own circle, where "smallest" handed a tap on A's exact centre to B
+        /// because B's outline is thinner. An exact tie -- a cluster at the centre of its nebula --
+        /// goes to the smaller outline.</para>
+        /// <para>Tested against what the renderer PAINTS. <see cref="DrawEllipseOverlay"/> rasterises
+        /// an axis-aligned ellipse over the rotated ellipse's bounding box, so the containment test is
+        /// on that bounding-box ellipse, not on the rotated one the marker describes; a circle marker
+        /// carries its radius in <see cref="OverlayMarker.RadiusPx"/> alone and is round. A few pixels
+        /// of slack make a hairline marker (an edge-on galaxy is under two pixels across its minor
+        /// axis) hittable at all.</para>
+        /// </remarks>
+        private (CelestialObject Object, CatalogIndex Index)? FindDrawnMarkerAt(float px, float py)
+        {
+            var drawn = _drawnOverlayObjects;
+            if (drawn.IsDefaultOrEmpty || LoadedCatalog is not { } db)
+            {
+                return null;
+            }
+
+            var slack = 3f * DpiScale;
+            DrawnOverlayObject? best = null;
+            var bestDistance = float.MaxValue;
+            var bestExtent = float.MaxValue;
+            foreach (var d in drawn)
+            {
+                var dx = px - d.ScreenX;
+                var dy = py - d.ScreenY;
+                var marker = d.Marker;
+                float extent;
+                bool inside;
+                switch (marker.Kind)
+                {
+                    case OverlayMarkerKind.Cross:
+                    {
+                        var arm = marker.ArmPx + slack;
+                        inside = MathF.Abs(dx) <= arm && MathF.Abs(dy) <= arm;
+                        extent = arm * arm;
+                        break;
+                    }
+                    case OverlayMarkerKind.Circle:
+                    {
+                        var radius = marker.RadiusPx + slack;
+                        inside = (dx * dx) + (dy * dy) <= radius * radius;
+                        extent = radius * radius;
+                        break;
+                    }
+                    default:
+                    {
+                        // The painted shape is the bounding-box ellipse of the rotated one.
+                        var (sin, cos) = MathF.SinCos(marker.AngleRad);
+                        var a = marker.SemiMajorPx;
+                        var b = marker.SemiMinorPx;
+                        var halfW = MathF.Sqrt((a * a * cos * cos) + (b * b * sin * sin)) + slack;
+                        var halfH = MathF.Sqrt((a * a * sin * sin) + (b * b * cos * cos)) + slack;
+                        var nx = dx / halfW;
+                        var ny = dy / halfH;
+                        inside = (nx * nx) + (ny * ny) <= 1f;
+                        extent = halfW * halfH;
+                        break;
+                    }
+                }
+
+                if (!inside)
+                {
+                    continue;
+                }
+
+                var distance = (dx * dx) + (dy * dy);
+                if (distance < bestDistance - 0.25f || (MathF.Abs(distance - bestDistance) <= 0.25f && extent < bestExtent))
+                {
+                    bestDistance = distance;
+                    bestExtent = extent;
+                    best = d;
+                }
+            }
+
+            return best is { } hit && db.TryLookupByIndex(hit.Index, out var obj) ? (obj, hit.Index) : null;
+        }
+
+        /// <summary>
         /// Selects the catalogued object at a screen position, or clears the selection when there is
         /// nothing there. Returns whether the selection CHANGED, which is what tells the caller a
         /// repaint is owed.
@@ -340,7 +516,13 @@ namespace TianWen.UI.Abstractions
                 ? SkyAtlasLink.FieldOfViewDeg(_document?.Wcs, img.Width, img.Height)
                 : null;
 
-            var resolved = info is { } pixel ? FindCatalogObjectAt(pixel, fovDeg) : null;
+            // In this order: the MARKER enclosing the tap, then the LABEL under it, then the nearest
+            // catalogue centre -- each method's remarks say why it sits where it does. Both drawn
+            // lookups answer nothing while the overlay is off, so the catalogue search is then the
+            // whole resolver, as it always was.
+            var resolved = FindDrawnMarkerAt(px, py)
+                ?? FindDrawnLabelAt(px, py)
+                ?? (info is { } pixel ? FindCatalogObjectAt(pixel, fovDeg) : null);
 
             if (resolved is not { } hit)
             {

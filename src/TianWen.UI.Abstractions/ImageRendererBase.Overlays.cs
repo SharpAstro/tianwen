@@ -367,8 +367,60 @@ namespace TianWen.UI.Abstractions
         // Object Overlays
         // -----------------------------------------------------------------------
 
-        private void RenderOverlays(ViewerState state, WCS wcs, ICelestialObjectDB db)
+        /// <summary>
+        /// One catalogued object as the overlay DREW it last frame: where its marker is, what shape
+        /// the marker has, and the box its label occupies when something gave it one.
+        /// </summary>
+        /// <param name="NamedByRing">
+        /// True when <paramref name="LabelBox"/> is the selection ring's name rather than a label the
+        /// overlay's own pass placed -- which is the SELECTED object's case, and only if the overlay
+        /// really did leave it out: the placement outcome is consulted first, so an overlay that went
+        /// on labelling the selected object reports that, box and all.
+        /// </param>
+        internal readonly record struct DrawnOverlayObject(
+            CatalogIndex Index,
+            float ScreenX,
+            float ScreenY,
+            OverlayMarker Marker,
+            (float X, float Y, float W, float H)? LabelBox,
+            bool NamedByRing);
+
+        /// <summary>
+        /// What the object overlay drew last frame, in screen pixels -- empty whenever it did not draw.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>This is what a tap resolves against first.</b> A label is drawn BESIDE its marker,
+        /// usually further from the object's centre than the click tolerance reaches, and the resolver
+        /// used to know nothing about it: a tap on the letters answered with whichever catalogue CENTRE
+        /// was nearest them. Measured on the 10P master's seven ellipse-marked galaxies, a tap on the
+        /// label selected a neighbour three times and nothing once -- a tap on "NGC 7201" selected the
+        /// star NGC 7202, whose circular ring then sat beside the galaxy's ellipse, which is what
+        /// "the ring is a circle and it is off-centre" was. Recording where things were drawn is the
+        /// only way to answer "what did I click on" with what was on the screen.</para>
+        /// <para>Written by the render pass and read by the input pass on the SAME thread (both hosts
+        /// dispatch input from the thread that renders), so a plain field suffices. Cleared whenever
+        /// the overlay is not drawn, so a label from the last frame it was ON can never be hit after
+        /// it is switched off: a hidden widget consumes no input.</para>
+        /// </remarks>
+        private ImmutableArray<DrawnOverlayObject> _drawnOverlayObjects = ImmutableArray<DrawnOverlayObject>.Empty;
+
+        /// <summary>Test seam: what the overlay drew last frame. See <see cref="_drawnOverlayObjects"/>.</summary>
+        internal ImmutableArray<DrawnOverlayObject> DrawnOverlayObjects => _drawnOverlayObjects;
+
+        /// <summary>
+        /// Draws the catalogue markers and their labels, and records where each landed.
+        /// </summary>
+        /// <param name="selectionRing">
+        /// The selection ring this frame, if any: its object's own label is left OUT of the label
+        /// pass and the ring's name box is reserved instead. The ring names the object, in the accent
+        /// colour, and a second copy of the name drawn by the overlay landed on the first -- that is
+        /// what "the text is mangled" was. Reserving the box is what keeps a NEIGHBOUR's label off the
+        /// ring's name too: the ring is drawn after this pass and cannot dodge.
+        /// </param>
+        private void RenderOverlays(ViewerState state, WCS wcs, ICelestialObjectDB db, SelectionRingGeometry? selectionRing)
         {
+            _drawnOverlayObjects = ImmutableArray<DrawnOverlayObject>.Empty;
+
             if (string.IsNullOrEmpty(FontPath) || ImageWidth <= 0 || ImageHeight <= 0)
             {
                 return;
@@ -409,15 +461,53 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
+            IReadOnlyList<OverlayItem> toLabel = items;
+            IReadOnlyList<(float X, float Y, float W, float H)>? reserved = null;
+            if (selectionRing is { Index: { } selectedIndex } ring)
+            {
+                var others = new List<OverlayItem>(items.Count);
+                foreach (var item in items)
+                {
+                    if (item.Index != selectedIndex)
+                    {
+                        others.Add(item);
+                    }
+                }
+                toLabel = others;
+                reserved = [ring.LabelBox];
+            }
+
             // Label placement + collision avoidance is shared with the sky map object
             // overlay (see OverlayEngine.PlaceLabels).
             var lineH = labelSize * 1.2f;
-            OverlayEngine.PlaceLabels(items, labelSize, labelPad, MeasureText,
-                (item, lx, ly) =>
+            var placed = new Dictionary<OverlayItem, PlacedLabel>();
+            OverlayEngine.PlaceLabels(toLabel, labelSize, labelPad, MeasureText,
+                label =>
                 {
-                    var (r, g, b) = item.Color;
-                    DrawOverlayLabelLines(item.LabelLines, lx, ly, lineH, labelSize, r, g, b);
-                });
+                    var (r, g, b) = label.Item.Color;
+                    DrawOverlayLabelLines(label.Item.LabelLines, label.X, label.Y, lineH, labelSize, r, g, b);
+                    placed[label.Item] = label;
+                },
+                reservedRegions: reserved);
+
+            var drawn = ImmutableArray.CreateBuilder<DrawnOverlayObject>(items.Count);
+            foreach (var item in items)
+            {
+                (float X, float Y, float W, float H)? box = null;
+                var namedByRing = false;
+                if (placed.TryGetValue(item, out var label))
+                {
+                    box = (label.X, label.Y, label.Width, label.Height);
+                }
+                else if (selectionRing is { } sel && sel.Index == item.Index)
+                {
+                    // The ring's name IS this object's label this frame, so that is its box.
+                    box = sel.LabelBox;
+                    namedByRing = true;
+                }
+                drawn.Add(new DrawnOverlayObject(item.Index, item.ScreenX, item.ScreenY, item.Marker, box, namedByRing));
+            }
+            _drawnOverlayObjects = drawn.MoveToImmutable();
         }
 
         /// <summary>
@@ -578,17 +668,66 @@ namespace TianWen.UI.Abstractions
         /// <see cref="ViewportLayout"/> the markers use, so the ring lands on the marker rather than
         /// beside it -- and it is the object's position, never the click's, so it stays put when the
         /// pointer moves on.</para>
+        /// <para><b>Solved before the overlay pass and drawn after it.</b> The geometry is one
+        /// <see cref="SolveSelectionRing"/> per frame: the overlay needs the name's box first, to keep
+        /// every label off it and to leave the selected object's own label out, while the ring itself
+        /// has to be drawn LAST so it sits over that object's marker rather than under it.</para>
         /// </remarks>
-        private void RenderSelectionHighlight(ViewerState state, WCS wcs)
+        private void RenderSelectionHighlight(in SelectionRingGeometry ring)
+        {
+            var accent = ViewerTheme.Palette.Accent;
+
+            DrawEllipseOverlay(ring.ScreenX, ring.ScreenY, ring.InnerMajor, ring.InnerMinor, ring.AngleRad, accent, 1.5f);
+            DrawEllipseOverlay(ring.ScreenX, ring.ScreenY, ring.OuterMajor, ring.OuterMinor, ring.AngleRad, accent, 1.5f);
+
+            if (!string.IsNullOrEmpty(FontPath))
+            {
+                DrawText(ring.Name, ring.LabelBox.X, ring.LabelBox.Y, FontSize * 0.85f, accent);
+            }
+        }
+
+        /// <summary>
+        /// The selection ring and its name, placed for this frame.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="Index"/> is the selected object's catalogue identity, so the overlay pass can tell
+        /// which of its items the ring stands in for; a selection built without one (the panel's
+        /// position-only payloads) simply has no label to step aside. <see cref="LabelBox"/> is in the
+        /// overlay's own box vocabulary (top-left, width, height) because that is what it is reserved
+        /// and hit-tested as.
+        /// </remarks>
+        private readonly record struct SelectionRingGeometry(
+            CatalogIndex? Index,
+            float ScreenX,
+            float ScreenY,
+            float InnerMajor,
+            float InnerMinor,
+            float OuterMajor,
+            float OuterMinor,
+            float AngleRad,
+            string Name,
+            (float X, float Y, float W, float H) LabelBox);
+
+        /// <summary>
+        /// Where the selection ring and its name land this frame, or null when there is no selection
+        /// or it does not project.
+        /// </summary>
+        /// <remarks>
+        /// An extended object is ringed by its OWN outline; only a star or a shapeless entry falls
+        /// back to the circle pair, which is the atlas's rule and now this one's. The name sits to the
+        /// right of the ring's widest point on the screen's X axis, which for a rotated ellipse is
+        /// neither semi-axis but the projection of both.
+        /// </remarks>
+        private SelectionRingGeometry? SolveSelectionRing(ViewerState state, WCS wcs)
         {
             if (state.SelectedObject is not { } selection || ImageWidth <= 0 || ImageHeight <= 0)
             {
-                return;
+                return null;
             }
 
             if (wcs.SkyToPixel(selection.RA, selection.Dec) is not { } px)
             {
-                return;
+                return null;
             }
 
             var layout = CurrentViewportLayout(state);
@@ -599,42 +738,41 @@ namespace TianWen.UI.Abstractions
             var screenX = (float)sx;
             var screenY = (float)sy;
 
-            var accent = ViewerTheme.Palette.Accent;
-
-            // An extended object is ringed by its OWN outline; only a star or a shapeless entry
-            // falls back to the circle, which is the atlas's rule and now this one's.
-            var labelGap = TryDrawSelectionShape(in selection, in wcs, in layout, screenX, screenY, accent)
-                is { } shapeHalfWidth
-                ? shapeHalfWidth
-                : DrawSelectionCircles(screenX, screenY, accent);
-
-            if (!string.IsNullOrEmpty(FontPath))
+            float innerMajor, innerMinor, outerMajor, outerMinor, angleRad, halfWidth;
+            if (TrySolveSelectionEllipse(in selection, in wcs, in layout) is { } ellipse)
             {
-                DrawText(selection.Name, screenX + labelGap + (4f * DpiScale),
-                    screenY - (FontSize * 0.5f), FontSize * 0.85f, accent);
+                (innerMajor, innerMinor, outerMajor, outerMinor, angleRad, halfWidth) = ellipse;
             }
+            else
+            {
+                // The two concentric circles a shapeless selection gets.
+                innerMajor = innerMinor = 9f * DpiScale;
+                outerMajor = outerMinor = innerMajor + (3f * DpiScale);
+                angleRad = 0f;
+                halfWidth = outerMajor;
+            }
+
+            var labelSize = FontSize * 0.85f;
+            var labelBox = (
+                X: screenX + halfWidth + (4f * DpiScale),
+                Y: screenY - (FontSize * 0.5f),
+                W: MeasureText(selection.Name, labelSize),
+                H: labelSize * 1.2f);
+
+            return new SelectionRingGeometry(
+                selection.Index, screenX, screenY,
+                innerMajor, innerMinor, outerMajor, outerMinor, angleRad,
+                selection.Name, labelBox);
         }
 
         /// <summary>
-        /// The two concentric circles a shapeless selection gets, returning the half-width the label
-        /// has to clear.
-        /// </summary>
-        private float DrawSelectionCircles(float screenX, float screenY, RGBAColor32 accent)
-        {
-            var inner = 9f * DpiScale;
-            var outer = inner + (3f * DpiScale);
-            DrawEllipseOverlay(screenX, screenY, inner, inner, 0f, accent, 1.5f);
-            DrawEllipseOverlay(screenX, screenY, outer, outer, 0f, accent, 1.5f);
-            return outer;
-        }
-
-        /// <summary>
-        /// Rings the selection with the object's OWN projected ellipse -- true axis ratio, true
-        /// position angle -- or answers null for anything the catalogue gives no usable shape for.
+        /// The selection's ring as the object's OWN projected ellipse -- true axis ratio, true
+        /// position angle -- or null for anything the catalogue gives no usable shape for, which
+        /// then takes the circle pair.
         /// </summary>
         /// <returns>
-        /// The ring's screen half-width, so the caller can place the label clear of it; null when no
-        /// ellipse was drawn and the circle fallback is owed.
+        /// Both rings' semi-axes, their screen angle, and the outer ring's half-width on the screen's
+        /// X axis, which is what the name has to clear.
         /// </returns>
         /// <remarks>
         /// <para><b>Every input is the one the [O] overlay already uses for the same object</b> --
@@ -651,9 +789,8 @@ namespace TianWen.UI.Abstractions
         /// a constant pixel offset, so an edge-on galaxy's 10:1 ratio survives it -- the same rule
         /// <see cref="OverlayEngine.EllipseLegibilityScale"/> exists to protect at the small end.</para>
         /// </remarks>
-        private float? TryDrawSelectionShape(
-            in SkyMapInfoPanelData selection, in WCS wcs, in ViewportLayout layout,
-            float screenX, float screenY, RGBAColor32 accent)
+        private (float InnerMajor, float InnerMinor, float OuterMajor, float OuterMinor, float AngleRad, float HalfWidth)?
+            TrySolveSelectionEllipse(in SkyMapInfoPanelData selection, in WCS wcs, in ViewportLayout layout)
         {
             if (selection.Shape is not { } shape
                 || OverlayEngine.ChooseMarkerKind(selection.ObjType, hasShape: true)
@@ -696,7 +833,6 @@ namespace TianWen.UI.Abstractions
             semiMinorPx *= inflate;
 
             var angleRad = OverlayEngine.ComputeScreenPA(wcs, selection.RA, selection.Dec, shape.PositionAngle);
-            DrawEllipseOverlay(screenX, screenY, semiMajorPx, semiMinorPx, angleRad, accent, 1.5f);
 
             // The outer ring is the inner one scaled so its MAJOR axis gains the same 3 px the circle
             // fallback's outer gains; the minor axis follows proportionally rather than by the same
@@ -704,14 +840,14 @@ namespace TianWen.UI.Abstractions
             var outerScale = 1f + (3f * DpiScale / semiMajorPx);
             var outerMajorPx = semiMajorPx * outerScale;
             var outerMinorPx = semiMinorPx * outerScale;
-            DrawEllipseOverlay(screenX, screenY, outerMajorPx, outerMinorPx, angleRad, accent, 1.5f);
 
             // The label clears the ring's widest point on the screen's X axis, which for a rotated
             // ellipse is neither semi-axis but the projection of both.
             var (sin, cos) = MathF.SinCos(angleRad);
             var halfWidth = MathF.Sqrt(
                 (outerMajorPx * cos * (outerMajorPx * cos)) + (outerMinorPx * sin * (outerMinorPx * sin)));
-            return float.IsFinite(halfWidth) ? halfWidth : outerMajorPx;
+            return (semiMajorPx, semiMinorPx, outerMajorPx, outerMinorPx, angleRad,
+                float.IsFinite(halfWidth) ? halfWidth : outerMajorPx);
         }
 
         private static RGBAColor32 FloatToColor(float r, float g, float b, float a)
