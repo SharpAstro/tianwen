@@ -2309,6 +2309,53 @@ count as its dial, and the E3.2 prior at 1.3x scale, which on the hard crop is t
 deconvolution of a real frame this project has produced (1.05 to 1.10 against E3.0's 1.16, with the
 ring on the right side of zero).
 
+#### E3.3 read: the floor does not follow the median down, and the runtime rule is the zoom (2026-09-13, 18:30)
+
+`run-e3-3.ps1`, `--scale-aug 0.55,0.85` (truths about 1.14 to 2.18 px, median about 1.59), one seed,
+16:59 to 18:24 (1.4 h, the smaller tiles train faster). **Cache gate, recorded not judged:** from
+step 1000 on every row is NARROWER than the truth (0.998, 0.979, 0.970, 0.977 at 1000 / 2000 / 3000 /
+4000, stars 0.95 to 0.98, each flagged FAIL for the wrong side of 1.0), the observer 1.03 to 1.06 at
+2.9x to 10x its null; the selection therefore took step 1500, the last passing row, at 1.005. With
+the cache's truths above the band the prior over-sharpens them, which is the secondary prediction
+landing on the other side of 1.0 than it was written for (predicted 1.03 to 1.10, WORSE than 1.024
+was the claim; it is worse, by being too narrow). **The readout, the real crops as shot and round
+tripped** (`C:/temp/e2/e3-3-s0-real-statue.txt`; selected step 1500 / final step 4000):
+
+| crop (truth) | input | E3.0 (stars, ring) | E3.2 final | E3.3 selected | E3.3 final | E3.3 final, round trip 1.28 |
+|---|---|---|---|---|---|---|
+| 0,1024 (1.813 px) | 1.253 | 1.163 (1.01, +1.0) | 1.201 (0.92, -1.2) | **1.190 (0.97, -1.1)** | **1.171 (0.97, -0.7)** | 1.086 (1.07, -0.6) |
+| 1024,0 (1.926 px) | 1.065 | 0.994 (1.09, +1.7) | 1.031 (1.06, -0.3) | 1.038 (1.09, -0.7) | 1.020 (1.08, -0.4) | 0.954 (1.16, -0.2) |
+| 2000,1000 (1.880 px) | 1.068 | 1.001 (1.03, +1.4) | 1.040 (0.88, -0.9) | 1.032 (0.94, -1.0) | 1.016 (0.91, -0.8) | 0.946 (1.02, -0.6) |
+
+**KILLED by the letter, on the selected checkpoint: 1.190 is the kill line (1.19 or over) to the
+third decimal, and the final checkpoint's 1.171 misses the pass (1.15) by 0.02.** The prediction was
+about 1.10 as shot, the E3.2 round-trip row without the round trip; the floor moved 1.201 to 1.171
+for a median that moved 1.93 to 1.59, where the "1.1 times the median" reading of the two earlier
+points called for the real width to be INSIDE. The floor is not the training median's, or not only:
+three points now read 2.27 / 1.93 / 1.59 px of median against floors near 2.5 / 2.1 / 2.0, a
+diminishing return that says a master downsampled by 0.55 to 0.85 is not a natively 1.6 px master.
+What differs is unmeasured and is the next coordinate to name if a native-scale prior is still
+wanted: the shape of a star sampled at 1.3 to 1.6 px (the pixel's own box dominates a sub-Nyquist
+core, which no antialiased resampling of a 2.3 px star reproduces), or the noise's spectrum after the
+resampling (averaged, no longer white). The archive cannot settle it, having no natively sharp
+masters (all but two at 2.05 px or more), so a sharp pool is not on offer.
+
+What E3.3 does deliver: at native scale the final checkpoint reads within 0.01 to 0.03 of E3.0's
+width on every crop (1.171 / 1.020 / 1.016 against 1.163 / 0.994 / 1.001) with the ring on the right
+side of zero and no fabrication, where E3.0 rings on all three and over-detects on the mild ones.
+Round tripped it reads 1.086 on the hard crop, the best native-scale number so far (E3.2: 1.101), and
+fabricates on the mild crops exactly as E3.0 and E3.2 do there, the over-read kernel.
+
+*The runtime rule, as the kill line said:* the prior at 1.3x scale, resampled back, on the frame's
+own window-estimated kernel. E3.2's checkpoint (`e32_s0_final.pt`) is the pre-registered one; E3.3's
+reads 0.015 better on the hard crop and its cache rows say it has left the band the gate can judge,
+so it is the second candidate, not the first, until a second seed of either says which is the seed
+and which the recipe (one seed each; E2 measured the seed's spread at two to three times the
+regime's). Native-scale candidates, in order: E3.0 with the iteration count as its dial, then E3.3's
+final checkpoint as the E3.0 that does not ring. What the runtime path costs on the 1070 (twenty
+iterations of a base-16 U-Net on a 1.3x frame under DirectML, no recompute at inference) is the E7
+measurement, owed before any of this ships.
+
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
 Every retained master in `2026-09-full` predates the two registration fixes and R1, and E3 trains on
