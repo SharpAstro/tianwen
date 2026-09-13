@@ -726,6 +726,39 @@ rather than peak, or both; pre-register with the share classes above as the read
 its cooled sister and an Orion warm night (where the class is 15 to 53 a frame on L-Quad and 103 to
 142 on L-Ultimate).
 
+**Readout taken 2026-09-13, both candidates built as opt-ins** (`SpikeGuard.NeighbourSignificance`:
+a share over 0.5 is a spike unless the eight neighbours' background-subtracted sum exceeds three
+sigma of its own noise; `PsfProfileFit.StackRanking.Flux`: the fit's 400 ranked by the detector's
+flux instead of the peak; `ReportWhyTheGreenFitRefusesASessionsSubs` with `TIANWEN_E210_GUARD` /
+`TIANWEN_E210_RANK`, six raw subs a night, `C:/temp/e2/e21-readout/`). Per night, the 0.5 to 0.85
+class on the first sub, the under-0.5 class (the stars), and the green fits over the six subs:
+
+| night | guard | class 0.5 to 0.85 | stars (share under 0.5) | green fits of 6 | widths px |
+|---|---|---|---|---|---|
+| Tarantula L-Ult 2025-10-14, 12.7 C | share, peak (shipped) | 2,260 | 1,001 | 3 (3 `PoorFit`) | 1.33 to 1.36 |
+| | share, flux | 2,260 | 1,001 | 6 | 1.21 to 1.44 |
+| | noise, peak | 87 | 1,001 | 6 | 1.24 to 1.54 |
+| Tarantula L-Ult 2025-11-01, -10 C | share, peak | 1,863 | 2,349 | 6 | 1.26 to 1.43 |
+| | noise, peak | 82 | 2,349 | 6 | 1.28 to 1.50 |
+| Orion L-Quad 2025-10-15, 13.7 C | share, peak | 15 | 567 | 6 | 1.83 to 2.74 |
+| | noise, peak | 5 | 567 | 6 | 1.84 to 2.77 |
+| Orion L-Ult 2025-10-14, 8.1 C | share, peak | 127 | 404 | 6 | 1.29 to 1.58 |
+| | noise, peak | 60 | 404 | 6 | 1.29 to 1.62 |
+
+The noise-aware guard removes 95 to 98 percent of the class on both Tarantula nights (2,260 to 87,
+1,863 to 82) and touches no star: the under-0.5 count is identical to the digit on every sub of
+every night. With it the warm night's six subs all fit, and the detection-level median the
+registration's quality gate and reference pick read (`mosaic` in the readout) becomes a star
+statistic (1.74 to 2.33 px on the 12.7 C sub, where 1.74 was the spikes). The flux ranking alone
+also gives the warm night its fits (6 of 6) but leaves the class in the detections, and adding it
+on top of the noise guard changes nothing (the stacks are identical). The cost the guard was
+expected to have (a faint sharp star with an insignificant neighbourhood) does not show at this
+resolution: the under-0.5 population is unchanged and the fitted widths move by 0.00 to 0.07 px,
+the stack's composition. **Recommendation, the decision the user's:** the noise-aware guard as the
+shipped rule, since it fixes the detections every consumer reads, with the flux ranking left as
+the opt-in it is; then the store's green count on the warm night after the change (0 of 84 today).
+The synthetic pin is `StarDetectionWarmPixelTests.TheNoiseAwareGuardReachesTheFaintWarmClassTheShareDoesNot`.
+
 ### A `--manifest` stack's output manifest re-listed the whole group, not the frames it stacked (FIXED 2026-09-13)
 
 `tianwen stack --manifest <third>` integrates only the manifest's frames (`STACK_N` 79 and 80 on
