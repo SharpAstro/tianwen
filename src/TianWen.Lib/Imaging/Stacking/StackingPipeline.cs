@@ -739,7 +739,7 @@ public sealed class StackingPipeline(
             // produce even 20 mutual matches between consecutive subs where the mono route
             // reproduced at 92%.
             var (stars, _) = await FrameRegistration.DetectAsync(
-                calibrated, options.CentroidDebayerAlg, options.SnrMin, options.MinStars, ct);
+                calibrated, options.CentroidDebayerAlg, options.SnrMin, options.MinStars, cancellationToken: ct);
             var metrics = FrameRegistration.MetricsFrom(stars);
             // The star list is RETAINED (the dataset registrar's model): registration is centroid
             // work, so keeping it makes the register pass below pixel-free instead of reloading,
@@ -1030,8 +1030,14 @@ public sealed class StackingPipeline(
                 }
                 else
                 {
+                    // Not recorded in this run's manifest at all. The manifest distinguishes a frame
+                    // that was considered and rejected from one that was never offered, and a frame
+                    // the INPUT manifest did not list as matched was never offered to this run: the
+                    // selection came from that manifest, not from here. Listing it as a quality
+                    // reject re-listed the whole 244-frame group behind a stack of its 79-frame
+                    // third, and a downstream split reading that manifest would have re-offered
+                    // every frame the third had been cut to exclude.
                     transform = null;
-                    manifestFates.Add((candidate.Frame, FrameFate.SkippedQualityReject, null));
                     logger.LogInformation("  [{Name}] -> SKIP (not a matched frame in the manifest)", name);
                 }
             }

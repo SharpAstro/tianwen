@@ -49,7 +49,9 @@ public class StarDetectionWarmPixelTests
     /// star, Gaussian read noise, and optionally fifteen warm photosites. Returns the plane too, for the
     /// measure to be tested on the same pixels the detector saw.
     /// </summary>
-    private static (Image Image, float[,] Plane) Render(bool warm)
+    private static (Image Image, float[,] Plane) Render(bool warm) => Render(warm, WarmExcess);
+
+    private static (Image Image, float[,] Plane) Render(bool warm, float warmExcess)
     {
         var rng = new Random(7);
         var data = new float[Size, Size];
@@ -83,12 +85,56 @@ public class StarDetectionWarmPixelTests
         {
             foreach (var (wx, wy) in WarmPixels)
             {
-                data[wy, wx] += WarmExcess;
+                data[wy, wx] += warmExcess;
             }
         }
 
         var image = new Image([data], BitDepth.Float32, Background + Amplitude + WarmExcess, Background - (5f * NoiseSigma), 0f, Meta);
         return (image, data);
+    }
+
+    /// <summary>
+    /// The class the share guard does not reach (docs/known-limitations.md, the detector entry): a warm
+    /// photosite whose excess is a few sigma rather than hundreds. Its eight neighbours are pure noise, and
+    /// the share clips them positive, so the peak's share of the 3 by 3 lands between 0.5 and 0.85 and
+    /// the shipped rule keeps it. The noise-aware rule asks whether those neighbours carry anything
+    /// significant and they do not. Stars are kept under both rules: a resolved star's share is under
+    /// 0.5 whatever its brightness, so the significance test never reaches it.
+    /// </summary>
+    [Fact]
+    public void TheNoiseAwareGuardReachesTheFaintWarmClassTheShareDoesNot()
+    {
+        // 7.5 sigma of excess: a detection, and a share of about 0.7 once the neighbours' clipped noise
+        // (about 3.2 a side, 25 over eight) joins the denominator.
+        var (_, plane) = Render(warm: true, warmExcess: 7.5f * NoiseSigma);
+        var inClass = 0;
+        var keptByShare = 0;
+        var droppedByNoise = 0;
+        foreach (var (wx, wy) in WarmPixels)
+        {
+            var stats = Image.PeakPhotositeStatistics(plane, wx, wy);
+            if (stats.Share > Image.NeighbourSignificanceShareMin && stats.Share <= Image.SinglePhotositeFractionMax)
+            {
+                inClass++;
+            }
+            if (!Image.IsSinglePhotositeSpike(stats, SpikeGuard.PeakShare))
+            {
+                keptByShare++;
+            }
+            if (Image.IsSinglePhotositeSpike(stats, SpikeGuard.NeighbourSignificance))
+            {
+                droppedByNoise++;
+            }
+        }
+        inClass.ShouldBeGreaterThanOrEqualTo(10, $"only {inClass} of {WarmPixels.Length} faint warm photosites landed in the 0.5 to 0.85 class");
+        keptByShare.ShouldBeGreaterThanOrEqualTo(10, $"the share rule kept only {keptByShare} of {WarmPixels.Length}: the class it does not reach has to exist here");
+        droppedByNoise.ShouldBe(WarmPixels.Length, $"the noise-aware rule dropped {droppedByNoise} of {WarmPixels.Length}");
+        foreach (var (sx, sy) in Stars)
+        {
+            var stats = Image.PeakPhotositeStatistics(plane, sx, sy);
+            Image.IsSinglePhotositeSpike(stats, SpikeGuard.PeakShare).ShouldBeFalse($"star at ({sx}, {sy}) under the share rule");
+            Image.IsSinglePhotositeSpike(stats, SpikeGuard.NeighbourSignificance).ShouldBeFalse($"star at ({sx}, {sy}) under the noise-aware rule (share {stats.Share:F2}, neighbours {stats.NeighbourSum:F0} against sigma {stats.RingSigma:F1})");
+        }
     }
 
     [Fact]

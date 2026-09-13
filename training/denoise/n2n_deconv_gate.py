@@ -59,7 +59,11 @@ def with_psf01(x, psf01):
     estimator on the degraded frame. Inference has no kernel, so the label has to be a quantity the
     deployed path can obtain; a plane derived from the drawn kernel parameters would not be.
     """
-    s = torch.as_tensor(psf01, device=x.device, dtype=torch.float32).view(-1, 1, 1, 1)
+    s = torch.as_tensor(psf01, device=x.device, dtype=torch.float32)
+    # One label per sample ([B]) is the psf01 plane every deconvolution arm has carried; a ROW per
+    # sample ([B, L]) is the E3 operator's label set (n2n_operator.LABEL_*), one constant plane each.
+    # The one-label form is byte-identical to what it was.
+    s = s.view(-1, 1, 1, 1) if s.dim() == 1 else s.view(s.shape[0], s.shape[1], 1, 1)
     return torch.cat([x, s.expand(-1, -1, x.shape[2], x.shape[3])], dim=1)
 
 

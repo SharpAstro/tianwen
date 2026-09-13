@@ -874,7 +874,24 @@ adds. The thirds' masters sit 1.17 to 1.24x above their own subs' green medians 
 2.02 to 2.10 against 1.69) under Lanczos-3, where R1's per-star reading on the Orion night had the
 master at its frames' mean; the two widths here are different statistics (the store's is the fit on
 a VNG green plane at the detector's positions on a sub, the probe's on the stacked master's crop), so
-this is an observation to measure per star before it is a finding. And the estimator's median FWHM
+this is an observation to measure per star before it is a finding. **Measured per star 2026-09-13
+(task 25, `training/denoise/run-e25-statue-norm.ps1`, the prediction in its header): the
+observation is the two statistics, not the stack.** Each third re-stacked from its manifest under
+`InRamAllFrames` with `--save-normalized` (the clamped Lanczos-3 warp) and every warped frame's
+snr-20 green detections paired with the master's within 1 px
+(`ReportPerStarWidthsOfTheWarpedFramesAgainstTheirMaster`; `C:/temp/e2/e25-perstar-*.txt`): sharp
+third, 79 frames at a median 1.70 px (p10 1.64, p90 1.76), master 1.72 on the same stars,
+master over frame 1.025 at the median over frames (0.948 to 1.078), master over the median frame
+1.012; soft third, 80 frames at 1.96 (1.92 to 1.99), master 1.99, master over frame 1.014
+(0.984 to 1.178), master over the median frame 1.015. Each master is the mean of its warped frames
+to 1.5 percent, as on Orion, and the 1.17 to 1.24x against the store was the store's statistic
+(a profile fit on a sub's VNG plane, 1.45 and 1.69) against the detector's width on the stacked
+crop. The pre-registration's kill line trips by the letter and for a reason it did not account
+for: it read the REFERENCE frame's row as "the stack's own cost" (true on the near6 frames, which
+were alike), but a third's reference is the night's SHARPEST frame by the quality ranking (1.62 and
+1.71 px against frame medians of 1.70 and 1.96), so its row reads the mean over the spread (1.066
+and 1.178), not the integration; the frame-median rows carry the cost, and they read 1.012 and
+1.015. Closed: the stack is its frames' mean; nothing widens in the integration. And the estimator's median FWHM
 and the profile fit disagree on B/A by up to 0.12 per channel (1.06 / 1.21 / 1.33 against 1.185 /
 1.19 / 1.215), the HFD statistic being the noisier of the two on a soft master. Verdict: PASS on the
 pair and on the recovery, the star count noted; E2.10c on the Orion night reads whether a 1.26x
@@ -2058,10 +2075,286 @@ observed fit's exponent ranges 1.9 to 9.9 against drawn 1.5 to 8, so the "shape 
 noisy at the wing-less end, as E1g-2 said it would be. Verdict: the ground-work stands with the
 window; per-tile estimation is closed as a design; E3.0 needs the re-export.
 
-*What this does not decide.* E4 (position-varying kernels) and E7 (the export and the runtime) stand
-as written; the shipped SAS graph remains the deployed deconvolver until E7, and E2.10a's baseline on
-the Orion pair is the number it has to beat. The decision is the plan's; the PR is where it is
-reviewed.
+#### E3.0, read 2026-09-13: the operator alone trips the observer's kill line, and a noise-free control places the cause
+
+*What was built.* The operator is `training/denoise/n2n_operator.py`: `rl_deconvolve` is
+`RichardsonLucy.Deconvolve` on a batch (replicate border for the C# index clamp, the 1e-12 floor
+with the ratio defaulting to 1, the flipped kernel as the adjoint, a non-finite or negative
+estimate clamped to zero), `moffat_kernel` is `PsfKernel.Build` at the same support rule, and
+`RLOperator` wraps them for the gate: the tile is UNSTRETCHED to linear with its session's
+parameters, iterated, and RESTRETCHED, because the cache is stretched and the blur was injected in
+linear (a tone curve does not commute with a convolution, and the C# ceiling was measured in linear).
+The exporter recorded those parameters nowhere, so `--prepare --bake` recomputes them from the
+retained master the way `ToUnitRange` and `MtfStretch` did and PROVES them against the export's own
+clean tiles before writing `stretch.npy`: on all ten sessions of E2.6's pool the reproduction is
+byte-exact (max half difference 0.00). The port is pinned against a fixture the C# writes
+(`RichardsonLucyPortFixtureProbe`, `n2n_rl_parity.py`): kernel to 1.9e-9, twenty iterations to
+3.4e-7 absolute and 4.4e-6 relative on CPU and on the 1070, and the check bites (a zero-padded
+border reads 0.136). The kernel per tile is the row's `EstimatedKernelFwhmPx` / `EstimatedKernelBeta`
+(the drawn kernel's effective width where the estimate was refused), `kernels.npy` beside the tiles.
+The cache is `C:/temp/tianwen-scratch/n2n-p2-blur-clamped`, E2.6's ten sessions by name from the
+clamped re-export (78 sessions), 450 cells, 3600 of 3600 degraded slots labelled, 60 percent on an
+estimated kernel.
+
+*The reading* (`--operator-only`, the gate's 45 cells of HIP 80609 2026-04-21 and the observer's 45
+of the SV605CC Pleiades / Triangulum 2025-10-28 night, K swept; `C:/temp/e2/e30-operator-k*.log`):
+
+| K | gate in/truth | gate out/truth | resid px | ring | stars | stars@6 | observer out/truth | observer stars | over its null (1.69) |
+|---|---|---|---|---|---|---|---|---|---|
+| 10 | 1.376 | 1.175 | +0.40 | +2.5 | 0.90 | 0.93 | 1.429 | 10.4 | 6.1x |
+| **20** | 1.376 | **1.122** | +0.28 | +2.9 | **0.98** | 1.17 | 1.352 | **20.5** | **12.1x** |
+| 30 | 1.376 | 1.098 | +0.22 | +3.2 | 1.00 | 1.35 | 1.310 | 30.4 | 18.0x |
+| 60 | 1.376 | 1.074 | +0.18 | +4.3 | 1.02 | 1.72 | 1.242 | 56.1 | 33.2x |
+
+On the gate session the width does what the ceiling promised: 1.12 at the pre-registered K = 20
+(between the 1.10 pass and the 1.20 kill), under 1.10 from K = 30, with the truth's stars kept
+(0.98 at 12 MAD) and no fabrication at the gate's own bar. On the observer the operator manufactures
+detections: 20 times the truth's count at K = 20, twelve times its own input null, rising with K.
+**By the letter of the pre-registration E3.0 is KILLED** ("the observer over 2x its null"). The
+pre-registration reads that kill as "the tile-wise kernel or the unrolling is wrong", so the cause
+was measured rather than assumed.
+
+*The control* (`n2n_operator_control.py`): the same cells' clean masters unstretched, blurred with
+the ROW's kernel and no noise, restretched, through the same operator and the same gate. With the
+estimate: gate 1.392 in, 1.132 out, stars 0.85; observer 1.682 in, 1.386 out, stars 0.86, stars@6
+0.17. With the DRAWN (exact) kernel: 1.103 and 1.368, stars 0.90 and 0.86. No fabrication anywhere,
+on either kernel. The observer's kernels are the drawn ones on 36 of 45 cells (its estimates were
+refused, the noisy session) and read 1.01 of the effective width where they exist; the gate
+session's estimates over-read by 1.17 at the median (p90 1.50) and cost 0.03 of width against the
+drawn kernel. The observer's REAL degraded input is 1.41 times noisier than its own master (the
+gate session's is 0.88) and already carries 1.69 times the truth's 12-MAD detections before any
+deconvolution, against 0.53 for the noise-free blur. **So the unrolling is right (the parity), the
+kernel is right or nearly so (the control on both kernels), and the kill is Richardson-Lucy's own
+amplification of the injected noise into point sources**, the failure the plan gave the learned
+prior to carry ("the network carries what the oracle loses, the stars and the ringing under noise").
+The pre-registration's diagnosis for this kill was wrong about the mechanism; its numbers stand.
+
+*Decision.* E3.0's kill is recorded as tripped, its cause as noise, and E3.1 proceeds as
+pre-registered with E3.0's K = 20 row as the baseline the kill line is read against: the operator
+with a zero-initialised residual U-Net prior between iterations (`StretchedPrior`, applied in the
+stretched domain, saturated pixels passed through), so step 0 of every seed IS the row above. Pass:
+gate stars at or over 0.85 at width at or under 1.15 and the observer under 2x its null (3.38).
+Kill: no seed improves on the observer's 20.5 at a gate width at or under E3.0's 1.122. A second
+kill is added for the mechanism named here: a seed that reaches the observer bound by widening the
+gate past 1.20 has traded the sharpening for the smoothing and is E2.8b's arm N again, not a
+deconvolver.
+
+#### E3.1, the seeds as they land (launched 2026-09-13 11:25, `training/denoise/run-e3-1.ps1`)
+
+The operator with `StretchedPrior` (base-16 residual U-Net after every iteration, zero-initialised),
+E2.7 arm B's objective plus the star term with its empty counterpart at 1.84e-3, 4000 steps, the
+gate every 100; each seed about 2 h 50 on the 1070. Read with `n2n_gatelog.py C:/temp/e2/e31.log`;
+E3.0's K = 20 row (gate 1.122 / stars 0.98; observer 1.352 / stars 20.5, 12.1x its null of 1.69)
+is the baseline of both kill lines.
+
+| seed | selected | gate out/truth | gate stars | observer out/truth | observer stars (x null) | verdict |
+|---|---|---|---|---|---|---|
+| 0 | 3700 | 1.072 | 0.88 | 1.114 | 4.22 (2.5x) | between the lines |
+
+*Seed 0, read at 14:18.* Neither kill trips: the observer's 20.5 falls to 4.22 at a gate NARROWER
+than E3.0's (1.072 against 1.122, as narrow as E3.0 at K = 60 while keeping 0.88 of the stars where
+K = 60 kept 1.02 by inventing some), and nothing widened. Two of the three pass clauses hold (width
+1.072 at or under 1.15, stars 0.88 at or over 0.85); the observer misses its 2x bound by a factor
+1.25 at the selected step. That column is VOLATILE between probes in a way the gate's is not: over
+the 31 probes from step 1000 the observer's star ratio runs 1.94 at p10, 4.46 at p50, 7.90 at p90,
+under 2x its null on 5 of 31, while its width sits at 1.12 throughout and its ring excess stays
+negative (less ringing than its input). So the observer's remaining fabrication is a real 2.5x at the
+median, not a lucky or unlucky draw, and the prior has removed four fifths of E3.0's without a
+sharpening cost. The trajectory's shape is the one the second kill line feared and then not: the
+first 500 steps smoothed (gate 1.25 to 1.45) and the observer fabrication fell to its null, then the
+loss re-sharpened the gate through 1.10 by step 1000 and 1.08 by 2000 while the observer fabrication
+climbed back to 2 to 5x. The seeds decide; a fifth-seed reading that lands under 2x at a passing gate
+is a PASS by the letter, and a five-seed median that does not is the number E3.1 ships with.
+
+#### Seed 0 on the REAL pair: the physics-only operator deconvolves a real frame, and the prior has a width floor (2026-09-13, 15:30)
+
+The plan named E2.10b's Statue pair as the check on a real blur before a seed is spent, and the C#
+oracle took it in linear. `training/denoise/n2n_operator_real.py` takes it with the torch operator
+in the gate's own statistic (stretched luminance, the sharp master's 12 MAD stars, half-maximum
+widths, stars kept, ring excess over the input's null), the soft master's own full-frame stretch on
+both sides and the pair probe's estimated kernels (0.77 / 0.91 / 0.98 px at beta 4, one pass per
+channel), seed 0's selected checkpoint against E3.0 on the same pixels, CPU, 32 s a crop:
+
+| crop (sharp px) | truth stars, width | input | E3.0: out/truth, stars, ring | seed 0: out/truth, stars, ring |
+|---|---|---|---|---|
+| (0, 1024), the probe's | 16,131, 1.81 px | 1.253 | 1.163, 1.01, +1.0 | 1.259, 0.86, -1.4 |
+| (1024, 0) | 8,623, 1.93 | 1.065 | 0.994, 1.09, +1.7 | 1.070, 1.09, -0.7 |
+| (2000, 1000) | 12,062, 1.88 | 1.068 | 1.001, 1.03, +1.4 | 1.085, 0.86, -1.3 |
+
+**E3.0, the physics-only operator with the estimator's kernel, deconvolves a real frame**: a 1.25x
+blur to 1.16 keeping the stars, two 1.07x blurs to the truth's width within a percent, with the mild
+fabrication and ringing RL brings (stars 1.03 to 1.09, ring +1.0 to +1.7). **Seed 0's prior undoes
+it on every crop**: 1.259 from 1.253, 1.070 from 1.065, 1.085 from 1.068, the input's width, with
+14 percent of the stars gone on two of the three. The same checkpoint sharpens the synthetic cache
+to 1.072.
+
+*Where the real crop is outside the training range, measured rather than guessed.* Noise is not it:
+binned by the input's own MAD on the stretched luminance, the cache's val cells read (E3.0 against
+seed 0) 1.222 against 1.107 in the QUIET tercile (0.00037 to 0.00091, the real crop's 0.00089 sits
+inside it), 1.251 against 1.076 in the middle, 1.092 against 1.073 in the noisy one; the prior
+sharpens more than E3.0 on quiet input. Star density is not it: the real crop's 772 stars per
+training-tile area is 1.6x the cache's densest tile, but the two sparser crops (410 and 580) read
+the same. **The truth's WIDTH is**: 1.81 to 1.93 px on the real crops against training truths of
+2.07 / 2.27 / 2.56 px at p10 / p50 / p90 in the same statistic, and the prior's outputs on the real
+crops are 2.04, 2.06 and 2.28 px wide whatever the input. The clean test is the same crop resampled
+so only the pixel width of its stars moves (`--zoom`, kernels scaled with it):
+
+| truth width | input | E3.0 | seed 0 |
+|---|---|---|---|
+| 1.81 px (as shot) | 1.253 | 1.163 (stars 1.01, ring +1.0) | 1.259 (0.86, -1.4) |
+| 2.33 px (zoom 1.25) | 1.232 | 1.097 (1.07, +2.5) | 1.116 (0.99, -0.4) |
+| 2.58 px (zoom 1.4) | 1.236 | 1.084 (1.09, +3.1) | **1.065 (1.04, -0.3)** |
+
+Inside its training band the prior does the job it was trained for and at 2.58 px beats E3.0
+outright: sharper, no fabrication, no ringing, which is the E3.1 reading the cache gave. Narrower
+than any truth it saw, it reads Richardson-Lucy's output as the sharpened noise its empty-window
+term taught it to flatten, and returns the input. **A learned prior carries the width distribution
+of its training truths as a floor**, and this pool's masters (stretched luminance 2.07 px at p10)
+sit above the archive's sharper nights. The rule that applies is the one arm X taught for the
+conditioning plane: the deployment point has to lie inside the training range in EVERY coordinate,
+and the truth's width is a coordinate even though nothing conditions on it.
+
+*What follows (E3.2, to pre-register).* Two remedies, not exclusive: a pool whose truths span the
+deployment widths (the store's sharpest masters, ranked in the gate's statistic by
+`C:/temp/e2/store-master-gate-widths.txt`), and a scale augmentation in the trainer (each tile
+drawn at a random factor in about 0.7 to 1.0 with its kernel label scaled, so the prior meets 1.5
+to 2.6 px truths from one pool). Prediction for either: the real Statue crop as shot reads under
+1.15 with stars at or over 0.85 and a negative ring excess, i.e. the zoom-1.4 row without the zoom;
+kill: it still returns the input. Until then the shipping candidate is E3.0 itself, whose real-frame
+rows above are the first working deconvolution of a real frame this project has produced, with the
+iteration count as its one dial and the prior a refinement that has to earn its place on the
+frames it will meet.
+
+#### E3.2 read on the real pair: the floor followed the training median down, and stopped there (2026-09-13, 16:50 to 17:00)
+
+`run-e3-2.ps1`, one seed, `--scale-aug 0.7,1.0` (truths about 1.45 to 2.56 px, median about 1.93),
+launched 14:39, done 16:43 (2.1 h, the augmentation costs nothing measurable). Cache gate at the
+selected step 3000: **1.024 / stars 0.88 / ring 0.72** (E3.1 seed 0: 1.072 / 0.88; E3.0: 1.122 / 0.98),
+observer 1.073 with fabrication 1.47x null (E3.1: 1.114, 2.5x). Inside the band the augmentation
+helps the cache too. The readout that was pre-registered, the real Statue crops as shot
+(`C:/temp/e2/e32-s0-real-statue.txt`; selected / final checkpoint):
+
+| crop (truth width) | input | E3.0 (stars, ring) | E3.1 s0 | E3.2 s0 selected | E3.2 s0 final |
+|---|---|---|---|---|---|
+| 0,1024 (1.813 px) | 1.253 | 1.163 (1.01, +1.0) | 1.259 (0.86, -1.4) | 1.222 (0.88, -1.7) | **1.201 (0.92, -1.2)** |
+| 1024,0 (1.926 px) | 1.065 | 0.994 (1.09, +1.7) | 1.070 | 1.036 (1.04, -0.9) | 1.031 (1.06, -0.3) |
+| 2000,1000 (1.880 px) | 1.068 | 1.001 (1.03, +1.4) | 1.085 | 1.049 (0.84, -1.6) | 1.040 (0.88, -0.9) |
+
+**Neither line.** The pass asked for 1.15 or under on the first crop; the kill was the input within
+0.03 (1.223 or over) or a pass by fabrication. The selected checkpoint sits on the kill line to the
+third decimal (1.222), the final checkpoint clears it by 0.05, and on every crop the prior now moves
+the right way with the stars kept and a negative ring excess, where E3.1 returned the input. What it
+does not do is reach E3.0's width. **Where the floor is now** (the first crop zoomed, kernels scaled
+with it, `e32-s0-real-statue-zoom.txt`; the E3.1 columns from the section above):
+
+| truth width | input | E3.0 (stars, ring) | E3.1 s0 (stars, ring) | E3.2 s0 selected (stars, ring) |
+|---|---|---|---|---|
+| 1.813 px (as shot) | 1.253 | 1.163 (1.01, +1.0) | 1.259 (0.86, -1.4) | 1.222 (0.88, -1.7) |
+| 2.162 px (zoom 1.15) | 1.226 | 1.111 (1.05, +2.0) | | **1.100 (0.97, -1.4)** |
+| 2.385 px (zoom 1.28) | 1.234 | 1.093 (1.07, +2.7) | 1.116 (0.99, -0.4) | **1.043 (1.02, -1.0)** |
+| 2.616 px (zoom 1.42) | 1.238 | 1.084 (1.09, +3.1) | 1.065 (1.04, -0.3) | **0.996 (1.07, -0.8)** |
+
+E3.1 overtook E3.0 between 2.39 and 2.62 px over a training median of 2.27; E3.2 overtakes it at
+2.16 over a median of about 1.93. **The floor moved by about the augmentation's mean scale, 0.85,
+and sits near 1.1 times the training truths' MEDIAN width, not at their minimum** (1.45 px was in
+the band and 1.81 is not reached). Two other coordinates were excluded on the same crop, each with
+one dial moved and everything else held:
+
+- **Noise amplitude is not it** (`e32-s0-real-statue-noise.txt`). The zoom does not change the
+  stretched luminance's MAD (0.00089 as shot, 0.00086 at zoom 1.28: bicubic upsampling keeps the
+  amplitude and stretches the correlation length), so white noise was ADDED to the zoomed input at
+  0.0005 / 0.0009 / 0.0018 in stretched units (the last doubling the input's MAD in quadrature). The
+  prior's row moved 1.043 to 1.044 to 1.045 with the ring going more negative; E3.0's ring went +2.7
+  to +4.4 and its stars 1.07 to 1.15. The prior flattens the noise it is given at any of these levels.
+- **The kernel label is not it** (`e32-s0-real-statue-kernel.txt`). As shot, the estimator's 0.77 /
+  0.91 / 0.98 px widened 1.3x, 1.4x and 1.6x: E3.0 goes 1.163 to 1.067, 1.034, 1.008 while its stars
+  go 1.14, 1.21, 1.31 and its ring +3.8, +5.7, +8.9 (a kernel the operator over-reads fabricates,
+  which is the estimator earning its place); the prior goes 1.222 to 1.169, 1.157, 1.151 (final:
+  1.141, 1.127, 1.120), stars 0.88 throughout, ring turning positive from 1.4x. However hard the
+  operator pushes, the prior hands back about 1.12 to 1.15 at this truth width. It is clamped by the
+  width alone.
+
+*The runtime consequence, measured* (`e32-s0-real-statue-roundtrip.txt`, `--roundtrip`: the crop
+upsampled bicubic by an exact factor, deconvolved with the kernel scaled, the output brought back
+to native scale and read against the UNZOOMED truth). Prediction before running it: within 0.03 of
+the zoomed-domain row. **Missed**: the two resamplings cost 0.06 to 0.07 of the ratio on both arms
+(E3.0 1.093 zoomed becomes 1.127 native), so the round trip is not the zoomed row. It still clears
+the bar that was set for the seed:
+
+| crop | input | E3.0 as shot | E3.0 round trip 1.28 | E3.2 final round trip 1.28 | E3.2 final round trip 1.42 |
+|---|---|---|---|---|---|
+| 0,1024 | 1.253 | 1.163 (1.01, +1.0) | 1.127 (1.05, +1.7) | **1.101 (1.03, -0.8)** | **1.052 (1.08, -0.6)** |
+| 1024,0 | 1.065 | 0.994 (1.09, +1.7) | 0.966 (1.15, +2.7) | 0.964 (1.14, -0.2) | |
+| 2000,1000 | 1.068 | 1.001 (1.03, +1.4) | 0.974 (1.12, +2.2) | 0.968 (0.99, -0.8) | |
+
+On the hard crop the E3.2 prior deconvolved at 1.3x to 1.4x scale reads 1.10 to 1.05 at native
+scale with the stars within 0.08 of the truth's count and no ringing: **under 1.15, stars over 0.85,
+ring negative, the pre-registered pass, reached by the zoom rather than by the seed.** On the two
+mild crops (input 1.065) BOTH arms overshoot to 0.96 to 0.97 and E3.0 and the selected E3.2 fabricate
+(stars 1.12 to 1.15): those crops were deconvolved with the FIRST crop's kernel (the pair probe's
+est-c is per crop, the readout script takes one triple), so the over-read kernel is the estimator's
+error, not the prior's, and the runtime rule stands as written: the kernel comes from the frame's
+own window estimate. The mild crops also say the zoom is not free, since at 1.28 it turns a
+well-read kernel into a 25 percent over-read on a frame that needs little.
+
+*What follows: E3.3, pre-registered in `run-e3-3.ps1`, launched 16:59.* If the floor sits at about
+1.1 times the training median, a median UNDER the real widths puts them inside: `--scale-aug
+0.55,0.85` (truths about 1.14 to 2.18 px, median about 1.59). Prediction: the first crop AS SHOT
+reads 1.15 or under with stars 0.85 or over and a non-positive ring, the round-trip row without the
+round trip; the cache gate, whose truths now lie above the band, reads worse than 1.024 (1.03 to
+1.10 predicted) and is recorded, not judged. Kill: 1.19 or over as shot, or a pass by fabrication;
+then the floor is not the median's and the zoom round trip is the runtime rule, with the E3.2
+checkpoint as the prior. Either way the shipping candidates are now two: E3.0 with the iteration
+count as its dial, and the E3.2 prior at 1.3x scale, which on the hard crop is the better
+deconvolution of a real frame this project has produced (1.05 to 1.10 against E3.0's 1.16, with the
+ring on the right side of zero).
+
+#### E3.3 read: the floor does not follow the median down, and the runtime rule is the zoom (2026-09-13, 18:30)
+
+`run-e3-3.ps1`, `--scale-aug 0.55,0.85` (truths about 1.14 to 2.18 px, median about 1.59), one seed,
+16:59 to 18:24 (1.4 h, the smaller tiles train faster). **Cache gate, recorded not judged:** from
+step 1000 on every row is NARROWER than the truth (0.998, 0.979, 0.970, 0.977 at 1000 / 2000 / 3000 /
+4000, stars 0.95 to 0.98, each flagged FAIL for the wrong side of 1.0), the observer 1.03 to 1.06 at
+2.9x to 10x its null; the selection therefore took step 1500, the last passing row, at 1.005. With
+the cache's truths above the band the prior over-sharpens them, which is the secondary prediction
+landing on the other side of 1.0 than it was written for (predicted 1.03 to 1.10, WORSE than 1.024
+was the claim; it is worse, by being too narrow). **The readout, the real crops as shot and round
+tripped** (`C:/temp/e2/e3-3-s0-real-statue.txt`; selected step 1500 / final step 4000):
+
+| crop (truth) | input | E3.0 (stars, ring) | E3.2 final | E3.3 selected | E3.3 final | E3.3 final, round trip 1.28 |
+|---|---|---|---|---|---|---|
+| 0,1024 (1.813 px) | 1.253 | 1.163 (1.01, +1.0) | 1.201 (0.92, -1.2) | **1.190 (0.97, -1.1)** | **1.171 (0.97, -0.7)** | 1.086 (1.07, -0.6) |
+| 1024,0 (1.926 px) | 1.065 | 0.994 (1.09, +1.7) | 1.031 (1.06, -0.3) | 1.038 (1.09, -0.7) | 1.020 (1.08, -0.4) | 0.954 (1.16, -0.2) |
+| 2000,1000 (1.880 px) | 1.068 | 1.001 (1.03, +1.4) | 1.040 (0.88, -0.9) | 1.032 (0.94, -1.0) | 1.016 (0.91, -0.8) | 0.946 (1.02, -0.6) |
+
+**KILLED by the letter, on the selected checkpoint: 1.190 is the kill line (1.19 or over) to the
+third decimal, and the final checkpoint's 1.171 misses the pass (1.15) by 0.02.** The prediction was
+about 1.10 as shot, the E3.2 round-trip row without the round trip; the floor moved 1.201 to 1.171
+for a median that moved 1.93 to 1.59, where the "1.1 times the median" reading of the two earlier
+points called for the real width to be INSIDE. The floor is not the training median's, or not only:
+three points now read 2.27 / 1.93 / 1.59 px of median against floors near 2.5 / 2.1 / 2.0, a
+diminishing return that says a master downsampled by 0.55 to 0.85 is not a natively 1.6 px master.
+What differs is unmeasured and is the next coordinate to name if a native-scale prior is still
+wanted: the shape of a star sampled at 1.3 to 1.6 px (the pixel's own box dominates a sub-Nyquist
+core, which no antialiased resampling of a 2.3 px star reproduces), or the noise's spectrum after the
+resampling (averaged, no longer white). The archive cannot settle it, having no natively sharp
+masters (all but two at 2.05 px or more), so a sharp pool is not on offer.
+
+What E3.3 does deliver: at native scale the final checkpoint reads within 0.01 to 0.03 of E3.0's
+width on every crop (1.171 / 1.020 / 1.016 against 1.163 / 0.994 / 1.001) with the ring on the right
+side of zero and no fabrication, where E3.0 rings on all three and over-detects on the mild ones.
+Round tripped it reads 1.086 on the hard crop, the best native-scale number so far (E3.2: 1.101), and
+fabricates on the mild crops exactly as E3.0 and E3.2 do there, the over-read kernel.
+
+*The runtime rule, as the kill line said:* the prior at 1.3x scale, resampled back, on the frame's
+own window-estimated kernel. E3.2's checkpoint (`e32_s0_final.pt`) is the pre-registered one; E3.3's
+reads 0.015 better on the hard crop and its cache rows say it has left the band the gate can judge,
+so it is the second candidate, not the first, until a second seed of either says which is the seed
+and which the recipe (one seed each; E2 measured the seed's spread at two to three times the
+regime's). Native-scale candidates, in order: E3.0 with the iteration count as its dial, then E3.3's
+final checkpoint as the E3.0 that does not ring. What the runtime path costs on the 1070 (twenty
+iterations of a base-16 U-Net on a 1.3x frame under DirectML, no recompute at inference) is the E7
+measurement, owed before any of this ships.
 
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
@@ -2127,6 +2420,37 @@ staged 2.81, predates the registration fix); the beta semantics need no re-stack
    performs and which no per-star probe against debayered frames can see. A comparison of the two
    paths that is fair to drizzle needs the sub's width on its own mosaic (the store's green-plane
    width) as the reference, not the warped frame.
+   **Read 2026-09-13 (task 33, `training/denoise/run-e33-staged-vs-drizzle.ps1`, the prediction in
+   its header).** The Orion L-Quad 2025-10-15 night (71 frames, one shared post-fix manifest, so the
+   arms differ in the integration path alone) stacked four ways and each master measured by the
+   store's own master statistic (`MasterProfileFitProbe`: `FindStarsAsync` at snr 5 over 3000 stars,
+   `PsfProfileFit.Measure` per channel; on the store's own retained master it reproduces the row's
+   2.514 px to the digit). Green, against the subs' own-mosaic median of 2.16 px:
+
+   | arm | green FWHM px | beta | detections | master / sub median |
+   |---|---|---|---|---|
+   | Float16Staged, clamped Lanczos-3 | 2.500 | 6.0 | 2275 | 1.16 |
+   | BayerDrizzle pixfrac 1.0 | 2.503 | 4.6 | 1064 | 1.16 |
+   | BayerDrizzle pixfrac 0.7 | 2.430 | 4.3 | 973 | 1.13 |
+   | BayerDrizzle pixfrac 0.5 | 2.400 | 4.3 | 921 | 1.11 |
+   | the store's master (pixfrac 1.0, the bake) | 2.514 | 4.6 | 1104 | 1.16 |
+
+   The pre-registered order (staged narrowest, then 0.5, 0.7, 1.0) is REFUTED: the staged Lanczos
+   master and the unit-drop drizzle master are the same width to three thousandths, so the VNG
+   interpolation the staged path performs costs what the unit box costs drizzle, about 0.7 px in
+   quadrature against the pixfrac 0.5 master (sqrt(2.500^2 - 2.400^2)), which is the number R1 could
+   not see because it read the staged frames against their own VNG planes. The arithmetic for a
+   smaller drop holds to 0.04 px (predicted 2.464 and 2.441 at 0.7 and 0.5 from the 0.65 / 0.48 /
+   0.34 px box terms; measured 2.430 and 2.400). Two things ride on the decision, which stays the
+   user's: **moving the 52 OSC sessions to the staged path gains nothing on green**, and a smaller
+   pixfrac gains 0.07 to 0.10 px at a cost the detection count already shows (1064 to 921 green
+   detections at snr 5, 13 percent fewer, the input samples per output pixel falling with the
+   drop), so the noise of a pixfrac 0.5 master has to be measured before it becomes a training
+   target. An observation, not a finding: the staged master's RED plane fits 2.60 px with 3533
+   detections where every drizzle master fits 3.16 to 3.21 with 670 to 810, at a beta of 2.6 against
+   7.6 to 8.5 (the staged red fit is a wing-heavy, poorly Gaussian profile, `GaussianLogRms` 1.33);
+   red is the channel a colour sensor samples most sparsely and the two paths fill it differently.
+   Green is the reference channel here and red's difference is owed its own reading.
 3. **The Lanczos-3 default (the user's), then a bake option for the warp kernel**: `SessionRegistrar`
    hard-codes `WarpInterpolation.Bilinear`, so a Lanczos bake needs the option either way.
    **DONE 2026-09-12, as CLAMPED Lanczos-3.** `WarpInterpolation.Lanczos3Clamped` is the default

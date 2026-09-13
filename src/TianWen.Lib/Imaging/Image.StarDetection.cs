@@ -156,6 +156,32 @@ public partial class Image
     /// and the 3 by 3 is taken about IT.
     /// </summary>
     internal static float PeakPhotositeFraction(float[,] mosaic, float xCentroid, float yCentroid)
+        => PeakPhotositeStatistics(mosaic, xCentroid, yCentroid).Share;
+
+    /// <summary>A share over this is tested against the neighbours' significance under
+    /// <see cref="SpikeGuard.NeighbourSignificance"/>: a star of 1.3 px FWHM or wider carries under
+    /// half its 3 by 3 flux in its peak photosite (a 1.5 px Gaussian about 0.4), so a share over 0.5
+    /// is a profile narrower than the green plane resolves, or a spike with noisy neighbours.</summary>
+    internal const float NeighbourSignificanceShareMin = 0.5f;
+
+    /// <summary>Under <see cref="SpikeGuard.NeighbourSignificance"/>, the neighbours' background-
+    /// subtracted sum has to exceed this many sigmas of its own noise (the ring's sigma times the
+    /// square root of eight) for a share over <see cref="NeighbourSignificanceShareMin"/> to count as
+    /// a star. Three: a warm photosite's eight neighbours sum to noise, which lands past three sigma
+    /// once in 740; a star bright enough to carry a share over 0.5 at all puts many times that on
+    /// them.</summary>
+    internal const float NeighbourSignificanceSigmas = 3f;
+
+    /// <summary>
+    /// What a detection looks like on the raw mosaic: <c>Share</c> is the peak photosite's share of the
+    /// background-subtracted 3 by 3 flux (<see cref="PeakPhotositeFraction"/>), <c>NeighbourSum</c> the
+    /// eight neighbours' background-subtracted sum, signed (noise has to be allowed to be negative for
+    /// a significance test), and <c>RingSigma</c> the noise of one photosite from the 9 by 9 ring's
+    /// MAD. Every field is NaN where the window leaves the frame or the ring is empty.
+    /// </summary>
+    internal readonly record struct PhotositeStatistics(float Share, float NeighbourSum, float RingSigma);
+
+    internal static PhotositeStatistics PeakPhotositeStatistics(float[,] mosaic, float xCentroid, float yCentroid)
     {
         var height = mosaic.GetLength(0);
         var width = mosaic.GetLength(1);
@@ -163,7 +189,7 @@ public partial class Image
         var cy = (int)MathF.Round(yCentroid);
         if (cx < 5 || cy < 5 || cx >= width - 5 || cy >= height - 5)
         {
-            return float.NaN;
+            return new PhotositeStatistics(float.NaN, float.NaN, float.NaN);
         }
 
         Span<float> ring = stackalloc float[56];
@@ -185,12 +211,20 @@ public partial class Image
 
         if (ringCount == 0)
         {
-            return float.NaN;
+            return new PhotositeStatistics(float.NaN, float.NaN, float.NaN);
         }
 
         ring = ring[..ringCount];
         ring.Sort();
         var background = ring[ringCount / 2];
+        // The ring's noise: the median absolute deviation about that background, scaled to a
+        // Gaussian sigma. In place over the sorted ring, which is not needed sorted again.
+        for (var i = 0; i < ringCount; i++)
+        {
+            ring[i] = MathF.Abs(ring[i] - background);
+        }
+        ring.Sort();
+        var ringSigma = 1.4826f * ring[ringCount / 2];
 
         var px = cx;
         var py = cy;
@@ -210,6 +244,7 @@ public partial class Image
         }
 
         var sum = 0f;
+        var neighbourSum = 0f;
         for (var dy = -1; dy <= 1; dy++)
         {
             for (var dx = -1; dx <= 1; dx++)
@@ -219,10 +254,29 @@ public partial class Image
                 {
                     sum += v;
                 }
+                if (dx != 0 || dy != 0)
+                {
+                    neighbourSum += v;
+                }
             }
         }
 
-        return sum > 0f ? (peak - background) / sum : float.NaN;
+        return new PhotositeStatistics(sum > 0f ? (peak - background) / sum : float.NaN, neighbourSum, ringSigma);
+    }
+
+    /// <summary>Whether <paramref name="stats"/> describe a spike under <paramref name="guard"/>.</summary>
+    internal static bool IsSinglePhotositeSpike(in PhotositeStatistics stats, SpikeGuard guard)
+    {
+        if (stats.Share > SinglePhotositeFractionMax)
+        {
+            return true;
+        }
+        if (guard is SpikeGuard.NeighbourSignificance && stats.Share > NeighbourSignificanceShareMin)
+        {
+            var floor = NeighbourSignificanceSigmas * MathF.Sqrt(8f) * stats.RingSigma;
+            return !(stats.NeighbourSum >= floor);
+        }
+        return false;
     }
 
     /// <summary>
@@ -231,13 +285,13 @@ public partial class Image
     /// is: it indexes the pixels the measurement ran on, and a spike's stamp excluded from the background
     /// estimate is right.
     /// </summary>
-    private static StarList WithoutSinglePhotositeSpikes(StarList stars, float[,] mosaic, ILogger? logger)
+    private static StarList WithoutSinglePhotositeSpikes(StarList stars, float[,] mosaic, SpikeGuard guard, ILogger? logger)
     {
         var kept = new ConcurrentBag<ImagedStar>();
         var dropped = 0;
         foreach (var star in stars)
         {
-            if (PeakPhotositeFraction(mosaic, star.XCentroid, star.YCentroid) > SinglePhotositeFractionMax)
+            if (IsSinglePhotositeSpike(PeakPhotositeStatistics(mosaic, star.XCentroid, star.YCentroid), guard))
             {
                 dropped++;
             }
@@ -253,8 +307,8 @@ public partial class Image
         }
 
         logger?.LogDebug(
-            "Image.FindStarsAsync: dropped {Dropped} of {Total} mosaic detections as single warm photosites (peak photosite share over {Max:F2})",
-            dropped, stars.Count, SinglePhotositeFractionMax);
+            "Image.FindStarsAsync: dropped {Dropped} of {Total} mosaic detections as single warm photosites ({Guard}: peak photosite share over {Max:F2})",
+            dropped, stars.Count, guard, SinglePhotositeFractionMax);
         return new StarList(kept, stars.StarMask);
     }
 
@@ -306,7 +360,7 @@ public partial class Image
         => MathF.Max(3.5f * noiseLevel, MathF.Min(starLevel, maxNoiseSigma * noiseLevel));
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public virtual async Task<StarList> FindStarsAsync(int channel, float snrMin = 20f, int maxStars = 500, int minStars = -1, int maxRetries = 2, float maxFirstPassNoiseSigma = float.PositiveInfinity, ILogger? logger = null, CancellationToken cancellationToken = default)
+    public virtual async Task<StarList> FindStarsAsync(int channel, float snrMin = 20f, int maxStars = 500, int minStars = -1, int maxRetries = 2, float maxFirstPassNoiseSigma = float.PositiveInfinity, ILogger? logger = null, SpikeGuard spikeGuard = SpikeGuard.PeakShare, CancellationToken cancellationToken = default)
     {
         // Default minStars to maxStars preserves the historical behaviour
         // (retries until maxStars is reached). New callers should set minStars
@@ -334,7 +388,7 @@ public partial class Image
                 return cached;
             }
 
-            var result = await DetectStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, maxFirstPassNoiseSigma, logger, cancellationToken).ConfigureAwait(false);
+            var result = await DetectStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, maxFirstPassNoiseSigma, logger, spikeGuard, cancellationToken).ConfigureAwait(false);
             _starListCacheValue = result;
             _starListCacheKey = key;
             return result;
@@ -356,7 +410,7 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private async Task<StarList> DetectStarsAsync(int channel, float snrMin, int maxStars, int minStars, int maxRetries, float maxFirstPassNoiseSigma, ILogger? logger, CancellationToken cancellationToken)
+    private async Task<StarList> DetectStarsAsync(int channel, float snrMin, int maxStars, int minStars, int maxRetries, float maxFirstPassNoiseSigma, ILogger? logger, SpikeGuard spikeGuard, CancellationToken cancellationToken)
     {
         // ChunkSize = row band height each parallel task processes, matching the max star radius
         // (HfdFactor * BoxRadius) so no star can span two non-adjacent chunks. Decoupled from
@@ -377,8 +431,8 @@ public partial class Image
             // in (the viewer's star overlay draws them straight onto the displayed mosaic, and a
             // solver-built WCS is expressed in them).
             var monoImage = await DebayerAsync(DebayerAlgorithm.BilinearMono, cancellationToken: cancellationToken);
-            var monoStars = await monoImage.FindStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, maxFirstPassNoiseSigma, logger, cancellationToken);
-            return WithoutSinglePhotositeSpikes(monoStars.ShiftedBy(BilinearMonoGridOffset, BilinearMonoGridOffset), Planes[channel].Data, logger);
+            var monoStars = await monoImage.FindStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, maxFirstPassNoiseSigma, logger, spikeGuard, cancellationToken);
+            return WithoutSinglePhotositeSpikes(monoStars.ShiftedBy(BilinearMonoGridOffset, BilinearMonoGridOffset), Planes[channel].Data, spikeGuard, logger);
         }
 
         var bgStart = logger is not null ? Stopwatch.GetTimestamp() : 0L;

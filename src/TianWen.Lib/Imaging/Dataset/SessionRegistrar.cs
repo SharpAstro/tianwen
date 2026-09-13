@@ -355,6 +355,13 @@ public static class SessionRegistrar
         logger?.LogInformation("  [{Session}] reference quads={Quads} from {Stars} retained stars (top {Cap})",
             session.Id, registerLoop.ReferenceQuadCount, registerLoop.ReferenceStarCount, QuadStars);
         var matched = new List<(SessionFrameAnalyzer.AnalyzedFrame Frame, Matrix3x2 Transform)>(survivors.Length);
+        // The refiner's unmoved-pair count over the session. A pair that sits where the light's
+        // detection already was, while the bulk transform says it should have moved, is a detection
+        // fixed to the SENSOR (a residual warm pixel pairing with its own copy in the reference), and
+        // the count is the one tell a bake log has for a warm-pixel night: the stacker prints it per
+        // frame, and until now no bake log carried it at all (docs/plans/deconvolver-training.md,
+        // "the third finding placed").
+        var unmovedDropped = 0;
         foreach (var f in survivors)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -393,11 +400,12 @@ public static class SessionRegistrar
                 }
                 continue;
             }
+            unmovedDropped += attempt.RefineUnmovedDropped;
             logger?.LogDebug(
-                "  [{Session}] {File} stars={Stars} quads={Quads} hfd={Hfd:F2} ecc={Ecc:F3} -> matched at tolerance {Tol} (rms {Rms:F2} px)",
+                "  [{Session}] {File} stars={Stars} quads={Quads} hfd={Hfd:F2} ecc={Ecc:F3} -> matched at tolerance {Tol} (rms {Rms:F2} px; refine rms {RefineRms:F2} px from {Pairs} pairs, {Unmoved} unmoved dropped)",
                 session.Id, Path.GetFileName(f.Frame.Path), f.Stars.Count, attempt.LightQuads,
                 f.Metrics.MedianHfd, f.Metrics.MedianEllipticity,
-                attempt.QuadTolerance, attempt.MatchRmsPx);
+                attempt.QuadTolerance, attempt.MatchRmsPx, attempt.RefineRmsPx, attempt.RefineMatchedPairs, attempt.RefineUnmovedDropped);
             matched.Add((f, transform));
         }
         // Items are the SURVIVORS, not the matches: the ones that failed still cost their quad-form
@@ -409,9 +417,9 @@ public static class SessionRegistrar
         var spread = registerLoop.MeasureCensus();
         var census = RegistrationCensus.Describe(spread);
         logger?.LogInformation(
-            "  [{Session}] registered {Matched}/{Survivors} (skipped {Skipped}: {TooFew} too-few-stars, {NoFit} no-quad-fit); census {Census}",
+            "  [{Session}] registered {Matched}/{Survivors} (skipped {Skipped}: {TooFew} too-few-stars, {NoFit} no-quad-fit); refine dropped {Unmoved} unmoved pairs; census {Census}",
             session.Id, matched.Count, survivors.Length, registerLoop.SkippedTooFewStars + registerLoop.SkippedNoQuadFit,
-            registerLoop.SkippedTooFewStars, registerLoop.SkippedNoQuadFit, census);
+            registerLoop.SkippedTooFewStars, registerLoop.SkippedNoQuadFit, unmovedDropped, census);
         if (matched.Count < 2)
         {
             // WARNING level, which is what a bake log actually shows, so it has to be

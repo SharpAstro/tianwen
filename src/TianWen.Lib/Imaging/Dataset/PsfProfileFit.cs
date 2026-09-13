@@ -225,13 +225,28 @@ namespace TianWen.Lib.Imaging.Dataset
         /// <param name="diagnostics">What the measurement saw, and which check refused when it did.</param>
         /// <param name="selection">Which stars are stacked; the percentile band unless a caller has a
         /// reason (see <see cref="StarSelection.SignalFloor"/>).</param>
+        /// <summary>How the qualifying stars are ordered before the brightest <c>maxStars</c> are stacked.</summary>
+        public enum StackRanking
+        {
+            /// <summary>By the star's peak sample (the shipped rule).</summary>
+            Peak,
+
+            /// <summary>By the detector's flux. A warm photosite has the peak of a bright star and the
+            /// flux of a faint one, so a flux ranking pushes the class the share guard does not reach
+            /// (docs/known-limitations.md, the detector entry) to the bottom of the stack instead of
+            /// the top. A candidate beside <see cref="SpikeGuard.NeighbourSignificance"/> for the
+            /// pre-registered readout.</summary>
+            Flux,
+        }
+
         public static Result? Measure(
             Image image,
             int channel,
             IReadOnlyCollection<ImagedStar> stars,
             out Diagnostics diagnostics,
             int maxStars = 400,
-            StarSelection selection = StarSelection.PercentileBand)
+            StarSelection selection = StarSelection.PercentileBand,
+            StackRanking ranking = StackRanking.Peak)
         {
             ArgumentNullException.ThrowIfNull(image);
             ArgumentNullException.ThrowIfNull(stars);
@@ -302,7 +317,9 @@ namespace TianWen.Lib.Imaging.Dataset
             }
             candidates.Sort((a, b) =>
             {
-                var cmp = peaks[b].CompareTo(peaks[a]);
+                var cmp = ranking is StackRanking.Flux
+                    ? starArray[b].Flux.CompareTo(starArray[a].Flux)
+                    : peaks[b].CompareTo(peaks[a]);
                 if (cmp != 0) return cmp;
                 cmp = starArray[a].YCentroid.CompareTo(starArray[b].YCentroid);
                 return cmp != 0 ? cmp : starArray[a].XCentroid.CompareTo(starArray[b].XCentroid);
