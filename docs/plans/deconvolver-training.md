@@ -2546,6 +2546,48 @@ On the nebula crop every arm still reads a skirt of 0.5 and a band residual abov
 is the frame-wide kernel over-read on a crop whose input is 1.113 wide, not a property of any prior;
 the per-window kernel stays the precondition for that clause.
 
+*A gap the runtime path has to close, found while reading the exporter for the Bubble (2026-09-14,
+08:30).* The operator's kernel label, `EstimatedKernelFwhmPx`, is "the difference width by Moffat
+composition of the two fits", the CLEAN cell's and the DEGRADED cell's, and the exporter's own doc
+says the only label inference can obtain is `Psf01Estimated`, the frame's measured width. Every
+real-frame readout so far used the pair probe's kernel, which also needs both halves. So the
+deployed operator has no kernel of its own yet; E7 needs a single-frame rule, and the candidates
+are (a) the excess of the frame's measured star width over a target width by Moffat composition
+(the target being the pool's sharp-night width in the frame's pixel scale, a stated assumption),
+(b) a user dial, or (c) a prior conditioned on the frame's width alone that infers its kernel, which
+is H2's original question. The Bubble run below uses (a) and says so.
+
+*The Bubble Nebula, an extended object with its own truth (2026-09-14, 08:40; `n2n_rim_readout.py`,
+`C:/temp/e2/bubble/`).* The user's Siril stack of NGC 7635 (163 by 150 s, AA585C on a 200P at 1180 mm:
+0.51 arcsec per pixel, stars 5.36 px wide in the gate's statistic, float, unquantised), flattened
+classically, then E3.0 at native scale and the E3.4b prior at 0.5x (the band rule run the other way:
+the stars land at 2.7 px), both with an ASSUMED frame-wide kernel of 3.1 px native (the excess of the
+frame's stars over a 1.85 px target by quadrature, since the exporter's kernel needs the clean half).
+The shell read per 10-degree sector as a line-spread function; the stars read against the INPUT's
+own detections, there being no sharper half:
+
+| arm | rim width px | rim contrast (1e-3) | dip (sigma) | noise out / in (1e-3) | star width / input | stars / input | skirt vs input |
+|---|---|---|---|---|---|---|---|
+| flattened input | 22.0 | 59.5 | -0.3 | 6.98 / 7.05 | 1.000 | 1.00 | 1.00 |
+| E3.0 native, 3.1 px | 21.0 | 69.6 | -0.3 | 14.19 / 14.08 | 1.027 | **1.48** | 0.84 |
+| E3.4b prior at 0.5x | 21.0 | 49.0 | +0.1 | 1.81 / 2.26 | 0.800 | **0.35** | 1.15 |
+
+**Neither arm brings out the nebula, and each fails the frame in its own way.** The shell's width is
+22 px and does not move (it is the shell's physical thickness at this sampling, not blur); E3.0 lifts
+its contrast 17 percent by doubling the noise and adds 48 percent spurious detections (the grain is
+visible at 1:1), the kernel being far too large a demand on 5.4 px stars at K = 20; the prior at 0.5x
+tightens the stars 20 percent and quarters the noise, but LOSES 65 percent of the input's 12 MAD
+detections and 18 percent of the rim's contrast: downsampled to its band, a faint star is a 2 by 2
+block it reads as noise, and what the 0.5x path removes cannot come back on the way up. Two facts
+follow for E7. **The pool has no oversampled night** (Samyang 135 at 5.7 arcsec per pixel, SH61 at
+2.9), so a 0.5 arcsec frame is outside its sampling as surely as a 1.8 px star was outside its
+width, and resampling into the band is not free where faint stars live at the pixel scale; the
+remedy is data at that sampling. And **the single-frame kernel rule decides E3.0's noise**: 3.1 px
+against 5.4 px stars is a 3x sharpening no twenty iterations of Richardson-Lucy survive; a rule that
+targets a fraction of the frame's own width (say 0.7) rather than the pool's absolute width is the
+first thing to pre-register there. The rim readout itself worked as a measurement (26 to 29 valid
+sectors, 5 s), and is the extended-object clause's instrument from here.
+
 *E3.4d follows E3.4c:* the two mechanisms together, E3.2's recipe on the SH61 pool with `--scale-aug
 0.6,1.4`, read at 1.28x and 1.42x. Pre-registration in `run-e3-4d.ps1`: pass at width 1.15 or under
 with skirt 0.90 or over at either zoom (the goal's line, not the arm's), stars 0.85 to 1.10, annulus
