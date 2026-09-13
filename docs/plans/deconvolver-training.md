@@ -2225,6 +2225,90 @@ rows above are the first working deconvolution of a real frame this project has 
 iteration count as its one dial and the prior a refinement that has to earn its place on the
 frames it will meet.
 
+#### E3.2 read on the real pair: the floor followed the training median down, and stopped there (2026-09-13, 16:50 to 17:00)
+
+`run-e3-2.ps1`, one seed, `--scale-aug 0.7,1.0` (truths about 1.45 to 2.56 px, median about 1.93),
+launched 14:39, done 16:43 (2.1 h, the augmentation costs nothing measurable). Cache gate at the
+selected step 3000: **1.024 / stars 0.88 / ring 0.72** (E3.1 seed 0: 1.072 / 0.88; E3.0: 1.122 / 0.98),
+observer 1.073 with fabrication 1.47x null (E3.1: 1.114, 2.5x). Inside the band the augmentation
+helps the cache too. The readout that was pre-registered, the real Statue crops as shot
+(`C:/temp/e2/e32-s0-real-statue.txt`; selected / final checkpoint):
+
+| crop (truth width) | input | E3.0 (stars, ring) | E3.1 s0 | E3.2 s0 selected | E3.2 s0 final |
+|---|---|---|---|---|---|
+| 0,1024 (1.813 px) | 1.253 | 1.163 (1.01, +1.0) | 1.259 (0.86, -1.4) | 1.222 (0.88, -1.7) | **1.201 (0.92, -1.2)** |
+| 1024,0 (1.926 px) | 1.065 | 0.994 (1.09, +1.7) | 1.070 | 1.036 (1.04, -0.9) | 1.031 (1.06, -0.3) |
+| 2000,1000 (1.880 px) | 1.068 | 1.001 (1.03, +1.4) | 1.085 | 1.049 (0.84, -1.6) | 1.040 (0.88, -0.9) |
+
+**Neither line.** The pass asked for 1.15 or under on the first crop; the kill was the input within
+0.03 (1.223 or over) or a pass by fabrication. The selected checkpoint sits on the kill line to the
+third decimal (1.222), the final checkpoint clears it by 0.05, and on every crop the prior now moves
+the right way with the stars kept and a negative ring excess, where E3.1 returned the input. What it
+does not do is reach E3.0's width. **Where the floor is now** (the first crop zoomed, kernels scaled
+with it, `e32-s0-real-statue-zoom.txt`; the E3.1 columns from the section above):
+
+| truth width | input | E3.0 (stars, ring) | E3.1 s0 (stars, ring) | E3.2 s0 selected (stars, ring) |
+|---|---|---|---|---|
+| 1.813 px (as shot) | 1.253 | 1.163 (1.01, +1.0) | 1.259 (0.86, -1.4) | 1.222 (0.88, -1.7) |
+| 2.162 px (zoom 1.15) | 1.226 | 1.111 (1.05, +2.0) | | **1.100 (0.97, -1.4)** |
+| 2.385 px (zoom 1.28) | 1.234 | 1.093 (1.07, +2.7) | 1.116 (0.99, -0.4) | **1.043 (1.02, -1.0)** |
+| 2.616 px (zoom 1.42) | 1.238 | 1.084 (1.09, +3.1) | 1.065 (1.04, -0.3) | **0.996 (1.07, -0.8)** |
+
+E3.1 overtook E3.0 between 2.39 and 2.62 px over a training median of 2.27; E3.2 overtakes it at
+2.16 over a median of about 1.93. **The floor moved by about the augmentation's mean scale, 0.85,
+and sits near 1.1 times the training truths' MEDIAN width, not at their minimum** (1.45 px was in
+the band and 1.81 is not reached). Two other coordinates were excluded on the same crop, each with
+one dial moved and everything else held:
+
+- **Noise amplitude is not it** (`e32-s0-real-statue-noise.txt`). The zoom does not change the
+  stretched luminance's MAD (0.00089 as shot, 0.00086 at zoom 1.28: bicubic upsampling keeps the
+  amplitude and stretches the correlation length), so white noise was ADDED to the zoomed input at
+  0.0005 / 0.0009 / 0.0018 in stretched units (the last doubling the input's MAD in quadrature). The
+  prior's row moved 1.043 to 1.044 to 1.045 with the ring going more negative; E3.0's ring went +2.7
+  to +4.4 and its stars 1.07 to 1.15. The prior flattens the noise it is given at any of these levels.
+- **The kernel label is not it** (`e32-s0-real-statue-kernel.txt`). As shot, the estimator's 0.77 /
+  0.91 / 0.98 px widened 1.3x, 1.4x and 1.6x: E3.0 goes 1.163 to 1.067, 1.034, 1.008 while its stars
+  go 1.14, 1.21, 1.31 and its ring +3.8, +5.7, +8.9 (a kernel the operator over-reads fabricates,
+  which is the estimator earning its place); the prior goes 1.222 to 1.169, 1.157, 1.151 (final:
+  1.141, 1.127, 1.120), stars 0.88 throughout, ring turning positive from 1.4x. However hard the
+  operator pushes, the prior hands back about 1.12 to 1.15 at this truth width. It is clamped by the
+  width alone.
+
+*The runtime consequence, measured* (`e32-s0-real-statue-roundtrip.txt`, `--roundtrip`: the crop
+upsampled bicubic by an exact factor, deconvolved with the kernel scaled, the output brought back
+to native scale and read against the UNZOOMED truth). Prediction before running it: within 0.03 of
+the zoomed-domain row. **Missed**: the two resamplings cost 0.06 to 0.07 of the ratio on both arms
+(E3.0 1.093 zoomed becomes 1.127 native), so the round trip is not the zoomed row. It still clears
+the bar that was set for the seed:
+
+| crop | input | E3.0 as shot | E3.0 round trip 1.28 | E3.2 final round trip 1.28 | E3.2 final round trip 1.42 |
+|---|---|---|---|---|---|
+| 0,1024 | 1.253 | 1.163 (1.01, +1.0) | 1.127 (1.05, +1.7) | **1.101 (1.03, -0.8)** | **1.052 (1.08, -0.6)** |
+| 1024,0 | 1.065 | 0.994 (1.09, +1.7) | 0.966 (1.15, +2.7) | 0.964 (1.14, -0.2) | |
+| 2000,1000 | 1.068 | 1.001 (1.03, +1.4) | 0.974 (1.12, +2.2) | 0.968 (0.99, -0.8) | |
+
+On the hard crop the E3.2 prior deconvolved at 1.3x to 1.4x scale reads 1.10 to 1.05 at native
+scale with the stars within 0.08 of the truth's count and no ringing: **under 1.15, stars over 0.85,
+ring negative, the pre-registered pass, reached by the zoom rather than by the seed.** On the two
+mild crops (input 1.065) BOTH arms overshoot to 0.96 to 0.97 and E3.0 and the selected E3.2 fabricate
+(stars 1.12 to 1.15): those crops were deconvolved with the FIRST crop's kernel (the pair probe's
+est-c is per crop, the readout script takes one triple), so the over-read kernel is the estimator's
+error, not the prior's, and the runtime rule stands as written: the kernel comes from the frame's
+own window estimate. The mild crops also say the zoom is not free, since at 1.28 it turns a
+well-read kernel into a 25 percent over-read on a frame that needs little.
+
+*What follows: E3.3, pre-registered in `run-e3-3.ps1`, launched 16:59.* If the floor sits at about
+1.1 times the training median, a median UNDER the real widths puts them inside: `--scale-aug
+0.55,0.85` (truths about 1.14 to 2.18 px, median about 1.59). Prediction: the first crop AS SHOT
+reads 1.15 or under with stars 0.85 or over and a non-positive ring, the round-trip row without the
+round trip; the cache gate, whose truths now lie above the band, reads worse than 1.024 (1.03 to
+1.10 predicted) and is recorded, not judged. Kill: 1.19 or over as shot, or a pass by fabrication;
+then the floor is not the median's and the zoom round trip is the runtime rule, with the E3.2
+checkpoint as the prior. Either way the shipping candidates are now two: E3.0 with the iteration
+count as its dial, and the E3.2 prior at 1.3x scale, which on the hard crop is the better
+deconvolution of a real frame this project has produced (1.05 to 1.10 against E3.0's 1.16, with the
+ring on the right side of zero).
+
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
 Every retained master in `2026-09-full` predates the two registration fixes and R1, and E3 trains on

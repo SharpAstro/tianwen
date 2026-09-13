@@ -78,7 +78,17 @@ def main():
                    help="resample both crops by this factor (bicubic) and scale the kernels with it, so the same "
                         "field is read with its stars at a different pixel width: the test of whether a prior "
                         "trained on 2.1 to 2.6 px truths treats a 1.8 px truth as noise")
+    p.add_argument("--noise-sigma", type=float, default=0.0,
+                   help="Gaussian noise added to the INPUT after the stretch, in stretched units, seeded. With "
+                        "--zoom it puts back the per-pixel noise the resampling smoothed away, so the star width "
+                        "and the noise can be moved one at a time (E3.2's second coordinate)")
+    p.add_argument("--roundtrip", action="store_true",
+                   help="with --zoom: bring each arm's output back to the native crop (bicubic, the exact inverse "
+                        "factor) and read it against the UNZOOMED truth, i.e. the runtime path of deconvolving a "
+                        "frame at a scale inside the prior's width band")
     args = p.parse_args()
+    if args.roundtrip and args.zoom == 1.0:
+        raise SystemExit("--roundtrip needs --zoom")
 
     dev = torch.device(args.device)
     sharp, sx0, sy0 = read_master(args.sharp)
@@ -89,14 +99,20 @@ def main():
     soft_crop = soft[:, cy + dy:cy + dy + size, cx + dx:cx + dx + size]
     if sharp_crop.shape != soft_crop.shape or sharp_crop.shape[1] != size:
         raise SystemExit(f"crop does not fit both masters: sharp {sharp_crop.shape}, soft {soft_crop.shape}")
+    sharp_native, soft_native = sharp_crop, soft_crop
+    zoom_eff, side = 1.0, size
     if args.zoom != 1.0:
         from scipy.ndimage import zoom as ndzoom
-        sharp_crop = np.stack([ndzoom(sharp_crop[c], args.zoom, order=3) for c in range(3)]).astype(np.float32)
-        soft_crop = np.stack([ndzoom(soft_crop[c], args.zoom, order=3) for c in range(3)]).astype(np.float32)
-        # Keep the operator's tile a multiple of 16 for the prior's two poolings.
-        side = (sharp_crop.shape[1] // 16) * 16
-        sharp_crop, soft_crop = sharp_crop[:, :side, :side], soft_crop[:, :side, :side]
-        print(f"zoom {args.zoom}: crops resampled to {side} px, kernels scaled by {args.zoom}")
+        # The zoomed side is a multiple of 16 (the prior's two poolings) and the factor is EXACTLY
+        # side / size, so a round trip lands the output on the native crop pixel for pixel.
+        side = int(round(size * args.zoom / 16)) * 16
+        zoom_eff = side / size
+        sharp_crop = np.stack([ndzoom(sharp_crop[c], zoom_eff, order=3) for c in range(3)]).astype(np.float32)
+        soft_crop = np.stack([ndzoom(soft_crop[c], zoom_eff, order=3) for c in range(3)]).astype(np.float32)
+        if sharp_crop.shape[1] != side or soft_crop.shape[1] != side:
+            raise SystemExit(f"zoom landed on {sharp_crop.shape}, wanted {side}")
+        print(f"zoom {args.zoom} -> {zoom_eff:.5f}: crops resampled to {side} px, kernels scaled by {zoom_eff:.5f}"
+              + (", read at NATIVE scale after the round trip" if args.roundtrip else ""))
 
     # The soft master's own stretch, from its whole frame, applied to both crops.
     data_max = float(np.nanmax(soft))
@@ -105,10 +121,13 @@ def main():
     inv = np.float32(1.0 / divisor) if divisor != 1.0 else np.float32(1.0)
     soft_s = stretch(soft_crop * inv, mins, betas)
     sharp_s = stretch(sharp_crop * inv, mins, betas)
+    if args.noise_sigma > 0.0:
+        soft_s = (soft_s + np.random.default_rng(0).normal(0.0, args.noise_sigma, soft_s.shape)).astype(np.float32)
+        print(f"noise sigma {args.noise_sigma:.5f} added to the input in stretched units")
     print(f"crop {size} px at sharp ({cx}, {cy}) / soft ({cx + dx}, {cy + dy}); soft stretch divisor {divisor:.4g} "
           f"beta ({betas[0]:.4f}, {betas[1]:.4f}, {betas[2]:.4f}); kernels {args.kernels} px at beta {args.beta}, K={args.rl_k}")
 
-    kernels = [float(v) * args.zoom for v in args.kernels.split(",")]
+    kernels = [float(v) * zoom_eff for v in args.kernels.split(",")]
     labels = np.zeros((1, OP.LABEL_COUNT), dtype=np.float32)
     labels[0, OP.LABEL_MIN] = mins
     labels[0, OP.LABEL_BETA] = betas
@@ -134,10 +153,22 @@ def main():
         outputs[arm] = out
         print(f"  {arm}: {time.perf_counter() - t0:.0f} s")
 
+    if args.roundtrip:
+        from scipy.ndimage import zoom as ndzoom
+        back = size / side
+        outputs = {arm: np.stack([ndzoom(out[c], back, order=3) for c in range(3)]).astype(np.float32)
+                   for arm, out in outputs.items()}
+        soft_s = stretch(soft_native * inv, mins, betas)
+        sharp_s = stretch(sharp_native * inv, mins, betas)
+        for arm, out in outputs.items():
+            if out.shape != soft_s.shape:
+                raise SystemExit(f"round trip of {arm} landed on {out.shape}, wanted {soft_s.shape}")
+
     truth_lum = sharp_s.mean(axis=0)
     input_lum = soft_s.mean(axis=0)
     truth_w, n_truth, inp, _, row = gate_read(truth_lum, input_lum, None)
-    print(f"\ntruth (sharp) {n_truth} stars at 12 MAD, width {truth_w:.3f} px on the stretched luminance")
+    print(f"\ntruth (sharp) {n_truth} stars at 12 MAD, width {truth_w:.3f} px on the stretched luminance; "
+          f"noise MAD of the stretched luminance: truth {M.bg_stats(truth_lum)[1]:.5f}, input {M.bg_stats(input_lum)[1]:.5f}")
     print(f"{'arm':28s} {'out/truth':>9} {'stars':>6} {'ring excess':>11}   per channel out/truth")
     print(f"{'input (soft)':28s} {inp[0]:9.3f} {inp[1]:6.2f} {inp[2]:+11.2f}   "
           + " ".join(f"{gate_read(sharp_s[c], soft_s[c], None)[2][0]:.3f}" for c in range(3)))
