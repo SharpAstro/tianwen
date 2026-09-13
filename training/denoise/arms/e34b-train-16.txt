@@ -1,0 +1,20 @@
+# E3.4b train sessions: E2's eight plus the eight SV605CC / SH61 EDPH nights the pool never held, so
+# the prior learns the star PROFILE of the optics it is read on (the Statue pair is that scope). The
+# Statue night itself (2026-02-14, both its targets: Statue of Liberty and Skull and Crossbones,
+# the same frames) stays OUT, being the readout. Written 2026-09-13 from the plan's E3.4 section.
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HD-71181/2026-01-01|ZWO ASI533MC Pro|COO 71|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HD-71526/2026-02-10|ZWO ASI533MC Pro|HD 71526|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Lobster-Nebula/2025-05-09|ZWO ASI533MC Pro|Lobster Nebula|Optolong L-Ultimate 3nm
+SVBONY-SV605CC/Optolong-L-Ultimate-3nm/Tarantula-Nebula/2025-10-14|SVBONY SV605CC|Tarantula Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HD-72800/2026-01-11|ZWO ASI533MC Pro|HD 76360|Optolong L-Ultimate 3nm
+SVBONY-SV605CC/Optolong-L-Ultimate-3nm/Helix-Nebula/2025-08-20|SVBONY SV605CC|Helix Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HD-75426/2026-02-16|ZWO ASI533MC Pro|HD 77566|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/HD-77683/2026-02-18|ZWO ASI533MC Pro|HD 77683|Optolong L-Ultimate 3nm
+SVBONY-SV605CC/Optolong-L-Quad-Enhance/C-2025-R2-SWAN/2025-10-18|SVBONY SV605CC|C/2025 R2 (SWAN)|Optolong L-Quad Enhance
+SVBONY-SV605CC/Optolong-L-Quad-Enhance/Great-Orion-Nebula/2025-10-15|SVBONY SV605CC|Great Orion Nebula|Optolong L-Quad Enhance
+SVBONY-SV605CC/Optolong-L-Quad-Enhance/Horsehead-Nebula/2025-10-28|SVBONY SV605CC|Horsehead Nebula|Optolong L-Quad Enhance
+SVBONY-SV605CC/Optolong-L-Quad-Enhance/Rosette-Nebula/2025-12-17|SVBONY SV605CC|Rosette Nebula|Optolong L-Quad Enhance
+SVBONY-SV605CC/Optolong-L-Quad-Enhance/Tarantula-Nebula/2025-10-18|SVBONY SV605CC|Tarantula Nebula|Optolong L-Quad Enhance
+SVBONY-SV605CC/Optolong-L-Quad-Enhance/eta-Car-Nebula/2025-12-17|SVBONY SV605CC|eta Car Nebula|Optolong L-Quad Enhance
+SVBONY-SV605CC/Optolong-L-Ultimate-3nm/Great-Orion-Nebula/2025-10-14|SVBONY SV605CC|Great Orion Nebula|Optolong L-Ultimate 3nm
+SVBONY-SV605CC/Optolong-L-Ultimate-3nm/Tarantula-Nebula/2025-11-01|SVBONY SV605CC|Tarantula Nebula|Optolong L-Ultimate 3nm

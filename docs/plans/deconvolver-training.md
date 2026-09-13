@@ -2356,6 +2356,152 @@ final checkpoint as the E3.0 that does not ring. What the runtime path costs on 
 iterations of a base-16 U-Net on a 1.3x frame under DirectML, no recompute at inference) is the E7
 measurement, owed before any of this ships.
 
+#### The whole master, looked at: the prior's negative ring is a dark moat, and the pair's blur is not uniform (2026-09-13, 20:15)
+
+`n2n_operator_master.py` ran E3.0 and the E3.2 prior (1.28x round trip) over the whole soft half in
+overlapping tiles, on the classical-flattened master and on the flattened plus N2N-denoised one, and
+the result was laid out as a frame-wide 3x3 (corners 200 px in from the canvas ring, edge midpoints,
+centre; `C:/temp/e2/matrix/`, the page at claude.ai/code/artifact/fd682323). Two things the one-crop
+readout could not show:
+
+- **The soft half is not uniformly softer than the sharp half.** Gate statistic per window, flattened
+  row, reference the flattened sharp half (width over truth, stars kept, ring excess):
+
+  | window | truth px | input | E3.0 | E3.2 prior 1.28x |
+  |---|---|---|---|---|
+  | top left / centre / right | 2.14 / 2.02 / 2.19 | 1.026 / 1.019 / 1.009 | 0.963 (1.03, +1.0) / 0.961 (1.06, +1.6) / 0.957 (1.04, +1.5) | 0.918 (1.09, -2.1) / 0.939 (1.11, -0.7) / 0.917 (1.10, -1.0) |
+  | middle left / centre / right | 1.87 / 1.89 / 1.93 | 1.188 / 1.111 / 1.101 | 1.116 (0.93, +0.7) / 1.042 (1.01, +0.9) / 1.038 (0.95, +1.0) | 1.054 (0.96, -2.0) / 0.996 (1.08, -0.2) / 0.988 (1.01, -0.9) |
+  | bottom left / centre / right | 1.86 / 1.79 / 1.90 | 1.294 / 1.268 / 1.391 | 1.203 (0.79, +0.8) / 1.195 (0.88, +0.8) / 1.316 (0.81, +0.8) | 1.158 (0.84, -1.9) / 1.141 (0.93, -1.6) / 1.254 (0.87, -2.0) |
+
+  The top row's input is within 3 percent of the reference and the bottom row's 27 to 39 percent
+  wider: the two halves differ by a tilt or focus term across the field, not by one seeing. The
+  frame-wide kernel (the pair probe's, taken on a middle-left crop) is therefore over-read on the top
+  row, where both arms land under 1.0 with the stars over-counted (E3.0 1.03 to 1.06, the prior 1.09
+  to 1.11, the fabrication line), and under-read on the bottom row. **The per-window kernel is not a
+  refinement; a 3x3 of kernels is the least the runtime path needs on this pair.**
+- **A negative ring excess is a defect too.** The readout rows were read with "non-positive ring" as
+  the pass, and the prior's -0.8 to -2.1 was called the right side of zero. Looked at, at 8x, it is a
+  dark moat round every star with the core gone yellow and the halo purple (the channels deconvolved
+  to different widths by their own kernels, then resampled), and the cores are blocky from the
+  round trip. E3.0's +0.7 to +1.0 is the classic faint bright ring and, at 1:1, the cleaner picture
+  in every middle-row window. **The ring criterion is two-sided from here: |ring excess| under 0.5,
+  and a symmetric ring penalty belongs in the next prior's objective (E3.4, to pre-register), since
+  the empty-window term only teaches it to flatten what RL raised.**
+
+Net for the runtime path as of tonight: E3.0 with a per-window kernel and the iteration count as
+its dial is the working deconvolution; the learned prior is not ahead of it on the picture, whatever
+the width column says.
+
+*Addendum (20:50), the "black square inside the halo" the user saw on bright stars, read at 12x and
+in float.* Two things stack up. (1) **The master carries carved core pixels before any
+deconvolution**: on the centre window's 25 stars over a tenth of the frame peak, three have a
+red-plane pixel within 2 px of the core under 0.6 of the background (0.003 against 0.009 on the
+star profiled), the sharp half has two in red and two in green, and the stack's rejection map at
+those stars reads 0.083 within 2 px against a frame p99 of 0.025: the kappa-sigma rejection is
+clipping an undersampled core in one colour plane on about a tenth of the bright stars. RL turns
+each such pixel into an exact zero (E3.0) or near it (the prior), a black pixel inside the core. A
+stacking defect, filed for the integrator, not the deconvolver's. (2) **The prior compresses the
+core to a two-pixel block and pushes the first ring under the background** (green at 3 px out:
+0.178 to 0.079 of the peak; red at 2 px: 0.173 to 0.105) while the optics' wide skirt, widest in
+blue, stays where it was: a halo with a dark square inside, the chromatic aberration supplying the
+halo and the prior the moat. **A blend toward the input is a real dial**: at 0.5 the prior reads the
+same width as E3.0 on the centre window (1.043 against 1.042) with the ring at -0.33 instead of
++0.87 and the stars at 1.00 exactly; applying the prior's luminance ratio to the input's colour
+reads identically on the gate and would keep the moat neutral. Both are cheap to ship beside the
+strength dial the denoiser already has.
+
+*Corrected the same evening (21:10), by measuring it.* The gate's ring excess is a DEPTH (annulus
+minimum under the sky, in MAD), and it does not go the wrong way on the prior: a negative excess is
+an annulus whose minimum sits HIGHER than the input's, the prior flattening the sky's minima as a
+denoiser would, not a moat under the sky. What the eye called a black square is a star whose SKIRT
+has been taken away while the far halo stayed: a profile too steep against the truth. Three shape
+statistics were built to see it (`n2n_star_shape.py`, `n2n_matrix_shape.py`), read on the truth's
+star list per 3x3 window; the one that works is the **skirt ratio**, the output's annulus level at
+1.0 to 1.5 truth-FWHM over the truth's, each as a fraction of its own peak (1.0 = the truth's
+profile, under 1.0 the skirt is gone). A signed ring mean is positive for everything including the
+reference (the star's own wing sits in the annulus) and a free-alpha Moffat misfit fits a steep
+profile happily (the prior scores the LOWEST misfit, 0.027 against the reference's 0.032), so
+neither is a blockiness measure.
+
+| window (truth px) | arm | width / truth | stars | skirt ratio |
+|---|---|---|---|---|
+| centre (1.89) | input | 1.124 | 0.97 | 1.12 |
+| | E3.0 | 1.054 | 1.04 | 0.82 |
+| | **E3.2 prior** | 1.001 | 1.18 | **0.64** |
+| | prior blend 0.5 | 1.051 | 1.09 | 0.86 |
+| top left (2.14) | input | 1.040 | 0.98 | 1.04 |
+| | E3.0 | 0.976 | 1.02 | 0.81 |
+| | E3.2 prior | 0.917 | 1.18 | 0.60 |
+| bottom right (1.90) | input | 1.400 | 0.75 | 2.72 |
+| | E3.0 | 1.327 | 0.77 | 2.19 |
+| | E3.2 prior | 1.239 | 0.95 | 1.65 |
+
+At the centre the prior lands the width on the truth (1.001) with a third of the truth's skirt
+missing (0.64) and 18 percent more detections than the truth: it reaches the width by steepening
+the profile, not by reproducing it, and the gate's width column cannot tell those apart. E3.0
+loses less skirt (0.82) for less width. The top-left window says the same about the kernel: an input
+already within 4 percent of the truth is pushed under 1.0 by both arms, the frame-wide kernel
+over-read where the field is sharp. **The pass criterion gains a column: skirt ratio within 0.9 to
+1.1 at the width the arm claims, and the next prior's objective owes a skirt term against the
+truth's profile at 1 to 1.5 FWHM (E3.4), since the star term reads peaks and positions and the
+band loss the pixels, neither the profile.** The luminance-only application reads identically to
+the full prior on every column (the gate reads luminance), so it is a colour fix only.
+
+The skirt ratio is now a column of the gate row (`DeconvGate`, `n2n_gatelog.py` parses it as an
+optional trailing column so older logs still read) and of the real-pair readout. Re-reading the
+checkpoints on the training's own gate (`n2n_gate_checkpoints.py`, `C:/temp/e2/e3-gate-skirt.txt`):
+E3.0 1.07, E3.1 1.22, **E3.2 1.01**, E3.3 1.05 on the selector; 1.21 / 0.88 / 0.96 / 1.35 on the
+observer. **On the cache the E3.2 prior reproduces the truth's profile exactly, and against the real
+sharp half it takes a third of the skirt away.** The cache's truth is the pool's own master, so its
+star profile IS the pool's; the prior learned that profile as what "sharp" looks like and imposes it
+on a frame whose sharp stars carry a broader skirt (a 61 mm doublet at 1.8 px, the optics' halo
+under the core). The star's PROFILE SHAPE is therefore a deployment coordinate beside its width,
+and one the synthetic gate cannot check: the skirt column bites on the real-pair readout, not on the
+cache, and a skirt term in E3.4's objective can only teach the pool's profile unless the pool gains
+masters whose profiles match the frames it will meet.
+
+The hard crop re-read with the column (`e32-s0-real-statue-skirt.txt`; width, stars, ring depth
+excess, skirt): input 1.253 / 0.91 / 0 / **1.94** (a star 25 percent wider carries twice the skirt
+fraction); as shot E3.0 1.163 / 1.01 / +1.0 / 1.20 and the prior 1.201 / 0.92 / -1.2 / 1.18, both
+still skirt-heavy, i.e. under-deconvolved; round-tripped at 1.28x **E3.0 1.127 / 1.05 / +1.7 / 0.95**
+and the prior 1.101 / 1.03 / -0.8 / **0.75**. The round trip is where the skirt goes, and it goes
+furthest under the prior. Read against the criterion as it now stands (width 1.15 or under, stars
+0.85 to 1.10, skirt 0.9 to 1.1), the only arm that meets all three on this crop is **E3.0 at 1.28x**,
+carrying the bright ring (+1.7) that the old one-sided ring criterion would have failed it for. So
+the physics-only operator, resampled, has the truest profile of anything measured tonight, and the
+prior's advantage on the width column was bought with the skirt. The ring depth stays in the row as
+the noise-amplification reading it always was, two-sided from here, and no longer a pass line on its
+own.
+
+#### E3.4a, pre-registered and launched: the prior meets the runtime path's sampling in training (2026-09-13, 22:00)
+
+The user's goal, stated 21:45: a trained model that tightens the stars without taking their skirt,
+brings out non-stellar detail, and keeps ringing at a minimum. The measurable form, on the real pair:
+width under the input's and toward the truth, skirt 0.9 to 1.1, ring depth excess within 1 MAD either
+way, and a non-stellar detail reading (new in `n2n_star_shape.detail_ratio`, on pixels 2.5 FWHM from
+every star, band-passed at sigmas 1.5 to 5 px). Two forms were tried before the launch on the nebula
+crop (`e32-s0-real-statue-detail.txt`): a band ENERGY ratio reads 1.01 on the untouched input (the two
+halves carry the same band energy, their noise does) and a band CORRELATION reads 0.99 for every arm
+(the nebula's shared large-scale structure dominates), so neither discriminates. The band RESIDUAL to
+the truth does: input 0.479, E3.0 round-tripped 0.789, E3.2 round-tripped 0.899 (as shot 0.604 and
+0.782), in 1e-3 stretched units. **Both arms move the nebula away from the truth on this crop**, with
+the frame-wide kernel (the crop's input is only 1.113 wide; the kernel is over-read here, and E3.0
+takes its skirt to 0.57 and the prior to 0.44). The clause is therefore "band residual under E3.2's
+0.90, toward the input's 0.479", and the per-window kernel is the precondition it points at.
+
+The arm follows from the skirt readings: at native scale the E3.2 prior keeps the skirt (1.18) and
+hardly tightens (1.201); round-tripped at 1.28x it tightens (1.101) and takes the skirt (0.75); E3.0 on
+the same round trip keeps it (0.95). The skirt goes on the zoomed path, and more under the prior than
+under the physics. The prior trained on native and downsampled tiles and was then handed a bicubic
+upsampled frame, smoother skirts and pixel-correlated noise it never saw and reads as blur. On the
+cache its skirt is 1.01, so an objective term there has nothing to correct. **E3.4a trains E3.2's
+recipe with `--scale-aug 1.0,1.4`**, the tiles resampled UP so the prior meets the runtime's sampling
+(the trainer's bound lifted from 1.0 to 1.5). Pre-registration in `run-e3-4a.ps1`: pass at
+round-tripped skirt 0.90 or over with width 1.15 or under, stars 0.85 to 1.10, ring within 1 MAD, and
+the nebula crop's detail ratio toward 1.0; kill at skirt still under 0.85, or width over 1.13 with the
+skirt unchanged, after which the next arm is the pool (E3.4b: the seven held-out SH61 EDPH nights added,
+the Statue pair still held out). One seed; a second before any 0.02 is believed.
+
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
 Every retained master in `2026-09-full` predates the two registration fixes and R1, and E3 trains on
