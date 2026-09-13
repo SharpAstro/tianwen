@@ -91,6 +91,42 @@ def profile_misfit(tile, ys, xs, med, fwhm_guess, max_stars=400, half=4):
     return float(np.median(out)) if out else float("nan")
 
 
+def detail_ratio(tile, truth, ys, xs, fwhm_truth, band=(1.5, 5.0)):
+    """Non-stellar detail against the truth: the correlation of the band-passed output with the
+    band-passed truth, on pixels at least 2.5 truth-FWHM from every detected star, and the band
+    residual to the truth beside it.
+
+    Band-pass is a difference of Gaussians (sigmas in px), so the number reads structure between
+    about 3 and 10 px, the nebular scale the deconvolution is asked to bring out. Read against the
+    INPUT's own value: higher is detail the truth also has, brought out; lower is noise amplified or
+    ringing added. Against the same night's other half the ceiling is well under 1.0, since the two
+    halves' noise is independent.
+    """
+    from scipy.ndimage import gaussian_filter, binary_dilation
+
+    def bp(a):
+        a = a.astype(np.float64)
+        return gaussian_filter(a, band[0]) - gaussian_filter(a, band[1])
+
+    mask = np.zeros(tile.shape, dtype=bool)
+    mask[ys, xs] = True
+    r = int(np.ceil(2.5 * fwhm_truth))
+    yy, xx = np.mgrid[-r:r + 1, -r:r + 1]
+    mask = binary_dilation(mask, structure=(yy * yy + xx * xx) <= r * r)
+    keep = ~mask
+    if keep.sum() < 1000:
+        return float("nan"), float("nan")
+    bt, bo = bp(truth)[keep], bp(tile)[keep]
+    # The correlation, not an energy ratio. The two halves of one night carry the same band ENERGY
+    # (their noise does), so a ratio reads 1.0 on the untouched input and cannot say whether the
+    # output moved toward the truth; the correlation can: the halves' noise is independent, so only
+    # structure both have correlates, amplified noise and ringing pull it down, and a deconvolution
+    # that brings out real detail raises it above the input's.
+    bt, bo = bt - bt.mean(), bo - bo.mean()
+    corr = float(np.dot(bt, bo) / max(np.sqrt(np.dot(bt, bt) * np.dot(bo, bo)), 1e-18))
+    return corr, float(np.sqrt(np.mean((bo - bt) ** 2)))
+
+
 def shape_row(tile, truth, ys, xs, fwhm_truth, med_tile, mad_tile, med_truth):
     """(skirt ratio, signed ring mean in MAD, profile misfit) for one arm on the truth's stars."""
     return (skirt_ratio(tile, truth, ys, xs, fwhm_truth, med_tile, med_truth),

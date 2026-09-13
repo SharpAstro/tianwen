@@ -2473,6 +2473,35 @@ prior's advantage on the width column was bought with the skirt. The ring depth 
 the noise-amplification reading it always was, two-sided from here, and no longer a pass line on its
 own.
 
+#### E3.4a, pre-registered and launched: the prior meets the runtime path's sampling in training (2026-09-13, 22:00)
+
+The user's goal, stated 21:45: a trained model that tightens the stars without taking their skirt,
+brings out non-stellar detail, and keeps ringing at a minimum. The measurable form, on the real pair:
+width under the input's and toward the truth, skirt 0.9 to 1.1, ring depth excess within 1 MAD either
+way, and a non-stellar detail reading (new in `n2n_star_shape.detail_ratio`, on pixels 2.5 FWHM from
+every star, band-passed at sigmas 1.5 to 5 px). Two forms were tried before the launch on the nebula
+crop (`e32-s0-real-statue-detail.txt`): a band ENERGY ratio reads 1.01 on the untouched input (the two
+halves carry the same band energy, their noise does) and a band CORRELATION reads 0.99 for every arm
+(the nebula's shared large-scale structure dominates), so neither discriminates. The band RESIDUAL to
+the truth does: input 0.479, E3.0 round-tripped 0.789, E3.2 round-tripped 0.899 (as shot 0.604 and
+0.782), in 1e-3 stretched units. **Both arms move the nebula away from the truth on this crop**, with
+the frame-wide kernel (the crop's input is only 1.113 wide; the kernel is over-read here, and E3.0
+takes its skirt to 0.57 and the prior to 0.44). The clause is therefore "band residual under E3.2's
+0.90, toward the input's 0.479", and the per-window kernel is the precondition it points at.
+
+The arm follows from the skirt readings: at native scale the E3.2 prior keeps the skirt (1.18) and
+hardly tightens (1.201); round-tripped at 1.28x it tightens (1.101) and takes the skirt (0.75); E3.0 on
+the same round trip keeps it (0.95). The skirt goes on the zoomed path, and more under the prior than
+under the physics. The prior trained on native and downsampled tiles and was then handed a bicubic
+upsampled frame, smoother skirts and pixel-correlated noise it never saw and reads as blur. On the
+cache its skirt is 1.01, so an objective term there has nothing to correct. **E3.4a trains E3.2's
+recipe with `--scale-aug 1.0,1.4`**, the tiles resampled UP so the prior meets the runtime's sampling
+(the trainer's bound lifted from 1.0 to 1.5). Pre-registration in `run-e3-4a.ps1`: pass at
+round-tripped skirt 0.90 or over with width 1.15 or under, stars 0.85 to 1.10, ring within 1 MAD, and
+the nebula crop's detail ratio toward 1.0; kill at skirt still under 0.85, or width over 1.13 with the
+skirt unchanged, after which the next arm is the pool (E3.4b: the seven held-out SH61 EDPH nights added,
+the Statue pair still held out). One seed; a second before any 0.02 is believed.
+
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
 Every retained master in `2026-09-full` predates the two registration fixes and R1, and E3 trains on

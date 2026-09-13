@@ -63,7 +63,10 @@ def gate_read(truth_lum, input_lum, output_lum):
         # On the synthetic cache every prior reads about 1.0 here, since the cache's truth IS the
         # pool's own star profile; against a real sharp half it is where the block shows.
         sk = SH.skirt_ratio(lum, truth_lum, ys, xs, truth_w, float(np.median(lum)), med)
-        return w / truth_w, len(oy) / n_truth, e - ring_null, sk
+        # Non-stellar detail: band-passed RMS over the truth's away from every star, and the band
+        # residual to the truth (in stretched units), so "more visible" can be told from "more energy".
+        dr, dres = SH.detail_ratio(lum, truth_lum, ys, xs, truth_w)
+        return w / truth_w, len(oy) / n_truth, e - ring_null, sk, dr, dres
 
     return truth_w, n_truth, row(input_lum), row(output_lum) if output_lum is not None else None, row
 
@@ -174,16 +177,19 @@ def main():
     truth_w, n_truth, inp, _, row = gate_read(truth_lum, input_lum, None)
     print(f"\ntruth (sharp) {n_truth} stars at 12 MAD, width {truth_w:.3f} px on the stretched luminance; "
           f"noise MAD of the stretched luminance: truth {M.bg_stats(truth_lum)[1]:.5f}, input {M.bg_stats(input_lum)[1]:.5f}")
-    print(f"{'arm':28s} {'out/truth':>9} {'stars':>6} {'ring excess':>11} {'skirt':>6}   per channel out/truth")
-    print(f"{'input (soft)':28s} {inp[0]:9.3f} {inp[1]:6.2f} {inp[2]:+11.2f} {inp[3]:6.2f}   "
+    print(f"{'arm':28s} {'out/truth':>9} {'stars':>6} {'ring excess':>11} {'skirt':>6} {'detail':>6} {'d.resid':>8}   per channel out/truth")
+    print(f"{'input (soft)':28s} {inp[0]:9.3f} {inp[1]:6.2f} {inp[2]:+11.2f} {inp[3]:6.2f} {inp[4]:6.2f} {inp[5] * 1e3:8.3f}   "
           + " ".join(f"{gate_read(sharp_s[c], soft_s[c], None)[2][0]:.3f}" for c in range(3)))
     for arm, out in outputs.items():
         r = row(out.mean(axis=0))
         per = " ".join(f"{gate_read(sharp_s[c], soft_s[c], out[c])[3][0]:.3f}" for c in range(3))
-        print(f"{arm:28s} {r[0]:9.3f} {r[1]:6.2f} {r[2]:+11.2f} {r[3]:6.2f}   {per}")
+        print(f"{arm:28s} {r[0]:9.3f} {r[1]:6.2f} {r[2]:+11.2f} {r[3]:6.2f} {r[4]:6.2f} {r[5] * 1e3:8.3f}   {per}")
     print("\nread: out/truth toward 1.0 from the input's; stars near 1.0 (over 1.10 with a narrower width is fabrication); "
           "ring excess against the input's null; skirt 1.0 is the truth's profile at 1 to 1.5 FWHM, under 0.9 the "
-          "skirt is gone (a block and a moat). The C# oracle in linear read rec/A 1.007 / 1.085 / 1.139 per channel on this pair.")
+          "skirt is gone (a block and a moat); detail is the star-masked band-passed CORRELATION with the truth (read "
+          "against the input's: higher is true detail brought out, lower is noise or ringing added) and d.resid the band "
+          "residual to the truth in 1e-3 stretched units (smaller is closer). The C# oracle in linear read rec/A 1.007 / "
+          "1.085 / 1.139 per channel on this pair.")
 
 
 if __name__ == "__main__":
