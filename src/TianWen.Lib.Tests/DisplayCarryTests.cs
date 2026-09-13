@@ -26,7 +26,8 @@ public class DisplayCarryTests
     /// A three-channel frame whose background sits at <paramref name="level"/>, with a gradient so the
     /// MAD is non-zero and the solver has a real curve to derive.
     /// </summary>
-    private static Image ColourFrame(float level, SensorType sensorType = SensorType.Monochrome, Filter? filter = null)
+    private static Image ColourFrame(float level, SensorType sensorType = SensorType.Monochrome, Filter? filter = null,
+        string objectName = "")
     {
         var planes = new float[3][,];
         for (var c = 0; c < 3; c++)
@@ -42,7 +43,7 @@ public class DisplayCarryTests
             planes[c] = plane;
         }
 
-        var meta = new ImageMeta { Instrument = "synth", SensorType = sensorType };
+        var meta = new ImageMeta { Instrument = "synth", SensorType = sensorType, ObjectName = objectName };
         if (filter is { } f)
         {
             meta = meta with { Filter = f };
@@ -114,6 +115,37 @@ public class DisplayCarryTests
         FrameShape.Of(ColourFrame(0.1f)).IsComparableTo(FrameShape.Of(ColourFrame(0.1f, filter: Filter.HydrogenAlpha)))
             .ShouldBeTrue();
         FrameShape.Of(ColourFrame(0.1f, filter: Filter.HydrogenAlpha)).IsComparableTo(FrameShape.Of(ColourFrame(0.1f)))
+            .ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// <b>Two different targets are not one scene, however alike the sensor.</b> Geometry alone called
+    /// them comparable, so stepping from one object to another in a folder of masters off the same rig
+    /// showed the second with the first one's stretch -- every dimension, plane count, depth and CFA
+    /// being identical by construction.
+    /// </summary>
+    [Fact]
+    public void FramesOfDifferentObjectsAreNotComparable()
+        => FrameShape.Of(ColourFrame(0.1f, objectName: "M8"))
+            .IsComparableTo(FrameShape.Of(ColourFrame(0.1f, objectName: "SMC"))).ShouldBeFalse();
+
+    [Fact]
+    public void FramesOfTheSameObjectStayComparable()
+        => FrameShape.Of(ColourFrame(0.1f, objectName: "M8"))
+            .IsComparableTo(FrameShape.Of(ColourFrame(0.4f, objectName: "m8"))).ShouldBeTrue(
+                "case is not a different target");
+
+    /// <summary>
+    /// An OBJECT card only one frame carries does not block the carry, the same permissive rule the
+    /// filter takes: a folder where only some frames name their target is the common case, and
+    /// refusing there would disable the blink on exactly the archives it was asked for.
+    /// </summary>
+    [Fact]
+    public void AnObjectOnlyOneFrameNamesDoesNotBlockTheCarry()
+    {
+        FrameShape.Of(ColourFrame(0.1f)).IsComparableTo(FrameShape.Of(ColourFrame(0.1f, objectName: "M8")))
+            .ShouldBeTrue();
+        FrameShape.Of(ColourFrame(0.1f, objectName: "M8")).IsComparableTo(FrameShape.Of(ColourFrame(0.1f)))
             .ShouldBeTrue();
     }
 
