@@ -1162,15 +1162,31 @@ public partial class Image
     /// renderers, tests) must produce the same result for the same <see cref="StretchUniforms"/>.
     /// </summary>
     public static float StretchChannelCpu(float raw, int channel, in StretchUniforms u)
+        => StretchNormalisedCpu(raw * u.NormFactor - PickChannel(u.Pedestal, channel), channel, u);
+
+    /// <summary>
+    /// The part of <see cref="StretchChannelCpu"/> that follows the pedestal subtraction: background
+    /// neutralisation, then white balance, then the curve. Split out because a caller that already
+    /// holds a PEDESTAL-SUBTRACTED, unit-scaled value must not subtract it twice.
+    /// </summary>
+    /// <remarks>
+    /// <b>Exists so the pre-curve chain has ONE definition.</b>
+    /// <see cref="StretchUniforms.ComputePostStretchBackground"/> used to re-implement it as a bare
+    /// <see cref="StretchValue"/>, which silently omitted both the neutralisation and the white
+    /// balance -- while the curve it fed them to had been derived in post-WB space. With SPCC active
+    /// that put the answer far below where the sky actually renders, so the contrast boost's pivot
+    /// landed UNDER the background and lifted it instead of pushing it down: "after SPCC and boost
+    /// 50% the background is a lot brighter", and correct with the calibration off, which is exactly
+    /// the shape of a missing white balance.
+    /// </remarks>
+    public static float StretchNormalisedCpu(float norm, int channel, in StretchUniforms u)
     {
-        var ped = PickChannel(u.Pedestal, channel);
         var bn = PickChannel(u.BackgroundNeutralization, channel);
         var wb = PickChannel(u.WhiteBalance, channel);
         var sh = PickChannel(u.Shadows, channel);
         var mt = PickChannel(u.Midtones, channel);
         var re = PickChannel(u.Rescale, channel);
 
-        var norm = raw * u.NormFactor - ped;
         // Background neutralization: out = norm * g + (1 - g)
         norm = norm * bn + (1f - bn);
         norm = MathF.Max(norm * wb, 0f);
