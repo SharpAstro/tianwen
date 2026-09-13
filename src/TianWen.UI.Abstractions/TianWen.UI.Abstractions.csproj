@@ -21,6 +21,14 @@
     <PackageReference Include="DIR.Lib" />
   </ItemGroup>
 
+  <!-- The house rule for testing what is not public: an internal member plus this, never reflection.
+       AstroImageDocument.InheritColorCalibration is internal because only the enhance and display-carry
+       paths may set a calibration they did not measure; DisplayCarryTests drives it to check that a fit
+       solved on one frame of a run reaches the rest. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="TianWen.Lib.Tests" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
     <!-- RemoteRigConnection owns a RemoteSessionMirror and hands it to a ViewContext as the context's

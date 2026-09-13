@@ -149,6 +149,70 @@ public class DisplayCarryTests
             .ShouldBeTrue();
     }
 
+    // --- DisplayCarry.PublishCalibration ---
+
+    /// <summary>
+    /// <b>Solve one frame, and the whole run is held to that colour balance.</b> The read direction
+    /// always worked -- a follower inherits the anchor's triple through Basis -- but a fit solved while
+    /// looking at a FOLLOWER landed on that follower alone, where no other frame could see it. So
+    /// calibrating a sub and blinking to the next showed the next one uncalibrated.
+    /// </summary>
+    [Fact]
+    public async Task AFitSolvedOnAFollowerReachesEveryFrameOfTheRun()
+    {
+        var anchorDoc = await DocumentAsync(ColourFrame(0.10f, objectName: "M8"), "a.fits");
+        var second = await DocumentAsync(ColourFrame(0.20f, objectName: "M8"), "b.fits");
+        var third = await DocumentAsync(ColourFrame(0.30f, objectName: "M8"), "c.fits");
+
+        var anchor = DisplayCarry.Apply(anchorDoc, anchor: null, carry: true);
+        DisplayCarry.Apply(second, anchor, carry: true).ShouldBeSameAs(anchorDoc);
+        DisplayCarry.Apply(third, anchor, carry: true).ShouldBeSameAs(anchorDoc);
+
+        // A fit measured while the SECOND frame was on screen, which is where it lands today.
+        second.InheritColorCalibration((1.4429f, 1f, 1.2284f), summary: null);
+        third.ColorCalibration.ShouldBeNull("nothing has been published to the run yet");
+
+        DisplayCarry.PublishCalibration(second);
+
+        anchorDoc.ColorCalibration.ShouldBe((1.4429f, 1f, 1.2284f), "the run now carries it");
+        third.ColorCalibration.ShouldBe((1.4429f, 1f, 1.2284f), "so a frame never calibrated reads it back");
+        second.ColorCalibration.ShouldBe((1.4429f, 1f, 1.2284f), "and the frame it was solved on is unchanged");
+    }
+
+    /// <summary>
+    /// It cannot leak across targets, which is the half that matters for a mixed folder: a different
+    /// object shares no anchor, so publishing reaches nothing and that frame starts uncalibrated.
+    /// </summary>
+    [Fact]
+    public async Task AFitDoesNotReachAFrameOfAnotherTarget()
+    {
+        var lagoon = await DocumentAsync(ColourFrame(0.10f, objectName: "M8"), "a.fits");
+        var smc = await DocumentAsync(ColourFrame(0.10f, objectName: "SMC"), "b.fits");
+
+        var anchor = DisplayCarry.Apply(lagoon, anchor: null, carry: true);
+        // Not comparable, so it anchors its own run rather than following the Lagoon's.
+        DisplayCarry.Apply(smc, anchor, carry: true).ShouldBeSameAs(smc);
+        smc.DisplayAnchor.ShouldBeNull();
+
+        lagoon.InheritColorCalibration((1.4429f, 1f, 1.2284f), summary: null);
+        DisplayCarry.PublishCalibration(lagoon);
+
+        smc.ColorCalibration.ShouldBeNull("a different target is calibrated on its own or not at all");
+    }
+
+    /// <summary>A frame that anchors its own run has nowhere to publish, and is left as it is.</summary>
+    [Fact]
+    public async Task PublishingFromAnAnchorIsANoOp()
+    {
+        var only = await DocumentAsync(ColourFrame(0.10f, objectName: "M8"), "a.fits");
+        DisplayCarry.Apply(only, anchor: null, carry: true).ShouldBeSameAs(only);
+
+        only.InheritColorCalibration((1.4429f, 1f, 1.2284f), summary: null);
+        DisplayCarry.PublishCalibration(only);
+
+        only.ColorCalibration.ShouldBe((1.4429f, 1f, 1.2284f));
+    }
+
     // --- DisplayCarry.Apply ---
 
     [Fact]
