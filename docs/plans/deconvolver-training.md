@@ -2489,6 +2489,41 @@ the frame-wide kernel (the crop's input is only 1.113 wide; the kernel is over-r
 takes its skirt to 0.57 and the prior to 0.44). The clause is therefore "band residual under E3.2's
 0.90, toward the input's 0.479", and the per-window kernel is the precondition it points at.
 
+*E3.4a read (2026-09-14, 00:35; `e3-4a-s0-real-statue.txt`, `-zoom.txt`, `e3-4a-gate-skirt.txt`).*
+Launched 20:04, done 00:28 (4.4 h at the larger tiles). The cache gate never improved on step 100
+(1.121 at 100, a plateau at 1.15 to 1.16 from 1400 on, skirt 1.6 to 2.9), so the selector picked the
+untrained prior and the final checkpoint is the reading; the observer's fabrication fell to 0.95x
+its null, the first arm under 1.0. On the real pair (width, stars, ring depth excess, skirt; the
+final checkpoint):
+
+| hard crop | E3.2 | E3.4a |
+|---|---|---|
+| as shot | 1.201 / 0.92 / -1.2 / 1.18 | **1.304** / 0.74 / -2.5 / 2.05 (wider than the input's 1.253) |
+| round trip 1.28x | 1.101 / 1.03 / -0.8 / **0.75** | 1.214 / 0.89 / -2.2 / **1.29** |
+| round trip 1.42x | | 1.163 / 0.97 / -2.2 / **1.03** |
+| round trip 1.6x | | 1.114 / 1.04 / -2.1 / 0.85 |
+
+Nebula crop at 1.28x: 1.075 / 0.99 / -0.4 / 0.87, band residual 0.828 (E3.2 0.899, E3.0 0.789, input
+0.479). **Neither line.** The pass wanted skirt 0.90 or over WITH width 1.15 or under at 1.28x: the
+skirt is back (0.75 to 1.29) and the width is gone (1.101 to 1.214). The kill wanted the skirt
+unchanged: it is not. What the arm says, read along the zoom dial, is that BOTH mechanisms are real
+and they pull against each other: showing the prior upsampled inputs restores the profile (1.29 at
+1.28x, 1.03 at 1.42x, where E3.2 had 0.75), and moving the training median to 2.7 px moved the width
+floor up with it (the arm returns the input as shot at 1.8 px and tightens only where the zoom lifts
+the stars toward its median: 1.214, 1.163, 1.114 at 1.28x, 1.42x, 1.6x). The floor rule from E3.1 to
+E3.3 holds in this direction too. At 1.42x this checkpoint is the truest profile with a tightening
+so far (skirt 1.03, stars 0.97, width 1.163, 36 percent of the way from input to truth), and it
+still fails the width clause. The ring depth excess of -2.2 is sky flattening, not a moat (the
+annulus minima sit higher than the input's), and the clause as written cannot tell the two apart:
+a second column for the annulus minimum ABOVE the input's is a smaller matter than the width and
+waits.
+
+*E3.4c follows (to pre-register after E3.4b reads):* an augmentation that straddles 1.0, `--scale-aug
+0.6,1.4`, so the median stays at the pool's own width (about 2.27 px, floor near 2.5) while the upper
+half of the draws carries the upsampled sampling the runtime path produces, read at 1.42x (truth 2.58
+px, above the floor). Prediction: width 1.15 or under with skirt 0.9 or over at 1.42x. E3.4b (the
+pool arm, launched 00:30 by the chain) reads first.
+
 The arm follows from the skirt readings: at native scale the E3.2 prior keeps the skirt (1.18) and
 hardly tightens (1.201); round-tripped at 1.28x it tightens (1.101) and takes the skirt (0.75); E3.0 on
 the same round trip keeps it (0.95). The skirt goes on the zoomed path, and more under the prior than
