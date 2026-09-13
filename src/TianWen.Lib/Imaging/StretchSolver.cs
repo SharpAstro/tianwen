@@ -43,7 +43,8 @@ public static class StretchSolver
         float imageMaxValue,
         (float R, float G, float B)? whiteBalance = null,
         (float R, float G, float B)? lumaWeights = null,
-        (float R, float G, float B)? shaderWhiteBalance = null)
+        (float R, float G, float B)? shaderWhiteBalance = null,
+        (float R, float G, float B)? backgroundNeutralization = null)
     {
         // Default luma weighting is Rec.709 -- matches the previous hardcoded constants
         // and keeps existing callers (no lumaWeights argument) on the same numerical path.
@@ -75,6 +76,7 @@ public static class StretchSolver
         var factor = parameters.Factor;
         var clipping = parameters.ShadowsClipping;
         var wb = whiteBalance ?? (1f, 1f, 1f);
+        var bn = backgroundNeutralization ?? (1f, 1f, 1f);
 
         if (mode is StretchMode.Luma && lumaStats is { } luma)
         {
@@ -82,7 +84,11 @@ public static class StretchSolver
             // scale luma median/mad by the weighted WB so the luma stretch aligns with the
             // actual luminance values produced post-WB.
             var lumaWb = weights.R * wb.R + weights.G * wb.G + weights.B * wb.B;
-            var (s, m, h, r) = Image.ComputeStretchParameters(luma.Median * lumaWb, luma.Mad * lumaWb, factor, clipping);
+            // The neutralisation is per channel, so the luma scalar takes it through the same
+            // weighting the WB does; the affine's offset rides along with it.
+            var lumaBn = weights.R * bn.R + weights.G * bn.G + weights.B * bn.B;
+            var (s, m, h, r) = Image.ComputeStretchParameters(
+                (luma.Median * lumaBn + (1f - lumaBn)) * lumaWb, luma.Mad * lumaBn * lumaWb, factor, clipping);
 
             // Use per-channel pedestals for background subtraction (avoids green cast from RGGB);
             // luma-derived midtone/shadows/rescale live in LumaStretch.
@@ -97,9 +103,12 @@ public static class StretchSolver
             var lch0 = chStats.Length > 0 ? chStats[0] : new ChannelStretchStats(0f, luma.Median, luma.Mad);
             var lch1 = chStats.Length > 1 ? chStats[1] : lch0;
             var lch2 = chStats.Length > 2 ? chStats[2] : lch0;
-            var lp0 = Image.ComputeStretchParameters(lch0.Median * wb.R, lch0.Mad * wb.R, factor, clipping);
-            var lp1 = Image.ComputeStretchParameters(lch1.Median * wb.G, lch1.Mad * wb.G, factor, clipping);
-            var lp2 = Image.ComputeStretchParameters(lch2.Median * wb.B, lch2.Mad * wb.B, factor, clipping);
+            var (lm0, ld0) = Prepared(lch0, bn.R, wb.R);
+            var (lm1, ld1) = Prepared(lch1, bn.G, wb.G);
+            var (lm2, ld2) = Prepared(lch2, bn.B, wb.B);
+            var lp0 = Image.ComputeStretchParameters(lm0, ld0, factor, clipping);
+            var lp1 = Image.ComputeStretchParameters(lm1, ld1, factor, clipping);
+            var lp2 = Image.ComputeStretchParameters(lm2, ld2, factor, clipping);
 
             return new StretchUniforms(
                 Mode: StretchMode.Luma,
@@ -112,6 +121,7 @@ public static class StretchSolver
             {
                 WhiteBalance = shaderWb,
                 LumaWeights = weights,
+                BackgroundNeutralization = bn,
                 LumaStretch = ((float)s, (float)m, (float)r),
             };
         }
@@ -121,6 +131,12 @@ public static class StretchSolver
         var ch0 = stats.Length > 0 ? stats[0] : default;
         var ch1 = stats.Length > 1 ? stats[1] : ch0;
         var ch2 = stats.Length > 2 ? stats[2] : ch0;
+
+        // Every transform the shader applies BEFORE the curve, applied to the stats that POSITION
+        // that curve. See Prepared: the WB half was always here, the neutralisation half was not.
+        var (m0, d0) = Prepared(ch0, bn.R, wb.R);
+        var (m1, d1) = Prepared(ch1, bn.G, wb.G);
+        var (m2, d2) = Prepared(ch2, bn.B, wb.B);
 
         if (mode is StretchMode.Linked)
         {
@@ -149,12 +165,12 @@ public static class StretchSolver
             // multiplies before the curve and the shadow clip has to land in that same post-WB
             // space. It cannot cancel any more: one common anchor against three differently
             // multiplied channels leaves the ratios between them intact.
-            var jointMedian = stats.Length >= 3
-                ? (ch0.Median * wb.R + ch1.Median * wb.G + ch2.Median * wb.B) / 3f
-                : ch0.Median * wb.R;
-            var jointMad = stats.Length >= 3
-                ? (ch0.Mad * wb.R + ch1.Mad * wb.G + ch2.Mad * wb.B) / 3f
-                : ch0.Mad * wb.R;
+            // With a background neutralisation in play these three medians are EQUAL by construction
+            // (that is what the gains solve for), so the shared anchor lands exactly on the common
+            // background instead of straddling three that the WB has pulled apart. Without one they
+            // are the WB-scaled medians, as before.
+            var jointMedian = stats.Length >= 3 ? (m0 + m1 + m2) / 3f : m0;
+            var jointMad = stats.Length >= 3 ? (d0 + d1 + d2) / 3f : d0;
 
             var pl = Image.ComputeStretchParameters(jointMedian, jointMad, factor, clipping);
             var shadows = (float)pl.Shadows;
@@ -175,16 +191,16 @@ public static class StretchSolver
                 Midtones: (midtones, midtones, midtones),
                 Highlights: (highlights, highlights, highlights),
                 Rescale: (rescale, rescale, rescale))
-            { WhiteBalance = shaderWb, LumaWeights = weights };
+            { WhiteBalance = shaderWb, LumaWeights = weights, BackgroundNeutralization = bn };
         }
 
         // Unlinked: each channel auto-normalises against its own stats. WB scales each channel's
         // value range linearly (post-WB_median = wb * pre-WB_median, post-WB_mad = wb * pre-WB_mad),
         // so the stretch params come from the scaled stats and the shadow clip stays consistent with
         // the post-WB norm the shader sees.
-        var p0 = Image.ComputeStretchParameters(ch0.Median * wb.R, ch0.Mad * wb.R, factor, clipping);
-        var p1 = Image.ComputeStretchParameters(ch1.Median * wb.G, ch1.Mad * wb.G, factor, clipping);
-        var p2 = Image.ComputeStretchParameters(ch2.Median * wb.B, ch2.Mad * wb.B, factor, clipping);
+        var p0 = Image.ComputeStretchParameters(m0, d0, factor, clipping);
+        var p1 = Image.ComputeStretchParameters(m1, d1, factor, clipping);
+        var p2 = Image.ComputeStretchParameters(m2, d2, factor, clipping);
 
         return new StretchUniforms(
             Mode: mode,
@@ -194,8 +210,27 @@ public static class StretchSolver
             Midtones: ((float)p0.Midtones, (float)p1.Midtones, (float)p2.Midtones),
             Highlights: ((float)p0.Highlights, (float)p1.Highlights, (float)p2.Highlights),
             Rescale: ((float)p0.Rescale, (float)p1.Rescale, (float)p2.Rescale))
-        { WhiteBalance = shaderWb, LumaWeights = weights };
+        { WhiteBalance = shaderWb, LumaWeights = weights, BackgroundNeutralization = bn };
     }
+
+    /// <summary>
+    /// One channel's stats carried through every transform the shader applies BEFORE the curve those
+    /// stats position: background neutralisation, then white balance. (The pedestal is already out --
+    /// <see cref="ChannelStretchStats.Median"/> is pedestal-subtracted.)
+    /// </summary>
+    /// <remarks>
+    /// <para>The WB half was always here. The NEUTRALISATION half was not, and its absence is not a
+    /// rounding matter on a deep master: the gains are an AFFINE map anchored at white
+    /// (<c>out = v*g + (1-g)</c>, see <see cref="BackgroundNeutralization"/>), so the <c>(1-g)</c> term
+    /// is an ABSOLUTE offset that does not shrink as the signal does. On a sky at 0.0037 with a MAD of
+    /// 9.4e-5, gains of 0.06 percent moved the background by 8.7 MADs.</para>
+    /// <para>So each channel's curve was anchored where its data no longer arrived: measured
+    /// 0/182/17 on the Sag Triplet HOO composite where a neutral render is 25/25/25 -- R below its
+    /// clip and black, G far above its clip and blown. The gains themselves were correct all along;
+    /// nothing downstream had been told about them.</para>
+    /// </remarks>
+    private static (float Median, float Mad) Prepared(in ChannelStretchStats s, float bn, float wb)
+        => ((s.Median * bn + (1f - bn)) * wb, s.Mad * bn * wb);
 
     /// <summary>
     /// Derives an (R, G, B) white-balance triple from the median colour of the
