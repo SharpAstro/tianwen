@@ -726,13 +726,17 @@ rather than peak, or both; pre-register with the share classes above as the read
 its cooled sister and an Orion warm night (where the class is 15 to 53 a frame on L-Quad and 103 to
 142 on L-Ultimate).
 
-### A `--manifest` stack's output manifest re-lists the whole group, not the frames it stacked
+### A `--manifest` stack's output manifest re-listed the whole group, not the frames it stacked (FIXED 2026-09-13)
 
 `tianwen stack --manifest <third>` integrates only the manifest's frames (`STACK_N` 79 and 80 on
-E2.10b's thirds of a 244-frame group, 2026-09-07) but writes an output manifest listing all 244, and
-its progress counters count the group ("register 88/244"). Read `STACK_N` or the log's "N/N matched"
-line for what a filtered stack contains, never its manifest's frame count. Cosmetic, and owed: the
-written manifest should be the stacked set, since a downstream split reads it.
+E2.10b's thirds of a 244-frame group, 2026-09-07) but wrote an output manifest listing all 244: every
+group frame the input manifest did not list as matched was recorded as a quality reject, as though
+this run had considered it. It had not; the selection was the input manifest's, and the written
+manifest's own contract separates "considered and rejected" from "never offered". Those frames are
+no longer listed, so a downstream split reads the stacked set (pinned by
+`StackingPipelineRgbBayerSyntheticTest.AManifestStackWritesTheFramesItStackedNotTheGroup`). Still
+cosmetic and still true: the progress counters count the group ("register 88/244"); read `STACK_N`
+or the log's "N/N matched" line for what a filtered stack contains.
 
 ### A stacked master is its subs plus the warp kernel's own blur, and bilinear costs about a pixel of FWHM in quadrature at 2 px seeing
 

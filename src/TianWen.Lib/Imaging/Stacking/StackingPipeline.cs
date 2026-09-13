@@ -1030,8 +1030,14 @@ public sealed class StackingPipeline(
                 }
                 else
                 {
+                    // Not recorded in this run's manifest at all. The manifest distinguishes a frame
+                    // that was considered and rejected from one that was never offered, and a frame
+                    // the INPUT manifest did not list as matched was never offered to this run: the
+                    // selection came from that manifest, not from here. Listing it as a quality
+                    // reject re-listed the whole 244-frame group behind a stack of its 79-frame
+                    // third, and a downstream split reading that manifest would have re-offered
+                    // every frame the third had been cut to exclude.
                     transform = null;
-                    manifestFates.Add((candidate.Frame, FrameFate.SkippedQualityReject, null));
                     logger.LogInformation("  [{Name}] -> SKIP (not a matched frame in the manifest)", name);
                 }
             }

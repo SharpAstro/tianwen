@@ -1,5 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Imaging;
@@ -126,5 +129,71 @@ public class StackingPipelineRgbBayerSyntheticTest(ITestOutputHelper output)
         //    and would survive the wipe-on-rerun scan as one of our own.
         IntegrationFitsWriter.IsTianWenMaster(result.MasterFitsPath).ShouldBeTrue(
             "integrated master should round-trip through IsTianWenMaster (SWCREATE stamping)");
+    }
+
+    /// <summary>
+    /// A stack driven by a manifest that lists a THIRD of the group writes a manifest of that third,
+    /// not of the group. Until 2026-09-13 every group frame the input manifest did not list as matched
+    /// was recorded as a quality reject, as though this run had considered it (E2.10b's 79-frame third
+    /// wrote a 244-frame manifest), and a downstream split reading that manifest would have re-offered
+    /// every frame the third had been cut to exclude. The manifest's own contract separates "considered
+    /// and rejected" from "never offered", and a frame the input manifest did not select was never
+    /// offered here.
+    /// </summary>
+    [Fact]
+    public async Task AManifestStackWritesTheFramesItStackedNotTheGroup()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var workspace = new TempStackingWorkspace();
+        RgbBayerSyntheticFixture.WriteSyntheticLights(workspace.LightsDir);
+        var logger = new XunitLogger(output);
+
+        // 1) The whole group, which writes the manifest a split is cut from.
+        var whole = await RunSingleGroupAsync(
+            new StackingOptions(DataRoot: workspace.RootDir, OutputDir: workspace.OutputDir), logger, ct);
+        whole.MasterFitsPath.ShouldNotBeNull();
+        var wholeManifest = await StackManifest.TryReadAsync(StackManifest.PathFor(whole.MasterFitsPath), ct);
+        wholeManifest.ShouldNotBeNull();
+        var matched = wholeManifest.Frames.Where(f => f.Fate == FrameFate.Matched).ToArray();
+        matched.Length.ShouldBeGreaterThanOrEqualTo(6, "the whole group has to register for a third to be cut from it");
+
+        // 2) A third: the reference plus the next three matched frames, the way E2.10b cut its thirds.
+        var reference = matched.Single(f => string.Equals(f.Path, wholeManifest.ReferencePath, StringComparison.OrdinalIgnoreCase));
+        var third = new[] { reference }
+            .Concat(matched.Where(f => !ReferenceEquals(f, reference)).Take(3))
+            .ToArray();
+        third.Length.ShouldBe(4);
+        var thirdPath = Path.Combine(workspace.RootDir, "third.manifest.json");
+        await (wholeManifest with { Frames = third }).WriteAsync(thirdPath, ct);
+
+        // 3) Stack the third from its manifest into its own output dir.
+        var thirdOut = Path.Combine(workspace.RootDir, "output-third");
+        var stacked = await RunSingleGroupAsync(
+            new StackingOptions(DataRoot: workspace.RootDir, OutputDir: thirdOut, ManifestPath: thirdPath), logger, ct);
+        stacked.MasterFitsPath.ShouldNotBeNull();
+        stacked.FramesMatched.ShouldBe(third.Length, "a manifest stack integrates exactly the manifest's matched frames");
+
+        // 4) The manifest it writes is the third, not the group: the same four digests, every one
+        //    matched, and none of the frames the input manifest never offered.
+        var writtenManifest = await StackManifest.TryReadAsync(StackManifest.PathFor(stacked.MasterFitsPath), ct);
+        writtenManifest.ShouldNotBeNull();
+        writtenManifest.Frames.Length.ShouldBe(third.Length,
+            $"the written manifest lists {writtenManifest.Frames.Length} frames for a stack of {third.Length}");
+        writtenManifest.Frames.Select(f => f.Fate).ShouldAllBe(f => f == FrameFate.Matched);
+        writtenManifest.Frames.Select(f => f.DataDigest).Order().SequenceEqual(third.Select(f => f.DataDigest).Order())
+            .ShouldBeTrue("the written manifest's frames are the input manifest's, by data digest");
+    }
+
+    private static async Task<GroupResult> RunSingleGroupAsync(StackingOptions options, XunitLogger logger, CancellationToken ct)
+    {
+        var pipeline = new StackingPipeline(options, logger, catalogDb: null);
+        var results = new List<GroupResult>();
+        await foreach (var r in pipeline.RunAsync(ct))
+        {
+            results.Add(r);
+        }
+        results.Count.ShouldBe(1, "expected a single integrated light group");
+        results[0].SkipReason.ShouldBeEmpty($"group should not have skipped: '{results[0].SkipReason}'");
+        return results[0];
     }
 }
