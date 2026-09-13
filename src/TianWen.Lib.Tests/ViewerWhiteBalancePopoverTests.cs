@@ -289,6 +289,40 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// While a fit is running the calibration button refuses a press, and refusing is not the same
+        /// as being absent: it keeps its region, so the press stops on the button instead of reaching
+        /// the backdrop and closing the whole popover.
+        /// </summary>
+        [Fact]
+        public async Task TheCalibrationButtonRefusesAPressWhileAFitIsRunning()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _) = await NewViewerAsync(renderer, ct);
+
+            var stars = new System.Collections.Concurrent.ConcurrentBag<ImagedStar>();
+            for (var i = 0; i < 5; i++) { stars.Add(default); }
+            document.Stars = new StarList(stars);
+
+            var button = Button(viewer);
+            Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));
+
+            // Claim the in-flight slot the way the compute task does, without running one.
+            document.TryBeginColorCalibration().ShouldBeTrue("nothing else holds it");
+            viewer.Render(document, state);
+
+            var (buttons, _) = HitsBelowTheBar(viewer);
+            buttons.ShouldContainKey("ToggleColorCalibration", "still registered while busy, so it swallows the press");
+
+            var wasEnabled = state.ColorCalibrationEnabled;
+            var (cx, cy) = buttons["ToggleColorCalibration"];
+            Press(viewer, cx, cy);
+
+            state.WhiteBalancePanelOpen.ShouldBeTrue("the press does not fall through to the backdrop");
+            state.ColorCalibrationEnabled.ShouldBe(wasEnabled, "and starts no second fit, nor toggles mid-fit");
+        }
+
+        /// <summary>
         /// A drag on the R track moves the manual factor, and the button lights: it is lit whenever
         /// the effective white balance is not neutral, and not otherwise.
         /// </summary>
