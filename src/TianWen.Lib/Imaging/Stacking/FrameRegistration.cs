@@ -109,11 +109,12 @@ public static class FrameRegistration
         DebayerAlgorithm debayerAlgorithm,
         float snrMin,
         int minStars,
+        SpikeGuard spikeGuard = SpikeGuard.PeakShare,
         CancellationToken cancellationToken = default)
     {
         var debayered = await calibrated.DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
         var stars = await calibrated.FindStarsAsync(
-            channel: 0, snrMin: snrMin, minStars: minStars, cancellationToken: cancellationToken);
+            channel: 0, snrMin: snrMin, minStars: minStars, spikeGuard: spikeGuard, cancellationToken: cancellationToken);
         return (stars, debayered);
     }
 

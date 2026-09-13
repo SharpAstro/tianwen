@@ -90,7 +90,7 @@ public static class SessionFrameAnalyzer
         // The shared detect site. The debayer inside it is retained deliberately (DebayerAsync can
         // rescale its input in place, so it participates in what detection sees).
         var (stars, debayered) = await FrameRegistration.DetectAsync(
-            calibrated, debayerAlgorithm, snrMin, minStars, cancellationToken);
+            calibrated, debayerAlgorithm, snrMin, minStars, cancellationToken: cancellationToken);
         var metrics = FrameRegistration.MetricsFrom(stars);
 
         // The detector's width is a registration statistic: on an OSC frame the mosaic mono path

@@ -889,7 +889,7 @@ public class SeeingSplitDiagnosticProbe(ITestOutputHelper output)
     {
         Image.TryReadFitsFile(path, out var raw).ShouldBeTrue(path);
         var calibrated = calibrator.Apply(raw!);
-        var (stars, debayered) = await FrameRegistration.DetectAsync(calibrated, DebayerAlgorithm.VNG, 5f, 2000, ct);
+        var (stars, debayered) = await FrameRegistration.DetectAsync(calibrated, DebayerAlgorithm.VNG, 5f, 2000, cancellationToken: ct);
         debayered.Release();
         return (stars, calibrated);
     }
@@ -1098,7 +1098,17 @@ public class SeeingSplitDiagnosticProbe(ITestOutputHelper output)
                 Flat: string.IsNullOrWhiteSpace(flatPath) ? null : LoadMaster(flatPath!));
 
         var step = Math.Max(1, files.Length / take);
-        output.WriteLine($"{subsDir}: {files.Length} subs, reading every {step}th; detector snr 5 / 2000 stars on VNG, fit by SignalFloor on green; "
+        // The two candidates for the class the share guard does not reach (task 21), each opt-in so
+        // the pre-registered readout is taken per variant on the same subs: TIANWEN_E210_GUARD
+        // share|noise picks the detector's spike guard, TIANWEN_E210_RANK peak|flux the fit's stack.
+        var guard = string.Equals(Environment.GetEnvironmentVariable("TIANWEN_E210_GUARD"), "noise", StringComparison.OrdinalIgnoreCase)
+            ? SpikeGuard.NeighbourSignificance
+            : SpikeGuard.PeakShare;
+        var ranking = string.Equals(Environment.GetEnvironmentVariable("TIANWEN_E210_RANK"), "flux", StringComparison.OrdinalIgnoreCase)
+            ? PsfProfileFit.StackRanking.Flux
+            : PsfProfileFit.StackRanking.Peak;
+        output.WriteLine($"{subsDir}: {files.Length} subs, reading every {step}th; detector snr 5 / 2000 stars on VNG (spike guard {guard}), "
+            + $"fit by SignalFloor on green (stack ranked by {ranking}); "
             + (calibrator is null ? "RAW subs" : $"calibrated (dark {Path.GetFileName(darkPath ?? "none")}, flat {Path.GetFileName(flatPath ?? "none")})"));
         output.WriteLine("peak share = the peak photosite's share of the background-subtracted 3 by 3 on the mosaic, over the detections the guard kept: "
             + "counts under 0.5 / 0.5 to 0.85 / over 0.85, all detections then the 400 brightest by flux (the fit's stack is the brightest over the floor)");
@@ -1112,10 +1122,10 @@ public class SeeingSplitDiagnosticProbe(ITestOutputHelper output)
             }
 
             var frame = calibrator?.Apply(raw) ?? raw;
-            var (stars, debayered) = await FrameRegistration.DetectAsync(frame, DebayerAlgorithm.VNG, 5f, 2000, ct);
+            var (stars, debayered) = await FrameRegistration.DetectAsync(frame, DebayerAlgorithm.VNG, 5f, 2000, guard, ct);
             var metrics = FrameRegistration.MetricsFrom(stars);
             var green = Math.Min(1, debayered.ChannelCount - 1);
-            var fit = PsfProfileFit.Measure(debayered, green, stars, out var diag, selection: PsfProfileFit.StarSelection.SignalFloor);
+            var fit = PsfProfileFit.Measure(debayered, green, stars, out var diag, selection: PsfProfileFit.StarSelection.SignalFloor, ranking: ranking);
 
             var (_, width, height) = frame.Shape;
             var plane = frame.GetChannelSpan(0).ToArray();
