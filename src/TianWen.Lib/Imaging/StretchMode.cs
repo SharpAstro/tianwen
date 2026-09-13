@@ -46,11 +46,20 @@ public static class StretchModeExtensions
         /// another tool actually hits, because such a file often carries no filter, instrument or sensor
         /// header for the first test to read.</item>
         /// </list>
-        /// Ignored when no calibration is active, where the answer is already Unlinked.
+        /// <para><b>Only vetoes when a calibration is what would otherwise make it Linked</b>, because
+        /// a bogus white balance is the entire reason the veto exists and with none active there is no
+        /// fit to preserve. It used to fire unconditionally, which cost the case it was written about:
+        /// an HOO composite carrying no calibration, already colour-balanced by the tool that made it,
+        /// opened Unlinked and had three curves fitted to the noise between channels that were already
+        /// in agreement -- discarding the very colour the file came with.</para>
         /// </param>
-        /// <param name="backgroundAlreadyExtracted">
-        /// True when this frame's background has already been FLATTENED AND LEVELLED by a gradient
-        /// correction, which makes it Linked even with no calibration to show.
+        /// <param name="channelsAlreadyAgree">
+        /// True when this frame's per-channel backgrounds are ALREADY level, which makes it Linked even
+        /// with no calibration to show. <b>Measured, never declared</b>: it used to be a provenance flag
+        /// set only by our own enhance path, so a frame flattened in ANY other tool carried nothing and
+        /// got the opposite answer -- which is every Astro Pixel Processor, Siril or GraXpert master a
+        /// user opens. The measurement costs nothing: the per-channel medians are computed at document
+        /// open because the stretch needs them to render the first frame at all.
         /// <para><b>Unlinked exists to neutralise a background that has not been neutralised.</b> Once
         /// a corrector has done it, three per-channel curves are being fitted to three nearly
         /// identical inputs, so what separates them is no longer the sky but the noise: measured on an
@@ -59,17 +68,18 @@ public static class StretchModeExtensions
         /// applies ONE curve, which is the honest answer for a frame whose channels have already been
         /// brought into agreement -- and it is what the user reached for by hand before this rule
         /// existed.</para>
-        /// <para>Ordered AFTER the narrowband guard deliberately: a non-photometric frame keeps its
-        /// Unlinked answer, because an HOO composite's channels are NOT in agreement (OIII sits in two
-        /// of them) and the reason that case avoids Linked is a bogus white balance, which flattening
-        /// does not make any less bogus.</para>
+        /// <para>The threshold is 0.15 percent of the median, which is not a free parameter: it is the
+        /// separation measured on an enhanced 10P drizzle master whose channels had been brought into
+        /// agreement, and an Astro Pixel Processor HOO composite sits at 0.1 percent. A frame that has
+        /// NOT been levelled is nowhere near it -- an uncalibrated OSC sky is percents apart, which is
+        /// what a white balance of 1.44 / 1.00 / 1.23 is describing.</para>
         /// </param>
         public StretchMode ResolveAuto(bool isColour, bool calibrationActive,
-            bool colourIsNotPhotometric = false, bool backgroundAlreadyExtracted = false)
+            bool colourIsNotPhotometric = false, bool channelsAlreadyAgree = false)
             => mode is not StretchMode.Auto ? mode
                 : !isColour ? StretchMode.Linked
-                : colourIsNotPhotometric ? StretchMode.Unlinked
-                : calibrationActive || backgroundAlreadyExtracted ? StretchMode.Linked
+                : colourIsNotPhotometric && calibrationActive ? StretchMode.Unlinked
+                : calibrationActive || channelsAlreadyAgree ? StretchMode.Linked
                 : StretchMode.Unlinked;
     }
 }

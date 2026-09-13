@@ -13,9 +13,17 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   the consumer removed it again -- latent everywhere, silent while MinValue is 0) and the discovery
   that hoisting `WithZeroPedestal` exposed its guard ignoring the pedestal entirely.
   [docs/plans/viewer-prerelease-fixes.md](docs/plans/viewer-prerelease-fixes.md) P30.
-  - [ ] **Still open: a frame flattened in ANOTHER tool carries no provenance** and gets the same
-    wrong answer, since the fix keys on `BackgroundAlreadyExtracted` which only the enhance path sets.
-    Deciding it from the pixels needs a threshold; that is the open question.
+  - [x] **A frame flattened in ANOTHER tool carries no provenance** (FIXED 2026-09-13). The flag is
+    gone: `AstroImageDocument.ChannelsAlreadyAgree` MEASURES it from the per-channel medians, so an
+    Astro Pixel Processor, Siril or GraXpert master gets the same answer our own enhance output does.
+    The threshold nobody could defend turned out to be one already measured -- 0.15 percent, from the
+    enhanced 10P drizzle master this rule came from; an APP HOO composite sits at 0.1 percent, and an
+    uncalibrated OSC sky is percents away. It costs nothing, which is why no fast path guards it:
+    `PerChannelStats` is populated at open because the stretch needs it to draw the first frame.
+    **The non-photometric veto was narrowed in the same change**, because it fired unconditionally
+    while its whole justification is a bogus white balance: with no calibration active there is no fit
+    to protect against, and vetoing anyway is what made an already-balanced HOO composite open Unlinked
+    and lose the colour it arrived with.
 
 - [x] **Selecting an object in the viewer, with a floating panel of its own** (raised and SHIPPED
   2026-09-10 / 2026-09-11). `FindObjectAt` already answered "which catalogued object is under this
