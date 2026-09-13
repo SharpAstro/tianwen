@@ -1174,8 +1174,11 @@ def train(args):
     scale_aug = None
     if args.scale_aug:
         lo, hi = (float(v) for v in args.scale_aug.split(","))
-        if not (0.25 <= lo <= hi <= 1.0):
-            raise SystemExit(f"--scale-aug wants lo,hi with 0.25 <= lo <= hi <= 1.0, got {args.scale_aug}")
+        # Under 1.0 the tiles shrink (E3.2, E3.3: sharper truths than the pool offers); over 1.0 they
+        # grow (E3.4a: the prior meets the bicubic-upsampled frame the 1.28x runtime path hands it,
+        # which it had never seen, and on which it took a third of the stars' skirt away).
+        if not (0.25 <= lo <= hi <= 1.5):
+            raise SystemExit(f"--scale-aug wants lo,hi with 0.25 <= lo <= hi <= 1.5, got {args.scale_aug}")
         if args.operator != "rl":
             raise SystemExit("--scale-aug is the operator's augmentation (its kernel label scales with the tile)")
         scale_aug = (lo, hi)
