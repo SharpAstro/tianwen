@@ -2139,10 +2139,32 @@ kill is added for the mechanism named here: a seed that reaches the observer bou
 gate past 1.20 has traded the sharpening for the smoothing and is E2.8b's arm N again, not a
 deconvolver.
 
-*What this does not decide.* E4 (position-varying kernels) and E7 (the export and the runtime) stand
-as written; the shipped SAS graph remains the deployed deconvolver until E7, and E2.10a's baseline on
-the Orion pair is the number it has to beat. The decision is the plan's; the PR is where it is
-reviewed.
+#### E3.1, the seeds as they land (launched 2026-09-13 11:25, `training/denoise/run-e3-1.ps1`)
+
+The operator with `StretchedPrior` (base-16 residual U-Net after every iteration, zero-initialised),
+E2.7 arm B's objective plus the star term with its empty counterpart at 1.84e-3, 4000 steps, the
+gate every 100; each seed about 2 h 50 on the 1070. Read with `n2n_gatelog.py C:/temp/e2/e31.log`;
+E3.0's K = 20 row (gate 1.122 / stars 0.98; observer 1.352 / stars 20.5, 12.1x its null of 1.69)
+is the baseline of both kill lines.
+
+| seed | selected | gate out/truth | gate stars | observer out/truth | observer stars (x null) | verdict |
+|---|---|---|---|---|---|---|
+| 0 | 3700 | 1.072 | 0.88 | 1.114 | 4.22 (2.5x) | between the lines |
+
+*Seed 0, read at 14:18.* Neither kill trips: the observer's 20.5 falls to 4.22 at a gate NARROWER
+than E3.0's (1.072 against 1.122, as narrow as E3.0 at K = 60 while keeping 0.88 of the stars where
+K = 60 kept 1.02 by inventing some), and nothing widened. Two of the three pass clauses hold (width
+1.072 at or under 1.15, stars 0.88 at or over 0.85); the observer misses its 2x bound by a factor
+1.25 at the selected step. That column is VOLATILE between probes in a way the gate's is not: over
+the 31 probes from step 1000 the observer's star ratio runs 1.94 at p10, 4.46 at p50, 7.90 at p90,
+under 2x its null on 5 of 31, while its width sits at 1.12 throughout and its ring excess stays
+negative (less ringing than its input). So the observer's remaining fabrication is a real 2.5x at the
+median, not a lucky or unlucky draw, and the prior has removed four fifths of E3.0's without a
+sharpening cost. The trajectory's shape is the one the second kill line feared and then not: the
+first 500 steps smoothed (gate 1.25 to 1.45) and the observer fabrication fell to its null, then the
+loss re-sharpened the gate through 1.10 by step 1000 and 1.08 by 2000 while the observer fabrication
+climbed back to 2 to 5x. The seeds decide; a fifth-seed reading that lands under 2x at a passing gate
+is a PASS by the letter, and a five-seed median that does not is the number E3.1 ships with.
 
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
