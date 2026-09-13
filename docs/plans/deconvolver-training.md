@@ -2524,6 +2524,34 @@ half of the draws carries the upsampled sampling the runtime path produces, read
 px, above the floor). Prediction: width 1.15 or under with skirt 0.9 or over at 1.42x. E3.4b (the
 pool arm, launched 00:30 by the chain) reads first.
 
+*E3.4b read (2026-09-14, 02:45; `e3-4b-s0-real-statue.txt`, `e3-4b-gate-skirt.txt`).* The pool arm:
+E3.2's recipe on the cache with the eight held-out SH61 EDPH nights added (16 training sessions, the
+validation pair unchanged), 00:30 to 02:38. Cache gate selected step 3300 at 1.034 (E3.2: 3000 at
+1.024), final 1.046 / stars 0.94 / skirt 0.85, within the predicted 0.03 of E3.2; observer 1.099 at
+2.22x its null. The real pair (width, stars, ring depth excess, skirt; final checkpoint):
+
+| hard crop | E3.2 | E3.4b | pre-registered pass |
+|---|---|---|---|
+| as shot | 1.201 / 0.92 / -1.2 / 1.18 | 1.194 / 0.95 / -0.2 / 1.31 | no worse than E3.2: met |
+| round trip 1.28x | 1.101 / 1.03 / -0.8 / 0.75 | **1.119 / 1.04 / +0.07 / 0.87** | width <= 1.15, skirt >= 0.85, stars 0.85 to 1.10, ring within 1: **all met** |
+
+Nebula crop at 1.28x: 1.004 / 1.06 / +0.7 / 0.50, band residual 0.784 (E3.2 0.899, E3.0 0.789): under
+E3.2's, met. **PASS, by the letter of its own pre-registration, with the skirt 0.02 over its line.**
+Read against the user's goal (skirt 0.9 to 1.1) it is 0.03 short on the skirt and passes everything
+else: the width is 54 percent of the way from the input to the truth, the stars are counted to 4
+percent, the ring depth excess is +0.07 (the flattest of every arm, E3.0 +1.7), and the observer's
+fabrication is 2.2x. **The pool's profile is the larger lever on the skirt** (0.75 to 0.87 at the same
+width, where E3.4a's upsampling gave 1.29 at a width it had given up), and the two are not exclusive.
+On the nebula crop every arm still reads a skirt of 0.5 and a band residual above the input's, which
+is the frame-wide kernel over-read on a crop whose input is 1.113 wide, not a property of any prior;
+the per-window kernel stays the precondition for that clause.
+
+*E3.4d follows E3.4c:* the two mechanisms together, E3.2's recipe on the SH61 pool with `--scale-aug
+0.6,1.4`, read at 1.28x and 1.42x. Pre-registration in `run-e3-4d.ps1`: pass at width 1.15 or under
+with skirt 0.90 or over at either zoom (the goal's line, not the arm's), stars 0.85 to 1.10, annulus
+minimum not below the input's; kill if it reads under E3.4b on the skirt at the same width, which would
+say the augmentation costs what the pool bought.
+
 The arm follows from the skirt readings: at native scale the E3.2 prior keeps the skirt (1.18) and
 hardly tightens (1.201); round-tripped at 1.28x it tightens (1.101) and takes the skirt (0.75); E3.0 on
 the same round trip keeps it (0.95). The skirt goes on the zoomed path, and more under the prior than
