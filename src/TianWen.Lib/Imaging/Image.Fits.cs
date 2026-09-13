@@ -574,7 +574,21 @@ public partial class Image
         // metadata parse below -- the same one the header-only path uses. It used to be copied out
         // here, and the copies had drifted: this block parsed EXPOSURE, PIXSCALE/SCALE and EQUINOX
         // into locals it then never read, while the shared parse never learned about them at all.
-        var pedestal = hdu.Header.GetFloatValue("PEDESTAL", 0f);
+        // PEDESTAL first, then APP's own spelling: Astro Pixel Processor writes no PEDESTAL card at
+        // all, and the value it ADDED after its light-pollution correction is AD-PED, in the data's
+        // own units (0.06215 on the Sag Triplet HOO composite, against a sky median of 0.0658). Same
+        // nested-default shape as PIXSCALE/SCALE below.
+        //
+        // Do NOT unify the two without settling the SIGN separately: a MaxIm PEDESTAL of -100 means
+        // +100 ADU was RE-ADDED (docs/todo/imaging.md), while AD-PED is positive for the same act.
+        // AD-PED is therefore usable verbatim as the frame's zero point, which is what Pedestal is;
+        // the MaxIm sign is left reading as it always has rather than changed underneath an archive.
+        //
+        // FIDELITY, not a render change: the display stretch takes its pedestal from the image's
+        // MinValue (GetPedestralMedianAndMADScaledToUnit), never from this card, so reading it moves
+        // no pixel on screen. Where it lands is Pedestal, which the stacking normaliser anchors every
+        // frame of a group on and which travels through every rescale.
+        var pedestal = hdu.Header.GetFloatValue("PEDESTAL", hdu.Header.GetFloatValue("AD-PED", 0f));
         var bzero = (float)hdu.BZero;
         var bscale = (float)hdu.BScale;
         var imageMeta = ParseImageMetaFromHeader(hdu, channelCount);
