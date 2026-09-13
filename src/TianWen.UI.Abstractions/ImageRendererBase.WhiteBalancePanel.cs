@@ -184,11 +184,31 @@ namespace TianWen.UI.Abstractions
             // calibration landed, which is what it looked like -- a button hanging out of its box.
             var resetW = ReservedButtonWidth(ResetLabels, gap);
             var resetX = x + autoW + gap;
+
+            // ACTIVE ONLY WHEN THERE IS SOMETHING TO RESET, which is the MANUAL triple being off
+            // identity -- not the sliders being off 1.00. The two differ exactly when a calibration is
+            // active: the sliders then read the EFFECTIVE value (1.44/1.00/1.23 on the Sag Triplet)
+            // while the manual layer this button clears is identity, because
+            // SetColorCalibrationEnabled sets it to identity when it switches the calibration on. So
+            // straight after calibrating, this button did nothing at all while looking like it would
+            // undo what you were looking at.
+            //
+            // Dim rather than absent, the same reading the calibration button beside it takes: a
+            // control that vanishes reads as a bug, one that is dim reads as a precondition. It still
+            // registers a region when dim, so a press lands on the button and is swallowed rather than
+            // falling through to the backdrop and closing the panel.
+            var canReset = state.ManualWhiteBalance != (1f, 1f, 1f);
             FillRect(resetX, y, resetW, btnH, ToolbarButtonBg);
-            DrawText(resetLabel, resetX + gap, y + gap / 2f, FontSize, ViewerTheme.Palette.BodyText);
+            DrawText(resetLabel, resetX + gap, y + gap / 2f, FontSize,
+                canReset ? ViewerTheme.Palette.BodyText : ViewerTheme.Palette.DimText);
             RegisterClickable(resetX, y, resetW, btnH, new HitResult.ButtonHit("ResetWhiteBalance"),
                 _ =>
                 {
+                    if (!canReset)
+                    {
+                        return;
+                    }
+
                     state.ManualWhiteBalance = (1f, 1f, 1f);
                     // Drop the parked triple too: the user has just said explicitly that identity is
                     // what they want, so resurrecting a pre-calibration value later would override a

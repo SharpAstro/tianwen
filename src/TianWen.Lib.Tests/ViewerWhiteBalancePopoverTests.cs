@@ -247,6 +247,48 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// <b>Reset does nothing when there is nothing to reset to, and that is not merely cosmetic.</b>
+        /// It also clears the triple parked when the calibration was switched on -- so pressing a
+        /// button that looked inert used to quietly change what switching SPCC back off would restore.
+        /// </summary>
+        /// <remarks>
+        /// The state is the one a user is in straight after calibrating: sliders reading the effective
+        /// 1.44/1.00/1.23 while the MANUAL layer this button clears is already identity, because
+        /// <c>SetColorCalibrationEnabled</c> sets it so when it turns the calibration on. The button is
+        /// dim there now, and inert.
+        /// </remarks>
+        [Fact]
+        public async Task ResetIsInertWhileTheManualLayerIsAlreadyIdentity()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _) = await NewViewerAsync(renderer, ct);
+
+            // A manual adjustment the user made BEFORE calibrating, which switching the calibration on
+            // parks and replaces with identity.
+            state.ManualWhiteBalance = (1.2f, 1f, 1f);
+            ViewerActions.SetColorCalibrationEnabled(state, true);
+            state.ManualWhiteBalance.ShouldBe((1f, 1f, 1f), "switching it on sets the manual layer to identity");
+            state.ManualWhiteBalanceBeforeCalibration.ShouldBe((1.2f, 1f, 1f), "and parks what was there");
+
+            var button = Button(viewer);
+            Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));
+            viewer.Render(document, state);
+
+            var (buttons, _) = HitsBelowTheBar(viewer);
+            buttons.ShouldContainKey("ResetWhiteBalance", "still registered when dim, so it swallows the press");
+            var (rx, ry) = buttons["ResetWhiteBalance"];
+            Press(viewer, rx, ry);
+
+            state.WhiteBalancePanelOpen.ShouldBeTrue("a press on the dim button does not fall through and close the panel");
+            state.ManualWhiteBalanceBeforeCalibration.ShouldBe((1.2f, 1f, 1f),
+                "the parked triple survives, so switching the calibration off still restores it");
+
+            ViewerActions.SetColorCalibrationEnabled(state, false);
+            state.ManualWhiteBalance.ShouldBe((1.2f, 1f, 1f), "which is what switching it off gives back");
+        }
+
+        /// <summary>
         /// A drag on the R track moves the manual factor, and the button lights: it is lit whenever
         /// the effective white balance is not neutral, and not otherwise.
         /// </summary>
