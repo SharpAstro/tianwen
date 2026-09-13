@@ -151,6 +151,11 @@ jobs:
     # that ship would not be the ones the recipe describes.
     - name: Verify the baked icon table matches its recipe
       run: pwsh tools/bake-icons.ps1 -Verify
+    # The sky mark's stars are a SECOND recipe, because `sizes` is per-recipe and they need a ladder
+    # down to 2 px that the toolbar's marks have no use for. Verified separately for the same reason
+    # the first one is: a hand-edited table would ship marks the recipe does not describe.
+    - name: Verify the baked sky-icon table matches its recipe
+      run: pwsh tools/bake-icons.ps1 -Recipe src/TianWen.UI.Abstractions/sky-icons.recipe -Verify
     # The cheap half of the MSIX lane, deliberately here rather than only in the msix job: that
     # job is dispatch-only, and a packaging lane first exercised while cutting a release is one
     # discovered to be broken at the worst moment. This validates the manifest is well-formed XML,

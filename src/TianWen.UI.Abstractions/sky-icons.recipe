@@ -1,0 +1,40 @@
+# Sky-mark glyphs, baked SMALL. A sibling of icons.recipe rather than more entries in it, because
+# `sizes` is a per-RECIPE setting and these need a different ladder: the toolbar's marks are drawn
+# at the mark size (13 units x the DPI scale), while these are drawn several to a mark, so each one
+# is a fraction of it. Putting both in one recipe would bake every toolbar glyph at 4 px as well,
+# to no purpose.
+#
+# WHY SMALL BAKES RATHER THAN ONE MASTER SCALED DOWN. A run is a row of PIXELS, so a mask is baked
+# once per size and never rescaled at draw time. Ignoring that is not merely inelegant, it is
+# visible: DrawCoverageMask floors every run to at least one pixel, so that a row cannot round away
+# and leave a gap through a mark. At native size the floor never fires. Scaling DOWN it fires
+# constantly and FATTENS the glyph -- a 13 px star squeezed into a 4 px box inks 8 pixels where the
+# glyph wanted 2, and spills past the box it was given, which is what made two neighbouring stars of
+# the Southern Cross merge into one blob.
+#
+# AND THE PART NO BAKE FIXES: at 4 px a five-pointed star is a blob whatever you do, because there
+# is no arrangement of four pixels that has five points in it. Measured on these very bakes, the
+# shape arrives at about 8 px and arrives all at once. So at a 100% display the sky mark reads as
+# five dots in the shape of a cross, and the CROSS is what carries it; at 150% and 200% the stars
+# are stars. That is a property of the pixel grid, not something to tune.
+#
+# FONT: DejaVu Sans rather than the Noto COLRv1 face every other mark comes from, and not by
+# preference -- U+2605 is a TEXT-presentation character and the emoji face does not carry it at all
+# (the baker reports no coverage at any size). DejaVu is bundled here already, and its licence
+# (Bitstream Vera derivative) permits redistributing the outlines a bake embeds.
+font      = ../TianWen.UI.Gui/Fonts/DejaVuSans.ttf
+output    = SkyIcons.g.cs
+namespace = TianWen.UI.Abstractions
+class     = SkyIcons
+baker     = 8.7.*
+
+# The ladder a five-star Crux actually asks for. A full-weight star is 2 x 0.151 of the mark and
+# Epsilon is 0.52 of that, so at mark sizes 13 / 20 / 26 / 33 / 39 the boxes wanted are roughly
+# 3.9 / 6.0 / 7.9 / 10.0 / 11.8 for the bright four and 2.0 / 3.1 / 4.1 / 5.2 / 6.1 for Epsilon.
+# NearestSize picks from these, so the list covers both weights across every DPI scale in use.
+sizes     = 2,3,4,5,6,7,8,9,10,11,12,14,16,20
+
+# Crux, the Southern Cross: five copies of ONE star, placed by ImageRendererBase.DrawSkyMark. No
+# font carries the asterism, and it would be the wrong thing to bake if one did -- the arrangement
+# has to tilt while each star stays upright, which is also what a rotating sky does.
+Star5     = U+2605
