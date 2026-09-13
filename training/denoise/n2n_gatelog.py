@@ -26,8 +26,10 @@ import re
 # The arm token is whatever the launcher wrote between `train` and `seed`: `arm C` on the E2 logs,
 # `E3.1` on the operator's. Without the alternative the E3.1 log read as "no runs found".
 RUN = re.compile(r"^train (?:(?:arm )?(\S+) )?seed (\d+) -> (\S+)")
-GATE = re.compile(r"^\s+gate\s+(\d+)\s+([\d.]+)\s+([\d.nan]+)\s+([+\-\d.nan]+)\s+([+\-\d.nan]+)\s+([\d.nan]+)(?:\s+([\d.nan]+))?\s+([\d.inf]+)\s+(pass \*|pass|FAIL)")
-OBS = re.compile(r"^\s+obs(\d)\s+(\d+)\s+([\d.]+)\s+([\d.nan]+)\s+([+\-\d.nan]+)\s+([+\-\d.nan]+)\s+([\d.nan]+)(?:\s+([\d.nan]+))?\s*$")
+# Two optional trailing columns, in the order the gate grew them: stars@6 (E2.8) and the skirt ratio
+# (E3.4's measurement). A log written before either still parses, with those fields None.
+GATE = re.compile(r"^\s+gate\s+(\d+)\s+([\d.]+)\s+([\d.nan]+)\s+([+\-\d.nan]+)\s+([+\-\d.nan]+)\s+([\d.nan]+)(?:\s+([\d.nan]+))?(?:\s+([\d.nan]+))?\s+([\d.inf]+)\s+(pass \*|pass|FAIL)")
+OBS = re.compile(r"^\s+obs(\d)\s+(\d+)\s+([\d.]+)\s+([\d.nan]+)\s+([+\-\d.nan]+)\s+([+\-\d.nan]+)\s+([\d.nan]+)(?:\s+([\d.nan]+))?(?:\s+([\d.nan]+))?\s*$")
 SELECTED = re.compile(r"^\s+selected step (\d+) of (\d+), score ([\d.]+)")
 NOPASS = re.compile(r"^\s+NO probe passed every gate")
 WEIGHT = re.compile(r"star-loss weight FIXED at ([\d.e+\-]+) on step (\d+)")
@@ -57,13 +59,15 @@ def parse(path):
                 run["gate"].append({
                     "step": int(m.group(1)), "in": f(m.group(2)), "out": f(m.group(3)), "resid": f(m.group(4)),
                     "ring": f(m.group(5)), "stars": f(m.group(6)), "stars_lo": f(m.group(7)) if m.group(7) else None,
-                    "score": f(m.group(8)), "mark": m.group(9)})
+                    "skirt": f(m.group(8)) if m.group(8) else None,
+                    "score": f(m.group(9)), "mark": m.group(10)})
                 continue
             m = OBS.match(line)
             if m:
                 run["obs"].setdefault(int(m.group(1)), []).append({
                     "step": int(m.group(2)), "in": f(m.group(3)), "out": f(m.group(4)), "stars": f(m.group(7)),
-                    "stars_lo": f(m.group(8)) if m.group(8) else None})
+                    "stars_lo": f(m.group(8)) if m.group(8) else None,
+                    "skirt": f(m.group(9)) if m.group(9) else None})
                 continue
             m = SELECTED.match(line)
             if m:

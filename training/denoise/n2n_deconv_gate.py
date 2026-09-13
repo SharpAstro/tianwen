@@ -338,7 +338,9 @@ class DeconvGate:
             if was_training:
                 model.train()
 
-        ratios, residuals, excess, kept, kept_lo = [], [], [], [], []
+        import n2n_star_shape as SH  # local: n2n_star_shape imports this module's ring geometry
+
+        ratios, residuals, excess, kept, kept_lo, skirts = [], [], [], [], [], []
         for i in range(len(den)):
             ys, xs = self.stars[i]
             med, mad = self.truth_stats[i]
@@ -350,6 +352,13 @@ class DeconvGate:
             if np.isfinite(w):
                 ratios.append(w / truth)
                 residuals.append(w - truth)
+
+            # The skirt ratio: the output's profile at 1 to 1.5 truth-FWHM against the truth's, each
+            # over its own peak. The width column cannot tell a star sharpened to the truth's width
+            # from one steepened past its profile (E3.2 read 1.001 with a third of the skirt gone).
+            sk = SH.skirt_ratio(den[i], self.lm[i], ys, xs, truth, med, med)
+            if np.isfinite(sk):
+                skirts.append(sk)
 
             e = ring_excess(den[i], ys, xs, truth, med, mad)
             if np.isfinite(e) and np.isfinite(self.ring_null[i]):
@@ -374,18 +383,20 @@ class DeconvGate:
             "ring_excess": med_of(excess),
             "stars_kept": med_of(kept),
             "stars_kept_lo": med_of(kept_lo),
+            "skirt_ratio": med_of(skirts),
             "input_ratio": float(np.nanmedian(self.input_fwhm / self.truth_fwhm)),
         }
 
     @staticmethod
     def header():
         return (f"{'in/truth':>9} {'out/truth':>10} {'resid px':>9} {'ring MAD':>9} {'stars':>6} "
-                f"{'stars@' + str(int(STAR_SIGMA_LOW)):>8}")
+                f"{'stars@' + str(int(STAR_SIGMA_LOW)):>8} {'skirt':>6}")
 
     @staticmethod
     def format(m):
         return (f"{m['input_ratio']:9.3f} {m['fwhm_ratio']:10.3f} {m['residual_px']:+9.3f} "
-                f"{m['ring_excess']:+9.2f} {m['stars_kept']:6.2f} {m.get('stars_kept_lo', float('nan')):8.2f}")
+                f"{m['ring_excess']:+9.2f} {m['stars_kept']:6.2f} {m.get('stars_kept_lo', float('nan')):8.2f} "
+                f"{m.get('skirt_ratio', float('nan')):6.2f}")
 
 
 def _self_test():

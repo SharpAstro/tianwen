@@ -47,6 +47,7 @@ def stretch(unit_crop, mins, betas):
 
 
 def gate_read(truth_lum, input_lum, output_lum):
+    import n2n_star_shape as SH
     med = float(np.median(truth_lum))
     _, mad = M.bg_stats(truth_lum)
     ys, xs = DG.detect(truth_lum, med, mad)
@@ -58,7 +59,11 @@ def gate_read(truth_lum, input_lum, output_lum):
         w = DG.star_fwhm(lum, ys, xs, med)
         oy, _ = DG.detect(lum, med, mad)
         e = DG.ring_excess(lum, ys, xs, truth_w, med, mad)
-        return w / truth_w, len(oy) / n_truth, e - ring_null
+        # The skirt ratio (n2n_star_shape): the profile at 1 to 1.5 truth-FWHM against the truth's.
+        # On the synthetic cache every prior reads about 1.0 here, since the cache's truth IS the
+        # pool's own star profile; against a real sharp half it is where the block shows.
+        sk = SH.skirt_ratio(lum, truth_lum, ys, xs, truth_w, float(np.median(lum)), med)
+        return w / truth_w, len(oy) / n_truth, e - ring_null, sk
 
     return truth_w, n_truth, row(input_lum), row(output_lum) if output_lum is not None else None, row
 
@@ -169,15 +174,16 @@ def main():
     truth_w, n_truth, inp, _, row = gate_read(truth_lum, input_lum, None)
     print(f"\ntruth (sharp) {n_truth} stars at 12 MAD, width {truth_w:.3f} px on the stretched luminance; "
           f"noise MAD of the stretched luminance: truth {M.bg_stats(truth_lum)[1]:.5f}, input {M.bg_stats(input_lum)[1]:.5f}")
-    print(f"{'arm':28s} {'out/truth':>9} {'stars':>6} {'ring excess':>11}   per channel out/truth")
-    print(f"{'input (soft)':28s} {inp[0]:9.3f} {inp[1]:6.2f} {inp[2]:+11.2f}   "
+    print(f"{'arm':28s} {'out/truth':>9} {'stars':>6} {'ring excess':>11} {'skirt':>6}   per channel out/truth")
+    print(f"{'input (soft)':28s} {inp[0]:9.3f} {inp[1]:6.2f} {inp[2]:+11.2f} {inp[3]:6.2f}   "
           + " ".join(f"{gate_read(sharp_s[c], soft_s[c], None)[2][0]:.3f}" for c in range(3)))
     for arm, out in outputs.items():
         r = row(out.mean(axis=0))
         per = " ".join(f"{gate_read(sharp_s[c], soft_s[c], out[c])[3][0]:.3f}" for c in range(3))
-        print(f"{arm:28s} {r[0]:9.3f} {r[1]:6.2f} {r[2]:+11.2f}   {per}")
+        print(f"{arm:28s} {r[0]:9.3f} {r[1]:6.2f} {r[2]:+11.2f} {r[3]:6.2f}   {per}")
     print("\nread: out/truth toward 1.0 from the input's; stars near 1.0 (over 1.10 with a narrower width is fabrication); "
-          "ring excess against the input's null. The C# oracle in linear read rec/A 1.007 / 1.085 / 1.139 per channel on this pair.")
+          "ring excess against the input's null; skirt 1.0 is the truth's profile at 1 to 1.5 FWHM, under 0.9 the "
+          "skirt is gone (a block and a moat). The C# oracle in linear read rec/A 1.007 / 1.085 / 1.139 per channel on this pair.")
 
 
 if __name__ == "__main__":
