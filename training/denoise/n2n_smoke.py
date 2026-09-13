@@ -1014,7 +1014,7 @@ def train(args):
                              "against the master (the operator is supervised on the clean target)")
         operator_labels, _ = load_operator_labels(args.cache, meta)
         prior = OP.StretchedPrior(build_model(args.prior_base, args.upsample, 0), every=args.prior_every)
-        model = OP.RLOperator(args.rl_k, prior=prior).to(dev)
+        model = OP.RLOperator(args.rl_k, prior=prior, recompute=args.recompute).to(dev)
         params = sum(p.numel() for p in model.parameters())
         print(f"E3.1 operator: Richardson-Lucy K={args.rl_k} with a residual U-Net prior (base {args.prior_base}, "
               f"every {args.prior_every} iteration(s), zero-initialised so step 0 IS E3.0), "
@@ -1777,6 +1777,11 @@ if __name__ == "__main__":
     p.add_argument("--prior-base", type=int, default=16,
                    help="channel width of the prior U-Net inside the operator (the pixel-domain arms "
                         "used --base 32; the prior runs K times per step, so it is kept smaller)")
+    p.add_argument("--no-recompute", action="store_false", dest="recompute",
+                   help="operator: HOLD every Richardson-Lucy iteration's activations instead of re-running "
+                        "them in the backward pass. Measured on the 1070 at batch 8, K = 20, base-16 prior: "
+                        "held, 11.1 GB and 31.8 s a step (past the card, paging); recomputed, 0.76 GB and "
+                        "3.7 s. Only for a card with the memory")
     p.add_argument("--prior-every", type=int, default=1,
                    help="apply the prior after every Nth Richardson-Lucy iteration (1 = between every pair)")
     p.add_argument("--rl-k", type=int, default=20,

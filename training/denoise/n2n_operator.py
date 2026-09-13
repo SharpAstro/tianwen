@@ -239,11 +239,17 @@ class RLOperator(torch.nn.Module):
     the module then has no parameters at all, which is the point of E3.0.
     """
 
-    def __init__(self, iterations, prior=None, image_planes=3):
+    def __init__(self, iterations, prior=None, image_planes=3, recompute=True):
         super().__init__()
         self.iterations = int(iterations)
         self.prior = prior          # a StretchedPrior, or None for E3.0
         self.image_planes = image_planes
+        # Re-run each iteration in the backward pass instead of holding its activations. ON by
+        # default, and measured before it was decided (2026-09-13, batch 8, K = 20, base-16 prior,
+        # the 1070): held activations peak at 11.1 GB, past the card, and the step takes 31.8 s as
+        # the driver pages; recomputed, the peak is 0.76 GB and the step 3.7 s. The recompute is
+        # not a trade here, it is the only way the step fits.
+        self.recompute = recompute
 
     def forward(self, x):
         img = x[:, :self.image_planes]
@@ -260,7 +266,7 @@ class RLOperator(torch.nn.Module):
         if self.prior is not None:
             prior = lambda est, it: self.prior(est, it, mins, betas)
         estimate = rl_deconvolve(linear, kernels, self.iterations, prior=prior,
-                                 recompute=self.training and self.prior is not None)
+                                 recompute=self.recompute and self.training and self.prior is not None)
         return restretch(estimate, mins, betas)
 
 
