@@ -2166,6 +2166,65 @@ loss re-sharpened the gate through 1.10 by step 1000 and 1.08 by 2000 while the 
 climbed back to 2 to 5x. The seeds decide; a fifth-seed reading that lands under 2x at a passing gate
 is a PASS by the letter, and a five-seed median that does not is the number E3.1 ships with.
 
+#### Seed 0 on the REAL pair: the physics-only operator deconvolves a real frame, and the prior has a width floor (2026-09-13, 15:30)
+
+The plan named E2.10b's Statue pair as the check on a real blur before a seed is spent, and the C#
+oracle took it in linear. `training/denoise/n2n_operator_real.py` takes it with the torch operator
+in the gate's own statistic (stretched luminance, the sharp master's 12 MAD stars, half-maximum
+widths, stars kept, ring excess over the input's null), the soft master's own full-frame stretch on
+both sides and the pair probe's estimated kernels (0.77 / 0.91 / 0.98 px at beta 4, one pass per
+channel), seed 0's selected checkpoint against E3.0 on the same pixels, CPU, 32 s a crop:
+
+| crop (sharp px) | truth stars, width | input | E3.0: out/truth, stars, ring | seed 0: out/truth, stars, ring |
+|---|---|---|---|---|
+| (0, 1024), the probe's | 16,131, 1.81 px | 1.253 | 1.163, 1.01, +1.0 | 1.259, 0.86, -1.4 |
+| (1024, 0) | 8,623, 1.93 | 1.065 | 0.994, 1.09, +1.7 | 1.070, 1.09, -0.7 |
+| (2000, 1000) | 12,062, 1.88 | 1.068 | 1.001, 1.03, +1.4 | 1.085, 0.86, -1.3 |
+
+**E3.0, the physics-only operator with the estimator's kernel, deconvolves a real frame**: a 1.25x
+blur to 1.16 keeping the stars, two 1.07x blurs to the truth's width within a percent, with the mild
+fabrication and ringing RL brings (stars 1.03 to 1.09, ring +1.0 to +1.7). **Seed 0's prior undoes
+it on every crop**: 1.259 from 1.253, 1.070 from 1.065, 1.085 from 1.068, the input's width, with
+14 percent of the stars gone on two of the three. The same checkpoint sharpens the synthetic cache
+to 1.072.
+
+*Where the real crop is outside the training range, measured rather than guessed.* Noise is not it:
+binned by the input's own MAD on the stretched luminance, the cache's val cells read (E3.0 against
+seed 0) 1.222 against 1.107 in the QUIET tercile (0.00037 to 0.00091, the real crop's 0.00089 sits
+inside it), 1.251 against 1.076 in the middle, 1.092 against 1.073 in the noisy one; the prior
+sharpens more than E3.0 on quiet input. Star density is not it: the real crop's 772 stars per
+training-tile area is 1.6x the cache's densest tile, but the two sparser crops (410 and 580) read
+the same. **The truth's WIDTH is**: 1.81 to 1.93 px on the real crops against training truths of
+2.07 / 2.27 / 2.56 px at p10 / p50 / p90 in the same statistic, and the prior's outputs on the real
+crops are 2.04, 2.06 and 2.28 px wide whatever the input. The clean test is the same crop resampled
+so only the pixel width of its stars moves (`--zoom`, kernels scaled with it):
+
+| truth width | input | E3.0 | seed 0 |
+|---|---|---|---|
+| 1.81 px (as shot) | 1.253 | 1.163 (stars 1.01, ring +1.0) | 1.259 (0.86, -1.4) |
+| 2.33 px (zoom 1.25) | 1.232 | 1.097 (1.07, +2.5) | 1.116 (0.99, -0.4) |
+| 2.58 px (zoom 1.4) | 1.236 | 1.084 (1.09, +3.1) | **1.065 (1.04, -0.3)** |
+
+Inside its training band the prior does the job it was trained for and at 2.58 px beats E3.0
+outright: sharper, no fabrication, no ringing, which is the E3.1 reading the cache gave. Narrower
+than any truth it saw, it reads Richardson-Lucy's output as the sharpened noise its empty-window
+term taught it to flatten, and returns the input. **A learned prior carries the width distribution
+of its training truths as a floor**, and this pool's masters (stretched luminance 2.07 px at p10)
+sit above the archive's sharper nights. The rule that applies is the one arm X taught for the
+conditioning plane: the deployment point has to lie inside the training range in EVERY coordinate,
+and the truth's width is a coordinate even though nothing conditions on it.
+
+*What follows (E3.2, to pre-register).* Two remedies, not exclusive: a pool whose truths span the
+deployment widths (the store's sharpest masters, ranked in the gate's statistic by
+`C:/temp/e2/store-master-gate-widths.txt`), and a scale augmentation in the trainer (each tile
+drawn at a random factor in about 0.7 to 1.0 with its kernel label scaled, so the prior meets 1.5
+to 2.6 px truths from one pool). Prediction for either: the real Statue crop as shot reads under
+1.15 with stars at or over 0.85 and a negative ring excess, i.e. the zoom-1.4 row without the zoom;
+kill: it still returns the input. Until then the shipping candidate is E3.0 itself, whose real-frame
+rows above are the first working deconvolution of a real frame this project has produced, with the
+iteration count as its one dial and the prior a refinement that has to earn its place on the
+frames it will meet.
+
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
 Every retained master in `2026-09-full` predates the two registration fixes and R1, and E3 trains on
