@@ -79,6 +79,26 @@ namespace TianWen.Shell.Thumbnails
         int Initialize(IStream pstream, uint grfMode);
     }
 
+    /// <summary>
+    /// Optional, and the only lever the shell gives a handler over HOW MUCH work it may do. The one
+    /// flag that matters here is <c>WTSCF_FAST</c> (0x8), set when the caller asked for a fast
+    /// extraction: "if it is not already cached, answer only from something EMBEDDED in the file".
+    /// <para>
+    /// Implementing it is what stops this handler pulling a cloud file down. Reading an
+    /// <c>IStream</c> over a dehydrated placeholder is what triggers hydration, and a FITS carries no
+    /// embedded thumbnail to answer from, so under that flag the only correct answer is to decline.
+    /// Without this interface the shell has no way to ask, and a folder of cloud-backed frames would
+    /// be downloaded in full just to draw icons.
+    /// </para>
+    /// </summary>
+    [GeneratedComInterface]
+    [Guid("f4376f00-bef5-4d45-80f3-1e023bbf1209")]
+    internal partial interface IThumbnailSettings
+    {
+        [PreserveSig]
+        int SetContext(uint dwContext);
+    }
+
     [GeneratedComInterface]
     [Guid("e357fccd-a995-4576-b01f-234630154e96")]
     internal unsafe partial interface IThumbnailProvider

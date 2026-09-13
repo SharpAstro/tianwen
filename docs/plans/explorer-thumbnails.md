@@ -57,7 +57,7 @@ in the product, unavoidable and commented as such.
 | `ThumbnailRenderer`, `ThumbnailRaster` | `TianWen.Lib/Imaging` | Pure: stream in, RGBA out. Testable headless, and shared with any future thumbnail surface (a viewer file-list strip, the hosted API). Also carries the two GUIDs (`ShellExtensionClsid`, `ThumbnailProviderHandlerId`), because the two Windows projects that need them do not reference each other. |
 | `StretchModeExtensions.ResolveAuto` | `TianWen.Lib/Imaging` (moved from `ViewerActions`) | The thumbnail must show what the viewer shows on open. The resolver is three lines, which is exactly the size of rule that gets copied instead of moved; moving it keeps ONE resolver. Colour without a calibration renders Unlinked, mono Linked. |
 | `SerImageBridge.ToImage(in SerHeader, ReadOnlySpan<byte>)` | `TianWen.Lib/Imaging` | The SER reader is memory-mapped and wants a path; a handler has a stream. Same materialisation as the reader path, from bytes, with the sample decode mirroring `SerReader.ReadFrame16`. |
-| `TianWen.Shell.Thumbnails` (`tianwen-thumb.dll`) | `src/` | The COM shell: `AstroThumbnailProvider` (`IInitializeWithStream` + `IThumbnailProvider`), `ThumbnailClassFactory`, `Exports`, `Gdi32.CreateTopDownBgra32`. Moves bytes across the boundary in both directions and does no imaging. |
+| `TianWen.Shell.Thumbnails` (`tianwen-thumb.dll`) | `src/` | The COM shell: `AstroThumbnailProvider` (`IInitializeWithStream` + `IThumbnailSettings` + `IThumbnailProvider`), `ThumbnailClassFactory`, `Exports`, `Gdi32.CreateTopDownBgra32`. Moves bytes across the boundary in both directions and does no imaging. |
 | `ILLink.Substitutions.xml` + feature switch `TianWen.Lib.EmbeddedCatalogs` | `TianWen.Lib` | Strips the 57 MB of embedded catalogs from a consumer that sets the switch false. Pinned by `EmbeddedCatalogFeatureSwitchTests`. |
 | manifest `desktop2:ThumbnailHandler` + `com:SurrogateServer`, `Test-ManifestHandlers` | `packaging/windows/msix/` | The Store registration, and the check that the GUID written in two places agrees and the DLL is in the tree being packed. |
 | `FileAssociationRegistrar.RegisterThumbnailProvider` | `TianWen.UI.FitsViewer` | The tarball's registration: `HKCU\Software\Classes\CLSID\{clsid}\InprocServer32` and `<ext>\ShellEx\{E357FCCD-...}` per extension, under the EXTENSION key so it holds whichever app is the default. |
@@ -186,6 +186,17 @@ cache in the library?* Windows.
 - **`IInitializeWithStream` or nothing.** A packaged handler cannot run in-proc, and the stream is all
   the surrogate gives it. Do not add `IInitializeWithFile` "for the tarball case"; it would create two
   code paths where the packaged one is the only one Windows will ever exercise in the Store build.
+- **`Initialize` must READ NOTHING, and `WTSCF_FAST` must be honoured.** Reading the stream is what
+  HYDRATES a cloud placeholder, so a handler that buffers the file in `Initialize` downloads every
+  frame in a folder merely because the shell asked whether a thumbnail exists -- and nothing about the
+  resulting picture looks wrong, which is why this needs a test rather than an eye. `Initialize` keeps
+  the `IStream`; `GetThumbnail` does the reading, which is also the only place both the context flags
+  and the requested size are known (`IThumbnailSettings::SetContext`'s ordering against `Initialize` is
+  undocumented, so the decision cannot be taken earlier). Under `WTSCF_FAST` the answer is
+  `WTS_E_FASTEXTRACTIONNOTSUPPORTED`: that flag means "answer from something EMBEDDED or do not
+  answer", and a FITS embeds no thumbnail. Test the BIT, never the word -- refusing any non-zero
+  context would silently kill Explorer's square-cropped requests. `AstroThumbnailProviderTests` counts
+  reads on a fake `IStream`, both invariants seen failing first.
 - **The CLSID is written in three places** (the C# constant, the manifest's `ThumbnailHandler` and its
   `com:Class`) and must never change once shipped. `build-msix.ps1` checks the manifest agrees with
   itself; `ThumbnailRendererTests` pins the constant. A changed CLSID is a handler Windows no longer

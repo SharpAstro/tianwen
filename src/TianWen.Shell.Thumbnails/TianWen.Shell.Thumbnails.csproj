@@ -46,4 +46,8 @@
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="TianWen.Lib.Tests" />
+  </ItemGroup>
+
 </Project>

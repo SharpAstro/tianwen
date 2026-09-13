@@ -565,18 +565,54 @@ the first attempt. The files are `PINNED | REPARSE_POINT`: on the device, still 
 **Our code is exonerated by direct measurement, not by argument.** `ThumbnailRenderer.RenderAsync` over
 a `FileStream` on those very OneDrive files returns correct rasters -- 256x171 in 547 ms for the 238 MB
 IMX455 single frame, 256x252 in 47 ms, 256x181 in 210 ms -- so reading a cloud placeholder is not the
-problem, and buffering the shell's `IStream` is the only other thing the handler does. What never
-completes is the shell's own extraction queue for a cloud placeholder handed to a PACKAGED,
-out-of-process handler.
+problem, and buffering the shell's `IStream` is the only other thing the handler does.
 
-**A TIFF drawing correctly in the same folder proves nothing about this**, and was the other misleading
-signal: Windows renders TIFF through an in-box WIC codec loaded IN-PROCESS, while a packaged handler
-may only ever run in the surrogate. Different activation paths to the same bytes.
+**The cause is that inside a sync root our handler is never asked.** A cloud sync engine may register
+ONE thumbnail provider for its whole sync root, and it then answers for every file in that root
+REGARDLESS OF EXTENSION -- the documented placeholder mechanism, and a different registration from the
+per-extension `IThumbnailProvider` the shell uses everywhere else. OneDrive registers one. Measured on
+this machine, not inferred:
+
+```
+HKLM\...\CurrentVersion\Explorer\SyncRootManager\OneDrive!<sid>!Personal|<cid>!154
+    ThumbnailProvider = {021E4F06-9DCC-49AD-88CF-ECC2DA314C8A}   "FileSync ThumbnailProvider"
+                                             LocalServer32 -> ...\OneDrive\<ver>\FileCoAuth.exe
+    [UserSyncRoots]  <sid> = C:\Users\<user>\OneDrive
+```
+
+which is exactly the folder in the report. So the shell asks OneDrive, OneDrive has no thumbnail for a
+FITS and never produces one, and the extraction stays queued forever -- which is precisely what
+`WTS_E_EXTRACTIONPENDING` for ever and ever looks like from outside. **Nothing about this is specific to
+FITS, to our handler, or to MSIX packaging**: PaintShop Pro's `.pspimage` reports the identical symptom
+against its own handler, working outside OneDrive and not inside, pinned or not.
+
+**Not fixable from the app, and worth being clear why.** The per-root registration is OneDrive's and
+covers every extension; there is no way to contribute a handler for ONE file type inside somebody else's
+sync root, and taking that key would hijack thumbnails for every file the user syncs. The workaround is
+the one the user already found: files outside the sync root draw thumbnails normally.
+
+**A TIFF drawing correctly in the same folder was the other misleading signal**, and the first
+explanation offered here for it -- an in-box WIC codec loaded in-process versus a packaged handler
+confined to the surrogate -- is supersededly wrong. The simpler reading, consistent with the
+registration above, is that OneDrive's own provider serves the TIFF because the service renders that
+type and has nothing for FITS. Inference, not measurement, but it needs no second mechanism.
+
+**What this DID change is the handler's own appetite, and in the opposite direction to the report.**
+Chasing the thumbnail into the sync root would have been the wrong fix: reading the stream is what
+HYDRATES a placeholder, so a handler reached inside a cloud folder downloads every frame merely
+because Explorer asked whether thumbnails exist -- and the pictures would all look right while it
+happened. `AstroThumbnailProvider` therefore reads nothing in `Initialize` (it keeps the `IStream`;
+`GetThumbnail` does the reading) and implements `IThumbnailSettings`, answering
+`WTS_E_FASTEXTRACTIONNOTSUPPORTED` under `WTSCF_FAST` -- a flag that means "answer from something
+embedded or do not answer", and a FITS embeds nothing. OneDrive was inadvertently protecting the user
+from a download storm we would otherwise have caused; the protection is now ours and applies to every
+sync engine, including the ones that DO route to a per-extension handler.
 
 `ThumbnailDiagnostics` (failures only, `OutputDebugString` plus a log under
-`LocalApplicationData/TianWen/Logs`, redirected by MSIX into the package LocalCache) is in place to
-settle the remaining question if it ever matters: a line means the handler ran and how far the stream
-got, an empty log against a thumbnail-less window means it was never asked.
+`LocalApplicationData/TianWen/Logs`, redirected by MSIX into the package LocalCache) stays in place for
+the next shell question: a line means the handler ran and how far the stream got, an empty log against a
+thumbnail-less window means it was never asked. It cannot be used to confirm the above on the SHIPPED
+package -- 7.1.1627 predates the instrumentation, so its silence is not evidence.
 
 Unrelated but adjacent, and correct behaviour: `corr.fits` answers `0x8004B200`
 (`WTS_E_FAILEDEXTRACTION`) because an astrometry.net correspondence table carries no image HDU, which

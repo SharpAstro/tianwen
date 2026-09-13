@@ -108,6 +108,13 @@
     <ProjectReference Include="..\TianWen.UI.Shared\TianWen.UI.Shared.csproj" />
     <!-- The TUI chrome (tab bar geometry) is testable without a terminal; see TuiTabBarTests. -->
     <ProjectReference Include="..\TianWen.Cli\TianWen.Cli.csproj" />
+    <!-- The shell thumbnail handler's POLICY is testable without the shell: which requests it
+         refuses to read the file for. See AstroThumbnailProviderTests. That project sets
+         TianWen.Lib.EmbeddedCatalogs=false as a RuntimeHostConfigurationOption for its own AOT
+         publish; EmbeddedCatalogFeatureSwitchTests is what would notice if that ever leaked into
+         this project's runtimeconfig (it does not - checked, the item does not flow across a
+         ProjectReference). -->
+    <ProjectReference Include="..\TianWen.Shell.Thumbnails\TianWen.Shell.Thumbnails.csproj" />
   </ItemGroup>
 
   <ItemGroup>
