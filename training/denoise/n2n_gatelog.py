@@ -23,7 +23,9 @@ import argparse
 import math
 import re
 
-RUN = re.compile(r"^train (?:arm (\w+) )?seed (\d+) -> (\S+)")
+# The arm token is whatever the launcher wrote between `train` and `seed`: `arm C` on the E2 logs,
+# `E3.1` on the operator's. Without the alternative the E3.1 log read as "no runs found".
+RUN = re.compile(r"^train (?:(?:arm )?(\S+) )?seed (\d+) -> (\S+)")
 GATE = re.compile(r"^\s+gate\s+(\d+)\s+([\d.]+)\s+([\d.nan]+)\s+([+\-\d.nan]+)\s+([+\-\d.nan]+)\s+([\d.nan]+)(?:\s+([\d.nan]+))?\s+([\d.inf]+)\s+(pass \*|pass|FAIL)")
 OBS = re.compile(r"^\s+obs(\d)\s+(\d+)\s+([\d.]+)\s+([\d.nan]+)\s+([+\-\d.nan]+)\s+([+\-\d.nan]+)\s+([\d.nan]+)(?:\s+([\d.nan]+))?\s*$")
 SELECTED = re.compile(r"^\s+selected step (\d+) of (\d+), score ([\d.]+)")
