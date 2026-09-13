@@ -2191,6 +2191,37 @@ staged 2.81, predates the registration fix); the beta semantics need no re-stack
    performs and which no per-star probe against debayered frames can see. A comparison of the two
    paths that is fair to drizzle needs the sub's width on its own mosaic (the store's green-plane
    width) as the reference, not the warped frame.
+   **Read 2026-09-13 (task 33, `training/denoise/run-e33-staged-vs-drizzle.ps1`, the prediction in
+   its header).** The Orion L-Quad 2025-10-15 night (71 frames, one shared post-fix manifest, so the
+   arms differ in the integration path alone) stacked four ways and each master measured by the
+   store's own master statistic (`MasterProfileFitProbe`: `FindStarsAsync` at snr 5 over 3000 stars,
+   `PsfProfileFit.Measure` per channel; on the store's own retained master it reproduces the row's
+   2.514 px to the digit). Green, against the subs' own-mosaic median of 2.16 px:
+
+   | arm | green FWHM px | beta | detections | master / sub median |
+   |---|---|---|---|---|
+   | Float16Staged, clamped Lanczos-3 | 2.500 | 6.0 | 2275 | 1.16 |
+   | BayerDrizzle pixfrac 1.0 | 2.503 | 4.6 | 1064 | 1.16 |
+   | BayerDrizzle pixfrac 0.7 | 2.430 | 4.3 | 973 | 1.13 |
+   | BayerDrizzle pixfrac 0.5 | 2.400 | 4.3 | 921 | 1.11 |
+   | the store's master (pixfrac 1.0, the bake) | 2.514 | 4.6 | 1104 | 1.16 |
+
+   The pre-registered order (staged narrowest, then 0.5, 0.7, 1.0) is REFUTED: the staged Lanczos
+   master and the unit-drop drizzle master are the same width to three thousandths, so the VNG
+   interpolation the staged path performs costs what the unit box costs drizzle, about 0.7 px in
+   quadrature against the pixfrac 0.5 master (sqrt(2.500^2 - 2.400^2)), which is the number R1 could
+   not see because it read the staged frames against their own VNG planes. The arithmetic for a
+   smaller drop holds to 0.04 px (predicted 2.464 and 2.441 at 0.7 and 0.5 from the 0.65 / 0.48 /
+   0.34 px box terms; measured 2.430 and 2.400). Two things ride on the decision, which stays the
+   user's: **moving the 52 OSC sessions to the staged path gains nothing on green**, and a smaller
+   pixfrac gains 0.07 to 0.10 px at a cost the detection count already shows (1064 to 921 green
+   detections at snr 5, 13 percent fewer, the input samples per output pixel falling with the
+   drop), so the noise of a pixfrac 0.5 master has to be measured before it becomes a training
+   target. An observation, not a finding: the staged master's RED plane fits 2.60 px with 3533
+   detections where every drizzle master fits 3.16 to 3.21 with 670 to 810, at a beta of 2.6 against
+   7.6 to 8.5 (the staged red fit is a wing-heavy, poorly Gaussian profile, `GaussianLogRms` 1.33);
+   red is the channel a colour sensor samples most sparsely and the two paths fill it differently.
+   Green is the reference channel here and red's difference is owed its own reading.
 3. **The Lanczos-3 default (the user's), then a bake option for the warp kernel**: `SessionRegistrar`
    hard-codes `WarpInterpolation.Bilinear`, so a Lanczos bake needs the option either way.
    **DONE 2026-09-12, as CLAMPED Lanczos-3.** `WarpInterpolation.Lanczos3Clamped` is the default
