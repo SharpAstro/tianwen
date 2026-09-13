@@ -874,7 +874,24 @@ adds. The thirds' masters sit 1.17 to 1.24x above their own subs' green medians 
 2.02 to 2.10 against 1.69) under Lanczos-3, where R1's per-star reading on the Orion night had the
 master at its frames' mean; the two widths here are different statistics (the store's is the fit on
 a VNG green plane at the detector's positions on a sub, the probe's on the stacked master's crop), so
-this is an observation to measure per star before it is a finding. And the estimator's median FWHM
+this is an observation to measure per star before it is a finding. **Measured per star 2026-09-13
+(task 25, `training/denoise/run-e25-statue-norm.ps1`, the prediction in its header): the
+observation is the two statistics, not the stack.** Each third re-stacked from its manifest under
+`InRamAllFrames` with `--save-normalized` (the clamped Lanczos-3 warp) and every warped frame's
+snr-20 green detections paired with the master's within 1 px
+(`ReportPerStarWidthsOfTheWarpedFramesAgainstTheirMaster`; `C:/temp/e2/e25-perstar-*.txt`): sharp
+third, 79 frames at a median 1.70 px (p10 1.64, p90 1.76), master 1.72 on the same stars,
+master over frame 1.025 at the median over frames (0.948 to 1.078), master over the median frame
+1.012; soft third, 80 frames at 1.96 (1.92 to 1.99), master 1.99, master over frame 1.014
+(0.984 to 1.178), master over the median frame 1.015. Each master is the mean of its warped frames
+to 1.5 percent, as on Orion, and the 1.17 to 1.24x against the store was the store's statistic
+(a profile fit on a sub's VNG plane, 1.45 and 1.69) against the detector's width on the stacked
+crop. The pre-registration's kill line trips by the letter and for a reason it did not account
+for: it read the REFERENCE frame's row as "the stack's own cost" (true on the near6 frames, which
+were alike), but a third's reference is the night's SHARPEST frame by the quality ranking (1.62 and
+1.71 px against frame medians of 1.70 and 1.96), so its row reads the mean over the spread (1.066
+and 1.178), not the integration; the frame-median rows carry the cost, and they read 1.012 and
+1.015. Closed: the stack is its frames' mean; nothing widens in the integration. And the estimator's median FWHM
 and the profile fit disagree on B/A by up to 0.12 per channel (1.06 / 1.21 / 1.33 against 1.185 /
 1.19 / 1.215), the HFD statistic being the noisier of the two on a soft master. Verdict: PASS on the
 pair and on the recovery, the star count noted; E2.10c on the Orion night reads whether a 1.26x
