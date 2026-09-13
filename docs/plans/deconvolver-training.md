@@ -2447,6 +2447,32 @@ truth's profile at 1 to 1.5 FWHM (E3.4), since the star term reads peaks and pos
 band loss the pixels, neither the profile.** The luminance-only application reads identically to
 the full prior on every column (the gate reads luminance), so it is a colour fix only.
 
+The skirt ratio is now a column of the gate row (`DeconvGate`, `n2n_gatelog.py` parses it as an
+optional trailing column so older logs still read) and of the real-pair readout. Re-reading the
+checkpoints on the training's own gate (`n2n_gate_checkpoints.py`, `C:/temp/e2/e3-gate-skirt.txt`):
+E3.0 1.07, E3.1 1.22, **E3.2 1.01**, E3.3 1.05 on the selector; 1.21 / 0.88 / 0.96 / 1.35 on the
+observer. **On the cache the E3.2 prior reproduces the truth's profile exactly, and against the real
+sharp half it takes a third of the skirt away.** The cache's truth is the pool's own master, so its
+star profile IS the pool's; the prior learned that profile as what "sharp" looks like and imposes it
+on a frame whose sharp stars carry a broader skirt (a 61 mm doublet at 1.8 px, the optics' halo
+under the core). The star's PROFILE SHAPE is therefore a deployment coordinate beside its width,
+and one the synthetic gate cannot check: the skirt column bites on the real-pair readout, not on the
+cache, and a skirt term in E3.4's objective can only teach the pool's profile unless the pool gains
+masters whose profiles match the frames it will meet.
+
+The hard crop re-read with the column (`e32-s0-real-statue-skirt.txt`; width, stars, ring depth
+excess, skirt): input 1.253 / 0.91 / 0 / **1.94** (a star 25 percent wider carries twice the skirt
+fraction); as shot E3.0 1.163 / 1.01 / +1.0 / 1.20 and the prior 1.201 / 0.92 / -1.2 / 1.18, both
+still skirt-heavy, i.e. under-deconvolved; round-tripped at 1.28x **E3.0 1.127 / 1.05 / +1.7 / 0.95**
+and the prior 1.101 / 1.03 / -0.8 / **0.75**. The round trip is where the skirt goes, and it goes
+furthest under the prior. Read against the criterion as it now stands (width 1.15 or under, stars
+0.85 to 1.10, skirt 0.9 to 1.1), the only arm that meets all three on this crop is **E3.0 at 1.28x**,
+carrying the bright ring (+1.7) that the old one-sided ring criterion would have failed it for. So
+the physics-only operator, resampled, has the truest profile of anything measured tonight, and the
+prior's advantage on the width column was bought with the skirt. The ring depth stays in the row as
+the noise-amplification reading it always was, two-sided from here, and no longer a pass line on its
+own.
+
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
 Every retained master in `2026-09-full` predates the two registration fixes and R1, and E3 trains on
