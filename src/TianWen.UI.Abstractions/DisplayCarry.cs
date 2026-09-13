@@ -102,6 +102,39 @@ namespace TianWen.UI.Abstractions
             => FrameShape.Of(a.UnstretchedImage).IsComparableTo(FrameShape.Of(b.UnstretchedImage));
 
         /// <summary>
+        /// Gives a colour calibration just solved for <paramref name="document"/> to the run it belongs
+        /// to, so every comparable frame reads the same triple. A no-op for a frame that anchors its own
+        /// run, or one with no calibration to give.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>The read direction was always here and the write direction was not.</b> A follower
+        /// inherits the anchor's calibration through <c>Basis</c>, which is what the remarks above mean
+        /// by the fit running once for the run -- but a fit solved while looking at a FOLLOWER landed on
+        /// that follower alone, where nothing else could see it. So calibrating a sub and blinking to
+        /// the next showed the next one uncalibrated, which is the opposite of what a blink is for.</para>
+        /// <para>It cannot leak across targets: an anchor only exists between frames
+        /// <see cref="AreComparable"/> accepted, so a different object has no anchor in common to
+        /// publish to and starts uncalibrated.</para>
+        /// <para><b>Sharing one fit across a set is a COST decision, not a claim that the frames have
+        /// identical colour.</b> A photometric calibration is per frame in principle. It is also a
+        /// catalogue init plus a match against a few thousand stars -- seconds each, where a blink is
+        /// meant to be instant -- so paying it once per run and holding the set to that answer is the
+        /// trade being made. It is a safe one because the frames sharing an anchor are the same target
+        /// through the same filter on the same sensor, where the per-frame answers differ by very
+        /// little; it would NOT be safe across anything <see cref="AreComparable"/> rejects, which is
+        /// why the two rules are the same rule. Anyone tempted to make this per frame again should
+        /// know they are buying exactness with the responsiveness the carry exists to provide.</para>
+        /// </remarks>
+        public static void PublishCalibration(AstroImageDocument document)
+        {
+            if (document.DisplayAnchor is { } anchor && document.ColorCalibration is { } wb)
+            {
+                anchor.InheritColorCalibration(wb, document.ColorCalibrationSummary,
+                    document.IsNarrowbandColorCalibration);
+            }
+        }
+
+        /// <summary>
         /// Points <paramref name="document"/> at the anchor it should display with, and returns the
         /// anchor that stands afterwards -- <paramref name="document"/> itself when it starts a new run.
         /// </summary>
