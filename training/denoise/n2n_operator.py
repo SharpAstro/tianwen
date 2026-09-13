@@ -112,10 +112,18 @@ def moffat_kernel(fwhm, beta, radius=None):
     at one kernel size); it never shrinks it. Weights are `(1 + r^2 / alpha^2)^-beta` with
     `alpha = fwhm / (2 sqrt(2^(1/beta) - 1))`, exactly `PsfKernel.Build` with elongation 1.
     """
-    if not (fwhm > 0):
-        raise ValueError(f"kernel fwhm must be positive, got {fwhm}")
     if not (beta > 0):
         raise ValueError(f"kernel beta must be positive, got {beta}")
+    if not (fwhm > 0):
+        # The exporter's "no measurable blur": `MoffatComposition.EffectiveKernelFwhm` writes a NaN
+        # difference width as 0.0 (two of 3600 rows on the clamped cache, both estimated, at drawn
+        # ratios near 1.05). The kernel of zero width is the delta, under which the iteration is a
+        # no-op on that tile, which is the honest reading of the label; refusing it killed E3.1's
+        # first launch on its first batch.
+        r = 1 if radius is None else max(int(radius), 1)
+        w = np.zeros((2 * r + 1, 2 * r + 1), dtype=np.float64)
+        w[r, r] = 1.0
+        return w
     r0 = moffat_radius(fwhm, beta)
     r = r0 if radius is None else max(int(radius), r0)
     ky, kx = np.mgrid[-r0:r0 + 1, -r0:r0 + 1].astype(np.float64)
@@ -136,7 +144,7 @@ def kernel_batch(fwhms, betas):
     """[B, k, k] float32 kernels at one common support (the batch's largest), one per sample."""
     fwhms = np.asarray(fwhms, dtype=np.float64)
     betas = np.asarray(betas, dtype=np.float64)
-    radius = max(moffat_radius(f, b) for f, b in zip(fwhms, betas))
+    radius = max(moffat_radius(f, b) if f > 0 else 1 for f, b in zip(fwhms, betas))
     return np.stack([moffat_kernel(f, b, radius) for f, b in zip(fwhms, betas)]).astype(np.float32)
 
 
