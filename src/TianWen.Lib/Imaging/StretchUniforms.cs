@@ -73,15 +73,25 @@ public readonly record struct StretchUniforms(
 
         if (Mode is StretchMode.Luma)
         {
-            // Luma mode: stretch the luma background value through the scalar Luma MTF.
-            var bg = Image.StretchValue(lumaBackground, 1f, 0f, LumaStretch.Shadow, LumaStretch.Midtones, LumaStretch.Rescale);
+            // Luma mode: stretch the luma background through the scalar Luma MTF, but through the same
+            // pre-curve chain first -- weighted, because the luma curve itself was positioned against
+            // the weighted WB and neutralisation (StretchSolver's Luma branch).
+            var lumaBn = LumaWeights.R * BackgroundNeutralization.R
+                + LumaWeights.G * BackgroundNeutralization.G
+                + LumaWeights.B * BackgroundNeutralization.B;
+            var lumaWb = LumaWeights.R * WhiteBalance.R + LumaWeights.G * WhiteBalance.G + LumaWeights.B * WhiteBalance.B;
+            var lumaNorm = Math.Max((lumaBackground * lumaBn + (1f - lumaBn)) * lumaWb, 0f);
+            var bg = Image.StretchValue(lumaNorm, 1f, 0f, LumaStretch.Shadow, LumaStretch.Midtones, LumaStretch.Rescale);
             return Math.Clamp(bg, 0.01f, 0.99f);
         }
 
-        // Per-channel or linked: stretch each channel's measured background, then weighted luminance
-        var r = Image.StretchValue(GetChannelBg(perChannelBackground, 0), 1f, 0f, Shadows.R, Midtones.R, Rescale.R);
-        var g = Image.StretchValue(GetChannelBg(perChannelBackground, 1), 1f, 0f, Shadows.G, Midtones.G, Rescale.G);
-        var b = Image.StretchValue(GetChannelBg(perChannelBackground, 2), 1f, 0f, Shadows.B, Midtones.B, Rescale.B);
+        // Per-channel or linked: each channel's measured background through the SAME pre-curve chain
+        // the render applies (neutralisation, then white balance, then the curve), via the one
+        // definition of it. The measured background is already pedestal-subtracted and unit-scaled,
+        // which is why this enters after the pedestal rather than at StretchChannelCpu.
+        var r = Image.StretchNormalisedCpu(GetChannelBg(perChannelBackground, 0), 0, this);
+        var g = Image.StretchNormalisedCpu(GetChannelBg(perChannelBackground, 1), 1, this);
+        var b = Image.StretchNormalisedCpu(GetChannelBg(perChannelBackground, 2), 2, this);
 
         var Y = LumaWeights.R * r + LumaWeights.G * g + LumaWeights.B * b;
         return Math.Clamp(Y, 0.01f, 0.99f);

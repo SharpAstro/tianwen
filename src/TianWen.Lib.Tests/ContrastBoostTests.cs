@@ -271,6 +271,56 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
     }
 
     /// <summary>
+    /// The same "SP is placed at the wrong level" invariant as the test below, but WITH A CALIBRATION
+    /// ACTIVE, which is the case every existing case here misses: they all run at a neutral white
+    /// balance, where the omission this pins is invisible.
+    /// </summary>
+    /// <remarks>
+    /// Reported as <i>"after SPCC and boost 50% the background is a lot brighter"</i>, and correct with
+    /// the calibration off -- which is the signature of a missing white balance rather than a bad
+    /// curve. <c>ComputePostStretchBackground</c> stretched the measured background with a bare
+    /// <c>StretchValue</c>, applying neither the neutralisation nor the WB, while the render applies
+    /// both BEFORE the curve and the curve was derived in post-WB space. The answer therefore landed
+    /// below where the sky really renders, so the boost's pivot sat UNDER the background and lifted it
+    /// instead of pushing it down.
+    /// <para>Asserted against <see cref="Image.StretchChannelCpu"/>, the function that actually draws
+    /// the pixel, so the two cannot drift apart again. Numbers are the Sag Triplet HOO composite's.</para>
+    /// </remarks>
+    [Theory]
+    [InlineData(StretchMode.Linked)]
+    [InlineData(StretchMode.Unlinked)]
+    public void ThePostStretchBackgroundMatchesTheRenderUnderACalibration(StretchMode mode)
+    {
+        const float bg = 0.065827f;
+        const float mad = 9.4126e-5f;
+        var spcc = (R: 1.4429f, G: 1.0000f, B: 1.2284f);
+
+        Span<float> perChannelBg = [bg, bg, bg];
+        var gains = BackgroundNeutralization.ComputeGains(perChannelBg, BackgroundNeutralizationMethod.Mean, spcc);
+
+        ChannelStretchStats[] stats =
+        [
+            new ChannelStretchStats(0f, bg, mad),
+            new ChannelStretchStats(0f, bg, mad),
+            new ChannelStretchStats(0f, bg, mad),
+        ];
+
+        var u = StretchSolver.ComputeStretchUniforms(
+            mode, new StretchParameters(0.1, -5.0), stats, lumaStats: null, imageMaxValue: 1f,
+            whiteBalance: spcc, lumaWeights: null, shaderWhiteBalance: spcc, backgroundNeutralization: gains);
+
+        // Where the sky ACTUALLY renders, per channel, through the drawing function itself.
+        var rendered = u.LumaWeights.R * Image.StretchChannelCpu(bg, 0, u)
+            + u.LumaWeights.G * Image.StretchChannelCpu(bg, 1, u)
+            + u.LumaWeights.B * Image.StretchChannelCpu(bg, 2, u);
+
+        var reported = u.ComputePostStretchBackground([bg, bg, bg], bg);
+
+        reported.ShouldBe(rendered, 0.01f,
+            $"the boost pivot is placed from this; rendered={rendered:F4} reported={reported:F4}");
+    }
+
+    /// <summary>
     /// Verifies that the computed post-stretch background (from measured image data)
     /// matches the actual background of the CPU-stretched image. A mismatch means
     /// the boost curve's symmetry point (SP) is placed at the wrong level.
