@@ -657,11 +657,16 @@ public class ViewerActionsTests
         state.ZoomToFit.ShouldBeTrue();
     }
 
-    // --- the context ladder (grid -> objects -> the sky behind) ---
+    // --- the annotation ladder (grid -> objects), and the sky that is no longer on it ---
 
     /// <summary>
     /// The rungs are CUMULATIVE and the ladder wraps, so one key reaches every state and leaves it.
     /// </summary>
+    /// <remarks>
+    /// The sky backdrop is asserted at every rung and never comes on. It was the ladder's fourth rung
+    /// and now has its own button and key, for the reasons on <see cref="ViewerOverlayLevel"/>: the
+    /// flag riding along here is exactly the regression this pins.
+    /// </remarks>
     [Fact]
     public void OverlayLadder_StepsUpThroughEveryRungAndWrapsToNothing()
     {
@@ -676,10 +681,7 @@ public class ViewerActionsTests
         state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Objects);
         (state.ShowGrid, state.ShowOverlays, state.ShowSkyBackdrop).ShouldBe((true, true, false));
 
-        ViewerActions.CycleOverlayLevel(state);
-        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Sky);
-        (state.ShowGrid, state.ShowOverlays, state.ShowSkyBackdrop).ShouldBe((true, true, true));
-
+        // Straight back to nothing: the sky is not up here any more.
         ViewerActions.CycleOverlayLevel(state);
         state.OverlayLevel.ShouldBe(ViewerOverlayLevel.None);
         (state.ShowGrid, state.ShowOverlays, state.ShowSkyBackdrop).ShouldBe((false, false, false));
@@ -689,10 +691,7 @@ public class ViewerActionsTests
     public void OverlayLadder_Reversed_WalksBackDownFromTheTop()
     {
         var state = new ViewerState();
-        ViewerActions.ApplyOverlayLevel(state, ViewerOverlayLevel.Sky);
-
-        ViewerActions.CycleOverlayLevel(state, reverse: true);
-        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Objects);
+        ViewerActions.ApplyOverlayLevel(state, ViewerOverlayLevel.Objects);
 
         ViewerActions.CycleOverlayLevel(state, reverse: true);
         state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Grid);
@@ -702,7 +701,67 @@ public class ViewerActionsTests
 
         // Wraps at the bottom too, or Shift+O is a dead end where O is not.
         ViewerActions.CycleOverlayLevel(state, reverse: true);
-        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Sky);
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Objects);
+    }
+
+    /// <summary>
+    /// <b>The sky is its own switch and the ladder cannot reach it.</b> Walking O all the way round,
+    /// in both directions, must never turn the backdrop on -- that coupling is what made the sky
+    /// unreachable without two annotation states nobody asked for, and invisible on a button showing
+    /// one mark for four meanings.
+    /// </summary>
+    [Fact]
+    public void TheLadderNeverTouchesTheSkyBackdrop()
+    {
+        var state = new ViewerState();
+
+        for (var i = 0; i < 8; i++)
+        {
+            ViewerActions.CycleOverlayLevel(state);
+            state.ShowSkyBackdrop.ShouldBeFalse($"forward step {i} turned the sky on");
+        }
+
+        for (var i = 0; i < 8; i++)
+        {
+            ViewerActions.CycleOverlayLevel(state, reverse: true);
+            state.ShowSkyBackdrop.ShouldBeFalse($"reverse step {i} turned the sky on");
+        }
+    }
+
+    /// <summary>
+    /// And the sky switch does not move the ladder either: the two are independent, so a frame can
+    /// carry the sky with no annotation over the photograph at all.
+    /// </summary>
+    [Fact]
+    public void TheSkyBackdropIsItsOwnToggleAndLeavesTheLadderAlone()
+    {
+        var state = new ViewerState();
+
+        ViewerActions.ToggleSkyBackdrop(state);
+        state.ShowSkyBackdrop.ShouldBeTrue();
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.None, "the sky is not an annotation rung");
+
+        ViewerActions.ToggleSkyBackdrop(state);
+        state.ShowSkyBackdrop.ShouldBeFalse("and it toggles back off");
+
+        // Through the button, which is the same one line -- the affordance, not a second path.
+        ViewerActions.HandleToolbarAction(state, document: null, ToolbarAction.SkyBackdrop).ShouldBeTrue();
+        state.ShowSkyBackdrop.ShouldBeTrue();
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.None);
+    }
+
+    /// <summary>
+    /// The flag is INTENT, not capability: it is set on a frame that cannot draw a backdrop, so the
+    /// request survives until a plate solve makes it drawable. Refusing early is the BUTTON's job.
+    /// </summary>
+    [Fact]
+    public void TheSkyToggleRemembersTheRequestOnAFrameThatCannotDrawOne()
+    {
+        var state = new ViewerState();
+
+        ViewerActions.ToggleSkyBackdrop(state);
+
+        state.ShowSkyBackdrop.ShouldBeTrue("nothing here consults a WCS, and that is deliberate");
     }
 
     /// <summary>
@@ -760,7 +819,9 @@ public class ViewerActionsTests
     public void AnnotatedExportState_NeverCarriesTheSkyBehind()
     {
         var state = new ViewerState();
-        ViewerActions.ApplyOverlayLevel(state, ViewerOverlayLevel.Sky);
+        ViewerActions.ApplyOverlayLevel(state, ViewerOverlayLevel.Objects);
+        ViewerActions.ToggleSkyBackdrop(state);
+        state.ShowSkyBackdrop.ShouldBeTrue("the export has to have something to drop");
 
         var export = state.ForAnnotatedExport();
 

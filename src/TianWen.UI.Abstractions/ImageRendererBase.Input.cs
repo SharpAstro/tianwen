@@ -378,6 +378,15 @@ namespace TianWen.UI.Abstractions
                     // Shift. The ladder wraps either way, so neither end is a dead end.
                     ViewerActions.CycleOverlayLevel(state, reverse: shift);
                     return true;
+                // The sky behind the frame. Y because every letter that reads better is taken twice
+                // over: the viewer's own bindings, and then the sky palette's, which claims G A H C B
+                // S O D E M and V the moment the backdrop is up -- so any of those would be swallowed
+                // by the palette at exactly the moment you wanted to switch the sky back OFF. Shift+O
+                // is not free either: it is the ladder's reverse step, which every other cycler here
+                // gives Shift.
+                case InputKey.Y:
+                    ViewerActions.ToggleSkyBackdrop(state);
+                    return true;
                 case InputKey.H:
                     // Shift holds or releases the display mapping the blink is measured against. It
                     // moved off Shift+Space because on a transport Shift means the OTHER DIRECTION

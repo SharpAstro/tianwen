@@ -1511,10 +1511,28 @@ the solution, `AstroImageDocument.SourceCrop` records it, and the crop is REMEMB
 rather than re-scanned (the enhancers destroy the evidence). Measurements, corpus and the three
 refuted rules: `docs/plans/viewer-prerelease-fixes.md` P25; harness in `tools/coverage-edge-walk/`.
 
-**Context is a LADDER (`O` steps `none -> grid -> grid + objects -> sky`, the rung DERIVED from the
-three layer flags), and its top rung hosts the atlas's own `SkyMapTab` BEHIND the photograph**
-(`ImageRendererBase.SkyBackdrop`), its layer palette floating over the frame. **Everything, with the
-measurements: `docs/plans/in-app-sky-atlas.md` § What shipped in the viewer.** The rules that bite:
+**ANNOTATION is a LADDER (`O` steps `none -> grid -> grid + objects`, the rung DERIVED from the two
+layer flags); THE SKY BEHIND THE FRAME IS NOT ON IT** -- it is its own toolbar button
+(`ToolbarAction.SkyBackdrop`) and its own key (`Y`), and it hosts the atlas's own `SkyMapTab` BEHIND
+the photograph (`ImageRendererBase.SkyBackdrop`), its layer palette floating over the frame.
+**Everything, with the measurements: `docs/plans/in-app-sky-atlas.md` § What shipped in the viewer.**
+The rules that bite:
+
+- **The sky was the ladder's fourth rung and must not go back.** It reads as one more step of the same
+  idea and is not: every rung ANNOTATES the photograph from the photograph's own solution, while the
+  backdrop puts a second view BEHIND it, takes the pan clamp off, raises its own layer palette and
+  re-points the star field. Riding the ladder cost it three ways, each now pinned by a test: it needed
+  three presses of a key that turned on two layers nobody asked for, it shared one mark with three
+  other meanings ("where's the sky?"), and on an UNSOLVED frame the press did nothing at all, silently,
+  because the backdrop needs a WCS and a rung has nowhere to carry a precondition. The button is DIM
+  with a reason there instead.
+- **`ViewerState.ShowSkyBackdrop` is INTENT; `SkyBackdropActive` is capability** (map + clock + catalog
+  + a CD matrix). Keep them apart: that is what lets an unsolved frame remember the request and honour
+  it the moment a solve lands, and it is why the button lights off the flag rather than off the gate.
+- **`Y`, because every letter that reads better is taken twice over.** The sky's own palette claims
+  `G A H C B S O D E M` and `V` the moment the backdrop is up -- exactly when you want to switch it
+  OFF -- so any of those is swallowed there; `Shift+O` is the ladder's reverse step. Pinned by
+  `ViewerSkyButtonTests.TheToggleKeyIsNotOneTheSkyPaletteClaims`.
 
 - **Read the object catalogue through `ImageRendererBase.LoadedCatalog`, never
   `CelestialObjectDB.Value.Value`.** `AsyncLazy<T>.Value` is a non-blocking PEEK (`Result<T>?`), which

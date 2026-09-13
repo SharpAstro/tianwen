@@ -136,22 +136,28 @@ public sealed class ViewerState
     /// composited on top at its solved place. Needs a host that supplied a sky map to draw with; a
     /// host that did not simply draws nothing extra.
     /// </summary>
+    /// <remarks>
+    /// <b>Intent, not capability, and independent of <see cref="OverlayLevel"/>.</b> This says the
+    /// sky is wanted; whether it can be drawn is the renderer's own <c>SkyBackdropActive</c>, which
+    /// also demands a map, a clock, a catalog and a solved frame. Keeping the two apart is what lets
+    /// an unsolved frame remember the request and honour it the moment a solve lands, and it is why
+    /// this is no longer written by <see cref="ViewerActions.ApplyOverlayLevel"/>: the ladder
+    /// annotates the photograph, and this puts a second view behind it.
+    /// </remarks>
     public bool ShowSkyBackdrop { get; set; }
 
     /// <summary>
-    /// The context ladder's current rung, DERIVED from the three layer flags rather than stored
+    /// The annotation ladder's current rung, DERIVED from the two layer flags rather than stored
     /// beside them, so a layer key that flips one on its own cannot leave the button describing a
-    /// state the screen does not show. The highest active layer names the rung: the rungs are
-    /// cumulative, so with the sky on this is <see cref="ViewerOverlayLevel.Sky"/> whatever the two
-    /// below it say.
+    /// state the screen does not show. The highest active layer names the rung, the rungs being
+    /// cumulative. The sky backdrop is deliberately NOT part of this -- see
+    /// <see cref="ViewerOverlayLevel"/>.
     /// </summary>
-    public ViewerOverlayLevel OverlayLevel => ShowSkyBackdrop
-        ? ViewerOverlayLevel.Sky
-        : ShowOverlays
-            ? ViewerOverlayLevel.Objects
-            : ShowGrid
-                ? ViewerOverlayLevel.Grid
-                : ViewerOverlayLevel.None;
+    public ViewerOverlayLevel OverlayLevel => ShowOverlays
+        ? ViewerOverlayLevel.Objects
+        : ShowGrid
+            ? ViewerOverlayLevel.Grid
+            : ViewerOverlayLevel.None;
 
     /// <summary>Whether Tycho-2 photometric color calibration is active.</summary>
     public bool ColorCalibrationEnabled { get; set; }

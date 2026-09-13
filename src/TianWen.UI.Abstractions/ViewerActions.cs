@@ -167,7 +167,7 @@ public static class ViewerActions
     /// </remarks>
     public static void CycleOverlayLevel(ViewerState state, bool reverse = false)
     {
-        const int Rungs = 4; // None, Grid, Objects, Sky
+        const int Rungs = 3; // None, Grid, Objects
         var next = ((int)state.OverlayLevel + (reverse ? Rungs - 1 : 1)) % Rungs;
         ApplyOverlayLevel(state, (ViewerOverlayLevel)next);
     }
@@ -181,7 +181,25 @@ public static class ViewerActions
     {
         state.ShowGrid = level >= ViewerOverlayLevel.Grid;
         state.ShowOverlays = level >= ViewerOverlayLevel.Objects;
-        state.ShowSkyBackdrop = level >= ViewerOverlayLevel.Sky;
+        state.NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// Flips the sky behind the photograph, which is the <c>Y</c> key and the
+    /// <see cref="ToolbarAction.SkyBackdrop"/> button.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Its own switch, deliberately not a rung of the ladder above.</b> The rungs annotate
+    /// the photograph; this one puts a second view behind it, which is a different kind of thing --
+    /// see <see cref="ViewerOverlayLevel"/> for the three ways riding the ladder cost it.</para>
+    /// <para>It does NOT check whether the frame can actually carry a backdrop. The flag is the
+    /// user's intent and the renderer's <c>SkyBackdropActive</c> is the capability, and keeping them
+    /// apart is what lets an unsolved frame remember that the sky was wanted and show it the moment a
+    /// plate solve lands. The BUTTON is what refuses early, by dimming with a reason.</para>
+    /// </remarks>
+    public static void ToggleSkyBackdrop(ViewerState state)
+    {
+        state.ShowSkyBackdrop = !state.ShowSkyBackdrop;
         state.NeedsRedraw = true;
     }
 
@@ -776,6 +794,12 @@ public static class ViewerActions
                 return true;
             case ToolbarAction.Overlays:
                 CycleOverlayLevel(state, reverse);
+                return true;
+            // The same one line the Y key runs. Not a cycler, so it ignores `reverse`: a right-click
+            // on a plain toggle means nothing, and pretending otherwise would give it a second
+            // behaviour nothing announces.
+            case ToolbarAction.SkyBackdrop:
+                ToggleSkyBackdrop(state);
                 return true;
             case ToolbarAction.Stars:
                 state.ShowStarOverlay = !state.ShowStarOverlay;
