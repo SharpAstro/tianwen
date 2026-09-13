@@ -863,9 +863,28 @@ public sealed class AstroImageDocument : IPreviewSource
     }
 
     /// <summary>
-    /// Computes Tycho-2 photometric color calibration. Requires plate-solved WCS and detected stars.
-    /// Returns the number of matched stars (0 if calibration failed or wasn't attempted).
+    /// The SKY-BACKGROUND white balance: the fallback, for a frame
+    /// <see cref="ComputeSpccColorCalibrationAsync"/> could not calibrate. Returns 1 when it produced a
+    /// triple, 0 when it could not, with a diagnostic either way.
     /// </summary>
+    /// <remarks>
+    /// <para><b>This is NOT the photometric calibration, whatever the name suggests</b>, and this
+    /// comment used to claim it was: "Computes Tycho-2 photometric color calibration. Requires
+    /// plate-solved WCS and detected stars." It requires neither and matches no catalogue. It takes
+    /// the median colour of the darkest 10% of star-masked sky and returns the multipliers that make
+    /// that grey. The Tycho-2 fit is <see cref="ComputeSpccColorCalibrationAsync"/>, which
+    /// <c>ImageRendererBase.CalibrateColorAsync</c> always tries first; this runs only when that
+    /// declines, and it logs which one answered.</para>
+    /// <para>The false claim cost a reading of this code on 2026-09-13 that concluded the viewer never
+    /// ran SPCC at all, which is the opposite of the truth. A comment that names a different algorithm
+    /// from the one below it is worse than no comment, because it is believed.</para>
+    /// <para><b>Neither method promises a grey background</b>, and the photometric one deliberately
+    /// does not: SPCC makes a star of the white reference's spectrum render neutral, and the sky is
+    /// not that spectrum. Even here the answer is a multiplier, which can only cancel a per-channel
+    /// offset at one brightness. Background neutralisation
+    /// (<see cref="ComputeBackgroundNeutralization"/>) is the step that greys a sky, and it is solved
+    /// after the white balance for exactly that reason.</para>
+    /// </remarks>
     public async Task<(int MatchCount, string? Diag)> ComputeColorCalibrationAsync(CancellationToken cancellationToken = default)
     {
         if (ColorCalibration.HasValue) return (0, null);
