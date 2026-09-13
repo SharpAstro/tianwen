@@ -23,6 +23,17 @@
 # Verify a candidate by baking it and printing the mask. In a colour preview every one of the above
 # looks like a perfectly good icon.
 #
+# THE WHOLE "NIGHT SKY" FAMILY IS IN THAT CLASS, which is worth knowing before reaching for one: a dark
+# sky is drawn AS colour, so the silhouette is the whole tile. Measured at 13 px, 144 of 169 pixels
+# inked for every one of them:
+#     U+1F30C milky-way   U+1F320 shooting-star   U+1F303 night-with-stars
+# What survives from that family is the shapes that are drawn as OUTLINES against nothing:
+#     U+1F319 crescent-moon (62/169)  U+2604 comet (86/169)  U+1FA90 ringed-planet (61/169)
+# None of the three is baked, because the sky button ended up on the hand-drawn asterism instead (see
+# DrawSkyMark): a comet is the sky map's own COMETS LAYER, so it would have named the wrong thing on a
+# button sitting two rows above that very checkbox. The numbers are kept because the search cost a bake
+# apiece and the next person reaching for a night-sky glyph should start from them, not repeat them.
+#
 # LICENSING: baking redistributes glyph OUTLINES, so the font below must permit that. Noto is OFL. A
 # proprietary system face (seguiemj) is never a valid source, even though a runtime probe may
 # legitimately fall back to one.
