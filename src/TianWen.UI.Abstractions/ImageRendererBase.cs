@@ -990,14 +990,31 @@ namespace TianWen.UI.Abstractions
                 ? SolveSelectionRing(state, ringWcs)
                 : null;
 
-            if (state.ShowOverlays && document?.Wcs is { HasCDMatrix: true } overlayWcs && LoadedCatalog is { } db)
+            // THE MAP OWNS THE OBJECTS WHILE IT IS DRAWN, and this overlay stands down, the same way
+            // the cached image layer does behind the sky. The two are the same catalogue drawn from
+            // different transforms -- this one from the frame's WCS, the map's from its view matrix --
+            // and this one deliberately reaches PAST the frame's edge (so a click beside the picture
+            // can still select), which is exactly the band the map is also drawing. Left to both, every
+            // object out there was drawn and labelled twice, at slightly different sizes because the
+            // two transforms disagree by a hair; reported on the Sadr field, where Ced 176d, Cr 421 and
+            // LDN 897 each had two labels stacked on each other.
+            //
+            // Standing down rather than clipping to the frame is what also fixes the other half of that
+            // report: the palette's rows (Objects, Dark nebulae, and the eight others) drive the MAP,
+            // so while this overlay drew too, switching Dark nebulae off left every dark nebula on
+            // screen, drawn by a producer the row does not reach. One producer, one switch.
+            var mapOwnsObjects = SkyBackdropActive;
+            if (state.ShowOverlays && !mapOwnsObjects
+                && document?.Wcs is { HasCDMatrix: true } overlayWcs && LoadedCatalog is { } db)
             {
                 RenderOverlays(state, overlayWcs, db, selectionRing);
             }
             else
             {
                 // Nothing drawn, nothing for a tap to hit: a label from the last frame the overlay was
-                // on must not go on answering clicks after it is switched off.
+                // on must not go on answering clicks after it is switched off. The same holds when the
+                // map takes over -- a tap then resolves against the map's own objects, not against
+                // boxes this pass placed on a previous frame.
                 _drawnOverlayObjects = ImmutableArray<DrawnOverlayObject>.Empty;
             }
 

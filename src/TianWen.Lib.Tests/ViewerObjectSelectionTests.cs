@@ -383,6 +383,57 @@ namespace TianWen.Lib.Tests
         /// would pass with the label path deleted. Asserted, since that is what makes it a label
         /// test.</para>
         /// </remarks>
+        /// <summary>
+        /// While the sky is drawn behind the frame the MAP owns the objects, and the frame's own
+        /// overlay stands down so nothing is drawn twice.
+        /// </summary>
+        /// <remarks>
+        /// <para>The two are the same catalogue drawn from different transforms, and this one reaches
+        /// PAST the frame's edge on purpose so a click beside the picture can still select -- which is
+        /// exactly the band the map also draws. Left to both, every object out there was drawn and
+        /// labelled twice, at slightly different sizes because the transforms disagree by a hair.
+        /// Reported on the Sadr field, where Ced 176d, Cr 421 and LDN 897 each carried two labels.</para>
+        /// <para>The assertion is on the DRAWN set rather than on pixels because two labels a hair
+        /// apart are not something a pixel comparison can be trusted to catch, while "this producer
+        /// drew nothing" is exact. The first render is half the test: without it a bug that stopped the
+        /// overlay drawing at all would pass.</para>
+        /// </remarks>
+        [Fact]
+        public async Task TheFramesOwnObjectOverlayStandsDownWhileTheSkyIsDrawnBehindIt()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _) = await NewViewerOnAsync(renderer, CatalogIndex.NGC5194, ct);
+            state.ShowOverlays = true;
+
+            viewer.Render(document, state);
+            viewer.DrawnOverlayObjects.ShouldNotBeEmpty(
+                "the frame's own overlay draws while there is no sky behind it");
+
+            // Everything SkyBackdropActive wants beyond the solution the frame already carries: a map,
+            // a catalogue carrier and a clock.
+            var db = await SharedCatalogDB.InitAsync(ct);
+            var tab = new SkyMapTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+            tab.State.ViewDrivenExternally = true;
+            viewer.SkyBackdrop = tab;
+            viewer.SkyTimeProvider = new FakeTimeProviderWrapper(
+                new DateTimeOffset(2026, 6, 21, 0, 0, 0, TimeSpan.Zero));
+            viewer.SkyPlannerState = new PlannerState
+            {
+                ObjectDb = db,
+                SiteLatitude = 48.0,
+                SiteLongitude = 11.0,
+                SiteTimeZone = TimeSpan.Zero,
+                PlanningDate = new DateTimeOffset(2026, 6, 21, 0, 0, 0, TimeSpan.Zero),
+            };
+            state.ShowSkyBackdrop = true;
+
+            viewer.Render(document, state);
+
+            viewer.DrawnOverlayObjects.ShouldBeEmpty(
+                "the map draws them while it is up, so this overlay must not draw a second copy");
+        }
+
         [Fact]
         public async Task ATapOnAnObjectsLabelSelectsIt()
         {
