@@ -318,6 +318,13 @@ public sealed class AstroImageDocument : IPreviewSource
     /// <summary>Background neutralization gains from pivot1 sampling (1,1,1) = no neutralization.</summary>
     public (float R, float G, float B)? BackgroundNeutralization { get; set; }
 
+    /// <summary>
+    /// The white balance <see cref="BackgroundNeutralization"/> was solved against, so a render using
+    /// a different one can decline it. Null means "solved by a caller that set the property directly",
+    /// which is treated as matching nothing.
+    /// </summary>
+    private (float R, float G, float B)? _bnSolvedForWb;
+
     // --- IPreviewSource (a still image is a single frame) ---
     // ChannelStatistics / PerChannelBackground / LumaBackground / ComputeStretchUniforms above already
     // satisfy the interface implicitly; the geometry, per-frame data, and frame-nav members are explicit
@@ -726,20 +733,31 @@ public sealed class AstroImageDocument : IPreviewSource
 
         // The anchor's observed peak too: NormFactor is 1/MaxValue, so two frames whose brightest
         // pixel differs would otherwise normalise differently before the curve ever ran.
-        var uniforms = ComputeStretchUniforms(mode, new StretchParameters(factor, clipping), stats, luma, Basis.UnstretchedImage.MaxValue, autoWb, weights, shaderWb);
-        if (BackgroundNeutralization is { } bn)
+        // The gains are solved for ONE white balance (which is why the WB is in their cache key), so
+        // they may only be applied to a render using that same one. Toggling the calibration off used
+        // to leave them in place, neutralising a background that nothing was re-tinting any more --
+        // measured as 0/181/17 against a neutral 25/25/25.
+        var renderWb = autoWb ?? (1f, 1f, 1f);
+        (float R, float G, float B)? bgNeut = null;
+        if (BackgroundNeutralization is { } bn && _bnSolvedForWb is { } solvedFor && solvedFor == renderWb)
         {
             // Lerp the gain toward identity by `strength`. Cheap: no recompute,
             // no extra uniform, no shader change. effective = (1-s)*1 + s*gain.
             var s = Math.Clamp(bgNeutralizationStrength, 0f, 1f);
-            var effective = s >= 0.9999f
+            bgNeut = s >= 0.9999f
                 ? bn
                 : (
                     R: 1f + s * (bn.R - 1f),
                     G: 1f + s * (bn.G - 1f),
                     B: 1f + s * (bn.B - 1f));
-            uniforms = uniforms with { BackgroundNeutralization = effective };
         }
+
+        // Passed IN rather than attached afterwards: the shader applies these BEFORE the curve, so
+        // the stats that position the curve have to carry them (StretchSolver.Prepared). Attaching
+        // them to a finished StretchUniforms is what anchored each channel's curve where its data no
+        // longer arrived.
+        var uniforms = ComputeStretchUniforms(mode, new StretchParameters(factor, clipping), stats, luma,
+            Basis.UnstretchedImage.MaxValue, autoWb, weights, shaderWb, bgNeut);
         if (lumaBlend != 1f)
         {
             uniforms = uniforms with { LumaBlend = System.Math.Clamp(lumaBlend, 0f, 1f) };
@@ -785,11 +803,12 @@ public sealed class AstroImageDocument : IPreviewSource
         float imageMaxValue,
         (float R, float G, float B)? whiteBalance = null,
         (float R, float G, float B)? lumaWeights = null,
-        (float R, float G, float B)? shaderWhiteBalance = null)
+        (float R, float G, float B)? shaderWhiteBalance = null,
+        (float R, float G, float B)? backgroundNeutralization = null)
     {
         return StretchSolver.ComputeStretchUniforms(
             mode, parameters, perChannelStats, lumaStats, imageMaxValue,
-            whiteBalance, lumaWeights, shaderWhiteBalance);
+            whiteBalance, lumaWeights, shaderWhiteBalance, backgroundNeutralization);
     }
 
     /// <summary>
@@ -908,8 +927,30 @@ public sealed class AstroImageDocument : IPreviewSource
         var summary = new ColorCalibrationSummary(
             "Sky background", w.R, w.G, w.B, StarCount: 0, WhiteReference: null);
         _colorCalibrationSummary = summary;
+        NeutraliseBackgroundAfterCalibration();
         return (1, summary.Describe());
     }
+
+    /// <summary>
+    /// Re-solves background neutralisation for the calibration just applied, which is the step that
+    /// makes a white balance safe to look at.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>A white balance is a per-channel MULTIPLY, so it moves a background that is not at
+    /// zero.</b> On the Sag Triplet HOO composite the sky sits at 0.0658 with a MAD of 9.4e-5, and an
+    /// SPCC triple of (1.443, 1.000, 1.228) pulls the three channels 0.029 apart -- about 300 MADs.
+    /// Nothing downstream can absorb that in Linked mode, where one shared curve serves all three:
+    /// the frame rendered as a solid crimson field (measured 169/0/33 against a neutral 25/25/25),
+    /// confirmed on the GPU path in the viewer as well as the CPU mirror.</para>
+    /// <para>So the neutralisation is not an optional extra here and is not the user's NeutBg
+    /// preference: it is the second half of applying a photometric calibration at all, which is the
+    /// order PixInsight uses for the same reason. Solved AFTER the white balance, because the gains
+    /// are solved so the POST-WB background is neutral.</para>
+    /// <para>Best effort by construction: with no star-masked background yet (star detection still
+    /// running, or a frame with too few stars) <see cref="ComputeBackgroundNeutralization"/> answers
+    /// null and nothing is pinned, which is the pre-calibration behaviour.</para>
+    /// </remarks>
+    private void NeutraliseBackgroundAfterCalibration() => ComputeBackgroundNeutralization();
 
     /// <summary>
     /// Computes background neutralization gains from the darkest spatial region.
@@ -947,6 +988,9 @@ public sealed class AstroImageDocument : IPreviewSource
         // reflect the user's explicit choice rather than a stale value left
         // over from a previously-selected method.
         BackgroundNeutralization = gains;
+        // Pinned WITH the white balance they were solved against: the render declines gains solved
+        // for a different one rather than applying them to a background nothing is re-tinting.
+        _bnSolvedForWb = wb;
         return gains;
     }
 
@@ -1004,6 +1048,7 @@ public sealed class AstroImageDocument : IPreviewSource
         var summary = new ColorCalibrationSummary(
             "SPCC", r.R, r.G, r.B, r.MatchCount, r.WhiteReferenceName);
         _colorCalibrationSummary = summary;
+        NeutraliseBackgroundAfterCalibration();
         return (r.MatchCount, summary.Describe());
     }
 

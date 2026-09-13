@@ -154,9 +154,21 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
             // For Vela's near-neutral bg the gains hover near identity (sub-1% deviation).
             AssertChannel(uniforms.BackgroundNeutralization, "BgNeut", v => Math.Abs(v - 1f).ShouldBeLessThan(0.5f));
         }
+        else if (applyWb)
+        {
+            // NOT identity any more, and deliberately so: a white balance is a per-channel MULTIPLY,
+            // so it moves a background that is not at zero, and applying one therefore solves the
+            // neutralisation that puts it back (AstroImageDocument.NeutraliseBackgroundAfterCalibration).
+            // That is the second half of applying a calibration, not the user's NeutBg preference --
+            // without it the Sag Triplet HOO composite rendered as a solid crimson field in Linked.
+            // Vela's channels are near-equal already, so these gains sit near identity without being it.
+            AssertChannel(uniforms.BackgroundNeutralization, "BgNeut", v => v.ShouldBeInRange(0f, 10f));
+            AssertChannel(uniforms.BackgroundNeutralization, "BgNeut", v => Math.Abs(v - 1f).ShouldBeLessThan(0.5f));
+        }
         else
         {
-            uniforms.BackgroundNeutralization.ShouldBe((1f, 1f, 1f), "bgNeut defaults to identity");
+            uniforms.BackgroundNeutralization.ShouldBe((1f, 1f, 1f),
+                "no calibration was applied, so there is no moved background to put back");
         }
 
         // ---------- Curve LUT assertions ----------
