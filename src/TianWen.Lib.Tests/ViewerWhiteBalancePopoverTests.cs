@@ -183,6 +183,70 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// <b>Every button stays inside the box.</b> The panel took its width from
+        /// <c>BaseInfoPanelWidth</c> while the button row is MEASURED TEXT, so once a calibration
+        /// landed and Reset became "Reset to calibrated" the row outgrew the panel and the calibration
+        /// button hung out over the image -- reported as "spcc button is larger than the dropdown box".
+        /// </summary>
+        /// <remarks>
+        /// Asserted at a DPI above 1 because that is where it showed: the row scales with the font
+        /// while the old width was a constant times the same scale, so the two crossed over. No
+        /// calibration is needed to provoke it any more, which is itself the fix -- both variable
+        /// buttons now reserve their WIDEST label, so the row occupies the same width in every state
+        /// and cannot shuffle its neighbours when toggled.
+        /// </remarks>
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.5f)]
+        [InlineData(2f)]
+        public async Task TheButtonRowFitsInsideThePanel(float dpiScale)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            // The window scales with the DPI, or the toolbar runs out of room and stops painting the
+            // white-balance button at all -- which is a different (and correct) behaviour that would
+            // otherwise fail this test before it reached the popover.
+            var windowW = (uint)(WindowW * dpiScale);
+            var windowH = (uint)(WindowH * dpiScale);
+            using var renderer = new RgbaImageRenderer(windowW, windowH);
+            var (viewer, state, document, _) = await NewViewerAsync(renderer, ct);
+
+            // The calibration button only REGISTERS when the frame has stars to fit against, and the
+            // synthetic document has none. Only the count is consulted, so placeholders are enough --
+            // this test is about where the button lands, not what a calibration would produce.
+            var stars = new System.Collections.Concurrent.ConcurrentBag<ImagedStar>();
+            for (var i = 0; i < 5; i++) { stars.Add(default); }
+            document.Stars = new StarList(stars);
+
+            viewer.DpiScale = dpiScale;
+            viewer.Render(document, state);
+
+            var button = Button(viewer);
+            Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));
+            viewer.Render(document, state);
+
+            // The rightmost pixel each region answers to, found by looking rather than by asking for a
+            // rect: HitTest dispatches nothing, so the scan changes no state.
+            var panelRight = float.MinValue;
+            var calibrateRight = float.MinValue;
+            for (var y = button.Bottom + 1f; y < windowH; y += 1f)
+            {
+                for (var x = 0f; x < windowW; x += 1f)
+                {
+                    if (viewer.HitTest(x, y) is HitResult.ButtonHit hit)
+                    {
+                        if (hit.Action == "WhiteBalancePanelBackground" && x > panelRight) { panelRight = x; }
+                        else if (hit.Action == "ToggleColorCalibration" && x > calibrateRight) { calibrateRight = x; }
+                    }
+                }
+            }
+
+            panelRight.ShouldBeGreaterThan(0f, "the panel is open and registered");
+            calibrateRight.ShouldBeGreaterThan(0f, "the calibration button is in the row");
+            calibrateRight.ShouldBeLessThanOrEqualTo(panelRight,
+                $"at dpi {dpiScale} the calibration button reaches {calibrateRight} and the panel ends at {panelRight}");
+        }
+
+        /// <summary>
         /// A drag on the R track moves the manual factor, and the button lights: it is lit whenever
         /// the effective white balance is not neutral, and not otherwise.
         /// </summary>

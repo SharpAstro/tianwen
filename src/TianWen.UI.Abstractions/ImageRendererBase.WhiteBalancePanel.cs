@@ -53,6 +53,38 @@ namespace TianWen.UI.Abstractions
         // never NeedsTextureUpdate.
         // -----------------------------------------------------------------------
 
+        /// <summary>Every label the Reset button can carry, so its width can be reserved.</summary>
+        private static readonly string[] ResetLabels = ["Reset WB", "Reset to calibrated"];
+
+        /// <summary>Every label the calibration button can carry. "Calibrate" is the widest.</summary>
+        private static readonly string[] SpccLabels = ["Calibrate", "SPCC on", "SPCC off"];
+
+        /// <summary>
+        /// A button's width held at its WIDEST label, so toggling state cannot move the buttons beside
+        /// it. The viewer's toolbar makes the same reservation for Zoom and Enhance.
+        /// </summary>
+        private float ReservedButtonWidth(string[] labels, float gap)
+        {
+            var widest = 0f;
+            foreach (var label in labels)
+            {
+                var w = MeasureText(label, FontSize);
+                if (w > widest) { widest = w; }
+            }
+
+            return widest + gap * 2f;
+        }
+
+        /// <summary>
+        /// What the Auto / Reset / calibration row needs, in its widest state. The ONE definition of
+        /// it: the panel sizes itself from this and the body lays the row out from the same
+        /// reservations, so the box can no longer be narrower than what it draws.
+        /// </summary>
+        private float WhiteBalanceButtonRowWidth(float gap)
+            => MeasureText("Auto", FontSize) + gap * 2f
+                + gap + ReservedButtonWidth(ResetLabels, gap)
+                + gap + ReservedButtonWidth(SpccLabels, gap);
+
         /// <summary>
         /// The popover's body: the provenance line, the three sliders, Auto and Reset. Advances
         /// <paramref name="y"/> past what it drew, and captures the per-channel track rects the drag
@@ -147,7 +179,10 @@ namespace TianWen.UI.Abstractions
             var resetLabel = state.ColorCalibrationEnabled && _document?.ColorCalibration is not null
                 ? "Reset to calibrated"
                 : "Reset WB";
-            var resetW = MeasureText(resetLabel, FontSize) + gap * 2f;
+            // Reserved against the widest state, like the SPCC button below: measuring the CURRENT
+            // label let "Reset to calibrated" push the row past the panel's right edge the moment a
+            // calibration landed, which is what it looked like -- a button hanging out of its box.
+            var resetW = ReservedButtonWidth(ResetLabels, gap);
             var resetX = x + autoW + gap;
             FillRect(resetX, y, resetW, btnH, ToolbarButtonBg);
             DrawText(resetLabel, resetX + gap, y + gap / 2f, FontSize, ViewerTheme.Palette.BodyText);
@@ -176,8 +211,10 @@ namespace TianWen.UI.Abstractions
                 ? "Calibrate"
                 : state.ColorCalibrationEnabled ? "SPCC on" : "SPCC off";
             // Measured against the widest state, not the current one, so toggling it cannot shuffle the
-            // row sideways -- the same reservation the toolbar makes for Zoom and Enhance.
-            var spccW = MeasureText("SPCC off", FontSize) + gap * 2f;
+            // row sideways -- the same reservation the toolbar makes for Zoom and Enhance. It used to
+            // name "SPCC off" alone, which is not the widest: "Calibrate" is longer in a proportional
+            // face, so the reservation was a shade short in the very state a fresh document opens in.
+            var spccW = ReservedButtonWidth(SpccLabels, gap);
             var spccX = resetX + resetW + gap;
             FillRect(spccX, y, spccW, btnH,
                 calibrated && state.ColorCalibrationEnabled ? ToolbarButtonActiveBg : ToolbarButtonBg);
@@ -358,13 +395,19 @@ namespace TianWen.UI.Abstractions
 
             var dpiScale = DpiScale;
             var pad = PanelPadding;
-            var w = BaseInfoPanelWidth * dpiScale;
+            var gap = 6f * dpiScale;
+
+            // WIDE ENOUGH FOR THE BUTTON ROW, not merely the info panel's width. This was
+            // BaseInfoPanelWidth alone, and the row is measured text: once a calibration landed and
+            // Reset became "Reset to calibrated", the row was wider than the box and the last button
+            // hung out over the image. The row reserves its widest labels (see the body), so this is a
+            // constant per DPI and the panel does not resize as the buttons are toggled.
+            var w = MathF.Max(BaseInfoPanelWidth * dpiScale, WhiteBalanceButtonRowWidth(gap) + pad * 2f);
             var x = OverlayPlacement.ClampX(anchor.X, w, Width);
             var y = anchor.Y + anchor.Height;
 
             // Sized from the same measures the body draws with, so the box and its contents cannot
             // disagree: the provenance line when there is one, three slider rows, the button row.
-            var gap = 6f * dpiScale;
             var rowH = FontSize + gap;
             var btnH = FontSize + gap;
             var provenanceH = state.ColorCalibrationEnabled && _document?.ColorCalibrationSummary is not null
