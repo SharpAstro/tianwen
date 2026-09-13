@@ -547,6 +547,41 @@ so it "worked." Always `stackalloc` the attachment array with a lifetime spannin
 `vkCreateGraphicsPipeline` call and set `pAttachments` explicitly. Recorded in memory
 (`feedback_vkblend_dangling_ctor`); it bit `VkPipelineSet`, `VkFitsImagePipeline`, `VkSkyMapPipeline`.
 
+## Desktop shell
+
+### Explorer draws no thumbnail for a FITS on a OneDrive path, and it is not our handler
+
+Reported after 7.1.1627: a folder of FITS under OneDrive shows the app's file-type icon while the same
+files copied to a local directory show thumbnails.
+
+**It is not a failure, and the error code is what misleads.** Asking
+`IShellItemImageFactory.GetImage` with `SIIGBF_THUMBNAILONLY` answers `0x8004B205`, which reads like an
+error and is `WTS_E_EXTRACTIONPENDING`: the shell has QUEUED the extraction asynchronously and is
+telling the caller to ask again. Reading it as a failure produced a first, wrong report that the
+thumbnail feature was dead for every FITS. Retried properly, a OneDrive-backed file stays pending
+indefinitely (twelve attempts across six seconds) while the same bytes in a local directory answer on
+the first attempt. The files are `PINNED | REPARSE_POINT`: on the device, still behind the cloud filter.
+
+**Our code is exonerated by direct measurement, not by argument.** `ThumbnailRenderer.RenderAsync` over
+a `FileStream` on those very OneDrive files returns correct rasters -- 256x171 in 547 ms for the 238 MB
+IMX455 single frame, 256x252 in 47 ms, 256x181 in 210 ms -- so reading a cloud placeholder is not the
+problem, and buffering the shell's `IStream` is the only other thing the handler does. What never
+completes is the shell's own extraction queue for a cloud placeholder handed to a PACKAGED,
+out-of-process handler.
+
+**A TIFF drawing correctly in the same folder proves nothing about this**, and was the other misleading
+signal: Windows renders TIFF through an in-box WIC codec loaded IN-PROCESS, while a packaged handler
+may only ever run in the surrogate. Different activation paths to the same bytes.
+
+`ThumbnailDiagnostics` (failures only, `OutputDebugString` plus a log under
+`LocalApplicationData/TianWen/Logs`, redirected by MSIX into the package LocalCache) is in place to
+settle the remaining question if it ever matters: a line means the handler ran and how far the stream
+got, an empty log against a thumbnail-less window means it was never asked.
+
+Unrelated but adjacent, and correct behaviour: `corr.fits` answers `0x8004B200`
+(`WTS_E_FAILEDEXTRACTION`) because an astrometry.net correspondence table carries no image HDU, which
+is the HDU walk declining cleanly rather than a bug.
+
 ## Dependency injection
 
 ### `Microsoft.Extensions.Logging` never resolves a non-generic `ILogger`
