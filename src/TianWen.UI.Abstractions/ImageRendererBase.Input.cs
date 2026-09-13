@@ -643,6 +643,22 @@ namespace TianWen.UI.Abstractions
 
             if (document.ColorCalibration is { } wb)
             {
+                // THE CALIBRATION BELONGS TO THE SET, not to the frame that happened to be on screen
+                // when it was asked for. A fit written only to this document is invisible to every
+                // other frame of the run, because ColorCalibration reads the ANCHOR first -- so
+                // calibrating one sub and blinking to the next showed the next one uncalibrated, which
+                // is the opposite of what a blink is for. Pushed onto the anchor, every comparable
+                // frame reads the same triple through Basis, and one fit holds the whole set.
+                //
+                // Comparability is already the anchor's own rule (DisplayCarry: geometry, planes,
+                // depth, CFA, filter and OBJECT), so this cannot leak across targets: a different
+                // object has no anchor in common to push to.
+                if (document.DisplayAnchor is { } anchor)
+                {
+                    anchor.InheritColorCalibration(wb, document.ColorCalibrationSummary,
+                        document.IsNarrowbandColorCalibration);
+                }
+
                 ViewerActions.SetColorCalibrationEnabled(state, true);
 
                 // Re-solve background neutralisation against the calibration that just landed. The
