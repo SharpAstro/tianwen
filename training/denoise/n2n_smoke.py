@@ -800,15 +800,28 @@ class StarTerm:
         self.n_aperture = float(self.aperture.sum())
         self.n_core = float(self.core.sum())
 
-    def __call__(self, pc, yc, idx):
+    def __call__(self, pc, yc, idx, scale=1.0):
         """Mean of the three-ratio penalty over every valid star in the batch, and the star count.
 
         pc, yc: [B, C, H, W] CROPPED prediction and target; idx: the batch's cache cell indices.
+        scale: the factor the whole tile was resampled by before the crop (E3.2's scale augmentation);
+        the stored positions are in the unscaled CROPPED frame, so a position p maps to
+        (p + BORDER) * scale - BORDER, and a star whose 7x7 window leaves the resampled crop is
+        invalidated rather than clamped into a wrong place.
         Returns a zero (still attached) when the batch carries no star, and 0 as the count.
         """
         import torch
         st = self.stars[torch.as_tensor(idx, device=self.stars.device)]  # [B, S, 4]
         valid = st[..., 3] > 0
+        if scale != 1.0:
+            st = st.clone()
+            st[..., :2] = ((st[..., :2] + BORDER) * scale - BORDER).round()
+            h, w = pc.shape[-2], pc.shape[-1]
+            valid = valid & (st[..., 0] >= STAR_WINDOW_R) & (st[..., 0] < h - STAR_WINDOW_R) \
+                & (st[..., 1] >= STAR_WINDOW_R) & (st[..., 1] < w - STAR_WINDOW_R)
+            # Invalid entries still index the gather below; park them inside the frame.
+            st[..., 0] = st[..., 0].clamp(STAR_WINDOW_R, h - STAR_WINDOW_R - 1)
+            st[..., 1] = st[..., 1].clamp(STAR_WINDOW_R, w - STAR_WINDOW_R - 1)
         n = int(valid.sum())
         if n == 0:
             return pc.sum() * 0.0, 0
@@ -1158,6 +1171,16 @@ def train(args):
               f"{SUBS_PER_CELL * (SUBS_PER_CELL - 1)} ordered sub pairs; averaged regimes use "
               f"{'blocked' if args.pair_time == 'far' else 'interleaved'} splits")
     rng = np.random.default_rng(args.seed)
+    scale_aug = None
+    if args.scale_aug:
+        lo, hi = (float(v) for v in args.scale_aug.split(","))
+        if not (0.25 <= lo <= hi <= 1.0):
+            raise SystemExit(f"--scale-aug wants lo,hi with 0.25 <= lo <= hi <= 1.0, got {args.scale_aug}")
+        if args.operator != "rl":
+            raise SystemExit("--scale-aug is the operator's augmentation (its kernel label scales with the tile)")
+        scale_aug = (lo, hi)
+        print(f"scale augmentation ON: each synthetic batch resampled by a factor in [{lo}, {hi}] (sides a multiple of 16), "
+              f"kernel labels and star positions scaled with it")
     steps = args.steps
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps)
     t0 = time.perf_counter()
@@ -1189,11 +1212,24 @@ def train(args):
         # denoising strength into a function the model learns rather than a constant it assumes.
         k = regimes[int(rng.integers(0, len(regimes)))] if len(regimes) > 1 else regimes[0]
         regime_steps[k] += 1
+        aug_scale = 1.0
         if k == SYNTH:
             # Input: one injected draw. Target: the undegraded tile every draw was made from, or on a
             # pair cache whichever night --synthetic-target names.
             x = torch.from_numpy(np.ascontiguousarray(mm[idx, a])).to(dev).float()
             y = torch.from_numpy(np.ascontiguousarray(mm[idx, synth_target])).to(dev).float()
+            if scale_aug is not None:
+                # E3.2's scale augmentation: the whole batch resampled by one factor so its stars
+                # are narrower in pixels than the pool's masters offer (seed 0's prior carried its
+                # training truths' 2.07 px floor onto a 1.81 px real frame and returned the input).
+                # One factor per batch keeps the tensors rectangular; the side stays a multiple of 16
+                # for the prior's poolings; the kernel label and the star positions scale with it.
+                f = float(rng.uniform(scale_aug[0], scale_aug[1]))
+                side = max(16, int(round(TILE * f / 16)) * 16)
+                aug_scale = side / TILE
+                if side != TILE:
+                    x = torch.nn.functional.interpolate(x, size=(side, side), mode="bicubic", align_corners=False, antialias=True)
+                    y = torch.nn.functional.interpolate(y, size=(side, side), mode="bicubic", align_corners=False, antialias=True)
         elif k == HALF:
             # The two halves are already integrated, so there is nothing to average: this is a
             # plain N2N pair that happens to be quiet. The split is INTERLEAVED upstream
@@ -1253,6 +1289,9 @@ def train(args):
                     if bad.any():
                         good = lab[~bad, col]
                         lab[bad, col] = float(np.median(good)) if good.size else 0.5
+                if aug_scale != 1.0:
+                    import n2n_operator as OP
+                    lab[:, OP.LABEL_KERNEL_FWHM] *= aug_scale
             else:
                 lab = psf01_labels[idx, np.clip(a - 1, 0, psf01_labels.shape[1] - 1)]
                 if not np.all(np.isfinite(lab)):
@@ -1299,7 +1338,7 @@ def train(args):
         # equals the pixel term there, then never moves: logged once, saved in the checkpoint, and
         # never tuned on the gate.
         if star_term is not None:
-            s_term, n_stars = star_term(pc, yc, idx)
+            s_term, n_stars = star_term(pc, yc, idx, scale=aug_scale)
             if n_stars > 0:
                 if star_w is None:
                     if args.star_loss == "auto":
@@ -1784,6 +1823,11 @@ if __name__ == "__main__":
                         "3.7 s. Only for a card with the memory")
     p.add_argument("--prior-every", type=int, default=1,
                    help="apply the prior after every Nth Richardson-Lucy iteration (1 = between every pair)")
+    p.add_argument("--scale-aug", default=None,
+                   help="E3.2: 'lo,hi', resample each synthetic batch by a random factor in that range (the "
+                        "kernel label and the star-term positions scale with it), so the prior's training "
+                        "truths span the star widths it will meet. Seed 0 of E3.1 carried its pool's 2.07 px "
+                        "floor onto a 1.81 px real frame and returned the input")
     p.add_argument("--rl-k", type=int, default=20,
                    help="Richardson-Lucy iterations inside the operator (E3.0 pre-registers 20). On noisy "
                         "data the count IS the regulariser, so a different value is a different arm")
