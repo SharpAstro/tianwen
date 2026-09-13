@@ -79,17 +79,35 @@ public enum ToolbarAction
     Zoom,
 
     /// <summary>
-    /// Steps the context ladder -- <see cref="ViewerOverlayLevel"/> -- one rung: nothing, the WCS
-    /// grid, the grid plus catalog objects, then the sky the frame came from drawn behind it.
+    /// Steps the annotation ladder -- <see cref="ViewerOverlayLevel"/> -- one rung: nothing, the WCS
+    /// grid, then the grid plus catalog objects.
     /// </summary>
     /// <remarks>
     /// There was a separate <c>Grid</c> button beside this one until the ladder existed, and merging
-    /// the two is what paid for the third rung: a toolbar that had run out of room could not add a
-    /// button for the sky, and two buttons for two of the three layers was the arrangement that made
-    /// the third look like a new feature rather than more of the same one. The grid keeps its own key
-    /// (<c>G</c>), which now moves the rung with it -- see <see cref="ViewerState.OverlayLevel"/>.
+    /// the two is what paid for the room this bar needed. The grid keeps its own key (<c>G</c>),
+    /// which moves the rung with it -- see <see cref="ViewerState.OverlayLevel"/>. The sky behind the
+    /// frame was briefly a fourth rung here and is now <see cref="SkyBackdrop"/>, for the reasons on
+    /// <see cref="ViewerOverlayLevel"/>.
     /// </remarks>
     Overlays,
+
+    /// <summary>
+    /// Draws the sky the frame was taken from BEHIND it -- star field, constellations, the milky way
+    /// and, where the frame says where and when it was shot, the horizon -- with the photograph
+    /// composited on top at its solved place, scale and rotation. The <c>Y</c> key.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Its own button because it is not more annotation.</b> As the top rung of
+    /// <see cref="Overlays"/> it was unreachable without stepping through two annotation states on
+    /// the way, it shared one mark with three other meanings, and on an unsolved frame the press did
+    /// nothing with nothing to say why. All three are things a button can fix and a rung cannot.</para>
+    /// <para>Enabled only on a frame with a CD matrix, for the reason the backdrop itself gives:
+    /// without a solution there is no answer to where the photograph is, so a sky drawn behind it
+    /// would be a picture of the wrong part of the sky rather than a missing feature. Dim rather than
+    /// hidden, the house reading -- a control that vanishes reads as a bug, one that is dim reads as
+    /// a precondition -- with the tooltip saying to solve the frame.</para>
+    /// </remarks>
+    SkyBackdrop,
     PlateSolve,
     Stars,
     ColorCalibrate,

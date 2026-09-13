@@ -41,8 +41,8 @@ namespace TianWen.UI.Abstractions
             ("Fit", ToolbarAction.Zoom, 4),
             ("Crop", ToolbarAction.AutoCrop, 5),
             ("Solve", ToolbarAction.PlateSolve, 5),
-            // One control, not two: the mark says which rung of the context ladder the view is on
-            // (grid / objects / the sky behind), and the text here is only the measurement seed.
+            // One control, not two: the mark says which rung of the annotation ladder the view is on
+            // (grid / objects), and the text here is only the measurement seed.
             ("Objects", ToolbarAction.Overlays, 5),
             ("Stars", ToolbarAction.Stars, 5),
             ("NeutBg", ToolbarAction.BackgroundNeutralize, 5),
@@ -58,17 +58,46 @@ namespace TianWen.UI.Abstractions
             ("", ToolbarAction.WhiteBalance, 5),
         ];
 
-        // The default set: the core plus the trailing help button. "?" is appended HERE rather than
-        // living in the core table so every variant below can keep it last -- see the Enhance table,
-        // which used to Add() past it and so ran group 5 before group 4.
-        private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> DefaultToolbarButtons =
-            CoreToolbarButtons.Add(("?", ToolbarAction.Shortcuts, 6));
+        /// <summary>
+        /// The core set with the two optional buttons added where they belong, and the help button
+        /// last. "?" is appended HERE rather than living in the core table so every variant keeps it
+        /// last -- the Enhance table used to <c>Add()</c> past it and so ran group 5 before group 4.
+        /// </summary>
+        /// <remarks>
+        /// The Sky button is INSERTED rather than appended, because it belongs beside the annotation
+        /// ladder it left: that one annotates the photograph, this one shows where the photograph
+        /// sits. It keeps a LABEL rather than going mark-only like the white balance, because
+        /// "where's the sky?" is the report that produced it -- an unlabelled mark on a crowded bar is
+        /// exactly as findable as the ladder rung it replaced.
+        /// </remarks>
+        private static ImmutableArray<(string Label, ToolbarAction Action, int Group)> ComposeToolbar(
+            bool sky, bool enhance)
+        {
+            var buttons = CoreToolbarButtons;
+            if (sky)
+            {
+                var at = buttons.IndexOf(buttons.First(b => b.Action is ToolbarAction.Overlays)) + 1;
+                buttons = buttons.Insert(at, ("Sky", ToolbarAction.SkyBackdrop, 5));
+            }
 
-        // The full set plus the AI "Enhance" button (group 4). A separate static array (not an
-        // append-per-frame) keeps the per-frame render + hit-test loops allocation-free. Selected by
-        // ToolbarButtons when the host sets EnhanceAvailable.
-        private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> DefaultToolbarButtonsWithEnhance =
-            CoreToolbarButtons.Add(("Enhance", ToolbarAction.Enhance, 5)).Add(("?", ToolbarAction.Shortcuts, 6));
+            if (enhance)
+            {
+                buttons = buttons.Add(("Enhance", ToolbarAction.Enhance, 5));
+            }
+
+            return buttons.Add(("?", ToolbarAction.Shortcuts, 6));
+        }
+
+        // The four sets, built once. Separate statics rather than an append-per-frame keep the
+        // per-frame render + hit-test loops allocation-free, which is why this is a table at all.
+        private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> ToolbarPlain =
+            ComposeToolbar(sky: false, enhance: false);
+        private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> ToolbarWithEnhance =
+            ComposeToolbar(sky: false, enhance: true);
+        private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> ToolbarWithSky =
+            ComposeToolbar(sky: true, enhance: false);
+        private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> ToolbarWithSkyAndEnhance =
+            ComposeToolbar(sky: true, enhance: true);
 
         /// <summary>
         /// Set by the host when an AI <see cref="TianWen.Lib.Imaging.Enhancement.SharpenPipeline"/> is wired
@@ -78,14 +107,26 @@ namespace TianWen.UI.Abstractions
         public bool EnhanceAvailable { get; set; }
 
         /// <summary>
-        /// The toolbar buttons this viewer surfaces, in order. The base (tianwen-fits) shows the full set
-        /// (plus Enhance when <see cref="EnhanceAvailable"/>); a subclass embedding the viewer for a narrower
-        /// job overrides this to a relevant subset, so buttons that can never apply (e.g. plate solve / star
-        /// detection / colour calibration on a featureless planetary disk) are <b>hidden</b> rather than
-        /// shown-but-disabled. The render + hit-test loops read this property, so both stay in lock-step.
+        /// The toolbar buttons this viewer surfaces, in order. The base (tianwen-fits) shows the full set,
+        /// plus Enhance when <see cref="EnhanceAvailable"/> and the sky when the host gave it a map to
+        /// draw; a subclass embedding the viewer for a narrower job overrides this to a relevant subset,
+        /// so buttons that can never apply (e.g. plate solve / star detection / colour calibration on a
+        /// featureless planetary disk) are <b>hidden</b> rather than shown-but-disabled. The render +
+        /// hit-test loops read this property, so both stay in lock-step.
         /// </summary>
+        /// <remarks>
+        /// <b>Hidden and dim mean different things here, and the sky button needs both.</b> A host that
+        /// never set <see cref="SkyBackdrop"/> -- the GUI's image tab, every chromeless embedding -- can
+        /// NEVER draw one, so the button is absent, exactly as Enhance is without an AI pipeline. A host
+        /// that can draw one, looking at a frame with no astrometric solution, can draw one LATER, so
+        /// there the button is present and dim and its tooltip says to plate solve. Collapsing the two
+        /// would either put a permanently dead control on the GUI's bar or hide the very affordance the
+        /// user went looking for when they asked where the sky was.
+        /// </remarks>
         protected virtual ImmutableArray<(string Label, ToolbarAction Action, int Group)> ToolbarButtons =>
-            EnhanceAvailable ? DefaultToolbarButtonsWithEnhance : DefaultToolbarButtons;
+            SkyBackdrop is not null
+                ? (EnhanceAvailable ? ToolbarWithSkyAndEnhance : ToolbarWithSky)
+                : (EnhanceAvailable ? ToolbarWithEnhance : ToolbarPlain);
 
         /// <summary>
         /// Actions pulled out of the left-to-right run and laid out from the RIGHT edge instead, in
@@ -903,6 +944,11 @@ namespace TianWen.UI.Abstractions
             // own header rather than from a solve here, and a disabled button cannot warm the catalog
             // it is waiting for.
             ToolbarAction.Overlays => document?.Wcs is { HasCDMatrix: true },
+            // The same requirement as the grid, and for a stronger reason: the backdrop has to PLACE
+            // the photograph on the sky, so without a solution it would draw the wrong part of it
+            // rather than nothing. As the ladder's top rung this had nowhere to be said, so the press
+            // was simply ignored; dim with a tooltip is the same refusal made legible.
+            ToolbarAction.SkyBackdrop => document?.Wcs is { HasCDMatrix: true },
             ToolbarAction.Stars => document?.Stars is { Count: > 0 },
             ToolbarAction.ColorCalibrate => document?.Stars is { Count: >= 5 }
                 && document.Stars.StarMask is not null
@@ -945,6 +991,10 @@ namespace TianWen.UI.Abstractions
                 // Lit from the RUNG rather than from one layer: the mark below already says which
                 // rung, so the highlight is only answering "is any of this on".
                 ToolbarAction.Overlays => state.OverlayLevel is not ViewerOverlayLevel.None,
+                // The INTENT, not SkyBackdropActive: on a frame that cannot carry it the button is
+                // already dim, and a highlight that also went out would leave the flag's state
+                // invisible -- so a press that was remembered would look like a press that was lost.
+                ToolbarAction.SkyBackdrop => state.ShowSkyBackdrop,
                 ToolbarAction.Stars => state.ShowStarOverlay,
                 ToolbarAction.ColorCalibrate => state.ColorCalibrationEnabled,
                 ToolbarAction.BackgroundNeutralize => state.BackgroundNeutralizationEnabled,
@@ -1083,6 +1133,7 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.Channel => state.ChannelView
                 is ChannelView.Composite or ChannelView.Red or ChannelView.Green or ChannelView.Blue,
             ToolbarAction.Overlays => true,
+            ToolbarAction.SkyBackdrop => true,
             ToolbarAction.Stars => true,
             ToolbarAction.Enhance => true,
             // The telescope says which button this is, so the label spends itself entirely on the
@@ -1120,17 +1171,17 @@ namespace TianWen.UI.Abstractions
                 case ToolbarAction.Save: DrawSaveMark(x, btnY, btnH, ink); break;
                 case ToolbarAction.Debayer: DrawBayerSwatch(x, btnY, btnH, enabled); break;
                 case ToolbarAction.Channel: DrawChannelBars(x, btnY, btnH, state, enabled); break;
-                // The ladder's rung IS the mark: a globe for the grid, a galaxy for the objects, an
-                // asterism for the sky behind. Off, it shows the rung a press would land on, so the
-                // button says what it does rather than what it did.
+                // The ladder's rung IS the mark: a globe for the grid, a galaxy for the objects. Off,
+                // it shows the rung a press would land on, so the button says what it does rather
+                // than what it did.
                 case ToolbarAction.Overlays:
                     switch (state.OverlayLevel)
                     {
                         case ViewerOverlayLevel.Objects: DrawGalaxyMark(x, btnY, btnH, ink); break;
-                        case ViewerOverlayLevel.Sky: DrawSkyMark(x, btnY, btnH, ink); break;
                         default: DrawBakedMark(BakedIcons.Globe, x, btnY, btnH, ink); break;
                     }
                     break;
+                case ToolbarAction.SkyBackdrop: DrawSkyMark(x, btnY, btnH, ink); break;
                 case ToolbarAction.Stars: DrawStarMark(x, btnY, btnH, ink); break;
                 case ToolbarAction.Enhance: DrawBakedMark(BakedIcons.Sparkles, x, btnY, btnH, ink); break;
                 case ToolbarAction.Zoom: DrawBakedMark(BakedIcons.Magnifier, x, btnY, btnH, ink); break;
@@ -1234,15 +1285,21 @@ namespace TianWen.UI.Abstractions
             => DrawBakedMark(BakedIcons.Spiral, x, btnY, btnH, ink);
 
         /// <summary>
-        /// An asterism: four stars joined into a figure, which is what the sky-behind rung adds that
-        /// the two below it do not -- the constellations the frame sits inside.
+        /// An asterism: four stars joined into a figure, the mark for the sky behind the frame -- the
+        /// constellations the photograph sits inside.
         /// </summary>
         /// <remarks>
-        /// Drawn rather than baked because no bundled face carries a constellation, and because the
-        /// mark has to read at 13 px: a real asterism's proportions do not survive that, so this is
-        /// four dots placed for legibility (a bent line with one star off it) rather than a
+        /// <para>Drawn rather than baked because no bundled face carries a constellation, and because
+        /// the mark has to read at 13 px: a real asterism's proportions do not survive that, so this
+        /// is four dots placed for legibility (a bent line with one star off it) rather than a
         /// particular figure. The dots are ellipses whose stroke exceeds their radii, the same way
-        /// <see cref="DrawStarMark"/> inks its core solid.
+        /// <see cref="DrawStarMark"/> inks its core solid.</para>
+        /// <para><b>A baked night-sky emoji was tried for this button and is not the answer twice
+        /// over.</b> The whole family bakes as a solid tile (a dark sky is drawn AS colour, so the
+        /// alpha silhouette is the whole square -- the measurements are in <c>icons.recipe</c>), and
+        /// of the three that survive, the comet would have named the sky map's own COMETS LAYER on a
+        /// button sitting just above that checkbox. Drawn also means tintable, which is what lets
+        /// this dim on an unsolved frame.</para>
         /// </remarks>
         private void DrawSkyMark(float x, float btnY, float btnH, RGBAColor32 ink)
         {
@@ -1566,11 +1623,18 @@ namespace TianWen.UI.Abstractions
             // the second half, the state where everything is on looks like a dead end.
             ToolbarAction.Overlays => state.OverlayLevel switch
             {
-                ViewerOverlayLevel.Grid => "Context: WCS grid -- O adds the catalog objects (G toggles the grid)",
-                ViewerOverlayLevel.Objects => "Context: grid + deep-sky objects -- O adds the sky behind the frame",
-                ViewerOverlayLevel.Sky => "Context: grid + objects + the sky this frame was taken from -- O clears it",
-                _ => "Context: off -- O steps through grid, objects, and the sky behind the frame (G, O)",
+                ViewerOverlayLevel.Grid => "Annotate: WCS grid -- O adds the catalog objects (G toggles the grid)",
+                ViewerOverlayLevel.Objects => "Annotate: grid + deep-sky objects -- O clears it",
+                _ => "Annotate: off -- O steps through the grid and the catalog objects (G, O)",
             },
+            // Says WHY it is dim, which is the whole reason it is a button rather than a ladder rung:
+            // the rung could refuse a press but had nowhere to explain the refusal.
+            ToolbarAction.SkyBackdrop when document?.Wcs is not { HasCDMatrix: true } =>
+                "Sky behind the frame: needs an astrometric solution first -- plate solve this frame (P)",
+            ToolbarAction.SkyBackdrop when state.ShowSkyBackdrop =>
+                "Sky behind the frame: on -- Y hides it (the palette picks its layers; F refits)",
+            ToolbarAction.SkyBackdrop =>
+                "Draw the sky this frame was taken from behind it, at its solved place (Y)",
             ToolbarAction.Stars => "Detect stars and show HFD / FWHM (S)",
             // A calibration that has RUN reports what it measured. This is the whole answer to "did
             // SPCC do anything, and can I trust it": the triple, the survivor count and the white
@@ -1941,11 +2005,13 @@ namespace TianWen.UI.Abstractions
             "Ctrl + / -           Zoom in / out",
             "Ctrl+2 .. Ctrl+9     Zoom 1:N",
             "Z                    Zoom menu (fit / 1:1 / 1:N)",
-            // The one key here whose states are not obvious from pressing it once, and the only place
-            // the sky behind the frame is named at all: a reader who never presses O a third time has
-            // no way to learn it exists.
-            "O / Shift+O          Context: grid, catalog objects, then the sky behind the frame",
+            // The one key here whose states are not obvious from pressing it once.
+            "O / Shift+O          Annotate: WCS grid, then the catalog objects",
             "G                    WCS grid on its own",
+            // Named here as well as on its own toolbar button, because it is the one viewer feature
+            // that does something to the WHOLE PANE rather than to the picture, and a reader who has
+            // not pressed it has no way to know the viewer can do it at all.
+            "Y                    The sky this frame was taken from, drawn behind it",
             "V / Shift+V          Histogram / log scale",
             // W earns a row now that it opens a PANEL rather than toggling one flag: the sliders, the
             // photometric calibration and its provenance line all live behind it, and none of them is

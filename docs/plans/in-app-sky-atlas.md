@@ -213,13 +213,32 @@ P1 through P3 are one sitting and leave the GUI complete. P4 and P5 are the view
 
 ## What shipped in the viewer
 
-**A rung of a ladder, not a mode.** The user's call, and a better shape than either the draft's "O
-toggles the sky" or the checklist the *What bites* section below argued for: `O` now steps
-`none -> grid -> grid + objects -> grid + objects + sky`, the toolbar's Grid and Objects buttons
-became ONE button whose mark says which rung, and the palette is what gives per-layer freedom once
-the sky is up. The rung is DERIVED from the three layer flags rather than stored beside them, so `G`
--- which still toggles the grid alone -- moves the ladder with it instead of leaving the button lit
-for a layer that is off. `Shift+O` and a wheel over the button walk it backwards.
+**A ladder for the ANNOTATION, and the sky beside it rather than on top of it.** The toolbar's Grid
+and Objects buttons became ONE button whose mark says which rung: `O` steps
+`none -> grid -> grid + objects`, the rung DERIVED from the two layer flags rather than stored beside
+them, so `G` -- which still toggles the grid alone -- moves the ladder with it instead of leaving the
+button lit for a layer that is off. `Shift+O` and a wheel over the button walk it backwards. The
+palette is what gives per-layer freedom once the sky is up.
+
+**The sky itself was the ladder's fourth rung for one release and has its own button now**
+(`ToolbarAction.SkyBackdrop`, the asterism mark, the `Y` key). It reads as one more step of the same
+idea and is not: every rung annotates the photograph from the photograph's own solution, while the
+backdrop puts a second view BEHIND it, takes the pan clamp off, raises its own layer palette and
+re-points the star field. Riding the ladder cost it three ways, and all three came back as user
+reports -- *"where's the sky?"*, then *"its still the tri-state overlay?"*:
+
+- it took three presses of `O` to reach, turning on two annotation layers nobody asked for en route;
+- it shared one button and one mark with three other meanings, so nothing on the bar said it existed;
+- on an UNSOLVED frame the press did nothing whatever, in silence. The backdrop has to PLACE the
+  photograph on the sky, so with no WCS it would draw the wrong part of it -- but a rung has nowhere
+  to carry a precondition, so the refusal was invisible. The button is dim there with a tooltip
+  saying to plate solve first.
+
+`ShowSkyBackdrop` is INTENT and `SkyBackdropActive` is capability, deliberately apart: an unsolved
+frame remembers the request and honours it the moment a solve lands. `Y` because the sky's own
+palette claims `G A H C B S O D E M` and `V` the moment the backdrop is up -- exactly when you would
+reach for the key that switches it off -- and `Shift+O` is the ladder's reverse step. Pinned by
+`ViewerSkyButtonTests` and `ViewerActionsTests.TheLadderNeverTouchesTheSkyBackdrop`.
 
 **The photograph stays the master; the sky follows it.** The draft proposed drawing the image as a
 tessellated WCS-projected quad INSIDE the sky pipeline. What shipped is the reverse and is far

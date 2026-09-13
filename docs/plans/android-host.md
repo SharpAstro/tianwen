@@ -32,7 +32,8 @@ Everything here shrinks the "host app" work below or changes which phase to star
 - **The sky atlas is no longer GUI-only, and it moved next to its own pipeline.** `VkSkyMapTab` relocated
   from the GUI into `TianWen.UI.Shared` on 2026-09-09 ("belongs beside its pipeline, not in the GUI"),
   and `docs/plans/in-app-sky-atlas.md` P0/P4/P4c shipped 2026-09-10: the desktop GUI and `tianwen-fits`
-  both now host a real in-app atlas (context ladder `none -> grid -> grid+objects -> sky`), not a link
+  both now host a real in-app atlas (annotation ladder `none -> grid -> grid+objects`, with the sky
+  behind the frame on its own button and the `Y` key), not a link
   out to the web showcase. The host contract is **one call**, `SkyMapTab<TSurface>.Render(PlannerState,
   RectF32, ITimeProvider)`, with no GUI type in the signature -- a thin Android host can point this at a
   window with far less wiring than standing up the full GUI's tab strip / signal bus / device layer.
