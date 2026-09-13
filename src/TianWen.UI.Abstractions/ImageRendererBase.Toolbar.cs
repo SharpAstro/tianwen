@@ -1285,46 +1285,121 @@ namespace TianWen.UI.Abstractions
             => DrawBakedMark(BakedIcons.Spiral, x, btnY, btnH, ink);
 
         /// <summary>
-        /// An asterism: four stars joined into a figure, the mark for the sky behind the frame -- the
-        /// constellations the photograph sits inside.
+        /// Crux as the flags set it, normalised to the ASTERISM's own bounding box. Weight is a
+        /// star's size relative to the four bright ones; Epsilon is the small one New Zealand's flag
+        /// leaves off, and small is exactly why.
+        /// </summary>
+        private static readonly (float X, float Y, float Weight)[] CruxStars =
+        [
+            (0.500f, 0.122f, 1f),      // Gamma, north
+            (0.862f, 0.372f, 1f),      // Beta, one arm
+            (0.131f, 0.372f, 1f),      // Delta, the other
+            (0.500f, 0.888f, 1f),      // Alpha, south and brightest
+            (0.669f, 0.580f, 0.52f),   // Epsilon, right of centre below the arm
+        ];
+
+        /// <summary>130 by 188 off the flag: Crux is markedly taller than it is wide.</summary>
+        private const float CruxAspect = 130f / 188f;
+
+        /// <summary>Enough to stop the four bright stars reading as a plus sign, little enough to keep
+        /// most of the axis-aligned crispness a pixel grid gives.</summary>
+        private const float CruxTiltDeg = 20f;
+
+        /// <summary>
+        /// Half the box of a full-weight star, as a fraction of the mark. <b>Derived, not chosen.</b>
         /// </summary>
         /// <remarks>
-        /// <para>Drawn rather than baked because no bundled face carries a constellation, and because
-        /// the mark has to read at 13 px: a real asterism's proportions do not survive that, so this
-        /// is four dots placed for legibility (a bent line with one star off it) rather than a
-        /// particular figure. The dots are ellipses whose stroke exceeds their radii, the same way
-        /// <see cref="DrawStarMark"/> inks its core solid.</para>
-        /// <para><b>A baked night-sky emoji was tried for this button and is not the answer twice
-        /// over.</b> The whole family bakes as a solid tile (a dark sky is drawn AS colour, so the
-        /// alpha silhouette is the whole square -- the measurements are in <c>icons.recipe</c>), and
-        /// of the three that survive, the comet would have named the sky map's own COMETS LAYER on a
-        /// button sitting just above that checkbox. Drawn also means tintable, which is what lets
-        /// this dim on an unsolved frame.</para>
+        /// Beta and Epsilon sit closer together than any other pair on this table, so they alone
+        /// decide how large every star may be: solve that pair for the largest half that still leaves
+        /// a sixth of a star's width of clear space, and no pair can overlap. Picking a size by eye
+        /// instead is what merged two of them into one blob. The ink radius the solve needs is 0.427
+        /// of the box rather than 0.5, because a five-pointed star does not fill its own square.
+        /// Pinned by <c>ViewerSkyMarkTests</c>, which recomputes both from the table above.
+        /// </remarks>
+        private const float CruxStarHalf = 0.151f;
+
+        /// <summary>Test seams: the sky mark's geometry, so a test can recompute the bound the star
+        /// size has to sit under rather than restate it and drift from it.</summary>
+        internal static (float X, float Y, float Weight)[] CruxStarsForTest => CruxStars;
+
+        /// <inheritdoc cref="CruxStarsForTest"/>
+        internal static float CruxAspectForTest => CruxAspect;
+
+        /// <inheritdoc cref="CruxStarsForTest"/>
+        internal static float CruxStarHalfForTest => CruxStarHalf;
+
+        /// <summary>
+        /// Crux, the Southern Cross: five stars and no joining lines, the mark for the sky behind
+        /// the frame.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>The user's own suggestion, and it beat what was here for a reason worth keeping.</b>
+        /// The mark used to be four dots joined into a bent figure, which has no gestalt: at 13 px it
+        /// read as scattered specks, and the joining strokes were the part that read as noise. A cross
+        /// is a shape the eye COMPLETES, and Crux is one a southern-hemisphere observer already carries
+        /// in their head. Dropping the lines was half the fix.</para>
+        /// <para><b>Geometry measured off the flag, not sketched from memory.</b> Both things memory
+        /// gets wrong are load-bearing: the cross-arm sits ABOVE the midpoint, and Epsilon is RIGHT of
+        /// centre below the arm. So is the proportion -- the asterism is 130 by 188, markedly taller
+        /// than wide, and stretching it to the square mark box turns Crux into a kite.</para>
+        /// <para><b>The arrangement tilts; each star stays upright.</b> That falls out of the mask
+        /// (a baked run cannot rotate) and is also what a rotating sky does, since stars do not spin
+        /// on their own axes. Off the axes the four bright stars stop reading as a plus sign.</para>
+        /// <para><b>Baked, and baked SMALL.</b> Nothing else here antialiases: DrawLine takes an int
+        /// thickness and floors its endpoints, FillCircle does (int)radius, every fill goes through a
+        /// RectInt. <see cref="DrawCoverageMask"/> is the one primitive carrying partial coverage, so
+        /// a drawn star has hard edges and a baked one does not -- over half a baked star's ink at
+        /// 13 px is antialiasing edge. The stars therefore come from <c>sky-icons.recipe</c>, which
+        /// bakes a ladder down to 2 px BECAUSE a run is a row of pixels and must never be rescaled;
+        /// that file carries the measurements and what squeezing a 13 px master looked like.</para>
         /// </remarks>
         private void DrawSkyMark(float x, float btnY, float btnH, RGBAColor32 ink)
         {
             var size = BaseToolbarMarkSize * DpiScale;
-            var y = btnY + (btnH - size) / 2f;
-            var t = MathF.Max(1f, DpiScale);
-            var dot = size * 0.09f;
+            var top = btnY + ((btnH - size) / 2f);
 
-            // Four stars: three in a bent line, the fourth off the bend.
-            Span<(float X, float Y)> stars =
-            [
-                (x + size * 0.16f, y + size * 0.74f),
-                (x + size * 0.44f, y + size * 0.50f),
-                (x + size * 0.84f, y + size * 0.30f),
-                (x + size * 0.62f, y + size * 0.84f),
-            ];
+            var rad = CruxTiltDeg * (MathF.PI / 180f);
+            var cos = MathF.Cos(rad);
+            var sin = MathF.Sin(rad);
 
-            // The figure first, so the dots sit on top of the lines rather than the lines across them.
-            DrawLineOverlay(stars[0].X, stars[0].Y, stars[1].X, stars[1].Y, ink, t);
-            DrawLineOverlay(stars[1].X, stars[1].Y, stars[2].X, stars[2].Y, ink, t);
-            DrawLineOverlay(stars[1].X, stars[1].Y, stars[3].X, stars[3].Y, ink, t);
+            // Rotate about the table's own centre, then FIT THE INK rather than the centres: a star's
+            // radius reaches past the point it is placed at, so laying the table out edge to edge
+            // clips every tip against the mark box. The bounds are taken AFTER the tilt because
+            // rotation is what moves the extremes.
+            Span<float> px = stackalloc float[CruxStars.Length];
+            Span<float> py = stackalloc float[CruxStars.Length];
+            float minX = float.MaxValue, maxX = float.MinValue;
+            float minY = float.MaxValue, maxY = float.MinValue;
 
-            foreach (var (sx, sy) in stars)
+            for (var i = 0; i < CruxStars.Length; i++)
             {
-                DrawEllipseOverlay(sx, sy, dot, dot, 0f, ink, dot * 1.4f);
+                var dx = (CruxStars[i].X * CruxAspect) - (0.5f * CruxAspect);
+                var dy = CruxStars[i].Y - 0.5f;
+                px[i] = (0.5f * CruxAspect) + (dx * cos) - (dy * sin);
+                py[i] = 0.5f + (dx * sin) + (dy * cos);
+                minX = MathF.Min(minX, px[i]);
+                maxX = MathF.Max(maxX, px[i]);
+                minY = MathF.Min(minY, py[i]);
+                maxY = MathF.Max(maxY, py[i]);
+            }
+
+            var spanX = maxX - minX;
+            var spanY = maxY - minY;
+            var avail = size * (1f - (2f * CruxStarHalf));
+            var scale = MathF.Min(
+                spanX > 0f ? avail / spanX : float.MaxValue,
+                spanY > 0f ? avail / spanY : float.MaxValue);
+            var offX = x + ((size - (spanX * scale)) / 2f) - (minX * scale);
+            var offY = top + ((size - (spanY * scale)) / 2f) - (minY * scale);
+
+            for (var i = 0; i < CruxStars.Length; i++)
+            {
+                var box = 2f * CruxStarHalf * size * CruxStars[i].Weight;
+                // NearestSize, never a scaled master -- see the remarks above and sky-icons.recipe.
+                DrawCoverageMask(IconBaker.NearestSize(SkyIcons.Star5, box),
+                    offX + (px[i] * scale) - (box / 2f),
+                    offY + (py[i] * scale) - (box / 2f),
+                    box, ink);
             }
         }
 
