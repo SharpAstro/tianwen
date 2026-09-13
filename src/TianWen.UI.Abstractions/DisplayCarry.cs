@@ -5,13 +5,20 @@ namespace TianWen.UI.Abstractions
 {
     /// <summary>
     /// The properties of a frame that decide whether two frames can be shown the SAME way -- geometry,
-    /// plane count, container depth, CFA, and the filter where both frames name one.
+    /// plane count, container depth, CFA, and the filter and OBJECT where both frames name one.
     /// </summary>
     /// <remarks>
     /// Deliberately not the whole <see cref="ImageMeta"/>: exposure, gain and temperature all differ
     /// between frames a blink is FOR, and the frame's own pixel statistics differ by definition (that
     /// difference is what the carry exists to hold still). What is listed here is what would make one
     /// display mapping meaningless on the other frame.
+    /// <para>
+    /// <b>The object name is part of that, and geometry alone is not enough.</b> Two masters off the
+    /// same rig have the same width, height, planes, depth and CFA whatever they are pointed at, so
+    /// shape called them comparable and a step from one target to another was shown with the other
+    /// one's stretch. A blink is for the SAME scene; two different objects are not one, however alike
+    /// their sensors.
+    /// </para>
     /// </remarks>
     public readonly record struct FrameShape(
         int Width,
@@ -19,7 +26,8 @@ namespace TianWen.UI.Abstractions
         int ChannelCount,
         BitDepth BitDepth,
         SensorType SensorType,
-        string FilterKey)
+        string FilterKey,
+        string ObjectKey)
     {
         public static FrameShape Of(Image image) => new FrameShape(
             image.Width,
@@ -27,7 +35,8 @@ namespace TianWen.UI.Abstractions
             image.ChannelCount,
             image.BitDepth,
             image.ImageMeta.SensorType,
-            FilterKeyOf(image.ImageMeta));
+            FilterKeyOf(image.ImageMeta),
+            ObjectKeyOf(image.ImageMeta));
 
         /// <summary>
         /// Whether a display mapping solved for <c>this</c> frame is meaningful on <paramref name="other"/>.
@@ -45,15 +54,29 @@ namespace TianWen.UI.Abstractions
             && ChannelCount == other.ChannelCount
             && BitDepth == other.BitDepth
             && SensorType == other.SensorType
-            && FiltersAgree(FilterKey, other.FilterKey);
+            && NamesAgree(FilterKey, other.FilterKey)
+            && NamesAgree(ObjectKey, other.ObjectKey);
 
-        private static bool FiltersAgree(string a, string b)
+        /// <summary>
+        /// Two optional names agree when they match, or when either frame does not give one. The
+        /// permissive half is why this is not record equality: a folder where only some frames carry
+        /// the card is the common case, not a corner, and refusing there would disable the feature on
+        /// exactly the archives it was asked for. Every comparison is against ONE anchor, so the
+        /// missing transitivity never has to hold.
+        /// </summary>
+        private static bool NamesAgree(string a, string b)
             => a.Length == 0 || b.Length == 0 || string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
         // Filter is a struct on ImageMeta, so a frame whose header carried no FILTER card leaves it at
         // default -- whose Name is null, which IdentityKey would hand straight back.
         private static string FilterKeyOf(in ImageMeta meta)
             => meta.Filter.Name is null ? string.Empty : meta.Filter.IdentityKey;
+
+        // Compared verbatim apart from case and surrounding space, so "M 8" and "M8" read as different
+        // targets. That is the SAFE direction: the cost of refusing is one frame solved from its own
+        // statistics, and the cost of accepting wrongly is a frame shown with another target's stretch.
+        private static string ObjectKeyOf(in ImageMeta meta)
+            => meta.ObjectName is { Length: > 0 } name ? name.Trim() : string.Empty;
     }
 
     /// <summary>
