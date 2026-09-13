@@ -88,11 +88,24 @@ public static class SessionFrameAnalyzer
         // passes' own Apply emits.
         badPixels?.Accumulate(calibrated);
         // The shared detect site. The debayer inside it is retained deliberately (DebayerAsync can
-        // rescale its input in place, so it participates in what detection sees) even though this
-        // caller does not consume the debayered frame.
-        var (stars, _) = await FrameRegistration.DetectAsync(
+        // rescale its input in place, so it participates in what detection sees).
+        var (stars, debayered) = await FrameRegistration.DetectAsync(
             calibrated, debayerAlgorithm, snrMin, minStars, cancellationToken);
-        return new AnalyzedFrame(frame, FrameRegistration.MetricsFrom(stars), stars);
+        var metrics = FrameRegistration.MetricsFrom(stars);
+
+        // The detector's width is a registration statistic: on an OSC frame the mosaic mono path
+        // reads about 1.70 px whatever the seeing (a whole night at 1.70 while the green plane ran
+        // 1.7 to 2.5, deconvolver-training.md E2.10a). The width that reads seeing is the bright-star
+        // profile fit on the debayered GREEN plane, taken at the detector's own positions so it
+        // costs no second detection; NaN where the fit refuses, which the record then says.
+        if (stars.Count > 0)
+        {
+            var green = Math.Min(1, debayered.ChannelCount - 1);
+            var fit = PsfProfileFit.Measure(debayered, green, stars, out _, selection: PsfProfileFit.StarSelection.SignalFloor);
+            metrics = metrics with { FitFwhmGreen = fit is { } f ? (float)f.Fwhm : float.NaN };
+        }
+
+        return new AnalyzedFrame(frame, metrics, stars);
     }
 
     /// <summary>

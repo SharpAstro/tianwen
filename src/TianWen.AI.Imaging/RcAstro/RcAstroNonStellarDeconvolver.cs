@@ -24,9 +24,11 @@ namespace TianWen.AI.Imaging.RcAstro
         protected override string ProductKey => "bxt";
 
         // On a starless plate --ss (sharpen stars) and --ash (star halos) are
-        // no-ops (no stars), and --ansr (auto nonstellar PSF radius) defaults to
-        // true, so we pass only --sn. bxt estimates the PSF itself, so unlike
-        // OnnxNonStellarDeconvolver there is no IPsfEstimator dependency.
+        // no-ops (no stars), and --ansp (auto nonstellar PSF: the CLI estimates ONE
+        // PSF diameter in pixels from the stars, --nsd being the manual value; there
+        // is no kernel or shape input) defaults to true, so we pass only --sn. bxt
+        // estimates the PSF itself, so unlike OnnxNonStellarDeconvolver there is no
+        // IPsfEstimator dependency.
         protected override IReadOnlyList<string> BuildArgs(Image input, EnhanceTuning? tuning)
         {
             var sn = tuning?.DeblurSharpen is { } v ? (double)v : sharpenNonStellar;

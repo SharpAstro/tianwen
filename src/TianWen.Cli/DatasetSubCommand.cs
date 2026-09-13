@@ -139,6 +139,15 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                           "pixels). Default 8.",
             DefaultValueFactory = _ => 8f,
         };
+        var warpInterpolationOpt = new Option<WarpInterpolation>("--warp-interpolation")
+        {
+            Description = "Resampling kernel that places each sub on the session canvas, the same choice " +
+                          "'tianwen stack' offers. Lanczos3Clamped (the default since 7.1) keeps a 2 px star's " +
+                          "width and bounds the ring a debayered plane draws; Lanczos3 is unclamped; Bilinear is " +
+                          "every store baked before 7.1 and costs about a pixel of FWHM in quadrature at 2 px " +
+                          "seeing. A store's kernel is in its bake-provenance.json.",
+            DefaultValueFactory = _ => WarpInterpolation.Lanczos3Clamped,
+        };
         var softwareOpt = new Option<string>("--software")
         {
             Description = "Case-insensitive wildcard on SWCREATE; only LIGHTS authored by matching " +
@@ -172,6 +181,24 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                           "superseded records stay in the file and remain readable for comparison. " +
                           "Use with --resume and the SAME roots and gates as the original run.",
         };
+        var remeasureSubsOpt = new Option<bool>("--remeasure-subs")
+        {
+            Description = "Re-run the MEASURE stage alone for every exported session that has a " +
+                          "record, rewriting its per-sub widths and giving each sub an identity " +
+                          "(file, epoch, computed air mass, header AIRMASS) the older records lack; " +
+                          "the master-derived fields are carried over unchanged. About two minutes " +
+                          "a session against ten for the re-registration --force-psf falls back to. " +
+                          "The subs described are the quality gate's survivors, and the record says " +
+                          "so. Not combinable with --force-psf: run that as a second pass. Use with " +
+                          "--resume and the SAME roots and gates as the original run.",
+        };
+        var siteOpt = new Option<string?>("--site")
+        {
+            Description = "Observing site as 'lat,lon' in decimal degrees, used ONLY for a light whose header " +
+                          "has no SITELAT/SITELONG (SharpCap writes none): the per-sub air mass is computed " +
+                          "from it and the record says so (SubSiteFromFallback). A header site is never " +
+                          "overridden. Default: such subs keep NaN.",
+        };
         var resumeOpt = new Option<bool>("--resume")
         {
             Description = "Continue a stopped run: keep the existing manifest as the checkpoint and " +
@@ -197,7 +224,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             {
                 archiveRootOpt, outOpt,
                 minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, minSubsOpt,
-                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, hotPixelSigmaOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt, forcePsfOpt, scratchRootOpt,
+                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, hotPixelSigmaOpt, warpInterpolationOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt, forcePsfOpt, remeasureSubsOpt, siteOpt, scratchRootOpt,
             },
         };
         buildCommand.SetAction(async (parseResult, ct) =>
@@ -237,11 +264,14 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                 RequireGainMatch = parseResult.GetValue(requireGainMatchOpt),
                 MaxDarkTemperatureDelta = parseResult.GetValue(maxDarkDeltaTOpt),
                 HotPixelSigma = parseResult.GetValue(hotPixelSigmaOpt),
+                WarpInterpolation = parseResult.GetValue(warpInterpolationOpt),
                 SoftwareIncludePattern = parseResult.Required(softwareOpt),
                 ScratchRoot = parseResult.Required(scratchRootOpt),
                 Resume = parseResult.GetValue(resumeOpt),
                 RegenPsfForExportedSessions = parseResult.GetValue(regenPsfOpt),
                 ForcePsfRemeasure = parseResult.GetValue(forcePsfOpt),
+                RemeasureSubs = parseResult.GetValue(remeasureSubsOpt),
+                FallbackSite = ParseSite(parseResult.GetValue(siteOpt)),
             };
 
             // User path exclusions append to the built-in processed-data defaults (never replace them).
@@ -654,6 +684,44 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                           "the bake's own real pairs; 0 is bilinear alone.",
             DefaultValueFactory = _ => 0d,
         };
+        var maxBlurRatioOpt = new Option<double>("--max-blur-ratio")
+        {
+            Description = "Blur mode only: cap each draw at this multiple of the CELL'S OWN measured width, " +
+                          "on top of --max-extra-fwhm. Default 2.0, from E1's oracle ceiling: past 2x blur even " +
+                          "a deconvolution handed the exact kernel leaves the star about 1.6x too wide, so " +
+                          "drawing there teaches a problem nothing can solve. 1.0 or less disables it.",
+            DefaultValueFactory = _ => 2.0,
+        };
+        var minBlurRatioOpt = new Option<double>("--min-blur-ratio")
+        {
+            Description = "Blur mode only: draw each cell's blur as a RATIO of its own measured width, log-uniform " +
+                          "from this to --max-blur-ratio, and solve the kernel width that realises it as sampled " +
+                          "(a nominal 1 px kernel blurs like 0.6 to 0.8 px, a 0.5 px one hardly at all). Default " +
+                          "1.05. 1.0 or less, or a cell with no measured width, draws the added width in pixels " +
+                          "(0.5 to 4 px) instead, as before; those pixel bounds still clamp the solved width.",
+            DefaultValueFactory = _ => 1.05,
+        };
+        var estimateKernelsOpt = new Option<bool>("--estimate-kernels")
+        {
+            Description = "Blur mode only: run the estimator step on every draw (the profile fit on the linear " +
+                          "clean and degraded cells' green planes, width by composition, shape from the degraded " +
+                          "fit) and write its kernel on the row beside the drawn kernel's effective width; the " +
+                          "unrolled operator trains on it. Two detections and two fits per draw.",
+        };
+        var estimateWindowOpt = new Option<int>("--estimate-window")
+        {
+            Description = "With --estimate-kernels: the square window, in pixels and centred on the cell, the estimator " +
+                          "reads. A 256 px cell holds about 17 stars where the fit needs 40. Default 1024.",
+            DefaultValueFactory = _ => 1024,
+        };
+        var perChannelOpt = new Option<bool>("--per-channel-kernels")
+        {
+            Description = "Blur mode only: draw a SEPARATE kernel per channel, its width scaled by the " +
+                          "archive's measured channel ratio (blue 1.32x green, red 1.00x) and its beta from " +
+                          "that channel's own fitted relation, instead of one shared kernel. This is H3's " +
+                          "arm: a shared kernel drives the blue/green width ratio toward 1 as the blur " +
+                          "grows, which is channel structure the archive does not show.",
+        };
         var forceOpt = new Option<bool>("--force")
         {
             Description = "Re-export sessions already present in degradations.jsonl.",
@@ -674,7 +742,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, forceOpt, measureOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -702,7 +770,12 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                 MaxSessions: parseResult.GetValue(sessionsOpt),
                 Seed: parseResult.GetValue(seedOpt),
                 WarpResampleSigma: parseResult.GetValue(warpSigmaOpt),
+                MaxBlurRatio: parseResult.GetValue(maxBlurRatioOpt),
+                PerChannelKernels: parseResult.GetValue(perChannelOpt),
                 Force: parseResult.GetValue(forceOpt),
+                MinBlurRatio: parseResult.GetValue(minBlurRatioOpt),
+                EstimateKernels: parseResult.GetValue(estimateKernelsOpt),
+                EstimateWindowPx: parseResult.GetValue(estimateWindowOpt),
                 SessionFilters: [.. parseResult.GetValue(sessionFilterOpt) ?? []]);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
@@ -998,6 +1071,27 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
     /// <summary>Reads a FITS numeric card body (or a --expect value) in the invariant culture, which
     /// is the only correct reading: a header is ASCII and its numbers are never localised, so a
     /// machine set to a decimal-comma locale must not parse "74.0" as 740.</summary>
+    /// <summary>`--site lat,lon` in decimal degrees, or null when not given; a malformed or out-of-range
+    /// value is an argument error rather than a silently ignored site.</summary>
+    internal static (double LatitudeDeg, double LongitudeDeg)? ParseSite(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var parts = text.Split(',', StringSplitOptions.TrimEntries);
+        if (parts.Length != 2
+            || !double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var lat)
+            || !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var lon)
+            || Math.Abs(lat) > 90.0 || Math.Abs(lon) > 180.0)
+        {
+            throw new ArgumentException($"--site expects 'lat,lon' in decimal degrees (latitude within 90, longitude within 180), got '{text}'.");
+        }
+
+        return (lat, lon);
+    }
+
     private static bool TryParseCard(string? text, out double value)
         => double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
 

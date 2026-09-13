@@ -1042,7 +1042,7 @@ quarter of the frame: a convention, not a fit.
 
 **The cause was in TianWen, not the tooling.** The in-memory `WCS` is 0-based (the "never subtract 1
 from `SkyToPixel`" rule) and `WriteToHeader` wrote those numbers unchanged under a "1-based" comment, so
-astropy placed every star a pixel low. Fixed at the FITS boundary in a5c558e7 (`PIXORIG` marker, plus
+astropy placed every star a pixel low. Fixed at the FITS boundary in #226, "the FITS boundary converts CRPIX; in memory a WCS stays 0-based" (`PIXORIG` marker, plus
 one on write, minus one on read, legacy TianWen masters read verbatim); the consequence outside this
 campaign is that every file TianWen ever solved was one pixel off in every external tool, and every
 third-party WCS one pixel off inside TianWen. `gaia_starmask` now refuses a solved file without the

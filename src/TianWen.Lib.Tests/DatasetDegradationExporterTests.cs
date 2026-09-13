@@ -322,6 +322,271 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// H2's label, and the invariant that makes it trustworthy: <b>a psf01 never appears without
+        /// stars behind it.</b> `HfdPsfEstimator` falls back to a constant default radius when it finds
+        /// none, and storing that as a training label would put a number nothing measured into the
+        /// column a model conditions on. The exporter writes null instead, so a consumer drops the row.
+        /// </summary>
+        [Fact]
+        public async Task APsf01LabelNeverAppearsWithoutStarsBehindIt()
+        {
+            var bake = BuildBake();
+            var outDir = Path.Combine(_root, "degraded-psf01");
+
+            await DatasetDegradationExporter.RunAsync(
+                new DatasetDegradationExporter.Options(
+                    bake, outDir, Mode: DatasetDegradationExporter.DegradationMode.Blur,
+                    Draws: 3, CellsPerSession: 2, Seed: 21, MinExtraFwhmPx: 0.5, MaxExtraFwhmPx: 4.0),
+                logger: null,
+                TestContext.Current.CancellationToken);
+
+            var rows = ReadDegradationRows(outDir);
+            rows.Length.ShouldBeGreaterThan(0);
+
+            foreach (var r in rows)
+            {
+                output.WriteLine($"added {r.ExtraFwhmPx:F2} px: clean FWHM {r.CleanFwhmPx?.ToString("F2") ?? "none"}, "
+                    + $"psf01 estimated {r.Psf01Estimated?.ToString("F3") ?? "null"} from {r.Psf01Stars} stars, "
+                    + $"psf01 from kernel {r.Psf01FromKernel?.ToString("F3") ?? "null"}");
+
+                if (r.Psf01Stars == 0)
+                {
+                    r.Psf01Estimated.ShouldBeNull("the estimator's fallback radius is not a measurement");
+                }
+                else
+                {
+                    r.Psf01Estimated.ShouldNotBeNull();
+                    r.Psf01Estimated!.Value.ShouldBeInRange(0.0, 1.0);
+                }
+
+                // The kernel-side label is available only when the CLEAN cell yielded a width to compose
+                // the drawn one into; it is training-only by construction, which is H2's whole point.
+                if (r.CleanFwhmPx is null)
+                {
+                    r.Psf01FromKernel.ShouldBeNull();
+                }
+                else
+                {
+                    r.Psf01FromKernel.ShouldNotBeNull();
+                    r.Psf01FromKernel!.Value.ShouldBeInRange(0.0, 1.0);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The sweep's top is a RATIO to the frame's own width, not a pixel count. E1's oracle leaves a
+        /// star about 1.6x too wide past 2x blur, so a draw beyond that teaches a problem nothing can
+        /// solve; a fixed pixel cap cannot express that, being roughly 2x on one master and far past it
+        /// on a sharper one. Asserted against the cell's OWN measured width, which is the quantity the
+        /// bound is relative to.
+        /// </summary>
+        [Fact]
+        public async Task TheBlurSweepIsCappedAgainstTheFramesOwnWidthNotAPixelCount()
+        {
+            var bake = BuildBake();
+            var outDir = Path.Combine(_root, "degraded-ratio-cap");
+
+            await DatasetDegradationExporter.RunAsync(
+                new DatasetDegradationExporter.Options(
+                    bake, outDir, Mode: DatasetDegradationExporter.DegradationMode.Blur,
+                    Draws: 8, CellsPerSession: 2, Seed: 5,
+                    // A pixel cap far beyond anything the ratio permits, so only the ratio can be what
+                    // bounds the draws: without it this asserts the pixel cap and passes for free.
+                    MinExtraFwhmPx: 0.5, MaxExtraFwhmPx: 40.0, MaxBlurRatio: 1.5),
+                logger: null,
+                TestContext.Current.CancellationToken);
+
+            var rows = ReadDegradationRows(outDir).Where(r => r.CleanFwhmPx is > 0).ToArray();
+            Assert.SkipWhen(rows.Length == 0, "no row carried a clean width to bound against");
+
+            foreach (var r in rows)
+            {
+                var own = r.CleanFwhmPx!.Value;
+                // The realised width by composition where the row carries it (the ratio draw), else the
+                // quadrature the pixel draw was capped by.
+                var total = r.ComposedFwhmPx ?? Math.Sqrt((own * own) + (r.ExtraFwhmPx * r.ExtraFwhmPx));
+                var ratio = total / own;
+                output.WriteLine($"own {own:F2} px + nominal {r.ExtraFwhmPx:F2} = {total:F2} ({ratio:F2}x)");
+                ratio.ShouldBeLessThanOrEqualTo(1.5 + 0.02, "the draw must respect the per-frame ratio cap");
+            }
+
+            // And the cap must BIND rather than sit unreached, or the assertion above is vacuous.
+            rows.Max(r => r.ExtraFwhmPx).ShouldBeGreaterThan(rows.Min(r => r.CleanFwhmPx!.Value) * 0.5);
+        }
+
+        /// <summary>
+        /// The draw is the blur RATIO and the kernel is solved to realise it as sampled (E1d found the
+        /// pixel draw's nominal width under-delivered below 1.5 px: a nominal 1 px kernel blurs like 0.6
+        /// to 0.8 px). Pinned two ways: the drawn ratio sits inside the requested range, and the realised
+        /// ratio, the clean width composed with the kernel actually built, is within two percent of the
+        /// drawn one wherever the pixel clamps did not bind. Read against a floor low enough that the
+        /// clamp cannot be what makes it pass.
+        /// </summary>
+        [Fact]
+        public async Task TheDrawIsABlurRatioAndTheSampledKernelRealisesIt()
+        {
+            var bake = BuildBake();
+            var outDir = Path.Combine(_root, "degraded-ratio-draw");
+
+            await DatasetDegradationExporter.RunAsync(
+                new DatasetDegradationExporter.Options(
+                    bake, outDir, Mode: DatasetDegradationExporter.DegradationMode.Blur,
+                    Draws: 8, CellsPerSession: 2, Seed: 11,
+                    MinExtraFwhmPx: 0.1, MaxExtraFwhmPx: 40.0, MinBlurRatio: 1.05, MaxBlurRatio: 1.6),
+                logger: null,
+                TestContext.Current.CancellationToken);
+
+            var rows = ReadDegradationRows(outDir).Where(r => r.CleanFwhmPx is > 0).ToArray();
+            Assert.SkipWhen(rows.Length == 0, "no row carried a clean width to draw a ratio against");
+
+            foreach (var r in rows)
+            {
+                r.BlurRatioDrawn.ShouldNotBeNull();
+                r.ComposedFwhmPx.ShouldNotBeNull();
+                var drawn = r.BlurRatioDrawn.Value;
+                var realised = r.ComposedFwhmPx.Value / r.CleanFwhmPx!.Value;
+                output.WriteLine($"clean {r.CleanFwhmPx:F2} px, drawn {drawn:F3}x, nominal {r.ExtraFwhmPx:F2} px (beta {r.MoffatBeta:F2}), realised {realised:F3}x");
+                drawn.ShouldBeInRange(1.05, 1.6);
+                if (r.ExtraFwhmPx > 0.1 + 1e-9)
+                {
+                    realised.ShouldBe(drawn, drawn * 0.02, "the solved kernel must realise the drawn ratio as sampled");
+                }
+            }
+
+            // For the record, not asserted: what a quadrature draw would have asked for at the light end.
+            // The two corrections pull opposite ways (a heavy-winged Moffat widens the half maximum by
+            // MORE than quadrature, the pixel sampling delivers LESS than nominal), so the solved width
+            // can sit either side of it; the realised ratio above is the contract.
+            foreach (var r in rows.Where(r => r.BlurRatioDrawn is < 1.2))
+            {
+                var own = r.CleanFwhmPx!.Value;
+                var quadrature = own * Math.Sqrt((r.BlurRatioDrawn!.Value * r.BlurRatioDrawn.Value) - 1.0);
+                output.WriteLine($"  light end: quadrature would ask {quadrature:F2} px, solved {r.ExtraFwhmPx:F2} px (beta {r.MoffatBeta:F2})");
+            }
+        }
+
+        /// <summary>
+        /// The estimator step's kernel on the row (E3.0 ground-work, pre-registered in
+        /// deconvolver-training.md): where both profile fits return, the estimated width is read against the
+        /// drawn kernel's EFFECTIVE width on the same core; the pre-registration predicts within 5 percent
+        /// from a realised ratio of 1.3x up and kills at 20 percent, and the refusal fraction on 512 px cells
+        /// between 20 and 50 percent. Asserted at the kill bound, printed at the prediction, because the
+        /// fixture's synthetic plate is not the archive.
+        /// </summary>
+        [Fact]
+        public async Task TheEstimatorsKernelIsWrittenOnTheRowAndReadsTheEffectiveWidth()
+        {
+            var bake = BuildBake();
+            var outDir = Path.Combine(_root, "degraded-kernels");
+
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var run = await DatasetDegradationExporter.RunAsync(
+                new DatasetDegradationExporter.Options(
+                    bake, outDir, Mode: DatasetDegradationExporter.DegradationMode.Blur,
+                    Draws: 8, CellsPerSession: 2, Seed: 17,
+                    MinBlurRatio: 1.1, MaxBlurRatio: 2.0, EstimateKernels: true),
+                logger: null,
+                TestContext.Current.CancellationToken);
+            clock.Stop();
+
+            var rows = ReadDegradationRows(outDir).Where(r => r.CleanFwhmPx is > 0).ToArray();
+            Assert.SkipWhen(rows.Length == 0, "no row carried a clean width");
+            output.WriteLine($"{rows.Length} rows in {clock.Elapsed.TotalSeconds:F1} s ({clock.Elapsed.TotalMilliseconds / Math.Max(1, rows.Length):F0} ms a draw, export included)");
+
+            // The estimator's cost is reported per session, timed apart, and its shape is one detection per
+            // cell (the clean side) plus one per draw (the observed window's own, as inference has it).
+            // Fitting the observed side at the clean detections was measured on 2026-09-13 and taken out:
+            // it moved the estimate past the pre-registered 0.02 px for a 13 percent saving.
+            var session = run.Sessions.ShouldHaveSingleItem();
+            var cost = session.Estimator.ShouldNotBeNull();
+            cost.Draws.ShouldBe(session.Cells * 8);
+            cost.Detections.ShouldBe(session.Cells + cost.Draws);
+            output.WriteLine($"estimator: {cost.Draws} draws, {cost.Detections} detections, window {cost.WindowMs} ms, detect {cost.DetectMs} ms, fit {cost.FitMs} ms, {cost.MsPerDraw:F0} ms a draw");
+
+            rows.ShouldAllBe(r => r.KernelSource == "estimated" || r.KernelSource == "drawn");
+            rows.ShouldAllBe(r => r.EffectiveKernelFwhmPx.HasValue && r.EffectiveKernelFwhmPx.Value > 0);
+            var estimated = rows.Where(r => r.KernelSource == "estimated").ToArray();
+            var refused = rows.Length - estimated.Length;
+            output.WriteLine($"estimated on {estimated.Length}, refused on {refused} ({100.0 * refused / rows.Length:F0} percent): "
+                + string.Join("; ", rows.Where(r => r.KernelSource == "drawn").Select(r => r.KernelEstimateRefusal).Distinct()));
+            foreach (var r in rows.OrderBy(r => r.ComposedFwhmPx / r.CleanFwhmPx))
+            {
+                var ratio = r.ComposedFwhmPx!.Value / r.CleanFwhmPx!.Value;
+                output.WriteLine($"  realised {ratio:F3}x: clean fit {r.CleanFitFwhmPx?.ToString("F2") ?? "-"} ({r.CleanFitBeta?.ToString("F1") ?? "-"}), "
+                    + $"observed fit {r.ObservedFitFwhmPx?.ToString("F2") ?? "-"} ({r.ObservedFitBeta?.ToString("F1") ?? "-"}), "
+                    + $"kernel est {r.EstimatedKernelFwhmPx:F2} ({r.EstimatedKernelBeta:F1}) vs effective {r.EffectiveKernelFwhmPx:F2} (drawn {r.ExtraFwhmPx:F2}, beta {r.MoffatBeta:F1}) [{r.KernelSource}{(r.KernelEstimateRefusal is null ? "" : ": " + r.KernelEstimateRefusal)}]");
+            }
+
+            var readable = estimated.Where(r => r.ComposedFwhmPx / r.CleanFwhmPx >= 1.3).ToArray();
+            Assert.SkipWhen(readable.Length == 0, "no estimated row at 1.3x or more to read the width against");
+            foreach (var r in readable)
+            {
+                r.EstimatedKernelFwhmPx!.Value.ShouldBe(r.EffectiveKernelFwhmPx!.Value, r.EffectiveKernelFwhmPx.Value * 0.20,
+                    "the estimated kernel width must read the effective width within the pre-registered kill bound at 1.3x and up");
+            }
+        }
+
+        /// <summary>
+        /// The solver's contract on its own: a ratio the bracket cannot reach returns the bound, and a
+        /// reachable one is realised to a thousandth on a continuous-width core.
+        /// </summary>
+        [Theory]
+        [InlineData(2.15, 1.10, 3.0)]
+        [InlineData(2.15, 1.50, 2.5)]
+        [InlineData(1.53, 1.30, 4.0)]
+        [InlineData(2.81, 1.05, 6.0)]
+        public void TheNominalWidthSolvedForARatioRealisesIt(double cleanFwhm, double ratio, double beta)
+        {
+            // The production bracket (the exporter's pixel bounds), timed, because the solve runs once
+            // per draw and a full export is two hundred thousand of them.
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var nominal = DatasetDegradationExporter.SolveNominalFwhmForRatio(cleanFwhm, ratio, beta, 1.0, 0.0, 0.5, 4.0);
+            clock.Stop();
+            var realised = TianWen.Lib.Imaging.Degradation.MoffatComposition.ComposedFwhm(
+                cleanFwhm, TianWen.Lib.Imaging.Degradation.MoffatComposition.DefaultCoreBeta,
+                TianWen.Lib.Imaging.Degradation.PsfKernel.Moffat(nominal, beta)) / cleanFwhm;
+            var quadrature = cleanFwhm * Math.Sqrt((ratio * ratio) - 1.0);
+            output.WriteLine($"core {cleanFwhm} px beta {beta}: ratio {ratio} needs nominal {nominal:F3} px (quadrature {quadrature:F3}), realised {realised:F4}x, solved in {clock.Elapsed.TotalMilliseconds:F1} ms");
+            realised.ShouldBe(ratio, 0.005);
+
+            // The bounds are honoured: a target below what the floor kernel gives returns the floor.
+            DatasetDegradationExporter.SolveNominalFwhmForRatio(cleanFwhm, 1.0001, beta, 1.0, 0.0, 2.0, 4.0).ShouldBe(2.0);
+        }
+
+        /// <summary>
+        /// The label has to MOVE with the blur, or it carries no information for the model to condition
+        /// on. Skipped rather than asserted when the fixture yields no measurement, because a synthetic
+        /// plate is not guaranteed to present stars the detector accepts, and a silently vacuous
+        /// assertion is worse than an honest skip.
+        /// </summary>
+        [Fact]
+        public async Task ThePsf01LabelRisesWithTheInjectedBlur()
+        {
+            var bake = BuildBake();
+            var outDir = Path.Combine(_root, "degraded-psf01-monotone");
+
+            await DatasetDegradationExporter.RunAsync(
+                new DatasetDegradationExporter.Options(
+                    bake, outDir, Mode: DatasetDegradationExporter.DegradationMode.Blur,
+                    Draws: 8, CellsPerSession: 2, Seed: 33, MinExtraFwhmPx: 0.5, MaxExtraFwhmPx: 4.0),
+                logger: null,
+                TestContext.Current.CancellationToken);
+
+            var measured = ReadDegradationRows(outDir)
+                .Where(r => r.Psf01Estimated is not null)
+                .OrderBy(r => r.ExtraFwhmPx)
+                .ToArray();
+
+            Assert.SkipWhen(measured.Length < 6, $"only {measured.Length} rows carried a measurement");
+
+            var half = measured.Length / 2;
+            var gentle = measured.Take(half).Average(r => r.Psf01Estimated!.Value);
+            var heavy = measured.Skip(measured.Length - half).Average(r => r.Psf01Estimated!.Value);
+            output.WriteLine($"psf01 over the gentlest {half} draws {gentle:F3}, over the heaviest {half} {heavy:F3}");
+            heavy.ShouldBeGreaterThan(gentle, "a conditioning label that does not move with the blur conditions on nothing");
+        }
+
+        /// <summary>
         /// Subsetting cells must SAMPLE, not take a prefix: the P0 cells arrive sorted row-major, so a
         /// prefix is the top of the canvas and a training set drawn from it sees one edge of every
         /// frame. Seeded, so the same cells come back on a re-run.
@@ -485,6 +750,64 @@ namespace TianWen.Lib.Tests
                 values[i] = (float)BitConverter.ToHalf(bytes, i * 2);
             }
             return values;
+        }
+
+        /// <summary>
+        /// H3's arm, and the reason it exists. A master already carries a blue/green width ratio near
+        /// 1.32; adding ONE kernel to all three channels composes the same width into both and drives
+        /// that ratio toward 1 as the blur grows, which is channel structure the archive does not show.
+        /// Scaling the added width per channel holds it. This asserts the DIFFERENCE between the two
+        /// arms rather than either one's absolute number, because that difference is the hypothesis.
+        /// </summary>
+        [Theory]
+        [InlineData(1.0)]
+        [InlineData(2.0)]
+        [InlineData(4.0)]
+        public void APerChannelDrawHoldsTheChannelWidthRatioWhereASharedKernelCollapsesIt(double extraFwhm)
+        {
+            // The archive's median per-channel master widths (blue, green), which the exporter composes
+            // the drawn blur into in quadrature.
+            const double OwnBlue = 2.47;
+            const double OwnGreen = 1.80;
+            var atRest = OwnBlue / OwnGreen;
+
+            static double Compose(double own, double added) => Math.Sqrt((own * own) + (added * added));
+
+            var shared = Compose(OwnBlue, extraFwhm) / Compose(OwnGreen, extraFwhm);
+
+            var rng = new Random(7);
+            var blue = DatasetDegradationExporter.PerChannelKernel(rng, 0, extraFwhm, 1.0, 0.0);
+            var green = DatasetDegradationExporter.PerChannelKernel(rng, 1, extraFwhm, 1.0, 0.0);
+            var perChannel = Compose(OwnBlue, blue.Fwhm) / Compose(OwnGreen, green.Fwhm);
+
+            output.WriteLine($"added {extraFwhm:F1} px: at rest {atRest:F3}, shared kernel {shared:F3}, per-channel {perChannel:F3}");
+
+            // The shared arm always loses ground, and the more blur the more it loses.
+            shared.ShouldBeLessThan(atRest);
+            // The per-channel arm stays close to the archive's own ratio, and beats the shared arm at
+            // every blur in the sweep.
+            perChannel.ShouldBeGreaterThan(shared);
+            (perChannel / atRest).ShouldBe(1.0, 0.06);
+        }
+
+        /// <summary>
+        /// Beta must land in the family the archive shows and the plan permits: never a Gaussian
+        /// (the clamp's top), never lighter-winged than any measured master. The draw is log-normal
+        /// about a fitted line, so an unclamped tail would reach both.
+        /// </summary>
+        [Fact]
+        public void ThePerChannelBetaStaysInsideTheMeasuredFamily()
+        {
+            var rng = new Random(11);
+            for (var i = 0; i < 400; i++)
+            {
+                for (var c = 0; c < 3; c++)
+                {
+                    var k = DatasetDegradationExporter.PerChannelKernel(rng, c, 0.5 + (rng.NextDouble() * 3.5), 1.0, 0.0);
+                    k.Beta.ShouldBeGreaterThanOrEqualTo(1.5);
+                    k.Beta.ShouldBeLessThanOrEqualTo(20.0);
+                }
+            }
         }
     }
 }

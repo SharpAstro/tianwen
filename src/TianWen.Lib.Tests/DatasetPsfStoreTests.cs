@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
 using Xunit;
 
@@ -86,6 +88,65 @@ namespace TianWen.Lib.Tests
                 back.BinsByChannel[0][b].Fwhm.ShouldBe(written.BinsByChannel[0][b].Fwhm);
                 back.BinsByChannel[0][b].Ellipticity.ShouldBe(written.BinsByChannel[0][b].Ellipticity);
             }
+        }
+
+        /// <summary>
+        /// The per-sub identity (file, epoch, computed and header air mass) travels aligned with the
+        /// widths, NaN included, and a record from before it existed reads back with none rather than
+        /// with an invented one. The alignment is the whole value of the columns: a width with no way
+        /// to say which frame it belongs to cannot be split into a sharp and a soft manifest.
+        /// </summary>
+        [Fact]
+        public async Task RoundTrip_KeepsThePerSubIdentityAlignedWithTheWidths()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var path = Path.Combine(_dir, DatasetPsfStore.FileName);
+            var plain = Record("2026-01-01|ASI533|M42", "ZWO ASI533MC Pro / Samyang @ 135mm", 2.5f, 0.004);
+            DatasetPsfNoiseReport.SubIdentity.From(plain).ShouldBeNull("a record without the columns has no identity to carry");
+
+            var epochs = new[]
+            {
+                new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero),
+                new DateTimeOffset(2026, 1, 1, 12, 5, 0, TimeSpan.Zero),
+                new DateTimeOffset(2026, 1, 1, 12, 10, 0, TimeSpan.Zero),
+            };
+            var written = plain with
+            {
+                SubFile = ["D:/a/L_001.fits", "D:/a/L_002.fits", "D:/a/L_003.fits"],
+                SubEpochUtc = epochs,
+                SubAirmass = [1.05f, float.NaN, 1.31f],
+                SubHeaderAirmass = [float.NaN, float.NaN, 1.30f],
+                SubSelection = DatasetPsfNoiseReport.SubsRegistered,
+                SubSiteFromFallback = true,
+                SubFwhmGreen = [1.92f, float.NaN, 2.45f],
+            };
+
+            await DatasetPsfStore.AppendAsync(path, written, ct);
+            var back = (await DatasetPsfStore.ReadAsync(path, cancellationToken: ct))[written.SessionId];
+
+            back.SubFile.ShouldBe(written.SubFile);
+            back.SubEpochUtc.ShouldBe(epochs);
+            back.SubSelection.ShouldBe(DatasetPsfNoiseReport.SubsRegistered);
+            back.SubSiteFromFallback.ShouldBe(true);
+            plain.SubSiteFromFallback.ShouldBeNull("a record from before the column has no answer");
+            back.SubFwhmGreen.ShouldNotBeNull();
+            back.SubFwhmGreen[0].ShouldBe(1.92f);
+            float.IsNaN(back.SubFwhmGreen[1]).ShouldBeTrue("a refused fit stays NaN through the file");
+            plain.SubFwhmGreen.ShouldBeNull();
+            DatasetPsfNoiseReport.SubIdentity.From(back).ShouldNotBeNull().UsedFallbackSite.ShouldBeTrue();
+            back.SubAirmass.ShouldNotBeNull();
+            back.SubAirmass.Length.ShouldBe(back.SubFwhm.Length);
+            back.SubAirmass[0].ShouldBe(1.05f);
+            float.IsNaN(back.SubAirmass[1]).ShouldBeTrue("an unknown air mass stays unknown through the file");
+            back.SubAirmass[2].ShouldBe(1.31f);
+            back.SubHeaderAirmass.ShouldNotBeNull();
+            float.IsNaN(back.SubHeaderAirmass[0]).ShouldBeTrue();
+            back.SubHeaderAirmass[2].ShouldBe(1.30f);
+
+            var identity = DatasetPsfNoiseReport.SubIdentity.From(back);
+            identity.ShouldNotBeNull();
+            identity.File.ShouldBe(written.SubFile);
+            identity.Selection.ShouldBe(DatasetPsfNoiseReport.SubsRegistered);
         }
 
         [Fact]
@@ -255,6 +316,57 @@ namespace TianWen.Lib.Tests
             var withGood = acc.Build();
             withGood.Sessions.ShouldBe(2);
             withGood.Trains.ShouldHaveSingleItem().RadialSessions.ShouldBe(1, "only the correctly binned one");
+        }
+
+        private static FrameInfo Light(float latitude, float longitude)
+        {
+            var meta = new ImageMeta(
+                Instrument: "SVBONY SV605CC",
+                ExposureStartTime: new DateTimeOffset(2025, 1, 14, 12, 5, 47, TimeSpan.Zero),
+                ExposureDuration: TimeSpan.FromSeconds(60),
+                FrameType: FrameType.Light,
+                Telescope: "",
+                PixelSizeX: 2.9f,
+                PixelSizeY: 2.9f,
+                FocalLength: 24,
+                FocusPos: -1,
+                Filter: Filter.None,
+                BinX: 1,
+                BinY: 1,
+                CCDTemperature: -10f,
+                SensorType: SensorType.RGGB,
+                BayerOffsetX: 0,
+                BayerOffsetY: 0,
+                RowOrder: RowOrder.TopDown,
+                Latitude: latitude,
+                Longitude: longitude,
+                Gain: 252,
+                Offset: 20,
+                TargetRA: 11.1833,
+                TargetDec: -60.371);
+            return new FrameInfo("frame_00001.fits", 100, 100, 1, BitDepth.Int16, meta);
+        }
+
+        /// <summary>SharpCap writes no site; the fallback fills it in where, and only where, the header
+        /// has none, and the identity says that it did.</summary>
+        [Fact]
+        public void SubIdentity_UsesTheFallbackSiteOnlyWhereTheHeaderHasNone()
+        {
+            var melbourne = (LatitudeDeg: -37.877, LongitudeDeg: 145.1775);
+            var noSite = new[] { Light(float.NaN, float.NaN) };
+            var sited = new[] { Light(-37.877f, 145.1775f) };
+
+            var bare = DatasetPsfNoiseReport.SubIdentity.From(noSite, DatasetPsfNoiseReport.SubsRegistered);
+            float.IsNaN(bare.Airmass[0]).ShouldBeTrue("no site, no fallback, no air mass");
+            bare.UsedFallbackSite.ShouldBeFalse();
+
+            var filled = DatasetPsfNoiseReport.SubIdentity.From(noSite, DatasetPsfNoiseReport.SubsRegistered, melbourne);
+            float.IsFinite(filled.Airmass[0]).ShouldBeTrue();
+            filled.UsedFallbackSite.ShouldBeTrue();
+
+            var fromHeader = DatasetPsfNoiseReport.SubIdentity.From(sited, DatasetPsfNoiseReport.SubsRegistered, (0.0, 0.0));
+            fromHeader.UsedFallbackSite.ShouldBeFalse("a header site is never overridden");
+            fromHeader.Airmass[0].ShouldBe(filled.Airmass[0], tolerance: 1e-4f);
         }
     }
 }

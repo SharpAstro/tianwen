@@ -27,7 +27,7 @@ namespace TianWen.AI.Imaging.RcAstro
 
         protected override string ProductKey => "bxt";
 
-        // Full-image deconvolution: auto PSF (--ansr defaults true) + BOTH stellar
+        // Full-image deconvolution: auto PSF (--ansp defaults true) + BOTH stellar
         // (--ss) and non-stellar (--sn) sharpening, so stars are tightened before
         // star removal. (Contrast RcAstroNonStellarDeconvolver, which runs bxt on
         // the starless plate with ss=0.)

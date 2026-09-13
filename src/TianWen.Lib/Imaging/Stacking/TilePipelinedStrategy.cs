@@ -286,7 +286,7 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
                 // bounds-check converts out-of-rect samples to NaN, which
                 // the rejector ignores).
                 var debayered = await calibrated.DebayerRegionIntoAsync(debayerDestChannels, debayerAlg, sourceRect, ct);
-                var strip = await debayered.WarpRegionAsync(transform, stripRect, canvasW, canvasH, ct);
+                var strip = await debayered.WarpRegionAsync(transform, stripRect, canvasW, canvasH, job.WarpInterpolation, ct);
                 if (perFrameStats is not null)
                 {
                     strip = Normalizer.Apply(strip, perFrameStats[f], opts.NormalizationTarget);

@@ -328,6 +328,8 @@ public partial class Image
         var latitude = hdu.Header.GetFloatValue("SITELAT", float.NaN);
         var longitude = hdu.Header.GetFloatValue("SITELONG", float.NaN);
         var siteElevation = hdu.Header.GetFloatValue("SITEELEV", float.NaN);
+        // Informational, and kept as the capture software's own figure (see ImageMeta.Airmass).
+        var airmass = hdu.Header.GetFloatValue("AIRMASS", float.NaN);
         // The white balance travels as four cards. All of them have to be present and finite for the
         // calibration to mean anything -- a partial triple is worse than none, since a consumer would
         // apply two channels of somebody else's calibration and leave the third alone.
@@ -422,7 +424,8 @@ public partial class Image
             DeclaredPixelScale: declaredPixelScale,
             SiteElevation: siteElevation,
             ColourCalibration: colourCalibration,
-            Guiding: guiding
+            Guiding: guiding,
+            Airmass: airmass
         )
         { IsMaster = isMaster };
     }

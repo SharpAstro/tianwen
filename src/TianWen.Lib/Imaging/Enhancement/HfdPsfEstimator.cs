@@ -21,7 +21,14 @@ namespace TianWen.Lib.Imaging.Enhancement;
 /// <c>measure_psf_radius</c> (SEP-based), but the per-image scalar is good
 /// enough for typical small-FOV astro frames where PSF is roughly uniform.
 /// </remarks>
-public sealed class HfdPsfEstimator(ILogger<HfdPsfEstimator>? logger = null) : IPsfEstimator
+// The defaults below are literals rather than MinRadiusPx / MaxRadiusPx because a primary
+// constructor's parameter defaults cannot see the type's own constants. They must stay equal to them,
+// and HfdPsfEstimatorTests.TheDefaultRangeIsStillTheOneTheShippedModelWasTrainedUnder is what says so.
+public sealed class HfdPsfEstimator(
+    ILogger<HfdPsfEstimator>? logger = null,
+    float minRadiusPx = 1.0f,
+    float maxRadiusPx = 8.0f)
+    : IPsfEstimator
 {
     /// <summary>Default PSF radius (in pixels) used when star detection finds
     /// no usable stars -- matches SAS Pro's <c>default_radius = 3.0</c>.</summary>
@@ -33,10 +40,125 @@ public sealed class HfdPsfEstimator(ILogger<HfdPsfEstimator>? logger = null) : I
     /// <summary>Upper bound of the log2-radius training range -- corresponds to psf01 = 1.</summary>
     public const float MaxRadiusPx = 8.0f;
 
+    /// <summary>
+    /// The floor of TianWen's OWN deconvolution contract, measured rather than chosen
+    /// (`docs/plans/deconvolver-training.md` H5, 2026-09-06). Below the sharpest master this archive
+    /// holds (0.88 px), so nothing clamps at the bottom.
+    /// </summary>
+    public const float TianWenMinRadiusPx = 0.5f;
+
+    /// <summary>
+    /// The ceiling of TianWen's own contract. Above the widest input the degradation exporter can
+    /// produce (a +4 px FWHM draw in quadrature on the archive's widest master reaches 3.63 px
+    /// radius), and deliberately far below SAS's 8 px: the SPREAD of psf01 over a set of frames is
+    /// <c>log2(r_hi / r_lo) / log2(max / min)</c>, so the range's total log span divides every
+    /// difference, and a ceiling nothing ever approaches spends resolution for nothing. Measured over
+    /// all 79 masters, this pair spreads them 0.330 where SAS's spreads them 0.293.
+    /// </summary>
+    public const float TianWenMaxRadiusPx = 4.0f;
+
+    /// <summary>
+    /// The range THIS instance encodes into, defaulting to SAS AI4's because that is the model the
+    /// shipped <c>OnnxNonStellarDeconvolver</c> runs.
+    /// </summary>
+    /// <remarks>
+    /// <b>The range belongs to the MODEL, not to the estimator, and mismatching them is silent.</b>
+    /// psf01 is a conditioning input: a graph trained on `[1, 8]` handed a number encoded over
+    /// `[0.5, 4]` still runs, still produces a plausible image, and is being told a PSF roughly twice
+    /// the one it was given. So the default stays SAS's for as long as a SAS graph is what resolves,
+    /// and TianWen's own contract (<see cref="TianWenMinRadiusPx"/>, <see cref="TianWenMaxRadiusPx"/>)
+    /// becomes the default only alongside the model trained under it.
+    /// </remarks>
+    public (float Min, float Max) RadiusRange { get; } = (minRadiusPx, maxRadiusPx);
+
     /// <summary>Minimum SNR for a star to count toward the PSF estimate.</summary>
     public const float MinSnr = 20f;
 
+    /// <summary>Fewest stars a chunk region must yield for its own median to stand; under it the
+    /// per-chunk estimate answers the whole-image value. A median of three stars is a coin toss on a
+    /// 256 px tile, and the training label the deployed contract mirrors was itself dropped under a
+    /// measured count (the exporter writes null rather than the fallback radius).</summary>
+    public const int MinChunkStars = 8;
+
+    /// <summary>
+    /// psf01 for one REGION of the frame, measured on that region's own stars, so a frame whose PSF
+    /// falls 4.03 to 3.12 px centre to corner (Rim) conditions each tile with its own width rather
+    /// than one number everywhere (deconvolver-training.md, D1). Falls back to
+    /// <paramref name="wholeImagePsf01"/> under <see cref="MinChunkStars"/>.
+    /// </summary>
+    public async Task<float> EstimateChunkAsync(Image image, int x0, int y0, int width, int height, float wholeImagePsf01, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        var (_, srcW, srcH) = image.Shape;
+        if (x0 < 0 || y0 < 0 || width <= 0 || height <= 0 || x0 + width > srcW || y0 + height > srcH)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width), $"region ({x0},{y0},{width}x{height}) is outside the {srcW}x{srcH} image");
+        }
+
+        // A copy rather than a view: the star finder wants an Image, and the region is a few hundred
+        // pixels a side, so the copy is cheaper than the detection that follows it.
+        var src = image.GetChannelSpan(0);
+        var data = new float[height, width];
+        var max = 0f;
+        for (var y = 0; y < height; y++)
+        {
+            var row = src.Slice(((y0 + y) * srcW) + x0, width);
+            for (var x = 0; x < width; x++)
+            {
+                var v = row[x];
+                data[y, x] = v;
+                if (v > max) max = v;
+            }
+        }
+
+        var region = new Image([data], BitDepth.Float32, max <= 0f ? 1f : max, 0f, 0f, image.ImageMeta);
+        try
+        {
+            var measured = await MeasureRadiusPxAsync(region, cancellationToken);
+            if (measured.Stars < MinChunkStars)
+            {
+                logger?.LogDebug("HfdPsfEstimator: chunk ({X},{Y},{W}x{H}) has {Stars} stars (< {Min}); using the whole-image psf01 {Psf01:F3}",
+                    x0, y0, width, height, measured.Stars, MinChunkStars, wholeImagePsf01);
+                return wholeImagePsf01;
+            }
+
+            return EncodeRadiusToPsf01(measured.RadiusPx, RadiusRange.Min, RadiusRange.Max);
+        }
+        finally
+        {
+            region.Release();
+        }
+    }
+
     public async Task<float> EstimateAsync(Image image, CancellationToken cancellationToken = default)
+    {
+        var measured = await MeasureRadiusPxAsync(image, cancellationToken);
+        var psf01 = EncodeRadiusToPsf01(measured.RadiusPx, RadiusRange.Min, RadiusRange.Max);
+        logger?.LogDebug("HfdPsfEstimator: n={Count} medianFWHM={Fwhm:F2}px radius={Radius:F2}px psf01={Psf01:F3} over [{Min}, {Max}] px",
+            measured.Stars, measured.RadiusPx * 2f, measured.RadiusPx, psf01, RadiusRange.Min, RadiusRange.Max);
+        return psf01;
+    }
+
+    /// <summary>The estimator's measurement before any encoding: the radius it read, in pixels, and
+    /// how many stars it read it from (0 when it fell back to <see cref="DefaultRadiusPx"/>).</summary>
+    /// <remarks><b>A zero star count means the radius is the FALLBACK constant, not a measurement.</b>
+    /// Anything recording this as data has to drop those rows rather than store the default as if the
+    /// frame had presented it, which is how a training label acquires a value nothing measured.</remarks>
+    public readonly record struct Measurement(float RadiusPx, int Stars);
+
+    /// <summary>
+    /// The measurement half of <see cref="EstimateAsync"/>, UNCLAMPED and unencoded. Split out
+    /// rather than duplicated because the encoding range is exactly what P2's H5 is deciding
+    /// (<c>docs/plans/deconvolver-training.md</c>): under the shipped <c>[1, 8]</c> px range this
+    /// archive's masters all clamp to psf01 = 0, so a probe that needs to compare candidate ranges
+    /// cannot invert the encoded value to recover the radius, because the clamp has already
+    /// destroyed it. Anything measuring the encoding must read the radius here.
+    /// <para>Public because the degradation exporter labels its pairs with it too: a training label
+    /// has to be the quantity INFERENCE can obtain (P2's H2), so it comes from this estimator run on
+    /// the degraded frame rather than from the kernel that produced it, and the exporter needs the
+    /// star count to tell a measurement from the fallback.</para>
+    /// </summary>
+    public async Task<Measurement> MeasureRadiusPxAsync(Image image, CancellationToken cancellationToken = default)
     {
         var stars = await image.FindStarsAsync(
             channel: 0,
@@ -48,7 +170,7 @@ public sealed class HfdPsfEstimator(ILogger<HfdPsfEstimator>? logger = null) : I
         {
             logger?.LogDebug("HfdPsfEstimator: no stars found at SNR>={Snr}, falling back to default radius {Px} px",
                 MinSnr, DefaultRadiusPx);
-            return EncodeRadiusToPsf01(DefaultRadiusPx);
+            return new Measurement(DefaultRadiusPx, 0);
         }
 
         // Median FWHM across detected stars. ImagedStar.StarFWHM is already in pixels (measured
@@ -60,15 +182,12 @@ public sealed class HfdPsfEstimator(ILogger<HfdPsfEstimator>? logger = null) : I
         if (fwhms.Length == 0)
         {
             logger?.LogDebug("HfdPsfEstimator: no positive FWHM samples; falling back to default radius");
-            return EncodeRadiusToPsf01(DefaultRadiusPx);
+            return new Measurement(DefaultRadiusPx, 0);
         }
+
         Array.Sort(fwhms);
         var medianFwhm = fwhms[fwhms.Length / 2];
-        var radius = medianFwhm * 0.5f;
-        var psf01 = EncodeRadiusToPsf01(radius);
-        logger?.LogDebug("HfdPsfEstimator: n={Count} medianFWHM={Fwhm:F2}px radius={Radius:F2}px psf01={Psf01:F3}",
-            fwhms.Length, medianFwhm, radius, psf01);
-        return psf01;
+        return new Measurement(medianFwhm * 0.5f, fwhms.Length);
     }
 
     /// <summary>
@@ -78,10 +197,19 @@ public sealed class HfdPsfEstimator(ILogger<HfdPsfEstimator>? logger = null) : I
     /// or 1 respectively -- the model was only trained on that range.
     /// </summary>
     public static float EncodeRadiusToPsf01(float radiusPx)
+        => EncodeRadiusToPsf01(radiusPx, MinRadiusPx, MaxRadiusPx);
+
+    /// <summary>
+    /// The same encoding over an arbitrary radius range, so a candidate contract can be evaluated
+    /// against the shipped one without a second implementation to disagree with this one. The
+    /// shipped range is <see cref="MinRadiusPx"/> to <see cref="MaxRadiusPx"/> and is SAS AI4's;
+    /// P2's H5 is measuring whether TianWen's own model wants a lower floor.
+    /// </summary>
+    public static float EncodeRadiusToPsf01(float radiusPx, float minRadiusPx, float maxRadiusPx)
     {
-        var clamped = Math.Clamp(radiusPx, MinRadiusPx, MaxRadiusPx);
-        var t = (MathF.Log2(clamped) - MathF.Log2(MinRadiusPx))
-              / (MathF.Log2(MaxRadiusPx) - MathF.Log2(MinRadiusPx));
+        var clamped = Math.Clamp(radiusPx, minRadiusPx, maxRadiusPx);
+        var t = (MathF.Log2(clamped) - MathF.Log2(minRadiusPx))
+              / (MathF.Log2(maxRadiusPx) - MathF.Log2(minRadiusPx));
         return t;
     }
 }

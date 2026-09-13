@@ -72,7 +72,8 @@ public static class DatasetBuildRunner
         string PsfStorePath,
         int PsfMissing,
         int PsfRemeasured,
-        int PsfRemeasuredFromMaster = 0);
+        int PsfRemeasuredFromMaster = 0,
+        int PsfSubsRemeasured = 0);
 
     /// <summary>Rendered PSF/noise report, written beside the store under <c>&lt;outDir&gt;/stats</c>.</summary>
     public const string ReportFileName = "psf-noise-report.md";
@@ -103,6 +104,16 @@ public static class DatasetBuildRunner
         IProgress<string>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        if (options.RemeasureSubs && options.ForcePsfRemeasure)
+        {
+            // Two passes, not one: the forced master re-measure carries the sub identity THROUGH, so
+            // it has to run after the pass that gives the subs one. Refused before the lock and the
+            // archive scan, which is where a wrong flag combination should cost nothing.
+            throw new ArgumentException(
+                $"{nameof(DatasetBuildOptions.RemeasureSubs)} and {nameof(DatasetBuildOptions.ForcePsfRemeasure)} are separate passes; run the subs pass first, then the forced master re-measure.",
+                nameof(options));
+        }
+
         var outDir = options.OutputDir;
         Directory.CreateDirectory(outDir);
 
@@ -210,6 +221,9 @@ public static class DatasetBuildRunner
         // because the two cost wildly different amounts, and a run that quietly took the slow path for
         // every session looks identical in the summary otherwise.
         var psfRemeasuredFromMaster = 0;
+        // Sessions whose SUB arrays were re-measured alone (RemeasureSubs): the measure stage over
+        // the lights, nothing registered, the master's fields carried over.
+        var psfSubsRemeasured = 0;
         var mastersRetained = 0;
         var totalTiles = 0;
         var parityChecked = false;
@@ -247,7 +261,9 @@ public static class DatasetBuildRunner
                 // exactly the one whose record is now wrong. It costs a full re-registration of
                 // EVERY exported session, so it is never implied.
                 var hasRecord = psfBySession.ContainsKey(session.Id);
-                var measure = options.ForcePsfRemeasure || (!hasRecord && options.RegenPsfForExportedSessions);
+                var measure = options.ForcePsfRemeasure
+                    || (hasRecord && options.RemeasureSubs)
+                    || (!hasRecord && options.RegenPsfForExportedSessions);
                 if (!measure)
                 {
                     resumed++;
@@ -263,6 +279,50 @@ public static class DatasetBuildRunner
                 // run under-report the tiles it still has.
                 psfOnly = true;
                 totalTiles += checkpoint.TileCount;
+
+                // THE MEASURE-ONLY PATH (RemeasureSubs): every light through the analyzer and the gate,
+                // the survivors' widths and identities written over the prior record's, the master's
+                // fields carried through. Nothing is registered, so nothing here needs the scratch
+                // canvas or the retained master; it is the one stage the sub identity actually needs.
+                if (options.RemeasureSubs && psfBySession.TryGetValue(session.Id, out var priorForSubs))
+                {
+                    var subsTimings = new StageTimings();
+                    var subsStart = StageTimings.Start();
+                    try
+                    {
+                        progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} re-measuring SUBS (measure stage only, {session.Lights.Length} lights) ...");
+                        var subsCalibrator = await CalibrationResolver.ResolveAsync(
+                            session, calGroups, masterCache, options.RequireGainMatch, options.MaxDarkTemperatureDelta, logger, cancellationToken);
+                        var remeasured = await DatasetPsfNoiseReport.RemeasureSubsAsync(
+                            priorForSubs, session, subsCalibrator,
+                            options.QualityRejectSigma, options.QualityMaxRejectFraction,
+                            fallbackSite: options.FallbackSite,
+                            cancellationToken: cancellationToken);
+                        subsTimings.Record(StageNames.Measure, subsStart, items: session.Lights.Length);
+
+                        await DatasetPsfStore.AppendAsync(psfStorePath, remeasured, cancellationToken);
+                        psfBySession[session.Id] = remeasured;
+                        await WriteReportAsync(reportPath, psfBySession, sessionIds, logger, cancellationToken);
+                        psfSubsRemeasured++;
+                        sessionTimings.Add(subsTimings.Snapshot());
+
+                        var withAirmass = remeasured.SubAirmass?.Count(float.IsFinite) ?? 0;
+                        var withHeaderAirmass = remeasured.SubHeaderAirmass?.Count(float.IsFinite) ?? 0;
+                        logger?.LogInformation(
+                            "  [{Session}] subs re-measured: {Kept}/{Lights} kept by the gate, {WithAirmass} with a computed air mass, {WithHeader} with a header AIRMASS, {Seconds:F0} s",
+                            session.Id, remeasured.SubFwhm.Length, session.Lights.Length, withAirmass, withHeaderAirmass,
+                            Stopwatch.GetElapsedTime(subsStart).TotalSeconds);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        // Same isolation as the full path: one unreadable light must not end the pass.
+                        failed++;
+                        logger?.LogError(ex, "  [{Session}] subs re-measure FAILED -- skipped", session.Id);
+                        progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} subs re-measure FAILED: {ex.Message} -- skipped");
+                    }
+
+                    continue;
+                }
 
                 // THE CHEAP PATH, and the reason masters are retained at all. A forced re-measure only
                 // needs the master plus the per-sub metrics, and the metrics are already in the prior
@@ -290,6 +350,8 @@ public static class DatasetBuildRunner
                             retainedWidth, retainedHeight,
                             priorPsf.SubFwhm, priorPsf.SubHfd, priorPsf.SubEllipticity,
                             priorPsf.MasterStrategy,
+                            DatasetPsfNoiseReport.SubIdentity.From(priorPsf),
+                            subFwhmGreen: priorPsf.SubFwhmGreen,
                             logger: logger, cancellationToken: cancellationToken);
 
                         await DatasetPsfStore.AppendAsync(psfStorePath, remeasured, cancellationToken);
@@ -361,6 +423,7 @@ public static class DatasetBuildRunner
                 var reg = await SessionRegistrar.RegisterAsync(
                     session, calibrator, scratchRoot,
                     options.QualityRejectSigma, options.QualityMaxRejectFraction, options.MinSubsPerSession,
+                    warpInterpolation: options.WarpInterpolation,
                     hotPixelSigma: options.HotPixelSigma,
                     skipStorePath: skipStorePath,
                     timings: timings,
@@ -445,7 +508,7 @@ public static class DatasetBuildRunner
                 // session measured so far, and the rendered report is rebuilt from the store rather
                 // than from this run's in-memory accumulator.
                 var psfStart = StageTimings.Start();
-                var psf = await DatasetPsfNoiseReport.MeasureSessionAsync(reg, logger: logger, cancellationToken: cancellationToken);
+                var psf = await DatasetPsfNoiseReport.MeasureSessionAsync(reg, logger: logger, fallbackSite: options.FallbackSite, cancellationToken: cancellationToken);
                 // Persisting the measurement must not be able to fail the SESSION. By the time we get
                 // here the tiles are written and their manifest rows are appended, so the session IS
                 // part of the dataset; letting an I/O fault fall to the per-session catch marked a
@@ -534,7 +597,8 @@ public static class DatasetBuildRunner
         }
         progress?.Report(
             $"[dataset] done: {registered}/{sessions.Length} sessions{(resumed > 0 ? $" (+{resumed} resumed)" : "")}" +
-            $"{(psfRemeasured > 0 ? $" ({psfRemeasured} PSF re-measured, {psfRemeasuredFromMaster} from retained masters)" : "")} -> {totalTiles} tiles " +
+            $"{(psfRemeasured > 0 ? $" ({psfRemeasured} PSF re-measured, {psfRemeasuredFromMaster} from retained masters)" : "")}" +
+            $"{(psfSubsRemeasured > 0 ? $" ({psfSubsRemeasured} sub sets re-measured, measure stage only)" : "")} -> {totalTiles} tiles " +
             $"({failed} failed, {skippedNoDark} skipped-no-dark); " +
             $"PSF report covers {psfBySession.Count(kv => sessionIds.Contains(kv.Key))}/{sessions.Length}; " +
             $"{(options.RetainSessionMasters ? $"{mastersRetained} master(s) retained; " : "")}" +
@@ -542,7 +606,7 @@ public static class DatasetBuildRunner
         return new RunResult(
             sessions.Length, registered, failed, skippedNoDark, resumed, totalTiles, testSessions.Length,
             parityChecked, parityMaxDiff, manifestPath, splitPath, reportPath, psfStorePath, psfMissing, psfRemeasured,
-            psfRemeasuredFromMaster);
+            psfRemeasuredFromMaster, psfSubsRemeasured);
     }
 
     /// <summary>

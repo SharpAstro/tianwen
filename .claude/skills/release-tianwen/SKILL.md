@@ -47,6 +47,14 @@ reports the resulting GitHub Release URL.
    ```bash
    grep -o '<VersionMajorMinor>[^<]*' src/Directory.Build.props | sed 's/.*>//'
    ```
+   Then confirm `CHANGELOG.md` has that version's section. `/bump-version` commits the entry with
+   the bump, and this is the check at the other end, so a version cannot be released without its
+   note by either route:
+   ```bash
+   v=$(grep -o '<VersionMajorMinor>[^<]*' src/Directory.Build.props | sed 's/.*>//'); grep -q "^## $v\$" CHANGELOG.md && echo "changelog has $v" || echo "NO CHANGELOG ENTRY for $v: add it before dispatching"
+   ```
+   Stop on the second message. The GitHub Release lists the commits by itself
+   (`generate_release_notes: true`); the changelog section is the half a commit list cannot write.
    Then get the next run number:
    ```bash
    gh api "repos/SharpAstro/tianwen/actions/workflows/25402710/runs?per_page=1" \

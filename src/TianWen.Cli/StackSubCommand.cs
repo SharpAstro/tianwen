@@ -52,6 +52,16 @@ internal sealed class StackSubCommand(
             Description = "Substring exclude on light-group slug. Empty = none.",
             DefaultValueFactory = _ => "",
         };
+        var groupTempToleranceOpt = new Option<double>("--group-temp-tolerance")
+        {
+            Description = "Sensor-temperature tolerance in C for grouping lights of one target into one master. Default 0 groups "
+                        + "by the temperature rounded to the degree, so a cooler drifting from 13.7 to 12.1 C over one night writes "
+                        + "three masters (49, 18 and 4 frames on a real SV605CC session) with three references. With a tolerance, "
+                        + "frames are split only where consecutive temperatures are further apart than it, so a drift stacks whole "
+                        + "and a different night's 8 C still separates; the group's dark is matched at its median temperature. "
+                        + "2 covers a cooled camera's drift at about a quarter of one dark-current doubling.",
+            DefaultValueFactory = _ => 0.0,
+        };
         var strategyOpt = new Option<IntegrationStrategyKind?>("--strategy")
         {
             Description = "Force a specific integration strategy. Default = let the selector pick.",
@@ -65,6 +75,16 @@ internal sealed class StackSubCommand(
         {
             Description = "Debayer algorithm for the integration pass (colour fidelity).",
             DefaultValueFactory = _ => DebayerAlgorithm.AHD,
+        };
+        var warpInterpolationOpt = new Option<WarpInterpolation>("--warp-interpolation")
+        {
+            Description = "Resampling kernel that places each frame on the reference grid. Lanczos3Clamped (the default since 7.1; "
+                        + "six taps an axis, PixInsight's clamping rule at a measured threshold) keeps a 2 px star's width and bounds "
+                        + "the ring a debayered OSC plane draws, where every star is a spike per colour. Lanczos3 is the same kernel "
+                        + "unclamped (13 percent of a bright star's peak below the sky on such a plane). Bilinear (every master built "
+                        + "before 7.1) adds phase times one minus phase of a pixel's variance per axis: about a pixel of FWHM in "
+                        + "quadrature at 2 px seeing, measured star by star on a real night. docs/plans/deconvolver-training.md, R1.",
+            DefaultValueFactory = _ => WarpInterpolation.Lanczos3Clamped,
         };
         var snrMinOpt = new Option<float>("--snr-min")
         {
@@ -274,8 +294,8 @@ internal sealed class StackSubCommand(
             Arguments = { dataRootArg },
             Options =
             {
-                outputOpt, groupFilterOpt, groupExcludeOpt, strategyOpt,
-                centroidDebayerOpt, stackDebayerOpt,
+                outputOpt, groupFilterOpt, groupExcludeOpt, groupTempToleranceOpt, strategyOpt,
+                centroidDebayerOpt, stackDebayerOpt, warpInterpolationOpt,
                 snrMinOpt, minStarsOpt, quadStarsOpt,
                 formatOpt, hdrPeakNitsOpt, noPlateSolveOpt,
                 drizzlePixfracOpt, drizzleMinFramesOpt,
@@ -429,9 +449,11 @@ internal sealed class StackSubCommand(
                 OutputDir: outputDir,
                 GroupFilter: parseResult.GetValue(groupFilterOpt) ?? "",
                 GroupExclude: parseResult.GetValue(groupExcludeOpt) ?? "",
+                LightGroupTemperatureToleranceC: parseResult.GetValue(groupTempToleranceOpt),
                 ForcedStrategy: forcedStrategy,
                 CentroidDebayerAlg: parseResult.GetValue(centroidDebayerOpt),
                 StackDebayerAlg: parseResult.GetValue(stackDebayerOpt),
+                WarpInterpolation: parseResult.GetValue(warpInterpolationOpt),
                 SnrMin: parseResult.GetValue(snrMinOpt),
                 MinStars: parseResult.GetValue(minStarsOpt),
                 QuadStars: parseResult.GetValue(quadStarsOpt),

@@ -43,11 +43,11 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 
 ## Session Test Plan Progress
 
-- [x] **Phase 2**: FakeCamera cooling simulation (commit 9ae4490)
-- [x] **Phase 3**: FakeFocuser temperature + focus model (commit 25ce32d)
-- [x] **Phase 4**: Synthetic star field renderer (commit 6fee8fb)
-- [x] **Phase 5 partial**: Backlash property on IFocuserDriver, FocusDirection 2x2 matrix (commit 25ce32d)
-- [x] **Phase 6 partial**: AutoFocusAsync with V-curve + hyperbola fitting, per-target baseline HFD (commits 25ce32d, 68d061c)
+- [x] **Phase 2**: FakeCamera cooling simulation ("Add Session cooling tests, extract shared SessionTestHelper")
+- [x] **Phase 3**: FakeFocuser temperature + focus model ("Per-target baseline metrics, FocusDirection 2x2 matrix, and backlash compensation")
+- [x] **Phase 4**: Synthetic star field renderer ("Improve FakePlateSolver to delegate to CatalogPlateSolver, validate focuser movement")
+- [x] **Phase 5 partial**: Backlash property on IFocuserDriver, FocusDirection 2x2 matrix ("Per-target baseline metrics, FocusDirection 2x2 matrix, and backlash compensation")
+- [x] **Phase 6 partial**: AutoFocusAsync with V-curve + hyperbola fitting, per-target baseline HFD ("Per-target baseline metrics, FocusDirection 2x2 matrix, and backlash compensation", "Split Session.cs into partial files by concern")
 - [x] **Phase 1**: FakeGuider state machine; full state machine (Idle, Looping, Calibrating, Guiding, Settling) with atomic transitions
 - [x] **Phase 5 remaining**: ~~`BacklashMeasurement.MeasureAsync` standalone 3-scan routine~~; superseded by opportunistic per-AutoFocus inference (cloudynights "no need to measure" approach). `BacklashEstimator.InferFromVerification` (`TianWen.Lib/Astrometry/Focus/BacklashEstimator.cs`) inverts the hyperbola fit against the verification HFD that AutoFocus already takes; mechanical lag = `H⁻¹(verifyHfd) − bestPos`, B = currentOvershoot + lag. Per-focuser EWMA (α=0.3) updated each AutoFocus, sized into next-run overshoot via `BACKLASH_OVERSHOOT_SAFETY = 1.5`. EWMA + sample count + timestamp persisted to `Profiles/BacklashHistory/<focuserDeviceId>.json` via `BacklashHistoryPersistence`; rounded values mirrored back to focuser URI on session-end via `EquipmentActions.SaveBacklashEstimatesIfChangedAsync`. `MeasureBacklashIfUnknown` config flag dropped (no separate routine to gate). `MoveWithCompensationAsync` extension shipped earlier as `BacklashCompensation.MoveWithCompensationAsync`.
 - [x] **Phase 6 remaining**: Focus drift detection in ImagingLoopAsync (HFD threshold check + auto-refocus trigger)

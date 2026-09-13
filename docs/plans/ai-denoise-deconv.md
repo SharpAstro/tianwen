@@ -84,7 +84,7 @@ gated by metrics and training signal right now, not by calibration matching.
   read from outside the process collided with the store append that closes a session and failed it;
   a `--regen-psf` pass recovered it, tiles untouched. The PSF measurement code is identical across
   the two binaries, so the record is comparable. Root cause and both fixes are in the commit
-  `68ccafaf` / `4bf290d9` pair: stores now share reads in both directions, and a store write can no
+  two #172 store-sharing fixes ("reading a store could fail the session that was writing it", "file sharing is a mutual grant"): stores now share reads in both directions, and a store write can no
   longer fail a session whose tiles are already on disk.
 
 What a future bake should carry, in the order it is worth doing: the timing + skip stores populated
@@ -1354,7 +1354,7 @@ session are retained here so they do not get re-derived; the experiment behind t
   registration warp rather than white noise straight onto the master.
 
 **The input-rescale experiment** (`N2nSeamProbe.ReportInputRescaleResponseOnARealMaster`,
-env-gated on `TIANWEN_N2N_SEAM_FITS`, commit 2b4dca99): multiply the input by k so the trainer's
+env-gated on `TIANWEN_N2N_SEAM_FITS`, #184 "probe the N2N net's response to rescaling into its trained sigma band"): multiply the input by k so the trainer's
 own sigma statistic (median minus 25th percentile of the luminance, the `bg_sigma_torch` form)
 lands at the single-sub ~0.01 the conditioning plane was calibrated for, denoise at full
 strength, divide by k. This is not the rejected conditioning dial, which keeps the pixels and

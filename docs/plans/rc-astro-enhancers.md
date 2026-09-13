@@ -35,7 +35,7 @@ selector can reference both the RC wrappers and the `Onnx*` fallbacks.
 | `RcAstroEnhancerBase` | FITS round-trip: `Image.WriteToFitsFile` -> `cli.RunAsync` -> `Image.TryReadFitsFile`; temp-file lifecycle; progress -> logger. |
 | `RcAstroStarRemover : IStarRemover` (sxt) | The product's default `-o` output IS the starless plate; the pipeline derives stars-only itself. sxt's `--stars` output is defined (per `sxt --help`) as "original minus starless" = the pipeline's additive split (both clamp negatives), and `--stars --unscreen` = the pipeline's Screen split -- so neither flag adds information, just a duplicate plate + file round-trip. sxt has NO star-mask output; derive one from the stars plate (`Binarize` + `GaussianBlur`). |
 | `RcAstroDenoiser : IDenoiseEnhancer` (nxt) | Noise-adaptive `--dn` (see below). |
-| `RcAstroNonStellarDeconvolver : INonStellarDeconvolver` (bxt) | Runs on the starless plate: `--sn` + `--ansr` (auto PSF), `--ss 0`. |
+| `RcAstroNonStellarDeconvolver : INonStellarDeconvolver` (bxt) | Runs on the starless plate and passes `--sn` only. `--ansp` (auto nonstellar PSF) defaults true: the CLI estimates ONE PSF diameter in pixels from the stars (`--nsd` is the manual value, range 0 to 8); there is no kernel or shape input, the network learns shape. `--ss` and `--ash` are no-ops on a starless plate. |
 | `DeferredEnhancer` (+ `DeferredStarRemover`/`DeferredDenoiser`/`DeferredNonStellarDeconvolver`) | Proxy that makes the RC-vs-SAS choice (and its blocking license probe) on the FIRST `EnhanceAsync`, not at DI registration/resolution. So composing/building a service collection -- even resolving `SharpenPipeline` -- spawns no `rc-astro` process; only the first actual enhancement does (cached). |
 | `AddRcAstroAi()` | Calls `AddTianWenAi()` for the SAS baseline, then `Replace`s each RC-servable role with its deferred proxy (RC when present+licensed -> else the concrete `Onnx*` singleton). |
 
@@ -45,14 +45,15 @@ FITS round-trip is in [0, 1] with no rescaling: pipeline plates are Float32
 
 ## Parameters
 
-Documented CLI defaults (from `rc-astro <product> --json`): **every amount
-defaults to 0** -- i.e. bxt/nxt are no-ops on raw CLI defaults (different from
-PixInsight's non-zero GUI defaults). So the wrapper supplies its own:
+CLI defaults move between versions. When this was written (`rc-astro <product> --json`) **every
+amount defaulted to 0**, so bxt/nxt were no-ops on raw CLI defaults (unlike PixInsight's non-zero
+GUI defaults); CLI 2.6.5 (2026-08-23) defaults `--sn` and `--ss` to 0.50. The wrapper supplies its
+own either way, and passes only what it sets:
 
 | Product | Wrapper default |
 |---------|-----------------|
 | sxt | CLI defaults (star removal is unconditional). |
-| bxt | `--ansr` (auto PSF), `--sn 0.90`, `--ss 0` (starless plate has no stars). |
+| bxt | `--sn 0.90` only; `--ansp` (auto nonstellar PSF) defaults true, and `--ss` / `--ash` are no-ops on the starless plate so are not passed. |
 | nxt | `--it 2`, `--dn` auto from noise (0.7-0.95), heavier for noisier input. |
 
 **Noise-adaptive denoise** (matches the "heavier denoise on short integration"

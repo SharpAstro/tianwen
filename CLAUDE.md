@@ -26,6 +26,12 @@ Canonical project state lives in these markdown files; read the relevant ones be
 | `docs/todo/*.md` | Full backlog + done-archive + unsorted inbox, split by area |
 | `docs/todo/hardware-validation.md` | The bench queue: every check only a real device or night can answer, indexed by GEAR; one home per item (plans keep the *why* + a pointer, never a second checkbox) |
 | `docs/known-limitations.md` | Root causes of limitations/bugs (the *why*); read before "fixing" a suspected bug |
+| `CHANGELOG.md` | Released version history, newest first, one section per `MAJOR.MINOR`. A version bump adds its entry **in the same commit** (`/bump-version` step 6), so a number can never ship without its note. The GitHub Release lists the commits; this says what the release was FOR and what breaks |
+
+**A doc never cites a commit by hash.** Every PR merges by rebase, so a hash written into a plan or
+TODO before its PR lands is rewritten on landing, and the 2026-04-22 LFS migration rewrote everything
+before it; sixteen dangling hashes were found in the docs on 2026-09-06. Cite the commit SUBJECT in
+quotes, a release tag (`v6.3.1352`), or a PR or issue number (`#227`), all of which survive both.
 
 ## Custom Skills
 
@@ -872,6 +878,30 @@ measurement, and thirteen traps that break the model SILENTLY. Four that reach b
 **Provenance skip (never re-ingest our own outputs).** The scan drops any TianWen-produced FITS
 (`STACK_N > 0` OR a TianWen `SWCREATE`, gated by `--include-integrations`). Markers, the ghost-master
 failure mode and the `ScanSummary` reporting: the architecture doc above.
+
+**A master is the mean of its warped frames, star by star, to 0.3 percent, so its width is its subs'
+plus the warp kernel's plus any misregistration, and NOTHING in the combine.** Three things measured
+on one warm night (2026-09-07) bite anyone reading a master's sharpness: a detection fixed to the
+sensor (a residual warm pixel) pairs with its own copy in `RegistrationRefiner` and a least-squares
+refiner averages it in, which HALVED every shift under 5 px until the unmoved rule (`UnmovedTolerancePx`;
+the log's `N unmoved dropped` is a calibration diagnostic); the detector's mono fold turned one warm
+photosite into a 2 by 2 blob that passed the size floor, so half a star list was warm pixels and every
+median over it read their width (the guard is the peak photosite's share of the 3 by 3 flux,
+`Image.SinglePhotositeFractionMax`); and bilinear resampling costs phase times one minus phase of a
+pixel's variance per axis, about a pixel of FWHM in quadrature at 2 px seeing (Lanczos-3 costs none
+measurable, and **`Lanczos3Clamped` is the DEFAULT since 7.1**, decided 2026-09-12, for `stack` and
+the dataset bake alike; every master built before it is bilinear). **The clamp is not optional on
+OSC data: a debayered plane samples a 2 px star on a 2 px pitch, so per plane it is a spike and the
+plain kernel digs a ring of 13 percent of the peak two pixels out on every fractional-phase sub**
+(the synthetic RGGB fixture; a mono 2 px star rings 0.04 percent), deep enough to push the SAS
+auto-detect's min-anchored gate statistic over 0.125 and hand a LINEAR sub to the net unstretched.
+PixInsight's rule at a MEASURED threshold of 0.7, not its 0.3, which lifts every smooth star's skirt
+by 0.73 px of second-moment FWHM in quadrature; the sweep is on `Image.LanczosClampingThreshold`
+and the pin is `WarpInterpolationTests`. Integer-phase frames (the reference, any frame whose shift is near-integer)
+are the free control for the kernel's cost. The star profile fit (`PsfProfileFit`) fits the CORE and
+reports the wing: a fit over the far wing refused every sharp input. Measurements:
+[docs/plans/deconvolver-training.md](docs/plans/deconvolver-training.md) (E2.10a "the third finding
+placed", R1, E1g-2).
 
 **A CAPTURED frame that is not a light says so in `IMAGETYP`, and never relies on the skip above.**
 `SessionConfiguration.SaveIntermediates` (default OFF; `Session.IO.cs`'s

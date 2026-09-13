@@ -456,8 +456,12 @@ public sealed class StackingPipeline(
         // night. Frames of different targets look at different sky and
         // never register against each other -- they must end up in
         // separate groups.
-        var lightGroups = lights.GroupBy(LightGroupKey.FromFrame).ToList();
-        logger.LogInformation("[lights] {Count} lights in {Groups} group(s)", lights.Count, lightGroups.Count);
+        // With a temperature tolerance, frames of one target that drifted across a degree boundary
+        // stay in one group (LightGroupKey.Assign); at the default of 0 this is FromFrame per frame.
+        var groupKeys = LightGroupKey.Assign(lights, options.LightGroupTemperatureToleranceC);
+        var lightGroups = lights.GroupBy(f => groupKeys[f]).ToList();
+        logger.LogInformation("[lights] {Count} lights in {Groups} group(s){Tolerance}", lights.Count, lightGroups.Count,
+            options.LightGroupTemperatureToleranceC > 0 ? $" (temperature tolerance {options.LightGroupTemperatureToleranceC:0.#} C)" : "");
 
         if (options.GroupExclude.Length > 0)
         {
@@ -1059,11 +1063,11 @@ public sealed class StackingPipeline(
                         break;
                     default:
                         logger.LogInformation(
-                            "  [{Name}] stars={Stars} quads={Quads} hfd={Hfd:F2} fwhm={Fwhm:F2} ecc={Ecc:F3} -> MATCH qt={Tol:F3} refine: rot={Rot:F3}° s={Scale:F5} t=({Tx:F2},{Ty:F2}) rms={Rms:F2}px from {RefMatched} pairs",
+                            "  [{Name}] stars={Stars} quads={Quads} hfd={Hfd:F2} fwhm={Fwhm:F2} ecc={Ecc:F3} -> MATCH qt={Tol:F3} refine: rot={Rot:F3}° s={Scale:F5} t=({Tx:F2},{Ty:F2}) rms={Rms:F2}px from {RefMatched} pairs, {Unmoved} unmoved dropped",
                             name, candidate.Stars.Count, attempt.LightQuads,
                             frameMetrics.MedianHfd, frameMetrics.MedianFwhm, frameMetrics.MedianEllipticity,
                             attempt.QuadTolerance, attempt.RefineRotationDeg, attempt.RefineScale,
-                            attempt.RefineTx, attempt.RefineTy, attempt.RefineRmsPx, attempt.RefineMatchedPairs);
+                            attempt.RefineTx, attempt.RefineTy, attempt.RefineRmsPx, attempt.RefineMatchedPairs, attempt.RefineUnmovedDropped);
                         break;
                 }
             }
@@ -1518,7 +1522,7 @@ public sealed class StackingPipeline(
                     // The shared debayer + warp step (FrameRegistration.WarpToCanvasAsync) -- the same
                     // three lines the dataset registrar runs, so the two paths cannot drift here.
                     var (warped, _) = await FrameRegistration.WarpToCanvasAsync(
-                        calibrated, transformOrig, canvasShift, options.StackDebayerAlg, outWidth, outHeight, token);
+                        calibrated, transformOrig, canvasShift, options.StackDebayerAlg, outWidth, outHeight, options.WarpInterpolation, token);
                     yield return warped;
                 }
             }
@@ -1682,6 +1686,7 @@ public sealed class StackingPipeline(
                 RawLightSources: rawSources,
                 Calibrator: layerCalibrator,
                 DebayerAlgorithm: options.StackDebayerAlg,
+                WarpInterpolation: options.WarpInterpolation,
                 CanvasWidth: outWidth,
                 CanvasHeight: outHeight,
                 Progress: integrationProgress,
@@ -1750,8 +1755,14 @@ public sealed class StackingPipeline(
                 ultraHdrPeakNits: options.UltraHdrPeakNits,
                 inheritedWhiteBalance: options.InheritedWhiteBalance,
                 // Stamped on every master, sidereal included: absence would otherwise mean either
-                // "star-aligned" or "written before the card existed".
-                alignment: layerAlignment,
+                // "star-aligned" or "written before the card existed". The canvas origin rides along
+                // so two masters from this reference can be overlaid without this run's log.
+                alignment: layerAlignment with
+                {
+                    CanvasOriginX = outOriginX,
+                    CanvasOriginY = outOriginY,
+                    ReferenceFrame = Path.GetFileName(reference.Path),
+                },
                 ct: ct);
             timings.Record(StageNames.Post, postStart, 1, (long)outWidth * outHeight);
             if (intResult.TotalRejections > 0)

@@ -57,6 +57,34 @@ re-anchor to an immutable reference, never to your own last output.
 
 ## Imaging / stretch pipeline
 
+### The AI runner's linear/stretched auto-detect misreads a bright-sky master, on about 2.5 percent of this archive
+
+`ChunkedNafnetRunner.NeedsStretch` is SAS Pro's heuristic: unit-scale the frame, take
+`median(value - min)`, and call anything at or above `AiNafnetInputs.StretchAutoDetectMedianThreshold`
+(0.125) already-stretched, skipping `ApplyInputStretch`. It is right for the shape of frame it was
+designed around, where sky is a small fraction of the peak. **It is wrong for a linear master whose sky
+is a large fraction of it**, and this archive has some.
+
+Measured over all 79 retained masters of `2026-09-full` (2026-09-06): the statistic runs p5 0.0008,
+p50 0.0044, p95 0.0449, so the typical master clears the threshold by nearly 3x. **Two exceed it.** The
+worse one is a 120 s ASI585 stack whose raw median is 21,013 against a max of 66,060, so its sky sits at
+32 percent of full scale with the stars clipped near saturation and a dynamic range of only about 3x. It
+is genuinely linear; the heuristic simply cannot tell that apart from a stretched frame. The other sits
+at 0.127 against the 0.125 bar, which is a knife-edge rather than a clear call.
+
+**Consequences, and they differ by caller.** `DatasetDegradationExporter` REFUSES such a master
+outright rather than exporting pairs from it, so the training path fails loudly and drops the session
+(the message names the auto-detect). At INFERENCE nothing refuses: the stretch is skipped and the model
+is fed the frame as-is. In this particular case the damage is smaller than it sounds, because the
+unstretched median of 0.32 lands near the 0.25 the training tiles carry, so the LEVEL is roughly right
+and only the nonlinear SHAPE differs; it is not the 100x level error of the H0 defect
+([denoiser-training.md](plans/denoiser-training.md) fact 0). The effect has not been measured.
+
+**Not repaired on a sample of two, and one obvious repair does not work.** The natural discriminator is
+skew, since a linear astro frame's brightest pixels sit orders of magnitude above sky while a stretched
+one's do not, but this master's bright end is CLIPPED, so its q99.9-to-median ratio is 1.85 and a
+skew test would call it stretched too. Anything better needs more than two examples to be tuned on.
+
 ### SPCC's remaining error budget is the white-reference sub-type, and it is a few percent
 
 `Tycho2ColorCalibration.WhiteReference` defines the spectrum that renders neutral and defaults to
@@ -535,6 +563,229 @@ them at exactly 10 s and 15 s but no lights below 60 s.
 a short `DARK` as a dark-flat on exposure alone: a genuine short dark library would be
 indistinguishable. Preferring an exposure-matched dark-flat as the flat pedestal is the change that
 would make the labels start to matter; bias was chosen partly to avoid depending on them.
+
+### A `PsfKernel` narrower than about 1.5 px does not blur by its label
+
+`PsfKernel.Build` evaluates the Moffat (or Gaussian) at pixel CENTRES and renormalises the truncated
+taps. That is exact enough from 2 px FWHM up (the composed width lands within three percent of the
+continuous profile's), and wrong below it: a nominal 1 px beta-4 Moffat puts 65 percent of its mass in
+one pixel and widens a 2.15 px core as a 0.73 px continuous kernel would (0.59 on a 1.53 px core, 0.79
+on 2.81), and a nominal 0.5 px kernel is a near-delta worth 0.1 px. Area sampling does not rescue it
+(4x4 gets 1 px to 0.91 to 1.07 and 0.5 px to 0.56 to 0.81), because a half-pixel profile has no
+representation on the pixel grid at all. Measured 2026-09-07 by composing the sampled taps with a
+continuous core (`docs/plans/deconvolver-training.md`, E1d).
+
+**What it did.** The estimated-kernel oracle probe read its width estimates against the nominal
+width and reported a 0.65 under-read at 1.1 to 1.3x blur, while quadrature "read 0.92" there only
+because its own 1.3x over-read cancelled the kernel's 0.7x under-delivery; against the width applied
+the composed estimate was within 0.92 to 1.07. E1b's and E1d's light-end bins were run at effective
+blur ratios nearer 1.12 and 1.005 than their labels. **What it did not do:** the trainer conditions on
+`Psf01Estimated`, measured on the degraded cell, so no training label carries the error.
+
+**Where it stands.** `MoffatComposition.ComposedFwhm(core, beta, PsfKernel)` composes with the kernel
+as sampled and `EffectiveKernelFwhm` inverts it; the probe prints `effK` and `estW/e`; the exporter's
+training-only `Psf01FromKernel` composes with the kernel applied. Still open: the exporter DRAWS a
+nominal width, so a draw under about 1.5 px realises a lighter blur than `degradations.jsonl` records
+and the light end of the training distribution is lighter than intended; drawing the blur RATIO and
+solving for the kernel is the fix, and needs a re-export to take effect. The general rule is the
+same one denoiser-training H8 learned on a point-sampled Gaussian: the truth of an injected blur is
+the kernel APPLIED, and a sub-2 px result must never be read against a label.
+
+### SharpCap frames carry no site, so a per-sub quantity that needs one is NaN for a third of the archive
+
+Every SharpCap capture in the archive (all 27 sessions checked, 4.0 and 4.1) writes `OBJCTRA`,
+`OBJCTDEC`, `RA`, `DEC` and `DATE-OBS` and **no `SITELAT` / `SITELONG` / `SITEELEV`**; N.I.N.A. writes
+all of them. `SiteContext.Airmass` answers NaN without a site, so `SessionPsf.SubAirmass` is NaN for
+those 27 of 79 sessions and E2.9's per-session fit could not run on them (`docs/plans/
+deconvolver-training.md`, E2.9). SharpCap 4.1 writes an `AIRMASS` card of its own (15 of the 27), 4.0
+did not (the nine Vela SNR panels, Omega Cen, the 2022 Eta Car, the SII Eta Car).
+
+**Why the card can stand in, and only where it does.** On the 52 sessions carrying both, the computed
+air mass and the card agree to a median 0.001 to 0.015 (one 0.034, one 0.311 on a session whose folder
+and `OBJECT` name different stars), so `tools/psf-airmass-report.py --airmass either` uses the card
+where the computation has no site, labelled as such. The store itself still records the card only as
+a cross-check (`SubHeaderAirmass`), never in `SubAirmass`. **Owed:** a site fallback for the dataset
+build (the profile's site, or a `--site lat,lon` switch) so the computed value exists for SharpCap
+sessions too; sixty minutes of measure stage once built. Check the header inventory of every capture
+software in an archive before pre-registering a per-sub computed quantity.
+
+### A night whose cooler drifts across a degree stacks as several masters, and two filters of one target share a master file name
+
+`LightGroupKey` wraps `MasterGroupKey`, whose temperature is `CCD-TEMP` rounded to the degree, so
+`tianwen stack` partitions lights by that integer: the Great Orion Nebula session of 2025-10-15
+(SV605CC, 13.7 to 12.1 C over the night) came out as three masters of 49, 18 and 4 frames, each with
+its own reference frame and canvas, and the L-Ultimate Orion night beside it (6 to 8 C) as three more.
+Nothing downstream can put those back together, since the references differ. Found 2026-09-07 when
+E2.10 needed one manifest for one night (`docs/plans/deconvolver-training.md`, E2.10a).
+
+**Fixed as an opt-in.** `--group-temp-tolerance <C>` (`StackingOptions.LightGroupTemperatureToleranceC`,
+default 0 so every existing invocation groups exactly as before) sorts a target's frames by temperature
+and cuts only where consecutive readings are further apart than the tolerance, so a drift stays whole
+and a different night's 8 C still separates; the cluster's key carries its rounded median temperature
+for the dark match and the slug. The default is not changed because the rounding is also what pairs a
+group with a dark at its temperature, and a wider default would silently widen every dark match.
+
+**Still open: the LIGHT slug carries no filter.** `MasterGroupKey.Slug` appends the filter only for
+flats, so two light groups that differ ONLY by filter (same object, exposure, temperature, gain) map to
+one file name, `master_<object>_light_<exp>s_<T>C_g<gain>.fits`, and the second overwrites the first
+in one run. The grouping itself is correct (the filter is in the KEY); only the name collides, and a
+`--group-filter` cannot separate them either. Adding the filter to the light slug changes every light
+master's file name, so it is recorded rather than done here.
+
+### The per-sub width in the PSF store is the registration detector's, and on an OSC frame it does not read seeing
+
+`SessionPsf.SubFwhm` (and the quality gate's `FrameMetrics.MedianFwhm`) come from the one detect site,
+`FrameRegistration.DetectAsync`, which measures on the PRE-DEBAYER mosaic through the mono path, for
+registration reasons that stand (a debayered plane manufactures spurious detections; the mosaic keeps
+the choice filter-independent). As a WIDTH on an OSC frame that measure reads a floor: on the Great
+Orion Nebula 2025-10-15 night every sub reads exactly 1.70 px there, the sharp ones and the one both
+debayers put at 2.8 to 2.9 px, while the store holds 1.71 to 2.60 for the same subs, which is that
+floor plus what the 2000-star retry does to a median. The debayered GREEN plane's bright-star fit
+ranks the same six subs 1.7 to 2.5 px in the order the sky did. Found 2026-09-07 when a seeing split
+ranked on the store put the night's softest frame in the sharp third
+(`docs/plans/deconvolver-training.md`, E2.10a); E2.9's air-mass slopes were computed on the same
+column and are withdrawn to inconclusive.
+
+**Two things it is not.** It is not a registration problem: the detector's positions are fine, and
+that is what it is for. And it is not a mono-camera problem: a mono frame has no mosaic and the width
+is a width. **Owed:** a `SubFwhmGreen` column from `PsfProfileFit` on the debayered green plane at the
+mosaic detections' positions (no second detection), filled by `--remeasure-subs`; until then, rank
+OSC subs on nothing in the store, and treat a per-channel width on a debayered OSC sub as a property
+of the interpolation (AHD and VNG disagree by two on red).
+
+**Corrected 2026-09-07 evening: the 1.70 is not the mono path's floor.** The unmoved detections of
+that night (residual warm pixels, half of every list) read FWHM 1.69 to 1.71 and HFD 1.70 to 1.71 on
+the mono plane, the stars 2.55 to 2.86 and 3.38 to 3.75; a median over such a list is the warm pixels'
+width, and that is what the store, the estimator and the gate reported for every sub. The mono path
+reads a star's width, widened by the fold; it is the LIST that is wrong (two entries down). The
+`SubFwhmGreen` column exists now, and its fit refuses on exactly the sessions whose lists are half warm
+pixels, so the owed item is the detector guard, not another column.
+
+### FIXED: the registration refiner averaged sensor-fixed detections into the shift, halving it under 5 px of drift (2026-09-07)
+
+`RegistrationRefiner` closes the sub-pixel residual the quad match leaves by pairing each detection
+with its nearest reference detection within 5 px and fitting a Procrustes over the pairs. A detection
+fixed to the sensor (a residual warm pixel: the Orion 2025-10-15 group's dark was a -5 C one under
+12 C lights, and the 2000-star retry lowers the detection threshold until it reaches them) is in both
+lists at the same raw position, so under the bulk affine it pairs with its own copy at a residual of
+minus the frame's drift, and a least-squares fit over stars and copies together lands between them.
+With half the list warm pixels the refined shift was half the bulk one on every frame within 5 px of
+the reference (frame 0036: -1.72 px for a true -3.57), the refine RMS read 0.9 to 1.9 px where it
+should read 0.3, and every stack of the night sat at 2.7 px on green from subs of 1.7 to 2.5: a sum of
+frames each misplaced by half its own drift, which grows with the frame count and looked like a
+resampling cost. The bulk quad solution (RANSAC over the brightest quads) was right throughout.
+
+Fixed by `UnmovedTolerancePx`: a pair whose raw positions coincide within 0.35 px while the bulk
+affine moved the detection by more than 0.7 px is dropped and counted (`N unmoved dropped` in the
+register log). **What remains:** a frame that drifted under 0.7 px cannot be separated by position,
+keeps them, and is biased by up to half its drift; and the count is a calibration diagnostic in its own
+right (hundreds a frame mean the dark did not match). The measurement, the three probes and the
+pre-registered validation: `docs/plans/deconvolver-training.md`, E2.10a, "the third finding placed".
+Every master stacked before the fix from a well-guided night with residual warm pixels carries this
+blur, the retained dataset masters included.
+
+### A single warm photosite passes the star detector on an OSC mosaic
+
+On an RGGB frame `Image.FindStarsAsync` measures on a `BilinearMono` fold of the mosaic, which turns one
+hot photosite into a 2 by 2 blob of a quarter of its excess; that blob has an HFD near 1 px and passes
+the detector's size floor (`HFD > 0.8`, "at least 2 pixels in size"), so a residual warm pixel is a star
+to every consumer of the list: the registration (fixed above, downstream of it), the quality gate's HFD
+and FWHM medians and the reference pick, the PSF store's per-sub fit (`SubFwhmGreen` refused on 0 of
+60, 78 and 84 subs of the three warmest SV605CC sessions, against 42 to 100 percent elsewhere), and
+the plate solver's candidate list. The 2000-star retry makes it worse: on a field with 700 real stars
+it lowers the threshold until warm pixels fill the list. **Owed:** a guard in the RGGB branch of
+`DetectStarsAsync` on the raw mosaic (a detection whose flux sits in one photosite is not a star),
+pre-registered and measured on the Orion night's moved and unmoved populations before it ships,
+because it touches every consumer of the star list and the fixtures pin star counts. **Shipped the
+same evening** (`Image.SinglePhotositeFractionMax`, 0.85): the real RGGB fixture loses 1.2 percent of
+its detections, all of them the narrow spikes; on the Orion frames the lists halve and the unmoved
+pairs fall from hundreds to a handful. **The store re-measure with the guarded detector (79 sessions,
+8,507 subs, 96 minutes, the same evening) gave two of the three sessions their green fits back and
+not the third:** Orion L-Quad 2025-10-15 fits 55 of 68 (green 1.82 / 2.17 / 2.46 px at p10 / p50 /
+p90, the widest within-night spread in the archive at 1.36), Orion L-Ultimate 2025-10-14 64 of 77,
+Tarantula L-Ultimate 2025-10-14 still 0 of 84; the archive's green fit fraction moved 73 to 74
+percent (5,987 of 8,037), E2.9's slopes are unchanged (1 of 78 sessions at a 1.3x air-mass span),
+and E2.10's candidate list grew from 14 to 19 with the Orion L-Quad night now its best pair (1.89
+against 2.38 px, 1.26x). **What the third session shows, measured on its own subs
+(`ReportWhyTheGreenFitRefusesASessionsSubs`, `C:/temp/e2/green-fit-refusals-tarantula-*.txt`):** a
+population the 0.85 guard does not reach. On that night (sensor 12.7 to 9.0 C, no dark warmer than
+-5 C) the fit refuses `PoorFit` at a log residual of 0.5 to 1.0 on the warm early subs and passes at
+0.26 to 0.31 once the sensor has cooled, raw or calibrated alike; the stacked profile it refused is a
+spike (0.04 of peak at 0.9 px against 0.21 on a passing sub) with a bump at 1.5 px, which is a hot
+photosite as VNG renders it on the green plane, not a star. The detections the guard KEPT split by
+their peak-photosite share into a class under 0.5 (about 1,000 to 1,200 a frame, stable through the
+night: the stars) and a class between 0.5 and 0.85 (2,260 on the 12.7 C sub, 1,076 at 9.0 C: warm
+pixels whose eight neighbours' noise pulls the share under the threshold, and pairs). The cooled
+sister night (-10 C) carries as many of the second class and fits anyway, because there they are
+faint; at 12.7 C they are an order of magnitude brighter and the profile fit stacks its 400 brightest
+by PEAK over the signal floor, so they fill it. The single-photosite guard was measured on the
+unmoved-versus-moved pairing, which admits only detections bright enough to pair, so this faint
+class never entered the measurement. **Owed:** a guard that is noise-aware (the neighbours'
+background-subtracted sum against their noise, not a fixed share), or the fit's stack ranked by flux
+rather than peak, or both; pre-register with the share classes above as the readout, on this night,
+its cooled sister and an Orion warm night (where the class is 15 to 53 a frame on L-Quad and 103 to
+142 on L-Ultimate).
+
+### A `--manifest` stack's output manifest re-lists the whole group, not the frames it stacked
+
+`tianwen stack --manifest <third>` integrates only the manifest's frames (`STACK_N` 79 and 80 on
+E2.10b's thirds of a 244-frame group, 2026-09-07) but writes an output manifest listing all 244, and
+its progress counters count the group ("register 88/244"). Read `STACK_N` or the log's "N/N matched"
+line for what a filtered stack contains, never its manifest's frame count. Cosmetic, and owed: the
+written manifest should be the stacked set, since a downstream split reads it.
+
+### A stacked master is its subs plus the warp kernel's own blur, and bilinear costs about a pixel of FWHM in quadrature at 2 px seeing
+
+Every frame but the reference is resampled onto the reference grid (`Image.WarpToReferenceGridAsync`),
+and until R1 the kernel was bilinear and only bilinear: a triangle of unit base, whose variance at a
+fractional phase is phase times one minus phase per axis, 0.25 px squared at half phase. Measured star
+by star on the Orion 2025-10-15 night (`docs/plans/deconvolver-training.md`, "the third finding
+placed"): a master is the MEAN of its warped frames to 0.3 percent, so the combine adds nothing, and
+the frames at fractional shifts read 2.4 to 2.7 px where the frames at integer shifts (the reference,
+and one whose drift happened to be near-integer) read their subs' 2.15. On a synthetic 2.15 px star a
+half-pixel shift adds 1.15 px of FWHM in quadrature under bilinear and 0.00 under Lanczos-3
+(`WarpInterpolationTests`). **What follows:** every master built before R1 carries it, the retained
+dataset masters and the deconvolver's training targets included; a seeing-split pair cannot be built
+from masters whose width does not follow their inputs; and a drizzle master has its own pixel-kernel
+cost, measured 4 to 9 percent apart from a staged one before either registration fix.
+`--warp-interpolation Lanczos3` is opt-in while its ringing on real frames is measured (R1); the
+default flip changes every master and is the user's decision.
+
+### FIXED (E1g-2, 2026-09-07): the star profile fit refused a SHARP master, because a Gaussian core with a faint wing is not a Moffat
+
+**Fixed the same evening by fitting the CORE** (`PsfProfileFit.CoreFitFloor`: bins above two percent
+of the peak, about two FWHM) and reporting the wing beside it (`Result.WingAt2Fwhm`, `WingAt3Fwhm`, the
+profile's own value). Every refused profile returns (the R1 Lanczos master 2.32 px, the two-frame
+stack 2.20, the VNG subs 1.73 to 1.90), every accepted width is unchanged to the hundredth, and the
+exponents rose by one to three everywhere because the wing bins had been pulling them down. **What
+remains:** above an exponent of about six the core cannot tell exponents apart (a beta-7 synthetic
+reads 10.7), so a high beta means "Gaussian-cored" and the wing number carries the rest; and the
+store's `MoffatBeta` column and E0's beta statistics were measured with the wing in the fit, so they
+are a different quantity from a post-E1g-2 value until the masters are re-measured. The history:
+
+`PsfProfileFit` stacks bright isolated stars after a per-star annulus background, then fits a Moffat in
+LOG space, equal weight per quarter-pixel bin, over every bin above 0.2 percent of the peak out to 12
+px, with the width fixed at the stacked profile's half maximum and only the exponent searched; it
+refuses above a log residual of 0.5. A sharp stacked star (the R1 Lanczos master at 2.3 px, a two-frame
+stack, a VNG sub at 1.8 px) is Gaussian to within 0.02 at every bin out to 2 px and then carries a
+faint wing of half a percent to two percent from 3 to 5 px. No Moffat with that half-maximum width
+follows both: the exponent that reaches the wing overshoots the core (0.159 where the profile has
+0.106 at 2.1 px), the one that fits the core has no wing, and with two dozen equal-weight bins in log
+space across three decades the search settles between them at 0.77 to 0.83 and refuses. A blurrier
+master sits closer to the Moffat family and passes (the bilinear twin at 2.47 px, beta 3.9; the whole
+night, 2.61, beta 4.6). **So the fit refuses sharp inputs systematically, which is the estimator step
+refusing the frames the deconvolver most wants to measure**, and the betas it accepts on blurrier
+masters lean the same way. It was first read as far-wing background residue (a floor relative to the
+profile's outer level was built and withdrawn within the hour: the annulus already leaves the outer bins
+at 0.03 to 0.07 percent, and the relative floor turned a detached halo's `PoorFit` into
+`TooFewFitBins`); the fit's `Diagnostics` now carry the stacked profile, so the shape is read rather
+than inferred. **The fix (E1g-2 in `docs/plans/deconvolver-training.md`)** is the log fit over the
+bins above 2 percent of the peak (`PsfProfileFit.CoreFitFloor`, about 2 FWHM) with the wing reported
+beside it (`Result.WingAt2Fwhm` / `WingAt3Fwhm`). On the sharp masters every refused profile returns
+with the accepted widths unchanged to the hundredth; over E1e's 180 oracle rows the fit's own
+refusals fell from nine entries to one, though the row count only fell 30 to 25, because behind the
+shape refusal on the Eta Car 24 mm frame sits a star budget (the brightness band holds 38 / 10 / 2 / 0
+stars at 1 / 2 / 3 / 4 px of injected blur), which no fit cures.
 
 ## GPU / rendering
 

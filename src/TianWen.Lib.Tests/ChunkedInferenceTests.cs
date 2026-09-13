@@ -34,6 +34,28 @@ public class ChunkedInferenceTests
         first.Data[32].ShouldBe((float)w);         // plane[1,0]
     }
 
+    [Theory]
+    [InlineData(300, 200, 128, 32)]
+    [InlineData(1024, 768, 256, 64)]
+    [InlineData(100, 100, 256, 64)]
+    public void Layout_IsTheGridSplitCuts(int width, int height, int chunkSize, int overlap)
+    {
+        // A caller computing a per-chunk quantity BEFORE the split (D1's per-tile psf01) indexes the
+        // layout and hands the values to the inference loop by index, so the two must be the same
+        // rectangles in the same order, and Split is built on Layout to make that so; this is the check
+        // that a later edit to one of them did not quietly make it two.
+        var plane = new float[width * height];
+        var layout = ChunkedInference.Layout(width, height, chunkSize, overlap);
+        var chunks = ChunkedInference.Split(plane, width, height, chunkSize, overlap);
+
+        chunks.Length.ShouldBe(layout.Length);
+        for (var i = 0; i < layout.Length; i++)
+        {
+            (chunks[i].X, chunks[i].Y, chunks[i].Width, chunks[i].Height, chunks[i].IsEdge)
+                .ShouldBe((layout[i].X, layout[i].Y, layout[i].Width, layout[i].Height, layout[i].IsEdge));
+        }
+    }
+
     [Fact]
     public void Split_RoundTripsThroughStitchWhenInferenceIsIdentity()
     {

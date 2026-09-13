@@ -452,8 +452,16 @@ namespace TianWen.Lib.Tests
             var degraded = ReadTile(draw);
             var clean = ReadTile(nightA);
 
-            // Same scene: the draw is that night with noise added, so it tracks it almost exactly.
-            Pearson(degraded, clean).ShouldBeGreaterThan(0.95);
+            // Same scene: the draw is that night with INDEPENDENT noise added and nothing else, so its
+            // correlation with the night is exactly sqrt(var(night) / var(draw)), no free parameter.
+            // This used to be a fixed 0.95, which held only while the bilinear warp had halved the
+            // night's own noise at a half-pixel phase (Lanczos-3 keeps it, and the honest number on this
+            // scene is 0.93); the expectation is the statement the test makes, the threshold was not.
+            var expected = Math.Sqrt(Variance(clean) / Variance(degraded));
+            var pearson = Pearson(degraded, clean);
+            output.WriteLine($"pearson {pearson:F4}, expected for independent added noise {expected:F4}");
+            pearson.ShouldBe(expected, tolerance: 0.02);
+            pearson.ShouldBeLessThan(0.99, "a draw that is the night itself has no noise added");
             // And noisier: at one times the night's own measured noise the input sits at sqrt(2) of it,
             // which a pixel-to-pixel difference sees and a correlation does not.
             var noisier = AdjacentSigma(degraded) / AdjacentSigma(clean);
@@ -552,6 +560,18 @@ namespace TianWen.Lib.Tests
             }
             Array.Sort(diffs);
             return diffs[diffs.Length / 2] * 1.4826 / Math.Sqrt(2);
+        }
+
+        private static double Variance(float[] a)
+        {
+            double s = 0, ss = 0;
+            for (var i = 0; i < a.Length; i++)
+            {
+                s += a[i];
+                ss += a[i] * (double)a[i];
+            }
+            var n = a.Length;
+            return (ss / n) - ((s / n) * (s / n));
         }
 
         private static double Pearson(float[] a, float[] b)

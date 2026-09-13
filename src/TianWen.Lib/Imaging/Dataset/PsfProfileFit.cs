@@ -25,9 +25,30 @@ namespace TianWen.Lib.Imaging.Dataset
         /// <summary>Radial bins, i.e. profile sampled out to <c>Bins * BinWidth</c> = 12 px.</summary>
         private const int Bins = 48;
 
-        /// <summary>Below this the stacked profile is background residue, not signal, and including
-        /// it would let the noise floor drive a log-space fit.</summary>
-        private const double NoiseFloor = 0.002;
+        /// <summary>
+        /// The Moffat is fitted over the bins where the stacked profile is above this fraction of the
+        /// peak, about two FWHM: the core, which is what a deconvolution kernel is built from. The
+        /// fainter wing is reported beside it (<see cref="Result.WingAt2Fwhm"/>,
+        /// <see cref="Result.WingAt3Fwhm"/>) rather than fitted.
+        /// </summary>
+        /// <remarks>
+        /// <para>Until E1g-2 (2026-09-07) the fit ran over every bin above 0.2 percent of the peak, out to
+        /// 12 px, equal weight per bin in log space, and it REFUSED every sharp input: the R1 Lanczos
+        /// master at 2.3 px (log rms 0.83), a two-frame stack (0.76), a VNG sub at 1.8 px (0.77). Their
+        /// stacked star is Gaussian to within 0.02 at every bin out to 2 px and then carries a wing of
+        /// half a percent to two percent from 3 to 5 px, and no Moffat with the half-maximum width fixed
+        /// follows both across three decades: the exponent that reaches the wing overshoots the core
+        /// (0.159 where the profile has 0.106 at 2.1 px), the one that fits the core has no wing, and
+        /// the search settled between them. Blurrier masters sit closer to the family and passed, so
+        /// the estimator step was refusing exactly the frames the deconvolver most wants to measure,
+        /// and the exponents it accepted leaned toward the wing. A floor relative to the profile's own
+        /// outer level was tried first and withdrawn within the hour (E1g): the per-star annulus already
+        /// leaves the outer bins at 0.03 to 0.07 percent, so it changed no bin, and on a detached halo
+        /// it turned a <see cref="Refusal.PoorFit"/> into <see cref="Refusal.TooFewFitBins"/>. The
+        /// <see cref="Diagnostics.Profile"/> is exposed so the shape is read rather than inferred.
+        /// docs/plans/deconvolver-training.md, E1g and E1g-2.</para>
+        /// </remarks>
+        private const double CoreFitFloor = 0.02;
 
         /// <summary>
         /// Largest log-space residual a reported Moffat may have. Above it <see cref="Measure"/>
@@ -64,17 +85,110 @@ namespace TianWen.Lib.Imaging.Dataset
         /// comparison. Moffat winning by a wide margin is the expected result; the two being close
         /// would mean this frame really is Gaussian-cored.</param>
         /// <param name="StarsStacked">How many stars went into the stack.</param>
+        /// <param name="WingAt2Fwhm">The stacked profile at two FWHM from the centre, as a fraction of
+        /// the peak (interpolated between bins; NaN beyond the sampled 12 px). The wing the core fit does
+        /// not reach: a Gaussian of the same width would put 6e-5 here, a beta-4 Moffat 0.7 percent.</param>
+        /// <param name="WingAt3Fwhm">The same at three FWHM.</param>
         public sealed record Result(
             double Fwhm,
             double MoffatBeta,
             double MoffatLogRms,
             double GaussianLogRms,
-            int StarsStacked);
+            int StarsStacked,
+            double WingAt2Fwhm = double.NaN,
+            double WingAt3Fwhm = double.NaN);
+
+        /// <summary>How the stars to stack are chosen from the detections.</summary>
+        public enum StarSelection
+        {
+            /// <summary>The 55th to 75th percentile of the frame's own peak distribution, brightest first
+            /// up to the cap. The archive survey (E0) was measured with this and it stays the default.</summary>
+            PercentileBand,
+
+            /// <summary>Every star whose peak stands at least <see cref="SignalFloorMads"/> background
+            /// MADs over the frame median, excluding the brightest percent as a clipping guard, brightest
+            /// first up to the cap. The E1c probe found the percentile band is what refuses a RICH field:
+            /// with 4,600 to 7,000 detections the 60th-percentile star is faint, its wings reach the noise
+            /// floor within a few pixels, and the log-space fit over the remaining 15 to 28 bins reads a
+            /// residual of 0.76 to 1.29 where a healthy fit reads 0.07 to 0.22. An absolute floor stacks
+            /// the same bright isolated stars on a rich field as on a sparse one.</summary>
+            SignalFloor,
+        }
+
+        /// <summary>The <see cref="StarSelection.SignalFloor"/> bar, in background MADs over the frame
+        /// median. Fifty is ten times the detector's floor and, on the archive's masters, keeps a star's
+        /// wings above the profile's own noise floor out to the radii the fit needs; chosen, not tuned.</summary>
+        public const double SignalFloorMads = 50.0;
+
+        /// <summary>Why <see cref="Measure(Image, int, IReadOnlyCollection{ImagedStar}, out Diagnostics, int, StarSelection)"/>
+        /// answered null, in the order the checks run. <see cref="None"/> is a measurement.</summary>
+        public enum Refusal
+        {
+            /// <summary>A profile was fitted and reported.</summary>
+            None,
+
+            /// <summary>Fewer than 40 stars were offered at all.</summary>
+            TooFewStars,
+
+            /// <summary>Fewer than 40 of the brightness band's stars survived the edge, isolation and
+            /// local-background checks to be stacked.</summary>
+            TooFewStacked,
+
+            /// <summary>The stacked profile never fell through half its peak inside the sampled radius.</summary>
+            NoHalfMaximum,
+
+            /// <summary>Fewer than eight radial bins sat above the noise floor, too few to fit a shape.</summary>
+            TooFewFitBins,
+
+            /// <summary>The best Moffat's log-space residual exceeded the acceptance bound, so no shape
+            /// describes the stack and the minimising beta would be an artefact.</summary>
+            PoorFit,
+        }
+
+        /// <summary>
+        /// What the measurement saw on the way to its answer, whichever way it went. Exists because the
+        /// null return said nothing for two years and then a deconvolution probe (E1b) found the fit
+        /// refusing half its rows on noisy narrowband frames with no way to say which of the five
+        /// checks was firing; the counts here are the ones each check tests.
+        /// </summary>
+        /// <param name="Refusal">Which check refused, or <see cref="Refusal.None"/>.</param>
+        /// <param name="StarsOffered">Stars handed in.</param>
+        /// <param name="InBrightnessBand">Stars inside the 55th to 75th percentile peak band.</param>
+        /// <param name="Stacked">Band stars that passed the edge, isolation and background checks and
+        /// were accumulated.</param>
+        /// <param name="FitBins">Radial bins above the noise floor the fit used, or 0 before that point.</param>
+        /// <param name="Fwhm">The stacked profile's half-maximum width, or NaN before that point.</param>
+        /// <param name="MoffatBeta">The best-fit exponent, whether or not it was accepted, or NaN before
+        /// that point.</param>
+        /// <param name="MoffatLogRms">That fit's log-space residual, or NaN before that point.</param>
+        /// <param name="Profile">The stacked profile itself, one median per quarter-pixel bin from the
+        /// centre out to 12 px, normalised to each star's peak, or null before it was stacked. What a
+        /// refusal was refusing, so a probe can print it beside the model.</param>
+        /// <param name="Floor">The level a bin had to clear to be fitted (the larger of the fixed floor and
+        /// the wing-residue multiple of the profile's outer level), or NaN before that point.</param>
+        /// <param name="FittedBins">The indices into <paramref name="Profile"/> the fit used, or null.</param>
+        public sealed record Diagnostics(
+            Refusal Refusal,
+            int StarsOffered,
+            int InBrightnessBand,
+            int Stacked,
+            int FitBins,
+            double Fwhm,
+            double MoffatBeta,
+            double MoffatLogRms,
+            double[]? Profile = null,
+            double Floor = double.NaN,
+            IReadOnlyList<int>? FittedBins = null)
+        {
+            /// <summary>Radial bin width in pixels of <see cref="Profile"/>.</summary>
+            public double BinWidthPx => BinWidth;
+        }
 
         /// <summary>
         /// Stacks the radial profiles of isolated, brightness-controlled stars and fits a Moffat to
         /// the result. Returns null when the frame cannot support a measurement (too few usable
-        /// stars, or a stack with no half-maximum crossing).
+        /// stars, or a stack with no half-maximum crossing); the overload with a
+        /// <see cref="Diagnostics"/> parameter says which.
         /// </summary>
         /// <remarks>
         /// <para><b>Brightness is controlled, and that is not optional.</b> Measured FWHM depends
@@ -105,6 +219,19 @@ namespace TianWen.Lib.Imaging.Dataset
             int channel,
             IReadOnlyCollection<ImagedStar> stars,
             int maxStars = 400)
+            => Measure(image, channel, stars, out _, maxStars);
+
+        /// <inheritdoc cref="Measure(Image, int, IReadOnlyCollection{ImagedStar}, int)"/>
+        /// <param name="diagnostics">What the measurement saw, and which check refused when it did.</param>
+        /// <param name="selection">Which stars are stacked; the percentile band unless a caller has a
+        /// reason (see <see cref="StarSelection.SignalFloor"/>).</param>
+        public static Result? Measure(
+            Image image,
+            int channel,
+            IReadOnlyCollection<ImagedStar> stars,
+            out Diagnostics diagnostics,
+            int maxStars = 400,
+            StarSelection selection = StarSelection.PercentileBand)
         {
             ArgumentNullException.ThrowIfNull(image);
             ArgumentNullException.ThrowIfNull(stars);
@@ -112,6 +239,7 @@ namespace TianWen.Lib.Imaging.Dataset
             var (_, width, height) = image.Shape;
             if (stars.Count < 40)
             {
+                diagnostics = new Diagnostics(Refusal.TooFewStars, stars.Count, 0, 0, 0, double.NaN, double.NaN, double.NaN);
                 return null;
             }
 
@@ -130,8 +258,19 @@ namespace TianWen.Lib.Imaging.Dataset
             // A band around the middle of the brightness distribution: bright enough that the
             // background residue is a small fraction of the peak, faint enough to be far from any
             // clipping, and populous enough to stack.
-            var lowPeak = Percentile(peaks, 0.55);
-            var highPeak = Percentile(peaks, 0.75);
+            float lowPeak;
+            float highPeak;
+            if (selection == StarSelection.SignalFloor)
+            {
+                var (frameMedian, frameMad) = FrameBackground(plane);
+                lowPeak = frameMedian + (float)(SignalFloorMads * frameMad);
+                highPeak = Percentile(peaks, 0.99);
+            }
+            else
+            {
+                lowPeak = Percentile(peaks, 0.55);
+                highPeak = Percentile(peaks, 0.75);
+            }
 
             var samples = new List<float>[Bins];
             for (var b = 0; b < Bins; b++)
@@ -208,6 +347,7 @@ namespace TianWen.Lib.Imaging.Dataset
 
             if (stacked < 40)
             {
+                diagnostics = new Diagnostics(Refusal.TooFewStacked, starArray.Length, candidates.Count, stacked, 0, double.NaN, double.NaN, double.NaN);
                 return null;
             }
 
@@ -222,23 +362,29 @@ namespace TianWen.Lib.Imaging.Dataset
             var fwhm = HalfMaximumWidth(profile, radii);
             if (double.IsNaN(fwhm) || fwhm <= 0)
             {
+                diagnostics = new Diagnostics(Refusal.NoHalfMaximum, starArray.Length, candidates.Count, stacked, 0, double.NaN, double.NaN, double.NaN);
                 return null;
             }
 
+            var floor = CoreFitFloor;
             var fitBins = new List<int>();
             for (var b = 0; b < Bins; b++)
             {
-                if (!double.IsNaN(profile[b]) && profile[b] > NoiseFloor)
+                if (!double.IsNaN(profile[b]) && profile[b] > floor)
                 {
                     fitBins.Add(b);
                 }
             }
             if (fitBins.Count < 8)
             {
+                diagnostics = new Diagnostics(Refusal.TooFewFitBins, starArray.Length, candidates.Count, stacked, fitBins.Count, fwhm, double.NaN, double.NaN, profile, floor, fitBins);
                 return null;
             }
 
             var (beta, moffatRms) = FitMoffatBeta(profile, radii, fitBins, fwhm);
+            diagnostics = new Diagnostics(
+                moffatRms > MaxAcceptableLogRms ? Refusal.PoorFit : Refusal.None,
+                starArray.Length, candidates.Count, stacked, fitBins.Count, fwhm, beta, moffatRms, profile, floor, fitBins);
             if (moffatRms > MaxAcceptableLogRms)
             {
                 // Refuse rather than report. The beta search is an exhaustive grid from 1 to 25, so a
@@ -258,7 +404,24 @@ namespace TianWen.Lib.Imaging.Dataset
                 return null;
             }
             var gaussRms = GaussianLogRms(profile, radii, fitBins, fwhm);
-            return new Result(fwhm, beta, moffatRms, gaussRms, stacked);
+            return new Result(fwhm, beta, moffatRms, gaussRms, stacked, ProfileAt(profile, 2 * fwhm), ProfileAt(profile, 3 * fwhm));
+        }
+
+        /// <summary>The stacked profile at radius <paramref name="r"/> px, interpolated linearly
+        /// between bin centres; NaN outside the sampled range or where a bin is empty.</summary>
+        private static double ProfileAt(double[] profile, double r)
+        {
+            var position = (r / BinWidth) - 0.5;
+            if (position < 0 || position >= profile.Length - 1)
+            {
+                return double.NaN;
+            }
+
+            var b = (int)position;
+            var t = position - b;
+            var lo = profile[b];
+            var hi = profile[b + 1];
+            return double.IsNaN(lo) || double.IsNaN(hi) ? double.NaN : lo + (t * (hi - lo));
         }
 
         private static bool IsIsolated(ImagedStar[] stars, int self, float sx, float sy)
@@ -445,6 +608,32 @@ namespace TianWen.Lib.Imaging.Dataset
             var copy = (float[])values.Clone();
             Array.Sort(copy);
             return copy[Math.Clamp((int)(copy.Length * p), 0, copy.Length - 1)];
+        }
+
+        /// <summary>Frame median and background MAD from every seventh finite pixel, which stars are
+        /// far too sparse to move; the <see cref="StarSelection.SignalFloor"/> bar is set from it.</summary>
+        private static (float Median, float Mad) FrameBackground(float[] plane)
+        {
+            var sample = new List<float>((plane.Length / 7) + 1);
+            for (var i = 0; i < plane.Length; i += 7)
+            {
+                if (float.IsFinite(plane[i]))
+                {
+                    sample.Add(plane[i]);
+                }
+            }
+            if (sample.Count == 0)
+            {
+                return (0f, 0f);
+            }
+
+            var median = Median(sample);
+            var deviations = new List<float>(sample.Count);
+            foreach (var v in sample)
+            {
+                deviations.Add(Math.Abs(v - median));
+            }
+            return (median, Median(deviations));
         }
     }
 }

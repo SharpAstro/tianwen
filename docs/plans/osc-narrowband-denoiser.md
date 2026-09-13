@@ -139,7 +139,7 @@ the apparent "inversion".
 
 Four code hypotheses falsified, recorded so they are not retried (detail in task #19):
 
-1. Per-channel flux banding (the original diagnosis). Fixed anyway in `069e5b14` and worth keeping,
+1. Per-channel flux banding (the original diagnosis). Fixed anyway in #172 ("the field-radius profile samples one star set, matched across channels") and worth keeping,
    since comparing channels measured on different star populations is not a comparison, but it moved
    the ratio only 2-5% and one train the wrong way.
 2. Nebulosity inflating the centre. Fields without bright extended emission invert as hard.
@@ -156,11 +156,11 @@ deconvolver that ignores it will be wrong about red on every fast rig.
 
 ### 1d. Two calibration fixes landed
 
-- **`c1079f4b`** flats take an exposure-matched dark-flat pedestal, bias as the fallback, with
+- **#172 "flats take an exposure-matched dark-flat pedestal, bias as the fallback"**, with
   mislabeled short darks rescued by a 4x exposure-ratio gate (the archive's dark-flats are written
   `IMAGETYP=DARK`, and the re-bake log shows 68/68 sessions were on bias pedestals with zero
   DARKFLAT-labeled frames).
-- **`ad08d4fc`** ranks pedestal candidates by the error they LEAVE, `|t_c * 2^(dT/6) - t_f|` in
+- **#172 "rank flat pedestals by the error they leave"** ranks pedestal candidates by the error they LEAVE, `|t_c * 2^(dT/6) - t_f|` in
   seconds of the flat's own thermal signal, instead of adding degrees to seconds with an arbitrary
   weight. A bias scores exactly `t_flat`, so the preference order falls out of the physics including
   where it inverts (one doubling, ~6 C). A light-dark is never scaled onto a flat: it fails the gate
@@ -168,7 +168,7 @@ deconvolver that ignores it will be wrong about red on every fast rig.
 
 ### 1e. The field-radius profile now samples one star set
 
-**`069e5b14`**: bins come from stars matched across every channel by centroid (1 px radius against a
+**#172 "the field-radius profile samples one star set, matched across channels"**: bins come from stars matched across every channel by centroid (1 px radius against a
 0.064 px median inter-channel shift), banded on a single reference flux (green on a 3-channel
 master). Records carry `RadiusSampling = "common-stars"`; all 67 sessions re-measured via
 `--force-psf` from retained masters in about 6 minutes, tiles untouched.
@@ -212,13 +212,13 @@ fit against a healthy census (67 median stars, HFD 1.89, ecc 0.46). Known, and n
 `stats/skipped-sessions.jsonl` rather than a rediscovery.
 
 **What this run could NOT answer, which is the more useful result.** The dark-flat pedestal path
-(`c1079f4b`, `ad08d4fc`) fired here for the first time, because the reorganisation files
+(the two #172 pedestal commits above) fired here for the first time, because the reorganisation files
 calibration on `(date, gain, offset, exposure)` and so separates the dark-flats that used to hide
 inside folders named `DARK`. Whether any flat actually took a dark-flat pedestal is **not
 recoverable from any artifact**: not the master header, not `psf-sessions.jsonl`, not
 `session-timings.jsonl`, not `tiles-manifest.jsonl`. A behaviour change shipped and cannot be
 observed. Task #39, and the same class as the timing store that persisted the figures it existed
-to derive (`8ff20d36`).
+to derive (#172).
 
 Two smaller defects found in the report itself, both in #39: the noise-floor summary table
 formats at three decimals over values of ~4e-5 and so prints `0.000` across every percentile, and

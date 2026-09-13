@@ -8,9 +8,18 @@ namespace TianWen.Lib.Imaging.Degradation
     /// A normalised 2D point-spread kernel used to ADD blur to an already-linear frame, and the
     /// convolution that applies it. This is the degradation side of the deconvolver programme
     /// (docs/plans/deconvolver-training.md section 2): a training pair is made by blurring a sharp
-    /// master, so the kernel here is the EXTRA blur, never the frame's total PSF. Two Gaussians of
-    /// FWHM a and b compose to sqrt(a^2 + b^2), so a master whose stars measure 2.8 px convolved with
-    /// a 3.0 px kernel lands at 4.1 px, and it is the 3.0 that is drawn and labelled.
+    /// master, so the kernel here is the EXTRA blur, never the frame's total PSF. It is the kernel's
+    /// width that is drawn and recorded; what the convolution does to a star is
+    /// <see cref="MoffatComposition"/>'s business, and two rules from measuring it (2026-09-07,
+    /// deconvolver-training.md E1b and E1d) bear on any reading of that width. A quadrature of FWHMs
+    /// is the Gaussian rule and over-reads a Moffat difference kernel by up to a quarter; compose
+    /// instead. And <b>the weights are the profile sampled at pixel CENTRES</b>, so a kernel narrower
+    /// than about 1.5 px does not blur by its label: a nominal 1 px beta-4 Moffat puts 65 percent of its
+    /// mass in one pixel and widens a 2.15 px core as a 0.73 px continuous kernel would, and a nominal
+    /// 0.5 px kernel is a near-delta. From 2 px up the label holds to within three percent. The width
+    /// this kernel is actually worth on a given core is
+    /// <see cref="MoffatComposition.EffectiveKernelFwhm"/>; read an estimate of the applied blur
+    /// against that, never against <see cref="Fwhm"/> below 2 px.
     ///
     /// <para><b>The Moffat convention is <see cref="PsfProfileFit"/>'s</b>, so a drawn beta means what
     /// a measured beta means: the profile is <c>(1 + (r/alpha)^2)^-beta</c> with
@@ -256,6 +265,32 @@ namespace TianWen.Lib.Imaging.Degradation
                 }
             }
             return 2.0 * radius;
+        }
+
+        /// <summary>
+        /// The kernel rotated by 180 degrees, which is the adjoint a deconvolution's correction pass
+        /// convolves with (<c>P^T</c> in Richardson-Lucy's update).
+        /// </summary>
+        /// <remarks>
+        /// For every kernel this class can currently build the result equals the original, because a
+        /// Moffat or Gaussian weight depends on the SQUARES of the rotated offsets and is therefore
+        /// centrally symmetric however it is elongated or rotated. It is built anyway rather than
+        /// short-circuited, because the adjoint is what the mathematics asks for and the cost is one
+        /// array reverse at setup. `PsfKernelTests` pins the equality, so a future asymmetric kernel
+        /// (a measured PSF, a motion smear) turns this from a no-op into a correction rather than
+        /// silently leaving every deconvolution using the wrong operator.
+        /// <para>Reversing a row-major square IS the 180 degree rotation: index <c>i</c> maps to
+        /// <c>n - 1 - i</c>, which negates both the row and the column offset from the centre.</para>
+        /// </remarks>
+        public PsfKernel Mirrored()
+        {
+            var mirrored = new float[_weights.Length];
+            for (var i = 0; i < _weights.Length; i++)
+            {
+                mirrored[i] = _weights[_weights.Length - 1 - i];
+            }
+
+            return new PsfKernel(Radius, mirrored, IsSeparable, Fwhm, Beta);
         }
 
         /// <summary>The weights as an immutable array, for a caller that wants to keep or compare one.</summary>

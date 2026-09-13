@@ -125,6 +125,140 @@ public partial class Image
     internal const float BilinearMonoGridOffset = 0.5f;
 
     /// <summary>
+    /// Share of a mosaic detection's background-subtracted 3 by 3 flux carried by its brightest photosite
+    /// above which it is a single warm photosite and not a star.
+    /// </summary>
+    /// <remarks>
+    /// <para>The mono fold turns one hot photosite into a 2 by 2 blob of a quarter of its excess, which has
+    /// an HFD near 1 px and passes the size floor below, so on a frame whose dark left its warm pixels in
+    /// (a -5 C dark under 12 C lights on the Orion 2025-10-15 night) half of every list was warm pixels.
+    /// Every median over such a list (the quality gate's, the PSF store's, the estimator's) read their
+    /// width, 1.70 px, for every sub; the registration refiner paired each with its own copy in the
+    /// reference and halved every frame's shift; the green profile fit refused all 60 subs.</para>
+    /// <para>Measured on that night's frames, on the calibrated mosaic (a star's flux is spread over its
+    /// photosites, a warm pixel's is not): the detections that did not move between frames carry 0.92 /
+    /// 0.97 / 0.99 of their 3 by 3 flux in the peak photosite at p10 / p50 / p90, the stars 0.15 to 0.18 /
+    /// 0.28 to 0.31 / 0.37 to 0.41, with no overlap on any of five frames. A star cannot reach this
+    /// threshold unless it is undersampled to well under a pixel AND centred on a photosite (0.65 to 0.75
+    /// at a 0.9 px FWHM), and a spike falls under it only when it is faint enough for its eight
+    /// neighbours' noise to carry a third of the sum (about 0.6 at an SNR of 5). The size floor could not
+    /// do this job: on that night the two populations sat at 1.70 and 2.6 px, on a finer-sampled night
+    /// they overlap. Design and numbers: docs/plans/deconvolver-training.md, E2.10a, "the third finding
+    /// placed"; docs/known-limitations.md, "A single warm photosite passes the star detector".</para>
+    /// </remarks>
+    internal const float SinglePhotositeFractionMax = 0.85f;
+
+    /// <summary>
+    /// The share of a detection's background-subtracted 3 by 3 flux carried by its brightest photosite, on
+    /// the raw mosaic, or NaN where the 9 by 9 window leaves the frame or holds no signal above the
+    /// background. The background is the median of the 9 by 9 ring outside the 5 by 5; the peak is the
+    /// brightest photosite of the 3 by 3 about the rounded centroid (a centroid can sit between photosites)
+    /// and the 3 by 3 is taken about IT.
+    /// </summary>
+    internal static float PeakPhotositeFraction(float[,] mosaic, float xCentroid, float yCentroid)
+    {
+        var height = mosaic.GetLength(0);
+        var width = mosaic.GetLength(1);
+        var cx = (int)MathF.Round(xCentroid);
+        var cy = (int)MathF.Round(yCentroid);
+        if (cx < 5 || cy < 5 || cx >= width - 5 || cy >= height - 5)
+        {
+            return float.NaN;
+        }
+
+        Span<float> ring = stackalloc float[56];
+        var ringCount = 0;
+        for (var dy = -4; dy <= 4; dy++)
+        {
+            for (var dx = -4; dx <= 4; dx++)
+            {
+                if (Math.Abs(dx) > 2 || Math.Abs(dy) > 2)
+                {
+                    var v = mosaic[cy + dy, cx + dx];
+                    if (!float.IsNaN(v))
+                    {
+                        ring[ringCount++] = v;
+                    }
+                }
+            }
+        }
+
+        if (ringCount == 0)
+        {
+            return float.NaN;
+        }
+
+        ring = ring[..ringCount];
+        ring.Sort();
+        var background = ring[ringCount / 2];
+
+        var px = cx;
+        var py = cy;
+        var peak = float.MinValue;
+        for (var dy = -1; dy <= 1; dy++)
+        {
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                var v = mosaic[cy + dy, cx + dx];
+                if (v > peak)
+                {
+                    peak = v;
+                    px = cx + dx;
+                    py = cy + dy;
+                }
+            }
+        }
+
+        var sum = 0f;
+        for (var dy = -1; dy <= 1; dy++)
+        {
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                var v = mosaic[py + dy, px + dx] - background;
+                if (v > 0f)
+                {
+                    sum += v;
+                }
+            }
+        }
+
+        return sum > 0f ? (peak - background) / sum : float.NaN;
+    }
+
+    /// <summary>
+    /// <paramref name="stars"/> without the detections that are a single warm photosite on
+    /// <paramref name="mosaic"/> (<see cref="SinglePhotositeFractionMax"/>). The star mask is kept as it
+    /// is: it indexes the pixels the measurement ran on, and a spike's stamp excluded from the background
+    /// estimate is right.
+    /// </summary>
+    private static StarList WithoutSinglePhotositeSpikes(StarList stars, float[,] mosaic, ILogger? logger)
+    {
+        var kept = new ConcurrentBag<ImagedStar>();
+        var dropped = 0;
+        foreach (var star in stars)
+        {
+            if (PeakPhotositeFraction(mosaic, star.XCentroid, star.YCentroid) > SinglePhotositeFractionMax)
+            {
+                dropped++;
+            }
+            else
+            {
+                kept.Add(star);
+            }
+        }
+
+        if (dropped == 0)
+        {
+            return stars;
+        }
+
+        logger?.LogDebug(
+            "Image.FindStarsAsync: dropped {Dropped} of {Total} mosaic detections as single warm photosites (peak photosite share over {Max:F2})",
+            dropped, stars.Count, SinglePhotositeFractionMax);
+        return new StarList(kept, stars.StarMask);
+    }
+
+    /// <summary>
     /// Ceiling on the FIRST detection pass, in multiples of the frame's noise level.
     /// </summary>
     /// <remarks>
@@ -244,7 +378,7 @@ public partial class Image
             // solver-built WCS is expressed in them).
             var monoImage = await DebayerAsync(DebayerAlgorithm.BilinearMono, cancellationToken: cancellationToken);
             var monoStars = await monoImage.FindStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, maxFirstPassNoiseSigma, logger, cancellationToken);
-            return monoStars.ShiftedBy(BilinearMonoGridOffset, BilinearMonoGridOffset);
+            return WithoutSinglePhotositeSpikes(monoStars.ShiftedBy(BilinearMonoGridOffset, BilinearMonoGridOffset), Planes[channel].Data, logger);
         }
 
         var bgStart = logger is not null ? Stopwatch.GetTimestamp() : 0L;

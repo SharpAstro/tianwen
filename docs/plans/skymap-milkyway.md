@@ -35,7 +35,7 @@ rgb           = bv_to_rgb(weighted_mean_bv) * normalise(sqrt(visible))
 
 ## Implementation Status
 
-### ✅ Phase 1: Shader + Full-Screen Quad (DONE, commit 412500b)
+### ✅ Phase 1: Shader + Full-Screen Quad (DONE, "Milky Way sky background, overlay improvements, RGBAColor32.FromFloat")
 
 - Pipeline: `_milkyWayPipeline` in `VkSkyMapPipeline`, inverse stereographic + equirectangular UV + additive blend
 - Push constant: `alpha` (sun altitude fade)
@@ -43,7 +43,7 @@ rgb           = bv_to_rgb(weighted_mean_bv) * normalise(sqrt(visible))
 - `[S]` key toggles `ShowMilkyWay`, FOV-dependent dimming for wide views
 - Texture loader: `SkyMapTab.TryLoadMilkyWayTexture` reads `milkyway.bgra.lz` next to executable, calls virtual `OnMilkyWayLoaded`
 
-### ✅ Phase 2: Texture Pipeline (DONE, commit 412500b)
+### ✅ Phase 2: Texture Pipeline (DONE, "Milky Way sky background, overlay improvements, RGBAColor32.FromFloat")
 
 - 8-byte header (int32 LE width + height) + raw BGRA, lzip-compressed
 - Shipped as `TianWen.UI.Gui/Resources/milkyway.bgra.lz` (~131 KB at 2048x1024)
@@ -138,7 +138,7 @@ dotnet run tools/generate_milkyway.cs -- --dust-opacity tools/data/dust_2048.f32
 ## Rationale
 
 - **Tycho-2 binning first** was the obvious win we were missing; we already
-  own the data. The analytical model that shipped in commit 412500b looks fake
+  own the data. The analytical model that shipped in "Milky Way sky background, overlay improvements, RGBAColor32.FromFloat" looks fake
   (smooth gradient); real Tycho-2 binning produces the mottled, structured
   appearance users expect, plus LMC/SMC visible for free.
 - **Planck dust separately** because the HEALPix reprojection is reusable

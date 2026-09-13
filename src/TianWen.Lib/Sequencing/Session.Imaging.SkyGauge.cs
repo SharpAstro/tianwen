@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Sequencing;
@@ -85,12 +86,9 @@ internal partial record Session
             ? Math.Pow(apertureMm / 50.0, 2.0)
             : 1.0;
 
-    /// <summary>Plane-parallel air mass (sec z) from topocentric altitude, capped below ~5 deg where it diverges.</summary>
-    internal static double AirmassFromAltitude(double altitudeDeg)
-    {
-        var alt = Math.Clamp(altitudeDeg, 5.0, 90.0);
-        return 1.0 / Math.Sin(alt * Math.PI / 180.0);
-    }
+    /// <summary>Plane-parallel air mass (sec z) from topocentric altitude, capped below ~5 deg where it
+    /// diverges. Forwards to <see cref="SiteContext.AirmassFromAltitude"/>, the one formula.</summary>
+    internal static double AirmassFromAltitude(double altitudeDeg) => SiteContext.AirmassFromAltitude(altitudeDeg);
 
     /// <summary>
     /// Builds a <see cref="NightSkyGauge"/> from an already-detected star count plus the field's

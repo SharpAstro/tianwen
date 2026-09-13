@@ -19,11 +19,19 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// widening HFD on the few stars that do detect. Independent of the
 /// <c>MinStarsForMatch</c> registration gate (that's an absolute
 /// floor; this is a relative-to-session-median outlier check).</param>
+/// <param name="FitFwhmGreen">The bright-star profile fit's FWHM on the debayered GREEN plane
+/// (channel 0 on a mono frame), in pixels, or NaN when the fit refused or was not taken. This is
+/// the per-frame width that reads SEEING: <paramref name="MedianFwhm"/> is the registration
+/// detector's statistic on the pre-debayer mosaic, and on an OSC frame it reads a floor of about
+/// 1.7 px whatever the sky did (a whole night at 1.70 while the green plane ran 1.7 to 2.5;
+/// docs/known-limitations.md). Not used by <see cref="FrameQualityFilter"/>, whose gate is
+/// relative within a session and stays on the detector's numbers.</param>
 public readonly record struct FrameMetrics(
     float MedianHfd,
     float MedianFwhm,
     float MedianEllipticity,
-    int StarCount);
+    int StarCount,
+    float FitFwhmGreen = float.NaN);
 
 /// <summary>
 /// Reason(s) a frame was kept or dropped by <see cref="FrameQualityFilter"/>.

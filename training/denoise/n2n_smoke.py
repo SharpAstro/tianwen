@@ -233,6 +233,37 @@ def choose(cells, n_train_sessions, n_val_sessions, cells_per_session, seed=42,
 
 
 # --------------------------------------------------------------------------- cache
+def load_psf01(root):
+    """psf01 per degraded tile, keyed by the tile's own relative path.
+
+    Read from `degradations.jsonl`, which `tianwen dataset degrade` writes beside the tile manifest.
+    Keyed on the PATH rather than on (session, cell, frame) because that tuple would have to be
+    re-derived here and the path is already the join key both files agree on.
+
+    Absent, null or star-less rows are dropped rather than defaulted. A missing label is not a zero:
+    the exporter writes null exactly when its estimator found no stars and fell back to a constant
+    radius, and training on that constant would condition the model on a number nothing measured.
+    """
+    path = os.path.join(root, "degradations.jsonl")
+    if not os.path.exists(path):
+        return {}
+
+    out = {}
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+
+            row = json.loads(line)
+            value = row.get("Psf01Estimated")
+            if value is None or not np.isfinite(value):
+                continue
+
+            out[row["Tile"]] = float(value)
+    return out
+
+
 def prepare(args):
     cells = load_cells(args.root, args.manifest)
     cells = drop_foreign_channel_sessions(args.root, cells)
@@ -257,6 +288,10 @@ def prepare(args):
     mm = np.memmap(path, dtype=np.float16, mode="w+",
                    shape=(n, SLOTS_WITH_HALVES, CH, TILE, TILE))
     halves = []
+    # The deconvolver's conditioning label, per (cell, sub slot). NaN means "no label", which is a
+    # state the trainer has to see rather than a zero it would silently condition on.
+    psf01_by_tile = load_psf01(args.root)
+    psf01 = np.full((n, SUBS_PER_CELL), np.nan, dtype=np.float32)
 
     def read_tile(rel):
         with open(os.path.join(args.root, rel.replace("/", os.sep)), "rb") as fh:
@@ -271,6 +306,8 @@ def prepare(args):
         paths = [entry["master"]] + sorted(entry["subs"])[:SUBS_PER_CELL]
         for slot, rel in enumerate(paths):
             mm[i, slot] = read_tile(rel)
+            if slot > 0 and rel in psf01_by_tile:
+                psf01[i, slot - 1] = psf01_by_tile[rel]
         pair = has_halves(entry)
         halves.append(pair)
         if pair:
@@ -297,17 +334,89 @@ def prepare(args):
         os.path.basename(rel).rsplit("_", 1)[-1].startswith("deg")
         for key in keys for rel in cells[key]["subs"][:SUBS_PER_CELL])
     print(f"  sub slots: {'INJECTED draws' if injected else 'real subs' if has_subs else 'EMPTY (a pair cache: train with --half-only)'}")
+
+    labelled = int(np.isfinite(psf01).sum())
+    if labelled:
+        np.save(os.path.join(args.cache, "psf01.npy"), psf01)
+        finite = psf01[np.isfinite(psf01)]
+        print(f"  psf01 labels: {labelled}/{psf01.size} degraded slots, "
+              f"p5 {np.quantile(finite, 0.05):.3f} p50 {np.quantile(finite, 0.5):.3f} "
+              f"p95 {np.quantile(finite, 0.95):.3f}")
+    else:
+        # Said out loud rather than left to be discovered at train time, because a deconvolution arm
+        # launched against an unlabelled cache would fall back to the noise plane and train something
+        # nobody asked for.
+        print("  psf01 labels: NONE (no degradations.jsonl, or no row carried a measured label)")
+
     meta = {
         "cells": n, "slots": SLOTS_WITH_HALVES, "injected": bool(injected), "has_subs": bool(has_subs),
         "train_cells": len(train_keys), "val_cells": len(val_keys),
         "train_sessions": train_s, "val_sessions": val_s,
         "has_halves": halves,
+        "psf01_labels": labelled,
         "keys": [[k[0], k[1], k[2]] for k in keys],
     }
     with open(os.path.join(args.cache, "meta.json"), "w", encoding="utf-8") as fh:
         json.dump(meta, fh, indent=1)
     gb = os.path.getsize(path) / 2**30
     print(f"cached {n} cells ({gb:.2f} GiB) in {(time.perf_counter()-t0)/60:.1f} min -> {path}")
+    prepare_stars(args.cache, args.star_max)
+
+
+STARS_FILE = "stars.npy"
+EMPTY_FILE = "empty.npy"
+
+
+def prepare_stars(cache, max_per_tile=32):
+    """Write `stars.npy` beside the tiles: each cell's CLEAN target (slot 0) run through the gate's own
+    detector, so the star-term loss (--star-loss) and the gate see the same stars.
+
+    A separate stage from the tile packing, and re-runnable on an EXISTING cache (--prepare-stars),
+    because E2.8 has to train on the very cache E2.7 trained on: re-preparing would re-read 1.9 GiB
+    of tiles from the export and put an assumption ("the bytes came out the same") between the arm
+    and its paired control. This touches nothing but the new file.
+
+    Layout: float32 [cells, max_per_tile, 4] of (y, x, peak over median in MAD, valid), in CROPPED
+    coordinates (BORDER removed), which is the frame the loss and the gate both work in. The sidecar
+    `stars.json` records the detector bar and the selection rule so a later reader need not guess.
+    """
+    import n2n_deconv_gate as DG           # imported here: it imports this module back
+    import n2n_metrics as M
+    mm, meta = open_cache(cache)
+    n = meta["cells"]
+    out = np.zeros((n, max_per_tile, len(DG.STAR_TARGET_COLUMNS)), dtype=np.float32)
+    # The counterpart: as many EMPTY windows a tile as it has star targets (E2.8b arm N). Written
+    # beside the stars from the same pass, so the two files can never describe different tiles.
+    empty = np.zeros_like(out)
+    counts = []
+    empties = []
+    t0 = time.perf_counter()
+    for i in range(n):
+        t = crop(np.asarray(mm[i, SLOT_MASTER], dtype=np.float32)).mean(axis=0)
+        med = float(np.median(t))
+        _, mad = M.bg_stats(t)
+        out[i] = DG.star_targets(t, med, mad, max_per_tile)
+        counts.append(int(out[i, :, 3].sum()))
+        empty[i] = DG.empty_targets(t, med, mad, counts[-1], max_per_tile, seed=i)
+        empties.append(int(empty[i, :, 3].sum()))
+    np.save(os.path.join(cache, STARS_FILE), out)
+    np.save(os.path.join(cache, EMPTY_FILE), empty)
+    with open(os.path.join(cache, "stars.json"), "w", encoding="utf-8") as fh:
+        json.dump({"columns": list(DG.STAR_TARGET_COLUMNS), "sigma": DG.STAR_SIGMA,
+                   "max_per_tile": max_per_tile, "coordinates": f"cropped by BORDER={BORDER}",
+                   "selection": "evenly spaced in peak rank when a tile exceeds max_per_tile",
+                   "cells": n, "cells_with_stars": int(sum(c > 0 for c in counts)),
+                   "empty_file": EMPTY_FILE, "empty_sigma": DG.STAR_SIGMA_LOW,
+                   "empty_rule": "no low-bar detection within the 7x7 window plus one pixel, window max under the low bar, seeded per cell"},
+                  fh, indent=1)
+    counts = np.array(counts)
+    empties = np.array(empties)
+    print(f"star targets: {n} cells, stars/tile p10 {np.percentile(counts, 10):.0f} "
+          f"p50 {np.median(counts):.0f} p90 {np.percentile(counts, 90):.0f}, "
+          f"{int((counts == 0).sum())} cells with none, {int((counts == max_per_tile).sum())} at the "
+          f"{max_per_tile} cap, in {time.perf_counter() - t0:.0f} s -> {os.path.join(cache, STARS_FILE)}")
+    print(f"empty targets: {int(empties.sum())} windows over {n} cells (wanted {int(counts.sum())}), "
+          f"{int((empties < counts).sum())} cells short of their star count -> {os.path.join(cache, EMPTY_FILE)}")
 
 
 # --------------------------------------------------------------------------- model
@@ -516,6 +625,96 @@ def _blur(t, k):
     return F.conv2d(F.pad(t, (0, 0, r, r), mode="reflect"), kv, groups=c)
 
 
+# The star-term loss's window: 7x7 around each detected star, an aperture of radius 3 (29 px) and a
+# core of radius 1.5 (the 3x3 block, 9 px). The core is a block rather than a 5-px plus so a peak that
+# lands half a pixel off the detected maximum still sits inside it.
+STAR_WINDOW_R = 3
+STAR_APERTURE_R = 3.0
+STAR_CORE_R = 1.5
+
+
+class StarTerm:
+    """E2.8 / H10: a loss that counts STARS, because L2 counts pixels.
+
+    Pixel-wise L2, banded or not, weights error by amplitude squared times pixel count, and a faint
+    star is ten pixels at a few sigma: about 1e-4 of a tile's loss, so suppressing it is free. E2.7
+    measured that arithmetic working (width 1.328 with 0.54 of the truth's stars against a 0.62
+    floor). This term gives every detected star EQUAL weight regardless of its brightness or size, in
+    three ratios that are each dimensionless and each about the star rather than the background:
+
+      |log flux_out / flux_target|   over the aperture (r <= 3), so the star keeps its light;
+      |log peak_out / peak_target|   the brightest core pixel, so it keeps its height;
+      |log conc_out / conc_target|   concentration = core energy over aperture energy, which RISES
+                                     when a star tightens, so it must tighten exactly as much as the
+                                     target did and no more.
+
+    Everything is background-subtracted against the TARGET tile's median and clamped at zero, with one
+    MAD of the target's darkest half added inside every log so a star the output has erased reads a
+    finite, large penalty instead of an infinite one. The luminance (channel mean) is used, which is
+    what the gate measures on.
+
+    The weight is set ONCE, so the term equals the L2 term on the first batch that carries a star, and
+    is then fixed and logged. Never tuned on the gate: a weight chosen by watching the selection metric
+    would be a second selection on the same held-out session.
+    """
+
+    def __init__(self, stars, device, empties=None):
+        import torch
+        self.stars = torch.as_tensor(stars, device=device, dtype=torch.float32)  # [cells, S, 4]
+        # E2.8b arm N: the same ratios over windows where the target is EMPTY, concatenated onto the
+        # star set so each empty window weighs exactly what a star does. Raising a peak over empty sky
+        # then costs what lowering a star's peak costs, which E2.8's term never charged for.
+        if empties is not None:
+            self.stars = torch.cat([self.stars, torch.as_tensor(empties, device=device, dtype=torch.float32)], dim=1)
+        off = torch.arange(-STAR_WINDOW_R, STAR_WINDOW_R + 1, device=device)
+        self.oy = off.view(1, 1, -1, 1)
+        self.ox = off.view(1, 1, 1, -1)
+        dist = torch.sqrt((off.view(-1, 1) ** 2 + off.view(1, -1) ** 2).float())
+        self.aperture = (dist <= STAR_APERTURE_R).float()
+        self.core = (dist <= STAR_CORE_R).float()
+        self.n_aperture = float(self.aperture.sum())
+        self.n_core = float(self.core.sum())
+
+    def __call__(self, pc, yc, idx):
+        """Mean of the three-ratio penalty over every valid star in the batch, and the star count.
+
+        pc, yc: [B, C, H, W] CROPPED prediction and target; idx: the batch's cache cell indices.
+        Returns a zero (still attached) when the batch carries no star, and 0 as the count.
+        """
+        import torch
+        st = self.stars[torch.as_tensor(idx, device=self.stars.device)]  # [B, S, 4]
+        valid = st[..., 3] > 0
+        n = int(valid.sum())
+        if n == 0:
+            return pc.sum() * 0.0, 0
+
+        lo = pc.mean(1)      # [B, H, W]
+        lt = yc.mean(1)
+        flat = lt.flatten(1)
+        med = flat.median(dim=1).values                                   # [B]
+        mad = (med - flat.quantile(0.25, dim=1)).clamp_min(1e-6)          # bg_sigma_torch's closed form
+        ys = st[..., 0].long()
+        xs = st[..., 1].long()
+        yy = ys[..., None, None] + self.oy                                 # [B, S, 7, 7]
+        xx = xs[..., None, None] + self.ox
+        b = torch.arange(pc.shape[0], device=pc.device).view(-1, 1, 1, 1)
+        so = (lo[b, yy, xx] - med.view(-1, 1, 1, 1)).clamp_min(0)
+        stt = (lt[b, yy, xx] - med.view(-1, 1, 1, 1)).clamp_min(0)
+        eps = mad.view(-1, 1)                                              # one MAD per pixel
+
+        flux_o = (so * self.aperture).sum((-1, -2)) + eps * self.n_aperture
+        flux_t = (stt * self.aperture).sum((-1, -2)) + eps * self.n_aperture
+        peak_o = (so * self.core).amax((-1, -2)) + eps
+        peak_t = (stt * self.core).amax((-1, -2)) + eps
+        core_o = (so * self.core).sum((-1, -2)) + eps * self.n_core
+        core_t = (stt * self.core).sum((-1, -2)) + eps * self.n_core
+
+        per_star = ((torch.log(flux_o) - torch.log(flux_t)).abs()
+                    + (torch.log(peak_o) - torch.log(peak_t)).abs()
+                    + (torch.log(core_o / flux_o) - torch.log(core_t / flux_t)).abs())
+        return (per_star * valid).sum() / n, n
+
+
 def gate_cells(meta, n_sessions, limit):
     """Val cells belonging to the FIRST n_sessions val sessions, for the mid-training probe.
 
@@ -653,11 +852,68 @@ def train(args):
     # One resolved plane count from here down, so the model, the training step, the gate and the
     # checkpoint cannot disagree about what the input looks like.
     cond_planes = COND_BANDS if args.cond_bands else (1 if args.cond else 0)
+
+    # A DECONVOLUTION arm conditions on a stored psf01 label rather than on the input's measured
+    # noise, and is selected on width and ringing rather than on noise: the denoiser's gate would
+    # pick whichever checkpoint irons the frame flattest, which is selecting a deconvolver for
+    # blurring. Both switch together on purpose, because a run with one and not the other is a
+    # combination nobody wants: labelled but scored wrong, or scored right but conditioned on the
+    # wrong quantity.
+    psf01_labels = None
+    if args.cond_psf01:
+        psf01_path = os.path.join(args.cache, "psf01.npy")
+        if not os.path.exists(psf01_path):
+            raise SystemExit(f"--cond-psf01 needs {psf01_path}; re-run --prepare against an export "
+                             f"that carries degradations.jsonl with measured labels")
+
+        psf01_labels = np.load(psf01_path)
+        finite = np.isfinite(psf01_labels)
+        if not finite.any():
+            raise SystemExit("psf01.npy holds no finite label; every degraded tile lacked a "
+                             "measurement, so there is nothing to condition on")
+
+        cond_planes = 1
+        print(f"conditioning on STORED psf01 ({int(finite.sum())} labelled slots, "
+              f"p5 {np.quantile(psf01_labels[finite], 0.05):.3f} "
+              f"p95 {np.quantile(psf01_labels[finite], 0.95):.3f}), not on measured noise")
+
     model = build_model(args.base, args.upsample, cond_planes).to(dev)
     params = sum(p.numel() for p in model.parameters())
     opt = torch.optim.Adam(model.parameters(), args.lr)
     print(f"device {dev}, U-Net base={args.base}, {params/1e6:.2f} M params, "
           f"{n_train} train cells, conditioning planes {cond_planes}")
+
+    # E2.8's star term. Only meaningful against the CLEAN target the stars were detected on, so it
+    # is refused on any regime whose target is a noisy view (the stars.npy positions would then
+    # index a tile nobody detected on).
+    star_term = None
+    star_w = None
+    if args.star_loss is not None:
+        if not args.synthetic or args.synthetic_target != "master":
+            raise SystemExit("--star-loss needs --synthetic against the master: the star targets in "
+                             "stars.npy were detected on slot 0")
+        stars_path = os.path.join(args.cache, STARS_FILE)
+        if not os.path.exists(stars_path):
+            raise SystemExit(f"--star-loss needs {stars_path}; run --prepare-stars --cache {args.cache} "
+                             f"(it adds the file to an existing cache without touching the tiles)")
+        stars = np.load(stars_path)
+        if stars.shape[0] != n:
+            raise SystemExit(f"{stars_path} holds {stars.shape[0]} cells for a cache of {n}")
+        empties = None
+        if args.star_loss_empty:
+            empty_path = os.path.join(args.cache, EMPTY_FILE)
+            if not os.path.exists(empty_path):
+                raise SystemExit(f"--star-loss-empty needs {empty_path}; re-run --prepare-stars")
+            empties = np.load(empty_path)
+            if empties.shape != stars.shape:
+                raise SystemExit(f"{empty_path} is {empties.shape}, stars are {stars.shape}")
+        star_term = StarTerm(stars, dev, empties)
+        with_stars = int((stars[:n_train, :, 3] > 0).any(axis=1).sum())
+        print(f"star-term loss ON: {int(stars[:n_train, :, 3].sum())} star targets over {with_stars}/{n_train} "
+              f"train cells (<= {stars.shape[1]} a tile)"
+              + (f" plus {int(empties[:n_train, :, 3].sum())} EMPTY windows weighted as stars" if empties is not None else "")
+              + f"; weight {'matched to the pixel term on the first starred batch, then FIXED' if args.star_loss == 'auto' else args.star_loss}"
+              + (f", re-fixed once at step {args.star_loss_refix}" if args.star_loss_refix else ""))
 
     # The mid-training probe. Loss cannot select a denoiser here (it falls fastest for a model
     # that irons the frame flat, because the background is most of the pixels) and neither can
@@ -670,22 +926,69 @@ def train(args):
         # The probe's noisy input: sub slot 1, or night A's half slot on a pair cache whose sub
         # slots are empty (n2n_gate.Gate's docstring).
         gate_input = SLOT_HALF_A if args.half_only else 1
-        gate = n2n_gate.Gate(mm, cells, dev, input_slot=gate_input)
-        print(f"gate: {len(cells)} cells from {args.gate_sessions} val session(s), probing every "
-              f"{args.gate_every} steps; floor {gate.floor_spurious:.1f} spurious/tile")
+        if psf01_labels is not None:
+            import n2n_deconv_gate
+            gate = n2n_deconv_gate.DeconvGate(
+                mm, cells, dev, psf01=psf01_labels[cells, gate_input - 1], input_slot=gate_input)
+            print(f"deconv gate: {len(cells)} cells from {args.gate_sessions} val session(s), "
+                  f"probing every {args.gate_every} steps; the probed input sits at "
+                  f"{np.nanmean(gate.input_fwhm / gate.truth_fwhm):.2f}x the truth width")
+        else:
+            gate = n2n_gate.Gate(mm, cells, dev, input_slot=gate_input)
+            print(f"gate: {len(cells)} cells from {args.gate_sessions} val session(s), probing every "
+                  f"{args.gate_every} steps; floor {gate.floor_spurious:.1f} spurious/tile")
         if args.gate_observe:
             for s, ocells in observer_cells(meta, args.gate_sessions, args.gate_cells):
-                observers.append((s, n2n_gate.Gate(mm, ocells, dev, input_slot=gate_input)))
-                print(f"  OBSERVING (never selected on) {len(ocells)} cells from {s[:44]}; "
-                      f"floor {observers[-1][1].floor_spurious:.1f} spurious/tile")
+                # The observers have to be the SAME KIND of gate as the selector, or they report a
+                # different set of keys under the selector's column headers. They were left as
+                # denoiser gates when the selector became a deconvolution one, and the run died on
+                # the first observed probe with a KeyError: better than printing noise-metric numbers
+                # under width headings, which is what a looser formatter would have done.
+                if psf01_labels is not None:
+                    observers.append((s, n2n_deconv_gate.DeconvGate(
+                        mm, ocells, dev, psf01=psf01_labels[ocells, gate_input - 1],
+                        input_slot=gate_input)))
+                    # The observer's own star NULL is printed because E2.8b's kill line is stated
+                    # against it ("under 2x the observer's input null"); E2.8's read had to compute it
+                    # offline, and a number the log does not carry is a number a later reader guesses.
+                    print(f"  OBSERVING (never selected on) {len(ocells)} cells from {s[:44]}; "
+                          f"input at {np.nanmean(observers[-1][1].input_fwhm / observers[-1][1].truth_fwhm):.2f}x truth, "
+                          f"input stars null {observers[-1][1].stars_null:.3f} (stars@{int(n2n_deconv_gate.STAR_SIGMA_LOW)} null "
+                          f"{observers[-1][1].stars_null_lo:.3f})")
+                else:
+                    observers.append((s, n2n_gate.Gate(mm, ocells, dev, input_slot=gate_input)))
+                    print(f"  OBSERVING (never selected on) {len(ocells)} cells from {s[:44]}; "
+                          f"floor {observers[-1][1].floor_spurious:.1f} spurious/tile")
         # Names the three gates that are actually in the pass condition. It used to print the
         # residual threshold too, left behind when resid became report-only, which read as a
         # fourth gate in six runs' worth of logs.
-        print(f"  pass requires spurious-over-floor <= {args.gate_max_spurious}, faint amp >= "
-              f"{args.gate_min_faint_amp}, noise <= {args.gate_max_noise}x")
-        print(f"  |resid corr| is REPORTED ONLY (it does not transfer between sessions)")
-        print(f"  among passers the QUIETEST wins (doing nothing is 1.00x, the worst answer)")
-        print(f"  step   {n2n_gate.Gate.header()}   {'obj':>6}  {'':4}")
+        if psf01_labels is not None:
+            # The star floor is ANCHORED ON THE MEASURED INPUT NULL, not on 1.0. The two bounds
+            # answer to different references on purpose: destroying stars is measured against what
+            # the model was HANDED (it cannot be blamed for the ones the blur already erased), while
+            # inventing them is measured against the TRUTH (a deconvolution may not create a star the
+            # clean master does not have). A single band centred on 1.0 conflated the two, sat above
+            # the input's own 0.763, and failed 240 consecutive probes across six seeds.
+            stars_floor = gate.stars_null * args.gate_min_stars_frac
+            # The DECONVOLUTION criteria. Printed separately because the denoiser's lines below name
+            # three thresholds none of which this run applies, and a log that states the wrong pass
+            # condition is read as truth months later by whoever is diagnosing the run.
+            print(f"  pass requires out/truth width >= 1.0 (under it is fabrication rather than "
+                  f"success: an oracle handed the exact kernel never goes under) and stars kept in "
+                  f"[{stars_floor:.3f}, {args.gate_max_stars_kept}]")
+            print(f"  the star floor is {args.gate_min_stars_frac} x the INPUT's own measured "
+                  f"{gate.stars_null:.3f}, because the blur is what erased those stars; the ceiling "
+                  f"stays anchored on the truth, because fabrication is measured against it")
+            print(f"  ring excess is REPORTED ONLY (nobody has calibrated what a value means yet)")
+            print(f"  among passers the NARROWEST wins (doing nothing scores the input's own ratio)")
+        else:
+            print(f"  pass requires spurious-over-floor <= {args.gate_max_spurious}, faint amp >= "
+                  f"{args.gate_min_faint_amp}, noise <= {args.gate_max_noise}x")
+            print(f"  |resid corr| is REPORTED ONLY (it does not transfer between sessions)")
+            print(f"  among passers the QUIETEST wins (doing nothing is 1.00x, the worst answer)")
+        header = (n2n_deconv_gate.DeconvGate.header() if psf01_labels is not None
+                  else n2n_gate.Gate.header())
+        print(f"  step   {header}   {'obj':>6}  {'':4}")
 
     band_scales = [tuple(float(v) for v in p.split(",")) for p in args.band_scales.split()]
     kernels = {s: _gauss_kernel(s, dev) for pair in band_scales for s in pair}
@@ -715,6 +1018,7 @@ def train(args):
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps)
     t0 = time.perf_counter()
     running = []
+    running_star = []
     regime_steps = defaultdict(int)
     best = (-1.0, 0, None, None)      # (score, step, metrics, state_dict)
     # The same tuple, tracked WITHOUT the noise threshold: the best-by-noise probe among those
@@ -791,7 +1095,18 @@ def train(args):
             x = torch.from_numpy(np.ascontiguousarray(mm[idx, a])).to(dev).float()
             y = torch.from_numpy(np.ascontiguousarray(mm[idx, b])).to(dev).float()
 
-        pred = model(with_sigma(x, planes=cond_planes) if cond_planes else x)
+        if psf01_labels is not None:
+            # Each sample's label follows the SLOT it was drawn from, since that is the tile the
+            # exporter measured. A cell with an unlabelled slot falls back to the batch's median
+            # rather than to zero, which would tell the model "no blur" about a blurred tile.
+            import n2n_deconv_gate as DG
+            lab = psf01_labels[idx, np.clip(a - 1, 0, psf01_labels.shape[1] - 1)]
+            if not np.all(np.isfinite(lab)):
+                good = lab[np.isfinite(lab)]
+                lab = np.where(np.isfinite(lab), lab, float(np.median(good)) if good.size else 0.5)
+            pred = model(DG.with_psf01(x, lab))
+        else:
+            pred = model(with_sigma(x, planes=cond_planes) if cond_planes else x)
         # Mask the rim: at inference no output pixel comes from a chunk edge, so a loss over
         # the full tile optimises a condition the model never meets.
         pc = pred[:, :, BORDER:-BORDER, BORDER:-BORDER]
@@ -800,8 +1115,9 @@ def train(args):
         # at the background: an L1 N2N erases faint stars while scoring well on PSNR, because
         # PSNR is dominated by the background pixels it cleans beautifully. L2 converges to the
         # conditional MEAN, which is unbiased and preserves faint flux in expectation.
-        loss = (nn.functional.l1_loss(pc, yc) if args.loss == "l1"
-                else nn.functional.mse_loss(pc, yc))
+        pixel = (nn.functional.l1_loss(pc, yc) if args.loss == "l1"
+                 else nn.functional.mse_loss(pc, yc))
+        loss = pixel
 
         # Structure-preserving term. Plain L2 is dominated by the flat background, which is
         # most of the frame, so the cheapest way for the model to lower it is to iron out fine
@@ -824,6 +1140,32 @@ def train(args):
                 band = band + nn.functional.mse_loss(
                     _blur(pc, k1) - _blur(pc, k2), _blur(yc, k1) - _blur(yc, k2))
             loss = loss + args.band_loss * band / len(band_scales)
+
+        # The star term (E2.8). Its weight is set on the FIRST batch that carries a star so the term
+        # equals the pixel term there, then never moves: logged once, saved in the checkpoint, and
+        # never tuned on the gate.
+        if star_term is not None:
+            s_term, n_stars = star_term(pc, yc, idx)
+            if n_stars > 0:
+                if star_w is None:
+                    if args.star_loss == "auto":
+                        star_w = float(pixel.item()) / max(float(s_term.item()), 1e-12)
+                        print(f"  star-loss weight FIXED at {star_w:.4e} on step {step}: pixel term "
+                              f"{pixel.item():.4e} / star term {s_term.item():.4e} over {n_stars} stars",
+                              flush=True)
+                    else:
+                        star_w = float(args.star_loss)
+                        print(f"  star-loss weight {star_w:.4e} (given)", flush=True)
+                elif args.star_loss_refix and step == args.star_loss_refix:
+                    # E2.8b arm W: the first batch's pixel term is the injected noise, not the task,
+                    # so the weight matched there left the term tens of times the pixel term once the
+                    # noise was gone. Re-matched ONCE here, logged, and fixed again.
+                    refixed = float(pixel.item()) / max(float(s_term.item()), 1e-12)
+                    print(f"  star-loss weight RE-FIXED at {refixed:.4e} on step {step} (was {star_w:.4e}): pixel term "
+                          f"{pixel.item():.4e} / star term {s_term.item():.4e} over {n_stars} stars", flush=True)
+                    star_w = refixed
+                loss = loss + star_w * s_term
+                running_star.append(float(s_term.item()))
         opt.zero_grad(set_to_none=True)
         loss.backward()
         opt.step()
@@ -832,11 +1174,13 @@ def train(args):
 
         if step % args.log_every == 0 or step == steps:
             el = time.perf_counter() - t0
-            print(f"  step {step:6d}/{steps}  loss {np.mean(running[-args.log_every:]):.5f}  "
+            star_note = (f"  star {np.mean(running_star[-args.log_every:]):.4f}"
+                         if star_term is not None and running_star else "")
+            print(f"  step {step:6d}/{steps}  loss {np.mean(running[-args.log_every:]):.5f}{star_note}  "
                   f"{step*args.batch/el:5.1f} tiles/s  elapsed {el/60:5.1f} min", flush=True)
 
         if gate is not None and (step % args.gate_every == 0 or step == steps):
-            m = gate.evaluate(model, cond_planes)
+            m = gate.evaluate(model) if psf01_labels is not None else gate.evaluate(model, cond_planes)
             # Three hard gates, then MINIMISE noise among whatever passes. Framing invention,
             # residual correlation and faint-flux retention as GATES rather than as terms in a
             # weighted score is deliberate: a weight lets a model buy its way past invention with
@@ -883,10 +1227,32 @@ def train(args):
             # probe to make a relative rule testable. Do not gate on it yet: whether a relative rule
             # picks the same step on two sessions is the open question, which --gate-observe exists
             # to answer.
-            structure_ok = (m["spurious_over_floor"] <= args.gate_max_spurious
-                            and m["faint_amp"] >= args.gate_min_faint_amp)
-            passed = structure_ok and m["noise"] <= args.gate_max_noise
-            score = m["noise"]
+            if psf01_labels is not None:
+                # A deconvolver's criteria, and deliberately only ONE of them is a threshold.
+                # `fwhm_ratio >= 1` is not a tuning knob: E1 measured that an oracle handed the
+                # EXACT kernel never produces a star narrower than the one that was there, so
+                # crossing it is fabrication rather than success. `stars_kept` guards the other
+                # failure the same measurements kept catching, a width that improves because noise
+                # was sharpened into a new population. Ring excess is REPORTED and not thresholded,
+                # for the reason `resid_corr` is report-only above: nobody has calibrated what value
+                # means anything, and a threshold nobody measured is how the noise gate came to
+                # reject the arm that scored best.
+                # Bounded on BOTH sides, and the upper bound is the one that matters. The failure is
+                # symmetric: a deconvolver can destroy the star population or invent one, and it is
+                # the second that flatters every other number, because sharpened noise reads as
+                # narrow stars. Seen immediately on the first smoke run, where a 200-step model
+                # produced TEN TIMES the truth's detections and sailed through a lower bound alone.
+                # A deconvolution cannot legitimately create a star the clean master does not have.
+                structure_ok = (stars_floor <= m["stars_kept"] <= args.gate_max_stars_kept)
+                passed = structure_ok and np.isfinite(m["fwhm_ratio"]) and m["fwhm_ratio"] >= 1.0
+                # Closest to the truth width from ABOVE. Doing nothing scores the input's own
+                # ratio, which is the worst answer rather than a free pass.
+                score = m["fwhm_ratio"] if np.isfinite(m["fwhm_ratio"]) else float("inf")
+            else:
+                structure_ok = (m["spurious_over_floor"] <= args.gate_max_spurious
+                                and m["faint_amp"] >= args.gate_min_faint_amp)
+                passed = structure_ok and m["noise"] <= args.gate_max_noise
+                score = m["noise"]
             mark = "pass" if passed else "FAIL"
             if passed and (best[3] is None or score < best[0]):
                 best = (score, step, m,
@@ -895,14 +1261,16 @@ def train(args):
             if structure_ok and (best_struct[3] is None or score < best_struct[0]):
                 best_struct = (score, step, m,
                                {k: v.detach().cpu().clone() for k, v in model.state_dict().items()})
-            print(f"  gate {step:6d}   {n2n_gate.Gate.format(m)}   {score:6.3f}  {mark}",
+            fmt = (n2n_deconv_gate.DeconvGate.format if psf01_labels is not None
+                   else n2n_gate.Gate.format)
+            print(f"  gate {step:6d}   {fmt(m)}   {score:6.3f}  {mark}",
                   flush=True)
             # The observed sessions print on the SAME schedule with an "obs" tag and no verdict
             # column, so the two trajectories are aligned step-for-step in one log and neither can
             # be mistaken for the one that selected.
             for si, (_, og) in enumerate(observers):
-                om = og.evaluate(model, cond_planes)
-                print(f"  obs{si} {step:6d}   {n2n_gate.Gate.format(om)}", flush=True)
+                om = og.evaluate(model) if psf01_labels is not None else og.evaluate(model, cond_planes)
+                print(f"  obs{si} {step:6d}   {fmt(om)}", flush=True)
 
     if len(regimes) > 1:
         print("  steps per regime: " + "  ".join(
@@ -912,7 +1280,7 @@ def train(args):
         torch.save({"model": state, "base": args.base, "upsample": args.upsample,
                     "cond": cond_planes, "half_pairs": args.half_pairs,
                     "regimes": [str(k) for k in regimes], "selected_at_step": selected_at,
-                    "pair_time": args.pair_time},
+                    "pair_time": args.pair_time, "star_loss_w": star_w},
                    os.path.join(args.cache, path))
         print(f"saved -> {os.path.join(args.cache, path)}")
 
@@ -1118,6 +1486,28 @@ if __name__ == "__main__":
                         "number was labelling two different distributions")
     p.add_argument("--band-loss", type=float, default=0.0)
     p.add_argument("--band-scales", default="1,2 2,4 4,8")
+    p.add_argument("--star-loss", default=None,
+                   help="E2.8: add the star-term loss (StarTerm) over the stars.npy targets. 'auto' "
+                        "sets its weight ONCE so the term equals the pixel term on the first starred "
+                        "batch and then fixes it (logged, saved in the checkpoint); a number is used as "
+                        "given. Needs --synthetic against the master and a cache with stars.npy "
+                        "(--prepare writes it; --prepare-stars adds it to an existing cache). Never "
+                        "tune this on the gate: that is a second selection on the same session")
+    p.add_argument("--star-loss-empty", action="store_true",
+                   help="E2.8b arm N: add the star term's counterpart, the same ratios over windows where "
+                        "the clean target has NO star (empty.npy, written by --prepare-stars), each "
+                        "weighted as a star. E2.8's term without it sharpened noise into 34 to 45x the "
+                        "truth's stars on the observer session")
+    p.add_argument("--star-loss-refix", type=int, default=0,
+                   help="E2.8b arm W: re-match the star weight to the pixel term ONCE at this step and "
+                        "fix it again (0 = never). The first batch's pixel term is the injected noise, so "
+                        "the weight matched there is tens of times too large once the noise is gone")
+    p.add_argument("--star-max", type=int, default=32,
+                   help="star targets kept per tile for stars.npy (evenly spaced in peak rank when a "
+                        "tile has more; the faint end is the population L2 trades away)")
+    p.add_argument("--prepare-stars", action="store_true",
+                   help="write stars.npy for an EXISTING cache without touching its tiles, so an arm "
+                        "can add the star term while staying paired against runs on the same cache")
     p.add_argument("--out", default="n2n.pt")
     p.add_argument("--out-final", default=None,
                    help="where the LAST step's weights go when a gate selected an earlier one "
@@ -1147,6 +1537,28 @@ if __name__ == "__main__":
     p.add_argument("--gate-max-spurious", type=float, default=6.0,
                    help="reject a probe inventing more than this many point sources per tile "
                         "OVER the raw sub's own floor")
+    p.add_argument("--cond-psf01", action="store_true",
+                   help="condition on the STORED psf01 label from degradations.jsonl instead of on "
+                        "the input's measured noise, and select on width and ringing instead of on "
+                        "noise. This is what makes a DECONVOLUTION arm possible: the denoiser's gate "
+                        "picks whichever checkpoint irons the frame flattest, which for this job is "
+                        "selecting for blurring. Requires a cache prepared from a blur-mode export.")
+    p.add_argument("--gate-min-stars-frac", type=float, default=0.95,
+                   help="deconvolution gate only: the star floor, as a fraction of the INPUT's own "
+                        "measured retention rather than of the truth's count. Renamed from "
+                        "--gate-min-stars-kept, which took an absolute 0.90 and was unreachable: the "
+                        "blur is what erases the faint stars, so on this project's cache the input "
+                        "itself scores 0.763 and a model reproducing it exactly failed. Six seeds "
+                        "and 240 probes failed that way before the null was measured. Keep this at "
+                        "or just under 1.0: it is jitter allowance against the input, not a target.")
+    p.add_argument("--gate-max-stars-kept", type=float, default=1.10,
+                   help="deconvolution gate only, and the load-bearing half: reject a probe that has "
+                        "INVENTED stars. A deconvolution cannot legitimately create a star the clean "
+                        "master does not have, and sharpened noise reads to a detector as narrow "
+                        "stars, which is the failure that flatters every other number. The 1.10 is a "
+                        "tolerance for detection jitter and is not itself measured; what is measured "
+                        "is that an unbounded version passes a model producing ten times the truth's "
+                        "detections, seen on this gate's first smoke run.")
     p.add_argument("--gate-max-noise", type=float, default=0.82,
                    help="reject a probe that does not clean this hard, so a near-identity cannot "
                         "win by being the only thing pure enough to pass. Needs headroom: the "
@@ -1174,6 +1586,8 @@ if __name__ == "__main__":
         p.error("--prepare needs --root, the bake to read tiles from (no default; see --root)")
     if a.prepare:
         prepare(a)
+    if a.prepare_stars and not a.prepare:
+        prepare_stars(a.cache, a.star_max)
     if a.train:
         train(a)
     if a.eval:

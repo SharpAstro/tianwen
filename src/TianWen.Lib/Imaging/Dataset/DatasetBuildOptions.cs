@@ -75,6 +75,13 @@ public sealed record DatasetBuildOptions
     /// </summary>
     public float HotPixelSigma { get; init; } = 8f;
 
+    /// <summary>The resampling kernel that places each sub on the session canvas, handed to
+    /// <see cref="SessionRegistrar.RegisterAsync"/> and so the same choice the stacker makes. Clamped
+    /// Lanczos-3 since 7.1; every store baked before it is bilinear, about a pixel of FWHM in
+    /// quadrature at 2 px seeing, and E3 trains on tiles cut from those masters, which is why a bake
+    /// states its kernel (the launcher's <c>bake-provenance.json</c> records the argument).</summary>
+    public WarpInterpolation WarpInterpolation { get; init; } = WarpInterpolation.Lanczos3Clamped;
+
     /// <summary>Keep-floor for the quality gate: the maximum fraction of a session's frames the
     /// gate may reject before the severity-ranked floor engages. Higher than the stacker's 0.20
     /// because dataset building favours purity over yield (there are 20k+ subs to draw from, so
@@ -254,6 +261,42 @@ public sealed record DatasetBuildOptions
     /// design, so a re-measure adds a line and the earlier record stays readable for comparison.</para>
     /// </summary>
     public bool ForcePsfRemeasure { get; init; }
+
+    /// <summary>
+    /// Re-run the MEASURE stage alone for every exported session that already has a record, and
+    /// rewrite that record's per-sub arrays: the widths, and the per-sub identity (file, epoch, computed
+    /// air mass, header air mass) that records written before 2026-09-07 do not carry. The master-derived
+    /// fields are carried over from the prior record untouched, because the master has not changed.
+    ///
+    /// <para><b>Why a third switch.</b> <see cref="ForcePsfRemeasure"/> re-measures the MASTER, cheaply
+    /// from the retained file, and can only carry the sub arrays through, since a master cannot say
+    /// which frames made it; giving the subs an identity therefore needs the frames read again, and the
+    /// full re-registration that implies costs about ten minutes a session against about two for the
+    /// measure stage (measured over the 2026-09-full bake: 112 s a session, 147 minutes for 79, against
+    /// 13.3 hours). This runs only that stage.</para>
+    ///
+    /// <para>The subs it describes are the quality gate's SURVIVORS, not the registered set (the record
+    /// says so in <c>SessionPsf.SubSelection</c>); which survivors would have failed to register is
+    /// exactly the expensive half this skips. Sessions with no record are left alone (that is
+    /// <see cref="RegenPsfForExportedSessions"/>'s job), and it is refused together with
+    /// <see cref="ForcePsfRemeasure"/>: run them as two passes, subs first, so the forced master
+    /// re-measure has an identity to carry.</para>
+    /// </summary>
+    public bool RemeasureSubs { get; init; }
+
+    /// <summary>
+    /// The observing site, in decimal degrees, for a light whose header carries NO site: the per-sub air
+    /// mass (<c>SessionPsf.SubAirmass</c>) is computed from it where <c>SITELAT</c>/<c>SITELONG</c> are
+    /// absent, and the record marks that it was (<c>SessionPsf.SubSiteFromFallback</c>). A header site
+    /// is never overridden. Null (the default) leaves such subs at NaN, as before.
+    ///
+    /// <para><b>Why.</b> Every SharpCap capture in this archive writes target coordinates and
+    /// <c>DATE-OBS</c> and no site at all, so 27 of 79 sessions had no computed air mass (E2.9,
+    /// 2026-09-07, <c>docs/known-limitations.md</c>). The value is the caller's assertion about where
+    /// the archive was shot, which is why it is an explicit switch rather than a profile default and
+    /// why the record says which sessions leaned on it.</para>
+    /// </summary>
+    public (double LatitudeDeg, double LongitudeDeg)? FallbackSite { get; init; }
 
     /// <summary>
     /// Re-render the PSF/noise report from <see cref="DatasetPsfStore"/> and stop. No archive scan,

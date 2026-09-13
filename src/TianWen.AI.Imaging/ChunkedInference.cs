@@ -55,11 +55,40 @@ public static class ChunkedInference
     {
         if (plane.Length != width * height)
             throw new ArgumentException($"plane length ({plane.Length}) must equal width * height ({width * height})", nameof(plane));
+
+        var layout = Layout(width, height, chunkSize, overlap);
+        var builder = ImmutableArray.CreateBuilder<Chunk>(layout.Length);
+        foreach (var rect in layout)
+        {
+            var data = new float[rect.Height * rect.Width];
+            for (var r = 0; r < rect.Height; r++)
+            {
+                var srcRow = plane.Slice((rect.Y + r) * width + rect.X, rect.Width);
+                srcRow.CopyTo(data.AsSpan(r * rect.Width, rect.Width));
+            }
+            builder.Add(new Chunk(data, rect.X, rect.Y, rect.Width, rect.Height, rect.IsEdge));
+        }
+        return builder.MoveToImmutable();
+    }
+
+    /// <summary>One tile of a <see cref="Layout"/>: where it sits on the plane and whether it touches
+    /// the plane's boundary. The geometry of a <see cref="Chunk"/> without its pixels.</summary>
+    public readonly record struct ChunkRect(int X, int Y, int Width, int Height, bool IsEdge);
+
+    /// <summary>
+    /// The tile grid <see cref="Split"/> cuts, without cutting anything: the same
+    /// <paramref name="chunkSize"/> and <paramref name="overlap"/> give the same rectangles in the
+    /// same order, so a caller that needs a per-chunk quantity BEFORE the split (a PSF estimate per
+    /// tile region, say) can compute it against this and hand it to the inference loop by index.
+    /// <see cref="Split"/> is built on it, which is what keeps the two from ever disagreeing.
+    /// </summary>
+    public static ImmutableArray<ChunkRect> Layout(int width, int height, int chunkSize, int overlap)
+    {
         if (chunkSize <= 0) throw new ArgumentOutOfRangeException(nameof(chunkSize));
         if (overlap < 0 || overlap >= chunkSize) throw new ArgumentOutOfRangeException(nameof(overlap));
 
         var step = chunkSize - overlap;
-        var builder = ImmutableArray.CreateBuilder<Chunk>();
+        var builder = ImmutableArray.CreateBuilder<ChunkRect>();
         for (var i = 0; i < height; i += step)
         {
             for (var j = 0; j < width; j += step)
@@ -68,16 +97,8 @@ public static class ChunkedInference
                 var ej = Math.Min(j + chunkSize, width);
                 if (ei <= i || ej <= j) continue;
 
-                var h = ei - i;
-                var w = ej - j;
-                var data = new float[h * w];
-                for (var r = 0; r < h; r++)
-                {
-                    var srcRow = plane.Slice((i + r) * width + j, w);
-                    srcRow.CopyTo(data.AsSpan(r * w, w));
-                }
                 var isEdge = i == 0 || j == 0 || i + chunkSize >= height || j + chunkSize >= width;
-                builder.Add(new Chunk(data, j, i, w, h, isEdge));
+                builder.Add(new ChunkRect(j, i, ej - j, ei - i, isEdge));
             }
         }
         return builder.ToImmutable();
