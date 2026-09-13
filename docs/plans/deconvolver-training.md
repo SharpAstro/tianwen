@@ -2392,6 +2392,24 @@ Net for the runtime path as of tonight: E3.0 with a per-window kernel and the it
 its dial is the working deconvolution; the learned prior is not ahead of it on the picture, whatever
 the width column says.
 
+*Addendum (20:50), the "black square inside the halo" the user saw on bright stars, read at 12x and
+in float.* Two things stack up. (1) **The master carries carved core pixels before any
+deconvolution**: on the centre window's 25 stars over a tenth of the frame peak, three have a
+red-plane pixel within 2 px of the core under 0.6 of the background (0.003 against 0.009 on the
+star profiled), the sharp half has two in red and two in green, and the stack's rejection map at
+those stars reads 0.083 within 2 px against a frame p99 of 0.025: the kappa-sigma rejection is
+clipping an undersampled core in one colour plane on about a tenth of the bright stars. RL turns
+each such pixel into an exact zero (E3.0) or near it (the prior), a black pixel inside the core. A
+stacking defect, filed for the integrator, not the deconvolver's. (2) **The prior compresses the
+core to a two-pixel block and pushes the first ring under the background** (green at 3 px out:
+0.178 to 0.079 of the peak; red at 2 px: 0.173 to 0.105) while the optics' wide skirt, widest in
+blue, stays where it was: a halo with a dark square inside, the chromatic aberration supplying the
+halo and the prior the moat. **A blend toward the input is a real dial**: at 0.5 the prior reads the
+same width as E3.0 on the centre window (1.043 against 1.042) with the ring at -0.33 instead of
++0.87 and the stars at 1.00 exactly; applying the prior's luminance ratio to the input's colour
+reads identically on the gate and would keep the moat neutral. Both are cheap to ship beside the
+strength dial the denoiser already has.
+
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
 Every retained master in `2026-09-full` predates the two registration fixes and R1, and E3 trains on
