@@ -68,6 +68,13 @@ namespace TianWen.Lib.Tests
             protected override HistogramDisplay? GetHistogramDisplay() => null;
 
             public RectF32 ImageArea => ImageAreaRect;
+
+            /// <summary>
+            /// The window the hit scan covers. Exposed because <c>Width</c>/<c>Height</c> are protected
+            /// on the base, and because a test that re-states the window size it asked for is one more
+            /// place for an assumption to hide -- which is exactly what went wrong with the panel width.
+            /// </summary>
+            public (float W, float H) WindowSize => (Width, Height);
         }
 
         private static async Task<(PopoverViewer Viewer, ViewerState State, AstroImageDocument Document, Func<int> Exits)>
@@ -108,35 +115,51 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// Where the popover's left edge lands: under the button, unless that would run it off the
-        /// window, in which case it is pulled left -- the same placement rule the dropdowns use.
-        /// </summary>
-        private static float PanelX(PopoverViewer viewer)
-            => OverlayPlacement.ClampX(Button(viewer).X, 300f, WindowW);
-
-        /// <summary>
         /// Everything registered below the toolbar after a render: each button by name at the point it
-        /// was found, and whether any white-balance slider band exists. Scanned across the popover's
-        /// width one pixel row at a time; <see cref="PixelWidgetBase{T}.HitTest"/> looks without
-        /// dispatching, so the scan changes nothing.
+        /// was found, whether any white-balance slider band exists, and the right-hand end of the R
+        /// track. <see cref="PixelWidgetBase{T}.HitTest"/> looks without dispatching, so the scan
+        /// changes nothing.
         /// </summary>
-        private static (Dictionary<string, (float X, float Y)> Buttons, bool Sliders) HitsBelowTheBar(PopoverViewer viewer)
+        /// <remarks>
+        /// <para><b>Scanned across the WHOLE window, because the popover's width is not a constant.</b>
+        /// This used to scan 300 design pixels rightwards from a left edge it worked out by passing
+        /// 300f to the same clamp the panel uses -- an answer that agrees with the panel only while the
+        /// panel really is 300 wide. It is not, and since the panel began sizing itself to its MEASURED
+        /// button row it is not even a constant: 425 px here at dpi 1, and whatever the host's own face
+        /// measures elsewhere.</para>
+        /// <para>The clamp is what turns that into a failure rather than a near miss. A box that would
+        /// overhang the window is pulled LEFT, and the wider it is the further -- so on a host whose
+        /// system face is wider than this one's, the panel sat left of where the guess said, the scan
+        /// started past the first button, and "Auto" was reported missing from a panel that had drawn
+        /// it perfectly well. It reproduces here by narrowing the window until the same clamp bites,
+        /// which is what the 800-wide case below is for.</para>
+        /// </remarks>
+        private static (Dictionary<string, (float X, float Y)> Buttons, bool Sliders, float? RedTrackRight)
+            HitsBelowTheBar(PopoverViewer viewer)
         {
             var button = Button(viewer);
-            var px = PanelX(viewer);
+            var (windowW, windowH) = viewer.WindowSize;
             var buttons = new Dictionary<string, (float X, float Y)>();
             var sliders = false;
-            // Every eighth pixel across the popover's width, so a button is found wherever the face
-            // happens to have put it, and each is remembered at the point it was found -- the point a
-            // press is then sent to. Guessing a column landed a press in the gap between two buttons.
-            for (var y = button.Bottom + 1f; y < WindowH; y += 1f)
+            float? redTrackRight = null;
+            // Every eighth pixel across the window, so a button is found wherever the face happens to
+            // have put it, and each is remembered at the point it was found -- the point a press is
+            // then sent to. Guessing a column landed a press in the gap between two buttons.
+            for (var y = button.Bottom + 1f; y < windowH; y += 1f)
             {
-                for (var x = px + 4f; x < px + 300f; x += 8f)
+                for (var x = 0f; x < windowW; x += 8f)
                 {
                     switch (viewer.HitTest(x, y))
                     {
                         case HitResult.ButtonHit hit:
                             buttons.TryAdd(hit.Action, (x, y));
+                            break;
+                        case WhiteBalanceSliderHit { Channel: 0 }:
+                            sliders = true;
+                            // The far end of the track, not its middle: the drag tests need a point
+                            // whose multiplier is unmistakably not neutral, and the middle of a
+                            // log-mapped track is exactly 1.00.
+                            if (x > (redTrackRight ?? float.MinValue)) { redTrackRight = x; }
                             break;
                         case WhiteBalanceSliderHit:
                             sliders = true;
@@ -144,7 +167,7 @@ namespace TianWen.Lib.Tests
                     }
                 }
             }
-            return (buttons, sliders);
+            return (buttons, sliders, redTrackRight);
         }
 
         [Fact]
@@ -157,17 +180,31 @@ namespace TianWen.Lib.Tests
             Button(viewer).Width.ShouldBeGreaterThan(0f);
             state.WhiteBalancePanelOpen.ShouldBeFalse("closed until pressed");
 
-            var (buttons, sliders) = HitsBelowTheBar(viewer);
+            var (buttons, sliders, _) = HitsBelowTheBar(viewer);
             buttons.ShouldNotContainKey("AutoWhiteBalance", "nothing of the white balance is registered while the popover is closed");
             buttons.ShouldNotContainKey("ToggleWhiteBalance", "and the strip no longer has a section for it");
             sliders.ShouldBeFalse();
         }
 
-        [Fact]
-        public async Task PressingTheButtonOpensThePopoverWithItsSlidersAndButtons()
+        /// <summary>
+        /// <b>Every one of the popover's controls is reachable, at a window width that forces the
+        /// placement clamp.</b>
+        /// </summary>
+        /// <remarks>
+        /// The narrow case is the one that bit: the panel sizes itself to its measured button row, and
+        /// a box that would overhang the window is pulled left, so on a narrow window -- or on any host
+        /// whose face measures wider than this one's -- the panel is not under its button at all. At
+        /// 800 the panel here is 425 px wide and clamped to x = 374, 213 px left of the button it hangs
+        /// from, which is what a CI host with a wider system face was doing at 900 and what the old
+        /// scan could not see past.
+        /// </remarks>
+        [Theory]
+        [InlineData(900u)]
+        [InlineData(800u)]
+        public async Task PressingTheButtonOpensThePopoverWithItsSlidersAndButtons(uint windowW)
         {
             var ct = TestContext.Current.CancellationToken;
-            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            using var renderer = new RgbaImageRenderer(windowW, WindowH);
             var (viewer, state, document, _) = await NewViewerAsync(renderer, ct);
 
             var button = Button(viewer);
@@ -176,7 +213,7 @@ namespace TianWen.Lib.Tests
             state.OverlayOwnsPointer.ShouldBeTrue("an open popover owns the pointer, like a dropdown");
 
             viewer.Render(document, state);
-            var (buttons, sliders) = HitsBelowTheBar(viewer);
+            var (buttons, sliders, _) = HitsBelowTheBar(viewer);
             buttons.ShouldContainKey("AutoWhiteBalance");
             buttons.ShouldContainKey("ResetWhiteBalance");
             sliders.ShouldBeTrue("the three tracks are registered");
@@ -275,7 +312,7 @@ namespace TianWen.Lib.Tests
             Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));
             viewer.Render(document, state);
 
-            var (buttons, _) = HitsBelowTheBar(viewer);
+            var (buttons, _, _) = HitsBelowTheBar(viewer);
             buttons.ShouldContainKey("ResetWhiteBalance", "still registered when dim, so it swallows the press");
             var (rx, ry) = buttons["ResetWhiteBalance"];
             Press(viewer, rx, ry);
@@ -311,7 +348,7 @@ namespace TianWen.Lib.Tests
             document.TryBeginColorCalibration().ShouldBeTrue("nothing else holds it");
             viewer.Render(document, state);
 
-            var (buttons, _) = HitsBelowTheBar(viewer);
+            var (buttons, _, _) = HitsBelowTheBar(viewer);
             buttons.ShouldContainKey("ToggleColorCalibration", "still registered while busy, so it swallows the press");
 
             var wasEnabled = state.ColorCalibrationEnabled;
@@ -340,16 +377,19 @@ namespace TianWen.Lib.Tests
             Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));
             viewer.Render(document, state);
 
-            // Out near the right end of the R track, which sits a slider-label in from the panel's edge.
-            var px = PanelX(viewer);
-            viewer.BeginWhiteBalanceDragAt(0, px + 200f);
-            viewer.HandleInput(new InputEvent.MouseUp(px + 200f, button.Bottom + 40f));
+            // Out at the right end of the R track, found by looking rather than by offsetting from an
+            // assumed panel edge -- the assumption this suite used to make and that a wider face broke.
+            var (_, _, redTrackRight) = HitsBelowTheBar(viewer);
+            redTrackRight.ShouldNotBeNull("the R track is registered while the popover is open");
+            var dragX = redTrackRight.Value;
+            viewer.BeginWhiteBalanceDragAt(0, dragX);
+            viewer.HandleInput(new InputEvent.MouseUp(dragX, button.Bottom + 40f));
             state.ManualWhiteBalance.R.ShouldNotBe(1f, "the track took the drag");
             viewer.IsToolbarButtonActiveForTest(ToolbarAction.WhiteBalance, state)
                 .ShouldBeTrue("a white balance in force lights the button");
 
             viewer.Render(document, state);
-            var (buttons, _) = HitsBelowTheBar(viewer);
+            var (buttons, _, _) = HitsBelowTheBar(viewer);
             var reset = buttons["ResetWhiteBalance"];
             viewer.HitTestAndDispatch(reset.X, reset.Y);
             state.ManualWhiteBalance.ShouldBe((1f, 1f, 1f));
@@ -369,6 +409,14 @@ namespace TianWen.Lib.Tests
             Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));
             viewer.Render(document, state);
 
+            // Where the R track is WHILE IT IS OPEN, so the drag below is aimed at the exact point
+            // that worked a moment ago rather than at a guess -- which is what makes the closed case
+            // evidence of anything.
+            var (_, openSliders, redTrackRight) = HitsBelowTheBar(viewer);
+            openSliders.ShouldBeTrue("the track is there to begin with");
+            redTrackRight.ShouldNotBeNull();
+            var dragX = redTrackRight.Value;
+
             viewer.HandleInput(new InputEvent.KeyDown(InputKey.Escape));
 
             state.WhiteBalancePanelOpen.ShouldBeFalse("Escape closes it");
@@ -376,10 +424,10 @@ namespace TianWen.Lib.Tests
 
             // Closed, it registers nothing and a drag where the R track was does nothing.
             viewer.Render(document, state);
-            var (_, sliders) = HitsBelowTheBar(viewer);
+            var (_, sliders, _) = HitsBelowTheBar(viewer);
             sliders.ShouldBeFalse();
             var before = state.ManualWhiteBalance;
-            viewer.BeginWhiteBalanceDragAt(0, PanelX(viewer) + 200f);
+            viewer.BeginWhiteBalanceDragAt(0, dragX);
             state.ManualWhiteBalance.ShouldBe(before, "a closed popover has no track to drag");
         }
 
