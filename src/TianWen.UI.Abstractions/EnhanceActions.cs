@@ -118,10 +118,10 @@ public static class EnhanceActions
             enhanced.WithZeroPedestal(), debayerAlgorithm, wcs, source.FilePath, crop, cancellationToken)
             .ConfigureAwait(false);
         // Both canonical programs run a GradientCorrectionStep, so the background of what comes back
-        // has been flattened and levelled. The display has to know: an Auto stretch would otherwise
-        // resolve to Unlinked and neutralise an already-neutral background per channel, which fits
-        // three curves to the noise between them (P30's crimson frame).
-        doc.MarkBackgroundExtracted();
+        // has been flattened and levelled. Nothing needs telling any more: AstroImageDocument.
+        // ChannelsAlreadyAgree MEASURES that from the per-channel medians the stretch already has, so
+        // the enhanced plate gets the right answer by the same route a master flattened in any other
+        // tool does. The flag this used to set could only ever be right about our own output.
         state.StatusMessage = $"Enhanced ({(pipeline.SupportsDeblur ? "BlurX-first" : "SAS")})";
         return doc;
     }

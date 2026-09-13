@@ -26,7 +26,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void AnExtractedBackgroundResolvesLinkedWithoutACalibration()
             => StretchMode.Auto.ResolveAuto(isColour: true, calibrationActive: false,
-                    colourIsNotPhotometric: false, backgroundAlreadyExtracted: true)
+                    colourIsNotPhotometric: false, channelsAlreadyAgree: true)
                 .ShouldBe(StretchMode.Linked);
 
         /// <summary>
@@ -39,27 +39,49 @@ namespace TianWen.Lib.Tests
                 .ShouldBe(StretchMode.Unlinked);
 
         /// <summary>
-        /// <b>A non-photometric frame keeps Unlinked even when flattened.</b> The new rule is ordered
-        /// after the narrowband guard on purpose: an HOO composite's channels are NOT brought into
-        /// agreement by flattening (OIII sits in two of them), and the reason that case avoids Linked
-        /// is a white balance fitted to a premise that never held -- which a background extraction
-        /// does nothing to repair.
+        /// <b>A non-photometric frame with a CALIBRATION keeps Unlinked whatever the background.</b>
+        /// The reason that case avoids Linked is a white balance fitted to a premise that never held
+        /// (an HOO composite puts OIII in two channels, so three gains answer two measurements), and
+        /// channel agreement does nothing to repair a bogus fit.
         /// </summary>
         [Theory]
         [InlineData(true)]
         [InlineData(false)]
-        public void ANonPhotometricFrameResolvesUnlinkedWhateverTheBackground(bool extracted)
+        public void ANonPhotometricFrameResolvesUnlinkedWhateverTheBackground(bool agree)
             => StretchMode.Auto.ResolveAuto(isColour: true, calibrationActive: true,
-                    colourIsNotPhotometric: true, backgroundAlreadyExtracted: extracted)
+                    colourIsNotPhotometric: true, channelsAlreadyAgree: agree)
+                .ShouldBe(StretchMode.Unlinked);
+
+        /// <summary>
+        /// <b>...but with NO calibration it resolves Linked, and that is the amendment.</b> The veto
+        /// used to fire unconditionally, and its justification is a bogus white balance -- so with none
+        /// active there is no fit to protect against, and Unlinked instead fits three curves to the
+        /// noise between channels that already agree, discarding the colour the file arrived with.
+        /// <para>This is the real case: an Astro Pixel Processor HOO composite, already colour-balanced
+        /// by APP, carrying no FILTER or INSTRUME card, with G and B duplicated from OIII so the
+        /// duplicate-channel test fires. It opened Unlinked and lost APP's colour. Channel medians
+        /// measured 0.1 percent apart, inside the 0.15 percent the rule was built on.</para>
+        /// </summary>
+        [Fact]
+        public void ANonPhotometricFrameWithNoCalibrationResolvesLinkedOnceItsChannelsAgree()
+            => StretchMode.Auto.ResolveAuto(isColour: true, calibrationActive: false,
+                    colourIsNotPhotometric: true, channelsAlreadyAgree: true)
+                .ShouldBe(StretchMode.Linked);
+
+        /// <summary>And a non-photometric frame whose channels do NOT agree still resolves Unlinked.</summary>
+        [Fact]
+        public void ANonPhotometricFrameWhoseChannelsDisagreeStaysUnlinked()
+            => StretchMode.Auto.ResolveAuto(isColour: true, calibrationActive: false,
+                    colourIsNotPhotometric: true, channelsAlreadyAgree: false)
                 .ShouldBe(StretchMode.Unlinked);
 
         /// <summary>Mono has no channels to link, so both answers coincide and it stays Linked.</summary>
         [Theory]
         [InlineData(true)]
         [InlineData(false)]
-        public void MonoResolvesLinkedWhateverTheBackground(bool extracted)
+        public void MonoResolvesLinkedWhateverTheBackground(bool agree)
             => StretchMode.Auto.ResolveAuto(isColour: false, calibrationActive: false,
-                    colourIsNotPhotometric: false, backgroundAlreadyExtracted: extracted)
+                    colourIsNotPhotometric: false, channelsAlreadyAgree: agree)
                 .ShouldBe(StretchMode.Linked);
 
         /// <summary>
@@ -83,7 +105,7 @@ namespace TianWen.Lib.Tests
         [InlineData(StretchMode.None)]
         public void AnExplicitModeIsNeverOverridden(StretchMode explicitMode)
             => explicitMode.ResolveAuto(isColour: true, calibrationActive: false,
-                    colourIsNotPhotometric: false, backgroundAlreadyExtracted: true)
+                    colourIsNotPhotometric: false, channelsAlreadyAgree: true)
                 .ShouldBe(explicitMode);
     }
 }

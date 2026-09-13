@@ -52,6 +52,9 @@ public class SpccBackgroundProbe(ITestOutputHelper output)
 
         // What is ALREADY known at open, before star detection: the stretch needs these to render the
         // first frame, so any decision taken from them is free.
+        // What ResolveAuto actually consults, in the order it consults them.
+        output.WriteLine($"resolve    colourIsNotPhotometric={doc.ColourIsNotPhotometric} narrowband={doc.IsNarrowbandColorCalibration} channelsAlreadyAgree={doc.ChannelsAlreadyAgree}");
+        output.WriteLine($"           Auto resolves to {StretchMode.Auto.ResolveAuto(channels >= 3, doc.ColorCalibration is not null, doc.ColourIsNotPhotometric, doc.ChannelsAlreadyAgree)}");
         output.WriteLine($"at open    PerChannelStats={(doc.PerChannelStats is { Length: > 0 } ? "populated" : "EMPTY")}");
         for (var ci = 0; ci < doc.PerChannelStats.Length; ci++)
         {

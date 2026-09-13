@@ -206,24 +206,53 @@ public sealed class AstroImageDocument : IPreviewSource
         => IsNarrowbandColorCalibration || Basis._hasDuplicateChannels || _hasDuplicateChannels;
 
     /// <summary>
-    /// Whether this frame's background has already been flattened and levelled by a gradient
-    /// correction, so nothing downstream should try to neutralise it a second time.
+    /// Whether this frame's per-channel backgrounds are already level, so nothing downstream should
+    /// try to neutralise them a second time.
     /// </summary>
     /// <remarks>
-    /// Set by the enhance path, which always runs a <c>GradientCorrectionStep</c> (both canonical
-    /// programs include one). Provenance rather than inference on purpose: it is knowable exactly
-    /// where it happens, and the alternative -- deciding from the pixels that three channel
-    /// backgrounds "look equal enough" -- needs a threshold nobody can defend. That alternative is
-    /// still worth having eventually, because a frame FLATTENED IN ANOTHER TOOL and then opened here
-    /// carries no provenance at all and hits the same wrong answer; see viewer-prerelease-fixes P30.
+    /// <para><b>Measured, and it replaces a provenance flag that could only ever be right about our
+    /// own output.</b> The old <c>BackgroundAlreadyExtracted</c> was set by the enhance path alone, on
+    /// the reasoning that inference "needs a threshold nobody can defend". But the frames that most
+    /// need the answer are the ones flattened in ANOTHER tool -- every Astro Pixel Processor, Siril or
+    /// GraXpert master a user opens -- and those carried nothing, so they got the opposite answer and
+    /// had three curves fitted to the noise between channels already in agreement.</para>
+    /// <para>The threshold turned out to be defensible after all, because it was already measured: the
+    /// enhanced 10P drizzle master that prompted the original rule had its channel medians within 0.15
+    /// percent of each other, and the APP HOO composite sits at 0.1 percent. A frame that has not been
+    /// levelled is not close -- an uncalibrated OSC sky is percents apart, which is exactly what an
+    /// SPCC triple of 1.44 / 1.00 / 1.23 is describing.</para>
+    /// <para>Free, which is why no fast path guards it: <see cref="PerChannelStats"/> is populated at
+    /// document open because the stretch needs it to render the first frame, so this is a comparison of
+    /// three floats already in hand. (A fresh star-masked scan, for reference, is 8.4 ms on a 9.5 MP
+    /// three-channel frame.) The medians here are unmasked, which is fine for the question -- the sky
+    /// dominates the median -- and star detection later refines the same numbers.</para>
     /// </remarks>
-    public bool BackgroundAlreadyExtracted { get; private set; }
+    public bool ChannelsAlreadyAgree
+    {
+        get
+        {
+            var stats = Basis.PerChannelStats;
+            if (stats.Length < 3)
+            {
+                return false;
+            }
 
-    /// <summary>
-    /// Records that this document's background was extracted upstream. Called by the enhance path on
-    /// the document it just produced, beside <see cref="InheritColorCalibration"/>.
-    /// </summary>
-    public void MarkBackgroundExtracted() => BackgroundAlreadyExtracted = true;
+            float min = float.MaxValue, max = float.MinValue;
+            for (var c = 0; c < 3; c++)
+            {
+                var m = stats[c].Median;
+                if (m < min) { min = m; }
+                if (m > max) { max = m; }
+            }
+
+            // A non-positive median says the frame is not in the regime this question is about
+            // (an empty or fully clipped plane), so decline rather than divide.
+            return min > 0f && max / min - 1f <= ChannelAgreementTolerance;
+        }
+    }
+
+    /// <summary>See <see cref="ChannelsAlreadyAgree"/>: 0.15 percent, measured rather than chosen.</summary>
+    private const float ChannelAgreementTolerance = 0.0015f;
 
     private readonly bool _hasDuplicateChannels;
 
@@ -703,7 +732,7 @@ public sealed class AstroImageDocument : IPreviewSource
         var isColour = UnstretchedImage.ChannelCount >= 3
             || UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB;
         mode = mode.ResolveAuto(isColour, autoWb is not null, ColourIsNotPhotometric,
-            BackgroundAlreadyExtracted);
+            ChannelsAlreadyAgree);
 
         if (UseIterativeConvergence && Basis.StarMaskedStats is { } masked)
         {

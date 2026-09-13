@@ -1461,15 +1461,21 @@ measured medians landed within 0.15 percent of each other), so Unlinked fits thr
 nearly identical inputs and what separates them is the noise rather than the sky: the MADs still
 spanned 1.7x, and the channel with the smallest one took the largest 1/MAD gain and painted the frame.
 
-- **Provenance, not inference.** `AstroImageDocument.BackgroundAlreadyExtracted`, set by the enhance
-  path because both canonical programs run a `GradientCorrectionStep`. The alternative -- deciding
-  from the pixels that three channel backgrounds "look equal enough" -- needs a threshold nobody can
-  defend. **Its cost is a real gap: a frame flattened in ANOTHER tool and opened here carries no
-  provenance and still gets the wrong answer.** That is the outstanding follow-up.
-- **Ordered after the narrowband guard.** A non-photometric frame keeps Unlinked even when flattened:
-  an HOO composite's channels are not brought into agreement by flattening (OIII sits in two of them),
-  and what makes that case avoid Linked is a white balance fitted to a premise that never held, which
-  flattening does not repair.
+- **Provenance, then measurement (2026-09-13).** This shipped as
+  `AstroImageDocument.BackgroundAlreadyExtracted`, a flag set by the enhance path, on the reasoning
+  that inference "needs a threshold nobody can defend" -- and the stated cost, a frame flattened in
+  ANOTHER tool getting the wrong answer, is exactly what a user hit on an Astro Pixel Processor HOO
+  composite. **It is now measured**, `ChannelsAlreadyAgree`, and the threshold was defensible after
+  all because this very paragraph had already measured it: 0.15 percent, the separation on the
+  enhanced 10P master. The APP composite sits at 0.1 percent; an uncalibrated OSC sky is percents
+  away. It is free -- `PerChannelStats` exists at open because the stretch needs it to draw at all --
+  so there is no fast path and no flag to go stale.
+- **Ordered after the narrowband guard, but the guard now needs a calibration to fire (2026-09-13).**
+  A non-photometric frame WITH a calibration still keeps Unlinked, for the reason below. With none, it
+  no longer does: the entire justification is a white balance fitted to a premise that never held, and
+  where there is no white balance there is no bogus fit to protect against. Vetoing anyway is what made
+  an HOO composite that APP had already colour-balanced open Unlinked and have three curves fitted to
+  the noise between channels already in agreement, discarding the colour the file came with.
 - **The toolbar label resolves from the same four inputs**, or the button names a mode the picture is
   not in.
 - The new parameter defaults to false, so the Explorer thumbnail -- a separate caller of the same
