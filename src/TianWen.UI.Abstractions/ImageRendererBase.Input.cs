@@ -308,7 +308,15 @@ namespace TianWen.UI.Abstractions
                     }
                     return true;
                 case InputKey.D:
-                    ViewerActions.CycleDebayerAlgorithm(state);
+                    // Through the BUTTON's predicate, not a second copy of it. The button has always
+                    // been disabled for a frame with no CFA; the key was not, so on a mono frame D
+                    // cycled a demosaic that has nothing to act on, and the status line changing said
+                    // the picture had changed when it had not. (Auto already resolves mono to
+                    // BilinearMono, so every option there was the same option.)
+                    if (IsToolbarButtonEnabled(ToolbarAction.Debayer, _document))
+                    {
+                        ViewerActions.CycleDebayerAlgorithm(state);
+                    }
                     return true;
                 case InputKey.I:
                     state.ShowInfoPanel = !state.ShowInfoPanel;
