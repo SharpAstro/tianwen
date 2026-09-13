@@ -56,8 +56,12 @@ namespace TianWen.UI.Abstractions
         /// <summary>Every label the Reset button can carry, so its width can be reserved.</summary>
         private static readonly string[] ResetLabels = ["Reset WB", "Reset to calibrated"];
 
-        /// <summary>Every label the calibration button can carry. "Calibrate" is the widest.</summary>
-        private static readonly string[] SpccLabels = ["Calibrate", "SPCC on", "SPCC off"];
+        /// <summary>
+        /// Every label the calibration button can carry, including the in-flight one, so the row is
+        /// reserved wide enough for it. Leaving "Calibrating..." out would put the button back to
+        /// changing width under the user -- while a fit is running, which is the worst moment for it.
+        /// </summary>
+        private static readonly string[] SpccLabels = ["Calibrate", "Calibrating...", "SPCC on", "SPCC off"];
 
         /// <summary>
         /// A button's width held at its WIDEST label, so toggling state cannot move the buttons beside
@@ -225,11 +229,19 @@ namespace TianWen.UI.Abstractions
             // Dim rather than absent when the frame has too few stars to fit against (the same >= 5
             // predicate the toolbar button used): a control that vanishes reads as a bug, one that is
             // dim reads as a precondition.
-            var canCalibrate = _document?.Stars is { Count: >= 5 };
+            // SAYS SO WHILE IT IS RUNNING. A photometric fit is a catalogue init plus a match against a
+            // few thousand stars -- seconds, not a frame -- and the button used to go on reading
+            // "Calibrate" throughout, so the one control the user had just pressed looked like it had
+            // ignored them. The status bar said "Calibrating color..." all along; the button, which is
+            // where they were looking, did not.
+            var inFlight = _document?.ColorCalibrationInFlight ?? false;
+            var canCalibrate = !inFlight && _document?.Stars is { Count: >= 5 };
             var calibrated = _document?.ColorCalibration is not null;
-            var spccLabel = !calibrated
-                ? "Calibrate"
-                : state.ColorCalibrationEnabled ? "SPCC on" : "SPCC off";
+            var spccLabel = inFlight
+                ? "Calibrating..."
+                : !calibrated
+                    ? "Calibrate"
+                    : state.ColorCalibrationEnabled ? "SPCC on" : "SPCC off";
             // Measured against the widest state, not the current one, so toggling it cannot shuffle the
             // row sideways -- the same reservation the toolbar makes for Zoom and Enhance. It used to
             // name "SPCC off" alone, which is not the widest: "Calibrate" is longer in a proportional
@@ -240,22 +252,29 @@ namespace TianWen.UI.Abstractions
                 calibrated && state.ColorCalibrationEnabled ? ToolbarButtonActiveBg : ToolbarButtonBg);
             DrawText(spccLabel, spccX + gap, y + gap / 2f, FontSize,
                 canCalibrate ? ViewerTheme.Palette.BodyText : ViewerTheme.Palette.DimText);
-            if (canCalibrate)
-            {
-                // NOT "SpccCalibrate" or any other ToolbarAction name: a ButtonHit whose label parses as
-                // one is ALSO run by the toolbar action handler, so the toggle would fire twice and
-                // cancel itself. The two buttons above avoid it by accident; this one says so.
-                RegisterClickable(spccX, y, spccW, btnH, new HitResult.ButtonHit("ToggleColorCalibration"),
-                    _ =>
+            // Registered even when it cannot act, so a press lands on the button and stops there. It
+            // used to register nothing while dim, which let the press reach the backdrop behind it and
+            // CLOSE the panel -- so pressing a busy or unavailable control made the whole popover
+            // vanish, which reads as a crash rather than as a refusal. Same shape as Reset above.
+            //
+            // NOT "SpccCalibrate" or any other ToolbarAction name: a ButtonHit whose label parses as
+            // one is ALSO run by the toolbar action handler, so the toggle would fire twice and
+            // cancel itself. The two buttons above avoid it by accident; this one says so.
+            RegisterClickable(spccX, y, spccW, btnH, new HitResult.ButtonHit("ToggleColorCalibration"),
+                _ =>
+                {
+                    if (!canCalibrate)
                     {
-                        // Toggle AND start, the same pair W has always run: on a document with no
-                        // calibration yet a bare toggle is a no-op, and on one that has a solution a
-                        // bare start is.
-                        ViewerActions.SetColorCalibrationEnabled(state, !state.ColorCalibrationEnabled);
-                        TryStartColorCalibration(state);
-                        state.NeedsRedraw = true;
-                    });
-            }
+                        return;
+                    }
+
+                    // Toggle AND start, the same pair W has always run: on a document with no
+                    // calibration yet a bare toggle is a no-op, and on one that has a solution a
+                    // bare start is.
+                    ViewerActions.SetColorCalibrationEnabled(state, !state.ColorCalibrationEnabled);
+                    TryStartColorCalibration(state);
+                    state.NeedsRedraw = true;
+                });
 
             y += btnH + FontSize;
         }
