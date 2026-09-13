@@ -2356,6 +2356,42 @@ final checkpoint as the E3.0 that does not ring. What the runtime path costs on 
 iterations of a base-16 U-Net on a 1.3x frame under DirectML, no recompute at inference) is the E7
 measurement, owed before any of this ships.
 
+#### The whole master, looked at: the prior's negative ring is a dark moat, and the pair's blur is not uniform (2026-09-13, 20:15)
+
+`n2n_operator_master.py` ran E3.0 and the E3.2 prior (1.28x round trip) over the whole soft half in
+overlapping tiles, on the classical-flattened master and on the flattened plus N2N-denoised one, and
+the result was laid out as a frame-wide 3x3 (corners 200 px in from the canvas ring, edge midpoints,
+centre; `C:/temp/e2/matrix/`, the page at claude.ai/code/artifact/fd682323). Two things the one-crop
+readout could not show:
+
+- **The soft half is not uniformly softer than the sharp half.** Gate statistic per window, flattened
+  row, reference the flattened sharp half (width over truth, stars kept, ring excess):
+
+  | window | truth px | input | E3.0 | E3.2 prior 1.28x |
+  |---|---|---|---|---|
+  | top left / centre / right | 2.14 / 2.02 / 2.19 | 1.026 / 1.019 / 1.009 | 0.963 (1.03, +1.0) / 0.961 (1.06, +1.6) / 0.957 (1.04, +1.5) | 0.918 (1.09, -2.1) / 0.939 (1.11, -0.7) / 0.917 (1.10, -1.0) |
+  | middle left / centre / right | 1.87 / 1.89 / 1.93 | 1.188 / 1.111 / 1.101 | 1.116 (0.93, +0.7) / 1.042 (1.01, +0.9) / 1.038 (0.95, +1.0) | 1.054 (0.96, -2.0) / 0.996 (1.08, -0.2) / 0.988 (1.01, -0.9) |
+  | bottom left / centre / right | 1.86 / 1.79 / 1.90 | 1.294 / 1.268 / 1.391 | 1.203 (0.79, +0.8) / 1.195 (0.88, +0.8) / 1.316 (0.81, +0.8) | 1.158 (0.84, -1.9) / 1.141 (0.93, -1.6) / 1.254 (0.87, -2.0) |
+
+  The top row's input is within 3 percent of the reference and the bottom row's 27 to 39 percent
+  wider: the two halves differ by a tilt or focus term across the field, not by one seeing. The
+  frame-wide kernel (the pair probe's, taken on a middle-left crop) is therefore over-read on the top
+  row, where both arms land under 1.0 with the stars over-counted (E3.0 1.03 to 1.06, the prior 1.09
+  to 1.11, the fabrication line), and under-read on the bottom row. **The per-window kernel is not a
+  refinement; a 3x3 of kernels is the least the runtime path needs on this pair.**
+- **A negative ring excess is a defect too.** The readout rows were read with "non-positive ring" as
+  the pass, and the prior's -0.8 to -2.1 was called the right side of zero. Looked at, at 8x, it is a
+  dark moat round every star with the core gone yellow and the halo purple (the channels deconvolved
+  to different widths by their own kernels, then resampled), and the cores are blocky from the
+  round trip. E3.0's +0.7 to +1.0 is the classic faint bright ring and, at 1:1, the cleaner picture
+  in every middle-row window. **The ring criterion is two-sided from here: |ring excess| under 0.5,
+  and a symmetric ring penalty belongs in the next prior's objective (E3.4, to pre-register), since
+  the empty-window term only teaches it to flatten what RL raised.**
+
+Net for the runtime path as of tonight: E3.0 with a per-window kernel and the iteration count as
+its dial is the working deconvolution; the learned prior is not ahead of it on the picture, whatever
+the width column says.
+
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
 Every retained master in `2026-09-full` predates the two registration fixes and R1, and E3 trains on
