@@ -2410,6 +2410,43 @@ same width as E3.0 on the centre window (1.043 against 1.042) with the ring at -
 reads identically on the gate and would keep the moat neutral. Both are cheap to ship beside the
 strength dial the denoiser already has.
 
+*Corrected the same evening (21:10), by measuring it.* The gate's ring excess is a DEPTH (annulus
+minimum under the sky, in MAD), and it does not go the wrong way on the prior: a negative excess is
+an annulus whose minimum sits HIGHER than the input's, the prior flattening the sky's minima as a
+denoiser would, not a moat under the sky. What the eye called a black square is a star whose SKIRT
+has been taken away while the far halo stayed: a profile too steep against the truth. Three shape
+statistics were built to see it (`n2n_star_shape.py`, `n2n_matrix_shape.py`), read on the truth's
+star list per 3x3 window; the one that works is the **skirt ratio**, the output's annulus level at
+1.0 to 1.5 truth-FWHM over the truth's, each as a fraction of its own peak (1.0 = the truth's
+profile, under 1.0 the skirt is gone). A signed ring mean is positive for everything including the
+reference (the star's own wing sits in the annulus) and a free-alpha Moffat misfit fits a steep
+profile happily (the prior scores the LOWEST misfit, 0.027 against the reference's 0.032), so
+neither is a blockiness measure.
+
+| window (truth px) | arm | width / truth | stars | skirt ratio |
+|---|---|---|---|---|
+| centre (1.89) | input | 1.124 | 0.97 | 1.12 |
+| | E3.0 | 1.054 | 1.04 | 0.82 |
+| | **E3.2 prior** | 1.001 | 1.18 | **0.64** |
+| | prior blend 0.5 | 1.051 | 1.09 | 0.86 |
+| top left (2.14) | input | 1.040 | 0.98 | 1.04 |
+| | E3.0 | 0.976 | 1.02 | 0.81 |
+| | E3.2 prior | 0.917 | 1.18 | 0.60 |
+| bottom right (1.90) | input | 1.400 | 0.75 | 2.72 |
+| | E3.0 | 1.327 | 0.77 | 2.19 |
+| | E3.2 prior | 1.239 | 0.95 | 1.65 |
+
+At the centre the prior lands the width on the truth (1.001) with a third of the truth's skirt
+missing (0.64) and 18 percent more detections than the truth: it reaches the width by steepening
+the profile, not by reproducing it, and the gate's width column cannot tell those apart. E3.0
+loses less skirt (0.82) for less width. The top-left window says the same about the kernel: an input
+already within 4 percent of the truth is pushed under 1.0 by both arms, the frame-wide kernel
+over-read where the field is sharp. **The pass criterion gains a column: skirt ratio within 0.9 to
+1.1 at the width the arm claims, and the next prior's objective owes a skirt term against the
+truth's profile at 1 to 1.5 FWHM (E3.4), since the star term reads peaks and positions and the
+band loss the pixels, neither the profile.** The luminance-only application reads identically to
+the full prior on every column (the gate reads luminance), so it is a colour fix only.
+
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
 Every retained master in `2026-09-full` predates the two registration fixes and R1, and E3 trains on
