@@ -2552,6 +2552,32 @@ with skirt 0.90 or over at either zoom (the goal's line, not the arm's), stars 0
 minimum not below the input's; kill if it reads under E3.4b on the skirt at the same width, which would
 say the augmentation costs what the pool bought.
 
+*E3.4c read (2026-09-14, 05:50; `e3-4c-s0-real-statue.txt`, `e3-4c-gate-skirt.txt`).* The straddling
+augmentation (0.6 to 1.4) on the old pool, 02:40 to 05:46. Cache gate selected 2700 at 1.058, final
+1.071 / stars 0.88 / skirt 1.42 (within the predicted 0.05 of E3.2's 1.033: 0.038); observer 1.168 at
+1.76x its null, the first observer under 2x since E3.1. The real hard crop (final checkpoint; width,
+stars, ring depth excess, skirt):
+
+| round trip | E3.2 | E3.4b (pool) | E3.4c (straddle) |
+|---|---|---|---|
+| as shot | 1.201 / 0.92 / -1.2 / 1.18 | 1.194 / 0.95 / -0.2 / 1.31 | 1.236 / 0.88 / -1.4 / 1.36 |
+| 1.28x | 1.101 / 1.03 / -0.8 / 0.75 | 1.119 / 1.04 / +0.07 / 0.87 | 1.160 / 1.00 / -1.4 / **0.94** |
+| 1.42x | | | **1.122** / 1.05 / -1.4 / 0.79 |
+
+**Neither line.** The pass wanted width 1.15 or under WITH skirt 0.90 or over at 1.42x; it reads the
+width (1.122) without the skirt (0.79), and at 1.28x the skirt (0.94) without the width (1.160). The
+kill wanted neither clause: one is met at each zoom. Read as a dial, the straddling augmentation
+moves the prior along the same width-for-skirt line E3.4a traced, a little further toward the skirt
+than E3.2 at every zoom (0.94 against 0.75 at 1.28x) and a little less tight (1.160 against 1.101);
+where E3.4b, at the same 1.28x, has BOTH 1.119 and 0.87. So on this pair the pool's profile buys
+skirt without spending width, and the augmentation buys skirt by spending it. The nebula crop at
+1.42x reads as every arm does (skirt 0.49, band residual 0.904), the over-read frame-wide kernel.
+Between the two zooms (`-zoom.txt`, CPU): 1.33x reads 1.145 / 1.02 / -1.4 / 0.87 and 1.36x 1.136 /
+1.03 / -1.4 / 0.85, so the closest this checkpoint comes to both clauses is E3.4b's own point (0.87)
+at a wider star (1.145 against 1.119). E3.4d (pool plus straddle, launched by the chain at 05:49)
+reads next, and the prediction stands as written: the pool's gain at a held width, plus whatever
+skirt the augmentation adds.
+
 The arm follows from the skirt readings: at native scale the E3.2 prior keeps the skirt (1.18) and
 hardly tightens (1.201); round-tripped at 1.28x it tightens (1.101) and takes the skirt (0.75); E3.0 on
 the same round trip keeps it (0.95). The skirt goes on the zoomed path, and more under the prior than
