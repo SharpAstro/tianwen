@@ -264,6 +264,83 @@ def load_psf01(root):
     return out
 
 
+def load_kernel_rows(root):
+    """The operator's kernel per degraded tile, keyed by tile path like `load_psf01`.
+
+    Columns are `n2n_operator.KERNEL_COLUMNS`. `EstimatedKernelFwhmPx` / `EstimatedKernelBeta` are
+    what the operator convolves with: the estimator step's reading where it returned, the drawn
+    kernel's effective width and beta where it was refused (`KernelSource` "drawn"), which is the
+    whole-frame fallback inference will use. `SourceEstimated` says which, so a run can report what
+    fraction of its cells trained on a measured kernel. A row without the columns (an export before
+    `--estimate-kernels`) is dropped, and the cache then carries no kernel file at all.
+    """
+    import n2n_operator as OP
+    path = os.path.join(root, "degradations.jsonl")
+    if not os.path.exists(path):
+        return {}
+    out = {}
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            fwhm = row.get("EstimatedKernelFwhmPx")
+            beta = row.get("EstimatedKernelBeta")
+            if fwhm is None or beta is None:
+                continue
+            values = np.full(len(OP.KERNEL_COLUMNS), np.nan, dtype=np.float32)
+            for j, col in enumerate(OP.KERNEL_COLUMNS):
+                if col == "SourceEstimated":
+                    values[j] = 1.0 if str(row.get("KernelSource", "")).lower() == "estimated" else 0.0
+                else:
+                    v = row.get(col)
+                    if v is not None and np.isfinite(v):
+                        values[j] = float(v)
+            out[row["Tile"]] = values
+    return out
+
+
+def prepare_stretch(bake, keys, cells, read_tile):
+    """Per-cell session stretch parameters `[cells, 6]`, each session's proved against its own tiles.
+
+    See `n2n_operator`'s module docstring for why these exist: the operator deconvolves in linear
+    units and the exporter recorded the stretch nowhere. Recomputed from the retained master in
+    `bake`, and every session's parameters have to reproduce up to three of the cache's clean tiles to
+    within two half-ulps before they are written; a session that does not refuses the whole prepare.
+    Returns the array and a per-session record for `stretch.json`.
+    """
+    import n2n_operator as OP
+    sessions = sorted({k[0] for k in keys}, key=str)
+    per_session = {}
+    for s in sessions:
+        master, header, path = OP.read_master(bake, s)
+        data_max = float(np.nanmax(master))
+        candidates = [data_max if data_max > 1.0 else 1.0]
+        if "DATAMAX" in header:
+            try:
+                dm = float(header["DATAMAX"])
+                if dm > 1.0 and dm not in candidates:
+                    candidates.append(dm)
+            except (TypeError, ValueError):
+                pass
+        proof_cells = [(int(k[1]), int(k[2]), cells[k]["master"]) for k in keys if k[0] == s]
+        divisor, mins, betas, worst_max, worst_med = OP.prove_stretch_params(
+            master, header, candidates, lambda d: OP.session_stretch_params(master, d),
+            proof_cells, read_tile, TILE)
+        per_session[s] = {"master": path, "divisor": divisor, "min": [float(v) for v in mins],
+                          "beta": [float(v) for v in betas], "parity_max_abs": worst_max,
+                          "parity_median_abs": worst_med, "proof_cells": min(3, len(proof_cells))}
+        print(f"  stretch {s[:60]}: divisor {divisor:.6g} beta ({betas[0]:.4f}, {betas[1]:.4f}, {betas[2]:.4f}) "
+              f"min ({mins[0]:.5f}, {mins[1]:.5f}, {mins[2]:.5f}) parity max {worst_max:.2e} med {worst_med:.2e}")
+    out = np.zeros((len(keys), len(OP.STRETCH_COLUMNS)), dtype=np.float32)
+    for i, k in enumerate(keys):
+        rec = per_session[k[0]]
+        out[i, :3] = rec["min"]
+        out[i, 3:] = rec["beta"]
+    return out, per_session
+
+
 def prepare(args):
     cells = load_cells(args.root, args.manifest)
     cells = drop_foreign_channel_sessions(args.root, cells)
@@ -292,6 +369,9 @@ def prepare(args):
     # state the trainer has to see rather than a zero it would silently condition on.
     psf01_by_tile = load_psf01(args.root)
     psf01 = np.full((n, SUBS_PER_CELL), np.nan, dtype=np.float32)
+    # The operator's kernel per (cell, sub slot), from the same rows. NaN where a tile has no row.
+    kernel_by_tile = load_kernel_rows(args.root)
+    kernels = np.full((n, SUBS_PER_CELL, 6), np.nan, dtype=np.float32)
 
     def read_tile(rel):
         with open(os.path.join(args.root, rel.replace("/", os.sep)), "rb") as fh:
@@ -299,6 +379,17 @@ def prepare(args):
         if len(raw) != BYTES:
             raise SystemExit(f"tile {rel} is {len(raw)} bytes, expected {BYTES}")
         return np.frombuffer(raw, "<f2").reshape(CH, TILE, TILE)
+
+    # The E3 operator's session stretch parameters, BEFORE the tile read: the proof against the cache's
+    # clean tiles reads them straight from the export, so a parameter set that fails costs seconds
+    # here rather than the fifteen minutes of tile packing it would otherwise sit behind.
+    stretch = None
+    stretch_info = None
+    if args.bake:
+        print("  session stretch parameters, proved against the export's clean tiles:")
+        stretch, stretch_info = prepare_stretch(args.bake, keys, cells, read_tile)
+    else:
+        print("  session stretch parameters: NOT written (no --bake); the operator cannot run on this cache")
 
     t0 = time.perf_counter()
     for i, key in enumerate(keys):
@@ -308,6 +399,8 @@ def prepare(args):
             mm[i, slot] = read_tile(rel)
             if slot > 0 and rel in psf01_by_tile:
                 psf01[i, slot - 1] = psf01_by_tile[rel]
+            if slot > 0 and rel in kernel_by_tile:
+                kernels[i, slot - 1] = kernel_by_tile[rel]
         pair = has_halves(entry)
         halves.append(pair)
         if pair:
@@ -348,12 +441,36 @@ def prepare(args):
         # nobody asked for.
         print("  psf01 labels: NONE (no degradations.jsonl, or no row carried a measured label)")
 
+    # E3's operator labels. The kernel file is written whenever the export carried the columns; the
+    # stretch file needs the bake the masters live in (--bake) and is PROVED against the tiles first.
+    import n2n_operator as OP
+    kernel_labelled = int(np.isfinite(kernels[..., 0]).sum())
+    if kernel_labelled:
+        np.save(os.path.join(args.cache, OP.KERNELS_FILE), kernels)
+        with open(os.path.join(args.cache, "kernels.json"), "w", encoding="utf-8") as fh:
+            json.dump({"columns": list(OP.KERNEL_COLUMNS), "slots": "sub slots 1..8 as index 0..7"}, fh, indent=1)
+        est = kernels[..., 3][np.isfinite(kernels[..., 3])]
+        fw = kernels[..., 0][np.isfinite(kernels[..., 0])]
+        print(f"  operator kernels: {kernel_labelled}/{kernels[..., 0].size} degraded slots, "
+              f"{est.mean() * 100:.0f}% estimated (the rest the drawn kernel's effective width), "
+              f"fwhm p5 {np.quantile(fw, 0.05):.2f} p50 {np.quantile(fw, 0.5):.2f} p95 {np.quantile(fw, 0.95):.2f} px")
+    else:
+        print("  operator kernels: NONE (the export predates --estimate-kernels)")
+    if stretch is not None:
+        np.save(os.path.join(args.cache, OP.STRETCH_FILE), stretch)
+        with open(os.path.join(args.cache, "stretch.json"), "w", encoding="utf-8") as fh:
+            json.dump({"columns": list(OP.STRETCH_COLUMNS), "target_median": OP.TARGET_MEDIAN,
+                       "bake": args.bake, "sessions": stretch_info}, fh, indent=1)
+
     meta = {
         "cells": n, "slots": SLOTS_WITH_HALVES, "injected": bool(injected), "has_subs": bool(has_subs),
         "train_cells": len(train_keys), "val_cells": len(val_keys),
         "train_sessions": train_s, "val_sessions": val_s,
         "has_halves": halves,
         "psf01_labels": labelled,
+        "kernel_labels": kernel_labelled,
+        "bake": args.bake,
+        "stretch_proved": bool(stretch_info),
         "keys": [[k[0], k[1], k[2]] for k in keys],
     }
     with open(os.path.join(args.cache, "meta.json"), "w", encoding="utf-8") as fh:
@@ -586,7 +703,15 @@ def load_model(cache, name, dev):
     import torch
     ck = torch.load(os.path.join(cache, name), map_location="cpu")
     planes = int(ck.get("cond", 0))
-    model = build_model(ck["base"], ck.get("upsample", False), planes).to(dev)
+    if ck.get("operator") == "rl":
+        # An E3.1 checkpoint: the operator around its prior. `planes` stays the label-plane count the
+        # gate appends (1), which is what every caller uses it for; the prior itself takes no planes.
+        import n2n_operator as OP
+        prior = OP.StretchedPrior(build_model(ck["prior_base"], ck.get("upsample", False), 0),
+                                  every=ck.get("prior_every", 1))
+        model = OP.RLOperator(ck["rl_k"], prior=prior).to(dev)
+    else:
+        model = build_model(ck["base"], ck.get("upsample", False), planes).to(dev)
     model.load_state_dict(ck["model"])
     model.eval()
     return model, planes
@@ -877,11 +1002,30 @@ def train(args):
               f"p5 {np.quantile(psf01_labels[finite], 0.05):.3f} "
               f"p95 {np.quantile(psf01_labels[finite], 0.95):.3f}), not on measured noise")
 
-    model = build_model(args.base, args.upsample, cond_planes).to(dev)
-    params = sum(p.numel() for p in model.parameters())
+    # E3.1: the unrolled Richardson-Lucy operator with a learned residual prior between iterations
+    # (n2n_operator). The operator needs the deconvolution gate (--cond-psf01) and the supervised
+    # regime against the clean master, and its labels are the nine-column rows load_operator_labels
+    # packs (psf01, the row's kernel, the session's stretch) rather than psf01 alone.
+    operator_labels = None
+    if args.operator == "rl":
+        import n2n_operator as OP
+        if psf01_labels is None or not args.synthetic or args.synthetic_target != "master":
+            raise SystemExit("--operator rl needs --cond-psf01 (the deconvolution gate) and --synthetic "
+                             "against the master (the operator is supervised on the clean target)")
+        operator_labels, _ = load_operator_labels(args.cache, meta)
+        prior = OP.StretchedPrior(build_model(args.prior_base, args.upsample, 0), every=args.prior_every)
+        model = OP.RLOperator(args.rl_k, prior=prior).to(dev)
+        params = sum(p.numel() for p in model.parameters())
+        print(f"E3.1 operator: Richardson-Lucy K={args.rl_k} with a residual U-Net prior (base {args.prior_base}, "
+              f"every {args.prior_every} iteration(s), zero-initialised so step 0 IS E3.0), "
+              f"{params/1e6:.2f} M params; the row's kernel and the session's stretch ride on the label planes")
+    else:
+        model = build_model(args.base, args.upsample, cond_planes).to(dev)
+        params = sum(p.numel() for p in model.parameters())
     opt = torch.optim.Adam(model.parameters(), args.lr)
     print(f"device {dev}, U-Net base={args.base}, {params/1e6:.2f} M params, "
           f"{n_train} train cells, conditioning planes {cond_planes}")
+    gate_labels = operator_labels if operator_labels is not None else psf01_labels
 
     # E2.8's star term. Only meaningful against the CLEAN target the stars were detected on, so it
     # is refused on any regime whose target is a noisy view (the stars.npy positions would then
@@ -929,7 +1073,7 @@ def train(args):
         if psf01_labels is not None:
             import n2n_deconv_gate
             gate = n2n_deconv_gate.DeconvGate(
-                mm, cells, dev, psf01=psf01_labels[cells, gate_input - 1], input_slot=gate_input)
+                mm, cells, dev, psf01=gate_labels[cells, gate_input - 1], input_slot=gate_input)
             print(f"deconv gate: {len(cells)} cells from {args.gate_sessions} val session(s), "
                   f"probing every {args.gate_every} steps; the probed input sits at "
                   f"{np.nanmean(gate.input_fwhm / gate.truth_fwhm):.2f}x the truth width")
@@ -946,7 +1090,7 @@ def train(args):
                 # under width headings, which is what a looser formatter would have done.
                 if psf01_labels is not None:
                     observers.append((s, n2n_deconv_gate.DeconvGate(
-                        mm, ocells, dev, psf01=psf01_labels[ocells, gate_input - 1],
+                        mm, ocells, dev, psf01=gate_labels[ocells, gate_input - 1],
                         input_slot=gate_input)))
                     # The observer's own star NULL is printed because E2.8b's kill line is stated
                     # against it ("under 2x the observer's input null"); E2.8's read had to compute it
@@ -1100,10 +1244,20 @@ def train(args):
             # exporter measured. A cell with an unlabelled slot falls back to the batch's median
             # rather than to zero, which would tell the model "no blur" about a blurred tile.
             import n2n_deconv_gate as DG
-            lab = psf01_labels[idx, np.clip(a - 1, 0, psf01_labels.shape[1] - 1)]
-            if not np.all(np.isfinite(lab)):
-                good = lab[np.isfinite(lab)]
-                lab = np.where(np.isfinite(lab), lab, float(np.median(good)) if good.size else 0.5)
+            if operator_labels is not None:
+                # The operator's nine label columns per drawn slot; a NaN (an unlabelled psf01, the
+                # one column that can be) takes the batch's column median, never zero.
+                lab = operator_labels[idx, np.clip(a - 1, 0, operator_labels.shape[1] - 1)].copy()
+                for col in range(lab.shape[1]):
+                    bad = ~np.isfinite(lab[:, col])
+                    if bad.any():
+                        good = lab[~bad, col]
+                        lab[bad, col] = float(np.median(good)) if good.size else 0.5
+            else:
+                lab = psf01_labels[idx, np.clip(a - 1, 0, psf01_labels.shape[1] - 1)]
+                if not np.all(np.isfinite(lab)):
+                    good = lab[np.isfinite(lab)]
+                    lab = np.where(np.isfinite(lab), lab, float(np.median(good)) if good.size else 0.5)
             pred = model(DG.with_psf01(x, lab))
         else:
             pred = model(with_sigma(x, planes=cond_planes) if cond_planes else x)
@@ -1280,7 +1434,9 @@ def train(args):
         torch.save({"model": state, "base": args.base, "upsample": args.upsample,
                     "cond": cond_planes, "half_pairs": args.half_pairs,
                     "regimes": [str(k) for k in regimes], "selected_at_step": selected_at,
-                    "pair_time": args.pair_time, "star_loss_w": star_w},
+                    "pair_time": args.pair_time, "star_loss_w": star_w,
+                    "operator": args.operator, "rl_k": args.rl_k,
+                    "prior_base": args.prior_base, "prior_every": args.prior_every},
                    os.path.join(args.cache, path))
         print(f"saved -> {os.path.join(args.cache, path)}")
 
@@ -1320,6 +1476,103 @@ def train(args):
                 print("  no probe met the structure criteria either, so the run has nothing to "
                       "audit against: it fabricated or flattened at every probe.")
         save(model.state_dict(), args.out, steps)
+
+
+# --------------------------------------------------------------------------- the operator (E3)
+def load_operator_labels(cache, meta):
+    """`[cells, SUBS_PER_CELL, n2n_operator.LABEL_COUNT]`: psf01, the kernel (fwhm, beta), the
+    session stretch (3 mins, 3 betas), in the plane order `n2n_operator` unpacks."""
+    import n2n_operator as OP
+    n = meta["cells"]
+    psf01_path = os.path.join(cache, "psf01.npy")
+    kernels_path = os.path.join(cache, OP.KERNELS_FILE)
+    stretch_path = os.path.join(cache, OP.STRETCH_FILE)
+    for p in (kernels_path, stretch_path):
+        if not os.path.exists(p):
+            raise SystemExit(f"the operator needs {p}; re-run --prepare with --bake against an export "
+                             f"that carries the estimated-kernel columns")
+    psf01 = np.load(psf01_path) if os.path.exists(psf01_path) else np.full((n, SUBS_PER_CELL), np.nan, np.float32)
+    kernels = np.load(kernels_path)
+    stretch = np.load(stretch_path)
+    labels = np.full((n, SUBS_PER_CELL, OP.LABEL_COUNT), np.nan, dtype=np.float32)
+    labels[..., OP.LABEL_PSF01] = psf01
+    labels[..., OP.LABEL_KERNEL_FWHM] = kernels[..., 0]
+    labels[..., OP.LABEL_KERNEL_BETA] = kernels[..., 1]
+    labels[..., OP.LABEL_MIN] = stretch[:, None, :3]
+    labels[..., OP.LABEL_BETA] = stretch[:, None, 3:]
+    return labels, kernels
+
+
+def operator_only(args):
+    """E3.0: the operator ALONE through the gate. No training, no parameters, one probe.
+
+    Pre-registered (docs/plans/deconvolver-training.md, "What is pre-registered before a seed is
+    trained"): K = 20 with the estimated per-tile kernel, no network; selects at out/truth at or under
+    1.10 with stars at or over 0.60 and the observer under 2x its null; a KILL at out/truth over 1.20
+    or the observer over 2x, which says the tile-wise kernel or the unrolling is wrong before any
+    learning has been asked for. The verdict lines below state those numbers so the log carries the
+    pass condition next to the reading (the trainer's own rule).
+    """
+    import torch
+    import n2n_deconv_gate as DG
+    import n2n_operator as OP
+    mm, meta = open_cache(args.cache)
+    labels, kernels = load_operator_labels(args.cache, meta)
+    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = OP.RLOperator(args.rl_k).to(dev)
+    gate_input = 1
+    cells = gate_cells(meta, args.gate_sessions, args.gate_cells)
+    lab = labels[cells, gate_input - 1]
+    if not np.all(np.isfinite(lab[:, 1:])):
+        bad = int((~np.isfinite(lab[:, 1:]).all(axis=1)).sum())
+        raise SystemExit(f"{bad} of {len(cells)} gate cells lack a kernel or stretch label; the operator "
+                         f"cannot run on a cell it has no kernel for")
+    estimated = kernels[cells, gate_input - 1, 3]
+    print(f"E3.0 operator: Richardson-Lucy K={args.rl_k}, the row's kernel "
+          f"({int(estimated.sum())}/{len(cells)} gate cells on an ESTIMATED kernel, the rest on the drawn "
+          f"kernel's effective width), device {dev}, {sum(p.numel() for p in model.parameters())} parameters")
+    print(f"  kernel fwhm on the gate cells p5 {np.quantile(lab[:, 1], 0.05):.2f} p50 {np.quantile(lab[:, 1], 0.5):.2f} "
+          f"p95 {np.quantile(lab[:, 1], 0.95):.2f} px, beta p50 {np.quantile(lab[:, 2], 0.5):.2f}")
+    gate = DG.DeconvGate(mm, cells, dev, psf01=lab, input_slot=gate_input)
+    print(f"deconv gate: {len(cells)} cells from {args.gate_sessions} val session(s); the probed input sits at "
+          f"{np.nanmean(gate.input_fwhm / gate.truth_fwhm):.2f}x the truth width; input stars null "
+          f"{gate.stars_null:.3f} (stars@{int(DG.STAR_SIGMA_LOW)} null {gate.stars_null_lo:.3f})")
+    observers = []
+    if args.gate_observe:
+        for s, ocells in observer_cells(meta, args.gate_sessions, args.gate_cells):
+            olab = labels[ocells, gate_input - 1]
+            og = DG.DeconvGate(mm, ocells, dev, psf01=olab, input_slot=gate_input)
+            observers.append((s, og))
+            print(f"  OBSERVING {len(ocells)} cells from {s[:44]}; input at "
+                  f"{np.nanmean(og.input_fwhm / og.truth_fwhm):.2f}x truth, input stars null {og.stars_null:.3f} "
+                  f"(stars@{int(DG.STAR_SIGMA_LOW)} null {og.stars_null_lo:.3f})")
+    print(f"  pass: out/truth <= 1.10 with stars >= 0.60 and every observer's stars under 2x its null; "
+          f"KILL: out/truth > 1.20 or an observer over 2x its null")
+    print(f"           {DG.DeconvGate.header()}")
+    t0 = time.perf_counter()
+    m = gate.evaluate(model)
+    elapsed = time.perf_counter() - t0
+    print(f"  gate     {DG.DeconvGate.format(m)}   ({elapsed:.1f} s)")
+    obs = []
+    for si, (s, og) in enumerate(observers):
+        om = og.evaluate(model)
+        obs.append((s, om, og.stars_null))
+        print(f"  obs{si}     {DG.DeconvGate.format(om)}   null {og.stars_null:.3f} -> {om['stars_kept'] / og.stars_null:.2f}x")
+    width_ok = np.isfinite(m["fwhm_ratio"]) and m["fwhm_ratio"] <= 1.10
+    stars_ok = m["stars_kept"] >= 0.60
+    obs_ok = all(np.isfinite(om["stars_kept"]) and om["stars_kept"] < 2.0 * null for _, om, null in obs)
+    killed = (np.isfinite(m["fwhm_ratio"]) and m["fwhm_ratio"] > 1.20) or not obs_ok
+    verdict = "KILLED" if killed else ("PASS" if width_ok and stars_ok else "NEITHER (between the pass and the kill line)")
+    print(f"  E3.0 verdict at K={args.rl_k}: {verdict}  (out/truth {m['fwhm_ratio']:.3f}, stars {m['stars_kept']:.2f}, "
+          f"observers {'ok' if obs_ok else 'OVER 2x null'})")
+    out = os.path.join(args.cache, f"e30_operator_k{args.rl_k}.json")
+    with open(out, "w", encoding="utf-8") as fh:
+        json.dump({"k": args.rl_k, "gate_cells": len(cells), "estimated_kernels": int(estimated.sum()),
+                   "gate": m, "input_ratio": float(np.nanmean(gate.input_fwhm / gate.truth_fwhm)),
+                   "stars_null": gate.stars_null,
+                   "observers": [{"session": s, "metrics": om, "stars_null": null} for s, om, null in obs],
+                   "verdict": verdict, "seconds": elapsed}, fh, indent=1)
+    print(f"  written -> {out}")
 
 
 # --------------------------------------------------------------------------- eval
@@ -1508,6 +1761,27 @@ if __name__ == "__main__":
     p.add_argument("--prepare-stars", action="store_true",
                    help="write stars.npy for an EXISTING cache without touching its tiles, so an arm "
                         "can add the star term while staying paired against runs on the same cache")
+    p.add_argument("--bake", default=None,
+                   help="the BAKE the degradation export was cut from (its session-masters/ holds the "
+                        "retained masters). --prepare needs it to recompute each session's stretch "
+                        "parameters for the E3 operator, which deconvolves in LINEAR units; they are "
+                        "proved against the cache's own clean tiles before stretch.npy is written")
+    p.add_argument("--operator-only", action="store_true",
+                   help="E3.0: run the parameter-free Richardson-Lucy operator with each tile's estimated "
+                        "kernel through the deconvolution gate ONCE and print the pre-registered verdict. "
+                        "Needs a cache prepared with --bake from an --estimate-kernels export")
+    p.add_argument("--operator", choices=("none", "rl"), default="none",
+                   help="E3.1: train the unrolled Richardson-Lucy operator with a residual U-Net prior "
+                        "between iterations instead of a pixel-domain U-Net. Needs --cond-psf01 and "
+                        "--synthetic, and a cache prepared with --bake (kernels.npy + stretch.npy)")
+    p.add_argument("--prior-base", type=int, default=16,
+                   help="channel width of the prior U-Net inside the operator (the pixel-domain arms "
+                        "used --base 32; the prior runs K times per step, so it is kept smaller)")
+    p.add_argument("--prior-every", type=int, default=1,
+                   help="apply the prior after every Nth Richardson-Lucy iteration (1 = between every pair)")
+    p.add_argument("--rl-k", type=int, default=20,
+                   help="Richardson-Lucy iterations inside the operator (E3.0 pre-registers 20). On noisy "
+                        "data the count IS the regulariser, so a different value is a different arm")
     p.add_argument("--out", default="n2n.pt")
     p.add_argument("--out-final", default=None,
                    help="where the LAST step's weights go when a gate selected an earlier one "
@@ -1588,6 +1862,8 @@ if __name__ == "__main__":
         prepare(a)
     if a.prepare_stars and not a.prepare:
         prepare_stars(a.cache, a.star_max)
+    if a.operator_only:
+        operator_only(a)
     if a.train:
         train(a)
     if a.eval:

@@ -2058,6 +2058,70 @@ observed fit's exponent ranges 1.9 to 9.9 against drawn 1.5 to 8, so the "shape 
 noisy at the wing-less end, as E1g-2 said it would be. Verdict: the ground-work stands with the
 window; per-tile estimation is closed as a design; E3.0 needs the re-export.
 
+#### E3.0, read 2026-09-13: the operator alone trips the observer's kill line, and a noise-free control places the cause
+
+*What was built.* The operator is `training/denoise/n2n_operator.py`: `rl_deconvolve` is
+`RichardsonLucy.Deconvolve` on a batch (replicate border for the C# index clamp, the 1e-12 floor
+with the ratio defaulting to 1, the flipped kernel as the adjoint, a non-finite or negative
+estimate clamped to zero), `moffat_kernel` is `PsfKernel.Build` at the same support rule, and
+`RLOperator` wraps them for the gate: the tile is UNSTRETCHED to linear with its session's
+parameters, iterated, and RESTRETCHED, because the cache is stretched and the blur was injected in
+linear (a tone curve does not commute with a convolution, and the C# ceiling was measured in linear).
+The exporter recorded those parameters nowhere, so `--prepare --bake` recomputes them from the
+retained master the way `ToUnitRange` and `MtfStretch` did and PROVES them against the export's own
+clean tiles before writing `stretch.npy`: on all ten sessions of E2.6's pool the reproduction is
+byte-exact (max half difference 0.00). The port is pinned against a fixture the C# writes
+(`RichardsonLucyPortFixtureProbe`, `n2n_rl_parity.py`): kernel to 1.9e-9, twenty iterations to
+3.4e-7 absolute and 4.4e-6 relative on CPU and on the 1070, and the check bites (a zero-padded
+border reads 0.136). The kernel per tile is the row's `EstimatedKernelFwhmPx` / `EstimatedKernelBeta`
+(the drawn kernel's effective width where the estimate was refused), `kernels.npy` beside the tiles.
+The cache is `C:/temp/tianwen-scratch/n2n-p2-blur-clamped`, E2.6's ten sessions by name from the
+clamped re-export (78 sessions), 450 cells, 3600 of 3600 degraded slots labelled, 60 percent on an
+estimated kernel.
+
+*The reading* (`--operator-only`, the gate's 45 cells of HIP 80609 2026-04-21 and the observer's 45
+of the SV605CC Pleiades / Triangulum 2025-10-28 night, K swept; `C:/temp/e2/e30-operator-k*.log`):
+
+| K | gate in/truth | gate out/truth | resid px | ring | stars | stars@6 | observer out/truth | observer stars | over its null (1.69) |
+|---|---|---|---|---|---|---|---|---|---|
+| 10 | 1.376 | 1.175 | +0.40 | +2.5 | 0.90 | 0.93 | 1.429 | 10.4 | 6.1x |
+| **20** | 1.376 | **1.122** | +0.28 | +2.9 | **0.98** | 1.17 | 1.352 | **20.5** | **12.1x** |
+| 30 | 1.376 | 1.098 | +0.22 | +3.2 | 1.00 | 1.35 | 1.310 | 30.4 | 18.0x |
+| 60 | 1.376 | 1.074 | +0.18 | +4.3 | 1.02 | 1.72 | 1.242 | 56.1 | 33.2x |
+
+On the gate session the width does what the ceiling promised: 1.12 at the pre-registered K = 20
+(between the 1.10 pass and the 1.20 kill), under 1.10 from K = 30, with the truth's stars kept
+(0.98 at 12 MAD) and no fabrication at the gate's own bar. On the observer the operator manufactures
+detections: 20 times the truth's count at K = 20, twelve times its own input null, rising with K.
+**By the letter of the pre-registration E3.0 is KILLED** ("the observer over 2x its null"). The
+pre-registration reads that kill as "the tile-wise kernel or the unrolling is wrong", so the cause
+was measured rather than assumed.
+
+*The control* (`n2n_operator_control.py`): the same cells' clean masters unstretched, blurred with
+the ROW's kernel and no noise, restretched, through the same operator and the same gate. With the
+estimate: gate 1.392 in, 1.132 out, stars 0.85; observer 1.682 in, 1.386 out, stars 0.86, stars@6
+0.17. With the DRAWN (exact) kernel: 1.103 and 1.368, stars 0.90 and 0.86. No fabrication anywhere,
+on either kernel. The observer's kernels are the drawn ones on 36 of 45 cells (its estimates were
+refused, the noisy session) and read 1.01 of the effective width where they exist; the gate
+session's estimates over-read by 1.17 at the median (p90 1.50) and cost 0.03 of width against the
+drawn kernel. The observer's REAL degraded input is 1.41 times noisier than its own master (the
+gate session's is 0.88) and already carries 1.69 times the truth's 12-MAD detections before any
+deconvolution, against 0.53 for the noise-free blur. **So the unrolling is right (the parity), the
+kernel is right or nearly so (the control on both kernels), and the kill is Richardson-Lucy's own
+amplification of the injected noise into point sources**, the failure the plan gave the learned
+prior to carry ("the network carries what the oracle loses, the stars and the ringing under noise").
+The pre-registration's diagnosis for this kill was wrong about the mechanism; its numbers stand.
+
+*Decision.* E3.0's kill is recorded as tripped, its cause as noise, and E3.1 proceeds as
+pre-registered with E3.0's K = 20 row as the baseline the kill line is read against: the operator
+with a zero-initialised residual U-Net prior between iterations (`StretchedPrior`, applied in the
+stretched domain, saturated pixels passed through), so step 0 of every seed IS the row above. Pass:
+gate stars at or over 0.85 at width at or under 1.15 and the observer under 2x its null (3.38).
+Kill: no seed improves on the observer's 20.5 at a gate width at or under E3.0's 1.122. A second
+kill is added for the mechanism named here: a seed that reaches the observer bound by widening the
+gate past 1.20 has traded the sharpening for the smoothing and is E2.8b's arm N again, not a
+deconvolver.
+
 *What this does not decide.* E4 (position-varying kernels) and E7 (the export and the runtime) stand
 as written; the shipped SAS graph remains the deployed deconvolver until E7, and E2.10a's baseline on
 the Orion pair is the number it has to beat. The decision is the plan's; the PR is where it is
