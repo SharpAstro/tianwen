@@ -186,6 +186,38 @@ Closed from the same review, recorded so nobody re-litigates them: `SNAPSHOT` (t
 `STACK_N`) and `SWMODIFY` (modifying-software card) were adopted and shipped; `READOUTM` folded into
 the calibration temporal/tolerance work and shipped with it.
 
+## An embedded preview HDU in our own masters
+
+Filed 2026-09-13, out of the Explorer-thumbnail work (`fix(thumbnails): read nothing until asked`).
+
+- [ ] **Write a small preview image as an extension HDU when we write a master.** Today a FITS embeds
+  nothing a thumbnail could be built from, so every consumer that wants a 256 px picture decodes the
+  whole frame: `ThumbnailRenderer` reads and demosaics a 238 MB IMX455 single frame in 547 ms to
+  produce 256x171, and the shell handler answers `WTS_E_FASTEXTRACTIONNOTSUPPORTED` to any
+  `WTSCF_FAST` request because there is nothing cheap to answer WITH. A preview HDU turns both around.
+  Four things to settle before writing any of it, in the order they bite:
+  - **It must never be the first image HDU, and the risk is not hypothetical.**
+    `Fits.ReadFirstImageHdu()` walks to the first HDU that CARRIES an image and every reader of an
+    image file goes through it, so a preview landing ahead of the data is not a degraded read, it is
+    every tool in the chain silently opening a 256 px thumbnail as the science frame. It goes after
+    the data, carries its own marker card, and `ReadFirstImageHdu` should learn to skip a marked one
+    rather than rely on ordering alone. Note the `.fz` case has the primary empty by construction.
+  - **Format: a plain image extension, not JPEG bytes in a binary table.** FITS has no convention for
+    embedded JPEG, so the table form is opaque to every other tool and buys only size. A small
+    8-bit image extension is readable by anything, costs ~64-192 KB, and other viewers can show it.
+    Decide whether it stores the STRETCHED display render (what a thumbnail wants) or a linear
+    decimation (what a viewer might want), and say so in the marker; they are not interchangeable.
+  - **It does NOT solve hydration, and the entry exists partly to stop someone assuming it does.**
+    Reading a preview at a known offset still reads the file, and OneDrive hydrates whole-file, so a
+    cloud placeholder is still downloaded. The win is SPEED on local files plus the ability to honour
+    `WTSCF_FAST` at all. If the fast path is ever wired to the preview it must still refuse when the
+    file is not already local, or the guard added in that commit is undone.
+  - **Only our own output gets it.** Third-party captures (the bulk of the archive) embed nothing, so
+    this narrows the slow path rather than removing it, and `MasterPostProcessor` /
+    `IntegrationFitsWriter` are where it would be written. Check it against the provenance skip
+    (`STACK_N` / `SWCREATE`) and `MasterCache.ReadFingerprint` so an extra HDU cannot be read as a
+    second frame.
+
 ## Imaging
 
 - [x] **DONE 2026-08-21. Document-open traversal cost, and a correction to how it was first

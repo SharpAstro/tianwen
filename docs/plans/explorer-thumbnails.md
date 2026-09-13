@@ -196,7 +196,9 @@ cache in the library?* Windows.
   `WTS_E_FASTEXTRACTIONNOTSUPPORTED`: that flag means "answer from something EMBEDDED or do not
   answer", and a FITS embeds no thumbnail. Test the BIT, never the word -- refusing any non-zero
   context would silently kill Explorer's square-cropped requests. `AstroThumbnailProviderTests` counts
-  reads on a fake `IStream`, both invariants seen failing first.
+  reads on a fake `IStream`, both invariants seen failing first. Giving our own masters something to
+  answer WITH is backlogged in [../todo/imaging.md](../todo/imaging.md), "An embedded preview HDU" --
+  which would make the fast path answerable but still does not avoid hydration.
 - **The CLSID is written in three places** (the C# constant, the manifest's `ThumbnailHandler` and its
   `com:Class`) and must never change once shipped. `build-msix.ps1` checks the manifest agrees with
   itself; `ThumbnailRendererTests` pins the constant. A changed CLSID is a handler Windows no longer
