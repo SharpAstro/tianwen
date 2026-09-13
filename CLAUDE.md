@@ -1267,6 +1267,14 @@ rather than a signed installer, the activation bug that shipped and both MSIX tr
   catalog strip is the `TianWen.Lib.EmbeddedCatalogs` feature switch (59.6 MB to 3 MB,
   `EmbeddedCatalogFeatureSwitchTests`); the CLSID is written in three places and never changes
   (`build-msix.ps1` checks); the handler is stateless (caching is the shell's `thumbcache_*.db`).
+  **`Initialize` READS NOTHING and `WTSCF_FAST` is answered `WTS_E_FASTEXTRACTIONNOTSUPPORTED`**: a
+  read is what HYDRATES a cloud placeholder, so buffering the file there downloads a whole folder of
+  frames just because Explorer asked whether thumbnails exist, with every resulting picture correct.
+  `GetThumbnail` reads, being the only place the context flags AND the size are known. Test the FAST
+  BIT, not the word (`AstroThumbnailProviderTests` counts reads on a fake `IStream`). **Inside a
+  OneDrive sync root none of this runs at all** -- a sync engine registers ONE whole-root
+  `ThumbnailProvider` under `SyncRootManager` that answers for every extension, so our handler is
+  never asked and no per-extension registration can change that: `docs/known-limitations.md`.
 - **macOS ships as a `.dmg` per app per architecture** (`packaging/macos/build-dmg.sh`, the `dmg` job,
   no Mac in the loop), **not the Mac App Store, because the sandbox would take the file list away**
   (`ScanFolder` reads the opened file's siblings). Without the Apple secrets the apps are AD-HOC

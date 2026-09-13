@@ -26,21 +26,22 @@ namespace TianWen.Shell.Thumbnails
     /// <c>WTS_E_EXTRACTIONPENDING</c>, which is NOT a failure: it says the shell has QUEUED the
     /// extraction and the caller should ask again. Reading it as an error is what produced a first
     /// report of "every FITS fails, the feature is dead". Retried properly it stays pending
-    /// indefinitely (twelve attempts across six seconds) while the local copy answers on the first, so
-    /// what is true is narrower and stranger: the extraction is queued and never completes for a file
-    /// that is still a cloud placeholder (attributes PINNED | REPARSE_POINT, on the device but behind
-    /// the filter).</para>
+    /// indefinitely (twelve attempts across six seconds) while the local copy answers on the first.</para>
     ///
-    /// <para>Which leaves one question, and this log cuts it both ways. A line here means the handler
-    /// ran, and says how far the stream got. An empty log while Explorer draws no thumbnail means the
-    /// handler was never asked at all, the queue never reached us, and the fault is not in this
-    /// assembly.</para>
+    /// <para><b>Resolved, and not in our favour: inside a sync root this handler is never asked.</b> A
+    /// cloud sync engine may register ONE thumbnail provider for its entire sync root, which then
+    /// answers for every file in it regardless of extension, and OneDrive registers one
+    /// (<c>SyncRootManager\...\ThumbnailProvider</c> -> "FileSync ThumbnailProvider", hosted in
+    /// OneDrive's own <c>FileCoAuth.exe</c>). So the shell asks OneDrive, OneDrive has nothing for a
+    /// FITS, and the queued extraction never completes. Nothing about it is specific to FITS, to this
+    /// assembly or to MSIX -- PaintShop Pro's <c>.pspimage</c> handler reports the same symptom -- and
+    /// there is no way to contribute a handler for one file type inside another vendor's sync root.
+    /// Full write-up, including why a TIFF drawing correctly in the same folder is not the counter-
+    /// example it looks like, in <c>docs/known-limitations.md</c> under "Desktop shell".</para>
     ///
-    /// <para><b>A TIFF drawing correctly beside a FITS that does not proves less than it looks.</b>
-    /// Windows renders TIFF through an in-box WIC codec loaded IN-PROCESS; a packaged handler like this
-    /// one is only ever allowed to run out-of-process in the surrogate. The two take different paths to
-    /// the same bytes, so the TIFF succeeding says the shell can read the file, not that a surrogate
-    /// can.</para>
+    /// <para>This log still cuts the general question both ways. A line here means the handler ran, and
+    /// says how far the stream got. An empty log while Explorer draws no thumbnail means the handler was
+    /// never asked at all and the fault is not in this assembly.</para>
     ///
     /// <para>Two sinks, because they fail in different situations: <c>OutputDebugString</c> is free,
     /// needs no write access and shows up live in DebugView or a debugger, while the file survives the
