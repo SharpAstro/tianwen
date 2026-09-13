@@ -17,10 +17,24 @@ namespace TianWen.Shell.Thumbnails
     /// <para><b>Failures only.</b> A thumbnail that works writes nothing, so browsing a folder of a
     /// thousand frames costs nothing. That also makes the SILENCE diagnostic: if a file draws no
     /// thumbnail and this log gains no line, the handler was never activated at all, and the problem is
-    /// registration or the surrogate rather than anything in here. Distinguishing those two was the
-    /// reason this was written (2026-09-13: FITS on a OneDrive path fails while the same bytes copied
-    /// locally succeed, and IShellItemImageFactory reports 0x8004b205 in 23 ms, far too fast to be a
-    /// hydration timeout).</para>
+    /// registration, the surrogate, or the shell never asking, rather than anything in here.</para>
+    ///
+    /// <para><b>The case it was written for (2026-09-13), stated carefully because the first reading of
+    /// it was wrong.</b> A FITS on a OneDrive path draws no thumbnail while the same bytes copied to a
+    /// local directory draw one. Asking <c>IShellItemImageFactory.GetImage</c> with
+    /// <c>SIIGBF_THUMBNAILONLY</c> answers <c>0x8004B205</c> for the OneDrive copy, and that is
+    /// <c>WTS_E_EXTRACTIONPENDING</c>, which is NOT a failure: it says the shell has QUEUED the
+    /// extraction and the caller should ask again. Reading it as an error is what produced a first
+    /// report of "every FITS fails, the feature is dead". Retried properly it stays pending
+    /// indefinitely (twelve attempts across six seconds) while the local copy answers on the first, so
+    /// what is true is narrower and stranger: the extraction is queued and never completes for a file
+    /// that is still a cloud placeholder (attributes PINNED | REPARSE_POINT, on the device but behind
+    /// the filter).</para>
+    ///
+    /// <para>Which leaves one question, and this log cuts it both ways. A line here means the handler
+    /// ran, and says how far the stream got. An empty log while Explorer draws no thumbnail means the
+    /// handler was never asked at all, the queue never reached us, and the fault is not in this
+    /// assembly.</para>
     ///
     /// <para><b>A TIFF drawing correctly beside a FITS that does not proves less than it looks.</b>
     /// Windows renders TIFF through an in-box WIC codec loaded IN-PROCESS; a packaged handler like this
