@@ -268,11 +268,24 @@ namespace TianWen.UI.Abstractions
                         return;
                     }
 
-                    // Toggle AND start, the same pair W has always run: on a document with no
-                    // calibration yet a bare toggle is a no-op, and on one that has a solution a
-                    // bare start is.
-                    ViewerActions.SetColorCalibrationEnabled(state, !state.ColorCalibrationEnabled);
-                    TryStartColorCalibration(state);
+                    // The action follows the LABEL. "Calibrate" fits; "SPCC on"/"SPCC off" toggles the
+                    // fit this frame already has. It used to do both unconditionally, which was
+                    // harmless while every frame was auto-fitted on arrival and is not now: on a
+                    // freshly opened target the flag is still down from the previous set, so a press
+                    // on a button reading "Calibrate" toggled the flag OFF and relied on the fit
+                    // landing to turn it back on -- leaving it off whenever the fit declined.
+                    if (calibrated)
+                    {
+                        ViewerActions.SetColorCalibrationEnabled(state, !state.ColorCalibrationEnabled);
+                    }
+                    else
+                    {
+                        // Enabled FIRST, so the render that follows shows the fit the moment it lands
+                        // rather than waiting for a second press.
+                        ViewerActions.SetColorCalibrationEnabled(state, true);
+                        TryStartColorCalibration(state);
+                    }
+
                     state.NeedsRedraw = true;
                 });
 

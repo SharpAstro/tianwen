@@ -1244,17 +1244,17 @@ namespace TianWen.UI.Abstractions
                 document.ComputeBackgroundNeutralization(state.BackgroundNeutralizationMethod, state.ColorCalibrationEnabled);
             }
 
-            // ColorCalibration auto-retrigger on file switch. The ColorCalibrationInFlight guard inside
-            // TryStartColorCalibration ensures we don't spawn a new SPCC task every frame while the
-            // previous one is still running (which would freeze the UI).
-            if (state.ColorCalibrationEnabled
-                && document.ColorCalibration is null
-                && !document.ColorCalibrationInFlight
-                && !document.ColorCalibrationAttempted
-                && document.Stars is { Count: >= 5 })
-            {
-                TryStartColorCalibration(state);
-            }
+            // NO auto-retrigger on file switch. This used to start a fresh SPCC fit on every new file
+            // while the toggle was down, which made the calibration look like it followed the user
+            // around: opening a DIFFERENT TARGET in the same folder set a ~25 second catalogue match
+            // running that nobody had asked for, and left that target calibrated as a side effect of
+            // having calibrated something else.
+            //
+            // A calibration carries by the ANCHOR now, and only within one set -- same geometry,
+            // planes, depth, CFA, filter and OBJECT (DisplayCarry). That is what a blink wants: solve
+            // one frame, and every comparable frame of the run is held to the same colour balance.
+            // A frame from a different set starts uncalibrated and the button is live, so calibrating
+            // it is one press rather than something that happens to it.
         }
 
         // The frame whose display statistics every comparable frame of this folder is shown with, and
