@@ -2620,6 +2620,37 @@ at a wider star (1.145 against 1.119). E3.4d (pool plus straddle, launched by th
 reads next, and the prediction stands as written: the pool's gain at a held width, plus whatever
 skirt the augmentation adds.
 
+#### E3.4d read: the pool with the straddling augmentation meets the goal's star clauses on the real pair (2026-09-14, 09:10)
+
+`run-e3-4d.ps1`, 05:49 to 09:01 (3.2 h). Cache gate selected 2700 at 1.063, final 1.083 / stars 0.88
+/ skirt 1.04 (0.037 from E3.4b's 1.046, inside the predicted 0.05); **observer 1.169 at 0.97x its
+null**, no fabrication at all. The real hard crop, final checkpoint (width, stars, ring depth excess,
+skirt), against the goal's line (width 1.15 or under, stars 0.85 to 1.10, ring within 1 MAD, skirt
+0.90 to 1.10):
+
+| round trip | E3.2 | E3.4b (pool) | **E3.4d (pool + straddle)** | goal |
+|---|---|---|---|---|
+| as shot | 1.201 / 0.92 / -1.2 / 1.18 | 1.194 / 0.95 / -0.2 / 1.31 | 1.211 / 0.91 / -0.4 / 1.45 | |
+| **1.28x** | 1.101 / 1.03 / -0.8 / 0.75 | 1.119 / 1.04 / +0.07 / 0.87 | **1.146 / 1.00 / -0.45 / 0.98** | **all four met** |
+| 1.42x | | | 1.108 / 1.04 / -0.47 / 0.84 | width met, skirt 0.06 short |
+
+The selected checkpoint (step 2700) reads 1.137 / 0.99 / -0.31 / 0.96 at 1.28x, also inside every
+clause. **The pre-registered pass is met at 1.28x**: the stars are 43 percent of the way from the
+input to the truth, counted exactly, with the truth's own profile (0.98) and no ring either way. The
+kill line (skirt under E3.4b's at E3.4b's width) is not approached. Read with E3.4b and E3.4c beside
+it, the two levers added as predicted: the pool held the width while the augmentation carried the
+skirt from 0.87 to 0.98, at a cost of 0.027 in width against E3.4b. The nebula clause (band residual
+under E3.4b's 0.784 on the nebula crop) reads 0.824 and is NOT met; no arm meets it, every arm reads
+worse than the input there, and the cause is the frame-wide kernel over-read on a crop whose input is
+1.113 wide, so that clause waits on the per-window kernel rather than on any prior.
+
+**Verdict on the user's goal, as of one seed:** stars tighter without the skirt and without ringing,
+met on the real pair by `e34d_s0_final.pt` at the 1.28x round trip; non-stellar detail not yet
+demonstrated on any frame, and the Bubble reading above says why (the kernel rule and the pool's
+sampling). Seed 1 of E3.4d runs next on the freed GPU, since one seed is a point and the spread E2
+measured was two to three times a regime's effect; the checkpoint that carries to E7 is whichever of
+the two reads better, both recorded.
+
 The arm follows from the skirt readings: at native scale the E3.2 prior keeps the skirt (1.18) and
 hardly tightens (1.201); round-tripped at 1.28x it tightens (1.101) and takes the skirt (0.75); E3.0 on
 the same round trip keeps it (0.95). The skirt goes on the zoomed path, and more under the prior than
