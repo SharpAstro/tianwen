@@ -435,7 +435,7 @@ public class OverlayEngineTests
     {
         // North points up on screen (screen +y grows downward, so "up" is -y). A zero
         // position angle must lay the major axis along celestial north.
-        var (mx, my, _, _) = OverlayEngine.ComputeEllipseScreenAxes(0f, -1f, 0f);
+        var (mx, my, _, _) = OverlayEngine.ComputeEllipseScreenAxes(0f, -1f, 0f, mirrored: false);
         mx.ShouldBe(0f, 1e-5f);
         my.ShouldBe(-1f, 1e-5f);
     }
@@ -446,7 +446,7 @@ public class OverlayEngineTests
         // The sky map is east-left, so PA = 90 deg (measured north -> east) rotates the
         // major axis to screen-left (-x). This is the convention the GPU overlay shader
         // mirrors; a regression here means the selection ellipse and [O] overlay diverge.
-        var (mx, my, _, _) = OverlayEngine.ComputeEllipseScreenAxes(0f, -1f, MathF.PI / 2f);
+        var (mx, my, _, _) = OverlayEngine.ComputeEllipseScreenAxes(0f, -1f, MathF.PI / 2f, mirrored: false);
         mx.ShouldBe(-1f, 1e-5f);
         my.ShouldBe(0f, 1e-5f);
     }
@@ -454,7 +454,7 @@ public class OverlayEngineTests
     [Fact]
     public void ComputeEllipseScreenAxes_AxesAreOrthonormal()
     {
-        var (mx, my, nx, ny) = OverlayEngine.ComputeEllipseScreenAxes(0.3f, -0.8f, 0.7f);
+        var (mx, my, nx, ny) = OverlayEngine.ComputeEllipseScreenAxes(0.3f, -0.8f, 0.7f, mirrored: false);
         MathF.Sqrt(mx * mx + my * my).ShouldBe(1f, 1e-5f); // major is unit length
         MathF.Sqrt(nx * nx + ny * ny).ShouldBe(1f, 1e-5f); // minor is unit length
         (mx * nx + my * ny).ShouldBe(0f, 1e-5f);           // major perpendicular to minor
@@ -463,7 +463,7 @@ public class OverlayEngineTests
     [Fact]
     public void ComputeEllipseScreenAxes_DegenerateNorth_FallsBackToScreenAxes()
     {
-        var (mx, my, nx, ny) = OverlayEngine.ComputeEllipseScreenAxes(0f, 0f, 1.23f);
+        var (mx, my, nx, ny) = OverlayEngine.ComputeEllipseScreenAxes(0f, 0f, 1.23f, mirrored: false);
         mx.ShouldBe(1f);
         my.ShouldBe(0f);
         nx.ShouldBe(0f);

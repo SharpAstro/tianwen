@@ -53,7 +53,7 @@ namespace TianWen.Lib.Tests
             OverlayEllipseInstances.Build(
                 candidates, instances, ArcminToPx, dpiScale: 1f, fovAlpha,
                 dimBelowHorizon, site,
-                OverlayEngine.PinnedMarkerColor, OverlayEngine.PinnedHaloColor);
+                OverlayEngine.PinnedMarkerColor, OverlayEngine.PinnedHaloColor, mirrored: false);
             return instances;
         }
 
@@ -153,7 +153,7 @@ namespace TianWen.Lib.Tests
             OverlayEllipseInstances.Build(
                 [Candidate(new OverlayCandidateMarker.Circle(radiusPx))], instances,
                 arcminToPx, dpiScale: 1f, fovAlpha: 1f, dimBelowHorizon: false, site: default,
-                OverlayEngine.PinnedMarkerColor, OverlayEngine.PinnedHaloColor);
+                OverlayEngine.PinnedMarkerColor, OverlayEngine.PinnedHaloColor, mirrored: false);
 
             var c = At(instances, 0);
             (c.MajArcmin * arcminToPx).ShouldBe(radiusPx, 1e-3f);
@@ -211,7 +211,7 @@ namespace TianWen.Lib.Tests
             {
                 OverlayEllipseInstances.Build(
                     candidates, instances, ArcminToPx, 1f, 1f, false, default,
-                    OverlayEngine.PinnedMarkerColor, OverlayEngine.PinnedHaloColor);
+                    OverlayEngine.PinnedMarkerColor, OverlayEngine.PinnedHaloColor, mirrored: false);
             }
 
             instances.Count.ShouldBe(OverlayEllipseInstances.FloatsPerInstance);

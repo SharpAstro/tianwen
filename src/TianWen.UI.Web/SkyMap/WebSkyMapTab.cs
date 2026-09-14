@@ -138,7 +138,8 @@ namespace TianWen.UI.Web.SkyMap
                     candidates, _overlayInstances,
                     arcminToPixels, dpiScale, fovAlpha, dimBelowHorizon, site,
                     OverlayEngine.PinnedMarkerColor,
-                    OverlayEngine.PinnedHaloColor with { Alpha = (byte)(OverlayEngine.PinnedHaloColor.Alpha * fovAlpha) });
+                    OverlayEngine.PinnedHaloColor with { Alpha = (byte)(OverlayEngine.PinnedHaloColor.Alpha * fovAlpha) },
+                    State.MirrorView);
                 _pipeline.SubmitOverlayInstances(CollectionsMarshal.AsSpan(_overlayInstances));
                 _overlayInstanceKey = key;
                 _hasOverlayInstanceKey = true;

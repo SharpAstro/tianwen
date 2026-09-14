@@ -291,12 +291,38 @@ public static class OverlayEngine
     /// rotates the major axis from north toward screen-left -- i.e. true sky position
     /// angle. At PA = 0 the major axis lies along celestial north.
     /// </para>
+    /// <para>
+    /// <b>North alone does not fix east, which is why <paramref name="mirrored"/> exists.</b>
+    /// East is derived here as a fixed quarter turn of north, and that encodes ONE
+    /// handedness. <see cref="SkyMapState.MirrorView"/> reflects the view's right axis
+    /// (<see cref="SkyMapState.ComputeViewMatrix"/>), which leaves the projected north
+    /// direction looking perfectly reasonable while putting east on the other side -- so
+    /// a mirrored view drew every ellipse reflected about north, tracking nothing. The
+    /// handedness is a property of the VIEW, not of the marker, because the view matrix
+    /// is rigid and the projection conformal; one flag covers the whole frame.
+    /// </para>
+    /// <para>
+    /// Mirroring is applied as a NEGATED POSITION ANGLE, because it is exactly that:
+    /// <c>cos(pa)*north - sin(pa)*east == cos(-pa)*north + sin(-pa)*east</c>. That
+    /// identity is what lets both GPU copies of this stay byte-identical -- the caller
+    /// negates the angle it puts in the instance stream
+    /// (<see cref="OverlayEllipseInstances.Build"/>) and the shaders need no mirror
+    /// uniform, no edit and no re-bake.
+    /// </para>
     /// </summary>
+    /// <param name="mirrored">Whether the view reflects the sky's handedness
+    /// (<see cref="SkyMapState.MirrorView"/>). Deliberately not optional: every caller
+    /// has a view, and a silent default is how the sky map came to have this bug.</param>
     /// <returns>Major and minor axis screen-space unit vectors. Falls back to the
     /// screen axes (1,0)/(0,1) when the supplied north direction is degenerate.</returns>
     public static (float MajorX, float MajorY, float MinorX, float MinorY)
-        ComputeEllipseScreenAxes(float northX, float northY, float paRad)
+        ComputeEllipseScreenAxes(float northX, float northY, float paRad, bool mirrored)
     {
+        if (mirrored)
+        {
+            paRad = -paRad;
+        }
+
         var nlen = MathF.Sqrt(northX * northX + northY * northY);
         if (nlen < 1e-6f)
         {

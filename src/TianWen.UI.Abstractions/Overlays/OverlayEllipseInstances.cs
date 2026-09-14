@@ -56,6 +56,14 @@ public static class OverlayEllipseInstances
     /// <param name="pinnedMarkerColor">Colour of a pinned target's own marker, alpha ignored.</param>
     /// <param name="pinnedHaloColor">Colour of the halo behind it, alpha included -- the caller has
     /// already folded <paramref name="fovAlpha"/> into it.</param>
+    /// <param name="mirrored">Whether the view reflects the sky's handedness
+    /// (<see cref="SkyMapState.MirrorView"/>). The shaders derive east as a fixed quarter turn of
+    /// the north direction they project, which encodes ONE handedness, so a mirrored view drew every
+    /// ellipse reflected about north. It is applied HERE, by negating the angle written into the
+    /// instance stream, because mirroring IS a negated position angle
+    /// (<c>cos(pa)*north - sin(pa)*east == cos(-pa)*north + sin(-pa)*east</c>) -- which keeps both
+    /// GPU copies byte-identical and needing no mirror uniform, no edit and no re-bake. See
+    /// <see cref="OverlayEngine.ComputeEllipseScreenAxes"/>, the CPU twin.</param>
     public static void Build(
         IReadOnlyList<OverlayCandidate> candidates,
         List<float> instances,
@@ -65,7 +73,8 @@ public static class OverlayEllipseInstances
         bool dimBelowHorizon,
         SiteContext site,
         RGBAColor32 pinnedMarkerColor,
-        RGBAColor32 pinnedHaloColor)
+        RGBAColor32 pinnedHaloColor,
+        bool mirrored)
     {
         instances.Clear();
         if (candidates.Count == 0)
@@ -106,7 +115,7 @@ public static class OverlayEllipseInstances
                     Append(instances, cand.UnitVec,
                         MathF.Max(he.SemiMajArcmin * haloScale, pxToArcmin),
                         MathF.Max(he.SemiMinArcmin * haloScale, 0.5f * pxToArcmin),
-                        PositionAngleRad(he),
+                        PositionAngleRad(he, mirrored),
                         OverlayEngine.PinnedHaloStrokePx,
                         haloR, haloG, haloB, haloA);
                 }
@@ -140,7 +149,7 @@ public static class OverlayEllipseInstances
                     Append(instances, cand.UnitVec,
                         MathF.Max(e.SemiMajArcmin, pxToArcmin),
                         MathF.Max(e.SemiMinArcmin, 0.5f * pxToArcmin),
-                        PositionAngleRad(e),
+                        PositionAngleRad(e, mirrored),
                         MarkerStrokePx, r, g, b, alpha);
                     break;
                 case OverlayCandidateMarker.Circle c:
@@ -153,8 +162,17 @@ public static class OverlayEllipseInstances
     }
 
     /// <summary>An unknown catalog position angle draws unrotated rather than not at all.</summary>
-    private static float PositionAngleRad(OverlayCandidateMarker.Ellipse e)
-        => Half.IsNaN(e.PositionAngle) ? 0f : (float)((double)e.PositionAngle * Math.PI / 180.0);
+    // A mirrored view is a NEGATED position angle -- see the `mirrored` parameter on Build.
+    private static float PositionAngleRad(OverlayCandidateMarker.Ellipse e, bool mirrored)
+    {
+        if (Half.IsNaN(e.PositionAngle))
+        {
+            return 0f;
+        }
+
+        var paRad = (float)((double)e.PositionAngle * Math.PI / 180.0);
+        return mirrored ? -paRad : paRad;
+    }
 
     private static void Append(
         List<float> instances, Vector3 unitVec,
