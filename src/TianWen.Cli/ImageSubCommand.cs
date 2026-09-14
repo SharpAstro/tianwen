@@ -15,6 +15,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Enhancement;
+using TianWen.Lib.Imaging.Sources;
 using TianWen.Lib.Imaging.Stacking;
 using TianWen.UI.Abstractions;
 
@@ -160,7 +161,7 @@ internal sealed class ImageSubCommand(
 {
     public Command Build()
     {
-        var image = new Command("image", "Single-image enhancement + render verbs (sharpen, remove-stars, flatten, render, stats).")
+        var image = new Command("image", "Single-image enhancement, render and measurement verbs (sharpen, remove-stars, flatten, render, stats, sources).")
         {
             Subcommands =
             {
@@ -169,6 +170,7 @@ internal sealed class ImageSubCommand(
                 BuildFlattenCommand(),
                 BuildRenderCommand(),
                 BuildStatsCommand(),
+                BuildSourcesCommand(),
             },
         };
         return image;
@@ -1884,6 +1886,212 @@ internal sealed class ImageSubCommand(
             _ => throw new ArgumentException(
                 $"--output-format: unknown value '{token}'; expected one of: none, png, png-pq, jxr, exr, uhdr"),
         };
+    }
+
+    /// <summary>
+    /// <c>tianwen image sources</c>: the background map and the source segmentation on one channel of a
+    /// frame, the segment summary printed, and on request the label map, the masks, the background and
+    /// noise maps as FITS sidecars and the full segment table as CSV, every one named by a suffix on the
+    /// frame's own name (<see cref="SourceDetectionWriter"/>). The detection is the library's; this verb
+    /// only chooses the channel, hands over the options and puts the results where they were asked for.
+    /// </summary>
+    private Command BuildSourcesCommand()
+    {
+        var inputArg = new Argument<string>("input")
+        {
+            Description = "FITS frame to detect sources in.",
+        };
+        var channelOpt = new Option<int>("--channel")
+        {
+            Description = "Channel to detect on, 0-based. Default: the frame's reference star channel (green on a colour frame).",
+            DefaultValueFactory = _ => -1,
+        };
+        var sigmaOpt = new Option<float>("--sigma")
+        {
+            Description = "Detection threshold in sigmas of the unsmoothed noise, applied to the smoothed sky-subtracted plane. Default 3.",
+            DefaultValueFactory = _ => SourceDetectionOptions.Default.ThresholdSigma,
+        };
+        var minPixelsOpt = new Option<int>("--min-pixels")
+        {
+            Description = "Smallest segment kept, in pixels. Default 5.",
+            DefaultValueFactory = _ => SourceDetectionOptions.Default.MinPixels,
+        };
+        var noDeblendOpt = new Option<bool>("--no-deblend")
+        {
+            Description = "Keep touching sources as one segment instead of splitting them at their saddles.",
+        };
+        var blockSizeOpt = new Option<int>("--block-size")
+        {
+            Description = "Background mesh cell, in pixels. Default 64; larger follows less structure.",
+            DefaultValueFactory = _ => BackgroundMapOptions.Default.BlockSize,
+        };
+        var marginOpt = new Option<int>("--margin")
+        {
+            Description = "Dilation of the star and sky masks, in pixels. Default 3.",
+            DefaultValueFactory = _ => 3,
+        };
+        var outOpt = new Option<string?>("--out", "-o")
+        {
+            Description = "Directory for the sidecars. Default: beside the input.",
+        };
+        var mapsOpt = new Option<bool>("--maps")
+        {
+            Description = "Write the label map, the star / structure / sky masks, the background and the noise as FITS sidecars " +
+                          "(<stem>.labels.fits, .starmask.fits, .structmask.fits, .skymask.fits, .background.fits, .rms.fits), each with a MAPKIND card.",
+        };
+        var csvOpt = new Option<bool>("--csv")
+        {
+            Description = "Write the full segment table as <stem>.sources.csv.",
+        };
+        var topOpt = new Option<int>("--top")
+        {
+            Description = "Rows printed per class (the largest extended segments, then the largest compact ones). Default 10.",
+            DefaultValueFactory = _ => 10,
+        };
+
+        var cmd = new Command("sources",
+            "Detect sources: a mesh background and noise map, then segmentation of everything over the threshold, " +
+            "deblended at its saddles, each segment classed compact (a star) or extended (structure). " +
+            "Prints the summary; --maps and --csv put the label map, masks and table on disk beside the frame.")
+        {
+            Arguments = { inputArg },
+            Options = { channelOpt, sigmaOpt, minPixelsOpt, noDeblendOpt, blockSizeOpt, marginOpt, outOpt, mapsOpt, csvOpt, topOpt },
+        };
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            var input = parseResult.Required(inputArg);
+            if (!File.Exists(input))
+            {
+                consoleHost.WriteError($"Input not found: {input}");
+                return 1;
+            }
+            if (!Image.TryReadFitsFile(input, out var src, out var wcs))
+            {
+                consoleHost.WriteError($"Failed to read FITS file: {input}");
+                return 1;
+            }
+
+            var channel = parseResult.GetValue(channelOpt);
+            if (channel < 0)
+            {
+                channel = src.ReferenceStarChannel;
+            }
+            else if (channel >= src.ChannelCount)
+            {
+                consoleHost.WriteError($"--channel {channel} is out of range for a {src.ChannelCount}-channel frame");
+                return 1;
+            }
+
+            var margin = parseResult.GetValue(marginOpt);
+            var top = parseResult.GetValue(topOpt);
+            if (margin < 0 || top < 0)
+            {
+                consoleHost.WriteError("--margin and --top must not be negative");
+                return 1;
+            }
+
+            var mapOptions = new BackgroundMapOptions(BlockSize: parseResult.GetValue(blockSizeOpt));
+            var options = new SourceDetectionOptions(
+                ThresholdSigma: parseResult.GetValue(sigmaOpt),
+                MinPixels: parseResult.GetValue(minPixelsOpt),
+                Deblend: !parseResult.GetValue(noDeblendOpt));
+            try
+            {
+                mapOptions.Validate();
+                options.Validate();
+            }
+            catch (ArgumentException ex)
+            {
+                consoleHost.WriteError(ex.Message);
+                return 1;
+            }
+
+            var outDir = parseResult.GetValue(outOpt);
+            var writeMaps = parseResult.GetValue(mapsOpt);
+            var writeCsv = parseResult.GetValue(csvOpt);
+            if (outDir is not null && (writeMaps || writeCsv))
+            {
+                Directory.CreateDirectory(outDir);
+            }
+
+            consoleHost.WriteScrollable($"[sources] {input} {src.Width}x{src.Height}x{src.ChannelCount}, channel {channel}");
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var background = BackgroundMap.Estimate(src, channel, mapOptions);
+            var tMap = sw.Elapsed;
+            sw.Restart();
+            var segments = SourceSegmentation.Detect(src, channel, background, options);
+            var tDetect = sw.Elapsed;
+
+            var inv = CultureInfo.InvariantCulture;
+            var compact = 0;
+            foreach (var s in segments.Segments)
+            {
+                if (s.IsCompact)
+                {
+                    compact++;
+                }
+            }
+
+            consoleHost.WriteScrollable(
+                $"[sources] background {background.CellsX}x{background.CellsY} cells of {background.BlockSize} px in {tMap.TotalMilliseconds:F0} ms: " +
+                $"sky {background.GlobalBackground.ToString("G5", inv)}, noise {background.GlobalRms.ToString("G5", inv)}");
+            consoleHost.WriteScrollable(
+                $"[sources] {segments.Segments.Length} segments in {tDetect.TotalMilliseconds:F0} ms: {compact} compact, {segments.Segments.Length - compact} extended " +
+                $"(threshold {options.ThresholdSigma.ToString("G3", inv)} sigma, min {options.MinPixels} px, deblend {(options.Deblend ? "on" : "off")})");
+
+            if (top > 0 && segments.Segments.Length > 0)
+            {
+                var byArea = segments.Segments.Sort(static (a, b) => b.Area.CompareTo(a.Area));
+                consoleHost.WriteScrollable(SegmentRowHeader);
+                var printed = 0;
+                foreach (var s in byArea)
+                {
+                    if (!s.IsCompact && printed++ < top)
+                    {
+                        consoleHost.WriteScrollable(FormatSegmentRow(s, background));
+                    }
+                }
+
+                printed = 0;
+                foreach (var s in byArea)
+                {
+                    if (s.IsCompact && printed++ < top)
+                    {
+                        consoleHost.WriteScrollable(FormatSegmentRow(s, background));
+                    }
+                }
+            }
+
+            if (writeMaps)
+            {
+                foreach (var path in SourceDetectionWriter.WriteMaps(input, segments, background, wcs, margin, outDir))
+                {
+                    consoleHost.WriteScrollable($"[sources] wrote {path}");
+                }
+            }
+
+            if (writeCsv)
+            {
+                var tablePath = SourceDetectionWriter.SidecarPath(input, SourceDetectionWriter.TableSuffix, outDir);
+                await SourceDetectionWriter.WriteTableAsync(tablePath, segments, background, wcs, ct);
+                consoleHost.WriteScrollable($"[sources] wrote {tablePath} ({segments.Segments.Length} rows)");
+            }
+
+            return 0;
+        });
+        return cmd;
+    }
+
+    /// <summary>The column header <see cref="FormatSegmentRow"/>'s rows line up under.</summary>
+    internal const string SegmentRowHeader = "  label     area        x        y  peak/rms  elong  core  pk/mean peaks class";
+
+    /// <summary>One printed segment row: label, area, centroid, peak over the local noise, shape figures and class.</summary>
+    internal static string FormatSegmentRow(Segment s, BackgroundMap background)
+    {
+        var inv = CultureInfo.InvariantCulture;
+        var peakSnr = s.Peak / background.RmsAt(s.PeakX, s.PeakY);
+        return string.Create(inv,
+            $"{s.Label,7} {s.Area,8} {s.XCentroid,8:F1} {s.YCentroid,8:F1} {peakSnr,9:F1} {s.Elongation,6:F2} {s.CoreFraction,5:F2} {s.PeakToMean,8:F1} {s.PeakCount,5} {(s.IsCompact ? "compact" : "extended")}");
     }
 
     private static string DefaultOut(string input, string suffix)

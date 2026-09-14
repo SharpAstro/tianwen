@@ -291,36 +291,9 @@ public class SourceSegmentationTests(ITestOutputHelper output)
     private static float Truth(int x, int y) => Sky + 0.02f * x / W - 0.01f * y / H;
 
     private static void AddStar(float[] plane, int cx, int cy, float amplitude, float sigma)
-    {
-        var r = (int)MathF.Ceiling(4f * sigma);
-        var twoSigmaSq = 2f * sigma * sigma;
-        for (var dy = -r; dy <= r; dy++)
-        {
-            var y = cy + dy;
-            if (y < 0 || y >= H)
-            {
-                continue;
-            }
+        => SourceTestFrames.AddStar(plane, W, H, cx, cy, amplitude, sigma);
 
-            for (var dx = -r; dx <= r; dx++)
-            {
-                var x = cx + dx;
-                if (x < 0 || x >= W)
-                {
-                    continue;
-                }
-
-                plane[y * W + x] += amplitude * MathF.Exp(-(dx * dx + dy * dy) / twoSigmaSq);
-            }
-        }
-    }
-
-    private static float Gaussian(Random rng)
-    {
-        var u1 = 1.0 - rng.NextDouble();
-        var u2 = rng.NextDouble();
-        return (float)(Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2));
-    }
+    private static float Gaussian(Random rng) => SourceTestFrames.Gaussian(rng);
 
     private static int CountTrue(BitMatrix m)
     {
