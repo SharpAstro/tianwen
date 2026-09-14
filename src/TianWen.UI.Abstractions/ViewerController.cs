@@ -1097,6 +1097,11 @@ public sealed class ViewerController(
             {
                 enhancedDoc.InheritColorCalibration(original);
             }
+            // ... and it must not be anchored to the frame it came from. DisplayCarry compares frame
+            // SHAPE, which an enhance result matches exactly, so without this it took the pre-enhance
+            // statistics as its display basis and the flattened background was neutralised twice --
+            // a colour shift one frame after the enhance landed. See AstroImageDocument.IsEnhanceResult.
+            enhancedDoc.MarkAsEnhanceResult();
             // The enhanced pixels ARE the crop, so the display crop has to come off -- left on, it would
             // crop the crop. It is remembered (as every crop is), which is what puts it back on revert.
             if (enhancedDoc.SourceCrop is not null)

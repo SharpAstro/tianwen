@@ -68,6 +68,62 @@ public class DisplayCarryTests
             imageMeta: new ImageMeta { Instrument = "synth", SensorType = SensorType.Monochrome });
     }
 
+    /// <summary>
+    /// <b>An enhance result solves its own display mapping.</b> It is the same frame after a spatial
+    /// and photometric transform, so it matches its original on every dimension
+    /// <see cref="DisplayCarry.AreComparable"/> asks about -- size, channels, depth, sensor, filter,
+    /// object -- and was anchored to it like any other frame of the run. That put the PRE-ENHANCE
+    /// statistics behind the document's display basis while the enhancer had just flattened the
+    /// background, so <c>ChannelsAlreadyAgree</c> read three channels percents apart, answered "not
+    /// levelled" about a frame that was, and the background was neutralised a second time: a colour
+    /// shift arriving one frame after the enhance landed, on top of an SPCC triple that was itself
+    /// correct.
+    /// </summary>
+    [Fact]
+    public async Task AnEnhanceResultIsNotAnchoredToTheFrameItCameFrom()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var original = await DocumentAsync(ColourFrame(0.10f, objectName: "M31"), "a.fits");
+        var anchor = DisplayCarry.Apply(original, anchor: null, carry: true);
+        anchor.ShouldBeSameAs(original);
+
+        // Same shape, same target, same sensor -- which is the whole trap: comparable by every rule
+        // DisplayCarry has, and yet not a frame of the run at all.
+        var enhanced = await DocumentAsync(ColourFrame(0.30f, objectName: "M31"), "a.fits");
+        DisplayCarry.AreComparable(original, enhanced).ShouldBeTrue(
+            "the shape rule cannot tell an enhance result from another frame -- which is why the flag exists");
+
+        enhanced.MarkAsEnhanceResult();
+        var standing = DisplayCarry.Apply(enhanced, anchor, carry: true);
+
+        enhanced.DisplayAnchor.ShouldBeNull("an enhance result displays from its OWN statistics");
+        standing.ShouldBeSameAs(original,
+            "and it does not displace the run's anchor either, so stepping on or reverting finds it unchanged");
+    }
+
+    /// <summary>
+    /// The per-frame reconcile re-runs every frame, so the rule has to hold on the second pass too --
+    /// that repetition is exactly how the anchor got re-attached after the enhance path cleared it.
+    /// </summary>
+    [Fact]
+    public async Task TheEnhanceResultStaysUnanchoredAcrossRepeatedReconciles()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var original = await DocumentAsync(ColourFrame(0.10f, objectName: "M31"), "a.fits");
+        var anchor = DisplayCarry.Apply(original, anchor: null, carry: true);
+
+        var enhanced = await DocumentAsync(ColourFrame(0.30f, objectName: "M31"), "a.fits");
+        enhanced.MarkAsEnhanceResult();
+
+        for (var i = 0; i < 5; i++)
+        {
+            anchor = DisplayCarry.Apply(enhanced, anchor, carry: true);
+            enhanced.DisplayAnchor.ShouldBeNull($"reconcile {i} re-anchored the enhance result");
+        }
+
+        anchor.ShouldBeSameAs(original);
+    }
+
     private static Task<AstroImageDocument> DocumentAsync(Image image, string fileName)
         => AstroImageDocument.AdoptImageAsync(image, DebayerAlgorithm.None, wcs: null, filePath: fileName,
             cancellationToken: TestContext.Current.CancellationToken);

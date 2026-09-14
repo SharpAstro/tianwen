@@ -291,6 +291,31 @@ public sealed class AstroImageDocument : IPreviewSource
     }
 
     /// <summary>
+    /// Whether this document is the output of the AI enhance, rather than a frame read off disk. Set
+    /// by the enhance path beside <see cref="InheritColorCalibration"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>It exists to keep the display anchor off an enhance result.</b>
+    /// <see cref="DisplayCarry.AreComparable"/> asks about frame SHAPE -- size, channels, depth,
+    /// sensor, filter, object -- and an enhance result matches its original on every one of them, so
+    /// it was anchored to the pre-enhance frame like any other frame of the run. That put the
+    /// ORIGINAL's statistics behind <see cref="Basis"/>, and the enhancer had just flattened the
+    /// background: <see cref="ChannelsAlreadyAgree"/> read three channels percents apart, answered
+    /// "not levelled" about a frame that was, and the background got neutralised a second time. A
+    /// colour shift, arriving one frame after the enhance landed.</para>
+    /// <para><b>Provenance here, unlike <c>BackgroundAlreadyExtracted</c>, is the right shape of
+    /// answer.</b> That flag was deleted for asking "has this frame been flattened", which another
+    /// tool can do without leaving a trace -- so it had to be measured. This asks "did OUR enhance
+    /// produce this document", which nothing else can be the answer to and which is knowable exactly
+    /// where it happens.</para>
+    /// </remarks>
+    public bool IsEnhanceResult { get; private set; }
+
+    /// <summary>Marks this document as the AI enhance's output. One-way; an enhance result never
+    /// becomes an ordinary frame.</summary>
+    public void MarkAsEnhanceResult() => IsEnhanceResult = true;
+
+    /// <summary>
     /// Installs a colour calibration measured on another frame, with the provenance that goes with it.
     /// The document overload above is the caller for it; it is separate so a triple that never came
     /// from a loaded document -- a test's, or a future sidecar's -- has one way in rather than a second
