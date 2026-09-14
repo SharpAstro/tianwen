@@ -20,8 +20,11 @@ public partial class Image
     /// <param name="ignoreBlack">Whether to ignore black pixels (value 0) in the histogram. This is useful for images with black borders or vignetting. Default is true.</param>
     /// <param name="thresholdPct">The percentage of the maximum pixel value to use as the upper limit for the histogram. Default is 91%.</param>
     /// <param name="calcStats">If true calculate further statistics like median and MAD</param>
+    /// <param name="cfa">A colour of a Bayer mosaic to take the histogram over, walking only that
+    /// colour's photosites (<paramref name="channel"/> is then the mosaic's single plane). Null is the
+    /// whole plane. See <see cref="CfaChannel"/>.</param>
     /// <returns>historgram values</returns>
-    public ImageHistogram Histogram(int channel, byte thresholdPct = 91, bool ignoreBlack = true, bool calcStats = false, bool removePedestral = false, int pixelStride = 1)
+    public ImageHistogram Histogram(int channel, byte thresholdPct = 91, bool ignoreBlack = true, bool calcStats = false, bool removePedestral = false, int pixelStride = 1, CfaChannel? cfa = null)
     {
         var (channelCount, width, height) = Shape;
 
@@ -99,35 +102,48 @@ public partial class Image
         //          the total_value summation that feeds Background()'s mode search.
         // Reproduce: TIANWEN_HISTOGRAM_PROBE=1 dotnet test -c Release
         //            --filter HistogramCostDecompositionProbe
-        var flat = MemoryMarshal.CreateReadOnlySpan(ref channelData[0, 0], channelData.Length);
-        for (var h = 0; h <= height - 1; h += stride)
-        {
-            var row = flat.Slice(h * width, width);
-            for (var w = 0; w <= width - 1; w += stride)
-            {
-                var rawValue = row[w];
-                if (!float.IsNaN(rawValue))
-                {
-                    var value = rawValue * scaleFactor;
-                    var valueMinusPedestral = value - pedestralAdjustValue;
+        // A CFA colour is the mosaic walked at that colour's photosites -- one start per phase, red
+        // and blue one each, green both -- accumulated into the SAME bins. Nothing is materialised:
+        // the statistic wants a traversal, not the pixels, and SplitBayerChannels would copy a
+        // quarter-frame per colour to be read back once. All three colours together visit every
+        // photosite exactly once, the cost of one plain scan. See CfaPhaseStarts / CfaStep.
+        Span<(int Row, int Col)> phaseStarts = stackalloc (int Row, int Col)[2];
+        var phaseCount = CfaPhaseStarts(cfa, phaseStarts);
+        var step = CfaStep(cfa, stride);
 
-                    // ignore black overlap areas and bright stars (if threshold percentage is below 100%)
-                    if ((!ignoreBlack || valueMinusPedestral >= 1) && valueMinusPedestral < threshold)
+        var flat = MemoryMarshal.CreateReadOnlySpan(ref channelData[0, 0], channelData.Length);
+        for (var phase = 0; phase < phaseCount; phase++)
+        {
+            var (rowStart, colStart) = phaseStarts[phase];
+            for (var h = rowStart; h <= height - 1; h += step)
+            {
+                var row = flat.Slice(h * width, width);
+                for (var w = colStart; w <= width - 1; w += step)
+                {
+                    var rawValue = row[w];
+                    if (!float.IsNaN(rawValue))
                     {
-                        // Clamp in float, cast once. Math.Clamp(float, int, uint) binds the
-                        // DOUBLE overload, so the old form ran float -> double -> clamp ->
-                        // double -> int per pixel. Comparing before the cast also keeps the
-                        // cast in range, which the double clamp was doing implicitly -- a
-                        // calibrated frame can carry very negative pixels, and (int) on an
-                        // out-of-range float is platform-defined.
-                        var rounded = MathF.Round(valueMinusPedestral);
-                        var valueAsInt = rounded <= 0f
-                            ? 0
-                            : (rounded >= maxBinF ? maxBinIndex : (int)rounded);
-                        histogram[valueAsInt]++; // calculate histogram
-                        hist_total++;
-                        total_value += valueMinusPedestral;
-                        count++;
+                        var value = rawValue * scaleFactor;
+                        var valueMinusPedestral = value - pedestralAdjustValue;
+
+                        // ignore black overlap areas and bright stars (if threshold percentage is below 100%)
+                        if ((!ignoreBlack || valueMinusPedestral >= 1) && valueMinusPedestral < threshold)
+                        {
+                            // Clamp in float, cast once. Math.Clamp(float, int, uint) binds the
+                            // DOUBLE overload, so the old form ran float -> double -> clamp ->
+                            // double -> int per pixel. Comparing before the cast also keeps the
+                            // cast in range, which the double clamp was doing implicitly -- a
+                            // calibrated frame can carry very negative pixels, and (int) on an
+                            // out-of-range float is platform-defined.
+                            var rounded = MathF.Round(valueMinusPedestral);
+                            var valueAsInt = rounded <= 0f
+                                ? 0
+                                : (rounded >= maxBinF ? maxBinIndex : (int)rounded);
+                            histogram[valueAsInt]++; // calculate histogram
+                            hist_total++;
+                            total_value += valueMinusPedestral;
+                            count++;
+                        }
                     }
                 }
             }
@@ -251,12 +267,12 @@ public partial class Image
             hist_total, threshold, thresholdPct, rescaledMaxValue, median, mad, ignoreBlack);
     }
 
-    public ImageHistogram Statistics(int channel, bool removePedestral = false, int pixelStride = 1)
-        => Histogram(channel, thresholdPct: 100, ignoreBlack: false, calcStats: true, removePedestral, pixelStride);
+    public ImageHistogram Statistics(int channel, bool removePedestral = false, int pixelStride = 1, CfaChannel? cfa = null)
+        => Histogram(channel, thresholdPct: 100, ignoreBlack: false, calcStats: true, removePedestral, pixelStride, cfa);
 
-    public (float Pedestral, float Median, float MAD) GetPedestralMedianAndMADScaledToUnit(int channel, int pixelStride = 1)
+    public (float Pedestral, float Median, float MAD) GetPedestralMedianAndMADScaledToUnit(int channel, int pixelStride = 1, CfaChannel? cfa = null)
     {
-        var stats = Statistics(channel, removePedestral: true, pixelStride: pixelStride);
+        var stats = Statistics(channel, removePedestral: true, pixelStride: pixelStride, cfa: cfa);
         if (stats.Median is not { } median || stats.MAD is not { } mad)
         {
             throw new InvalidOperationException("Median and MAD should have been calculated");
@@ -357,7 +373,7 @@ public partial class Image
     /// fallback to full-pixel median/MAD when too few samples remain.
     /// </summary>
     public (float Pedestral, float Median, float MAD) GetStarMaskedMedianAndMADScaledToUnit(
-        int channel, BitMatrix starMask, int pixelStride = 4)
+        int channel, BitMatrix starMask, int pixelStride = 4, CfaChannel? cfa = null)
     {
         var (channelCount, width, height) = Shape;
         if (channel >= channelCount)
@@ -373,26 +389,36 @@ public partial class Image
         // keep the observed-peak divisor, matching the shader's NormFactor = 1/MaxValue.
         var unitDivisor = HasUnitScalePeak ? 1f : MaxValue;
         var pedestal = MinValue / unitDivisor;
-        var maxSamples = ((width / pixelStride) + 1) * ((height / pixelStride) + 1);
+        // The same per-colour walk Histogram takes (CfaPhaseStarts / CfaStep). Note the fixed grid from
+        // (0, 0) at an even stride sits on ONE CFA phase of a mosaic: without `cfa`, a mosaic's masked
+        // statistic was whichever colour happened to be at the origin.
+        Span<(int Row, int Col)> phaseStarts = stackalloc (int Row, int Col)[2];
+        var phaseCount = CfaPhaseStarts(cfa, phaseStarts);
+        var step = CfaStep(cfa, pixelStride);
+        var maxSamples = phaseCount * ((width / step) + 1) * ((height / step) + 1);
         var samples = new float[maxSamples];
         var count = 0;
         var channelData = Planes[channel].Data;
 
-        for (var y = 0; y < height; y += pixelStride)
+        for (var phase = 0; phase < phaseCount; phase++)
         {
-            for (var x = 0; x < width; x += pixelStride)
+            var (rowStart, colStart) = phaseStarts[phase];
+            for (var y = rowStart; y < height; y += step)
             {
-                var v = channelData[y, x];
-                if (float.IsNaN(v)) continue;
-                if (starMask[y, x]) continue;
-                if (v <= MinValue) continue;
-                samples[count++] = v;
+                for (var x = colStart; x < width; x += step)
+                {
+                    var v = channelData[y, x];
+                    if (float.IsNaN(v)) continue;
+                    if (starMask[y, x]) continue;
+                    if (v <= MinValue) continue;
+                    samples[count++] = v;
+                }
             }
         }
 
         if (count < 100)
         {
-            return GetPedestralMedianAndMADScaledToUnit(channel);
+            return GetPedestralMedianAndMADScaledToUnit(channel, cfa: cfa);
         }
 
         // Two medians, so historically two full Array.Sort of ~1.5 M samples (a 24 MP frame at

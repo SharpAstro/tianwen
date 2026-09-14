@@ -117,7 +117,9 @@ public static class InfoPanelData
         GetStatisticsTable(AstroImageDocument document)
     {
         var rows = ImmutableArray.CreateBuilder<ImmutableArray<string>>();
-        var isColour = document.UnstretchedImage.ChannelCount >= 3;
+        // Keyed on the statistics, not the plane count: a Bayer mosaic carries three (one per photosite
+        // colour, taken on the mosaic in place), and they are R, G, B as much as a debayered frame's are.
+        var isColour = document.ChannelStatistics.Length >= 3;
 
         for (var c = 0; c < document.ChannelStatistics.Length; c++)
         {

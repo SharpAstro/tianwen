@@ -345,8 +345,26 @@ public static class StretchSolver
     /// The plain stat-scan loop shared by the viewer document and the in-pipeline preview renderer
     /// (each then layers its own WB / bg-neut adjustment on top).
     /// </summary>
+    /// <remarks>
+    /// <b>A Bayer mosaic is three colours in one plane, and comes back as three entries</b> -- R, G, B,
+    /// each taken over its own photosites on the mosaic in place (<see cref="CfaChannel"/>), whatever
+    /// <paramref name="channelCount"/> says. One entry for the whole mosaic, broadcast three ways by
+    /// <see cref="ComputeStretchUniforms"/>, is what made Linked and Unlinked solve the SAME curve on
+    /// every OSC sub and left background neutralisation nothing to neutralise: the shader debayers
+    /// before the curve, so the curve has to be positioned by the colour it will meet.
+    /// </remarks>
     public static ChannelStretchStats[] CollectPerChannelStats(Image image, int channelCount)
     {
+        if (image.IsCfaMosaic)
+        {
+            return
+            [
+                CfaStats(image, CfaChannel.Red),
+                CfaStats(image, CfaChannel.Green),
+                CfaStats(image, CfaChannel.Blue),
+            ];
+        }
+
         var perChannelStats = new ChannelStretchStats[channelCount];
         for (var c = 0; c < channelCount; c++)
         {
@@ -354,5 +372,11 @@ public static class StretchSolver
             perChannelStats[c] = new ChannelStretchStats(ped, med, mad);
         }
         return perChannelStats;
+    }
+
+    private static ChannelStretchStats CfaStats(Image mosaic, CfaChannel cfa)
+    {
+        var (ped, med, mad) = mosaic.GetPedestralMedianAndMADScaledToUnit(0, cfa: cfa);
+        return new ChannelStretchStats(ped, med, mad);
     }
 }
