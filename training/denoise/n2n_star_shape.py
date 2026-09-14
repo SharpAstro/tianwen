@@ -91,7 +91,7 @@ def profile_misfit(tile, ys, xs, med, fwhm_guess, max_stars=400, half=4):
     return float(np.median(out)) if out else float("nan")
 
 
-def detail_ratio(tile, truth, ys, xs, fwhm_truth, band=(1.5, 5.0)):
+def detail_ratio(tile, truth, ys, xs, fwhm_truth, band=(1.5, 5.0), keep=None):
     """Non-stellar detail against the truth: the correlation of the band-passed output with the
     band-passed truth, on pixels at least 2.5 truth-FWHM from every detected star, and the band
     residual to the truth beside it.
@@ -101,6 +101,10 @@ def detail_ratio(tile, truth, ys, xs, fwhm_truth, band=(1.5, 5.0)):
     INPUT's own value: higher is detail the truth also has, brought out; lower is noise amplified or
     ringing added. Against the same night's other half the ceiling is well under 1.0, since the two
     halves' noise is independent.
+
+    `keep`, when given, is the pixel selection instead of the star-dilated one: a mask from the
+    library's source detection (`tianwen image sources --maps`, see `load_source_masks`), so the
+    statistic can be read on the structure pixels alone.
     """
     from scipy.ndimage import gaussian_filter, binary_dilation
 
@@ -108,12 +112,13 @@ def detail_ratio(tile, truth, ys, xs, fwhm_truth, band=(1.5, 5.0)):
         a = a.astype(np.float64)
         return gaussian_filter(a, band[0]) - gaussian_filter(a, band[1])
 
-    mask = np.zeros(tile.shape, dtype=bool)
-    mask[ys, xs] = True
-    r = int(np.ceil(2.5 * fwhm_truth))
-    yy, xx = np.mgrid[-r:r + 1, -r:r + 1]
-    mask = binary_dilation(mask, structure=(yy * yy + xx * xx) <= r * r)
-    keep = ~mask
+    if keep is None:
+        mask = np.zeros(tile.shape, dtype=bool)
+        mask[ys, xs] = True
+        r = int(np.ceil(2.5 * fwhm_truth))
+        yy, xx = np.mgrid[-r:r + 1, -r:r + 1]
+        mask = binary_dilation(mask, structure=(yy * yy + xx * xx) <= r * r)
+        keep = ~mask
     if keep.sum() < 1000:
         return float("nan"), float("nan")
     bt, bo = bp(truth)[keep], bp(tile)[keep]
@@ -125,6 +130,34 @@ def detail_ratio(tile, truth, ys, xs, fwhm_truth, band=(1.5, 5.0)):
     bt, bo = bt - bt.mean(), bo - bo.mean()
     corr = float(np.dot(bt, bo) / max(np.sqrt(np.dot(bt, bt) * np.dot(bo, bo)), 1e-18))
     return corr, float(np.sqrt(np.mean((bo - bt) ** 2)))
+
+
+def load_source_masks(master_path, maps_dir, cx, cy, size, side=None):
+    """The library's star and structure masks for `master_path` (written by `tianwen image sources
+    --maps -o maps_dir` as `<stem>.starmask.fits` / `<stem>.structmask.fits`), cropped at
+    (cx, cy, size) in the master's own pixels and, with `side`, resampled nearest to that square.
+    Returns (star, structure) as bool arrays, or None when the sidecars are absent."""
+    import os
+    from astropy.io import fits
+
+    stem = os.path.splitext(os.path.basename(master_path))[0]
+    paths = [os.path.join(maps_dir, f"{stem}.{kind}.fits") for kind in ("starmask", "structmask")]
+    if not all(os.path.exists(p) for p in paths):
+        return None
+    out = []
+    for path in paths:
+        with fits.open(path, memmap=False) as h:
+            plane = np.asarray(h[0].data)
+            if h[0].header.get("MAPKIND") not in ("STARMASK", "STRUCTMASK"):
+                raise SystemExit(f"{path} is not a source mask (MAPKIND {h[0].header.get('MAPKIND')})")
+        crop = plane[cy:cy + size, cx:cx + size].astype(bool)
+        if side is not None and side != size:
+            from scipy.ndimage import zoom as ndzoom
+            crop = ndzoom(crop.astype(np.uint8), side / size, order=0).astype(bool)
+            if crop.shape != (side, side):
+                raise SystemExit(f"mask zoom landed on {crop.shape}, wanted {side}")
+        out.append(crop)
+    return out[0], out[1]
 
 
 def shape_row(tile, truth, ys, xs, fwhm_truth, med_tile, mad_tile, med_truth):
