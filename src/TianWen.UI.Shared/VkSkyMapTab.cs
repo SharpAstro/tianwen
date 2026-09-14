@@ -489,7 +489,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         OverlayEllipseInstances.Build(
             _overlayCandidates, _overlayEllipseInstances,
             arcminToPx, dpiScale, fovAlpha, dimBelowHorizon, site,
-            OverlayEngine.PinnedMarkerColor, pinnedHaloColor);
+            OverlayEngine.PinnedMarkerColor, pinnedHaloColor, State.MirrorView);
 
         // Crosses (stars): per-item CPU path. Uses _overlayItems (only candidates that
         // passed CPU projection + off-screen cull), so off-screen stars don't draw.

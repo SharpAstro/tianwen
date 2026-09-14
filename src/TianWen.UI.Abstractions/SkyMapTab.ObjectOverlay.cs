@@ -522,7 +522,7 @@ namespace TianWen.UI.Abstractions
             }
 
             var paRad = Half.IsNaN(e.PositionAngle) ? 0f : (float)((double)e.PositionAngle * Math.PI / 180.0);
-            var (majorX, majorY, minorX, minorY) = OverlayEngine.ComputeEllipseScreenAxes(dnx, dny, paRad);
+            var (majorX, majorY, minorX, minorY) = OverlayEngine.ComputeEllipseScreenAxes(dnx, dny, paRad, State.MirrorView);
 
             // Adaptive tessellation: a small marker looks round with far fewer than 32 segments, so scale
             // the count with on-screen radius -- clamp(radiusPx/2, 8, 32). The whole ring is then ONE

@@ -568,7 +568,7 @@ namespace TianWen.UI.Abstractions
             // hand-maintained mirror of the same convention -- see
             // Overlays.OverlayEngine.ComputeEllipseScreenAxes.
             var (majorX, majorY, minorX, minorY) =
-                Overlays.OverlayEngine.ComputeEllipseScreenAxes(dnx, dny, paRad);
+                Overlays.OverlayEngine.ComputeEllipseScreenAxes(dnx, dny, paRad, State.MirrorView);
 
             // Trace the ellipse.
             const int Segments = 36;
