@@ -20,6 +20,10 @@ namespace TianWen.Lib.Imaging.Sources;
 /// <param name="DeblendMinSeparation">Peaks closer than this, in pixels, are one source whatever the saddle says.</param>
 /// <param name="DeblendMinPeakSigma">A peak is considered for deblending only when it stands this many
 /// local RMS over the sky.</param>
+/// <param name="DeblendMaxPeaks">Peaks considered per segment, brightest first. A Milky Way field's faint
+/// nebulosity joins into one segment of millions of pixels with thousands of local maxima, and the saddle
+/// test over every pair took eight minutes on the Statue master; the brightest 64 are the sources worth
+/// splitting off.</param>
 /// <param name="CompactCoreFraction">A segment is <see cref="Segment.IsCompact"/> (a star) when the sky-subtracted
 /// flux inside the 5 by 5 window on its peak is at least this fraction of the whole segment's, and its
 /// area is under <paramref name="CompactMaxArea"/>. A nebula segment spreads its flux; a star concentrates it.</param>
@@ -49,6 +53,7 @@ public sealed record SourceDetectionOptions(
     float DeblendSaddleFraction = 0.7f,
     float DeblendMinSeparation = 3f,
     float DeblendMinPeakSigma = 5f,
+    int DeblendMaxPeaks = 64,
     float CompactCoreFraction = 0.5f,
     int CompactMaxArea = 400,
     float CompactPeakToMean = 10f,
@@ -71,6 +76,7 @@ public sealed record SourceDetectionOptions(
         ArgumentOutOfRangeException.ThrowIfGreaterThan(DeblendSaddleFraction, 1f);
         ArgumentOutOfRangeException.ThrowIfLessThan(DeblendMinSeparation, 1f);
         ArgumentOutOfRangeException.ThrowIfLessThan(DeblendMinPeakSigma, 0f);
+        ArgumentOutOfRangeException.ThrowIfLessThan(DeblendMaxPeaks, 2);
         ArgumentOutOfRangeException.ThrowIfLessThan(CompactCoreFraction, 0f);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(CompactCoreFraction, 1f);
         ArgumentOutOfRangeException.ThrowIfLessThan(CompactMaxArea, 1);
@@ -709,6 +715,11 @@ public static class SourceSegmentation
             }
 
             peaks.Sort(static (a, b) => b.Value.CompareTo(a.Value));
+            if (peaks.Count > options.DeblendMaxPeaks)
+            {
+                peaks.RemoveRange(options.DeblendMaxPeaks, peaks.Count - options.DeblendMaxPeaks);
+            }
+
             var survivors = new List<Peak>(peaks.Count) { peaks[0] };
             for (var c = 1; c < peaks.Count; c++)
             {
