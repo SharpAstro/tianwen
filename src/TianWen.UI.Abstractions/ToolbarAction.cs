@@ -79,8 +79,10 @@ public enum ToolbarAction
     Zoom,
 
     /// <summary>
-    /// Steps the annotation ladder -- <see cref="ViewerOverlayLevel"/> -- one rung: nothing, the WCS
-    /// grid, then the grid plus catalog objects.
+    /// The annotation: nothing, or the WCS grid plus the catalog objects. A plain activation
+    /// TOGGLES between those two (<see cref="ViewerActions.ToggleOverlayLevel"/>); reverse -- a
+    /// right-click, or <c>Shift+O</c> -- walks the <see cref="ViewerOverlayLevel"/> ladder a rung
+    /// instead, which is the only way the grid-only rung is still reached from here.
     /// </summary>
     /// <remarks>
     /// There was a separate <c>Grid</c> button beside this one until the ladder existed, and merging

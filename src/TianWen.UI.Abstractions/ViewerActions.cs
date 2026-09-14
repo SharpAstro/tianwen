@@ -173,6 +173,28 @@ public static class ViewerActions
     }
 
     /// <summary>
+    /// Jumps straight to the top rung and back: the photograph alone, or the grid AND the catalog
+    /// objects. This is what <c>O</c> and the toolbar button do.
+    /// </summary>
+    /// <remarks>
+    /// <para>The annotation ladder still exists and <see cref="CycleOverlayLevel"/> still walks it --
+    /// <c>Shift+O</c> and a right-click -- so the grid-only rung is one keystroke away and nothing
+    /// became unreachable. What changed is which of the two is the DEFAULT press, and the reason is
+    /// that the rungs are not equally wanted: "annotate this frame" means the objects, and the grid
+    /// alone was a stop on the way to it that had to be pressed through twice per round trip.</para>
+    /// <para>The grid also has its own key already (<c>G</c>), so the middle rung was the one rung
+    /// the ladder did not need to carry. Off is the photograph alone rather than the previous rung:
+    /// a toggle that restored "grid only" would make the same key mean two different things
+    /// depending on state it does not show.</para>
+    /// </remarks>
+    public static void ToggleOverlayLevel(ViewerState state)
+        => ApplyOverlayLevel(
+            state,
+            state.OverlayLevel is ViewerOverlayLevel.None
+                ? ViewerOverlayLevel.Objects
+                : ViewerOverlayLevel.None);
+
+    /// <summary>
     /// Sets every context layer from one rung of the ladder. The rungs are cumulative, so this is the
     /// one place that states what each means, and the derived <see cref="ViewerState.OverlayLevel"/>
     /// reads the same relation back.
@@ -731,7 +753,16 @@ public static class ViewerActions
                 for (var i = 0; i < count; i++) CycleDebayerAlgorithm(state, reverse);
                 return true;
             case ToolbarAction.Overlays:
-                for (var i = 0; i < count; i++) CycleOverlayLevel(state, reverse);
+                // Matches the O key: a plain activation is the whole annotation, reverse walks the
+                // ladder. A repeat COUNT only means something for a cycler, so the toggle runs once.
+                if (reverse)
+                {
+                    for (var i = 0; i < count; i++) CycleOverlayLevel(state, reverse: true);
+                }
+                else
+                {
+                    ToggleOverlayLevel(state);
+                }
                 return true;
             case ToolbarAction.Channel:
                 if (document is not null)
@@ -793,7 +824,15 @@ public static class ViewerActions
                 CycleHdr(state, reverse);
                 return true;
             case ToolbarAction.Overlays:
-                CycleOverlayLevel(state, reverse);
+                // Left-click is the O key; right-click walks the ladder a rung back.
+                if (reverse)
+                {
+                    CycleOverlayLevel(state, reverse: true);
+                }
+                else
+                {
+                    ToggleOverlayLevel(state);
+                }
                 return true;
             // The same one line the Y key runs. Not a cycler, so it ignores `reverse`: a right-click
             // on a plain toggle means nothing, and pretending otherwise would give it a second
