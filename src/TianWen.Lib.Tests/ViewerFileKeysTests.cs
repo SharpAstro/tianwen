@@ -153,5 +153,32 @@ namespace TianWen.Lib.Tests
 
             saves.ShouldBe(0);
         }
+        /// <summary>Shift+H steps the HDR cycler back, the direction every other Shift here means; it
+        /// used to be the display hold, which is Ctrl+H now.</summary>
+        [Fact]
+        public void ShiftH_StepsTheHdrCyclerBack()
+        {
+            var (viewer, state, bus) = NewViewer();
+            var start = state.HdrPresetIndex;
+
+            Press(viewer, bus, InputKey.H, InputModifier.None);
+            state.HdrPresetIndex.ShouldBe((start + 1) % ViewerState.HdrPresets.Length);
+
+            Press(viewer, bus, InputKey.H, InputModifier.Shift);
+            state.HdrPresetIndex.ShouldBe(start);
+            state.CarryDisplayAcrossFrames.ShouldBeFalse("Shift+H is not the hold any more");
+        }
+
+        [Fact]
+        public void CtrlH_TogglesTheHold()
+        {
+            var (viewer, state, bus) = NewViewer();
+
+            Press(viewer, bus, InputKey.H, InputModifier.Ctrl);
+            state.CarryDisplayAcrossFrames.ShouldBeTrue();
+
+            Press(viewer, bus, InputKey.H, InputModifier.Ctrl);
+            state.CarryDisplayAcrossFrames.ShouldBeFalse();
+        }
     }
 }

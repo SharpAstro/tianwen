@@ -419,7 +419,8 @@ namespace TianWen.UI.Abstractions
                     ViewerActions.ToggleSkyBackdrop(state);
                     return true;
                 case InputKey.H:
-                    ViewerActions.CycleHdr(state);
+                    // Shift steps back, the direction every other cycler here gives Shift.
+                    ViewerActions.CycleHdr(state, reverse: shift);
                     return true;
                 case InputKey.V:
                     if (shift)
