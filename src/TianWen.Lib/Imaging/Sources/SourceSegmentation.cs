@@ -184,20 +184,24 @@ public sealed class SegmentationMap
             selected[s.Label] = select(s);
         }
 
-        var flags = new bool[Width * Height];
-        for (var i = 0; i < flags.Length; i++)
+        var mask = new BitMatrix(Height, Width);
+        for (var y = 0; y < Height; y++)
         {
-            flags[i] = selected[_labels[i]];
+            var row = y * Width;
+            for (var x = 0; x < Width; x++)
+            {
+                if (selected[_labels[row + x]])
+                {
+                    mask[y, x] = true;
+                }
+            }
         }
 
-        // The margin is a square dilation, separable and O(pixels x margin); a disc stamped per source
-        // pixel was O(pixels x margin squared) and ran for minutes on a 3840 by 2160 frame.
-        if (marginPx > 0)
-        {
-            MaskOps.DilateSquare(flags, Width, Height, marginPx);
-        }
-
-        return MaskOps.ToBitMatrix(flags, Width, Height);
+        // The margin is a square dilation on the mask's own words; a disc stamped per source pixel was
+        // O(pixels x margin squared) and ran for minutes on a 3840 by 2160 frame, and a boolean plane
+        // per mask cost 90 MB on a 16 Mpx frame.
+        mask.DilateSquare(marginPx);
+        return mask;
     }
 }
 
@@ -354,7 +358,11 @@ public static class SourceSegmentation
             throw new ArgumentException($"background map is {background.Width}x{background.Height} for a {width}x{height} plane", nameof(background));
         }
 
-        var (map, lowMask) = DetectOnce(plane, width, height, background, options);
+        // The per-pass planes are allocated once and reused by the second pass: the sky-subtracted plane,
+        // its smoothed copy, the threshold flags and the labels are 36 bytes a pixel, 601 MB over two
+        // passes on a 16 Mpx frame before this.
+        var buffers = new DetectBuffers(width * height, options.SmoothingSigma > 0f);
+        var (map, lowMask) = DetectOnce(plane, width, height, background, options, buffers);
         for (var pass = 1; pass < options.BackgroundPasses; pass++)
         {
             if (map.Segments.Length == 0)
@@ -362,39 +370,27 @@ public static class SourceSegmentation
                 break;
             }
 
-            var refined = BackgroundMap.Estimate(plane, width, height, Dilate(lowMask, width, height, options.BackgroundMaskMargin),
-                new BackgroundMapOptions(BlockSize: background.BlockSize));
-            (map, lowMask) = DetectOnce(plane, width, height, refined, options);
+            lowMask.DilateSquare(options.BackgroundMaskMargin);
+            var refined = BackgroundMap.Estimate(plane, width, height, lowMask, new BackgroundMapOptions(BlockSize: background.BlockSize));
+            (map, lowMask) = DetectOnce(plane, width, height, refined, options, buffers);
         }
 
         return map;
     }
 
-    private static BitMatrix Dilate(BitMatrix source, int width, int height, int radius)
+    private sealed class DetectBuffers(int n, bool smoothing)
     {
-        if (radius == 0)
-        {
-            return source;
-        }
-
-        var flags = new bool[width * height];
-        for (var y = 0; y < height; y++)
-        {
-            var row = y * width;
-            for (var x = 0; x < width; x++)
-            {
-                flags[row + x] = source[y, x];
-            }
-        }
-
-        MaskOps.DilateSquare(flags, width, height, radius);
-        return MaskOps.ToBitMatrix(flags, width, height);
+        public float[] Signal { get; } = new float[n];
+        public float[] Detect { get; } = smoothing ? new float[n] : [];
+        public float[] SmoothTemp { get; } = smoothing ? new float[n] : [];
+        public bool[] Above { get; } = new bool[n];
+        public int[] Position { get; } = new int[n];
     }
 
-    private static (SegmentationMap Map, BitMatrix LowMask) DetectOnce(ReadOnlySpan<float> plane, int width, int height, BackgroundMap background, SourceDetectionOptions options)
+    private static (SegmentationMap Map, BitMatrix LowMask) DetectOnce(ReadOnlySpan<float> plane, int width, int height, BackgroundMap background, SourceDetectionOptions options, DetectBuffers buffers)
     {
         var n = width * height;
-        var signal = new float[n];   // sky-subtracted value, NaN where the pixel is not finite
+        var signal = buffers.Signal;   // sky-subtracted value, NaN where the pixel is not finite
         for (var y = 0; y < height; y++)
         {
             var row = y * width;
@@ -412,11 +408,12 @@ public static class SourceSegmentation
         var detect = signal;
         if (options.SmoothingSigma > 0f)
         {
-            detect = new float[n];
-            SmoothForDetection(signal, width, height, options.SmoothingSigma, detect);
+            detect = buffers.Detect;
+            SmoothForDetection(signal, width, height, options.SmoothingSigma, detect, buffers.SmoothTemp);
         }
 
-        var above = new bool[n];
+        var above = buffers.Above;
+        Array.Clear(above);
         var low = new BitMatrix(height, width);
         for (var y = 0; y < height; y++)
         {
@@ -438,6 +435,7 @@ public static class SourceSegmentation
             }
         }
 
+        // The labels are the map's own array and cannot be reused across passes; the pass before is dropped.
         var labels = new int[n];
         var count = LabelConnected(above, width, height, labels);
         count = DropSmall(labels, count, options.MinPixels);
@@ -445,7 +443,7 @@ public static class SourceSegmentation
         {
             // Peaks and saddles are read on the SMOOTHED plane (photutils deblends the convolved data):
             // on the raw one every noise bump on a nebula's surface is a strict maximum.
-            count = Deblend(detect, labels, count, width, height, background, options);
+            count = Deblend(detect, labels, count, width, height, background, options, buffers.Position);
         }
 
         var segments = Measure(signal, labels, count, width, height, options);
@@ -458,6 +456,9 @@ public static class SourceSegmentation
     /// expressed in the smoothed noise's own sigma.
     /// </summary>
     internal static float SmoothForDetection(float[] signal, int width, int height, float sigma, float[] destination)
+        => SmoothForDetection(signal, width, height, sigma, destination, new float[signal.Length]);
+
+    internal static float SmoothForDetection(float[] signal, int width, int height, float sigma, float[] destination, float[] temp)
     {
         var radius = Math.Max(1, (int)MathF.Ceiling(3f * sigma));
         var kernel = new float[2 * radius + 1];
@@ -477,7 +478,6 @@ public static class SourceSegmentation
 
         // Two separable passes: the 2D kernel's sum of squares is the square of the 1D one's.
         var noiseGain = sumSq;
-        var temp = new float[signal.Length];
         for (var y = 0; y < height; y++)
         {
             var row = y * width;
@@ -656,7 +656,8 @@ public static class SourceSegmentation
     private readonly record struct Peak(int X, int Y, float Value);
 
     /// <summary>Split every segment with several saddle-separated peaks; returns the new label count.</summary>
-    private static int Deblend(float[] signal, int[] labels, int count, int width, int height, BackgroundMap background, SourceDetectionOptions options)
+    /// <param name="position">A frame-sized scratch array (the pixel's rank in its segment's descending order); every entry touched is reset before return.</param>
+    private static int Deblend(float[] signal, int[] labels, int count, int width, int height, BackgroundMap background, SourceDetectionOptions options, int[] position)
     {
         // Gather each segment's pixels once.
         var area = new int[count + 1];
@@ -756,21 +757,20 @@ public static class SourceSegmentation
 
             var order = seg.ToArray();
             Array.Sort(order, (a, b) => signal[b].CompareTo(signal[a]));
-            var assigned = new int[order.Length];   // parallel to seg's pixel index via dictionary-free lookup below
-            var index = new Dictionary<int, int>(order.Length);
+            var assigned = new int[order.Length];   // parallel to order; position[] maps a pixel back to its rank
             for (var k = 0; k < order.Length; k++)
             {
-                index[order[k]] = k;
+                position[order[k]] = k;
             }
 
             for (var k = 0; k < survivors.Count; k++)
             {
-                assigned[index[survivors[k].Y * width + survivors[k].X]] = peakLabel[k];
+                assigned[position[survivors[k].Y * width + survivors[k].X]] = peakLabel[k];
             }
 
             foreach (var i in order)
             {
-                var k = index[i];
+                var k = position[i];
                 if (assigned[k] != 0)
                 {
                     continue;
@@ -797,7 +797,13 @@ public static class SourceSegmentation
                         }
 
                         var ni = ny * width + nx;
-                        if (labels[ni] != l || !index.TryGetValue(ni, out var nk) || assigned[nk] == 0)
+                        if (labels[ni] != l)
+                        {
+                            continue;
+                        }
+
+                        var nk = position[ni];
+                        if (assigned[nk] == 0)
                         {
                             continue;
                         }
@@ -833,6 +839,7 @@ public static class SourceSegmentation
             for (var k = 0; k < order.Length; k++)
             {
                 labels[order[k]] = assigned[k];
+                position[order[k]] = 0;
             }
         }
 

@@ -197,6 +197,49 @@ public class SourceSegmentationTests(ITestOutputHelper output)
         labels[0].ShouldBe(1, "the survivor is relabelled 1");
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    [InlineData(7)]
+    public void TheWordLevelDilationMatchesTheBooleanOne(int radius)
+    {
+        // 150 columns so the mask spans three words with padding in the last; bits on word edges and at the frame's edges.
+        const int w = 150;
+        const int h = 40;
+        var rng = new Random(radius);
+        var mask = new BitMatrix(h, w);
+        var flags = new bool[w * h];
+        for (var k = 0; k < 60; k++)
+        {
+            var x = rng.Next(w);
+            var y = rng.Next(h);
+            mask[y, x] = true;
+            flags[y * w + x] = true;
+        }
+
+        foreach (var (x, y) in new[] { (0, 0), (63, 5), (64, 5), (127, 9), (128, 9), (149, 39), (149, 0) })
+        {
+            mask[y, x] = true;
+            flags[y * w + x] = true;
+        }
+
+        mask.DilateSquare(radius);
+        MaskOps.DilateSquare(flags, w, h, radius);
+        for (var y = 0; y < h; y++)
+        {
+            for (var x = 0; x < w; x++)
+            {
+                mask[y, x].ShouldBe(flags[y * w + x], $"({x},{y}) at radius {radius}");
+            }
+        }
+
+        // Padding bits past the last column stay clear: the last word carries no bit at or above column 150.
+        for (var y = 0; y < h; y++)
+        {
+            (mask.GetWord(y, 2) >> (150 - 128)).ShouldBe(0ul, $"row {y} padding");
+        }
+    }
+
     private static float Truth(int x, int y) => Sky + 0.02f * x / W - 0.01f * y / H;
 
     private static void AddStar(float[] plane, int cx, int cy, float amplitude, float sigma)

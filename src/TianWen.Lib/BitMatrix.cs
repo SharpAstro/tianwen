@@ -236,6 +236,81 @@ public readonly struct BitMatrix
     /// source range is now computed once, up front, for both axes and both paths.</para>
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    /// <summary>
+    /// Dilates every set bit into the (2r+1)-square round it, in place, on the words: r shift-by-one
+    /// passes each way with the carry across words, then an OR of the rows in the window. O(rows x
+    /// words x r), no per-bit work and no boolean plane, which is why the source masks use it (a bool
+    /// plane per mask cost 90 MB on a 16 Mpx frame). Padding bits past the last column stay clear.
+    /// </summary>
+    internal readonly void DilateSquare(int radius)
+    {
+        if (radius <= 0)
+        {
+            return;
+        }
+
+        var rows = _data.GetLength(0);
+        var words = _data.GetLength(1);
+        if (rows == 0 || words == 0)
+        {
+            return;
+        }
+
+        var padRem = _d1 & VECTOR_SIZE_MASK;
+        var lastMask = padRem == 0 ? ulong.MaxValue : (1ul << padRem) - 1;
+        var horizontal = new ulong[rows, words];
+        var left = new ulong[words];
+        var right = new ulong[words];
+        for (var y = 0; y < rows; y++)
+        {
+            for (var w = 0; w < words; w++)
+            {
+                var v = _data[y, w];
+                horizontal[y, w] = v;
+                left[w] = v;
+                right[w] = v;
+            }
+
+            for (var s = 0; s < radius; s++)
+            {
+                // Toward higher columns: bit k moves to k+1, the top bit of word w-1 into the bottom of w.
+                for (var w = words - 1; w >= 0; w--)
+                {
+                    left[w] = (left[w] << 1) | (w > 0 ? left[w - 1] >> (VECTOR_SIZE - 1) : 0ul);
+                }
+
+                // Toward lower columns.
+                for (var w = 0; w < words; w++)
+                {
+                    right[w] = (right[w] >> 1) | (w + 1 < words ? right[w + 1] << (VECTOR_SIZE - 1) : 0ul);
+                }
+
+                for (var w = 0; w < words; w++)
+                {
+                    horizontal[y, w] |= left[w] | right[w];
+                }
+            }
+
+            horizontal[y, words - 1] &= lastMask;
+        }
+
+        for (var y = 0; y < rows; y++)
+        {
+            var y0 = Math.Max(0, y - radius);
+            var y1 = Math.Min(rows - 1, y + radius);
+            for (var w = 0; w < words; w++)
+            {
+                var acc = 0ul;
+                for (var yy = y0; yy <= y1; yy++)
+                {
+                    acc |= horizontal[yy, w];
+                }
+
+                _data[y, w] = acc;
+            }
+        }
+    }
+
     public readonly void SetRegionClipped(int d0, int d1, in BitMatrix other)
     {
         if (ReferenceEquals(other._data, _data))
