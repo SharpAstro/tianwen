@@ -1327,6 +1327,18 @@ matrix, the two full-scale numbers and the header parse:
   ABSOLUTE, so both sides must be fed a `[0, 1]` mosaic**. Pinned by `GpuVngDebayerParityTests`
   (which also carries why a mean byte diff cannot see a demosaic bug);
   `docs/architecture/image-pipeline.md`.
+- **Every gradient in a demosaic compares two samples of the SAME colour**, so it is zero on a flat
+  field whatever the sky's colour is. VNG's were colour differences (`|2g - v - c|` is
+  `2*(green - centre)` when flat) AND an affine function of the value they select, so "keep the
+  smallest gradient" meant "keep the value nearest the centre pixel's own level": green read +99 ADU
+  high at blue sites and correctly at red ones, because blue sits near green and really did select
+  while red sits far and admitted every direction. Blue sites are alternate rows AND columns, so it
+  landed as a two-pixel alternation on both axes -- **fine stripes over the whole background at 1:1,
+  6.4 display levels against 12 of pixel noise**, thirty times what MHC or AHD show on the same frame,
+  and invisible to every test the suite had because a demosaic was only ever checked against ITSELF
+  (a pinned hash) or against the GPU (which mirrors the same mistake). Pinned by
+  `VngFlatFieldBiasTests`, which asserts on a FLAT field -- the one input where a bias has nowhere to
+  hide -- and runs for all three colour algorithms so it cannot be satisfied by VNG's own behaviour.
 - `Array2DPool` is scratch only; camera buffers use `ChannelBuffer`/`_freeBuffers`.
 - **A buffer nobody released is findable in DEBUG** (`ChannelBufferLeakTracker`, weak-referenced, no
   finalizer); `dotnet.yml`'s `test-unit` runs a DEBUG leg on `--filter "Category=DebugOnly"` and
