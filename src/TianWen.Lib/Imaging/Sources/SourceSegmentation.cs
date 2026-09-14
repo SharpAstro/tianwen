@@ -23,7 +23,12 @@ namespace TianWen.Lib.Imaging.Sources;
 /// <param name="CompactCoreFraction">A segment is <see cref="Segment.IsCompact"/> (a star) when the sky-subtracted
 /// flux inside the 5 by 5 window on its peak is at least this fraction of the whole segment's, and its
 /// area is under <paramref name="CompactMaxArea"/>. A nebula segment spreads its flux; a star concentrates it.</param>
-/// <param name="CompactMaxArea">Area above which a segment is extended whatever its core fraction.</param>
+/// <param name="CompactMaxArea">Area above which the core fraction alone cannot make a segment compact.</param>
+/// <param name="CompactPeakToMean">The second way to be compact, for a star whose skirt or diffraction
+/// spikes hold most of its flux (a 7000-sigma star on a Newtonian reads a core fraction of 0.1 over 9500 px):
+/// the peak over the segment's mean pixel, both sky-subtracted. A star of any brightness peaks far above
+/// its mean; a nebula's peak is a few times its mean. The Bubble frame read stars at 30 to 200 and
+/// nebula pieces at 2 to 6.</param>
 /// <param name="SmoothingSigma">Gaussian sigma, in pixels, of the smoothing applied to the sky-subtracted
 /// plane BEFORE thresholding (measurements are taken on the unsmoothed plane). The threshold is scaled by
 /// the kernel's noise reduction, so "3 sigma" stays 3 sigma of the smoothed noise; what the smoothing
@@ -46,6 +51,7 @@ public sealed record SourceDetectionOptions(
     float DeblendMinPeakSigma = 5f,
     float CompactCoreFraction = 0.5f,
     int CompactMaxArea = 400,
+    float CompactPeakToMean = 10f,
     float SmoothingSigma = 1f,
     int BackgroundPasses = 2,
     int BackgroundMaskMargin = 5,
@@ -68,6 +74,7 @@ public sealed record SourceDetectionOptions(
         ArgumentOutOfRangeException.ThrowIfLessThan(CompactCoreFraction, 0f);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(CompactCoreFraction, 1f);
         ArgumentOutOfRangeException.ThrowIfLessThan(CompactMaxArea, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(CompactPeakToMean, 1f);
     }
 }
 
@@ -88,7 +95,9 @@ public sealed record SourceDetectionOptions(
 /// <param name="Y1">Bounding box, inclusive.</param>
 /// <param name="Elongation">Ratio of the major to the minor axis from the flux-weighted second moments; 1 is round.</param>
 /// <param name="CoreFraction">Share of <paramref name="Flux"/> inside the 5 by 5 window on the peak.</param>
-/// <param name="IsCompact">A star-like source (see <see cref="SourceDetectionOptions.CompactCoreFraction"/>); the rest is structure.</param>
+/// <param name="PeakToMean">The peak over the segment's mean sky-subtracted pixel: a star's concentration whatever its skirt.</param>
+/// <param name="IsCompact">A star-like source (see <see cref="SourceDetectionOptions.CompactCoreFraction"/> and
+/// <see cref="SourceDetectionOptions.CompactPeakToMean"/>); the rest is structure.</param>
 public readonly record struct Segment(
     int Label,
     int Area,
@@ -104,6 +113,7 @@ public readonly record struct Segment(
     int Y1,
     float Elongation,
     float CoreFraction,
+    float PeakToMean,
     bool IsCompact);
 
 /// <summary>
@@ -168,61 +178,124 @@ public sealed class SegmentationMap
             selected[s.Label] = select(s);
         }
 
-        var mask = new BitMatrix(Height, Width);
-        if (marginPx == 0)
+        var flags = new bool[Width * Height];
+        for (var i = 0; i < flags.Length; i++)
         {
-            for (var y = 0; y < Height; y++)
-            {
-                var row = y * Width;
-                for (var x = 0; x < Width; x++)
-                {
-                    if (selected[_labels[row + x]])
-                    {
-                        mask[y, x] = true;
-                    }
-                }
-            }
-
-            return mask;
+            flags[i] = selected[_labels[i]];
         }
 
-        // Dilation by a disc of the margin's radius: every selected pixel stamps the disc. The stamp is
-        // clipped at the frame's edge by SetRegionClipped and unions with what is there.
-        var disc = Disc(marginPx);
-        for (var y = 0; y < Height; y++)
+        // The margin is a square dilation, separable and O(pixels x margin); a disc stamped per source
+        // pixel was O(pixels x margin squared) and ran for minutes on a 3840 by 2160 frame.
+        if (marginPx > 0)
         {
-            var row = y * Width;
-            for (var x = 0; x < Width; x++)
+            MaskOps.DilateSquare(flags, Width, Height, marginPx);
+        }
+
+        return MaskOps.ToBitMatrix(flags, Width, Height);
+    }
+}
+
+/// <summary>Boolean-plane helpers shared by the masks.</summary>
+internal static class MaskOps
+{
+    /// <summary>In-place dilation by a (2r+1)-square, as two sliding-window passes.</summary>
+    internal static void DilateSquare(bool[] flags, int width, int height, int radius)
+    {
+        var temp = new bool[flags.Length];
+        // Rows: temp[x] = any flags[x-r .. x+r].
+        for (var y = 0; y < height; y++)
+        {
+            var row = y * width;
+            var run = 0; // pixels since the last set flag, counting the set one as 0
+            // Forward pass marks x .. x+r after a set flag; backward pass marks x-r .. x before it.
+            run = int.MaxValue;
+            for (var x = 0; x < width; x++)
             {
-                if (selected[_labels[row + x]])
+                if (flags[row + x])
                 {
-                    mask.SetRegionClipped(y - marginPx, x - marginPx, disc);
+                    run = 0;
+                }
+                else if (run != int.MaxValue)
+                {
+                    run++;
+                }
+
+                temp[row + x] = run <= radius;
+            }
+
+            run = int.MaxValue;
+            for (var x = width - 1; x >= 0; x--)
+            {
+                if (flags[row + x])
+                {
+                    run = 0;
+                }
+                else if (run != int.MaxValue)
+                {
+                    run++;
+                }
+
+                if (run <= radius)
+                {
+                    temp[row + x] = true;
+                }
+            }
+        }
+
+        // Columns: flags[y] = any temp[y-r .. y+r].
+        for (var x = 0; x < width; x++)
+        {
+            var run = int.MaxValue;
+            for (var y = 0; y < height; y++)
+            {
+                if (temp[y * width + x])
+                {
+                    run = 0;
+                }
+                else if (run != int.MaxValue)
+                {
+                    run++;
+                }
+
+                flags[y * width + x] = run <= radius;
+            }
+
+            run = int.MaxValue;
+            for (var y = height - 1; y >= 0; y--)
+            {
+                if (temp[y * width + x])
+                {
+                    run = 0;
+                }
+                else if (run != int.MaxValue)
+                {
+                    run++;
+                }
+
+                if (run <= radius)
+                {
+                    flags[y * width + x] = true;
+                }
+            }
+        }
+    }
+
+    internal static BitMatrix ToBitMatrix(bool[] flags, int width, int height)
+    {
+        var mask = new BitMatrix(height, width);
+        for (var y = 0; y < height; y++)
+        {
+            var row = y * width;
+            for (var x = 0; x < width; x++)
+            {
+                if (flags[row + x])
+                {
+                    mask[y, x] = true;
                 }
             }
         }
 
         return mask;
-    }
-
-    private static BitMatrix Disc(int radius)
-    {
-        var side = 2 * radius + 1;
-        var disc = new BitMatrix(side, side);
-        var r2 = radius * radius;
-        for (var y = 0; y < side; y++)
-        {
-            for (var x = 0; x < side; x++)
-            {
-                var dx = x - radius;
-                var dy = y - radius;
-                if (dx * dx + dy * dy <= r2)
-                {
-                    disc[y, x] = true;
-                }
-            }
-        }
-
-        return disc;
     }
 }
 
@@ -298,34 +371,18 @@ public static class SourceSegmentation
             return source;
         }
 
-        var side = 2 * radius + 1;
-        var disc = new BitMatrix(side, side);
-        for (var y = 0; y < side; y++)
-        {
-            for (var x = 0; x < side; x++)
-            {
-                var dx = x - radius;
-                var dy = y - radius;
-                if (dx * dx + dy * dy <= radius * radius)
-                {
-                    disc[y, x] = true;
-                }
-            }
-        }
-
-        var result = new BitMatrix(height, width);
+        var flags = new bool[width * height];
         for (var y = 0; y < height; y++)
         {
+            var row = y * width;
             for (var x = 0; x < width; x++)
             {
-                if (source[y, x])
-                {
-                    result.SetRegionClipped(y - radius, x - radius, disc);
-                }
+                flags[row + x] = source[y, x];
             }
         }
 
-        return result;
+        MaskOps.DilateSquare(flags, width, height, radius);
+        return MaskOps.ToBitMatrix(flags, width, height);
     }
 
     private static (SegmentationMap Map, BitMatrix LowMask) DetectOnce(ReadOnlySpan<float> plane, int width, int height, BackgroundMap background, SourceDetectionOptions options)
@@ -963,9 +1020,11 @@ public static class SourceSegmentation
             }
 
             var coreFraction = w > 0 ? (float)(core / w) : 1f;
-            var compact = coreFraction >= options.CompactCoreFraction && area[l] <= options.CompactMaxArea;
+            var peakToMean = w > 0 ? (float)(peak[l] / (w / area[l])) : 1f;
+            var compact = (coreFraction >= options.CompactCoreFraction && area[l] <= options.CompactMaxArea)
+                || peakToMean >= options.CompactPeakToMean;
             builder.Add(new Segment(l, area[l], cx, cy, peakX[l], peakY[l], peak[l], (float)flux[l],
-                x0[l], y0[l], x1[l], y1[l], elongation, coreFraction, compact));
+                x0[l], y0[l], x1[l], y1[l], elongation, coreFraction, peakToMean, compact));
         }
 
         return builder.MoveToImmutable();
