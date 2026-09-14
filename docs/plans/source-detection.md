@@ -28,7 +28,7 @@ and a `SegmentationImage`; this plan adds their shapes as pure image-plus-number
 | P0 | This plan; the gap rows in the astropy-parity index; a summary row | DONE 2026-09-14 |
 | P1 | `BackgroundMap`: mesh of sigma-clipped cells (median, 1.4826 MAD rms), neighbour fill of invalid cells, odd median filter over the mesh, bilinear to the pixel, exact zero as no data, an exclusion mask for a second pass | DONE 2026-09-14, 2 tests |
 | P2 | `SourceSegmentation`: threshold over the map on a smoothed sky-subtracted plane, 8-connected union-find labelling, minimum area, watershed deblend from saddle-separated peaks, `Segment` record with a compact flag, `SegmentationMap` with star / structure / sky masks as `BitMatrix`; two background passes with a low-sigma mask between them | DONE 2026-09-14, 3 tests |
-| P3 | `EdgeSpreadProfile`: the extended-object measurement, a segment's boundary read as a line-spread function (the Bubble rim readout, `training/denoise/n2n_rim_readout.py`, ported and generalised) | NOT STARTED |
+| P3 | `EdgeSpreadProfile`: the extended-object measurement, a segment's boundary read as a line-spread function (the Bubble rim readout, `training/denoise/n2n_rim_readout.py`, ported and generalised from a fitted circle to the segment's own boundary) | DONE 2026-09-14, 5 tests: rims of 5.0 and 9.0 px against 5.3 and 8.1 expected, edges 4.0 and 8.0 against 3.8 and 7.7 |
 | P4 | A CLI verb (`tianwen image sources`) printing the segment table and writing the label map and masks, and the deconvolver's real-frame readouts taking their star and structure masks from here | NOT STARTED |
 | P5 | Aperture and segment photometry on the `Segment` records (the `photutils.aperture` half), and the star detector's list cross-matched to segments so one frame has one source catalogue | NOT STARTED |
 
@@ -62,6 +62,31 @@ and a `SegmentationImage`; this plan adds their shapes as pure image-plus-number
 - **Islands at a wing's threshold are expected**, a handful of 5 to 15 px segments where a nebula's
   faint skirt crosses 3 sigma; photutils reports them too, and the tests filter on area rather than
   pretend they are not there.
+
+## Read on real masters (2026-09-14, `SourceSegmentationProbe`, opt-in by `TIANWEN_SOURCES_FITS`)
+
+| master | size | map | segmentation | segments | compact / extended |
+|---|---|---|---|---|---|
+| Bubble Nebula (200P, 0.51 arcsec/px, Siril stack, flattened) | 3840 x 2160 | 60 x 34 cells, 1.2 s | 4.9 s | 2,558 | 2,261 / 297 |
+| Statue of Liberty Nebula soft half (SH61, 2.9 arcsec/px) | 3173 x 3144 | 50 x 50 cells, 2.1 s | 10.6 s | 35,001 | 34,011 / 990 |
+
+Two things the real frames taught that the synthetic ones could not:
+
+- **A bright star's skirt and diffraction spikes are not compact by core fraction.** On the Bubble a
+  7,000-sigma star covered 9,546 px with 10 percent of its flux in the 5x5 core and read as
+  structure. The second criterion, the peak over the segment's mean pixel (stars 30 to 200 there,
+  nebula pieces 2 to 6, the line at 10), moved it and a 3,100 px twin to compact; the largest nebula
+  pieces stayed at 1.8 to 6.5.
+- **A dense field at 3 sigma joins into segments of a hundred thousand pixels**, and the deblend's
+  saddle test over every pair of their thousands of maxima ran eight minutes on the Statue master
+  (it also took the machine's memory with it, which is what ended the E3.4d seed 1 training at 10:17,
+  a lesson about running a probe beside a trainer). The cap of 64 peaks per segment brought the frame
+  to 10.6 s. What remains is a known limitation: on the Statue the four largest "compact" segments are
+  78,000 to 117,000 px, a bright star with the faint field attached to it through the 1 sigma
+  mask's continuity, and neither class fits them. A crowded-field mode (a higher threshold, a larger
+  minimum area, or the star detector's list used to seed the deblend, which is P5's cross-match) is
+  the next thing to measure; until then a star mask in a dense field comes from `Image.FindStarsAsync`
+  and this map's star mask is right for sparse fields and for extended objects.
 
 ## Traps
 
