@@ -92,6 +92,24 @@ Two things the real frames taught that the synthetic ones could not:
   the next thing to measure; until then a star mask in a dense field comes from `Image.FindStarsAsync`
   and this map's star mask is right for sparse fields and for extended objects.
 
+## Cost (BenchmarkDotNet, `SourceSegmentationBenchmarks`, ShortRun, 2026-09-14, a GPU trainer running beside it)
+
+Synthetic frame, one star per 64 by 64 cell and a 40 px nebula, 64 px cells:
+
+| stage | 2048 square (4.2 Mpx) | 4096 square (16.8 Mpx) | allocated at 4096 |
+|---|---|---|---|
+| `BackgroundMap.Estimate` | 175 ms | 680 ms | 116 KB |
+| `SourceSegmentation.Detect` (two passes, deblend) | 606 ms | 2.56 s | 601 MB |
+| star + structure + sky masks (margin 3) | 90 ms | 715 ms | 90 MB |
+| `EdgeSpreadProfile.Measure` (36 sectors) | 18 ms | 27 ms | 2.3 MB |
+
+The map is cheap and allocates nothing to speak of. The detection allocates about 36 bytes a pixel per
+pass (the sky-subtracted plane, its smoothed copy, the threshold flags, the labels, the low mask) and
+runs two passes, which is what the 601 MB is; pooling those five buffers across the passes and the
+deblend's per-segment dictionary are the first two savings when it matters, and neither changes a
+result. The masks are three boolean planes each converted to a `BitMatrix`; a direct `BitMatrix`
+dilation would remove the 90 MB.
+
 ## Traps
 
 - `BitMatrix` indexes `[row, column]`; a segmentation map indexes `(x, y)`. `SegmentationMap.LabelAt`
