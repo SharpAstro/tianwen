@@ -53,12 +53,14 @@ rather than merely adding to them.
 
 
 ================================================================================
-WHAT'S NEW  (Partner Center copy - paste the block between the rules VERBATIM)
+WHAT'S NEW  (Partner Center copy - paste between the marker lines VERBATIM)
 ================================================================================
-THE FIELD IS CAPPED AT 1500 CHARACTERS. The block below is 1423, or
-1440 if the paste turns the newlines into CRLF. Re-measure after any
-edit and do not paste the DETAIL section.
+THE FIELD IS CAPPED AT 1500 CHARACTERS. This block is 1423 characters, or 1440 if
+the paste turns the newlines into CRLF. Measured by bake-release-notes.ps1, which
+fails over the cap, so the figure is always true of what is below. Do not paste
+the DETAIL section.
 
+----- BEGIN WHAT'S NEW -----
 Your targets are brighter, and faint detail actually shows
 The default auto stretch is now an inspection stretch: the sky sits where N.I.N.A.'s preview puts it, and structure just above the noise separates far enough to see. Colour frames also stop showing fine stripes across the background, and stop aliasing when zoomed out to fit.
 
@@ -77,6 +79,7 @@ Also in this release
 - One-shot-colour frames report three colours in the histogram and statistics.
 - FITS thumbnails no longer download your OneDrive files just to look at them.
 - The deep-sky catalogue is refreshed to OpenNGC v20260501.
+----- END WHAT'S NEW -----
 
 ================================================================================
 Which way to cut if it ever needs cutting again: the three headed sections are
