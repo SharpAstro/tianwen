@@ -79,8 +79,12 @@ Two things the real frames taught that the synthetic ones could not:
   pieces stayed at 1.8 to 6.5.
 - **A dense field at 3 sigma joins into segments of a hundred thousand pixels**, and the deblend's
   saddle test over every pair of their thousands of maxima ran eight minutes on the Statue master
-  (it also took the machine's memory with it, which is what ended the E3.4d seed 1 training at 10:17,
-  a lesson about running a probe beside a trainer). The cap of 64 peaks per segment brought the frame
+  (the first draft of this paragraph blamed it for ending the E3.4d seed 1 training at 10:17 by taking
+  the machine's memory; the user asked how a probe kills a 64 GB machine, and the event log answers
+  that it did not: the trainer's log went silent at 10:12:58 and the System log carries an
+  `nvlddmkm` error 153, the NVIDIA driver, at 10:17:18, the second the launcher wrote "failed", while
+  the probe's own end at the same minute was its 500 s wrapper expiring. A GPU driver event, not the
+  library's memory, and not proven to be the probe's doing at all). The cap of 64 peaks per segment brought the frame
   to 10.6 s. What remains is a known limitation: on the Statue the four largest "compact" segments are
   78,000 to 117,000 px, a bright star with the faint field attached to it through the 1 sigma
   mask's continuity, and neither class fits them. A crowded-field mode (a higher threshold, a larger
