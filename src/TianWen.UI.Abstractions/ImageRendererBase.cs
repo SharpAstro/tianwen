@@ -1309,7 +1309,10 @@ namespace TianWen.UI.Abstractions
             }
 
             var previous = _displayAnchor;
-            _displayAnchor = DisplayCarry.Apply(document, previous, state.CarryDisplayAcrossFrames);
+            // A blink is a comparison and holds by construction; the flag is the explicit hold for
+            // stepping by hand. Off, a click in the list is "show me this frame" and gets its own
+            // auto-stretch -- see ViewerState.CarryDisplayAcrossFrames for why that is the default.
+            _displayAnchor = DisplayCarry.Apply(document, previous, state.CarryDisplayAcrossFrames || state.IsBlinking);
 
             // A blink that walks onto a frame the anchor cannot describe is comparing two different
             // fields, so it stops and says which file ended it -- rather than carrying on past the point
