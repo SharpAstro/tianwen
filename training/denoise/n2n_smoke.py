@@ -1295,6 +1295,15 @@ def train(args):
                 if aug_scale != 1.0:
                     import n2n_operator as OP
                     lab[:, OP.LABEL_KERNEL_FWHM] *= aug_scale
+                if args.kernel_jitter > 0.0:
+                    # E7.3: the label the operator deconvolves with is jittered against the kernel that
+                    # made the tile, one factor per sample, so the RL steps over- and under-deconvolve
+                    # while the truth stays put and the prior has to read the excess from the tile
+                    # rather than trust the label (E7.1: the output follows the label a tenth for a
+                    # tenth; E7.2: no single-frame reading is good to a tenth).
+                    import n2n_operator as OP
+                    jit = rng.uniform(1.0 - args.kernel_jitter, 1.0 + args.kernel_jitter, size=lab.shape[0]).astype(np.float32)
+                    lab[:, OP.LABEL_KERNEL_FWHM] *= jit
             else:
                 lab = psf01_labels[idx, np.clip(a - 1, 0, psf01_labels.shape[1] - 1)]
                 if not np.all(np.isfinite(lab)):
@@ -1831,6 +1840,11 @@ if __name__ == "__main__":
                         "kernel label and the star-term positions scale with it), so the prior's training "
                         "truths span the star widths it will meet. Seed 0 of E3.1 carried its pool's 2.07 px "
                         "floor onto a 1.81 px real frame and returned the input")
+    p.add_argument("--kernel-jitter", type=float, default=0.0,
+                   help="E7.3: jitter the operator's kernel-width LABEL per sample by a factor uniform in "
+                        "[1-j, 1+j] against the kernel that made the tile, so the prior learns to tolerate a "
+                        "kernel read a quarter wrong (E7.1 measured the E3.4d prior's tolerance at a tenth). "
+                        "0 (default) is E3.4d's exact label")
     p.add_argument("--rl-k", type=int, default=20,
                    help="Richardson-Lucy iterations inside the operator (E3.0 pre-registers 20). On noisy "
                         "data the count IS the regulariser, so a different value is a different arm")
