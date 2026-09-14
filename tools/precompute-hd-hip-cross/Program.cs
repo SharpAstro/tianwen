@@ -41,7 +41,30 @@ internal static class Program
 
         var assembly = typeof(CelestialObjectDB).Assembly;
         var manifestNames = assembly.GetManifestResourceNames();
-        var inputHash = HdHipCrossInputHasher.Compute(assembly, manifestNames);
+
+        // The hashed inputs no longer all live in TianWen.Lib. Since the library began shipping
+        // Tycho-2 EXPANDED, tyc2.bin.lz is deliberately not embedded in the product, so the
+        // single-assembly overload cannot resolve it and this tool could not run at all. The
+        // committed .lz sits next to the output path, and those are the same bytes the freshness
+        // test resolves out of its own assembly, so the hash agrees with the guard either way.
+        var catalogDir = Path.GetDirectoryName(Path.GetFullPath(output))!;
+        var inputHash = HdHipCrossInputHasher.Compute(suffix =>
+        {
+            foreach (var name in manifestNames)
+            {
+                if (name.EndsWith(suffix, StringComparison.Ordinal))
+                {
+                    return assembly.GetManifestResourceStream(name)
+                        ?? throw new InvalidOperationException($"GetManifestResourceStream returned null for {name}");
+                }
+            }
+
+            var onDisk = Path.Combine(catalogDir, suffix);
+            return File.Exists(onDisk)
+                ? File.OpenRead(onDisk)
+                : throw new InvalidOperationException(
+                    $"Input not embedded in TianWen.Lib and not found on disk: {suffix} (looked in {catalogDir})");
+        });
 
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
         var tmp = output + ".tmp";
