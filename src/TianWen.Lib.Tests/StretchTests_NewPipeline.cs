@@ -79,7 +79,9 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         }
 
         var stretchMode = mode == "luma" ? StretchMode.Luma : StretchMode.Linked;
-        // shadowsClipping=-3 matches the production default (StretchParameters.Default).
+        // shadowsClipping=-3 is this suite's own fixed choice, close to but NOT the production
+        // default (StretchParameters.Default is -2.8): these cases pin solver BEHAVIOUR, so they pass
+        // parameters explicitly and stay put when the default moves.
         var uniforms = doc.ComputeStretchUniforms(stretchMode, new StretchParameters(0.15, -3));
 
         if (applyBgNeut)
