@@ -219,10 +219,22 @@ public static class OverlayEngine
             return 0f;
         }
 
-        // Screen-space angle (note: screen Y increases downward, pixel Y increases upward)
+        // The angle is consumed by DrawRotatedEllipseOutline, which lays the major axis
+        // along (cos, sin) -- a MATH angle measured from screen +x, in the SAME screen
+        // frame WcsAnnotationLayer.ImageToScreen produces. So this is a plain
+        // atan2(dY, dX) over that mapping's own output and nothing else.
+        //
+        // Two separate reflections used to live in these three lines, which is why the
+        // ellipse could look plausible at some angles and never be right:
+        //   * atan2(dx, dy) measured from screen UP (a compass bearing), reflecting the
+        //     shape about the screen diagonal -- a fixed point at PA 45.
+        //   * dy was NEGATED "because screen Y is flipped". ImageToScreen does not flip
+        //     it (sy = offset + imgY * zoom), and that mapping is what every WCS-drawn
+        //     thing uses -- which is why the star markers always landed correctly while
+        //     the ellipse did not. Negating here reflected it about the horizontal axis.
         var dx = (float)(t.X - c.X);
-        var dy = -(float)(t.Y - c.Y); // negate because screen Y is flipped
-        return MathF.Atan2(dx, dy);
+        var dy = (float)(t.Y - c.Y);
+        return MathF.Atan2(dy, dx);
     }
 
     /// <summary>

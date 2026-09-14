@@ -349,20 +349,83 @@ public class OverlayEngineTests
         OverlayEngine.ComputeScreenPA(wcs, 5.0, -2.0, Half.NaN).ShouldBe(0f);
     }
 
-    [Fact]
-    public void ComputeScreenPA_Zero_ReturnsFiniteAngle()
+    // The angle is consumed by exactly one thing, DrawRotatedEllipseOutline, which lays the major
+    // axis along (cos, sin) in the screen frame WcsAnnotationLayer.ImageToScreen produces. So the
+    // assertion has to be against a direction in THAT frame, derived from something other than the
+    // position angle itself -- the two bugs these replace were both REFLECTIONS (one about the
+    // screen diagonal, one about the horizontal), and a reflection is invisible to any check that
+    // re-derives its expectation through the same convention it is testing. The earlier tests
+    // asserted only float.IsFinite, which no reflection can fail.
+    //
+    // The real solved WCS of a real frame, and a real object lying ON the axis being drawn:
+    // NGC 206 is a star cloud in M31's disk, so the direction from M31's centre to NGC 206 IS the
+    // major-axis direction -- computed from NGC 206's own catalogue coordinates, with the position
+    // angle playing no part. Values are the plate solution of
+    // Andromeda_Galaxy-RGB-session_1.fits (mirrored parity, north near screen-left).
+    private static WCS MakeAndromedaWCS() => new(10.63258680649 / 15.0, 41.2676601067)
     {
-        var wcs = MakeSimpleWCS();
-        var pa = OverlayEngine.ComputeScreenPA(wcs, 5.0, -2.0, (Half)0.0);
+        CRPix1 = 2073.0,
+        CRPix2 = 1468.0,
+        CD1_1 = 3.310103049885E-05,
+        CD1_2 = 0.00192724902166,
+        CD2_1 = -0.001922796635882,
+        CD2_2 = 3.720760482945E-05,
+    };
+
+    private const double M31RaHours = 10.6847 / 15.0;
+    private const double M31DecDeg = 41.2691;
+    private const double Ngc206RaHours = 10.1300 / 15.0;
+    private const double Ngc206DecDeg = 40.7233;
+
+    [Fact]
+    public void ComputeScreenPA_PointsTheMajorAxisAtAnObjectLyingOnIt()
+    {
+        var wcs = MakeAndromedaWCS();
+
+        // Ground truth, from coordinates alone: M31's centre to NGC 206, in the SAME screen frame
+        // ImageToScreen builds -- which does NOT flip Y (sy = offset + imgY * zoom). Getting that
+        // wrong is the second bug: the star markers go through ImageToScreen and always landed
+        // correctly, while the ellipse negated Y here and came out reflected about the horizontal.
+        var centre = wcs.SkyToPixel(M31RaHours, M31DecDeg);
+        var onAxis = wcs.SkyToPixel(Ngc206RaHours, Ngc206DecDeg);
+        centre.ShouldNotBeNull();
+        onAxis.ShouldNotBeNull();
+        var tx = (float)(onAxis.Value.X - centre.Value.X);
+        var ty = (float)(onAxis.Value.Y - centre.Value.Y);
+        var tlen = MathF.Sqrt((tx * tx) + (ty * ty));
+        tx /= tlen;
+        ty /= tlen;
+
+        var pa = OverlayEngine.ComputeScreenPA(wcs, M31RaHours, M31DecDeg, (Half)35.0);
         float.IsFinite(pa).ShouldBeTrue();
+        var (mx, my) = (MathF.Cos(pa), MathF.Sin(pa));
+
+        // An axis is a line, so either direction along it is correct: compare |cos| of the angle
+        // between them. 3 degrees of slack covers NGC 206 not being exactly on the centre line.
+        var alignment = MathF.Abs((mx * tx) + (my * ty));
+        alignment.ShouldBeGreaterThan(MathF.Cos(3f * MathF.PI / 180f));
     }
 
     [Fact]
-    public void ComputeScreenPA_90_ReturnsFiniteAngle()
+    public void ComputeScreenPA_Zero_PointsAtCelestialNorthInTheSameFrameTheMarkersUse()
     {
-        var wcs = MakeSimpleWCS();
-        var pa = OverlayEngine.ComputeScreenPA(wcs, 5.0, -2.0, (Half)90.0);
-        float.IsFinite(pa).ShouldBeTrue();
+        // PA 0 is north by definition, so it must land along the screen direction of north -- and
+        // north's screen direction is whatever projecting a point 1 arcmin north gives, in
+        // ImageToScreen's unflipped frame. This is what pins the absence of the Y negation.
+        var wcs = MakeAndromedaWCS();
+        var centre = wcs.SkyToPixel(M31RaHours, M31DecDeg);
+        var north = wcs.SkyToPixel(M31RaHours, M31DecDeg + (1.0 / 60.0));
+        centre.ShouldNotBeNull();
+        north.ShouldNotBeNull();
+        var nx = (float)(north.Value.X - centre.Value.X);
+        var ny = (float)(north.Value.Y - centre.Value.Y);
+        var nlen = MathF.Sqrt((nx * nx) + (ny * ny));
+        nx /= nlen;
+        ny /= nlen;
+
+        var pa = OverlayEngine.ComputeScreenPA(wcs, M31RaHours, M31DecDeg, (Half)0.0);
+        MathF.Cos(pa).ShouldBe(nx, 1e-3f);
+        MathF.Sin(pa).ShouldBe(ny, 1e-3f);
     }
 
     // --- ComputeEllipseScreenAxes (shared CPU selection marker / GPU overlay convention) ---
