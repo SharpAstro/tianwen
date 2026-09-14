@@ -54,6 +54,14 @@ def gate_read(truth_lum, input_lum, output_lum, masks=None):
     truth_w = DG.star_fwhm(truth_lum, ys, xs, med)
     n_truth = len(ys)
     ring_null = DG.ring_excess(input_lum, ys, xs, truth_w, med, mad)
+    # E7.4: the same ring statistic with NOTHING from the truth: the input's own detections, width,
+    # median and MAD, so it is what a frame can measure about its own output at inference. Reported
+    # beside the truth-referred column so the two can be read against each other.
+    med_in = float(np.median(input_lum))
+    _, mad_in = M.bg_stats(input_lum)
+    ys_in, xs_in = DG.detect(input_lum, med_in, mad_in)
+    w_in = DG.star_fwhm(input_lum, ys_in, xs_in, med_in)
+    ring_null_self = DG.ring_excess(input_lum, ys_in, xs_in, w_in, med_in, mad_in)
     # The library's masks (tianwen image sources --maps on the SHARP master): the detail statistic
     # read on the structure pixels alone, stars and their margin out, so a nebula's own band can be
     # told from the star-free sky's. None when no sidecars were given; the column then reads nan.
@@ -72,7 +80,8 @@ def gate_read(truth_lum, input_lum, output_lum, masks=None):
         dr, dres = SH.detail_ratio(lum, truth_lum, ys, xs, truth_w)
         ds, dsres = (SH.detail_ratio(lum, truth_lum, ys, xs, truth_w, keep=struct_keep)
                      if struct_keep is not None else (float("nan"), float("nan")))
-        return w / truth_w, len(oy) / n_truth, e - ring_null, sk, dr, dres, ds, dsres
+        ring_self = DG.ring_excess(lum, ys_in, xs_in, w_in, med_in, mad_in) - ring_null_self
+        return w / truth_w, len(oy) / n_truth, e - ring_null, sk, dr, dres, ds, dsres, ring_self
 
     return truth_w, n_truth, row(input_lum), row(output_lum) if output_lum is not None else None, row
 
@@ -201,12 +210,14 @@ def main():
     head = f"{'arm':28s} {'out/truth':>9} {'stars':>6} {'ring excess':>11} {'skirt':>6} {'detail':>6} {'d.resid':>8}"
     if struct_cols:
         head += f" {'d.struct':>8} {'ds.resid':>8}"
+    head += f" {'ring.self':>9}"
     print(head + "   per channel out/truth")
 
     def fmt(r):
         s = f"{r[0]:9.3f} {r[1]:6.2f} {r[2]:+11.2f} {r[3]:6.2f} {r[4]:6.2f} {r[5] * 1e3:8.3f}"
         if struct_cols:
             s += f" {r[6]:8.2f} {r[7] * 1e3:8.3f}"
+        s += f" {r[8]:+9.2f}"
         return s
 
     print(f"{'input (soft)':28s} {fmt(inp)}   "
@@ -222,7 +233,9 @@ def main():
           "residual to the truth in 1e-3 stretched units (smaller is closer)"
           + ("; d.struct / ds.resid are the same two on the library's STRUCTURE pixels alone (stars and their "
              "margin out), where a nebula's own band lives" if struct_cols else "")
-          + ". The C# oracle in linear read rec/A 1.007 / 1.085 / 1.139 per channel on this pair.")
+          + "; ring.self is the ring excess with nothing from the truth (the INPUT's own detections, width and "
+          "MAD), what a frame can read about its own output at inference (E7.4). The C# oracle in linear read "
+          "rec/A 1.007 / 1.085 / 1.139 per channel on this pair.")
 
 
 if __name__ == "__main__":

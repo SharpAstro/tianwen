@@ -2851,6 +2851,51 @@ the width reads over 1.17 (the tolerance was bought by doing less), or at 1.25x 
 fork is written. If it passes, E7 carries the fraction rule (0.52 x the frame's HFD width) plus this
 prior to the runtime; if it fails, E7 goes to self-calibration on the output's star profile.
 
+##### E7.3 read: the jitter buys a third of the tolerance and the kill line stands (2026-09-14, 19:10)
+
+Seed 0 exited 19:05 (selected step 3100 at a cache score of 1.083; the cache gate passed every row
+from step 1200). The pre-registered readout, `e73_s0_final.pt` on the primary crop at the 1.28x round
+trip, the pair's kernel scaled (`C:/temp/e2/e7-3-s0-real-statue.txt`), E3.4d's sweep rows beside it:
+
+| kernel | E7.3 width | stars | ring | skirt | E3.4d width | stars | ring | skirt |
+|---|---|---|---|---|---|---|---|---|
+| 0.8x | 1.209 | 0.95 | -1.09 | 1.44 | (0.75x) 1.222 | 0.93 | -0.99 | 1.48 |
+| 1.0x | 1.148 | 1.00 | -0.69 | 1.09 | 1.146 | 1.00 | -0.45 | 0.98 |
+| 1.25x | 1.089 | 1.06 | +0.12 | 0.70 | 1.082 | 1.06 | +0.58 | 0.53 |
+
+At the pair's kernel the width is kept to 0.002 and the stars to the count, so the tolerance was not
+bought by doing less (the kill's first clause is clear); the skirt moved from 0.98 to 1.09, the prior
+hedging a tenth toward under-deconvolving, which is the price predicted. At 1.25x the skirt rose from
+0.53 to 0.70 and the ring from +0.58 to +0.12, so the jitter taught a third of the read; at 0.8x the
+width moved 1.222 to 1.209, nothing. **The kill line is met: skirt 0.70 at 1.25x is under 0.80.** A
+wider jitter would buy more of the same at the same price, and the price is on the clause the whole
+campaign was for; E7 goes to the fork, self-calibration on the output's own star profile.
+
+What the sweep tables now show, and the fork rests on: the RING column is monotonic in the kernel on
+both priors (E3.4d -1.19 / -0.99 / -0.45 / +0.58 / +2.28 / +6.80; E7.3 -1.09 / -0.69 / +0.12), it is
+computed on the OUTPUT against the INPUT's own null (no truth enters it: `n2n_deconv_gate.ring_excess`
+on the frame's own detections and width), and it crosses the skirt's 0.90 line at a value each prior
+can be calibrated for once (E3.4d passes at ring -0.45, E7.3 at about -0.7). A frame can therefore
+choose its own kernel by bisecting the scale until the output's ring reads the prior's calibrated
+value, which is E7.4.
+
+#### E7.4, pre-registered: the frame chooses its kernel by its own ring (2026-09-14, 19:20)
+
+Rule: start from the fraction rule's kernel (0.52 x the frame's HFD width, within 1.3x on the pair),
+run the operator at scales of that kernel, and pick the scale whose OUTPUT ring excess over the
+INPUT's null (the gate's own statistic, single-frame) is nearest the prior's calibrated target, taken
+as the ring the prior reads at the pair's kernel (E3.4d -0.45). Measurement first, on the pair, with
+E3.4d: the ring and the skirt at scales 0.9 / 1.1 / 1.2 of the pair's kernel added to the 0.75 / 1.0 /
+1.25 already read, so the ring-to-skirt curve has six points; then the rule's pick starting from the
+fraction rule's kernel (1.02 / 1.07 / 1.17 px per channel) rather than the pair's. Pass: the picked
+scale lands the four star clauses (width 1.15 or under, stars 0.85 to 1.10, ring within 1 MAD, skirt
+0.90 or over) on the primary crop; and on the nebula crop (1256,1323,512), where the input's ring null
+and star density differ, the same target picks within 0.1x of what the primary crop picked. Kill: the
+ring-to-skirt curve is not monotonic on the added points, or the target picks scales differing by over
+0.2x between the two crops (the ring statistic is a field property, not a kernel property), which
+sends E7 to the profile-shape target (the output's fitted Moffat beta against the pool's clean beta)
+as the last single-frame criterion before a per-rig calibration is accepted.
+
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
 Every retained master in `2026-09-full` predates the two registration fixes and R1, and E3 trains on
