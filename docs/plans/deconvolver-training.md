@@ -2720,7 +2720,7 @@ segment on the sharp master is 300 px), not nebula; the Statue's nebulosity at 2
 under the mask's threshold. The instrument is right for a frame whose structure the detection can
 see, the Bubble's kind; here it says only that the prior does not harm what structure there is.
 
-#### E7.1, pre-registered: the single-frame kernel rule (2026-09-14, 15:20)
+#### E7.1, pre-registered: the single-frame kernel rule (2026-09-14, 14:25)
 
 Every readout so far handed the operator the pair's kernel, the sharp master's width composed
 against the soft one's (0.77 / 0.91 / 0.98 px on the primary crop). Inference has one frame, so
@@ -2747,7 +2747,7 @@ wrong one hurts. Two measurements, both on the E2.10b Statue pair at the 1.28x r
    kernel head (the psf01 label the prior already carries, made to answer width directly) before
    any port.
 
-##### E7.1 read: the band is a tenth either way, and no fixed rule lands in it (2026-09-14, 16:10)
+##### E7.1 read: the band is a tenth either way, and no fixed rule lands in it (2026-09-14, 14:50)
 
 The sweep (`C:/temp/e2/e7-1/sens-*.txt`, `e34d_s0_final.pt`, primary crop, 1.28x round trip):
 
@@ -2785,7 +2785,7 @@ psf01 label is not a deploy mismatch (the operator reads only the kernel width a
 the pool's training draws span 0.26 to 0.69 of the composed width, so the prior has seen the band
 the real kernels sit in (0.39 to 0.44 of B).
 
-#### E7.2, pre-registered: a kernel head on the operator's own cache (2026-09-14, 16:20)
+#### E7.2, pre-registered: a kernel head on the operator's own cache (2026-09-14, 14:55)
 
 The cache carries, per tile, the degraded planes and the kernel that made them
 (`EffectiveKernelFwhmPx`, `EstimatedKernelBeta`; 6,480 labelled slots over 810 cells, 90 held out);
@@ -2805,7 +2805,7 @@ against a target Moffat plausible, and it is the fallback, not the first choice,
 target shape the pool would have to supply). Cost: minutes per seed on the 1070 against the cache
 already on disk; the trainer's GPU is free since seed 1 exited.
 
-##### E7.2 read: the head misses on both seeds, and the resample breaks it the way it broke the prior (2026-09-14, 17:05)
+##### E7.2 read: the head misses on both seeds, and the resample breaks it the way it broke the prior (2026-09-14, 15:15)
 
 `training/denoise/n2n_kernel_head.py`, two seeds of 3,000 steps at batch 32 (2.5 minutes each;
 `C:/temp/e2/e7-2/head-s*.txt`). Held-out cells, median relative error: 0.21 and 0.20 at native, 0.27
@@ -2827,10 +2827,12 @@ gap E3.2's prior fell into and E3.4a could not close by augmentation alone (the 
 **on the truth itself the head reads 0.4 px of kernel at native**, a floor it would ask the operator
 to remove from a frame that has nothing to give; the pool's cells carry a blur ratio of at least 1.05
 by construction, so the head never saw a tile with NO excess and has no zero. A longer, wider run (12,000
-steps, width 32, `head-s0-long.txt`) is in flight as the head's last reading, and the plan does not
-wait on it: whatever it reads on the cache, the resample gap is a domain fact.
+steps, width 32, `head-s0-long.txt`) was the head's last reading: held-out 0.20 median at every
+resample factor (the training error 0.24, four times the steps bought 0.01), the pair at 0.83 / 0.86 /
+0.62 of est-c at native and 1.80 / 1.60 / 1.09 at 1.28x, the truth read at 0.30 to 0.38 px. The kill
+stands; the resample gap is a domain fact, not a capacity one.
 
-#### E7.3, pre-registered: the prior made tolerant of its own kernel label (2026-09-14, 17:10)
+#### E7.3, pre-registered: the prior made tolerant of its own kernel label (2026-09-14, 15:20; launched 15:39)
 
 E7.1 says the operator's output follows the kernel label a tenth for a tenth, and E7.2 says no
 single-frame reading of the kernel is good to a tenth. The remaining move is to stop needing one: train

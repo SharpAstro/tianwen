@@ -2,7 +2,7 @@
 # kernel that made the tile, so the prior learns to tolerate a kernel read wrong.
 #
 # ---------------------------------------------------------------------------------------------------
-# PRE-REGISTERED, before the run. Written 2026-09-14 17:10 from E7.1 and E7.2's readings.
+# PRE-REGISTERED, before the run. Written 2026-09-14 15:20 from E7.1 and E7.2's readings.
 #
 # WHY. E7.1 swept the pair's kernel through the E3.4d prior at 0.5x to 2.0x on the primary crop at the
 #   1.28x round trip: every clause follows the kernel monotonically and the skirt steeply (1.81 / 1.48 /
