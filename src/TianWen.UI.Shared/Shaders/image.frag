@@ -490,7 +490,12 @@ vec3 debayerForZoom(vec2 uv, int dm) {
         return debayerSuperpixel(uv);
     }
     if (tpp > 1.0) {
-        vec2 d = vec2(0.25 * tpp) / ubo.imageSize;
+        // Half a TEXEL either side, not a fraction of the screen pixel: the demosaics fetch by
+        // floor(), so taps that fall inside one mosaic texel are the same sample and average
+        // nothing (at 76% a quarter-pixel spread is 0.33 texel -- the mesh stayed). At +-0.5 the
+        // pair always straddles two adjacent texels, a 2x2 texel box centred on the fragment,
+        // which covers the whole 2-texel CFA period whatever the zoom in this band.
+        vec2 d = vec2(0.5) / ubo.imageSize;
         return 0.25 * (debayerColour(uv + vec2(-d.x, -d.y), dm)
                      + debayerColour(uv + vec2( d.x, -d.y), dm)
                      + debayerColour(uv + vec2(-d.x,  d.y), dm)
