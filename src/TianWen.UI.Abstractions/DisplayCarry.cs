@@ -153,6 +153,21 @@ namespace TianWen.UI.Abstractions
                 return null;
             }
 
+            if (document.IsEnhanceResult)
+            {
+                // An enhance result is the SAME frame after a spatial and photometric transform, so it
+                // matches its original on every dimension AreComparable asks about and was anchored to
+                // it like any other frame of the run -- which put the pre-enhance statistics behind
+                // Basis and had the enhancer's own flattened background neutralised a second time.
+                // It solves its own mapping, which is the whole point of having enhanced it.
+                //
+                // It does not become the anchor either: the run is the FOLDER's frames, and stepping
+                // on (or reverting) should find the anchor the run already had rather than one solved
+                // from a deconvolved, denoised, background-extracted raster.
+                document.DisplayAnchor = null;
+                return anchor;
+            }
+
             if (anchor is null || ReferenceEquals(anchor, document) || !AreComparable(anchor, document))
             {
                 // A frame the anchor cannot describe starts a run of its own rather than being forced
