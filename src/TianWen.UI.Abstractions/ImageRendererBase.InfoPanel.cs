@@ -183,7 +183,7 @@ namespace TianWen.UI.Abstractions
                     var hitBand = new RectF32(trackX, rowY - gap / 2f, trackW, FontSize + gap);
                     _waveletTrackRects[b] = hitBand;
                     DrawTrackSlider(trackX, trackW, rowY, FontSize, frac,
-                        fill, hitBand, new WaveletSliderHit(b), TrackChrome, DpiScale);
+                        fill, hitBand, new WaveletSliderHit(b), TrackChrome, Scale);
                 }
                 else
                 {

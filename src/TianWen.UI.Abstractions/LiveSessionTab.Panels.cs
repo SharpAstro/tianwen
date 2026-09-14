@@ -370,7 +370,7 @@ namespace TianWen.UI.Abstractions
             var rowsTop = colY + rowH + pad;
             _logScroll.SetExtent(
                 new RectF32(rect.X, rowsTop, rect.Width, rect.Height - rowH * 2 - pad * 2),
-                rowH, log.Length, DpiScale);
+                rowH, log.Length, Scale);
 
             if (log.Length == 0)
             {

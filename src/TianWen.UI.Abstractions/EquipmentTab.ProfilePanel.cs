@@ -204,7 +204,7 @@ namespace TianWen.UI.Abstractions
                         .RowH(rowH * 1.3f))
                 .Pad(pad);
 
-            RenderLayout(card, new RectF32(cardX, cardY, cardW, cardH), dpiScale: 1f);
+            RenderLayout(card, new RectF32(cardX, cardY, cardW, cardH), scale: DesignScale.One);
         }
 
         /// <summary>A 1px separator line at the top of a <see cref="BasePadding"/>-tall band -- the

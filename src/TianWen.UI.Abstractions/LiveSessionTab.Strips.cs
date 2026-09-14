@@ -263,7 +263,7 @@ namespace TianWen.UI.Abstractions
             var stripH = 40f * DpiScale;
             // Dim backdrop (root .Bg) + a vertically-centred confirm strip, as one layout tree -- was two
             // hand-placed FillRects + a DrawText. Enter/Escape are handled in .Input. Device-px tree
-            // (dpiScale: 1f) so the already-scaled fontSize / stripH pass through unchanged.
+            // (scale: DesignScale.One) so the already-scaled fontSize / stripH pass through unchanged.
             var tree = Layout.Builder.VStack(
                     Layout.Builder.Spacer().Stretch(),
                     Layout.Builder.Text("Abort session? Press Enter to confirm, Escape to cancel",
@@ -271,7 +271,7 @@ namespace TianWen.UI.Abstractions
                         .RowH(stripH).Bg(ConfirmStripBg),
                     Layout.Builder.Spacer().Stretch())
                 .Bg(new RGBAColor32(0x00, 0x00, 0x00, 0x88));
-            RenderLayout(tree, contentRect, dpiScale: 1f);
+            RenderLayout(tree, contentRect, scale: DesignScale.One);
         }
 
         /// <summary>
@@ -323,7 +323,7 @@ namespace TianWen.UI.Abstractions
             }
 
             // Buttons: [Cancel] left, [Continue] right (primary in the muscle-memory spot). One HStack of
-            // two equal Star cells (was two RenderButton calls placed by hand); device-px -> dpiScale:1f.
+            // two equal Star cells (was two RenderButton calls placed by hand); device-px -> DesignScale.One.
             //
             // Continue is amber rather than green when the prompt gates a physical act: green reads as
             // "the safe, expected choice", which is exactly the wrong signal for a claim the person
@@ -342,7 +342,7 @@ namespace TianWen.UI.Abstractions
                         .WStar().HStar().Bg(continueBg)
                         .Clickable(new HitResult.ButtonHit("SessionPromptContinue"), _ => PostSignal(new RespondSessionPromptSignal(true))))
                 .WithGap(pad);
-            RenderLayout(btnRow, new RectF32(innerX, btnY, innerW, btnH), dpiScale: 1f);
+            RenderLayout(btnRow, new RectF32(innerX, btnY, innerW, btnH), scale: DesignScale.One);
         }
 
         /// <summary>

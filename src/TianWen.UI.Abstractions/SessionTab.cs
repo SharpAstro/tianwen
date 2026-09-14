@@ -677,7 +677,7 @@ namespace TianWen.UI.Abstractions
             // atom model). SetExtent re-clamps the offset; the state field then mirrors the snapped
             // canonical atom offset for the TUI's benefit.
             _configScroll.SetExtent(rect, ScrollLineHeight,
-                (int)MathF.Ceiling(_totalConfigHeight / ScrollLineHeight), dpiScale);
+                (int)MathF.Ceiling(_totalConfigHeight / ScrollLineHeight), Scale);
             State.ConfigScrollOffset = _configScroll.AtomOffset;
 
             // --- One tree for the whole form; scroll via the root-bounds Y offset, clipped to the panel ---

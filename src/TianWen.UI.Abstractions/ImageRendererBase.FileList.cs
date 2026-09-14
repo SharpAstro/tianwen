@@ -206,7 +206,7 @@ namespace TianWen.UI.Abstractions
             // = one file row); it owns the offset + wheel/drag/thumb math and reserves the scrollbar column,
             // and VisibleRows() owns row placement + the overflow cutoff (fixing the old Count-1 bound).
             var itemsRect = new RectF32(lx, y, FileListWidth, listTop + listHeight - y);
-            _fileListScroll.SetExtent(itemsRect, itemHeight, state.ImageFileNames.Count, DpiScale);
+            _fileListScroll.SetExtent(itemsRect, itemHeight, state.ImageFileNames.Count, Scale);
 
             // Apply ScanFolder's one-shot requested top (clamped to the current geometry), then clear it. This
             // is a single jump, never a per-frame write, so it does not reset the controller's fractional offset.

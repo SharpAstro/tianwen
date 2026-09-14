@@ -62,7 +62,7 @@ namespace TianWen.UI.Abstractions
             var inactiveBg = GuiTheme.NeutralButtonBg;
 
             // The whole strip is ONE HStack of Clickable button nodes (was an `x += btnW + pad` cursor +
-            // per-button RenderButton). Sizes are already device px, so the tree renders at dpiScale:1f.
+            // per-button RenderButton). Sizes are already device px, so the tree renders at DesignScale.One.
             // A status Text takes the middle Star cell, which naturally right-aligns the OTA buttons.
             Layout.Node Btn(string label, float w, RGBAColor32 bg, RGBAColor32 fg, string action, Action<InputModifier> onClick) =>
                 Layout.Builder.Text(label, btnFs, fg, TextAlign.Center, TextAlign.Center)
@@ -137,7 +137,7 @@ namespace TianWen.UI.Abstractions
 
             // Inset the row 2px vertically (the old btnY/btnH) inside the already-painted HeaderBg strip.
             var inner = new RectF32(rect.X + pad, rect.Y + 2f * dpiScale, rect.Width - pad * 2f, rect.Height - 4f * dpiScale);
-            RenderLayout(Layout.Builder.HStack([.. nodes]).WithGap(pad), inner, dpiScale: 1f);
+            RenderLayout(Layout.Builder.HStack([.. nodes]).WithGap(pad), inner, scale: DesignScale.One);
         }
 
         // Preview-mode twilight timeline moved to the paint-owning SessionTimelineRenderer

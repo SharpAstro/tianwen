@@ -107,7 +107,7 @@ namespace TianWen.UI.Abstractions
             // Hand the controller this frame's geometry (viewport = list rect, one atom = one row). It owns
             // the offset + wheel accumulator (a trackpad delta no longer truncates to zero) + clamp;
             // VisibleRows() places each row with the smooth sub-row shift and reserves the scrollbar column.
-            _scroll.SetExtent(_listRect, rowH, entries.Length, dpiScale);
+            _scroll.SetExtent(_listRect, rowH, entries.Length, Scale);
 
             foreach (var (i, rowRect) in _scroll.VisibleRows())
             {

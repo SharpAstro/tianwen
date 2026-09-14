@@ -142,7 +142,7 @@ namespace TianWen.UI.Abstractions
                     var hitBand = new RectF32(trackX, rowY - gap / 2f, trackW, FontSize + gap);
                     _wbTrackRects[ch] = hitBand;
                     DrawTrackSlider(trackX, trackW, rowY, FontSize, frac,
-                        fill, hitBand, new WhiteBalanceSliderHit(ch), TrackChrome, DpiScale);
+                        fill, hitBand, new WhiteBalanceSliderHit(ch), TrackChrome, Scale);
                 }
                 else
                 {

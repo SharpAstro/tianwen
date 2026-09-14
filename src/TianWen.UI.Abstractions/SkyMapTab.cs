@@ -441,7 +441,7 @@ namespace TianWen.UI.Abstractions
                         ToggleLayerFromPalette,
                         BeginLayerPaletteDrag,
                         includeKeyHints),
-                    contentRect, fontPath, dpiScale);
+                    contentRect, fontPath, Scale);
 
                 foreach (var node in paletteNodes)
                 {
@@ -452,7 +452,7 @@ namespace TianWen.UI.Abstractions
                         // near the bottom from dropping the title bar.
                         State.LayerPalette.NoteArranged(
                             new RectF32(node.Bounds.X, node.Bounds.Y, node.Bounds.Width, node.Bounds.Height),
-                            contentRect.Y, dpiScale);
+                            contentRect.Y, Scale);
                         break;
                     }
                 }
@@ -1369,7 +1369,7 @@ namespace TianWen.UI.Abstractions
             _lastPointerY = y;
             State.LayerPalette.NotePointer(x, y);
 
-            if (!State.LayerPalette.DragTo(y, DpiScale))
+            if (!State.LayerPalette.DragTo(y, Scale))
             {
                 return false;
             }

@@ -70,7 +70,7 @@ namespace TianWen.UI.Abstractions
             // Hand the controller this frame's geometry (viewport = list rect, one atom = one row); it owns
             // the offset + wheel/drag/thumb math, and VisibleRows() yields each visible device row's rect
             // (scrollbar column reserved, overflow clipped) -- no hand-rolled rowY / width / break here.
-            _deviceScroll.SetExtent(_deviceListRect, itemH, totalItems, dpiScale);
+            _deviceScroll.SetExtent(_deviceListRect, itemH, totalItems, Scale);
 
             foreach (var (i, rowRect) in _deviceScroll.VisibleRows())
             {

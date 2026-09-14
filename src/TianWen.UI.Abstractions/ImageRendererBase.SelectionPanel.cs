@@ -123,20 +123,20 @@ namespace TianWen.UI.Abstractions
             var textW = pw - (40f * dpiScale);
             var textBlockH = ObjectInfoPanel.DesignTextBlockHeight(in options) * dpiScale;
             RenderLayout(ObjectInfoPanel.BuildTextRows(in selection, in options, in palette),
-                new RectF32(textX, py, textW, textBlockH), dpiScale: dpiScale);
+                new RectF32(textX, py, textW, textBlockH), scale: Scale);
 
             var btnH = ObjectInfoPanel.DesignButtonHeight * dpiScale;
             var btnY = py + ph - btnH - (8f * dpiScale);
             if (ObjectInfoPanel.BuildButtonRow(in actions, in palette) is { } buttonRow)
             {
-                RenderLayout(buttonRow, new RectF32(px, btnY, pw, btnH), dpiScale: dpiScale);
+                RenderLayout(buttonRow, new RectF32(px, btnY, pw, btnH), scale: Scale);
             }
 
             var closeSize = ObjectInfoPanel.DesignCloseSize * dpiScale;
             if (ObjectInfoPanel.BuildCloseButton(in actions, in palette) is { } closeNode)
             {
                 RenderLayout(closeNode,
-                    new RectF32(px + pw - closeSize, py, closeSize, closeSize), dpiScale: dpiScale);
+                    new RectF32(px + pw - closeSize, py, closeSize, closeSize), scale: Scale);
             }
         }
     }

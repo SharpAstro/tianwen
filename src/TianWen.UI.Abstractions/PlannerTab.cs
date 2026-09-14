@@ -292,7 +292,7 @@ namespace TianWen.UI.Abstractions
             // VisibleRows() below owns per-row placement; the consumer keeps no scrollbar-width math.
             var filtered = _lastFilteredTargets;
             var totalItems = filtered.Count;
-            _targetScroll.SetExtent(_listItemsRect, itemHeight, totalItems, dpiScale);
+            _targetScroll.SetExtent(_listItemsRect, itemHeight, totalItems, Scale);
             var contentW = _targetScroll.ContentArea.Width;
 
             // Save search bar geometry for dropdown overlay
@@ -492,7 +492,7 @@ namespace TianWen.UI.Abstractions
 
             var panel = Layout.Builder.VStack([.. rows]).Bg(DropdownBg);
             var framed = Layout.Builder.VStack(panel.Stretch()).Bg(DropdownBorder).Pad(1f);
-            RenderLayout(framed, new RectF32(_searchBarLeft - 1f, dropdownY - 1f, _searchBarWidth + 2f, dropdownH + 2f), dpiScale: 1f);
+            RenderLayout(framed, new RectF32(_searchBarLeft - 1f, dropdownY - 1f, _searchBarWidth + 2f, dropdownH + 2f), scale: DesignScale.One);
         }
 
         // -----------------------------------------------------------------------

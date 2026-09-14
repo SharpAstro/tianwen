@@ -180,7 +180,7 @@ namespace TianWen.UI.Abstractions
             RenderLayout(
                 Layout.Builder.Spacer().Stretch().Bg(SearchBackdrop)
                     .Clickable(new HitResult.ButtonHit("SearchBackdrop"), _ => PostSignal(new CloseSkyMapSearchSignal())),
-                contentRect, dpiScale: dpiScale);
+                contentRect, scale: Scale);
 
             var pw = SearchPanelWidth * dpiScale;
             var ph = SearchPanelHeight * dpiScale;
@@ -219,7 +219,7 @@ namespace TianWen.UI.Abstractions
             var panel = Layout.Builder.VStack(titleBar, body).Bg(SearchPanelBg);
             var framed = Layout.Builder.VStack(panel.Stretch()).Bg(SearchPanelBorder).Pad(1f);
 
-            RenderLayout(framed, new RectF32(px - 1, py - 1, pw + 2, ph + 2), dpiScale: dpiScale);
+            RenderLayout(framed, new RectF32(px - 1, py - 1, pw + 2, ph + 2), scale: Scale);
 
             // db + site are passed to keep the hot path closure-free; right now they
             // are only needed for click-to-select on the map, not inside the modal.
@@ -360,7 +360,7 @@ namespace TianWen.UI.Abstractions
 
             var textBlockH = ObjectInfoPanel.DesignTextBlockHeight(in options) * dpiScale;
             RenderLayout(ObjectInfoPanel.BuildTextRows(in info, in options, in palette),
-                new RectF32(textX, py, textW, textBlockH), dpiScale: dpiScale);
+                new RectF32(textX, py, textW, textBlockH), scale: Scale);
             var row = textBlockH;
 
             // Comet vmag sparkline (brighter = up), auto-scaled to the sampled +/-45-day window. The
@@ -376,7 +376,7 @@ namespace TianWen.UI.Abstractions
             var btnY = py + ph - btnH - 8f * dpiScale;
             if (ObjectInfoPanel.BuildButtonRow(in actions, in palette) is { } buttonRow)
             {
-                RenderLayout(buttonRow, new RectF32(px, btnY, pw, btnH), dpiScale: dpiScale);
+                RenderLayout(buttonRow, new RectF32(px, btnY, pw, btnH), scale: Scale);
             }
 
             // Close affordance -- top-right of the panel, its tree shared with the viewer's.
@@ -384,7 +384,7 @@ namespace TianWen.UI.Abstractions
             if (ObjectInfoPanel.BuildCloseButton(in actions, in palette) is { } closeNode)
             {
                 RenderLayout(closeNode,
-                    new RectF32(px + pw - closeSize, py, closeSize, closeSize), dpiScale: dpiScale);
+                    new RectF32(px + pw - closeSize, py, closeSize, closeSize), scale: Scale);
             }
 
             // Path across the sky for a selected solar-system body (planet / comet): a thin polyline of its
@@ -756,7 +756,7 @@ namespace TianWen.UI.Abstractions
         /// <see cref="InputEvent.MouseDown"/> does, and the click-select fires on mouse-up.
         /// </summary>
         protected void RememberMouseDown(float x, float y, InputModifier modifiers = InputModifier.None)
-            => _mapGesture.Arm(x, y, modifiers, DpiScale);
+            => _mapGesture.Arm(x, y, modifiers, Scale);
 
         /// <summary>
         /// Project ppr for click-handling code outside this partial.

@@ -189,7 +189,7 @@ namespace TianWen.UI.Abstractions
             var cancelNode = Layout.Builder.Text(cancelLabel, fontSize * 0.9f, cancelFg, TextAlign.Center, TextAlign.Center)
                 .Stretch().Bg(cancelBg)
                 .Clickable(new HitResult.ButtonHit("FlatsCancel"), _ => { if (canCancel) PostSignal(new CancelFlatsSignal()); });
-            RenderLayout(cancelNode, new RectF32(x0, buttonY, w, rowH * 1.6f), dpiScale: 1f);
+            RenderLayout(cancelNode, new RectF32(x0, buttonY, w, rowH * 1.6f), scale: DesignScale.One);
         }
     }
 }

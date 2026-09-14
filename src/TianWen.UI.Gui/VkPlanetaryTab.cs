@@ -376,7 +376,7 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
         var panelTree = Layout.Builder.VStack(rows.ToArray())
             .Pad(BasePanelPad).WithGap(BaseGap).Bg(PanelBg);
         // The panel's only Fill leaf is the ROI PiP, so the draw callback unconditionally paints it.
-        RenderLayout(panelTree, panel, dpiScale: dpiScale,
+        RenderLayout(panelTree, panel, scale: Scale,
             drawFill: (_, r) => DrawRoiPip(r, dpiScale));
     }
 
