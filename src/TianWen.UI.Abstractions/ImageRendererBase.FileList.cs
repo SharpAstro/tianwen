@@ -229,9 +229,20 @@ namespace TianWen.UI.Abstractions
             var mouseX = state.MouseScreenPosition.X;
             var mouseY = state.MouseScreenPosition.Y;
 
+            // The frame the display is held to gets an [H] in front of its name, so the list says which
+            // row every other row is being shown like -- the status bar names it, but the list is where
+            // you look for it. A mark rather than a colour: the list has two colours already (selected,
+            // hovered) and a third would have to survive both.
+            var heldName = state.CarryDisplayAcrossFrames && _displayAnchor is { } anchor
+                ? Path.GetFileName(anchor.FilePath)
+                : null;
+
             foreach (var (fileIndex, rowRect) in _fileListScroll.VisibleRows())
             {
                 var fileName = state.ImageFileNames[fileIndex];
+                var label = string.Equals(fileName, heldName, StringComparison.OrdinalIgnoreCase)
+                    ? "[H] " + fileName
+                    : fileName;
 
                 var isSelected = fileIndex == state.SelectedFileIndex;
                 // Selection (the loaded file) is deliberately NOT gated on the overlay -- it should stay
@@ -254,7 +265,7 @@ namespace TianWen.UI.Abstractions
                 // fallback face is cut at the right length rather than against the wrong font.
                 var textWidth = rowRect.Width - PanelPadding * 2f;
                 var displayName = TextFit.TrimToWidth(
-                    Renderer, fileName, FontPath, FontFallback, FontSize, textWidth, TextTrim.End);
+                    Renderer, label, FontPath, FontFallback, FontSize, textWidth, TextTrim.End);
 
                 DrawText(displayName, rowRect.X + PanelPadding, RowTextY(rowRect.Y, rowRect.Height), FontSize,
                     isSelected ? FileListItemTextSelected : FileListItemText);
@@ -284,7 +295,7 @@ namespace TianWen.UI.Abstractions
 
                 // Only when the name is actually cut -- a tooltip repeating a fully visible label is
                 // noise. Anchored on the row so it appears where the pointer is.
-                if (isHovered && !string.Equals(displayName, fileName, StringComparison.Ordinal))
+                if (isHovered && !string.Equals(displayName, label, StringComparison.Ordinal))
                 {
                     _hoveredTooltip = (fileName, rowRect.X, rowRect.Y, rowRect.Height);
                 }

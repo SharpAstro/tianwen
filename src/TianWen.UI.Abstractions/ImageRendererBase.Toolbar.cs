@@ -1673,7 +1673,7 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.Channel => "Channel view: RGB or one channel (C cycles)",
             ToolbarAction.Debayer => "Demosaic algorithm; the swatch is the sensor's CFA phase (D cycles)",
             ToolbarAction.CurvesBoost => "Curves boost; right-click switches curve mode (B / Shift+B)",
-            ToolbarAction.Hdr => "HDR highlight compression (H cycles)",
+            ToolbarAction.Hdr => "HDR highlight compression (H cycles, Shift+H back)",
             ToolbarAction.Compare => "Before / after split; right-click re-pins (A / Shift+A)",
             ToolbarAction.AutoCrop => "Show only the area every sub covered, discarding the stack's ragged border (Shift+C)",
             ToolbarAction.ZoomFit => "Fit the image to the window (F / Ctrl+0)",
