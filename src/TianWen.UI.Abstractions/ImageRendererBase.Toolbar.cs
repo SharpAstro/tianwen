@@ -2067,6 +2067,9 @@ namespace TianWen.UI.Abstractions
 
         private static readonly ImmutableArray<string> ShortcutLines =
         [
+            "Ctrl+O               Open a file",
+            "Ctrl+S               Save the image as displayed (clean, 16-bit PNG)",
+            "Ctrl+Shift+S         Save menu: with overlays, PNG depth",
             "Wheel / Ctrl+Wheel   Zoom",
             "Ctrl + / -           Zoom in / out",
             "Ctrl+2 .. Ctrl+9     Zoom 1:N",

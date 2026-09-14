@@ -479,15 +479,23 @@ public sealed class ViewerState
 
     /// <summary>
     /// Show every comparable frame of the folder with the display mapping of the frame the run started
-    /// on, instead of solving a fresh auto-stretch per file. On by default: stepping through subs of one
-    /// field is what the file list is for, and a per-frame re-solve makes the sequence flicker in
-    /// brightness and colour -- which is precisely the difference the user is stepping through to see.
-    /// <para>
-    /// What "comparable" means, and why the anchor is a document rather than a snapshot, is in
-    /// <see cref="DisplayCarry"/>. Turning this off restores the pre-P19 behaviour frame by frame.
-    /// </para>
+    /// on, instead of solving a fresh auto-stretch per file (<c>Shift+H</c>).
     /// </summary>
-    public bool CarryDisplayAcrossFrames { get; set; } = true;
+    /// <remarks>
+    /// <para><b>Off by default; a BLINK holds regardless.</b> It shipped on, on the argument that
+    /// stepping through subs of one field is what the file list is for and a per-frame re-solve makes
+    /// the sequence flicker. Measured on a night that started under a light-pollution dome and left it,
+    /// the hold did the opposite of what a per-sub inspection wants: the curve solved on the first,
+    /// brightest sky put every later sub -- darker sky, same galaxy -- through the same numbers, so the
+    /// target DIMMED as the conditions improved, and a click in the file list is not a comparison, it is
+    /// "show me this frame". N.I.N.A. and PixInsight both auto-stretch per frame there.</para>
+    /// <para>The flicker argument is real, and it is the BLINK's: a blink walks frames to compare them,
+    /// and two auto-stretches are two mappings. So the hold follows <see cref="IsBlinking"/> on its own
+    /// (<c>ImageRendererBase.ReconcileDisplayAnchor</c>) whatever this flag says, and this flag is the
+    /// explicit hold for stepping by hand. What "comparable" means, and why the anchor is a document
+    /// rather than a snapshot, is in <see cref="DisplayCarry"/>.</para>
+    /// </remarks>
+    public bool CarryDisplayAcrossFrames { get; set; }
 
     /// <summary>
     /// True while the file list is auto-advancing as a blink comparison -- the SER transport's

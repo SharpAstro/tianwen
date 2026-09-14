@@ -259,6 +259,21 @@ namespace TianWen.UI.Abstractions
                     case >= InputKey.D2 and <= InputKey.D9:
                         ViewerActions.ZoomTo(state, 1f / (key - InputKey.D0));
                         return true;
+                    // The two file-dialog keys every desktop app has. Both post, as P and E do: the
+                    // dialog needs the controller. Ctrl+S writes what the Save button's right-click
+                    // writes -- the clean 16-bit raster -- because that is the one thing a keyboard
+                    // user means by it; Ctrl+Shift+S opens the button's own menu (overlays on or off,
+                    // the PNG depth), the keyboard's route to the choice the button offers on a click.
+                    case InputKey.O:
+                        PostSignal(new OpenFileSignal());
+                        return true;
+                    case InputKey.S:
+                        if (shift)
+                        {
+                            return OpenToolbarDropdown(state, ToolbarAction.Save);
+                        }
+                        PostSignal(new SaveImageSignal(WithOverlays: false, PngDepth.SixteenBit));
+                        return true;
                 }
             }
 

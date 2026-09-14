@@ -141,6 +141,11 @@ public readonly record struct EnhanceImageSignal;
 /// thread and applies it through <see cref="ViewerController.TryApplyPendingCrop"/>.</summary>
 public readonly record struct AutoCropSignal;
 
+/// <summary>Open the file dialog (<c>Ctrl+O</c>). The host's handler routes to
+/// <see cref="ViewerController.HandleToolbarAction"/> with <see cref="ToolbarAction.Open"/>, the same
+/// path the toolbar's folder button takes; a host without a file dialog simply has no subscriber.</summary>
+public readonly record struct OpenFileSignal;
+
 /// <summary>
 /// Request a save of the displayed image, with or without the overlays drawn over it.
 /// </summary>

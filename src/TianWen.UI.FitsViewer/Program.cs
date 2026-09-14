@@ -296,8 +296,10 @@ using var gpu = new GpuStack<VkImageRenderer>(logger, sdlWindow, (uint)pixW, (ui
         // blits instead of re-running the demosaic + stretch over the whole pane. The renderer owns
         // ONE set of layer targets, so exactly one viewer per renderer may claim them; this process
         // has exactly one viewer, which is what makes the claim unambiguous here and why the GUI (two
-        // embedded viewers on a shared renderer) does not set it.
-        UseCachedImageLayer = true
+        // embedded viewers on a shared renderer) does not set it. TIANWEN_FITS_CACHED_LAYER=0 turns
+        // it off, so a rendering artefact can be attributed to the layer or cleared of it in one run.
+        UseCachedImageLayer = !string.Equals(
+            Environment.GetEnvironmentVariable("TIANWEN_FITS_CACHED_LAYER"), "0", StringComparison.Ordinal)
     });
 var renderer = gpu.Renderer;
 var imageRenderer = gpu.Top;
@@ -552,6 +554,8 @@ bus.Subscribe<EnhanceImageSignal>(_ =>
     controller.HandleToolbarAction(ToolbarAction.Enhance, reverse: false, cts.Token));
 bus.Subscribe<AutoCropSignal>(_ =>
     controller.HandleToolbarAction(ToolbarAction.AutoCrop, reverse: false, cts.Token));
+bus.Subscribe<OpenFileSignal>(_ =>
+    controller.HandleToolbarAction(ToolbarAction.Open, reverse: false, cts.Token));
 
 // The "?" panel's two action rows (the user guide, and a prepared bug report). Host-level and
 // desktop-only on purpose: UseShellExecute routes a URL through the shell, which the WASM-shared
