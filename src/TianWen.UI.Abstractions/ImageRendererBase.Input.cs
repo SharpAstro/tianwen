@@ -374,9 +374,19 @@ namespace TianWen.UI.Abstractions
                     ViewerActions.ToggleGrid(state);
                     return true;
                 case InputKey.O:
-                    // Shift steps back down the ladder, the direction every other cycler here gives
-                    // Shift. The ladder wraps either way, so neither end is a dead end.
-                    ViewerActions.CycleOverlayLevel(state, reverse: shift);
+                    // A plain press is the whole annotation, on or off -- that is what "annotate
+                    // this frame" means, and the grid-only rung was a stop on the way to it paid
+                    // for twice per round trip. Shift still WALKS the ladder (backwards, the
+                    // direction every other cycler here gives Shift), so the grid-only rung is one
+                    // keystroke away and G toggles the grid on its own besides.
+                    if (shift)
+                    {
+                        ViewerActions.CycleOverlayLevel(state, reverse: true);
+                    }
+                    else
+                    {
+                        ViewerActions.ToggleOverlayLevel(state);
+                    }
                     return true;
                 // The sky behind the frame. Y because every letter that reads better is taken twice
                 // over: the viewer's own bindings, and then the sky palette's, which claims G A H C B

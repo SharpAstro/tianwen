@@ -1684,13 +1684,14 @@ namespace TianWen.UI.Abstractions
                 $"Zoom: fitting at {UiFormat.Percent0(state.Zoom)} -- click or Z to pick 1:1 / 1:N, right-click for 1:1 (F, R, Ctrl+0..9)",
             ToolbarAction.Zoom => "Zoom: click or Z to pick fit / 1:1 / 1:N, right-click fits (F, R, Ctrl+0..9)",
             ToolbarAction.PlateSolve => "Plate solve this frame (P)",
-            // Names the rung it is ON and the one a press moves to, because the ladder wraps: without
-            // the second half, the state where everything is on looks like a dead end.
+            // Names the rung it is ON and what a press does from there. A plain press is the whole
+            // annotation either way, so each rung also names the two ways to reach the grid alone --
+            // otherwise that rung reads as having been removed rather than moved off the default press.
             ToolbarAction.Overlays => state.OverlayLevel switch
             {
                 ViewerOverlayLevel.Grid => "Annotate: WCS grid -- O adds the catalog objects (G toggles the grid)",
-                ViewerOverlayLevel.Objects => "Annotate: grid + deep-sky objects -- O clears it",
-                _ => "Annotate: off -- O steps through the grid and the catalog objects (G, O)",
+                ViewerOverlayLevel.Objects => "Annotate: grid + deep-sky objects -- O clears it (Shift+O for the grid alone)",
+                _ => "Annotate: off -- O shows the grid + catalog objects (G for the grid alone)",
             },
             // Says WHY it is dim, which is the whole reason it is a button rather than a ladder rung:
             // the rung could refuse a press but had nowhere to explain the refusal.

@@ -729,6 +729,73 @@ public class ViewerActionsTests
     }
 
     /// <summary>
+    /// <b>A plain O is the whole annotation, not a rung.</b> The ladder still exists and Shift+O
+    /// still walks it (pinned above), but the default press goes straight to the top: "annotate this
+    /// frame" means the objects, and the grid-only rung was being pressed through twice per round
+    /// trip to reach them.
+    /// </summary>
+    [Fact]
+    public void OverlayToggle_FromNothing_GoesStraightToGridPlusObjects()
+    {
+        var state = new ViewerState();
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.None);
+
+        ViewerActions.ToggleOverlayLevel(state);
+
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Objects);
+        // Both layers, in ONE press -- the rungs are cumulative, so objects implies the grid.
+        (state.ShowGrid, state.ShowOverlays).ShouldBe((true, true));
+    }
+
+    /// <summary>
+    /// Off means the photograph alone from EVERY rung, including the middle one. Restoring "grid
+    /// only" instead would make the same key mean two different things depending on state it does
+    /// not show -- and the grid already has its own key.
+    /// </summary>
+    [Theory]
+    [InlineData(ViewerOverlayLevel.Grid)]
+    [InlineData(ViewerOverlayLevel.Objects)]
+    public void OverlayToggle_FromAnyRungOn_ClearsToThePhotographAlone(ViewerOverlayLevel from)
+    {
+        var state = new ViewerState();
+        ViewerActions.ApplyOverlayLevel(state, from);
+
+        ViewerActions.ToggleOverlayLevel(state);
+
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.None);
+        (state.ShowGrid, state.ShowOverlays).ShouldBe((false, false));
+    }
+
+    [Fact]
+    public void OverlayToggle_NeverTouchesTheSkyBackdrop()
+    {
+        var state = new ViewerState();
+
+        for (var i = 0; i < 8; i++)
+        {
+            ViewerActions.ToggleOverlayLevel(state);
+            state.ShowSkyBackdrop.ShouldBeFalse($"toggle {i} turned the sky on");
+        }
+    }
+
+    /// <summary>
+    /// The grid-only rung stays reachable from the keyboard: Shift+O from nothing lands on it,
+    /// which is what keeps this a relocation of the middle rung rather than a removal.
+    /// </summary>
+    [Fact]
+    public void ShiftO_StillReachesTheGridOnlyRung()
+    {
+        var state = new ViewerState();
+
+        ViewerActions.CycleOverlayLevel(state, reverse: true);
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Objects);
+
+        ViewerActions.CycleOverlayLevel(state, reverse: true);
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Grid);
+        (state.ShowGrid, state.ShowOverlays).ShouldBe((true, false));
+    }
+
+    /// <summary>
     /// And the sky switch does not move the ladder either: the two are independent, so a frame can
     /// carry the sky with no annotation over the photograph at all.
     /// </summary>
