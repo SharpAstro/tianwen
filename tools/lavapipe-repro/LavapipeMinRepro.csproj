@@ -6,12 +6,28 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
-    <!-- Floats with the family. It was pinned to the exact 3.4.471 that FIXED the dangling-pointer bug
-         it was written to investigate, which reads as deliberate but is not what this tool is for any
-         more: the README calls it a sanity check on the CURRENT offscreen path, and a renderer four
-         majors old cannot check that. This project sits outside src/, so it carries its own version
-         rather than a CPM entry. Tracking current matters more than usual here: 7.10 fixes a hang on the
-         OFFSCREEN submit path, which is the only path this tool uses. -->
-    <PackageReference Include="SdlVulkan.Renderer" Version="7.10.*" />
+    <!-- Tracks the sibling family, and has to be RE-PINNED BY HAND to do it. It was once pinned to the
+         exact 3.4.471 that FIXED the dangling-pointer bug it was written to investigate, which read as
+         deliberate but is not what this tool is for any more: the README calls it a sanity check on the
+         CURRENT offscreen path, and an old renderer cannot check that. Being current matters more here
+         than it would elsewhere, because 7.10 was the release that fixed a hang on the OFFSCREEN submit
+         path, which is the only path this tool uses.
+
+         An earlier comment claimed it "floats with the family", which is precisely what a `X.Y.*`
+         wildcard does NOT do: the star covers the PATCH, so 7.10.* could never reach 7.11, let alone
+         the 7.37 the family is on today. It read as self maintaining and sat 23 minors behind.
+
+         Every pin in src/ has that same shape and stays current only because a re-pin commit moves it
+         (see "build(deps): repin onto DIR.Lib 9.0 and port the pre-layout scale to DesignScale"). This
+         project sits outside src/ AND outside CPM, so those sweeps have nothing to move here, which is
+         how it became the one tianwen pin left behind. It WILL drift again: the first fix of this was
+         written against 7.33 and was four minors stale before it landed.
+
+         deps.sh in the repos skill is what catches that, and the signal to look for is SdlVulkan.Renderer
+         appearing TWICE in tianwen's edges, once from here and once from CPM. That pair is now marked
+         `split-pin`, and a pin below what nuget.org already carries now reads BEHIND-PUBLISHED rather
+         than minor-pending; before both of those it was reported in the same routine bucket as a pin
+         waiting on an unpublished bump, which is why 27 minors of drift went unnoticed in plain sight. -->
+    <PackageReference Include="SdlVulkan.Renderer" Version="7.37.*" />
   </ItemGroup>
 </Project>
