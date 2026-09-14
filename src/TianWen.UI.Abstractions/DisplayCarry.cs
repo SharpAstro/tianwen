@@ -138,20 +138,17 @@ namespace TianWen.UI.Abstractions
         /// Points <paramref name="document"/> at the anchor it should display with, and returns the
         /// anchor that stands afterwards -- <paramref name="document"/> itself when it starts a new run.
         /// </summary>
-        /// <param name="carry">The user's toggle. When off, nothing is anchored and every frame solves
-        /// its own mapping, which is the behaviour before P19.</param>
+        /// <param name="holdDisplay">The user's hold (<c>Ctrl+H</c>): whether the DISPLAY statistics read
+        /// through the anchor as well. The anchor itself stands either way, because the colour
+        /// calibration rides on it and a click wants that without asking.</param>
         /// <remarks>
         /// Idempotent, so it can run from the per-frame reconcile rather than from a load-completion
         /// path: a document revisited from the cache is re-pointed by the same rule that pointed it the
-        /// first time, and switching the toggle off clears what it set.
+        /// first time, and releasing the hold takes effect on the next reconcile.
         /// </remarks>
-        public static AstroImageDocument? Apply(AstroImageDocument document, AstroImageDocument? anchor, bool carry)
+        public static AstroImageDocument? Apply(AstroImageDocument document, AstroImageDocument? anchor, bool holdDisplay)
         {
-            if (!carry)
-            {
-                document.DisplayAnchor = null;
-                return null;
-            }
+            document.HoldDisplay = holdDisplay;
 
             if (document.IsEnhanceResult)
             {

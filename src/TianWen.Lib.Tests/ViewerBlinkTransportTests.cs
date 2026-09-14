@@ -144,7 +144,7 @@ namespace TianWen.Lib.Tests
 
         /// <summary>
         /// A toggle that is not the blink, to say the rule is about the KIND of action rather than about
-        /// Space. Shift+H holds or releases the display mapping a blink is measured against, and held down
+        /// Space. Ctrl+H holds or releases the display mapping across frames, and held down
         /// it used to flip the same way.
         /// </summary>
         [Fact]
@@ -153,10 +153,10 @@ namespace TianWen.Lib.Tests
             var (viewer, state) = NewViewer(fileCount: 12);
             var before = state.CarryDisplayAcrossFrames;
 
-            viewer.HandleInput(new InputEvent.KeyDown(InputKey.H, InputModifier.Shift));
+            viewer.HandleInput(new InputEvent.KeyDown(InputKey.H, InputModifier.Ctrl));
             state.CarryDisplayAcrossFrames.ShouldBe(!before);
 
-            viewer.HandleInput(new InputEvent.KeyDown(InputKey.H, InputModifier.Shift) { Repeat = true });
+            viewer.HandleInput(new InputEvent.KeyDown(InputKey.H, InputModifier.Ctrl) { Repeat = true });
             state.CarryDisplayAcrossFrames.ShouldBe(!before, "a repeat is the same press, still held");
         }
 

@@ -267,6 +267,12 @@ namespace TianWen.UI.Abstractions
                     case InputKey.O:
                         PostSignal(new OpenFileSignal());
                         return true;
+                    // Hold / release the display mapping across frames (see ViewerState.CarryDisplayAcrossFrames).
+                    // Ctrl, beside Ctrl+Space which goes back to the held frame; plain H is HDR.
+                    case InputKey.H:
+                        state.CarryDisplayAcrossFrames = !state.CarryDisplayAcrossFrames;
+                        state.NeedsRedraw = true;
+                        return true;
                     case InputKey.S:
                         if (shift)
                         {
@@ -413,23 +419,7 @@ namespace TianWen.UI.Abstractions
                     ViewerActions.ToggleSkyBackdrop(state);
                     return true;
                 case InputKey.H:
-                    // Shift holds or releases the display mapping the blink is measured against. It
-                    // moved off Shift+Space because on a transport Shift means the OTHER DIRECTION
-                    // everywhere else, and H is where "hold" reads.
-                    if (shift)
-                    {
-                        state.CarryDisplayAcrossFrames = !state.CarryDisplayAcrossFrames;
-                        if (!state.CarryDisplayAcrossFrames)
-                        {
-                            // Blinking through per-frame auto-stretches is a flicker, not a comparison.
-                            state.IsBlinking = false;
-                        }
-                        state.NeedsRedraw = true;
-                    }
-                    else
-                    {
-                        ViewerActions.CycleHdr(state);
-                    }
+                    ViewerActions.CycleHdr(state);
                     return true;
                 case InputKey.V:
                     if (shift)

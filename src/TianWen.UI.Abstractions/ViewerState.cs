@@ -479,21 +479,20 @@ public sealed class ViewerState
 
     /// <summary>
     /// Show every comparable frame of the folder with the display mapping of the frame the run started
-    /// on, instead of solving a fresh auto-stretch per file (<c>Shift+H</c>).
+    /// on, instead of solving a fresh auto-stretch per file (<c>Ctrl+H</c>).
     /// </summary>
     /// <remarks>
-    /// <para><b>Off by default; a BLINK holds regardless.</b> It shipped on, on the argument that
-    /// stepping through subs of one field is what the file list is for and a per-frame re-solve makes
-    /// the sequence flicker. Measured on a night that started under a light-pollution dome and left it,
-    /// the hold did the opposite of what a per-sub inspection wants: the curve solved on the first,
-    /// brightest sky put every later sub -- darker sky, same galaxy -- through the same numbers, so the
-    /// target DIMMED as the conditions improved, and a click in the file list is not a comparison, it is
-    /// "show me this frame". N.I.N.A. and PixInsight both auto-stretch per frame there.</para>
-    /// <para>The flicker argument is real, and it is the BLINK's: a blink walks frames to compare them,
-    /// and two auto-stretches are two mappings. So the hold follows <see cref="IsBlinking"/> on its own
-    /// (<c>ImageRendererBase.ReconcileDisplayAnchor</c>) whatever this flag says, and this flag is the
-    /// explicit hold for stepping by hand. What "comparable" means, and why the anchor is a document
-    /// rather than a snapshot, is in <see cref="DisplayCarry"/>.</para>
+    /// <para><b>Off by default, and a blink does not turn it on.</b> It shipped on, on the argument
+    /// that stepping through subs of one field is what the file list is for and a per-frame re-solve
+    /// makes the sequence flicker. Measured on a night that started under a light-pollution dome and
+    /// left it, the hold did the opposite of what a per-sub inspection wants: the curve solved on the
+    /// first, brightest sky put every later sub -- darker sky, same galaxy -- through the same numbers,
+    /// so the target DIMMED as the conditions improved. A click in the file list is not a comparison,
+    /// it is "show me this frame", and a blink is the software clicking for you: N.I.N.A. and
+    /// PixInsight both auto-stretch per frame there. The hold is the one explicit choice to carry more.</para>
+    /// <para>What is carried WITHOUT the hold is the colour calibration alone -- the per-run answer a
+    /// click wants without asking (<see cref="AstroImageDocument.DisplayAnchor"/>). What "comparable"
+    /// means, and why the anchor is a document rather than a snapshot, is in <see cref="DisplayCarry"/>.</para>
     /// </remarks>
     public bool CarryDisplayAcrossFrames { get; set; }
 

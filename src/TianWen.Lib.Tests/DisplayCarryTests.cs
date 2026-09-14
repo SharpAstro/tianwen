@@ -84,7 +84,7 @@ public class DisplayCarryTests
     {
         var ct = TestContext.Current.CancellationToken;
         var original = await DocumentAsync(ColourFrame(0.10f, objectName: "M31"), "a.fits");
-        var anchor = DisplayCarry.Apply(original, anchor: null, carry: true);
+        var anchor = DisplayCarry.Apply(original, anchor: null, holdDisplay: true);
         anchor.ShouldBeSameAs(original);
 
         // Same shape, same target, same sensor -- which is the whole trap: comparable by every rule
@@ -94,7 +94,7 @@ public class DisplayCarryTests
             "the shape rule cannot tell an enhance result from another frame -- which is why the flag exists");
 
         enhanced.MarkAsEnhanceResult();
-        var standing = DisplayCarry.Apply(enhanced, anchor, carry: true);
+        var standing = DisplayCarry.Apply(enhanced, anchor, holdDisplay: true);
 
         enhanced.DisplayAnchor.ShouldBeNull("an enhance result displays from its OWN statistics");
         standing.ShouldBeSameAs(original,
@@ -110,14 +110,14 @@ public class DisplayCarryTests
     {
         var ct = TestContext.Current.CancellationToken;
         var original = await DocumentAsync(ColourFrame(0.10f, objectName: "M31"), "a.fits");
-        var anchor = DisplayCarry.Apply(original, anchor: null, carry: true);
+        var anchor = DisplayCarry.Apply(original, anchor: null, holdDisplay: true);
 
         var enhanced = await DocumentAsync(ColourFrame(0.30f, objectName: "M31"), "a.fits");
         enhanced.MarkAsEnhanceResult();
 
         for (var i = 0; i < 5; i++)
         {
-            anchor = DisplayCarry.Apply(enhanced, anchor, carry: true);
+            anchor = DisplayCarry.Apply(enhanced, anchor, holdDisplay: true);
             enhanced.DisplayAnchor.ShouldBeNull($"reconcile {i} re-anchored the enhance result");
         }
 
@@ -220,9 +220,9 @@ public class DisplayCarryTests
         var second = await DocumentAsync(ColourFrame(0.20f, objectName: "M8"), "b.fits");
         var third = await DocumentAsync(ColourFrame(0.30f, objectName: "M8"), "c.fits");
 
-        var anchor = DisplayCarry.Apply(anchorDoc, anchor: null, carry: true);
-        DisplayCarry.Apply(second, anchor, carry: true).ShouldBeSameAs(anchorDoc);
-        DisplayCarry.Apply(third, anchor, carry: true).ShouldBeSameAs(anchorDoc);
+        var anchor = DisplayCarry.Apply(anchorDoc, anchor: null, holdDisplay: true);
+        DisplayCarry.Apply(second, anchor, holdDisplay: true).ShouldBeSameAs(anchorDoc);
+        DisplayCarry.Apply(third, anchor, holdDisplay: true).ShouldBeSameAs(anchorDoc);
 
         // A fit measured while the SECOND frame was on screen, which is where it lands today.
         second.InheritColorCalibration((1.4429f, 1f, 1.2284f), summary: null);
@@ -245,9 +245,9 @@ public class DisplayCarryTests
         var lagoon = await DocumentAsync(ColourFrame(0.10f, objectName: "M8"), "a.fits");
         var smc = await DocumentAsync(ColourFrame(0.10f, objectName: "SMC"), "b.fits");
 
-        var anchor = DisplayCarry.Apply(lagoon, anchor: null, carry: true);
+        var anchor = DisplayCarry.Apply(lagoon, anchor: null, holdDisplay: true);
         // Not comparable, so it anchors its own run rather than following the Lagoon's.
-        DisplayCarry.Apply(smc, anchor, carry: true).ShouldBeSameAs(smc);
+        DisplayCarry.Apply(smc, anchor, holdDisplay: true).ShouldBeSameAs(smc);
         smc.DisplayAnchor.ShouldBeNull();
 
         lagoon.InheritColorCalibration((1.4429f, 1f, 1.2284f), summary: null);
@@ -261,7 +261,7 @@ public class DisplayCarryTests
     public async Task PublishingFromAnAnchorIsANoOp()
     {
         var only = await DocumentAsync(ColourFrame(0.10f, objectName: "M8"), "a.fits");
-        DisplayCarry.Apply(only, anchor: null, carry: true).ShouldBeSameAs(only);
+        DisplayCarry.Apply(only, anchor: null, holdDisplay: true).ShouldBeSameAs(only);
 
         only.InheritColorCalibration((1.4429f, 1f, 1.2284f), summary: null);
         DisplayCarry.PublishCalibration(only);
@@ -276,7 +276,7 @@ public class DisplayCarryTests
     {
         var first = await DocumentAsync(ColourFrame(0.10f), "a.fits");
 
-        var anchor = DisplayCarry.Apply(first, anchor: null, carry: true);
+        var anchor = DisplayCarry.Apply(first, anchor: null, holdDisplay: true);
 
         anchor.ShouldBeSameAs(first);
         first.DisplayAnchor.ShouldBeNull("a frame that anchors a run is displayed with its own numbers");
@@ -291,8 +291,8 @@ public class DisplayCarryTests
         // The frames really do solve differently -- without which the assertion below proves nothing.
         Uniforms(second).Shadows.ShouldNotBe(Uniforms(first).Shadows);
 
-        var anchor = DisplayCarry.Apply(first, anchor: null, carry: true);
-        DisplayCarry.Apply(second, anchor, carry: true).ShouldBeSameAs(first);
+        var anchor = DisplayCarry.Apply(first, anchor: null, holdDisplay: true);
+        DisplayCarry.Apply(second, anchor, holdDisplay: true).ShouldBeSameAs(first);
 
         second.DisplayAnchor.ShouldBeSameAs(first);
         Uniforms(second).ShouldBe(Uniforms(first),
@@ -305,8 +305,8 @@ public class DisplayCarryTests
         var colour = await DocumentAsync(ColourFrame(0.10f), "a.fits");
         var mono = await DocumentAsync(MonoFrame(0.10f), "b.fits");
 
-        var anchor = DisplayCarry.Apply(colour, anchor: null, carry: true);
-        var next = DisplayCarry.Apply(mono, anchor, carry: true);
+        var anchor = DisplayCarry.Apply(colour, anchor: null, holdDisplay: true);
+        var next = DisplayCarry.Apply(mono, anchor, holdDisplay: true);
 
         next.ShouldBeSameAs(mono);
         mono.DisplayAnchor.ShouldBeNull();
@@ -318,24 +318,28 @@ public class DisplayCarryTests
         // The reconcile runs every frame, so it re-visits the anchor itself constantly. A document that
         // became its own anchor would defeat the single hop silently rather than loop.
         var first = await DocumentAsync(ColourFrame(0.10f), "a.fits");
-        var anchor = DisplayCarry.Apply(first, anchor: null, carry: true);
+        var anchor = DisplayCarry.Apply(first, anchor: null, holdDisplay: true);
 
-        DisplayCarry.Apply(first, anchor, carry: true).ShouldBeSameAs(first);
+        DisplayCarry.Apply(first, anchor, holdDisplay: true).ShouldBeSameAs(first);
         first.DisplayAnchor.ShouldBeNull();
     }
 
+    /// <summary>Releasing the hold gives a frame already held its own stretch back; the run's anchor
+    /// stays, because the calibration still rides on it.</summary>
     [Fact]
-    public async Task TurningTheCarryOffReleasesAFrameAlreadyAnchored()
+    public async Task ReleasingTheHoldGivesAnAnchoredFrameItsOwnStretchBack()
     {
         var first = await DocumentAsync(ColourFrame(0.10f), "a.fits");
         var second = await DocumentAsync(ColourFrame(0.40f), "b.fits");
-        DisplayCarry.Apply(second, first, carry: true);
-        second.DisplayAnchor.ShouldNotBeNull();
+        DisplayCarry.Apply(second, first, holdDisplay: true);
+        second.HasDisplayAnchor.ShouldBeTrue();
+        Uniforms(second).ShouldBe(Uniforms(first), "held, one mapping for both");
 
-        DisplayCarry.Apply(second, first, carry: false).ShouldBeNull();
+        DisplayCarry.Apply(second, first, holdDisplay: false).ShouldBeSameAs(first);
 
-        second.DisplayAnchor.ShouldBeNull();
-        Uniforms(second).ShouldNotBe(Uniforms(first), "the pre-P19 behaviour, frame by frame");
+        second.DisplayAnchor.ShouldBeSameAs(first, "the run is still the run");
+        second.HasDisplayAnchor.ShouldBeFalse("but the display is this frame's own again");
+        Uniforms(second).ShouldNotBe(Uniforms(first), "frame by frame, as a click shows it");
     }
 
     // --- what travels, and what does not ---
@@ -350,7 +354,7 @@ public class DisplayCarryTests
         var summary = new ColorCalibrationSummary("SPCC", 1.08f, 1f, 0.93f, StarCount: 412, WhiteReference: "G2V");
         first.InheritColorCalibration((1.08f, 1f, 0.93f), summary);
 
-        DisplayCarry.Apply(second, first, carry: true);
+        DisplayCarry.Apply(second, first, holdDisplay: true);
 
         second.ColorCalibration.ShouldBe((1.08f, 1f, 0.93f));
         second.ColorCalibrationSummary.ShouldBe(summary, "the provenance travels with the triple, or the UI can show a multiplier it cannot source");
@@ -363,7 +367,7 @@ public class DisplayCarryTests
         var second = await DocumentAsync(ColourFrame(0.40f), "b.fits");
         var ownBackground = second.MeasuredPerChannelBackground[0];
 
-        DisplayCarry.Apply(second, first, carry: true);
+        DisplayCarry.Apply(second, first, holdDisplay: true);
 
         second.PerChannelBackground[0].ShouldBe(first.PerChannelBackground[0],
             "the DISPLAY is solved from one background for the whole run");
@@ -379,8 +383,34 @@ public class DisplayCarryTests
         var second = await DocumentAsync(ColourFrame(0.40f), "b.fits");
         await first.DetectStarsAsync(TestContext.Current.CancellationToken);
 
-        DisplayCarry.Apply(second, first, carry: true);
+        DisplayCarry.Apply(second, first, holdDisplay: true);
 
         second.Stars.ShouldBeNull("stars are what a blink is looking AT; they are per frame");
+    }
+
+    /// <summary>
+    /// <b>A click carries the calibration; only the hold carries the stretch.</b> The run's anchor
+    /// stands either way (it is what the SPCC triple rides on, one fit per run), but the display
+    /// statistics read through it only under Ctrl+H -- a click means "show me this frame", and a held
+    /// curve over a darker sky dimmed the target as the night improved.
+    /// </summary>
+    [Fact]
+    public async Task WithoutTheHold_TheCalibrationIsCarriedAndTheStretchIsNot()
+    {
+        var first = await DocumentAsync(ColourFrame(0.10f, objectName: "M31"), "a.fits");
+        var second = await DocumentAsync(ColourFrame(0.30f, objectName: "M31"), "b.fits");
+
+        var anchor = DisplayCarry.Apply(first, anchor: null, holdDisplay: false);
+        DisplayCarry.Apply(second, anchor, holdDisplay: false).ShouldBeSameAs(first,
+            "the run has an anchor whatever the hold says: the calibration rides on it");
+
+        first.InheritColorCalibration((1.4429f, 1f, 1.2284f), summary: null);
+        second.ColorCalibration.ShouldBe((1.4429f, 1f, 1.2284f), "a click still gets the run's calibration");
+        second.HasDisplayAnchor.ShouldBeFalse("but its stretch is its own");
+        second.BasisPerChannelStats.ShouldBe(second.PerChannelStats);
+
+        DisplayCarry.Apply(second, anchor, holdDisplay: true);
+        second.HasDisplayAnchor.ShouldBeTrue("held, the stretch is the anchor's");
+        second.BasisPerChannelStats.ShouldBe(first.PerChannelStats);
     }
 }
