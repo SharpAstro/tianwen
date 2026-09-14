@@ -13,14 +13,25 @@ public partial class Image
     /// <summary>
     /// Computes luminance stretch statistics (pedestal, median, MAD) from a color image.
     /// Builds a Rec. 709 luminance channel and computes histogram statistics on it.
-    /// Falls back to channel 0 stats for mono images. Optionally debayers Bayer images first.
+    /// Falls back to channel 0 stats for mono images.
     /// </summary>
-    public async Task<(float Pedestal, float Median, float MAD)> GetLumaStretchStatsAsync(DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
+    /// <remarks>
+    /// <b>A Bayer mosaic is measured IN PLACE, over every photosite with equal weight</b> -- a
+    /// luminance in all but the weighting, and the same stat the viewer document takes for a mosaic.
+    /// It used to materialise a full debayer to reach the Rec. 709 path, which is three scalars bought
+    /// with a whole interpolated three-plane copy of the frame: on a 6000x4000 OSC sub that is some
+    /// 288 MB allocated and thrown away. No caller ever paid it -- the document passes
+    /// <see cref="DebayerAlgorithm.None"/> and computes the mosaic case itself, and the test harness
+    /// guards on <c>ChannelCount >= 3</c>, which a mosaic is not -- so this was a trap standing open
+    /// for the next caller rather than a cost anything was bearing.
+    /// <para>The <c>debayerAlgorithm</c> parameter went with it, rather than staying as a dead knob
+    /// that selects nothing: the mosaic branch was the only thing it ever fed.</para>
+    /// </remarks>
+    public async Task<(float Pedestal, float Median, float MAD)> GetLumaStretchStatsAsync(CancellationToken cancellationToken = default)
     {
         if (imageMeta.SensorType is SensorType.RGGB)
         {
-            var debayered = await DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
-            return await debayered.GetLumaStretchStatsAsync(DebayerAlgorithm.None, cancellationToken);
+            return GetPedestralMedianAndMADScaledToUnit(0);
         }
 
         if (ChannelCount < 3)

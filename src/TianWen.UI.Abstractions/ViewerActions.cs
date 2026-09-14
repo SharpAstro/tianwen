@@ -296,12 +296,32 @@ public static class ViewerActions
             : (state.HdrPresetIndex + 1) % len);
     }
 
+    /// <summary>
+    /// Steps to the next (or previous) entry of <see cref="StretchParameters.Presets"/>.
+    /// </summary>
+    /// <remarks>
+    /// The step is taken from the parameters actually IN EFFECT, not from the stored index. The two
+    /// part company whenever the parameters are set by anything other than this cycler -- a restored
+    /// viewer state, a preset picked directly from the toolbar dropdown, a default that moved -- and
+    /// the index is the half that goes stale. Stepping off the stale one walks away from what the
+    /// user is looking at, so the first press appeared to skip: sitting on the default with the index
+    /// at zero, it landed on <c>Presets[1]</c> whatever was on screen.
+    /// </remarks>
     public static void CycleStretchPreset(ViewerState state, bool reverse = false)
     {
         var presets = StretchParameters.Presets;
+
+        // Reconcile first: where the parameters in hand actually sit, falling back to the stored index
+        // when they match no preset (a hand-tuned stretch), which is what keeps stepping continuous.
+        var current = presets.IndexOf(state.StretchParameters);
+        if (current < 0)
+        {
+            current = state.StretchPresetIndex;
+        }
+
         state.StretchPresetIndex = reverse
-            ? (state.StretchPresetIndex - 1 + presets.Length) % presets.Length
-            : (state.StretchPresetIndex + 1) % presets.Length;
+            ? (current - 1 + presets.Length) % presets.Length
+            : (current + 1) % presets.Length;
         state.StretchParameters = presets[state.StretchPresetIndex];
         state.NeedsRedraw = true;
     }

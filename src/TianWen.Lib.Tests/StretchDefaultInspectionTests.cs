@@ -80,13 +80,16 @@ public class StretchDefaultInspectionTests
     }
 
     /// <summary>
-    /// <b>The default has to BE the first preset, or it is a default you cannot get back to.</b>
-    /// <c>ViewerActions.CycleStretchPreset</c> walks a separate index that starts at zero and is never
-    /// reconciled against the parameters in hand, so the first press of the button jumps to
-    /// <c>Presets[1]</c> regardless of what is loaded. With the default anywhere but position zero,
-    /// that press steps off it and the cycle never comes back round.
+    /// <b>The default has to BE the first preset.</b> <c>ViewerState.StretchPresetIndex</c> starts at
+    /// zero, so position zero is the entry a freshly opened viewer claims to be sitting on, and a
+    /// default anywhere else makes that claim false before a key is ever pressed.
     /// <para>This held before only by coincidence -- the old default happened to equal the first entry
     /// -- and changing the default broke it, which is what this exists to catch.</para>
+    /// <para>It used to carry more weight than that: <c>ViewerActions.CycleStretchPreset</c> stepped
+    /// off the stored index without reconciling it, so the first press jumped to <c>Presets[1]</c>
+    /// whatever was loaded, and a default off position zero could never be returned to. The cycler
+    /// reconciles against the parameters in hand now (<c>ViewerActionsTests</c>), so this pins the
+    /// weaker claim, and is kept because the two are still derived from one another.</para>
     /// </summary>
     [Fact]
     public void TheDefaultIsTheFirstPresetSoTheCyclerCanReturnToIt()

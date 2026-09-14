@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace TianWen.Lib.Imaging;
 
 public record struct StretchParameters(double Factor, double ShadowsClipping)
@@ -36,14 +38,21 @@ public record struct StretchParameters(double Factor, double ShadowsClipping)
     /// <c>ViewerActions.DefaultStretchMode</c> takes over <c>StretchLinkModes</c>.
     /// </summary>
     /// <remarks>
-    /// That relation is load-bearing, not tidiness. <c>ViewerActions.CycleStretchPreset</c> walks a
-    /// separate <c>StretchPresetIndex</c> that starts at zero and is never reconciled against the
-    /// parameters in hand, so a default which is not <c>Presets[0]</c> is a default the cycler steps
-    /// off on its first press and can never return to. It held before only because the old default
+    /// That relation is load-bearing, not tidiness. It held before only because the old default
     /// happened to equal the first entry; deriving it means a future change to either cannot break the
     /// other silently, and <c>StretchDefaultInspectionTests</c> pins it besides.
+    /// <para><c>ViewerActions.CycleStretchPreset</c> used to walk a separate <c>StretchPresetIndex</c>
+    /// that started at zero and was never reconciled against the parameters in hand, so a default which
+    /// was not <c>Presets[0]</c> was one the cycler stepped off on its first press and could never
+    /// return to. It reconciles now, taking the step from the parameters actually in effect, so the
+    /// derivation is no longer the only thing holding that together -- but keep them derived anyway,
+    /// because the reconcile falls back to the stored index for a hand-tuned stretch that matches no
+    /// preset.</para>
+    /// <para>The array is immutable: <see cref="Default"/> reads <c>Presets[0]</c> on every call, and a
+    /// plain <c>StretchParameters[]</c> is <c>readonly</c> only in its reference -- any caller could
+    /// have rewritten element zero and moved the default for the whole process.</para>
     /// </remarks>
-    public static readonly StretchParameters[] Presets =
+    public static readonly ImmutableArray<StretchParameters> Presets =
     [
         new(0.2, -2.8),   // N.I.N.A.'s per-light preview, and this is the default
         new(0.25, -2.8),  // PixInsight's STF

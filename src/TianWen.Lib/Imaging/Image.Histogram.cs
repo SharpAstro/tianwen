@@ -372,6 +372,15 @@ public partial class Image
     /// <paramref name="starMask"/>. Subsamples with <paramref name="pixelStride"/> for speed;
     /// fallback to full-pixel median/MAD when too few samples remain.
     /// </summary>
+    /// <remarks>
+    /// <b>On a mosaic, no <paramref name="cfa"/> plus an EVEN <paramref name="pixelStride"/> measures
+    /// ONE COLOUR, not the frame.</b> Without a <paramref name="cfa"/> the walk is a fixed grid from
+    /// (0, 0), and every even step keeps both parities, so it never leaves the phase it started on --
+    /// and the default stride here is 4. The result is a plausible number for whichever photosite sits
+    /// at the origin, which is why this reads as correct until the colours are compared. Pass a
+    /// <paramref name="cfa"/> for a per-colour statistic, or <paramref name="pixelStride"/> 1 (or any
+    /// odd value) for one over the whole mosaic.
+    /// </remarks>
     public (float Pedestral, float Median, float MAD) GetStarMaskedMedianAndMADScaledToUnit(
         int channel, BitMatrix starMask, int pixelStride = 4, CfaChannel? cfa = null)
     {

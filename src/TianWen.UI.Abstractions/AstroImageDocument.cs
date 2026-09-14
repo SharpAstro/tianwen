@@ -607,14 +607,16 @@ public sealed class AstroImageDocument : IPreviewSource
         ChannelStretchStats? lumaStats = null;
         if (image.IsCfaMosaic)
         {
-            // The whole mosaic, every photosite with equal weight: a luminance in all but the weighting,
-            // and had without the full debayer GetLumaStretchStatsAsync would otherwise run for it.
+            // The whole mosaic, every photosite with equal weight: a luminance in all but the weighting.
+            // GetLumaStretchStatsAsync now takes exactly this stat for a mosaic rather than materialising
+            // a full debayer to reach the Rec. 709 path, so the two agree; kept inline because the
+            // document already holds the image and wants no second call.
             var (lumaPed, lumaMed, lumaMad) = image.GetPedestralMedianAndMADScaledToUnit(0);
             lumaStats = new ChannelStretchStats(lumaPed, lumaMed, lumaMad);
         }
         else if (channelCount >= 3)
         {
-            var (lumaPed, lumaMed, lumaMad) = await image.GetLumaStretchStatsAsync(DebayerAlgorithm.None, cancellationToken);
+            var (lumaPed, lumaMed, lumaMad) = await image.GetLumaStretchStatsAsync(cancellationToken);
             lumaStats = new ChannelStretchStats(lumaPed, lumaMed, lumaMad);
         }
 
@@ -678,7 +680,7 @@ public sealed class AstroImageDocument : IPreviewSource
         ChannelStretchStats? lumaStats = null;
         if (channelCount >= 3)
         {
-            var (lumaPed, lumaMed, lumaMad) = await processedRawImage.GetLumaStretchStatsAsync(DebayerAlgorithm.None, cancellationToken);
+            var (lumaPed, lumaMed, lumaMad) = await processedRawImage.GetLumaStretchStatsAsync(cancellationToken);
             lumaStats = new ChannelStretchStats(lumaPed, lumaMed, lumaMad);
         }
 
@@ -965,8 +967,12 @@ public sealed class AstroImageDocument : IPreviewSource
                 {
                     if (isCfa)
                     {
-                        // The whole mosaic, as LumaStats was taken.
-                        var (lp, lm, lmad) = UnstretchedImage.GetStarMaskedMedianAndMADScaledToUnit(0, mask);
+                        // The whole mosaic, as LumaStats was taken -- and the stride is what makes that
+                        // true. Without a `cfa` the walk is a fixed grid from (0, 0), so ANY EVEN stride
+                        // sits on one CFA phase for the whole frame and measures a single colour: the
+                        // default 4 gave a "luma" that was whichever photosite the origin landed on,
+                        // against a LumaStats taken over every photosite at stride 1. Match it.
+                        var (lp, lm, lmad) = UnstretchedImage.GetStarMaskedMedianAndMADScaledToUnit(0, mask, pixelStride: 1);
                         StarMaskedLumaStats = new ChannelStretchStats(lp, lm, lmad);
                     }
                     else
