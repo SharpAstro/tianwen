@@ -31,6 +31,105 @@ stay, their dates stay verifiable, and `git log v3.6.493..v4.0.564` answers the 
 always did. Hashes quoted in the docs from before the migration were re-pointed the same way. Any
 other commit hash from before 2026-04-22 no longer resolves anywhere.
 
+## 8.0
+
+Breaking, so a major. Four things break, three of them narrow and one of them the whole toolkit
+underneath.
+
+**`Image.GetLumaStretchStatsAsync` lost its `debayerAlgorithm` parameter.** It materialised a full
+debayer on an RGGB frame to reach the Rec. 709 path, three scalars bought with an interpolated
+three-plane copy, some 288 MB on a 6000x4000 OSC sub. It takes the statistic in place now, as the
+document already did, and the parameter went with the debayer rather than staying a knob that selects
+nothing. Nothing in this repository was paying that cost (the document passes the mosaic case itself,
+and the test harness guards on `ChannelCount >= 3`, which a mosaic is not), so the removal is visible
+to outside callers only.
+
+**`StretchParameters.Presets` is an `ImmutableArray<StretchParameters>`, and `Default` is a property
+over `Presets[0]` rather than a field.** A plain array is readonly only in its reference: any caller
+could rewrite element zero and move `Default`, which reads it on every call, for the whole process.
+Indexing and iteration are unchanged; assigning the array to a `StretchParameters[]` is not, and the
+field-to-property change is binary-breaking even where the source still reads the same.
+
+**`Image.FindStarsAsync` takes a `SpikeGuard` before its `CancellationToken`.** A call passing the
+token positionally in the last slot no longer binds; named or defaulted calls are unaffected. The
+guard is the new one described below, and it is defaulted on, which is itself the behavioural half of
+this break.
+
+**The dependency floor moves to DIR.Lib 9.0**, whose `DesignScale` is a per-axis pair where the
+pre-layout scale was a bare float. `TianWen.Lib` carries DIR.Lib for `TiffWriter` and `PngWriter` on
+the export path, so a consumer pinned to DIR.Lib 8.x cannot take TianWen.Lib 8.0 without moving too.
+The rest of the sibling set moves with it: SdlVulkan.Renderer 7.37, Console.Lib 4.33,
+SharpAstro.AppShell 1.1 and the codec family at 3.14.
+
+**Three things RENDER differently, which is the half of a major that no signature announces.**
+
+The default auto-stretch is an inspection stretch, N.I.N.A.'s per-light preview exactly: the sky
+lands at 0.2 rather than 0.1, and a pixel three MAD above it separates by more than 0.08 where the
+old default gave 0.036. That is why a target could be barely visible here while N.I.N.A. showed it
+plainly on the same sub, and the viewer's 150 percent Boost could not make up the difference, 0.1
+times 1.5 still being under 0.2 before contrast enters. Every preview, thumbnail and TUI render moves
+with it; `StretchDefaultInspectionTests` pins the rendered result rather than the parameters, since
+what went wrong was never that the numbers looked unusual.
+
+Every VNG demosaic changes. A gradient in a demosaic compares two samples of the SAME colour, so it
+is zero on a flat field whatever the sky's colour is, and VNG's were colour differences that were
+also an affine function of the value they select: "keep the smallest gradient" meant "keep the value
+nearest the centre pixel's own level", so green read about +99 ADU high at blue sites and correctly
+at red ones. Blue sites are alternate rows AND columns, so it reached the screen as a two-pixel
+alternation on both axes, fine stripes over the whole background at 1:1, 6.4 display levels against
+12 of pixel noise and thirty times what MHC or AHD show on the same frame. It was invisible to every
+test the suite had, because a demosaic had only ever been checked against ITSELF or against the GPU,
+which mirrors the same mistake; `VngFlatFieldBiasTests` asserts on a flat field, the one input where
+a bias has nowhere to hide.
+
+A Bayer mosaic's statistics are three colours, taken on the mosaic in place, wherever they are taken
+-- the document, the live preview and the masked walk. `Statistics`, `Histogram` and
+`GetPedestralMedianAndMADScaledToUnit` gained a defaulted `CfaChannel? cfa`, and
+`StretchSolver.CollectPerChannelStats` a defaulted `pixelStride`, all additive. The masked case was
+the one still wrong at the end of the cycle: without a `cfa` the walk is a fixed grid from (0, 0) and
+any EVEN `pixelStride` keeps both parities, so the default 4 never left the phase it started on and
+`StarMaskedLumaStats` measured whichever photosite the origin landed on while claiming the whole
+mosaic. The even-stride rule is now stated on the API rather than left for the next caller to find.
+
+**A star detector's spike guard** (`SpikeGuard.PeakShare`, default on): a detection carrying over 85
+percent of its background-subtracted 3 by 3 flux in one photosite is not a star. A single warm
+photosite on an OSC mosaic becomes a 2 by 2 blob under the detector's mono fold and passed the size
+floor, so on a night whose lights kept residual warm pixels half of every star list was them, and
+every median over it read their width.
+
+**The viewer is where most of the release went.** The sky behind the frame left the annotation ladder
+for its own button and key (`Y`): it reads as one more rung of the same idea and is not, since it
+puts a second view BEHIND the photograph, takes the pan clamp off and raises its own layer palette,
+and riding the ladder cost it three ways, each now pinned. A click in the file list is its own
+auto-stretch, and carries the run's calibration, with `Ctrl+H` also carrying the stretch and a blink
+reduced to a click within one target. The white balance and the colour calibration moved into one
+popover under a mark-only toolbar button (`W`). Below 100 percent the colour demosaic runs at the
+screen's resolution, so an OSC frame stops aliasing at fit zoom. The live preview draws a histogram,
+solved from a mosaic's three colours as a document's is, with one collector deciding what a channel
+is. `Shift+H` steps HDR back, the held frame carries an `[H]` in the file list, and `D` no longer
+cycles a demosaic a mono frame has no use for. `CycleStretchPreset` reconciles against the parameters
+in hand instead of stepping off a stored index that went stale whenever anything else set them, so
+the first press stops appearing to skip.
+
+**Source detection lands in `TianWen.Lib`**: `BackgroundMap` and `SourceSegmentation`, the
+`Background2D` and `detect_sources` shapes, with `EdgeSpreadProfile` reading an extended segment's
+boundary as a line-spread function. The crowded-field rule was measured on the Statue master -- a
+large segment with many maxima is a field, not a source, so the detection re-thresholds a sigma
+higher and says which sigma it was detected at: 49,614 segments in 25 s with the field-sized blobs
+gone. `tianwen image sources` writes the detection to disk as `MAPKIND`-stamped sidecars with a
+segment table.
+
+**Deconvolution P2 E3** shipped the unrolled Richardson-Lucy operator, its noise-free control and the
+residual prior (#241), on the calibration, warp default and degradation cache of #227.
+
+**The rest.** The catalog pins OpenNGC to v20260501 with both snapshots re-baked. A thumbnail handler
+reads nothing until asked and declines a fast extraction, so Explorer asking whether thumbnails exist
+no longer hydrates a folder of cloud placeholders; `0x8004B205` is recorded as EXTRACTIONPENDING
+rather than a failure, and OneDrive's own whole-root provider is documented as the reason our handler
+is never asked inside a sync root. The macOS lane signs every file in `Contents/MacOS`, not only the
+Mach-Os, which is what two release runs died on. APP's `AD-PED` is read as the pedestal where
+`PEDESTAL` is absent. MCP SDK 2.2.0.
+
 ## 7.1
 
 Additive, so a minor: every public member that existed at 7.0 survives (the only public line the
