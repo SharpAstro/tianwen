@@ -2896,6 +2896,56 @@ ring-to-skirt curve is not monotonic on the added points, or the target picks sc
 sends E7 to the profile-shape target (the output's fitted Moffat beta against the pool's clean beta)
 as the last single-frame criterion before a per-rig calibration is accepted.
 
+##### E7.4 read: the ring picks a safe kernel on both crops, and the two crops want different kernels (2026-09-14, 20:05)
+
+`e34d_s0_final.pt` at the 1.28x round trip, the pair's kernel scaled, both crops
+(`C:/temp/e2/e7-4/e34d-crop*-x*.txt`); `ring.self` is the truth-free column (the INPUT's own
+detections, width and MAD, the output's ring depth over the input's):
+
+| scale | primary width | stars | skirt | ring (truth) | ring.self | nebula width | stars | skirt | ring (truth) | ring.self |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 0.5 | | | | | | 1.129 | 0.89 | 1.19 | -0.56 | -0.61 |
+| 0.6 | | | | | | 1.119 | 0.91 | 1.12 | -0.49 | -0.56 |
+| 0.7 | | | | | | 1.100 | 0.93 | 1.01 | -0.37 | -0.45 |
+| 0.75 | 1.222 | 0.93 | 1.48 | -0.99 | -1.09 | 1.088 | 0.95 | 0.94 | -0.28 | -0.39 |
+| 0.9 | 1.177 | 0.97 | 1.18 | -0.72 | -0.85 | 1.050 | 1.00 | 0.71 | +0.15 | -0.11 |
+| 1.0 | 1.146 | 1.00 | 0.98 | -0.45 | -0.61 | 1.023 | 1.04 | 0.57 | +0.45 | +0.14 |
+| 1.1 | 1.118 | 1.02 | 0.79 | -0.10 | -0.28 | 0.997 | 1.07 | 0.44 | +0.85 | +0.40 |
+| 1.2 | 1.093 | 1.05 | 0.61 | +0.34 | +0.12 | 0.979 | 1.12 | 0.31 | +1.24 | +0.80 |
+| 1.25 | 1.082 | 1.06 | 0.53 | +0.58 | +0.34 | 0.972 | 1.13 | 0.25 | +1.47 | +1.06 |
+
+Three readings, the first not in the pre-registration. **The two crops want different kernels.** The
+pair's kernel (est-c, fitted on the primary crop at the frame's left edge) is right there (skirt 0.98
+at 1.0x) and over-deconvolves the nebula crop (skirt 0.57 at 1.0x, the skirt clause met only at 0.75x
+and under), so the field term the E7 list reserved for its second step is 1.3x across this one frame,
+and the kill clause "picks differing by over 0.2x between the crops" rested on a premise the frame
+refutes: a pick that differs between the crops is a kernel that differs, not a statistic that fails.
+
+**The truth-free ring is monotonic on both crops and has a field offset.** At equal skirt the nebula
+crop's `ring.self` reads about 0.2 MAD above the primary's (skirt 0.94 at -0.39 against skirt 0.98 at
+-0.61; skirt 0.71 at -0.11 against 0.79 at -0.28). A single target therefore picks conservatively
+where the offset runs against it: the primary's pass value, **-0.61**, lands the primary at 1.0x
+(1.146 / 1.00 / -0.45 / 0.98, the E3.4d row) and the nebula crop at 0.5x (1.129 / 0.89 / -0.56 / skirt
+1.19), where 0.7 to 0.75x would have read the skirt at 0.94 to 1.01 with the width at 1.09 to 1.10. So
+**every star clause holds on both crops at the target's pick**, which is the pass line, and the pick
+leaves about a fifth of the achievable tightening on the nebula crop, which is the kill line's 0.2x
+read for what it is: the price of a rule that errs toward doing less. A target of -0.5 would trade
+that the other way (primary about 1.04x with the skirt near 0.90, nebula about 0.65x with 1.06); the
+target is a dial between safe and tight, calibrated once per prior, and -0.6 is the safe end.
+
+**Verdict: E7.4 passes as the runtime's kernel rule, in its conservative setting, and it is what
+makes per-window kernels possible**: the bisection is a per-window loop by construction (the window's
+own detections, width and MAD are its inputs), and the frame just measured wants it, with the fraction
+rule (0.52 x the window's HFD width) as the starting point of each bisection. What the port needs, in
+order: the ring statistic and the star detection on the runtime side (the library has both since PR
+#248, `BackgroundMap` for the MAD and `SourceSegmentation` or `FindStarsAsync` for the positions), the
+operator as an ONNX graph taking the kernel as an input tensor (one export, the kernel a runtime value,
+not baked), the round trip's resample either side of it, and a bisection of three to five operator
+runs per window on a crop, which on DirectML is seconds where the CPU readout takes a minute a run.
+The open measurements before the port: the ring target on a SECOND pair (the Orion E2.10c pair at
+1.26x), and the window size the field term wants (the two crops here are 1024 and 512 px, 1.3x apart in
+kernel).
+
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
 Every retained master in `2026-09-full` predates the two registration fixes and R1, and E3 trains on
