@@ -46,6 +46,14 @@ namespace TianWen.Lib.Imaging.Sources;
 /// THIS many sigmas on the smoothed plane, lower than <paramref name="ThresholdSigma"/>, so a nebula's faint
 /// wing leaves the sky cells too. Masking only the detected segments left the wing in the mesh, which
 /// lifted the sky under the nebula and cut it into pieces at its own level.</param>
+/// <param name="CrowdedArea">A dense field at 3 sigma joins into segments of a hundred thousand pixels,
+/// a bright star with the faint field attached (the Statue master: 117,116 px at 3 sigma, 8,019 at 5,
+/// where the count RISES as the blobs come apart into their stars). A segment over this area that holds
+/// at least <paramref name="CrowdedPeaks"/> significant maxima is a field, not a source, and the detection
+/// re-runs one sigma higher, up to <paramref name="CrowdedRetries"/> times. A giant segment with few
+/// maxima is a nebula and is left alone. Needs <paramref name="Deblend"/>, which is where the maxima are counted.</param>
+/// <param name="CrowdedPeaks">Significant maxima (over <paramref name="DeblendMinPeakSigma"/>) that make a large segment a crowd.</param>
+/// <param name="CrowdedRetries">Re-thresholds allowed for a crowded field; 0 disables the rule.</param>
 public sealed record SourceDetectionOptions(
     float ThresholdSigma = 3f,
     int MinPixels = 5,
@@ -60,7 +68,10 @@ public sealed record SourceDetectionOptions(
     float SmoothingSigma = 1f,
     int BackgroundPasses = 2,
     int BackgroundMaskMargin = 5,
-    float BackgroundMaskSigma = 1f)
+    float BackgroundMaskSigma = 1f,
+    int CrowdedArea = 20000,
+    int CrowdedPeaks = 32,
+    int CrowdedRetries = 2)
 {
     public static SourceDetectionOptions Default { get; } = new SourceDetectionOptions();
 
@@ -72,6 +83,9 @@ public sealed record SourceDetectionOptions(
         ArgumentOutOfRangeException.ThrowIfLessThan(BackgroundPasses, 1);
         ArgumentOutOfRangeException.ThrowIfNegative(BackgroundMaskMargin);
         ArgumentOutOfRangeException.ThrowIfNegative(BackgroundMaskSigma);
+        ArgumentOutOfRangeException.ThrowIfLessThan(CrowdedArea, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(CrowdedPeaks, 2);
+        ArgumentOutOfRangeException.ThrowIfNegative(CrowdedRetries);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(DeblendSaddleFraction, 0f);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(DeblendSaddleFraction, 1f);
         ArgumentOutOfRangeException.ThrowIfLessThan(DeblendMinSeparation, 1f);
@@ -102,6 +116,8 @@ public sealed record SourceDetectionOptions(
 /// <param name="Elongation">Ratio of the major to the minor axis from the flux-weighted second moments; 1 is round.</param>
 /// <param name="CoreFraction">Share of <paramref name="Flux"/> inside the 5 by 5 window on the peak.</param>
 /// <param name="PeakToMean">The peak over the segment's mean sky-subtracted pixel: a star's concentration whatever its skirt.</param>
+/// <param name="PeakCount">Significant local maxima the deblend found in the segment BEFORE splitting it (0 when the
+/// deblend is off): one for a star, a few for a shell with knots, hundreds for a star field joined into one segment.</param>
 /// <param name="IsCompact">A star-like source (see <see cref="SourceDetectionOptions.CompactCoreFraction"/> and
 /// <see cref="SourceDetectionOptions.CompactPeakToMean"/>); the rest is structure.</param>
 public readonly record struct Segment(
@@ -120,6 +136,7 @@ public readonly record struct Segment(
     float Elongation,
     float CoreFraction,
     float PeakToMean,
+    int PeakCount,
     bool IsCompact);
 
 /// <summary>
@@ -358,10 +375,35 @@ public static class SourceSegmentation
             throw new ArgumentException($"background map is {background.Width}x{background.Height} for a {width}x{height} plane", nameof(background));
         }
 
-        // The per-pass planes are allocated once and reused by the second pass: the sky-subtracted plane,
+        // The per-pass planes are allocated once and reused by every pass: the sky-subtracted plane,
         // its smoothed copy, the threshold flags and the labels are 36 bytes a pixel, 601 MB over two
         // passes on a 16 Mpx frame before this.
         var buffers = new DetectBuffers(width * height, options.SmoothingSigma > 0f);
+        var map = DetectWithPasses(plane, width, height, background, options, buffers);
+        for (var retry = 0; retry < options.CrowdedRetries && IsCrowded(map, options); retry++)
+        {
+            options = options with { ThresholdSigma = options.ThresholdSigma + 1f };
+            map = DetectWithPasses(plane, width, height, background, options, buffers);
+        }
+
+        return map;
+    }
+
+    private static bool IsCrowded(SegmentationMap map, SourceDetectionOptions options)
+    {
+        foreach (var s in map.Segments)
+        {
+            if (s.Area > options.CrowdedArea && s.PeakCount >= options.CrowdedPeaks)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static SegmentationMap DetectWithPasses(ReadOnlySpan<float> plane, int width, int height, BackgroundMap background, SourceDetectionOptions options, DetectBuffers buffers)
+    {
         var (map, lowMask) = DetectOnce(plane, width, height, background, options, buffers);
         for (var pass = 1; pass < options.BackgroundPasses; pass++)
         {
@@ -439,14 +481,19 @@ public static class SourceSegmentation
         var labels = new int[n];
         var count = LabelConnected(above, width, height, labels);
         count = DropSmall(labels, count, options.MinPixels);
+        int[] peakCounts;
         if (options.Deblend && count > 0)
         {
             // Peaks and saddles are read on the SMOOTHED plane (photutils deblends the convolved data):
             // on the raw one every noise bump on a nebula's surface is a strict maximum.
-            count = Deblend(detect, labels, count, width, height, background, options, buffers.Position);
+            (count, peakCounts) = Deblend(detect, labels, count, width, height, background, options, buffers.Position);
+        }
+        else
+        {
+            peakCounts = new int[count + 1];
         }
 
-        var segments = Measure(signal, labels, count, width, height, options);
+        var segments = Measure(signal, labels, count, width, height, options, peakCounts);
         return (new SegmentationMap(width, height, labels, segments), low);
     }
 
@@ -655,9 +702,12 @@ public static class SourceSegmentation
 
     private readonly record struct Peak(int X, int Y, float Value);
 
-    /// <summary>Split every segment with several saddle-separated peaks; returns the new label count.</summary>
+    /// <summary>
+    /// Split every segment with several saddle-separated peaks; returns the new label count and, per
+    /// final label, the significant maxima its ORIGINAL segment held (the crowd measure).
+    /// </summary>
     /// <param name="position">A frame-sized scratch array (the pixel's rank in its segment's descending order); every entry touched is reset before return.</param>
-    private static int Deblend(float[] signal, int[] labels, int count, int width, int height, BackgroundMap background, SourceDetectionOptions options, int[] position)
+    private static (int Count, int[] PeakCounts) Deblend(float[] signal, int[] labels, int count, int width, int height, BackgroundMap background, SourceDetectionOptions options, int[] position)
     {
         // Gather each segment's pixels once.
         var area = new int[count + 1];
@@ -685,11 +735,18 @@ public static class SourceSegmentation
 
         var next = count;
         var peaks = new List<Peak>();
+        var originalPeaks = new List<int>(count + 1) { 0 };   // per label: maxima found in its original segment
+        for (var l = 1; l <= count; l++)
+        {
+            originalPeaks.Add(0);
+        }
+
         for (var l = 1; l <= count; l++)
         {
             var seg = pixels.AsSpan(start[l], area[l]);
             if (seg.Length < 2 * options.MinPixels)
             {
+                originalPeaks[l] = 1;
                 continue;
             }
 
@@ -710,6 +767,7 @@ public static class SourceSegmentation
                 }
             }
 
+            originalPeaks[l] = Math.Max(1, peaks.Count);
             if (peaks.Count < 2)
             {
                 continue;
@@ -753,6 +811,7 @@ public static class SourceSegmentation
             for (var k = 1; k < survivors.Count; k++)
             {
                 peakLabel[k] = ++next;
+                originalPeaks.Add(originalPeaks[l]);   // a child carries its parent's crowd measure
             }
 
             var order = seg.ToArray();
@@ -843,7 +902,7 @@ public static class SourceSegmentation
             }
         }
 
-        return next;
+        return (next, originalPeaks.ToArray());
     }
 
     private static bool IsStrictMaximum(float[] signal, int[] labels, int label, int x, int y, int width, int height)
@@ -914,7 +973,7 @@ public static class SourceSegmentation
         return lowest < options.DeblendSaddleFraction * fainter.Value;
     }
 
-    private static ImmutableArray<Segment> Measure(float[] signal, int[] labels, int count, int width, int height, SourceDetectionOptions options)
+    private static ImmutableArray<Segment> Measure(float[] signal, int[] labels, int count, int width, int height, SourceDetectionOptions options, int[] peakCounts)
     {
         if (count == 0)
         {
@@ -1042,7 +1101,7 @@ public static class SourceSegmentation
             var compact = (coreFraction >= options.CompactCoreFraction && area[l] <= options.CompactMaxArea)
                 || peakToMean >= options.CompactPeakToMean;
             builder.Add(new Segment(l, area[l], cx, cy, peakX[l], peakY[l], peak[l], (float)flux[l],
-                x0[l], y0[l], x1[l], y1[l], elongation, coreFraction, peakToMean, compact));
+                x0[l], y0[l], x1[l], y1[l], elongation, coreFraction, peakToMean, l < peakCounts.Length ? peakCounts[l] : 0, compact));
         }
 
         return builder.MoveToImmutable();

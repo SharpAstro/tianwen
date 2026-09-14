@@ -87,28 +87,46 @@ Two things the real frames taught that the synthetic ones could not:
   library's memory, and not proven to be the probe's doing at all). The cap of 64 peaks per segment brought the frame
   to 10.6 s. What remains is a known limitation: on the Statue the four largest "compact" segments are
   78,000 to 117,000 px, a bright star with the faint field attached to it through the 1 sigma
-  mask's continuity, and neither class fits them. A crowded-field mode (a higher threshold, a larger
-  minimum area, or the star detector's list used to seed the deblend, which is P5's cross-match) is
-  the next thing to measure; until then a star mask in a dense field comes from `Image.FindStarsAsync`
-  and this map's star mask is right for sparse fields and for extended objects.
+  mask's continuity, and neither class fits them. **Measured the same afternoon** (`SweepThresholdsOnARealMaster`,
+  the Statue soft half, the star detector's 11,237 stars at SNR 10 as the external check):
+
+  | sigma | min px | segments | compact / extended | largest | p99 area | detector stars inside a compact segment |
+  |---|---|---|---|---|---|---|
+  | 3 | 5 | 35,001 | 34,011 / 990 | 117,116 | 238 | 11,212 (99.8 %) |
+  | 4 | 5 | 43,048 | 41,571 / 1,477 | 75,335 | 219 | 11,179 (99.5 %) |
+  | 5 | 5 | 49,614 | 47,763 / 1,851 | 8,019 | 379 | 11,119 (98.9 %) |
+  | 5 | 9 | 44,520 | 42,671 / 1,849 | 8,019 | 446 | 11,064 (98.5 %) |
+
+  Two readings. The segmentation and the star detector agree on stars to a percent or two at every
+  setting, so the compact class is what it claims. And the field-sized blobs are a THRESHOLD effect,
+  not a deblend one: at 5 sigma the largest segment is a bright star with its spikes (8,019 px) and
+  the count RISES, the blobs having come apart into their stars. Hence the rule now in `Detect`: a
+  segment over `CrowdedArea` (20,000 px) holding at least `CrowdedPeaks` (32) significant maxima is a
+  field, not a source, and the detection re-runs one sigma higher, at most `CrowdedRetries` (2) times;
+  a giant segment with few maxima is a nebula and is left alone. The maxima count is the deblend's,
+  recorded per segment as `Segment.PeakCount` (a first draft keyed the rule on the compact flag, and a
+  synthetic crowd whose bright star was only 25 times its neighbours read as extended and slipped
+  it). The minimum area is not the lever (5 to 9 moves the count by a tenth and the largest not at all).
 
 ## Cost (BenchmarkDotNet, `SourceSegmentationBenchmarks`, ShortRun, 2026-09-14, a GPU trainer running beside it)
 
 Synthetic frame, one star per 64 by 64 cell and a 40 px nebula, 64 px cells:
 
-| stage | 2048 square (4.2 Mpx) | 4096 square (16.8 Mpx) | allocated at 4096 |
-|---|---|---|---|
-| `BackgroundMap.Estimate` | 175 ms | 680 ms | 116 KB |
-| `SourceSegmentation.Detect` (two passes, deblend) | 606 ms | 2.56 s | 601 MB |
-| star + structure + sky masks (margin 3) | 90 ms | 715 ms | 90 MB |
-| `EdgeSpreadProfile.Measure` (36 sectors) | 18 ms | 27 ms | 2.3 MB |
+| stage | 2048 square (4.2 Mpx) | 4096 square (16.8 Mpx) | allocated at 4096 | before the allocation work |
+|---|---|---|---|---|
+| `BackgroundMap.Estimate` | 186 ms | 728 ms | 116 KB | same |
+| `SourceSegmentation.Detect` (two passes, deblend) | 590 ms | 2.35 s | 420 MB | 2.56 s, 601 MB |
+| star + structure + sky masks (margin 3) | 21 ms | 87 ms | 12 MB | 715 ms, 90 MB |
+| `EdgeSpreadProfile.Measure` (36 sectors) | 18 ms | 31 ms | 2.3 MB | same |
 
-The map is cheap and allocates nothing to speak of. The detection allocates about 36 bytes a pixel per
-pass (the sky-subtracted plane, its smoothed copy, the threshold flags, the labels, the low mask) and
-runs two passes, which is what the 601 MB is; pooling those five buffers across the passes and the
-deblend's per-segment dictionary are the first two savings when it matters, and neither changes a
-result. The masks are three boolean planes each converted to a `BitMatrix`; a direct `BitMatrix`
-dilation would remove the 90 MB.
+The map is cheap and allocates nothing to speak of. The detection's planes (the sky-subtracted plane,
+its smoothed copy, the smoothing scratch, the threshold flags, a rank scratch: 24 bytes a pixel) are
+allocated once for both passes since the second commit, and the deblend's per-segment dictionary is
+that rank scratch; the labels are the map's own and a fresh array per pass. What is left, 420 MB at
+16.8 Mpx, is those planes themselves; taking them from a pool across calls would remove it, and is not
+worth doing until a caller runs the detection in a loop. The masks dilate on the `BitMatrix` words
+(`BitMatrix.DilateSquare`, pinned against the boolean-plane dilation), eight times faster and a
+seventh of the allocation.
 
 ## Traps
 
