@@ -1289,7 +1289,7 @@ namespace TianWen.UI.Abstractions
         /// star's size relative to the four bright ones; Epsilon is the small one New Zealand's flag
         /// leaves off, and small is exactly why.
         /// </summary>
-        private static readonly (float X, float Y, float Weight)[] CruxStars =
+        internal static readonly ImmutableArray<(float X, float Y, float Weight)> CruxStars =
         [
             (0.500f, 0.122f, 1f),      // Gamma, north
             (0.862f, 0.372f, 1f),      // Beta, one arm
@@ -1299,11 +1299,11 @@ namespace TianWen.UI.Abstractions
         ];
 
         /// <summary>130 by 188 off the flag: Crux is markedly taller than it is wide.</summary>
-        private const float CruxAspect = 130f / 188f;
+        internal const float CruxAspect = 130f / 188f;
 
         /// <summary>Enough to stop the four bright stars reading as a plus sign, little enough to keep
         /// most of the axis-aligned crispness a pixel grid gives.</summary>
-        private const float CruxTiltDeg = 20f;
+        internal const float CruxTiltDeg = 20f;
 
         /// <summary>
         /// Half the box of a full-weight star, as a fraction of the mark. <b>Derived, not chosen.</b>
@@ -1316,17 +1316,7 @@ namespace TianWen.UI.Abstractions
         /// of the box rather than 0.5, because a five-pointed star does not fill its own square.
         /// Pinned by <c>ViewerSkyMarkTests</c>, which recomputes both from the table above.
         /// </remarks>
-        private const float CruxStarHalf = 0.151f;
-
-        /// <summary>Test seams: the sky mark's geometry, so a test can recompute the bound the star
-        /// size has to sit under rather than restate it and drift from it.</summary>
-        internal static (float X, float Y, float Weight)[] CruxStarsForTest => CruxStars;
-
-        /// <inheritdoc cref="CruxStarsForTest"/>
-        internal static float CruxAspectForTest => CruxAspect;
-
-        /// <inheritdoc cref="CruxStarsForTest"/>
-        internal static float CruxStarHalfForTest => CruxStarHalf;
+        internal const float CruxStarHalf = 0.151f;
 
         /// <summary>
         /// Crux, the Southern Cross: five stars and no joining lines, the mark for the sky behind

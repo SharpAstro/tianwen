@@ -451,7 +451,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
         // Reserve the mount reticle's label footprint (drawn later, in RenderMountOverlay) so
         // an object name never renders on top of it when the mount sits on a catalogued target.
-        var mountLabelReservation = BuildMountLabelReservation(contentRect, dpiScale, baseFontSize);
+        var mountLabelReservation = BuildLabelReservations(contentRect, dpiScale, baseFontSize);
         if (_useCollisionPlacement)
         {
             OverlayEngine.PlaceLabels(_overlayItems, placementLabelSize, 4f, measureText, record,
@@ -959,6 +959,27 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// centred lines below the reticle: name at <c>fontSize</c>, coords at <c>fontSize*0.9</c>,
     /// each <see cref="DrawReticleLabel"/> block padded ±4px horizontally).
     /// </summary>
+    /// <summary>
+    /// Every box a catalog label has to keep clear of this frame: the mount reticle's own label,
+    /// drawn later in its own pass, and whatever the host is compositing over the map (the FITS
+    /// viewer's photograph). Both go through one list so a label cannot be kept clear of one and
+    /// slid under the other.
+    /// </summary>
+    private IReadOnlyList<(float X, float Y, float W, float H)>? BuildLabelReservations(
+        RectF32 contentRect, float dpiScale, float baseFontSize)
+    {
+        var mount = BuildMountLabelReservation(contentRect, dpiScale, baseFontSize);
+        var host = HostOccluderReservation;
+
+        if (mount is null) { return host; }
+        if (host is null) { return mount; }
+
+        var both = new List<(float X, float Y, float W, float H)>(mount.Count + host.Count);
+        both.AddRange(mount);
+        both.AddRange(host);
+        return both;
+    }
+
     private IReadOnlyList<(float X, float Y, float W, float H)>? BuildMountLabelReservation(
         RectF32 contentRect, float dpiScale, float baseFontSize)
     {

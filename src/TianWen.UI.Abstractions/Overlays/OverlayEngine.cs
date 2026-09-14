@@ -570,12 +570,17 @@ public static class OverlayEngine
     /// <param name="measureText">Callback to measure text width: (text, fontSize) → width in pixels.</param>
     /// <param name="baseFontSize">Base font size (before DPI scaling) for labels.</param>
     /// <returns>Sorted list of overlay items (brightest first).</returns>
+    /// <param name="showDarkNebulae">Whether dark nebulae are among the types drawn. False drops
+    /// them, which is what the sky map's own [D] row means -- and this overlay has to honour it too
+    /// while both are on screen, or switching the row off leaves every dark nebula INSIDE the frame
+    /// still marked, by a producer the row does not reach.</param>
     public static List<OverlayItem> ComputeOverlays(
         ViewportLayout layout,
         WCS wcs,
         ICelestialObjectDB db,
         Func<string, float, float> measureText,
-        float baseFontSize)
+        float baseFontSize,
+        bool showDarkNebulae = true)
     {
         var result = new List<OverlayItem>();
 
@@ -688,6 +693,13 @@ public static class OverlayEngine
                     var isStar = IsStarType(obj.ObjectType);
 
                     if (!isExtended && !isStar)
+                    {
+                        continue;
+                    }
+
+                    // The sky map's own [D] row, honoured here too while both producers are drawing:
+                    // one row has to switch dark nebulae off everywhere, not only outside the frame.
+                    if (!showDarkNebulae && obj.ObjectType == ObjectType.DarkNeb)
                     {
                         continue;
                     }

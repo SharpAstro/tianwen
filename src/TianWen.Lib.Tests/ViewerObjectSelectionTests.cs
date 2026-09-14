@@ -385,7 +385,7 @@ namespace TianWen.Lib.Tests
         /// </remarks>
         /// <summary>
         /// While the sky is drawn behind the frame the MAP owns the objects, and the frame's own
-        /// overlay stands down so nothing is drawn twice.
+        /// overlay keeps the INSIDE of the frame and the map takes everything else.
         /// </summary>
         /// <remarks>
         /// <para>The two are the same catalogue drawn from different transforms, and this one reaches
@@ -393,13 +393,17 @@ namespace TianWen.Lib.Tests
         /// exactly the band the map also draws. Left to both, every object out there was drawn and
         /// labelled twice, at slightly different sizes because the transforms disagree by a hair.
         /// Reported on the Sadr field, where Ced 176d, Cr 421 and LDN 897 each carried two labels.</para>
+        /// <para><b>Standing this overlay down entirely was the first fix and it cost more than it
+        /// paid.</b> The map's markers go BEHIND the photograph by design, so the objects the picture
+        /// is OF became the only ones on screen with no marker: on an M8 frame, M8 and M20 sat
+        /// unlabelled while every catalogue object around them was named. Splitting by region keeps
+        /// the duplicate fix and gives the subject its marker back.</para>
         /// <para>The assertion is on the DRAWN set rather than on pixels because two labels a hair
-        /// apart are not something a pixel comparison can be trusted to catch, while "this producer
-        /// drew nothing" is exact. The first render is half the test: without it a bug that stopped the
-        /// overlay drawing at all would pass.</para>
+        /// apart are not something a pixel comparison can be trusted to catch, while "which producer
+        /// drew what" is exact.</para>
         /// </remarks>
         [Fact]
-        public async Task TheFramesOwnObjectOverlayStandsDownWhileTheSkyIsDrawnBehindIt()
+        public async Task TheFramesOwnObjectOverlayKeepsTheInsideWhileTheSkyTakesTheOutside()
         {
             var ct = TestContext.Current.CancellationToken;
             using var renderer = new RgbaImageRenderer(WindowW, WindowH);
@@ -407,7 +411,8 @@ namespace TianWen.Lib.Tests
             state.ShowOverlays = true;
 
             viewer.Render(document, state);
-            viewer.DrawnOverlayObjects.ShouldNotBeEmpty(
+            var withoutSky = viewer.DrawnOverlayObjects;
+            withoutSky.ShouldNotBeEmpty(
                 "the frame's own overlay draws while there is no sky behind it");
 
             // Everything SkyBackdropActive wants beyond the solution the frame already carries: a map,
@@ -429,9 +434,26 @@ namespace TianWen.Lib.Tests
             state.ShowSkyBackdrop = true;
 
             viewer.Render(document, state);
+            var withSky = viewer.DrawnOverlayObjects;
 
-            viewer.DrawnOverlayObjects.ShouldBeEmpty(
-                "the map draws them while it is up, so this overlay must not draw a second copy");
+            // The subject keeps its marker -- this is the whole complaint, and the half the
+            // stand-down version got wrong.
+            withSky.ShouldNotBeEmpty(
+                "the object the photograph is OF must still be marked once the sky is behind it");
+            withSky.ShouldContain(d => d.Index == CatalogIndex.NGC5194,
+                "the frame's own subject is exactly what this overlay is for");
+
+            // And it no longer reaches into the band the map owns, which is where the duplicates were.
+            var frame = viewer.Placement;
+            foreach (var drawn in withSky)
+            {
+                drawn.ScreenX.ShouldBeInRange(frame.OffsetX, frame.OffsetX + frame.DrawW,
+                    "an object outside the picture belongs to the map while it is drawing");
+                drawn.ScreenY.ShouldBeInRange(frame.OffsetY, frame.OffsetY + frame.DrawH);
+            }
+
+            withSky.Length.ShouldBeLessThanOrEqualTo(withoutSky.Length,
+                "confining to the frame can only ever draw fewer");
         }
 
         [Fact]

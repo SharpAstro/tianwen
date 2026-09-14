@@ -67,8 +67,8 @@ namespace TianWen.Lib.Tests
         /// </summary>
         private static float MaxHalfWithoutOverlap(float gap)
         {
-            var stars = ImageRendererBase<RgbaImage>.CruxStarsForTest;
-            var aspect = ImageRendererBase<RgbaImage>.CruxAspectForTest;
+            var stars = ImageRendererBase<RgbaImage>.CruxStars;
+            var aspect = ImageRendererBase<RgbaImage>.CruxAspect;
             var ink = StarInkRadius;
 
             // Rotation is rigid, so pairwise distances do not depend on the tilt; the SPAN the layout
@@ -101,7 +101,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void TheStarSizeLeavesEveryPairClearOfItsNeighbour()
         {
-            var shipped = ImageRendererBase<RgbaImage>.CruxStarHalfForTest;
+            var shipped = ImageRendererBase<RgbaImage>.CruxStarHalf;
             var bound = MaxHalfWithoutOverlap(gap: 0f);
 
             shipped.ShouldBeLessThanOrEqualTo(bound,
@@ -116,7 +116,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void TheStarSizeIsNotLeavingPixelsOnTheTable()
         {
-            var shipped = ImageRendererBase<RgbaImage>.CruxStarHalfForTest;
+            var shipped = ImageRendererBase<RgbaImage>.CruxStarHalf;
             var bound = MaxHalfWithoutOverlap(gap: 0f);
 
             shipped.ShouldBeGreaterThan(bound * 0.8f,
@@ -137,9 +137,9 @@ namespace TianWen.Lib.Tests
         public void EveryStarBoxHasABakeNearIt(float dpiScale)
         {
             var mark = 13f * dpiScale;
-            var half = ImageRendererBase<RgbaImage>.CruxStarHalfForTest;
+            var half = ImageRendererBase<RgbaImage>.CruxStarHalf;
 
-            foreach (var star in ImageRendererBase<RgbaImage>.CruxStarsForTest)
+            foreach (var star in ImageRendererBase<RgbaImage>.CruxStars)
             {
                 var box = 2f * half * mark * star.Weight;
                 var chosen = IconBaker.NearestSize(SkyIcons.Star5, box);

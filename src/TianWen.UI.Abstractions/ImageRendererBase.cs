@@ -990,24 +990,30 @@ namespace TianWen.UI.Abstractions
                 ? SolveSelectionRing(state, ringWcs)
                 : null;
 
-            // THE MAP OWNS THE OBJECTS WHILE IT IS DRAWN, and this overlay stands down, the same way
-            // the cached image layer does behind the sky. The two are the same catalogue drawn from
-            // different transforms -- this one from the frame's WCS, the map's from its view matrix --
-            // and this one deliberately reaches PAST the frame's edge (so a click beside the picture
-            // can still select), which is exactly the band the map is also drawing. Left to both, every
-            // object out there was drawn and labelled twice, at slightly different sizes because the
-            // two transforms disagree by a hair; reported on the Sadr field, where Ced 176d, Cr 421 and
-            // LDN 897 each had two labels stacked on each other.
+            // ONE CATALOGUE, SPLIT BY REGION: this overlay owns what is INSIDE the photograph, the
+            // map owns what is outside it. Same objects, two transforms -- this one from the frame's
+            // WCS, the map's from its view matrix -- so anything drawn by both is drawn twice at
+            // slightly different sizes. That was reported on the Sadr field (Ced 176d, Cr 421 and
+            // LDN 897 each wearing two stacked labels), because this overlay deliberately reaches
+            // PAST the frame's edge so a click beside the picture can still select.
             //
-            // Standing down rather than clipping to the frame is what also fixes the other half of that
-            // report: the palette's rows (Objects, Dark nebulae, and the eight others) drive the MAP,
-            // so while this overlay drew too, switching Dark nebulae off left every dark nebula on
-            // screen, drawn by a producer the row does not reach. One producer, one switch.
-            var mapOwnsObjects = SkyBackdropActive;
-            if (state.ShowOverlays && !mapOwnsObjects
+            // It was fixed by standing this overlay down entirely while the map drew, and that cost
+            // more than it paid: the map's markers go BEHIND the photograph by design, so the objects
+            // the picture is OF ended up the only ones on screen with no marker at all. On an M8
+            // frame, M8 and M20 were unlabelled while every catalogue object around them was named.
+            // The split below keeps the duplicate fix and gives the subject its marker back.
+            //
+            // The other half of that report has to be carried too: the palette's rows drive the MAP,
+            // so this overlay must honour them while both are drawing, or switching Dark nebulae off
+            // would leave them marked inside the frame by a producer the row does not reach. Hence
+            // the flag passed through to the gather.
+            var skyOwnsOutside = SkyBackdropActive;
+            if (state.ShowOverlays
                 && document?.Wcs is { HasCDMatrix: true } overlayWcs && LoadedCatalog is { } db)
             {
-                RenderOverlays(state, overlayWcs, db, selectionRing);
+                RenderOverlays(state, overlayWcs, db, selectionRing,
+                    confineToFrame: skyOwnsOutside,
+                    showDarkNebulae: !skyOwnsOutside || SkyBackdrop?.State.ShowDarkNebulae != false);
             }
             else
             {
@@ -1125,6 +1131,18 @@ namespace TianWen.UI.Abstractions
         private WCS? _preparedGridWcs;
 
         /// <summary>
+        /// Where the photograph was placed this frame: the rect the image quad occupies, which is
+        /// also the region this viewer's own object overlay owns while the sky is behind it.
+        /// </summary>
+        internal ImagePlacement Placement => _placement;
+
+        /// <summary>
+        /// The WCS the IMAGE QUAD's own grid is drawn with this frame, or null when that grid stands
+        /// down because something else is already drawing one. Read-only view of the prepared field.
+        /// </summary>
+        internal WCS? PreparedGridWcs => _preparedGridWcs;
+
+        /// <summary>
         /// How many times <see cref="PrepareFrame"/> has actually done its work. Exposed because the
         /// guard it counts is otherwise UNOBSERVABLE: preparing twice in one frame happens to be
         /// harmless (measuring, arranging and clamping are all idempotent), so a test asserting on the
@@ -1202,10 +1220,21 @@ namespace TianWen.UI.Abstractions
             // document-less live source (a plate-solved preview frame). GPU grid only; the RA/Dec labels
             // stay document-gated in RenderGridLabels (a live preview shows grid lines, not labels).
             //
-            // ONE grid, never two. With the sky behind the frame the SAME grid is drawn across the
-            // whole pane in its own pass (RenderPaneWideGrid), so drawing it on the image quad as well
-            // would double every line inside the picture.
-            _preparedGridWcs = !state.ShowGrid || PaneWideGrid
+            // ONE grid, never two, and the gate is the SKY being behind the frame rather than which
+            // of the sky's two grids won.
+            //
+            // There are three grid paths and only one may run. With no sky behind it the quad grid
+            // here is the only one. With the sky behind it, GEOMETRY picks between the frame's grid
+            // drawn pane-wide (RenderPaneWideGrid, while the tangent plane holds) and the map's
+            // spherical one (beyond it) -- and the quad grid must stand down for BOTH, because
+            // either way something else is already drawing a grid over the picture.
+            //
+            // Gating on PaneWideGrid alone covered only the first of those. Past the tangent
+            // threshold it went false, the map raised its own spherical grid, and this one kept
+            // drawing inside the frame as well: two grids, of two different things, meeting at the
+            // frame edge at an angle. Reported as "grid line show and hide is out of sync", and
+            // visible only zoomed OUT, which is exactly where the handover happens.
+            _preparedGridWcs = !state.ShowGrid || SkyBackdropActive
                 ? null as WCS?
                 : (document?.Wcs is { HasCDMatrix: true } w
                     ? w

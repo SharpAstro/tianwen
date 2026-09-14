@@ -417,7 +417,14 @@ namespace TianWen.UI.Abstractions
         /// what "the text is mangled" was. Reserving the box is what keeps a NEIGHBOUR's label off the
         /// ring's name too: the ring is drawn after this pass and cannot dodge.
         /// </param>
-        private void RenderOverlays(ViewerState state, WCS wcs, ICelestialObjectDB db, SelectionRingGeometry? selectionRing)
+        /// <param name="confineToFrame">Whether to draw only what lands ON the photograph. Set while
+        /// the sky is behind it, because the map is then drawing the same catalogue everywhere else
+        /// and this overlay reaches past the frame edge -- the band where both would draw is exactly
+        /// the band that produced two stacked labels per object.</param>
+        /// <param name="showDarkNebulae">Passed through to the gather; false while the sky map's own
+        /// [D] row is off, so one row switches them off everywhere rather than only outside.</param>
+        private void RenderOverlays(ViewerState state, WCS wcs, ICelestialObjectDB db,
+            SelectionRingGeometry? selectionRing, bool confineToFrame = false, bool showDarkNebulae = true)
         {
             _drawnOverlayObjects = ImmutableArray<DrawnOverlayObject>.Empty;
 
@@ -428,7 +435,28 @@ namespace TianWen.UI.Abstractions
 
             var layout = CurrentViewportLayout(state);
 
-            var items = OverlayEngine.ComputeOverlays(layout, wcs, db, MeasureText, BaseFontSize);
+            var items = OverlayEngine.ComputeOverlays(layout, wcs, db, MeasureText, BaseFontSize,
+                showDarkNebulae);
+
+            // The split is by the marker's CENTRE, not by clipping, so an object is drawn whole by
+            // exactly one of the two producers -- a clip would cut markers in half at the frame edge
+            // and leave the other half to a producer drawing at a slightly different size.
+            if (confineToFrame && items.Count > 0)
+            {
+                var frame = _placement;
+                var kept = new List<OverlayItem>(items.Count);
+                foreach (var item in items)
+                {
+                    if (item.ScreenX >= frame.OffsetX && item.ScreenX <= frame.OffsetX + frame.DrawW
+                        && item.ScreenY >= frame.OffsetY && item.ScreenY <= frame.OffsetY + frame.DrawH)
+                    {
+                        kept.Add(item);
+                    }
+                }
+
+                items = kept;
+            }
+
             if (items.Count == 0)
             {
                 return;

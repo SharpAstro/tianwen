@@ -56,7 +56,7 @@ namespace TianWen.UI.Abstractions
         private readonly record struct ViewerLayout(
             RectF32 Toolbar, RectF32 FileList, RectF32 ImageArea, RectF32 InfoPanel, RectF32 StatusBar);
 
-        private readonly record struct ImagePlacement(float OffsetX, float OffsetY, float DrawW, float DrawH, float Scale);
+        internal readonly record struct ImagePlacement(float OffsetX, float OffsetY, float DrawW, float DrawH, float Scale);
 
         private ViewerLayout _layout;
         private ImmutableArray<Layout.ArrangedNode<float>> _layoutArranged;
@@ -253,6 +253,24 @@ namespace TianWen.UI.Abstractions
                 state.Zoom = fitScale;
             }
 
+            // WHILE THE SKY IS BEHIND IT, THE ZOOM STOPS WHERE THE PROJECTION DOES. The backdrop states
+            // its view from this placement, and a projection cannot be asked for more than the whole
+            // sky, so SkyBackdropView clamps at MaxFieldOfViewDeg. Past that point the map stops
+            // widening while the photograph's quad goes on shrinking linearly, the two decouple, and
+            // the frame slides off its own sky position -- reported as "the image moves when zoomed out
+            // a lot", with an M8 frame sitting in Scutum while Sagittarius was drawn beside it.
+            //
+            // Bounding the zoom is what keeps the two in step, and it belongs here rather than in the
+            // zoom handlers for the reason the pan clamp does: every path (wheel, keys, the ratio menu,
+            // Fit) arrives at this one pass, and the value is written back so a wheel held at the limit
+            // cannot accumulate a zoom nothing is showing. It reads as the view stopping once the whole
+            // sky is on screen, which is where there is nothing further to zoom out TO.
+            if (SkyBackdropActive && MinZoomForBackdrop(area) is { } floor && state.Zoom < floor)
+            {
+                state.Zoom = floor;
+                state.ZoomToFit = false;
+            }
+
             var scale = state.Zoom;
             var drawW = ImageWidth * scale;
             var drawH = ImageHeight * scale;
@@ -288,6 +306,41 @@ namespace TianWen.UI.Abstractions
             _shownRect = new RectF32(offsetX, offsetY, shownW, shownH);
             _placement = new ImagePlacement(
                 offsetX - (shown.X * scale), offsetY - (shown.Y * scale), drawW, drawH, scale);
+        }
+
+        /// <summary>
+        /// The smallest zoom at which the pane still asks the backdrop for a field it can project, or
+        /// null when the frame carries no scale to work it out from.
+        /// </summary>
+        /// <remarks>
+        /// The pane spans <c>paneEdge / zoom</c> image pixels, which is that many times the frame's own
+        /// plate scale in angle. Requiring that to stay within
+        /// <see cref="SkyBackdropView.MaxFieldOfViewDeg"/> and solving for the zoom is the whole of it.
+        /// Taken on the LONGER pane edge, since the field the projection is asked for is set by whichever
+        /// side reaches furthest.
+        /// </remarks>
+        private float? MinZoomForBackdrop(RectF32 area)
+        {
+            if (_document?.Wcs is not { HasCDMatrix: true } wcs)
+            {
+                return null;
+            }
+
+            var arcsecPerPixel = wcs.PixelScaleArcsec;
+            if (!double.IsFinite(arcsecPerPixel) || arcsecPerPixel <= 0.0)
+            {
+                return null;
+            }
+
+            var paneEdge = MathF.Max(area.Width, area.Height);
+            if (paneEdge <= 0f)
+            {
+                return null;
+            }
+
+            const double MaxArcsec = SkyBackdropView.MaxFieldOfViewDeg * 3600.0;
+            var floor = (float)(paneEdge * arcsecPerPixel / MaxArcsec);
+            return float.IsFinite(floor) && floor > 0f ? floor : null;
         }
 
         // Clamp a top-left coordinate so a draw of <paramref name="drawSize"/> stays confined to the viewport

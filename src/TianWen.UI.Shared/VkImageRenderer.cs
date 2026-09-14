@@ -85,8 +85,19 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Cleared to the pane's own ground, not to black.</b> This layer covers the WHOLE pane, so
+    /// its clear colour is what shows everywhere the picture does not reach -- which makes it the
+    /// letterbox, and the letterbox has a stated colour (<see cref="ImageRendererBase{TSurface}.CanvasBackground"/>,
+    /// 0x1a1a1a in tianwen-fits and 0x121218 in the GUI, each matching the colour its host clears the
+    /// window to). Hard-coded black here meant the ground CHANGED with the cache: black while the
+    /// layer was in use, the canvas colour on every path that declines it (the A/B split, the sky
+    /// behind the frame, the first frame after a load). Reported on auto-crop, which is simply where
+    /// it becomes obvious -- cropping shrinks the picture, so there is suddenly enough letterbox to
+    /// see the difference in.
+    /// </remarks>
     protected override bool TryBeginCachedLayerPass(int width, int height)
-        => _renderer.BeginCachedLayer((uint)width, (uint)height, new RGBAColor32(0, 0, 0, 255));
+        => _renderer.BeginCachedLayer((uint)width, (uint)height, CanvasBackground);
 
     /// <inheritdoc/>
     protected override void EndCachedLayerPass() => _renderer.EndCachedLayer();

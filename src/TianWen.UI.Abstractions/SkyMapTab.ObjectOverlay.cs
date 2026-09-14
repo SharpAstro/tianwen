@@ -143,6 +143,17 @@ namespace TianWen.UI.Abstractions
         internal double PrimOverlayLabelMs { get; private set; }
 
         /// <summary>
+        /// The host's own content as a label reservation, or null when nothing covers the map. Both
+        /// overlay paths build it here so a label cannot be kept clear on one surface and sliced on
+        /// the other. See <see cref="SkyMapState.OccludedByHost"/> for why a marker may go under the
+        /// photograph and a name may not.
+        /// </summary>
+        protected IReadOnlyList<(float X, float Y, float W, float H)>? HostOccluderReservation
+            => State.OccludedByHost is { } r && r.Width > 0f && r.Height > 0f
+                ? [(r.X, r.Y, r.Width, r.Height)]
+                : null;
+
+        /// <summary>
         /// The cache key for a given view, for tests that need to count key changes across a gesture
         /// without driving a whole render (which needs a renderer, a font and a populated catalog).
         /// Returns an opaque value -- only its equality across successive calls is meaningful.
@@ -323,7 +334,8 @@ namespace TianWen.UI.Abstractions
                             new HitResult.ButtonHit($"SkyMapObjectLabel:{item.LabelLines[0]}"),
                             _ => PostSignal(new SkyMapClickSelectSignal(objX, objY, InputModifier.None)));
                     }
-                });
+                },
+                reservedRegions: HostOccluderReservation);
             PrimOverlayLabelMs += System.Diagnostics.Stopwatch.GetElapsedTime(labelStart).TotalMilliseconds;
         }
 
