@@ -1309,16 +1309,17 @@ namespace TianWen.UI.Abstractions
             }
 
             var previous = _displayAnchor;
-            // A blink is a comparison and holds by construction; the flag is the explicit hold for
-            // stepping by hand. Off, a click in the list is "show me this frame" and gets its own
-            // auto-stretch -- see ViewerState.CarryDisplayAcrossFrames for why that is the default.
-            _displayAnchor = DisplayCarry.Apply(document, previous, state.CarryDisplayAcrossFrames || state.IsBlinking);
+            // The run's anchor always stands (the calibration rides on it); whether the DISPLAY reads
+            // through it is the user's hold, Ctrl+H. A blink is the software clicking for you and
+            // carries nothing more than a click does -- see ViewerState.CarryDisplayAcrossFrames.
+            _displayAnchor = DisplayCarry.Apply(document, previous, holdDisplay: state.CarryDisplayAcrossFrames);
 
-            // A blink that walks onto a frame the anchor cannot describe is comparing two different
+            // A HELD blink that walks onto a frame the anchor cannot describe is comparing two different
             // fields, so it stops and says which file ended it -- rather than carrying on past the point
             // where the comparison meant anything. Only a CHANGE of anchor counts: the first frame of a
-            // run installs one from nothing, which is not a mismatch.
-            if (state.IsBlinking && previous is not null && !ReferenceEquals(previous, _displayAnchor))
+            // run installs one from nothing, which is not a mismatch. An unheld blink is a click, and a
+            // click across targets is allowed.
+            if (state.IsBlinking && state.CarryDisplayAcrossFrames && previous is not null && !ReferenceEquals(previous, _displayAnchor))
             {
                 state.IsBlinking = false;
                 state.StatusMessage =

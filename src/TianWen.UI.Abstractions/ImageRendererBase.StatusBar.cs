@@ -52,7 +52,7 @@ namespace TianWen.UI.Abstractions
             // Say when this frame is NOT being shown with its own stretch, and name the frame it is
             // borrowing. Without it "why is this sub darker than the last one?" has no answer on screen
             // -- the carry is invisible by design, so the only honest place to declare it is here.
-            if (document?.DisplayAnchor is { } anchor)
+            if (document is { HoldDisplay: true, DisplayAnchor: { } anchor })
             {
                 statusParts.Add(state.IsBlinking
                     ? $"Blink | held to {Path.GetFileName(anchor.FilePath)}"

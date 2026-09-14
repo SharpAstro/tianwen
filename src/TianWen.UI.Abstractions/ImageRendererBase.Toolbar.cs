@@ -2093,7 +2093,7 @@ namespace TianWen.UI.Abstractions
             "Space                Play / pause (sequence), else blink the file list",
             "Shift+Space          Blink backward",
             "Ctrl+Space           Back to the frame the display is held to",
-            "Shift+H              Hold / release the display across frames",
+            "Ctrl+H               Hold / release the display across frames",
             "Shift+C              Crop to the area every sub covered / show all",
             "Left / Right         Step one frame",
             "Home / End           First / last frame",

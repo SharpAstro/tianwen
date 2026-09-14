@@ -111,14 +111,20 @@ public sealed class AstroImageDocument : IPreviewSource
     private float _lumaBackground;
 
     /// <summary>
-    /// Another document whose display statistics this one is rendered with, or <c>null</c> to use its
-    /// own. Set by the viewer while stepping through comparable frames of one folder; see
-    /// <see cref="DisplayCarry"/> for what it buys and why the anchor is a document rather than a
-    /// snapshot of its numbers.
+    /// The frame this document's RUN is anchored to -- the first comparable frame of the folder -- or
+    /// <c>null</c> when it starts a run of its own. Set by the viewer while stepping through a folder;
+    /// see <see cref="DisplayCarry"/> for what is comparable and why the anchor is a document rather
+    /// than a snapshot of its numbers.
     /// </summary>
     /// <remarks>
-    /// It is a display concern only: the pixels, the star list, the WCS and
-    /// <see cref="MeasuredPerChannelBackground"/> are always this frame's own.
+    /// <para><b>Two things ride on it, and they are carried on different terms.</b> The COLOUR
+    /// CALIBRATION is carried whenever an anchor stands: it is the per-run answer (one fit, seconds,
+    /// physically shared by frames of one target through one filter on one sensor), and a click in
+    /// the file list wants it without asking. The DISPLAY STATISTICS -- the stretch, the backgrounds,
+    /// the norm -- are carried only while <see cref="HoldDisplay"/> says so, because a click means
+    /// "show me this frame" and a hold means "show me this frame the way you showed that one".</para>
+    /// <para>It is a display concern only: the pixels, the star list, the WCS and
+    /// <see cref="MeasuredPerChannelBackground"/> are always this frame's own.</para>
     /// </remarks>
     public AstroImageDocument? DisplayAnchor
     {
@@ -132,10 +138,23 @@ public sealed class AstroImageDocument : IPreviewSource
     private AstroImageDocument? _displayAnchor;
 
     /// <summary>
-    /// The document the DISPLAY numbers come from: the anchor when one is held, else this frame. Every
-    /// read through it is a field access, so the single hop can never become a chain.
+    /// Whether the DISPLAY statistics are read through <see cref="DisplayAnchor"/> (the user's hold,
+    /// <c>Ctrl+H</c>) rather than being this frame's own. The calibration does not ask this; see
+    /// <see cref="DisplayAnchor"/>. Written by <see cref="DisplayCarry.Apply"/> beside the anchor.
     /// </summary>
-    private AstroImageDocument Basis => _displayAnchor ?? this;
+    public bool HoldDisplay { get; internal set; }
+
+    /// <summary>
+    /// The document the DISPLAY numbers come from: the anchor while the display is held, else this
+    /// frame. Every read through it is a field access, so the single hop can never become a chain.
+    /// </summary>
+    private AstroImageDocument Basis => HoldDisplay ? _displayAnchor ?? this : this;
+
+    /// <summary>
+    /// The document the COLOUR CALIBRATION comes from: the anchor whenever one stands, hold or no
+    /// hold. Same single hop as <see cref="Basis"/>.
+    /// </summary>
+    private AstroImageDocument CalibrationBasis => _displayAnchor ?? this;
 
     /// <summary>
     /// Whether a display anchor is held, i.e. whether this document's auto-stretch is solved from
@@ -150,7 +169,7 @@ public sealed class AstroImageDocument : IPreviewSource
     /// candidate explanations: the enhancer flattens the background, and a curve solved from the
     /// PRE-enhance pixels then has nothing to do with the pixels it is applied to.
     /// </remarks>
-    internal bool HasDisplayAnchor => _displayAnchor is not null;
+    internal bool HasDisplayAnchor => HoldDisplay && _displayAnchor is not null;
 
     /// <summary>The per-channel statistics <see cref="ComputeStretchUniforms"/> actually solves from.</summary>
     internal ChannelStretchStats[] BasisPerChannelStats => Basis.PerChannelStats;
@@ -179,7 +198,7 @@ public sealed class AstroImageDocument : IPreviewSource
     /// frames instead of once per file -- which is the half of P19 the user asked for as "so that they
     /// load faster". The frame's own measurement, if it has one, stays as the fallback.
     /// </summary>
-    public (float R, float G, float B)? ColorCalibration => Basis._colorCalibration ?? _colorCalibration;
+    public (float R, float G, float B)? ColorCalibration => CalibrationBasis._colorCalibration ?? _colorCalibration;
 
     private (float R, float G, float B)? _colorCalibration;
 
@@ -192,7 +211,7 @@ public sealed class AstroImageDocument : IPreviewSource
     /// frame with the answer its anchor gave; a run where one frame disagreed would flicker between two
     /// stretch modes, which is the flicker the carry exists to remove.
     /// </remarks>
-    public bool IsNarrowbandColorCalibration => Basis._isNarrowbandColorCalibration || _isNarrowbandColorCalibration;
+    public bool IsNarrowbandColorCalibration => CalibrationBasis._isNarrowbandColorCalibration || _isNarrowbandColorCalibration;
 
     private bool _isNarrowbandColorCalibration;
 
@@ -211,7 +230,7 @@ public sealed class AstroImageDocument : IPreviewSource
     /// </para>
     /// </remarks>
     public bool ColourIsNotPhotometric
-        => IsNarrowbandColorCalibration || Basis._hasDuplicateChannels || _hasDuplicateChannels;
+        => IsNarrowbandColorCalibration || CalibrationBasis._hasDuplicateChannels || _hasDuplicateChannels;
 
     /// <summary>
     /// Whether this frame's per-channel backgrounds are already level, so nothing downstream should
@@ -274,7 +293,7 @@ public sealed class AstroImageDocument : IPreviewSource
     /// it came from.
     /// </para>
     /// </summary>
-    public ColorCalibrationSummary? ColorCalibrationSummary => Basis._colorCalibrationSummary ?? _colorCalibrationSummary;
+    public ColorCalibrationSummary? ColorCalibrationSummary => CalibrationBasis._colorCalibrationSummary ?? _colorCalibrationSummary;
 
     private ColorCalibrationSummary? _colorCalibrationSummary;
 
