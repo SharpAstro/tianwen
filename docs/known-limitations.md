@@ -85,6 +85,16 @@ skew, since a linear astro frame's brightest pixels sit orders of magnitude abov
 one's do not, but this master's bright end is CLIPPED, so its q99.9-to-median ratio is 1.85 and a
 skew test would call it stretched too. Anything better needs more than two examples to be tuned on.
 
+**Measured again 2026-09-14 with the auto-crop in front of it (`MasterAutoCropProbe`, the 79 masters of
+`2026-09-12-clamped`): both refusals are the MIN anchor, and both are admitted inside the crop.** The
+statistic is `median(value - min)`, and on a master with an exact-zero canvas ring the minimum is the
+ring, so the statistic is the raw median: 0.321 on the ASI585 SMC master, 0.133 on the eta Car Ha one.
+Inside the viewer's crop rectangle the minimum is the darkest SKY pixel and the same statistic reads
+0.044 and 0.022, under the bar by 3x and 6x. The bright-sky description above is right about the frame
+(its median IS 32 percent of full scale) and wrong about what the heuristic saw: a min that is not the
+frame's. Cropping the ring before the exporter's gate admits both sessions; a percentile in place of the
+min would do the same without a crop. Neither is done yet; the exporter has no crop step.
+
 ### SPCC's remaining error budget is the white-reference sub-type, and it is a few percent
 
 `Tycho2ColorCalibration.WhiteReference` defines the spectrum that renders neutral and defaults to

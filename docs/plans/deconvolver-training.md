@@ -2805,6 +2805,50 @@ against a target Moffat plausible, and it is the fallback, not the first choice,
 target shape the pool would have to supply). Cost: minutes per seed on the 1070 against the cache
 already on disk; the trainer's GPU is free since seed 1 exited.
 
+##### E7.2 read: the head misses on both seeds, and the resample breaks it the way it broke the prior (2026-09-14, 17:05)
+
+`training/denoise/n2n_kernel_head.py`, two seeds of 3,000 steps at batch 32 (2.5 minutes each;
+`C:/temp/e2/e7-2/head-s*.txt`). Held-out cells, median relative error: 0.21 and 0.20 at native, 0.27
+and 0.24 at 1.285x, p90 over 0.5 everywhere; the training error was still falling (0.35 to 0.27) at the
+end. On the Statue primary crop, the head's kernel over est-c per channel:
+
+| seed | native, soft (pass is 0.9 to 1.1) | native, sharp control (px) | 1.28x, soft | 1.28x, sharp (px) |
+|---|---|---|---|---|
+| 0 | 0.88 / 1.30 / 0.93 | 0.47 / 0.36 / 0.38 | 2.09 / 1.77 / 1.34 | 1.48 / 1.86 / 1.50 |
+| 1 | 0.67 / 0.67 / 0.58 | 0.47 / 0.37 / 0.39 | 1.57 / 1.38 / 1.16 | 1.11 / 1.05 / 0.86 |
+
+The kill line (over 15 percent on the pair on any channel, two seeds) is met at native on both, and
+the two seeds do not even agree on the direction (seed 0 over on green, seed 1 a third under on all
+three), so the head is a draw, not a rule. Two readings beyond the kill. **The resampled frame is read
+as 1.2 to 2.1x more blurred than it is**, on the soft AND the sharp side, although the head trained
+under the same 0.6 to 1.4 augmentation and reads held-out resampled tiles to 25 percent: the bicubic
+upsample of a REAL frame's noise is a texture the cache's resampled tiles do not reproduce, the same
+gap E3.2's prior fell into and E3.4a could not close by augmentation alone (the pool closed it). And
+**on the truth itself the head reads 0.4 px of kernel at native**, a floor it would ask the operator
+to remove from a frame that has nothing to give; the pool's cells carry a blur ratio of at least 1.05
+by construction, so the head never saw a tile with NO excess and has no zero. A longer, wider run (12,000
+steps, width 32, `head-s0-long.txt`) is in flight as the head's last reading, and the plan does not
+wait on it: whatever it reads on the cache, the resample gap is a domain fact.
+
+#### E7.3, pre-registered: the prior made tolerant of its own kernel label (2026-09-14, 17:10)
+
+E7.1 says the operator's output follows the kernel label a tenth for a tenth, and E7.2 says no
+single-frame reading of the kernel is good to a tenth. The remaining move is to stop needing one: train
+the E3.4d recipe with the kernel LABEL jittered against the kernel that made the tile, one factor per
+sample uniform in 0.75 to 1.25 (`--kernel-jitter 0.25`, new in `n2n_smoke.py`: the RL steps run with
+the jittered kernel, the truth is unchanged), so the prior meets an operator that over- and
+under-deconvolves and learns to read the excess from the tile instead of trusting the label. The label
+is still given (the frame's own fraction rule is a fair first guess and lands within 1.3x), and the
+prior's job becomes the residual around it.
+
+Pass: on the primary crop at 1.28x with the pair's kernel scaled by 0.8 and by 1.25, every star clause
+holds (width 1.15 or under, stars 0.85 to 1.10, ring within 1 MAD, skirt 0.90 or over); and at the
+pair's own kernel the E3.4d result is kept within 0.02 on width and skirt. Kill: at the pair's kernel
+the width reads over 1.17 (the tolerance was bought by doing less), or at 1.25x the skirt is still under
+0.80 (the jitter did not teach the read). One seed first (3.3 hours on the 1070), a second before the
+fork is written. If it passes, E7 carries the fraction rule (0.52 x the frame's HFD width) plus this
+prior to the runtime; if it fails, E7 goes to self-calibration on the output's star profile.
+
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
 Every retained master in `2026-09-full` predates the two registration fixes and R1, and E3 trains on

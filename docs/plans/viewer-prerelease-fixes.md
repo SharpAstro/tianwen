@@ -1207,6 +1207,30 @@ that hands the models no fabricated pixels at all. **Not measured: how far insid
 actually reaches**, i.e. whether the 56/92/16/92 px this crop removes is deep enough to contain it.
 Cropping first makes the question moot for a cropped view and leaves it open for an uncropped one.
 
+### 2026-09-14: the crop measured over a whole bake
+
+**Measured over a whole bake (2026-09-14, `MasterAutoCropProbe`, opt-in by `TIANWEN_CROP_BAKE_ROOT`;
+the 79 retained masters of `2026-09-12-clamped`, 26 staged with an exact-zero ring and 53 drizzled with
+a NaN ring, no coverage sidecar on any of them so every crop is the edge walk's).** The crop keeps
+p10 / p50 / p90 = 0.902 / 0.950 / 0.982 of the canvas, leaves NO exact-zero pixel inside it on any of
+the 79, declines an edge on 22, and admits both masters the exporter's stretch gate refuses on the whole
+frame ([known-limitations](../known-limitations.md), the min anchor). One master is wrong: the SV605CC
+Great Orion L-Ultimate night (2025-10-14) keeps 0.528, cut to 1629 of 3024 columns, and the cause is
+not the walk but the union tier's NaN rule. A drizzled master carries interior HOLES, pixels no input
+frame's drizzle footprint reached, written NaN: 53 of 79 masters have them (every drizzled one; 19 to
+324 components, 35 to 1,856 pixels, a census at `C:/temp/e2/e7-1/holes-clamped.txt`), and
+`LargestCoveredRectangle()` reads a NaN as absence anywhere, so a scatter of holes across the middle
+of a frame shreds the largest rectangle exactly as the interior zeros of a calibrated sub did before
+the border-reachability rule (7.1.1627). On 52 of the 53 the holes sit where the rectangle loses under
+a percent; on this one, 1,856 pixels in 20 components cost 45 percent of the frame (0.530 against 0.981
+with the holes ignored). The Vela SNR masters the user named for their holes keep 0.92 to 0.99. **Not
+changed as of this measurement**: gating NaN on border reachability the way zero is gated flips
+`ANaNIsAbsent` (a pinned rule with a stated reason, a NaN being unambiguous), and it leaves NaN pixels
+INSIDE the crop for the render and the enhance input to handle (`SharpenPipeline` fills non-finite
+samples with the channel mean already; the render paints them black); a fill of interior holes from
+their neighbours at load, with the crop then ignoring them, is the shape of the fix. That is what the
+section below then did.
+
 ### 2026-09-15: the interior-hole half, closed (issue #250)
 
 The 2026-09-14 addendum measured the crop over all 79 retained masters of the `2026-09-12-clamped`
