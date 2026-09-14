@@ -342,8 +342,11 @@ namespace TianWen.UI.Abstractions
             }
 
             // With the sky behind the frame the layer would be blitted OVER it: the layer pass clears
-            // to opaque black and covers the whole pane, so everywhere the picture does not reach --
-            // which is exactly where the sky is worth looking at -- the blit would paint it out. The
+            // to the pane's own ground and covers the whole pane, so everywhere the picture does not
+            // reach -- which is exactly where the sky is worth looking at -- the blit would paint it
+            // out. (That clear used to be hard-coded black, which also made the letterbox change
+            // colour with the cache; it is CanvasBackground now, but it still covers the pane, so
+            // this stand-down is unaffected.) The
             // cache is an optimisation for a still image on a plain ground, and a live sky is neither:
             // the planets move, the star buffer streams in, and the palette fades.
             if (SkyBackdropActive)

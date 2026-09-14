@@ -103,6 +103,26 @@ namespace TianWen.UI.Abstractions
         public bool DrawOwnGrid => ShowGrid && !SuppressOwnGrid;
 
         /// <summary>
+        /// The box a host composites its OWN content into over this map, in screen pixels, or null
+        /// when nothing covers it. Catalog labels keep clear of it.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>A marker may be occluded; a label may not be sliced.</b> Point markers are drawn
+        /// with the imagery, behind the photograph, on purpose -- the photograph is a better picture
+        /// of those same objects. That reasoning covers a marker, which is a dot either way, and does
+        /// not cover a LABEL: half a word cut down its middle by the frame edge reads as a rendering
+        /// fault rather than as something being in front of something else. Reported as "the RCW
+        /// marker is below the image", which is what a half-hidden "RCW 144" looks like.</para>
+        /// <para>It costs nothing and pays twice, because the label CAP is the scarce resource here.
+        /// A label placed under the photograph was spending one of a few dozen slots to draw nothing
+        /// anybody could see; keeping them clear hands those slots to labels in the open sky.</para>
+        /// <para>Set per frame by the host, beside <see cref="SuppressOwnGrid"/>, and cleared the
+        /// moment it stops compositing -- a stale box would carve a hole in the labels of a map that
+        /// nothing is covering.</para>
+        /// </remarks>
+        public RectF32? OccludedByHost { get; set; }
+
+        /// <summary>
         /// Whether the view has a site to draw local sky in: stamped from the resolved
         /// <see cref="SiteContext"/> every frame, so the layers that only mean something at a place on
         /// Earth -- the horizon and the Alt/Az grid -- can say they are unavailable instead of

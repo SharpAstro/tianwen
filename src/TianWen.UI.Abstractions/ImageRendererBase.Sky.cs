@@ -136,7 +136,7 @@ namespace TianWen.UI.Abstractions
         /// confusion it looks like it avoids -- turning "grid" off showed MORE grid, because the
         /// frame's fine one went away and the sky map's coarse one appeared behind it.
         /// </remarks>
-        private bool PaneWideGrid
+        internal bool PaneWideGrid
             => SkyBackdropActive && _state is { ShowGrid: true }
                && _paneTangentAngleDeg <= PaneGridMaxTangentAngleDeg;
 
@@ -204,6 +204,13 @@ namespace TianWen.UI.Abstractions
                 || SkyTimeProvider is not { } clock
                 || _document?.Wcs is not { } wcs)
             {
+                // Nothing is being composited over the map on this path, so it must not go on
+                // holding a hole in its labels from the last frame that was.
+                if (SkyBackdrop is { } idle)
+                {
+                    idle.State.OccludedByHost = null;
+                }
+
                 return false;
             }
 
@@ -261,6 +268,14 @@ namespace TianWen.UI.Abstractions
             // reader never loses the grid at the handover -- only its density changes, along with
             // what it is a grid OF.
             tab.State.SuppressOwnGrid = PaneWideGrid;
+
+            // Where the photograph will land, so the map's catalog labels keep clear of it. Markers
+            // still go behind it -- that is the point of the imagery/lines split -- but a label is
+            // text, and a name sliced in half by the frame edge reads as broken rather than as
+            // occluded. Set from the SAME placement the quad is drawn from, so the two cannot
+            // disagree, and cleared below whenever the backdrop is not drawn.
+            var q = _placement;
+            tab.State.OccludedByHost = new RectF32(q.OffsetX, q.OffsetY, q.DrawW, q.DrawH);
 
             // The map paints its own ground (a sky colour driven by the sun's altitude) across the
             // whole rect it is given, so it replaces the canvas fill rather than sitting on it -- and
