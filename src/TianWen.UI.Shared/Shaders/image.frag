@@ -34,7 +34,7 @@ layout(set = 0, binding = 0, std140) uniform StretchUBO {
     vec4  curveData[9];        // offset 224  (33 knots packed into 9 vec4s; last 3 floats unused)
     vec4  lumaWeights;         // offset 368  (xyz = R/G/B luma weights, w = pad). Rec.709 default.
     vec4  lumaStretch;         // offset 384  (x = lumaShadow, y = lumaMidtones, z = lumaRescale, w = pad)
-    vec4  stretchBlend;        // offset 400  (x = lumaBlend in [0,1], y = normalizeScale, z = debayerMode 0=bilinear/1=MHC, w = pad)
+    vec4  stretchBlend;        // offset 400  (x = lumaBlend in [0,1], y = normalizeScale, z = debayerMode 0=bilinear/1=MHC, w = texelsPerPixel: mosaic texels per screen pixel, 0 = unknown = 1)
     // offset 416 (xyz = RA/Dec grid line RGB, w = its alpha). Written from
     // SkyMapGpuGeometry.GridLineColor, which is the ONE definition of the EQ grid's colour: the same
     // value reaches the sky map's own grid, so the two grids this shader hands over to each other
@@ -449,6 +449,56 @@ float debayerMono(vec2 uv) {
     return (rawAt(px) + rawAt(px + ivec2(1, 0)) + rawAt(px + ivec2(0, 1)) + rawAt(px + ivec2(1, 1))) * 0.25;
 }
 
+// Superpixel: each PATTERN-ALIGNED 2x2 quad is one R, two G and one B, so this is a half-resolution
+// colour image with no interpolation in it -- and therefore no 2-texel period left to alias against
+// the screen grid. That is the whole reason it exists: every interpolating demosaic above keeps a
+// checkerboard of noise texture at the CFA period (native photosites carry full variance, the
+// interpolated ones less), and sampling that once per screen pixel below 100% beats with the grid at
+// 1/(zoom - 0.5): a square lattice near fit zoom, a fine mesh in the 50-60% band. What N.I.N.A. and
+// PixInsight previews do at these zooms.
+//
+// Unlike debayerMono the quad is NOT the one nearest the fragment; it is the one the fragment's
+// texel belongs to, anchored on the red corner, because a quad that straddled two pattern periods
+// would put a G on the R tap. The quad's centre sits half a texel down-right of its red corner,
+// which at the zooms this is chosen for (texelsPerPixel >= 2) is at most a quarter of a screen pixel.
+vec3 debayerSuperpixel(vec2 uv) {
+    ivec2 px = ivec2(floor(uv * ubo.imageSize));
+    int offX = ubo.bayerPat % 65536;
+    int offY = ubo.bayerPat / 65536;
+    ivec2 q = px - ivec2((px.x + offX) % 2, (px.y + offY) % 2); // the quad's red corner
+    float r = rawAt(q);
+    float g = (rawAt(q + ivec2(1, 0)) + rawAt(q + ivec2(0, 1))) * 0.5;
+    float b = rawAt(q + ivec2(1, 1));
+    return vec3(r, g, b);
+}
+
+// The colour demosaic the mode asks for: 1 = MHC, 4 = VNG, else bilinear (fallback).
+vec3 debayerColour(vec2 uv, int dm) {
+    return (dm == 1) ? debayerMhc(uv)
+         : (dm == 4) ? debayerVng(uv)
+         : debayerBilinear(uv);
+}
+
+// The colour demosaic at the resolution the SCREEN is asking for. One demosaic sample per screen
+// pixel is only right at 100% and above; below it the mosaic is being subsampled and its CFA-period
+// noise texture aliases (see debayerSuperpixel). At half zoom and below the superpixel image is the
+// exact half-res answer; between half and full, four demosaic samples a quarter of a screen pixel
+// apart are averaged -- a 2x2 box over the screen pixel's footprint, enough to break the beat.
+vec3 debayerForZoom(vec2 uv, int dm) {
+    float tpp = ubo.stretchBlend.w; // mosaic texels per screen pixel; 0 = not supplied = 1
+    if (tpp >= 2.0) {
+        return debayerSuperpixel(uv);
+    }
+    if (tpp > 1.0) {
+        vec2 d = vec2(0.25 * tpp) / ubo.imageSize;
+        return 0.25 * (debayerColour(uv + vec2(-d.x, -d.y), dm)
+                     + debayerColour(uv + vec2( d.x, -d.y), dm)
+                     + debayerColour(uv + vec2(-d.x,  d.y), dm)
+                     + debayerColour(uv + vec2( d.x,  d.y), dm));
+    }
+    return debayerColour(uv, dm);
+}
+
 void main() {
     // gridEnabled == 2: draw the GRID AND NOTHING ELSE, over whatever is already in the framebuffer.
     // The quad is the pane rather than the picture, and its texture coordinates run outside [0, 1] --
@@ -473,10 +523,8 @@ void main() {
     float r, g, b;
 
     if (src == 2 && !rawBayerGrey) {
-        // 1 = MHC, 4 = VNG, else bilinear (fallback). All three produce colour.
-        vec3 rgb = (dm == 1) ? debayerMhc(vTexCoord)
-                 : (dm == 4) ? debayerVng(vTexCoord)
-                 : debayerBilinear(vTexCoord);
+        // Colour, at the resolution the zoom asks for -- see debayerForZoom.
+        vec3 rgb = debayerForZoom(vTexCoord, dm);
         r = rgb.r; g = rgb.g; b = rgb.b;
     } else if (rawBayerGrey) {
         r = (dm == 2) ? debayerRaw(vTexCoord) : debayerMono(vTexCoord);
