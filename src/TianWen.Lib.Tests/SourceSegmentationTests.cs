@@ -197,6 +197,54 @@ public class SourceSegmentationTests(ITestOutputHelper output)
         labels[0].ShouldBe(1, "the survivor is relabelled 1");
     }
 
+    [Fact]
+    public void ACrowdedFieldReThresholdsUntilTheBlobsComeApart()
+    {
+        // The Statue master's mechanism in miniature: a region of unresolved glow a few sigma high (a
+        // Milky Way field's faint population, which the second background pass masks and cannot follow)
+        // with a few dozen resolved stars on it. At 3 sigma the glow carries every star into one segment
+        // of tens of thousands of pixels with dozens of maxima; a sigma or two higher the glow is under
+        // the threshold and the segment is its stars. (A uniform star field does not do this: one star
+        // every 6 px never separates at any threshold and one every 8 px never joins.)
+        var rng = new Random(41);
+        var plane = new float[H * W];
+        for (var i = 0; i < plane.Length; i++)
+        {
+            plane[i] = Sky + Noise * Gaussian(rng);
+        }
+
+        const int gx0 = 120, gy0 = 80, gside = 240;
+        for (var y = gy0; y < gy0 + gside; y++)
+        {
+            for (var x = gx0; x < gx0 + gside; x++)
+            {
+                plane[y * W + x] += 4.2f * Noise;
+            }
+        }
+
+        for (var i = 0; i < 60; i++)
+        {
+            AddStar(plane, rng.Next(gx0 + 6, gx0 + gside - 6), rng.Next(gy0 + 6, gy0 + gside - 6), 0.006f + 0.02f * rng.NextSingle(), 1.5f);
+        }
+
+        AddStar(plane, W / 2, H / 2, 0.5f, 1.8f);
+
+        // Cells of 128 px: a 240 px glow spans two, which the mesh's 3x3 median filter removes from the
+        // sky, so the first pass sees the glow and the second pass masks it (with 32 px cells the mesh
+        // absorbs it outright and the field reads as sky, the case the extractor is for).
+        var map = BackgroundMap.Estimate(plane, W, H, new BackgroundMapOptions(BlockSize: 128));
+        var stuck = SourceSegmentation.Detect(plane, W, H, map, new SourceDetectionOptions(CrowdedRetries: 0, CrowdedArea: 1500));
+        var freed = SourceSegmentation.Detect(plane, W, H, map, new SourceDetectionOptions(CrowdedRetries: 2, CrowdedArea: 1500));
+        var largestStuck = stuck.Segments.MaxBy(s => s.Area);
+        var largestFreed = freed.Segments.MaxBy(s => s.Area);
+        output.WriteLine($"no retry: {stuck.Segments.Length} segments, largest {largestStuck.Area} px with {largestStuck.PeakCount} maxima; "
+            + $"with retries: {freed.Segments.Length} segments, largest {largestFreed.Area} px with {largestFreed.PeakCount} maxima");
+        largestStuck.Area.ShouldBeGreaterThan(1500, "at 3 sigma the glow carries the stars into one segment");
+        largestStuck.PeakCount.ShouldBeGreaterThanOrEqualTo(32, "a segment of a star field holds many maxima");
+        largestFreed.Area.ShouldBeLessThan(largestStuck.Area, "a sigma or two higher the segment has shed its glow");
+        freed.Segments.Length.ShouldBeGreaterThan(stuck.Segments.Length, "the count rises as the segment comes apart");
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(3)]

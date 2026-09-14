@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Sources;
@@ -53,5 +54,52 @@ public class SourceSegmentationProbe(ITestOutputHelper output)
         }
 
         seg.Segments.Length.ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
+    /// The crowded-field question: how the largest segments and the counts move with the threshold and the
+    /// minimum area on a real master, and how many of the star detector's stars land inside compact
+    /// segments at each setting. Opt-in like the probe above.
+    /// </summary>
+    [Fact]
+    public async Task SweepThresholdsOnARealMaster()
+    {
+        var path = Environment.GetEnvironmentVariable("TIANWEN_SOURCES_FITS");
+        Assert.SkipWhen(string.IsNullOrEmpty(path), "set TIANWEN_SOURCES_FITS to a FITS master to run this probe");
+
+        Image.TryReadFitsFile(path, out var image, out _).ShouldBeTrue($"could not read {path}");
+        var channel = image.ReferenceStarChannel;
+        var stars = await image.FindStarsAsync(channel, snrMin: 10f, maxStars: 2000, cancellationToken: TestContext.Current.CancellationToken);
+        var map = BackgroundMap.Estimate(image, channel);
+        output.WriteLine($"{path}: {stars.Count} detector stars at SNR 10; sky {map.GlobalBackground:E3} rms {map.GlobalRms:E3}");
+        output.WriteLine($"{"sigma",5} {"minpx",5} {"segments",8} {"compact",8} {"extended",8} {"largest",9} {"p99 area",8} {"stars in compact",16} {"ms",6}");
+        foreach (var sigma in new[] { 3f, 4f, 5f })
+        {
+            foreach (var minPixels in new[] { 5, 9 })
+            {
+                var sw = Stopwatch.StartNew();
+                var seg = SourceSegmentation.Detect(image, channel, map, new SourceDetectionOptions(ThresholdSigma: sigma, MinPixels: minPixels));
+                sw.Stop();
+                var areas = seg.Segments.Select(s => s.Area).OrderByDescending(a => a).ToArray();
+                var inCompact = 0;
+                foreach (var star in stars)
+                {
+                    var x = (int)MathF.Round(star.XCentroid);
+                    var y = (int)MathF.Round(star.YCentroid);
+                    if (x < 0 || y < 0 || x >= seg.Width || y >= seg.Height)
+                    {
+                        continue;
+                    }
+
+                    var label = seg.LabelAt(x, y);
+                    if (label > 0 && seg.Segments[label - 1].IsCompact)
+                    {
+                        inCompact++;
+                    }
+                }
+
+                output.WriteLine($"{sigma,5:F1} {minPixels,5} {seg.Segments.Length,8} {seg.Segments.Count(s => s.IsCompact),8} {seg.Segments.Count(s => !s.IsCompact),8} {areas[0],9} {areas[areas.Length / 100],8} {inCompact,8} / {stars.Count,-5} {sw.ElapsedMilliseconds,6}");
+            }
+        }
     }
 }
