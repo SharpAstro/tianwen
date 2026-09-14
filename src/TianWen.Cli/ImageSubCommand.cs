@@ -2037,7 +2037,9 @@ internal sealed class ImageSubCommand(
                 $"sky {background.GlobalBackground.ToString("G5", inv)}, noise {background.GlobalRms.ToString("G5", inv)}");
             consoleHost.WriteScrollable(
                 $"[sources] {segments.Segments.Length} segments in {tDetect.TotalMilliseconds:F0} ms: {compact} compact, {segments.Segments.Length - compact} extended " +
-                $"(threshold {options.ThresholdSigma.ToString("G3", inv)} sigma, min {options.MinPixels} px, deblend {(options.Deblend ? "on" : "off")})");
+                $"(threshold {segments.ThresholdSigma.ToString("G3", inv)} sigma" +
+                (segments.ThresholdSigma > options.ThresholdSigma ? $", raised from {options.ThresholdSigma.ToString("G3", inv)} by the crowded-field rule" : string.Empty) +
+                $", min {options.MinPixels} px, deblend {(options.Deblend ? "on" : "off")})");
 
             if (top > 0 && segments.Segments.Length > 0)
             {

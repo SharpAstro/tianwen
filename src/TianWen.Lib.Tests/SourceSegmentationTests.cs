@@ -243,6 +243,8 @@ public class SourceSegmentationTests(ITestOutputHelper output)
         largestStuck.PeakCount.ShouldBeGreaterThanOrEqualTo(32, "a segment of a star field holds many maxima");
         largestFreed.Area.ShouldBeLessThan(largestStuck.Area, "a sigma or two higher the segment has shed its glow");
         freed.Segments.Length.ShouldBeGreaterThan(stuck.Segments.Length, "the count rises as the segment comes apart");
+        stuck.ThresholdSigma.ShouldBe(3f, "no retry, the option's threshold");
+        freed.ThresholdSigma.ShouldBeInRange(4f, 5f, "the map says which sigma the rule landed it at");
     }
 
     [Theory]

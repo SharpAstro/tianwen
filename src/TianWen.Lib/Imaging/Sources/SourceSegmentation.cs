@@ -147,17 +147,25 @@ public sealed class SegmentationMap
 {
     private readonly int[] _labels;
 
-    internal SegmentationMap(int width, int height, int[] labels, ImmutableArray<Segment> segments)
+    internal SegmentationMap(int width, int height, int[] labels, ImmutableArray<Segment> segments, float thresholdSigma)
     {
         Width = width;
         Height = height;
         _labels = labels;
         Segments = segments;
+        ThresholdSigma = thresholdSigma;
     }
 
     public int Width { get; }
 
     public int Height { get; }
+
+    /// <summary>
+    /// The threshold this map was detected at, in sigmas of the unsmoothed noise: the option's value,
+    /// or a sigma or two above it when the crowded-field rule re-ran the detection
+    /// (<see cref="SourceDetectionOptions.CrowdedRetries"/>).
+    /// </summary>
+    public float ThresholdSigma { get; }
 
     /// <summary>Every source, ordered by label; <c>Segments[i].Label == i + 1</c>.</summary>
     public ImmutableArray<Segment> Segments { get; }
@@ -494,7 +502,7 @@ public static class SourceSegmentation
         }
 
         var segments = Measure(signal, labels, count, width, height, options, peakCounts);
-        return (new SegmentationMap(width, height, labels, segments), low);
+        return (new SegmentationMap(width, height, labels, segments, options.ThresholdSigma), low);
     }
 
     /// <summary>
