@@ -100,7 +100,7 @@ The fragment shader handles all image processing in a single pass per pixel:
    lattice near fit zoom, a fine mesh around 55%. `stretchBlend.w` carries mosaic texels per screen
    pixel; at 2 and above the shader draws the pattern-aligned 2×2 **superpixel** (one R, two G, one B:
    a half-res colour image with no interpolation in it, what N.I.N.A. and PixInsight previews show),
-   between 1 and 2 it averages four demosaic samples a quarter pixel apart (`debayerForZoom`). Display
+   between 1 and 2 it averages the 2×2 texel box around the fragment (`debayerForZoom`). Display
    only: the save path is CPU-debayered at full resolution and never sees this.
 
    **Every demosaic the viewer OFFERS has a branch here, and that is a rule rather than a
