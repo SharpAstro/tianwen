@@ -2664,6 +2664,36 @@ the nebula crop's detail ratio toward 1.0; kill at skirt still under 0.85, or wi
 skirt unchanged, after which the next arm is the pool (E3.4b: the seven held-out SH61 EDPH nights added,
 the Statue pair still held out). One seed; a second before any 0.02 is believed.
 
+##### E3.4d seed 1 read: the star clauses hold across seeds, the detail column does not (2026-09-14, 14:20)
+
+Seed 1 (relaunched 10:57 after the first launch died on the GPU driver at 10:17; the trainer selected
+step 2000 at a cache score of 1.089, seed 0 had selected 2700) on the same readout, the final
+checkpoint at 1.28x round trip on the primary crop, seed 0 beside it:
+
+| seed, final checkpoint | width / truth | stars | ring excess | skirt | detail | d.resid | cache gate | observer |
+|---|---|---|---|---|---|---|---|---|
+| 0 | 1.146 | 1.00 | -0.45 | 0.98 | 0.57 | 8.077 | 1.083 | 0.97x null |
+| 1 | 1.150 | 1.00 | -0.47 | 0.99 | 0.51 | 8.551 | 1.110 | 0.89x null |
+| input | 1.253 | 0.91 | 0.00 | 1.94 | 0.55 | 8.338 | | |
+
+The four star clauses agree to 0.004 in width, 0.02 in ring depth and 0.01 in skirt, so the E3.4d
+result on the goal's star clauses is a property of the recipe, not of a draw, and the 0.11 skirt gain
+over E3.4b (0.87 to 0.98 / 0.99) is believed. The nebula crop agrees too (seed 1 at 1.285x: width
+1.028, stars 1.04, ring +0.32, skirt 0.62 against seed 0's 1.023 / 1.04 / +0.45 / 0.57). What does
+not agree is the detail column: seed 0 raises the star-masked band correlation from the input's 0.55
+to 0.57 and brings the residual 3 percent closer, seed 1 lowers it to 0.51 and takes the residual 2.5
+percent further. A 0.06 spread between seeds around an input of 0.55 is the seed variance the E2 arms
+measured (E2.6's results: a seed sd of 0.027 on the selected width ratio, 0.046 on the band set)
+showing up in this column; a
+one-seed detail reading of the kind this plan wrote at 12:40 is not evidence either way, and the
+nebula clause stays open on the kernel rule and the pool's sampling, not on a prior that happens to
+read 0.57. Seed 1's SELECTED checkpoint (step 2000) reads worse than its final on the real pair
+(stars 0.88, ring -1.21, a moat) where seed 0's selected and final agreed; the cache gate's pick is
+not the real pair's on this seed, one more reason the runtime carries a final checkpoint.
+
+**Carry to E7: `e34d_s0_final.pt` stays**, on equal star clauses and the better detail draw, with
+the detail read understood as a draw.
+
 ##### The detail column on the library's structure pixels (2026-09-14, 12:40)
 
 The nebula clause had one instrument, the band correlation and residual on pixels 2.5 FWHM from
