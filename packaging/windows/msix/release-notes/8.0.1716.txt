@@ -1,0 +1,321 @@
+Astro Photo Viewer (tianwen-fits)
+Store package version 8.0.1716.0   -   supersedes 7.1.1627.0
+Package identity  SharpAstro.AstroPhotoViewer   Store ID  9PMDZP16TGBG
+Git tag  v8.0.1716   -   span  v7.1.1627..v8.0.1716   -   69 commits
+
+The MSIX comes from a DISPATCH, never from a push. The msix job is gated on
+github.event_name == 'workflow_dispatch', so neither merging to main nor opening a
+PR produces one: the merge of #260 raised run 1715 and built no package at all.
+Run 1716 is the dispatch that did, which is where the 1716 in the version comes
+from -- the patch segment is github.run_number and is never written by hand.
+
+This file is the submission record for one Store release: the copy pasted into
+Partner Center's "What's new in this version" field, and the detail behind it.
+Nothing else in the repo records what has been submitted, which is why writing
+it down is worth the file.
+
+First MAJOR bump. The reason is API, not features: TianWen.Lib lost a parameter
+from GetLumaStretchStatsAsync, StretchParameters.Presets became an ImmutableArray
+and Default a property over it, FindStarsAsync took a SpikeGuard before its
+CancellationToken, and the dependency floor moved to DIR.Lib 9.0. Per the org
+convention (../.github/CLAUDE.md, "Versioning") that is X.* -> (X+1).0. None of
+that is visible to a Store user, so the WHAT'S NEW block below says nothing about
+it; what IS visible is that three things RENDER differently, which is the half of
+a major no signature announces.
+
+
+================================================================================
+TWO CLAIMS IN 7.1.1627's LISTING ARE NOW WRONG, AND ONE WAS WRONG WHEN WRITTEN
+================================================================================
+Both are live in the Store listing right now, so the block below corrects them
+rather than merely adding to them.
+
+1. "Press O for a sky map drawn behind the image ... O steps through grid,
+   objects, then full sky." The sky left the O ladder for its own key, Y
+   (a44518e9). O is now the whole annotation, on or off, and Shift+O walks the
+   ladder backwards. A user following the current listing presses O three times
+   and never reaches the sky.
+
+2. "The ring traces the object's true axis ratio and position angle, so a tilted
+   galaxy like M31 rings as the disc it is." It did not. ComputeScreenPA carried
+   TWO independent reflections (07eb16e3): a compass angle handed to a consumer
+   expecting a math angle, and a screen-Y negation for a flip that
+   WcsAnnotationLayer.ImageToScreen does not perform. Measured against NGC 206, a
+   star cloud lying ON M31's major axis and therefore an independent check, the
+   axis drew at bearing 128.6 degrees where 51.4 is correct. It was plausible at
+   some angles and correct at none, which is how it passed review. The claim is
+   true as of this release; it was not true when it was submitted.
+
+   Worth knowing for next time: the two tests covering it asserted only
+   float.IsFinite, which no reflection can fail. A check that re-derives its
+   expectation through the convention under test cannot see a reflection in that
+   convention.
+
+
+================================================================================
+WHAT'S NEW  (Partner Center copy - paste the block between the rules VERBATIM)
+================================================================================
+THE FIELD IS CAPPED AT 1500 CHARACTERS. The block below is 1423, or
+1440 if the paste turns the newlines into CRLF. Re-measure after any
+edit and do not paste the DETAIL section.
+
+Your targets are brighter, and faint detail actually shows
+The default auto stretch is now an inspection stretch: the sky sits where N.I.N.A.'s preview puts it, and structure just above the noise separates far enough to see. Colour frames also stop showing fine stripes across the background, and stop aliasing when zoomed out to fit.
+
+The sky behind your photograph moved to Y
+It used to be the third press of O. O is now the whole annotation, grid and markers together, and Shift+O steps back through it.
+
+Every frame in the file list gets its own stretch
+Clicking through a folder used to apply the first frame's curve to all the rest, so a galaxy went dim as the sky got darker. Ctrl+H holds one mapping across frames when you do want to compare, and a blink holds on its own.
+
+Also in this release
+- Object rings now sit at the correct angle, so a tilted galaxy rings as the disc it is.
+- Ctrl+O opens a file, Ctrl+S saves the clean 16-bit raster, Ctrl+Shift+S opens the save menu.
+- W opens white balance, with the colour calibration inside it.
+- A held frame is marked [H] in the file list, and Shift+H steps the HDR view back.
+- Auto crop no longer mistakes a dead pixel for the edge of the stack.
+- One-shot-colour frames report three colours in the histogram and statistics.
+- FITS thumbnails no longer download your OneDrive files just to look at them.
+- The deep-sky catalogue is refreshed to OpenNGC v20260501.
+
+================================================================================
+Which way to cut if it ever needs cutting again: the three headed sections are
+the release, and the bullets are the tail. The first bullet is the exception and
+should be cut LAST of the bullets, because it corrects a claim the current
+listing makes. What is already out: the live preview's own histogram, the sky
+mark becoming the Southern Cross, the blink no longer carrying across targets,
+and the mosaic statistics rework beyond the one bullet. All are in DETAIL.
+================================================================================
+
+
+DETAIL
+================================================================================
+
+What renders differently (the half of a major no signature announces)
+  4188974f  The default auto stretch is an inspection stretch, N.I.N.A.'s
+            per-light preview exactly: the sky lands at 0.2 rather than 0.1, and
+            a pixel three MAD above it separates by more than 0.08 where the old
+            default gave 0.036. That is why a target could be barely visible here
+            while N.I.N.A. showed it plainly on the same sub, and the 150 percent
+            Boost could not make up the difference -- 0.1 x 1.5 is still under
+            0.2 before contrast enters. Pinned on the RENDERED result rather than
+            the parameters, since what went wrong was never that the numbers
+            looked unusual.
+  a8d59a29  Every VNG demosaic changes. A gradient in a demosaic compares two
+            samples of the SAME colour, so it is zero on a flat field whatever
+            the sky's colour is; VNG's were colour differences AND an affine
+            function of the value they select, so "keep the smallest gradient"
+            meant "keep the value nearest the centre pixel's own level". Green
+            read about +99 ADU high at blue sites and correctly at red ones, and
+            since blue sites are alternate rows AND columns it reached the screen
+            as a two-pixel alternation on both axes: fine stripes over the whole
+            background at 1:1, 6.4 display levels against 12 of pixel noise, and
+            thirty times what MHC or AHD show on the same frame. Invisible to
+            every test the suite had, because a demosaic had only ever been
+            checked against ITSELF or against the GPU, which mirrors the same
+            mistake.
+  1a2a70d7  A Bayer mosaic's statistics are three colours, taken on the mosaic in
+            place, wherever they are taken; eba30d01 and 3984c741 carry that into
+            the live preview and its new histogram.
+  "a mosaic's masked luma measured one colour, and the preset cycler stepped off
+   a stale index" (#260, cited by subject because it had not landed when this was
+   written and a rebase-merge rewrites the hash)
+            The masked case was the one still wrong at the end: without a cfa the
+            walk is a fixed grid from (0,0) and any EVEN pixelStride keeps both
+            parities, so the default 4 never left the phase it started on and the
+            star-masked luma measured ONE COLOUR while claiming the whole mosaic.
+
+Viewer - the annotation ladder, and the sky
+  a44518e9  The sky behind the frame leaves the O ladder for its own button and
+            key (Y). It reads as one more rung of the same idea and is not: it
+            puts a second view BEHIND the photograph, takes the pan clamp off and
+            raises its own layer palette. Riding the ladder cost it three ways,
+            each now pinned: three presses of a key that turned on two layers
+            nobody asked for, one mark shared with three other meanings, and on
+            an UNSOLVED frame the press did nothing at all, silently, because a
+            rung has nowhere to carry a precondition. The button is DIM with a
+            reason there instead.
+            Y because every letter that reads better is taken twice over: the
+            sky's own palette claims G A H C B S O D E M and V the moment the
+            backdrop is up, which is exactly when you want to switch it OFF.
+  8f817d53  O is the whole annotation, not a rung. The grid-only stop was paid
+            for twice per round trip; Shift+O still walks the ladder backwards
+            and G toggles the grid on its own.
+  02812d12  O adds the objects from the grid rung, and the enhance probe stops
+            clipping to black.
+  57cc0949  The sky mark becomes the Southern Cross, baked at the sizes it is
+            drawn.
+  7b769595  Four reports from one sitting with the sky behind the frame.
+  66df19e7  The map owns the objects while it is drawn, so nothing is drawn twice.
+
+Viewer - overlay geometry (the correction to the 7.1 listing claim)
+  07eb16e3  ComputeScreenPA carried two independent reflections; see the section
+            above for the measurement. The star markers were always right while
+            the ellipse was not, because markers go through ImageToScreen and the
+            ellipse angle did not.
+  45ecfa11  The sky map's own ellipse path takes the view's HANDEDNESS. Mirroring
+            is applied as a negated position angle, which is exactly what it is,
+            so both GPU copies stay byte-identical -- no mirror uniform, no
+            shader edit, no .spv re-bake. Scope is the backdrop over a mirrored
+            plate, an ordinary frame; the browser atlas and the desktop map were
+            never affected.
+
+Viewer - the file list, the display carry, and transport
+  a108742b  A click in the file list is its own auto-stretch. The display hold
+            shipped ON by default, so every frame of a folder went through the
+            curve solved on the first one: on a night that began under a
+            light-pollution dome and left it, the galaxy went DIM as the sky got
+            darker, the same numbers applied to a lower sky. That is not what a
+            click in the list asks for and not what N.I.N.A. or PixInsight show.
+            Also Ctrl+O, Ctrl+S (the clean 16-bit raster) and Ctrl+Shift+S (the
+            Save button's own menu), all posting to the controller as P and E do.
+            TIANWEN_FITS_CACHED_LAYER=0 turns the cached image layer off for one
+            run, to attribute a rendering artefact to it or clear it.
+  5fe6718b  One rule instead of two: the run's anchor always stands and the SPCC
+            triple rides on it, so a click never costs a second fit. The hold
+            moved to Ctrl+H, beside Ctrl+Space which returns to the held frame.
+            A blink carries exactly what a click does and holds on its own.
+  5ef75e48  The held frame carries an [H] in the file list, and Shift+H steps HDR
+            back.
+  cfea7055  A blink carries within one target, not merely one sensor: two masters
+            off the same rig share width, height, planes, depth and CFA whatever
+            they are pointed at, so shape called them comparable and a step from
+            one target to another was shown with the other one's stretch.
+
+Viewer - colour, white balance and zoom
+  40db7943  The colour calibration moves into the white-balance popover, and W
+            opens it.
+  c2974049  The calibration button says it is calibrating.
+  89406ada  Reset is live only when there is something to reset to.
+  3553880c  The popover sizes itself to the row it draws.
+  bb511853  A colour calibration belongs to the set, and stops following you.
+  d23853ae  Measure whether the channels already agree, do not be told.
+  7692d1d2  The curve must know about the background neutralisation.
+  cffd896c  The boost pivot must know where the sky actually renders.
+  69bb9d25  Below 100 percent the colour demosaic runs at the SCREEN's
+            resolution, so an OSC frame stops aliasing at fit zoom; 670c5a3a then
+            straddles texels rather than fractions of a screen pixel.
+  0782be9f  D no longer cycles a demosaic a mono frame has no use for.
+  e3cf18a6  An enhance result displays from its own pixels, not those of the
+            frame it came from.
+
+Imaging, catalogue and the shell
+  974b472f  A dead pixel is not a canvas ring, and auto-crop treated it as one.
+            LargestCoveredRectangle called a pixel absent when it was exactly
+            zero in every channel, wherever it sat; a canvas ring reaches the
+            border by construction, a zero surrounded by data is a pixel some
+            calibration clipped. Since this is a largest RECTANGLE and not a
+            bounding box, confusing the two is catastrophic rather than slightly
+            wrong: measured on IMX455_singleFrame.fits (9576 x 6388), 6230 exact
+            zeros, 0.0102 percent of the pixels, made the scan thread between
+            them and answer 2922 x 949 -- 4.5 percent of the frame. Under the new
+            rule 16 zeros are border-connected and every one lies ON an edge, so
+            the crop keeps the frame. NaN stays absence unconditionally.
+  715ded46  The thumbnail handler reads nothing until asked and declines a fast
+            extraction. A read is what HYDRATES a cloud placeholder, so buffering
+            the file in Initialize downloaded a whole folder of frames just
+            because Explorer asked whether thumbnails exist -- with every
+            resulting picture correct, which is why it went unnoticed.
+  1b038589  0x8004B205 is EXTRACTIONPENDING, not a failure; 46bdc75f records why
+            a thumbnail was not produced.
+  bd1b134e  Inside a OneDrive sync root none of our handler runs at all: a sync
+            engine registers ONE whole-root ThumbnailProvider that answers for
+            every extension. No per-extension registration can change that.
+  5938653b  The catalogue pins OpenNGC to v20260501 and re-bakes both snapshots;
+            46f6ee5a fixes the hd-hip-cross bake resolving an input TianWen.Lib
+            no longer embeds.
+  73f72655  APP's AD-PED is read as the pedestal when PEDESTAL is absent.
+
+Not in the Store build, but in the span
+  Source detection lands in TianWen.Lib (BackgroundMap, SourceSegmentation,
+  EdgeSpreadProfile, the crowded-field rule measured on the Statue master at
+  49,614 segments in 25 s) with a tianwen image sources verb writing
+  MAPKIND-stamped sidecars. Deconvolution P2 E3 shipped the unrolled
+  Richardson-Lucy operator and its residual prior (#241). Neither is reachable
+  from the viewer.
+
+
+KNOWN ISSUES IN THIS BUILD
+================================================================================
+  P21    Unchanged from 7.1.1627, and still BACKLOG. On a mosaic frame the
+         single-channel views show the raw mosaic rather than the separated
+         colour planes: ChannelView.DisplayedSourceChannel clamps to the channels
+         the IMAGE has, and a 1-channel RGGB frame has one, so Red/Green/Blue all
+         resolve to channel 0. Note that the STATISTICS and histogram for such a
+         frame ARE three colours as of this release (1a2a70d7); it is the channel
+         VIEWS that still show the mosaic, which is a shader change.
+
+  P11.2  Unchanged. The ? panel reports which SAS AI weights are missing and
+         where it looked, but cannot fetch them: tools/tianwen-ai-models-fetch.ps1
+         is a repo script and a Store install cannot reach it.
+
+  P9/P10 Unchanged, still unconfirmed. A stray text fragment at the left edge,
+         and a hand-off that may select the adjacent row. Reported once each,
+         neither reproduced since.
+
+  SPCC   Unchanged. Photometric colour calibration is broadband only; narrowband
+         is blocked on data rather than maths (per-star Gaia DR3 xp_sampled
+         spectra).
+
+  Layout Unchanged. Below about 730 px of window width the image pane arrives at
+         zero width and the histogram overlay lands on the file list.
+
+  About  Unchanged, and present in every release so far. The About banner
+         concatenates the run attempt onto the version rather than separating it
+         (8.0.17161 for 8.0.1716 attempt 1): dotnet.yml composes -p:Version as
+         ${VERSION_PREFIX}${VERSION_REV} with no separator, while -p:FileVersion
+         is correct.
+
+  CFA    New, and deliberate. The SER frame-by-frame histogram sits a mosaic out
+         rather than showing it wrong. It used to pair display channel c with a
+         flat walk of the interleaved mosaic under a bound of min(3,1), so every
+         colour went into the slot that MEANS red while green and blue kept their
+         frame-0 bins -- one wrong curve and two stale ones, all three plausible.
+         Closing it means a CFA-aware HistogramDisplay.UpdateRawBins, which is
+         backlogged in docs/todo/ui.md.
+
+
+STORE LISTING: PRODUCT FEATURES
+================================================================================
+A standing field, not a per-release one: it describes the product, so it is only
+edited when the product gains something. Up to 20 entries of 200 characters each.
+
+NO CHANGE THIS RELEASE. The four added at 7.1.1627 took the listing from 16 to
+20, which is the cap, so there is no slot to add to and nothing here that would
+displace an existing entry. This release is corrections and rendering rather than
+new product surface.
+
+If a slot ever frees up, the queue from last time still stands, in order:
+auto-crop to the covered area; A/B and blink; Explorer thumbnails for FITS and
+SER.
+
+One entry to CHECK rather than change while in Partner Center: the sky-backdrop
+line ("The night sky drawn behind your photograph, aligned to its plate solve,
+with ten map layers you can toggle") names no key, so it survives the O-to-Y move
+untouched. Confirm that is still the wording actually live.
+
+
+SUBMISSION
+================================================================================
+  0. Already done: CI/CD was dispatched on main at 2026-09-14T23:40:42Z and is
+     run 1716, id 34909934173. A re-dispatch would take the NEXT run number and
+     this file would be named for a package nobody has, so if that run had to be
+     re-run, rename this file to match rather than editing the number inside it.
+  1. Download the msix-store-package artifact from that run:
+       gh run download 34909934173 -n msix-store-package
+     About 145 MB at 7.1.1627. Retention is 30 days.
+  2. Upload AstroPhotoViewer.msixbundle to the draft submission for
+     Store ID 9PMDZP16TGBG. It is unsigned by design; the Store re-signs after
+     certification, so it cannot be installed by double-clicking.
+  3. Paste the WHAT'S NEW block above into "What's new in this version".
+  4. If the bundle was signed locally for testing, re-download before
+     uploading - signing edits the package in place.
+
+  Carried forward from 7.1.1627 and still not done:
+    - guide/viewer.html (sharpastro.github.io, which the Store listing points at)
+      predates object selection, the sky backdrop, the layer panel and auto-crop,
+      and now also predates the O-to-Y move. Its "Known limitations in this
+      version" list should end up matching the section above.
+    - Nobody has checked whether 7.0.1568's 4716-character What's New was trimmed
+      by hand at the browser or silently cropped by the field. Worth a look at
+      the live listing while in there.
