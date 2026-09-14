@@ -190,9 +190,15 @@ public static class ViewerActions
     public static void ToggleOverlayLevel(ViewerState state)
         => ApplyOverlayLevel(
             state,
-            state.OverlayLevel is ViewerOverlayLevel.None
-                ? ViewerOverlayLevel.Objects
-                : ViewerOverlayLevel.None);
+            // OFF is the whole annotation off, and that is the only rung a press turns off. From the
+            // GRID rung a press ADDS the objects, which is what the button has always said it does
+            // ("O adds the catalog objects") and what "O is the whole annotation" means -- the earlier
+            // `None ? Objects : None` cleared from there instead, so with no forward step bound
+            // anywhere (Shift+O and a right-click both walk BACK) the grid-only rung was a dead end
+            // that took two presses to leave.
+            state.OverlayLevel is ViewerOverlayLevel.Objects
+                ? ViewerOverlayLevel.None
+                : ViewerOverlayLevel.Objects);
 
     /// <summary>
     /// Sets every context layer from one rung of the ladder. The rungs are cumulative, so this is the

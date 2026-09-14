@@ -50,7 +50,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void TheEnhancedCurveIsReportedBesideTheRawOne()
         {
-            var parameters = new StretchParameters(0.1f, 5f);
+            var parameters = new StretchParameters(0.1f, -5f);
 
             foreach (var (label, stats) in new[] { ("raw", RawStats()), ("enhanced", EnhancedStats()) })
             {
@@ -79,7 +79,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void AnUnlinkedStretchRendersTheBackgroundNeutral()
         {
-            var parameters = new StretchParameters(0.1f, 5f);
+            var parameters = new StretchParameters(0.1f, -5f);
 
             foreach (var (label, stats) in new[] { ("raw", RawStats()), ("enhanced", EnhancedStats()) })
             {
