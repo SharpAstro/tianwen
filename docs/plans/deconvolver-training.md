@@ -2720,6 +2720,91 @@ segment on the sharp master is 300 px), not nebula; the Statue's nebulosity at 2
 under the mask's threshold. The instrument is right for a frame whose structure the detection can
 see, the Bubble's kind; here it says only that the prior does not harm what structure there is.
 
+#### E7.1, pre-registered: the single-frame kernel rule (2026-09-14, 15:20)
+
+Every readout so far handed the operator the pair's kernel, the sharp master's width composed
+against the soft one's (0.77 / 0.91 / 0.98 px on the primary crop). Inference has one frame, so
+before the runtime port the question is what kernel a frame's own stars can justify, and how far a
+wrong one hurts. Two measurements, both on the E2.10b Statue pair at the 1.28x round trip with
+`e34d_s0_final.pt`, so every number is comparable with the E3.4d read:
+
+1. **Kernel sensitivity.** The truth kernels scaled by 0.5, 0.75, 1.25, 1.5 and 2.0 (1.0 is the E3.4d
+   row), every other setting held. Prediction: width and skirt move with the kernel monotonically,
+   the prior tolerates a kernel within 25 percent of the truth on all four star clauses (width
+   under 1.15, stars 0.85 to 1.10, ring within 1 MAD, skirt 0.90 or over), and a kernel at 1.5x
+   or over fabricates (stars over 1.10 with a narrower width) or rings, as the oracle did at every
+   over-read (E1b). If the tolerance band is narrower than 25 percent the rule must be that accurate;
+   if wider, a coarse rule serves.
+2. **What one frame can say.** Three candidate rules for the soft master alone, each producing a
+   per-channel kernel: (a) a fixed FRACTION of the frame's measured width, the fraction being the
+   training draws' median kernel over composed width (`EffectiveKernelFwhmPx / ComposedFwhmPx` over
+   the pool's rows); (b) the width composed down to a TARGET floor, the pool's clean-width median
+   at this pixel scale (the Moffat composition inverted, `MoffatComposition.DifferenceFwhm`); (c)
+   the same with the sharp third's own width as the target, which is the pair's answer and the
+   ceiling no single frame reaches. Each rule's kernel is read against the pair's (the 0.77 / 0.91 /
+   0.98) and located on the sensitivity band from (1). Pass: a rule whose kernel lands inside the
+   tolerated band on all three channels. Kill: no rule lands inside it, which sends E7 to a learned
+   kernel head (the psf01 label the prior already carries, made to answer width directly) before
+   any port.
+
+##### E7.1 read: the band is a tenth either way, and no fixed rule lands in it (2026-09-14, 16:10)
+
+The sweep (`C:/temp/e2/e7-1/sens-*.txt`, `e34d_s0_final.pt`, primary crop, 1.28x round trip):
+
+| kernel over the pair's | E3.4d width / truth | stars | ring excess | skirt | E3.0 width | E3.0 stars | E3.0 ring |
+|---|---|---|---|---|---|---|---|
+| 0.5 | 1.268 | 0.90 | -1.19 | 1.81 | 1.265 | 0.90 | -0.04 |
+| 0.75 | 1.222 | 0.93 | -0.99 | 1.48 | 1.215 | 0.95 | +0.40 |
+| 1.0 | 1.146 | 1.00 | -0.45 | 0.98 | 1.127 | 1.05 | +1.73 |
+| 1.25 | 1.082 | 1.06 | +0.58 | 0.53 | 1.055 | 1.15 | +4.18 |
+| 1.5 | 1.042 | 1.12 | +2.28 | 0.12 | 1.022 | 1.26 | +7.51 |
+| 2.0 | 1.012 | 1.22 | +6.80 | -0.46 | 1.033 | 1.47 | +16.41 |
+| input | 1.253 | 0.91 | 0.00 | 1.94 | | | |
+
+Every column is monotonic in the kernel, and the skirt is the steep one: 1.81 to 0.98 to 0.53 across
+0.5x to 1.25x, so a quarter over takes the skirt the E3.4 campaign spent four arms winning, and a
+quarter under leaves the width clause unmet (1.222). The prediction of a 25 percent tolerance is
+refuted; the band on all four clauses is about a TENTH either way. The prior halves the damage of an
+over-read kernel against the bare operator (at 1.5x stars 1.12 against 1.26, ring +2.3 against +7.5)
+and does not remove it. What one frame can say (`SeeingSplitPairProbe.ReportWhatOneFrameCanSayAboutItsKernel`,
+`C:/temp/e2/e7-1/rules.txt`), per channel on the same crop:
+
+| ch | A hfd | B hfd | fit A | fit B | est-c (the pair's) | 0.52 x B hfd | over est-c | B composed down to the pool's 2.48 | to the pool's p10 1.89 | over est-c |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 0 | 1.84 | 1.96 | 1.70 | 2.02 | 0.77 | 1.02 | 1.31 | refused (B is sharper) | 0.30 | 0.39 |
+| 1 | 1.71 | 2.06 | 1.73 | 2.06 | 0.91 | 1.07 | 1.17 | refused | 0.53 | 0.58 |
+| 2 | 1.69 | 2.25 | 1.73 | 2.10 | 0.98 | 1.17 | 1.19 | refused | 0.84 | 0.85 |
+
+Neither fixed rule lands inside the band on any channel: the fraction rule reads 1.17 to 1.31 times
+the pair's kernel (the skirt would go), and the pool-floor rule REFUSES the frame outright, because
+the soft Statue at 1.96 to 2.25 px is sharper than the pool's median clean width, while the pair
+proves 1.19 to 1.33 of excess is there. Width alone cannot see excess blur: a soft night on a good
+scope and a sharp night on a poor one read the same number. The kill line is met, and E7 goes to a
+learned kernel before any port. Two things the sweep settles on the way: the readouts' constant
+psf01 label is not a deploy mismatch (the operator reads only the kernel width and beta planes); and
+the pool's training draws span 0.26 to 0.69 of the composed width, so the prior has seen the band
+the real kernels sit in (0.39 to 0.44 of B).
+
+#### E7.2, pre-registered: a kernel head on the operator's own cache (2026-09-14, 16:20)
+
+The cache carries, per tile, the degraded planes and the kernel that made them
+(`EffectiveKernelFwhmPx`, `EstimatedKernelBeta`; 6,480 labelled slots over 810 cells, 90 held out);
+a small convolutional head trained on it to read the kernel WIDTH from the degraded tile alone is the
+learned rule, and the psf01 plane the operator carries is where its answer goes. Input: the tile's
+three stretched planes (the operator's own stretch, so the head sees what the prior sees); output:
+the kernel width in px, the loss relative (`|pred - k| / k`), because the band is relative. The
+labelled width is the drawn kernel's effective width against the cell's OWN clean core, which is
+exactly the deployable notion of excess: how much blur this tile carries beyond a pool-like clean one.
+
+Pass: on the 90 held-out cells the median relative error is under 10 percent; and on the Statue
+primary crop, the head's width per channel over est-c within 0.9 to 1.1 on all three, at native and
+at the 1.28x resample (the head must read the resampled frame the prior gets). Kill: over 15 percent
+on the pair on any channel after two seeds, which sends E7 to self-calibration on the output's own
+star profile (the skirt column's monotonic steepness makes a bisection on the output's wing shape
+against a target Moffat plausible, and it is the fallback, not the first choice, because it needs a
+target shape the pool would have to supply). Cost: minutes per seed on the 1070 against the cache
+already on disk; the trainer's GPU is free since seed 1 exited.
+
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
 Every retained master in `2026-09-full` predates the two registration fixes and R1, and E3 trains on

@@ -369,6 +369,71 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
     /// The shipped SAS AI4 graph on the soft crop, whole-image psf01 as it ships, read against the sharp
     /// crop with the same measures. GPU; opt-in.
     /// </summary>
+    /// <summary>The training draws' median kernel over composed width on the SH61 pool's rows
+    /// (`EffectiveKernelFwhmPx / ComposedFwhmPx`, p10 / p50 / p90 = 0.26 / 0.52 / 0.69, 2026-09-14),
+    /// which is what "the frame's width times a fixed fraction" can offer as a single-frame kernel.</summary>
+    private const double PoolKernelFraction = 0.52;
+
+    /// <summary>The SH61 pool's clean widths in the exporter's statistic (the deployed estimator's
+    /// HFD-based FWHM on a 256 px cell): the per-session medians run 1.83 to 3.82 px, p10 1.89, p50 2.48.</summary>
+    private static readonly (string Label, double Fwhm)[] PoolFloors = [("floor-p50", 2.48), ("floor-p10", 1.89)];
+
+    /// <summary>
+    /// E7.1 (deconvolver-training.md): what kernel ONE frame can justify. The pair's kernel (est-c, the
+    /// sharp master composed against the soft) is the answer inference never has; this reads, per channel
+    /// on the same crop, the soft master's own widths in both statistics and the candidate single-frame
+    /// rules against est-c: a fixed fraction of the measured width (the training draws' median), and the
+    /// width composed down to a pool floor. The kernel-sensitivity sweep in the plan says how far off a
+    /// rule may land.
+    /// </summary>
+    [Fact]
+    public async Task ReportWhatOneFrameCanSayAboutItsKernel()
+    {
+        using var pair = Load(out var skip);
+        Assert.SkipWhen(pair is null, skip);
+        var ct = TestContext.Current.CancellationToken;
+        var channels = pair!.Sharp.Image.Shape.ChannelCount;
+
+        output.WriteLine($"sharp     {pair.Sharp.Path}");
+        output.WriteLine($"soft      {pair.Soft.Path}");
+        output.WriteLine($"widths    hfd: the deployed estimator's HFD-based FWHM (the exporter's CleanFwhmPx statistic); fit: PsfProfileFit core width (the pair probe's)");
+        output.WriteLine($"rules     est-c: the pair's kernel (fit A composed against fit B, beta {SyntheticKernelBeta}); frac: {PoolKernelFraction} x B hfd; "
+            + string.Join("; ", PoolFloors.Select(f => $"{f.Label}: B hfd composed down to {f.Fwhm} px (core beta {MoffatComposition.DefaultCoreBeta}, kernel beta {SyntheticKernelBeta})")));
+        output.WriteLine("");
+        output.WriteLine($"{"ch",2} {"A hfd",6} {"B hfd",6} {"B/A",5} {"fit A",6} {"fit B",6} {"B/A",5} {"est-c",6} {"frac",6} {"/est-c",6} "
+            + string.Join(" ", PoolFloors.Select(f => $"{f.Label,9} {"/est-c",6}")));
+
+        for (var c = 0; c < channels; c++)
+        {
+            if (await CommonSquareAsync(pair, c, ct) is not { } r)
+            {
+                output.WriteLine($"{c,2} (no common covered square of at least {MinSide} px; skipped)");
+                continue;
+            }
+
+            var truth = Cut(pair.Sharp.Image, c, r.SharpX, r.SharpY, r.Side, r.Side);
+            var observed = Cut(pair.Soft.Image, c, r.SoftX, r.SoftY, r.Side, r.Side);
+            var (aHfd, _) = await MeasuredFwhmAsync(truth, r.Side, ct);
+            var (bHfd, _) = await MeasuredFwhmAsync(observed, r.Side, ct);
+            var (fitA, diagA) = await FitStarProfileAsync(truth, r.Side, r.Side, PsfProfileFit.StarSelection.SignalFloor, EstimatorSnrMin, EstimatorMaxStars, ct);
+            var (fitB, diagB) = await FitStarProfileAsync(observed, r.Side, r.Side, PsfProfileFit.StarSelection.SignalFloor, EstimatorSnrMin, EstimatorMaxStars, ct);
+            if (fitA is not { } a || fitB is not { } b)
+            {
+                output.WriteLine($"{c,2} {aHfd,6:F2} {bHfd,6:F2} {bHfd / aHfd,5:F3} (fit A {(fitA is null ? Describe(diagA) : "ok")}; fit B {(fitB is null ? Describe(diagB) : "ok")}; no est-c)");
+                continue;
+            }
+
+            var estC = MoffatComposition.DifferenceFwhm(a.Fwhm, a.MoffatBeta, b.Fwhm, SyntheticKernelBeta);
+            var frac = PoolKernelFraction * bHfd;
+            var floors = PoolFloors.Select(f => MoffatComposition.DifferenceFwhm(f.Fwhm, MoffatComposition.DefaultCoreBeta, bHfd, SyntheticKernelBeta)).ToArray();
+            output.WriteLine($"{c,2} {aHfd,6:F2} {bHfd,6:F2} {bHfd / aHfd,5:F3} {a.Fwhm,6:F2} {b.Fwhm,6:F2} {b.Fwhm / a.Fwhm,5:F3} {estC,6:F2} {frac,6:F2} {frac / estC,6:F2} "
+                + string.Join(" ", floors.Select(k => $"{k,9:F2} {k / estC,6:F2}")));
+        }
+
+        output.WriteLine("");
+        output.WriteLine("read: a rule's kernel over est-c near 1.0 lands the pair's answer; the plan's E7.1 sweep says how far from 1.0 the prior tolerates. NaN from a floor means the frame is already sharper than that floor.");
+    }
+
     [Fact]
     public async Task ReportWhatTheShippedGraphDoesOnARealSeeingSplit()
     {
