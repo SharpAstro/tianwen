@@ -782,6 +782,42 @@ public partial class Image
                 }
                 break;
 
+            case BitDepth.Int32:
+                // A label map: every value is a whole number the reader converts straight back to
+                // float, and a float32 plane would hold it exactly only up to 2^24. No BZERO offset,
+                // FITS 32-bit integers are signed and a label is never negative.
+                bzero = 0;
+                dataIsInt = true;
+                if (channelCount == 1)
+                {
+                    var intArray = new int[height, width];
+                    for (var h = 0; h < height; h++)
+                    {
+                        for (var w = 0; w < width; w++)
+                        {
+                            intArray[h, w] = (int)Planes[0].Data[h, w];
+                        }
+                    }
+                    arrayToWrite = intArray;
+                }
+                else
+                {
+                    var intChannels = new int[channelCount][,];
+                    for (var c = 0; c < channelCount; c++)
+                    {
+                        intChannels[c] = new int[height, width];
+                        for (var h = 0; h < height; h++)
+                        {
+                            for (var w = 0; w < width; w++)
+                            {
+                                intChannels[c][h, w] = (int)Planes[c].Data[h, w];
+                            }
+                        }
+                    }
+                    arrayToWrite = intChannels;
+                }
+                break;
+
             case BitDepth.Float32:
                 bzero = 0;
                 dataIsInt = false;

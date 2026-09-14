@@ -648,7 +648,14 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// Convenience for guider frames and test helpers.
     /// </summary>
     public static Image FromChannel(float[,] channel, float maxValue = float.NaN, float minValue = float.NaN)
-        => new Image([channel], BitDepth.Float32, maxValue, minValue, 0f, new ImageMeta { SensorType = SensorType.Monochrome });
+        => FromChannel(channel, BitDepth.Float32, maxValue, minValue);
+
+    /// <summary>
+    /// <see cref="FromChannel(float[,], float, float)"/> with the container depth stated, for a plane
+    /// that is whole numbers by construction (a label map, a 0/1 mask) and should be written as such.
+    /// </summary>
+    public static Image FromChannel(float[,] channel, BitDepth bitDepth, float maxValue = float.NaN, float minValue = float.NaN)
+        => new Image([channel], bitDepth, maxValue, minValue, 0f, new ImageMeta { SensorType = SensorType.Monochrome });
 
     /// <summary>
     /// SIMD-accelerated element-wise multiply: <c>dst[i] = src[i] * scalar</c>.

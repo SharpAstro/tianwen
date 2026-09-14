@@ -29,7 +29,7 @@ and a `SegmentationImage`; this plan adds their shapes as pure image-plus-number
 | P1 | `BackgroundMap`: mesh of sigma-clipped cells (median, 1.4826 MAD rms), neighbour fill of invalid cells, odd median filter over the mesh, bilinear to the pixel, exact zero as no data, an exclusion mask for a second pass | DONE 2026-09-14, 2 tests |
 | P2 | `SourceSegmentation`: threshold over the map on a smoothed sky-subtracted plane, 8-connected union-find labelling, minimum area, watershed deblend from saddle-separated peaks, `Segment` record with a compact flag, `SegmentationMap` with star / structure / sky masks as `BitMatrix`; two background passes with a low-sigma mask between them | DONE 2026-09-14, 3 tests |
 | P3 | `EdgeSpreadProfile`: the extended-object measurement, a segment's boundary read as a line-spread function (the Bubble rim readout, `training/denoise/n2n_rim_readout.py`, ported and generalised from a fitted circle to the segment's own boundary) | DONE 2026-09-14, 5 tests: rims of 5.0 and 9.0 px against 5.3 and 8.1 expected, edges 4.0 and 8.0 against 3.8 and 7.7 |
-| P4 | A CLI verb (`tianwen image sources`) printing the segment table and writing the label map and masks, and the deconvolver's real-frame readouts taking their star and structure masks from here | NOT STARTED |
+| P4 | A CLI verb (`tianwen image sources`) printing the segment table and writing the label map and masks, and the deconvolver's real-frame readouts taking their star and structure masks from here | Verb and sidecars DONE 2026-09-14 (`SourceDetectionWriter`, 10 tests, the Bubble run below); the readouts' mask intake is on the deconvolver branch (PR #244) and open |
 | P5 | Aperture and segment photometry on the `Segment` records (the `photutils.aperture` half), and the star detector's list cross-matched to segments so one frame has one source catalogue | NOT STARTED |
 
 ## Design decisions, each with the measurement behind it
@@ -130,6 +130,35 @@ that rank scratch; the labels are the map's own and a fresh array per pass. What
 worth doing until a caller runs the detection in a loop. The masks dilate on the `BitMatrix` words
 (`BitMatrix.DilateSquare`, pinned against the boolean-plane dilation), eight times faster and a
 seventh of the allocation.
+
+## The verb and its sidecars (2026-09-14)
+
+`tianwen image sources <frame> [--channel N] [--sigma 3] [--min-pixels 5] [--no-deblend] [--block-size 64]
+[--margin 3] [--top 10] [--maps] [--csv] [-o DIR]` runs the map and the segmentation on one channel (the
+reference star channel by default), prints the summary and the largest segments of each class, and on
+request puts the detection on disk through `SourceDetectionWriter`, beside the frame or in `-o`, every
+file named by a suffix on the frame's own name (the `.rejection.fits` convention) and saying what it
+holds in a `MAPKIND` card:
+
+| file | contents | container | `MAPKIND` |
+|---|---|---|---|
+| `<stem>.labels.fits` | segment label per pixel, 0 is sky | 32-bit integer (new in the FITS writer; a float plane is exact only to 2^24) | `LABELS` |
+| `<stem>.starmask.fits` | compact segments plus the margin | 8-bit 0 / 1 | `STARMASK` |
+| `<stem>.structmask.fits` | extended segments | 8-bit 0 / 1 | `STRUCTMASK` |
+| `<stem>.skymask.fits` | nothing within a margin of any source | 8-bit 0 / 1 | `SKYMASK` |
+| `<stem>.background.fits` | the mesh background at the pixel, frame units | float | `BACKGROUND` |
+| `<stem>.rms.fits` | the mesh noise at the pixel, frame units | float | `RMS` |
+| `<stem>.sources.csv` | one row per segment in label order: position, sky position when the frame carries a solution, peak and its signal over the local noise, flux, box, shape figures, `peak_count`, `compact` | text | |
+
+Each sidecar carries `SWCREATE = TianWen.Imaging.Sources` and `IMAGETYP = SOURCEMAP`, so a folder scan
+never takes a mask for a light, and the frame's WCS, so a mask solves where its frame solves. On the
+Bubble master (3840 x 2160): 2,547 segments in 4.5 s, the label map 33 MB, each mask 8.3 MB, the table
+266 KB; read back with astropy the masks are disjoint, every labelled pixel lies in the star or the
+structure mask, and the label map holds 2,547 distinct labels. Two things a reader of the outputs should
+know: `peak_count` is the PARENT's count of significant maxima before the deblend split it, so the pieces
+of one crowded parent all carry the same number (the four largest extended segments on the Bubble all say
+198, one parent); and the sky columns are empty on a frame whose WCS is a target hint (CRVAL and CTYPE
+with no CRPIX or CD matrix, as a flattened export carries), not a fault of the table.
 
 ## Traps
 
