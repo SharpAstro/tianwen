@@ -5,6 +5,44 @@ Checks that only a real device or a real night can answer live in ONE place, ind
 
 ## High Priority
 
+- [x] **A register sweep of viewer stats, presets and the icon bake** (2026-09-15). Eight items,
+  six of them real; the two that were not are worth as much as the six.
+  - [x] **`StarMaskedLumaStats` measured ONE COLOUR on a mosaic**, which is the one that was a live
+    bug rather than the latent trap it was filed as. Without a `cfa`, the masked walk is a fixed grid
+    from (0, 0), and **any EVEN `pixelStride` keeps both parities**, so the default 4 never leaves the
+    phase it started on. Its own comment claimed "the whole mosaic, as LumaStats was taken", while
+    `LumaStats` had walked every photosite at stride 1. Now matches it; the API's XML states the
+    even-stride rule so the next caller cannot fall in.
+  - [x] **`GetLumaStretchStatsAsync` materialised a full debayer for three scalars** on RGGB -- some
+    288 MB allocated and discarded on a 6000x4000 OSC sub -- to reach the Rec. 709 path. It takes the
+    stat in place now, as the document already did. **Nothing was paying it**: the document passes the
+    mosaic case itself and the test harness guards on `ChannelCount >= 3`, which a mosaic is not. The
+    dead `debayerAlgorithm` parameter went with it, a BREAKING change to published API awaiting its
+    bump.
+  - [x] **The stretch preset cycler stepped off a stale index.** It now reconciles against the
+    parameters in hand (`presets.IndexOf`), falling back to the stored index for a hand-tuned stretch
+    that matches no preset; three tests, two of them seen FAILING with the fix reverted. And
+    `StretchParameters.Presets` is an `ImmutableArray` -- a plain array was `readonly` only in its
+    reference, so any caller could rewrite element zero and move `Default` for the whole process.
+  - [x] **The CFA SER histogram refresh is guarded**, not fixed: display channel `c` was paired with a
+    flat walk of the interleaved mosaic, writing every colour into the slot that MEANS red and leaving
+    green and blue stale. It sits the mosaic out until `HistogramDisplay` gains a CFA-aware update
+    ([docs/todo/ui.md](docs/todo/ui.md)).
+  - [x] **TWIC0001 was a TIMESTAMP, not a stale table.** Re-running `tools/bake-icons.ps1` produced
+    BYTE-IDENTICAL output: the guard compares mtimes, and a `git checkout` had written `icons.recipe`
+    after `BakedIcons.g.cs`. Nothing to commit, and the false positive recurs on any checkout that
+    orders the files that way.
+  - [x] **The hd-hip-cross 121.8 ms claim is CORRECT** and the doubt is refuted. Measured in Release:
+    `hd-hip-cross-snapshot:applied` -- the pre-baked snapshot's deserialise-and-apply, exactly as
+    CLAUDE.md says, NOT the live-compute fallback. 110.8 ms against the documented 121.8, and 350.0 ms
+    total against ~343, both inside single-run variance, so neither number was rewritten on one
+    sample. The premise had lapsed anyway: the snapshot was re-baked 2026-09-14. (It applies
+    `unverified-no-tyc2-lz`, so the hash gate cannot run where the tyc2 `.lz` is stripped.)
+  - [ ] **The double stats scan at open stays**, deliberately: the two collectors take DIFFERENT
+    histograms (pedestal-removed for the curve, the frame's own levels for the display) and merging
+    them would be a silent numeric bug. One traversal producing both is the available win, and it
+    wants measurement ([docs/todo/ui.md](docs/todo/ui.md)).
+
 - [x] **`Auto` renders an enhanced frame as a flat colour field** (FIXED 2026-09-10). It was the
   mode CHOICE, not the chosen mode: a background-extracted frame now resolves `Auto` to **Linked**,
   because Unlinked exists to neutralise a background that has not been neutralised, and re-doing it on

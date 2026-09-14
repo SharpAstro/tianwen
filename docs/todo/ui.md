@@ -617,6 +617,31 @@ levers, both low priority because production (NativeAOT) first-open is already f
       handlers may rely on running their prefix on the render thread) and needs its own release, so
       the per-call-site offload above is the surgical fix for now.
 
+## Viewer statistics and histogram (raised 2026-09-15, from a register sweep)
+
+- [ ] **Fuse the two stats passes at document open.** The stats collector
+      (`StretchSolver.CollectPerChannelStats`) and the display collector
+      (`CollectChannelHistograms`) each walk the pixels, so a mosaic pays about eight walks at open:
+      three CFA stats, three CFA histograms, the whole-mosaic histogram and the luma stat. **The two
+      are NOT redundant and must not simply be merged** -- the stats are taken with the pedestal
+      REMOVED (the shader subtracts it before the curve, so the median positioning the curve has to be
+      in that space) while the display wants the frame's own levels, which is exactly why they sit
+      beside each other rather than inside one another. The win available is one TRAVERSAL producing
+      both sets of bins, not one histogram serving both purposes. Wants measurement before and after:
+      `DocumentOpenCostProbe` and `StatsPathBenchmarks` already exist.
+- [ ] **`HistogramDisplay.UpdateRawBins` has no CFA-aware form**, so the per-frame refresh during SER
+      playback sits out a Bayer mosaic entirely (`VkImageRenderer.IsCfaMosaicSource`) and the
+      histogram shows frame-0 bins for the whole clip. It used to be worse: display channel `c` was
+      paired with `GetChannelData(c)`, a flat walk of the interleaved mosaic, so the bound `min(3, 1)`
+      wrote every colour into the slot that MEANS red and left green and blue stale -- one wrong curve
+      and two stale ones, all three plausible enough to read as live. The fix is an overload that
+      walks one CFA phase per channel, the same `CfaPhaseStarts` / `CfaStep` traversal
+      `Image.Histogram` takes; then drop the guard.
+- [ ] **`GetLumaStretchStatsAsync` lost its `debayerAlgorithm` parameter** (2026-09-15) when the RGGB
+      branch stopped materialising a full debayer for three scalars. That is a BREAKING change to
+      published `TianWen.Lib` API, so it needs its version bump taken deliberately -- the org rule is
+      major for breaking, and a minor was floated.
+
 ## GLSL shader cleanup
 
 - [ ] The stereographic-projection GLSL (`stereoProject`) is currently inlined into `skymap_star.vert`

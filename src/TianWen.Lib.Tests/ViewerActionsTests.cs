@@ -13,6 +13,63 @@ namespace TianWen.Lib.Tests;
 /// </summary>
 public class ViewerActionsTests
 {
+    // --- CycleStretchPreset ---
+
+    /// <summary>
+    /// <b>The step is taken from the parameters in effect, not from the stored index.</b> The two part
+    /// company whenever the parameters are set by anything but the cycler -- a restored viewer state,
+    /// the toolbar dropdown, a default that moved -- and stepping off the stale index walks away from
+    /// what is on screen rather than one along from it.
+    /// </summary>
+    [Fact]
+    public void CycleStretchPreset_StepsFromTheParametersInHand_NotTheStaleIndex()
+    {
+        var presets = StretchParameters.Presets;
+        var state = new ViewerState
+        {
+            StretchParameters = presets[3],
+            StretchPresetIndex = 0, // stale: says Presets[0] while Presets[3] is what is rendered
+        };
+
+        ViewerActions.CycleStretchPreset(state);
+
+        state.StretchPresetIndex.ShouldBe(4);
+        state.StretchParameters.ShouldBe(presets[4]);
+    }
+
+    /// <summary>A hand-tuned stretch matches no preset, so the stored index is all there is to step from.</summary>
+    [Fact]
+    public void CycleStretchPreset_WhenTheStretchMatchesNoPreset_StepsFromTheStoredIndex()
+    {
+        var state = new ViewerState
+        {
+            StretchParameters = new StretchParameters(0.123, -3.7),
+            StretchPresetIndex = 2,
+        };
+
+        ViewerActions.CycleStretchPreset(state);
+
+        state.StretchPresetIndex.ShouldBe(3);
+        state.StretchParameters.ShouldBe(StretchParameters.Presets[3]);
+    }
+
+    /// <summary>Reverse reconciles the same way, and wraps off entry zero to the last.</summary>
+    [Fact]
+    public void CycleStretchPreset_InReverseFromTheFirstPreset_WrapsToTheLast()
+    {
+        var presets = StretchParameters.Presets;
+        var state = new ViewerState
+        {
+            StretchParameters = presets[0],
+            StretchPresetIndex = 5, // stale in the other direction
+        };
+
+        ViewerActions.CycleStretchPreset(state, reverse: true);
+
+        state.StretchPresetIndex.ShouldBe(presets.Length - 1);
+        state.StretchParameters.ShouldBe(presets[presets.Length - 1]);
+    }
+
     // --- ToggleStretch ---
 
     [Fact]

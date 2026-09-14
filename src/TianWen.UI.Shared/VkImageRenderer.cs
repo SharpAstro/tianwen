@@ -156,7 +156,7 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
         {
             _histogramDisplay = new HistogramDisplay(stats);
         }
-        else if (source.FrameCount > 1)
+        else if (source.FrameCount > 1 && !IsCfaMosaicSource(source))
         {
             var n = Math.Min(_histogramDisplay.ChannelCount, source.ChannelCount);
             for (var c = 0; c < n; c++)
@@ -167,6 +167,22 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
 
         _histogramLastStretchMode = null; // force re-upload on next render
     }
+
+    /// <summary>
+    /// A Bayer mosaic carried as ONE plane, whose <see cref="IPreviewSource.ChannelStatistics"/> are
+    /// nonetheless three -- R, G and B taken over their own photosites on the mosaic in place.
+    /// </summary>
+    /// <remarks>
+    /// The per-frame raw-bin refresh cannot serve that shape and must sit it out. It pairs display
+    /// channel c with <c>GetChannelData(c)</c>, which here is a flat walk of the whole interleaved
+    /// mosaic, so the loop bound <c>min(3, 1)</c> wrote every colour's photosites into the slot that
+    /// MEANS red and left green and blue on their frame-0 bins: one wrong curve and two stale ones,
+    /// all three plausible enough to read as a live histogram. Sitting it out keeps the frame-0 bins,
+    /// which are at least the three colours they claim to be, until <see cref="HistogramDisplay"/>
+    /// gains a CFA-aware update that walks one phase per channel (docs/todo/ui.md).
+    /// </remarks>
+    private static bool IsCfaMosaicSource(IPreviewSource source)
+        => source.ChannelCount == 1 && source.SensorType is not SensorType.Monochrome;
 
     protected override HistogramDisplay? GetHistogramDisplay() => _histogramDisplay;
 

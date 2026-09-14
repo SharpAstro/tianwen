@@ -48,7 +48,7 @@ public abstract class StretchTestBase(ITestOutputHelper testOutputHelper)
         }
         if (mode == "luma" && image.ChannelCount >= 3)
         {
-            var (lumaPed, lumaMed, lumaMad) = await image.GetLumaStretchStatsAsync(algorithm, ct);
+            var (lumaPed, lumaMed, lumaMad) = await image.GetLumaStretchStatsAsync(ct);
             testOutputHelper.WriteLine($"  Luma: pedestal={lumaPed:F6}, median={lumaMed:F6}, mad={lumaMad:F6}");
             var (ls, lm, lh, lr) = Image.ComputeStretchParameters(lumaMed, lumaMad, stretchPct * 0.01d, clippingSigma);
             testOutputHelper.WriteLine($"  Luma stretch params: shadows={ls:F6}, midtones={lm:F6}, highlights={lh:F6}, rescale={lr:F6}");

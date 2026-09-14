@@ -378,3 +378,22 @@ The driver is equatorial-only; this plan covers making alt-az *safe* (shipped) t
 **Recommendation (from the plan):** Phase 0 makes the alt-az case safe rather than silently wrong;
 most AZ-GTi *imagers* run EQ-on-a-wedge anyway (already works as `GermanPolar`). Pursue Phase 1 only
 on demand; defer Phase 3 until rotator support lands.
+
+## Maintenance sweeps (not plan work, recorded so the codebase check has a date)
+
+- **2026-09-15 -- viewer stats, presets and the icon bake.** An eight-item register worked end to end;
+  six were real, and the two that were not are the entries worth reading. Detail in
+  [../../TODO.md](../../TODO.md) under High Priority, follow-ups in [../todo/ui.md](../todo/ui.md).
+  - Two defects were WORSE than filed. `StarMaskedLumaStats` measured ONE COLOUR on a mosaic, not the
+    frame: without a `cfa` the masked walk is a fixed grid from (0, 0) and **any even `pixelStride`
+    keeps both parities**, so the default 4 never left the origin's phase, against a `LumaStats` that
+    had walked every photosite. And the SER histogram refresh wrote the whole interleaved mosaic into
+    the slot that MEANS red while green and blue went stale.
+  - Two were not defects at all. **TWIC0001 was a timestamp**, not a stale table -- re-running the
+    bake produced byte-identical output, and the guard compares mtimes a `git checkout` reorders. And
+    **CLAUDE.md's hd-hip-cross 121.8 ms is correctly attributed**: measured in Release it reports
+    `hd-hip-cross-snapshot:applied`, the pre-baked snapshot's deserialise-and-apply exactly as the doc
+    says, NOT the live-compute fallback that was suspected. Neither documented number was rewritten,
+    because one run (110.8 ms, 350.0 ms total) is not grounds to move a figure.
+  - **This entry is NOT a re-cross-check of the plan table above.** That still carries its 2026-05-16
+    date, and stamping a new one without doing the work is exactly the drift this file exists to catch.
