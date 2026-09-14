@@ -155,6 +155,27 @@ is checked in beside its output. Nothing is upscaled past the icon's 256px frame
 `Square310x310Logo` and `Wide310x150Logo` are absent (neither is required for certification, and the
 wide one cannot come from square art without cropping).
 
+## The submission record is baked, not written afterwards
+
+`release-notes/` is the only record of what has been submitted to the Store, one file per release.
+The package version ends in `github.run_number`, which does not exist until the run does, so the
+record is a DRAFT in the repo (`release-notes/NEXT.txt`) that the `msix` job bakes:
+`bake-release-notes.ps1` fills in the version, tag, previous version, span and run id, and uploads
+the result beside the package as the **`msix-release-notes`** artifact. Write the draft before
+dispatching; download both artifacts after; commit the baked file as `release-notes/<version>.txt`
+and reset the draft.
+
+Two behaviours are deliberate and asymmetric. An **unwritten** record only warns, because most
+dispatches are a binary release that owes the Store nothing and a packaging lane that is routinely
+red teaches everyone to ignore it. An **over-cap** What's New fails the job, after the package has
+already been uploaded: Partner Center's field is capped at 1500 characters and says nothing about
+what it did with a longer paste, so an unmeasured block is a listing that may be live and truncated
+mid-sentence. `release` does not depend on `msix`, so that failure never costs a GitHub Release.
+
+`release-notes/7.0.1568.txt` is why the measurement exists: its block is 4716 characters, and
+whether it was trimmed by hand at the browser or silently cropped by the field is not knowable from
+here.
+
 ## Still to do
 
 - Store submission is manual: upload the `.msixbundle` from the CI artifact to the draft submission.

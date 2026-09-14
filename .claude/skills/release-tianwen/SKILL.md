@@ -1,6 +1,6 @@
 ---
 name: release-tianwen
-description: Cut a TianWen binary release. Triggers a workflow_dispatch run of `.github/workflows/dotnet.yml` on `main`, which builds AOT publishes for all six RIDs (win-x64, win-arm64, linux-x64, linux-arm64, osx-arm64, osx-x64) and creates a GitHub Release tagged `v<VersionMajorMinor>.<run_number>` with .tar.gz assets for tianwen-cli, tianwen-fits, tianwen-gui, and tianwen-server, plus a .dmg per architecture for tianwen-fits and tianwen-gui on macOS (Developer ID signed and notarized when the Apple secrets exist, ad-hoc otherwise; see packaging/macos/README.md). Use when the user asks to release, ship, publish, or cut a TianWen release. NOT for sibling NuGet libraries -- use `/release-lib` for those.
+description: Cut a TianWen binary release. Triggers a workflow_dispatch run of `.github/workflows/dotnet.yml` on `main`, which builds AOT publishes for all six RIDs (win-x64, win-arm64, linux-x64, linux-arm64, osx-arm64, osx-x64) and creates a GitHub Release tagged `v<VersionMajorMinor>.<run_number>` with .tar.gz assets for tianwen-cli, tianwen-fits, tianwen-gui, and tianwen-server, plus a .dmg per architecture for tianwen-fits and tianwen-gui on macOS (Developer ID signed and notarized when the Apple secrets exist, ad-hoc otherwise; see packaging/macos/README.md). The SAME dispatch builds the Microsoft Store package (tianwen-fits as Astro Photo Viewer) and bakes its Partner Center submission record from packaging/windows/msix/release-notes/NEXT.txt, so use this for a Store submission or an MSIX too. Use when the user asks to release, ship, publish, or cut a TianWen release, or to build, submit or update the Store package. NOT for sibling NuGet libraries -- use `/release-lib` for those.
 ---
 
 Usage: `/release-tianwen` (no arguments).
@@ -118,8 +118,42 @@ reports the resulting GitHub Release URL.
 - `publish-nuget` runs on every push to main (gated on tests), independent
   of binary releases. The library can ship to NuGet without a binary
   release and vice versa.
-- Run number progression: as of 2026-08-14 the latest `run_number` is 1226.
-  Each push to main + each workflow_dispatch increments it.
+- Run number progression: as of 2026-09-15 the latest `run_number` is 1716.
+  Each push to main + each workflow_dispatch increments it, so the number is a
+  poor estimate of how many releases there have been.
+
+## The same dispatch also builds the Microsoft Store package
+
+`tianwen-fits` ships to the Store as **Astro Photo Viewer**, and the `msix` job rides on this
+same `workflow_dispatch` (a push builds no package at all). So a release and a Store submission
+come from ONE run, and the run number in the Store version is that run's, never the merge's.
+
+**Write `packaging/windows/msix/release-notes/NEXT.txt` BEFORE dispatching.** The package version
+ends in `github.run_number`, which does not exist until the run does, so a record written
+afterwards is written from memory. The msix job bakes that draft
+(`packaging/windows/msix/bake-release-notes.ps1`): it fills in the version, tag, previous version,
+span and run id, measures the Partner Center block, and uploads the result beside the package as
+the **`msix-release-notes`** artifact.
+
+The draft carries the standing instructions, so read it rather than restating them here. Two
+things about the bake are worth knowing before it surprises you:
+
+- **An unwritten record only WARNS.** Most dispatches are a binary release that owes the Store
+  nothing, and failing those would train everyone to ignore a red packaging lane.
+- **An over-cap What's New FAILS the job**, after the package has been uploaded. Partner Center's
+  field is capped at 1500 characters and does not report what it did with a longer paste, so an
+  unmeasured block is a listing that may be live and truncated mid-sentence. `release` does not
+  depend on `msix`, so this never costs a GitHub Release. Cut the copy and re-dispatch.
+
+After a successful run, if this was a Store submission:
+
+```bash
+gh run download $RUN_ID -n msix-store-package     # AstroPhotoViewer.msixbundle, ~145 MB
+gh run download $RUN_ID -n msix-release-notes     # the baked record
+```
+
+Then commit the baked file as `packaging/windows/msix/release-notes/<version>.txt` and reset
+`NEXT.txt` for the next cycle. That directory is the only record of what has been submitted.
 
 ## When NOT to use this skill
 

@@ -726,6 +726,10 @@ jobs:
       with:
         submodules: false   # only packaging/windows/msix is needed
         lfs: false
+        # History and tags, for the one line in the baked submission record that states the span
+        # since the previous Store package. Nothing else in this job needs it, and the bake writes
+        # "an unrecorded number of commits" rather than failing if it is ever taken away again.
+        fetch-depth: 0
     # Both Windows publishes, each landing in publish/<artifact-name>/. The viewer bundles its own
     # font and the AI weights, so nothing here needs an LFS object of its own.
     - name: Download the Windows publishes
@@ -767,12 +771,34 @@ jobs:
         echo "" >> "$GITHUB_STEP_SUMMARY"
         echo "Unsigned by design; the Store signs it after certification. Upload it to the draft" >> "$GITHUB_STEP_SUMMARY"
         echo "submission for Store ID 9PMDZP16TGBG. It cannot be installed by double-clicking." >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "Its What's New copy rides along as **msix-release-notes**, baked for this run." >> "$GITHUB_STEP_SUMMARY"
+    # The package is uploaded BEFORE the record is baked, deliberately. The bake is allowed to fail
+    # the job (an over-cap What's New cannot be pasted, and the field does not say what it did with
+    # one), and a red packaging lane must not also cost the package that was built fine.
     - uses: actions/upload-artifact@v7
       with:
         name: msix-store-package
         path: bundle/*.msixbundle
         # Longer than the 5 days the build artifacts get: this one is uploaded to Partner Center by
         # hand, which may not happen the same day the run is dispatched.
+        retention-days: 30
+    # The record's version ends in the run number, so it cannot be written before the run exists and
+    # writing it afterwards means writing it from memory. The draft lives at release-notes/NEXT.txt
+    # and this fills the number in, measures the Partner Center block and refuses a placeholder that
+    # survived. Rationale and both failure modes: the script's own header.
+    - name: Bake the submission record
+      shell: pwsh
+      run: |
+        ./packaging/windows/msix/bake-release-notes.ps1 `
+          -Version $env:VERSION_PREFIX -RunId $env:GITHUB_RUN_ID `
+          -OutFile "notes/$($env:VERSION_PREFIX).txt"
+    - uses: actions/upload-artifact@v7
+      with:
+        name: msix-release-notes
+        path: notes/*.txt
+        # Same 30 days as the package it describes: the two are submitted together and are only
+        # true of each other within one run.
         retention-days: 30
 
   # The macOS disk images for the FITS viewer (as Astro Photo Viewer) and the GUI, one per

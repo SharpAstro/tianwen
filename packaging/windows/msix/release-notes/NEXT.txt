@@ -1,0 +1,111 @@
+Astro Photo Viewer (tianwen-fits)
+Store package version {{PACKAGE_VERSION}}   -   supersedes {{PREV_PACKAGE}}
+Package identity  SharpAstro.AstroPhotoViewer   Store ID  9PMDZP16TGBG
+Git tag  {{TAG}}   -   span  v{{PREV_VERSION}}..{{TAG}}   -   {{SPAN_COMMITS}} commits
+Baked from run {{RUN_NUMBER}} (id {{RUN_ID}}) on {{DATE}}
+
+THIS FILE IS THE DRAFT. It is baked by packaging/windows/msix/bake-release-notes.ps1
+in the msix job, which fills the version in and measures the block below, and the
+result arrives beside the package as the msix-release-notes artifact. Download it,
+commit it as release-notes/{{VERSION}}.txt, and reset this draft for the next one.
+
+Write it BEFORE dispatching. The package version ends in the run number, so it does
+not exist until the run does, and a record written afterwards is a record written
+from memory.
+
+The MSIX comes from a DISPATCH, never from a push: the msix job is gated on
+github.event_name == 'workflow_dispatch', so merging to main builds no package at
+all. That is also why the run number in a Store version is never the merge's.
+
+This file is the submission record for one Store release: the copy pasted into
+Partner Center's "What's new in this version" field, and the detail behind it.
+Nothing else in the repo records what has been submitted, which is why writing it
+down is worth the file.
+
+
+================================================================================
+FIRST, AUDIT WHAT THE LISTING ALREADY CLAIMS
+================================================================================
+A standing step, not a formality, and the one most easily skipped because it is
+about the LAST release rather than this one. Open the previous record's What's New
+block and ask of every sentence whether it is still true. Two ways it goes wrong,
+both of which have happened:
+
+  - A claim goes STALE. 7.1.1627 told users to press O for the sky map; the sky
+    then moved to its own key, so anyone following the live listing pressed O
+    three times and never reached it.
+
+  - A claim was WRONG WHEN WRITTEN. 7.1.1627 promised that a tilted galaxy rings
+    as the disc it is. The overlay ellipse carried two independent reflections and
+    was plausible at some angles and correct at none, which is how it passed
+    review; it took an independent check (the direction to NGC 206, a star cloud
+    lying ON M31's major axis) to see it.
+
+Anything that fails the audit belongs in the block below as a CORRECTION, and it
+outranks a new feature for the space: a user acting on a wrong instruction is worse
+off than one who has not heard about a new button. Record the finding here too, so
+the next release knows what was corrected and why.
+
+
+================================================================================
+WHAT'S NEW  (Partner Center copy - paste between the two marker lines VERBATIM)
+================================================================================
+Measured at bake time: {{WHATSNEW_CHARS}} characters, or {{WHATSNEW_CHARS_CRLF}} if
+the paste turns the newlines into CRLF. The cap is 1500 and the bake FAILS over it,
+so this number is always true of what is below. Do not paste the DETAIL section.
+
+Shape that has worked twice: two or three HEADED sections carrying the release,
+then an "Also in this release" list of one-line bullets. Corrections go first
+within their group. Say what the user can now DO, in their words, not ours.
+
+----- BEGIN WHAT'S NEW -----
+WRITE THIS BEFORE DISPATCHING. Until it is written the bake warns and the artifact
+carries this sentence, which is the reminder working rather than the record failing:
+a dispatch is often just a binary release and owes the Store nothing.
+----- END WHAT'S NEW -----
+
+Which way to cut if it goes over: the headed sections are the release and the
+bullets are the tail, except that a bullet CORRECTING a live claim is cut last of
+all. Record here what was left out, so the next writer knows what is owed rather
+than rediscovering it.
+
+
+DETAIL
+================================================================================
+The evidence behind the block, by area, citing commits. Cite a commit by its
+SUBJECT in quotes if it has not landed yet -- every PR merges by rebase, so a hash
+written before its PR lands is rewritten on landing.
+
+
+KNOWN ISSUES IN THIS BUILD
+================================================================================
+Carry the previous record's list forward item by item and mark each one Unchanged,
+closed, or changed. A known issue that quietly vanishes between records is one
+nobody decided about.
+
+
+STORE LISTING: PRODUCT FEATURES
+================================================================================
+A different field from WHAT'S NEW, and a standing one: it describes the product,
+not the release, so it is only edited when the product GAINS something. Up to 20
+entries of 200 characters each, and the listing is at the cap as of 7.1.1627, so
+an addition now has to displace something. Say NO CHANGE and why, if so.
+
+
+SUBMISSION
+================================================================================
+  1. Download the package and this record from the run that baked it:
+       gh run download {{RUN_ID}} -n msix-store-package
+       gh run download {{RUN_ID}} -n msix-release-notes
+     The bundle is about 145 MB. Retention is 30 days on both.
+  2. Upload AstroPhotoViewer.msixbundle to the draft submission for
+     Store ID 9PMDZP16TGBG. It is unsigned by design; the Store re-signs after
+     certification, so it cannot be installed by double-clicking.
+  3. Paste the WHAT'S NEW block into "What's new in this version".
+  4. If the bundle was signed locally for testing, re-download before uploading;
+     signing edits the package in place.
+  5. Commit this baked file as release-notes/{{VERSION}}.txt and reset NEXT.txt.
+
+  A re-dispatch takes the NEXT run number, so the baked record and the package
+  agree only within one run. If a run has to be re-run, use the new run's artifacts
+  rather than editing the number inside an older record.
