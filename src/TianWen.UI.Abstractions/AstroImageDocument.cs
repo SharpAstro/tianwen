@@ -68,6 +68,14 @@ public sealed class AstroImageDocument : IPreviewSource
     /// <summary>Per-channel statistics computed from the raw image.</summary>
     public ImageHistogram[] ChannelStatistics { get; }
 
+    /// <summary>
+    /// The whole mosaic's histogram, for a Bayer frame only; null otherwise. <see cref="ChannelStatistics"/>
+    /// holds that frame's R, G and B, so its first entry is no longer the frame -- and the iterative
+    /// convergence runs on the luma statistics, which for a mosaic ARE the whole mosaic's, so it needs
+    /// the histogram taken the same way.
+    /// </summary>
+    public ImageHistogram? MosaicHistogram { get; }
+
     /// <summary>Debayer algorithm actually used when loading this image.</summary>
     public DebayerAlgorithm DebayerAlgorithm { get; }
 
@@ -437,10 +445,27 @@ public sealed class AstroImageDocument : IPreviewSource
         Wcs = wcs;
         IsPreStretched = isPreStretched;
 
-        var stats = new ImageHistogram[image.ChannelCount];
-        for (var c = 0; c < image.ChannelCount; c++)
+        // Three histograms for a Bayer mosaic, one per photosite colour taken on the mosaic in place, so
+        // the statistics table and the histogram overlay show R, G and B as they would for a debayered
+        // frame -- the same walk StretchSolver.CollectPerChannelStats takes for the stretch statistics.
+        ImageHistogram[] stats;
+        if (image.IsCfaMosaic)
         {
-            stats[c] = image.Statistics(c);
+            stats =
+            [
+                image.Statistics(0, cfa: CfaChannel.Red),
+                image.Statistics(0, cfa: CfaChannel.Green),
+                image.Statistics(0, cfa: CfaChannel.Blue),
+            ];
+            MosaicHistogram = image.Statistics(0);
+        }
+        else
+        {
+            stats = new ImageHistogram[image.ChannelCount];
+            for (var c = 0; c < image.ChannelCount; c++)
+            {
+                stats[c] = image.Statistics(c);
+            }
         }
         ChannelStatistics = stats;
 
@@ -571,22 +596,25 @@ public sealed class AstroImageDocument : IPreviewSource
 
         // Image is already normalized to [0,1] by TryReadImageFile
         var channelCount = image.ChannelCount;
-        var perChannelStats = new ChannelStretchStats[channelCount];
-        for (var c = 0; c < channelCount; c++)
-        {
-            var (ped, med, mad) = image.GetPedestralMedianAndMADScaledToUnit(c);
-            perChannelStats[c] = new ChannelStretchStats(ped, med, mad);
-        }
+        // Three entries for a Bayer mosaic (R, G, B over their own photosites), whatever channelCount is.
+        var perChannelStats = StretchSolver.CollectPerChannelStats(image, channelCount);
 
         ChannelStretchStats? lumaStats = null;
-        if (channelCount >= 3)
+        if (image.IsCfaMosaic)
+        {
+            // The whole mosaic, every photosite with equal weight: a luminance in all but the weighting,
+            // and had without the full debayer GetLumaStretchStatsAsync would otherwise run for it.
+            var (lumaPed, lumaMed, lumaMad) = image.GetPedestralMedianAndMADScaledToUnit(0);
+            lumaStats = new ChannelStretchStats(lumaPed, lumaMed, lumaMad);
+        }
+        else if (channelCount >= 3)
         {
             var (lumaPed, lumaMed, lumaMad) = await image.GetLumaStretchStatsAsync(DebayerAlgorithm.None, cancellationToken);
             lumaStats = new ChannelStretchStats(lumaPed, lumaMed, lumaMad);
         }
 
-        Span<float> pedestals = stackalloc float[channelCount];
-        for (var c = 0; c < channelCount; c++) { pedestals[c] = perChannelStats[c].Pedestal; }
+        Span<float> pedestals = stackalloc float[perChannelStats.Length];
+        for (var c = 0; c < perChannelStats.Length; c++) { pedestals[c] = perChannelStats[c].Pedestal; }
         var (perChannelBg, lumaBg) = image.ScanBackgroundRegion(pedestals);
 
         // Try companion ASTAP .ini file for WCS
@@ -657,25 +685,26 @@ public sealed class AstroImageDocument : IPreviewSource
     }
 
     /// <summary>
-    /// Computes per-channel stretch stats from a raw Bayer mosaic.
-    /// Uses the existing histogram-based statistics on the full raw channel (which is a mix
-    /// of all Bayer sub-channels), then replicates to all 3 RGB channels.
-    /// This gives a good stretch approximation: the GPU shader handles the actual per-pixel
-    /// color separation during bilinear debayer.
+    /// Computes per-channel stretch stats from a raw Bayer mosaic: R, G and B each over their own
+    /// photosites, on the mosaic in place (<see cref="CfaChannel"/>), plus a luminance from the whole
+    /// mosaic. Nothing is debayered or split for it.
     /// </summary>
+    /// <remarks>
+    /// This used to take ONE statistic over the whole mosaic and replicate it three times, on the
+    /// argument that the GPU debayer would separate the colours anyway. It does -- and that is the
+    /// problem: the shader debayers BEFORE the curve, so a curve positioned by the blend of all four
+    /// photosites met three different colours with the same shadows and midtones. Linked and Unlinked
+    /// solved identical uniforms on every OSC sub, and background neutralisation had nothing to level.
+    /// The sub-3% per-channel white balance was the only thing telling the three apart.
+    /// </remarks>
     private static Task<(ChannelStretchStats[] PerChannelStats, ChannelStretchStats? LumaStats, float[] PerChannelBg, float LumaBg)> ComputeBayerStretchStatsAsync(
         Image rawImage, CancellationToken cancellationToken)
     {
-        // Use the existing robust histogram-based stats on channel 0 (the raw mosaic).
-        // The histogram naturally mixes R/G/G/B pixels, since the background level is similar
-        // for all channels, the blended median/MAD gives a good stretch baseline.
-        var (ped, med, mad) = rawImage.GetPedestralMedianAndMADScaledToUnit(0);
-        var stats = new ChannelStretchStats(ped, med, mad);
+        var perChannelStats = StretchSolver.CollectPerChannelStats(rawImage, 3);
 
-        // Replicate to all 3 channels: the GPU debayer will produce slightly different
-        // R/G/B values but the stretch parameters are close enough for a good result.
-        var perChannelStats = new[] { stats, stats, stats };
-        var lumaStats = stats;
+        // Every photosite with equal weight: a luminance in all but the weighting.
+        var (ped, med, mad) = rawImage.GetPedestralMedianAndMADScaledToUnit(0);
+        var lumaStats = new ChannelStretchStats(ped, med, mad);
 
         Span<float> pedestals = stackalloc float[1];
         pedestals[0] = ped;
@@ -768,7 +797,10 @@ public sealed class AstroImageDocument : IPreviewSource
             luma = Basis.StarMaskedLumaStats ?? luma;
 
             var convStats = luma ?? stats[0];
-            var hist = Basis.ChannelStatistics.Length > 0 ? Basis.ChannelStatistics[0] : null;
+            // The histogram has to be taken over the same pixels as convStats. A mosaic's luma IS the
+            // whole mosaic, and ChannelStatistics[0] is its red photosites -- see MosaicHistogram.
+            var hist = Basis.MosaicHistogram
+                ?? (Basis.ChannelStatistics.Length > 0 ? Basis.ChannelStatistics[0] : null);
             if (hist is not null)
             {
                 // For luma convergence the WB scalar is the weighting-profile-weighted
@@ -910,26 +942,32 @@ public sealed class AstroImageDocument : IPreviewSource
             // Recompute stretch stats with star mask exclusion
             if (stars.StarMask is { } mask)
             {
-                var imageChannelCount = UnstretchedImage.ChannelCount;
+                var isCfa = UnstretchedImage.IsCfaMosaic;
                 var maskedStats = new ChannelStretchStats[PerChannelStats.Length];
                 for (var c = 0; c < maskedStats.Length; c++)
                 {
-                    if (c < imageChannelCount)
-                    {
-                        var (p, m, madd) = UnstretchedImage.GetStarMaskedMedianAndMADScaledToUnit(c, mask);
-                        maskedStats[c] = new ChannelStretchStats(p, m, madd);
-                    }
-                    else
-                    {
-                        // Bayer images replicate channel 0 stats to all 3 RGB slots
-                        maskedStats[c] = maskedStats[0];
-                    }
+                    // A mosaic's three slots are its three photosite colours, masked on the mosaic in
+                    // place -- the walk that produced PerChannelStats. Replicating slot 0 here used to
+                    // put the load-time R/G/B back to one shared curve the moment the stars landed.
+                    var (p, m, madd) = isCfa
+                        ? UnstretchedImage.GetStarMaskedMedianAndMADScaledToUnit(0, mask, cfa: (CfaChannel)c)
+                        : UnstretchedImage.GetStarMaskedMedianAndMADScaledToUnit(c, mask);
+                    maskedStats[c] = new ChannelStretchStats(p, m, madd);
                 }
                 StarMaskedStats = maskedStats;
 
                 if (LumaStats is not null)
                 {
-                    StarMaskedLumaStats = maskedStats[0];
+                    if (isCfa)
+                    {
+                        // The whole mosaic, as LumaStats was taken.
+                        var (lp, lm, lmad) = UnstretchedImage.GetStarMaskedMedianAndMADScaledToUnit(0, mask);
+                        StarMaskedLumaStats = new ChannelStretchStats(lp, lm, lmad);
+                    }
+                    else
+                    {
+                        StarMaskedLumaStats = maskedStats[0];
+                    }
                 }
             }
         }

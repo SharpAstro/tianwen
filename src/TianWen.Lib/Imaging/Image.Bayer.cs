@@ -66,6 +66,60 @@ public partial class Image
     }
 
     /// <summary>
+    /// A single-channel Bayer CFA mosaic: the frame a <see cref="CfaChannel"/> statistic is taken on.
+    /// </summary>
+    public bool IsCfaMosaic => ChannelCount == 1 && imageMeta.SensorType is SensorType.RGGB;
+
+    /// <summary>
+    /// Where each traversal of a CFA colour starts on this mosaic, as (row, column): red and blue are
+    /// ONE phase each, green is TWO (it shares red's row and blue's row), and <c>null</c> -- no CFA
+    /// colour -- is the plain frame from (0, 0). Parity is relative to <see cref="ImageMeta.BayerOffsetX"/>
+    /// / <see cref="ImageMeta.BayerOffsetY"/>, the convention <see cref="SplitBayerChannels"/> states,
+    /// so the four Bayer patterns are one arithmetic. Returns how many starts were written.
+    /// </summary>
+    /// <remarks>
+    /// This is what lets a statistic be taken per colour WITHOUT <see cref="SplitBayerChannels"/>: the
+    /// histogram wants a traversal of the photosites, not a copy of them, and the split would write a
+    /// quarter-frame per colour to be read back exactly once.
+    /// </remarks>
+    internal int CfaPhaseStarts(CfaChannel? cfa, Span<(int Row, int Col)> starts)
+    {
+        if (cfa is null)
+        {
+            starts[0] = (0, 0);
+            return 1;
+        }
+        if (!IsCfaMosaic)
+        {
+            throw new InvalidOperationException(
+                $"A {cfa} statistic needs a single-channel Bayer CFA mosaic; got {ChannelCount} channel(s), {imageMeta.SensorType}.");
+        }
+
+        var ox = imageMeta.BayerOffsetX & 1;
+        var oy = imageMeta.BayerOffsetY & 1;
+        switch (cfa)
+        {
+            case CfaChannel.Red:
+                starts[0] = (oy, ox);
+                return 1;
+            case CfaChannel.Blue:
+                starts[0] = (1 - oy, 1 - ox);
+                return 1;
+            default:
+                starts[0] = (oy, 1 - ox);     // G1: red's row, blue's column
+                starts[1] = (1 - oy, ox);     // G2: blue's row, red's column
+                return 2;
+        }
+    }
+
+    /// <summary>
+    /// The step a traversal takes: a CFA phase is a parity, and an odd stride would walk off it, so
+    /// an odd stride is doubled for a CFA colour. The plain frame keeps the stride as given.
+    /// </summary>
+    internal static int CfaStep(CfaChannel? cfa, int stride)
+        => cfa is null || (stride & 1) == 0 ? stride : stride * 2;
+
+    /// <summary>
     /// One channel of this image as a standalone single-channel <see cref="Image"/>, for handing a
     /// single CFA sub-plane to something that takes whole images -- a star remover, in particular,
     /// which must see one smooth plane rather than an interleaved mosaic.
