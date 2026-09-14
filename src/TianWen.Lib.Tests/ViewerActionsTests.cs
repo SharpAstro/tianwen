@@ -748,12 +748,26 @@ public class ViewerActionsTests
     }
 
     /// <summary>
-    /// Off means the photograph alone from EVERY rung, including the middle one. Restoring "grid
-    /// only" instead would make the same key mean two different things depending on state it does
-    /// not show -- and the grid already has its own key.
+    /// <b>Only the TOP rung turns off.</b> From the grid alone a press ADDS the objects, which is what
+    /// the button says it does and what "O is the whole annotation" means; clearing from there made
+    /// the grid-only rung a dead end, because no forward step is bound anywhere (Shift+O and a
+    /// right-click both walk back), so leaving it took two presses. Off is still the photograph alone
+    /// rather than the previous rung: a toggle that restored "grid only" would make the same key mean
+    /// two different things depending on state it does not show.
     /// </summary>
+    [Fact]
+    public void OverlayToggle_FromTheGridRung_AddsTheObjects()
+    {
+        var state = new ViewerState();
+        ViewerActions.ApplyOverlayLevel(state, ViewerOverlayLevel.Grid);
+
+        ViewerActions.ToggleOverlayLevel(state);
+
+        state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Objects);
+        (state.ShowGrid, state.ShowOverlays).ShouldBe((true, true));
+    }
+
     [Theory]
-    [InlineData(ViewerOverlayLevel.Grid)]
     [InlineData(ViewerOverlayLevel.Objects)]
     public void OverlayToggle_FromAnyRungOn_ClearsToThePhotographAlone(ViewerOverlayLevel from)
     {
