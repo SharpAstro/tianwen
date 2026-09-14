@@ -107,6 +107,9 @@ Two things the real frames taught that the synthetic ones could not:
   recorded per segment as `Segment.PeakCount` (a first draft keyed the rule on the compact flag, and a
   synthetic crowd whose bright star was only 25 times its neighbours read as extended and slipped
   it). The minimum area is not the lever (5 to 9 moves the count by a tenth and the largest not at all).
+  With the rule on, the Statue master reads 49,614 segments in 25 s (three detections, the retries
+  landing it at 5 sigma), the largest extended segment 800 px and the field-sized blobs gone; the cost
+  of a crowded frame is the extra passes, which a caller can cap with `CrowdedRetries`.
 
 ## Cost (BenchmarkDotNet, `SourceSegmentationBenchmarks`, ShortRun, 2026-09-14, a GPU trainer running beside it)
 
