@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
@@ -209,6 +210,38 @@ namespace TianWen.Lib.Tests
 
             u.Shadows.R.ShouldBe(u.Shadows.G);
             u.Shadows.G.ShouldBe(u.Shadows.B);
+        }
+
+        /// <summary>
+        /// <b>The live preview has histograms now, so <c>V</c> works in the GUI's live session.</b> They
+        /// were empty, which made <c>UploadHistogramData</c> a no-op -- a chromeless host draws no
+        /// toolbar, but the overlay is gated on <c>ShowHistogram</c> alone, so the reason nothing
+        /// appeared was that there was nothing to draw rather than nowhere to draw it. Three for a
+        /// mosaic, one per plane otherwise, by the same rule the document uses.
+        /// </summary>
+        [Fact]
+        public void Provides_channel_histograms_so_the_overlay_has_something_to_draw()
+        {
+            var mono = new LiveFramePreviewSource();
+            mono.AcceptFrame(MonoImage(16, 16, (x, y) => (x + y) % 2 == 0 ? 300f : 380f), freezeStats: false);
+            mono.ChannelStatistics.Length.ShouldBe(1);
+            mono.ChannelStatistics[0].Histogram.Length.ShouldBeGreaterThan(0);
+
+            var cfa = new LiveFramePreviewSource();
+            cfa.AcceptFrame(MosaicImage(32, 32, (x, y) =>
+            {
+                var wobble = (x + y) % 2 == 0 ? 0f : 40f;
+                var isRed = (x & 1) == 1 && (y & 1) == 0;
+                var isBlue = (x & 1) == 0 && (y & 1) == 1;
+                return (isRed ? 200f : isBlue ? 700f : 450f) + wobble;
+            }), freezeStats: false);
+
+            cfa.ChannelStatistics.Length.ShouldBe(3, "a mosaic draws three colours, as the document does");
+            // Each colour's histogram is its OWN photosites: three separated levels means three
+            // separated medians, which a pooled histogram could not show.
+            var medians = cfa.ChannelStatistics.Select(hh => hh.Median ?? float.NaN).ToArray();
+            medians[0].ShouldBeLessThan(medians[1]);
+            medians[1].ShouldBeLessThan(medians[2]);
         }
 
         [Fact]

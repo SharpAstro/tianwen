@@ -353,30 +353,68 @@ public static class StretchSolver
     /// every OSC sub and left background neutralisation nothing to neutralise: the shader debayers
     /// before the curve, so the curve has to be positioned by the colour it will meet.
     /// </remarks>
-    public static ChannelStretchStats[] CollectPerChannelStats(Image image, int channelCount)
+    /// <param name="pixelStride">Subsample every Nth row and column. The live preview uses it to bound
+    /// the scan on a full-frame sensor; a CFA walk doubles an odd stride to stay on its phase, so the
+    /// three colours together still visit what one full-frame scan at this stride would.</param>
+    public static ChannelStretchStats[] CollectPerChannelStats(Image image, int channelCount, int pixelStride = 1)
     {
         if (image.IsCfaMosaic)
         {
             return
             [
-                CfaStats(image, CfaChannel.Red),
-                CfaStats(image, CfaChannel.Green),
-                CfaStats(image, CfaChannel.Blue),
+                CfaStats(image, CfaChannel.Red, pixelStride),
+                CfaStats(image, CfaChannel.Green, pixelStride),
+                CfaStats(image, CfaChannel.Blue, pixelStride),
             ];
         }
 
         var perChannelStats = new ChannelStretchStats[channelCount];
         for (var c = 0; c < channelCount; c++)
         {
-            var (ped, med, mad) = image.GetPedestralMedianAndMADScaledToUnit(c);
+            var (ped, med, mad) = image.GetPedestralMedianAndMADScaledToUnit(c, pixelStride);
             perChannelStats[c] = new ChannelStretchStats(ped, med, mad);
         }
         return perChannelStats;
     }
 
-    private static ChannelStretchStats CfaStats(Image mosaic, CfaChannel cfa)
+    private static ChannelStretchStats CfaStats(Image mosaic, CfaChannel cfa, int pixelStride)
     {
-        var (ped, med, mad) = mosaic.GetPedestralMedianAndMADScaledToUnit(0, cfa: cfa);
+        var (ped, med, mad) = mosaic.GetPedestralMedianAndMADScaledToUnit(0, pixelStride, cfa);
         return new ChannelStretchStats(ped, med, mad);
+    }
+
+    /// <summary>
+    /// The per-channel HISTOGRAMS a display draws -- the panel's table and the histogram overlay --
+    /// with the same channel rule <see cref="CollectPerChannelStats"/> uses: three for a Bayer mosaic,
+    /// one per plane otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <para>Beside the stats collector rather than inside it, because the two want DIFFERENT
+    /// histograms and conflating them would be a silent numeric bug: the stats are taken with the
+    /// pedestal removed (the shader subtracts it before the curve, so the median that positions the
+    /// curve must be in that same space) while what a viewer draws is the frame's own levels. Same
+    /// channel rule, two passes, one place each.</para>
+    /// <para>This is the ONLY place that decides what a display's "channels" are, so
+    /// <see cref="AstroImageDocument"/> and the live preview cannot drift into disagreeing about
+    /// whether a mosaic has one or three.</para>
+    /// </remarks>
+    public static ImageHistogram[] CollectChannelHistograms(Image image, int pixelStride = 1)
+    {
+        if (image.IsCfaMosaic)
+        {
+            return
+            [
+                image.Statistics(0, pixelStride: pixelStride, cfa: CfaChannel.Red),
+                image.Statistics(0, pixelStride: pixelStride, cfa: CfaChannel.Green),
+                image.Statistics(0, pixelStride: pixelStride, cfa: CfaChannel.Blue),
+            ];
+        }
+
+        var histograms = new ImageHistogram[image.ChannelCount];
+        for (var c = 0; c < histograms.Length; c++)
+        {
+            histograms[c] = image.Statistics(c, pixelStride: pixelStride);
+        }
+        return histograms;
     }
 }
