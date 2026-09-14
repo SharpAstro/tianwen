@@ -46,7 +46,7 @@ def stretch(unit_crop, mins, betas):
     return out
 
 
-def gate_read(truth_lum, input_lum, output_lum):
+def gate_read(truth_lum, input_lum, output_lum, masks=None):
     import n2n_star_shape as SH
     med = float(np.median(truth_lum))
     _, mad = M.bg_stats(truth_lum)
@@ -54,6 +54,10 @@ def gate_read(truth_lum, input_lum, output_lum):
     truth_w = DG.star_fwhm(truth_lum, ys, xs, med)
     n_truth = len(ys)
     ring_null = DG.ring_excess(input_lum, ys, xs, truth_w, med, mad)
+    # The library's masks (tianwen image sources --maps on the SHARP master): the detail statistic
+    # read on the structure pixels alone, stars and their margin out, so a nebula's own band can be
+    # told from the star-free sky's. None when no sidecars were given; the column then reads nan.
+    struct_keep = (masks[1] & ~masks[0]) if masks is not None else None
 
     def row(lum):
         w = DG.star_fwhm(lum, ys, xs, med)
@@ -66,7 +70,9 @@ def gate_read(truth_lum, input_lum, output_lum):
         # Non-stellar detail: band-passed RMS over the truth's away from every star, and the band
         # residual to the truth (in stretched units), so "more visible" can be told from "more energy".
         dr, dres = SH.detail_ratio(lum, truth_lum, ys, xs, truth_w)
-        return w / truth_w, len(oy) / n_truth, e - ring_null, sk, dr, dres
+        ds, dsres = (SH.detail_ratio(lum, truth_lum, ys, xs, truth_w, keep=struct_keep)
+                     if struct_keep is not None else (float("nan"), float("nan")))
+        return w / truth_w, len(oy) / n_truth, e - ring_null, sk, dr, dres, ds, dsres
 
     return truth_w, n_truth, row(input_lum), row(output_lum) if output_lum is not None else None, row
 
@@ -90,6 +96,9 @@ def main():
                    help="Gaussian noise added to the INPUT after the stretch, in stretched units, seeded. With "
                         "--zoom it puts back the per-pixel noise the resampling smoothed away, so the star width "
                         "and the noise can be moved one at a time (E3.2's second coordinate)")
+    p.add_argument("--source-maps", default=None,
+                   help="directory holding the SHARP master's <stem>.starmask.fits and .structmask.fits from "
+                        "'tianwen image sources --maps'; adds the detail read on the structure pixels alone")
     p.add_argument("--roundtrip", action="store_true",
                    help="with --zoom: bring each arm's output back to the native crop (bicubic, the exact inverse "
                         "factor) and read it against the UNZOOMED truth, i.e. the runtime path of deconvolving a "
@@ -172,24 +181,48 @@ def main():
             if out.shape != soft_s.shape:
                 raise SystemExit(f"round trip of {arm} landed on {out.shape}, wanted {soft_s.shape}")
 
+    masks = None
+    if args.source_maps:
+        import n2n_star_shape as SH
+        read_side = size if (args.roundtrip or args.zoom == 1.0) else side
+        masks = SH.load_source_masks(args.sharp, args.source_maps, cx, cy, size, read_side)
+        if masks is None:
+            raise SystemExit(f"no star / structure mask sidecars for the sharp master in {args.source_maps}")
+        star_f, struct_f = masks[0].mean(), (masks[1] & ~masks[0]).mean()
+        print(f"source masks from {args.source_maps}: star {star_f:.3f} of the crop, structure (stars out) {struct_f:.3f} "
+              f"({int((masks[1] & ~masks[0]).sum())} px at the read scale)")
+
     truth_lum = sharp_s.mean(axis=0)
     input_lum = soft_s.mean(axis=0)
-    truth_w, n_truth, inp, _, row = gate_read(truth_lum, input_lum, None)
+    truth_w, n_truth, inp, _, row = gate_read(truth_lum, input_lum, None, masks)
     print(f"\ntruth (sharp) {n_truth} stars at 12 MAD, width {truth_w:.3f} px on the stretched luminance; "
           f"noise MAD of the stretched luminance: truth {M.bg_stats(truth_lum)[1]:.5f}, input {M.bg_stats(input_lum)[1]:.5f}")
-    print(f"{'arm':28s} {'out/truth':>9} {'stars':>6} {'ring excess':>11} {'skirt':>6} {'detail':>6} {'d.resid':>8}   per channel out/truth")
-    print(f"{'input (soft)':28s} {inp[0]:9.3f} {inp[1]:6.2f} {inp[2]:+11.2f} {inp[3]:6.2f} {inp[4]:6.2f} {inp[5] * 1e3:8.3f}   "
+    struct_cols = masks is not None
+    head = f"{'arm':28s} {'out/truth':>9} {'stars':>6} {'ring excess':>11} {'skirt':>6} {'detail':>6} {'d.resid':>8}"
+    if struct_cols:
+        head += f" {'d.struct':>8} {'ds.resid':>8}"
+    print(head + "   per channel out/truth")
+
+    def fmt(r):
+        s = f"{r[0]:9.3f} {r[1]:6.2f} {r[2]:+11.2f} {r[3]:6.2f} {r[4]:6.2f} {r[5] * 1e3:8.3f}"
+        if struct_cols:
+            s += f" {r[6]:8.2f} {r[7] * 1e3:8.3f}"
+        return s
+
+    print(f"{'input (soft)':28s} {fmt(inp)}   "
           + " ".join(f"{gate_read(sharp_s[c], soft_s[c], None)[2][0]:.3f}" for c in range(3)))
     for arm, out in outputs.items():
         r = row(out.mean(axis=0))
         per = " ".join(f"{gate_read(sharp_s[c], soft_s[c], out[c])[3][0]:.3f}" for c in range(3))
-        print(f"{arm:28s} {r[0]:9.3f} {r[1]:6.2f} {r[2]:+11.2f} {r[3]:6.2f} {r[4]:6.2f} {r[5] * 1e3:8.3f}   {per}")
+        print(f"{arm:28s} {fmt(r)}   {per}")
     print("\nread: out/truth toward 1.0 from the input's; stars near 1.0 (over 1.10 with a narrower width is fabrication); "
           "ring excess against the input's null; skirt 1.0 is the truth's profile at 1 to 1.5 FWHM, under 0.9 the "
           "skirt is gone (a block and a moat); detail is the star-masked band-passed CORRELATION with the truth (read "
           "against the input's: higher is true detail brought out, lower is noise or ringing added) and d.resid the band "
-          "residual to the truth in 1e-3 stretched units (smaller is closer). The C# oracle in linear read rec/A 1.007 / "
-          "1.085 / 1.139 per channel on this pair.")
+          "residual to the truth in 1e-3 stretched units (smaller is closer)"
+          + ("; d.struct / ds.resid are the same two on the library's STRUCTURE pixels alone (stars and their "
+             "margin out), where a nebula's own band lives" if struct_cols else "")
+          + ". The C# oracle in linear read rec/A 1.007 / 1.085 / 1.139 per channel on this pair.")
 
 
 if __name__ == "__main__":

@@ -2664,6 +2664,32 @@ the nebula crop's detail ratio toward 1.0; kill at skirt still under 0.85, or wi
 skirt unchanged, after which the next arm is the pool (E3.4b: the seven held-out SH61 EDPH nights added,
 the Statue pair still held out). One seed; a second before any 0.02 is believed.
 
+##### The detail column on the library's structure pixels (2026-09-14, 12:40)
+
+The nebula clause had one instrument, the band correlation and residual on pixels 2.5 FWHM from
+every 12-MAD star, and that selection is most of the crop's sky. `tianwen image sources --maps`
+(PR #248, [source-detection.md](source-detection.md)) now writes the star and structure masks of a
+frame as sidecars, and `n2n_operator_real.py --source-maps DIR` reads the SHARP master's, crops
+and resamples them to the read scale, and adds `d.struct` / `ds.resid`: the same two statistics on
+the structure pixels with the stars and their margin out. On the primary crop at 1.28x round trip
+(`C:/temp/e2/e3-4d-s0-real-statue-masks.txt`), the library's star mask at a 3 px margin covers
+0.903 of the crop and the structure left after it 0.010, 10,151 px:
+
+| arm | detail (star-masked sky) | d.resid | d.struct | ds.resid |
+|---|---|---|---|---|
+| input (soft) | 0.55 | 8.338 | 0.88 | 3.052 |
+| E3.0 (no prior) | 0.54 | 8.332 | 0.88 | 3.056 |
+| E3.4d seed 0 final | 0.57 | 8.077 | 0.89 | 2.981 |
+
+The structure pixels correlate at 0.88 before anything is done (a bright feature's band is the
+feature, on both halves; the sky's is noise, hence 0.55), and the prior moves them the same way it
+moves the sky: correlation up 0.01, residual 2.3 percent closer to the truth, where the bare operator
+moves neither. Two cautions on the reading. It is one percent of the crop, and on this field at the
+crowded rule's 5 sigma the structure mask is mostly bright stars' skirt pieces (the largest extended
+segment on the sharp master is 300 px), not nebula; the Statue's nebulosity at 2.9 arcsec/px is
+under the mask's threshold. The instrument is right for a frame whose structure the detection can
+see, the Bubble's kind; here it says only that the prior does not harm what structure there is.
+
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
 Every retained master in `2026-09-full` predates the two registration fixes and R1, and E3 trains on
