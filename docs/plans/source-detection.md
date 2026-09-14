@@ -160,6 +160,14 @@ of one crowded parent all carry the same number (the four largest extended segme
 198, one parent); and the sky columns are empty on a frame whose WCS is a target hint (CRVAL and CTYPE
 with no CRPIX or CD matrix, as a flattened export carries), not a fault of the table.
 
+The map now says which sigma it was detected at (`SegmentationMap.ThresholdSigma`), and the verb prints
+it beside the option when the crowded rule raised it. On the SHARP Statue master (3035 x 3031, the
+E2.10b pair's sharper half) the rule lands at 5 sigma, 70,318 segments in 25 s, the largest extended
+segment 300 px; and the star mask at a 3 px margin covers 76 percent of the frame, 90 percent of the
+readout's 1024 px crop, with the structure mask at 2.4 percent of it. A consumer wanting sky pixels on
+a dense field at the SH61's scale gets a tenth of the frame from these masks, and one wanting the
+nebula gets small pieces: on such a field the masks are for excluding stars, not for finding structure.
+
 ## Traps
 
 - `BitMatrix` indexes `[row, column]`; a segmentation map indexes `(x, y)`. `SegmentationMap.LabelAt`
