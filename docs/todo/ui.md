@@ -233,6 +233,43 @@ state through the terminal is a small addition that follows an existing pattern:
   part that would need CPU values, which is where a `Channel.AsSpan()` view earns its place. There is
   no `AsChannel*` API anywhere -- that note resolved to `Channel.AsSpan()`.
 
+## Planetary: the histogram has to answer "what exposure?" (user, 2026-09-14)
+
+**The ask, verbatim:** *"in the planetary code its kind of important to know where the exp time is
+w.r.t. to histogram (usually 8-bits there though), so gauge the min exp time required to reach a
+certain histogram etc"*.
+
+Planetary is the one place a histogram is a **capture control** rather than a display aid. The whole
+technique is short exposures at the frame rate the seeing allows, and the exposure is chosen by where
+the disk's peak sits: too low and the stack is read-noise limited, too high and the highlights clip
+and no amount of stacking gets them back. SharpCap and FireCapture both put a target line on the
+histogram for exactly this. Today the planetary preview draws a histogram (it renders through
+`LiveStackPreviewSource`, which is document-backed, so it has one) but says nothing about the
+exposure that produced it -- the number is right there in `PlanetaryCaptureController`, unjoined.
+
+**Shape.** Exposure and signal are linear above the offset, so the gauge is arithmetic, not a model:
+with the frame's peak (or a high percentile, which is what to use -- a hot pixel must not set the
+scale) at `p` of full scale for exposure `t`, the exposure reaching a target `T` is
+`t * (T - offset) / (p - offset)`. Report it beside the histogram as "peak 38% -- 1.9x for 75%", and
+refuse to extrapolate through a clipped frame (if `p` is already at full scale the true peak is
+unknown and the only honest answer is "clipping, shorten it").
+
+Three things to get right, none of them the arithmetic:
+
+- **8-bit is the normal case here** and full scale is the CONTAINER's, not `Image.MaxValue` (the
+  observed peak). `ImageMeta.SensorFullScaleAdu` is the field that already means this; a video stream
+  that does not carry one falls back to the bit depth's full scale, never to the frame's own maximum --
+  dividing by the observed peak would report every frame as perfectly exposed.
+- **Percentile, not maximum**, and taken on the DISK rather than the whole frame: a planetary frame is
+  mostly black sky, so a whole-frame percentile is a percentile of the background. The segmentation
+  already exists (`GlobalAligner`'s disk centroid).
+- **It belongs to the capture controller, not the viewer.** The viewer draws a histogram for any
+  source; only the planetary path knows the exposure, the offset and the gain, and only it can act on
+  the answer. `PlanetaryCaptureController` already owns all three and already drives the exposure.
+
+Not started. Wants a real capture to calibrate the target against (75% of full scale is the usual
+advice for a linear sensor; worth checking against what the SV605CC actually does).
+
 ## SdlVulkan.Renderer
 
 - [x] Font atlas corruption: root cause: shared upload buffer race with `MaxFramesInFlight=2`. Frame N+1's `Flush` overwrites the upload buffer while frame N's `vkCmdCopyBufferToImage` is still reading it. Fixed with `vkDeviceWaitIdle()` before upload buffer reuse.

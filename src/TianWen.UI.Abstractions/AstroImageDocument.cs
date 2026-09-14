@@ -466,27 +466,13 @@ public sealed class AstroImageDocument : IPreviewSource
 
         // Three histograms for a Bayer mosaic, one per photosite colour taken on the mosaic in place, so
         // the statistics table and the histogram overlay show R, G and B as they would for a debayered
-        // frame -- the same walk StretchSolver.CollectPerChannelStats takes for the stretch statistics.
-        ImageHistogram[] stats;
+        // frame. The channel rule lives in StretchSolver beside the stretch statistics' own collector,
+        // so a document and the live preview cannot drift into disagreeing about what a channel is.
+        ChannelStatistics = StretchSolver.CollectChannelHistograms(image);
         if (image.IsCfaMosaic)
         {
-            stats =
-            [
-                image.Statistics(0, cfa: CfaChannel.Red),
-                image.Statistics(0, cfa: CfaChannel.Green),
-                image.Statistics(0, cfa: CfaChannel.Blue),
-            ];
             MosaicHistogram = image.Statistics(0);
         }
-        else
-        {
-            stats = new ImageHistogram[image.ChannelCount];
-            for (var c = 0; c < image.ChannelCount; c++)
-            {
-                stats[c] = image.Statistics(c);
-            }
-        }
-        ChannelStatistics = stats;
 
         // Measured here for two reasons: the planes are still resident, so it costs a read rather than a
         // rebuild, and it must not happen on the render thread. An ordinary frame exits at the first

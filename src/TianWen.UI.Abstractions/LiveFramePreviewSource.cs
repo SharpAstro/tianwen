@@ -11,10 +11,14 @@ namespace TianWen.UI.Abstractions
     /// It keeps the mini viewer's two performance tricks that a per-frame document would lose:
     /// </para>
     /// <list type="number">
-    ///   <item><b>Subsampled stretch stats.</b> Median/MAD are derived from a strided ~1M-sample scan
-    ///   (<see cref="Image.GetPedestralMedianAndMADScaledToUnit"/> with a grid stride), not the full
-    ///   per-channel histogram + luma + background passes <see cref="AstroImageDocument"/> runs. A full
-    ///   61 MP scan per frame on the render thread is what previously dragged the live session to ~1 fps.</item>
+    ///   <item><b>Subsampled statistics.</b> Everything is derived from a strided ~1M-sample scan, not
+    ///   from the full-resolution passes <see cref="AstroImageDocument"/> runs, and the luma, background-
+    ///   region and star passes are skipped entirely. A full 61 MP scan per frame on the render thread is
+    ///   what previously dragged the live session to ~1 fps. The per-channel medians, MADs and histograms
+    ///   themselves come from the SAME collectors a document uses
+    ///   (<see cref="StretchSolver.CollectPerChannelStats"/> / <see cref="StretchSolver.CollectChannelHistograms"/>),
+    ///   so what a channel IS -- three colours for a Bayer mosaic, one per plane otherwise -- is decided
+    ///   in one place for both.</item>
     ///   <item><b>Freeze.</b> <see cref="AcceptFrame"/> takes a <c>freezeStats</c> flag; while set, the cached
     ///   stats are reused (no rescan) so the display stretch does not re-fire on every exposure -- a
     ///   polar-align correctness requirement (the field must stay visually stable across the slow refine
@@ -41,6 +45,7 @@ namespace TianWen.UI.Abstractions
         private int _bayerOffsetY;
 
         private ChannelStretchStats[] _stats = [];
+        private ImageHistogram[] _histograms = [];
 
         // Background level (= the subsampled pedestal) the post-stretch background math reads. Sized to the
         // channel count (min 1) so the renderer's per-channel ComputePostStretchBackground never indexes past
@@ -77,10 +82,16 @@ namespace TianWen.UI.Abstractions
         public ReadOnlySpan<float> GetChannelData(int channel)
             => (uint)channel < (uint)_channels.Length ? _channels[channel] : default;
 
-        // A live raw preview drives no histogram display / info-panel stats; the consumers keep ShowHistogram +
-        // ShowInfoPanel off. Returning empty keeps UploadHistogramData a no-op (it gates on ChannelCount > 0).
         /// <inheritdoc/>
-        public ImageHistogram[] ChannelStatistics => [];
+        /// <remarks>
+        /// Three for a Bayer mosaic, one per plane otherwise -- the channel rule lives in
+        /// <see cref="StretchSolver.CollectChannelHistograms"/> and nowhere else. These used to be empty,
+        /// which made <c>UploadHistogramData</c> a no-op and left <c>V</c> dead in the GUI's live session
+        /// and guider previews: a chromeless host draws no toolbar, but the histogram overlay is gated on
+        /// <see cref="ViewerState.ShowHistogram"/> alone, so there was nothing to draw rather than
+        /// nowhere to draw it.
+        /// </remarks>
+        public ImageHistogram[] ChannelStatistics => _histograms;
 
         /// <inheritdoc/>
         public float[] PerChannelBackground => _perChannelBg;
@@ -215,41 +226,27 @@ namespace TianWen.UI.Abstractions
             var freezeEdgeOn = freezeStats && !_previousFreeze;
             if (!_hasStats || !freezeStats || freezeEdgeOn)
             {
-                // A Bayer mosaic is THREE colours in one plane and gets three stats, exactly as a
-                // document does (StretchSolver.CollectPerChannelStats). One pooled statistic broadcast
-                // three ways is what made Linked and Unlinked render identically on every OSC frame and
-                // left background neutralisation nothing to level -- Auto resolves a mosaic to Unlinked
-                // just above, so without this that resolution bought nothing at all.
+                // The SAME collectors a document uses, so the GUI's live preview and the file on disk
+                // cannot disagree about what a channel is. A Bayer mosaic is three colours in one plane
+                // and gets three of each: one pooled statistic broadcast three ways is what made Linked
+                // and Unlinked render identically on every OSC frame and left background neutralisation
+                // nothing to level -- Auto resolves a mosaic to Unlinked just above, so without this that
+                // resolution bought nothing at all.
                 //
-                // It costs no more samples. Each colour walks its own photosites and a CFA walk doubles
-                // an odd stride to stay on its phase, so red, green (both its phases) and blue together
-                // visit what one full-frame scan at this stride visits.
-                var isCfa = image.IsCfaMosaic;
-                var statCount = isCfa ? 3 : channelCount;
-                if (_stats.Length != statCount)
-                {
-                    _stats = new ChannelStretchStats[statCount];
-                }
-
+                // The stride bounds the scan, and costs no more samples than the single full-frame scan
+                // this replaced: a CFA walk doubles an odd stride to stay on its phase, so red, green
+                // (both its phases) and blue together visit what one scan at this stride visits.
                 var pixels = (long)w * h;
                 var stride = pixels > StatsSampleTarget ? (int)Math.Sqrt((double)pixels / StatsSampleTarget) : 1;
-                if (isCfa)
-                {
-                    for (var c = 0; c < _stats.Length; c++)
-                    {
-                        var (p, m, d) = image.GetPedestralMedianAndMADScaledToUnit(
-                            0, pixelStride: stride, cfa: (CfaChannel)c);
-                        _stats[c] = new ChannelStretchStats(p, m, d);
-                    }
-                }
-                else
-                {
-                    var (ped, med, mad) = image.GetPedestralMedianAndMADScaledToUnit(0, pixelStride: stride);
-                    for (var c = 0; c < _stats.Length; c++)
-                    {
-                        _stats[c] = new ChannelStretchStats(ped, med, mad);
-                    }
-                }
+
+                _stats = StretchSolver.CollectPerChannelStats(image, channelCount, stride);
+
+                // The histograms the overlay draws (V). Kept rather than discarded: the median and MAD
+                // above are DERIVED from a histogram of the same pixels, so the marginal cost of having
+                // one to draw is the retention, not the work -- and this path is per EXPOSURE (the live
+                // session and the guider), never per video frame. The planetary preview is a different
+                // source (LiveStackPreviewSource, document-backed) and is unaffected.
+                _histograms = StretchSolver.CollectChannelHistograms(image, stride);
 
                 // The pedestal is the background estimate the post-stretch background math reads. Sized to
                 // the STAT count, which is the channel count except on a mosaic, so the renderer's
