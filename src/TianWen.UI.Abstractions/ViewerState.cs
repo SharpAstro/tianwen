@@ -281,7 +281,7 @@ public sealed class ViewerState
     public FloatingPaletteState? SkyLayerPalette { get; set; }
 
     /// <summary>Index into <see cref="StretchParameters.Presets"/> for the selected stretch preset.</summary>
-    public int StretchPresetIndex { get; set; } = 0; // (0.1, -5.0) default
+    public int StretchPresetIndex { get; set; } = 0; // Presets[0] IS StretchParameters.Default
 
     /// <summary>Whether to automatically fit the image to the viewport.</summary>
     public bool ZoomToFit { get; set; } = true;
