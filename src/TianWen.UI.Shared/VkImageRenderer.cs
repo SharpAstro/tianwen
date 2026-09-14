@@ -330,6 +330,9 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
             lumaBlend: stretch.LumaBlend,
             normalizeScale: stretch.NormalizeScale,
             debayerMode: RawBayerDebayerMode,
+            // Zoom is screen pixels per image pixel in the quad's own coordinates, so its inverse is
+            // how many mosaic texels a screen pixel covers -- what the shader demosaics per below 100%.
+            texelsPerPixel: state.Zoom > 0f ? 1f / state.Zoom : 1f,
             slot: uboSlotOverride >= 0 ? uboSlotOverride : (int)slot);
     }
 

@@ -663,6 +663,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         float lumaBlend = 1f,
         float normalizeScale = 1f,
         int debayerMode = 1,
+        float texelsPerPixel = 1f,
         int slot = UboSlotPrimary)
     {
         if ((uint)slot >= StretchUboSlots)
@@ -785,13 +786,16 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         WriteFloat(p, 392, lumaStretch.Rescale);
         WriteFloat(p, 396, 0f);
 
-        // stretchBlend (vec4 at offset 400) -- (lumaBlend, normalizeScale, debayerMode, pad).
+        // stretchBlend (vec4 at offset 400) -- (lumaBlend, normalizeScale, debayerMode, texelsPerPixel).
         // debayerMode (z) selects the in-shader Bayer demosaic for the RawBayer path: 1 = MHC, 2 = raw
         // mosaic, 3 = mono, 4 = VNG, else bilinear. Written by ImageRendererBase.GpuDebayerMode.
+        // texelsPerPixel (w) is how many mosaic texels one screen pixel covers; above 1 the shader
+        // demosaics at the screen's resolution rather than sampling one demosaic per pixel, which
+        // below 100% aliases the CFA-period noise texture into a lattice (image.frag debayerForZoom).
         WriteFloat(p, 400, lumaBlend);
         WriteFloat(p, 404, normalizeScale);
         WriteFloat(p, 408, debayerMode);
-        WriteFloat(p, 412, 0f);
+        WriteFloat(p, 412, texelsPerPixel);
 
         // gridColor (vec4 at offset 416) -- the RA/Dec grid's line colour and its alpha.
         // <b>Not a parameter, deliberately.</b> An EQ grid is the same grid whether this shader draws

@@ -94,6 +94,15 @@ The fragment shader handles all image processing in a single pass per pixel:
    configurable Bayer pattern offset -- `0` bilinear colour, `1` MHC, `2` the raw mosaic as grey,
    `3` monochrome (the 2×2 quad average), `4` VNG.
 
+   **Below 100% the colour branches demosaic at the screen's resolution, not the mosaic's.** One
+   demosaic sample per screen pixel subsamples the CFA-period noise texture every interpolating
+   demosaic leaves behind, and that beats against the screen grid at `1/(zoom - 0.5)` -- a square
+   lattice near fit zoom, a fine mesh around 55%. `stretchBlend.w` carries mosaic texels per screen
+   pixel; at 2 and above the shader draws the pattern-aligned 2×2 **superpixel** (one R, two G, one B:
+   a half-res colour image with no interpolation in it, what N.I.N.A. and PixInsight previews show),
+   between 1 and 2 it averages four demosaic samples a quarter pixel apart (`debayerForZoom`). Display
+   only: the save path is CPU-debayered at full resolution and never sees this.
+
    **Every demosaic the viewer OFFERS has a branch here, and that is a rule rather than a
    coincidence.** The save path CPU-debayers (`DisplayRasterExport` -> `Image.DebayerAsync`) while
    the screen shows the shader's output, so an algorithm with no branch is one where the file is not
