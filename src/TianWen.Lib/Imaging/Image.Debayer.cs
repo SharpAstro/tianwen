@@ -460,34 +460,67 @@ public partial class Image
     // the ref once per row in the Parallel.For body and passes idx/stride
     // forward; helpers stay [AggressiveInlining] so the call vanishes.
 
+    /// <summary>
+    /// Green at a red or blue site, choosing among the four cardinal directions.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Every gradient term compares two samples of the SAME colour, and that is the whole
+    /// point of them.</b> A gradient has to be zero on a flat field whatever the colours are doing, or
+    /// it is not measuring structure -- it is measuring the colour of the sky, and the threshold then
+    /// selects on colour. These used to be <c>|2g - v - c|</c>, which is <c>2*(green - centre)</c> on a
+    /// flat field: a colour difference wearing a gradient's name, and it was ALSO an affine function of
+    /// the value it selects (<c>val = c + signed_grad / 2</c>), so "keep the smallest gradient" meant
+    /// literally "keep the value nearest the centre pixel's own level".</para>
+    /// <para><b>Measured on a real OSC sub</b> (SV605CC, GRBG, L-Quad; R 1472, G 2680, B 2888 ADU):
+    /// green interpolated at a BLUE site read 2779 against a true 2680, while at a red site it was
+    /// right. Blue sits near green, so the four gradients came out small and comparable and the 1.5x
+    /// threshold really did select; red sits far below, so every direction cleared the threshold and
+    /// the average came out unbiased. Blue sites occupy alternate rows AND alternate columns, so the
+    /// bias landed as a two-pixel alternation on both axes -- 6.4 display levels against a 12-level
+    /// pixel noise, i.e. the fine stripes seen at 1:1, thirty times what MHC and AHD show on the same
+    /// frame.</para>
+    /// <para>So: the centre-colour sample two away gives each direction its own term (<c>|v - c|</c>,
+    /// both the centre's colour), and the green pair across the axis gives the shared term
+    /// (<c>|gN - gS|</c>, both green) that tells a vertical edge from a horizontal one. Both are zero
+    /// on a flat field, so the selection can no longer see the sky's colour -- and because the value's
+    /// correction term is <c>(c - v) / 2</c>, whose mean is zero, selecting on <c>|v - c|</c> pulls it
+    /// toward the raw green sample rather than toward the centre's level.</para>
+    /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private static float InterpolateGreenAtRBVNG(ref float src0, int idx, int stride)
     {
         // Interpolate green at R or B position using 4 cardinal directions
         float center = Unsafe.Add(ref src0, idx);
 
-        // North: green at y-1, same color at y-2
         float gN = Unsafe.Add(ref src0, idx - stride);
+        float gS = Unsafe.Add(ref src0, idx + stride);
+        float gW = Unsafe.Add(ref src0, idx - 1);
+        float gE = Unsafe.Add(ref src0, idx + 1);
+
+        // Green variation ACROSS each axis: shared by the two directions along it, which is what lets
+        // an edge running one way rule out the pair running the other way. Green-to-green, so zero on
+        // a flat field.
+        float gVert = MathF.Abs(gN - gS);
+        float gHoriz = MathF.Abs(gW - gE);
+
+        // North: green at y-1, the centre's own colour at y-2.
         float vN = Unsafe.Add(ref src0, idx - 2 * stride);
-        float gradN = MathF.Abs(MathF.FusedMultiplyAdd(2, gN, -vN - center));
+        float gradN = MathF.Abs(vN - center) + gVert;
         float valN = gN + (center - vN) * 0.5f;
 
         // South
-        float gS = Unsafe.Add(ref src0, idx + stride);
         float vS = Unsafe.Add(ref src0, idx + 2 * stride);
-        float gradS = MathF.Abs(MathF.FusedMultiplyAdd(2, gS, -center - vS));
+        float gradS = MathF.Abs(vS - center) + gVert;
         float valS = MathF.FusedMultiplyAdd(center - vS, 0.5f, gS);
 
         // West
-        float gW = Unsafe.Add(ref src0, idx - 1);
         float vW = Unsafe.Add(ref src0, idx - 2);
-        float gradW = MathF.Abs(2 * gW - vW - center);
+        float gradW = MathF.Abs(vW - center) + gHoriz;
         float valW = MathF.FusedMultiplyAdd(center - vW, 0.5f, gW);
 
         // East
-        float gE = Unsafe.Add(ref src0, idx + 1);
         float vE = Unsafe.Add(ref src0, idx + 2);
-        float gradE = MathF.Abs(2 * gE - center - vE);
+        float gradE = MathF.Abs(vE - center) + gHoriz;
         float valE = MathF.FusedMultiplyAdd(center - vE, 0.5f, gE);
 
         // Find minimum gradient and threshold
@@ -506,6 +539,17 @@ public partial class Image
         return count > 0 ? sum / count : valN;
     }
 
+    /// <summary>
+    /// Red or blue at a green site whose same-colour neighbours lie in the same ROW.
+    /// </summary>
+    /// <remarks>
+    /// The two candidates are the centre's horizontal neighbours, which are NOT the centre's colour,
+    /// so <c>|neighbour - centre|</c> was a colour difference and the threshold selected on it: the
+    /// estimate was pulled toward the green level whenever the interpolated channel sat near green.
+    /// The green two away is the same colour as the centre, so <c>|g2 - centre|</c> asks the question
+    /// actually wanted -- is this side across an edge -- and is zero on a flat field. See
+    /// <see cref="InterpolateGreenAtRBVNG"/> for the measurement that found the class.
+    /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private static float InterpolateHorizontalVNG(ref float src0, int idx)
     {
@@ -514,8 +558,8 @@ public partial class Image
         float left = Unsafe.Add(ref src0, idx - 1);
         float right = Unsafe.Add(ref src0, idx + 1);
 
-        float gradL = MathF.Abs(left - center);
-        float gradR = MathF.Abs(right - center);
+        float gradL = MathF.Abs(Unsafe.Add(ref src0, idx - 2) - center);
+        float gradR = MathF.Abs(Unsafe.Add(ref src0, idx + 2) - center);
 
         float minGrad = MathF.Min(gradL, gradR);
         float threshold = MathF.FusedMultiplyAdd(minGrad, 1.5f, 0.01f);
@@ -529,6 +573,8 @@ public partial class Image
         return count > 0 ? sum / count : (left + right) * 0.5f;
     }
 
+    /// <summary>The transpose of <see cref="InterpolateHorizontalVNG"/>: same-colour neighbours in the
+    /// same COLUMN, and the same same-colour gradient rule.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private static float InterpolateVerticalVNG(ref float src0, int idx, int stride)
     {
@@ -537,8 +583,8 @@ public partial class Image
         float top = Unsafe.Add(ref src0, idx - stride);
         float bottom = Unsafe.Add(ref src0, idx + stride);
 
-        float gradT = MathF.Abs(top - center);
-        float gradB = MathF.Abs(bottom - center);
+        float gradT = MathF.Abs(Unsafe.Add(ref src0, idx - 2 * stride) - center);
+        float gradB = MathF.Abs(Unsafe.Add(ref src0, idx + 2 * stride) - center);
 
         float minGrad = MathF.Min(gradT, gradB);
         float threshold = MathF.FusedMultiplyAdd(minGrad, 1.5f, 0.01f);
@@ -569,11 +615,15 @@ public partial class Image
         float gW = Unsafe.Add(ref src0, idx - 1);
         float gE = Unsafe.Add(ref src0, idx + 1);
 
-        // Calculate gradients including green channel differences
-        float gradNW = MathF.Abs(nw - center) + MathF.Abs(gN - gW);
-        float gradNE = MathF.Abs(ne - center) + MathF.Abs(gN - gE);
-        float gradSW = MathF.Abs(sw - center) + MathF.Abs(gS - gW);
-        float gradSE = MathF.Abs(se - center) + MathF.Abs(gS - gE);
+        // Same-colour gradients, as everywhere else here: the diagonal TWO away carries the centre's
+        // own colour (the candidates one away do not), and the green pair flanking each diagonal is
+        // green-to-green already. Both zero on a flat field. |candidate - centre| was red-minus-blue,
+        // which on this frame's levels is 1416 ADU of pure colour -- so large that the 1.5x threshold
+        // admitted all four directions and the selection never ran at all.
+        float gradNW = MathF.Abs(Unsafe.Add(ref src0, idx - 2 * stride - 2) - center) + MathF.Abs(gN - gW);
+        float gradNE = MathF.Abs(Unsafe.Add(ref src0, idx - 2 * stride + 2) - center) + MathF.Abs(gN - gE);
+        float gradSW = MathF.Abs(Unsafe.Add(ref src0, idx + 2 * stride - 2) - center) + MathF.Abs(gS - gW);
+        float gradSE = MathF.Abs(Unsafe.Add(ref src0, idx + 2 * stride + 2) - center) + MathF.Abs(gS - gE);
 
         float minGrad = MathF.Min(MathF.Min(gradNW, gradNE), MathF.Min(gradSW, gradSE));
         float threshold = MathF.FusedMultiplyAdd(minGrad, 1.5f, 0.01f);

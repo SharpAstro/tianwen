@@ -44,7 +44,11 @@ public class DebayerRegressionTests
     public async Task DebayerVNG_OnIMX533Fixture_OutputHashStable()
         => await AssertDebayerHashAsync(
             DebayerAlgorithm.VNG,
-            expectedSha256: "8d7521627b3dea214ffcd48e18c1547bde99e08c02dfd5b350b3a91bd1c67fc6");
+            // Re-pinned 2026-09-14: every VNG gradient now compares two samples of the SAME colour,
+            // so it is zero on a flat field instead of measuring the sky's colour. See
+            // VngFlatFieldBiasTests and Image.InterpolateGreenAtRBVNG for the measurement -- the old
+            // gradients biased green at blue sites by +99 ADU and striped every OSC sub.
+            expectedSha256: "727ede357a033c8ca69e7e9bff1db75c0390b262641a71f3137fd3ebc3b12e46");
 
     [Fact]
     public async Task DebayerAHD_OnIMX533Fixture_OutputHashStable()

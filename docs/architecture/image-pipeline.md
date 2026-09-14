@@ -117,6 +117,33 @@ The fragment shader handles all image processing in a single pass per pixel:
    **VNG's direction thresholds are ABSOLUTE (`+ 0.01` in the frame's own units), so the branch is
    only correct on a mosaic normalised to `[0, 1]`** -- which `AstroImageDocument` guarantees for
    both the texture upload and the image `DisplayRasterExport` later debayers.
+
+   **Every gradient compares two samples of the SAME colour, and that is what makes it a gradient.**
+   A gradient has to be zero on a flat field whatever the sky's colour is doing, or the threshold that
+   selects on it is selecting on colour. All four VNG helpers had colour differences instead
+   (`|2g - v - c|` is `2*(green - centre)` when flat), and worse, that quantity is an affine function
+   of the value it selects (`val = c + signed_grad / 2`) -- so "keep the smallest gradient" literally
+   meant "keep the value nearest the centre pixel's own level". Measured on a 120 s SV605CC sub
+   (GRBG, L-Quad; sky R 1472, G 2680, B 2888 ADU): **green interpolated at a blue site read 2779
+   against a true 2680**, while at a red site it was right -- blue sits near green so the four
+   gradients came out small and comparable and the 1.5x threshold really selected, red sits 1200 ADU
+   below so every direction cleared it and the average came out unbiased. Blue sites occupy alternate
+   rows AND alternate columns, so the bias landed as a **two-pixel alternation on both axes: 6.4
+   display levels against 12 of pixel noise, i.e. fine stripes over the whole background at 1:1**,
+   thirty times what MHC and AHD show on the same frame. Fixed 2026-09-14 by giving each direction the
+   centre's OWN colour two away (`|v - c|`) plus the green pair across the axis (`|gN - gS|`), both
+   zero when flat; the same rule fixes the horizontal / vertical helpers (gradient on the green two
+   away rather than on `|neighbour - centre|`) and the diagonal one (the diagonal two away carries the
+   centre's colour; the one away does not). On the real frame the alternation fell to 0.16 / 0.01
+   levels -- below MHC and AHD -- the star ring dip stayed at 0.00% (the property VNG is the viewer's
+   default for) and the colour fringe around real stars *improved*, 18.40% to 16.60% mean.
+
+   **Nothing in the suite could see it, which is the part worth keeping.** A demosaic was checked
+   against its own pinned hash (a bias is stable, so the hash was green) and against the GPU
+   (`GpuVngDebayerParityTests`, which mirrors the same mistake on both sides, so it was green too).
+   `VngFlatFieldBiasTests` is the missing kind of test: a FLAT field, where each channel has exactly
+   one right answer and a bias has nowhere to hide, asserted for all three colour algorithms so it
+   cannot be satisfied by the behaviour it is meant to catch.
 2. **Normalization**: `raw × normFactor` where `normFactor = 1/MaxValue`
 3. **MTF stretch**: pedestal subtraction → shadow clip → midtone transfer function
 4. **Curves boost** and **HDR compression** (optional)

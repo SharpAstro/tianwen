@@ -331,18 +331,32 @@ vec3 vngEdge(ivec2 p, vec3 knownMask) {
     return clamp(mix(avg, vec3(texelFetch(uChannel0, p, 0).r), knownMask), 0.0, 1.0);
 }
 
-// Green at a red or blue site. Four cardinal directions over a 5-tap cross: the gradient is the
-// second difference through the centre (2*g - v - c, zero on a linear ramp and large at a rim), and
-// the value corrects the near green by half the same-colour slope. Mirrors InterpolateGreenAtRBVNG,
-// which is the ONE helper with no epsilon on its threshold -- the second difference already
-// suppresses a smooth gradient, so a floor here would only re-admit the direction just rejected.
+// Green at a red or blue site. Four cardinal directions over a 5-tap cross; the value corrects the
+// near green by half the same-colour slope. Mirrors InterpolateGreenAtRBVNG, which is the ONE helper
+// with no epsilon on its threshold.
+//
+// EVERY GRADIENT TERM COMPARES TWO SAMPLES OF THE SAME COLOUR, which is what makes it a gradient:
+// zero on a flat field whatever the sky's colour. This used to be |2g - v - c|, i.e. 2*(green -
+// centre) on a flat field -- a colour difference, and an affine function of the value it selects
+// (val = c + signed_grad/2), so "keep the smallest gradient" meant "keep the value nearest the centre
+// pixel's own level". Measured on a real OSC sub (SV605CC GRBG; R 1472, G 2680, B 2888 ADU) green
+// read 2779 at blue sites and correctly at red ones -- blue sits near green so the threshold really
+// selected, red sits far so every direction cleared it. Blue sites are alternate rows AND columns, so
+// that landed as a two-pixel alternation on both axes: the fine stripes at 1:1, 6.4 display levels
+// against 12 of pixel noise, thirty times what MHC and AHD show on the same frame.
 float vngGreenAtRB(ivec2 p, float c) {
     vec4 g = vec4(rawAt(p + ivec2( 0, -1)), rawAt(p + ivec2( 0, 1)),
                   rawAt(p + ivec2(-1,  0)), rawAt(p + ivec2( 1, 0)));
     vec4 v = vec4(rawAt(p + ivec2( 0, -2)), rawAt(p + ivec2( 0, 2)),
                   rawAt(p + ivec2(-2,  0)), rawAt(p + ivec2( 2, 0)));
 
-    vec4 grad = abs(2.0 * g - v - vec4(c));
+    // Green variation ACROSS each axis, shared by the two directions along it: what lets an edge
+    // running one way rule out the pair running the other way. Green-to-green, so zero when flat.
+    float gVert = abs(g.x - g.y);
+    float gHoriz = abs(g.z - g.w);
+
+    // Per direction, the centre's OWN colour two away. Centre-to-centre, so zero when flat.
+    vec4 grad = abs(v - vec4(c)) + vec4(gVert, gVert, gHoriz, gHoriz);
     vec4 val = g + (vec4(c) - v) * 0.5;
 
     float threshold = min(min(grad.x, grad.y), min(grad.z, grad.w)) * 1.5;
@@ -352,10 +366,11 @@ float vngGreenAtRB(ivec2 p, float c) {
 }
 
 // Red or blue at a green site whose same-colour neighbours lie in the same ROW.
-// Mirrors InterpolateHorizontalVNG.
+// Mirrors InterpolateHorizontalVNG. The candidates are not the centre's colour, so the gradient is
+// taken on the GREEN two away -- same colour as the centre, zero on a flat field. See vngGreenAtRB.
 float vngHorizontal(ivec2 p, float c) {
     vec2 n = vec2(rawAt(p + ivec2(-1, 0)), rawAt(p + ivec2(1, 0)));
-    vec2 grad = abs(n - vec2(c));
+    vec2 grad = abs(vec2(rawAt(p + ivec2(-2, 0)), rawAt(p + ivec2(2, 0))) - vec2(c));
     float threshold = min(grad.x, grad.y) * 1.5 + 0.01;
     vec2 keep = step(grad, vec2(threshold));
     float count = keep.x + keep.y;
@@ -366,7 +381,7 @@ float vngHorizontal(ivec2 p, float c) {
 // Mirrors InterpolateVerticalVNG.
 float vngVertical(ivec2 p, float c) {
     vec2 n = vec2(rawAt(p + ivec2(0, -1)), rawAt(p + ivec2(0, 1)));
-    vec2 grad = abs(n - vec2(c));
+    vec2 grad = abs(vec2(rawAt(p + ivec2(0, -2)), rawAt(p + ivec2(0, 2))) - vec2(c));
     float threshold = min(grad.x, grad.y) * 1.5 + 0.01;
     vec2 keep = step(grad, vec2(threshold));
     float count = keep.x + keep.y;
@@ -386,7 +401,12 @@ float vngDiagonal(ivec2 p, float c) {
     float gW = rawAt(p + ivec2(-1,  0));
     float gE = rawAt(p + ivec2( 1,  0));
 
-    vec4 grad = abs(d - vec4(c))
+    // Same-colour again: the diagonal TWO away carries the centre's own colour, while the candidates
+    // one away do not. |candidate - centre| was red-minus-blue, 1416 ADU of pure colour on the frame
+    // this was found on -- so large that the 1.5x threshold admitted all four and nothing selected.
+    vec4 d2 = vec4(rawAt(p + ivec2(-2, -2)), rawAt(p + ivec2( 2, -2)),
+                   rawAt(p + ivec2(-2,  2)), rawAt(p + ivec2( 2,  2)));
+    vec4 grad = abs(d2 - vec4(c))
               + abs(vec4(gN, gN, gS, gS) - vec4(gW, gE, gW, gE));
 
     float threshold = min(min(grad.x, grad.y), min(grad.z, grad.w)) * 1.5 + 0.01;
