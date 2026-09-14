@@ -34,6 +34,25 @@ namespace TianWen.Lib.Tests
             return new Image([ch], BitDepth.Float32, maxValue: Max, minValue: 0f, pedestal: 0f, imageMeta: meta);
         }
 
+        // The same, as a single-plane Bayer mosaic: SensorType.RGGB names the CFA and the offsets carry
+        // the pattern (1, 0 = GRBG), which is the convention the whole codebase uses.
+        private static Image MosaicImage(int w, int h, Func<int, int, float> px)
+        {
+            var ch = new float[h, w];
+            for (var y = 0; y < h; y++)
+            {
+                for (var x = 0; x < w; x++)
+                {
+                    ch[y, x] = px(x, y);
+                }
+            }
+
+            var meta = new ImageMeta("synth", DateTimeOffset.UtcNow, TimeSpan.FromSeconds(1),
+                FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
+                float.NaN, SensorType.RGGB, 1, 0, RowOrder.TopDown, float.NaN, float.NaN);
+            return new Image([ch], BitDepth.Float32, maxValue: Max, minValue: 0f, pedestal: 0f, imageMeta: meta);
+        }
+
         [Fact]
         public void Accept_mono_frame_normalizes_channel_to_unit_and_reports_geometry()
         {
@@ -141,6 +160,55 @@ namespace TianWen.Lib.Tests
             var u = src.ComputeStretchUniforms(StretchMode.Unlinked, StretchParameters.Default);
             var bg = u.ComputePostStretchBackground(src.PerChannelBackground, src.LumaBackground);
             bg.ShouldBeInRange(0f, 1f);
+        }
+
+        /// <summary>
+        /// <b>The live preview solves a mosaic from its three colours, as a document does.</b> It used
+        /// to take ONE statistic over the whole mosaic and hand the solver three copies, so Unlinked --
+        /// which Auto resolves a mosaic to, precisely so each channel's background levels -- rendered
+        /// exactly what Linked rendered, and background neutralisation had nothing to level. The GUI's
+        /// live session and guider previews are the only viewers that come through here, so this was
+        /// the one place left where the same OSC frame looked different from the file on disk.
+        /// </summary>
+        [Fact]
+        public void A_bayer_mosaic_is_solved_from_three_colours_so_unlinked_differs_from_linked()
+        {
+            // GRBG at offsets (1, 0): red at odd x / even y, blue at even x / odd y, green elsewhere.
+            // Three separated levels plus a checkerboard wobble, so every colour has a real MAD.
+            static float Cfa(int x, int y)
+            {
+                var wobble = (x + y) % 2 == 0 ? 0f : 40f;
+                var isRed = (x & 1) == 1 && (y & 1) == 0;
+                var isBlue = (x & 1) == 0 && (y & 1) == 1;
+                return (isRed ? 200f : isBlue ? 700f : 450f) + wobble;
+            }
+
+            var src = new LiveFramePreviewSource();
+            src.AcceptFrame(MosaicImage(32, 32, Cfa), freezeStats: false);
+
+            src.ChannelCount.ShouldBe(1, "the frame really is a one-plane mosaic");
+            src.PerChannelBackground.Length.ShouldBe(3, "one background per colour, as the document path gives");
+
+            var unlinked = src.ComputeStretchUniforms(StretchMode.Unlinked, StretchParameters.Default);
+            var linked = src.ComputeStretchUniforms(StretchMode.Linked, StretchParameters.Default);
+
+            unlinked.Shadows.R.ShouldNotBe(unlinked.Shadows.B, "Unlinked: each colour's curve sits on its own median");
+            linked.Shadows.R.ShouldBe(linked.Shadows.B, "Linked: one curve for all three");
+            unlinked.ShouldNotBe(linked);
+        }
+
+        /// <summary>A mono frame keeps solving from its one statistic, broadcast -- the mosaic path must
+        /// not leak into it.</summary>
+        [Fact]
+        public void A_mono_frame_still_solves_one_curve_for_every_channel()
+        {
+            var src = new LiveFramePreviewSource();
+            src.AcceptFrame(MonoImage(16, 16, (x, y) => (x + y) % 2 == 0 ? 300f : 380f), freezeStats: false);
+
+            var u = src.ComputeStretchUniforms(StretchMode.Unlinked, StretchParameters.Default);
+
+            u.Shadows.R.ShouldBe(u.Shadows.G);
+            u.Shadows.G.ShouldBe(u.Shadows.B);
         }
 
         [Fact]

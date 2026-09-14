@@ -215,23 +215,53 @@ namespace TianWen.UI.Abstractions
             var freezeEdgeOn = freezeStats && !_previousFreeze;
             if (!_hasStats || !freezeStats || freezeEdgeOn)
             {
-                if (_stats.Length != channelCount)
+                // A Bayer mosaic is THREE colours in one plane and gets three stats, exactly as a
+                // document does (StretchSolver.CollectPerChannelStats). One pooled statistic broadcast
+                // three ways is what made Linked and Unlinked render identically on every OSC frame and
+                // left background neutralisation nothing to level -- Auto resolves a mosaic to Unlinked
+                // just above, so without this that resolution bought nothing at all.
+                //
+                // It costs no more samples. Each colour walks its own photosites and a CFA walk doubles
+                // an odd stride to stay on its phase, so red, green (both its phases) and blue together
+                // visit what one full-frame scan at this stride visits.
+                var isCfa = image.IsCfaMosaic;
+                var statCount = isCfa ? 3 : channelCount;
+                if (_stats.Length != statCount)
                 {
-                    _stats = new ChannelStretchStats[channelCount];
+                    _stats = new ChannelStretchStats[statCount];
                 }
 
                 var pixels = (long)w * h;
                 var stride = pixels > StatsSampleTarget ? (int)Math.Sqrt((double)pixels / StatsSampleTarget) : 1;
-                var (ped, med, mad) = image.GetPedestralMedianAndMADScaledToUnit(0, pixelStride: stride);
-                for (var c = 0; c < _stats.Length; c++)
+                if (isCfa)
                 {
-                    _stats[c] = new ChannelStretchStats(ped, med, mad);
+                    for (var c = 0; c < _stats.Length; c++)
+                    {
+                        var (p, m, d) = image.GetPedestralMedianAndMADScaledToUnit(
+                            0, pixelStride: stride, cfa: (CfaChannel)c);
+                        _stats[c] = new ChannelStretchStats(p, m, d);
+                    }
                 }
-                // The pedestal is the background estimate the post-stretch background math reads. Size it to
-                // the channel count so the renderer's per-channel reads (0..2) never index an empty array.
-                _perChannelBg = new float[Math.Max(1, channelCount)];
-                Array.Fill(_perChannelBg, ped);
-                _backgroundLevel = ped;
+                else
+                {
+                    var (ped, med, mad) = image.GetPedestralMedianAndMADScaledToUnit(0, pixelStride: stride);
+                    for (var c = 0; c < _stats.Length; c++)
+                    {
+                        _stats[c] = new ChannelStretchStats(ped, med, mad);
+                    }
+                }
+
+                // The pedestal is the background estimate the post-stretch background math reads. Sized to
+                // the STAT count, which is the channel count except on a mosaic, so the renderer's
+                // per-channel reads (0..2) never index an empty array.
+                _perChannelBg = new float[Math.Max(1, _stats.Length)];
+                for (var c = 0; c < _perChannelBg.Length; c++)
+                {
+                    _perChannelBg[c] = _stats[c].Pedestal;
+                }
+                // Green for a mosaic: it is the luma-dominant channel and the one a luminance background
+                // would be led by, and unlike slot 0 it is not whichever colour the pattern starts with.
+                _backgroundLevel = _stats.Length >= 3 ? _stats[1].Pedestal : _stats[0].Pedestal;
                 _hasStats = true;
             }
 
