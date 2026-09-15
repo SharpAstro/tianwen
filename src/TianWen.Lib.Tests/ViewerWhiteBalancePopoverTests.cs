@@ -115,56 +115,57 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// Everything registered below the toolbar after a render: each button by name at the point it
-        /// was found, whether any white-balance slider band exists, and the right-hand end of the R
-        /// track. <see cref="PixelWidgetBase{T}.HitTest"/> looks without dispatching, so the scan
-        /// changes nothing.
+        /// Everything registered below the toolbar after a render: each button by name at its OWN
+        /// painted rect, whether any white-balance slider band exists, and the right-hand end of the R
+        /// track. Read straight back from <see cref="PixelWidgetBase{T}.GetRegisteredRegions"/> -- the
+        /// arranged regions the render itself produced -- rather than found by sweeping pixels and
+        /// calling <see cref="PixelWidgetBase{T}.HitTest"/> at each one.
         /// </summary>
         /// <remarks>
-        /// <para><b>Scanned across the WHOLE window, because the popover's width is not a constant.</b>
-        /// This used to scan 300 design pixels rightwards from a left edge it worked out by passing
-        /// 300f to the same clamp the panel uses -- an answer that agrees with the panel only while the
-        /// panel really is 300 wide. It is not, and since the panel began sizing itself to its MEASURED
-        /// button row it is not even a constant: 425 px here at dpi 1, and whatever the host's own face
-        /// measures elsewhere.</para>
-        /// <para>The clamp is what turns that into a failure rather than a near miss. A box that would
-        /// overhang the window is pulled LEFT, and the wider it is the further -- so on a host whose
-        /// system face is wider than this one's, the panel sat left of where the guess said, the scan
-        /// started past the first button, and "Auto" was reported missing from a panel that had drawn
-        /// it perfectly well. It reproduces here by narrowing the window until the same clamp bites,
-        /// which is what the 800-wide case below is for.</para>
+        /// This used to scan every 8th pixel across the WHOLE window below the button, because the
+        /// popover's width is not a constant: it sizes itself to its MEASURED button row (425 px here at
+        /// dpi 1, and whatever the host's own face measures elsewhere), and a box that would overhang the
+        /// window is pulled LEFT by its placement clamp, the wider it is the further -- so a guessed
+        /// column used to land past the first button on a host whose system face is wider than this
+        /// one's, and "Auto" was reported missing from a panel that had drawn it perfectly well. Reading
+        /// the registered regions directly needs no column guess at all: whatever the render placed, and
+        /// wherever, is exactly what this reports. The 800-wide case below still exercises the same
+        /// clamp, now by asserting on the regions it produces rather than by out-scanning it.
         /// </remarks>
         private static (Dictionary<string, (float X, float Y)> Buttons, bool Sliders, float? RedTrackRight)
             HitsBelowTheBar(PopoverViewer viewer)
         {
             var button = Button(viewer);
-            var (windowW, windowH) = viewer.WindowSize;
             var buttons = new Dictionary<string, (float X, float Y)>();
             var sliders = false;
             float? redTrackRight = null;
-            // Every eighth pixel across the window, so a button is found wherever the face happens to
-            // have put it, and each is remembered at the point it was found -- the point a press is
-            // then sent to. Guessing a column landed a press in the gap between two buttons.
-            for (var y = button.Bottom + 1f; y < windowH; y += 1f)
+            foreach (var region in viewer.GetRegisteredRegions())
             {
-                for (var x = 0f; x < windowW; x += 8f)
+                // Below the toolbar bar only, exactly as the old sweep's y range started just past it --
+                // the toolbar's own buttons share the bar's Y and must not be picked up as popover ones.
+                if (region.Y < button.Bottom)
                 {
-                    switch (viewer.HitTest(x, y))
-                    {
-                        case HitResult.ButtonHit hit:
-                            buttons.TryAdd(hit.Action, (x, y));
-                            break;
-                        case WhiteBalanceSliderHit { Channel: 0 }:
-                            sliders = true;
-                            // The far end of the track, not its middle: the drag tests need a point
-                            // whose multiplier is unmistakably not neutral, and the middle of a
-                            // log-mapped track is exactly 1.00.
-                            if (x > (redTrackRight ?? float.MinValue)) { redTrackRight = x; }
-                            break;
-                        case WhiteBalanceSliderHit:
-                            sliders = true;
-                            break;
-                    }
+                    continue;
+                }
+
+                switch (region.Result)
+                {
+                    case HitResult.ButtonHit hit:
+                        // Centre of the button's own rect: guaranteed inside it, unlike a sweep pixel
+                        // that happened to land there at 8px granularity.
+                        buttons.TryAdd(hit.Action, (region.X + region.Width / 2f, region.Y + region.Height / 2f));
+                        break;
+                    case WhiteBalanceSliderHit { Channel: 0 }:
+                        sliders = true;
+                        // The far end of the track, not its middle: the drag tests need a point whose
+                        // multiplier is unmistakably not neutral, and the middle of a log-mapped track
+                        // is exactly 1.00.
+                        var right = region.X + region.Width;
+                        if (right > (redTrackRight ?? float.MinValue)) { redTrackRight = right; }
+                        break;
+                    case WhiteBalanceSliderHit:
+                        sliders = true;
+                        break;
                 }
             }
             return (buttons, sliders, redTrackRight);
@@ -261,25 +262,25 @@ namespace TianWen.Lib.Tests
             Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));
             viewer.Render(document, state);
 
-            // The rightmost pixel each region answers to, found by looking rather than by asking for a
-            // rect: HitTest dispatches nothing, so the scan changes no state.
-            var panelRight = float.MinValue;
-            var calibrateRight = float.MinValue;
-            for (var y = button.Bottom + 1f; y < windowH; y += 1f)
+            // The rightmost edge of each region, read straight back from what the render registered
+            // rather than found by sweeping pixels and asking HitTest at each one.
+            float? panelRight = null;
+            float? calibrateRight = null;
+            foreach (var region in viewer.GetRegisteredRegions())
             {
-                for (var x = 0f; x < windowW; x += 1f)
+                if (region.Result is not HitResult.ButtonHit hit)
                 {
-                    if (viewer.HitTest(x, y) is HitResult.ButtonHit hit)
-                    {
-                        if (hit.Action == "WhiteBalancePanelBackground" && x > panelRight) { panelRight = x; }
-                        else if (hit.Action == "ToggleColorCalibration" && x > calibrateRight) { calibrateRight = x; }
-                    }
+                    continue;
                 }
+
+                var right = region.X + region.Width;
+                if (hit.Action == "WhiteBalancePanelBackground") { panelRight = right; }
+                else if (hit.Action == "ToggleColorCalibration") { calibrateRight = right; }
             }
 
-            panelRight.ShouldBeGreaterThan(0f, "the panel is open and registered");
-            calibrateRight.ShouldBeGreaterThan(0f, "the calibration button is in the row");
-            calibrateRight.ShouldBeLessThanOrEqualTo(panelRight,
+            panelRight.ShouldNotBeNull("the panel is open and registered");
+            calibrateRight.ShouldNotBeNull("the calibration button is in the row");
+            calibrateRight!.Value.ShouldBeLessThanOrEqualTo(panelRight!.Value,
                 $"at dpi {dpiScale} the calibration button reaches {calibrateRight} and the panel ends at {panelRight}");
         }
 

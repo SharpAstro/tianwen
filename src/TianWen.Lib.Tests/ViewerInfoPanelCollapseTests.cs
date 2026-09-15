@@ -113,22 +113,28 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// Every button registered in the strip after a render, by name, with the y of its first hit.
-        /// <see cref="PixelWidgetBase{T}.HitTest"/> looks without dispatching, so the scan changes
-        /// nothing.
+        /// Every button registered in the strip after a render, by name, with its own painted y. Read
+        /// straight back from <see cref="PixelWidgetBase{T}.GetRegisteredRegions"/> -- the arranged
+        /// regions the render itself produced -- rather than found by sweeping the panel's left column
+        /// pixel by pixel and asking <see cref="PixelWidgetBase{T}.HitTest"/> at each one.
         /// </summary>
         private static Dictionary<string, float> PanelButtons(StripViewer viewer)
         {
             var rect = viewer.CurrentInfoPanelRect;
             rect.Width.ShouldBeGreaterThan(0f, "the strip has to be laid out for this to observe anything");
 
-            var buttons = new Dictionary<string, float>();
+            // The same column the old sweep walked (8px into the panel): a heading's hit region spans
+            // most of the panel width, but this keeps an unrelated same-named button elsewhere in the
+            // strip from being picked up.
             var x = rect.X + 8f;
-            for (var y = rect.Y; y < rect.Y + rect.Height; y += 1f)
+            var buttons = new Dictionary<string, float>();
+            foreach (var region in viewer.GetRegisteredRegions())
             {
-                if (viewer.HitTest(x, y) is HitResult.ButtonHit button)
+                if (region.Result is HitResult.ButtonHit button
+                    && region.Y >= rect.Y && region.Y < rect.Y + rect.Height
+                    && x >= region.X && x < region.X + region.Width)
                 {
-                    buttons.TryAdd(button.Action, y);
+                    buttons.TryAdd(button.Action, region.Y);
                 }
             }
             return buttons;
