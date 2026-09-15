@@ -359,6 +359,38 @@ public class ViewerTonePopoverTests
             "a closed panel answers no drag where its dial used to be");
     }
 
+    /// <summary>
+    /// <b>An open popover confines hover to its own content, and a CLOSED one gives the pointer back.</b>
+    /// </summary>
+    /// <remarks>
+    /// The claim is made BY BEING PAINTED, which is what makes it self-retiring for the keyboard: a
+    /// claimant that is no longer displayed simply declines. A RECT cannot decline, so the frame has to
+    /// clear it -- and the engine's own clear is keyed on a frame counter that no host in this codebase
+    /// bumps, so the first BeginFrame clears it and every later call returns early. Without the viewer
+    /// clearing it itself a popover that had closed went on owning the pointer for the life of the
+    /// process, and every hover outside its ghost rect stayed cold.
+    /// </remarks>
+    [Fact]
+    public async Task AClosedPopoverStopsOwningThePointer()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+        var (viewer, state, document) = await NewViewerAsync(renderer, ct);
+
+        viewer.Ui.PointerOwner.ShouldBeNull("nothing owns the pointer before a popover opens");
+
+        OpenPanel(viewer, state, document);
+        var panel = Panel(viewer);
+        var owner = viewer.Ui.PointerOwner.ShouldNotBeNull("an open popover owns the pointer");
+        owner.X.ShouldBe(panel.X);
+        owner.Width.ShouldBe(panel.Width);
+
+        state.TonePopover.Close();
+        viewer.Render(document, state);
+
+        viewer.Ui.PointerOwner.ShouldBeNull("and a closed one gives it back");
+    }
+
     /// <summary>Escape closes it, through the one keyboard-claimant check rather than a branch.</summary>
     [Fact]
     public async Task EscapeClosesThePopover()
