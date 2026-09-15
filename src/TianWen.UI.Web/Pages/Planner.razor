@@ -364,14 +364,14 @@
         RenderFrame();
         StateHasChanged();
 
-        // Comets load after first paint, off the critical path (fire-and-forget; logs its own failures).
-        _ = LoadCometsInBackgroundAsync();
+        // Comets load after first paint, off the critical path (logs its own failures).
+        _tracker.Run(() => LoadCometsInBackgroundAsync(), "Load comets");
 
         // First visit (permission prompt pending): wait for the user's decision in the background
         // and recompute for their real site once granted.
         if (!geoGranted)
         {
-            _ = ApplyGeolocationLaterAsync();
+            _tracker.Run(() => ApplyGeolocationLaterAsync(), "Apply geolocation");
         }
     }
 
@@ -633,7 +633,7 @@
         }
 
         _recomputeScheduled = true;
-        _ = SettleRecomputeAsync();
+        _tracker.Run(() => SettleRecomputeAsync(), "Settle recompute");
     }
 
     async Task SettleRecomputeAsync()
@@ -995,7 +995,7 @@
                 viewingUtc, site, _state.Comets);
             DeactivateTextInput();
             skyState.NeedsRedraw = true;
-            _ = InvokeAsync(SyncObjectToUrl);
+            _tracker.Run(() => InvokeAsync(SyncObjectToUrl), "Sync object to URL");
         });
     }
 
@@ -1021,7 +1021,7 @@
             skyState.NeedsRedraw = true;
             // Deferred for the same reason ViewInPlannerSignal defers its switch: this runs inside
             // RenderFrame's bus pump and NavigateTo raises LocationChanged synchronously.
-            _ = InvokeAsync(SyncObjectToUrl);
+            _tracker.Run(() => InvokeAsync(SyncObjectToUrl), "Sync object to URL");
         });
 
         _bus.Subscribe<SkyMapPinObjectSignal>(sig =>
@@ -1055,7 +1055,7 @@
                     break;
                 }
             }
-            _ = InvokeAsync(() => SwitchView(View.Planner));
+            _tracker.Run(() => InvokeAsync(() => SwitchView(View.Planner)), "Switch to planner view");
         });
 
         _bus.Subscribe<SkyMapSlewToObjectSignal>(sig =>
@@ -1064,7 +1064,7 @@
             // device layer, so surface a note rather than leaving the panel's Goto button silently dead.
             _ = sig;
             _status = "Goto needs a connected mount — not available in the browser.";
-            _ = InvokeAsync(StateHasChanged);
+            _tracker.Run(() => InvokeAsync(StateHasChanged), "Refresh goto-unavailable status");
         });
     }
 
@@ -1171,7 +1171,7 @@
 
             await AtlasPhaseAsync("Building star field...");
             FlattenAndSubmitTycho2("decode");
-            _ = SaveTycho2ToCacheAsync(raw); // persist the raw buffer (fire-and-forget; non-fatal)
+            _tracker.Run(() => SaveTycho2ToCacheAsync(raw), "Persist Tycho-2 cache"); // non-fatal
         }
         catch (Exception ex)
         {
@@ -1375,7 +1375,7 @@
                     // It is the same load-bearing await AtlasPhaseAsync already relies on.
                     await Task.Delay(1);
                     decoded = SharpAstro.Lzip.LzipDecoder.Decompress(lz);
-                    _ = SaveMemberToCacheAsync(member, decoded); // fire-and-forget; non-fatal
+                    _tracker.Run(() => SaveMemberToCacheAsync(member, decoded), "Persist Tycho-2 member cache"); // non-fatal
                 }
                 else
                 {
@@ -1504,7 +1504,7 @@
         // mid-gesture requests supersede each other, but still a BACKSTOP that always fires -- a
         // gesture can end without a release reaching us, and a rebuild that waits for one that never
         // comes would leave the newly-fetched sky invisible until the next gesture ended.
-        _ = SettleTycho2FlattenAsync(generation, _pointerGestureActive ? 700 : 120);
+        _tracker.Run(() => SettleTycho2FlattenAsync(generation, _pointerGestureActive ? 700 : 120), "Settle Tycho-2 flatten");
     }
 
     async Task SettleTycho2FlattenAsync(int generation, int delayMs)
@@ -1524,7 +1524,7 @@
         // backstop still holds -- the running fetch always ends, and its completion re-schedules.
         if (_tyc2FetchRunning)
         {
-            _ = SettleTycho2FlattenAsync(generation, delayMs);
+            _tracker.Run(() => SettleTycho2FlattenAsync(generation, delayMs), "Settle Tycho-2 flatten");
             return;
         }
 
@@ -1590,7 +1590,7 @@
         }
 
         _tyc2ViewKey = key;
-        _ = FetchVisibleMembersAsync();
+        _tracker.Run(() => FetchVisibleMembersAsync(), "Fetch visible Tycho-2 members");
     }
 
     // Names the phase and gives the browser a frame to actually paint it before the next stall.
@@ -1722,7 +1722,7 @@
         // without it the labels would then stay hidden until the next gesture ended. Set well past the
         // longest observed within-gesture pause (397 ms) so a genuine pause never trips it.
         var delayMs = _pointerGestureActive ? 700 : 120;
-        _ = SettleLabelsAsync(generation, delayMs);
+        _tracker.Run(() => SettleLabelsAsync(generation, delayMs), "Settle sky-map labels");
     }
 
     async Task SettleLabelsAsync(int generation, int delayMs)
@@ -1750,9 +1750,9 @@
             return; // already dirty: costs nothing, not even an interop crossing
         }
         _rafPending = true;
-        // Fire-and-forget by design: this is called from synchronous input handlers. A failure to
-        // schedule would latch _rafPending and freeze the canvas, so clear it on the failure path.
-        _ = ScheduleRepaintAsync();
+        // Called from synchronous input handlers, so this is submitted rather than awaited. A failure
+        // to schedule would latch _rafPending and freeze the canvas, so clear it on the failure path.
+        _tracker.Run(() => ScheduleRepaintAsync(), "Schedule repaint");
     }
 
     async Task ScheduleRepaintAsync()
@@ -1818,7 +1818,7 @@
                 if (!_tycho2Requested)
                 {
                     _tycho2Requested = true;
-                    _ = EnsureTycho2AtlasAsync();
+                    _tracker.Run(() => EnsureTycho2AtlasAsync(), "Ensure Tycho-2 atlas loaded");
                 }
                 // On the member path, panning and zooming reveal sky we have not fetched. Cheap: it
                 // returns immediately unless the quantized view key actually moved.
