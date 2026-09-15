@@ -123,10 +123,10 @@ public class GuiAppState
     /// entry points so the deferred bus keeps ordering the change with everything else in the frame.
     /// </para>
     /// <para>
-    /// The ONE exception is a mouse press on a field, which focuses it synchronously through
-    /// <see cref="TextFieldPointerInteraction"/>, because there the focus change and the caret placement
-    /// are a single act: deferred, the focus lands a frame later and RE-SEEDS the field, throwing away the
-    /// caret the press had already set. Keep any OTHER focus change on the bus.
+    /// The ONE exception is a mouse press on a field, which the input router focuses SYNCHRONOUSLY,
+    /// because there the focus change and the caret placement are a single act: deferred, the focus lands
+    /// a frame later and RE-SEEDS the field, throwing away the caret the press had already set. Keep any
+    /// OTHER focus change on the bus.
     /// </para>
     /// <para>
     /// The instance is the WINDOW's, not this object's: <see cref="AdoptWindowSettings"/> points this at

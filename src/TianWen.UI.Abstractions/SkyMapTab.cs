@@ -20,7 +20,7 @@ namespace TianWen.UI.Abstractions
     /// is delegated to <see cref="RenderSkyMap"/> which the Vulkan subclass overrides
     /// to cache as a GPU texture. Text labels and overlays are drawn natively on top.
     /// </summary>
-    public partial class SkyMapTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer), ICaretPlacingWidget
+    public partial class SkyMapTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
     {
         private static readonly RGBAColor32 InfoPanelBg   = new(0x10, 0x10, 0x1C, 0xE0);
         private static readonly RGBAColor32 InfoText      = new(0xCC, 0xCC, 0xCC, 0xFF);

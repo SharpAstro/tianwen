@@ -23,6 +23,20 @@ namespace TianWen.UI.Web.SkyMap
     {
         private readonly WebGlSkyMapPipeline _pipeline = new(renderer);
 
+        /// <summary>
+        /// Hands <paramref name="sibling"/> this tab's <see cref="WindowUiSettings"/>, so the page's two
+        /// canvas widgets share one window context.
+        /// </summary>
+        /// <remarks>
+        /// They are SIBLINGS rather than a composite's children -- the page swaps between them and paints
+        /// one at a time -- and a widget makes its own context in its field initialiser, so without this
+        /// the page has two of everything the context owns: two focus owners answering "which field has
+        /// the keyboard", two keyboard-claimant slots, two caret rects. The desktop chrome gets the same
+        /// thing for free by composing its tabs; here the sharing has to be said. Called once, as the
+        /// pair is constructed, before anything has focused a field or claimed the keyboard.
+        /// </remarks>
+        public void ShareWindowWith(PixelWidgetBase<WebGlContext> sibling) => ShareUiContext(sibling);
+
         /// <summary>Hands a fetched + decoded full Tycho-2 star buffer to the GPU pipeline; it
         /// swaps over the HR seed on the next render frame. See
         /// <see cref="WebGlSkyMapPipeline.SubmitTycho2Stars"/>.</summary>

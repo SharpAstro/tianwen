@@ -16,7 +16,7 @@ namespace TianWen.UI.Abstractions
     /// windows) stacks chart / compact details / list vertically instead. All three regions paint
     /// with opaque backgrounds into rects sourced from the same arranged tree hit-testing uses.
     /// </summary>
-    public class PlannerTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer), ICaretPlacingWidget
+    public class PlannerTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
     {
 
         // Layout constants (at 1x scale)

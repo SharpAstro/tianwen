@@ -13,7 +13,7 @@ namespace TianWen.UI.Abstractions
     /// Renderer-agnostic Equipment / Profile tab. Handles profile summary,
     /// discovered devices, device assignment, filter editing, and OTA properties.
     /// </summary>
-    public partial class EquipmentTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer), ICaretPlacingWidget
+    public partial class EquipmentTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
     {
         private readonly EquipmentContent _content = new EquipmentContent();
 

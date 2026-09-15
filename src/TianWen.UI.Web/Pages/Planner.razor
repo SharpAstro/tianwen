@@ -169,7 +169,15 @@
     // Which canvas text field has the keyboard. The same owner the desktop uses, so the two hosts differ
     // only in what they BIND to its transition: SDL Start/StopTextInput there, showing and hiding the
     // CanvasTextOverlay below here. That is the whole platform step on this host.
-    readonly TextInputFocus _focus = new TextInputFocus();
+    // Replaced by the window's own (the shared WindowUiSettings the two canvas widgets carry) the
+    // moment they are built; the instance here only covers the gap before that, during which nothing
+    // can have focused anything, there being no field painted yet.
+    TextInputFocus _focus = new TextInputFocus();
+
+    // The frame's dispatcher. Null until the widgets exist, which is also when there is nothing to
+    // dispatch to -- every handler below checks it and drops the event, exactly as it already dropped
+    // one arriving before the active tab was built.
+    InputRouter? _router;
     // The real HTML <input> floated over the active widget (IME / clipboard / mobile keyboard).
     CanvasTextOverlay? _textOverlay;
     // Last CSS rect pushed to the overlay, so the per-frame sync only calls into JS on a move.
@@ -246,7 +254,6 @@
         // After the view, which it can override: a pointing link is an atlas link whatever ?view says.
         ApplyPointingFromLocation();
         Nav.LocationChanged += OnLocationChanged;
-        BindTextInputFocus();
 
         // Last-used site loads first (localStorage) so a reload shows it immediately instead of
         // flashing the built-in default while geolocation resolves.
@@ -287,6 +294,14 @@
             _webGl.HostRendersSelectableText = true;
             _tab = new PlannerTab<WebGlContext>(_webGl) { Bus = _bus };
             _skyTab = new WebSkyMapTab(_webGl) { Bus = _bus };
+            // One window, one context: the sky tab hands the planner tab its own WindowUiSettings, so
+            // "which field has the keyboard" has a single answer across both views -- and it is the one
+            // the router resolves focus against. The platform binding goes on afterwards, so it is bound
+            // to the owner that will actually be used.
+            _skyTab.ShareWindowWith(_tab);
+            _focus = _skyTab.Ui.Focus;
+            BindTextInputFocus();
+            _router = BuildRouter();
         }
         catch (Exception ex)
         {
@@ -784,18 +799,28 @@
         }
     };
 
-    // A press on a canvas field, through the same rule the desktop host uses: focus it, then place the caret
-    // under the pointer, select the word under a second click and the field under a third. The caret index
-    // comes from ActivePixelTab, which is the widget that hit-tested the press AND knows its own surface
-    // type, so it can answer through the very renderer and fallback chain the field was drawn with.
-    //
-    // Drag-to-extend is NOT wired here: OnPointerMove would have to know the button is still down, and that
-    // belongs to the DIR.Lib 9.2 input router (docs/plans/dir-lib-10.md, D1), not to a second copy here.
-    void ActivateTextInput(HitResult.TextInputHit hit, float pointerX, int clicks, InputModifier modifiers)
-        => TextFieldPointerInteraction.HandleMouseDown(
-            hit, ActivePixelTab, pointerX, clicks, modifiers, _focus, RenderFrame);
-
     void DeactivateTextInput() => _focus.Blur();
+
+    // The frame's one dispatcher, in place of the copy this page used to carry: a press walk that
+    // hit-tested the tab, focused a field, ran the divider interaction and forwarded the miss, plus a
+    // key path whose first branch was "a focused text input swallows every key". That order is the same
+    // on every surface and is DIR.Lib's now (InputRouter); what is left here is genuinely the browser's
+    // -- coalescing onto rAF, the ctrl+wheel pinch, the canvas's DOM focus, and the floating <input>
+    // that owns the keyboard while a canvas field is being typed into.
+    InputRouter BuildRouter()
+    {
+        var router = new InputRouter(_skyTab!.Ui, _tracker, RequestRenderCoalesced)
+        {
+            // One widget: the page paints the active view alone, and the other has nothing on screen.
+            Widgets = () => ActiveTab is { } tab ? [tab] : [],
+            Unhandled = evt => ActiveTab?.HandleInput(evt) ?? false,
+            ActiveSearch = () => _focus.Current is { } active ? ResolveActiveSearch(active) : null,
+        };
+
+        // On this host the DOM anchor has already handled a link click before the canvas sees it, so
+        // nothing subscribes OpenUrl; the declaration stays the tab's either way.
+        return router;
+    }
 
     // Hands the keyboard back to the canvas. The canvas IS the app -- [O], [D], F3, the arrows and every
     // other shortcut are canvas keys -- but they ride DOM focus, and the canvas takes focus exactly ONCE
@@ -1850,6 +1875,12 @@
             }
             _webGl.Present();
             presentMs = Since(ref phase);
+            // Everything that can only be decided once the frame exists: a focused field that is no
+            // longer painted loses the keyboard (switch views with a search box live, and typing would
+            // go on editing a box nobody can see), and a field that asked for the keyboard as it
+            // appeared gets it. Before SyncOverlayRect, so a blur has hidden the floating input by the
+            // time the rect sync looks for one.
+            _router?.AfterPaint();
             SyncOverlayRect(); // regions were re-registered by the Render above
             overlaySyncMs = Since(ref phase);
             SyncSelectableTextLayer();
@@ -2466,60 +2497,44 @@
     void OnPointerDown(CanvasPointerEventArgs e)
     {
         if (CanvasInputBlocked) return;
-        if (ActiveTab is not { } tab || e.Original.Button != 0) return;
+        if (_router is not { } router || ActiveTab is null || e.Original.Button != 0) return;
         _pointerGestureActive = true; // a pause inside a drag is not the end of it (see ScheduleLabelSettle)
         var mods = ToModifiers(e.Original);
-        // Desktop order (GuiEventHandlerBase): hit-test the registered clickable regions FIRST
-        // (planet/comet labels, reticles, planner rows), then feed the result to the shared
-        // handoff-divider interaction, and only forward an unclaimed press to the tab's
-        // HandleInput (drag-pan, scrollbar). The sky map's HandleInput consumes EVERY press for
-        // drag tracking, so hit-testing last would make all its labels unclickable.
-        var hit = tab.HitTestAndDispatch(e.X, e.Y, mods);
 
-        // Text-input focus management (desktop: GuiEventHandlerBase's TextInputHit branch).
-        if (hit is HitResult.TextInputHit textHit)
-        {
-            // No RenderFrame() of our own: the interaction asks for one once the caret has moved, and this
-            // host paints per event, so a second call here is a whole extra canvas repaint per press.
-            ActivateTextInput(textHit, e.X, (int)e.Original.Detail, mods);
-            return;
-        }
-
-        var sliderHandled = _view == View.Planner && _tab is not null
-            && PlannerSliderInteraction.HandleMouseDown(_state, hit, _tab.ChartRect, e.X, e.Y);
-        if (sliderHandled)
+        // The handoff divider arms from a press and needs the press POSITION, so it is asked before the
+        // router dispatches, off a hit test that dispatches nothing. The same temporary step the desktop
+        // host keeps, and T2's Content.Slider deletes both.
+        var probe = ActivePixelTab?.HitTest(e.X, e.Y);
+        if (probe is not HitResult.TextInputHit
+            && _view == View.Planner && _tab is not null
+            && PlannerSliderInteraction.HandleMouseDown(_state, probe, _tab.ChartRect, e.X, e.Y))
         {
             RenderFrame();
             return;
         }
 
-        // Clicking outside a text input releases focus (after the slider branch, mirroring the
-        // desktop order - a slider grab keeps the focused input).
-        DeactivateTextInput();
+        router.Handle(new InputEvent.MouseDown(e.X, e.Y, Modifiers: mods, ClickCount: (int)e.Original.Detail));
 
         // A press on the map claims the keyboard for it. This also covers a ONE-FINGER touch pan, which
         // the JS bridge routes through these same pointer callbacks (see RestoreCanvasFocus for why
-        // touch cannot do it for itself).
+        // touch cannot do it for itself). A no-op when the press landed on a canvas field, the floating
+        // <input> legitimately owning the keyboard then.
         RestoreCanvasFocus();
-
-        if (hit is null)
-        {
-            tab.HandleInput(new InputEvent.MouseDown(e.X, e.Y, Modifiers: mods, ClickCount: (int)e.Original.Detail));
-        }
         RenderFrame();
     }
 
     void OnPointerMove(CanvasPointerEventArgs e)
     {
         if (CanvasInputBlocked) return;
-        if (ActiveTab is not { } tab) return;
+        if (_router is not { } router || ActiveTab is null) return;
         _mouse = (e.X, e.Y);
         // An active divider drag consumes the move (shared state machine with the desktop
-        // event handler); otherwise the tab gets it for hover / drag / scrollbar handling.
+        // event handler); otherwise the router routes it -- to a gesture it captured (a drag that
+        // extends a field's selection), else to hover, else to the tab.
         if (_view != View.Planner || _tab is null
             || !PlannerSliderInteraction.HandleMouseMove(_state, _tab.ChartRect, e.X))
         {
-            tab.HandleInput(new InputEvent.MouseMove(e.X, e.Y));
+            router.Handle(new InputEvent.MouseMove(e.X, e.Y));
         }
         // Coalesced: a drag delivers several moves per vsync and only the last is ever presented.
         RequestRenderCoalesced(); // mouse-follower / sky-map drag pan
@@ -2532,8 +2547,8 @@
         // the labels would stay suppressed until the 700 ms backstop caught every later frame.
         _pointerGestureActive = false;
         if (CanvasInputBlocked) return;
-        if (ActiveTab is not { } tab) return;
-        tab.HandleInput(new InputEvent.MouseUp(e.X, e.Y));
+        if (_router is not { } router || ActiveTab is null) return;
+        router.Handle(new InputEvent.MouseUp(e.X, e.Y));
         if (_view == View.Planner)
         {
             PlannerSliderInteraction.HandleMouseUp(_state);
@@ -2565,7 +2580,7 @@
     void OnWheel(CanvasWheelEventArgs e)
     {
         if (CanvasInputBlocked) return;
-        if (ActiveTab is not { } tab) return;
+        if (_router is not { } router || ActiveTab is not { } tab) return;
         var pixels = WheelPixels(e);
 
         if (e.Original.CtrlKey)
@@ -2584,7 +2599,7 @@
 
         // Browser deltaY > 0 = wheel down; the tab uses the SDL convention (positive = up).
         var scrollY = (float)(-pixels / 100.0);
-        tab.HandleInput(new InputEvent.Scroll(scrollY, e.X, e.Y));
+        router.Handle(new InputEvent.Scroll(scrollY, e.X, e.Y));
         RequestRenderCoalesced(); // a wheel stream is continuous too
     }
 
@@ -2637,41 +2652,23 @@
 
     void HandleKey(string eventKey, bool shift, bool ctrl, bool alt)
     {
-        if (ActiveTab is not { } tab) return;
+        if (_router is not { } router || ActiveTab is null) return;
         var mods = (shift ? InputModifier.Shift : 0) | (ctrl ? InputModifier.Ctrl : 0) | (alt ? InputModifier.Alt : 0);
         var key = MapKey(eventKey);
 
-        // A focused text input swallows every key first (desktop: GuiEventHandlerBase's
-        // active-input branch). Printable characters then insert as text - the browser keydown
-        // carries the character itself, where the SDL host gets a separate TextInput event.
-        // Clipboard delegates stay null for now: the browser clipboard API is async-only, so
-        // Ctrl+V paste into canvas inputs is a deferred follow-up.
-        if (_focus.Current is { } active)
-        {
-            if (key != InputKey.None)
-            {
-                TextInputInteraction.HandleKey(key, mods, new TextInputInteraction.KeyContext(
-                    Tracker: _tracker,
-                    Focus: _focus,
-                    RequestRedraw: () => { }, // the RenderFrame below covers this event
-                    ActiveSearch: ResolveActiveSearch(active),
-                    TabFields: tab.GetRegisteredTextInputs));
-            }
-            if (eventKey.Length == 1 && !ctrl && !alt)
-            {
-                TextInputInteraction.HandleText(active, eventKey);
-            }
-            RenderFrame();
-            return;
-        }
+        // One order, the router's: an overlay that has claimed the keyboard, then any painted node whose
+        // declared chord beats a focused field, then the focused field itself, then the tab. The branch
+        // that used to open this method -- "a focused text input swallows every key" -- was the last
+        // third of that written out, and it is why a chord could not reach a control from inside a box.
+        //
+        // Printable characters additionally flow as text (the SDL host sends both KeyDown and TextInput;
+        // the browser keydown carries the character itself). Clipboard delegates stay null: the browser
+        // clipboard API is async-only, so Ctrl+V into a canvas field is a deferred follow-up.
+        var handled = key != InputKey.None && router.Handle(new InputEvent.KeyDown(key, mods));
 
-        var handled = key != InputKey.None && tab.HandleInput(new InputEvent.KeyDown(key, mods));
-
-        // Printable characters additionally flow as text (the SDL host sends both KeyDown +
-        // TextInput too; the tab's focused-text-input handling sorts out which one applies).
         if (eventKey.Length == 1 && !ctrl && !alt)
         {
-            handled |= tab.HandleInput(new InputEvent.TextInput(eventKey));
+            handled |= router.Handle(new InputEvent.TextInput(eventKey));
         }
 
         if (handled)

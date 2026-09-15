@@ -23,7 +23,7 @@ namespace TianWen.UI.Abstractions
     /// Add a new concern as a new partial; don't grow this file back into a monolith.
     /// </para>
     /// </summary>
-    public partial class LiveSessionTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer), ICaretPlacingWidget
+    public partial class LiveSessionTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
     {
         /// <summary>The live session state for keyboard handling. Set during Render.</summary>
         public LiveSessionState? State { get; set; }
