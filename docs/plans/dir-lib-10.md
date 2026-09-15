@@ -313,7 +313,7 @@ They will rebase cleanly onto each other except possibly `Directory.Packages.pro
 
 ### DIR.Lib, one integration branch
 
-`feat/dir-lib-9.2` off `main` (b07c547) carries wave 1a (`feat/dir-lib-9.2-wave1a`) and wave 1b
+`feat/dir-lib-9.2` off `main` (b07c547), draft PR SharpAstro/DIR.Lib#82, carries wave 1a (`feat/dir-lib-9.2-wave1a`) and wave 1b
 (`feat/dir-lib-9.2-wave1b`) merged. Its draft PR body lists what each wave shipped with exact signatures.
 `VersionMajorMinor` is still 9.1 on purpose: the release is cut from this branch when wave 3 is green.
 `CHANGELOG.md` already has the `## 9.2` section, one block per wave.
