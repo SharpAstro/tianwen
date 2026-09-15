@@ -277,6 +277,20 @@ Checks that only a real device or a real night can answer live in ONE place, ind
 
 ## Flaky CI Tests
 
+- [x] **`ViewerControllerTests.SwitchingTheCropOffAndOnAgainRestoresItWithoutScanning` -- starved, not
+  broken** (red on the push that landed 8.1, run 34929797564, `test-unit (ubuntu-latest)` only,
+  2026-09-15; fixed the same day). `state.DisplayCrop` was still null when `WaitForCropAsync` gave up at
+  5 s, on a 64 x 64 ring whose scan takes microseconds ONCE IT RUNS; the same commit passed the arm and
+  debug legs, the PR run before and both pushes after. The scan is a `Task.Run`, four collections were
+  in flight with pool work of their own, and the task had not been scheduled inside the budget. Two
+  fixes, each half: `ViewerControllerTests` is in a `[Collection("Viewer")]` whose definition sets
+  `DisableParallelization = true`, so nothing else runs beside it and its `Task.Run` meets an idle pool
+  (`ViewerCollection.cs`; a plain collection only serialises the classes INSIDE it); and the three wait
+  helpers bound a STALL at 30 s rather than the work at 5, with `WaitForCropAsync` leaving as soon as
+  the scan is APPLIED (`ViewerController.IsCropScanPending`), so a scan that answers "nothing to crop"
+  fails at the assertion with its real message instead of burning the bound. Same class of failure as
+  the fake-time pump below: a wall-clock budget measuring the runner.
+
 - [x] **`SessionImagingTests.GivenCloudsRollingInWhenStarCountDropsThenConditionDetected` -- NOT flaky;
   the pump's budget was measuring the CI runner** (red on `3f870333`, run 33687279158, 2026-09-02;
   fixed 2026-09-03). It failed `imagingTask.IsCompleted` after spending its whole 4-hour fake-time
