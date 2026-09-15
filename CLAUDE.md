@@ -1672,6 +1672,20 @@ The rules that bite:
   contents**: painted with the dropdowns, a full-window backdrop closes it on any other press (the button
   included), it claims the keyboard as it paints so Escape needs no branch, `OverlayOwnsPointer` names it;
   closed, it clears its slider bands. Pinned through the hit tracker, not pixels. P33.
+- **There are TWO popovers now, and a new one needs one line in the PRESS dispatcher or its button is
+  dead.** `HandleViewerMouseDown` routes a toolbar press to `ViewerActions.HandleToolbarAction`, which
+  has no arm for a button that only opens a panel, so a popover action must be named in the
+  `is ToolbarAction.WhiteBalance or ToolbarAction.Tone` test above it. The second is the **tone
+  popover** (`ToolbarAction.Tone`, `ImageRendererBase.TonePanel.cs`): the curves boost and its curve
+  mode, the highlight soft clip's amount and knee, and a greyed block naming the display HDR the
+  viewer cannot do. It folded two buttons on the terms Calibrate and SPCC folded into the white
+  balance, and it renamed nothing internally -- `HdrAmount` / `HdrKnee` / `Image.ApplyHdr` and the
+  shader are untouched, because the MATH was never the problem. **It is also the one viewer overlay
+  built as ONE arranged tree**, with its box taken from `Layout.Engine.Measure` rather than summed by
+  hand, so a test reads arranged nodes instead of sweeping the window: copy it, not the white-balance
+  popover beside it, and see `docs/plans/viewer-layout-engine.md` for why the rest has not moved yet. **`HDR` on that button was a soft knee
+  after the MTF, inside [0, 1]**, so it promised the one thing the viewer does not do; the plan and the
+  measurements are `docs/plans/hdr-display.md`.
 - **The "?" panel is a MENU** (`HelpPage`); row 0 of a sub-page is the way back. **A page change re-opens
   the dropdown NEXT frame** (`PumpHelpPanel`: the dropdown closes itself after its selection callback).
   Its tests drive ONE page at a time on a FRESH viewer and call `BuildHelpLines()` first.
@@ -1797,6 +1811,12 @@ before any layout work. The short form:
 - **TUI rows are trees too** (Console.Lib 4.10): `IRowLayout.BuildRow(in RowContext)`, own pen, inline
   buttons via `.Clickable(...)` resolved by `ScrollableList.DispatchRowHit`; a new capability is a
   **field on `RowContext`**, never an overload.
+- **A box should be the engine's MEASUREMENT of its content, not a sum of the constants the body draws
+  with.** `Layout.Engine.Measure(tree, available, ctx)` answers how big a tree is; state a control's
+  widest state as `widthSample:` ON the node rather than as a union measured at the call site, and give
+  an elastic child a `Star(weight, min)` so its minimum takes part in that measure. The counted scope of
+  what still does this by hand, and the two bugs it has already caused, are in
+  `docs/plans/viewer-layout-engine.md` (HIGH PRIORITY).
 - Engine geometry is headless-testable (stub `Layout.IMeasureContext`); `RgbaImageRenderer` honours
   clipping since DIR.Lib 7.25.
 

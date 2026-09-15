@@ -1,4 +1,4 @@
-namespace TianWen.UI.Abstractions;
+﻿namespace TianWen.UI.Abstractions;
 
 /// <summary>
 /// Actions that can be triggered from the toolbar.
@@ -60,8 +60,7 @@ public enum ToolbarAction
     StretchParams,
     Channel,
     Debayer,
-    CurvesBoost,
-    Hdr,
+    Tone,
     ZoomFit,
     ZoomActual,
 

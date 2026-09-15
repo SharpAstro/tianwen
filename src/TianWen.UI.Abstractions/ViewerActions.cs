@@ -285,7 +285,7 @@ public static class ViewerActions
         state.HdrAmount = amount;
         state.HdrKnee = knee;
         state.NeedsRedraw = true;
-        state.StatusMessage = amount > 0f ? $"HDR: {amount:F1} (knee {knee:F2})" : "HDR: Off";
+        state.StatusMessage = amount > 0f ? $"Soft clip: {amount:F1} (knee {knee:F2})" : "Soft clip: Off";
     }
 
     public static void CycleHdr(ViewerState state, bool reverse = false)
@@ -730,13 +730,14 @@ public static class ViewerActions
     /// <c>reverse: !up</c>.</b> Three actions overload <c>reverse</c> to mean a DIFFERENT action
     /// rather than the same cycle backwards, so routing the wheel through the click dispatcher would
     /// hand each of them a gesture nobody asked for: a scroll down on Compare would RE-PIN the before
-    /// image (silently discarding the comparison baseline), on Boost it would switch the curve MODE, and
-    /// on Zoom it would toggle Fit/1:1 instead of stepping the ratio ladder. This lists only the genuine
+    /// image (silently discarding the comparison baseline) and on Zoom it would toggle Fit/1:1 instead
+    /// of stepping the ratio ladder. (Boost was the third, switching the curve MODE on a reverse; it
+    /// lost its button to the tone popover and no longer reaches this switch at all.) This lists only the genuine
     /// cyclers -- Zoom among them, but through its own stepper -- and calls their cycle
     /// helper directly. A button added later is opt-in: absent from this switch it keeps ignoring the
     /// wheel, which is the safe default for an action whose reverse means something else.</para>
     ///
-    /// <para><b>Intensity ramps clamp; sets wrap.</b> Boost and HDR are ascending ladders, so wrapping
+    /// <para><b>Intensity ramps clamp; sets wrap.</b> The soft clip is an ascending ladder, so wrapping
     /// would mean one notch past the top silently turns the effect OFF -- the exact opposite of what
     /// "scroll up" asked for, and indistinguishable from a bug. The rest (stretch link, stretch preset,
     /// channel, debayer) are unordered sets, where wrapping is natural and clamping would strand the
@@ -760,10 +761,11 @@ public static class ViewerActions
         {
             // Ramps take the step count as an index offset, so the clamp does the bounding once
             // regardless of how big a delta arrived.
-            case ToolbarAction.CurvesBoost:
-                SetCurvesBoostIndex(state, state.CurvesBoostIndex + steps);
-                return true;
-            case ToolbarAction.Hdr:
+            //
+            // ONE dial of the two the tone button now stands for, and deliberately: a wheel has one
+            // axis, the soft clip is the dial with no other button, and the boost keeps its ladder on
+            // B. Guessing between them per notch would be worse than not offering the gesture.
+            case ToolbarAction.Tone:
                 SetHdrPresetIndex(state, state.HdrPresetIndex + steps);
                 return true;
             // Wrapping cyclers step one at a time: the mapping is a cycle, not an index, and
@@ -835,19 +837,6 @@ public static class ViewerActions
                 return true;
             case ToolbarAction.Debayer:
                 CycleDebayerAlgorithm(state, reverse);
-                return true;
-            case ToolbarAction.CurvesBoost:
-                if (reverse)
-                {
-                    CycleCurvesMode(state);
-                }
-                else
-                {
-                    CycleCurvesBoost(state);
-                }
-                return true;
-            case ToolbarAction.Hdr:
-                CycleHdr(state, reverse);
                 return true;
             case ToolbarAction.Overlays:
                 // Left-click is the O key; right-click walks the ladder a rung back.

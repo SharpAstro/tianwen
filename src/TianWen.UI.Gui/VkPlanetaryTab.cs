@@ -123,7 +123,8 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     // A planetary disk is featureless + bright: there are no stars to detect, no plate solve, no SPCC /
     // background-neutralisation, and no file to "Open" in a live capture. So the inherited viewer toolbar is
     // narrowed to the controls that actually apply -- stretch (STF / Link / Params), channel + debayer (for a
-    // colour sensor), HDR, and zoom (Fit / 1:1). The wavelet-sharpen + white-balance sliders live in the info
+    // colour sensor), tone (boost + highlight soft clip), and zoom (Fit / 1:1). The wavelet-sharpen +
+// white-balance sliders live in the info
     // panel, not the toolbar.
     private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> PlanetaryToolbarButtons =
     [
@@ -132,7 +133,7 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
         ("Params", ToolbarAction.StretchParams, 1),
         ("Channel", ToolbarAction.Channel, 2),
         ("Debayer", ToolbarAction.Debayer, 2),
-        ("HDR", ToolbarAction.Hdr, 2),
+        ("Tone", ToolbarAction.Tone, 2),
         ("Fit", ToolbarAction.ZoomFit, 3),
         ("1:1", ToolbarAction.ZoomActual, 3),
     ];

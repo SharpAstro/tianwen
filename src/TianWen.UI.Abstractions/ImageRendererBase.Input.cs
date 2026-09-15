@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
@@ -777,11 +777,14 @@ namespace TianWen.UI.Abstractions
 
             if (hit is HitResult.ButtonHit { Action: var action } && Enum.TryParse<ToolbarAction>(action, out var toolbarAction))
             {
-                // The white-balance button opens a popover and cycles nothing, so it takes the
-                // dropdown route here as well as in the standalone host's dispatcher (which consults
-                // OpenToolbarDropdown for every button). One path for the one button on this bar whose
-                // press has no cycle to fall through to.
-                if (toolbarAction is ToolbarAction.WhiteBalance && OpenToolbarDropdown(state, toolbarAction))
+                // A popover button opens a panel and cycles nothing, so it takes the dropdown route
+                // here as well as in the standalone host's dispatcher (which consults
+                // OpenToolbarDropdown for every button). Without it the press falls through to
+                // HandleToolbarAction, which has no arm for either of these and so does nothing at all
+                // -- a button that looks dead. White balance was the only one until the boost and the
+                // soft clip folded into Tone; ADD A POPOVER HERE or its button will not open.
+                if (toolbarAction is ToolbarAction.WhiteBalance or ToolbarAction.Tone
+                    && OpenToolbarDropdown(state, toolbarAction))
                 {
                     return true;
                 }
@@ -821,6 +824,12 @@ namespace TianWen.UI.Abstractions
             if (hit is WaveletSliderHit { Band: var wlBand })
             {
                 BeginWaveletDragAt(wlBand, px);
+                return true;
+            }
+
+            if (hit is ToneSliderHit { Slider: var toneSlider })
+            {
+                BeginToneDragAt(toneSlider, px);
                 return true;
             }
 
@@ -976,6 +985,13 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
+            // Tone-dial drag: continuously re-derive the boost or a soft-clip dial from cursor-X.
+            if (state.ToneDragSlider is not null)
+            {
+                UpdateToneDrag(px);
+                return true;
+            }
+
             // File-list resize drag: width tracks the cursor's X position in
             // DPI-independent units. Clamped by FileListWidthBase's setter.
             if (state.IsResizingFileList)
@@ -1074,6 +1090,11 @@ namespace TianWen.UI.Abstractions
                 if (state.WaveletDragBand >= 0)
                 {
                     state.WaveletDragBand = -1;
+                    state.NeedsRedraw = true;
+                }
+                if (state.ToneDragSlider is not null)
+                {
+                    state.ToneDragSlider = null;
                     state.NeedsRedraw = true;
                 }
                 if (state.IsResizingFileList)

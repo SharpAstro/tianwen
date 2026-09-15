@@ -33,7 +33,20 @@ other commit hash from before 2026-04-22 no longer resolves anywhere.
 
 ## 8.1
 
-Additive: one new method on `Image`, and a fix to what the auto-crop calls absence.
+Additive: one new method on `Image`, a fix to what the auto-crop calls absence, and a viewer control
+that stops claiming to be something it is not.
+
+**The viewer's `HDR` button was never HDR, and now says so.** It applies a soft knee AFTER the MTF
+and INSIDE [0, 1] (`Image.ApplyHdr`), so it compresses highlights into SDR white and never asks the
+panel for a nit above it. Useful, and misnamed: someone with an HDR display reads that label as a
+promise about their panel. It has folded with `Boost` into one `Tone` popover on the terms
+`Calibrate` and `SPCC` folded into the white-balance one -- the boost and its curve mode, the soft
+clip's amount and knee as continuous dials, and a greyed block naming the display HDR the viewer
+cannot do, with the reason beside it. Two toolbar buttons become one; `ToolbarAction.CurvesBoost` and
+`ToolbarAction.Hdr` are gone, replaced by `ToolbarAction.Tone`. `B` and `H` keep their ladders and
+the wheel over the button keeps the soft clip's; the boost loses its wheel with its button, because a
+popover has two dials and a wheel has one axis. The MATH is untouched: the shader, `Image.ApplyHdr`
+and every stretch test are byte-for-byte what they were. `docs/plans/hdr-display.md` P1.
 
 **An interior drizzle hole is not a canvas ring (#250).** `Image.LargestCoveredRectangle()` treated
 any NaN as absence on the reasoning that NaN is "unambiguous". It is unambiguous about the PIXEL and
