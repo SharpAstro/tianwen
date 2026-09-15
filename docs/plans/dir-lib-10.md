@@ -302,10 +302,10 @@ branch; nothing is merged. The user merges (rebase), never the agent.
 
 | branch | base | what | suite |
 |---|---|---|---|
-| `docs/dir-lib-10-plan` | `feat/tone-popover` (#267) | this plan, both audits, the D1 spec, this section; also corrects CLAUDE.md and the web host on where the SDL key map lives | docs |
-| `feat/text-field-pointer` | `main` | T0: `TextFieldPointerInteraction`, both pixel hosts on `HandlePointer`, TUI inline editor on `TextInputInteraction`, `OpenSearch` through the focus owner, pins DIR.Lib `9.1.*` + Console.Lib `4.34.*` | 6114 / 0 |
-| `refactor/layout-gaps-and-boxes` | `main` | sweep A: 4 gaps, 10 rules to `Box`, `TruncateToWidth` deleted | 6110 / 0 |
-| `refactor/list-cursor-and-dock` | `main` | sweep B: two lists on `ListCursor` + `.BgFocus`, `PixelLayout` gone | 6113 / 0 |
+| `docs/dir-lib-10-plan` (#268) | `feat/tone-popover` (#267) | this plan, both audits, the D1 spec, this section; also corrects CLAUDE.md and the web host on where the SDL key map lives | docs |
+| `feat/text-field-pointer` (#269) | `main` | T0: `TextFieldPointerInteraction`, both pixel hosts on `HandlePointer`, TUI inline editor on `TextInputInteraction`, `OpenSearch` through the focus owner, pins DIR.Lib `9.1.*` + Console.Lib `4.34.*` | 6114 / 0 |
+| `refactor/layout-gaps-and-boxes` (#270) | `main` | sweep A: 4 gaps, 10 rules to `Box`, `TruncateToWidth` deleted | 6110 / 0 |
+| `refactor/list-cursor-and-dock` (#271) | `main` | sweep B: two lists on `ListCursor` + `.BgFocus`, `PixelLayout` gone | 6113 / 0 |
 
 Merge order: #267 first (the plan branch retargets to `main` on its own when GitHub drops the merged base;
 if it does not, retarget by hand). The three code branches are independent of each other and of #267.
