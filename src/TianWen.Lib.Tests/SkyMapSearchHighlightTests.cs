@@ -70,7 +70,9 @@ namespace TianWen.Lib.Tests
             var search = tab.State.Search;
             search.Interaction = new SkyMapSearchInteraction(
                 search, db, commit: () => { }, close: () => { }, requestRedraw: () => { });
-            SkyMapSearchActions.OpenSearch(search, db);
+            // A focus owner of its own: opening the search takes the keyboard through the owner rather
+            // than by hand, so the call needs one even where the test is not about focus.
+            SkyMapSearchActions.OpenSearch(search, db, new TextInputFocus());
             search.SearchInput.OnTextChanged?.Invoke("NGC 10");
 
             var results = search.Interaction.Results;
