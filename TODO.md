@@ -398,7 +398,8 @@ Checks that only a real device or a real night can answer live in ONE place, ind
 
 - [ ] **Plane loops still spelled `[y, x]`, one measured commit each.** The 2026-09-15 pass
   (`docs/architecture/image-pipeline.md`, "How a plane is READ") settled that the storage stays
-  `float[,]` and the LOOP spelling is the lever (2.4x on a stencil, 15 percent on a gather under AOT).
+  `float[,]` and the LOOP spelling is the lever (on a stencil 2.4x arm64 / 2.1x x64; on a gather 15
+  percent arm64 / 72 percent x64, the figure that does not travel between the two boxes).
   Converted: MHC, the 2x2 mono fold, `Lanczos3Value`, `SubpixelValue`, the warp destination rows, the
   luma stats loop, the CFA split/merge. Left, by site count: `Stacking/CometModel.cs` (26),
   `Stacking/ChunkedTwoPassStrategy.cs` (20), `Planetary/FrameSharpnessMap.cs` (10),
