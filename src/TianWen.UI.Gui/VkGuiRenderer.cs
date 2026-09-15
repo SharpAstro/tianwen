@@ -794,11 +794,11 @@ namespace TianWen.UI.Gui
             Layout.Node dateGroup;
             if (!sessionRunning)
             {
-                var prev = Layout.Builder.Text("◀", BaseFontSize * 0.9f, StatusText, TextAlign.Center, TextAlign.Center)
+                var prev = FormRowLayout.StepMark("◀", BaseFontSize * 0.9f, StatusText)
                     .WFixed(BaseStatusBarHeight).HStar().Bg(arrowBg)
                     .Clickable(new HitResult.ButtonHit("DatePrev"),
                         _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, -1, _skyMapTab.State); });
-                var next = Layout.Builder.Text("▶", BaseFontSize * 0.9f, StatusText, TextAlign.Center, TextAlign.Center)
+                var next = FormRowLayout.StepMark("▶", BaseFontSize * 0.9f, StatusText)
                     .WFixed(BaseStatusBarHeight).HStar().Bg(arrowBg)
                     .Clickable(new HitResult.ButtonHit("DateNext"),
                         _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, +1, _skyMapTab.State); });

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading.Tasks;
@@ -248,7 +248,7 @@ namespace TianWen.UI.Abstractions
 
                 // Jog buttons row: [<<] [<] "10 | 100" [>] [>>] as one HStack.
                 Layout.Node JogBtn(string glyph, string action, int delta) =>
-                    Layout.Builder.Text(glyph, BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
+                    FormRowLayout.StepMark(glyph, BaseFontSize * 0.85f, BodyText)
                         .WFixed(32f).HStar().Bg(jogBg)
                         .Clickable(new HitResult.ButtonHit(action), _ => PostSignal(new JogFocuserSignal(capturedI, delta)));
 

@@ -308,6 +308,44 @@ namespace TianWen.Lib.Tests
             clicked.ShouldBe(["dec", "inc"]);
         }
 
+        /// <summary>
+        /// <b>Every mark a step / jog / pan button shows is an Icon leaf, and the horizontal pair is
+        /// the one that could not be until DIR.Lib 9.2.</b>
+        /// </summary>
+        /// <remarks>
+        /// A glyph in a text run draws .notdef wherever the face lacks it, and the face is the host's,
+        /// so the rule is that a MARK is baked. IconKind had no left/right member, so nine buttons
+        /// across three files went on passing a character; they all resolve through this one place now,
+        /// which is what stops one of them drifting back. The double guillemets a coarse jog uses still
+        /// have no member and deliberately stay a run -- the fallthrough is not a loose end.
+        /// </remarks>
+        [Theory]
+        [InlineData("◀", Layout.IconKind.CaretLeft)]
+        [InlineData("‹", Layout.IconKind.CaretLeft)]
+        [InlineData("▶", Layout.IconKind.CaretRight)]
+        [InlineData("›", Layout.IconKind.CaretRight)]
+        [InlineData("▲", Layout.IconKind.CaretUp)]
+        [InlineData("▼", Layout.IconKind.CaretDown)]
+        [InlineData("+", Layout.IconKind.Plus)]
+        [InlineData("-", Layout.IconKind.Minus)]
+        public void StepMark_IsAnIconLeafForEveryGlyphIconKindNames(string glyph, Layout.IconKind expected)
+        {
+            var mark = FormRowLayout.StepMark(glyph, 12f, new RGBAColor32(0xff, 0xff, 0xff, 0xff));
+
+            IconLeaves(mark).ShouldBe([expected]);
+            TextLeaves(mark).ShouldBeEmpty("a mark is never a character in a text run");
+        }
+
+        [Fact]
+        public void StepMark_FallsBackToARunForAGlyphWithNoMember()
+        {
+            // The coarse jog's double guillemet. A run is also still the right answer for a WORD.
+            var mark = FormRowLayout.StepMark("«", 12f, new RGBAColor32(0xff, 0xff, 0xff, 0xff));
+
+            IconLeaves(mark).ShouldBeEmpty();
+            TextLeaves(mark).ShouldBe(["«"]);
+        }
+
         [Fact]
         public void StepperControl_Disabled_KeepsHitSurfaceButDropsHandlers()
         {

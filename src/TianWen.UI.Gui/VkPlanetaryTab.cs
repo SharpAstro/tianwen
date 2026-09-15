@@ -408,7 +408,7 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     }
 
     private Layout.Node JogButton(string glyph, string id, int steps)
-        => Layout.Builder.Text(glyph, PanelFontSize, ButtonText, TextAlign.Center, TextAlign.Center)
+        => FormRowLayout.StepMark(glyph, PanelFontSize, ButtonText)
             .WStar().HStar().Bg(JogBg)
             .Clickable(new HitResult.ButtonHit(id), _ => Bus?.Post(new JogFocuserSignal(PlanetaryOtaIndex, steps)));
 
@@ -477,7 +477,7 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
 
     private Layout.Node RoiPanButton(string glyph, string id, bool enabled, int dirX, int dirY,
         PlanetaryCaptureController controller, bool capturing)
-        => Layout.Builder.Text(glyph, PanelFontSize, enabled ? ButtonText : DimText, TextAlign.Center, TextAlign.Center)
+        => FormRowLayout.StepMark(glyph, PanelFontSize, enabled ? ButtonText : DimText)
             .WStar().HStar().Bg(enabled ? JogBg : StepBtnDisabledBg)
             .Clickable(enabled ? new HitResult.ButtonHit(id) : null,
                 enabled ? (Action<InputModifier>)(_ =>
