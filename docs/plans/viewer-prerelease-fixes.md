@@ -1309,6 +1309,25 @@ on the answer containing no absent pixel rather than on coordinates -- equal-are
 common and the tie-break is not part of the contract (one 127-wide frame answers 78 x 1 against the
 reference's 39 x 2, both correct).
 
+**Re-measured over the same bake, and the prediction holds (2026-09-15, Release, `MasterAutoCropProbe`
+against the shipped `ScanForCrop`).** The distribution barely moves -- p10 / p50 / p90 go 0.902 / 0.950
+/ 0.982 to 0.904 / 0.952 / 0.983 -- which is the point, since only the frames carrying interior holes
+were ever wrong. What moved is the MINIMUM, 0.528 to 0.784. The Great Orion master keeps **0.980** of
+its canvas, `[37, 10 2983 x 3005]` of 3024 x 3025, against the 0.981 the addendum predicted by ignoring
+the holes by hand. The new worst case is a genuinely ragged frame rather than a rule: `Rim Nebula 120s
+F2.8 LPS RGB` (2024-06-06) drizzles a 3312 x 3251 canvas from a 3000-pixel sensor, so roughly 300 px of
+dither spread is exactly what the crop should refuse to keep. Three masters sit below 0.85 and six
+below 0.90. Unchanged: no exact-zero pixel inside any crop on any of the 79, and the exporter's stretch
+gate still refuses two whole frames and still admits both inside the crop. Twenty-one masters decline
+an edge where twenty-two did, one rectangle having moved under the gate.
+
+**The probe's NaN column is PRE-fill, and that is not a gap in the measurement.** It calls
+`ScanForCrop` directly instead of loading a document, so `FillInteriorHolesInPlace` never runs: 12
+masters keep NaN inside the crop, 3,586 pixels in all and 1,853 of them the Great Orion one. Those are
+precisely the holes the fill closes at `AdoptImageAsync`. Measuring the crop without it is deliberate,
+because it keeps the two halves separable -- the rectangle is right because of the border gate, not
+because the pixels were repaired underneath it first.
+
 Still open from the addendum: the two masters `DatasetDegradationExporter`'s stretch gate refuses on
 the whole frame are admitted inside the crop (0.321 -> 0.044, 0.133 -> 0.022), because the min anchor
 was the canvas ring rather than the sky. Cropping before the gate, or a percentile in place of the
