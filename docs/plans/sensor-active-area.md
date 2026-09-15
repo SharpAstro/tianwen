@@ -38,9 +38,52 @@ return ToErrorCode(SetQHYCCDResolution(_handle, 0, 0, (uint)width, (uint)height)
 ```
 
 So a full-frame capture starts at the raster origin and the effective area's own origin is never
-consulted. **This is unmeasured**, unlike the Canon case: overscan is model-dependent (the large CMOS
-bodies have it, many smaller ones report a zero-size rect with effective == full), and no QHY frame
-has been examined. P1 exists to replace that speculation with numbers.
+consulted.
+
+**Measured 2026-09-16, from the archive rather than from a camera, and it is not benign.**
+`Eta Car SII NB / QHYCCD-Cameras-Capture / 2024-03-02` (a ZS61, SII, 41 subs at 240 s) carries its
+overscan into both the lights and the flat, and the whole chain reproduces from the raw files:
+
+| stage (column) | 0 | 1 | 2 | 3 | body |
+|---|---|---|---|---|---|
+| raw flat | 2272 | 2272 | 2304 | 2512 | 19,088 |
+| raw dark-flat | 2272 | 2272 | 2272 | 2272 | 2,272 |
+| master flat, mean-normalised | **0** | **0** | **0.0019** | **0.0143** | ~0.99 |
+| gain when a light is divided by it | inf | inf | **528x** | **70x** | 1.0 |
+
+Four shielded columns sitting at the bias level (the raw bias reads 2304 across the whole frame,
+including them), which the dark-flat subtraction takes to zero and normalisation leaves at zero. No SDK
+was needed to read any of this, and the raw subs are 3684 x 5544, the same raster as the flat, so the
+overscan is genuinely in the captured data rather than an artefact of processing.
+
+**It is per-body, not per-vendor.** The archive's other QHY light set, `2026-02-20 SW8Q Omega Cen + Cen
+A + Running Chicken Neb` (QHY294PROC, RGGB, 4164 x 2795, 193 lights at 60 s g1600, 46 in-session flats,
+with `SW8_QHY294_BACKFILL` supplying its bias/dark/dark-flat), shows **no overscan band at all**: its
+flat's edge columns alternate 1.5e4 / 3.2e4, which is the CFA, against a body of 32,940, and its light's
+edges sit within a few percent of its body. So that set is unaffected, and the plan's "overscan is
+model-dependent" survives contact with the data.
+
+**That set is also not in the bake**, and not for any reason to do with quality: the bake's
+`archiveRoots` are `D:/Astro-Organized/{lights,flats,calibration}` and `D:/Astro-Unsorted`, while it
+lives under `D:/Astro-Pics/2026`. 193 frames and 3.2 hours the corpus has never seen.
+
+**One more thing found in that folder, for whoever fixes the provenance skip:** the SII session's
+`Light/` holds two previously-stacked outputs beside its 41 raw subs, `SII-SII-session_1.fits`
+(5573 x 3747, left columns exactly 0) and `SII-SII-session_1-crop.fits` (5392 x 3584). Neither is ours,
+so neither carries a TianWen `SWCREATE`, and a stack's own output sitting in a lights folder is exactly
+what `STACK_N`-based skipping exists for. **What it cost:** calibration divides by the flat, so before the 2026-09-16 `FlatEpsilon` fix those
+columns multiplied the light by between 70x and a million, and the integrated master peaked at 2.46e8
+against a sky of 213 (245,827,712 x 1e-6 is exactly the ADU value that went in). The band survives into
+the master at canvas columns 6 to 9, since registration places and dithers the sensor's columns 2 and 3
+across about four canvas ones, and the auto-crop rectangle starts at column 20 so it removes most but
+not all of it.
+
+**The overscan is an INPUT, not waste, which is the whole point of P5.** Shielded columns are the
+sensor's own per-frame black reference, and a per-frame offset is the one thing a master bias cannot
+supply: the master is an average of another night's readouts, while the overscan is this exposure's.
+So the crop must do what Canon's does, take the overscan off the picture while leaving it reachable,
+and **never** set `CAM_IGNOREOVERSCAN_INTERFACE`, which would throw the reference away in the driver
+before anything could use it.
 
 A separate latent bug found while reading: `SetROIFormat` resets the start position to `(0, 0)`, so a
 prior `SetStartPosition` is silently discarded by a later `SetROIFormat`. Two public methods, one
@@ -211,23 +254,34 @@ removes the region in the driver and reports that everything calibrates fine.
 | # | Scope | Status |
 |---|---|---|
 | P0 | Canon: `CanonRawFile.ActiveArea` (FC.SDK.Raw 3.1) + crop in `Image.TryReadCanonRaw` | **DONE** 2026-09-07 |
-| P1 | QHY: call `GetQHYCCDEffectiveArea` / `GetQHYCCDOverScanArea` and probe `CAM_IGNOREOVERSCAN_INTERFACE` at connect, log all three. **Measurement only, no behaviour change** | NOT STARTED |
+| P1 | QHY: call `GetQHYCCDEffectiveArea` / `GetQHYCCDOverScanArea` and probe `CAM_IGNOREOVERSCAN_INTERFACE` at connect, log all three. **Measurement only, no behaviour change.** Never SET the ignore flag: it discards the black reference P5 wants | NOT STARTED (gated on a body) |
 | P2 | `ImageMeta.DataSection` / `BiasSection`; `Image` keeps the raster | NOT STARTED |
 | P3 | `DATASEC`/`BIASSEC`/`TRIMSEC` read in `ParseImageMetaFromHeader` + written by the FITS writer, one 1-based converter, round-trip test | NOT STARTED |
 | P4 | The crop gates: viewer/save, registration transform, plate-solve CRPix shift | NOT STARTED |
-| P5 | Calibration consumes `BiasSection`: per-frame black level + read noise. **The FLAT path first**, since the drift enters the denominator | NOT STARTED |
+| P5 | Calibration consumes `BiasSection`: per-frame black level + read noise. **The FLAT path first**, since the drift enters the denominator | NOT STARTED, and now the leading piece: measurable from the archive, no body needed |
 
 **P1 first, and on its own.** Whether P2-P5 are worth anything on real hardware depends on what the
 attached QHY actually reports, and `CAM_IGNOREOVERSCAN_INTERFACE` may make the capture path need no
 crop from us at all. One connect-time query decides the scope of everything after it.
 
-**P1-P5 are GATED ON HARDWARE, deferred 2026-09-07.** Canon (P0) shipped because a raw file carries
-its own `SensorInfo` rect, so a fixture answers every question. No vendor SDK path has that property:
-overscan geometry is model-dependent and the SDK is the only thing that knows it, so writing P1
-without a body attached produces a log line nobody can read and a scope decision nobody can take.
-Work resumes when a real QHY (or any other vendor's) camera is connected. The bench queue carries it,
-one home per item, in [hardware-validation.md](../todo/hardware-validation.md) under "Gated on gear
-but NOT validations".
+**P1-P5 were GATED ON HARDWARE, deferred 2026-09-07, and that gate is now partly lifted (2026-09-16).**
+The deferral rested on "no vendor SDK path has the property a Canon raw has, so only an attached body
+knows the geometry". For the CAPTURE path that still holds. For the ARCHIVE it does not: a frame that
+was taken with the overscan in it **carries the overscan**, so the rectangle is measurable from the
+files, and it was, off the flat's column medians above. That changes the order of work.
+
+- **P5's flat leg is no longer speculative and is the highest-value piece**, which is what the phase
+  table already suspected in writing "the FLAT path first, since the drift enters the denominator".
+  It is the leg that produced a 2.46e8 pixel.
+- **P1 stays gated**, because generalising past this one camera does need the SDK: overscan is
+  model-dependent, and one measured QHY294 says nothing about the next body.
+- **A re-bake is what applies any of this to existing data, and the fix does not retroactively repair a
+  master.** The raws are intact and still carry their overscan, so nothing is lost and a re-bake can
+  both crop and use it, but every master built before then keeps what it was built with.
+- **Scope is one session of the two QHY light sets in the archive**, the 2024 ZS61 SII one. The 2026
+  SW8Q QHY294 set has no overscan and needs nothing, which is the measurement that says a per-body
+  query is still required rather than a rule. The bench queue carries the rest, one home per item, in
+  [hardware-validation.md](../todo/hardware-validation.md) under "Gated on gear but NOT validations".
 
 ---
 
