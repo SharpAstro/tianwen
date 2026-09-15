@@ -81,8 +81,7 @@ namespace TianWen.UI.Abstractions
             bus.Subscribe<OpenSkyMapSearchSignal>(_ =>
             {
                 var db = sp.GetRequiredService<ICelestialObjectDB>();
-                SkyMapSearchActions.OpenSearch(skySearch, db, plannerState.Comets);
-                bus.Post(new ActivateTextInputSignal(skySearch.SearchInput));
+                SkyMapSearchActions.OpenSearch(skySearch, db, appState.TextInputFocus, plannerState.Comets);
                 skyMapState.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
             });

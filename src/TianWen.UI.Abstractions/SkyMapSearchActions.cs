@@ -32,7 +32,14 @@ public static class SkyMapSearchActions
     /// is rebuilt if the comet repository has since loaded (it loads in the background after startup, so the
     /// first open may predate it).
     /// </summary>
-    public static void OpenSearch(SkyMapSearchState search, ICelestialObjectDB db, ICometRepository? comets = null)
+    /// <param name="focus">
+    /// Who has the keyboard. Taken as a parameter rather than left to the caller to arrange afterwards,
+    /// because "open the search box" and "the search box has the keyboard" are one act: this used to
+    /// <c>Activate()</c> the field by hand here and leave each host to move focus separately, which is the
+    /// second answer to "which field is live" that <see cref="TextInputFocus"/> exists to prevent.
+    /// </param>
+    public static void OpenSearch(
+        SkyMapSearchState search, ICelestialObjectDB db, TextInputFocus focus, ICometRepository? comets = null)
     {
         search.IsOpen = true;
 
@@ -44,7 +51,10 @@ public static class SkyMapSearchActions
             search.SearchIndex = BuildSearchIndex(search, db, comets);
         }
 
-        search.SearchInput.Activate();
+        // Selection AFTER the focus move, the order TextInputInteraction.HandlePointer uses and for its
+        // reason: a focus change is entitled to seed the field, so anything it must not overwrite comes
+        // second. (TextInputFocus.Focus does not select on its own -- DIR.Lib 9.2, D1, is where it will.)
+        focus.Focus(search.SearchInput);
         search.SearchInput.SelectAll();
     }
 

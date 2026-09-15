@@ -109,6 +109,10 @@ namespace TianWen.UI.Abstractions
             // Hit test the GUI chrome (sidebar, status bar) first; OnClick handles tab switching
             var hit = _chrome.HitTestAndDispatch(px, py, modifiers);
 
+            // Which widget ANSWERED, kept alongside the hit because a press on a field has to be resolved to
+            // a character through the renderer and fallback chain that drew it -- see ICaretPlacingWidget.
+            IPixelWidget? hitSource = hit is not null ? _chrome : null;
+
             // Auto-discover on tab switch to Equipment
             if (hit is HitResult.ButtonHit { Action: var action } && action.StartsWith("Tab:"))
             {
@@ -141,6 +145,7 @@ namespace TianWen.UI.Abstractions
             if (hit is null)
             {
                 hit = _chrome.ActiveTab?.HitTestAndDispatch(px, py, modifiers);
+                hitSource = hit is not null ? _chrome.ActiveTab : null;
             }
 
             // A hyperlink (planner details -> Wikipedia): open it via the host. Centralized here so every
@@ -154,15 +159,23 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
-            // Text input focus management (via ActivateTextInputSignal/DeactivateTextInputSignal)
-            if (hit is HitResult.TextInputHit { Input: { } clickedInput })
+            // A press on a field: focus it AND land the caret where it was aimed, one click placing, two
+            // selecting the word, three the field. The rule is DIR.Lib's, shared with the web host through
+            // TextFieldPointerInteraction; this used to be a local "focus it, and on a second click select
+            // everything", which put the caret at the end of the text however far into it you clicked.
+            //
+            // Focused straight through TextInputFocus rather than through ActivateTextInputSignal, because
+            // the caret is placed in the same breath and the signal bus is DEFERRED: the focus change would
+            // land a frame later and seed the field, overwriting what the press had just set.
+            //
+            // A drag that extends the selection is deliberately NOT wired here: InputEvent.MouseMove carries
+            // no button state, so this handler cannot tell a drag from a hover. That belongs to the input
+            // router in DIR.Lib 9.2 (docs/plans/dir-lib-10.md, D1), which sees the press and the move.
+            if (hit is HitResult.TextInputHit textHit)
             {
-                ActivateTextInput(clickedInput);
-                if (clicks >= 2 && clickedInput.Text.Length > 0)
-                {
-                    clickedInput.SelectAll();
-                }
-                return true;
+                return TextFieldPointerInteraction.HandleMouseDown(
+                    textHit, hitSource, px, clicks, modifiers,
+                    _appState.TextInputFocus, () => _appState.NeedsRedraw = true);
             }
 
             // Handoff-slider drag start / click-to-place / deselect - shared with the web host
@@ -332,9 +345,6 @@ namespace TianWen.UI.Abstractions
         // ===================================================================
         // Text input handling: generic with callbacks
         // ===================================================================
-
-        private void ActivateTextInput(TextInputState input)
-            => _chrome.Bus?.Post(new ActivateTextInputSignal(input));
 
         private void DeactivateTextInput()
             => _chrome.Bus?.Post(new DeactivateTextInputSignal());
