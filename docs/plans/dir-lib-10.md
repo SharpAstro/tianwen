@@ -295,8 +295,27 @@ widely than the example, and most of the fix is adoption, not engine work.
 
 ## Resume here (state as of 2026-09-15, late evening)
 
-Written for the next session, which starts with no memory of this one. Everything below is on a pushed
-branch; nothing is merged. The user merges (rebase), never the agent.
+**SUPERSEDED 2026-09-15: everything below LANDED, plus waves 2 and 3, the release chain, T1 and T2.**
+Kept as the record of what was outstanding, not as a to-do list. Where it stands now:
+
+- **Published:** DIR.Lib **9.2.3051**, Console.Lib **4.35.1841**, SdlVulkan.Renderer **7.38.3151**.
+  tianwen `main` pins all three.
+- **Landed in tianwen:** #267, #269, #270, #271, #273, then **T1** (#275, the router) and **T2** (#276,
+  popovers and sliders). Gone as types: `OverlayPlacement`, `ISelfDispatchingInputWidget`,
+  `TextFieldPointerInteraction`, `ICaretPlacingWidget` and its six implementations, two bespoke keyboard
+  claimants, two slider hit types, two drag flags, the Ctrl+letter map and the F3 special case.
+- **Still open:** T3 (the viewer chrome onto trees, `.BgHover`, `LayoutDamage`), **D2 / 10.0** (the cuts,
+  plus upstreaming `RenderDropdownMenu`, which is the biggest remaining hand-written chrome and DELETES
+  code), C1, and the two engine seams T1 worked around (a `TabItem` that can carry neither a chord nor a
+  select handler; two sibling top-level widgets that cannot share one `WindowUiSettings`).
+
+**Three bugs were found by the consumer adopting a feature, not by the tests written for it**, and all
+three are the same shape: a rule gated on an opt-in the host never set, failing silently. `PointerOwner`
+never released on a host leaving `FrameId` at 0; the Tab ring spanning every tab ever visited, same
+cause; and two `IconKind` members with no cell glyph, because adding a kind is a TWO-REPO change.
+**Adding an `IconKind` upstream means adding its `CellLayout` glyph in Console.Lib in the same wave.**
+
+Everything below is the pre-landing record.
 
 ### tianwen, four draft PRs, all green on the full unit suite run ALONE on the box
 
@@ -729,16 +748,65 @@ the router is the piece that was "untestable inside a UI project" before U6 and 
 and the TUI's `_activeInlineInput`. The nine tab shortcuts and F3 become `.Shortcut` declarations; the
 sky-map search box gets `.WithShortcut(InputKey.F, InputModifier.Ctrl)` as well, which is the user's example. The four
 by-hand focus sites go through `Focus(input, seed)`. The three hand-written Up/Down blocks go to
-`ListCursor` (GUI) and `ScrollableList.MoveCursor` (TUI). Acceptance: `grep SelectAll\(\)` over
-`TianWen.UI*` and `TianWen.Cli` finds only tests; `grep "InputKey.F3"` finds nothing.
+`ListCursor` (GUI) and `ScrollableList.MoveCursor` (TUI).
+
+**SHIPPED 2026-09-15**, with three corrections.
+
+**Acceptance, corrected.** `grep SelectAll()` over `TianWen.UI*` and `TianWen.Cli` finds **nothing at
+all**, not even tests. `grep "InputKey.F3"` finds **one hit, the declaration itself**, and the original
+"finds nothing" cannot hold: a chord has to name its key somewhere and this plan's own model puts that
+on the node, so the hit IS the acceptance rather than a violation of it. There are **eight** tab chords,
+not nine; the ninth in the old count named a Planetary tab that is not in `TabOrder`.
+
+**Two of the four Up/Down blocks converted.** The GUI session config form (which is what
+`ListCursor.Open(..., count)` was added for) and the TUI planner list. The GUI planner list did NOT: its
+rows deliberately register nothing so an unclaimed press falls through to the scroll controller for
+tap-on-release and drag-to-scroll, and a cursor cannot walk a list nothing painted. It needs a row
+declaration that is keyboard-reachable and pointer-transparent. The TUI config form did not either: it
+interleaves group headers with fields in one index space while the selection is indexed by field.
+
+**A host bug this surfaced, and the rule it leaves.** DIR.Lib gates "are this widget's registered regions
+current" on `Ui.FrameId`, and tianwen never touched that property, so the gate was always true and a
+widget the host had stopped drawing went on answering with its last paint. Harmless until the router owns
+the Tab ring, because the chrome composes ALL the tabs rather than only the visible one: the ring spanned
+every tab that had ever been on screen. The GUI counts frames now. **The general rule: a DIR.Lib
+behaviour gated on an opt-in the host never sets is a rule that is silently OFF**, which is the same
+shape as the `PointerOwner` bug wave 2 shipped and 9.2 fixed. Pinned by
+`InputRouterTests.TabSkipsAWidgetTheHostHasStoppedPainting`.
 
 ### T2. popovers and sliders
 
-White balance, tone, the toolbar dropdowns, the help menu and the sky palette become `Popover` nodes;
-their sliders become `Content.Slider`. Delete `OverlayOwnsPointer`, the five drag flags, the
-`OpenToolbarDropdown` switch, the `HandleViewerMouseDown` popover line and `ISelfDispatchingInputWidget`.
-Acceptance: `ViewerTonePopoverTests` passes unchanged (it reads arranged nodes, which is why it survives);
-`ViewerWhiteBalancePopoverTests` stops sweeping.
+White balance and tone become `Popover` nodes; their sliders become `Content.Slider`. Delete
+`OverlayPlacement`, two of the five drag flags, `ISelfDispatchingInputWidget`, the two bespoke slider hit
+types and the two bespoke `IKeyboardClaimant` classes.
+
+**SHIPPED 2026-09-15.** Three items this section originally listed are NOT T2, and the corrections are
+the interesting part.
+
+- **The toolbar dropdowns and the help menu are not convertible in 9.2, by this plan's own design.** D1's
+  wave 2 ends "`RenderDropdownMenu` is left alone in 9.2", and it was, so tianwen still owns their list
+  painting, scrolling, keyboard navigation, disabled rows and tooltips. Converting them means moving all
+  of that into a `Layout.Node` tree, which is **D2 / T3 work and the largest remaining block of
+  hand-written chrome**. The help menu is a toolbar dropdown (`ToolbarAction.Shortcuts` opens one), so it
+  is the same item. This is the upstreaming the user asked for, and it deletes code rather than adding it.
+- **The sky palette is not a popover by nature.** `FloatingPaletteState` is draggable, snappable,
+  fade-timed and persistent, with no backdrop and no Escape dismissal. `Popover` would delete its
+  behaviour rather than express it. Leave it.
+- **`OverlayOwnsPointer` survives T2**, and the reason is worth keeping: `WindowUiSettings.PointerOwner`
+  looks like its replacement and answers a different question. The engine's is a RECORD of what was
+  painted, claimed by being painted, confining hover for anything painted after it, which a `PaintLayout`
+  tree gets for free. The host flag is a PREDICTION, and all four of its consumers are hand-painted chrome
+  resolving hover BEFORE any overlay has drawn. It goes when the chrome goes on the tree, in T3.
+
+**Acceptance, corrected.** The original read "`ViewerTonePopoverTests` passes unchanged (it reads
+arranged nodes, which is why it survives)". That is true of its shape and false of five of its
+assertions, each naming something this same phase deletes: a `Content.Fill` dial found by key (a slider
+leaf has no key), `ToneSliderHit` (now `HitResult.SliderStateHit`), `ToneDragSlider` (a deleted drag
+flag), `TonePanelOpen` (now a `PopoverState`) and `OverlayOwnsPointer`. **A phase cannot both delete a
+name and require a test asserting on it to pass untouched**, so the acceptance is: that test is adapted
+to the new names and gets STRONGER where the old assertion only existed because of a flag ("release ends
+the drag" becomes "a move after the release changes nothing", which is the property the flag was for).
+`ViewerWhiteBalancePopoverTests` stops sweeping, which it already had by the T0b sweep.
 
 ### D2. DIR.Lib 10.0: the cuts
 
