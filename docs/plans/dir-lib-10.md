@@ -483,7 +483,7 @@ test that moves is a regression, not a redesign.
 ### D1. DIR.Lib 9.2, additive: the router and the declarations
 
 `InputRouter`, `OnPress` + `DragCapture`, `.Shortcut`, `Focus` selects, `focusOnOpen`, `Content.Slider`,
-`.Selectable()` + `TextSelection`, `Popover`, `.Disabled(reason)`, `MeasureLayout`. Plus `CaretIndexAt` on
+`.Selectable()` + `TextSelection`, `Popover`, `.Disabled(reason)`, `MeasureLayout`. Plus `ListCursor.Open(listId, index, count)` with a `Moved` callback, `OnActivate` beside `OnClick`, `CaretIndexAt` on
 `IPixelWidget` (so a host holding the interface can place a caret without tianwen's `ICaretPlacingWidget`),
 the old-arity `TextInputHit` constructor if 9.2 has not shipped it by then, and the small text-field
 gaps the review turned up, since they are the same "a field behaves like a field" promise: `TextInputKey` gains
@@ -513,6 +513,25 @@ Acceptance: `ViewerTonePopoverTests` passes unchanged (it reads arranged nodes, 
 ### D2. DIR.Lib 10.0: the cuts
 
 The five removals above, one wave, `MIGRATION.md` entry. tianwen's diff is deletions.
+
+**Sweep B (2026-09-15, `refactor/list-cursor-and-dock`, not pushed) converted the two fully painted lists
+(the planner's suggestion dropdown and the sky-map search results) to `ListCursor` + `.BgFocus`, and all
+three `PixelLayout` sites to `Dock` (`PixelLayout` / `PixelDockStyle` now have zero uses). It could NOT
+convert the planner target list or the session config form, and the reason is a `ListCursor` contract gap
+for D1:** `MoveListCursor` steps only over rows the last paint REGISTERED, and both of those lists are
+virtualised on purpose (the planner paints `VisibleRows()` only; the config form filters the arranged tree
+to the nodes intersecting the panel before painting, so off-screen rows register no clickables). A cursor
+that cannot step onto an unpainted row cannot walk a list past its own viewport, which is exactly what
+`SessionTabTests.KeyboardDown_ScrollsSelectedFieldIntoView` asserts it must. D1 therefore gives
+`ListCursor.Open` an optional row count (the painted-regions walk stays the reachability filter where a
+row IS painted) and a `Moved` callback a consumer hangs `ListScrollController.EnsureVisible` off. Two
+smaller ones from the same sweep: the planner's target rows register NO `ListItemHit` by design (an
+unclaimed press falls through to the scroll controller for tap-on-release and drag-to-scroll, pinned by
+`RowBodyIsUnclaimed_ButPinButtonStaysRegistered`), so a cursor on that list needs a row declaration that
+does not claim the press, which is what `OnPress` returning "not mine" gives; and `ActivateListCursor` is
+all-or-nothing on the click handler, so a list whose Enter differs from its click (Enter pins, click
+selects) keeps Enter by hand until the row can declare an `OnActivate` beside `OnClick`. Both belong on
+the node in D1.
 
 ### C1. Console.Lib: one list model (independent, any time after D1)
 
