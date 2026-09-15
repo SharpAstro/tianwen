@@ -116,14 +116,41 @@ chromeless Live Session / polar / guide-cam previews (`ViewerState.HideChrome`).
 
 ---
 
-## A press that lands on a clickable region never reaches the tab's own mouse-down
+## One dispatcher, DIR.Lib's, on every surface
 
-`GuiEventHandlerBase.HandleMouseDown` hit-tests the chrome, then dispatches the ACTIVE TAB's
-registered clickable regions -- and only forwards `InputEvent.MouseDown` to the tab when **no** region
-was hit. So a widget cannot both register a region and pick that same press up in its own
-`HandleInput`: the region wins, its `OnClick` runs, and the tab's mouse-down path is skipped
-entirely. (The one exception is a tab implementing `ISelfDispatchingInputWidget` -- the shared image
-viewer -- which is handed the raw press because its toolbar and sliders need the coordinates.)
+**Since T1 every host hands its events to `DIR.Lib.InputRouter`** (`GuiEventHandlerBase` on the
+desktop, `Planner.razor` in the browser), and the order is the engine's, fixed and tested there:
+
+1. an overlay that has claimed the keyboard (`WindowUiSettings.KeyboardClaimant`),
+2. any PAINTED node whose declared `Shortcut` equals the chord, gated on
+   `KeyChord.BeatsFocusedField || Focus.Current is null`,
+3. the focused field, through `TextInputInteraction.HandleKey`,
+4. the host's `Unhandled`, which is where the active tab's own `HandleInput` lives.
+
+Pointer events walk the regions the last paint registered, top-most first across the widgets the host
+names in `Widgets` -- on the desktop that is one entry, the chrome, which is a `CompositeWidget` and
+therefore yields its own regions and the active tab's from a single `CollectPaintedRegions`.
+
+What each host keeps is only what is genuinely the platform's: the `FocusChanged` binding (SDL
+`StartTextInput` / the floating `<input>`), the clipboard delegates, the pointer position the tabs
+read, the navigation rail's hover repaint, the browser's rAF coalescing and its ctrl+wheel pinch. Both
+call `router.AfterPaint()` once the frame is drawn, which is where `BlurIfUnpainted`, the
+once-per-open focus request and the tooltip expiry live, all three needing a fact only a finished
+frame has.
+
+### A press that lands on a clickable region never reaches the tab's own mouse-down
+
+Unchanged, and now the router's rule rather than a host's: the topmost region under the pointer owns
+the press, its handler runs, and the tab's mouse-down path is skipped. Only a press that hits nothing
+reaches `Unhandled`. (A tab implementing `ISelfDispatchingInputWidget` -- the shared image viewer --
+is handed the raw press there because its toolbar and sliders need the coordinates. No GUI tab is one
+today; the viewers are hosted inside tabs and are not in the chrome's `Children`, so their regions are
+invisible to the router and their presses arrive through the hosting tab.)
+
+**Anything that used to run AFTER a hit test therefore has to run before the router**, off a
+non-dispatching `HitTest`. One site is left -- the planner's handoff-divider drag, which arms from a
+press and needs its position -- and DIR.Lib 9.2's `Layout.Node.OnPress` plus `Content.Slider` delete
+it in T2.
 
 Two consequences worth knowing before building anything draggable:
 
@@ -131,11 +158,10 @@ Two consequences worth knowing before building anything draggable:
   layer palette learned this the expensive way: its grip hit-tested a stashed rect on mouse-down,
   which never ran, so the panel drew a `CursorKind.Move` cursor over something that could not be
   moved -- and the map did not pan either, because the region had swallowed the press.
-- **A click binding is handed modifiers and nothing else** -- no position, no click count. Position
-  comes from the last `InputEvent.MouseMove`, which every tab receives unconditionally
-  (`HandleMouseMove` forwards it), and a double-click has to be TIMED from successive presses. The
-  host does count clicks (it uses the count for select-all in a text field) but does not pass the
-  count through to a region's callback.
+- **A click binding is handed modifiers and nothing else** -- no position, no click count -- but a
+  node can now declare `.Pressable(hit, onPress)` instead, which IS handed a `PointerPress` (position,
+  button, modifiers, click count) and may return a `DragCapture` that owns every move until the button
+  comes up. That is the seam a draggable control should use; `OnClick` stays the answer for a button.
 
 ## The layout DSL: the engine features TianWen relies on
 
@@ -253,7 +279,7 @@ replaced grew one rung per capability (`(width, mode)` -> `(.., isSelected)` -> 
 selectedColumn, columnCount)`) and every rung let an implementation silently opt out of the newest
 information by overriding an older one.
 
-## DIR.Lib's `ListCursor` does not fit our lists, because ours virtualise their regions
+## DIR.Lib's `ListCursor` and our virtualised lists (the 8.20 verdict, and what 9.2 changed)
 
 DIR.Lib 8.20 (`SharpAstro/DIR.Lib#75`) makes a declared list keyboard-navigable with no state beside
 it: a row saying `.Clickable(new HitResult.ListItemHit("views", i), ...)` is row `i`, and
@@ -275,15 +301,30 @@ same way through `ListScrollController.VisibleRows()`. Restoring the cursor's re
 scrolling and re-rendering mid-step, which needs the list's length -- reintroducing the
 `SessionTabState.FieldCount` that adopting `ListCursor` was meant to delete.
 
-**DIR.Lib already has the pattern for a scrolled list, and it is the one we use.** Its own dropdown
-does not use `ListCursor`: `DropdownMenuState.HandleKeyDown` keeps a `HighlightIndex` and calls
-`Scroll.EnsureVisible(...)`, which is exactly what `SessionTab.EnsureFieldVisible` and the file
-list's `ViewerState.PendingFileListEnsureVisible` already do. `ListCursor` is for a fully painted
-menu or card; a scrolling panel keeps an index. Two further frictions, if a fully painted list ever
-does turn up here: `HandleListKey` binds Enter to activating the row, which the config panel already
-spends on Increment; and `ActivateListCursor` returns `true` even when the row carries no handler
-(`SharpAstro/DIR.Lib#77`), so Enter is silently swallowed by a list like the file list, whose rows
-deliberately register with no `OnClick` so the press reaches the scroll controller.
+**DIR.Lib 9.2 answered both halves of that, and the verdict above is now historical for a counted
+list.** `ListCursor.Open(listId, index, count)` lets the cursor step onto a row the last paint never
+registered -- the painted span stays the reachability filter wherever there IS evidence, and the count
+is what says a row beyond it exists at all -- and `event Action<int> Moved` is where
+`ListScrollController.EnsureVisible` hangs. `ActivateListCursor` also stopped claiming a row that
+carries no handler. The Session config form runs on it now (`SessionTab.SyncFieldCursor`), with
+`SessionConfigLayout.FieldListId` naming the list beside the rows that declare it.
+
+**Two of our lists still do not fit, for reasons that are theirs rather than the cursor's:**
+
+- **The GUI planner's target list registers NOTHING for a row body, on purpose.** An unclaimed press
+  falls through to `ListScrollController` for tap-on-release and drag-to-scroll, pinned by
+  `PlannerTabScrollTests.RowBodyIsUnclaimed_ButPinButtonStaysRegistered`. A cursor cannot walk a list
+  nothing painted, counted or not, and registering the rows to give it one would claim the press and
+  take the scroll gesture away. What it needs is a row declaration that is reachable by the keyboard
+  and transparent to the pointer, or the rows to arm the scroll drag themselves through `OnPress`.
+- **The terminal session form's `ScrollableList` interleaves group HEADERS with fields in one item
+  space**, while the selection is indexed by FIELD (`SessionTabState.SelectedFieldIndex`, shared with
+  the GUI). `MoveCursor` would step onto a header. It needs the two index spaces reconciled first --
+  which is also what would fix `FindSelectedItem`, whose headers default to `FieldIndex` 0 and so
+  shadow the first real field.
+
+The terminal PLANNER list has none of that (one item per target, 1:1 with the index) and walks itself
+through `ScrollableList.MoveCursor` since T1.
 
 ## The pointer's appearance is a property of a region, never a host predicate
 

@@ -1211,9 +1211,14 @@ the Home-tab decisions and every measurement; the pieces are `TianWen.Hosting.Co
   profile; a dark rig is polled less often (doubling to a 30 s cap, per-mirror loop, a 404 resets it).
 
 **Sidebar icon convention.** Every tab glyph is a bare codepoint with no variation selector (VS16
-emoji render inconsistently), written as backslash-U escapes. **Adding a tab touches six places:**
-the `GuiTab` enum, `TabOrder`, `TabChrome`, the Ctrl+letter map, two `VkGuiRenderer` switches, and
+emoji render inconsistently), written as backslash-U escapes. **Adding a tab touches five places:**
+the `GuiTab` enum, `TabOrder`, `TabChrome`, two `VkGuiRenderer` switches, and
 `GuiTabNavigationTests.TabOrder_IsTheSidebarLayoutOrder` (pins the order, will go red by design).
+The Ctrl+letter map is gone: `TabChrome` carries the `KeyChord` itself, `VkGuiRenderer` re-states each
+rail cell as the tab it selects (`RailTab` / `SelectTab`, read by `CollectPaintedRegions` for the
+handler and `CollectPaintedNodes` for the chord), and the tooltip is printed from the chord. **What a
+rail cell means is said in that ONE pair** -- `TabBar` reports an indexed `ListItemHit` and has no seam
+for either, so a second statement anywhere is how a chord and a click come to disagree.
 
 ### Colour Theme (`GuiTheme`, four states incl. Night)
 
@@ -1833,15 +1838,36 @@ key routing). The rules that bite:
   mapping lives in SdlVulkan.Renderer.
 - **HOVER needs a z-order answer, `ViewerState.OverlayOwnsPointer`**, because hover is decided at PAINT
   time; add an overlay to that ONE property, never a call site.
+- **Every host routes through `DIR.Lib.InputRouter`, and the ORDER is the engine's**: an open popover,
+  then any PAINTED node whose declared `Shortcut` matches, then the focused field, then the widget. The
+  desktop (`GuiEventHandlerBase`) and the browser (`Planner.razor`) each keep only what is theirs -- the
+  platform binding, the pointer position, the rail's hover repaint, the rAF coalescing -- and each calls
+  `AfterPaint()` once the frame is drawn. **A key binding is a `.WithShortcut(key, mods)` on a node, not
+  an arm in a switch**, and whether it beats a focused field is `KeyChord.BeatsFocusedField` (Ctrl, Alt
+  or F1..F12 do; a bare letter does not), so there is nowhere left to write `if (key == F3) return
+  false;`. Matching against the PAINTED tree is what makes a binding inside a closed panel inert, and
+  what makes a chord for a locked tab inert, with no guard beside the key.
+  - **Two bindings have no node to sit on and stay in the host**: Ctrl+Tab / Ctrl+Shift+Tab name the
+    NEXT tab rather than a tab, so they are answered before the router in `GuiEventHandlerBase`.
+  - **A press on a region is CONSUMED there**, so anything that used to run after a hit test runs
+    before the router instead, off a non-dispatching `HitTest` (the planner's handoff-divider drag, the
+    one such site left; T2's `Content.Slider` deletes it).
 - **A text field is a declaration**, `Layout.Builder.TextInput(state, fontSize)` and nothing else
   (`TextInputRenderer`, `TextInputHit`, `CursorKind.Text`; `CellLayout` on a terminal). `fontSize` is in
   DESIGN units (the painter crosses `ctx.FontScale`); intrinsic width comes from the placeholder.
-- **Focus is global but not settable**: `DIR.Lib.TextInputFocus` owns the transition, the host binds
-  `FocusChanged` ONCE (SDL `StartTextInput`/`StopTextInput`, web `CanvasTextOverlay`); `Focus` is
-  idempotent; `BlurIfUnpainted(painted)` takes what the caller painted
-  (`VkGuiRenderer.PaintedTextInputs()` unions chrome + active tab).
+- **Focus is global but not settable, and there is ONE owner per window**: `DIR.Lib.TextInputFocus`
+  owns the transition, the host binds `FocusChanged` ONCE (SDL `StartTextInput`/`StopTextInput`, web
+  `CanvasTextOverlay`); `Focus` is idempotent and SELECTS its seed, so `Focus(input, value)` is the
+  whole of "open an editor on this value" and a following `SelectAll` is a second mechanism (there are
+  none left). The instance is the window's `WindowUiSettings.Focus`: `GuiAppState.AdoptWindowSettings`
+  points the desktop app state at the chrome's, and `WebSkyMapTab.ShareWindowWith` gives the browser's
+  two sibling canvas widgets one context. **Two owners is the bug class**, not a tidiness point.
+- **`BlurIfUnpainted` is the router's `AfterPaint()`**, called once per frame after the paint, with
+  everything painted; calling it before, or with one surface's fields when the frame draws several,
+  does the opposite of what it is for.
 - **`TextInputInteraction` reads `ctx.Focus.Current`**, takes `KeyContext.TabFields` as a callback, and
-  **swallows every key while a field is focused**.
+  **swallows every key while a field is focused** -- which is exactly why a binding that must survive a
+  focused field is a `.Shortcut` and not a case in the host's key switch.
 
 ### Per-Window Widget State: `DpiScale` / `FontPath` / `EmojiFontPath` are properties, not parameters
 
