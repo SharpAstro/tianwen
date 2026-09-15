@@ -49,11 +49,26 @@ namespace TianWen.UI.Abstractions
             var btnFont = style.ButtonFontSize;
             var btnW = style.ButtonDesignW;
             var canClick = enabled;
+            // Same x-height ratio Content.Icon.MatchesText derives on its own -- stated explicitly
+            // because the icon leaf here sits beside the VALUE cell, not the button's own text, so the
+            // sibling-derived size would pick up the wrong font.
+            var iconSize = btnFont * Layout.Content.Icon.TextSizeRatio;
 
-            Layout.Node Btn(string glyph, string hit, Action<InputModifier> onClick) =>
-                Layout.Builder.Text(glyph, btnFont, btnText, TextAlign.Center, TextAlign.Center)
-                    .WFixed(btnW).HStar().Bg(btnBg)
+            // A mark is an Icon, never a symbol character in a Text run (CLAUDE.md) -- for the two
+            // glyphs this control actually steps by. The gain-mode cycler reuses this same control with
+            // "◀"/"▶" (left/right caret), which DIR.Lib's IconKind has no member for yet, so
+            // that one glyph still falls through to a drawn Text run.
+            Layout.Node Btn(string glyph, string hit, Action<InputModifier> onClick)
+            {
+                var mark = glyph switch
+                {
+                    "+" => Layout.Builder.Icon(Layout.IconKind.Plus, iconSize, btnText),
+                    "-" or "−" => Layout.Builder.Icon(Layout.IconKind.Minus, iconSize, btnText),
+                    _ => Layout.Builder.Text(glyph, btnFont, btnText, TextAlign.Center, TextAlign.Center),
+                };
+                return mark.WFixed(btnW).HStar().Bg(btnBg)
                     .Clickable(new HitResult.ButtonHit(hit), canClick ? onClick : null);
+            }
 
             var value = Layout.Builder.Text(valueText, valueFontSize, valueColor, TextAlign.Center, TextAlign.Center).Stretch();
 
@@ -134,19 +149,20 @@ namespace TianWen.UI.Abstractions
             bool decEnabled = true, bool incEnabled = true)
         {
             var labelLeaf = Layout.Builder.Text(label, fontSize, labelColor).Stretch();
+            var iconSize = fontSize * Layout.Content.Icon.TextSizeRatio;
 
             // A disabled step button keeps its cell but drops the background fill + hit + handler (dimmed).
-            Layout.Node StepBtn(string glyph, string hitKey, Action<InputModifier>? onClick, bool stepEnabled)
+            Layout.Node StepBtn(Layout.IconKind icon, string hitKey, Action<InputModifier>? onClick, bool stepEnabled)
             {
-                var btn = Layout.Builder.Text(glyph, fontSize, bodyText, TextAlign.Center, TextAlign.Center).WFixed(stepBtnW).HStar();
+                var btn = Layout.Builder.Icon(icon, iconSize, bodyText).WFixed(stepBtnW).HStar();
                 return stepEnabled
                     ? btn.Bg(btnBg).Clickable(new HitResult.ButtonHit(hitKey), onClick)
                     : btn;
             }
 
-            var decLeaf = StepBtn("-", decHitKey, onDec, decEnabled);
+            var decLeaf = StepBtn(Layout.IconKind.Minus, decHitKey, onDec, decEnabled);
             var valueLeaf = Layout.Builder.Text(valueText, fontSize, valueColor, TextAlign.Center, TextAlign.Center).WFixed(stepBtnW * 2f).HStar();
-            var incLeaf = StepBtn("+", incHitKey, onInc, incEnabled);
+            var incLeaf = StepBtn(Layout.IconKind.Plus, incHitKey, onInc, incEnabled);
 
             return Layout.Builder.HStack(labelLeaf, decLeaf, valueLeaf, incLeaf).RowH(rowH).Bg(rowBg);
         }

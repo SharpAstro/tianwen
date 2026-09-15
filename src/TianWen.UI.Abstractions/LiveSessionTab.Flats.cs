@@ -80,8 +80,8 @@ namespace TianWen.UI.Abstractions
                         control.WStar(0.58f).HStar())
                     .RowH(BaseRowHeight);
 
-            Layout.Node CountStep(string glyph, string action, Action onClick) =>
-                Layout.Builder.Text(glyph, BaseFontSize * 0.78f, BodyText, TextAlign.Center, TextAlign.Center)
+            Layout.Node CountStep(Layout.IconKind icon, string action, Action onClick) =>
+                Layout.Builder.Icon(icon, BaseFontSize * 0.78f * Layout.Content.Icon.TextSizeRatio, BodyText)
                     .WFixed(24f).HStar().Bg(GuiTheme.NeutralButtonBg)
                     .Clickable(new HitResult.ButtonHit(action), _ => { onClick(); });
 
@@ -108,9 +108,9 @@ namespace TianWen.UI.Abstractions
                         })),
                 LabeledRow("Per filter",
                     Layout.Builder.HStack(
-                        CountStep("-", "FlatsSetupCountMinus", () => { state.FlatSetupPerFilter = Math.Max(1, state.FlatSetupPerFilter - 1); state.NeedsRedraw = true; }),
+                        CountStep(Layout.IconKind.Minus, "FlatsSetupCountMinus", () => { state.FlatSetupPerFilter = Math.Max(1, state.FlatSetupPerFilter - 1); state.NeedsRedraw = true; }),
                         Layout.Builder.Text($"{state.FlatSetupPerFilter}", BaseFontSize * 0.78f, BrightText, TextAlign.Center, TextAlign.Center).Stretch(),
-                        CountStep("+", "FlatsSetupCountPlus", () => { state.FlatSetupPerFilter = Math.Min(100, state.FlatSetupPerFilter + 1); state.NeedsRedraw = true; }))),
+                        CountStep(Layout.IconKind.Plus, "FlatsSetupCountPlus", () => { state.FlatSetupPerFilter = Math.Min(100, state.FlatSetupPerFilter + 1); state.NeedsRedraw = true; }))),
                 Layout.Builder.Spacer().RowH(BasePadding),
                 Layout.Builder.Text(hint, BaseFontSize * 0.78f, DimText, TextAlign.Near, TextAlign.Near).RowH(BaseRowHeight * 3f));
 
