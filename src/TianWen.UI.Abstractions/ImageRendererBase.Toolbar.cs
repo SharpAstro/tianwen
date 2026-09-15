@@ -882,27 +882,6 @@ namespace TianWen.UI.Abstractions
             }
         }
 
-        /// <summary>
-        /// Places a floating box of the given size next to an anchor point, clamped inside the viewport
-        /// via a one-node <see cref="Layout.Node.Anchored"/> arrange -- DIR.Lib's own answer (8.12) to
-        /// keeping a panel on screen, in place of the hand-rolled clamp <c>OverlayPlacement.cs</c> used to
-        /// carry. <paramref name="anchorX"/>/<paramref name="anchorY"/> and the returned box are already
-        /// device pixels, so the arrange runs at <see cref="DesignScale.One"/>.
-        /// </summary>
-        private RectF32 PlaceOverlayBox(float anchorX, float anchorY, float width, float height)
-        {
-            var anchored = Layout.Builder.Anchored(Layout.Builder.Spacer().WFixed(width).HFixed(height),
-                offsetAlong: anchorX, offsetAcross: anchorY);
-            var arranged = ArrangeLayout(anchored, new RectF32(0f, 0f, Width, Height), scale: DesignScale.One);
-            var bounds = arranged[1].Bounds;
-            return new RectF32(bounds.X, bounds.Y, bounds.Width, bounds.Height);
-        }
-
-        /// <summary>The X half of <see cref="PlaceOverlayBox"/>, for a caller that clamps only
-        /// horizontally (a dropdown, whose height is its own row count and scrolls rather than being
-        /// clamped).</summary>
-        private float ClampOverlayX(float x, float width) => PlaceOverlayBox(x, 0f, width, 1f).X;
-
         private void OpenDropdown(ViewerState state, RectF32 bounds, ImmutableArray<string> labels, Action<int, string> onSelect, int selectedIndex = -1)
         {
             // Width = max(button width, widest label + horizontal padding).
@@ -926,7 +905,7 @@ namespace TianWen.UI.Abstractions
             // wider than the button, so anchoring on bounds.X alone put most of every line past the
             // window. Only x is clamped: the menu scrolls itself when it is too tall, so lifting y would
             // fight that.
-            var x = ClampOverlayX(bounds.X, width);
+            var x = OverlayPlacement.ClampX(bounds.X, width, Width);
 
             state.ToolbarDropdown.Open(
                 x,
@@ -1084,16 +1063,17 @@ namespace TianWen.UI.Abstractions
                 // the revealed text starts at the same x as the truncated text it replaces -- a
                 // different inset would make the name appear to jump sideways on hover.
                 var width = textWidth + PanelPadding * 2f;
-                box = PlaceOverlayBox(tip.X, tip.Y, width, rowHeight);
-                textX = box.X + PanelPadding;
+                var x = OverlayPlacement.ClampX(tip.X, width, Width);
+                var y = OverlayPlacement.ClampY(tip.Y, rowHeight, Height);
+                box = new RectF32(x, y, width, rowHeight);
+                textX = x + PanelPadding;
             }
             else
             {
-                // OverlayPlacement's Anchor.Below left anchorY unmodified (only its RightOf case, never
-                // reached here, offset by half the box height), so the anchor point IS the box origin.
-                var pad = 6f * DpiScale;
-                box = PlaceOverlayBox(tip.X, tip.Y, textWidth + pad * 2f, fontSize + pad);
-                textX = box.X + pad;
+                var placed = OverlayPlacement.Place(OverlayPlacement.Anchor.Below, tip.X, tip.Y,
+                    textWidth, fontSize, DpiScale, Width, Height);
+                box = placed.Box;
+                textX = placed.TextX;
             }
 
             FillRect(box.X - 1f, box.Y - 1f, box.Width + 2f, box.Height + 2f, ViewerTheme.Palette.SeparatorStrong);
