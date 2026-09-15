@@ -55,12 +55,13 @@ namespace TianWen.UI.Abstractions
             var latest = buffer?.Latest;
 
             // ---- Readout row: 4 equal cells (CCD / setpoint / power / state) as one HStack. Cells stay
-            // truncated so a long coord can't bleed into the next cell (the engine's Text leaf never clips). ----
+            // truncated to the width the row divides into, so a long coord can't bleed into the next cell. ----
             string Fmt(double? v, string suffix) => v is { } d ? $"{d:F1}{suffix}" : "--";
             var cellW = innerW / 4f;
             var cellFs = fontSize * 0.85f;
             Layout.Node Cell(string s) =>
-                Layout.Builder.Text(TruncateToWidth(s, cellFs, cellW), BaseFontSize * 0.85f, BodyText).WStar().HStar();
+                Layout.Builder.Text(TextFit.TrimToWidth(Renderer, s, fontPath, FontFallback, cellFs, cellW, TextTrim.End),
+                    BaseFontSize * 0.85f, BodyText).WStar().HStar();
 
             rows.Add(Layout.Builder.HStack(
                     Cell($"CCD: {Fmt(latest?.CcdTempC, "\u00b0C")}"),
@@ -185,7 +186,8 @@ namespace TianWen.UI.Abstractions
             var cellW = innerW / 3f;
             var cellFs = fontSize * 0.85f;
             Layout.Node Coord(string s) =>
-                Layout.Builder.Text(TruncateToWidth(s, cellFs, cellW), BaseFontSize * 0.85f, BodyText).WStar().HStar();
+                Layout.Builder.Text(TextFit.TrimToWidth(Renderer, s, FontPath, FontFallback, cellFs, cellW, TextTrim.End),
+                    BaseFontSize * 0.85f, BodyText).WStar().HStar();
 
             var readout = Layout.Builder.VStack(
                 toggle,

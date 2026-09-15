@@ -53,7 +53,7 @@ namespace TianWen.UI.Abstractions
             {
                 if (i > 0)
                 {
-                    columns.Add(Layout.Builder.Spacer().WFixed(1f).HStar().Bg(SeparatorColor));
+                    columns.Add(Layout.Builder.Box(1f, 0f, SeparatorColor).WFixed(1f).HStar());
                 }
                 columns.Add(BuildRunningOtaColumn(state, session, i, fontSize, timeProvider).WStar());
             }
@@ -249,7 +249,7 @@ namespace TianWen.UI.Abstractions
 
             // Full-width hairline divider above the block (a coloured Box node, not a Fill painter).
             return Layout.Builder.VStack(
-                Layout.Builder.Spacer().RowH(1f).Bg(SeparatorColor),
+                Layout.Builder.Box(0f, 1f, SeparatorColor).RowH(1f),
                 content);
         }
 

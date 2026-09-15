@@ -117,7 +117,6 @@ namespace TianWen.UI.Abstractions
             var buttons = Layout.Builder.VStack(
                 Button("Cancel", "FlatsSetupBack", 1.2f, GuiTheme.NeutralButtonBg, DimText,
                     _ => { state.Mode = LiveSessionMode.Preview; state.FlatStatusMessage = ""; state.NeedsRedraw = true; }),
-                Layout.Builder.Spacer().RowH(BasePadding),
                 Button("Start", "FlatsSetupStart", 1.6f,
                     canStart ? GuiTheme.GoButtonBg : GuiTheme.NeutralButtonBg,
                     canStart ? BrightText : DimText,
@@ -125,7 +124,7 @@ namespace TianWen.UI.Abstractions
                     {
                         if (!canStart) { state.FlatStatusMessage = reason; state.NeedsRedraw = true; return; }
                         PostSignal(new StartFlatsSignal(state.FlatSetupSource, state.FlatSetupPerFilter));
-                    }));
+                    })).WithGap(BasePadding);
 
             var bottomH = BaseRowHeight * 1.2f + BasePadding + BaseRowHeight * 1.6f;
             var tree = Layout.Builder.Dock(content, Layout.Builder.Bottom(buttons, bottomH)).Pad(BasePadding);
