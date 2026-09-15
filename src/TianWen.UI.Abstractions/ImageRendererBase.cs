@@ -895,6 +895,16 @@ namespace TianWen.UI.Abstractions
         {
             BeginFrame();
 
+            // An open popover claims the pointer BY BEING PAINTED (WindowUiSettings.PointerOwner), and a
+            // rect has no way to answer "I am not displayed any more", so the claim has to be cleared
+            // once per frame. BeginFrame asks the settings to do that, but the settings key it on
+            // Ui.FrameId -- and a host that does not count frames leaves that at 0, so the very first
+            // BeginFrame clears it and every later one returns early. Nothing in this codebase counts
+            // frames, so without this line a popover that has closed goes on owning the pointer for the
+            // life of the process, and every hover outside its ghost rect stays cold: the dropdown rows
+            // stop lighting under the mouse, which is precisely the symptom setting Pointer above fixed.
+            Ui.PointerOwner = null;
+
             // Tell the widget base where the pointer is, for THIS frame's layout: it resolves the
             // dropdown row highlight and any Layout HoverBackground during paint, because the widget
             // that drew the geometry is the only thing that can say what the pointer is over. Set here
