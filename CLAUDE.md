@@ -1433,6 +1433,16 @@ through the `Planes` accessor**: three call sites that didn't (`GetChannelArray`
 sampler, `ScaleFloatValuesToUnitInPlace`) silently read the evicted 0x0 stub -- a FITS write of an
 evicted image emitted nothing and the in-place rescale threw on `plane[0, 0]`.
 
+**A plane is `float[,]` and stays one; what you change is how a LOOP reads it.** Measured 2026-09-15
+(`docs/architecture/image-pipeline.md`, "How a plane is READ"): a `[y, x]` index is a multiply and two
+bounds checks the compiler cannot lift, 2.4x on a 3x3 stencil and 15 percent on a bilinear gather under
+the AOT that ships, and a span over the SAME `float[,]` sliced per row beats a native flat `float[]`
+(11.8 against 19.4 ms), so migrating `Channel.Data` would have been a package break for a loss. Write a
+hot loop as `MemoryMarshal.CreateReadOnlySpan(ref plane[y, 0], width)` per row (or one flat view per
+operation), and take that view ONCE per operation or row, never per sample: `SubpixelValue` and
+`Lanczos3Value` have span-plus-width overloads for exactly that, the `float[,]` ones being wrappers for
+a handful of positions. A stream loop gains nothing from any of this and need not be touched.
+
 **Test fixtures must not share `Image` instances across tests.** `SharedTestData` caches the
 extracted temp file path, not an `Image` -- two parallel collections sharing one cached `Image`
 through `AdoptImageAsync` produced a "1 ms / 0 stars" `FindStarsAsync` flake.

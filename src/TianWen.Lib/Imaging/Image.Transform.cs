@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -142,11 +143,16 @@ public partial class Image
             var srcPlane = srcPlanes[channel];
             await Parallel.ForAsync(0, refHeight, parallelOptions, async (y, ct) => await Task.Run(() =>
             {
+                // The source plane's flat view and the destination row, both once per ROW: a span
+                // cannot be captured by the lambda, and once per row is already 1 / width of the
+                // per-sample cost it replaces.
+                var src = MemoryMarshal.CreateReadOnlySpan(ref srcPlane[0, 0], srcPlane.Length);
+                var dstRow = MemoryMarshal.CreateSpan(ref dstChannel[y, 0], refWidth);
                 for (var x = 0; x < refWidth; x++)
                 {
                     var srcPos = Vector2.Transform(new Vector2(x, y), inverseTransform);
-                    dstChannel[y, x] = srcPos.X >= 0 && srcPos.X < srcW && srcPos.Y >= 0 && srcPos.Y < srcH
-                        ? Sample(srcPlane, srcPos.X, srcPos.Y, interpolation)
+                    dstRow[x] = srcPos.X >= 0 && srcPos.X < srcW && srcPos.Y >= 0 && srcPos.Y < srcH
+                        ? Sample(src, srcW, srcH, srcPos.X, srcPos.Y, interpolation)
                         : float.NaN;
                 }
                 return ValueTask.CompletedTask;
@@ -287,13 +293,15 @@ public partial class Image
             var srcPlane = regionPlanes[channel];
             Parallel.For(0, regionH, parallelOptions, dy =>
             {
+                var src = MemoryMarshal.CreateReadOnlySpan(ref srcPlane[0, 0], srcPlane.Length);
+                var dstRow = MemoryMarshal.CreateSpan(ref dstChannel[dy, 0], regionW);
                 var canvasY = y0 + dy;
                 for (var dx = 0; dx < regionW; dx++)
                 {
                     var canvasX = x0 + dx;
                     var srcPos = Vector2.Transform(new Vector2(canvasX, canvasY), inverseTransform);
-                    dstChannel[dy, dx] = srcPos.X >= 0 && srcPos.X < srcW && srcPos.Y >= 0 && srcPos.Y < srcH
-                        ? Sample(srcPlane, srcPos.X, srcPos.Y, interpolation)
+                    dstRow[dx] = srcPos.X >= 0 && srcPos.X < srcW && srcPos.Y >= 0 && srcPos.Y < srcH
+                        ? Sample(src, srcW, srcH, srcPos.X, srcPos.Y, interpolation)
                         : float.NaN;
                 }
             });
@@ -307,13 +315,15 @@ public partial class Image
     }
 
     /// <summary>One source sample at a fractional position, by the kernel chosen. The caller has
-    /// already checked the position lies inside the source.</summary>
-    private float Sample(float[,] plane, float x, float y, WarpInterpolation interpolation)
+    /// already checked the position lies inside the source, and holds the plane as a flat view taken
+    /// once per row (see <see cref="SubpixelValue(ReadOnlySpan{float}, int, int, float, float)"/>).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static float Sample(ReadOnlySpan<float> plane, int width, int height, float x, float y, WarpInterpolation interpolation)
         => interpolation switch
         {
-            WarpInterpolation.Lanczos3 => Lanczos3Value(plane, x, y, clampThreshold: 1f),
-            WarpInterpolation.Lanczos3Clamped => Lanczos3Value(plane, x, y, LanczosClampingThreshold),
-            _ => SubpixelValue(plane, x, y),
+            WarpInterpolation.Lanczos3 => Lanczos3Value(plane, width, height, x, y, clampThreshold: 1f),
+            WarpInterpolation.Lanczos3Clamped => Lanczos3Value(plane, width, height, x, y, LanczosClampingThreshold),
+            _ => SubpixelValue(plane, width, height, x, y),
         };
 
     /// <summary>
@@ -349,6 +359,23 @@ public partial class Image
     {
         var height = plane.GetLength(0);
         var width = plane.GetLength(1);
+        if (height == 0 || width == 0)
+        {
+            return float.NaN;
+        }
+
+        return Lanczos3Value(MemoryMarshal.CreateReadOnlySpan(ref plane[0, 0], plane.Length), width, height, x, y, clampThreshold);
+    }
+
+    /// <summary>
+    /// <see cref="Lanczos3Value(float[,], float, float, float)"/> over a flat row-major view of the
+    /// plane, which a loop sampling every destination pixel takes once per row rather than per sample.
+    /// Thirty-six taps per destination pixel is the densest read in the library, and a <c>[sy, sx]</c>
+    /// on a <c>float[,]</c> costs a multiply and two bounds checks per tap that a row slice pays once
+    /// (<c>PlaneAccessBenchmarks.Lanczos3</c>).
+    /// </summary>
+    internal static float Lanczos3Value(ReadOnlySpan<float> flat, int width, int height, float x, float y, float clampThreshold = 1f)
+    {
         var x0 = (int)MathF.Floor(x);
         var y0 = (int)MathF.Floor(y);
         Span<float> wx = stackalloc float[6];
@@ -374,6 +401,7 @@ public partial class Image
                 continue;
             }
 
+            var row = flat.Slice(sy * width, width);
             for (var i = 0; i < 6; i++)
             {
                 var sx = x0 - 2 + i;
@@ -382,7 +410,7 @@ public partial class Image
                     continue;
                 }
 
-                var v = plane[sy, sx];
+                var v = row[sx];
                 if (float.IsNaN(v))
                 {
                     continue;
@@ -484,11 +512,13 @@ public partial class Image
             var srcPlane = transformPlanes[channel];
             await Parallel.ForAsync(0, newHeight, parallelOptions, async (y, ct) => await Task.Run(() =>
             {
+                var src = MemoryMarshal.CreateReadOnlySpan(ref srcPlane[0, 0], srcPlane.Length);
+                var dstRow = MemoryMarshal.CreateSpan(ref dstChannel[y, 0], newWidth);
                 for (var x = 0; x < newWidth; x++)
                 {
                     var sourcePos = Vector2.Transform(new Vector2(x, y), inverseTransform);
-                    dstChannel[y, x] = sourcePos.X >= 0 && sourcePos.X < width && sourcePos.Y >= 0 && sourcePos.Y < height
-                        ? SubpixelValue(srcPlane, sourcePos.X, sourcePos.Y)
+                    dstRow[x] = sourcePos.X >= 0 && sourcePos.X < width && sourcePos.Y >= 0 && sourcePos.Y < height
+                        ? SubpixelValue(src, width, height, sourcePos.X, sourcePos.Y)
                         : float.NaN;
                 }
 

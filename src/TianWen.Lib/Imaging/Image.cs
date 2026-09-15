@@ -800,12 +800,40 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
         return arrays;
     }
 
+    /// <summary>
+    /// <see cref="SubpixelValue(ReadOnlySpan{float}, int, int, float, float)"/> over a whole plane, for a
+    /// caller sampling a handful of positions. A loop that samples every destination pixel should take
+    /// the flat view ONCE and call the span overload, exactly as it resolves residency once through
+    /// <see cref="ResidentPlanes"/>: the view is a bounds check and a length read, and per-sample work
+    /// is the one place that cost shows.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
-    private float SubpixelValue(float[,] channelData, float x1, float y1)
+    private static float SubpixelValue(float[,] channelData, float x1, float y1)
     {
-        var width = Width;
-        var height = Height;
+        if (channelData.Length == 0)
+        {
+            return float.NaN;
+        }
 
+        return SubpixelValue(MemoryMarshal.CreateReadOnlySpan(ref channelData[0, 0], channelData.Length),
+            channelData.GetLength(1), channelData.GetLength(0), x1, y1);
+    }
+
+    /// <summary>
+    /// Bilinear sample of a row-major plane at a fractional position: the four taps around
+    /// (<paramref name="x1"/>, <paramref name="y1"/>), a tap outside the plane or NaN dropping to the
+    /// nearest-tap rule below. NaN when the truncated position is outside the plane.
+    /// </summary>
+    /// <remarks>
+    /// The plane is a flat span plus its width because every bilinear warp and every planetary
+    /// accumulate comes through here once per destination pixel, and the read's spelling is the cost:
+    /// a <c>[y, x]</c> on a <c>float[,]</c> is a multiply plus two bounds checks per tap that a flat
+    /// index pays once (<c>PlaneAccessBenchmarks</c>, <c>WarpBenchmarks</c>). The bounds are
+    /// established up front, so the flat index cannot leave the plane.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
+    private static float SubpixelValue(ReadOnlySpan<float> plane, int width, int height, float x1, float y1)
+    {
         // assumes that maxVal < long.MaxValue
         var x_trunc = (long)MathF.Truncate(x1);
         var y_trunc = (long)MathF.Truncate(y1);
@@ -814,14 +842,15 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
         {
             return float.NaN;
         }
-        else if (x_trunc == x1 && y_trunc == y1)
+
+        var i0 = (int)(y_trunc * width + x_trunc);
+        if (x_trunc == x1 && y_trunc == y1)
         {
-            return channelData[y_trunc, x_trunc];
+            return plane[i0];
         }
 
         var x_frac = x1 - x_trunc;
         var y_frac = y1 - y_trunc;
-        try
         {
             const int tl = 0;
             const int tr = 1;
@@ -832,20 +861,20 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
             Span<float> pixels = stackalloc float[4];
             pixels.Fill(float.NaN);
 
-            pixels[tl] = channelData[y_trunc, x_trunc];
+            pixels[tl] = plane[i0];
             if (x_trunc < width - 1)
             {
-                pixels[tr] = channelData[y_trunc, x_trunc + 1];
+                pixels[tr] = plane[i0 + 1];
             }
 
             if (y_trunc < height - 1)
             {
-                pixels[bl] = channelData[y_trunc + 1, x_trunc];
+                pixels[bl] = plane[i0 + width];
             }
 
             if (x_trunc < width - 1 && y_trunc < height - 1)
             {
-                pixels[br] = channelData[y_trunc + 1, x_trunc + 1];
+                pixels[br] = plane[i0 + width + 1];
             }
 
             for (var i = 0; i < 4; i++)
@@ -894,15 +923,6 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
                     return float.NaN;
                 }
             }
-        }
-        catch (Exception ex) when (Environment.UserInteractive)
-        {
-            GC.KeepAlive(ex);
-            throw;
-        }
-        catch
-        {
-            return float.NaN;
         }
     }
 

@@ -351,6 +351,16 @@ Checks that only a real device or a real night can answer live in ONE place, ind
 
 ## Next Up
 
+- [ ] **Plane loops still spelled `[y, x]`, one measured commit each.** The 2026-09-15 pass
+  (`docs/architecture/image-pipeline.md`, "How a plane is READ") settled that the storage stays
+  `float[,]` and the LOOP spelling is the lever (2.4x on a stencil, 15 percent on a gather under AOT).
+  Converted: MHC, the 2x2 mono fold, `Lanczos3Value`, `SubpixelValue`, the warp destination rows, the
+  luma stats loop, the CFA split/merge. Left, by site count: `Stacking/CometModel.cs` (26),
+  `Stacking/ChunkedTwoPassStrategy.cs` (20), `Planetary/FrameSharpnessMap.cs` (10),
+  `Calibration/BadPixelAccumulator.cs` (7), and the planetary `Accumulate*Into` STORE side, which is
+  the control that says whether the store matters at all. Price each with `PlaneAccessBenchmarks` /
+  a sibling first; a stream loop gains nothing and should be left alone.
+
 - [ ] **macOS `.dmg` lane: turn ad-hoc into Developer ID** (lane SHIPPED 2026-09-11, `packaging/macos/`,
   the `dmg` job; until the secrets exist it signs ad-hoc and a downloaded copy needs Privacy &
   Security > Open Anyway). Three steps, in order: enrol SharpAstro's OWN Apple Developer Program
