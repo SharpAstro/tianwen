@@ -382,7 +382,7 @@ namespace TianWen.UI.Abstractions
                 if (isPinned)
                 {
                     var capturedPinIdx = PlannerActions.FindProposalIndex(state.Proposals, scored.Target);
-                    pinLeaf = Layout.Builder.Text("\u2212", BaseFontSize, RemoveBtnText, TextAlign.Center, TextAlign.Center)
+                    pinLeaf = Layout.Builder.Icon(Layout.IconKind.Minus, BaseFontSize * Layout.Content.Icon.TextSizeRatio, RemoveBtnText)
                         .WFixed(BaseFontSize * 1.5f).HStar().Bg(RemoveBtnBg)
                         .Clickable(
                             capturedPinIdx >= 0 ? new HitResult.ButtonHit("RemoveProposal") : null,
@@ -398,7 +398,7 @@ namespace TianWen.UI.Abstractions
                 else
                 {
                     var capturedTarget = scored.Target;
-                    pinLeaf = Layout.Builder.Text("+", BaseFontSize, PinnedText, TextAlign.Center, TextAlign.Center)
+                    pinLeaf = Layout.Builder.Icon(Layout.IconKind.Plus, BaseFontSize * Layout.Content.Icon.TextSizeRatio, PinnedText)
                         .WFixed(BaseFontSize * 1.5f).HStar().Bg(PinnedBg)
                         .Clickable(new HitResult.ButtonHit("AddProposal"), _ =>
                         {
