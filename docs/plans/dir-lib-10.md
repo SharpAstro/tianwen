@@ -314,7 +314,7 @@ They will rebase cleanly onto each other except possibly `Directory.Packages.pro
 ### DIR.Lib, one integration branch
 
 `feat/dir-lib-9.2` off `main` (b07c547), draft PR SharpAstro/DIR.Lib#82, carries wave 1a (`feat/dir-lib-9.2-wave1a`) and wave 1b
-(`feat/dir-lib-9.2-wave1b`) merged. Its draft PR body lists what each wave shipped with exact signatures.
+(`feat/dir-lib-9.2-wave1b`) BOTH MERGED and green: 1235 tests, up from 1102 on main. Its draft PR body lists what each wave shipped with exact signatures.
 `VersionMajorMinor` is still 9.1 on purpose: the release is cut from this branch when wave 3 is green.
 `CHANGELOG.md` already has the `## 9.2` section, one block per wave.
 
@@ -327,7 +327,7 @@ They will rebase cleanly onto each other except possibly `Directory.Packages.pro
 2. **The 9.2 release chain**: bump `VersionMajorMinor` to 9.2 on `feat/dir-lib-9.2`, merge, wait for NuGet,
    then Console.Lib 4.35 / SdlVulkan.Renderer / WebGl.Renderer rebuilt against it (the `MouseUp` / `MouseMove`
    records make the chain mandatory, see the 9.1 lesson), then tianwen's pins move together. `/release-lib`.
-3. **T1** (tianwen on the router; delete the three routers, the tab-shortcut switch, F3; `.Shortcut(F, Ctrl)`
+3. **T1** (tianwen on the router; delete the three routers, the tab-shortcut switch, F3; `.WithShortcut(F, Ctrl)`
    on the search box; `SessionTab`'s exposure edit and `CloseSearch` through the focus owner; the three
    hand-written Up/Down blocks the sweep could NOT convert, once `ListCursor.Open(..., count)` exists),
    **T2** (popovers and sliders as nodes; delete `OverlayOwnsPointer`, the five drag flags,
@@ -466,7 +466,8 @@ Files: `Layout/Node.cs`, `Layout/Node.Fluent.cs`, `Layout/Builder.cs`, `Layout/C
 - **`readonly record struct KeyChord(InputKey Key, InputModifier Modifiers = InputModifier.None)`** with
   `bool BeatsFocusedField => (Modifiers & (Ctrl | Alt)) != 0 || Key is F1..F24`. The precedence rule is a
   property of the chord, stated once, so the router and a test read the same fact.
-- **`Node.Shortcut : KeyChord?`**, fluent **`.Shortcut(InputKey key, InputModifier mods = None)`**. Inert in
+- **`Node.Shortcut : KeyChord?`**, fluent **`.WithShortcut(InputKey key, InputModifier mods = None)`** (a method cannot
+  share its property's name; `WithCursor` / `WithGap` met the same wall). Inert in
   arrange and paint; consumed by the router (wave 3) from the captured layout, PAINTED nodes only.
 - **`readonly record struct PointerPress(float X, float Y, MouseButton Button, InputModifier Modifiers, int Clicks)`**
   and **`readonly record struct PointerMove(float X, float Y, MouseButton Button, InputModifier Modifiers)`**:
@@ -481,7 +482,7 @@ Files: `Layout/Node.cs`, `Layout/Node.Fluent.cs`, `Layout/Builder.cs`, `Layout/C
 - **`Node.OnActivate : Action<InputModifier>?`**, fluent **`.Activatable(action)`**: what Enter does on the
   row when it differs from a click. `ActivateListCursor` invokes `OnActivate ?? OnClick`. Answers the planner's
   "Enter pins, click selects".
-- **`Node.Tooltip : string?`**, fluent **`.Tooltip(text)`**. `ClickableRegion` gains `Tooltip`;
+- **`Node.Tooltip : string?`**, fluent **`.WithTooltip(text)`**. `ClickableRegion` gains `Tooltip`;
   `PaintLayout` registers a region for a node that has a tooltip but no hit (a `HitResult.ChromeHit` with
   no `OnClick`, so it stays inert to presses). Painting the tooltip is the router's (wave 3).
 - **`Node.DisabledReason : string?`** and **`bool IsDisabled => DisabledReason is not null`**, fluent
@@ -492,7 +493,7 @@ Files: `Layout/Node.cs`, `Layout/Node.Fluent.cs`, `Layout/Builder.cs`, `Layout/C
   and `Tooltip = DisabledReason`; `ListCursor` skips it (`ClickableRegionTracker` must know a region is
   disabled: add `bool IsDisabled` on `ClickableRegion`). `DropdownItem.Disabled` keeps its own painter; a
   follow-up may route it through this.
-- **`Node.Scroll : ListScrollController?`**, fluent **`.Scroll(controller)`**. `PaintLayout` calls
+- **`Node.Scroll : ListScrollController?`**, fluent **`.WithScroll(controller)`**. `PaintLayout` calls
   `controller.SetExtent(viewport: arranged rect, ...)` ONLY if the consumer has not (add
   `ListScrollController.BindViewport(RectF32)` that sets the viewport and leaves atom extent/count alone,
   so a consumer keeps stating rows), registers the rect with the controller reference on the region
@@ -514,10 +515,11 @@ Files: `Layout/Node.cs`, `Layout/Node.Fluent.cs`, `Layout/Builder.cs`, `Layout/C
 - **`IPixelWidget.CaretIndexAt(HitResult.TextInputHit, float pointerX)`** on the interface (the base already
   implements it), so a host holding the interface can place a caret. Deletes tianwen's `ICaretPlacingWidget`.
 - **`InputEvent.MouseUp` gains `Modifiers`** as an optional trailing parameter with a default, and
-  **`MouseMove` gains `Button`** likewise (`MouseButton.None` added to the enum). Positional
-  deconstruction patterns `MouseUp(var x, var y, _)` keep compiling because the new parameter is trailing
-  and defaulted; this is a RECORD, so see the 9.1 lesson: add explicit old-arity constructors for BOTH so the
-  published SdlVulkan.Renderer / WebGl.Renderer, which construct these, keep binding.
+  **`MouseMove` gains `Button`** likewise (`MouseButton.None` added to the enum). **Wave 1a found the
+  spec wrong here**: a trailing defaulted parameter does NOT keep a positional pattern compiling either, because a
+  record's synthesized `Deconstruct` takes its arity from the primary constructor; so both records carry an
+  explicit old-arity `Deconstruct` AS WELL AS an explicit old-arity constructor (the 9.1 lesson), and
+  `HitResult.TextInputHit(TextInputState)` is restored, so Console.Lib 4.33 runs against 9.2 unrebuilt.
 
 ### Wave 1b: the text field behaves like a field
 
@@ -725,7 +727,7 @@ the router is the piece that was "untestable inside a UI project" before U6 and 
 
 `GuiEventHandlerBase.HandleInput` becomes `router.Handle(evt)` plus the tab policy. Delete the web copy
 and the TUI's `_activeInlineInput`. The nine tab shortcuts and F3 become `.Shortcut` declarations; the
-sky-map search box gets `.Shortcut(InputKey.F, Ctrl)` as well, which is the user's example. The four
+sky-map search box gets `.WithShortcut(InputKey.F, InputModifier.Ctrl)` as well, which is the user's example. The four
 by-hand focus sites go through `Focus(input, seed)`. The three hand-written Up/Down blocks go to
 `ListCursor` (GUI) and `ScrollableList.MoveCursor` (TUI). Acceptance: `grep SelectAll\(\)` over
 `TianWen.UI*` and `TianWen.Cli` finds only tests; `grep "InputKey.F3"` finds nothing.
