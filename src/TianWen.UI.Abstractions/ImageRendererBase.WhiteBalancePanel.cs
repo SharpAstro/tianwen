@@ -455,7 +455,7 @@ namespace TianWen.UI.Abstractions
             // hung out over the image. The row reserves its widest labels (see the body), so this is a
             // constant per DPI and the panel does not resize as the buttons are toggled.
             var w = MathF.Max(BaseInfoPanelWidth * dpiScale, WhiteBalanceButtonRowWidth(gap) + pad * 2f);
-            var x = OverlayPlacement.ClampX(anchor.X, w, Width);
+            var x = ClampOverlayX(anchor.X, w);
             var y = anchor.Y + anchor.Height;
 
             // Sized from the same measures the body draws with, so the box and its contents cannot
