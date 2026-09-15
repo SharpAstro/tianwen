@@ -220,19 +220,17 @@ Filed 2026-09-13, out of the Explorer-thumbnail work (`fix(thumbnails): read not
 
 ## Imaging
 
-- [ ] **The dataset tile exporter refuses a master with drizzle holes, and two sessions are sitting
-  outside the training pool because of it.** This is the unshipped half of issue #250. The shipped half
-  gave the viewer `Image.FillInteriorHolesInPlace` (called from `AdoptImageAsync`, before the statistics)
-  and taught `LargestCoveredRectangle` that a border-reachable NaN is absence, both in 8.1. The exporter
-  got neither, and it opens with `RequireFiniteRange`, which is `float.IsFinite` on `MinValue` and
-  `MaxValue`; NaN is not finite, so a master carrying interior holes **throws and the whole session is
-  skipped** rather than exporting anything. The guard is right and must stay (it exists because five
-  sessions once wrote 1,500 tiles of pure zeroes from a `+Inf` master and nothing noticed until a human
-  opened one in ASTAP), so the fix is upstream of it: crop to the covered rectangle for the ring and fill
-  for the interior holes, in that order, before the stretch. **Both steps are needed and neither
-  substitutes for the other** -- a crop cannot reach an interior hole by construction, which is the whole
-  finding behind #250, and 53 of 79 masters in `2026-09-full` carry one. Recorded 2026-09-16 from the
-  2026-09-14 pick-up sheet, where it was the only copy.
+- [ ] **Crop the canvas ring before `DatasetDegradationExporter`'s stretch gate, or take the gate's
+  anchor off the minimum.** Two sessions are refused by that gate and both are admitted inside the
+  viewer's crop rectangle; the measurement is done and written up in
+  [known-limitations](../known-limitations.md), "the stretch-gate section" (re-measured 2026-09-14 over
+  the 79 masters of `2026-09-12-clamped`). The statistic is `median(value - min)` against 0.125, and on a
+  master with an exact-zero canvas ring the minimum is the RING rather than the darkest sky, so it
+  degenerates to the raw median: 0.321 on the ASI585 SMC master and 0.133 on the eta Car Ha one, against
+  0.044 and 0.022 inside the crop, under the bar by 3x and 6x. **Nothing here is about NaN or about
+  drizzle holes**, which are the separate half of #250; the anchor is the zero ring. Either fix works and
+  neither is done: the exporter has no crop step, and a percentile in place of the min would need no crop
+  at all. Recorded 2026-09-16 because the plans carry the why and nothing carried the to-do.
 - [x] **DONE 2026-08-21. Document-open traversal cost, and a correction to how it was first
   reported.** The original entry here quoted `Statistics(c)` x3 = 1,028-1,195 ms and called it the
   dominant cost. **Those were DEBUG numbers.** `dotnet test` defaults to Debug, and this library's
