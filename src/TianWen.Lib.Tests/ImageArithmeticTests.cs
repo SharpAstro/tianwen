@@ -129,22 +129,58 @@ public class ImageArithmeticTests
         }
     }
 
+    /// <summary>
+    /// A denominator that carries no information yields absence, not a very large number. This test
+    /// used to assert the opposite (<c>1 / 1e-3 = 1000</c>, "clamped, NOT inf"), and the clamp it
+    /// pinned is what put a pixel of 2.46e8 into a real master: the clamp does not prevent the
+    /// division by zero, it only makes the result finite enough to be mistaken for data.
+    /// </summary>
     [Fact]
-    public void Divide_clampsNearZeroDenominator()
+    public void DivideMarksAbsentWhereTheDenominatorCarriesNothing()
     {
         var num = Mono(1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f);
-        var den = Mono(0.0f, 0.5f, 1.0f, 1e-9f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f);
+        var den = Mono(0.0f, 0.5f, 1.0f, 1e-9f, 1e-3f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f);
 
         var result = num.Divide(den, epsilon: 1e-3f);
 
-        // den = 0 -> clamped to 1e-3, result = 1 / 1e-3 = 1000
-        result[0, 0, 0].ShouldBe(1000f, tolerance: 1e-2f);
-        // den = 0.5 -> not clamped, result = 1 / 0.5 = 2
+        float.IsNaN(result[0, 0, 0]).ShouldBeTrue("a denominator of exactly 0 is absence");
         result[0, 0, 1].ShouldBe(2f, tolerance: 1e-5f);
-        // den = 1.0 -> not clamped, result = 1
         result[0, 0, 2].ShouldBe(1f, tolerance: 1e-5f);
-        // den = 1e-9 < epsilon -> clamped to 1e-3, result = 1000
-        result[0, 0, 3].ShouldBe(1000f, tolerance: 1e-2f);
+        float.IsNaN(result[0, 0, 3]).ShouldBeTrue("1e-9 is under the floor");
+        float.IsNaN(result[0, 0, 4]).ShouldBeTrue("the floor itself is under it: the test is >, not >=");
+    }
+
+    /// <summary>
+    /// The absent lanes are decided per element, so a run of them may not disturb its neighbours. Worth
+    /// its own case because the SIMD path computes the quotient for every lane and selects afterwards,
+    /// which a scalar reading of the code does not show.
+    /// </summary>
+    [Fact]
+    public void DivideKeepsGoodLanesBesideAbsentOnes()
+    {
+        const int len = 17;   // deliberately not a multiple of any vector width
+        var num = new float[len];
+        var den = new float[len];
+        for (var i = 0; i < len; i++)
+        {
+            num[i] = 2f;
+            den[i] = i % 3 == 0 ? 0f : 2f;
+        }
+
+        var result = Image.FromChannel(MakeChannel(num, height: 1, width: len))
+            .Divide(Image.FromChannel(MakeChannel(den, height: 1, width: len)));
+
+        for (var i = 0; i < len; i++)
+        {
+            if (i % 3 == 0)
+            {
+                float.IsNaN(result[0, 0, i]).ShouldBeTrue($"lane {i}");
+            }
+            else
+            {
+                result[0, 0, i].ShouldBe(1f, tolerance: 1e-6f, $"lane {i}");
+            }
+        }
     }
 
     [Fact]
@@ -222,7 +258,9 @@ public class ImageArithmeticTests
         {
             var expectedSub = MathF.Max(aFlat[i] - bFlat[i], 0f);
             resultSub[0, 0, i].ShouldBe(expectedSub, tolerance: 1e-6f);
-            var expectedDiv = aFlat[i] / MathF.Max(bFlat[i], 1e-6f);
+            // Every denominator here is 0.1 or more, so none is near the floor and the reference is a
+            // plain division; the floor's own behaviour is pinned by the two tests above.
+            var expectedDiv = aFlat[i] / bFlat[i];
             resultDiv[0, 0, i].ShouldBe(expectedDiv, tolerance: 1e-4f);
         }
     }

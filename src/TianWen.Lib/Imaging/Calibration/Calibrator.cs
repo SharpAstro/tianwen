@@ -7,10 +7,10 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// Applies bias / dark / flat master frames to a light frame. Each master is
 /// optional: pass <c>null</c> for any step the caller doesn't want applied.
 /// <para>
-/// Formula: <c>calibrated = max(light - bias - dark + pedestal, 0) / max(flat, epsilon)</c>.
+/// Formula: <c>calibrated = flat &gt; epsilon ? max(light - bias - dark + pedestal, 0) / flat : NaN</c>.
 /// The pedestal is added on the dark subtraction (the deeper of the two; bias
-/// subtraction alone rarely needs an offset). The flat-denominator clamp
-/// prevents inf/NaN on dead sensor pixels.
+/// subtraction alone rarely needs an offset). A flat pixel at or below
+/// <see cref="FlatEpsilon"/> carries no calibration, so the output is absent.
 /// </para>
 /// <para>
 /// Two entry points for different consumers:
@@ -38,8 +38,24 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// clamp from zeroing out background pixels when the dark mean exceeds the
 /// light's measured background. Suggested 100-1000 for raw ADU data, or
 /// 0.001-0.01 for normalised [0, 1] float data. Default 0 (no offset).</param>
-/// <param name="FlatEpsilon">Lower bound on the flat divisor to prevent
-/// division by zero on dead sensor cells. Default 1e-6f.</param>
+/// <param name="FlatEpsilon">The throughput below which a flat pixel carries no calibration, as a
+/// fraction of the flat's mean (<see cref="MasterFrameBuilder.BuildFlatMasterAsync"/> normalises every
+/// frame to mean 1 before combining, so the stored value IS the relative throughput). Such a pixel is
+/// marked ABSENT, <see cref="float.NaN"/>, not divided. Default <b>0.02</b>.
+/// <para><b>It used to be 1e-6 and it used to CLAMP, and that pair is the bug it now fixes.</b> Dividing
+/// by <c>max(flat, 1e-6)</c> does not prevent a division by zero, it turns one into a multiplication by
+/// a million and hands back a finite number no consumer can tell from data. Found in the wild on
+/// `Eta Car SII NB / QHYCCD / 2024-03-02`, whose overscan columns are exactly 0 in the flat: the master
+/// peaks at 2.46e8 against a sky of 213, and 245,827,712 x 1e-6 = 245.83 is precisely the ADU value that
+/// went in. NaN is what the rest of the pipeline already understands, so absence travels correctly where
+/// that number travelled silently.</para>
+/// <para><b>0.02 is measured, not chosen.</b> Over the 18 master flats of the `2026-09-12-clamped` bake:
+/// 15 carry no pixel at all below 0.3 of the mean, and the three that do (6,770 exactly-zero pixels in
+/// total) have populations that are complete by 0.02 and add nothing between 0.02 and 0.3. So the dead
+/// population and the shallowest real optical attenuation are separated by an empty band 15x wide, and
+/// any threshold inside it selects the same pixels. 0.02 sits at the bottom of that band, which leaves
+/// the margin on the side that matters: a genuinely vignetted corner is never mistaken for a dead one.
+/// Re-measure before raising it, since a faster optic vignettes deeper.</para></param>
 /// <param name="DarkScale">Multiplier on the dark's THERMAL component, for a dark whose exposure
 /// does not match the light's. Dark current accumulates linearly with time, so the physically
 /// correct factor is <c>t_light / t_dark</c> and nothing needs fitting. 1.0 (the default) is an
@@ -61,7 +77,7 @@ public sealed record Calibrator(
     Image? Dark = null,
     Image? Flat = null,
     float Pedestal = 0f,
-    float FlatEpsilon = 1e-6f,
+    float FlatEpsilon = 0.02f,
     float DarkScale = 1f,
     Image? DarkBias = null)
 {
@@ -238,7 +254,7 @@ public sealed record Calibrator(
                 if (flatChannel is not null)
                 {
                     var f = flatChannel[srcY, srcX];
-                    v /= f > epsilon ? f : epsilon;
+                    v = f > epsilon ? v / f : float.NaN;
                 }
                 dst[rowOffset + x] = v;
             }

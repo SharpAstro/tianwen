@@ -104,17 +104,94 @@ public class CalibratorTests
         result[0, 0, 0].ShouldBe(0.35f, tolerance: 1e-5f);
     }
 
+    /// <summary>
+    /// A flat pixel with no throughput leaves the light with no calibrated value, so it comes out
+    /// absent. This test used to assert <c>1.0 / 1e-3 = 1000, NOT inf</c> and treat that as the fix;
+    /// the number it was happy with is the defect, scaled down. On a real QHY master whose overscan
+    /// columns are zero in the flat, the same expression produced 2.46e8 against a sky of 213.
+    /// </summary>
     [Fact]
-    public void Apply_FlatNearZero_ClampsToEpsilonNotInf()
+    public void ApplyMarksAFlatWithNoThroughputAbsentRatherThanScalingTheLight()
     {
         var light = Mono(new[] { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f });
         var flat  = Mono(new[] { 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f });
 
         var result = new Calibrator(Flat: flat, FlatEpsilon: 1e-3f).Apply(light);
 
-        // Dead pixel at (0,0): 1.0 / 1e-3 = 1000, NOT inf.
-        result[0, 0, 0].ShouldBe(1000f, tolerance: 1e-2f);
-        result[0, 0, 1].ShouldBe(1.0f, tolerance: 1e-5f); // normal pixel
+        float.IsNaN(result[0, 0, 0]).ShouldBeTrue("a dead flat pixel yields no value at all");
+        result[0, 0, 1].ShouldBe(1.0f, tolerance: 1e-5f);
+    }
+
+    /// <summary>
+    /// The default floor separates a dead pixel from a deeply vignetted one, and the gap it sits in was
+    /// measured rather than chosen: across the 18 master flats of the 2026-09-12-clamped bake nothing at
+    /// all lies between 0.02 and 0.3 of the mean, so any threshold in that band selects the same pixels
+    /// and 0.02 leaves the margin on the side where a real optic lives.
+    /// </summary>
+    [Theory]
+    [InlineData(0.0f, true)]
+    [InlineData(0.001f, true)]
+    [InlineData(0.02f, true)]      // the floor itself: the test is >, not >=
+    [InlineData(0.05f, false)]
+    [InlineData(0.30f, false)]     // a deeply vignetted corner survives
+    [InlineData(1.00f, false)]
+    public void TheDefaultFlatFloorSitsInTheMeasuredGap(float flatValue, bool expectAbsent)
+    {
+        var light = Mono(new[] { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f });
+        var flat  = Mono(new[] { flatValue, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f });
+
+        var result = new Calibrator(Flat: flat).Apply(light);
+
+        float.IsNaN(result[0, 0, 0]).ShouldBe(expectAbsent);
+        if (!expectAbsent)
+        {
+            result[0, 0, 0].ShouldBe(1.0f / flatValue, tolerance: 1e-4f);
+        }
+    }
+
+    /// <summary>
+    /// The tile path is the one the integrator actually runs, and it states the division separately
+    /// from <see cref="Calibrator.Apply"/>. A dead flat pixel is exactly where two copies of one rule
+    /// drift apart, so the parity case is asserted over a region that contains one.
+    /// </summary>
+    [Fact]
+    public void ApplyTileAgreesWithApplyOnAnAbsentPixel()
+    {
+        var light = Mono(new[] { 0.50f, 0.60f, 0.70f, 0.80f, 0.90f, 0.55f, 0.65f, 0.75f, 0.85f, 0.95f, 0.45f, 0.55f, 0.65f, 0.75f, 0.85f });
+        var flat  = Mono(new[] { 1.00f, 0.00f, 1.00f, 0.01f, 1.00f, 1.00f, 1.00f, 0.30f, 1.00f, 1.00f, 1.00f, 1.00f, 1.00f, 1.00f, 1.00f });
+
+        var cal = new Calibrator(Flat: flat);
+        var whole = cal.Apply(light);
+
+        const int rx = 1, ry = 0, rw = 3, rh = 2;
+        var srcTile = new float[rw * rh];
+        for (var y = 0; y < rh; y++)
+            for (var x = 0; x < rw; x++)
+                srcTile[y * rw + x] = light[0, ry + y, rx + x];
+
+        var dstTile = new float[rw * rh];
+        cal.ApplyTile(srcTile, channel: 0, regionX: rx, regionY: ry, regionWidth: rw, regionHeight: rh, dstTile);
+
+        var absent = 0;
+        for (var y = 0; y < rh; y++)
+        {
+            for (var x = 0; x < rw; x++)
+            {
+                var mine = dstTile[y * rw + x];
+                var theirs = whole[0, ry + y, rx + x];
+                if (float.IsNaN(theirs))
+                {
+                    absent++;
+                    float.IsNaN(mine).ShouldBeTrue($"({rx + x}, {ry + y})");
+                }
+                else
+                {
+                    mine.ShouldBe(theirs, tolerance: 1e-5f);
+                }
+            }
+        }
+
+        absent.ShouldBe(2, "the region must actually contain the absent pixels, or this proves nothing");
     }
 
     [Fact]

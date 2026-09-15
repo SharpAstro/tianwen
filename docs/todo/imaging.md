@@ -284,12 +284,23 @@ Filed 2026-09-13, out of the Explorer-thumbnail work (`fix(thumbnails): read not
   says "no calibration information here" and every consumer already knows what to do with it, while
   245,827,712 is indistinguishable from data and travels through warp, staging, the mean and the master
   into everything downstream. A dead pixel HAS no flat value; the honest output is absence.
-  **Two fixes, and they are not alternatives.** Upstream, crop QHY to its effective area on import as
-  Canon already is, so shielded columns never enter a light OR a flat. At the division, **a flat pixel
-  far below the flat's own median is not a divisor**, and the clamp should mark the pixel absent rather
-  than scale it. The second is worth having whatever happens to the first, because nothing about it is
-  specific to this sensor or to overscan. Any dust mote, any deep vignette corner and any dead region in
-  a flat is the same division, and today they all produce numbers rather than absence.
+  **The division half is FIXED (2026-09-16).** `Calibrator.FlatEpsilon` is 0.02 and marks the pixel
+  absent instead of clamping the divisor; `Image.Divide` and `Calibrator.ApplyTile` both state it, with
+  a parity test over a region containing an absent pixel so the two copies cannot drift. The threshold
+  was measured, not chosen: across the bake's 18 master flats nothing at all lies between 0.02 and 0.3 of
+  the mean, so the dead population and the shallowest real vignette are separated by an empty band 15x
+  wide. **Still open: crop QHY to its effective area on import** as Canon already is, so shielded columns
+  never enter a light OR a flat in the first place.
+  **The re-bake scope is the three flats, and the exact session list is not recoverable from what was
+  logged.** Only `master_flat_15s_16C_OptolongL-Ultimate3nm_...SV605CC_SH61EDPH` (18 dead px),
+  `master_flat_3s_5C_SulphurII_g15_QHYCCD` (11,057 under 0.01, 6,747 exactly zero) and
+  `master_flat_7s_10C_OptolongL-QuadEnhance_...SV605CC_SH61EDPH` (5 px) contain a pixel the new floor
+  touches, so a session calibrated with any of the other 15 is byte-identical and needs no re-bake. Which
+  sessions resolved to which flat is not in `bake-provenance.json`, the per-session `psf-sessions.jsonl`
+  or the bake log, so it has to come from a re-run. **Worth fixing while re-baking: record the resolved
+  calibration masters per session**, which would have answered this in one grep. Do not try to identify
+  affected masters by looking for large pixels: 34 of 79 carry a pixel over 100x their own p99.9 and
+  almost all of those are just bright stars, so that test finds the wrong set.
   Watch two things when changing it: `Image.FillInteriorHolesInPlace` will then interpolate these,
   which is right for a dead pixel and wrong for a 21-column band, and the rectangle rule treats a
   border-reachable NaN as absence, which is what would finally make the crop cut this band on its own.

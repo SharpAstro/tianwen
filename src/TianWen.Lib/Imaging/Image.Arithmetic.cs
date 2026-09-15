@@ -101,13 +101,27 @@ public partial class Image
     }
 
     /// <summary>
-    /// Returns <c>this / max(other, epsilon)</c> per pixel. Used by calibration
-    /// as the flat-field division step; <paramref name="epsilon"/> clamps the
-    /// denominator to avoid div-by-zero on dead flat pixels.
+    /// Returns <c>this / other</c> per pixel where the denominator carries information, and
+    /// <see cref="float.NaN"/> where it does not. Used by calibration as the flat-field division step.
     /// </summary>
+    /// <remarks>
+    /// <para><b>A denominator at or below <paramref name="epsilon"/> yields NaN, it is not clamped.</b>
+    /// This used to divide by <c>max(other, epsilon)</c>, which does not prevent the division by zero
+    /// so much as rename it: with the old 1e-6 default a flat pixel of exactly 0 multiplied the light
+    /// by a million, and the result was a finite number indistinguishable from data. It was measured in
+    /// the wild at 2.46e8 against a sky of 213 on a QHY master whose overscan columns are zero in the
+    /// flat, and 245,827,712 x 1e-6 = 245.83 is exactly the light pixel that went in.</para>
+    /// <para>A pixel with no usable denominator has no calibrated value, and NaN is the vocabulary this
+    /// codebase already has for that: <see cref="Image.LargestCoveredRectangle()"/> reads it as absence,
+    /// <c>MeanCombiner</c> skips it, <c>FillInteriorHolesInPlace</c> interpolates an interior one.
+    /// Every one of those does the right thing with a NaN and none of them can do anything at all with
+    /// a number six orders too big.</para>
+    /// </remarks>
     /// <param name="other">Denominator. Must match this image's shape. Typically
     /// a normalized master flat with median ~ 1.0.</param>
-    /// <param name="epsilon">Lower clamp on the denominator. Default 1e-6.</param>
+    /// <param name="epsilon">At or below this the denominator carries no information and the output is
+    /// NaN. Default 1e-6, which only catches an exact zero; a caller dividing by a master flat wants
+    /// <see cref="Calibrator.FlatEpsilon"/>'s measured default instead.</param>
     /// <returns>A new <see cref="Image"/> at <see cref="BitDepth.Float32"/>.
     /// Shares <see cref="ImageMeta"/> with the left operand.</returns>
     /// <exception cref="ArgumentException">Shapes mismatch.</exception>
@@ -120,7 +134,7 @@ public partial class Image
             var num = GetChannelSpan(c);
             var den = other.GetChannelSpan(c);
             var output = MemoryMarshal.CreateSpan(ref dst[c][0, 0], dst[c].Length);
-            DivideClampVec(num, den, epsilon, output);
+            DivideAbsentVec(num, den, epsilon, output);
         }
         return new Image(dst, BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
     }
@@ -408,25 +422,28 @@ public partial class Image
     }
 
     /// <summary>
-    /// SIMD inner loop for <c>dst = num / max(den, epsilon)</c>. The denominator
-    /// clamp avoids inf/NaN on dead flat-field pixels (sensor cells with zero
-    /// throughput).
+    /// SIMD inner loop for <c>dst = den > epsilon ? num / den : NaN</c>. A sensor cell with no
+    /// throughput has no calibrated value, so it is marked absent rather than scaled by 1/epsilon.
     /// </summary>
-    private static void DivideClampVec(ReadOnlySpan<float> num, ReadOnlySpan<float> den, float epsilon, Span<float> dst)
+    private static void DivideAbsentVec(ReadOnlySpan<float> num, ReadOnlySpan<float> den, float epsilon, Span<float> dst)
     {
         var width = Vector<float>.Count;
         var epsVec = new Vector<float>(epsilon);
+        var nanVec = new Vector<float>(float.NaN);
         var i = 0;
         for (; i <= num.Length - width; i += width)
         {
             var nv = new Vector<float>(num[i..]);
-            var dv = Vector.Max(new Vector<float>(den[i..]), epsVec);
-            (nv / dv).CopyTo(dst[i..]);
+            var dv = new Vector<float>(den[i..]);
+            // The quotient is computed for every lane including the absent ones, where it is an
+            // infinity that the select then discards. Float division raises nothing in .NET, so
+            // this costs one select and never a fault.
+            Vector.ConditionalSelect(Vector.GreaterThan(dv, epsVec), nv / dv, nanVec).CopyTo(dst[i..]);
         }
         for (; i < num.Length; i++)
         {
             var d = den[i];
-            dst[i] = num[i] / (d > epsilon ? d : epsilon);
+            dst[i] = d > epsilon ? num[i] / d : float.NaN;
         }
     }
 
