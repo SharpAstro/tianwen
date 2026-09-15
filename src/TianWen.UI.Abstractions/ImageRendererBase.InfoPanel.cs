@@ -14,10 +14,9 @@ namespace TianWen.UI.Abstractions
 {
     partial class ImageRendererBase<TSurface>
     {
-        // Wavelet-sharpen layer slider track rects (6 a-trous scales, finest first), captured in
-        // RenderWaveletControls each frame; map a cursor-X <-> per-layer gain. Only drawn for the live
-        // stacked view. Linear gain in [0, WaveletGainMax]; neutral 1.0.
-        private readonly RectF32[] _waveletTrackRects = new RectF32[6];
+        // 6 a-trous detail scales, finest first. Linear gain in [0, WaveletGainMax]; neutral 1.0. Only
+        // drawn for the live stacked view.
+        private const int WaveletBandCount = 6;
         private const float WaveletGainMax = 5f;
 
         // -----------------------------------------------------------------------
@@ -86,13 +85,6 @@ namespace TianWen.UI.Abstractions
             {
                 y += FontSize;
                 RenderWaveletControls(state, ref y, x, maxTextWidth);
-            }
-            else
-            {
-                for (var i = 0; i < _waveletTrackRects.Length; i++)
-                {
-                    _waveletTrackRects[i] = default;
-                }
             }
 
             // The SELECTION used to have a section here. It now floats over the picture instead
@@ -163,11 +155,10 @@ namespace TianWen.UI.Abstractions
                 : RGBAColor32.FromFloat(0.40f, 0.45f, 0.48f, 1f);
 
             var gains = state.WaveletGains;
-            for (var b = 0; b < _waveletTrackRects.Length; b++)
+            for (var b = 0; b < WaveletBandCount; b++)
             {
                 if (b >= gains.Length)
                 {
-                    _waveletTrackRects[b] = default;
                     continue;
                 }
 
@@ -181,13 +172,8 @@ namespace TianWen.UI.Abstractions
                 {
                     var frac = Math.Clamp(gains[b] / WaveletGainMax, 0f, 1f);
                     var hitBand = new RectF32(trackX, rowY - gap / 2f, trackW, FontSize + gap);
-                    _waveletTrackRects[b] = hitBand;
                     DrawTrackSlider(trackX, trackW, rowY, FontSize, frac,
                         fill, hitBand, new WaveletSliderHit(b), TrackChrome, Scale);
-                }
-                else
-                {
-                    _waveletTrackRects[b] = default;
                 }
 
                 DrawText(gains[b].ToString("0.0"), trackRight, rowY, FontSize, ViewerTheme.Palette.DimText);
@@ -202,7 +188,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public void BeginWaveletDragAt(int band, float px)
         {
-            if (_state is not { } state || (uint)band >= (uint)_waveletTrackRects.Length)
+            if (_state is not { } state || (uint)band >= WaveletBandCount)
             {
                 return;
             }
@@ -212,7 +198,22 @@ namespace TianWen.UI.Abstractions
             UpdateWaveletDrag(px);
         }
 
-        // Maps a cursor X onto a per-layer gain for the active drag band against its captured track rect.
+        // The band's track rect, read back from what RenderWaveletControls already registered via
+        // DrawTrackSlider -- see WhiteBalanceTrackRect, the same shape one row up in the panel.
+        private RectF32 WaveletTrackRect(int band)
+        {
+            foreach (var region in RegisteredRegions)
+            {
+                if (region.Result is WaveletSliderHit { Band: var b } && b == band)
+                {
+                    return new RectF32(region.X, region.Y, region.Width, region.Height);
+                }
+            }
+
+            return default;
+        }
+
+        // Maps a cursor X onto a per-layer gain for the active drag band against its registered track rect.
         private void UpdateWaveletDrag(float px)
         {
             if (_state is not { } state)
@@ -220,12 +221,17 @@ namespace TianWen.UI.Abstractions
                 return;
             }
             var b = state.WaveletDragBand;
-            if ((uint)b >= (uint)_waveletTrackRects.Length || _waveletTrackRects[b].Width <= 0f || b >= state.WaveletGains.Length)
+            if ((uint)b >= WaveletBandCount || b >= state.WaveletGains.Length)
+            {
+                return;
+            }
+            var track = WaveletTrackRect(b);
+            if (track.Width <= 0f)
             {
                 return;
             }
 
-            var frac = TrackFrac(_waveletTrackRects[b], px);
+            var frac = TrackFrac(track, px);
             state.WaveletGains = state.WaveletGains.SetItem(b, frac * WaveletGainMax);
             state.WaveletDirty = true;
             state.NeedsRedraw = true;
