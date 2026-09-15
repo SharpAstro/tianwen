@@ -67,6 +67,13 @@ namespace TianWen.Lib.Tests
                 .OfType<Layout.Content.Text>()
                 .Select(t => t.Value);
 
+        private static IEnumerable<Layout.IconKind> IconLeaves(Layout.Node tree) =>
+            Flatten(tree)
+                .OfType<Layout.Node.Leaf>()
+                .Select(l => l.Content)
+                .OfType<Layout.Content.Icon>()
+                .Select(i => i.Kind);
+
         [Fact]
         public void Build_LoopsOverEachOta_OneHeaderPerTelescope()
         {
@@ -224,8 +231,10 @@ namespace TianWen.Lib.Tests
                 "Inc", _ => clicked.Add("inc"));
             TextLeaves(row).ShouldContain("Offset");
             TextLeaves(row).ShouldContain("+5");
-            TextLeaves(row).ShouldContain("-");
-            TextLeaves(row).ShouldContain("+");
+            // The dec/inc marks are IconKind.Minus/Plus now, not "-"/"+" text runs (CLAUDE.md's rule
+            // that a mark is an Icon, never a symbol character in a Text run).
+            IconLeaves(row).ShouldContain(Layout.IconKind.Minus);
+            IconLeaves(row).ShouldContain(Layout.IconKind.Plus);
             var dec = Flatten(row).First(n => n.Hit is HitResult.ButtonHit { Action: "Dec" });
             dec.OnClick.ShouldNotBeNull();
             dec.OnClick!(InputModifier.None);
@@ -284,8 +293,10 @@ namespace TianWen.Lib.Tests
                 "+", "Inc:Exp", _ => clicked.Add("inc"),
                 "5s", 12f, new RGBAColor32(0xff, 0xff, 0xff, 0xff), enabled: true);
 
-            // Control-only stepper: [dec | value | inc] in order, value carries no hit.
-            TextLeaves(ctrl).ShouldBe(["-", "5s", "+"]);
+            // Control-only stepper: [dec | value | inc] in order, value carries no hit. The dec/inc
+            // marks are IconKind.Minus/Plus leaves now, not "-"/"+" text runs.
+            TextLeaves(ctrl).ShouldBe(["5s"]);
+            IconLeaves(ctrl).ShouldBe([Layout.IconKind.Minus, Layout.IconKind.Plus]);
 
             var dec = Flatten(ctrl).First(n => n.Hit is HitResult.ButtonHit { Action: "Dec:Exp" });
             var inc = Flatten(ctrl).First(n => n.Hit is HitResult.ButtonHit { Action: "Inc:Exp" });
