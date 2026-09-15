@@ -122,71 +122,125 @@ namespace TianWen.UI.Gui
         public CursorKind? CursorAt(float x, float y) => HitTestCursor(x, y);
 
         /// <summary>
-        /// Composed dispatch, with a press on the navigation rail turned into the tab switch it means.
+        /// What the navigation rail's cell at <paramref name="hit"/> MEANS: the tab it selects, or null
+        /// when the hit is not an enabled rail cell.
+        /// </summary>
+        /// <remarks>
+        /// The rail is a generic <see cref="TabBar{TSurface}"/>, so it reports a cell as an indexed
+        /// <see cref="HitResult.ListItemHit"/> and cannot know what an index stands for. Turning the index
+        /// into a <see cref="GuiTab"/> is this chrome's, and it is said HERE and nowhere else -- the region
+        /// walk, the node walk and the dispatch below all ask this one question. A LOCKED cell arrives as
+        /// <see cref="TabBarRegions.DisabledTabs"/> and answers null, which is what keeps it inert.
+        /// </remarks>
+        private GuiTab? RailTab(HitResult? hit)
+            => hit is HitResult.ListItemHit { ListId: TabBarRegions.Tabs, Index: var i } && i < _sidebarItems.Count
+                ? _sidebarItems[i].Value
+                : null;
+
+        /// <summary>The action id a rail cell reports, which is what click-by-label drives a tab by.</summary>
+        private static HitResult.ButtonHit TabButton(GuiTab tab) => new HitResult.ButtonHit($"Tab:{tab}");
+
+        /// <summary>Puts <paramref name="tab"/> on screen. What a rail press and a rail cell's chord both do.</summary>
+        private void SelectTab(GuiTab tab)
+        {
+            if (_appState is not { } appState || appState.ActiveTab == tab)
+            {
+                return;
+            }
+
+            appState.ActiveTab = tab;
+            appState.NeedsRedraw = true;
+        }
+
+        /// <summary>
+        /// Every clickable region painted this frame, with each rail cell re-stated as the tab button it
+        /// is: the <c>Tab:&lt;name&gt;</c> label click-by-label drives, and the handler that switches to it.
         /// </summary>
         /// <remarks>
         /// <para>
-        /// It INTERPRETS the composed walk rather than hit-testing the rail itself first. Asking the rail
-        /// up front would have worked -- the rail and the status bar do not overlap -- but it would be a
-        /// second opinion about z-order sitting next to <see cref="Children"/>, which is the one thing
-        /// this class is now arranged to have exactly one of.
+        /// The COMPOSITION is <see cref="CompositeWidget{TSurface}.CollectPaintedRegions"/>'s; only the
+        /// re-statement is TianWen's. The rect is the bar's own and the label comes from the same item list
+        /// the bar was handed, so this adds no second geometry.
         /// </para>
         /// <para>
-        /// The rail reports a tab as an indexed <see cref="HitResult.ListItemHit"/>; this maps it through
-        /// the item list to the <see cref="GuiTab"/> it carries, so the index never becomes meaning
-        /// anywhere. The returned <c>Tab:&lt;name&gt;</c> <see cref="HitResult.ButtonHit"/> is what the
-        /// hand-drawn sidebar always reported, which is why <c>GuiEventHandlerBase</c>'s
-        /// auto-discover-on-Equipment check keeps working untouched.
-        /// </para>
-        /// <para>
-        /// A press on a LOCKED cell arrives as <see cref="TabBarRegions.DisabledTabs"/> and falls through
-        /// to the default return -- non-null, so the click is consumed rather than passed to whatever the
-        /// rail is painted over. That is the intent: the rail is opaque.
+        /// The HANDLER is here because <see cref="TabBar{TSurface}"/> has no seam to hand one to: its cells
+        /// are built by <c>TabStripTree</c>, which takes an <c>onSelect</c> the bar never passes, so a cell
+        /// reaches a router carrying a hit and nothing to do about it. Until the bar can be told, this is
+        /// where a rail press becomes a tab switch.
         /// </para>
         /// </remarks>
+        public override void CollectPaintedRegions(List<ClickableRegion> into)
+        {
+            var first = into.Count;
+            base.CollectPaintedRegions(into);
+
+            for (var i = first; i < into.Count; i++)
+            {
+                if (RailTab(into[i].Result) is { } tab)
+                {
+                    into[i] = into[i] with { Result = TabButton(tab), OnClick = _ => SelectTab(tab) };
+                }
+            }
+        }
+
+        /// <summary>
+        /// Every node painted this frame, with each rail cell carrying the chord that reaches it --
+        /// Ctrl+H for Home, Ctrl+E for Equipment, and so on down <see cref="TabChrome"/>.
+        /// </summary>
+        /// <remarks>
+        /// Stated on the NODE so the router matches it against the painted tree, which is what makes a
+        /// chord for a locked tab inert (the cell reports <see cref="TabBarRegions.DisabledTabs"/> and
+        /// <see cref="RailTab"/> declines it) without a guard beside every key. It replaces a hand-written
+        /// Ctrl+letter map in the host's key router, which fired whatever the window was showing. Like the
+        /// handler above, it is re-stated here only because <see cref="TabItem{T}"/> has nowhere to carry a
+        /// <see cref="KeyChord"/> of its own.
+        /// </remarks>
+        public override void CollectPaintedNodes(List<Layout.ArrangedNode<float>> into)
+        {
+            var first = into.Count;
+            base.CollectPaintedNodes(into);
+
+            for (var i = first; i < into.Count; i++)
+            {
+                if (RailTab(into[i].Node.Hit) is { } tab)
+                {
+                    var selected = tab;
+                    into[i] = into[i] with
+                    {
+                        Node = into[i].Node with
+                        {
+                            Shortcut = TabChrome[selected].Shortcut,
+                            OnActivate = _ => SelectTab(selected),
+                        },
+                    };
+                }
+            }
+        }
+
+        /// <summary>
+        /// Composed dispatch, with a press on the navigation rail turned into the tab switch it means --
+        /// for a caller that hit-tests rather than routing (the input router dispatches through
+        /// <see cref="CollectPaintedRegions"/> instead, where the same handler already sits).
+        /// </summary>
         public override HitResult? HitTestAndDispatch(float x, float y, InputModifier modifiers = InputModifier.None)
         {
             var hit = base.HitTestAndDispatch(x, y, modifiers);
 
-            if (hit is HitResult.ListItemHit { ListId: TabBarRegions.Tabs, Index: var i }
-                && _appState is { } appState
-                && i < _sidebarItems.Count)
+            if (RailTab(hit) is { } tab)
             {
-                var tab = _sidebarItems[i].Value;
-                appState.ActiveTab = tab;
-                appState.NeedsRedraw = true;
-                return new HitResult.ButtonHit($"Tab:{tab}");
+                SelectTab(tab);
+                return TabButton(tab);
             }
 
             return hit;
         }
 
-        /// <summary>
-        /// Every clickable region painted this frame, with the navigation rail's tabs re-labelled as the
-        /// <c>Tab:&lt;name&gt;</c> buttons the debug inspector drives them by.
-        /// </summary>
-        /// <remarks>
-        /// The COMPOSITION is <see cref="CompositeWidget{TSurface}.PaintedRegions"/>'s; only the
-        /// relabelling is TianWen's. The bar registers a tab as a <see cref="HitResult.ListItemHit"/>
-        /// carrying an index, while click-by-label -- how every unattended GUI test switches tabs --
-        /// needs a name. The rect is the bar's own and the label comes from the same item list the bar
-        /// was handed, so this adds no second geometry.
-        /// </remarks>
+        /// <summary>The regions the debug inspector enumerates: exactly what the router dispatches over.</summary>
         public IReadOnlyList<ClickableRegion> InspectorRegions()
         {
-            var regions = PaintedRegions();
-            var labelled = new List<ClickableRegion>(regions.Count);
-            foreach (var region in regions)
-            {
-                labelled.Add(region.Result switch
-                {
-                    HitResult.ListItemHit { ListId: TabBarRegions.Tabs, Index: var i } when i < _sidebarItems.Count
-                        => region with { Result = new HitResult.ButtonHit($"Tab:{_sidebarItems[i].Value}") },
-                    _ => region,
-                });
-            }
-
-            return labelled;
+            var regions = new List<ClickableRegion>();
+            CollectPaintedRegions(regions);
+            return regions;
         }
 
         /// <summary>
@@ -273,24 +327,28 @@ namespace TianWen.UI.Gui
         private const string LiveSessionPlanetaryIcon = "\U0001FA90"; // ringed planet (Planetary mode)
         private const string LiveSessionFlatsIcon     = "\U0001F4A1"; // light bulb (Flats mode)
 
-        // Per-tab sidebar chrome (icon + display name + Ctrl+letter shortcut; the hover tooltip is
+        // Per-tab sidebar chrome (icon + display name + the chord that reaches it; the hover tooltip is
         // "Label (Shortcut)"). The sidebar ORDER comes from GuiAppState.TabOrder (shared with
         // Ctrl+Tab cycling) so the visual order and the cycle order can't drift apart. The label is
         // a separate field because the window title reuses it (via TabTitleChrome) without the
         // shortcut suffix.
-        private static readonly Dictionary<GuiTab, (string Icon, string Label, string Shortcut)> TabChrome = new()
+        //
+        // The chord is a KeyChord rather than a printed string, and the tooltip is printed FROM it
+        // (ChordLabel): the binding used to be written twice, once as text here and once as an arm in the
+        // host's key router, which is two places a new tab can be added to and only one of them shows.
+        private static readonly Dictionary<GuiTab, (string Icon, string Label, KeyChord Shortcut)> TabChrome = new()
         {
             // House, not satellite/antenna/globe: the icon has to stay neutral between local and remote,
             // or a single-scope user's one-card board looks like a remote-monitoring feature they do not
             // use -- and it names the SCREEN, which is due to hold multi-night progress beside the cards.
-            [GuiTab.Home]          = ("\U0001F3E0",        "Home",          "Ctrl+H"),
-            [GuiTab.Equipment]     = ("\U0001F52D",        "Equipment",     "Ctrl+E"),
-            [GuiTab.Planner]       = ("\U0001F4C5",        "Planner",       "Ctrl+P"),
-            [GuiTab.SkyMap]        = ("\U0001F30C",        "Sky Map",       "Ctrl+M"),
-            [GuiTab.Session]       = ("\U0001F3AC",        "Session Setup", "Ctrl+S"),
-            [GuiTab.LiveSession]   = (LiveSessionIdleIcon, "Live Session",  "Ctrl+L"),
-            [GuiTab.Guider]        = ("\U0001F3AF",        "Guider",        "Ctrl+G"),
-            [GuiTab.Notifications] = ("\U0001F514",        "Notifications", "Ctrl+N"),
+            [GuiTab.Home]          = ("\U0001F3E0",        "Home",          new KeyChord(InputKey.H, InputModifier.Ctrl)),
+            [GuiTab.Equipment]     = ("\U0001F52D",        "Equipment",     new KeyChord(InputKey.E, InputModifier.Ctrl)),
+            [GuiTab.Planner]       = ("\U0001F4C5",        "Planner",       new KeyChord(InputKey.P, InputModifier.Ctrl)),
+            [GuiTab.SkyMap]        = ("\U0001F30C",        "Sky Map",       new KeyChord(InputKey.M, InputModifier.Ctrl)),
+            [GuiTab.Session]       = ("\U0001F3AC",        "Session Setup", new KeyChord(InputKey.S, InputModifier.Ctrl)),
+            [GuiTab.LiveSession]   = (LiveSessionIdleIcon, "Live Session",  new KeyChord(InputKey.L, InputModifier.Ctrl)),
+            [GuiTab.Guider]        = ("\U0001F3AF",        "Guider",        new KeyChord(InputKey.G, InputModifier.Ctrl)),
+            [GuiTab.Notifications] = ("\U0001F514",        "Notifications", new KeyChord(InputKey.N, InputModifier.Ctrl)),
         };
 
         // The Live Session glyph follows the VIEWED context's state: a running session flips to
@@ -307,6 +365,17 @@ namespace TianWen.UI.Gui
                 LiveSessionMode.Flats => LiveSessionFlatsIcon,
                 _ => LiveSessionIdleIcon,
             };
+
+        /// <summary>How a chord is written in a tooltip: "Ctrl+M", modifiers in the order a keyboard
+        /// reads them.</summary>
+        private static string ChordLabel(KeyChord chord)
+        {
+            var mods = chord.Modifiers;
+            var prefix = ((mods & InputModifier.Ctrl) != 0 ? "Ctrl+" : string.Empty)
+                + ((mods & InputModifier.Alt) != 0 ? "Alt+" : string.Empty)
+                + ((mods & InputModifier.Shift) != 0 ? "Shift+" : string.Empty);
+            return prefix + chord.Key;
+        }
 
         /// <summary>
         /// Icon + display name for <paramref name="tab"/> exactly as the sidebar draws it this frame
@@ -583,7 +652,7 @@ namespace TianWen.UI.Gui
 
                 // The tooltip carries the shortcut, and for a LOCKED tab it is the only place the reason
                 // can be said at all -- the rail has room for a glyph and nothing else.
-                var shortcut = TabChrome[tab].Shortcut;
+                var shortcut = ChordLabel(TabChrome[tab].Shortcut);
                 var tooltip = locked
                     ? $"{label} — {(noProfile ? "create a profile first" : "not while a session is running")}"
                     : $"{label} ({shortcut})";

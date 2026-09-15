@@ -15,8 +15,13 @@ namespace TianWen.UI.Abstractions
         private readonly GuiAppState _appState;
         private readonly PlannerState _plannerState;
         private readonly IGuiChrome _chrome;
-        private readonly BackgroundTaskTracker _tracker;
         private readonly AppSignalHandler _signalHandler;
+        private readonly InputRouter _router;
+
+        // The frame, in paint order, for the router to walk top-most first. One entry: the chrome IS a
+        // composite, so its own regions and every child's -- the navigation rail and the active tab --
+        // come out of one CollectPaintedRegions walk in the order they were drawn.
+        private readonly IPixelWidget[] _widgets;
 
         /// <summary>
         /// Platform-specific clipboard read callback (e.g. <c>SDL.GetClipboardText</c>).
@@ -43,7 +48,6 @@ namespace TianWen.UI.Abstractions
             _appState = appState;
             _plannerState = plannerState;
             _chrome = chrome;
-            _tracker = tracker;
 
             // One focus owner per window, not two. The chrome's WindowUiSettings carries the instance the
             // widgets and the input router resolve focus against; the app state used to make its own, so
@@ -61,6 +65,23 @@ namespace TianWen.UI.Abstractions
 
             // Wire the ensure-visible callback to the pixel widget's scroll mechanism
             _signalHandler.OnPlannerEnsureVisible = index => chrome.PlannerEnsureVisible(index);
+
+            _widgets = [chrome];
+            _router = new InputRouter(chrome.Ui, tracker, () => _appState.NeedsRedraw = true)
+            {
+                Widgets = () => _widgets,
+                Unhandled = RouteToApp,
+                // Read through a lambda, not captured: both delegates are set by the host AFTER this
+                // constructor returns, in the object initialiser that follows it.
+                GetClipboardText = () => GetClipboardText?.Invoke(),
+                SetClipboardText = text => SetClipboardText?.Invoke(text),
+                ActiveSearch = ResolveActiveSearch,
+            };
+
+            // A hyperlink (planner details -> Wikipedia) opens through the host, which is what subscribes
+            // to the signal: the desktop opens the OS browser, and on the web the DOM anchor has already
+            // handled the click before the canvas sees it.
+            _router.OpenUrl += url => chrome.Bus?.Post(new OpenUrlSignal(url));
         }
 
         /// <summary>Set by Program.cs after catalog load to enable autocomplete.</summary>
@@ -74,263 +95,198 @@ namespace TianWen.UI.Abstractions
         // ===================================================================
 
         /// <summary>
-        /// Routes an input event through the GUI chrome and tab system.
+        /// Routes an input event through the frame the last paint declared, and applies the one policy
+        /// that is not a property of any node: which tab is on screen.
         /// Returns true if the event was consumed.
         /// </summary>
-        public bool HandleInput(InputEvent evt) => evt switch
+        /// <remarks>
+        /// <para>
+        /// The routing itself is <see cref="InputRouter"/>'s. What used to be here -- an overlay check, a
+        /// hand-written Ctrl+letter map, an <c>if (key == F3) return false;</c> with a comment calling F3
+        /// global, a press walk that hit-tested the chrome and then the tab, and a focused-field branch --
+        /// is the same order on every surface, so it is stated once in the engine and the other hosts stop
+        /// carrying their own copies of it.
+        /// </para>
+        /// <para>
+        /// What stays is genuinely this host's: the pointer position the tabs read, the navigation rail's
+        /// hover repaint, the planner's handoff-divider drag (which T2 deletes once a slider arms its own),
+        /// and the tab policy below.
+        /// </para>
+        /// </remarks>
+        public bool HandleInput(InputEvent evt)
         {
-            // An open overlay owns the keyboard, and says so by having been PAINTED. Asked here, once, so
-            // that no widget owning a dropdown has to remember a routing case of its own. That step is
-            // exactly what was missing for the Live Session mode pill, and its absence showed only as the
-            // arrow keys doing nothing: the menu still opened, drew and took clicks. A claimant no longer on
-            // screen declines, so this falls straight through.
-            InputEvent.KeyDown(var claimKey, _) when _chrome.Ui.KeyboardClaimant?.HandleKeyDown(claimKey) == true
-                => Redraw(),
+            switch (evt)
+            {
+                case InputEvent.MouseDown down:
+                    _appState.MouseScreenPosition = (down.X, down.Y);
+                    if (HandleSliderPress(down))
+                    {
+                        return true;
+                    }
+                    break;
 
-            InputEvent.KeyDown(var key, var modifiers) => HandleKeyDown(key, modifiers),
-            InputEvent.MouseDown(var px, var py, _, var mods, var clicks) => HandleMouseDown(px, py, mods, (byte)clicks),
-            InputEvent.MouseMove(var px, var py) => HandleMouseMove(px, py),
-            InputEvent.MouseUp(var upX, var upY, _) => HandleMouseUp(upX, upY),
-            InputEvent.Scroll(var scrollY, _, _, _) => HandleMouseWheel(scrollY),
-            InputEvent.TextInput(var text) => HandleTextInput(text),
-            InputEvent.Pinch or InputEvent.PinchEnd => _chrome.ActiveTab?.HandleInput(evt) ?? false,
-            _ => false
+                case InputEvent.MouseMove move:
+                    NotePointerMoved(move.X, move.Y);
+                    break;
+
+                // The one binding with no node to sit on: Ctrl+Tab names no tab, it names the NEXT one, so
+                // there is nothing painted for it to be a property of. Answered before the router because
+                // TextInputInteraction reads a bare Tab as field cycling and would swallow it while a
+                // search box has the keyboard, which is exactly the case this binding exists for.
+                case InputEvent.KeyDown(InputKey.Tab, var mods) when (mods & InputModifier.Ctrl) != 0:
+                    CycleTab(forward: (mods & InputModifier.Shift) == 0);
+                    return true;
+            }
+
+            var before = _appState.ActiveTab;
+            var consumed = _router.Handle(evt);
+            if (_appState.ActiveTab != before)
+            {
+                ApplyTabPolicy(_appState.ActiveTab);
+            }
+
+            return consumed;
+        }
+
+        /// <summary>
+        /// Call once the frame is painted: blurs a focused field that is no longer on screen, honours a
+        /// field that asked for the keyboard as it appeared, and expires a tooltip whose region has gone.
+        /// </summary>
+        public void AfterPaint() => _router.AfterPaint();
+
+        /// <summary>
+        /// What the router did not claim. Keys go back to the host, which routes them to the active tab
+        /// and then to its own global bindings; forwarding them here as well would run a tab's handler
+        /// twice for every key it declines.
+        /// </summary>
+        private bool RouteToApp(InputEvent evt) => evt switch
+        {
+            InputEvent.KeyDown => false,
+            InputEvent.MouseDown down => HandleMissedPress(down),
+            InputEvent.MouseMove move => HandleMissedMove(move),
+            InputEvent.MouseUp up => HandleMissedRelease(up),
+            _ => _chrome.ActiveTab?.HandleInput(evt) ?? false,
         };
 
-        /// <summary>Marks the frame dirty and reports the event as consumed.</summary>
-        private bool Redraw()
+        /// <summary>
+        /// A press that landed on no region at all: the active tab's own business (drag-pan, a scrollbar,
+        /// the sky map's tap-vs-drag gesture).
+        /// </summary>
+        private bool HandleMissedPress(InputEvent.MouseDown down)
         {
+            var consumed = _chrome.ActiveTab?.HandleInput(down) ?? false;
             _appState.NeedsRedraw = true;
-            return true;
+
+            // A self-dispatching widget answers for itself; for every other tab an unclaimed press has
+            // always been reported unconsumed, the host reading "was a region hit" rather than "did the
+            // tab do something".
+            return _chrome.ActiveTab is ISelfDispatchingInputWidget && consumed;
         }
 
-        // ===================================================================
-        // Event routing: generic, no tab-specific logic
-        // ===================================================================
+        private bool HandleMissedMove(InputEvent.MouseMove move)
+            // An active divider drag owns the move; the tab gets it otherwise (hover, drag-pan, scrollbar).
+            => PlannerSliderInteraction.HandleMouseMove(_plannerState, _chrome.PlannerChartRect, move.X)
+                || (_chrome.ActiveTab?.HandleInput(move) ?? false);
 
-        private bool HandleMouseDown(float px, float py, InputModifier modifiers = InputModifier.None, byte clicks = 1)
+        private bool HandleMissedRelease(InputEvent.MouseUp up)
         {
-            _appState.MouseScreenPosition = (px, py);
-
-            // Hit test the GUI chrome (sidebar, status bar) first; OnClick handles tab switching
-            var hit = _chrome.HitTestAndDispatch(px, py, modifiers);
-
-            // Which widget ANSWERED, kept alongside the hit because a press on a field has to be resolved to
-            // a character through the renderer and fallback chain that drew it -- see ICaretPlacingWidget.
-            IPixelWidget? hitSource = hit is not null ? _chrome : null;
-
-            // Auto-discover on tab switch to Equipment
-            if (hit is HitResult.ButtonHit { Action: var action } && action.StartsWith("Tab:"))
-            {
-                if (action == "Tab:Equipment" && _chrome.EquipmentState.DiscoveredDevices.Count == 0)
-                {
-                    _chrome.Bus?.Post(new DiscoverDevicesSignal());
-                }
-                _appState.NeedsRedraw = true;
-                return true;
-            }
-
-            // A self-dispatching widget (the shared image viewer) owns its hit-testing + position-aware
-            // dispatch: its toolbar buttons and WB/wavelet/transport sliders need the press X/Y, which an
-            // OnClick handler can't carry, so they run inside HandleInput (HandleViewerMouseDown), not as
-            // per-region OnClicks. Route the raw press straight there instead of pre-dispatching + short-
-            // circuiting via HitTestAndDispatch. The chrome (sidebar/status) already got first crack above.
-            if (hit is null && _chrome.ActiveTab is ISelfDispatchingInputWidget)
-            {
-                if (_appState.ActiveTextInput is { IsActive: true })
-                {
-                    DeactivateTextInput();
-                }
-                var consumed = _chrome.ActiveTab.HandleInput(
-                    new InputEvent.MouseDown(px, py, Modifiers: modifiers, ClickCount: clicks));
-                _appState.NeedsRedraw = true;
-                return consumed;
-            }
-
-            // If chrome didn't handle it, try the active tab
-            if (hit is null)
-            {
-                hit = _chrome.ActiveTab?.HitTestAndDispatch(px, py, modifiers);
-                hitSource = hit is not null ? _chrome.ActiveTab : null;
-            }
-
-            // A hyperlink (planner details -> Wikipedia): open it via the host. Centralized here so every
-            // LinkHit behaves identically, with no per-region wiring. The desktop host subscribes to
-            // OpenUrlSignal and opens the OS browser; on the web the DOM <a> handles the click before the
-            // canvas ever sees it, so this path is desktop-only in practice (and a no-op with no subscriber).
-            if (hit is HitResult.LinkHit { Url: var url })
-            {
-                _chrome.Bus?.Post(new OpenUrlSignal(url));
-                _appState.NeedsRedraw = true;
-                return true;
-            }
-
-            // A press on a field: focus it AND land the caret where it was aimed, one click placing, two
-            // selecting the word, three the field. The rule is DIR.Lib's, shared with the web host through
-            // TextFieldPointerInteraction; this used to be a local "focus it, and on a second click select
-            // everything", which put the caret at the end of the text however far into it you clicked.
-            //
-            // Focused straight through TextInputFocus rather than through ActivateTextInputSignal, because
-            // the caret is placed in the same breath and the signal bus is DEFERRED: the focus change would
-            // land a frame later and seed the field, overwriting what the press had just set.
-            //
-            // A drag that extends the selection is deliberately NOT wired here: InputEvent.MouseMove carries
-            // no button state, so this handler cannot tell a drag from a hover. That belongs to the input
-            // router in DIR.Lib 9.2 (docs/plans/dir-lib-10.md, D1), which sees the press and the move.
-            if (hit is HitResult.TextInputHit textHit)
-            {
-                return TextFieldPointerInteraction.HandleMouseDown(
-                    textHit, hitSource, px, clicks, modifiers,
-                    _appState.TextInputFocus, () => _appState.NeedsRedraw = true);
-            }
-
-            // Handoff-slider drag start / click-to-place / deselect - shared with the web host
-            // (replaces the old click-empty-chart-to-deselect). Click-to-place is gated on the
-            // planner tab being active so a stray press elsewhere can't move a slider through a
-            // stale chart rect.
-            if (PlannerSliderInteraction.HandleMouseDown(
-                    _plannerState, hit, _chrome.PlannerChartRect, px, py,
-                    allowClickToPlace: _appState.ActiveTab == GuiTab.Planner))
-            {
-                _appState.NeedsRedraw = true;
-                return true;
-            }
-
-            // Clicking outside text input → deactivate
-            if (_appState.ActiveTextInput is { IsActive: true } && hit is not HitResult.TextInputHit)
-            {
-                DeactivateTextInput();
-            }
-
-            // If no clickable region was hit, forward to active tab for custom handling (e.g. drag pan)
-            if (hit is null)
-            {
-                _chrome.ActiveTab?.HandleInput(new InputEvent.MouseDown(px, py, Modifiers: modifiers, ClickCount: clicks));
-            }
-
-            _appState.NeedsRedraw = true;
-            return hit is not null;
-        }
-
-        private bool HandleTextInput(string text)
-        {
-            if (_appState.ActiveTextInput is not { IsActive: true } target)
-            {
-                return false;
-            }
-
-            return TextInputInteraction.HandleText(target, text);
-        }
-
-        private bool HandleMouseMove(float px, float py)
-        {
-            var prev = _appState.MouseScreenPosition;
-            _appState.MouseScreenPosition = (px, py);
-
-            // Trigger redraw when the mouse enters/leaves the sidebar zone (for hover highlighting).
-            // Sidebar is always in the left ~52px * DpiScale; we use a fixed threshold since
-            // exact pixel width is renderer-specific. Only redraw on zone transitions, not every pixel.
-            const float sidebarThreshold = 60f; // generous to cover DPI scaling
-            var wasSidebar = prev.X < sidebarThreshold;
-            var isSidebar = px < sidebarThreshold;
-            if (isSidebar || wasSidebar)
-            {
-                _appState.NeedsRedraw = true;
-            }
-
-            // Active slider drag consumes the move; otherwise forward to the active tab
-            // (e.g. live session drag pan).
-            if (PlannerSliderInteraction.HandleMouseMove(_plannerState, _chrome.PlannerChartRect, px))
-            {
-                return true;
-            }
-
-            return _chrome.ActiveTab?.HandleInput(new InputEvent.MouseMove(px, py)) ?? false;
-        }
-
-        private bool HandleMouseUp(float x, float y)
-        {
-            // Forward to active tab first (e.g. live session drag pan release, sky-map click-select)
-            _chrome.ActiveTab?.HandleInput(new InputEvent.MouseUp(x, y));
+            // The tab first (drag-pan release, sky-map click-select), then the divider drag, as before.
+            _chrome.ActiveTab?.HandleInput(up);
 
             if (PlannerSliderInteraction.HandleMouseUp(_plannerState))
             {
                 _appState.NeedsRedraw = true;
                 return true;
             }
+
             return false;
         }
 
-        private bool HandleMouseWheel(float scrollY)
+        /// <summary>
+        /// The planner's handoff-divider drag, which arms from a press and needs the press POSITION, so
+        /// it is asked before the router dispatches, off a hit test that dispatches nothing.
+        /// </summary>
+        /// <remarks>
+        /// Temporary, and the last thing in this file that is not routing: DIR.Lib 9.2's
+        /// <c>Content.Slider</c> lets a slider arm its own drag from the node it painted, which is T2 and
+        /// deletes both this and <see cref="PlannerSliderInteraction"/>'s three branches.
+        /// </remarks>
+        private bool HandleSliderPress(InputEvent.MouseDown down)
         {
-            var pos = _appState.MouseScreenPosition;
-            if (_chrome.ActiveTab?.HandleInput(new InputEvent.Scroll(scrollY, pos.X, pos.Y)) == true)
-            {
-                _appState.NeedsRedraw = true;
-                return true;
-            }
-            return false;
-        }
-
-        private bool HandleKeyDown(InputKey inputKey, InputModifier inputModifier)
-        {
-            // F3 is a global shortcut (open sky-map search). Let it fall through to
-            // the active tab even when a text input is focused; otherwise users would
-            // have to click off the planner search before F3 would work.
-            if (inputKey == InputKey.F3)
+            var probe = _chrome.HitTest(down.X, down.Y);
+            if (probe is HitResult.TextInputHit)
             {
                 return false;
             }
 
-            // Ctrl + letter tab shortcuts: global, bypass the active text input so
-            // users don't have to defocus search fields to switch tabs.
-            if ((inputModifier & InputModifier.Ctrl) != 0 && TrySwitchTabByShortcut(inputKey))
+            if (!PlannerSliderInteraction.HandleMouseDown(
+                    _plannerState, probe, _chrome.PlannerChartRect, down.X, down.Y,
+                    allowClickToPlace: _appState.ActiveTab == GuiTab.Planner))
             {
-                return true;
+                return false;
             }
 
-            // Ctrl+Tab / Ctrl+Shift+Tab cycle through tabs in sidebar order (wraps around).
-            // Also global so it works while a search field is focused.
-            if (inputKey == InputKey.Tab && (inputModifier & InputModifier.Ctrl) != 0)
-            {
-                CycleTab(forward: (inputModifier & InputModifier.Shift) == 0);
-                return true;
-            }
-
-            var activeInput = _appState.ActiveTextInput;
-            if (activeInput is { IsActive: true })
-            {
-                return HandleTextInputKey(activeInput, inputKey, inputModifier);
-            }
-
-            return false; // Not consumed; let caller route to active tab
+            _appState.NeedsRedraw = true;
+            return true;
         }
 
         /// <summary>
-        /// Ctrl+H/E/P/S/L/M/G/Y/N tab shortcuts. M = Sky Map, Y = Planetary, the rest map by first letter.
+        /// Records where the pointer is and repaints when it crosses the navigation rail.
         /// </summary>
-        private bool TrySwitchTabByShortcut(InputKey key)
+        /// <remarks>
+        /// The rail resolves its own hover during PAINT, from the pointer the router hands every widget,
+        /// so motion over it is a reason to draw a frame that nothing else can see: its cells carry a
+        /// computed background rather than <c>Layout.Node.HoverBackground</c>, which is what the router
+        /// watches. A fixed threshold, generous enough to cover any DPI scale, because the exact width is
+        /// the renderer's.
+        /// </remarks>
+        private void NotePointerMoved(float px, float py)
         {
-            GuiTab? target = key switch
+            const float sidebarThreshold = 60f;
+            var wasSidebar = _appState.MouseScreenPosition.X < sidebarThreshold;
+            _appState.MouseScreenPosition = (px, py);
+
+            if (px < sidebarThreshold || wasSidebar)
             {
-                InputKey.H => GuiTab.Home,
-                InputKey.E => GuiTab.Equipment,
-                InputKey.P => GuiTab.Planner,
-                InputKey.S => GuiTab.Session,
-                InputKey.L => GuiTab.LiveSession,
-                InputKey.M => GuiTab.SkyMap,
-                InputKey.G => GuiTab.Guider,
-                InputKey.N => GuiTab.Notifications,
-                _ => null
-            };
-            if (target is not { } tab || _appState.ActiveTab == tab) return false;
-            _appState.ActiveTab = tab;
+                _appState.NeedsRedraw = true;
+            }
+        }
+
+        /// <summary>
+        /// The result-list navigation the focused field is entitled to: the planner's autocomplete or the
+        /// sky map's search, whichever box has the keyboard.
+        /// </summary>
+        private SearchInteraction? ResolveActiveSearch()
+        {
+            var active = _appState.ActiveTextInput;
+            return active is null ? null
+                : active == _plannerState.SearchInput ? _plannerState.Search
+                : active == _chrome.SkyMapState.Search.SearchInput ? _chrome.SkyMapState.Search.Interaction
+                : null;
+        }
+
+        /// <summary>
+        /// What follows a tab becoming the visible one, whichever way it was reached: a press on the rail,
+        /// its chord, or Ctrl+Tab.
+        /// </summary>
+        /// <remarks>
+        /// Stated once, here, rather than on each route. The discovery kick used to ride on the press
+        /// alone and the unread reset on the chord alone, so Ctrl+E reached an empty Equipment tab and a
+        /// click on the bell left the badge lit.
+        /// </remarks>
+        private void ApplyTabPolicy(GuiTab tab)
+        {
+            if (tab == GuiTab.Equipment && _chrome.EquipmentState.DiscoveredDevices.Count == 0)
+            {
+                _chrome.Bus?.Post(new DiscoverDevicesSignal());
+            }
+
             if (tab == GuiTab.Notifications)
             {
                 _appState.UnreadNotificationCount = 0;
             }
+
             _appState.NeedsRedraw = true;
-            return true;
         }
 
         /// <summary>
@@ -340,45 +296,14 @@ namespace TianWen.UI.Abstractions
         private void CycleTab(bool forward)
         {
             var tab = GuiAppState.NextTab(_appState.ActiveTab, forward);
-            _appState.ActiveTab = tab;
-            if (tab == GuiTab.Notifications)
+            if (tab == _appState.ActiveTab)
             {
-                _appState.UnreadNotificationCount = 0;
+                return;
             }
-            _appState.NeedsRedraw = true;
+
+            _appState.ActiveTab = tab;
+            ApplyTabPolicy(tab);
         }
 
-        // ===================================================================
-        // Text input handling: generic with callbacks
-        // ===================================================================
-
-        private void DeactivateTextInput()
-            => _chrome.Bus?.Post(new DeactivateTextInputSignal());
-
-        // The key machinery lives in the host-agnostic DIR.Lib TextInputInteraction (shared with the web
-        // host); this supplies the desktop-flavoured context (SDL clipboard delegates, GuiAppState redraw
-        // flag). Focus is no longer a pair of callbacks: the interaction moves it through the same
-        // TextInputFocus owner every other path uses, so Tab and Escape cannot leave the app disagreeing
-        // with the platform about which field is live.
-        private bool HandleTextInputKey(TextInputState activeInput, InputKey key, InputModifier modifiers)
-        {
-            // The active search interaction (planner autocomplete or sky-map F3) when the active input is
-            // one of their boxes -- gives TextInputInteraction the Up/Down result nav without knowing the
-            // concrete search types.
-            SearchInteraction? activeSearch =
-                activeInput == _plannerState.SearchInput ? _plannerState.Search
-                : activeInput == _chrome.SkyMapState.Search.SearchInput ? _chrome.SkyMapState.Search.Interaction
-                : null;
-
-            return TextInputInteraction.HandleKey(key, modifiers,
-                new TextInputInteraction.KeyContext(
-                    Tracker: _tracker,
-                    Focus: _appState.TextInputFocus,
-                    RequestRedraw: () => _appState.NeedsRedraw = true,
-                    ActiveSearch: activeSearch,
-                    TabFields: () => _chrome.ActiveTab?.GetRegisteredTextInputs() ?? [],
-                    GetClipboardText: GetClipboardText,
-                    SetClipboardText: SetClipboardText));
-        }
     }
 }
