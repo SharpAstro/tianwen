@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Console.Lib;
 using DIR.Lib;
 using Shouldly;
@@ -178,23 +179,16 @@ namespace TianWen.Lib.Tests
 
             var initialConfig = state.Configuration;
 
-            // Act: find and click a stepper button (Inc or Dec)
-            // Stepper buttons are registered with action like "Inc:..." or "Dec:..."
-            HitResult? buttonHit = null;
-            // Scan across the first field's control area (right of label)
-            for (var x = 170f; x < 350f; x += 5f)
-            {
-                var hit = tab.HitTest(x, 60f);
-                if (hit is HitResult.ButtonHit { Action: var action } && (action.StartsWith("Inc:") || action.StartsWith("Dec:")))
-                {
-                    buttonHit = hit;
-                    tab.HitTestAndDispatch(x, 60f); // fire the OnClick
-                    break;
-                }
-            }
+            // Act: find a stepper button (Inc or Dec) from what the render actually registered --
+            // action names like "Inc:..." / "Dec:..." -- rather than sweeping pixels across the
+            // control area looking for one.
+            var stepper = tab.GetRegisteredRegions().FirstOrDefault(r =>
+                r.Result is HitResult.ButtonHit { Action: var action } && (action.StartsWith("Inc:") || action.StartsWith("Dec:")));
+
+            stepper.Result.ShouldNotBeNull("No stepper button was registered by the render");
+            tab.HitTestAndDispatch(stepper.X + stepper.Width / 2f, stepper.Y + stepper.Height / 2f); // fire the OnClick
 
             // Assert
-            buttonHit.ShouldNotBeNull("No stepper button found in the control area");
             state.Configuration.ShouldNotBe(initialConfig);
         }
 
