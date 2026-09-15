@@ -55,8 +55,14 @@ internal sealed class TuiEquipmentTab(
     /// <summary>Device URI paths whose "Advanced" settings sub-section is expanded (collapsed by default).</summary>
     private readonly HashSet<string> _advancedExpandedUris = new HashSet<string>();
 
-    /// <summary>Active inline text input (filter name editing).</summary>
-    private TextInputState? _activeInlineInput;
+    /// <summary>
+    /// The inline filter-name editor: whichever field has the keyboard while the tab is in
+    /// <see cref="Mode.InlineEdit"/>. DERIVED rather than held, because a private
+    /// <c>_activeInlineInput</c> pointer beside <see cref="SiteFocus"/> was a second answer to the question
+    /// that type owns, and the two had already drifted -- the field was <c>Activate</c>d on entry and never
+    /// <c>Deactivate</c>d on exit, so it stayed "active" for the rest of the run.
+    /// </summary>
+    private TextInputState? ActiveInlineInput => _mode == Mode.InlineEdit ? SiteFocus.Current : null;
 
     /// <summary>Cached profile list for the picker.</summary>
     private IReadOnlyCollection<Profile> _cachedProfiles = [];
@@ -1184,42 +1190,28 @@ internal sealed class TuiEquipmentTab(
         return false;
     }
 
+    /// <summary>
+    /// Inline filter-name-edit keys, routed through the SAME <see cref="TextInputInteraction"/> as
+    /// <see cref="HandleSiteEditInput"/> below, which its own comment already called out as the shape this
+    /// one was another copy of. Routing it here buys <see cref="TextInputState.OnTextChanged"/> and, above
+    /// all, a TRACKED commit: the commit used to be fired as <c>_ = OnCommit?.Invoke(...)</c>, so a failing
+    /// profile save vanished with the unobserved task.
+    /// </summary>
     private bool HandleInlineEditInput(InputKey key, InputModifier modifiers)
     {
-        if (_activeInlineInput is not { } input)
+        if (ActiveInlineInput is null)
         {
             _mode = Mode.Browse;
             NeedsRedraw = true;
             return false;
         }
 
-        // Navigation/editing keys
-        if (key.ToTextInputKey(modifiers) is { } textKey)
-        {
-            input.HandleKey(textKey);
-            NeedsRedraw = true;
-
-            if (input.IsCommitted)
-            {
-                input.IsCommitted = false;
-                _ = input.OnCommit?.Invoke(input.Text);
-                ExitInlineEdit();
-            }
-            else if (input.IsCancelled)
-            {
-                input.IsCancelled = false;
-                input.OnCancel?.Invoke();
-                ExitInlineEdit();
-            }
-            return false;
-        }
-
-        // Printable character input
-        if (key.ToChar(modifiers) is { } ch)
-        {
-            input.InsertText(ch.ToString());
-            NeedsRedraw = true;
-        }
+        // No TabFields: the inline field is created outside the arranged tree, so there is nothing for Tab
+        // to cycle to. HandleKey would look it up, miss, and fall through to the same place.
+        RouteTextFieldKey(key, modifiers, new TextInputInteraction.KeyContext(
+            Tracker: _tasks,
+            Focus: SiteFocus,
+            RequestRedraw: () => NeedsRedraw = true));
 
         return false;
     }
@@ -1253,7 +1245,6 @@ internal sealed class TuiEquipmentTab(
     private void EnterFilterNameEdit(int otaIndex, int filterIdx, string currentName)
     {
         var input = new TextInputState { Placeholder = "Filter name..." };
-        input.Activate(currentName);
 
         var capturedOta = otaIndex;
         var capturedFilter = filterIdx;
@@ -1274,17 +1265,27 @@ internal sealed class TuiEquipmentTab(
                     }
                 }
             }
+            ExitInlineEdit();
             return System.Threading.Tasks.Task.CompletedTask;
         };
 
-        _activeInlineInput = input;
+        // Escape leaves the mode as well as the field. TextInputInteraction blurs on cancel, but only the
+        // tab knows that the blur ends a MODE, so the transition rides the field's own callbacks -- the same
+        // shape the site editor uses for IsEditingSite.
+        input.OnCancel = ExitInlineEdit;
+
         _mode = Mode.InlineEdit;
+        SiteFocus.Focus(input, currentName);
         NeedsRedraw = true;
     }
 
     private void ExitInlineEdit()
     {
-        _activeInlineInput = null;
+        // Read the field BEFORE the mode changes -- ActiveInlineInput is derived from it.
+        if (ActiveInlineInput is { } input)
+        {
+            SiteFocus.BlurIfFocused(input);
+        }
         _mode = Mode.Browse;
         NeedsRedraw = true;
     }
@@ -1329,25 +1330,41 @@ internal sealed class TuiEquipmentTab(
     /// </summary>
     private bool HandleSiteEditInput(InputKey key, InputModifier modifiers)
     {
-        var ctx = new TextInputInteraction.KeyContext(
+        RouteTextFieldKey(key, modifiers, new TextInputInteraction.KeyContext(
             Tracker: _tasks,
             Focus: SiteFocus,
             RequestRedraw: () => NeedsRedraw = true,
-            TabFields: () => CellLayout.TextInputs(Arranged));
+            TabFields: () => CellLayout.TextInputs(Arranged)));
 
-        if (TextInputInteraction.HandleKey(key, modifiers, ctx))
-        {
-            return false;
-        }
+        return false;
+    }
 
-        // Printable character input (uses upstream InputKeyCharMapping). A terminal delivers the character
-        // on the key event itself, where the SDL host gets a separate TextInput event for it.
-        if (SiteFocus.Current is { } field && key.ToChar(modifiers) is { } ch)
+    /// <summary>
+    /// The terminal's text-field key routing, shared by the site editor and the inline filter-name editor.
+    /// </summary>
+    /// <remarks>
+    /// A terminal delivers a printable character ON the key event; there is no separate TextInput event the
+    /// way SDL has one, so the character case is the host's to answer. It has to be answered BEFORE
+    /// <see cref="TextInputInteraction.HandleKey"/>, never after: that method SWALLOWS every key while a
+    /// field is focused -- which is exactly what makes a field behave like a field -- so it returns true for
+    /// a plain letter as much as for Enter, and a trailing printable branch is unreachable. The site
+    /// editor's was, which is why typing into it did nothing at all.
+    /// <para>
+    /// Gated on the key having no <c>TextInputKey</c> meaning, so the chords keep theirs:
+    /// <c>ToChar</c> does not look at Ctrl, and would answer 'a' for Ctrl+A.
+    /// </para>
+    /// </remarks>
+    private void RouteTextFieldKey(InputKey key, InputModifier modifiers, in TextInputInteraction.KeyContext ctx)
+    {
+        if (key.ToTextInputKey(modifiers) is null
+            && ctx.Focus.Current is { IsComposing: false } field
+            && key.ToChar(modifiers) is { } ch)
         {
             TextInputInteraction.HandleText(field, ch.ToString());
             NeedsRedraw = true;
+            return;
         }
 
-        return false;
+        TextInputInteraction.HandleKey(key, modifiers, ctx);
     }
 }

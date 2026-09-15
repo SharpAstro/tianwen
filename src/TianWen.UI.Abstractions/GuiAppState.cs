@@ -118,9 +118,15 @@ public class GuiAppState
     /// else needs to know the platform calls exist.
     /// </para>
     /// <para>
-    /// Read <see cref="TextInputFocus.Current"/> for "which field is focused". Change it only through
+    /// Read <see cref="TextInputFocus.Current"/> for "which field is focused". Change it through
     /// <see cref="ActivateTextInputSignal"/> / <see cref="DeactivateTextInputSignal"/>, which stay the app's
     /// entry points so the deferred bus keeps ordering the change with everything else in the frame.
+    /// </para>
+    /// <para>
+    /// The ONE exception is a mouse press on a field, which focuses it synchronously through
+    /// <see cref="TextFieldPointerInteraction"/>, because there the focus change and the caret placement
+    /// are a single act: deferred, the focus lands a frame later and RE-SEEDS the field, throwing away the
+    /// caret the press had already set. Keep any OTHER focus change on the bus.
     /// </para>
     /// </summary>
     public TextInputFocus TextInputFocus { get; } = new TextInputFocus();

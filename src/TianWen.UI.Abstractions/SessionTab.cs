@@ -12,7 +12,7 @@ namespace TianWen.UI.Abstractions
     /// Renderer-agnostic Session configuration tab. Left: scrollable SessionConfiguration form.
     /// Right: per-OTA camera settings + observation list.
     /// </summary>
-    public class SessionTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
+    public class SessionTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer), ICaretPlacingWidget
     {
         // Layout constants (at 1x scale)
         private static readonly float BaseFontSize     = GuiTheme.Metrics.BaseFontSize;
