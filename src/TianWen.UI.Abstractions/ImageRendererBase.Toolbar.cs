@@ -704,7 +704,7 @@ namespace TianWen.UI.Abstractions
                 // Not a dropdown but the same kind of thing: a press opens (or closes) the popover
                 // and there is no cycle to fall through to, so "opened" is the answer either way.
                 case ToolbarAction.WhiteBalance:
-                    state.WhiteBalancePanelOpen = !state.WhiteBalancePanelOpen;
+                    state.WhiteBalancePopover.Toggle();
                     state.NeedsRedraw = true;
                     return true;
 

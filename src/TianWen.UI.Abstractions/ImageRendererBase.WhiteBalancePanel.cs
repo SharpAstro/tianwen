@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 using DIR.Lib;
 using TianWen.Lib.Imaging;
 
@@ -14,12 +15,20 @@ namespace TianWen.UI.Abstractions
     /// rows of statistics. As a popover they are one click away, the strip keeps to what it reports,
     /// and the button does the one thing the section never could: say from across the bar, by its
     /// highlight, that a white balance is in force.</para>
-    /// <para><b>A menu in everything but its contents.</b> Painted with the dropdowns so its regions
-    /// win z-order; a full-window backdrop registered under it closes it on a press anywhere else and
-    /// consumes that press, exactly as <c>RenderDropdownMenu</c> does; it claims the keyboard as it
-    /// paints so Escape closes it through the one claimant check in the key handler rather than a
-    /// second Escape branch; and while it is open it owns the pointer
-    /// (<see cref="ViewerState.OverlayOwnsPointer"/>). Closed, it leaves no slider band behind.</para>
+    /// <para><b>A menu in everything but its contents, and the engine owns every part of that.</b>
+    /// <see cref="Layout.Builder.Popover"/> is the whole declaration: the backdrop that dismisses and
+    /// consumes the press (the button included, which is what makes a second press close what the
+    /// first opened), the placement under the button with its on-screen clamp, the Escape claim, and
+    /// the pointer ownership. Those were five obligations written out here, and forgetting one of
+    /// them was silent.</para>
+    /// <para><b>It is ONE arranged tree, and the box is the engine's measurement of it.</b> This
+    /// panel is what the tone popover's own doc comment used to hold up as the counter-example: it
+    /// advanced a <c>y</c> by hand, summed its own box height from the constants its body drew with,
+    /// and took its width from a union of every label a button can carry -- three arithmetic chains
+    /// that agreed only while someone kept them agreeing. The reservations are still here and are
+    /// <see cref="Layout.Content.Text.WidthSample"/>s now, which is the engine's own way of saying
+    /// "hold this at its widest label": stated on the node that draws it, so there is nothing to keep
+    /// in step.</para>
     /// </remarks>
     partial class ImageRendererBase<TSurface>
     {
@@ -38,249 +47,49 @@ namespace TianWen.UI.Abstractions
         // (sqrt(0.25 * 4) = 1), which is the property the handle position depends on.
         private const float WbMin = 0.25f;
         private const float WbMax = 4.0f;
-        // -----------------------------------------------------------------------
-        // Manual white-balance sliders (the popover; shared across FITS / TIFF / SER)
+
+        /// <summary>The widest label the Reset button carries, held as the node's own width sample so
+        /// the row cannot shuffle sideways when the label changes. It used to be a union measured over
+        /// an array beside the paint, and then turned into a number.</summary>
+        private const string ResetWidthSample = "Reset to calibrated";
+
+        /// <summary>
+        /// Likewise for the calibration button, whose in-flight label is the widest of its four.
+        /// Leaving it out would put the button back to changing width under the user -- while a fit is
+        /// running, which is the worst moment for it.
+        /// </summary>
+        private const string SpccWidthSample = "Calibrating...";
+
+        /// <summary>The label column, one channel letter wide, and the value column at its widest
+        /// reading. Stated as samples for the same reason the buttons are.</summary>
+        private const string WbLabelWidthSample = "R";
+        private const string WbValueWidthSample = "0.00";
+
+        /// <summary>Inter-row and inter-column gap, design units. The row height is a font line plus
+        /// one of these, which is what the hand-laid-out version spelled out per row.</summary>
+        private const float WbGap = 6f;
+
+        // The three channel dials, one state each, living across frames because the tree does not: a
+        // Content.Slider leaf carries a REFERENCE to caller-owned state, and the drag the engine arms
+        // on a press holds that same reference until the release. Seeded from ViewerState at the top
+        // of every build.
         //
-        // Three log-mapped sliders (R/G/B) over [WbMin, WbMax] with neutral 1.0 at the track midpoint,
-        // plus a Reset. Drag is press + move + release (mirrors the transport scrub): a press begins a
-        // drag on the hit channel, mouse-move maps cursor-X -> multiplier, release ends it. A WB change
-        // only re-derives the stretch uniforms from cached stats (no pixel pass), so it sets NeedsRedraw,
-        // never NeedsTextureUpdate.
-        // -----------------------------------------------------------------------
+        // What each carries is the track FRACTION, not the multiplier: the mapping is logarithmic
+        // (neutral at the midpoint) while a SliderState's range is linear, so the log lives in the two
+        // conversions either side of it, exactly where it lived when a drag mapped a cursor X by hand.
+        private readonly SliderState[] _wbSliders = [new SliderState(), new SliderState(), new SliderState()];
 
-        /// <summary>Every label the Reset button can carry, so its width can be reserved.</summary>
-        private static readonly string[] ResetLabels = ["Reset WB", "Reset to calibrated"];
+        /// <summary>Test seam: one channel's dial, so a test can find its arranged leaf by identity.</summary>
+        internal SliderState WhiteBalanceSliderState(int channel) => _wbSliders[channel];
 
-        /// <summary>
-        /// Every label the calibration button can carry, including the in-flight one, so the row is
-        /// reserved wide enough for it. Leaving "Calibrating..." out would put the button back to
-        /// changing width under the user -- while a fit is running, which is the worst moment for it.
-        /// </summary>
-        private static readonly string[] SpccLabels = ["Calibrate", "Calibrating...", "SPCC on", "SPCC off"];
+        private static readonly RGBAColor32[] WbChannelFill =
+        [
+            RGBAColor32.FromFloat(0.85f, 0.32f, 0.32f, 1f),
+            RGBAColor32.FromFloat(0.34f, 0.74f, 0.38f, 1f),
+            RGBAColor32.FromFloat(0.38f, 0.56f, 0.92f, 1f),
+        ];
 
-        /// <summary>
-        /// A button's width held at its WIDEST label, so toggling state cannot move the buttons beside
-        /// it. The viewer's toolbar makes the same reservation for Zoom and Enhance.
-        /// </summary>
-        private float ReservedButtonWidth(string[] labels, float gap)
-        {
-            var widest = 0f;
-            foreach (var label in labels)
-            {
-                var w = MeasureText(label, FontSize);
-                if (w > widest) { widest = w; }
-            }
-
-            return widest + gap * 2f;
-        }
-
-        /// <summary>
-        /// What the Auto / Reset / calibration row needs, in its widest state. The ONE definition of
-        /// it: the panel sizes itself from this and the body lays the row out from the same
-        /// reservations, so the box can no longer be narrower than what it draws.
-        /// </summary>
-        private float WhiteBalanceButtonRowWidth(float gap)
-            => MeasureText("Auto", FontSize) + gap * 2f
-                + gap + ReservedButtonWidth(ResetLabels, gap)
-                + gap + ReservedButtonWidth(SpccLabels, gap);
-
-        /// <summary>
-        /// The popover's body: the provenance line, the three sliders, Auto and Reset. Advances
-        /// <paramref name="y"/> past what it drew, and captures the per-channel track rects the drag
-        /// maps against.
-        /// </summary>
-        private void RenderWhiteBalanceBody(ViewerState state, ref float y, float x, float panelWidth)
-        {
-            // PROVENANCE, not the numbers: the numbers are on the sliders now. Method, survivor
-            // count and white reference are the part a triple cannot carry, and the part that says
-            // whether to trust it -- a 104-star photometric fit and a grey-world guess can both
-            // read "R = 0.46".
-            if (state.ColorCalibrationEnabled && _document?.ColorCalibrationSummary is { } summary)
-            {
-                DrawTextLine(ref y, x, Ellipsize(summary.Describe(), panelWidth, FontSize),
-                    ViewerTheme.Palette.DimText);
-            }
-
-            // The sliders show the EFFECTIVE multiplier -- the calibration composed with the manual
-            // fine-tune, which is exactly what the shader receives. They used to show the manual
-            // triple alone, so a calibrated image sat at 1.00/1.00/1.00 on a panel whose whole job is
-            // to report the white balance: a control reading neutral over an image that visibly is
-            // not. Composed through the pipeline's own ComposeWhiteBalance so the panel cannot drift
-            // from the render.
-            var wb = EffectiveWhiteBalance(state);
-            ReadOnlySpan<(string Label, float Value, RGBAColor32 Fill)> rows =
-            [
-                ("R", wb.R, RGBAColor32.FromFloat(0.85f, 0.32f, 0.32f, 1f)),
-                ("G", wb.G, RGBAColor32.FromFloat(0.34f, 0.74f, 0.38f, 1f)),
-                ("B", wb.B, RGBAColor32.FromFloat(0.38f, 0.56f, 0.92f, 1f)),
-            ];
-
-            var gap = 6f * DpiScale;
-            var rowH = FontSize + gap;
-            var labelW = MeasureText("R", FontSize) + gap;
-            var valueW = MeasureText("0.00", FontSize) + gap;
-
-            for (var ch = 0; ch < 3; ch++)
-            {
-                var (label, value, fill) = rows[ch];
-                var rowY = y;
-                DrawText(label, x, rowY, FontSize, ViewerTheme.Palette.BodyText);
-
-                var trackX = x + labelW;
-                var trackRight = x + panelWidth - valueW;
-                var trackW = MathF.Max(0f, trackRight - trackX);
-                if (trackW > 0f)
-                {
-                    var frac = WbValueToFrac(value);
-                    // Generous full-row hit band; its X/Width drive the cursor-X -> multiplier mapping. The
-                    // bar centres on the row; the handle is one font-line tall at the row top.
-                    var hitBand = new RectF32(trackX, rowY - gap / 2f, trackW, FontSize + gap);
-                    DrawTrackSlider(trackX, trackW, rowY, FontSize, frac,
-                        fill, hitBand, new WhiteBalanceSliderHit(ch), TrackChrome, Scale);
-                }
-
-                DrawText(value.ToString("0.00"), trackRight, rowY, FontSize, ViewerTheme.Palette.DimText);
-                y = rowY + rowH;
-            }
-
-            // Auto + Reset buttons row: both self-contained via OnClick (both mouse-down paths run
-            // HitTestAndDispatch, and neither label is a ToolbarAction so each falls through to the
-            // OnClick-already-ran path). Auto runs gray-world over the current frame and drops the result
-            // into the sliders -- which then act as the fine-tune.
-            var btnH = FontSize + gap;
-
-            const string autoLabel = "Auto";
-            var autoW = MeasureText(autoLabel, FontSize) + gap * 2f;
-            FillRect(x, y, autoW, btnH, ToolbarButtonBg);
-            DrawText(autoLabel, x + gap, y + gap / 2f, FontSize, ViewerTheme.Palette.BodyText);
-            RegisterClickable(x, y, autoW, btnH, new HitResult.ButtonHit("AutoWhiteBalance"),
-                _ =>
-                {
-                    if (_source is { } src && AutoWhiteBalance.GrayWorld(src) is { } grayWorld)
-                    {
-                        // Gray-world returns an ABSOLUTE answer, so it belongs on the effective
-                        // value. Writing the manual slot directly would compose it on top of an
-                        // active photometric calibration -- two absolute corrections multiplied,
-                        // which is the same double-correction the SPCC path documents at length.
-                        SetEffectiveWhiteBalance(state, grayWorld);
-                        state.NeedsRedraw = true;
-                    }
-                });
-
-            // "Reset" and not "Reset WB": with a calibration active this returns to the CALIBRATED
-            // triple (manual identity), not to no-white-balance-at-all, and the sliders visibly jump
-            // back to it. Switching the calibration off is the button beside this one.
-            var resetLabel = state.ColorCalibrationEnabled && _document?.ColorCalibration is not null
-                ? "Reset to calibrated"
-                : "Reset WB";
-            // Reserved against the widest state, like the SPCC button below: measuring the CURRENT
-            // label let "Reset to calibrated" push the row past the panel's right edge the moment a
-            // calibration landed, which is what it looked like -- a button hanging out of its box.
-            var resetW = ReservedButtonWidth(ResetLabels, gap);
-            var resetX = x + autoW + gap;
-
-            // ACTIVE ONLY WHEN THERE IS SOMETHING TO RESET, which is the MANUAL triple being off
-            // identity -- not the sliders being off 1.00. The two differ exactly when a calibration is
-            // active: the sliders then read the EFFECTIVE value (1.44/1.00/1.23 on the Sag Triplet)
-            // while the manual layer this button clears is identity, because
-            // SetColorCalibrationEnabled sets it to identity when it switches the calibration on. So
-            // straight after calibrating, this button did nothing at all while looking like it would
-            // undo what you were looking at.
-            //
-            // Dim rather than absent, the same reading the calibration button beside it takes: a
-            // control that vanishes reads as a bug, one that is dim reads as a precondition. It still
-            // registers a region when dim, so a press lands on the button and is swallowed rather than
-            // falling through to the backdrop and closing the panel.
-            var canReset = state.ManualWhiteBalance != (1f, 1f, 1f);
-            FillRect(resetX, y, resetW, btnH, ToolbarButtonBg);
-            DrawText(resetLabel, resetX + gap, y + gap / 2f, FontSize,
-                canReset ? ViewerTheme.Palette.BodyText : ViewerTheme.Palette.DimText);
-            RegisterClickable(resetX, y, resetW, btnH, new HitResult.ButtonHit("ResetWhiteBalance"),
-                _ =>
-                {
-                    if (!canReset)
-                    {
-                        return;
-                    }
-
-                    state.ManualWhiteBalance = (1f, 1f, 1f);
-                    // Drop the parked triple too: the user has just said explicitly that identity is
-                    // what they want, so resurrecting a pre-calibration value later would override a
-                    // more recent instruction with an older one.
-                    state.ManualWhiteBalanceBeforeCalibration = null;
-                    state.NeedsRedraw = true;
-                });
-
-            // The photometric calibration itself, moved off the toolbar and in here beside the sliders
-            // it populates. It is one flag: "Calibrate" and "SPCC" were two buttons on the strip both
-            // writing ColorCalibrationEnabled, so pressing either lit the other. Here it can also say
-            // WHICH state it is in, where the strip only had room for a lit rectangle.
-            //
-            // Dim rather than absent when the frame has too few stars to fit against (the same >= 5
-            // predicate the toolbar button used): a control that vanishes reads as a bug, one that is
-            // dim reads as a precondition.
-            // SAYS SO WHILE IT IS RUNNING. A photometric fit is a catalogue init plus a match against a
-            // few thousand stars -- seconds, not a frame -- and the button used to go on reading
-            // "Calibrate" throughout, so the one control the user had just pressed looked like it had
-            // ignored them. The status bar said "Calibrating color..." all along; the button, which is
-            // where they were looking, did not.
-            var inFlight = _document?.ColorCalibrationInFlight ?? false;
-            var canCalibrate = !inFlight && _document?.Stars is { Count: >= 5 };
-            var calibrated = _document?.ColorCalibration is not null;
-            var spccLabel = inFlight
-                ? "Calibrating..."
-                : !calibrated
-                    ? "Calibrate"
-                    : state.ColorCalibrationEnabled ? "SPCC on" : "SPCC off";
-            // Measured against the widest state, not the current one, so toggling it cannot shuffle the
-            // row sideways -- the same reservation the toolbar makes for Zoom and Enhance. It used to
-            // name "SPCC off" alone, which is not the widest: "Calibrate" is longer in a proportional
-            // face, so the reservation was a shade short in the very state a fresh document opens in.
-            var spccW = ReservedButtonWidth(SpccLabels, gap);
-            var spccX = resetX + resetW + gap;
-            FillRect(spccX, y, spccW, btnH,
-                calibrated && state.ColorCalibrationEnabled ? ToolbarButtonActiveBg : ToolbarButtonBg);
-            DrawText(spccLabel, spccX + gap, y + gap / 2f, FontSize,
-                canCalibrate ? ViewerTheme.Palette.BodyText : ViewerTheme.Palette.DimText);
-            // Registered even when it cannot act, so a press lands on the button and stops there. It
-            // used to register nothing while dim, which let the press reach the backdrop behind it and
-            // CLOSE the panel -- so pressing a busy or unavailable control made the whole popover
-            // vanish, which reads as a crash rather than as a refusal. Same shape as Reset above.
-            //
-            // NOT "SpccCalibrate" or any other ToolbarAction name: a ButtonHit whose label parses as
-            // one is ALSO run by the toolbar action handler, so the toggle would fire twice and
-            // cancel itself. The two buttons above avoid it by accident; this one says so.
-            RegisterClickable(spccX, y, spccW, btnH, new HitResult.ButtonHit("ToggleColorCalibration"),
-                _ =>
-                {
-                    if (!canCalibrate)
-                    {
-                        return;
-                    }
-
-                    // The action follows the LABEL. "Calibrate" fits; "SPCC on"/"SPCC off" toggles the
-                    // fit this frame already has. It used to do both unconditionally, which was
-                    // harmless while every frame was auto-fitted on arrival and is not now: on a
-                    // freshly opened target the flag is still down from the previous set, so a press
-                    // on a button reading "Calibrate" toggled the flag OFF and relied on the fit
-                    // landing to turn it back on -- leaving it off whenever the fit declined.
-                    if (calibrated)
-                    {
-                        ViewerActions.SetColorCalibrationEnabled(state, !state.ColorCalibrationEnabled);
-                    }
-                    else
-                    {
-                        // Enabled FIRST, so the render that follows shows the fit the moment it lands
-                        // rather than waiting for a second press.
-                        ViewerActions.SetColorCalibrationEnabled(state, true);
-                        TryStartColorCalibration(state);
-                    }
-
-                    state.NeedsRedraw = true;
-                });
-
-            y += btnH + FontSize;
-        }
+        private static readonly string[] WbChannelLabels = ["R", "G", "B"];
 
         /// <summary>
         /// The auto calibration currently in force, or neutral. Gated on
@@ -330,104 +139,229 @@ namespace TianWen.UI.Abstractions
             return WbMin * MathF.Exp(f * MathF.Log(WbMax / WbMin));
         }
 
-        /// <summary>
-        /// Begins a manual white-balance drag (press on a WB slider track). Public so both mouse-down paths
-        /// (FitsViewer Program + GUI viewer tab) dispatch identically, mirroring <see cref="BeginScrubAt"/>.
-        /// </summary>
-        public void BeginWhiteBalanceDragAt(int channel, float px)
-        {
-            if (_state is not { } || (uint)channel >= 3u)
-            {
-                return;
-            }
-
-            _state.WhiteBalanceDragChannel = channel;
-            UpdateWhiteBalanceDrag(px);
-        }
-
-        // The channel's track rect, read back from what THIS frame's (or the panel-closed frame's, in
-        // which case there is none) paint already registered via DrawTrackSlider -- rather than a private
-        // copy kept in step by hand, which is the shape that lets a closed panel's drag chase a stale rect.
-        private RectF32 WhiteBalanceTrackRect(int channel)
-        {
-            foreach (var region in RegisteredRegions)
-            {
-                if (region.Result is WhiteBalanceSliderHit { Channel: var c } && c == channel)
-                {
-                    return new RectF32(region.X, region.Y, region.Width, region.Height);
-                }
-            }
-
-            return default;
-        }
-
-        // Maps a cursor X onto a WB multiplier for the active drag channel against its registered track rect.
-        private void UpdateWhiteBalanceDrag(float px)
-        {
-            if (_state is not { } state)
-            {
-                return;
-            }
-            var ch = state.WhiteBalanceDragChannel;
-            if ((uint)ch >= 3u)
-            {
-                return;
-            }
-            var track = WhiteBalanceTrackRect(ch);
-            if (track.Width <= 0f)
-            {
-                return;
-            }
-
-            var frac = TrackFrac(track, px);
-            var value = WbFracToValue(frac);
-
-            // The handle was dragged to an EFFECTIVE multiplier, because that is what the track
-            // displays; the manual factor needed to land there is solved for. Setting the manual slot
-            // to the dropped value instead would move the handle somewhere else entirely whenever a
-            // calibration is active -- drop red on 0.60 over a 0.463 calibration and it would render
-            // 0.28 and snap to that, so the slider would run away from the pointer.
-            var wb = EffectiveWhiteBalance(state);
-            SetEffectiveWhiteBalance(state, ch switch
-            {
-                0 => (value, wb.G, wb.B),
-                1 => (wb.R, value, wb.B),
-                _ => (wb.R, wb.G, value),
-            });
-            state.NeedsRedraw = true;
-        }
-        // -----------------------------------------------------------------------
-        // The popover itself
-        // -----------------------------------------------------------------------
-
-        /// <summary>
-        /// Escape closes the popover; every other key passes through, and so does Escape once the
-        /// panel is no longer open. A claimant is asked whether it still applies, not told.
-        /// </summary>
-        private sealed class WhiteBalancePanelClaimant(Func<ViewerState?> state) : IKeyboardClaimant
-        {
-            public bool HandleKeyDown(InputKey key)
-            {
-                if (state() is not { WhiteBalancePanelOpen: true } open || key is not InputKey.Escape)
-                {
-                    return false;
-                }
-
-                open.WhiteBalancePanelOpen = false;
-                open.NeedsRedraw = true;
-                return true;
-            }
-        }
-
-        private WhiteBalancePanelClaimant? _whiteBalanceClaimant;
-
         /// <summary>Neutral to a thousandth on every channel: the state in which the button is unlit.</summary>
         private static bool IsNeutralWhiteBalance((float R, float G, float B) wb)
             => MathF.Abs(wb.R - 1f) < 1e-3f && MathF.Abs(wb.G - 1f) < 1e-3f && MathF.Abs(wb.B - 1f) < 1e-3f;
 
+        /// <summary>
+        /// One channel's row: letter, track, value. The track is a <see cref="Layout.Content.Slider"/>
+        /// leaf, so the engine draws it, registers it and arms its drag from the rect it painted --
+        /// draw == drag by construction, where this used to read its band back out of the region list.
+        /// </summary>
+        private Layout.Node WhiteBalanceRow(int channel, float value)
+            => Layout.Builder.HStack(
+                    Layout.Builder.Text(WbChannelLabels[channel], FontSize, ViewerTheme.Palette.BodyText,
+                        widthSample: WbLabelWidthSample),
+                    Layout.Builder.Slider(_wbSliders[channel], WbChannelFill[channel], TrackChrome).HStar(),
+                    Layout.Builder.Text(value.ToString("0.00"), FontSize, ViewerTheme.Palette.DimText,
+                        hAlign: TextAlign.Far, widthSample: WbValueWidthSample))
+                .WithGap(WbGap)
+                .CrossCenter()
+                .RowH(FontSize + WbGap);
+
+        /// <summary>
+        /// One button in the popover's action row, held at <paramref name="widthSample"/> so toggling
+        /// its label cannot move its neighbours.
+        /// </summary>
+        /// <remarks>
+        /// Registered even when it cannot act, so a press lands on the button and stops there. Reset
+        /// and the calibration button both used to register nothing while dim, which let the press
+        /// reach the backdrop behind them and CLOSE the panel -- so pressing a busy or unavailable
+        /// control made the whole popover vanish, which reads as a crash rather than as a refusal.
+        /// </remarks>
+        private Layout.Node WhiteBalanceButton(string label, string hit, bool enabled,
+            Action onPress, string? widthSample = null, RGBAColor32? background = null)
+            => Layout.Builder.Text(label, FontSize,
+                    enabled ? ViewerTheme.Palette.BodyText : ViewerTheme.Palette.DimText,
+                    hAlign: TextAlign.Center, widthSample: widthSample)
+                .PadX(WbGap)
+                .Bg(background ?? ToolbarButtonBg)
+                .Clickable(new HitResult.ButtonHit(hit),
+                    _ =>
+                    {
+                        if (enabled)
+                        {
+                            onPress();
+                        }
+                    },
+                    enabled ? CursorKind.Pointer : null);
+
+        /// <summary>
+        /// The whole popover as one tree. Nothing here is positioned and nothing is measured; the
+        /// engine is told what the content is and does both.
+        /// </summary>
+        private Layout.Node BuildWhiteBalanceTree(ViewerState state)
+        {
+            var rows = ImmutableArray.CreateBuilder<Layout.Node>();
+
+            // PROVENANCE, not the numbers: the numbers are on the sliders now. Method, survivor
+            // count and white reference are the part a triple cannot carry, and the part that says
+            // whether to trust it -- a 104-star photometric fit and a grey-world guess can both
+            // read "R = 0.46".
+            //
+            // An EMPTY width sample, so this line reports no intrinsic width and takes whatever the
+            // box has; the painter then trims the run to the rect the engine resolved for it
+            // (Content.Text.Trim), which is what the hand-written Ellipsize against a pre-computed
+            // panel width was doing. Without the sample a long provenance string would SET the
+            // panel's width, and the box would change size the moment a calibration landed.
+            if (state.ColorCalibrationEnabled && _document?.ColorCalibrationSummary is { } summary)
+            {
+                rows.Add(Layout.Builder.Text(summary.Describe(), FontSize, ViewerTheme.Palette.DimText,
+                        widthSample: string.Empty)
+                    .RowH(TextLineAdvance));
+            }
+
+            // The sliders show the EFFECTIVE multiplier -- the calibration composed with the manual
+            // fine-tune, which is exactly what the shader receives. They used to show the manual
+            // triple alone, so a calibrated image sat at 1.00/1.00/1.00 on a panel whose whole job is
+            // to report the white balance: a control reading neutral over an image that visibly is
+            // not. Composed through the pipeline's own ComposeWhiteBalance so the panel cannot drift
+            // from the render.
+            var wb = EffectiveWhiteBalance(state);
+            ReadOnlySpan<float> values = [wb.R, wb.G, wb.B];
+
+            for (var ch = 0; ch < 3; ch++)
+            {
+                var channel = ch;
+                _wbSliders[ch].Value = WbValueToFrac(values[ch]);
+                _wbSliders[ch].OnChanged = frac =>
+                {
+                    // The handle was dragged to an EFFECTIVE multiplier, because that is what the
+                    // track displays; the manual factor needed to land there is solved for. Setting
+                    // the manual slot to the dropped value instead would move the handle somewhere
+                    // else entirely whenever a calibration is active -- drop red on 0.60 over a 0.463
+                    // calibration and it would render 0.28 and snap to that, so the slider would run
+                    // away from the pointer.
+                    var current = EffectiveWhiteBalance(state);
+                    var value = WbFracToValue(frac);
+                    SetEffectiveWhiteBalance(state, channel switch
+                    {
+                        0 => (value, current.G, current.B),
+                        1 => (current.R, value, current.B),
+                        _ => (current.R, current.G, value),
+                    });
+                    state.NeedsRedraw = true;
+                };
+
+                rows.Add(WhiteBalanceRow(ch, values[ch]));
+            }
+
+            // Auto runs gray-world over the current frame and drops the result into the sliders --
+            // which then act as the fine-tune.
+            var auto = WhiteBalanceButton("Auto", "AutoWhiteBalance", enabled: true, () =>
+            {
+                if (_source is { } src && AutoWhiteBalance.GrayWorld(src) is { } grayWorld)
+                {
+                    // Gray-world returns an ABSOLUTE answer, so it belongs on the effective
+                    // value. Writing the manual slot directly would compose it on top of an
+                    // active photometric calibration -- two absolute corrections multiplied,
+                    // which is the same double-correction the SPCC path documents at length.
+                    SetEffectiveWhiteBalance(state, grayWorld);
+                    state.NeedsRedraw = true;
+                }
+            });
+
+            // "Reset" and not "Reset WB": with a calibration active this returns to the CALIBRATED
+            // triple (manual identity), not to no-white-balance-at-all, and the sliders visibly jump
+            // back to it. Switching the calibration off is the button beside this one.
+            //
+            // ACTIVE ONLY WHEN THERE IS SOMETHING TO RESET, which is the MANUAL triple being off
+            // identity -- not the sliders being off 1.00. The two differ exactly when a calibration is
+            // active: the sliders then read the EFFECTIVE value (1.44/1.00/1.23 on the Sag Triplet)
+            // while the manual layer this button clears is identity, because
+            // SetColorCalibrationEnabled sets it to identity when it switches the calibration on. So
+            // straight after calibrating, this button did nothing at all while looking like it would
+            // undo what you were looking at. Dim rather than absent, the same reading the calibration
+            // button beside it takes: a control that vanishes reads as a bug, one that is dim reads as
+            // a precondition.
+            var resetLabel = state.ColorCalibrationEnabled && _document?.ColorCalibration is not null
+                ? "Reset to calibrated"
+                : "Reset WB";
+            var canReset = state.ManualWhiteBalance != (1f, 1f, 1f);
+            var reset = WhiteBalanceButton(resetLabel, "ResetWhiteBalance", canReset, () =>
+            {
+                state.ManualWhiteBalance = (1f, 1f, 1f);
+                // Drop the parked triple too: the user has just said explicitly that identity is
+                // what they want, so resurrecting a pre-calibration value later would override a
+                // more recent instruction with an older one.
+                state.ManualWhiteBalanceBeforeCalibration = null;
+                state.NeedsRedraw = true;
+            }, ResetWidthSample);
+
+            // The photometric calibration itself, moved off the toolbar and in here beside the sliders
+            // it populates. It is one flag: "Calibrate" and "SPCC" were two buttons on the strip both
+            // writing ColorCalibrationEnabled, so pressing either lit the other. Here it can also say
+            // WHICH state it is in, where the strip only had room for a lit rectangle.
+            //
+            // Dim rather than absent when the frame has too few stars to fit against (the same >= 5
+            // predicate the toolbar button used). And it SAYS SO WHILE IT IS RUNNING: a photometric
+            // fit is a catalogue init plus a match against a few thousand stars -- seconds, not a
+            // frame -- and the button used to go on reading "Calibrate" throughout, so the one control
+            // the user had just pressed looked like it had ignored them. The status bar said
+            // "Calibrating color..." all along; the button, which is where they were looking, did not.
+            var inFlight = _document?.ColorCalibrationInFlight ?? false;
+            var canCalibrate = !inFlight && _document?.Stars is { Count: >= 5 };
+            var calibrated = _document?.ColorCalibration is not null;
+            var spccLabel = inFlight
+                ? "Calibrating..."
+                : !calibrated
+                    ? "Calibrate"
+                    : state.ColorCalibrationEnabled ? "SPCC on" : "SPCC off";
+
+            // NOT "SpccCalibrate" or any other ToolbarAction name: a ButtonHit whose label parses as
+            // one is ALSO run by the toolbar action handler, so the toggle would fire twice and
+            // cancel itself. The two buttons above avoid it by accident; this one says so.
+            var spcc = WhiteBalanceButton(spccLabel, "ToggleColorCalibration", canCalibrate, () =>
+            {
+                // The action follows the LABEL. "Calibrate" fits; "SPCC on"/"SPCC off" toggles the
+                // fit this frame already has. It used to do both unconditionally, which was
+                // harmless while every frame was auto-fitted on arrival and is not now: on a
+                // freshly opened target the flag is still down from the previous set, so a press
+                // on a button reading "Calibrate" toggled the flag OFF and relied on the fit
+                // landing to turn it back on -- leaving it off whenever the fit declined.
+                if (calibrated)
+                {
+                    ViewerActions.SetColorCalibrationEnabled(state, !state.ColorCalibrationEnabled);
+                }
+                else
+                {
+                    // Enabled FIRST, so the render that follows shows the fit the moment it lands
+                    // rather than waiting for a second press.
+                    ViewerActions.SetColorCalibrationEnabled(state, true);
+                    TryStartColorCalibration(state);
+                }
+
+                state.NeedsRedraw = true;
+            }, SpccWidthSample,
+                calibrated && state.ColorCalibrationEnabled ? ToolbarButtonActiveBg : ToolbarButtonBg);
+
+            // The trailing spacer is what keeps the three buttons at their reserved widths instead of
+            // sharing the row: it takes the slack a wider box leaves over.
+            rows.Add(Layout.Builder.HStack(auto, reset, spcc, Layout.Builder.Spacer().WStar())
+                .WithGap(WbGap)
+                .CrossCenter()
+                .RowH(FontSize + WbGap));
+
+            // Outer: a one-unit border ring around the padded body, so the frame is part of the tree
+            // rather than two rectangles drawn before it. The body swallows a press anywhere on it.
+            return Layout.Builder.VStack(
+                    Layout.Builder.VStack(rows.ToImmutable().AsSpan())
+                        .Pad(PanelPadding / Scale.X)
+                        .Bg(ViewerTheme.InfoPanelBg)
+                        .Clickable(new HitResult.ButtonHit("WhiteBalancePanelBackground"), _ => { })
+                        .WStar())
+                .Pad(1f)
+                .Bg(ViewerTheme.Palette.SeparatorStrong)
+                .WStar();
+        }
+
         private void RenderWhiteBalancePanel(ViewerState state)
         {
-            if (!state.WhiteBalancePanelOpen)
+            // The engine paints nothing for a closed popover, so this is not the open check -- it is
+            // the measure this frame does not have to pay for. A closed popover is still measured and
+            // arranged, and measuring a panel nobody can see is the non-drawing work a gated render is
+            // supposed to skip.
+            if (!state.WhiteBalancePopover.IsOpen)
             {
                 return;
             }
@@ -436,53 +370,29 @@ namespace TianWen.UI.Abstractions
             // was not enabled this frame (a mono source). It closes rather than floating at a guess.
             if (!TryGetPaintedToolbarRect(ToolbarAction.WhiteBalance, out var anchor))
             {
-                state.WhiteBalancePanelOpen = false;
+                state.WhiteBalancePopover.Close();
                 return;
             }
 
-            // Claimed as it paints, like a dropdown, so the key handler's one claimant check routes
-            // Escape here without a branch of its own.
-            Ui.KeyboardClaimant = _whiteBalanceClaimant ??= new WhiteBalancePanelClaimant(() => _state);
+            var ctx = new PixelMeasureContext<TSurface>(Renderer, FontPath, Scale.X, Scale.Y)
+            {
+                Fallback = FontFallback,
+                EmojiFontPath = EmojiFontPath,
+            };
 
-            // The backdrop goes down FIRST so the panel's own regions, registered after it, win: a
-            // press anywhere else closes the panel and is consumed, the button included, which is
-            // what makes a second press on the button close what the first opened.
-            RegisterClickable(0f, 0f, Width, Height, new HitResult.ButtonHit("WhiteBalanceBackdrop"),
-                _ =>
-                {
-                    state.WhiteBalancePanelOpen = false;
-                    state.NeedsRedraw = true;
-                });
+            // WIDE ENOUGH FOR THE BUTTON ROW, not merely the info panel's width. That was
+            // BaseInfoPanelWidth alone while the button row is measured text, so once a calibration
+            // landed and Reset became "Reset to calibrated" the row was wider than the box and the
+            // last button hung out over the image. The engine measures what is actually in the tree,
+            // so the info panel's width is only a FLOOR -- stated as the Star minimum the engine
+            // already honours, rather than as a max() over a separately summed row width.
+            var content = BuildWhiteBalanceTree(state).WStar(1f, BaseInfoPanelWidth);
 
-            var dpiScale = DpiScale;
-            var pad = PanelPadding;
-            var gap = 6f * dpiScale;
-
-            // WIDE ENOUGH FOR THE BUTTON ROW, not merely the info panel's width. This was
-            // BaseInfoPanelWidth alone, and the row is measured text: once a calibration landed and
-            // Reset became "Reset to calibrated", the row was wider than the box and the last button
-            // hung out over the image. The row reserves its widest labels (see the body), so this is a
-            // constant per DPI and the panel does not resize as the buttons are toggled.
-            var w = MathF.Max(BaseInfoPanelWidth * dpiScale, WhiteBalanceButtonRowWidth(gap) + pad * 2f);
-            var x = OverlayPlacement.ClampX(anchor.X, w, Width);
-            var y = anchor.Y + anchor.Height;
-
-            // Sized from the same measures the body draws with, so the box and its contents cannot
-            // disagree: the provenance line when there is one, three slider rows, the button row.
-            var rowH = FontSize + gap;
-            var btnH = FontSize + gap;
-            var provenanceH = state.ColorCalibrationEnabled && _document?.ColorCalibrationSummary is not null
-                ? TextLineAdvance
-                : 0f;
-            var h = pad + provenanceH + (3f * rowH) + btnH + pad;
-
-            FillRect(x - 1f, y - 1f, w + 2f, h + 2f, ViewerTheme.Palette.SeparatorStrong);
-            FillRect(x, y, w, h, ViewerTheme.InfoPanelBg);
-            // The panel's blank area swallows a press rather than letting it reach the backdrop.
-            RegisterClickable(x, y, w, h, new HitResult.ButtonHit("WhiteBalancePanelBackground"), _ => { });
-
-            var bodyY = y + pad;
-            RenderWhiteBalanceBody(state, ref bodyY, x + pad, w - (pad * 2f));
+            // Under the button and on screen, both the engine's: with an anchor, a side means just
+            // OUTSIDE that edge of the ANCHOR while the clamp still targets the rect the popover
+            // floats in, which is the whole window here.
+            var tree = Layout.Builder.Popover(anchor, content, state.WhiteBalancePopover);
+            PaintLayout(ArrangeLayout(tree, new RectF32(0f, 0f, Width, Height), ctx), ctx);
         }
     }
 }
