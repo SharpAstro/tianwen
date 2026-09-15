@@ -226,7 +226,11 @@ namespace TianWen.UI.Abstractions
             // MUST be .Stretch() -- an Auto-width/height VStack collapses to intrinsic (the input + rows
             // starve to their text width instead of filling the panel).
             var body = Layout.Builder.VStack(
-                    Layout.Builder.TextInput(State.Search.SearchInput, 14f).RowH(inputHDesign),
+                    // Ctrl+F puts the keyboard back in the box from anywhere inside the open window --
+                    // a chord on a TextInput leaf is "focus me", seeded with its own value so the next
+                    // keystroke replaces the search rather than appending to it.
+                    Layout.Builder.TextInput(State.Search.SearchInput, 14f).RowH(inputHDesign)
+                        .WithShortcut(InputKey.F, InputModifier.Ctrl),
                     Layout.Builder.Spacer().RowH(inputGap),
                     BuildSearchResults(
                         State.Search.Interaction?.Results ?? [],
@@ -724,29 +728,29 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Handle the F3 shortcut. Call from the tab's key handler.
-        /// Returns true when the key was consumed.
+        /// Opens the search window, or closes it again. What the F3 binding declared on the tab's own
+        /// surface does (<c>RenderSearchBinding</c>).
         /// </summary>
-        protected bool TryHandleSearchKey(InputKey key)
+        /// <remarks>
+        /// Up/Down over the result list is <see cref="SearchInteraction.HandleNavKey"/>'s while the
+        /// modal's input has the keyboard, which the router hands it -- the modal always focuses the input
+        /// on open, so an arrow-nav fallback here would be unreachable.
+        /// </remarks>
+        protected void ToggleSearch()
         {
-            if (key == InputKey.F3)
+            // Two statements, not a conditional expression: PostSignal is generic over the signal TYPE
+            // and the bus dispatches on it, so a ternary widening both arms to object would post a signal
+            // no subscriber is listening for -- silently.
+            if (State.Search.IsOpen)
             {
-                if (State.Search.IsOpen)
-                {
-                    PostSignal(new CloseSkyMapSearchSignal());
-                }
-                else
-                {
-                    PostSignal(new OpenSkyMapSearchSignal());
-                }
-                State.NeedsRedraw = true;
-                return true;
+                PostSignal(new CloseSkyMapSearchSignal());
+            }
+            else
+            {
+                PostSignal(new OpenSkyMapSearchSignal());
             }
 
-            // Up/Down over the result list is handled by SearchInteraction.HandleNavKey while the modal's
-            // input is active (the host key router routes it) -- the modal always activates the input on
-            // open, so the old "fallback" arrow-nav here was unreachable and has been removed.
-            return false;
+            State.NeedsRedraw = true;
         }
 
         /// <summary>

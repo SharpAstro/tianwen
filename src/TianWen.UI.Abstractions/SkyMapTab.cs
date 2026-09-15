@@ -105,7 +105,35 @@ namespace TianWen.UI.Abstractions
         {
             RenderSkyBehind(plannerState, contentRect, timeProvider);
             RenderLayerPalette(contentRect);
+            RenderSearchBinding(contentRect);
         }
+
+        /// <summary>
+        /// The map's own keyboard binding, stated on the surface it belongs to: F3 opens the search
+        /// window, and closes it again.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// A declaration, not a drawing: the node has no background, no hit and no cursor, so it paints
+        /// nothing and registers nothing. What it does is make the binding a property of the PAINTED tree,
+        /// which is what the input router matches a chord against -- so F3 reaches the map exactly while
+        /// the map is on screen, and reaches it even while a text field has the keyboard, because a
+        /// function key beats a focused field by <c>KeyChord.BeatsFocusedField</c>. That rule used to be
+        /// written out as <c>if (key == F3) return false;</c> in the desktop host's key router,
+        /// with a comment calling F3 global and nothing making it so on the other two surfaces.
+        /// </para>
+        /// <para>
+        /// In <see cref="Render"/> rather than in <see cref="RenderSkyBehind"/>, which is the half a
+        /// document viewer composites its photograph onto: a sky drawn BEHIND a frame is a backdrop and
+        /// has no search window to open.
+        /// </para>
+        /// </remarks>
+        private void RenderSearchBinding(RectF32 contentRect)
+            => RenderLayout(
+                Layout.Builder.Spacer().Stretch()
+                    .WithShortcut(InputKey.F3)
+                    .Activatable(_ => ToggleSearch()),
+                contentRect);
 
         /// <summary>
         /// The sky and its labels WITHOUT the palette, for a host that draws its own content over the
@@ -1629,13 +1657,6 @@ namespace TianWen.UI.Abstractions
 
         private bool HandleKey(InputKey key, InputModifier modifiers = InputModifier.None)
         {
-            // F3 and (when modal open) arrow-key navigation take priority over
-            // the map toggles below.
-            if (TryHandleSearchKey(key))
-            {
-                return true;
-            }
-
             var fineStep = (modifiers & InputModifier.Shift) != 0;
             var ctrl = (modifiers & InputModifier.Ctrl) != 0;
 
