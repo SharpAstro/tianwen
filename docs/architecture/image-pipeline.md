@@ -164,8 +164,9 @@ Read the two halves differently. The single-threaded rows are default-job Benchm
 iterations) and the controls moved by 2 to 7 percent, within the spread `WarpBenchmarks` records, so the
 changed rows are attributable: the luma statistic HALVED, and that is the per-sample residency check
 removed (it went through the `Planes` accessor three times per pixel), not the index; Lanczos3 gained
-26 percent at 1024 and 9 at 2048, so at the larger plane the 36-tap gather is partly memory-bound and
-the address arithmetic was never all of it; the CFA split/merge gained 49 and 21 percent the same way.
+26 percent at 1024 and 9 at 2048 ON ARM64 (see the x64 table below, where it is 6 and 5), so at the
+larger plane the 36-tap gather is partly memory-bound and the address arithmetic was never all of it;
+the CFA split/merge gained 49 and 21 percent the same way.
 
 **The same three rows on the desktop (2026-09-15), from a worktree at the same benchmark commit**,
 with `UseLocalSiblings` resolving true on both sides so only TianWen's own imaging code differed, and
