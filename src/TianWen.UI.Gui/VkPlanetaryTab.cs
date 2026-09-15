@@ -295,7 +295,7 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
         // mount-free recenter actuator). While idle they position the SELECTION shown in the PiP + overlay,
         // applied on the next Start.
         rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
-        rows.Add(Layout.Builder.Spacer().RowH(1f).Bg(Divider));
+        rows.Add(Layout.Builder.Box(0f, 1f, Divider).RowH(1f));
         rows.Add(SectionHeader("REGION (ROI)"));
         rows.Add(Layout.Builder.Fill(key: "RoiPip").RowH(BaseRowHeight * 3f));
         rows.Add(Stepper("Size", $"{_roi.Width}x{_roi.Height}", canEdit, "RoiSize",
@@ -314,7 +314,7 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
         // (fast, mount-free) to null the disk's COM drift; the opt-in Mount jog is the coarse fallback when the
         // ROI reaches the sensor edge. Deadband/Gain tune the loop; the N/S/E/W buttons are a manual nudge. ---
         rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
-        rows.Add(Layout.Builder.Spacer().RowH(1f).Bg(Divider));
+        rows.Add(Layout.Builder.Box(0f, 1f, Divider).RowH(1f));
         rows.Add(SectionHeader("RECENTER"));
         rows.Add(CheckRow("Auto-recenter (ROI)", _autoRecenter, "RecenterAuto", () => _autoRecenter = !_autoRecenter));
         rows.Add(Stepper("Deadband", $"{DeadbandPresetsPx[_deadbandIdx]} px", true, "RecenterDeadband",
@@ -342,7 +342,7 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
 
         // --- Focuser section (reuses JogFocuserSignal -- the same path the Live Session OTA panel posts) ---
         rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
-        rows.Add(Layout.Builder.Spacer().RowH(1f).Bg(Divider));
+        rows.Add(Layout.Builder.Box(0f, 1f, Divider).RowH(1f));
         rows.Add(SectionHeader("FOCUSER"));
         if (_focuser.FocuserConnected)
         {

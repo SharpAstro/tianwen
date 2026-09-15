@@ -179,7 +179,7 @@ namespace TianWen.UI.Abstractions
             {
                 if (i > 0)
                 {
-                    columns.Add(Layout.Builder.Spacer().WFixed(1f).HStar().Bg(SeparatorColor));
+                    columns.Add(Layout.Builder.Box(1f, 0f, SeparatorColor).WFixed(1f).HStar());
                 }
                 columns.Add(BuildPreviewOtaColumn(state, i, fontSize, timeProvider).WStar());
             }
@@ -281,7 +281,6 @@ namespace TianWen.UI.Abstractions
                     rows.Add(Layout.Builder.HStack(
                             // One field per OTA, created as the rig reports its focusers.
                             Layout.Builder.TextInput(input, BaseFontSize * 0.85f).Stretch(),
-                            Layout.Builder.Spacer().WFixed(4f).HStar(),
                             Layout.Builder.Text("Go", BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
                                 .WFixed(32f).HStar().Bg(jogBg)
                                 .Clickable(new HitResult.ButtonHit($"FocGoto{capturedI}"), _ =>
@@ -291,7 +290,7 @@ namespace TianWen.UI.Abstractions
                                         PostSignal(new GotoFocuserSignal(capturedI, pos));
                                     }
                                 }))
-                        .RowH(BaseRowHeight));
+                        .WithGap(4f).RowH(BaseRowHeight));
                 }
             }
             else
@@ -369,7 +368,6 @@ namespace TianWen.UI.Abstractions
             var captureBtnText = polarActive ? DimText : BrightText;
             rows.Add(Layout.Builder.HStack(
                     expCtrl.Stretch(),
-                    Layout.Builder.Spacer().WFixed(4f).HStar(),
                     Layout.Builder.Text("Capture", BaseFontSize * 0.85f, captureBtnText, TextAlign.Center, TextAlign.Center)
                         .WFixed(72f).HStar().Bg(captureBtnColor)
                         .Clickable(new HitResult.ButtonHit($"PreviewCapture{otaIndex}"), polarActive ? null : _ =>
@@ -380,7 +378,7 @@ namespace TianWen.UI.Abstractions
                                 otaIndex < state.PreviewGain.Length ? state.PreviewGain[otaIndex] : null,
                                 otaIndex < state.PreviewBinning.Length ? state.PreviewBinning[otaIndex] : (short)1));
                         }))
-                .RowH(BaseRowHeight));
+                .WithGap(4f).RowH(BaseRowHeight));
 
             // Gain row: [-] value [+] (only if camera supports gain value or gain mode).
             var tel = otaIndex < state.PreviewOTATelemetry.Length
@@ -427,11 +425,10 @@ namespace TianWen.UI.Abstractions
                         Layout.Builder.Text("Save", BaseFontSize * 0.85f, BrightText, TextAlign.Center, TextAlign.Center)
                             .WStar().HStar().Bg(GuiTheme.GoButtonBg)
                             .Clickable(new HitResult.ButtonHit($"PreviewSave{otaIndex}"), _ => PostSignal(new SaveSnapshotSignal(otaIndex))),
-                        Layout.Builder.Spacer().WFixed(4f).HStar(),
                         Layout.Builder.Text(solveLabel, BaseFontSize * 0.85f, solveText, TextAlign.Center, TextAlign.Center)
                             .WStar().HStar().Bg(solveBg)
                             .Clickable(new HitResult.ButtonHit($"PreviewSolve{otaIndex}"), solving ? null : _ => PostSignal(new PlateSolvePreviewSignal(otaIndex))))
-                    .RowH(BaseRowHeight * 0.9f));
+                    .WithGap(4f).RowH(BaseRowHeight * 0.9f));
             }
 
             return Layout.Builder.VStack([.. rows]).WStar();
@@ -467,7 +464,7 @@ namespace TianWen.UI.Abstractions
 
             // Full-width hairline divider above the block (a coloured Box node, not a Fill painter).
             return Layout.Builder.VStack(
-                Layout.Builder.Spacer().RowH(1f).Bg(SeparatorColor),
+                Layout.Builder.Box(0f, 1f, SeparatorColor).RowH(1f),
                 content);
         }
 

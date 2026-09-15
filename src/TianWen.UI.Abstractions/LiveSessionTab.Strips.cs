@@ -251,7 +251,7 @@ namespace TianWen.UI.Abstractions
             }
 
             var root = Layout.Builder.VStack(
-                    Layout.Builder.Spacer().RowH(1f).Bg(SeparatorColor),
+                    Layout.Builder.Box(0f, 1f, SeparatorColor).RowH(1f),
                     Layout.Builder.HStack([.. children]).WithGap(BasePadding).Stretch().Pad(2f))
                 .Bg(HeaderBg);
             RenderLayout(root, rect,

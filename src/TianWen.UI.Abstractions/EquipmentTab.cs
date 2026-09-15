@@ -390,7 +390,7 @@ namespace TianWen.UI.Abstractions
             var tree = Layout.Builder.Dock(
                 Layout.Builder.HStack(
                     Layout.Builder.Fill(key: "profilePanel").WFixed(BaseProfilePanelWidth).HStar().Bg(ProfilePanelBg),
-                    Layout.Builder.Spacer().WFixed(1f).HStar().Bg(SeparatorColor),
+                    Layout.Builder.Box(1f, 0f, SeparatorColor).WFixed(1f).HStar(),
                     Layout.Builder.Fill(key: "deviceList").WStar().HStar().Bg(DeviceListBg)),
                 Layout.Builder.Bottom(
                     Layout.Builder.Fill(key: "bottomBar").Bg(BottomBarBg), BaseBottomBarHeight));
@@ -410,39 +410,6 @@ namespace TianWen.UI.Abstractions
                         break;
                 }
             });
-        }
-
-        /// <summary>
-        /// Truncates <paramref name="text"/> with a trailing ellipsis so its rendered width
-        /// fits within <paramref name="maxWidth"/>. Returns the original string when it already fits.
-        /// Falls back gracefully on tiny widths by clipping characters until just the ellipsis remains.
-        /// </summary>
-        private string TruncateToWidth(string text, float fontSize, float maxWidth)
-        {
-            if (text.Length == 0 || maxWidth <= 0f) return text;
-            var fontPath = FontPath;
-            if (Renderer.MeasureText(text.AsSpan(), fontPath, fontSize).Width <= maxWidth) return text;
-
-            const string ellipsis = "\u2026";
-            // Binary search the longest prefix that fits with the trailing ellipsis appended.
-            var lo = 0;
-            var hi = text.Length;
-            var best = 0;
-            while (lo <= hi)
-            {
-                var mid = (lo + hi) / 2;
-                var candidate = string.Concat(text.AsSpan(0, mid), ellipsis);
-                if (Renderer.MeasureText(candidate.AsSpan(), fontPath, fontSize).Width <= maxWidth)
-                {
-                    best = mid;
-                    lo = mid + 1;
-                }
-                else
-                {
-                    hi = mid - 1;
-                }
-            }
-            return string.Concat(text.AsSpan(0, best), ellipsis);
         }
 
         // -----------------------------------------------------------------------
