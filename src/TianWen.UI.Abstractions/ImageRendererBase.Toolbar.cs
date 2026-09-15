@@ -877,6 +877,37 @@ namespace TianWen.UI.Abstractions
             }
         }
 
+        /// <summary>
+        /// Where a floating box of the given size goes just BELOW <paramref name="anchor"/>, kept inside
+        /// the window.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The engine's own answer (<see cref="Layout.Builder.AnchoredTo"/>), asked as a one-node arrange
+        /// rather than re-implemented: with an anchor, a side means just outside THAT edge while the
+        /// clamp still targets the rect the child floats in, which is the pairing every hand-rolled
+        /// version gets half of. <c>OverlayPlacement.cs</c> was this codebase's half -- a private ClampX
+        /// and ClampY beside a switch over two anchor sides, one of which no caller ever passed -- and
+        /// its own doc comment named DIR.Lib's <c>Anchored</c> as the other half of the same contract.
+        /// </para>
+        /// <para>
+        /// Device pixels in and out, so the arrange runs at <see cref="DesignScale.One"/>: the anchor is
+        /// always a rect something else was already painted into, and converting it per axis would be
+        /// wrong for the same reason converting a pointer position would be.
+        /// </para>
+        /// </remarks>
+        private RectF32 PlaceBesideAnchor(RectF32 anchor, float width, float height)
+        {
+            var arranged = ArrangeLayout(
+                Layout.Builder.AnchoredTo(anchor, Layout.Builder.Box(width, height), Layout.DockSide.Bottom),
+                new RectF32(0f, 0f, Width, Height), scale: DesignScale.One);
+
+            // [0] is the Anchored node itself, recorded against the rect it was GIVEN (the window);
+            // the placed box is its child, which pre-order puts next.
+            var placed = arranged[1].Bounds;
+            return new RectF32(placed.X, placed.Y, placed.Width, placed.Height);
+        }
+
         private void OpenDropdown(ViewerState state, RectF32 bounds, ImmutableArray<string> labels, Action<int, string> onSelect, int selectedIndex = -1)
         {
             // Width = max(button width, widest label + horizontal padding).
@@ -898,13 +929,13 @@ namespace TianWen.UI.Abstractions
             var items = labels.Select(DropdownItem.Text).ToImmutableArray();
             // Keep the menu on screen. The help button is pinned to the right EDGE and its menu is far
             // wider than the button, so anchoring on bounds.X alone put most of every line past the
-            // window. Only x is clamped: the menu scrolls itself when it is too tall, so lifting y would
-            // fight that.
-            var x = OverlayPlacement.ClampX(bounds.X, width, Width);
+            // window. Only x is taken from the placement: the menu scrolls itself when it is too tall,
+            // so clamping y would fight that -- which is why the probe box is one unit tall.
+            var x = PlaceBesideAnchor(bounds, width, 1f).X;
 
             state.ToolbarDropdown.Open(
                 x,
-                bounds.Y + bounds.Height,
+                bounds.Bottom,
                 width,
                 items,
                 item => onSelect(items.IndexOf(item), item.Value),
@@ -1036,6 +1067,18 @@ namespace TianWen.UI.Abstractions
         /// other piece of chrome -- a tooltip that the file list or the info panel draws over is worse
         /// than none, because it looks like a rendering fault rather than a missing feature.
         /// </summary>
+        /// <summary>Design-unit padding between a tooltip box's edge and its text.</summary>
+        private const float TooltipPadding = 6f;
+
+        /// <summary>
+        /// A hover tooltip's anchor: the point the hit test recorded, as a zero-extent rect. A zero
+        /// height is what makes "just below the anchor" resolve to the point itself, which is where
+        /// both tooltips have always been placed -- over the row for a file name, and at the button's
+        /// own bottom edge for a toolbar mark, because that is the y the hit test recorded.
+        /// </summary>
+        private static RectF32 TooltipAnchor((string Text, float X, float Y, float? RowHeight) tip)
+            => new RectF32(tip.X, tip.Y, 0f, 0f);
+
         private void RenderHoverTooltip(ViewerState state)
         {
             // An open dropdown owns the pointer, so the button underneath must not also explain itself.
@@ -1060,17 +1103,16 @@ namespace TianWen.UI.Abstractions
                 // the revealed text starts at the same x as the truncated text it replaces -- a
                 // different inset would make the name appear to jump sideways on hover.
                 var width = textWidth + PanelPadding * 2f;
-                var x = OverlayPlacement.ClampX(tip.X, width, Width);
-                var y = OverlayPlacement.ClampY(tip.Y, rowHeight, Height);
-                box = new RectF32(x, y, width, rowHeight);
-                textX = x + PanelPadding;
+                box = PlaceBesideAnchor(TooltipAnchor(tip), width, rowHeight);
+                textX = box.X + PanelPadding;
             }
             else
             {
-                var placed = OverlayPlacement.Place(OverlayPlacement.Anchor.Below, tip.X, tip.Y,
-                    textWidth, fontSize, DpiScale, Width, Height);
-                box = placed.Box;
-                textX = placed.TextX;
+                // The tooltip's own padding, which is narrower than a panel's: six design units either
+                // side of the text and half that under it.
+                var pad = TooltipPadding * MathF.Max(DpiScale, 0.01f);
+                box = PlaceBesideAnchor(TooltipAnchor(tip), textWidth + (pad * 2f), fontSize + pad);
+                textX = box.X + pad;
             }
 
             FillRect(box.X - 1f, box.Y - 1f, box.Width + 2f, box.Height + 2f, ViewerTheme.Palette.SeparatorStrong);
