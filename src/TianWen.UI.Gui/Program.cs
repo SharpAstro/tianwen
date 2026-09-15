@@ -466,15 +466,13 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         guiRenderer.Render(appState, plannerState, viewerState, timeProvider);
         var renderElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(renderStart);
 
-        // A field that stopped being drawn must not keep the keyboard: scroll one out of a culled list or
-        // switch tabs away from it, and typing would go on editing a box nobody can see. Asked AFTER the
-        // paint, of everything the frame actually painted -- doing it before, or of one surface when the
-        // frame draws two, would blur a field that is on screen, which looks exactly like the bug it fixes.
-        // Only reached on a frame that rendered (CheckNeedsRedraw gates this callback).
-        if (appState.TextInputFocus.BlurIfUnpainted(guiRenderer.PaintedTextInputs()))
-        {
-            appState.NeedsRedraw = true;
-        }
+        // Everything that can only be decided once the frame exists: a field that stopped being drawn
+        // loses the keyboard (scroll one out of a culled list, or switch tabs away from it, and typing
+        // would go on editing a box nobody can see), a field that asked for the keyboard as it appeared
+        // gets it, and a tooltip whose region has gone expires. Asked AFTER the paint, of everything the
+        // frame actually painted -- doing it before, or of one surface when the frame draws two, does the
+        // opposite of what it is for. Only reached on a frame that rendered (CheckNeedsRedraw gates this).
+        handlers.AfterPaint();
 
         // Tell the platform where the caret is, so an input method puts its candidate window beside the text
         // rather than over it. SDL does not track our caret and has no other way to find out, so without this
