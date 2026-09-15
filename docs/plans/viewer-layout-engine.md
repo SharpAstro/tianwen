@@ -1,6 +1,8 @@
 # The chrome should not be doing its own arithmetic
 
 Status: NOT STARTED, HIGH PRIORITY (user, 2026-09-15). Scope measured the same day; no phase started.
+**P0 (the measure seam) now ships as part of [dir-lib-10.md](dir-lib-10.md) D1**, the same DIR.Lib release
+that adds the input router; P1 to P4 are unchanged and are that plan's T3.
 The tone popover (`ImageRendererBase.TonePanel.cs`, shipped 8.1) is the worked example of the target
 shape and the only viewer overlay already in it.
 
@@ -37,7 +39,7 @@ Across `TianWen.UI.Abstractions`, `TianWen.UI.Shared` and `TianWen.UI.Gui`:
 
 | smell | count | where the worst of it is |
 |---|---|---|
-| `MeasureText` outside the engine | 47 call sites in 16 files | `ImageRendererBase.cs` (11), `VkSkyMapTab.cs` (6), `ImageRendererBase.Toolbar.cs` (6), `.WhiteBalancePanel.cs` (5) |
+| `MeasureText` outside the engine | 47 call sites in 16 files on 2026-09-15 morning; **55 in 16** by the same evening's recount in [dir-lib-10.md](dir-lib-10.md) (45 / 6 / 4 across Abstractions / Shared / Gui) | `ImageRendererBase.cs` (11), `VkSkyMapTab.cs` (6), `ImageRendererBase.Toolbar.cs` (6), `.WhiteBalancePanel.cs` (5) |
 | hand-advanced cursor (`y +=`, `ref float y`) | 31 lines in 8 files | `ImageRendererBase.cs` (9), `LiveSessionTab.Polar.cs` (7), `.InfoPanel.cs` (5) |
 | width union over every possible value | 3 | `ReservedLabelWidth` (Zoom, Enhance), `ResetLabels`, `SpccLabels` |
 | a test that SWEEPS the surface to find regions | 2 files | `ViewerWhiteBalancePopoverTests`, `ViewerInfoPanelCollapseTests` |

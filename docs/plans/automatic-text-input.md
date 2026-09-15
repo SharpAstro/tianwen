@@ -23,7 +23,9 @@ changed against the plan below, and why:
 - **`TextInputRenderer` no-ops without a font**, matching the layout text helpers. Not cosmetic: a
   headless render is how the layout tests check what was drawn, and a tree with a LABEL rendered while
   the same tree with a FIELD threw.
-- **P3b (`autoFocus: true`) is deferred, deliberately.** It needs a signal the library does not have --
+- **P3b (`autoFocus: true`) is deferred, deliberately -- and is now unblocked by
+  [dir-lib-10.md](dir-lib-10.md) D1**, whose `InputRouter` sees the painted set every frame, which is the
+  signal this paragraph says the library lacks. It needs a signal the library does not have --
   "the dialog opened" -- and the honest formulations of it ("the field appeared this frame") require
   per-frame painted-set tracking whose semantics are genuinely ambiguous: does a modal opening steal
   focus from a field the user is typing in? Both answers are defensible, which is the tell that the
