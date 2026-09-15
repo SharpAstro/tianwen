@@ -230,15 +230,26 @@ Filed 2026-09-13, out of the Explorer-thumbnail work (`fix(thumbnails): read not
   reading a different quantity on a quarter of the bake**, and it is the kind of difference that makes
   two measurements silently incomparable (see the 2026-08-27 note in CLAUDE.md about normalised levels
   quoted in the old units). Worth deciding what the convention IS before more is measured on top of it.
-- [ ] **One master has pixels five orders of magnitude above its sky, and the exporter's guard cannot see
-  it.** `Eta Car SII NB / QHYCCD / 2024-03-02` (`Float16Staged`, 36 frames, 240 s, SII) has a sky median
-  of 212.8 and runs p99 745, p99.9 32,963, **p99.99 2.72e7, max 2.46e8**. About a ten-thousandth of the
-  frame, thousands of pixels, sits six orders over sky; stars saturate, so these are not stars. A
-  calibration division by a near-zero flat pixel would do it, and so would anything else that divides.
-  **`DatasetTileExporter.RequireFiniteRange` is finiteness only**, and 2.46e8 is perfectly finite, so the
-  guard written precisely to stop a poisoned master from exporting a session of near-zero tiles does not
-  fire here: `ToUnitRange` divides the whole frame by 2.46e8 and the sky lands at 8.7e-7. Whether the MTF
-  then rescues it is unmeasured. The guard wants a second clause about the RATIO, not just the value.
+- [ ] **A QHY master carries its OVERSCAN, and calibration turns those columns into pixels six orders
+  above sky.** `Eta Car SII NB / QHYCCD / 2024-03-02` (`Float16Staged`, 36 frames, 240 s, SII, mono
+  5570 x 3747) has a sky median of 212.8 and a peak of **2.46e8**. Every one of the 7,912 runaway pixels
+  is in **columns 1 to 21**, across 3,545 of the 3,747 rows, and the column medians say it plainly:
+  164,580 / 238,697 / 257,563 / 279,058 on columns 6 to 9, a thousand times the body's 213 **as a
+  median, not as an outlier**, decaying through 17,660 on column 10 and 282 on column 11 to a normal 184
+  by column 15. Column 0 is canvas zero and the RIGHT edge is clean (column 5567 reads 176). Left-edge
+  only, shielded, asymmetric: overscan. The flat carries no light there either, so calibration divides
+  by about nothing. Identified by the user on sight, 2026-09-16; the picture is otherwise a good frame.
+  **This is the QHY half of [sensor-active-area](../plans/sensor-active-area.md) reaching the data.**
+  That plan records that Canon is the only sensor the active-area crop is wired for, and that QHY
+  exposes the same geometry (`GetQHYCCDEffectiveArea` / `GetQHYCCDOverScanArea` /
+  `CAM_IGNOREOVERSCAN_INTERFACE`) with nothing calling any of it. Here is what that costs.
+  Two consequences beyond the one frame. **The auto-crop nearly saves it and not quite**: the census
+  rectangle for this master starts at column 20, so columns 20 and 21 survive it still carrying 5.8e7
+  and 6.4e7. And **`DatasetTileExporter.RequireFiniteRange` cannot see this at all**, being a finiteness
+  test where 2.46e8 is perfectly finite, so the guard written precisely to stop a poisoned master
+  exporting a session of near-zero tiles does not fire: `ToUnitRange` divides the frame by 2.46e8 and
+  puts the sky at 8.7e-7. Whether the MTF rescues it afterwards is unmeasured. The guard wants a second
+  clause about the RATIO of the peak to the sky, not just about the value being a number.
 - [ ] **A saturated core is not an outlier, and the rejection is treating it as one.** The biggest
   "drizzle hole" in the bake is not a coverage gap: it is the blown Trapezium. On
   `SVBONY SV605CC / L-Ultimate 3nm / Great Orion / 2025-10-14` the interior NaN is 1,856 px of which
