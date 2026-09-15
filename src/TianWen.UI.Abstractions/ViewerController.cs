@@ -149,6 +149,13 @@ public sealed class ViewerController(
     public bool IsLoadPending => _loadTask is { IsCompleted: false };
 
     /// <summary>
+    /// Whether an auto-crop scan has been started and not yet handed to <see cref="TryApplyPendingCrop"/>.
+    /// Lets a host or a test tell "the scan is still running" from "the scan ran and found nothing to
+    /// crop", which leave <see cref="ViewerState.DisplayCrop"/> equally null.
+    /// </summary>
+    public bool IsCropScanPending => _cropTask is not null;
+
+    /// <summary>
     /// Checks <see cref="ViewerState.RequestedFilePath"/> and, if set, starts loading
     /// on a background thread. Only one load runs at a time.
     /// Must be called every frame from OnRender.

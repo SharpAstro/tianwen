@@ -21,6 +21,7 @@ namespace TianWen.Lib.Tests;
 /// Uses NSubstitute to mock <see cref="IDocumentCache"/>, <see cref="IFileDialogHelper"/>,
 /// and <see cref="IPlateSolverFactory"/>.
 /// </summary>
+[Collection("Viewer")]
 public class ViewerControllerTests
 {
     private static (ViewerController Controller, ViewerState State,
@@ -501,13 +502,27 @@ public class ViewerControllerTests
     }
 
     /// <summary>
-    /// Polls until the crop scan has been applied, up to a timeout. TryApplyPendingCrop returns at once
-    /// while the scan is still running, so calling it in the loop is how the host drives it too.
+    /// The stall bound for the three waits below. It bounds a HANG, not the work: every scan here is
+    /// on a 64 x 64 frame and finishes in microseconds once it runs, but it runs on the thread pool, and
+    /// on the slowest CI leg (ubuntu-latest, four collections in flight, each with pool work of its own)
+    /// a 5 s budget expired before the Task.Run was ever scheduled: the run that landed 8.1 failed
+    /// <see cref="SwitchingTheCropOffAndOnAgainRestoresItWithoutScanning"/> with DisplayCrop still
+    /// null at 8 s while the same commit passed on three other legs. A real hang still fails, in 30 s
+    /// instead of 5.
     /// </summary>
-    private static async Task WaitForCropAsync(ViewerController controller, ViewerState state, int timeoutMs = 5000)
+    private const int StallBoundMs = 30_000;
+
+    /// <summary>
+    /// Polls until the crop scan has been applied, up to the stall bound. TryApplyPendingCrop returns
+    /// at once while the scan is still running, so calling it in the loop is how the host drives it
+    /// too. The loop leaves as soon as the scan has been APPLIED, whatever it answered: a scan that
+    /// found nothing to crop leaves DisplayCrop null on purpose, and waiting on the value would burn the
+    /// whole bound before the assertion could say so.
+    /// </summary>
+    private static async Task WaitForCropAsync(ViewerController controller, ViewerState state, int timeoutMs = StallBoundMs)
     {
         var deadline = Environment.TickCount64 + timeoutMs;
-        while (state.DisplayCrop is null && Environment.TickCount64 < deadline)
+        while (state.DisplayCrop is null && controller.IsCropScanPending && Environment.TickCount64 < deadline)
         {
             controller.TryApplyPendingCrop();
             await Task.Delay(10);
@@ -518,7 +533,7 @@ public class ViewerControllerTests
     /// Polls until a pending Enhance run has been applied, up to a timeout, mirroring
     /// <see cref="WaitForCropAsync"/> for <see cref="ViewerController.TryApplyPendingEnhance"/>.
     /// </summary>
-    private static async Task WaitForEnhanceAsync(ViewerController controller, ViewerState state, int timeoutMs = 5000)
+    private static async Task WaitForEnhanceAsync(ViewerController controller, ViewerState state, int timeoutMs = StallBoundMs)
     {
         var deadline = Environment.TickCount64 + timeoutMs;
         while (!state.IsEnhanced && Environment.TickCount64 < deadline)
@@ -531,7 +546,7 @@ public class ViewerControllerTests
     /// <summary>
     /// Polls until the controller's load task completes, up to a timeout.
     /// </summary>
-    private static async Task WaitForLoadAsync(ViewerController controller, int timeoutMs = 5000)
+    private static async Task WaitForLoadAsync(ViewerController controller, int timeoutMs = StallBoundMs)
     {
         var deadline = Environment.TickCount64 + timeoutMs;
         while (controller.IsLoadPending && Environment.TickCount64 < deadline)
