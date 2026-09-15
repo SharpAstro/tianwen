@@ -200,3 +200,59 @@ filed, and it is recorded where the fix goes rather than here.
 
 The PDF viewer note (09-05: hovering a 3D object makes the wheel zoom the model rather than the page).
 Left in Slack, where the repo that owns it can pick it up.
+
+## Field note: astrophoto.app, and what a competitor sources for free (2026-09-15)
+
+Not a Slack sweep. `astrophoto.app` came up while checking domain availability for the viewer
+(the Store app is **Astro Photo Viewer**), turned out to be live, and was worth reading because it
+answers "where does a free web app get sky conditions and target imagery" with URLs rather than
+guesses. Registered 2026-05-11 at Gandi on a one-year term, Cloudflare in front, and built with
+Lovable — the markup still carries `twitter:site` `@Lovable` and an OG image on a `lovable.app`
+preview bucket. Two tabs, *Sky* and *Targets*. No backend of its own except one asteroid endpoint;
+everything below is fetched client-side from the browser, keyless.
+
+| What it shows | Where it comes from |
+|---|---|
+| Cloud cover, visibility, humidity, dew point, wind, **jet-stream wind** | `api.open-meteo.com/v1/forecast?…&current=cloud_cover,visibility,relative_humidity_2m,wind_speed_10m,dew_point_2m,wind_speed_250hPa&hourly=cloud_cover&forecast_days=2&timezone=auto` |
+| Target thumbnail + blurb | `en.wikipedia.org/api/rest_v1/page/summary/{title}` → `thumbnail.source`, `originalimage.source`, `extract` |
+| Location | `geocoding-api.open-meteo.com/v1/reverse`, plus `api.bigdatacloud.net/data/reverse-geocode-client` as a second source |
+| ISS passes | `celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=tle` |
+
+Three things fall out of that for TianWen.
+
+- [ ] **`wind_speed_250hPa` is a seeing forecast for free, and we do not ask for it.**
+  `OpenMeteoDriver.HourlyParams`/`CurrentParams`
+  (`src/TianWen.Lib/Devices/Weather/OpenMeteoDriver.cs:22-23`) request eleven fields; wind at the
+  250 hPa level (~10 km, the jet stream) is not among them, and it is the standard cheap proxy for
+  seeing — fast jet overhead means a soft night no matter how clear it is. Adding it costs one
+  query parameter on a request we already make hourly.
+  **Do NOT put it in `IWeatherDriver.StarFWHM`**: that member is contracted as *"seeing measured as
+  star FWHM in arcsec"* (`IWeatherDriver.cs:48`) and `OpenMeteoDriver` correctly returns NaN for it.
+  A forecast proxy is not a measurement. It belongs as a new field on `HourlyWeatherForecast`
+  (`Devices/Weather/HourlyWeatherForecast.cs`) feeding a planner-side indicator, next to cloud cover,
+  where the user reads it as "conditions tonight" rather than as an instrument reading. Pairs with
+  [site-conditions](../plans/site-conditions.md), which established the driver as the live tier for
+  pressure/temperature but only for refraction.
+
+- [ ] **Wikipedia's REST summary would give planner/sky-map targets an image and a description.**
+  We already build the article URL — `PlannerDetails.WikipediaArticleBase`
+  (`src/TianWen.UI.Abstractions/PlannerDetails.cs:128`) plus `GetWikipediaUrl`, which resolves the
+  MAIN catalogue designation into the slug and is unit-tested (`PlannerDetailsTests`) — so the hard
+  half (catalogue name → article title) exists and is only used to open a browser. The same slug
+  against `/api/rest_v1/page/summary/` returns a thumbnail, a full-size image URL and an extract in
+  one keyless call, which is what the info panel and the planner details pane currently have nothing
+  to show. **Attribution is the catch and astrophoto.app gets it wrong**: the summary payload carries
+  no licence field, Commons lead images are CC-BY-SA or stricter, and their page renders the image
+  with no credit and no link. The response's `content_urls.desktop.page` is the minimum credit to
+  render beside it; the Commons file page is the honest one.
+
+- Observation only, no item: **we have no TLE code at all** (nothing matches `celestrak` or `TLE` in
+  `src/`). Satellite-trail prediction for a planned exposure is a real astrophotography feature and
+  the element source is free, but it is a whole propagator (SGP4), not a fetch.
+
+Domain snapshot taken the same day, since the viewer's name is the reason this came up: `astrophoto.app`
+is the one that is **gone**, along with `apv.app`, `photoviewer.app`, `deepsky.app`, `skyview.app`,
+`lightframe.app`, `subframe.app` and `stacker.app`. Free: all six of `astrophotoviewer.{com,org,net,dev,app,io}`,
+`astroview.app`, `astroviewer.app`, `fitsview.app`, `fitsviewer.app`, and `tianwen.{app,io}` — while
+`tianwen.{com,org,net,dev}` are taken. `.app` and `.dev` are HSTS-preloaded, so anything there is
+HTTPS-only by construction.

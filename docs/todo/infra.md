@@ -247,6 +247,21 @@ a launch that happened while nobody was watching. A 200 ms `Win32_Process` poll 
   only `LICENSE*` and `COPYING*` and missed `license.txt`, `UNLICENSE` and `license.txt`
   respectively. All three also declare `PackageLicenseFile` in their csproj.
 
+- [ ] **Open-Meteo data is CC-BY 4.0 and we credit it nowhere.** `OpenMeteoDriver` fetches from
+  the keyless free API, whose terms bind the caller to CC-BY 4.0 on the data and to non-commercial
+  use (<10'000 calls/day, 5'000/hour, 600/minute). NOTICE has an "Embedded data" section that credits
+  the Jupiter reference image, the catalogues and the fonts, but nothing covers data fetched at
+  runtime, and no surface in the GUI or TUI names the source either. The fix is small: a line in
+  NOTICE and a credit wherever the forecast is displayed.
+
+  The other half needs a decision rather than an edit. Open-Meteo defines commercial use as
+  "operating websites or apps that have subscriptions or display advertisements" and "integrating
+  our service into commercial products". `tianwen-fits` ships in the Microsoft Store as *Astro Photo
+  Viewer*; as long as it is free, has no ads and no subscription, the free tier reads as fair, but
+  that is a property of the listing, not of the code — so if the Store app ever takes money, this
+  driver needs a paid API plan or a different provider. Worth recording now, while the answer is
+  still "no" (found 2026-09-15, see [inbox.md](inbox.md) field note on astrophoto.app).
+
 ## Build / dev environment (local siblings)
 
 - [x] **NuGet graph-restore source-key alignment: standardized on `nuget.org`** (DONE 2026-07-04,
