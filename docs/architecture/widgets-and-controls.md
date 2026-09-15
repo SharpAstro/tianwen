@@ -11,7 +11,7 @@ be a control*.
 
 | Layer | Contract | Input | Paint |
 |---|---|---|---|
-| Widget (pixel hosts) | `PixelWidgetBase<TSurface>` (DIR.Lib) | host routes `HitTestAndDispatch` first, then `HandleInput` on miss (desktop `GuiEventHandlerBase`, web `Planner.razor`; the viewer is `ISelfDispatchingInputWidget` -- it dispatches its own hits) | layout DSL / draw helpers; registers clickables |
+| Widget (pixel hosts) | `PixelWidgetBase<TSurface>` (DIR.Lib) | host routes `HitTestAndDispatch` first, then `HandleInput` on miss (desktop `GuiEventHandlerBase`, web `Planner.razor`; `tianwen-fits` still has its own press dispatch, because its toolbar is not on the tree) | layout DSL / draw helpers; registers clickables |
 | Widget (TUI) | `ITuiTab` / `TuiTabBase` (TianWen.Cli) | keyboard only, over Console.Lib widgets | Console.Lib |
 | Control | plain class/struct/static, no base | the OWNING widget forwards events (`controller.HandleInput(evt)`) or wires callbacks | either draws via caller-passed delegates (`DrawScrollBar(FillRect)`) or is state-only |
 
@@ -77,8 +77,8 @@ chromeless Live Session / polar / guide-cam previews (`ViewerState.HideChrome`).
    defect of layering -- adopt (or create) a control.
 
    **A drag is not just math, it is state plus three handler branches, and that is the part that bites.**
-   The shape to avoid is a flag on the shared view state (`IsResizingFileList`, `WhiteBalanceDragChannel`,
-   `WaveletDragBand`, `IsScrubbing`) plus a press, a move and a release branch. It costs more than it
+   The shape to avoid is a flag on the shared view state (`IsResizingFileList`, `WaveletDragBand`,
+   `IsScrubbing`) plus a press, a move and a release branch. It costs more than it
    looks, because **the viewer has TWO press dispatchers** -- the embedded host routes through
    `HandleInput`, and `tianwen-fits`'s `Program.cs` has its own for dropdowns and DI-backed actions -- so
    every such branch has to be written twice and nothing connects the copies. The before/after split
@@ -89,7 +89,16 @@ chromeless Live Session / polar / guide-cam previews (`ViewerState.HideChrome`).
    control's own drag (`RegisterClickable(..., onClick: _ => Split.BeginDrag(), cursor: ...)`), from the
    same rect the control painted -- so "draw == hit" (rule 3) extends to "draw == drag". Only motion and
    release are routed, in ONE line, in the one place both hosts already forward to. `SplitCompareController`
-   is the reference consumer; the four drag flags above predate it and are the remaining conversions.
+   is the reference consumer; the three drag flags above predate it and are the remaining conversions.
+
+   **A `Layout.Content.Slider` leaf is the finished form of this** (DIR.Lib 9.2): the engine paints the
+   track, registers it, and arms a `DragCapture` holding the rect it was just painted into, so "draw ==
+   drag" is a property of the declaration rather than of a rect someone keeps in step. The tone popover's
+   three dials and the white balance's three channels went that way and took two flags, two hit types,
+   two `UpdateXDrag` methods and two track-rect lookups with them. **Only `InputRouter` honours
+   `Node.OnPress`**, so a host not yet on the router needs a place to hold the capture --
+   `ImageRendererBase.TryBeginRegionDrag` is the viewer's, and it goes when the toolbar goes on the
+   tree.
 2. **Generic controls live in DIR.Lib** (the widget-framework layering rule): if a control has no
    TianWen domain dependency, it belongs next to `PixelWidgetBase`/`TextInputState`. Domain-specific
    interaction glue (planner slider placement, catalog search resolution) stays in UI.Abstractions --
@@ -142,10 +151,11 @@ frame has.
 
 Unchanged, and now the router's rule rather than a host's: the topmost region under the pointer owns
 the press, its handler runs, and the tab's mouse-down path is skipped. Only a press that hits nothing
-reaches `Unhandled`. (A tab implementing `ISelfDispatchingInputWidget` -- the shared image viewer --
-is handed the raw press there because its toolbar and sliders need the coordinates. No GUI tab is one
-today; the viewers are hosted inside tabs and are not in the chrome's `Children`, so their regions are
-invisible to the router and their presses arrive through the hosting tab.)
+reaches `Unhandled`, and the tab's own answer goes back from there. There used to be an
+`ISelfDispatchingInputWidget` marker on that path, meaning "hand this widget the RAW press because its
+toolbar and sliders need the coordinates"; the router makes that true of every widget and a slider's
+`OnPress` carries the position, so the premise went twice over and the marker was deleted. It had been
+reduced to reshaping a return value that nothing reads.
 
 **Anything that used to run AFTER a hit test therefore has to run before the router**, off a
 non-dispatching `HitTest`. One site is left -- the planner's handoff-divider drag, which arms from a
@@ -365,7 +375,14 @@ Default, so a plain button cannot stamp the arrow over a host that wanted a cros
   adoption.
 
 **The same lesson, one level down: HOVER needs a z-order answer too, and it is
-`ViewerState.OverlayOwnsPointer`.** Clicks never need one (paint order IS hit-test z-order, so an
+`ViewerState.OverlayOwnsPointer`.** DIR.Lib 9.2 has its own half of this, `WindowUiSettings.PointerOwner`,
+which an open `Popover` sets as it paints -- but the two answer different questions and the flag is not
+yet replaceable by it. **`PointerOwner` is a RECORD and `OverlayOwnsPointer` is a PREDICTION**: the
+engine's version confines hover for anything painted AFTER the popover, which is what a `PaintLayout`
+tree gets for free, while the viewer's toolbar, histogram and file list are hand-painted and resolve
+their hover BEFORE any overlay has drawn. They need "will something cover me this frame", which only the
+state can answer. The flag goes when the chrome goes on the tree. Clicks never need either one (paint
+order IS hit-test z-order, so an
 overlay's regions already win), but hover is decided at PAINT time from mouse-vs-rect, *before* the
 overlay above has registered anything. The viewer toolbar, the histogram LOG button and the
 file-list rows each carried their own copy of the dropdown-is-open negation, so a second overlay
