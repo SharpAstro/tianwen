@@ -58,9 +58,6 @@ namespace TianWen.UI.Abstractions
         /// <summary>Y positions (relative to scroll origin) of each config field, for scroll-to-visible.</summary>
         private readonly List<float> _fieldYPositions = [];
 
-        /// <summary>Per-observation exposure value hit regions for double-click-to-edit.</summary>
-        private readonly List<(RectF32 Rect, int ProposalIndex)> _exposureValueRegions = [];
-
         /// <summary>Per-frame Fill-leaf painter dispatch for the observation list's single RenderLayout
         /// (the per-row exposure value cell). Render-thread-only, so a plain Dictionary is safe.</summary>
         private readonly Dictionary<string, Action<RectF32>> _obsFills = new();
@@ -106,7 +103,6 @@ namespace TianWen.UI.Abstractions
             var dpiScale = DpiScale;
             _plannerState = plannerState;
             _timeProvider = timeProvider;
-            _exposureValueRegions.Clear();
             RenderLayout(Layout.Builder.Spacer().Bg(ContentBg), contentRect);
 
             ScrollLineHeight = BaseItemHeight * dpiScale;
@@ -222,6 +218,34 @@ namespace TianWen.UI.Abstractions
             }
         }
 
+        /// <summary>
+        /// The exposure-value cell (and its proposal index) under a point, read back from the arranged
+        /// tree <see cref="RenderLayout"/> already built this frame -- the "exp:{index}" Fill key encodes
+        /// the proposal index, so there is nothing left to stash by hand at paint time (see the comment
+        /// beside where the key is set).
+        /// </summary>
+        private (RectF32 Rect, int ProposalIndex)? ExposureValueRegionAt(float px, float py)
+        {
+            foreach (var arranged in GetCapturedLayout())
+            {
+                if (arranged.Node is not Layout.Node.Leaf { Content: Layout.Content.Fill { Key: { } key } }
+                    || !key.StartsWith("exp:", StringComparison.Ordinal)
+                    || !int.TryParse(key.AsSpan("exp:".Length), out var proposalIdx))
+                {
+                    continue;
+                }
+
+                var b = arranged.Bounds;
+                var rect = new RectF32(b.X, b.Y, b.Width, b.Height);
+                if (rect.Contains(px, py))
+                {
+                    return (rect, proposalIdx);
+                }
+            }
+
+            return null;
+        }
+
         private bool HandleDoubleClick(float px, float py)
         {
             if (State.IsSessionRunning || _plannerState is null)
@@ -229,14 +253,9 @@ namespace TianWen.UI.Abstractions
                 return false;
             }
 
-            for (var i = 0; i < _exposureValueRegions.Count; i++)
+            if (ExposureValueRegionAt(px, py) is { } hit)
             {
-                var (rect, proposalIdx) = _exposureValueRegions[i];
-                if (!rect.Contains(px, py))
-                {
-                    continue;
-                }
-
+                var proposalIdx = hit.ProposalIndex;
                 var defaultExpSec = SessionContent.DefaultExposureSeconds(State);
                 var p = _plannerState.Proposals[proposalIdx];
                 var cur = p.SubExposure ?? TimeSpan.FromSeconds(defaultExpSec);
@@ -525,14 +544,12 @@ namespace TianWen.UI.Abstractions
 
                 // Exposure value cell. The two states are now two different NODES rather than one Fill that
                 // branches inside its painter: editing is a TextInput leaf, display stays a Fill because it
-                // is genuinely bespoke -- it stashes its arranged rect for the double-click-to-edit region,
-                // which no leaf models.
+                // is genuinely bespoke. Its double-click-to-edit region is read back from the arranged tree
+                // (see ExposureValueRegionAt) via this same "exp:{index}" key, rather than a rect the
+                // painter stashes by hand.
                 var expKey = $"exp:{i}";
                 _obsFills[expKey] = r =>
-                {
                     DrawText(expStr, fontPath, r.X, r.Y, r.Width, r.Height, BaseFontSize * 0.9f * dpiScale, BodyText, TextAlign.Center, TextAlign.Center);
-                    _exposureValueRegions.Add((r, capturedI));
-                };
                 var expCell = State.EditingExposureIndex == capturedI
                     ? Layout.Builder.TextInput(State.ExposureInput, BaseFontSize * 0.9f)
                     : Layout.Builder.Fill(key: expKey);

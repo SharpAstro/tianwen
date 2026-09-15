@@ -23,11 +23,6 @@ namespace TianWen.UI.Abstractions
     /// </remarks>
     partial class ImageRendererBase<TSurface>
     {
-        // Manual white-balance slider track rects (R, G, B), captured in RenderInfoPanel each frame; map a
-        // cursor-X <-> WB multiplier in BeginWhiteBalanceDragAt / UpdateWhiteBalanceDrag. Default/empty when
-        // the source is monochrome (no WB sliders drawn).
-        private readonly RectF32[] _wbTrackRects = new RectF32[3];
-
         // White-balance slider range (canonical values live on GrayWorldWhiteBalance so the slider extent and
         // the auto-WB clamp stay in lock-step). Log-mapped so neutral (1.0) sits at the track midpoint and an
         // equal gain/cut is symmetric (0.5x left edge <-> 2.0x right edge).
@@ -140,13 +135,8 @@ namespace TianWen.UI.Abstractions
                     // Generous full-row hit band; its X/Width drive the cursor-X -> multiplier mapping. The
                     // bar centres on the row; the handle is one font-line tall at the row top.
                     var hitBand = new RectF32(trackX, rowY - gap / 2f, trackW, FontSize + gap);
-                    _wbTrackRects[ch] = hitBand;
                     DrawTrackSlider(trackX, trackW, rowY, FontSize, frac,
                         fill, hitBand, new WhiteBalanceSliderHit(ch), TrackChrome, Scale);
-                }
-                else
-                {
-                    _wbTrackRects[ch] = default;
                 }
 
                 DrawText(value.ToString("0.00"), trackRight, rowY, FontSize, ViewerTheme.Palette.DimText);
@@ -355,7 +345,23 @@ namespace TianWen.UI.Abstractions
             UpdateWhiteBalanceDrag(px);
         }
 
-        // Maps a cursor X onto a WB multiplier for the active drag channel against its captured track rect.
+        // The channel's track rect, read back from what THIS frame's (or the panel-closed frame's, in
+        // which case there is none) paint already registered via DrawTrackSlider -- rather than a private
+        // copy kept in step by hand, which is the shape that lets a closed panel's drag chase a stale rect.
+        private RectF32 WhiteBalanceTrackRect(int channel)
+        {
+            foreach (var region in RegisteredRegions)
+            {
+                if (region.Result is WhiteBalanceSliderHit { Channel: var c } && c == channel)
+                {
+                    return new RectF32(region.X, region.Y, region.Width, region.Height);
+                }
+            }
+
+            return default;
+        }
+
+        // Maps a cursor X onto a WB multiplier for the active drag channel against its registered track rect.
         private void UpdateWhiteBalanceDrag(float px)
         {
             if (_state is not { } state)
@@ -363,12 +369,17 @@ namespace TianWen.UI.Abstractions
                 return;
             }
             var ch = state.WhiteBalanceDragChannel;
-            if ((uint)ch >= 3u || _wbTrackRects[ch].Width <= 0f)
+            if ((uint)ch >= 3u)
+            {
+                return;
+            }
+            var track = WhiteBalanceTrackRect(ch);
+            if (track.Width <= 0f)
             {
                 return;
             }
 
-            var frac = TrackFrac(_wbTrackRects[ch], px);
+            var frac = TrackFrac(track, px);
             var value = WbFracToValue(frac);
 
             // The handle was dragged to an EFFECTIVE multiplier, because that is what the track
@@ -418,16 +429,14 @@ namespace TianWen.UI.Abstractions
         {
             if (!state.WhiteBalancePanelOpen)
             {
-                _wbTrackRects[0] = _wbTrackRects[1] = _wbTrackRects[2] = default;
                 return;
             }
 
             // Nothing to hang it from: the button is not on this bar (a host with a narrower set) or
             // was not enabled this frame (a mono source). It closes rather than floating at a guess.
-            if (!_toolbarButtonBounds.TryGetValue(ToolbarAction.WhiteBalance, out var anchor))
+            if (!TryGetPaintedToolbarRect(ToolbarAction.WhiteBalance, out var anchor))
             {
                 state.WhiteBalancePanelOpen = false;
-                _wbTrackRects[0] = _wbTrackRects[1] = _wbTrackRects[2] = default;
                 return;
             }
 
