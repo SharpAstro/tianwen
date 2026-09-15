@@ -574,13 +574,13 @@ namespace TianWen.UI.Abstractions
                     ? Layout.Builder.TextInput(State.ExposureInput, BaseFontSize * 0.9f)
                     : Layout.Builder.Fill(key: expKey);
 
-                Layout.Node ExpButton(string glyph, string hit, Action<InputModifier> onClick) =>
-                    Layout.Builder.Text(glyph, BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
+                Layout.Node ExpButton(Layout.IconKind icon, string hit, Action<InputModifier> onClick) =>
+                    Layout.Builder.Icon(icon, BaseFontSize * 0.85f * Layout.Content.Icon.TextSizeRatio, BodyText)
                         .WFixed(expBtnW).HStar().Bg(StepperBg)
                         .Clickable(new HitResult.ButtonHit(hit), onClick);
 
                 var expStepper = Layout.Builder.HStack(
-                    ExpButton("\u2212", $"Dec:Exp:{i}",
+                    ExpButton(Layout.IconKind.Minus, $"Dec:Exp:{i}",
                         _ =>
                         {
                             var p = plannerState.Proposals[capturedI];
@@ -589,7 +589,7 @@ namespace TianWen.UI.Abstractions
                             State.NeedsRedraw = true;
                         }),
                     expCell.Stretch(),
-                    ExpButton("+", $"Inc:Exp:{i}",
+                    ExpButton(Layout.IconKind.Plus, $"Inc:Exp:{i}",
                         _ =>
                         {
                             var p = plannerState.Proposals[capturedI];

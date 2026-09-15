@@ -94,6 +94,13 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.Text(label, BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
                         .Bg(bg).Clickable(new HitResult.ButtonHit(action), onClick);
 
+                // The stepper's dec/inc mark, an Icon rather than a "-"/"+" run in Btn's text (CLAUDE.md's
+                // rule that a mark is an Icon, never a symbol character in a Text run) -- Btn stays
+                // text-based because it also carries an arbitrary VALUE label for the cycle/toggle case.
+                Layout.Node IconBtn(Layout.IconKind icon, string action, RGBAColor32 bg, Action<InputModifier> onClick) =>
+                    Layout.Builder.Icon(icon, BaseFontSize * 0.85f * Layout.Content.Icon.TextSizeRatio, BodyText)
+                        .Bg(bg).Clickable(new HitResult.ButtonHit(action), onClick);
+
                 Layout.Node control;
                 switch (desc.Kind)
                 {
@@ -108,10 +115,10 @@ namespace TianWen.UI.Abstractions
                     case DeviceSettingKind.PercentStepper:
                         control = Layout.Builder.HStack(
                             desc.Decrement is { } decrement
-                                ? Btn("-", $"Dec_{desc.Key}", EditButtonBg, _ => { State.EditingDeviceUri = decrement(editingUri); State.DeviceSettingsDirty = true; }).WFixed(24f).HStar()
+                                ? IconBtn(Layout.IconKind.Minus, $"Dec_{desc.Key}", EditButtonBg, _ => { State.EditingDeviceUri = decrement(editingUri); State.DeviceSettingsDirty = true; }).WFixed(24f).HStar()
                                 : Layout.Builder.Spacer().WFixed(24f).HStar(),
                             Layout.Builder.Text(desc.FormatValue(editingUri), BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center).Stretch(),
-                            Btn("+", $"Inc_{desc.Key}", EditButtonBg, _ => { State.EditingDeviceUri = capturedDesc.Increment(editingUri); State.DeviceSettingsDirty = true; }).WFixed(24f).HStar());
+                            IconBtn(Layout.IconKind.Plus, $"Inc_{desc.Key}", EditButtonBg, _ => { State.EditingDeviceUri = capturedDesc.Increment(editingUri); State.DeviceSettingsDirty = true; }).WFixed(24f).HStar());
                         break;
 
                     case DeviceSettingKind.StringEditor when State.EditingStringSettingKey == desc.Key:

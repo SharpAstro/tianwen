@@ -134,8 +134,8 @@ namespace TianWen.UI.Abstractions
                         });
                 }
 
-                Layout.Node OffBtn(string glyph, string action, int delta) =>
-                    Layout.Builder.Text(glyph, BaseFontSize * 0.8f, BodyText, TextAlign.Center, TextAlign.Center)
+                Layout.Node OffBtn(Layout.IconKind icon, string action, int delta) =>
+                    Layout.Builder.Icon(icon, BaseFontSize * 0.8f * Layout.Content.Icon.TextSizeRatio, BodyText)
                         .WFixed(24f).HStar().Bg(EditButtonBg)
                         .Clickable(new HitResult.ButtonHit(action), _ =>
                         {
@@ -149,9 +149,9 @@ namespace TianWen.UI.Abstractions
 
                 var offsetStr = filter.Position >= 0 ? $"+{filter.Position}" : filter.Position.ToString();
                 var offsetGroup = Layout.Builder.HStack(
-                        OffBtn("-", $"FilterOffDec{otaIndex}_{f}", -1),
+                        OffBtn(Layout.IconKind.Minus, $"FilterOffDec{otaIndex}_{f}", -1),
                         Layout.Builder.Text(offsetStr, BaseFontSize * 0.8f, BodyText, TextAlign.Center, TextAlign.Center).Stretch(),
-                        OffBtn("+", $"FilterOffInc{otaIndex}_{f}", +1))
+                        OffBtn(Layout.IconKind.Plus, $"FilterOffInc{otaIndex}_{f}", +1))
                     .WFixed(100f).HStar();
 
                 rows.Add(Layout.Builder.HStack(

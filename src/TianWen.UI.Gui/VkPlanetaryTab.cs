@@ -390,11 +390,12 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     {
         var btnBg = enabled ? StepBtnBg : StepBtnDisabledBg;
         var valueColor = enabled ? HeaderText : DimText;
-        var dec = Layout.Builder.Text("-", PanelFontSize, enabled ? ButtonText : DimText, TextAlign.Center, TextAlign.Center)
+        var iconSize = PanelFontSize * Layout.Content.Icon.TextSizeRatio;
+        var dec = Layout.Builder.Icon(Layout.IconKind.Minus, iconSize, enabled ? ButtonText : DimText)
             .WFixed(BaseRowHeight).HStar().Bg(btnBg)
             .Clickable(enabled ? new HitResult.ButtonHit(idPrefix + "Dec") : null,
                 enabled ? (Action<InputModifier>)(_ => onDec()) : null);
-        var inc = Layout.Builder.Text("+", PanelFontSize, enabled ? ButtonText : DimText, TextAlign.Center, TextAlign.Center)
+        var inc = Layout.Builder.Icon(Layout.IconKind.Plus, iconSize, enabled ? ButtonText : DimText)
             .WFixed(BaseRowHeight).HStar().Bg(btnBg)
             .Clickable(enabled ? new HitResult.ButtonHit(idPrefix + "Inc") : null,
                 enabled ? (Action<InputModifier>)(_ => onInc()) : null);
