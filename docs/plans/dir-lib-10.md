@@ -395,6 +395,178 @@ the reason is its tooltip. `DropdownItem.Disabled` becomes the row case of the g
 `protected PixelMeasureContext<TSurface> MeasureContext()` on `PixelWidgetBase`, unchanged from
 viewer-layout-engine P0, which this plan now owns.
 
+## D1 as specified for implementation (DIR.Lib 9.2, additive)
+
+Decided 2026-09-15 evening with the user: no 9.2 for the compatibility constructor alone ("maybe moot"),
+the whole refactoring goes; Console.Lib takes a major in the 10.0 chain. This section is the contract the
+implementation agents build to. Every name is final unless an agent reports a collision with an existing
+member; nothing here removes or renames a public member (that is 10.0).
+
+### Wave 1a: declarations on the tree, and the seams beside them
+
+Files: `Layout/Node.cs`, `Layout/Node.Fluent.cs`, `Layout/Builder.cs`, `Layout/Content.cs`, `Layout/Engine.cs`
+(Grid only), `ClickableRegion.cs`, `ClickableRegionTracker.cs`, `ListCursor.cs`, `PixelWidgetBase.cs`
+(`PaintLayout`, `RegisterClickable`, the new seams), `InputEvent.cs`.
+
+- **`readonly record struct KeyChord(InputKey Key, InputModifier Modifiers = InputModifier.None)`** with
+  `bool BeatsFocusedField => (Modifiers & (Ctrl | Alt)) != 0 || Key is F1..F24`. The precedence rule is a
+  property of the chord, stated once, so the router and a test read the same fact.
+- **`Node.Shortcut : KeyChord?`**, fluent **`.Shortcut(InputKey key, InputModifier mods = None)`**. Inert in
+  arrange and paint; consumed by the router (wave 3) from the captured layout, PAINTED nodes only.
+- **`readonly record struct PointerPress(float X, float Y, MouseButton Button, InputModifier Modifiers, int Clicks)`**
+  and **`readonly record struct PointerMove(float X, float Y, MouseButton Button, InputModifier Modifiers)`**:
+  the move carries what `InputEvent.MouseMove` does not, copied from the press by whoever captured.
+- **`sealed class DragCapture(Action<PointerMove> onMove, Action<PointerMove> onRelease)`** with
+  `Move(in PointerMove)` / `Release(in PointerMove)`. A capture is what a press handler RETURNS to say "the
+  gesture is mine until the button comes up".
+- **`Node.OnPress : Func<PointerPress, DragCapture?>?`**, fluent **`.Pressable(hit, onPress, cursor?)`**
+  (sibling of `.Clickable`; a node may have both, press wins when it returns a capture, otherwise the click
+  fires on release as today). `ClickableRegion` gains `OnPress`; `RegisterClickable` gains an optional
+  `onPress:`; `PaintLayout` binds it from the node like `OnClick`.
+- **`Node.OnActivate : Action<InputModifier>?`**, fluent **`.Activatable(action)`**: what Enter does on the
+  row when it differs from a click. `ActivateListCursor` invokes `OnActivate ?? OnClick`. Answers the planner's
+  "Enter pins, click selects".
+- **`Node.Tooltip : string?`**, fluent **`.Tooltip(text)`**. `ClickableRegion` gains `Tooltip`;
+  `PaintLayout` registers a region for a node that has a tooltip but no hit (a `HitResult.ChromeHit` with
+  no `OnClick`, so it stays inert to presses). Painting the tooltip is the router's (wave 3).
+- **`Node.DisabledReason : string?`** and **`bool IsDisabled => DisabledReason is not null`**, fluent
+  **`.Disabled(string reason)`** (and `.Disabled(bool when, string reason)` for the common conditional).
+  `PaintLayout`: text and icon colours are halved toward the node's effective background (the same rule
+  `RenderDropdownMenu` uses for a disabled row, hoisted into one `PixelWidgetBase.DimTowards(color,
+  background)` helper both call); the region is registered with NO `OnClick` / `OnPress`, `CursorKind.NotAllowed`,
+  and `Tooltip = DisabledReason`; `ListCursor` skips it (`ClickableRegionTracker` must know a region is
+  disabled: add `bool IsDisabled` on `ClickableRegion`). `DropdownItem.Disabled` keeps its own painter; a
+  follow-up may route it through this.
+- **`Node.Scroll : ListScrollController?`**, fluent **`.Scroll(controller)`**. `PaintLayout` calls
+  `controller.SetExtent(viewport: arranged rect, ...)` ONLY if the consumer has not (add
+  `ListScrollController.BindViewport(RectF32)` that sets the viewport and leaves atom extent/count alone,
+  so a consumer keeps stating rows), registers the rect with the controller reference on the region
+  (`ClickableRegion.Scroll`), and the router (wave 3) delivers `InputEvent.Scroll` to the innermost such
+  region under the pointer. Until the router exists, a consumer may call the new
+  `PixelWidgetBase.ScrollTargetAt(x, y)` itself.
+- **`ListCursor.Open(string listId, int index, int count)`** overload with **`event Action<int>? Moved`**.
+  With a count, `MoveListCursor` clamps to `[0, count)` and steps onto an index the last paint did NOT
+  register (raising `Moved` so the consumer can `EnsureVisible`); where the target index IS painted, the
+  existing reachability rule applies (a disabled or non-registered painted row is skipped). Without a count,
+  behaviour is unchanged. Pinned by a test that walks a cursor past a five-row viewport of a twenty-row list.
+- **`Grid` per-column sizing**: `Node.Grid.ColumnSizing : ImmutableArray<Sizing>` (empty = today's even
+  split), builder `Grid(columns, cells).WithColumns(params Sizing[])`; `Auto` measures the column to its
+  widest cell, `Fixed` is fixed, `Star` shares the remainder. Rows unchanged. `DrawTable` becomes a Grid.
+- **`PixelWidgetBase.MeasureLayout(Node root, Size<float> available, string? fontPath = null, DesignScale? scale = null)`**
+  and **`PixelWidgetBase.MeasureContext(string? fontPath = null, DesignScale? scale = null)`** returning the
+  `PixelMeasureContext<TSurface>` the three existing helpers build privately, so measure, arrange and paint
+  can share one instance. viewer-layout-engine P0, verbatim.
+- **`IPixelWidget.CaretIndexAt(HitResult.TextInputHit, float pointerX)`** on the interface (the base already
+  implements it), so a host holding the interface can place a caret. Deletes tianwen's `ICaretPlacingWidget`.
+- **`InputEvent.MouseUp` gains `Modifiers`** as an optional trailing parameter with a default, and
+  **`MouseMove` gains `Button`** likewise (`MouseButton.None` added to the enum). Positional
+  deconstruction patterns `MouseUp(var x, var y, _)` keep compiling because the new parameter is trailing
+  and defaulted; this is a RECORD, so see the 9.1 lesson: add explicit old-arity constructors for BOTH so the
+  published SdlVulkan.Renderer / WebGl.Renderer, which construct these, keep binding.
+
+### Wave 1b: the text field behaves like a field
+
+Files: `TextInputState.cs`, `TextInputInteraction.cs`, `TextInputFocus.cs`, `TextInputRenderer.cs`,
+`InputKey.cs` (`ToTextInputKey`), `Layout/Content.cs` (`TextInput` only), `Layout/Builder.cs`
+(`TextInput` factory only), `SelectableTextRegion.cs`, `README.md` (the text-input paragraph).
+
+- **`TextInputFocus.Focus(input, initialText)` SELECTS the seeded text** when `initialText` is given, as its
+  doc already promises (`Activate(initialText)` then `SelectAll()`); no change when it is null.
+- **`TextInputKey` gains `WordLeft`, `WordRight`, `WordBackspace`, `Cut`**; `ToTextInputKey` maps
+  Ctrl+Left / Ctrl+Right / Ctrl+Backspace / Ctrl+X (and Shift+those for the word motions extends, through
+  the existing `extend` idea: add `TextInputState.MoveCaretToWordBoundary(direction, extend)`, reusing
+  `IsWordChar`). `TextInputInteraction.HandleKey` routes `Cut` as copy-then-delete-selection through
+  `SetClipboardText`. `HandleKey` on the state handles the three motions/deletes.
+- **`TextInputRenderer` scrolls the text horizontally so the caret stays visible** in an over-long value:
+  a per-field `TextInputState.ScrollOffsetPx` (internal set) the renderer maintains and `CaretIndexAt`
+  honours (subtract it before measuring). Pinned by a test with a value three times the field's width that
+  asserts the caret rect stays inside the field after `End`, and after `Home`.
+- **`Content.TextInput.FocusOnOpen : bool`**, builder `TextInput(state, ..., focusOnOpen: false)`. Inert in
+  the painter except that `PaintLayout` reports the flag on the registered region
+  (`ClickableRegion.FocusOnOpen`); the router (wave 3) applies "first painted field that asks, once, since
+  it was last not painted" in its after-paint hook. Semantics stated on the property doc: it never steals
+  from a field the user is typing in (only fires when `Focus.Current` is null or is itself unpainted).
+- **`Content.Text.Selectable : bool`**, fluent **`.Selectable()`** on a Text leaf: `PaintLayout` routes the
+  run through `DrawSelectableText` (the path `LinkHit` already takes), so a raster host's router (wave 3)
+  can select it and a DOM host gets its native span. No interaction in this wave.
+- **README**: delete the word "undo" from the `TextInputState` line; there is none and nothing asks for one.
+
+### Wave 2: two content kinds that carry their own behaviour (after 1a lands)
+
+- **`Content.Slider(SliderState State)`** with `sealed class SliderState { float Value; float Min; float Max;
+  float Step (0 = continuous); bool Enabled; Action<float>? OnChanged; }`. Intrinsic height = the track
+  height `DrawTrackSlider` uses today; width `Star` by default. `PaintLayout` paints through
+  `DrawTrackSlider`, registers the rect with `OnPress` returning a `DragCapture` whose Move maps x through
+  `TrackFrac` to `Value` (clamped, stepped) and calls `OnChanged`; disabled paints dim and registers inert.
+  `HitResult.SliderStateHit(SliderState)` is the hit, so a consumer can still recognise it.
+- **`Popover`**: `sealed class PopoverState : IKeyboardClaimant { bool IsOpen; void Open(); void Close();
+  void Toggle(); event Action? Closed; }` whose `HandleKeyDown` closes on Escape and declines everything
+  else. **`Builder.Popover(RectF32 anchor, Node content, PopoverState state, DockSide side = Bottom,
+  RGBAColor32? backdrop = null)`** returns `Overlay(Base: Spacer().Stretch().Bg(backdrop).Clickable(new
+  HitResult.ChromeHit(), _ => state.Close()), Top: Anchored(content, side, anchor...))` with
+  **`Node.Popover : PopoverState?`** set on the Overlay root. `PaintLayout`, meeting a node with `Popover`
+  set: paints nothing when `!IsOpen`; otherwise paints, sets `Ui.KeyboardClaimant = state` (retired in
+  10.0 when the router asks the popover directly) and sets `Ui.PointerOwner = the popover's arranged content
+  rect` (new on `WindowUiSettings`, cleared in `BeginFrame`), which `PaintLayout`'s hover resolution consults
+  so nodes outside it do not light. `RenderDropdownMenu` is left alone in 9.2.
+
+### Wave 3: the router (after 1a, 1b, 2 land)
+
+File: `InputRouter.cs` (new), plus `WindowUiSettings.cs` for what it shares, tests.
+
+```
+public sealed class InputRouter(WindowUiSettings ui, BackgroundTaskTracker tracker, Action requestRedraw)
+{
+    public Func<IReadOnlyList<IPixelWidget>> Widgets { get; set; }     // paint order; the router walks it top-most first
+    public Func<InputEvent, bool>? Unhandled { get; set; }             // the app's own routing (the active tab)
+    public Func<string?>? GetClipboardText { get; set; }
+    public Action<string>? SetClipboardText { get; set; }
+    public Func<SearchInteraction?>? ActiveSearch { get; set; }        // KeyContext.ActiveSearch, until SearchInteraction is discoverable from the field
+    public event Action<string>? OpenUrl;
+    public event Action<KeyChord, Layout.Node>? ShortcutFired;         // telemetry / tests
+    public bool Handle(InputEvent evt);
+    public void AfterPaint();                                          // BlurIfUnpainted over every widget's painted fields; FocusOnOpen; tooltip timer
+    public CursorKind? CursorAt(float x, float y);
+    public TooltipRequest? Tooltip { get; }                            // (text, anchor rect) once the hover delay elapsed; the host or PaintLayout paints it
+}
+```
+
+Order, fixed and tested one branch per test:
+
+- **MouseDown**: regions top-most first across `Widgets`. `TextInputHit` -> `Focus`, `CaretIndexAt`,
+  `HandlePointer(clicks, Shift)`, and an implicit `DragCapture` that extends the selection through
+  `HandlePointer(extend: true)` on Move. `LinkHit` -> `OpenUrl`. A region with `OnPress` -> its capture (or,
+  when it returns null, fall through to `OnClick`). Else `OnClick`. A press not on a text field blurs the
+  focused field (after the dispatch, so a button's handler still sees the field's text). Then `Unhandled`
+  if nothing was hit.
+- **MouseMove**: active capture -> `Move` (with the press's button and modifiers). Else set `Pointer` on
+  every widget, note hover changes (request a redraw only if a `HoverBackground` or `Tooltip` region's state
+  changed), start the tooltip delay for the region under the pointer, then `Unhandled`.
+- **MouseUp**: capture -> `Release`, done. Else `Unhandled`.
+- **Scroll**: innermost region with `Scroll` under the pointer -> `controller.HandleInput`; else `Unhandled`.
+- **KeyDown**: `Ui.KeyboardClaimant` (the popover) first. Then every painted node with a `Shortcut` equal to
+  the chord, **but only when `chord.BeatsFocusedField || Focus.Current is null`**: a `TextInput` leaf is
+  focused (seeded and selected), a node with `OnActivate`/`OnClick` is activated, a `Popover` node is
+  toggled. Then the focused field through `TextInputInteraction.HandleKey` with a `KeyContext` the router
+  builds (`TabFields` = every widget's `GetRegisteredTextInputs()` concatenated in `Widgets` order). Then
+  `Unhandled` (which is where a widget's own `HandleListKey` lives today).
+- **TextInput**: focused field -> `HandleText`.
+- **AfterPaint**: `Focus.BlurIfUnpainted(union of painted fields)`; the `FocusOnOpen` rule; expire the
+  tooltip if its region was not painted.
+
+Hosts keep: the `FocusChanged` binding to the platform, the clipboard delegates, `AfterPaint` after their
+paint, and their own `Unhandled`. Tests build two `PixelWidgetBase<RgbaImage>` widgets, paint them, and
+drive the router with `InputEvent`s; no host code.
+
+### The release
+
+9.2 is one DIR.Lib release with everything above, then Console.Lib 4.35 / SdlVulkan.Renderer 7.x /
+WebGl.Renderer 1.x rebuilt against it (the MouseUp/MouseMove records are the reason the chain is not
+optional this time either), then tianwen's pins move together. Each wave lands on a DIR.Lib integration
+branch `feat/dir-lib-9.2` off `main`; the release is cut from there when wave 3 is green. The DIR.Lib
+CHANGELOG entry is written per wave into a `## 9.2` section as the waves land, so the release cannot ship
+without its notes.
+
 ## What is breaking, and why each cut is worth a major
 
 Only what has to be. Everything else above is additive and ships first.
