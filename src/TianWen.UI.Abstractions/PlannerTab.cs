@@ -39,6 +39,13 @@ namespace TianWen.UI.Abstractions
         private const string ChartFillKey   = "chart";
         private const string ListFillKey    = "list";
         private const string DetailsFillKey = "details";
+        // ...and the three the target list panel carves itself into (header / search strip / rows).
+        private const string ListHeaderFillKey = "listHeader";
+        private const string ListSearchFillKey = "listSearch";
+        private const string ListItemsFillKey  = "listItems";
+        // The suggestion dropdown IS a list, so the keyboard's position in it is a ListCursor rather than
+        // an index kept beside the rows; this is the id its rows declare.
+        private const string SuggestionListId = "Suggestion";
 
         // Colors
         private static RGBAColor32 PanelBgOpaque            => GuiTheme.Palette.PanelBg;
@@ -142,9 +149,9 @@ namespace TianWen.UI.Abstractions
             var arranged = RenderLayout(
                 BuildFrameLayout(contentRect.Width / dpiScale, contentRect.Height / dpiScale, portrait),
                 contentRect);
-            _targetListRect = RectOfFill(arranged, ListFillKey);
-            var detailsRect = RectOfFill(arranged, DetailsFillKey);
-            _chartRect = RectOfFill(arranged, ChartFillKey);
+            _targetListRect = ArrangedFills.RectOf(arranged, ListFillKey);
+            var detailsRect = ArrangedFills.RectOf(arranged, DetailsFillKey);
+            _chartRect = ArrangedFills.RectOf(arranged, ChartFillKey);
 
             // --- 1. Altitude chart ---
             var selectedIndex = state.SelectedTargetIndex >= 0
@@ -221,21 +228,6 @@ namespace TianWen.UI.Abstractions
                 Layout.Builder.Bottom(Layout.Builder.Fill(key: DetailsFillKey), BaseDetailsPanelHeight));
         }
 
-        /// <summary>Arranged rect of the keyed <see cref="Layout.Content.Fill"/> leaf, or an empty rect
-        /// when the leaf collapsed out of the arrangement (portrait details under pressure).</summary>
-        private static RectF32 RectOfFill(ImmutableArray<Layout.ArrangedNode<float>> arranged, string key)
-        {
-            foreach (var a in arranged)
-            {
-                if (a.Node is Layout.Node.Leaf { Content: Layout.Content.Fill fill } && fill.Key == key)
-                {
-                    return new RectF32(a.Bounds.X, a.Bounds.Y, a.Bounds.Width, a.Bounds.Height);
-                }
-            }
-
-            return default;
-        }
-
         /// <summary>Chart rect from last render (for slider drag coordinate conversion).</summary>
         public RectF32 ChartRect => _chartRect;
 
@@ -280,11 +272,21 @@ namespace TianWen.UI.Abstractions
             var fontPath = FontPath;
             var searchH = (int)(itemHeight * 1.1f);
 
-            // Sub-layout: header top, search strip below, items fill remainder
-            var listLayout = new PixelLayout(rect);
-            var headerRect = listLayout.Dock(PixelDockStyle.Top, headerHeight);
-            var searchStripRect = listLayout.Dock(PixelDockStyle.Top, searchH + 4f);
-            _listItemsRect = listLayout.Fill();
+            // Sub-layout: header top, search strip below, items fill remainder. A Dock tree of keyed Fill
+            // leaves rather than the older PixelLayout cursor -- the engine docks through the very same
+            // DockLayout that cursor wrapped, so the three rects are identical, and the arrangement is now
+            // visible to the DEBUG inspector's describe_layout like the rest of the tab's geometry. The
+            // sizes here are already device px (headerHeight / searchH were scaled by the caller), so the
+            // tree is arranged at DesignScale.One -- one design unit is one device px.
+            var listArranged = RenderLayout(
+                Layout.Builder.Dock(
+                    Layout.Builder.Fill(key: ListItemsFillKey),
+                    Layout.Builder.Top(Layout.Builder.Fill(key: ListHeaderFillKey), headerHeight),
+                    Layout.Builder.Top(Layout.Builder.Fill(key: ListSearchFillKey), searchH + 4f)),
+                rect, scale: DesignScale.One);
+            var headerRect = ArrangedFills.RectOf(listArranged, ListHeaderFillKey);
+            var searchStripRect = ArrangedFills.RectOf(listArranged, ListSearchFillKey);
+            _listItemsRect = ArrangedFills.RectOf(listArranged, ListItemsFillKey);
 
             // Hand the controller this frame's geometry (viewport = the items rect, one atom = one row) up
             // front, so ContentArea -- the width with the scrollbar column reserved -- drives the header and
@@ -439,6 +441,12 @@ namespace TianWen.UI.Abstractions
             {
                 RenderSuggestionDropdown(state, itemHeight, fontSize, padding);
             }
+            else
+            {
+                // Nothing of that list is painted, so a stale cursor would light nothing -- but leaving it
+                // open would still claim the widget's one cursor for a list that is gone.
+                ListCursor.Close();
+            }
         }
 
         // -----------------------------------------------------------------------
@@ -453,8 +461,17 @@ namespace TianWen.UI.Abstractions
             // safe to call standalone. Suggestion list + highlight now live on the DIR.Lib SearchInteraction.
             if (state.Search is not { } search)
             {
+                ListCursor.Close();
                 return;
             }
+
+            // The keyboard's position in this list IS the interaction's SelectedIndex -- SearchInteraction
+            // owns Up/Down/Enter for the dropdown -- so the cursor is OPENED from it each paint rather than
+            // being a second highlight index kept beside the rows. That is what lets the row declare its
+            // highlight once, as .BgFocus over the ListItemHit it already registers for the mouse: what
+            // lights up and what a click reaches are then the same row by construction.
+            ListCursor.Open(SuggestionListId, search.SelectedIndex);
+
             var suggestions = search.Results;
             var dropdownH = suggestions.Length * itemHeight;
             var dropdownY = _searchBarBottom;
@@ -484,9 +501,12 @@ namespace TianWen.UI.Abstractions
                         Layout.Builder.Text(suggestions[i], rowFs, isHighlighted ? SelectedText : ItemText).Stretch(),
                         Layout.Builder.Spacer().WFixed(padding).HStar())
                     .RowH(itemHeight)
-                    .Clickable(new HitResult.ListItemHit("Suggestion", capturedSuggestion),
-                        _ => search.CommitAt(capturedSuggestion));
-                if (isHighlighted) row = row.Bg(DropdownSelBg);
+                    .Clickable(new HitResult.ListItemHit(SuggestionListId, capturedSuggestion),
+                        _ => search.CommitAt(capturedSuggestion))
+                    // Unconditional: FocusBackground paints only while the cursor is on this row, and a row
+                    // that is not the cursor's has no Background of its own, so the panel's DropdownBg shows
+                    // through exactly as it did when the highlight was an `if (isHighlighted) .Bg(...)`.
+                    .BgFocus(DropdownSelBg);
                 rows.Add(row);
             }
 

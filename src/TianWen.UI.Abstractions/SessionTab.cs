@@ -26,6 +26,13 @@ namespace TianWen.UI.Abstractions
         private const float BaseSeparatorW    = 1f;
         private const float BaseObsPanelWidth = 440f;
 
+        // Keyed Fill leaves routing the regions the Dock trees carve out to their imperative painters:
+        // the two top-level panes, and the right panel's own three bands.
+        private const string ConfigFillKey      = "config";
+        private const string ObsFillKey         = "observations";
+        private const string CameraFillKey      = "cameraSettings";
+        private const string StartButtonFillKey = "startButton";
+
         // Colors. The palette-derived ones are PROPERTIES, not static readonly fields: a field
         // initialiser snapshots the palette at type-init, so this tab went on painting the startup
         // scheme through every theme switch. RGBAColor32 is a struct, so reading through allocates
@@ -120,18 +127,22 @@ namespace TianWen.UI.Abstractions
             // the mount safety limit); the form is built deeper in, where the profile is not in scope.
             State.ActiveProfileData = appState.ActiveProfile?.Data;
 
-            var layout = new PixelLayout(contentRect);
-
-            // Right panel: camera settings + observation list
+            // Right panel (camera settings + observation list) and the vertical rule docked right, the
+            // config form filling the rest. A Dock tree of keyed Fill leaves rather than the older
+            // PixelLayout cursor: the engine docks through the very same DockLayout that cursor wrapped,
+            // so the rects are identical, and the separator is a real node that paints from the tree
+            // instead of a rect handed to a second RenderLayout. Sizes here are already device px, so the
+            // tree is arranged at DesignScale.One -- one design unit is one device px.
             var obsPanelW = BaseObsPanelWidth * dpiScale;
-            var obsRect = layout.Dock(PixelDockStyle.Right, obsPanelW);
+            var frame = RenderLayout(
+                Layout.Builder.Dock(
+                    Layout.Builder.Fill(key: ConfigFillKey),
+                    Layout.Builder.Right(Layout.Builder.Fill(key: ObsFillKey), obsPanelW),
+                    Layout.Builder.Right(Layout.Builder.Spacer().Bg(SeparatorColor), BaseSeparatorW * dpiScale)),
+                contentRect, scale: DesignScale.One);
 
-            // Vertical separator
-            var sepRect = layout.Dock(PixelDockStyle.Right, BaseSeparatorW * dpiScale);
-            RenderLayout(Layout.Builder.Spacer().Bg(SeparatorColor), sepRect);
-
-            // Left panel: config form (fills remaining)
-            var configRect = layout.Fill();
+            var obsRect = ArrangedFills.RectOf(frame, ObsFillKey);
+            var configRect = ArrangedFills.RectOf(frame, ConfigFillKey);
 
             RenderConfigForm(configRect);
             RenderRightPanel(plannerState, obsRect);
@@ -313,7 +324,6 @@ namespace TianWen.UI.Abstractions
             var dpiScale = DpiScale;
             RenderLayout(Layout.Builder.Spacer().Bg(PanelBg), rect);
 
-            var rightLayout = new PixelLayout(rect);
             var headerH = BaseHeaderHeight * dpiScale;
             var padding = BasePadding * dpiScale;
             var itemH = BaseItemHeight * dpiScale;
@@ -323,17 +333,27 @@ namespace TianWen.UI.Abstractions
             var cameraRowsPerOta = 3; // setpoint + gain + separator
             var cameraSectionH = headerH + Math.Max(cameraCount, 1) * (cameraRowsPerOta * itemH + padding);
 
-            var cameraRect = rightLayout.Dock(PixelDockStyle.Top, cameraSectionH);
-            var sepRect = rightLayout.Dock(PixelDockStyle.Top, BaseSeparatorW * dpiScale);
-            RenderLayout(Layout.Builder.Spacer().Bg(SeparatorColor), sepRect);
-
             // Start Session button: enabled when proposals exist and date is tonight
             var hasPinned = plannerState.Proposals.Length > 0;
             var isTonight = !plannerState.PlanningDate.HasValue;
 
+            // The panel's three bands as one Dock tree (was a PixelLayout cursor): camera settings and the
+            // rule below them docked top, the Start button docked bottom when there is anything to start,
+            // observations filling the rest. The strips whose contents are still painted imperatively stay
+            // keyed Fill leaves and are read back by key; only the rule paints from the tree. Sizes are
+            // already device px, hence DesignScale.One.
+            var cameraStrip = Layout.Builder.Top(Layout.Builder.Fill(key: CameraFillKey), cameraSectionH);
+            var ruleStrip = Layout.Builder.Top(Layout.Builder.Spacer().Bg(SeparatorColor), BaseSeparatorW * dpiScale);
+            var buttonStrip = Layout.Builder.Bottom(Layout.Builder.Fill(key: StartButtonFillKey), 36f * dpiScale + padding * 2);
+            var obsFill = Layout.Builder.Fill(key: ObsFillKey);
+
+            var arranged = hasPinned
+                ? RenderLayout(Layout.Builder.Dock(obsFill, cameraStrip, ruleStrip, buttonStrip), rect, scale: DesignScale.One)
+                : RenderLayout(Layout.Builder.Dock(obsFill, cameraStrip, ruleStrip), rect, scale: DesignScale.One);
+
             if (hasPinned)
             {
-                var btnRect = rightLayout.Dock(PixelDockStyle.Bottom, 36f * dpiScale + padding * 2);
+                var btnRect = ArrangedFills.RectOf(arranged, StartButtonFillKey);
 
                 // Start button as a declarative node (was a RenderButton + two disabled FillRect/DrawText
                 // branches): running -> disabled label, tonight -> clickable Start, other date -> disabled hint.
@@ -345,13 +365,13 @@ namespace TianWen.UI.Abstractions
                             .Clickable(new HitResult.ButtonHit("StartSession"), _ => PostSignal(new StartSessionSignal()))
                         : Layout.Builder.Text("Start (tonight only)", BaseFontSize, DisabledBtnText, TextAlign.Center, TextAlign.Center).Bg(DisabledBtnBg);
 
+                // Its own RenderLayout at the widget's scale, because the button subtree is authored in
+                // DESIGN units (.Pad(BasePadding)) while the dock above it is in device px.
                 RenderLayout(Layout.Builder.VStack(btnNode.Stretch()).Pad(BasePadding), btnRect);
             }
 
-            var obsRect = rightLayout.Fill();
-
-            RenderCameraSettings(cameraRect);
-            RenderObservationList(plannerState, obsRect);
+            RenderCameraSettings(ArrangedFills.RectOf(arranged, CameraFillKey));
+            RenderObservationList(plannerState, ArrangedFills.RectOf(arranged, ObsFillKey));
         }
 
         // -----------------------------------------------------------------------
