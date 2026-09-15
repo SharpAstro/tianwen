@@ -234,9 +234,17 @@ Filed 2026-09-13, out of the Explorer-thumbnail work (`fix(thumbnails): read not
   separating a shielded column, for the same reason: three orders of margin. Worth a per-line median
   taken inside the covered rectangle, not a per-pixel test (a star must not move it), and worth being a
   separate tier from the noise walk rather than a clause inside it, since it answers a different
-  question. The two runners-up are also worth a look before choosing the bar: 3.99x on
-  `SMC 120s LEnh ASI585` (top+2) and 2.65x on `SVBONY Great Orion L-Quad` (bottom+1) are high enough that
-  they may be mild versions of the same thing rather than nebulosity.
+  question.
+  **The two runners-up were then looked at, and neither is the same animal, which is what sets the bar.**
+  `SMC 120s LEnh ASI585`, top edge: rows 0 and 1 mostly absent, then rows 2 to 17 sit at 3.41x to 3.99x
+  and row 18 drops to 1.34x. A step, 16 rows deep. `SVBONY Great Orion L-Quad`, bottom edge: rows 1 to 24
+  run 2.65x down to about 1.5x and settle under the bar by row 25, a ramp rather than a step, and it
+  looks like one, a brightness glow into the edge. Both carry a clean **two-row alternation** inside the
+  band (3.75x / 3.44x repeating on the first, 2.10x / 1.76x on the second), which is a CFA phase showing
+  through where coverage is partial, and is worth its own look some time. So these are ordinary edge
+  artefacts in the 1.5x to 4x range, exactly the class the walk's remarks say a level rule cannot judge
+  and the noise walk can. **Put the level tier's bar at 10x**: it clears both of these by 2.5x, clears
+  the overscan case by 700x, and leaves the noise walk owning everything it already owned.
 - [ ] **The bake's masters are in two different unit scales, and the split is not a clean one.**
   Measured 2026-09-16 over all 79 of `2026-09-12-clamped`, by peak value: **53 are in unit scale** (max
   0.80 to 1.07, so divided by a full-scale figure their own peak slightly exceeds) and **26 are in raw
