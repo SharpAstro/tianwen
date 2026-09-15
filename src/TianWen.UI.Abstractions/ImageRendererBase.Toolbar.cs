@@ -825,7 +825,7 @@ namespace TianWen.UI.Abstractions
                     // A popover, not a menu of presets: the two dials are continuous and the third
                     // block is not a choice at all. Toggled rather than opened, because the backdrop
                     // consumes the press that would otherwise re-open what it just closed.
-                    state.TonePanelOpen = !state.TonePanelOpen;
+                    state.TonePopover.Toggle();
                     state.NeedsRedraw = true;
                     return true;
 

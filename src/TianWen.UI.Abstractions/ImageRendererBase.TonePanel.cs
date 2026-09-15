@@ -20,12 +20,12 @@ namespace TianWen.UI.Abstractions;
 /// arrives at exactly this control. So the panel names display HDR, greys it, and says why --
 /// drawn rather than hidden, because a menu whose entries come and go teaches nothing about how to
 /// make them available. See docs/plans/hdr-display.md.</para>
-/// <para><b>A menu in everything but its contents</b>, like the white-balance popover: painted with
-/// the dropdowns so its regions win z-order; a full-window backdrop under it closes it on a press
-/// anywhere else and consumes that press, the button included, which is what makes a second press
-/// close what the first opened; it claims the keyboard as it paints so Escape routes through the
-/// one claimant check rather than a second branch; and while it is open it owns the pointer
-/// (<see cref="ViewerState.OverlayOwnsPointer"/>). Closed, it leaves no slider band behind.</para>
+/// <para><b>A menu in everything but its contents, and the engine owns every part of that now.</b>
+/// <see cref="Layout.Builder.Popover"/> is the whole declaration: the backdrop that closes it on a
+/// press anywhere else and consumes that press (the button included, which is what makes a second
+/// press close what the first opened), the placement under the button, the Escape claim, and the
+/// pointer ownership that stops chrome underneath lighting up. Those were five separate obligations
+/// written out here, and forgetting one was silent.</para>
 /// <para><b>It is ONE arranged tree, and the box is the engine's measurement of it.</b> The
 /// white-balance popover beside it predates that rule: it advances a <c>y</c> by hand, sums its own
 /// box height from the same constants its body draws with, and takes its width from a union of
@@ -84,35 +84,29 @@ partial class ImageRendererBase<TSurface>
     /// <summary>Inter-row and inter-column gap, design units.</summary>
     private const float ToneGap = 6f;
 
-    private const string ToneBoostFillKey = "toneBoost";
-    private const string ToneAmountFillKey = "toneAmount";
-    private const string ToneKneeFillKey = "toneKnee";
+    /// <summary>The boost dial's accent.</summary>
+    private static readonly RGBAColor32 ToneBoostFill = RGBAColor32.FromFloat(0.62f, 0.55f, 0.85f, 1f);
 
-    // Track rects captured as the panel paints, so a drag maps a cursor X against the same rect the
-    // engine arranged. Default/empty when the panel is closed or a dial drew dim, which is what
-    // stops a drag being answered by a control that is not on screen.
-    private readonly RectF32[] _toneTrackRects = new RectF32[3];
+    /// <summary>The soft clip's two dials share one accent: they are one control in two parts.</summary>
+    private static readonly RGBAColor32 ToneSoftClipFill = RGBAColor32.FromFloat(0.85f, 0.66f, 0.35f, 1f);
 
-    /// <summary>
-    /// Escape closes the popover; every other key passes through, and so does Escape once the panel
-    /// is no longer open. A claimant is asked whether it still applies, not told.
-    /// </summary>
-    private sealed class TonePanelClaimant(Func<ViewerState?> state) : IKeyboardClaimant
-    {
-        public bool HandleKeyDown(InputKey key)
-        {
-            if (state() is not { TonePanelOpen: true } open || key is not InputKey.Escape)
-            {
-                return false;
-            }
+    // The three dials, one state each, living across frames because the tree does not: a Content.Slider
+    // leaf carries a REFERENCE to caller-owned state (the precedent a text field sets), and the drag the
+    // engine arms on a press holds that same reference until the release. Re-seeded from ViewerState at
+    // the top of every build, so the handle reports what the render is doing and the ladders (B, H) move
+    // it without going through here.
+    private readonly SliderState _toneBoostSlider = new() { Min = 0f, Max = BoostSliderMax };
+    private readonly SliderState _toneAmountSlider = new() { Min = 0f, Max = SoftClipAmountMax };
+    private readonly SliderState _toneKneeSlider = new() { Min = SoftClipKneeMin, Max = SoftClipKneeMax };
 
-            open.TonePanelOpen = false;
-            open.NeedsRedraw = true;
-            return true;
-        }
-    }
+    /// <summary>Test seam: the boost dial, so a test can find its arranged leaf by identity.</summary>
+    internal SliderState ToneBoostSliderState => _toneBoostSlider;
 
-    private TonePanelClaimant? _toneClaimant;
+    /// <summary>Test seam: the soft-clip amount dial.</summary>
+    internal SliderState ToneAmountSliderState => _toneAmountSlider;
+
+    /// <summary>Test seam: the soft-clip knee dial.</summary>
+    internal SliderState ToneKneeSliderState => _toneKneeSlider;
 
     // EMPTY, never default: a default ImmutableArray throws on every read, so a closed panel would
     // hand a caller a different KIND of empty from an open one with nothing in it.
@@ -124,29 +118,23 @@ partial class ImageRendererBase<TSurface>
     /// </summary>
     internal ImmutableArray<Layout.ArrangedNode<float>> ToneLayoutForTest => _toneArranged;
 
-    private void ClearToneState()
-    {
-        _toneTrackRects[0] = _toneTrackRects[1] = _toneTrackRects[2] = default;
-        _toneArranged = [];
-    }
+    private void ClearToneState() => _toneArranged = [];
 
     /// <summary>
-    /// One dial's row: label, track, value. The track is a keyed <see cref="Layout.Content.Fill"/>,
-    /// the escape hatch the DSL provides for a control the engine has no opinion about -- it places
-    /// the rect and <see cref="DrawToneFill"/> draws the slider into it.
+    /// One dial's row: label, track, value. The track is a <see cref="Layout.Content.Slider"/> leaf,
+    /// so the engine draws it, registers it and arms its drag; nothing here maps a cursor X.
     /// </summary>
     /// <remarks>
-    /// A dim row's fill registers no band: the press falls through to the panel background and is
-    /// swallowed there. The alternative -- a live band over a control that cannot move -- is a
-    /// slider that follows the pointer and changes nothing, which reads as a broken control rather
-    /// than as an unmet precondition.
+    /// A dim dial still registers, with no press bound, so it swallows the press rather than letting
+    /// it reach the backdrop and close the panel being read. That is the same answer the old
+    /// unregistered band got by accident (the panel body swallowed it) and it is now stated.
     /// </remarks>
-    private Layout.Node ToneDialRow(string label, string fillKey, string valueText, bool enabled)
+    private Layout.Node ToneDialRow(string label, SliderState dial, string valueText, RGBAColor32 accent)
         => Layout.Builder.HStack(
                 Layout.Builder.Text(label, FontSize,
-                    enabled ? ViewerTheme.Palette.BodyText : ViewerTheme.Palette.DimText,
+                    dial.Enabled ? ViewerTheme.Palette.BodyText : ViewerTheme.Palette.DimText,
                     widthSample: ToneLabelWidthSample),
-                Layout.Builder.Fill(key: fillKey).WStar(1f, ToneTrackMinWidth).HStar(),
+                Layout.Builder.Slider(dial, accent, TrackChrome).WStar(1f, ToneTrackMinWidth).HStar(),
                 Layout.Builder.Text(valueText, FontSize, ViewerTheme.Palette.DimText,
                     hAlign: TextAlign.Far, widthSample: ToneValueWidthSample))
             .WithGap(ToneGap)
@@ -184,9 +172,35 @@ partial class ImageRendererBase<TSurface>
         var curveModeLive = boostEnabled && state.CurvesBoost > 0f;
         var curveLabel = state.CurvesMode == 1 ? "Curve: spline" : "Curve: boost";
 
+        // Seeded, not rebuilt: the three states outlive the tree, so what is written here is the
+        // value the handle draws at and the callback a drag will reach. Each writes the SAME field
+        // its keyboard ladder does, so a dial dragged off a rung simply is not on one.
+        _toneBoostSlider.Value = state.CurvesBoost;
+        _toneBoostSlider.Enabled = boostEnabled;
+        _toneBoostSlider.OnChanged = v =>
+        {
+            state.CurvesBoost = v;
+            state.NeedsRedraw = true;
+        };
+
+        _toneAmountSlider.Value = state.HdrAmount;
+        _toneAmountSlider.OnChanged = v =>
+        {
+            state.HdrAmount = v;
+            state.NeedsRedraw = true;
+        };
+
+        _toneKneeSlider.Value = state.HdrKnee;
+        _toneKneeSlider.Enabled = state.HdrAmount > 0f;
+        _toneKneeSlider.OnChanged = v =>
+        {
+            state.HdrKnee = v;
+            state.NeedsRedraw = true;
+        };
+
         var rows = ImmutableArray.CreateBuilder<Layout.Node>();
 
-        rows.Add(ToneDialRow("Boost", ToneBoostFillKey, UiFormat.Percent0(state.CurvesBoost), boostEnabled));
+        rows.Add(ToneDialRow("Boost", _toneBoostSlider, UiFormat.Percent0(state.CurvesBoost), ToneBoostFill));
         if (!boostEnabled)
         {
             rows.Add(ToneReasonRow(BoostNeedsStarsReason, small));
@@ -220,9 +234,8 @@ partial class ImageRendererBase<TSurface>
         // The heading carries what the control DOES, because the two dials below it are the part
         // that used to read as "1.0 / 0.80" with the meaning nowhere on screen.
         rows.Add(Layout.Builder.Text(SoftClipHeading, small, ViewerTheme.Palette.DimText).RowH(rowH));
-        rows.Add(ToneDialRow("Amount", ToneAmountFillKey, state.HdrAmount.ToString("0.00"), enabled: true));
-        rows.Add(ToneDialRow("Knee", ToneKneeFillKey, state.HdrKnee.ToString("0.00"),
-            enabled: state.HdrAmount > 0f));
+        rows.Add(ToneDialRow("Amount", _toneAmountSlider, state.HdrAmount.ToString("0.00"), ToneSoftClipFill));
+        rows.Add(ToneDialRow("Knee", _toneKneeSlider, state.HdrKnee.ToString("0.00"), ToneSoftClipFill));
         if (state.HdrAmount <= 0f)
         {
             rows.Add(ToneReasonRow(KneeNeedsAmountReason, small));
@@ -254,91 +267,14 @@ partial class ImageRendererBase<TSurface>
             .WStar();
     }
 
-    /// <summary>Draws one dial into the rect the engine placed for it, and captures that rect.</summary>
-    private void DrawToneFill(ViewerState state, Layout.Content.Fill fill, RectF32 rect)
-    {
-        var (slider, frac, enabled, accent) = fill.Key switch
-        {
-            ToneBoostFillKey => (ToneSlider.Boost,
-                Math.Clamp(state.CurvesBoost / BoostSliderMax, 0f, 1f),
-                _document?.Stars is { Count: > 0 },
-                RGBAColor32.FromFloat(0.62f, 0.55f, 0.85f, 1f)),
-            ToneAmountFillKey => (ToneSlider.SoftClipAmount,
-                Math.Clamp(state.HdrAmount / SoftClipAmountMax, 0f, 1f),
-                true,
-                RGBAColor32.FromFloat(0.85f, 0.66f, 0.35f, 1f)),
-            _ => (ToneSlider.SoftClipKnee,
-                Math.Clamp((state.HdrKnee - SoftClipKneeMin) / (SoftClipKneeMax - SoftClipKneeMin), 0f, 1f),
-                state.HdrAmount > 0f,
-                RGBAColor32.FromFloat(0.85f, 0.66f, 0.35f, 1f)),
-        };
-
-        if (!enabled || rect.Width <= 0f)
-        {
-            _toneTrackRects[(int)slider] = default;
-            return;
-        }
-
-        _toneTrackRects[(int)slider] = rect;
-        DrawTrackSlider(rect.X, rect.Width, rect.Y, rect.Height, frac,
-            accent, rect, new ToneSliderHit(slider), TrackChrome, Scale);
-    }
-
-    /// <summary>
-    /// Maps a cursor X onto the dragged dial's value against the rect the engine arranged for it.
-    /// Nothing here writes the PRESET index: the ladders (B, H) keep their place, and a dial dragged
-    /// off a rung simply is not on one, exactly as the white-balance sliders sit off the calibrated
-    /// triple.
-    /// </summary>
-    private void UpdateToneDrag(float px)
-    {
-        if (_state is not { ToneDragSlider: { } slider } state)
-        {
-            return;
-        }
-
-        var track = _toneTrackRects[(int)slider];
-        if (track.Width <= 0f)
-        {
-            return;
-        }
-
-        var frac = TrackFrac(track, px);
-        switch (slider)
-        {
-            case ToneSlider.Boost:
-                state.CurvesBoost = frac * BoostSliderMax;
-                break;
-            case ToneSlider.SoftClipAmount:
-                state.HdrAmount = frac * SoftClipAmountMax;
-                break;
-            default:
-                state.HdrKnee = SoftClipKneeMin + (frac * (SoftClipKneeMax - SoftClipKneeMin));
-                break;
-        }
-
-        state.NeedsRedraw = true;
-    }
-
-    /// <summary>
-    /// Begins a tone-dial drag (press on one of the tracks). Public so both mouse-down paths
-    /// (FitsViewer Program + GUI viewer tab) dispatch identically, mirroring
-    /// <see cref="BeginWhiteBalanceDragAt"/>.
-    /// </summary>
-    public void BeginToneDragAt(ToneSlider slider, float px)
-    {
-        if (_state is not { } state)
-        {
-            return;
-        }
-
-        state.ToneDragSlider = slider;
-        UpdateToneDrag(px);
-    }
-
     private void RenderTonePanel(ViewerState state)
     {
-        if (!state.TonePanelOpen)
+        // The engine paints nothing for a closed popover, so this is not the open check -- it is the
+        // measure this frame does not have to pay for. A closed popover is still MEASURED and ARRANGED
+        // (the flag is inert everywhere but the paint), and measuring a dozen rows of text on the
+        // render thread for a panel nobody can see is exactly the non-drawing work a gated render is
+        // supposed to skip.
+        if (!state.TonePopover.IsOpen)
         {
             ClearToneState();
             return;
@@ -353,25 +289,11 @@ partial class ImageRendererBase<TSurface>
         // the two merge textually clean and do not compile. Nothing flags that but a build.
         if (!TryGetPaintedToolbarRect(ToolbarAction.Tone, out var anchor))
         {
-            state.TonePanelOpen = false;
+            state.TonePopover.Close();
             ClearToneState();
             return;
         }
 
-        // Claimed as it paints, like a dropdown, so the key handler's one claimant check routes
-        // Escape here without a branch of its own.
-        Ui.KeyboardClaimant = _toneClaimant ??= new TonePanelClaimant(() => _state);
-
-        // The backdrop goes down FIRST so the panel's own regions, registered after it, win: a press
-        // anywhere else closes the panel and is consumed, the button included.
-        RegisterClickable(0f, 0f, Width, Height, new HitResult.ButtonHit("ToneBackdrop"),
-            _ =>
-            {
-                state.TonePanelOpen = false;
-                state.NeedsRedraw = true;
-            });
-
-        var tree = BuildToneTree(state);
         var ctx = new PixelMeasureContext<TSurface>(Renderer, FontPath, Scale.X, Scale.Y)
         {
             Fallback = FontFallback,
@@ -382,13 +304,17 @@ partial class ImageRendererBase<TSurface>
         // this panel summed its own height from the constants its body drew with and took its width
         // from a hand-kept union of every string it might show -- and the width was already wrong,
         // because the union listed the strings someone remembered rather than the ones the tree
-        // contains. The engine measures what is actually in it, prose and track minimum alike.
-        var desired = Layout.Engine.Measure(tree, new Layout.Size<float>(Width, Height), ctx);
-        var w = MathF.Max(BaseInfoPanelWidth * DpiScale, desired.Width);
-        var x = OverlayPlacement.ClampX(anchor.X, w, Width);
-        var y = anchor.Y + anchor.Height;
+        // contains. The engine measures what is actually in it, prose and track minimum alike; the
+        // info panel's width is only a FLOOR, and it is stated as the Star minimum the engine already
+        // honours rather than as a max() over a separate measure pass.
+        var content = BuildToneTree(state).WStar(1f, BaseInfoPanelWidth);
 
-        _toneArranged = ArrangeLayout(tree, new RectF32(x, y, w, desired.Height), ctx);
-        PaintLayout(_toneArranged, ctx, drawFill: (fill, rect) => DrawToneFill(state, fill, rect));
+        // Under the button and on screen, both the engine's: a side means just OUTSIDE that edge of
+        // the ANCHOR while the clamp still targets the rect the popover floats in, which is the whole
+        // window here. That pairing is what OverlayPlacement.ClampX was a private half of.
+        var tree = Layout.Builder.Popover(anchor, content, state.TonePopover);
+
+        _toneArranged = ArrangeLayout(tree, new RectF32(0f, 0f, Width, Height), ctx);
+        PaintLayout(_toneArranged, ctx);
     }
 }
