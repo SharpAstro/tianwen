@@ -293,6 +293,61 @@ finish properly only once `OnPress` and `Content.Slider` exist (D1); until then 
 None of it waits for D1 to START, and none of it is the text box. That is the finding the user predicted: the principle is violated more
 widely than the example, and most of the fix is adoption, not engine work.
 
+## Resume here (state as of 2026-09-15, late evening)
+
+Written for the next session, which starts with no memory of this one. Everything below is on a pushed
+branch; nothing is merged. The user merges (rebase), never the agent.
+
+### tianwen, four draft PRs, all green on the full unit suite run ALONE on the box
+
+| branch | base | what | suite |
+|---|---|---|---|
+| `docs/dir-lib-10-plan` | `feat/tone-popover` (#267) | this plan, both audits, the D1 spec, this section; also corrects CLAUDE.md and the web host on where the SDL key map lives | docs |
+| `feat/text-field-pointer` | `main` | T0: `TextFieldPointerInteraction`, both pixel hosts on `HandlePointer`, TUI inline editor on `TextInputInteraction`, `OpenSearch` through the focus owner, pins DIR.Lib `9.1.*` + Console.Lib `4.34.*` | 6114 / 0 |
+| `refactor/layout-gaps-and-boxes` | `main` | sweep A: 4 gaps, 10 rules to `Box`, `TruncateToWidth` deleted | 6110 / 0 |
+| `refactor/list-cursor-and-dock` | `main` | sweep B: two lists on `ListCursor` + `.BgFocus`, `PixelLayout` gone | 6113 / 0 |
+
+Merge order: #267 first (the plan branch retargets to `main` on its own when GitHub drops the merged base;
+if it does not, retarget by hand). The three code branches are independent of each other and of #267.
+They will rebase cleanly onto each other except possibly `Directory.Packages.props` (T0 moves two pins).
+
+### DIR.Lib, one integration branch
+
+`feat/dir-lib-9.2` off `main` (b07c547) carries wave 1a (`feat/dir-lib-9.2-wave1a`) and wave 1b
+(`feat/dir-lib-9.2-wave1b`) merged. Its draft PR body lists what each wave shipped with exact signatures.
+`VersionMajorMinor` is still 9.1 on purpose: the release is cut from this branch when wave 3 is green.
+`CHANGELOG.md` already has the `## 9.2` section, one block per wave.
+
+### What is NOT done, in order
+
+1. **Wave 2** (slider, popover) and **wave 3** (the `InputRouter`), specified above under "D1 as
+   specified for implementation". Each is one opus agent in a DIR.Lib worktree branched off
+   `feat/dir-lib-9.2`, reading the spec from this file (`git -C <tianwen> show <branch>:docs/plans/dir-lib-10.md`).
+   Wave 3 depends on wave 2; nothing else does.
+2. **The 9.2 release chain**: bump `VersionMajorMinor` to 9.2 on `feat/dir-lib-9.2`, merge, wait for NuGet,
+   then Console.Lib 4.35 / SdlVulkan.Renderer / WebGl.Renderer rebuilt against it (the `MouseUp` / `MouseMove`
+   records make the chain mandatory, see the 9.1 lesson), then tianwen's pins move together. `/release-lib`.
+3. **T1** (tianwen on the router; delete the three routers, the tab-shortcut switch, F3; `.Shortcut(F, Ctrl)`
+   on the search box; `SessionTab`'s exposure edit and `CloseSearch` through the focus owner; the three
+   hand-written Up/Down blocks the sweep could NOT convert, once `ListCursor.Open(..., count)` exists),
+   **T2** (popovers and sliders as nodes; delete `OverlayOwnsPointer`, the five drag flags,
+   `ISelfDispatchingInputWidget`, `OpenToolbarDropdown`'s switch), **T3** (the viewer chrome onto trees,
+   `.BgHover`, `LayoutDamage` in the GUI), **D2** (the 10.0 cuts, Console.Lib major), **C1**.
+4. **T0b leftovers** that need no engine change and no agent has taken: 19 marks as text runs to `IconKind`
+   (VISIBLE change, the user has not signed off), `OverlayPlacement` to `Anchored`, the 15 web-host
+   fire-and-forget calls onto the tracker, the two hand-built result lists onto `RenderDropdownMenu`, the
+   six per-frame rect caches, the four pixel-sweep tests.
+
+### Rules the next session must not relearn
+
+- **One full test suite at a time on this machine, whatever the worktree.** Three agents were each told
+  "never two suites at once" and ran three; the user called it "a really stupid move". Agents run narrow
+  filters freely and the full suite only on an explicit "go" from the coordinator, one at a time.
+- A grep count is a ceiling, not a yield (73 spacers matched, 4 were gaps).
+- An optional parameter on a record's primary constructor is a binary break (the 9.1 `TextInputHit`
+  lesson); `UseLocalSiblings` hides it; a `.claude/worktrees/` checkout takes the package path and shows it.
+- The user wants sub-agents for grunt work and the judgement calls kept as "stop and report" in the brief.
+
 ## The DIR.Lib 10 shape
 
 One principle: **a node DECLARES, the engine BEHAVES, a host BINDS the platform once.** Concretely, six
