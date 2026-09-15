@@ -291,9 +291,11 @@ namespace TianWen.UI.Abstractions
                     PostSignal(new DeactivateTextInputSignal());
                     State.NeedsRedraw = true;
                 };
-                State.ExposureInput.Activate($"{(int)cur.TotalSeconds}");
-                State.ExposureInput.SelectAll();
-                PostSignal(new ActivateTextInputSignal(State.ExposureInput));
+                // Through the focus owner, seeded and selected in one call. This was three spellings of
+                // one act -- Activate, SelectAll, and a DEFERRED ActivateTextInputSignal that re-focused
+                // the field a frame later -- from before the tab had a route to the owner; it has one
+                // now, Ui.Focus being the window's own.
+                Ui.Focus.Focus(State.ExposureInput, $"{(int)cur.TotalSeconds}");
                 State.NeedsRedraw = true;
                 return true;
             }
