@@ -45,6 +45,12 @@ namespace TianWen.UI.Abstractions
             _chrome = chrome;
             _tracker = tracker;
 
+            // One focus owner per window, not two. The chrome's WindowUiSettings carries the instance the
+            // widgets and the input router resolve focus against; the app state used to make its own, so
+            // "which field has the keyboard" had two answers kept level by convention. Adopted here rather
+            // than at construction of either, this being the first point that holds both.
+            appState.AdoptWindowSettings(chrome.Ui);
+
             var bus = chrome.Bus
                 ?? throw new ArgumentException("The chrome must carry a signal bus.", nameof(chrome));
 

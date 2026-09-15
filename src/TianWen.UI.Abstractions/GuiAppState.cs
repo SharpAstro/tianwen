@@ -128,8 +128,47 @@ public class GuiAppState
     /// are a single act: deferred, the focus lands a frame later and RE-SEEDS the field, throwing away the
     /// caret the press had already set. Keep any OTHER focus change on the bus.
     /// </para>
+    /// <para>
+    /// The instance is the WINDOW's, not this object's: <see cref="AdoptWindowSettings"/> points this at
+    /// the chrome's <see cref="WindowUiSettings"/> as the event handler is built, so the field the router
+    /// reads and the field the app writes are one object rather than two that agree by convention. A host
+    /// with no chrome (the terminal) keeps the one made here, which is the same arrangement with one
+    /// window in it.
+    /// </para>
     /// </summary>
-    public TextInputFocus TextInputFocus { get; } = new TextInputFocus();
+    public TextInputFocus TextInputFocus => Ui.Focus;
+
+    /// <summary>
+    /// The per-window presentation values this state reads the focus owner off. Replaced once, by
+    /// <see cref="AdoptWindowSettings"/>, with the chrome's own.
+    /// </summary>
+    private WindowUiSettings Ui { get; set; } = new WindowUiSettings();
+
+    /// <summary>
+    /// Adopts the window's shared settings, so <see cref="TextInputFocus"/> IS the one the widgets and
+    /// the input router resolve focus against.
+    /// </summary>
+    /// <remarks>
+    /// Called once, before anything binds <see cref="DIR.Lib.TextInputFocus.FocusChanged"/> or focuses a
+    /// field -- a later swap would strand the host's platform binding on an owner nothing consults, which
+    /// is precisely the desynchronisation the owner exists to prevent. Idempotent for the same instance.
+    /// </remarks>
+    internal void AdoptWindowSettings(WindowUiSettings ui)
+    {
+        ArgumentNullException.ThrowIfNull(ui);
+        if (ReferenceEquals(Ui, ui))
+        {
+            return;
+        }
+
+        if (Ui.Focus.Current is not null)
+        {
+            throw new InvalidOperationException(
+                "The window settings must be adopted before any field is focused.");
+        }
+
+        Ui = ui;
+    }
 
     /// <summary>The currently focused text field, or null. A read-only view of <see cref="TextInputFocus"/>.</summary>
     public TextInputState? ActiveTextInput => TextInputFocus.Current;
