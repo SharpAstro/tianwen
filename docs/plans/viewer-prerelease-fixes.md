@@ -1252,6 +1252,39 @@ invents a number and a viewer that does that silently is one you cannot trust a 
 without changing: its fit was confined to the left half of that master, and its block-mean downsample
 already skips NaN samples, so a handful inside a 16x16 block was never the problem.
 
+**The cost of all this, since it runs on the document load path.** Measured on a 3024 x 3025 x 3
+frame, best of three in Release:
+
+| | before | after |
+|---|---|---|
+| classify only (no NaN anywhere, the common case) | 77.1 ms | **26.3 ms** |
+| classify + flood + hole walk | ~85 ms + a second full scan | **32.6 ms** |
+| `LargestCoveredRectangle` | 92.1 ms | **66.7 ms** |
+| the fill, holes present | 84.8 ms | **34.7 ms** |
+
+Four things got it there, and only the first was about the algorithm. The fill took the NaN set from
+the classify pass instead of re-deriving it with a second walk of every pixel of every channel. A hole
+hunt that finds no NaN gives up before the flood, since there is nothing left for it to settle, which
+is most of the common case. The row's verdict is assembled in a register and stored once per 64
+columns rather than set a bit at a time. And the flood itself became word-parallel: propagation ACROSS
+rows is `absent |= candidate & absentOfTheRowBefore`, a word AND and a word OR, while propagation
+ALONG a row is a Kogge-Stone occluded fill, six shifts per word instead of sixty-four dependent steps,
+with one carry bit crossing each word boundary. That alone took the flood from 29 ms to 6.3 ms.
+
+**Two things were measured and NOT done**, both of which look like obvious wins. Bit-packing the two
+per-row scratch buffers made it worse, 28.1 ms to 72.5 ms: they are written once per pixel per
+channel, where a bit is a read-modify-write and a byte is a store, and packing buys memory traffic
+that does not exist at 3 KB. And blocking the classify loop by word, so the channel loop runs inside a
+64-column block, cost 22 ms: it puts `GetChannelSpan` in the inner loop, and every call re-resolves
+plane residency, which `Image.cs` already documents as worth 8.7 to 20.3 percent on resample loops.
+
+The flood is pinned against a per-pixel reference (`CoverageFloodEquivalenceTests`) at widths 63, 64,
+65, 127, 128 and 129, plus a spiral. The widths are the test: deleting either carry leaves every width
+at or below 65 passing, because nothing can cross a word boundary there. The assertion is on AREA and
+on the answer containing no absent pixel rather than on coordinates -- equal-area rectangles are
+common and the tie-break is not part of the contract (one 127-wide frame answers 78 x 1 against the
+reference's 39 x 2, both correct).
+
 Still open from the addendum: the two masters `DatasetDegradationExporter`'s stretch gate refuses on
 the whole frame are admitted inside the crop (0.321 -> 0.044, 0.133 -> 0.022), because the min anchor
 was the canvas ring rather than the sky. Cropping before the gate, or a percentile in place of the
