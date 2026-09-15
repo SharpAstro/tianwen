@@ -1207,6 +1207,56 @@ that hands the models no fabricated pixels at all. **Not measured: how far insid
 actually reaches**, i.e. whether the 56/92/16/92 px this crop removes is deep enough to contain it.
 Cropping first makes the question moot for a cropped view and leaves it open for an uncropped one.
 
+### 2026-09-15: the interior-hole half, closed (issue #250)
+
+The 2026-09-14 addendum measured the crop over all 79 retained masters of the `2026-09-12-clamped`
+bake and found it right on 78, wrong on one, and the wrong one a RULE rather than a walk. Both halves
+of that rule have now moved.
+
+**The rectangle border-gates NaN, as it already did zero.** `Image.Coverage.cs` had exempted NaN on the
+reasoning that "NaN is unambiguous, which is why it stays absence anywhere". It is unambiguous about
+the PIXEL being unusable and says nothing about WHY, which is the only question a largest rectangle
+asks. A drizzle hole is a NaN surrounded by data, exactly the shape the zero gate exists for, and it
+was the common case rather than an exotic one: 53 of the 79 masters, every `BayerDrizzle` one, 19 to
+324 components and 35 to 1,856 px. On the Great Orion Nebula master 1,856 of them in 20 components took
+a 99.94-percent-covered frame to 0.528 of its canvas, columns 10 to 1638 of 3024; the same frame keeps
+0.981 under the gate, which is what the addendum predicted by ignoring the holes by hand.
+
+The two halves are now recognised differently and prove the same thing: unusable is zero in EVERY
+channel or NaN in ANY, and absence is unusable AND reachable from the border. One implementation
+(`BorderReachableAbsence`) answers for both the crop and the fill below, so they cannot draw the ring
+in different places. Pinned by `AnInteriorNaNIsADrizzleHoleAndNotAbsence`, by
+`ANaNReachingTheBorderIsAbsent` for the half that did not change, and by
+`ARingOfMixedNaNAndZeroIsDiscardedWhole` for a real ragged ring, which mixes the two producers along
+one edge.
+
+**And what the crop keeps is filled, because keeping a hole is not the same as coping with one.**
+`Image.FillInteriorHolesInPlace` replaces each interior NaN with the mean of its measured neighbours,
+per channel, from `AdoptImageAsync` and BEFORE the statistics, so every number a document carries is
+taken over pixels that have one. Without it the gate above would simply move the problem: the render
+paints a NaN black, a save writes it back out, and each statistic has to remember to skip it.
+
+**The ring is never filled, and that separation is the whole reason the fill is safe.** A ring is
+genuinely absent and a number there would be invented rather than interpolated -- and it would erase
+the only evidence the crop has, so the next auto-crop would keep the whole canvas, ragged edge and
+all. That case is pinned by `TheCanvasRingIsLeftAlone`, which asserts the crop is still right
+afterwards rather than merely that the pixels are still NaN.
+
+Two further notes. The fill closes a hole from its rim inward at one pixel per pass, so its budget
+bounds the RADIUS and anything deeper keeps its core as NaN, which is the honest outcome
+(`AHoleDeeperThanTheBudgetKeepsItsCore`); the measured distribution needs three passes. And
+`AstroImageDocument.InteriorHolesFilled` reports the count, because the fill is the one step here that
+invents a number and a viewer that does that silently is one you cannot trust a measurement from.
+
+`ClassicalBackgroundExtractor.SettledRegion` is the other caller of the union and gains from the gate
+without changing: its fit was confined to the left half of that master, and its block-mean downsample
+already skips NaN samples, so a handful inside a 16x16 block was never the problem.
+
+Still open from the addendum: the two masters `DatasetDegradationExporter`'s stretch gate refuses on
+the whole frame are admitted inside the crop (0.321 -> 0.044, 0.133 -> 0.022), because the min anchor
+was the canvas ring rather than the sky. Cropping before the gate, or a percentile in place of the
+min, admits both sessions; neither is done here.
+
 ## P26. The `?` panel cannot report a bug  (FIXED 2026-09-08)
 
 From the user's notes 2026-09-07: *"in the help menu allow to auto-create an issue, with attaching logs

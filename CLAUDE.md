@@ -1538,6 +1538,20 @@ the solution, `AstroImageDocument.SourceCrop` records it, and the crop is REMEMB
 rather than re-scanned (the enhancers destroy the evidence). Measurements, corpus and the three
 refuted rules: `docs/plans/viewer-prerelease-fixes.md` P25; harness in `tools/coverage-edge-walk/`.
 
+**Absence is BORDER-REACHABLE, for NaN as much as for zero, and what the crop keeps is then FILLED.**
+A ring touches the border by construction; an island inside the frame is a clipped pixel where it is
+zero and a drizzle hole where it is NaN, and a largest RECTANGLE has to thread between them either
+way. NaN was exempt until 8.0 on the reasoning that it is "unambiguous" -- it is unambiguous about the
+PIXEL and says nothing about WHY, which is the only question being asked, and the exempt case was the
+COMMON one: 53 of 79 masters in one bake carry interior holes, every `BayerDrizzle` one, and 1,856 of
+them took a 99.94%-covered frame to 0.528 of its canvas (issue #250). The two halves are recognised
+differently and prove the same thing: zero in EVERY channel, NaN in ANY. Keeping a hole is not the
+same as coping with one, so `Image.FillInteriorHolesInPlace` (called from `AdoptImageAsync`, before
+the statistics) interpolates each interior NaN from its measured neighbours and **never touches the
+ring** -- filling that would erase the only evidence the crop works from. `AstroImageDocument.InteriorHolesFilled`
+reports the count, because a viewer that silently invents pixels is one you cannot trust a
+measurement from.
+
 **ANNOTATION is a LADDER (`O` steps `none -> grid -> grid + objects`, the rung DERIVED from the two
 layer flags); THE SKY BEHIND THE FRAME IS NOT ON IT** -- it is its own toolbar button
 (`ToolbarAction.SkyBackdrop`) and its own key (`Y`), and it hosts the atlas's own `SkyMapTab` BEHIND

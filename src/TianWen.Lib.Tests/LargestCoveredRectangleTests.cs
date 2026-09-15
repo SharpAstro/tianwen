@@ -60,14 +60,49 @@ namespace TianWen.Lib.Tests
                 "......",
             ]).LargestCoveredRectangle().ShouldBe(new Rectangle(1, 1, 4, 2));
 
-        /// <summary>NaN is absence too, and it does not have to be at an edge.</summary>
+        /// <summary>NaN is absence, on the same border-reachability terms as zero.</summary>
         [Fact]
-        public void ANaNIsAbsent()
+        public void ANaNReachingTheBorderIsAbsent()
+            => Frame([
+                "nnnnn",
+                "n###n",
+                "nnnnn",
+            ]).LargestCoveredRectangle().ShouldBe(new Rectangle(1, 1, 3, 1));
+
+        /// <summary>
+        /// <b>An interior NaN is a DRIZZLE HOLE, not a canvas ring, and this used to shred the frame.</b>
+        /// A drizzle canvas carries NaN wherever no drop's footprint reached, scattered through the
+        /// interior rather than gathered at the edge, and NaN used to be absence anywhere while an
+        /// interior zero was already exempt. Measured over the 79 masters of the 2026-09-12-clamped bake
+        /// (issue #250): 53 of them carry interior holes, 19 to 324 components and 35 to 1,856 px, and on
+        /// the Great Orion Nebula master 1,856 such pixels in 20 components took the answer to 0.528 of
+        /// the canvas -- columns 10 to 1638 of 3024 -- on a frame that is 99.94 percent covered. The same
+        /// frame keeps 0.981 once the holes stop counting.
+        /// <para>The old rule reasoned that "NaN is unambiguous" and so needs no border test. It is
+        /// unambiguous about the PIXEL being unusable and says nothing about WHY, which is the only
+        /// question a largest rectangle is asking.</para>
+        /// </summary>
+        [Fact]
+        public void AnInteriorNaNIsADrizzleHoleAndNotAbsence()
             => Frame([
                 "#####",
                 "##n##",
                 "#####",
-            ]).LargestCoveredRectangle().Contains(new Point(2, 1)).ShouldBeFalse();
+            ]).LargestCoveredRectangle().ShouldBe(new Rectangle(0, 0, 5, 3));
+
+        /// <summary>
+        /// A real ring is RAGGED and mixes the two producers: a drizzle canvas leaves NaN where no drop
+        /// reached and exact zero where the integration never accumulated, side by side along the same
+        /// edge. Neither kind may anchor the flood alone, or half the ring survives.
+        /// </summary>
+        [Fact]
+        public void ARingOfMixedNaNAndZeroIsDiscardedWhole()
+            => Frame([
+                "nn..nn",
+                "n####.",
+                ".####n",
+                "..nn..",
+            ]).LargestCoveredRectangle().ShouldBe(new Rectangle(1, 1, 4, 2));
 
         /// <summary>
         /// A zero surrounded by data is a pixel some calibration clipped, not a canvas ring, and unlike
@@ -131,6 +166,106 @@ namespace TianWen.Lib.Tests
                 "....#....",
                 "....#....",
             ]).LargestCoveredRectangle().ShouldBe(new Rectangle(0, 0, 9, 2));
+
+        /// <summary>
+        /// The other side of the same rule. Once the rectangle KEEPS an interior hole, something has to
+        /// give the pixel a number, and it is the mean of the neighbours that were actually measured.
+        /// </summary>
+        [Fact]
+        public void AnInteriorHoleIsFilledFromItsNeighbours()
+        {
+            var image = Frame([
+                "#####",
+                "##n##",
+                "#####",
+            ]);
+
+            image.FillInteriorHolesInPlace().ShouldBe(1);
+
+            var plane = image.GetChannelArray(0);
+            float.IsNaN(plane[1, 2]).ShouldBeFalse("the hole is surrounded by data, so it can be interpolated");
+            // Frame's covered value ramps with x, so the eight neighbours of (2, 1) average its own column.
+            plane[1, 2].ShouldBe(0.25f + (0.01f * 2), 1e-5f);
+        }
+
+        /// <summary>
+        /// <b>The ring is never filled, and that is what makes the fill safe.</b> No frame reached it, so
+        /// a number there would be invented rather than interpolated, and it would erase the only
+        /// evidence the crop has to work from: fill the ring and the next auto-crop keeps the whole
+        /// canvas, ragged edge and all.
+        /// </summary>
+        [Fact]
+        public void TheCanvasRingIsLeftAlone()
+        {
+            var image = Frame([
+                "nnnnn",
+                "n###n",
+                "nnnnn",
+            ]);
+
+            image.FillInteriorHolesInPlace().ShouldBe(0);
+
+            var plane = image.GetChannelArray(0);
+            float.IsNaN(plane[0, 0]).ShouldBeTrue();
+            float.IsNaN(plane[1, 0]).ShouldBeTrue();
+            image.LargestCoveredRectangle().ShouldBe(new Rectangle(1, 1, 3, 1), "the crop still has its evidence");
+        }
+
+        /// <summary>
+        /// A pixel is a hole when ANY channel is NaN, but only the channels that actually are get
+        /// written: a plane that has a number keeps the one it has.
+        /// </summary>
+        [Fact]
+        public void OnlyTheChannelThatIsNaNIsWritten()
+        {
+            var image = Frame(["#####", "#####", "#####"], channels: 3);
+            image.GetChannelArray(1)[1, 2] = float.NaN;
+            var greenBefore = image.GetChannelArray(2)[1, 2];
+
+            image.FillInteriorHolesInPlace().ShouldBe(1, "one pixel-channel, not three");
+
+            float.IsNaN(image.GetChannelArray(1)[1, 2]).ShouldBeFalse();
+            image.GetChannelArray(2)[1, 2].ShouldBe(greenBefore, "a channel that had a number is not rewritten");
+        }
+
+        /// <summary>
+        /// The common case by far, and the one that must cost nothing: a frame with no NaN anywhere is
+        /// not walked, not flooded, and not written.
+        /// </summary>
+        [Fact]
+        public void AFrameWithNoNaNIsNotTouched()
+        {
+            var image = Frame(["####", "####"]);
+            var before = (float[,]) image.GetChannelArray(0).Clone();
+
+            image.FillInteriorHolesInPlace().ShouldBe(0);
+
+            image.GetChannelArray(0).ShouldBe(before);
+        }
+
+        /// <summary>
+        /// A hole deeper than the pass budget keeps its core rather than acquiring a fabricated one. The
+        /// fill closes a hole from its rim inward at one pixel per pass, so the budget bounds the RADIUS;
+        /// leaving the middle NaN is the honest outcome, and the real distribution never reaches it
+        /// (the largest component measured over 79 masters needs three passes).
+        /// </summary>
+        [Fact]
+        public void AHoleDeeperThanTheBudgetKeepsItsCore()
+        {
+            var image = Frame([
+                "#######",
+                "#nnnnn#",
+                "#nnnnn#",
+                "#nnnnn#",
+                "#######",
+            ]);
+
+            image.FillInteriorHolesInPlace(maxPasses: 1);
+
+            var plane = image.GetChannelArray(0);
+            float.IsNaN(plane[1, 1]).ShouldBeFalse("the rim touches data and fills on the first pass");
+            float.IsNaN(plane[2, 3]).ShouldBeTrue("the core is two pixels in and the budget was one");
+        }
 
         /// <summary>Zero has to hold in EVERY channel: one black channel is not an uncovered pixel.</summary>
         [Fact]

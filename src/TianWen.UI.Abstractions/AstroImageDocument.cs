@@ -65,6 +65,20 @@ public sealed class AstroImageDocument : IPreviewSource
     /// </remarks>
     public Rectangle? SourceCrop { get; private init; }
 
+    /// <summary>
+    /// How many pixel-channels were interpolated at load because no frame's footprint reached them, or
+    /// zero for the great majority of images, which have no such pixel.
+    /// </summary>
+    /// <remarks>
+    /// <b>Recorded because the fill is the one thing here that invents a number</b>, and a viewer that
+    /// silently interpolates is a viewer you cannot trust a measurement from. It is bounded and local
+    /// (each filled pixel is the mean of neighbours that WERE measured, and the canvas ring is never
+    /// touched), but "bounded and local" is a reason to do it, not a reason to hide it. On the masters
+    /// this was measured over it runs from 35 to 1,856 pixels against nine million, so anything much
+    /// larger is worth a second look at the file rather than at the fill.
+    /// </remarks>
+    public int InteriorHolesFilled { get; private init; }
+
     /// <summary>Per-channel statistics computed from the raw image.</summary>
     public ImageHistogram[] ChannelStatistics { get; }
 
@@ -532,6 +546,18 @@ public sealed class AstroImageDocument : IPreviewSource
             actualAlgorithm = DebayerAlgorithm.None;
         }
 
+        // BEFORE the statistics, so every number the document carries is taken over pixels that have
+        // one. A drizzle canvas leaves NaN wherever no drop's footprint reached -- 53 of the 79 masters
+        // in one bake, every BayerDrizzle one (issue #250) -- and since 8.0 the auto-crop KEEPS those
+        // holes rather than threading a rectangle between them, which is right for the crop and hands
+        // every consumer downstream a NaN instead. This is the one place to answer that for all of them:
+        // the render would paint it black, a save would write it back out, and each statistic would have
+        // to remember to skip it. The canvas RING is never filled, so the crop keeps its evidence.
+        //
+        // Cheap where it does not apply: a frame with no NaN costs one sequential classify pass and
+        // nothing else, no flood and no write, which is the overwhelming majority of what is opened.
+        var interiorHolesFilled = viewImage.FillInteriorHolesInPlace();
+
         var (perChannelStats, lumaStats, perChannelBg, lumaBg) = await ComputeStretchStatsAsync(viewImage, cancellationToken);
 
         return new AstroImageDocument(
@@ -546,6 +572,7 @@ public sealed class AstroImageDocument : IPreviewSource
             DetectPreStretched(viewImage, perChannelStats))
         {
             SourceCrop = sourceCrop,
+            InteriorHolesFilled = interiorHolesFilled,
         };
     }
 
