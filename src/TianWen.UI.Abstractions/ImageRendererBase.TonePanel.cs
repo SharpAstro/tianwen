@@ -346,7 +346,11 @@ partial class ImageRendererBase<TSurface>
 
         // Nothing to hang it from: the button is not on this bar (a host with a narrower set) or was
         // not enabled this frame. It closes rather than floating at a guess.
-        if (!_toolbarButtonBounds.TryGetValue(ToolbarAction.Tone, out var anchor))
+        //
+        // Read back from the regions the paint REGISTERED rather than from a rect cache kept beside it:
+        // the cache this used to ask was removed by the adoption sweep, which is a semantic conflict git
+        // merged without a word, since one branch added this caller while the other deleted the field.
+        if (!TryGetPaintedToolbarRect(ToolbarAction.Tone, out var anchor))
         {
             state.TonePanelOpen = false;
             ClearToneState();
