@@ -1439,10 +1439,15 @@ sampler, `ScaleFloatValuesToUnitInPlace`) silently read the evicted 0x0 stub -- 
 evicted image emitted nothing and the in-place rescale threw on `plane[0, 0]`.
 
 **A plane is `float[,]` and stays one; what you change is how a LOOP reads it.** Measured 2026-09-15
-(`docs/architecture/image-pipeline.md`, "How a plane is READ"): a `[y, x]` index is a multiply and two
-bounds checks the compiler cannot lift, 2.4x on a 3x3 stencil and 15 percent on a bilinear gather under
-the AOT that ships, and a span over the SAME `float[,]` sliced per row beats a native flat `float[]`
-(11.8 against 19.4 ms), so migrating `Channel.Data` would have been a package break for a loss. Write a
+on BOTH boxes (`docs/architecture/image-pipeline.md`, "How a plane is READ"): a `[y, x]` index is a
+multiply and two bounds checks the compiler cannot lift, worth **2.4x (arm64) / 2.1x (x64)** on a 3x3
+stencil and **15 percent (arm64) / 72 percent (x64)** on a bilinear gather under the AOT that ships,
+and a span over the SAME `float[,]` sliced per row beats a native flat `float[]` on both (11.8 against
+19.4 ms arm64, 13.1 against 18.2 x64), so migrating `Channel.Data` would have been a package break for
+a loss. **The gather figure is the one that does not travel between the two machines, so never quote a
+multiplier here without naming the box it came off.** Equally, the 26 percent `Lanczos3Value` gain in
+that doc is arm64's; the same change is worth 6 percent on x64, while the luma statistic halves on
+both. Write a
 hot loop as `MemoryMarshal.CreateReadOnlySpan(ref plane[y, 0], width)` per row (or one flat view per
 operation), and take that view ONCE per operation or row, never per sample: `SubpixelValue` and
 `Lanczos3Value` have span-plus-width overloads for exactly that, the `float[,]` ones being wrappers for
