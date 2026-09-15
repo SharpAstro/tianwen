@@ -230,7 +230,16 @@ Filed 2026-09-13, out of the Explorer-thumbnail work (`fix(thumbnails): read not
   0.044 and 0.022 inside the crop, under the bar by 3x and 6x. **Nothing here is about NaN or about
   drizzle holes**, which are the separate half of #250; the anchor is the zero ring. Either fix works and
   neither is done: the exporter has no crop step, and a percentile in place of the min would need no crop
-  at all. Recorded 2026-09-16 because the plans carry the why and nothing carried the to-do.
+  at all.
+  **Re-measured 2026-09-16 straight off the `2026-09-12-clamped` masters, and the count is now ONE, not
+  two.** `SMC ZS61 ASI585 2024-10-02` reads 0.2859 whole-frame with a minimum of exactly 0 (its canvas
+  ring is 3.46 percent of the frame and reaches every row and column), and 0.0727 with the absent pixels
+  excluded, so it is still refused and still admitted by the fix. The eta Car Ha master
+  (`ASI1600MM 180mm fl 2025-02`) has moved to **0.1147**, just under the bar, so it passes today; the
+  re-bake shifted it. Two notes for whoever takes this: a naive central crop does NOT stand in for the
+  covered rectangle here (a central 95 percent leaves the statistic at 0.2863, because that ring is not
+  a border), and the frame really is bright, its median being 29 percent of full scale, so the fix is
+  the anchor and never a brightness test.
 - [x] **DONE 2026-08-21. Document-open traversal cost, and a correction to how it was first
   reported.** The original entry here quoted `Statistics(c)` x3 = 1,028-1,195 ms and called it the
   dominant cost. **Those were DEBUG numbers.** `dotnet test` defaults to Debug, and this library's
