@@ -220,6 +220,29 @@ Filed 2026-09-13, out of the Explorer-thumbnail work (`fix(thumbnails): read not
 
 ## Imaging
 
+- [ ] **A calibration set is chosen entirely on metadata, and nothing ever checks it against the
+  pixels.** `CalibrationResolver` scores gain, offset, exposure, temperature and instrument, plus a
+  capture-date distance, and `CalibrationCoverageReport` reports availability under those gates. Neither
+  reads a pixel of the candidate master. So a set that matches on paper and is wrong in fact passes
+  silently: a drifted offset, a readout mode that reports the same gain, a dark carrying amp glow the
+  lights do not have, a flat from a different optical train.
+  **The date-distance score is a PROXY for exactly this**, penalising an old set because old calibration
+  is usually drifted. The pixels can say whether this one is, in one pass, and a measurement beats a
+  proxy. Three numbers are enough, all one-pass and all measured by hand on 2026-09-16 for the SW8Q
+  session, whose only calibration is 184 days younger than its lights:
+  - **`median(dark - bias)`**: what the dark carries beyond the offset. Read +0.000 there, so at -5C over
+    60 s this dark IS the bias and adds nothing, which is also worth knowing when a session has a bias
+    and no matching dark.
+  - **fraction of `light - dark` below zero**: over-subtraction, and the only destructive direction,
+    since it clips faint signal to the floor irrecoverably. Read 0.000% of 11.6M pixels.
+  - **p0.01 of that residual**: the headroom left. Read +524 ADU.
+  **The test is one-sided and should say so rather than pretending otherwise.** It rules out an offset
+  ABOVE the lights', which destroys data; it cannot certify one below, because the floor could be sky.
+  That asymmetry is the point: under-subtraction leaves a constant pedestal, which is what background
+  extraction removes anyway. A verdict of "no over-subtraction, 524 ADU of headroom" is worth more than
+  "184 days apart" and is available for the same read.
+  Wire it as a veto or a confirmation beside the resolver's score, and surface the numbers in the
+  coverage report, so a map row records what was measured instead of what was assumed.
 - [ ] **Give the auto-crop a second direction: it recognises too LITTLE and should recognise too MUCH.**
   User's suggestion, 2026-09-16, and the numbers say it is safe. Today there are two tiers and both look
   downward: `Image.LargestCoveredRectangle` finds absence (zero or NaN) and `CoverageEdgeWalk` finds
