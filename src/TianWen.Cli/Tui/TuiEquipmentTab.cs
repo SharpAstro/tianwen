@@ -713,8 +713,8 @@ internal sealed class TuiEquipmentTab(
 
     private void RefreshProfiles()
     {
-        // Fire-and-forget profile load: results arrive via callback
-        _ = LoadProfilesAsync();
+        // Results arrive via callback; tracked so a failure is logged rather than swallowed.
+        _tasks.Run(() => LoadProfilesAsync(), "Load profiles");
     }
 
     private async Task LoadProfilesAsync()
