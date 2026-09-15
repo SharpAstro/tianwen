@@ -220,6 +220,23 @@ Filed 2026-09-13, out of the Explorer-thumbnail work (`fix(thumbnails): read not
 
 ## Imaging
 
+- [ ] **Give the auto-crop a second direction: it recognises too LITTLE and should recognise too MUCH.**
+  User's suggestion, 2026-09-16, and the numbers say it is safe. Today there are two tiers and both look
+  downward: `Image.LargestCoveredRectangle` finds absence (zero or NaN) and `CoverageEdgeWalk` finds
+  noise that has not settled. Neither can see an edge band that is anomalously BRIGHT, which is what the
+  overscan entry below leaves behind, and what the walk's own remarks say defeated a level rule once:
+  level matching against the interior "trimmed 300+ px of that master's left edge where the truth was 4".
+  **That rejection was at the 1.1x scale, and this is not that scale.** Measured over all 79 masters of
+  `2026-09-12-clamped`, taking the worst edge line median in the outermost 32 as a multiple of the
+  interior median: **p50 1.08x, p90 1.32x, and 78 of 79 at or under 3.99x**, against **7,057x** on the
+  overscan master. A bar anywhere from about 5x to 1000x trims exactly that one master and touches
+  nothing else, so the rule that is hopeless at separating partial coverage is trivially safe at
+  separating a shielded column, for the same reason: three orders of margin. Worth a per-line median
+  taken inside the covered rectangle, not a per-pixel test (a star must not move it), and worth being a
+  separate tier from the noise walk rather than a clause inside it, since it answers a different
+  question. The two runners-up are also worth a look before choosing the bar: 3.99x on
+  `SMC 120s LEnh ASI585` (top+2) and 2.65x on `SVBONY Great Orion L-Quad` (bottom+1) are high enough that
+  they may be mild versions of the same thing rather than nebulosity.
 - [ ] **The bake's masters are in two different unit scales, and the split is not a clean one.**
   Measured 2026-09-16 over all 79 of `2026-09-12-clamped`, by peak value: **53 are in unit scale** (max
   0.80 to 1.07, so divided by a full-scale figure their own peak slightly exceeds) and **26 are in raw
@@ -237,8 +254,23 @@ Filed 2026-09-13, out of the Explorer-thumbnail work (`fix(thumbnails): read not
   164,580 / 238,697 / 257,563 / 279,058 on columns 6 to 9, a thousand times the body's 213 **as a
   median, not as an outlier**, decaying through 17,660 on column 10 and 282 on column 11 to a normal 184
   by column 15. Column 0 is canvas zero and the RIGHT edge is clean (column 5567 reads 176). Left-edge
-  only, shielded, asymmetric: overscan. The flat carries no light there either, so calibration divides
-  by about nothing. Identified by the user on sight, 2026-09-16; the picture is otherwise a good frame.
+  only, shielded, asymmetric: overscan. Identified by the user on sight, 2026-09-16; the picture is
+  otherwise a good frame.
+  **The large numbers are made HERE, in our own flat division, and the flat says so exactly.**
+  `master_flat_3s_5C_SulphurII_g15_QHYCCD-Cameras-Capture` has a body median of 1.006 and column medians
+  of **0, 0, 0.0019, 0.0143** on columns 0 to 3, back to 0.989 by column 4. Dividing a light by that
+  multiplies those columns by **infinity, infinity, 528x and 70x** at the column median, and by much more
+  per pixel: the observed 2.46e8 over a 213 sky is a gain of about 1.2e6, which wants a flat pixel near
+  1e-6. The flat is 5544 x 3684 against the master's 5570 x 3747, so the sensor's columns 2 and 3 land
+  around canvas columns 6 to 9 once registration has placed and dithered them, which is exactly where the
+  master's bright band is. Nothing after calibration amplifies anything: `MeanCombiner` is `sum / cnt`
+  over an integer count, so it cannot raise a value at all.
+  **Two fixes, and they are not alternatives.** Upstream, crop QHY to its effective area on import as
+  Canon already is, so shielded columns never enter a light OR a flat. At the division itself, **a flat
+  pixel far below the flat's own median is not a divisor**: it is a pixel with no calibration, and the
+  honest output is absence rather than a number six orders out. The second is worth having whatever
+  happens to the first, because nothing about it is specific to this sensor or to overscan. Any dust
+  mote, any deep vignette corner and any dead region in a flat is the same division.
   **This is the QHY half of [sensor-active-area](../plans/sensor-active-area.md) reaching the data.**
   That plan records that Canon is the only sensor the active-area crop is wired for, and that QHY
   exposes the same geometry (`GetQHYCCDEffectiveArea` / `GetQHYCCDOverScanArea` /
