@@ -1550,7 +1550,19 @@ same as coping with one, so `Image.FillInteriorHolesInPlace` (called from `Adopt
 the statistics) interpolates each interior NaN from its measured neighbours and **never touches the
 ring** -- filling that would erase the only evidence the crop works from. `AstroImageDocument.InteriorHolesFilled`
 reports the count, because a viewer that silently invents pixels is one you cannot trust a
-measurement from.
+measurement from. **The absence planes are `BitMatrix` and the flood runs 64 columns at a time**
+(vertical propagation is a word AND plus a word OR; horizontal is a Kogge-Stone occluded fill, six
+shifts per word, with one carry bit crossing each word boundary), which took it from 29 ms to 6.3 ms
+on a 3024 x 3025 x 3 frame. It is pinned against a per-pixel reference at widths 63/64/65/127/128/129
+(`CoverageFloodEquivalenceTests`) because a frame wider than that passes with either carry deleted.
+
+**`BitMatrix` is word-addressable, and which granularity you use is the whole of its performance.**
+`RowWords` / `AllWords` / `PopCount` / `NextSetBit` make bulk work three orders of magnitude cheaper
+than the indexer (9.1M bits: 16.5 ms per bit, under 0.05 ms per word), so anything touching more than
+a handful of bits should go through them. **But do NOT bit-pack a small write-hot scratch buffer**: a
+bit write is a read-modify-write where a byte write is a store, and swapping two `bool[3024]` row
+buffers for one-row `BitMatrix`es took a classify pass from 28.1 ms to 72.5 ms. Packing buys memory
+traffic, and there is none to buy back once the buffer fits in L1.
 
 **ANNOTATION is a LADDER (`O` steps `none -> grid -> grid + objects`, the rung DERIVED from the two
 layer flags); THE SKY BEHIND THE FRAME IS NOT ON IT** -- it is its own toolbar button

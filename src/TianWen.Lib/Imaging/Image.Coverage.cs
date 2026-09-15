@@ -1,7 +1,7 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Runtime.CompilerServices;
 
 namespace TianWen.Lib.Imaging;
 
@@ -74,10 +74,9 @@ public partial class Image
 
         return LargestRectangle(width, height, (int y, Span<bool> covered) =>
         {
-            var rowStart = y * width;
             for (var x = 0; x < width; x++)
             {
-                covered[x] = !absent[rowStart + x];
+                covered[x] = !absent[y, x];
             }
         });
     }
@@ -99,32 +98,29 @@ public partial class Image
         var height = Height;
         var channels = ChannelCount;
 
-        // Two bits per pixel, built once. A flood has to see the whole frame, which the per-row probe
-        // below cannot: about 15 MB on a 61 MP frame, against the 244 MB the coverage-plane tier
-        // already decodes for the same question.
-        var pixels = width * height;
-        var absent = new BitArray(pixels);
-        var candidate = new BitArray(pixels);
-        var nan = trackNaN ? new BitArray(pixels) : null;
-
-        // One ROW of scratch each, and the reason they exist at all is the channel-OUTER loop below: the
-        // planes are read one at a time so that every read is sequential, so a column's verdict has to
-        // survive the whole channel loop before it can be settled.
-        //
-        // A byte per column rather than a bit, deliberately and against the grain of everything else
-        // here. These two are written up to once per pixel per channel -- 27.4M times on the frame this
-        // was measured on -- which makes them the hottest thing in the method, and a bit write is a
-        // read-modify-write of a word (DivRem, shift, 2D array index) where a byte write is a store.
-        // Swapping both for a BitMatrix of one row took the no-NaN case from 50.2 ms to 91.0 ms
-        // back-to-back on a 3024 x 3025 x 3 frame. They cost 3 KB each, which is the whole of what the
-        // bit packing would have bought.
-        var anyNonZero = new bool[width];
-        var rowNaN = new bool[width];
+        // One bit per pixel per set. About 1.1 MB each on this frame and 7.6 MB on a 61 MP one, against
+        // the 244 MB the coverage-plane tier already decodes for the same question.
+        var absent = new BitMatrix(height, width);
+        var candidate = new BitMatrix(height, width);
+        var nan = trackNaN ? new BitMatrix(height, width) : default;
         var sawNaN = false;
 
+        var wordsPerRow = candidate.WordsPerRow;
+
+        // One ROW of scratch each. They exist because of the channel-OUTER loop below: the planes are
+        // read one at a time so every read is sequential, and that is what makes a column's verdict
+        // have to survive the channel loop.
+        //
+        // A byte per column, measured rather than assumed. These are written once per pixel per channel
+        // -- 27.4M times on the frame this was measured on -- and a byte store is the cheapest write
+        // there is, where a bit would be a read-modify-write with a shift and a mask. Bit-packing them
+        // took the pass from 28.1 ms to 72.5 ms, because the win from packing is memory traffic and
+        // there is none to win back at 3 KB: it is in L1 either way.
+        var anyNonZero = new bool[width];
+        var rowNaN = new bool[width];
+
         // Pass 1: classify. Both kinds of unusable pixel are only a CANDIDATE here, settled by the flood
-        // below; what differs is how each is recognised, not what it then has to prove. Channels are read
-        // one at a time so every read stays sequential.
+        // below; what differs is how each is recognised, not what it then has to prove.
         for (var y = 0; y < height; y++)
         {
             Array.Clear(anyNonZero);
@@ -133,6 +129,8 @@ public partial class Image
             var rowStart = y * width;
             for (var c = 0; c < channels; c++)
             {
+                // ONCE per channel per row. Resolving this per 64-column block instead cost 22 ms on
+                // the frame below, because every call re-resolves plane residency (see Image.Planes).
                 var plane = GetChannelSpan(c).Slice(rowStart, width);
                 for (var x = 0; x < width; x++)
                 {
@@ -140,7 +138,6 @@ public partial class Image
                     if (float.IsNaN(v))
                     {
                         rowNaN[x] = true;
-                        sawNaN = true;
                     }
                     else if (v != 0f)
                     {
@@ -149,26 +146,49 @@ public partial class Image
                 }
             }
 
-            for (var x = 0; x < width; x++)
+            // The row's verdict goes out a WORD at a time, assembled in a register and stored once per
+            // 64 columns. The bits were previously set one at a time straight into the plane, which is
+            // 3024 read-modify-writes of a word per row where this is 48 stores.
+            var candidateRow = candidate.RowWords(y);
+            var nanRow = trackNaN ? nan.RowWords(y) : default;
+            for (var w = 0; w < wordsPerRow; w++)
             {
-                if (rowNaN[x])
+                var x0 = w << 6;
+                var count = Math.Min(64, width - x0);
+
+                var nanBits = 0ul;
+                var candidateBits = 0ul;
+                for (var i = 0; i < count; i++)
                 {
-                    candidate[rowStart + x] = true;
-                    if (nan is not null)
+                    var bit = 1ul << i;
+                    if (rowNaN[x0 + i])
                     {
-                        nan[rowStart + x] = true;
+                        nanBits |= bit;
+                        candidateBits |= bit;
+                    }
+                    else if (!anyNonZero[x0 + i])
+                    {
+                        candidateBits |= bit;
                     }
                 }
-                else if (!anyNonZero[x])
+
+                // Columns past the last are padding and must stay clear, or the flood walks off the end
+                // of the row and every popcount over the plane lies. count < 64 only in the last word.
+                candidateRow[w] = candidateBits;
+                if (trackNaN)
                 {
-                    candidate[rowStart + x] = true;
+                    nanRow[w] = nanBits;
+                }
+
+                if (nanBits != 0)
+                {
+                    sawNaN = true;
                 }
             }
         }
 
         // Nothing more to learn for a hole hunt that found no NaN, and the flood is the larger half of
-        // what is left. Measured on a 3024 x 3025 x 3 frame: the whole method is 77 ms, of which this
-        // early return saves 42.
+        // what is left.
         if (trackNaN && !sawNaN)
         {
             return new AbsenceScan(absent, nan, false);
@@ -183,53 +203,110 @@ public partial class Image
         // 20 components on a 3024 x 3025 Bayer-drizzle master took it to 0.528 of the canvas, the left
         // half of a frame that is 99.94% covered (issue #250).
         //
-        // Propagated by alternating sweeps rather than a queue of pixel indices, which is unbounded
-        // (244 MB in the worst case at this frame size) where a sweep needs no extra memory at all. A
-        // ring settles in two; the cap only binds on a shape that spirals, and stopping early
-        // UNDER-marks absence, which keeps more of the frame rather than cropping more of it.
+        // ALTERNATING SWEEPS, 64 COLUMNS AT A TIME. A queue of pixel indices is unbounded (244 MB in
+        // the worst case at this frame size) where a sweep needs no extra memory at all; a ring settles
+        // in two, the cap only binds on a shape that spirals, and stopping early UNDER-marks absence,
+        // which keeps more of the frame rather than cropping more of it.
+        //
+        // Each sweep is two word operations rather than a walk of pixels. Propagation ACROSS rows is
+        // exactly `absent |= candidate & absentOfTheRowBefore`, which is a word AND and a word OR and
+        // nothing else. Propagation ALONG a row is the one part that is genuinely sequential -- a bit
+        // becomes absent because its neighbour did -- and that is what KoggeStone below turns into six
+        // shifts per word instead of sixty-four dependent steps, with a single carry bit crossing each
+        // word boundary.
+        var lastWord = wordsPerRow - 1;
+        var lastColumnBit = 1ul << ((width - 1) & 63);
+
         const int maxSweeps = 64;
         for (var sweep = 0; sweep < maxSweeps; sweep++)
         {
             var changed = false;
 
+            // Forward: seeds from the border, then down from the row above, then left to right.
             for (var y = 0; y < height; y++)
             {
-                var rowStart = y * width;
-                for (var x = 0; x < width; x++)
+                var a = absent.RowWords(y);
+                var c = candidate.RowWords(y);
+                var wholeRowIsBorder = y == 0 || y == height - 1;
+                var above = wholeRowIsBorder ? default : absent.RowWords(y - 1);
+
+                var carry = 0ul;
+                for (var w = 0; w <= lastWord; w++)
                 {
-                    var i = rowStart + x;
-                    if (!candidate[i] || absent[i])
+                    var before = a[w];
+                    var mask = c[w];
+                    var seed = before;
+
+                    if (wholeRowIsBorder)
                     {
-                        continue;
+                        seed |= mask;
+                    }
+                    else
+                    {
+                        seed |= mask & above[w];
                     }
 
-                    if (x == 0 || y == 0 || x == width - 1 || y == height - 1
-                        || (x > 0 && absent[i - 1])
-                        || (y > 0 && absent[i - width]))
+                    // The first and last COLUMN are border too, on every row.
+                    if (w == 0)
                     {
-                        absent[i] = true;
+                        seed |= mask & 1ul;
+                    }
+
+                    if (w == lastWord)
+                    {
+                        seed |= mask & lastColumnBit;
+                    }
+
+                    // The column just left of this word ended up absent, so this word's column 0 is
+                    // reachable if it is a candidate.
+                    seed |= mask & carry;
+
+                    seed = KoggeStoneFillUp(seed, mask);
+
+                    if (seed != before)
+                    {
+                        a[w] = seed;
                         changed = true;
                     }
+
+                    carry = seed >> 63;
                 }
             }
 
+            // Backward: up from the row below, then right to left. No border seeding -- the forward
+            // sweep has already placed every seed there is.
             for (var y = height - 1; y >= 0; y--)
             {
-                var rowStart = y * width;
-                for (var x = width - 1; x >= 0; x--)
+                var a = absent.RowWords(y);
+                var c = candidate.RowWords(y);
+                var below = y == height - 1 ? default : absent.RowWords(y + 1);
+
+                var carry = 0ul;
+                for (var w = lastWord; w >= 0; w--)
                 {
-                    var i = rowStart + x;
-                    if (!candidate[i] || absent[i])
+                    var before = a[w];
+                    var mask = c[w];
+                    var seed = before;
+
+                    if (!below.IsEmpty)
                     {
-                        continue;
+                        seed |= mask & below[w];
                     }
 
-                    if ((x < width - 1 && absent[i + 1])
-                        || (y < height - 1 && absent[i + width]))
+                    if (carry != 0)
                     {
-                        absent[i] = true;
+                        seed |= mask & (1ul << 63);
+                    }
+
+                    seed = KoggeStoneFillDown(seed, mask);
+
+                    if (seed != before)
+                    {
+                        a[w] = seed;
                         changed = true;
                     }
+
+                    carry = seed & 1ul;
                 }
             }
 
@@ -239,14 +316,62 @@ public partial class Image
             }
         }
 
-        return new AbsenceScan(absent, nan, sawNaN);
+        return new AbsenceScan(absent, trackNaN ? nan : null, sawNaN);
+    }
+
+    /// <summary>
+    /// Spreads every set bit of <paramref name="seed"/> toward HIGHER columns through the run of
+    /// <paramref name="mask"/> it sits in, within one 64-bit word.
+    /// </summary>
+    /// <remarks>
+    /// <b>The sequential half of a flood, done in six steps instead of sixty-four.</b> Filling a run
+    /// one column at a time is a chain of dependent operations the width of the word; this is the
+    /// standard Kogge-Stone occluded fill, which doubles the reach each step -- 1, 2, 4, 8, 16, 32 --
+    /// while narrowing the mask to the runs that are still contiguous at that distance, so six steps
+    /// cover every distance a word can hold. A bit only ever moves through mask bits, which is what
+    /// makes it a flood and not a smear: a gap in the mask stops it, exactly as an unset candidate
+    /// pixel stops absence spreading into the frame.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static ulong KoggeStoneFillUp(ulong seed, ulong mask)
+    {
+        seed |= mask & (seed << 1);
+        mask &= mask << 1;
+        seed |= mask & (seed << 2);
+        mask &= mask << 2;
+        seed |= mask & (seed << 4);
+        mask &= mask << 4;
+        seed |= mask & (seed << 8);
+        mask &= mask << 8;
+        seed |= mask & (seed << 16);
+        mask &= mask << 16;
+        seed |= mask & (seed << 32);
+        return seed;
+    }
+
+    /// <summary>The mirror of <see cref="KoggeStoneFillUp"/>, toward LOWER columns.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static ulong KoggeStoneFillDown(ulong seed, ulong mask)
+    {
+        seed |= mask & (seed >> 1);
+        mask &= mask >> 1;
+        seed |= mask & (seed >> 2);
+        mask &= mask >> 2;
+        seed |= mask & (seed >> 4);
+        mask &= mask >> 4;
+        seed |= mask & (seed >> 8);
+        mask &= mask >> 8;
+        seed |= mask & (seed >> 16);
+        mask &= mask >> 16;
+        seed |= mask & (seed >> 32);
+        return seed;
     }
 
     /// <summary>What one walk of the pixels can say about absence, so nothing has to walk them twice.</summary>
     /// <param name="Absent">Unusable AND reachable from the border: the canvas ring.</param>
     /// <param name="NaN">Which pixels are NaN in any channel, ring included, or null when not asked for.</param>
     /// <param name="AnyNaN">Whether the frame carries a NaN at all.</param>
-    private readonly record struct AbsenceScan(BitArray Absent, BitArray? NaN, bool AnyNaN);
+    private readonly record struct AbsenceScan(BitMatrix Absent, BitMatrix? NaN, bool AnyNaN);
 
     /// <summary>
     /// Replaces every INTERIOR NaN with the mean of its valid neighbours, in place, and returns how many
@@ -303,14 +428,15 @@ public partial class Image
         // the hole list each pass then iterates instead of the frame. A hole closes from its rim inward
         // at one pixel per pass, so a frame-wide scan per pass per channel would be a dozen passes over
         // nine million pixels to write under two thousand of them.
+        // NextSetBit walks WORDS, so an empty stretch of row costs one test per 64 columns rather than
+        // 64 tests. A hole census is 0.02 percent of a frame; a per-column loop pays for the other 99.98.
         var absent = scan.Absent;
-        var holes = new List<(int Y, int X)>();
+        var holes = new List<(int Y, int X)>(nan.PopCount());
         for (var y = 0; y < height; y++)
         {
-            var rowStart = y * width;
-            for (var x = 0; x < width; x++)
+            for (var x = nan.NextSetBit(y, 0); x >= 0; x = nan.NextSetBit(y, x + 1))
             {
-                if (nan[rowStart + x] && !absent[rowStart + x])
+                if (!absent[y, x])
                 {
                     holes.Add((y, x));
                 }
