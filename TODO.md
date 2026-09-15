@@ -5,6 +5,29 @@ Checks that only a real device or a real night can answer live in ONE place, ind
 
 ## High Priority
 
+- [x] **Auto-crop: an interior drizzle hole is not a canvas ring** (2026-09-15, issue #250). Both
+  halves of the rule the measurement over 79 masters found, closed together.
+  - [x] **`LargestCoveredRectangle` border-gates NaN, as it already did zero.** NaN had been exempt on
+    the reasoning that it is "unambiguous" -- it is unambiguous about the PIXEL and says nothing about
+    WHY, the only question a largest RECTANGLE asks. A drizzle hole is a NaN surrounded by data,
+    exactly the shape the zero gate exists for, and it was the COMMON case: 53 of 79 masters, every
+    `BayerDrizzle` one, 19 to 324 components. On the Great Orion Nebula master 1,856 such pixels took a
+    **99.94-percent-covered frame to 0.528 of its canvas**; it keeps 0.981 now. One implementation
+    (`BorderReachableAbsence`) answers for the crop and the fill, so they cannot disagree about where
+    the ring ends.
+  - [x] **`Image.FillInteriorHolesInPlace` gives the kept holes a number**, per channel, from
+    `AdoptImageAsync` and BEFORE the statistics. Keeping a hole is not coping with one: without this
+    the gate above only moves the problem, since the render paints a NaN black, a save writes it back
+    out, and every statistic has to remember to skip it. **The ring is never filled** -- that would
+    invent rather than interpolate, and erase the only evidence the crop works from.
+    `AstroImageDocument.InteriorHolesFilled` reports the count, because a viewer that silently invents
+    pixels is one you cannot trust a measurement from.
+  - [ ] **Still open, from the same measurement:** the two masters `DatasetDegradationExporter`'s
+    stretch gate refuses on the whole frame are admitted inside the crop (0.321 -> 0.044, 0.133 ->
+    0.022) -- the min anchor was the canvas ring, not the sky. Cropping before the gate, or a
+    percentile in place of the min, admits both sessions.
+  - Measurements and the per-master table: [docs/plans/viewer-prerelease-fixes.md](docs/plans/viewer-prerelease-fixes.md) P25.
+
 - [x] **A register sweep of viewer stats, presets and the icon bake** (2026-09-15). Eight items,
   six of them real; the two that were not are worth as much as the six.
   - [x] **`StarMaskedLumaStats` measured ONE COLOUR on a mosaic**, which is the one that was a live

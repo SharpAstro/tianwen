@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Drawing;
 
 namespace TianWen.Lib.Imaging;
@@ -12,20 +13,33 @@ public partial class Image
     /// discard, and <see cref="Rectangle.Empty"/> for an image with no covered pixel at all.
     /// </summary>
     /// <remarks>
-    /// <para><b>A pixel counts as absent when it is NaN in any channel, or exactly zero in EVERY channel
-    /// AND reachable from the border.</b> The two halves come from different producers: an integration
-    /// leaves the canvas at exact zero where no frame reached (TianWen and Astro Pixel Processor both
-    /// do), while a tool that flags absence explicitly writes NaN. Zero has to hold in every channel,
-    /// because a zero in one channel of three is a dead pixel or a genuinely black one; a NaN in any
-    /// channel makes the pixel unusable whatever the others say.</para>
-    /// <para><b>The border-reachability half is what separates a canvas ring from a dead pixel, and it
-    /// is not a refinement but the difference between an answer and nonsense.</b> A ring touches the
-    /// border by construction; a zero surrounded by data is a pixel some calibration clipped. NaN needs
-    /// no such test because NaN is unambiguous, which is why it stays absence anywhere (pinned by
-    /// <c>ANaNIsAbsent</c>) while 0.0, a legal pixel value, does not. Without it a CALIBRATED SUB is
-    /// shredded: 6230 exact zeros, 0.0102% of the pixels, 6108 of them interior and spread over 3607 of
-    /// 6388 rows, reduced a 9576 x 6388 frame to 2922 x 949. That is the nature of a largest RECTANGLE
-    /// rather than a bounding box, and it shipped in 7.1.1627 as "auto-crop crops way too much".</para>
+    /// <para><b>A pixel counts as absent when it is unusable AND reachable from the border.</b> Unusable
+    /// is recognised two ways, because two producers write it differently: an integration leaves the
+    /// canvas at exact zero where no frame reached (TianWen and Astro Pixel Processor both do), while a
+    /// tool that flags absence explicitly writes NaN. Zero has to hold in EVERY channel, since a zero in
+    /// one channel of three is a dead pixel or a genuinely black one; NaN in ANY channel is enough,
+    /// since it makes the pixel unusable whatever the others say. That asymmetry is about recognising
+    /// the pixel, and it is the whole of the difference: what each then has to prove is the same.</para>
+    /// <para><b>The border-reachability half is what separates a canvas ring from everything else, and
+    /// it is not a refinement but the difference between an answer and nonsense.</b> A ring touches the
+    /// border by construction. An island inside the frame never does, and is something else with its own
+    /// cause: a pixel some calibration clipped where it is zero, a hole no drizzle drop's footprint
+    /// reached where it is NaN. Both have been measured on the file that reported them, and both are
+    /// catastrophic rather than merely wrong, because this is a largest RECTANGLE and it has to thread
+    /// between them. 6230 exact zeros, 0.0102% of the pixels, 6108 of them interior and spread over 3607
+    /// of 6388 rows, reduced a 9576 x 6388 calibrated sub to 2922 x 949; that shipped in 7.1.1627 as
+    /// "auto-crop crops way too much". 1,856 NaN in 20 components reduced a 3024 x 3025 Bayer-drizzle
+    /// master to 0.528 of its canvas, columns 10 to 1638, on a frame 99.94% covered (issue #250).</para>
+    /// <para><b>NaN was exempt from that test until 8.0, on the reasoning that "NaN is unambiguous".</b>
+    /// It is unambiguous about the PIXEL being unusable, and says nothing about WHY, which is the only
+    /// question being asked here. 53 of the 79 masters in one bake carry interior holes, every
+    /// <c>BayerDrizzle</c> one of them, so the exempt case was the common case rather than the exotic
+    /// one. Pinned now by <c>AnInteriorNaNIsADrizzleHoleAndNotAbsence</c> and, for the half that did not
+    /// change, <c>ANaNReachingTheBorderIsAbsent</c>.</para>
+    /// <para><b>The rectangle keeping a hole is not the same as a consumer coping with one</b>, which is
+    /// why this changed alongside <see cref="FillInteriorHolesInPlace"/> rather than on its own: what
+    /// survives the crop here still has NaN in it, and a render, a statistic or an enhance input each
+    /// has to be given a number.</para>
     /// <para><b>This is the UNION, and the name says intersection.</b> Absence marks where NO frame
     /// reached, so the answer is the largest rectangle inside the area at least one sub covered -- inside
     /// which a band that fewer subs reached survives, with no zeros in it and up to 60% more noise. That
@@ -51,28 +65,70 @@ public partial class Image
     {
         var width = Width;
         var height = Height;
-        var channels = ChannelCount;
-        if (width <= 0 || height <= 0 || channels <= 0)
+        if (width <= 0 || height <= 0 || ChannelCount <= 0)
         {
             return Rectangle.Empty;
         }
+
+        var absent = ScanAbsence().Absent;
+
+        return LargestRectangle(width, height, (int y, Span<bool> covered) =>
+        {
+            var rowStart = y * width;
+            for (var x = 0; x < width; x++)
+            {
+                covered[x] = !absent[rowStart + x];
+            }
+        });
+    }
+
+    /// <summary>
+    /// Which pixels are absent: unusable AND reachable from the border. One implementation, because the
+    /// crop and the hole fill are the same question asked from opposite sides and must never disagree
+    /// about where the canvas ring ends.
+    /// </summary>
+    /// <param name="trackNaN">Also return WHICH pixels carry a NaN, and give up after the classify pass
+    /// when there are none. The classify pass already knows both, so asking costs one bit per pixel and
+    /// no extra reads; re-deriving it afterwards would mean a second walk of every pixel of every
+    /// channel. A caller that only wants holes has its answer at that point -- there are none -- and the
+    /// flood is pure waste, which on a frame with no NaN is most of the method. Off for the crop, which
+    /// needs the flood whether or not a NaN was seen.</param>
+    private AbsenceScan ScanAbsence(bool trackNaN = false)
+    {
+        var width = Width;
+        var height = Height;
+        var channels = ChannelCount;
 
         // Two bits per pixel, built once. A flood has to see the whole frame, which the per-row probe
         // below cannot: about 15 MB on a 61 MP frame, against the 244 MB the coverage-plane tier
         // already decodes for the same question.
         var pixels = width * height;
         var absent = new BitArray(pixels);
-        var zero = new BitArray(pixels);
+        var candidate = new BitArray(pixels);
+        var nan = trackNaN ? new BitArray(pixels) : null;
 
+        // One ROW of scratch each, and the reason they exist at all is the channel-OUTER loop below: the
+        // planes are read one at a time so that every read is sequential, so a column's verdict has to
+        // survive the whole channel loop before it can be settled.
+        //
+        // A byte per column rather than a bit, deliberately and against the grain of everything else
+        // here. These two are written up to once per pixel per channel -- 27.4M times on the frame this
+        // was measured on -- which makes them the hottest thing in the method, and a bit write is a
+        // read-modify-write of a word (DivRem, shift, 2D array index) where a byte write is a store.
+        // Swapping both for a BitMatrix of one row took the no-NaN case from 50.2 ms to 91.0 ms
+        // back-to-back on a 3024 x 3025 x 3 frame. They cost 3 KB each, which is the whole of what the
+        // bit packing would have bought.
         var anyNonZero = new bool[width];
-        var anyNaN = new bool[width];
+        var rowNaN = new bool[width];
+        var sawNaN = false;
 
-        // Pass 1: classify. NaN is absence outright; all-channel zero is only a CANDIDATE, settled by
-        // the flood below. Channels are read one at a time so every read stays sequential.
+        // Pass 1: classify. Both kinds of unusable pixel are only a CANDIDATE here, settled by the flood
+        // below; what differs is how each is recognised, not what it then has to prove. Channels are read
+        // one at a time so every read stays sequential.
         for (var y = 0; y < height; y++)
         {
             Array.Clear(anyNonZero);
-            Array.Clear(anyNaN);
+            Array.Clear(rowNaN);
 
             var rowStart = y * width;
             for (var c = 0; c < channels; c++)
@@ -83,7 +139,8 @@ public partial class Image
                     var v = plane[x];
                     if (float.IsNaN(v))
                     {
-                        anyNaN[x] = true;
+                        rowNaN[x] = true;
+                        sawNaN = true;
                     }
                     else if (v != 0f)
                     {
@@ -94,23 +151,37 @@ public partial class Image
 
             for (var x = 0; x < width; x++)
             {
-                var i = rowStart + x;
-                if (anyNaN[x])
+                if (rowNaN[x])
                 {
-                    absent[i] = true;
+                    candidate[rowStart + x] = true;
+                    if (nan is not null)
+                    {
+                        nan[rowStart + x] = true;
+                    }
                 }
                 else if (!anyNonZero[x])
                 {
-                    zero[i] = true;
+                    candidate[rowStart + x] = true;
                 }
             }
         }
 
-        // Pass 2: a canvas ring reaches the border by construction, so only a zero region CONNECTED to
-        // the border is absence. A zero island inside the frame is a dead or clipped pixel, and
-        // treating one as absence is catastrophic rather than merely wrong, because this is a largest
-        // RECTANGLE: 6230 scattered zeros (0.0102% of the pixels) on a 9576 x 6388 calibrated sub took
-        // the answer to 2922 x 949, or 4.5% of the frame. Measured on the file that reported it.
+        // Nothing more to learn for a hole hunt that found no NaN, and the flood is the larger half of
+        // what is left. Measured on a 3024 x 3025 x 3 frame: the whole method is 77 ms, of which this
+        // early return saves 42.
+        if (trackNaN && !sawNaN)
+        {
+            return new AbsenceScan(absent, nan, false);
+        }
+
+        // Pass 2: a canvas ring reaches the border by construction, so only a region CONNECTED to the
+        // border is absence. An island inside the frame is something else entirely -- a clipped pixel
+        // where it is zero, a drizzle hole where it is NaN -- and treating one as absence is
+        // catastrophic rather than merely wrong, because this is a largest RECTANGLE. Both were
+        // measured on the files that reported them: 6230 scattered zeros (0.0102% of the pixels) on a
+        // 9576 x 6388 calibrated sub took the answer to 2922 x 949, or 4.5% of the frame; 1,856 NaN in
+        // 20 components on a 3024 x 3025 Bayer-drizzle master took it to 0.528 of the canvas, the left
+        // half of a frame that is 99.94% covered (issue #250).
         //
         // Propagated by alternating sweeps rather than a queue of pixel indices, which is unbounded
         // (244 MB in the worst case at this frame size) where a sweep needs no extra memory at all. A
@@ -127,7 +198,7 @@ public partial class Image
                 for (var x = 0; x < width; x++)
                 {
                     var i = rowStart + x;
-                    if (!zero[i] || absent[i])
+                    if (!candidate[i] || absent[i])
                     {
                         continue;
                     }
@@ -148,7 +219,7 @@ public partial class Image
                 for (var x = width - 1; x >= 0; x--)
                 {
                     var i = rowStart + x;
-                    if (!zero[i] || absent[i])
+                    if (!candidate[i] || absent[i])
                     {
                         continue;
                     }
@@ -168,14 +239,153 @@ public partial class Image
             }
         }
 
-        return LargestRectangle(width, height, (int y, Span<bool> covered) =>
+        return new AbsenceScan(absent, nan, sawNaN);
+    }
+
+    /// <summary>What one walk of the pixels can say about absence, so nothing has to walk them twice.</summary>
+    /// <param name="Absent">Unusable AND reachable from the border: the canvas ring.</param>
+    /// <param name="NaN">Which pixels are NaN in any channel, ring included, or null when not asked for.</param>
+    /// <param name="AnyNaN">Whether the frame carries a NaN at all.</param>
+    private readonly record struct AbsenceScan(BitArray Absent, BitArray? NaN, bool AnyNaN);
+
+    /// <summary>
+    /// Replaces every INTERIOR NaN with the mean of its valid neighbours, in place, and returns how many
+    /// pixel-channels were written. The canvas ring is left exactly as it was.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>A drizzle canvas carries NaN where no drop's footprint reached</b>, and those pixels are
+    /// scattered through the interior rather than gathered at the edge: 53 of the 79 masters in one bake,
+    /// every <c>BayerDrizzle</c> one, 19 to 324 components and 35 to 1,856 px (issue #250). Since 8.0 the
+    /// crop KEEPS them (see <see cref="LargestCoveredRectangle()"/>), which is right for the rectangle
+    /// and leaves every consumer downstream holding a NaN it has to have an answer for: the render paints
+    /// it black, a statistic has to remember to skip it, a save writes it back out.</para>
+    /// <para><b>The ring is not filled, and that separation is the whole reason this is safe.</b> A ring
+    /// is genuinely absent -- no frame reached it, and inventing a number there would erase the only
+    /// evidence the crop has to work from. A hole is surrounded by data that was measured, so the mean of
+    /// its neighbours is an interpolation rather than an invention. Both come out of the same
+    /// <see cref="ScanAbsence"/> call the crop uses, so the two can never draw the line in
+    /// different places.</para>
+    /// <para><b>Per channel, because the absence test is not.</b> A pixel counts as a hole when ANY
+    /// channel is NaN, but only the channels that are actually NaN get written; a green plane that has a
+    /// number keeps it.</para>
+    /// <para>Each pass fills only from neighbours that already have a value, and every value in a pass is
+    /// read before any is written, so the result does not depend on the order pixels are visited. A hole
+    /// closes from its rim inward at one pixel per pass, so the cap bounds the RADIUS a hole can have;
+    /// anything still NaN after it is left alone, which is the honest outcome rather than a fabricated
+    /// one. The real distribution needs three passes at most.</para>
+    /// <para><b>An in-place mutation, and the name says so</b>, per the rule on <see cref="Image"/> that
+    /// the four (now five) deliberate mutators state it. Unlike a rescale this one does not invalidate
+    /// anything on the instance: the pixels it writes lie between their own neighbours, so every
+    /// statistic the image carries stays as true as it was.</para>
+    /// </remarks>
+    /// <param name="maxPasses">How far a fill may reach into a hole, in pixels.</param>
+    public int FillInteriorHolesInPlace(int maxPasses = 32)
+    {
+        var width = Width;
+        var height = Height;
+        var channels = ChannelCount;
+        if (width <= 0 || height <= 0 || channels <= 0)
+        {
+            return 0;
+        }
+
+        // ONE walk of the pixel DATA, shared with the crop. The classify pass already reads every channel
+        // of every pixel to decide what is unusable, and already knows which of those were NaN, so it
+        // hands that set back rather than being asked again: re-deriving it here would double the only
+        // expensive part of this, on the document load path, to learn something already computed.
+        var scan = ScanAbsence(trackNaN: true);
+        if (!scan.AnyNaN || scan.NaN is not { } nan)
+        {
+            return 0;
+        }
+
+        // What is left is a walk of BITS -- no float reads, no per-channel indirection -- and it yields
+        // the hole list each pass then iterates instead of the frame. A hole closes from its rim inward
+        // at one pixel per pass, so a frame-wide scan per pass per channel would be a dozen passes over
+        // nine million pixels to write under two thousand of them.
+        var absent = scan.Absent;
+        var holes = new List<(int Y, int X)>();
+        for (var y = 0; y < height; y++)
         {
             var rowStart = y * width;
             for (var x = 0; x < width; x++)
             {
-                covered[x] = !absent[rowStart + x];
+                if (nan[rowStart + x] && !absent[rowStart + x])
+                {
+                    holes.Add((y, x));
+                }
             }
-        });
+        }
+
+        if (holes.Count == 0)
+        {
+            return 0;
+        }
+
+        var filled = 0;
+        var pending = new List<(int Y, int X, float Value)>();
+
+        for (var c = 0; c < channels; c++)
+        {
+            var plane = GetChannelArray(c);
+
+            for (var pass = 0; pass < maxPasses; pass++)
+            {
+                pending.Clear();
+
+                foreach (var (y, x) in holes)
+                {
+                    if (float.IsNaN(plane[y, x]))
+                    {
+                        var sum = 0f;
+                        var n = 0;
+                        for (var dy = -1; dy <= 1; dy++)
+                        {
+                            var ny = y + dy;
+                            if (ny < 0 || ny >= height)
+                            {
+                                continue;
+                            }
+
+                            for (var dx = -1; dx <= 1; dx++)
+                            {
+                                var nx = x + dx;
+                                if ((dx == 0 && dy == 0) || nx < 0 || nx >= width)
+                                {
+                                    continue;
+                                }
+
+                                var v = plane[ny, nx];
+                                if (!float.IsNaN(v))
+                                {
+                                    sum += v;
+                                    n++;
+                                }
+                            }
+                        }
+
+                        if (n > 0)
+                        {
+                            pending.Add((y, x, sum / n));
+                        }
+                    }
+                }
+
+                if (pending.Count == 0)
+                {
+                    break;
+                }
+
+                foreach (var (y, x, value) in pending)
+                {
+                    plane[y, x] = value;
+                }
+
+                filled += pending.Count;
+            }
+        }
+
+        return filled;
     }
 
     /// <summary>
