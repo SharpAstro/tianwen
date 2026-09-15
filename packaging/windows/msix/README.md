@@ -161,9 +161,11 @@ wide one cannot come from square art without cropping).
 The package version ends in `github.run_number`, which does not exist until the run does, so the
 record is a DRAFT in the repo (`release-notes/NEXT.txt`) that the `msix` job bakes:
 `bake-release-notes.ps1` fills in the version, tag, previous version, span and run id, and uploads
-the result beside the package as the **`msix-release-notes`** artifact. Write the draft before
-dispatching; download both artifacts after; commit the baked file as `release-notes/<version>.txt`
-and reset the draft.
+the result beside the package as the **`msix-release-notes`** artifact, which carries the record
+and `whats-new-<version>.txt`, the Partner Center copy alone (paste that one; selecting the block
+out of a 20 KB record by eye puts a marker line in the listing sooner or later). Write the draft
+before dispatching; download both artifacts after; commit the record as
+`release-notes/<version>.txt` and reset the draft. The paste copy is derived and is not committed.
 
 Two behaviours are deliberate and asymmetric. An **unwritten** record only warns, because most
 dispatches are a binary release that owes the Store nothing and a packaging lane that is routinely
