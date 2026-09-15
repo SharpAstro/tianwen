@@ -5,6 +5,19 @@ Checks that only a real device or a real night can answer live in ONE place, ind
 
 ## High Priority
 
+- [ ] **The chrome should not be doing its own arithmetic** (user, 2026-09-15, high priority:
+  "its not just cursor += h, but box width calc, non-DIR.Lib etc side text measurements, unions of all
+  possible values, etc, all should be handled by the engine"). Measured the same day: 47 `MeasureText`
+  call sites across 16 widget files, 31 hand-advanced cursor lines across 8, three width unions over
+  every label a control can carry, and two test files that sweep a 900 x 700 surface asking `HitTest`
+  at every point because a hand-laid-out panel gives a test no other way to find anything. Two bugs of
+  that shape are already measured -- the toolbar's 26.4 px drift across four buttons over one wheel
+  zoom, and the tone popover's first draft running its own heading out of its box. Phasing, the
+  acceptance test per phase, and what is deliberately left alone:
+  [docs/plans/viewer-layout-engine.md](docs/plans/viewer-layout-engine.md). `ImageRendererBase.TonePanel.cs`
+  (8.1) is the worked example. **P0 needs a DIR.Lib release** (a measure seam on `PixelWidgetBase`);
+  nothing else does.
+
 - [x] **Auto-crop: an interior drizzle hole is not a canvas ring** (2026-09-15, issue #250). Both
   halves of the rule the measurement over 79 masters found, closed together.
   - [x] **`LargestCoveredRectangle` border-gates NaN, as it already did zero.** NaN had been exempt on

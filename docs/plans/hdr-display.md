@@ -1,7 +1,8 @@
 # HDR in the viewer: what the button does, what the panel could do, and what the driver allows
 
 Status: P0 DONE 2026-09-15, and the answer changed within the day (blocked on the OEM driver, OPEN on
-Qualcomm's 31.0.170.0, see below); P1 NOT STARTED; P2 to P4 NOT STARTED and now actionable on this box.
+Qualcomm's 31.0.170.0, see below); P1 DONE 2026-09-15, as a FOLD rather than a rename; P2 to P4 NOT
+STARTED and now actionable on this box.
 Decisions taken 2026-09-15 with the user are marked DECIDED.
 
 ## The problem, in the user's words
@@ -134,25 +135,62 @@ and the paper-white scale is re-derived from the new display's window properties
 lands (the probe already waits for `GetDisplayForWindow` to settle for that reason). A swapchain
 format tells the indicator nothing.
 
-## P1: say what the button does (NOT STARTED; no dependency on the driver)
+## P1: say what the button does (DONE 2026-09-15)
 
-DECIDED: the menu becomes specific, and display HDR is a separate, opt-in row that is greyed out
-with a reason when the GPU cannot do it.
+DECIDED, and then decided again on sight of the draft: not a rename but a FOLD. The user's steer was
+"more of a combo menu, like White balance -- remember before we had several buttons, then one
+dropdown menu with the actual options". So `Boost` and `HDR`, two buttons doing related things to the
+same pixels, became one `Tone` popover on exactly the terms `Calibrate` and `SPCC` folded into the
+white-balance popover, and the display HDR is a block inside it rather than a row bolted onto a list.
 
-- Rename the surface, not the mechanism. Toolbar label `Highlights` (or `Soft clip`; pick one and
-  keep the mark), dropdown rows `Soft clip: Off`, `Soft clip 0.5 (knee 0.85)` ... in place of the bare
-  `0.5 / 0.85`, status line `Highlights: soft clip 1.0 (knee 0.80)`. `H` and `Shift+H` unchanged;
-  `ViewerState.HdrPresets` / `HdrAmount` / `HdrKnee` may keep their names internally, the shader UBO
-  certainly does (re-bake otherwise), but the `?` help text and the toolbar tooltip change.
-- Add one more row at the bottom: `HDR display (scRGB): not available on this GPU`, greyed. The
-  dropdown has no disabled-row support today (the one precedent hides a row rather than showing it
-  disabled, `ImageRendererBase.Toolbar.cs` near the `ChannelView` rows), so this needs a disabled-row
-  affordance in `OpenDropdown`: drawn in `DimText`, not selectable, tooltip carrying the reason. Until
-  P2 exists the reason is a constant; P2 makes it the probe's answer.
-- Tests that pin the current label: `ViewerActionsTests`, `ViewerFileKeysTests` (the `H` key), plus
-  `StretchTests_NewPipeline` and `GpuStretchPipelineTests` pin the MATH and must not change.
-- CHANGELOG: additive, a label change; call it out in the next What's New as a correction of a
-  misleading name, which by the NEXT.txt audit rule outranks a feature for the space.
+What shipped:
+
+- **`ToolbarAction.Tone` replaces `ToolbarAction.CurvesBoost` and `ToolbarAction.Hdr`**, cut in one
+  wave with no shim. `ImageRendererBase.TonePanel.cs` is the panel; `ToneSliderHit` / `ToneSlider`
+  carry the drag, mirroring `WhiteBalanceSliderHit`.
+- **Three continuous dials where there were two preset ladders**: boost (0 to 1.5), soft-clip amount
+  (0 to 2.0) and knee (0.50 to 0.95). The ladders stay on `B` and `H` and write the same fields, so a
+  key press moves the sliders, exactly as the white balance's `Auto` drops a triple into its.
+- **Each dial states its own precondition and registers no track when it is unmet.** The boost needs
+  detected stars (the gate its button carried); the knee means nothing at zero amount; the curve mode
+  reaches the pixels only through the boost. A live band over a control that cannot move is a slider
+  that follows the pointer and changes nothing, which reads as broken rather than as a precondition.
+- **The display-HDR block is greyed with a reason**, and the reason is about the VIEWER
+  ("not yet; the viewer always presents SDR") rather than about the machine, because nothing here
+  asks the GPU yet and a claim about this GPU would be the same kind of guess the old label was. P2
+  replaces the constant with the renderer's answer.
+- **The math is untouched.** `Image.ApplyHdr`, `image.frag`, `HdrAmount` / `HdrKnee` / `HdrPresets`
+  and every stretch test are byte-for-byte what they were; `StretchTests_NewPipeline` and
+  `GpuStretchPipelineTests` did not move. The problem was never the mechanism.
+
+It is also the viewer's first overlay built as ONE arranged tree (`Layout.Builder` + the engine's own
+measure) rather than a hand-advanced `y` and a hand-summed box. That was not the original intent; the
+first draft did it the old way and was already wrong -- the soft-clip heading ran past the right edge of
+its own panel, because the width was a union of the strings someone remembered to list. It is now the
+worked example for `docs/plans/viewer-layout-engine.md`, which the user raised off this work and marked
+high priority.
+
+Three things the draft above got wrong, all found by reading the code rather than the plan:
+
+- **The dropdown HAS had disabled-row support all along.** `DIR.Lib.DropdownItem.Disabled(label,
+  value, reason)` draws the row greyed, skips it in keyboard navigation, swallows its click and
+  right-aligns the reason on the same row (`PixelWidgetBase`). The plan asserted the opposite and
+  budgeted for building it. It went unused in the end -- the fold made a panel the better home -- but
+  the lesson stands: check the toolkit before planning a primitive for it.
+- **A panel that lays itself out cannot be tested without redoing its arithmetic.** The draft assumed
+  the work was the control; the cost that surfaced was the test, which had to sweep the window asking
+  `HitTest` at every point to find out where anything had been put. Rebuilt as a tree, the test names
+  arranged nodes instead. That is the observation the layout plan came out of.
+- **A popover button needs a line in the PRESS dispatcher or it is simply dead.**
+  `HandleViewerMouseDown` sends a toolbar press to `ViewerActions.HandleToolbarAction`, which has no
+  arm for a button that only opens a panel, so the press did nothing at all and the button looked
+  broken. White balance had a special case reading "the one button on this bar whose press has no
+  cycle to fall through to"; there are two now, and the comment says to add the next one there.
+
+Not done here, deliberately: the status line still reads `Soft clip: 1.0 (knee 0.80)` on a key press
+and the info strip's snapshot still names the slot, both already renamed. The `?` panel gained a row
+for `B` and one for `H`, because someone hunting for HDR finds `H` first and what it does is not what
+they came for.
 
 ## P2: capability detection (NOT STARTED; SdlVulkan.Renderer first)
 

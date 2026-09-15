@@ -858,6 +858,12 @@ bool HandleMouseDown(InputEvent.MouseDown down)
             return true;
         }
 
+        if (hit is ToneSliderHit { Slider: var toneSlider })
+        {
+            imageRenderer.BeginToneDragAt(toneSlider, px);
+            return true;
+        }
+
         if (hit is WhiteBalanceSliderHit { Channel: var wbChannel })
         {
             imageRenderer.BeginWhiteBalanceDragAt(wbChannel, px);

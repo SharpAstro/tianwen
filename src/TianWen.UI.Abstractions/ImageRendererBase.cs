@@ -1084,6 +1084,7 @@ namespace TianWen.UI.Abstractions
             if (!state.HideChrome && !string.IsNullOrEmpty(FontPath))
             {
                 RenderWhiteBalancePanel(state);
+                RenderTonePanel(state);
             }
 
             // Dropdown overlays: rendered last so their clickables win z-order
