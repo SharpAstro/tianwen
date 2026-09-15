@@ -93,31 +93,45 @@ through their free-buffer bags, and FITS.Lib hands it back. The question whether
 a flat `float[]` came up after the `BitMatrix` rework (which did exactly that for `ulong[,]`), and
 was answered by measurement rather than by analogy.
 
-**The microbenchmark** (3024 x 3025 plane, win-arm64, best of 9, one plane, three access shapes in
-three spellings; the AOT column is what ships):
+**The microbenchmark** (3024 x 3025 plane, best of 9, one plane, three access shapes in three
+spellings; the AOT columns are what ships). **Measured on both boxes, and the second is not a
+re-run of the first**: the harness was re-derived from this description on the desktop rather than
+copied, and every spelling of a shape walks the same pixels in the same order, so their checksums
+agree exactly. A mismatch there would mean the variants were not comparable.
 
-| shape / spelling | JIT ms | AOT ms |
-|---|---|---|
-| stream, `float[,]` `[y, x]` | 8.07 | 8.10 |
-| stream, `float[]` `y * w + x` | 8.07 | 8.14 |
-| stream, row slices of a span over the `float[,]` | 8.12 | 8.09 |
-| 3x3 stencil, `float[,]` `[y, x]` | 28.14 | 28.68 |
-| 3x3 stencil, `float[]` `y * w + x` | 19.19 | 19.35 |
-| 3x3 stencil, row slices of a span over the `float[,]` | 16.53 | **11.75** |
-| bilinear gather, `float[,]` `[y, x]` | 18.79 | 17.46 |
-| bilinear gather, `float[]` `y * w + x` | 17.02 | 15.43 |
-| bilinear gather, flat span over the `float[,]` | 16.43 | 14.72 |
+| shape / spelling | arm64 JIT | arm64 AOT | x64 JIT | x64 AOT |
+|---|---|---|---|---|
+| stream, `float[,]` `[y, x]` | 8.07 | 8.10 | 8.75 | 8.50 |
+| stream, `float[]` `y * w + x` | 8.07 | 8.14 | 8.59 | 8.21 |
+| stream, row slices of a span over the `float[,]` | 8.12 | 8.09 | 8.22 | 7.96 |
+| 3x3 stencil, `float[,]` `[y, x]` | 28.14 | 28.68 | 33.49 | 27.48 |
+| 3x3 stencil, `float[]` `y * w + x` | 19.19 | 19.35 | 25.50 | 18.20 |
+| 3x3 stencil, row slices of a span over the `float[,]` | 16.53 | **11.75** | 19.83 | **13.05** |
+| bilinear gather, `float[,]` `[y, x]` | 18.79 | 17.46 | 21.77 | 19.48 |
+| bilinear gather, `float[]` `y * w + x` | 17.02 | 15.43 | 15.15 | 12.37 |
+| bilinear gather, flat span over the `float[,]` | 16.43 | 14.72 | 13.66 | 11.32 |
+
+arm64 is the Surface (win-arm64, 2026-09-15); x64 is the desktop (win-x64, 16 cores, 2026-09-15).
+**Neither box is uniformly faster** under AOT: the desktop wins both gather rows that use a span or a
+flat array (14.72 to 11.32, 15.43 to 12.37) and loses the stencil's span row (11.75 to 13.05). So the
+absolute times are not a ranking of the two machines, and the thing that actually differs between
+them is how much the SPELLING costs on each, which is the next bullet.
 
 Three things follow, and they are the rules:
 
-- **The storage type is not the lever.** A span over the EXISTING `float[,]`, sliced per row, beats a
-  native flat `float[]` on the stencil (11.8 against 19.4 ms under AOT), because a bounded slice is
-  what lets the compiler drop the per-element checks, where `y * w + x` on a 1D array still checks
-  every load. Migrating `Channel.Data` would have made the loops slower than the idiom already in
+- **The storage type is not the lever, on either box.** A span over the EXISTING `float[,]`, sliced
+  per row, beats a native flat `float[]` on the stencil under AOT (11.8 against 19.4 ms on arm64,
+  13.1 against 18.2 on x64), because a bounded slice is what lets the compiler drop the per-element
+  checks, where `y * w + x` on a 1D array still checks every load. It wins the gather on both too.
+  Migrating `Channel.Data` would have made the loops slower than the idiom already in
   `Image.Arithmetic` / `Masks` / `Resize` / `Stretch`, at the price of a package break.
-- **The `[y, x]` spelling is the cost, and AOT widens it.** A multi-dimensional index is a multiply
-  and two bounds checks the compiler cannot lift; 2.4x on a neighbourhood loop, 15 percent on a
-  gather, nothing on a stream (a stream is bound by the dependent add, not the address).
+- **The `[y, x]` spelling is the cost and AOT widens it; HOW MUCH is per architecture, so quote the
+  multiplier with a box attached.** A multi-dimensional index is a multiply and two bounds
+  checks the compiler cannot lift. On a neighbourhood loop that is 2.4x on arm64 and 2.1x on x64, the
+  one figure that travels. On a gather it does NOT travel: 15 percent on arm64 against **72 percent**
+  on x64, nearly five times the penalty on the box that is not the Surface. A stream is unaffected on
+  both (it is bound by the dependent add, not the address). AOT widens the gap on each: on x64 the
+  stencil goes 1.69x under JIT to 2.11x under AOT.
 - **Take the view once per operation, exactly as residency is resolved once.** `Image.ResidentPlanes`
   exists because a per-sample residency check cost +8.7 to +20.3 percent; a per-sample
   `MemoryMarshal.CreateReadOnlySpan(ref plane[0, 0], plane.Length)` is the same mistake one level
@@ -152,6 +166,36 @@ changed rows are attributable: the luma statistic HALVED, and that is the per-sa
 removed (it went through the `Planes` accessor three times per pixel), not the index; Lanczos3 gained
 26 percent at 1024 and 9 at 2048, so at the larger plane the 36-tap gather is partly memory-bound and
 the address arithmetic was never all of it; the CFA split/merge gained 49 and 21 percent the same way.
+
+**The same three rows on the desktop (2026-09-15), from a worktree at the same benchmark commit**,
+with `UseLocalSiblings` resolving true on both sides so only TianWen's own imaging code differed, and
+with the baseline verified to carry no span overload and to still read `Planes[c].Data[y, x]` three
+times per pixel:
+
+| benchmark (win-x64, JIT, Release) | size | before | after | x64 gain | arm64 gain |
+|---|---|---|---|---|---|
+| `Lanczos3Value`, every pixel, single-threaded | 1024 sq | 232.3 ms | 218.2 ms | 6% | 26% |
+| `Lanczos3Value` | 2048 sq | 922.5 ms | 877.9 ms | 5% | 9% |
+| `GetLumaStretchStatsAsync` | 1024 sq | 10.96 ms | 5.67 ms | 48% | 52% |
+| `GetLumaStretchStatsAsync` | 2048 sq | 42.78 ms | 22.74 ms | 47% | 47% |
+| `SplitBayerChannels` + `MergeBayerChannels` | 1024 sq | 3.34 ms | 1.58 ms | 53% | 49% |
+| `SplitBayerChannels` + `MergeBayerChannels` | 2048 sq | 13.50 ms | 7.32 ms | 46% | 21% |
+
+Two of the three carry over and one does not. **The luma statistic halves on both boxes** (47 to 48
+percent here, 47 to 52 there), which is the strongest support for the attribution above: it is the
+per-sample residency check, and a residency check costs much the same anywhere because it is a branch
+rather than an addressing mode. The CFA split and merge carries over too, and beats its arm64 figure
+at 2048. **Lanczos3 is the row that does not travel**, 6 percent here against 26 at 1024. The gain is
+real and outside the error bars (232.3 +/- 2.4 to 218.2 +/- 1.2), simply small, and the reason is the
+one the arm64 reading already gives for its own 2048 column. A 36-tap gather is partly memory-bound
+and the address arithmetic was never all of it; this box runs that loop about 1.8x slower in absolute
+terms, so it is memory-bound at 1024 already, where the Surface was not. **Do not quote the 26
+percent as the gain this change buys.**
+
+**Not re-measured on x64**: the two `Accumulate_*` controls and all three debayer rows. The controls
+are worth having and would make the x64 rows attributable the way the arm64 ones are; the debayer
+rows are a `Parallel.For` whose UNTOUCHED control swung by a factor of two between runs of the same
+binary, and a 16-core box will not make that quieter.
 
 The debayer rows are a `Parallel.For` across every core judged by a `[ShortRunJob]`, and the
 UNTOUCHED control swung by a factor of two between runs of the same binary (VNG 73 to 141 ms; AHD, also

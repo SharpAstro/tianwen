@@ -1277,7 +1277,7 @@ without changing: its fit was confined to the left half of that master, and its 
 already skips NaN samples, so a handful inside a 16x16 block was never the problem.
 
 **The cost of all this, since it runs on the document load path.** Measured on a 3024 x 3025 x 3
-frame, best of three in Release:
+frame, best of three in Release, on the Surface (win-arm64):
 
 | | before | after |
 |---|---|---|
@@ -1285,6 +1285,24 @@ frame, best of three in Release:
 | classify + flood + hole walk | ~85 ms + a second full scan | **32.6 ms** |
 | `LargestCoveredRectangle` | 92.1 ms | **66.7 ms** |
 | the fill, holes present | 84.8 ms | **34.7 ms** |
+
+**Re-measured on the desktop (win-x64, 2026-09-15)** against the two PUBLIC entry points, on the real
+frame this was written for rather than a synthetic one: the Great Orion master of `2026-09-12-clamped`,
+which is that 3024 x 3025 x 3 shape and carries the 1,856 hole pixels. Baseline from a worktree at
+"an interior drizzle hole is not a canvas ring", which is the commit before the word-parallel flood:
+
+| | before | after | x64 | arm64 |
+|---|---|---|---|---|
+| `LargestCoveredRectangle` | 112.1 ms | **89.8 ms** | 1.25x | 1.38x |
+| `FillInteriorHolesInPlace`, holes present | 80.9 ms | **48.5 ms** | 1.67x | 2.44x |
+
+Smaller multipliers on x64, same direction, and the two internal phases (classify alone, classify plus
+flood plus hole walk) were not re-measured because they are not reachable from outside. **What matters
+more than either timing: both sides answer with the IDENTICAL rectangle** (`[37, 2 2983 x 3017]`) **and
+the identical fill count** (2,505), so the rewrite is behaviour-preserving on real data, which is the
+thing a word-parallel flood can silently get wrong. Note that the fill's count is per CHANNEL and the
+census is per PIXEL (a hole is any channel being NaN, but only the NaN channels are written), so 2,505
+writes over 1,856 hole pixels is agreement, not a discrepancy.
 
 Four things got it there, and only the first was about the algorithm. The fill took the NaN set from
 the classify pass instead of re-deriving it with a second walk of every pixel of every channel. A hole
