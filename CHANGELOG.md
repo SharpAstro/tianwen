@@ -31,6 +31,36 @@ stay, their dates stay verifiable, and `git log v3.6.493..v4.0.564` answers the 
 always did. Hashes quoted in the docs from before the migration were re-pointed the same way. Any
 other commit hash from before 2026-04-22 no longer resolves anywhere.
 
+## 8.1
+
+Additive: one new method on `Image`, and a fix to what the auto-crop calls absence.
+
+**An interior drizzle hole is not a canvas ring (#250).** `Image.LargestCoveredRectangle()` treated
+any NaN as absence on the reasoning that NaN is "unambiguous". It is unambiguous about the PIXEL and
+says nothing about WHY, which is the only question being asked, and the exempt case was the common
+one: 53 of 79 masters in one bake carry interior NaN, every `BayerDrizzle` one, and 1,856 of them on
+a 3024 x 3025 master took a 99.94 percent covered frame to 0.528 of its canvas, because a largest
+RECTANGLE has to thread between islands. Absence is now border-reachable for NaN exactly as it already
+was for zero: a ring touches the border by construction, an island never does. The two are still
+recognised differently (zero in EVERY channel, NaN in ANY) and prove the same thing.
+
+**`Image.FillInteriorHolesInPlace`** (new, the additive half) interpolates each interior NaN from its
+measured 8-neighbours, per channel, closing a hole from its rim inward one pixel per pass, and never
+touches the ring, which is the only evidence the crop works from. `AstroImageDocument` calls it at
+load before any statistic is taken and reports the count as `InteriorHolesFilled`, because a viewer
+that silently invents pixels is one you cannot trust a measurement from. A frame with no NaN costs one
+classify pass and nothing else.
+
+**The absence flood runs 64 columns at a time.** Both halves come out of one walk of the pixels, the
+planes are `BitMatrix`, and the border flood is a word AND plus a word OR across rows and a
+Kogge-Stone occluded fill along them, six shifts per word with one carry bit crossing each word
+boundary: 29 ms to 6.3 ms on that master, the whole crop 92 ms to 67 ms. `BitMatrix` gained a flat
+backing and a word surface (`RowWords`, `AllWords`, `PopCount`, `Any`, `NextSetBit`, `ClearPadding`);
+its existing API is unchanged. Two things were measured and NOT done: bit-packing the per-row scratch
+(28 ms to 72 ms, it is in L1 either way) and blocking the classify loop by word (22 ms worse, it puts
+plane residency resolution in the inner loop). The flood is pinned against a per-pixel reference at
+widths 63/64/65/127/128/129, because a frame wider than that passes with either carry deleted.
+
 ## 8.0
 
 Breaking, so a major. Four things break, three of them narrow and one of them the whole toolkit
