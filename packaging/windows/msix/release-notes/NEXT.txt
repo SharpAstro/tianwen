@@ -46,6 +46,12 @@ outranks a new feature for the space: a user acting on a wrong instruction is wo
 off than one who has not heard about a new button. Record the finding here too, so
 the next release knows what was corrected and why.
 
+Audited 2026-09-15 against 8.0.1716 (live in the Store the same day): every
+sentence still holds. The auto-crop bullet ("no longer mistakes a dead pixel for
+the edge of the stack") is TRUE but now understates the rule, which since 8.1 also
+covers a drizzle hole; that is an extension, carried below as the lead item, not a
+correction. Nothing to correct.
+
 
 ================================================================================
 WHAT'S NEW  (Partner Center copy - paste between the two marker lines VERBATIM)
@@ -59,9 +65,11 @@ then an "Also in this release" list of one-line bullets. Corrections go first
 within their group. Say what the user can now DO, in their words, not ours.
 
 ----- BEGIN WHAT'S NEW -----
-WRITE THIS BEFORE DISPATCHING. Until it is written the bake warns and the artifact
-carries this sentence, which is the reminder working rather than the record failing:
-a dispatch is often just a binary release and owes the Store nothing.
+Drizzle stacks keep their whole frame
+Auto crop used to treat the small holes a drizzle stack leaves inside the frame as if they were its edge, and could cut a fully covered master down to half its width. Only what reaches the border counts as the edge now, and the holes themselves are filled from their neighbours when the file opens, so they no longer show as black specks or skew the statistics.
+
+Faster where it counts
+Saving a frame demosaiced with MHC, the default for planetary video and one of the choices under D, is about ten times faster; what you see on screen was already the GPU's work. The luminance statistic taken when a colour frame opens is twice as fast.
 ----- END WHAT'S NEW -----
 
 Which way to cut if it goes over: the headed sections are the release and the
@@ -76,12 +84,68 @@ The evidence behind the block, by area, citing commits. Cite a commit by its
 SUBJECT in quotes if it has not landed yet -- every PR merges by rebase, so a hash
 written before its PR lands is rewritten on landing.
 
+Auto crop and drizzle holes (issue #250; "fix(imaging): an interior drizzle hole is
+not a canvas ring, and what the crop keeps now has a number", PR #262)
+  Absence is border-reachable for NaN exactly as it was for zero. Measured on the
+  file that reported it: 1,856 NaN in 20 components on a 3024 x 3025 BayerDrizzle
+  master took a 99.94 percent covered frame to 0.528 of its canvas. 53 of 79
+  masters in one bake carry interior holes, every BayerDrizzle one.
+  Image.FillInteriorHolesInPlace runs from AstroImageDocument.AdoptImageAsync
+  before any statistic; the canvas ring is never filled. The count is on
+  AstroImageDocument.InteriorHolesFilled and is NOT yet shown anywhere in the UI
+  (see KNOWN ISSUES). This is the change that made the release 8.1: new public
+  TianWen.Lib API on an 8.0 already dispatched ("build: 8.1, because
+  FillInteriorHolesInPlace is new public API on an 8.0 already dispatched").
+
+The flood behind the crop ("perf(imaging): the absence flood runs 64 columns at a
+time, and BitMatrix can finally be used that way", PR #262)
+  29 ms to 6.3 ms on that master, the whole crop 92 to 67 ms. Not user-visible as a
+  feature, so not in the block; it is what keeps the fill affordable on the load
+  path.
+
+Faster demosaic and statistics ("perf(imaging): a plane stays float[,]; the hot
+loops stop reading it as [y, x]", PR #263)
+  The MHC row is the one order-of-magnitude claim: 27 to 85 ms before, 6.0 to 16 ms
+  after on a real 3008 sq frame, the worst after-reading under the best before. The
+  luminance statistic (GetLumaStretchStatsAsync) halved: 8.36 to 4.01 ms at 1024 sq,
+  26.7 to 14.2 at 2048 sq. The 2x2 mono fold did not measurably change and is NOT
+  claimed. Lanczos3 and the CFA split/merge also gained but reach the viewer only
+  through stacking and gradient removal, so they are not in the block either. All
+  numbers and their caveats: docs/architecture/image-pipeline.md, "How a plane is
+  READ".
+
 
 KNOWN ISSUES IN THIS BUILD
 ================================================================================
 Carry the previous record's list forward item by item and mark each one Unchanged,
 closed, or changed. A known issue that quietly vanishes between records is one
 nobody decided about.
+
+Carried forward from 8.0.1716 on 2026-09-15; re-check each at dispatch time.
+
+  P21    Unchanged, still BACKLOG. Single-channel views of a mosaic show the raw
+         mosaic, not the separated colour planes (a shader change).
+
+  P11.2  Unchanged. The ? panel names missing SAS AI weights but cannot fetch them
+         from a Store install.
+
+  P9/P10 Unchanged, still unconfirmed, neither reproduced since first report.
+
+  SPCC   Unchanged. Broadband only; narrowband blocked on data.
+
+  Layout Unchanged. Below about 730 px of window width the image pane reaches zero
+         width and the histogram overlay lands on the file list.
+
+  About  Unchanged. The About banner concatenates run attempt onto the version
+         (8.1.NNNN1 for attempt 1); FileVersion is correct.
+
+  CFA    Unchanged. The SER frame-by-frame histogram sits a mosaic out.
+
+  Holes  New. The number of interior holes filled at load is recorded on the
+         document (AstroImageDocument.InteriorHolesFilled) but not yet shown in the
+         info strip or the status bar, so a user cannot see that pixels were
+         interpolated. The block above therefore says the holes are filled and
+         does not promise a count.
 
 
 STORE LISTING: PRODUCT FEATURES
@@ -90,6 +154,10 @@ A different field from WHAT'S NEW, and a standing one: it describes the product,
 not the release, so it is only edited when the product GAINS something. Up to 20
 entries of 200 characters each, and the listing is at the cap as of 7.1.1627, so
 an addition now has to displace something. Say NO CHANGE and why, if so.
+
+NO CHANGE THIS RELEASE (as of 2026-09-15). A fix and two speed-ups add no product
+surface. The queue from 7.1.1627 still stands if a slot frees: auto-crop to the
+covered area; A/B and blink; Explorer thumbnails for FITS and SER.
 
 
 SUBMISSION
