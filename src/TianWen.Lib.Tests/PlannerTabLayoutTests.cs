@@ -288,6 +288,71 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// The suggestion dropdown's highlight is the layout tree's own <c>.BgFocus</c>, resolved against
+        /// the <c>ListCursor</c> the tab opens from the search interaction's <c>SelectedIndex</c> -- so
+        /// this asserts on the PICTURE, and on the one thing no hit-tracker assertion can see.
+        /// <para>
+        /// A <c>.BgFocus</c> whose cursor is never opened paints nothing at all: the rows still register,
+        /// still dispatch, still commit, and every other test in this file stays green while the highlight
+        /// has silently gone. Asserted as a SWAP between two renders rather than against a colour literal,
+        /// so it pins that the fill follows the cursor without re-stating the palette (or the blend) here.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void SuggestionDropdown_HighlightFill_FollowsTheSelectedIndex()
+        {
+            var (first0, second0) = RenderDropdownRowPixels(selectedIndex: 0);
+            var (first1, second1) = RenderDropdownRowPixels(selectedIndex: 1);
+
+            // One row is lit and the other is not, whichever is selected...
+            first0.ShouldNotBe(second0);
+            first1.ShouldNotBe(second1);
+
+            // ...and moving the cursor exchanges the two fills exactly.
+            first1.ShouldBe(second0);
+            second1.ShouldBe(first0);
+        }
+
+        /// <summary>
+        /// Renders the planner with an active search whose dropdown highlight sits on
+        /// <paramref name="selectedIndex"/>, and reads back the fill of both suggestion rows from the rects
+        /// the rows themselves registered. The sample x is two pixels into the row, inside its leading pad
+        /// cell, so the pixel is the row's fill and never a label glyph.
+        /// </summary>
+        private static (RGBAColor32 First, RGBAColor32 Second) RenderDropdownRowPixels(int selectedIndex)
+        {
+            using var renderer = new RgbaImageRenderer(1600, 1000);
+            var tab = new PlannerTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+            var state = BuildState();
+            state.SearchInput.Activate("M3");
+            state.Search = new PlannerSearchInteraction(
+                state, db: null!, createTransform: () => null,
+                autoComplete: () => ["M31", "M32"],
+                ensureVisible: null, deactivate: () => { }, requestRedraw: () => { });
+            state.SearchInput.OnTextChanged!("M3");
+            state.Search.SelectedIndex = selectedIndex;
+
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero));
+            tab.Render(state, new RectF32(0, 0, 1600, 1000), time);
+
+            var rows = tab.GetRegisteredRegions()
+                .Where(r => r.Result is HitResult.ListItemHit { ListId: "Suggestion" })
+                .OrderBy(r => r.Y)
+                .ToArray();
+            rows.Length.ShouldBe(2);
+
+            return (PixelAt(renderer, rows[0].X + 2f, rows[0].Y + rows[0].Height / 2f),
+                    PixelAt(renderer, rows[1].X + 2f, rows[1].Y + rows[1].Height / 2f));
+        }
+
+        private static RGBAColor32 PixelAt(RgbaImageRenderer renderer, float x, float y)
+        {
+            var surface = renderer.Surface;
+            var i = ((int)y * (int)surface.Width + (int)x) * 4;
+            return new RGBAColor32(surface.Pixels[i], surface.Pixels[i + 1], surface.Pixels[i + 2], surface.Pixels[i + 3]);
+        }
+
+        /// <summary>
         /// The details name line for a catalogued target is a Wikipedia link: it registers a
         /// <see cref="HitResult.LinkHit"/> carrying the article URL built from the MAIN catalog
         /// designation. The host decides what a link does (the SDL/Vulkan chrome maps LinkHit ->

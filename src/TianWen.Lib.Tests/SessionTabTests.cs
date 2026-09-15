@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Console.Lib;
 using DIR.Lib;
 using Shouldly;
@@ -178,23 +179,20 @@ namespace TianWen.Lib.Tests
 
             var initialConfig = state.Configuration;
 
-            // Act: find and click a stepper button (Inc or Dec)
-            // Stepper buttons are registered with action like "Inc:..." or "Dec:..."
-            HitResult? buttonHit = null;
-            // Scan across the first field's control area (right of label)
-            for (var x = 170f; x < 350f; x += 5f)
-            {
-                var hit = tab.HitTest(x, 60f);
-                if (hit is HitResult.ButtonHit { Action: var action } && (action.StartsWith("Inc:") || action.StartsWith("Dec:")))
-                {
-                    buttonHit = hit;
-                    tab.HitTestAndDispatch(x, 60f); // fire the OnClick
-                    break;
-                }
-            }
+            // Act: dispatch the first stepper button the paint registered, at the centre of the rect the
+            // engine arranged it into. Asking the region where it is beats sweeping a band of pixels for
+            // it: the sweep encoded a guess about the control column's x range, so it would answer "no
+            // stepper button found" for a layout change that had moved the column rather than broken it,
+            // and it silently tested whichever button the 5px stride happened to land on.
+            var stepper = tab.GetRegisteredRegions()
+                .First(r => r.Result is HitResult.ButtonHit { Action: var action }
+                    && (action.StartsWith("Inc:", StringComparison.Ordinal)
+                        || action.StartsWith("Dec:", StringComparison.Ordinal)));
+
+            tab.HitTestAndDispatch(stepper.X + stepper.Width / 2f, stepper.Y + stepper.Height / 2f)
+                .ShouldBeOfType<HitResult.ButtonHit>();
 
             // Assert
-            buttonHit.ShouldNotBeNull("No stepper button found in the control area");
             state.Configuration.ShouldNotBe(initialConfig);
         }
 
