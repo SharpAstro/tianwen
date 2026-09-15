@@ -175,26 +175,18 @@ namespace TianWen.UI.Abstractions
             }
         }
 
+        // Wired on first use: the cursor belongs to the widget base, and there is no constructor of this
+        // class to bind it in without giving up the primary one.
+        private bool _fieldCursorWired;
+
         private bool HandleConfigKey(InputKey key)
         {
             switch (key)
             {
                 case InputKey.Up:
-                    if (State.SelectedFieldIndex > 0)
-                    {
-                        State.SelectedFieldIndex--;
-                        EnsureFieldVisible();
-                        State.NeedsRedraw = true;
-                    }
-                    return true;
-
                 case InputKey.Down:
-                    if (State.SelectedFieldIndex < State.FieldCount - 1)
-                    {
-                        State.SelectedFieldIndex++;
-                        EnsureFieldVisible();
-                        State.NeedsRedraw = true;
-                    }
+                    SyncFieldCursor();
+                    MoveListCursor(key == InputKey.Down ? 1 : -1);
                     return true;
 
                 case InputKey.Left when !State.IsSessionRunning:
@@ -209,6 +201,38 @@ namespace TianWen.UI.Abstractions
                 default:
                     return false;
             }
+        }
+
+        /// <summary>
+        /// Places the keyboard's cursor on the selected field before a step, and hangs the scroll on it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The selection lives in <see cref="SessionTabState.SelectedFieldIndex"/> because the terminal
+        /// host reads it too, so the cursor is placed FROM it rather than owning it: a click writes the
+        /// index straight, and this brings the cursor to wherever the index is before the arrows move it.
+        /// </para>
+        /// <para>
+        /// Opened with the row COUNT, which is what lets it walk a form taller than its panel. The tree is
+        /// filtered to the rows intersecting the viewport before painting, so an off-screen row registers
+        /// nothing and a cursor with no count stops dead at the bottom of the window -- the reason this
+        /// list could not take a cursor before DIR.Lib 9.2.
+        /// </para>
+        /// </remarks>
+        private void SyncFieldCursor()
+        {
+            if (!_fieldCursorWired)
+            {
+                _fieldCursorWired = true;
+                ListCursor.Moved += index =>
+                {
+                    State.SelectedFieldIndex = index;
+                    EnsureFieldVisible();
+                    State.NeedsRedraw = true;
+                };
+            }
+
+            ListCursor.Open(SessionConfigLayout.FieldListId, State.SelectedFieldIndex, State.FieldCount);
         }
 
         /// <summary>
