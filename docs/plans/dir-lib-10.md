@@ -426,6 +426,37 @@ extends the selection while the button is down. Acceptance: a double-click on a 
 on all three surfaces, pinned by a test that presses twice on a field and reads `SelectionStart/End`.
 This is the user's exact complaint and needs no engine change.
 
+**T0 is IMPLEMENTED on `feat/text-field-pointer` (2026-09-15 evening, not pushed) and BLOCKED on a
+Console.Lib release.** DIR.Lib 9.1 changed `HitResult.TextInputHit(TextInputState)` to
+`TextInputHit(TextInputState, TextInputGeometry Painted = default)`. Source-compatible, and the 9.1 notes
+say "additive throughout", but **an added optional parameter on a record's primary constructor DELETES the
+old constructor from the assembly**: Console.Lib 4.33.1811, compiled against 9.0, calls
+`new HitResult.TextInputHit(field.State)` in `CellLayout.HitOf`, so against 9.1 every TUI mouse hit test
+throws `MissingMethodException`. It is the only break in 9.1 (SdlVulkan.Renderer only type-tests the
+record; WebGl.Renderer never names it), and it is INVISIBLE on a dev box, where `UseLocalSiblings` compiles
+Console.Lib from source. It surfaced because the agent worked in a `.claude/worktrees/` checkout, where the
+sibling probe fails and the build takes the package path CI takes. Two rules fall out, one per repo:
+
+- **DIR.Lib: an optional parameter added to a record's primary constructor is a binary break, so it is a
+  MAJOR or it ships with an explicit old-arity constructor.** 9.1 should have carried
+  `public TextInputHit(TextInputState input) : this(input, default) {}`. Fix at the source: a 9.2 that adds
+  it, so Console.Lib 4.33 works against 9.2 without a rebuild. The general form belongs in DIR.Lib's
+  `CLAUDE.md`.
+- **tianwen: a DIR.Lib pin move is never alone.** `/release-lib` already says a DIR.Lib minor releases every
+  downstream lib; 9.1 did not run the chain. Moving the pin here needs Console.Lib (and, for hygiene,
+  SdlVulkan.Renderer and WebGl.Renderer) republished against 9.1 or 9.2 first, then all pins move together.
+
+What T0 delivered, for the record: a `TextFieldPointerInteraction` shared by the GUI and the web host that
+resolves the caret index from the widget that PRODUCED the hit (an `ICaretPlacingWidget` every
+`PixelWidgetBase` already satisfies; the clean answer is `CaretIndexAt` on `IPixelWidget`, D1); the TUI
+inline editor on `TextInputInteraction.HandleKey` with the private focus pointer gone; `OpenSearch` through
+the focus owner; and a fail-first test pressing at measured x positions. It also found that **the TUI site
+editor could never accept a typed character** (`HandleKey` swallows every key while a field is focused, so
+the `ToChar` branch after it was unreachable), fixed by answering the printable case first, gated on the
+key not being a `TextInputKey`. Left out on purpose: drag-to-extend (`MouseMove` carries no button state;
+the router's job), `SessionTab`'s exposure edit (no route to the focus owner from there; T1), and
+`CloseSearch`'s by-hand `Deactivate`.
+
 ### T0b. The adoption sweep (tianwen only, parallelisable per file group)
 
 The ranked table above, top to bottom, on the current pin. Each row is mechanical once the first
@@ -452,7 +483,9 @@ test that moves is a regression, not a redesign.
 ### D1. DIR.Lib 9.2, additive: the router and the declarations
 
 `InputRouter`, `OnPress` + `DragCapture`, `.Shortcut`, `Focus` selects, `focusOnOpen`, `Content.Slider`,
-`.Selectable()` + `TextSelection`, `Popover`, `.Disabled(reason)`, `MeasureLayout`. Plus the small text-field
+`.Selectable()` + `TextSelection`, `Popover`, `.Disabled(reason)`, `MeasureLayout`. Plus `CaretIndexAt` on
+`IPixelWidget` (so a host holding the interface can place a caret without tianwen's `ICaretPlacingWidget`),
+the old-arity `TextInputHit` constructor if 9.2 has not shipped it by then, and the small text-field
 gaps the review turned up, since they are the same "a field behaves like a field" promise: `TextInputKey` gains
 `WordLeft` / `WordRight` / `WordBackspace` / `Cut`, and `TextInputRenderer` scrolls an over-long value so the caret
 stays visible. The README's "undo" claim is either implemented or deleted; **delete it**, nothing in tianwen has asked
