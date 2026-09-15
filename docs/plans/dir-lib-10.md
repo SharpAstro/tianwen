@@ -431,7 +431,7 @@ This is the user's exact complaint and needs no engine change.
 The ranked table above, top to bottom, on the current pin. Each row is mechanical once the first
 instance is done and reviewed, so it is sub-agent work, one agent per file group, each on its own branch
 with the existing tests as the guard: spacer-as-gap (`EquipmentTab.*`, then the rest); marks to `Icon`;
-`.BgHover` for the five hover sites, deleting the `_lastHovered*` bookkeeping; `.BgFocus` + `ListCursor`
+`.BgFocus` + `ListCursor`
 for the nine selected-row ternaries and the three hand-written Up/Down blocks; `Text.Trim` for the three
 `TextFit` calls; `WidthSample` for the two reserved-width helpers; `Anchored` for `OverlayPlacement`;
 `Dock` for the ten `PixelLayout` calls; `Builder.Box` for the 41 coloured spacers; the 15 web-host
@@ -440,7 +440,8 @@ tracker in scope); `TruncateToWidth` deleted for `TextFit.TrimToWidth`; the two 
 onto `RenderDropdownMenu`; the four pixel-sweep tests rewritten to read arranged nodes; the
 `tianwen-fits` cursor predicate deleted in favour of the region's own `cursor:`; `GuiAppState.TextInputFocus`
 replaced by the window's `Ui.Focus` so there is one instance, not two. **Not** the viewer's
-chrome panes (row 2), which is T3, and not `LayoutDamage` (row 6), which needs the GUI host to consume a
+chrome panes (row 2), which is T3, and with them not `.BgHover` (row 5): all five hover sites are in that
+imperative chrome, so the property has nothing to sit on until the panes are trees. Not `LayoutDamage` (row 6), which needs the GUI host to consume a
 damage list it does not consume today and belongs with the router (D1/T1).
 
 Acceptance is the grep: `Spacer().WFixed(` and `Spacer().RowH(` as gaps at zero, `"+"` / `"-"` /
