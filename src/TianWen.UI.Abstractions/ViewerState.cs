@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Collections.Immutable;
@@ -36,6 +36,13 @@ public sealed class ViewerState
     /// pointer answers a drag it cannot see.
     /// </summary>
     public bool WhiteBalancePanelOpen { get; set; }
+
+    /// <summary>
+    /// Whether the tone popover (the curves boost, the highlight soft clip, and the display HDR
+    /// that is neither, under the toolbar's <see cref="ToolbarAction.Tone"/> button) is open. It
+    /// behaves as a menu on exactly the terms the white-balance popover above does.
+    /// </summary>
+    public bool TonePanelOpen { get; set; }
 
     /// <summary>Curves boost amount applied in the display shader (0.0 = off, up to 1.0).</summary>
     public float CurvesBoost { get; set; }
@@ -201,6 +208,10 @@ public sealed class ViewerState
     /// release clears it.</summary>
     public int WhiteBalanceDragChannel { get; set; } = -1;
 
+    /// <summary>Which tone-popover dial is being dragged, or null when idle. Null rather than the
+    /// -1 its neighbours use because the dial is an enum and there is no -1th one.</summary>
+    public ToneSlider? ToneDragSlider { get; set; }
+
     /// <summary>Whether detected star circles are visible.</summary>
     public bool ShowStarOverlay { get; set; }
 
@@ -271,6 +282,7 @@ public sealed class ViewerState
     /// </summary>
     public bool OverlayOwnsPointer => ToolbarDropdown.IsOpen
         || WhiteBalancePanelOpen
+        || TonePanelOpen
         || (ShowSkyBackdrop && SkyLayerPalette is { IsEngaged: true });
 
     /// <summary>

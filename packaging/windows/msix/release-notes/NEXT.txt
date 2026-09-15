@@ -49,8 +49,15 @@ the next release knows what was corrected and why.
 Audited 2026-09-15 against 8.0.1716 (live in the Store the same day): every
 sentence still holds. The auto-crop bullet ("no longer mistakes a dead pixel for
 the edge of the stack") is TRUE but now understates the rule, which since 8.1 also
-covers a drizzle hole; that is an extension, carried below as the lead item, not a
-correction. Nothing to correct.
+covers a drizzle hole; that is an extension, not a correction.
+
+One CORRECTION is in this release, and it leads the block for that reason: the
+toolbar's "HDR" button never did HDR. It applies a soft knee after the stretch and
+inside [0, 1], so it compresses highlights into ordinary white and never asks the
+panel for a nit above it. No live listing sentence says so -- the audit above is
+about what was WRITTEN -- but the button itself was the claim, which is worse: a
+user with an HDR display read it as a promise about their screen. Named here so the
+next release knows the label changed and why.
 
 
 ================================================================================
@@ -65,6 +72,9 @@ then an "Also in this release" list of one-line bullets. Corrections go first
 within their group. Say what the user can now DO, in their words, not ours.
 
 ----- BEGIN WHAT'S NEW -----
+The HDR button was never HDR
+It softens the clipping in the brightest parts of the picture, which is useful, but it never asks your display for anything brighter than an ordinary window's white. On an HDR screen the name promised something it could not deliver. It has moved in with Boost under one Tone button: one panel holding the boost, how hard the highlights bend and where the bend starts, and a line naming the display HDR this viewer cannot do yet. B and H still step them. The picture itself is unchanged.
+
 Drizzle stacks keep their whole frame
 Auto crop used to treat the small holes a drizzle stack leaves inside the frame as if they were its edge, and could cut a fully covered master down to half its width. Only what reaches the border counts as the edge now, and the holes themselves are filled from their neighbours when the file opens, so they no longer show as black specks or skew the statistics.
 
@@ -103,6 +113,22 @@ time, and BitMatrix can finally be used that way", PR #262)
   feature, so not in the block; it is what keeps the fill affordable on the load
   path.
 
+The HDR button, and the fold that replaced it ("feat(viewer): boost and the
+highlight soft clip share one Tone popover, and it names the HDR it cannot do",
+docs/plans/hdr-display.md P1)
+  Image.ApplyHdr is a soft knee applied AFTER the MTF and INSIDE [0, 1]: it trades
+  contrast for gradient above the knee and never emits a value above SDR white.
+  Nothing about it needs an HDR panel, and the label was the only thing in the
+  toolbar promising one. Folded with Boost into ToolbarAction.Tone on the terms
+  Calibrate and SPCC folded into the white-balance popover; the two preset ladders
+  became continuous dials, each stating its own precondition; a greyed block names
+  display HDR with a reason about the VIEWER, since nothing asks the GPU yet. The
+  MATH did not move -- image.frag, Image.ApplyHdr, StretchTests_NewPipeline and
+  GpuStretchPipelineTests are byte-for-byte what they were. Real display HDR is
+  measured and possible on this hardware (Qualcomm Adreno driver 31.0.170.0, scRGB
+  on the Surface OLED, confirmed on the panel with SdlVulkan.Renderer's HdrProbe)
+  and is P2 to P4 of that plan, not in this build.
+
 Faster demosaic and statistics ("perf(imaging): a plane stays float[,]; the hot
 loops stop reading it as [y, x]", PR #263)
   The MHC row is the one order-of-magnitude claim: 27 to 85 ms before, 6.0 to 16 ms
@@ -140,6 +166,13 @@ Carried forward from 8.0.1716 on 2026-09-15; re-check each at dispatch time.
          (8.1.NNNN1 for attempt 1); FileVersion is correct.
 
   CFA    Unchanged. The SER frame-by-frame histogram sits a mosaic out.
+
+  HDR    New, and a KNOWN GAP rather than a bug: the Tone panel names display HDR
+         and cannot offer it. The reason it gives is about the viewer ("not yet;
+         the viewer always presents SDR") and NOT about the user's GPU, because
+         nothing in the build asks the GPU what its surface offers. A user whose
+         machine can do it is told the same thing as one whose cannot. That is
+         deliberate for this release and is what P2 of the plan closes.
 
   Holes  New. The number of interior holes filled at load is recorded on the
          document (AstroImageDocument.InteriorHolesFilled) but not yet shown in the

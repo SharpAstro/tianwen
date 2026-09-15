@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using Shouldly;
 using TianWen.Lib.Imaging;
@@ -280,8 +280,6 @@ public class ViewerActionsTests
     [InlineData(ToolbarAction.StretchLink)]
     [InlineData(ToolbarAction.StretchParams)]
     [InlineData(ToolbarAction.Debayer)]
-    [InlineData(ToolbarAction.CurvesBoost)]
-    [InlineData(ToolbarAction.Hdr)]
     [InlineData(ToolbarAction.Overlays)]
     [InlineData(ToolbarAction.Stars)]
     [InlineData(ToolbarAction.ZoomFit)]
@@ -447,18 +445,18 @@ public class ViewerActionsTests
     // --- Wheel over a multi-option toolbar button (TryHandleToolbarWheel) ---
 
     /// <summary>
-    /// The gesture as asked for: scroll up on the boost button boosts UP. The presets are an ascending
-    /// ladder ([0, 0.25, 0.50, 1.0, 1.5]), so the direction has a meaning the click does not have.
+    /// The gesture as asked for: scroll up on the tone button clips HARDER. The presets are an
+    /// ascending ladder, so the direction has a meaning the click does not have.
     /// </summary>
     [Fact]
-    public void ToolbarWheel_UpOnBoost_StepsToTheNextStrongerPreset()
+    public void ToolbarWheel_UpOnTone_StepsToTheNextStrongerSoftClip()
     {
         var state = new ViewerState();
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.CurvesBoost, steps: 1).ShouldBeTrue();
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Tone, steps: 1).ShouldBeTrue();
 
-        state.CurvesBoostIndex.ShouldBe(1);
-        state.CurvesBoost.ShouldBe(ViewerState.CurvesBoostPresets[1]);
+        state.HdrPresetIndex.ShouldBe(1);
+        state.HdrAmount.ShouldBe(ViewerState.HdrPresets[1].Amount);
         state.NeedsRedraw.ShouldBeTrue();
     }
 
@@ -468,41 +466,43 @@ public class ViewerActionsTests
     /// more of it, which reads as a broken control rather than as a cycle.
     /// </summary>
     [Fact]
-    public void ToolbarWheel_UpAtTheStrongestBoost_StaysThereRatherThanWrappingToOff()
-    {
-        var top = ViewerState.CurvesBoostPresets.Length - 1;
-        var state = new ViewerState();
-        ViewerActions.SetCurvesBoostIndex(state, top);
-
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.CurvesBoost, steps: 1).ShouldBeTrue();
-
-        state.CurvesBoostIndex.ShouldBe(top);
-        state.CurvesBoost.ShouldBe(ViewerState.CurvesBoostPresets[top]);
-    }
-
-    [Fact]
-    public void ToolbarWheel_DownAtZeroBoost_StaysAtZero()
-    {
-        var state = new ViewerState();
-
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.CurvesBoost, steps: -1).ShouldBeTrue();
-
-        state.CurvesBoostIndex.ShouldBe(0);
-        state.CurvesBoost.ShouldBe(ViewerState.CurvesBoostPresets[0]);
-    }
-
-    /// <summary>HDR is the other ascending ladder, so it clamps for the same reason.</summary>
-    [Fact]
-    public void ToolbarWheel_UpAtTheStrongestHdr_StaysThereRatherThanWrappingToOff()
+    public void ToolbarWheel_UpAtTheStrongestSoftClip_StaysThereRatherThanWrappingToOff()
     {
         var top = ViewerState.HdrPresets.Length - 1;
         var state = new ViewerState();
         ViewerActions.SetHdrPresetIndex(state, top);
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Hdr, steps: 1).ShouldBeTrue();
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Tone, steps: 1).ShouldBeTrue();
 
         state.HdrPresetIndex.ShouldBe(top);
         state.HdrAmount.ShouldBe(ViewerState.HdrPresets[top].Amount);
+    }
+
+    [Fact]
+    public void ToolbarWheel_DownAtNoSoftClip_StaysAtOff()
+    {
+        var state = new ViewerState();
+
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Tone, steps: -1).ShouldBeTrue();
+
+        state.HdrPresetIndex.ShouldBe(0);
+        state.HdrAmount.ShouldBe(ViewerState.HdrPresets[0].Amount);
+    }
+
+    /// <summary>
+    /// The boost is the ladder the folded button does NOT give the wheel, so its own clamp is pinned
+    /// on its single writer instead. One notch past the top must still not wrap to off.
+    /// </summary>
+    [Fact]
+    public void SetCurvesBoostIndex_PastTheStrongest_ClampsRatherThanWrappingToOff()
+    {
+        var top = ViewerState.CurvesBoostPresets.Length - 1;
+        var state = new ViewerState();
+
+        ViewerActions.SetCurvesBoostIndex(state, top + 1);
+
+        state.CurvesBoostIndex.ShouldBe(top);
+        state.CurvesBoost.ShouldBe(ViewerState.CurvesBoostPresets[top]);
     }
 
     /// <summary>
@@ -572,9 +572,9 @@ public class ViewerActionsTests
     {
         var state = new ViewerState();
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.CurvesBoost, steps: 3).ShouldBeTrue();
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Tone, steps: 3).ShouldBeTrue();
 
-        state.CurvesBoostIndex.ShouldBe(3);
+        state.HdrPresetIndex.ShouldBe(3);
     }
 
     /// <summary>
@@ -586,12 +586,12 @@ public class ViewerActionsTests
     public void ToolbarWheel_WithZeroSteps_IsHandledAndChangesNothing()
     {
         var state = new ViewerState { NeedsRedraw = false };
-        ViewerActions.SetCurvesBoostIndex(state, 2);
+        ViewerActions.SetHdrPresetIndex(state, 2);
         state.NeedsRedraw = false;
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.CurvesBoost, steps: 0).ShouldBeTrue();
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Tone, steps: 0).ShouldBeTrue();
 
-        state.CurvesBoostIndex.ShouldBe(2);
+        state.HdrPresetIndex.ShouldBe(2);
     }
 
     /// <summary>Multi-notch on a WRAPPING cycler applies the cycle repeatedly, so a full lap returns to

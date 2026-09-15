@@ -110,7 +110,7 @@ public readonly record struct DisplayControls(
             CurvesMode == 0
                 ? $"Boost {UiFormat.Percent0(CurvesBoost)}"
                 : $"Boost {UiFormat.Percent0(CurvesBoost)} spline",
-        Slot.Hdr when HdrAmount > 0f => $"HDR {HdrAmount:F1}",
+        Slot.Hdr when HdrAmount > 0f => $"Soft clip {HdrAmount:F1}",
         Slot.Calibration when ColorCalibrationEnabled => "Calibrate",
         Slot.BackgroundNeutralization when BackgroundNeutralizationEnabled =>
             BackgroundNeutralizationStrength >= 0.9999f
@@ -132,7 +132,7 @@ public readonly record struct DisplayControls(
     private static string? OffName(Slot slot) => slot switch
     {
         Slot.Curves => "Boost",
-        Slot.Hdr => "HDR",
+        Slot.Hdr => "Soft clip",
         Slot.Calibration => "Calibrate",
         Slot.BackgroundNeutralization => "NeutBg",
         Slot.WhiteBalance => "WB",

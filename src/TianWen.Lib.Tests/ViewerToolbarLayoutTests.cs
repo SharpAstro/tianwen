@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using DIR.Lib;
@@ -229,20 +229,24 @@ namespace TianWen.Lib.Tests
             var viewer = NewViewer(renderer);
 
             var state = NewState();
+            // The narrower of the two link labels, so the change below is a widening. NewState's
+            // StretchMode.None already reads "Unlinked", which would have made this a no-op.
+            state.StretchMode = StretchMode.Linked;
             viewer.Render(null, state);
             viewer.TryGetPaintedToolbarRect(ToolbarAction.Shortcuts, out var before).ShouldBeTrue();
-            var plainBoost = PlacedRect(viewer, ToolbarAction.CurvesBoost);
+            var plainLink = PlacedRect(viewer, ToolbarAction.StretchLink);
 
-            // "Boost" becomes "Boost 25%", widening a button to the LEFT of help. Under a purely
+            // "Linked" becomes "Unlinked", widening a button to the LEFT of help. Under a purely
             // left-to-right bar that shifts everything after it, which is the drift that makes a help
-            // button unfindable.
-            state.CurvesBoost = 0.25f;
+            // button unfindable. (It was the Boost button's "Boost" -> "Boost 25%" until Boost folded
+            // into the tone popover; the drift this pins is the bar's, not that button's.)
+            state.StretchMode = StretchMode.Unlinked;
             viewer.Render(null, state);
-            var wideBoost = PlacedRect(viewer, ToolbarAction.CurvesBoost);
+            var wideLink = PlacedRect(viewer, ToolbarAction.StretchLink);
             viewer.TryGetPaintedToolbarRect(ToolbarAction.Shortcuts, out var after).ShouldBeTrue();
 
             // Guard the guard FIRST: if the label did not actually widen, the pin assertion proves nothing.
-            wideBoost.Width.ShouldBeGreaterThan(plainBoost.Width);
+            wideLink.Width.ShouldBeGreaterThan(plainLink.Width);
             after.ShouldBe(before);
         }
 

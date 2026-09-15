@@ -33,8 +33,12 @@ namespace TianWen.UI.Abstractions
             ("Params", ToolbarAction.StretchParams, 2),
             ("Channel", ToolbarAction.Channel, 3),
             ("Debayer", ToolbarAction.Debayer, 3),
-            ("Boost", ToolbarAction.CurvesBoost, 3),
-            ("HDR", ToolbarAction.Hdr, 3),
+            // "Boost" and "HDR" until 8.1, side by side doing related things to the same pixels,
+            // and the second was the one label in this bar that promised what the viewer does not
+            // do -- a soft knee after the MTF, inside [0, 1], never a nit above SDR white. Folded
+            // into one popover for the reason Calibrate and SPCC folded into White balance:
+            // see ImageRendererBase.TonePanel.cs and docs/plans/hdr-display.md.
+            ("Tone", ToolbarAction.Tone, 3),
             ("A/B", ToolbarAction.Compare, 3),
             // One control, not two: the label is computed per frame (Fit / 1:1 / a percentage), so the
             // text here is only the measurement seed and the widest state it has to fit.
@@ -390,6 +394,15 @@ namespace TianWen.UI.Abstractions
         /// spend width the run does not have -- it already wraps to a second row on a narrow window.
         /// The label is drawn left-aligned after the mark, so the reserved remainder is trailing space
         /// and the text itself does not move either.
+        ///
+        /// <b>And this is a WORKAROUND, kept on purpose.</b> It does not remove the dependency that
+        /// causes the drift -- a button's x is still the sum of every width before it -- it freezes the
+        /// inputs to that sum for the two buttons whose drift someone noticed. The structural fix is to
+        /// stop deriving position from neighbours' current widths at all: lay the run out once against
+        /// each button's widest state and keep the slots, anchor each group instead of the whole run, or
+        /// move the bar onto the layout DSL with fixed slots. Kept because it does hold clicks steady
+        /// and the alternative is a rewrite of the one widget every viewer test drives; see
+        /// docs/todo/ui.md so it is not mistaken for the design.
         /// </remarks>
         private float ReservedLabelWidth(ToolbarAction action, ViewerState state)
         {
@@ -584,14 +597,6 @@ namespace TianWen.UI.Abstractions
         /// <summary>Stretch-parameter preset labels: 8 (Factor, ShadowsClipping) presets.</summary>
         private static readonly ImmutableArray<string> StretchParamsLabels = BuildLabels(
             StretchParameters.Presets, p => p.ToString());
-
-        /// <summary>Curves-boost preset labels: 0/25/50/100/150 %.</summary>
-        private static readonly ImmutableArray<string> CurvesBoostLabels = BuildLabels(
-            ViewerState.CurvesBoostPresets, b => b > 0f ? UiFormat.Percent0(b) : "Off");
-
-        /// <summary>HDR preset labels: "Off" + 4 (amount, knee) combos.</summary>
-        private static readonly ImmutableArray<string> HdrLabels = BuildLabels(
-            ViewerState.HdrPresets, p => p.Amount > 0f ? $"{p.Amount:F1} / {p.Knee:F2}" : "Off");
 
         /// <summary>Background-neutralization preset table; combines method × strength
         /// into one flat dropdown. <c>null</c> method = "Off" (disable). Mean has a
@@ -807,31 +812,12 @@ namespace TianWen.UI.Abstractions
                     }, state.StretchPresetIndex);
                     return true;
 
-                case ToolbarAction.CurvesBoost:
-                    OpenDropdown(state, bounds, CurvesBoostLabels, (idx, _) =>
-                    {
-                        var presets = ViewerState.CurvesBoostPresets;
-                        if ((uint)idx < (uint)presets.Length)
-                        {
-                            state.CurvesBoostIndex = idx;
-                            state.CurvesBoost = presets[idx];
-                            state.NeedsRedraw = true;
-                        }
-                    }, state.CurvesBoostIndex);
-                    return true;
-
-                case ToolbarAction.Hdr:
-                    OpenDropdown(state, bounds, HdrLabels, (idx, _) =>
-                    {
-                        var presets = ViewerState.HdrPresets;
-                        if ((uint)idx < (uint)presets.Length)
-                        {
-                            state.HdrPresetIndex = idx;
-                            state.HdrAmount = presets[idx].Amount;
-                            state.HdrKnee = presets[idx].Knee;
-                            state.NeedsRedraw = true;
-                        }
-                    }, state.HdrPresetIndex);
+                case ToolbarAction.Tone:
+                    // A popover, not a menu of presets: the two dials are continuous and the third
+                    // block is not a choice at all. Toggled rather than opened, because the backdrop
+                    // consumes the press that would otherwise re-open what it just closed.
+                    state.TonePanelOpen = !state.TonePanelOpen;
+                    state.NeedsRedraw = true;
                     return true;
 
                 case ToolbarAction.BackgroundNeutralize:
@@ -929,8 +915,9 @@ namespace TianWen.UI.Abstractions
             // section used.
             ToolbarAction.WhiteBalance => _source is { } wbSource
                 && (wbSource.ChannelCount >= 3 || wbSource.SensorType is SensorType.RGGB),
-            ToolbarAction.CurvesBoost => document?.Stars is { Count: > 0 },
-            ToolbarAction.Hdr => document is not null,
+            // The soft clip works on any document; the boost inside needs stars and says so
+            // itself, which is why the gate here is not the intersection of the two.
+            ToolbarAction.Tone => document is not null,
             // There is nothing to write without a document, and a mark-only button that does nothing
             // when clicked is worse than a dimmed one: with no label, the status line is the only
             // thing that could have explained the no-op.
@@ -986,8 +973,9 @@ namespace TianWen.UI.Abstractions
                 // never stale against an immutable document.DebayerAlgorithm. Works for SER + Bayer FITS.
                 ToolbarAction.Debayer => _source?.SensorType is SensorType.RGGB
                     && state.DebayerAlgorithm is not DebayerAlgorithm.None,
-                ToolbarAction.CurvesBoost => state.CurvesBoost > 0f,
-                ToolbarAction.Hdr => state.HdrAmount > 0f,
+                // Lit while EITHER dial is off its default. One button now reports two controls,
+                // so the light is the only thing saying the tone has been touched at all.
+                ToolbarAction.Tone => state.CurvesBoost > 0f || state.HdrAmount > 0f,
                 // Lit from the RUNG rather than from one layer: the mark below already says which
                 // rung, so the highlight is only answering "is any of this on".
                 ToolbarAction.Overlays => state.OverlayLevel is not ViewerOverlayLevel.None,
@@ -1672,8 +1660,7 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.StretchParams => "Stretch strength preset (+ / -)",
             ToolbarAction.Channel => "Channel view: RGB or one channel (C cycles)",
             ToolbarAction.Debayer => "Demosaic algorithm; the swatch is the sensor's CFA phase (D cycles)",
-            ToolbarAction.CurvesBoost => "Curves boost; right-click switches curve mode (B / Shift+B)",
-            ToolbarAction.Hdr => "HDR highlight compression (H cycles, Shift+H back)",
+            ToolbarAction.Tone => "Boost, highlight soft clip, and what display HDR would need (B / H cycle)",
             ToolbarAction.Compare => "Before / after split; right-click re-pins (A / Shift+A)",
             ToolbarAction.AutoCrop => "Show only the area every sub covered, discarding the stack's ragged border (Shift+C)",
             ToolbarAction.ZoomFit => "Fit the image to the window (F / Ctrl+0)",
@@ -2082,6 +2069,10 @@ namespace TianWen.UI.Abstractions
             // not pressed it has no way to know the viewer can do it at all.
             "Y                    The sky this frame was taken from, drawn behind it",
             "V / Shift+V          Histogram / log scale",
+            // Both earn a row for the reason their buttons were folded into one: what H does is not
+            // what someone hunting for HDR came for, and the panel is where that is explained.
+            "B / Shift+B          Curves boost / curve mode (Tone)",
+            "H / Shift+H          Highlight soft clip, harder / softer (Tone)",
             // W earns a row now that it opens a PANEL rather than toggling one flag: the sliders, the
             // photometric calibration and its provenance line all live behind it, and none of them is
             // reachable by guessing. N stays beside it because the two are the colour pair.
@@ -2167,8 +2158,6 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.Debayer => state.DebayerAlgorithm is DebayerAlgorithm.Auto
                     ? $"Auto ({ResolvedDebayerLabel()})"
                     : state.DebayerAlgorithm.DisplayName,
-                ToolbarAction.CurvesBoost => state.CurvesBoost > 0f ? $"Boost {UiFormat.Percent0(state.CurvesBoost)}" : "Boost",
-                ToolbarAction.Hdr => state.HdrAmount > 0f ? $"HDR: {state.HdrAmount:F1}" : "HDR",
                 // Tri-state, and the third state is the point: at any zoom that is neither fit nor 1:1
                 // the old pair of buttons showed nothing at all, so the one number a zoom control exists
                 // to report was the one thing the toolbar could not say.
