@@ -91,7 +91,7 @@ namespace TianWen.UI.Abstractions
     /// star overlay, object overlay, histogram chrome, keyboard and mouse wheel handling.
     /// Subclasses implement 6 abstract methods for the GPU-specific rendering.
     /// </summary>
-    public abstract partial class ImageRendererBase<TSurface>(Renderer<TSurface> renderer) : CompositeWidget<TSurface>(renderer), ISelfDispatchingInputWidget
+    public abstract partial class ImageRendererBase<TSurface>(Renderer<TSurface> renderer) : CompositeWidget<TSurface>(renderer)
     {
         /// <summary>Reference to the viewer state from the last Render call.</summary>
         private ViewerState? _state;

@@ -172,15 +172,19 @@ namespace TianWen.UI.Abstractions
         /// A press that landed on no region at all: the active tab's own business (drag-pan, a scrollbar,
         /// the sky map's tap-vs-drag gesture).
         /// </summary>
+        /// <remarks>
+        /// The tab's own answer, for every tab. It used to be gated on an
+        /// <c>ISelfDispatchingInputWidget</c> marker, which by this point had nothing left to mark: the
+        /// interface meant "route the RAW press to this widget rather than pre-dispatching it", and the
+        /// router made that true of every widget. All it still did was reshape the return value, and
+        /// nothing reads it -- SdlWindowView discards what its press dispatch returns at all three call
+        /// sites, and the browser host has no marker at all.
+        /// </remarks>
         private bool HandleMissedPress(InputEvent.MouseDown down)
         {
             var consumed = _chrome.ActiveTab?.HandleInput(down) ?? false;
             _appState.NeedsRedraw = true;
-
-            // A self-dispatching widget answers for itself; for every other tab an unclaimed press has
-            // always been reported unconsumed, the host reading "was a region hit" rather than "did the
-            // tab do something".
-            return _chrome.ActiveTab is ISelfDispatchingInputWidget && consumed;
+            return consumed;
         }
 
         private bool HandleMissedMove(InputEvent.MouseMove move)
