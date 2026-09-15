@@ -51,11 +51,11 @@ public static class SkyMapSearchActions
             search.SearchIndex = BuildSearchIndex(search, db, comets);
         }
 
-        // Selection AFTER the focus move, the order TextInputInteraction.HandlePointer uses and for its
-        // reason: a focus change is entitled to seed the field, so anything it must not overwrite comes
-        // second. (TextInputFocus.Focus does not select on its own -- DIR.Lib 9.2, D1, is where it will.)
-        focus.Focus(search.SearchInput);
-        search.SearchInput.SelectAll();
+        // Seeded with the box's own value, which is what selects it: opening a search means "search for
+        // something else", so the first keystroke should replace what is in there rather than append to
+        // it. One call, because seeding and selecting are one act -- this used to be a Focus followed by
+        // the caller's own SelectAll, which is the arrangement DIR.Lib 9.2 closed.
+        focus.Focus(search.SearchInput, search.SearchInput.Text);
     }
 
     // Merge the catalog autocomplete list with comet designations + common names, keeping the result sorted
