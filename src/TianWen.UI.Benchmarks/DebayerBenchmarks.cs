@@ -68,6 +68,13 @@ public class DebayerBenchmarks
     public async Task<Image> VNG() =>
         await _raw.DebayerAsync(DebayerAlgorithm.VNG);
 
+    /// <summary>MHC: Malvar-He-Cutler 5x5 linear kernels -> 3 channel output. The planetary
+    /// default (parity with <c>PlanetaryMaster</c>), and the one CFA demosaic whose hot loop still
+    /// read the mosaic through <c>float[,]</c> indexing with a clamp on every tap.</summary>
+    [Benchmark]
+    public async Task<Image> MHC() =>
+        await _raw.DebayerAsync(DebayerAlgorithm.MHC);
+
     /// <summary>AHD: adaptive homogeneity-directed -> 3 channel output. Best
     /// color fidelity + sharpest stars; ~20x slower than VNG on this hardware
     /// when the stacking pipeline ran the comparison end-to-end.</summary>
