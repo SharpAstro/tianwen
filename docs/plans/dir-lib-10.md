@@ -201,7 +201,7 @@ five panes and hands each to an imperative painter through a `Fill` key.
 
 | the engine has | tianwen uses | tianwen writes instead |
 |---|---|---|
-| `.WithGap(g)` | 38 | **73 `Spacer().WFixed(pad)` nodes** as gaps (`EquipmentTab.*` alone about 25) |
+| `.WithGap(g)` | 38 | 73 `Spacer().WFixed(pad)` nodes counted by grep, **of which only 4 were uniform between-sibling gaps** when the sweep looked at each: the rest are start/end padding, non-uniform gaps, or root fills into an explicit rect where `.Bg` is the honest spelling. A count from a grep is a ceiling, not a yield |
 | `HoverBackground` / `.BgHover` (8.1) | **0** | 5 hover tests at the call site (`FileList.cs:250` `rowRect.Contains(mouseX, mouseY)`, `Toolbar.cs:456`, `Histogram.cs:83`, `VkPlannerTab.cs:296`) plus the repaint bookkeeping the feature removes (`_lastHoveredToolbarButton`, `_lastHoveredFileListRow`, `hoverRepaint`, about 50 lines of `Input.cs`) |
 | `FocusBackground` / `.BgFocus` + `ListCursor` (8.20) | **0** | 9 `isSelected ? SelectedBg : RowBg` ternaries and about five `SelectedIndex` fields, on rows that ALREADY register `ListItemHit` (14 sites), so they are navigable-shaped and nobody asked |
 | `IconKind.Plus` / `Minus` / `CaretUp` / `CaretDown` | 0 / 0 / 0 / 1 | **19 marks as text runs**: 14 steppers (`"+"`, `"-"`, `"\u2212"`, `"[+]"`, `"[-]"` in `PlannerTab`, `SessionTab`, `FormRowLayout`, `SessionConfigLayout`, `EquipmentTab.*`, `LiveSessionTab.*`) and 5 carets/jogs (`"\u25b6"`, `"\u25c0"`, `"\u00ab"`, `"\u203a"`), against `CLAUDE.md`'s own rule that a mark is an `Icon` |
@@ -222,7 +222,7 @@ five panes and hands each to an imperative painter through a `Fill` key.
 | `.Radius` | 5, all Home board | none by hand either: `FillRoundedRect` has 0 callers, so every other panel is square |
 | `Layout.Engine.Measure` | **1** (`TonePanel.cs`) | 55 `MeasureText` sites; `WhiteBalancePanel.cs:83` sums "what the row needs in its widest state" from three reserved widths |
 | `LayoutDamage.Compute` / `Coalesce` (8.8) | **0** | `ImageRendererBase.Damage.cs` (86 lines) is a hand-kept replacement with 3 narrowing sites, consumed ONLY by `tianwen-fits`; **the GUI repaints whole frames** |
-| `Builder.Box` (swatch / rule) | 5 | 41 `Spacer().Bg(colour)` nodes spelling the same thing |
+| `Builder.Box` (swatch / rule) | 5 | 41 `Spacer().Bg(colour)` nodes by grep; 10 were sized in-tree rules and became `Box`, about 16 are tree ROOTS painted into an explicit rect (a wash, correctly `.Bg`), the rest padding cells that carry a colour |
 | `Builder.Progress` | 2 | `LiveSessionTab.Polar.RenderErrorBar` as three `FillRect`s; `InfoRowItem.cs:135` `new string('█', filled)` |
 | `DesignScale` | 9, six of them `DesignScale.One` | six trees authored in device pixels that opt out of engine scaling |
 
@@ -271,7 +271,7 @@ text stack instead. Zero-use and unneeded: `ContentTransform`, the Markdown and 
 
 | # | hand-rolled | declares instead | sites |
 |---|---|---|---|
-| 1 | spacer-as-gap | `.WithGap` | 73 nodes |
+| 1 | spacer-as-gap | `.WithGap` | 4 nodes converted (73 matched; see the table) |
 | 2 | the viewer's imperative chrome inside the five `Fill` panes | subtrees under the arrangement `Layout.cs` already makes | about 55 draw/hit sites (25 `RegisterClickable`, 28 cursor advances) plus four helpers (`DrawTextLine`, `DrawSectionHeading`, `DrawTable`, `DrawWrappedTextLine`) |
 | 3 | marks as text runs | `IconKind.Plus/Minus/CaretUp/CaretDown` | 19 |
 | 4 | `isSelected ?` row backgrounds + selection-index plumbing | `.BgFocus` + `ListCursor` | 9 ternaries, about 5 fields |
