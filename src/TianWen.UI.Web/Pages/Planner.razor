@@ -2681,7 +2681,7 @@
         => (e.ShiftKey ? InputModifier.Shift : 0) | (e.CtrlKey ? InputModifier.Ctrl : 0) | (e.AltKey ? InputModifier.Alt : 0);
 
     // Browser KeyboardEvent.Key -> the platform-agnostic InputKey (the web analogue of the SDL
-    // scancode map in TianWen.UI.Shared).
+    // scancode map, SdlVulkan.Renderer's SdlInputMapping).
     static InputKey MapKey(string key) => key switch
     {
         "ArrowUp" => InputKey.Up,

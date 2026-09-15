@@ -187,6 +187,112 @@ node to know it ON.
 | a focus ring | colour role only (`UiPalette.Focus`) | nothing in DIR.Lib draws one; `.BgFocus` is list-scoped |
 | list navigation on the terminal | `ListCursor` + `ListScrollController` on pixels | `ScrollableList<T>` in Console.Lib is a second, independent implementation of both |
 
+## What DIR.Lib already has that tianwen does not use
+
+The text box was the example; this is the general case. Counted 2026-09-15 over the six UI projects
+(`*.cs` + `*.razor`, `obj`/`bin` excluded). Two facts frame it: all 693 `Layout.Builder.*` calls are in
+`UI.Abstractions` (582), `Cli/Tui` (61) and `UI.Gui` (50), and `UI.Shared`, `UI.FitsViewer` and `UI.Web`
+contain no layout-tree code at all; and inside `UI.Abstractions` the hole is the viewer's chrome partials
+(`Toolbar.cs` 2,254 lines, `FileList.cs`, `WhiteBalancePanel.cs`, `InfoPanel.cs`, `Transport.cs`,
+`Histogram.cs`, `ContextMenu.cs`), which have ZERO `Builder` calls between them: `Layout.cs` arranges the
+five panes and hands each to an imperative painter through a `Fill` key.
+
+### The layout tree: shipped, unused, re-implemented
+
+| the engine has | tianwen uses | tianwen writes instead |
+|---|---|---|
+| `.WithGap(g)` | 38 | **73 `Spacer().WFixed(pad)` nodes** as gaps (`EquipmentTab.*` alone about 25) |
+| `HoverBackground` / `.BgHover` (8.1) | **0** | 5 hover tests at the call site (`FileList.cs:250` `rowRect.Contains(mouseX, mouseY)`, `Toolbar.cs:456`, `Histogram.cs:83`, `VkPlannerTab.cs:296`) plus the repaint bookkeeping the feature removes (`_lastHoveredToolbarButton`, `_lastHoveredFileListRow`, `hoverRepaint`, about 50 lines of `Input.cs`) |
+| `FocusBackground` / `.BgFocus` + `ListCursor` (8.20) | **0** | 9 `isSelected ? SelectedBg : RowBg` ternaries and about five `SelectedIndex` fields, on rows that ALREADY register `ListItemHit` (14 sites), so they are navigable-shaped and nobody asked |
+| `IconKind.Plus` / `Minus` / `CaretUp` / `CaretDown` | 0 / 0 / 0 / 1 | **19 marks as text runs**: 14 steppers (`"+"`, `"-"`, `"\u2212"`, `"[+]"`, `"[-]"` in `PlannerTab`, `SessionTab`, `FormRowLayout`, `SessionConfigLayout`, `EquipmentTab.*`, `LiveSessionTab.*`) and 5 carets/jogs (`"\u25b6"`, `"\u25c0"`, `"\u00ab"`, `"\u203a"`), against `CLAUDE.md`'s own rule that a mark is an `Icon` |
+| `IconKind.List` | 0 | `DrawFileListMark`, whose comment re-derives the kind's own rationale ("a face without the codepoint draws .notdef") |
+| `IconKind.Search` + `TextInput.LeadingIcon` (8.11) | 0 | two search fields, neither marked |
+| `MatchIconsToText` (8.10) | never fires | all four `Icon` calls state a size; `LiveSessionTab.Strips.cs:69` derives it from the sibling label by hand, the exact duplication 8.10 removed |
+| `Text.Trim` (`TextTrim.End` / `Middle`) | **0** on any node | three imperative `TextFit.TrimToWidth` / `ForWidth` calls (`FileList.cs:141`, `:267`, `Toolbar.cs:2053`) |
+| `Text.WidthSample` | 5, all in `TonePanel.cs` | `ReservedLabelWidth`, `ReservedButtonWidth` (6 call sites), `DeviceList.cs:238` measuring `"Discovering..."`, `SessionTab.cs:623` sizing a stepper cell to its widest value |
+| `Node.Anchored` (8.12) | **0** | `OverlayPlacement.cs` (86 lines: `ClampX`, `ClampY`, `Place(anchor, ...)`) is its doc comment re-implemented, 6 call sites, plus `VkGuiRenderer.DrawTooltip`'s private copy |
+| `Node.Overlay` | **0** direct | every popover, menu and tooltip is a separate post-pass with `OverlayOwnsPointer` as the hand-kept z-order answer and `RenderHoverTooltip` "called LAST in the frame" |
+| `Node.Wrap` (`WrapH`) | 1 | `WalkToolbarRows` (50 lines: `if (x + gap + w > limit && row + 1 < maxRows) { row++; x = pad; }`) and `DrawWrappedTextLine` |
+| `Node.Dock` | 11 | the older imperative `PixelLayout.Dock(PixelDockStyle.Right, w)` cursor, 10 calls in `SessionTab.cs` and `PlannerTab.cs`; `Layout.cs:167` carving the transport strip out of the image `Fill` by hand |
+| `Node.Grid` (+ `AutoRows`) | 1 | `DrawTable` ("the stops are measured, not assumed") |
+| `Node.Split` + `DividerHit` | 1 (the file list, the model use) | `SplitCompareController` (330 lines) + `RenderSplitDivider`: a second divider drag with its own track, fraction, clamp and hit rect |
+| `.CollapseBelow` | 2 | `AltitudeChartRenderer.VerticalLayout` returning `TitleVisible = false` "when the chart is too short"; `HomeBoardLayout.cs:366` switching to a table by hand |
+| `.CrossCenter()` / `.Align` | 4 / 0 | 110 `Builder.Text` calls passing BOTH aligns positionally plus `.HStar()`; in imperative chrome `(h - fontSize) / 2f` in `Transport.cs:52`, `ImageRendererBase.cs:1631` and all nine `Draw*Mark` helpers |
+| `.Pad(across, down)` / `PaddingY` (7.24) | 0 / 0 (`.PadX` 2) | every fixed-height bar pads symmetrically or by arithmetic (`Transport.cs:44`) |
+| `.Radius` | 5, all Home board | none by hand either: `FillRoundedRect` has 0 callers, so every other panel is square |
+| `Layout.Engine.Measure` | **1** (`TonePanel.cs`) | 55 `MeasureText` sites; `WhiteBalancePanel.cs:83` sums "what the row needs in its widest state" from three reserved widths |
+| `LayoutDamage.Compute` / `Coalesce` (8.8) | **0** | `ImageRendererBase.Damage.cs` (86 lines) is a hand-kept replacement with 3 narrowing sites, consumed ONLY by `tianwen-fits`; **the GUI repaints whole frames** |
+| `Builder.Box` (swatch / rule) | 5 | 41 `Spacer().Bg(colour)` nodes spelling the same thing |
+| `Builder.Progress` | 2 | `LiveSessionTab.Polar.RenderErrorBar` as three `FillRect`s; `InfoRowItem.cs:135` `new string('█', filled)` |
+| `DesignScale` | 9, six of them `DesignScale.One` | six trees authored in device pixels that opt out of engine scaling |
+
+Zero-use features judged **unneeded rather than unknown**: `WrapV` / `.WithLineGap` (no vertical-flow
+surface), `.WClamp` / `.HClamp` (reachable through `.WStar(w, min, max)`, which is used), `.Align` other
+than centre, `.WithCursor` (the `cursor:` argument on `.Clickable` covers the four real cases),
+`ArrangedNode.Depth` (the inspector's, not a consumer's). Everything else in the table is unknown, not
+unneeded: each has a hand-written twin in the same codebase.
+
+### The widget base and the controllers: the same picture
+
+| the engine has | tianwen uses | tianwen writes instead |
+|---|---|---|
+| `RenderButton` | 2 (`DeviceList.cs`) | **8 `FillRect` + `DrawText` + `RegisterClickable` triples** (`Histogram.cs:97`, `InfoPanel.cs:144`, `:152`, `Transport.cs:63`, `:77`, `WhiteBalancePanel.cs:166`, `:208`, `:263`) and the toolbar's own fill/draw/register loop over every button (`Toolbar.cs:460`) |
+| `MeasureButtonWidth` | 0 | `WhiteBalancePanel.cs:162` `MeasureText(autoLabel, FontSize) + gap * 2f`, the method's body verbatim |
+| `MeasureValueColumnWidth` (widest of a set) | 1 | `ReservedButtonWidth` and `ReservedLabelWidth`, the same loop written twice |
+| `TextFit.TrimToWidth` | 3 | `EquipmentTab.TruncateToWidth` (26 lines, a binary-search ellipsis fit), 3 call sites |
+| `RenderDropdownMenu` + `DropdownMenuState` | 4 instances | **two hand-built result lists**: `PlannerTab.RenderSuggestionDropdown` and `SkyMapTab.BuildSearchResults`, neither with a state object, a scroll, a keyboard claim or a disabled row |
+| `MenuLayout` / `MenuModel` / `PixelMenuWidget` | **0** | the viewer's `?` panel (`HelpPage`, `BuildHelpLines`, `PumpHelpPanel`) |
+| `TapOrDragGesture` | 1 (the sky map's tap-or-drag verdict) | five press/drag state machines: `IsScrubbing` + `_scrubTrackRect`, `DraggingSliderIndex`, `SkyMapState.IsDragging`, `SplitCompareController.IsDragging`, `VkPlanetaryTab._pipDragging` |
+| `PanZoomController` | 2 | the sky map's own `HandleDragStart` / `HandleDrag` / `HandleZoom` / `HandleZoomByFactor` and a runaway-zoom detector; the spherical centre must stay bespoke, the anchor/clamp/step arithmetic need not |
+| `ListCursor` / `HandleListKey` | **0** | three Up/Down/Enter loops (`PlannerTab.cs:649`, `SessionTab.cs:175`, `ImageRendererBase.Input.cs:502`), each with its own ensure-visible pairing |
+| `HitTestCursor` as the ONLY cursor source | 3 | `tianwen-fits` `Program.cs:808` re-derives one as a host predicate: `HitTest(mx, my) is ResizeHandleHit ? CursorKind.ResizeEW : Default`, the thing the rule forbids |
+| `GetRegisteredRegions()` / arranged nodes as the answer to "where did I paint that" | | **six hand-kept rect caches** written every frame and read on the next press: `_wbTrackRects`, `_toneTrackRects`, `_waveletTrackRects`, `_toolbarButtonBounds`, `_toolbarBoxes`, `SessionTab._exposureValueRegions` |
+| `WindowUiSettings.Focus` (per window, shared by `ShareUiContext`) | **0** | a SECOND instance of the same type app-wide, `GuiAppState.TextInputFocus`, which every path uses; the per-widget one is dead weight in every widget |
+| `BackgroundTaskTracker.Run` | 39 | **21 fire-and-forget sites**, 15 of them in `Planner.razor`, which constructs a tracker on line 137 and uses it five times; 3 untracked with a tracker in scope (`PlanetaryCaptureController.cs:539`, `TuiEquipmentTab.cs:717`, `StackSubCommand.cs:599`); `async void` is zero |
+| `DropdownItem.Tooltip` / `TabItem.Tooltip` (declared, deliberately not painted) | 0 / 1 | three tooltip painters (see above) |
+| `FontFallbackResolver.CanRender` | 0 | nothing checks coverage before choosing a mark, against `CLAUDE.md`'s own rule that a new mark is picked by what the codepoint is |
+| `RgbaImageRenderer` + arranged nodes in tests | 40 files | **4 pixel-sweep tests** still loop x/y calling `HitTest` (`SessionTabTests.cs:187`, `ViewerWhiteBalancePopoverTests.cs:152`, `:272`, `ViewerInfoPanelCollapseTests.cs:129`) |
+
+Clean, and worth saying so: `ListScrollController` (7 instances, no raw scroll offset anywhere),
+`SearchInteraction<T>` (both searches are subclasses with every virtual overridden), `TabBar` /
+`TabStripTree`, `PushClip` (12, zero hand-built `RectInt`), `SignalBus` + the generated
+`SignalDirectory`, `UiTheme` (tianwen DERIVES its palettes and pushes them back into
+`TextInputRenderer.Colors`), `KeyDown.Repeat` and `KeyUp` (consumed; `RepeatsAsAStep` is a policy
+allow-list over the library's fact, not a re-derived filter), `MouseDown.ClickCount` (no hand-timed
+double click anywhere), the SDL event pump (zero hand-written `SDL_EVENT_*` switches), the cursor
+mapping, `IActivatableWindow`, and the TUI's `IRowLayout` rows (`RowPen` wraps, it does not
+re-implement). On the terminal only two things are duplicated: the inline editor and a second sparkline
+(`TuiLiveSessionTab.SparkChars`) beside `AsciiAltitudeChart`. Console.Lib's `TextInputBar`, `TextArea`,
+`GapBuffer`, `Clipboard`, `TextTable` and `TreeView` are unused, and rightly: the TUI took the DIR.Lib
+text stack instead. Zero-use and unneeded: `ContentTransform`, the Markdown and MathLayout namespaces,
+`TabBar`'s new-tab affordances, `ListScrollController`'s tuning knobs, `WrapsAround`.
+
+### The payoff, ranked by sites deleted
+
+| # | hand-rolled | declares instead | sites |
+|---|---|---|---|
+| 1 | spacer-as-gap | `.WithGap` | 73 nodes |
+| 2 | the viewer's imperative chrome inside the five `Fill` panes | subtrees under the arrangement `Layout.cs` already makes | about 55 draw/hit sites (25 `RegisterClickable`, 28 cursor advances) plus four helpers (`DrawTextLine`, `DrawSectionHeading`, `DrawTable`, `DrawWrappedTextLine`) |
+| 3 | marks as text runs | `IconKind.Plus/Minus/CaretUp/CaretDown` | 19 |
+| 4 | `isSelected ?` row backgrounds + selection-index plumbing | `.BgFocus` + `ListCursor` | 9 ternaries, about 5 fields |
+| 5 | call-site hover + repaint bookkeeping | `.BgHover` (+ `LayoutDamage`) | 5 sites, about 50 lines |
+| 6 | `ImageRendererBase.Damage.cs` | `LayoutDamage` | 86 lines, 4 sites, and narrowing reaches the GUI |
+| 7 | `OverlayPlacement` | `Anchored` + `Overlay` | 86 lines, 6 sites, one private copy |
+| 8 | `ReservedLabelWidth` / `ReservedButtonWidth` | `WidthSample` | 2 helpers, 8 sites |
+| 9 | `WalkToolbarRows` | `Wrap` | 50 lines, 4 fields |
+| 10 | `PixelLayout` docking cursors | `Dock` | 10 calls, 2 files |
+| 11 | fire-and-forget async in the web host | `_tracker.Run` | 15 sites, one file |
+| 12 | button triples | `RenderButton` (until T3 makes them nodes) | 8 triples plus the toolbar loop |
+| 13 | six per-frame rect caches | the regions / arranged nodes the paint already registered | 6 fields |
+| 14 | two hand-built result lists | `RenderDropdownMenu` + `DropdownMenuState` | about 90 lines, and they gain scrolling |
+| 15 | `TruncateToWidth` | `TextFit.TrimToWidth` | 26 lines, 3 sites |
+| 16 | the pixel-sweep tests | arranged-node assertions (the tone test is the model) | 4 tests |
+
+**Every row in that table is a tianwen-only change on the pin we have**, except that rows 3, 4 and 13
+finish properly only once `OnPress` and `Content.Slider` exist (D1); until then the drag half stays.
+None of it waits for D1 to START, and none of it is the text box. That is the finding the user predicted: the principle is violated more
+widely than the example, and most of the fix is adoption, not engine work.
+
 ## The DIR.Lib 10 shape
 
 One principle: **a node DECLARES, the engine BEHAVES, a host BINDS the platform once.** Concretely, six
@@ -320,6 +426,28 @@ extends the selection while the button is down. Acceptance: a double-click on a 
 on all three surfaces, pinned by a test that presses twice on a field and reads `SelectionStart/End`.
 This is the user's exact complaint and needs no engine change.
 
+### T0b. The adoption sweep (tianwen only, parallelisable per file group)
+
+The ranked table above, top to bottom, on the current pin. Each row is mechanical once the first
+instance is done and reviewed, so it is sub-agent work, one agent per file group, each on its own branch
+with the existing tests as the guard: spacer-as-gap (`EquipmentTab.*`, then the rest); marks to `Icon`;
+`.BgHover` for the five hover sites, deleting the `_lastHovered*` bookkeeping; `.BgFocus` + `ListCursor`
+for the nine selected-row ternaries and the three hand-written Up/Down blocks; `Text.Trim` for the three
+`TextFit` calls; `WidthSample` for the two reserved-width helpers; `Anchored` for `OverlayPlacement`;
+`Dock` for the ten `PixelLayout` calls; `Builder.Box` for the 41 coloured spacers; the 15 web-host
+fire-and-forget calls onto the tracker that file already owns (plus the three untracked ones with a
+tracker in scope); `TruncateToWidth` deleted for `TextFit.TrimToWidth`; the two hand-built result lists
+onto `RenderDropdownMenu`; the four pixel-sweep tests rewritten to read arranged nodes; the
+`tianwen-fits` cursor predicate deleted in favour of the region's own `cursor:`; `GuiAppState.TextInputFocus`
+replaced by the window's `Ui.Focus` so there is one instance, not two. **Not** the viewer's
+chrome panes (row 2), which is T3, and not `LayoutDamage` (row 6), which needs the GUI host to consume a
+damage list it does not consume today and belongs with the router (D1/T1).
+
+Acceptance is the grep: `Spacer().WFixed(` and `Spacer().RowH(` as gaps at zero, `"+"` / `"-"` /
+`"\u2212"` / `"\u25b6"` in a `Builder.Text` at zero, `OverlayPlacement.cs` and `PixelDockStyle` gone,
+`.BgHover` and `.BgFocus` non-zero, `ListCursor` non-zero. Pixel-boring throughout; a baseline image
+test that moves is a regression, not a redesign.
+
 ### D1. DIR.Lib 9.2, additive: the router and the declarations
 
 `InputRouter`, `OnPress` + `DragCapture`, `.Shortcut`, `Focus` selects, `focusOnOpen`, `Content.Slider`,
@@ -384,6 +512,8 @@ viewer-layout-engine P1 to P4, unchanged, now on the seam D1 shipped.
 - **It does not make the engine draw the image, the sky map or a chart.** `Fill` remains the escape hatch
   for a surface the app paints; what changes is that a control is no longer one.
 - **It does not touch the viewer's pan/zoom gesture**, which is on `PanZoomController` already.
+- **It does not change `DesignScale.One` trees to scaled ones**; the six device-pixel trees are a separate
+  decision about what those panels should do on a high-DPI display.
 - **It does not add a `Collapsible` node.** A heading with `.Clickable` and a child included or not is already
   a tree; `DrawCollapsibleHeading` goes in T3 without any engine change.
 
@@ -397,4 +527,5 @@ viewer-layout-engine P1 to P4, unchanged, now on the seam D1 shipped.
 | the popover obligations | `ImageRendererBase.WhiteBalancePanel.cs`, `.TonePanel.cs`, `.Toolbar.cs` `OpenToolbarDropdown`, `.Input.cs` `HandleViewerMouseDown`, `ViewerState.OverlayOwnsPointer` |
 | the drag flags | `ViewerState.cs` (five), `ISelfDispatchingInputWidget.cs` |
 | the layout arithmetic | [viewer-layout-engine.md](viewer-layout-engine.md) |
+| the adoption sweep's targets | the two ranked tables above; `OverlayPlacement.cs`, `ImageRendererBase.Damage.cs`, `EquipmentTab.TruncateToWidth`, `PlannerTab.RenderSuggestionDropdown`, `SkyMapTab.BuildSearchResults`, `Planner.razor` |
 | the engine's rules for a consumer | `CLAUDE.md` "Layout DSL", "UI Primitives", `docs/architecture/widgets-and-controls.md` |

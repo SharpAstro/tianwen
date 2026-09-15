@@ -84,7 +84,7 @@ src/
 ├── TianWen.RemoteClient/          # Client for a remote node (TianWenNodeClient / EventStream / SessionMirror)
 ├── TianWen.AscomHost/             # Windows-only out-of-proc host for in-proc COM ASCOM drivers
 ├── TianWen.UI.Abstractions/       # Widget system, layout, state, shared types
-├── TianWen.UI.Shared/             # SDL→InputKey mapping, Vulkan FITS pipeline, VkSkyMap pipeline + tab
+├── TianWen.UI.Shared/             # Vulkan FITS pipeline, VkSkyMap pipeline + tab (the SDL→InputKey map is SdlVulkan.Renderer's `SdlInputMapping`)
 ├── TianWen.UI.Gui/                # N.I.N.A.-style integrated GUI (AOT-published → `tianwen-gui`)
 ├── TianWen.UI.FitsViewer/         # Standalone FITS viewer (AOT-published → `tianwen-fits`)
 ├── TianWen.UI.Web/                # WebAssembly showcase build (WebGl renderer)
