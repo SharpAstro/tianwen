@@ -1839,7 +1839,12 @@ before any layout work. The short form:
 
 Full reasoning: `docs/architecture/widgets-and-controls.md`
 (cursor) and `docs/plans/automatic-text-input.md` (field, focus,
-key routing). The rules that bite:
+key routing). **Where this is GOING is `docs/plans/dir-lib-10.md` (HIGH PRIORITY, 2026-09-15)**: the engine
+already ships the pointer rule (click places the caret, a second click selects the word, a drag extends;
+DIR.Lib 9.1 `TextInputInteraction.HandlePointer`) and every tianwen host still hand-rolls `clicks >= 2 ->
+SelectAll()` instead, a node cannot declare a shortcut, and a popover or a slider costs a dispatcher line
+per host. Until that lands, a new field, popover or drag follows the rules below; do not add a fourth
+key router. The rules that bite:
 
 - **The pointer's appearance is a property of a REGION, never a host predicate**: declare it beside the
   click (`RegisterClickable(..., cursor:)` / `.Clickable(hit, onClick, cursor)` / `.WithCursor(kind)`);

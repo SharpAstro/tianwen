@@ -5,18 +5,36 @@ Checks that only a real device or a real night can answer live in ONE place, ind
 
 ## High Priority
 
+- [ ] **DIR.Lib 10: a control is declared once, and the engine behaves** (user, 2026-09-15, high
+  priority: "the usage site of a text box should not have to write in that double click or Ctrl-A
+  while inside the control selects text ... declaring that the textbox is selectable via Ctrl-F via a
+  property/fluid build step should be enough"). Reviewed the same day: the engine HAS the pointer rule
+  (9.1) and no host calls it; the GUI, the web host and the TUI each carry their own key and press
+  router; four sites move focus past `TextInputFocus`; a node cannot declare a shortcut; a popover costs
+  five obligations and a dispatcher line; a drag is five flags on `ViewerState`. Plan, the seven
+  findings with file:line, the six engine pieces, the five breaking cuts and the phasing:
+  [docs/plans/dir-lib-10.md](docs/plans/dir-lib-10.md).
+  - [ ] **T0, no engine change:** pin DIR.Lib `9.1.*`, replace the three `clicks >= 2 -> SelectAll`
+    sites with `TextInputInteraction.HandlePointer` + `CaretIndexAt`, route the TUI's inline editor
+    through `TextInputInteraction.HandleKey`. A double-click selects the word on every surface.
+  - [ ] D1 (DIR.Lib 9.2, additive): `InputRouter`, `OnPress`, `.Shortcut`, `Popover`, `Content.Slider`,
+    `.Selectable()`, `.Disabled(reason)`, `Focus` selects its seed, `MeasureLayout`.
+  - [ ] T1 / T2: tianwen on the router; popovers and sliders as nodes; delete
+    `ISelfDispatchingInputWidget`, `OverlayOwnsPointer`, the five drag flags, the tab-shortcut switch.
+  - [ ] D2 (DIR.Lib 10.0): the five cuts, one wave, `MIGRATION.md`.
+
 - [ ] **The chrome should not be doing its own arithmetic** (user, 2026-09-15, high priority:
   "its not just cursor += h, but box width calc, non-DIR.Lib etc side text measurements, unions of all
-  possible values, etc, all should be handled by the engine"). Measured the same day: 47 `MeasureText`
-  call sites across 16 widget files, 31 hand-advanced cursor lines across 8, three width unions over
+  possible values, etc, all should be handled by the engine"). Measured the same day: 55 `MeasureText`
+  call sites across 16 widget files (recounted; the plan's first figure was 47), 31 hand-advanced cursor lines across 8, three width unions over
   every label a control can carry, and two test files that sweep a 900 x 700 surface asking `HitTest`
   at every point because a hand-laid-out panel gives a test no other way to find anything. Two bugs of
   that shape are already measured -- the toolbar's 26.4 px drift across four buttons over one wheel
   zoom, and the tone popover's first draft running its own heading out of its box. Phasing, the
   acceptance test per phase, and what is deliberately left alone:
   [docs/plans/viewer-layout-engine.md](docs/plans/viewer-layout-engine.md). `ImageRendererBase.TonePanel.cs`
-  (8.1) is the worked example. **P0 needs a DIR.Lib release** (a measure seam on `PixelWidgetBase`);
-  nothing else does.
+  (8.1) is the worked example. **P0 is now D1 of [docs/plans/dir-lib-10.md](docs/plans/dir-lib-10.md)** (the measure seam
+  rides the same DIR.Lib release as the router); nothing else here needs a sibling release.
 
 - [x] **Auto-crop: an interior drizzle hole is not a canvas ring** (2026-09-15, issue #250). Both
   halves of the rule the measurement over 79 masters found, closed together.
