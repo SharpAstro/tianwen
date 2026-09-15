@@ -157,11 +157,10 @@ namespace TianWen.UI.Abstractions
             var tb = _layout.Toolbar;
             FillRect(tb.X, tb.Y, tb.Width, tb.Height, ViewerTheme.ToolbarBg);
 
-            _toolbarButtonBounds.Clear();
-            // Cleared per frame and refilled from the SAME rect the button paints, so the tooltip can
-            // never point somewhere the button is not. No ViewerState field: the toolbar already
-            // derives `hovered` per button per frame (it drives the highlight), so the tooltip is a
-            // by-product of that, not new state to keep in sync.
+            // Refilled from the SAME rect the button paints (RegisterClickable's own list, read back via
+            // TryGetPaintedToolbarRect), so the tooltip can never point somewhere the button is not. No
+            // ViewerState field: the toolbar already derives `hovered` per button per frame (it drives
+            // the highlight), so the tooltip is a by-product of that, not new state to keep in sync.
             _hoveredTooltip = null;
 
             if (string.IsNullOrEmpty(FontPath))
@@ -495,11 +494,9 @@ namespace TianWen.UI.Abstractions
 
                 if (box.Enabled)
                 {
+                    // Only enabled buttons register, so a dropdown anchor (see OpenToolbarDropdown) or a
+                    // hover query only ever finds a button that can actually be clicked.
                     RegisterClickable(r.X, r.Y, r.Width, r.Height, new HitResult.ButtonHit(box.Action.ToString()));
-                    // Capture rect so left-click can anchor the dropdown beneath the
-                    // button (see OpenToolbarDropdown). Only enabled buttons can be
-                    // clicked, so we only need their bounds.
-                    _toolbarButtonBounds[box.Action] = r;
                 }
             }
         }
@@ -508,18 +505,30 @@ namespace TianWen.UI.Abstractions
         // Toolbar dropdowns: single shared overlay (only one open at a time)
         // -----------------------------------------------------------------------
 
-        /// <summary>Captured bounds of each enabled toolbar button this frame; 
-        /// used as the anchor when opening that button's dropdown.</summary>
-        private readonly Dictionary<ToolbarAction, RectF32> _toolbarButtonBounds = new();
-
         /// <summary>
-        /// The rect a toolbar button was PAINTED at this frame. Test seam (InternalsVisibleTo), because
-        /// alignment is the one thing a pixel assertion cannot check: a rendered bar cannot tell a
-        /// button that merely sits near the right edge from one that is pinned to it, nor prove that it
-        /// stayed put when a neighbour relabelled.
+        /// The rect a toolbar button was PAINTED at this frame -- read back from what
+        /// <see cref="PaintToolbarButtons"/> already registered via <c>RegisterClickable</c>, rather than
+        /// a private dictionary kept in step with it by hand (the exact shape
+        /// <see cref="LayOutToolbarButtons"/>'s own remarks warn against). Also a test seam
+        /// (InternalsVisibleTo), because alignment is the one thing a pixel assertion cannot check: a
+        /// rendered bar cannot tell a button that merely sits near the right edge from one that is pinned
+        /// to it, nor prove that it stayed put when a neighbour relabelled.
         /// </summary>
         internal bool TryGetPaintedToolbarRect(ToolbarAction action, out RectF32 rect)
-            => _toolbarButtonBounds.TryGetValue(action, out rect);
+        {
+            var name = action.ToString();
+            foreach (var region in RegisteredRegions)
+            {
+                if (region.Result is HitResult.ButtonHit { Action: var a } && a == name)
+                {
+                    rect = new RectF32(region.X, region.Y, region.Width, region.Height);
+                    return true;
+                }
+            }
+
+            rect = default;
+            return false;
+        }
 
         /// <summary>Every button placed this frame, in layout order. Test seam.</summary>
         internal IEnumerable<(ToolbarAction Action, RectF32 Rect)> PaintedToolbarButtons
@@ -685,7 +694,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public bool OpenToolbarDropdown(ViewerState state, ToolbarAction action)
         {
-            if (!_toolbarButtonBounds.TryGetValue(action, out var bounds))
+            if (!TryGetPaintedToolbarRect(action, out var bounds))
             {
                 return false;
             }
@@ -2229,19 +2238,23 @@ namespace TianWen.UI.Abstractions
         /// The enabled toolbar button under a point, or null.
         /// </summary>
         /// <remarks>
-        /// Answers from <see cref="_toolbarButtonBounds"/> -- the rects the buttons were PAINTED at this
-        /// frame -- so it cannot disagree with what is on screen. It used to re-run the whole sizing
+        /// Answers from the toolbar's own registered regions -- the rects the buttons were PAINTED at
+        /// this frame -- so it cannot disagree with what is on screen. It used to re-run the whole sizing
         /// walk (label, text width, swatch, group spacing) as a second implementation, which is the
         /// draw-vs-hit split the widget taxonomy's rule 3 forbids; right-aligning a button would have
         /// needed the alignment mirrored there too. Only enabled buttons are registered, so an empty
         /// answer covers "over a disabled button" and "over no button" alike -- both mean nothing to
-        /// hover.
+        /// hover. Filtered to a <see cref="HitResult.ButtonHit"/> whose <c>Action</c> string actually
+        /// names a <see cref="ToolbarAction"/>, since the SAME <c>ButtonHit</c> shape is registered for a
+        /// wavelet/dropdown/backdrop button too.
         /// </remarks>
         public ToolbarAction? HitTestToolbar(float screenX, float screenY)
         {
-            foreach (var (action, bounds) in _toolbarButtonBounds)
+            foreach (var region in RegisteredRegions)
             {
-                if (bounds.Contains(screenX, screenY))
+                if (region.Result is HitResult.ButtonHit { Action: var name }
+                    && Enum.TryParse<ToolbarAction>(name, out var action)
+                    && new RectF32(region.X, region.Y, region.Width, region.Height).Contains(screenX, screenY))
                 {
                     return action;
                 }
