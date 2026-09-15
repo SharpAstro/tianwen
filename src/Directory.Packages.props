@@ -76,7 +76,7 @@
 
     <PackageVersion Include="SharpAstro.Codecs" Version="$(SharpAstroCodecsVersion)" />
 
-    <PackageVersion Include="Console.Lib" Version="4.33.*" />
+    <PackageVersion Include="Console.Lib" Version="4.34.*" />
 
     <PackageVersion Include="SdlVulkan.Renderer" Version="7.37.*" />
 
