@@ -21,7 +21,11 @@ public sealed class ViewerState
     /// reader polling <see cref="PopoverState.IsOpen"/> would have to remember last frame's value to
     /// notice a close.
     /// </summary>
-    public ViewerState() => TonePopover.Closed += () => NeedsRedraw = true;
+    public ViewerState()
+    {
+        TonePopover.Closed += () => NeedsRedraw = true;
+        WhiteBalancePopover.Closed += () => NeedsRedraw = true;
+    }
 
     public StretchMode StretchMode { get; set; } = ViewerActions.DefaultStretchMode;
     public StretchParameters StretchParameters { get; set; } = StretchParameters.Default;
@@ -37,14 +41,12 @@ public sealed class ViewerState
     public bool InfoPanelStatisticsCollapsed { get; set; } = true;
 
     /// <summary>
-    /// Whether the white-balance popover (the R / G / B sliders, Auto and Reset, under the toolbar's
-    /// <see cref="ToolbarAction.WhiteBalance"/> button) is open. It behaves as a menu: painted last so
-    /// its regions win, a full-window backdrop closes it on a press anywhere else, Escape closes it
-    /// through the keyboard claimant, and while it is open it owns the pointer
-    /// (<see cref="OverlayOwnsPointer"/>). Closed, it registers no slider band, so nothing under the
-    /// pointer answers a drag it cannot see.
+    /// The white-balance popover (the R / G / B sliders, Auto and Reset, under the toolbar's
+    /// <see cref="ToolbarAction.WhiteBalance"/> button). Behaves as a menu on exactly the terms
+    /// <see cref="TonePopover"/> does, and for the same reason: both are
+    /// <see cref="Layout.Builder.Popover"/> nodes.
     /// </summary>
-    public bool WhiteBalancePanelOpen { get; set; }
+    public PopoverState WhiteBalancePopover { get; } = new();
 
     /// <summary>
     /// The tone popover (the curves boost, the highlight soft clip, and the display HDR that is
@@ -218,11 +220,6 @@ public sealed class ViewerState
     /// </summary>
     public (float R, float G, float B)? ManualWhiteBalanceBeforeCalibration { get; set; }
 
-    /// <summary>Channel (0=R, 1=G, 2=B) of the WB slider currently being dragged, or -1 when idle. Mirrors
-    /// the <see cref="IsScrubbing"/> transport-drag pattern: a press begins the drag, mouse-move tracks it,
-    /// release clears it.</summary>
-    public int WhiteBalanceDragChannel { get; set; } = -1;
-
     /// <summary>Whether detected star circles are visible.</summary>
     public bool ShowStarOverlay { get; set; }
 
@@ -292,7 +289,7 @@ public sealed class ViewerState
     /// </para>
     /// </summary>
     public bool OverlayOwnsPointer => ToolbarDropdown.IsOpen
-        || WhiteBalancePanelOpen
+        || WhiteBalancePopover.IsOpen
         || TonePopover.IsOpen
         || (ShowSkyBackdrop && SkyLayerPalette is { IsEngaged: true });
 

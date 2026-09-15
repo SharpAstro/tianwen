@@ -884,12 +884,6 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
-            if (hit is WhiteBalanceSliderHit { Channel: var wbChannel })
-            {
-                BeginWhiteBalanceDragAt(wbChannel, px);
-                return true;
-            }
-
             if (hit is WaveletSliderHit { Band: var wlBand })
             {
                 BeginWaveletDragAt(wlBand, px);
@@ -1057,13 +1051,6 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
-            // White-balance slider drag: continuously re-derive the WB multiplier from cursor-X.
-            if (state.WhiteBalanceDragChannel >= 0)
-            {
-                UpdateWhiteBalanceDrag(px);
-                return true;
-            }
-
             // Wavelet-layer slider drag: continuously re-derive the per-layer gain from cursor-X.
             if (state.WaveletDragBand >= 0)
             {
@@ -1165,11 +1152,6 @@ namespace TianWen.UI.Abstractions
                         ? (released.X, released.Y)
                         : state.MouseScreenPosition;
                     dragging.Release(new PointerMove(rx, ry, _regionDragButton, _regionDragModifiers));
-                    state.NeedsRedraw = true;
-                }
-                if (state.WhiteBalanceDragChannel >= 0)
-                {
-                    state.WhiteBalanceDragChannel = -1;
                     state.NeedsRedraw = true;
                 }
                 if (state.IsScrubbing)

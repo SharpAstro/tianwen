@@ -867,12 +867,6 @@ bool HandleMouseDown(InputEvent.MouseDown down)
             return true;
         }
 
-        if (hit is WhiteBalanceSliderHit { Channel: var wbChannel })
-        {
-            imageRenderer.BeginWhiteBalanceDragAt(wbChannel, px);
-            return true;
-        }
-
         if (hit is WaveletSliderHit { Band: var waveletBand })
         {
             imageRenderer.BeginWaveletDragAt(waveletBand, px);

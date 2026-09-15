@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -75,6 +75,9 @@ namespace TianWen.Lib.Tests
             /// place for an assumption to hide -- which is exactly what went wrong with the panel width.
             /// </summary>
             public (float W, float H) WindowSize => (Width, Height);
+
+            /// <summary>The R channel's dial, so a region can be recognised by the state it points at.</summary>
+            public SliderState RedSlider => WhiteBalanceSliderState(0);
         }
 
         private static async Task<(PopoverViewer Viewer, ViewerState State, AstroImageDocument Document, Func<int> Exits)>
@@ -132,13 +135,13 @@ namespace TianWen.Lib.Tests
         /// wherever, is exactly what this reports. The 800-wide case below still exercises the same
         /// clamp, now by asserting on the regions it produces rather than by out-scanning it.
         /// </remarks>
-        private static (Dictionary<string, (float X, float Y)> Buttons, bool Sliders, float? RedTrackRight)
+        private static (Dictionary<string, (float X, float Y)> Buttons, bool Sliders, RectF32? RedTrack)
             HitsBelowTheBar(PopoverViewer viewer)
         {
             var button = Button(viewer);
             var buttons = new Dictionary<string, (float X, float Y)>();
             var sliders = false;
-            float? redTrackRight = null;
+            RectF32? redTrack = null;
             foreach (var region in viewer.GetRegisteredRegions())
             {
                 // Below the toolbar bar only, exactly as the old sweep's y range started just past it --
@@ -155,20 +158,23 @@ namespace TianWen.Lib.Tests
                         // that happened to land there at 8px granularity.
                         buttons.TryAdd(hit.Action, (region.X + region.Width / 2f, region.Y + region.Height / 2f));
                         break;
-                    case WhiteBalanceSliderHit { Channel: 0 }:
+                    // A declared slider's hit carries the caller-owned state the leaf points AT, so
+                    // "which channel" is identity rather than an index the panel and this test both
+                    // have to spell the same way.
+                    case HitResult.SliderStateHit slider:
                         sliders = true;
-                        // The far end of the track, not its middle: the drag tests need a point whose
-                        // multiplier is unmistakably not neutral, and the middle of a log-mapped track
-                        // is exactly 1.00.
-                        var right = region.X + region.Width;
-                        if (right > (redTrackRight ?? float.MinValue)) { redTrackRight = right; }
-                        break;
-                    case WhiteBalanceSliderHit:
-                        sliders = true;
+                        if (ReferenceEquals(slider.State, viewer.RedSlider))
+                        {
+                            // The whole rect, because a drag now goes through the real press path and
+                            // needs a y as well as an x. The tests aim at the far END of the track:
+                            // the middle of a log-mapped track is exactly 1.00, which would prove
+                            // nothing about a drag having landed.
+                            redTrack = new RectF32(region.X, region.Y, region.Width, region.Height);
+                        }
                         break;
                 }
             }
-            return (buttons, sliders, redTrackRight);
+            return (buttons, sliders, redTrack);
         }
 
         [Fact]
@@ -179,7 +185,7 @@ namespace TianWen.Lib.Tests
             var (viewer, state, _, _) = await NewViewerAsync(renderer, ct);
 
             Button(viewer).Width.ShouldBeGreaterThan(0f);
-            state.WhiteBalancePanelOpen.ShouldBeFalse("closed until pressed");
+            state.WhiteBalancePopover.IsOpen.ShouldBeFalse("closed until pressed");
 
             var (buttons, sliders, _) = HitsBelowTheBar(viewer);
             buttons.ShouldNotContainKey("AutoWhiteBalance", "nothing of the white balance is registered while the popover is closed");
@@ -210,7 +216,7 @@ namespace TianWen.Lib.Tests
 
             var button = Button(viewer);
             Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));
-            state.WhiteBalancePanelOpen.ShouldBeTrue("the button opens it");
+            state.WhiteBalancePopover.IsOpen.ShouldBeTrue("the button opens it");
             state.OverlayOwnsPointer.ShouldBeTrue("an open popover owns the pointer, like a dropdown");
 
             viewer.Render(document, state);
@@ -318,7 +324,7 @@ namespace TianWen.Lib.Tests
             var (rx, ry) = buttons["ResetWhiteBalance"];
             Press(viewer, rx, ry);
 
-            state.WhiteBalancePanelOpen.ShouldBeTrue("a press on the dim button does not fall through and close the panel");
+            state.WhiteBalancePopover.IsOpen.ShouldBeTrue("a press on the dim button does not fall through and close the panel");
             state.ManualWhiteBalanceBeforeCalibration.ShouldBe((1.2f, 1f, 1f),
                 "the parked triple survives, so switching the calibration off still restores it");
 
@@ -356,7 +362,7 @@ namespace TianWen.Lib.Tests
             var (cx, cy) = buttons["ToggleColorCalibration"];
             Press(viewer, cx, cy);
 
-            state.WhiteBalancePanelOpen.ShouldBeTrue("the press does not fall through to the backdrop");
+            state.WhiteBalancePopover.IsOpen.ShouldBeTrue("the press does not fall through to the backdrop");
             state.ColorCalibrationEnabled.ShouldBe(wasEnabled, "and starts no second fit, nor toggles mid-fit");
         }
 
@@ -380,11 +386,14 @@ namespace TianWen.Lib.Tests
 
             // Out at the right end of the R track, found by looking rather than by offsetting from an
             // assumed panel edge -- the assumption this suite used to make and that a wider face broke.
-            var (_, _, redTrackRight) = HitsBelowTheBar(viewer);
-            redTrackRight.ShouldNotBeNull("the R track is registered while the popover is open");
-            var dragX = redTrackRight.Value;
-            viewer.BeginWhiteBalanceDragAt(0, dragX);
-            viewer.HandleInput(new InputEvent.MouseUp(dragX, button.Bottom + 40f));
+            var (_, _, redTrack) = HitsBelowTheBar(viewer);
+            redTrack.ShouldNotBeNull("the R track is registered while the popover is open");
+            // Through the real press path: a declared slider arms its own drag, so there is no
+            // BeginWhiteBalanceDragAt to call and the press itself is what moves the value.
+            var dragX = redTrack.Value.Right - 1f;
+            var dragY = redTrack.Value.Y + (redTrack.Value.Height / 2f);
+            viewer.HandleInput(new InputEvent.MouseDown(dragX, dragY));
+            viewer.HandleInput(new InputEvent.MouseUp(dragX, dragY));
             state.ManualWhiteBalance.R.ShouldNotBe(1f, "the track took the drag");
             viewer.IsToolbarButtonActiveForTest(ToolbarAction.WhiteBalance, state)
                 .ShouldBeTrue("a white balance in force lights the button");
@@ -413,14 +422,15 @@ namespace TianWen.Lib.Tests
             // Where the R track is WHILE IT IS OPEN, so the drag below is aimed at the exact point
             // that worked a moment ago rather than at a guess -- which is what makes the closed case
             // evidence of anything.
-            var (_, openSliders, redTrackRight) = HitsBelowTheBar(viewer);
+            var (_, openSliders, redTrack) = HitsBelowTheBar(viewer);
             openSliders.ShouldBeTrue("the track is there to begin with");
-            redTrackRight.ShouldNotBeNull();
-            var dragX = redTrackRight.Value;
+            redTrack.ShouldNotBeNull();
+            var dragX = redTrack.Value.Right - 1f;
+            var dragY = redTrack.Value.Y + (redTrack.Value.Height / 2f);
 
             viewer.HandleInput(new InputEvent.KeyDown(InputKey.Escape));
 
-            state.WhiteBalancePanelOpen.ShouldBeFalse("Escape closes it");
+            state.WhiteBalancePopover.IsOpen.ShouldBeFalse("Escape closes it");
             exits().ShouldBe(0, "and nothing asked to exit");
 
             // Closed, it registers nothing and a drag where the R track was does nothing.
@@ -428,7 +438,8 @@ namespace TianWen.Lib.Tests
             var (_, sliders, _) = HitsBelowTheBar(viewer);
             sliders.ShouldBeFalse();
             var before = state.ManualWhiteBalance;
-            viewer.BeginWhiteBalanceDragAt(0, dragX);
+            viewer.HandleInput(new InputEvent.MouseDown(dragX, dragY));
+            viewer.HandleInput(new InputEvent.MouseUp(dragX, dragY));
             state.ManualWhiteBalance.ShouldBe(before, "a closed popover has no track to drag");
         }
 
@@ -445,11 +456,11 @@ namespace TianWen.Lib.Tests
 
             Press(viewer, onButton.X, onButton.Y);
             viewer.Render(document, state);
-            state.WhiteBalancePanelOpen.ShouldBeTrue();
+            state.WhiteBalancePopover.IsOpen.ShouldBeTrue();
 
             var area = viewer.ImageArea;
             Press(viewer, area.X + (area.Width * 0.8f), area.Y + (area.Height * 0.8f));
-            state.WhiteBalancePanelOpen.ShouldBeFalse("a press on the picture closes it");
+            state.WhiteBalancePopover.IsOpen.ShouldBeFalse("a press on the picture closes it");
 
             // A frame between presses, as there always is: the regions a press lands on are the
             // ones the last paint registered, and the closed popover has to paint as closed before
@@ -457,10 +468,10 @@ namespace TianWen.Lib.Tests
             viewer.Render(document, state);
             Press(viewer, onButton.X, onButton.Y);
             viewer.Render(document, state);
-            state.WhiteBalancePanelOpen.ShouldBeTrue();
+            state.WhiteBalancePopover.IsOpen.ShouldBeTrue();
 
             Press(viewer, onButton.X, onButton.Y);
-            state.WhiteBalancePanelOpen.ShouldBeFalse("a second press on the button closes what the first opened");
+            state.WhiteBalancePopover.IsOpen.ShouldBeFalse("a second press on the button closes what the first opened");
         }
     }
 }
