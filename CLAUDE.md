@@ -1453,6 +1453,18 @@ operation), and take that view ONCE per operation or row, never per sample: `Sub
 `Lanczos3Value` have span-plus-width overloads for exactly that, the `float[,]` ones being wrappers for
 a handful of positions. A stream loop gains nothing from any of this and need not be touched.
 
+**And PRICE A LOOP'S SHARES before optimising the visible one.** Decomposing `Lanczos3Value` on x64
+put the addressing that pass optimised at 5 percent and the twelve `MathF.Sin` calls per destination
+pixel at 72, both flat across a fourfold working set (so not a cache effect). The six taps of an axis
+share one fraction, which makes five of every six sines redundant: `Image.Lanczos3Weights` evaluates
+them through one angle addition and runs the whole kernel at **1.78 to 1.80x**, twelve times what the
+`[y, x]` pass bought here, while landing **ten times NEARER the window** than the form it replaced.
+**Compute its weights in double and form the tap offset as `(double)f + 2 - i`**: `f + 2 - i` with an
+int literal is float arithmetic that widens afterwards, and an exact numerator over a rounded
+denominator is a 2.4e-3 weight error at the nearest tap. **Judge any change here against a DOUBLE
+reference, never against the previous form** (`Lanczos3WeightTests`), since a disagreement with it
+cannot say which side moved.
+
 **Test fixtures must not share `Image` instances across tests.** `SharedTestData` caches the
 extracted temp file path, not an `Image` -- two parallel collections sharing one cached `Image`
 through `AdoptImageAsync` produced a "1 ms / 0 stars" `FindStarsAsync` flake.

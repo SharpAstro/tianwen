@@ -209,27 +209,42 @@ The Surface's own fall from 26 percent at 1024 to 9 at 2048 IS size-dependent an
 with a cache effect there; this box's flat 5 to 6 percent is a different situation with the same
 symptom, and reading one as the other is what produced the wrong sentence.
 
-**The 72 percent is reducible, and the lever is algebra rather than a table (measured, NOT yet
-implemented).** The six taps of one axis sit at `t_i = f + 2 - i` for one fraction `f`, so their
-sines are not six independent values: `sin(PI*t_i)` is `(-1)^i sin(PI*f)`, and `sin(PI*t_i/3)` is one
-angle addition away from `sin` and `cos` of `PI*f/3`, whose per-tap coefficients are constants. One
-axis therefore needs a `Math.Sin` and a `Math.SinCos` where the direct form makes six `MathF.Sin`
-calls. A prototype of exactly that (scratch, x64, same harness) runs the whole kernel at **1.86 to
-1.89x** and is **ten times MORE accurate than the shipped form** against a double reference, worst
-weight error 3.0e-8 against 2.9e-7, because it evaluates from the fraction instead of from a
-float-rounded tap offset. No approximation and no lookup table, so the clamp measurements and
-`WarpInterpolationTests` stand to be re-run rather than re-derived.
+**The 72 percent was reducible, and the lever was algebra rather than a table (SHIPPED,
+`Image.Lanczos3Weights`).** The six taps of one axis sit at `t_i = f + 2 - i` for one fraction `f`, so
+their sines are not six independent values: `sin(PI*t_i)` is `(-1)^i sin(PI*f)`, and `sin(PI*t_i/3)`
+is one angle addition away from `sin` and `cos` of `PI*f/3`, whose per-tap coefficients are constants.
+One axis therefore needs a `Math.Sin` and a `Math.SinCos` where the direct form made six `MathF.Sin`
+calls. No approximation and no lookup table, so this is the same kernel rather than a cheaper one.
 
-**Two traps found while proving it, both of which made the prototype look wrong when it was not.**
+| `PlaneAccessBenchmarks.Lanczos3`, x64, JIT, Release | before | after |
+|---|---|---|
+| 1024 sq | 218.2 ms | **122.4 ms** (1.78x) |
+| 2048 sq | 877.9 ms | **488.1 ms** (1.80x) |
+
+Two things worth reading off that. It is **larger than the whole `[y, x]` pass bought on this box**,
+by a factor of about twelve, which is what a decomposition is for: the 5 percent was measured and
+optimised first because it was visible, and the 72 percent was not looked at until the shares were
+priced. And it puts x64 at 122.4 ms where arm64's post-pass figure was 120.8, so a row that was 1.8x
+apart between the two boxes is now level, which is itself a check that the win is the arithmetic and
+not something local.
+
+**It is also ten times NEARER the window than the form it replaced**, worst weight error 3.0e-8
+against 2.9e-7 over 10,001 fractions, because it evaluates from the fraction instead of from a
+float-rounded tap offset. `Lanczos3WeightTests` pins that as a DIRECTION (`TheIdentityIsNearer...`)
+rather than a bound, so if a later edit turns the speed into a trade the test says so.
+
+**Two traps found while proving it, both of which made the working version look wrong when it was not.**
 The reduction has to be done in the tap offset's own arithmetic: `double t = f + 2 - i` with `f` a
 float and int literals is FLOAT arithmetic that widens afterwards, so `fl(f + 2)` rounds by up to
 half an ulp of 3, and a numerator taken from the exact fraction against a denominator taken from the
-rounded offset reads as a 2.4e-3 weight error at the tap nearest the sample. The shipped kernel is
-immune to this precisely because it uses one rounded offset in both halves, where the error cancels,
-which is also why it beats a careless "more exact" rewrite. And the comparison that settles it is
-against a DOUBLE reference, never against the shipped form: judged against the shipped form the
-prototype and the bug are indistinguishable, and the first two diagnoses written down were both wrong
-because they were reasoned from a disagreement rather than from a truth.
+rounded offset reads as a 2.4e-3 weight error at the tap nearest the sample. The OLD kernel was immune
+to this precisely because it used one rounded offset in both halves, where the error cancels, which is
+also why it beat a careless "more exact" rewrite. And the comparison that settles it is against a
+DOUBLE reference, never against the old form: judged against the old form a correct identity and a
+wrong one are indistinguishable, since a disagreement does not say which side moved. The first two
+diagnoses written down were both wrong for exactly that reason, and a reference settled it in one run.
+That is why `Lanczos3WeightTests` compares against a reference it computes itself and keeps
+`Image.Lanczos3` only as the definition to judge, not as the expected value.
 
 **Not re-measured on x64**: the two `Accumulate_*` controls and all three debayer rows. The controls
 are worth having and would make the x64 rows attributable the way the arm64 ones are; the debayer

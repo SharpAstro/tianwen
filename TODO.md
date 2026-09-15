@@ -396,17 +396,11 @@ Checks that only a real device or a real night can answer live in ONE place, ind
 
 ## Next Up
 
-- [ ] **`Lanczos3Value`'s weights are 72 percent of the default warp kernel, and five of every six
-  sines are algebraically redundant.** Measured on x64 at two working-set sizes
-  (`docs/architecture/image-pipeline.md`, "How a plane is READ"): the addressing this repo just
-  optimised is 5 to 6 percent of that loop, the twelve `MathF.Sin` calls per destination pixel are
-  72, and both shares are flat across 4 MB and 16 MB, so it is not a cache effect. The six taps of an
-  axis share one fraction, so `sin(PI*t_i)` is `(-1)^i sin(PI*f)` and `sin(PI*t_i/3)` is an angle
-  addition off `sin`/`cos` of `PI*f/3`: one `Math.Sin` plus one `Math.SinCos` per axis instead of
-  six sines. A scratch prototype runs **1.86 to 1.89x** and is **ten times more accurate** than the
-  shipped form against a double reference. Exact algebra, no lookup table. Do the tap offset in
-  double (`(double)f + 2 - i`, see the doc's trap note) and re-run `WarpInterpolationTests` plus the
-  Lanczos clamp measurements, which the change should move only in the last ulp.
+- [x] **`Lanczos3Value`'s weights were 72 percent of the default warp kernel, and five of every six
+  sines were algebraically redundant.** DONE 2026-09-15, `Image.Lanczos3Weights`: **1.78x at 1024 sq
+  and 1.80x at 2048**, and ten times nearer the window than the form it replaced. Twelve times the
+  whole `[y, x]` pass bought on this box, which is the argument for pricing a loop's shares before
+  optimising the visible one. `docs/architecture/image-pipeline.md`, "How a plane is READ".
 - [ ] **Plane loops still spelled `[y, x]`, one measured commit each.** The 2026-09-15 pass
   (`docs/architecture/image-pipeline.md`, "How a plane is READ") settled that the storage stays
   `float[,]` and the LOOP spelling is the lever (on a stencil 2.4x arm64 / 2.1x x64; on a gather 15

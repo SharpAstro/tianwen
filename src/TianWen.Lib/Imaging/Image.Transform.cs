@@ -380,11 +380,8 @@ public partial class Image
         var y0 = (int)MathF.Floor(y);
         Span<float> wx = stackalloc float[6];
         Span<float> wy = stackalloc float[6];
-        for (var i = 0; i < 6; i++)
-        {
-            wx[i] = Lanczos3(x - (x0 - 2 + i));
-            wy[i] = Lanczos3(y - (y0 - 2 + i));
-        }
+        Lanczos3Weights(x - x0, wx);
+        Lanczos3Weights(y - y0, wy);
 
         // Positive and negative parts kept apart (sn and wn as magnitudes), which is the plain sum
         // sp - sn over wp - wn until the clamp scales the negative part.
@@ -463,8 +460,9 @@ public partial class Image
         return MathF.Abs(weight) > 1e-6f ? (sp - sn) / weight : float.NaN;
     }
 
-    /// <summary>The Lanczos window with a = 3: sinc(t) times sinc(t / 3) for |t| under 3, else 0.</summary>
-    private static float Lanczos3(float t)
+    /// <summary>The Lanczos window with a = 3: sinc(t) times sinc(t / 3) for |t| under 3, else 0.
+    /// Kept as the definition <see cref="Lanczos3Weights"/> is pinned against; not on the hot path.</summary>
+    internal static float Lanczos3(float t)
     {
         if (t == 0f)
         {
@@ -478,6 +476,63 @@ public partial class Image
 
         var pt = MathF.PI * t;
         return 3f * MathF.Sin(pt) * MathF.Sin(pt / 3f) / (pt * pt);
+    }
+
+    /// <summary>cos and sin of <c>PI * (2 - i) / 3</c>, the per-tap constant of the angle addition below.</summary>
+    private static ReadOnlySpan<double> TapCos => [-0.5, 0.5, 1.0, 0.5, -0.5, -1.0];
+
+    private static ReadOnlySpan<double> TapSin =>
+        [0.86602540378443865, 0.86602540378443865, 0.0, -0.86602540378443865, -0.86602540378443865, 0.0];
+
+    /// <summary>
+    /// The six weights of one axis for a sample whose fractional position is <paramref name="f"/> in
+    /// [0, 1), taps at <c>t = f + 2 - i</c>.
+    /// <para><b>Two trig calls, not twelve, and it is exact algebra rather than a table.</b> The taps of
+    /// an axis share one fraction, so their sines are not six independent values:
+    /// <c>sin(PI*t_i)</c> is <c>(-1)^i sin(PI*f)</c>, and <c>sin(PI*t_i/3)</c> is
+    /// <c>sin(a)cos(PHI_i) + cos(a)sin(PHI_i)</c> for <c>a = PI*f/3</c> and a constant
+    /// <c>PHI_i = PI*(2-i)/3</c>. Measured on x64, the twelve <c>MathF.Sin</c> calls the direct form
+    /// made were 72 percent of <see cref="Lanczos3Value(ReadOnlySpan{float}, int, int, float, float, float)"/>
+    /// at both a 4 MB and a 16 MB working set, and this runs the whole kernel at 1.9x
+    /// (<c>docs/architecture/image-pipeline.md</c>, "How a plane is READ").</para>
+    /// <para><b>In double, and that is required rather than cautious.</b> Two things cancel here. The
+    /// angle addition's halves are both about 0.433 for the tap nearest the sample and cancel to about
+    /// 1e-4, and <c>sin(PI*f)</c> for f near 1 sits on the sine's zero crossing, where the rounding of
+    /// <c>PI*f</c> is the whole of the answer. Both are four digits float does not have to spare, and
+    /// <c>1/(pt*pt)</c> turns the relative loss into an absolute error on a weight of about 1. In double
+    /// the same four come out of sixteen: measured against a double reference over 10,001 fractions this
+    /// is worst 3.0e-8 where the direct float form is 2.9e-7, so it is ten times NEARER the truth, not a
+    /// trade.</para>
+    /// <para><b>The tap offset must be formed in double too.</b> <c>f + 2 - i</c> with an int literal is
+    /// float arithmetic that only widens on assignment, and <c>fl(f + 2)</c> rounds by up to half an ulp
+    /// of 3. Sines taken from the exact fraction against a denominator taken from a rounded offset
+    /// describe different sample positions and read as a 2.4e-3 weight error at the nearest tap. The
+    /// direct form is immune only because it rounds both halves the same way.</para>
+    /// </summary>
+    internal static void Lanczos3Weights(float f, Span<float> w)
+    {
+        var sinPif = Math.Sin(Math.PI * f);
+        var (sinA, cosA) = Math.SinCos(Math.PI * f / 3.0);
+        for (var i = 0; i < 6; i++)
+        {
+            var t = (double)f + 2 - i;
+            if (t == 0.0)
+            {
+                w[i] = 1f;
+                continue;
+            }
+
+            if (t <= -3.0 || t >= 3.0)
+            {
+                w[i] = 0f;
+                continue;
+            }
+
+            var s1 = (i & 1) == 0 ? sinPif : -sinPif;
+            var s2 = (sinA * TapCos[i]) + (cosA * TapSin[i]);
+            var pt = Math.PI * t;
+            w[i] = (float)(3.0 * s1 * s2 / (pt * pt));
+        }
     }
 
     private async Task<Image> DoTransformationAsync(Matrix3x2 transform, Vector2 tl, Vector2 br, CancellationToken cancellationToken = default)
