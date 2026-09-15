@@ -220,6 +220,25 @@ Filed 2026-09-13, out of the Explorer-thumbnail work (`fix(thumbnails): read not
 
 ## Imaging
 
+- [ ] **The bake's masters are in two different unit scales, and the split is not a clean one.**
+  Measured 2026-09-16 over all 79 of `2026-09-12-clamped`, by peak value: **53 are in unit scale** (max
+  0.80 to 1.07, so divided by a full-scale figure their own peak slightly exceeds) and **26 are in raw
+  ADU** (max 48,912 upward). Every `Float16Staged` master is raw, which would at least be a convention;
+  `BayerDrizzle` is split **53 unit against 7 raw**, which is not. Nothing downstream should care, since
+  both the exporter's `ToUnitRange` and `Image.UnitScaleDivisor` divide before use, but a scale that
+  depends on the master rather than on the strategy means **any absolute threshold read off a master is
+  reading a different quantity on a quarter of the bake**, and it is the kind of difference that makes
+  two measurements silently incomparable (see the 2026-08-27 note in CLAUDE.md about normalised levels
+  quoted in the old units). Worth deciding what the convention IS before more is measured on top of it.
+- [ ] **One master has pixels five orders of magnitude above its sky, and the exporter's guard cannot see
+  it.** `Eta Car SII NB / QHYCCD / 2024-03-02` (`Float16Staged`, 36 frames, 240 s, SII) has a sky median
+  of 212.8 and runs p99 745, p99.9 32,963, **p99.99 2.72e7, max 2.46e8**. About a ten-thousandth of the
+  frame, thousands of pixels, sits six orders over sky; stars saturate, so these are not stars. A
+  calibration division by a near-zero flat pixel would do it, and so would anything else that divides.
+  **`DatasetTileExporter.RequireFiniteRange` is finiteness only**, and 2.46e8 is perfectly finite, so the
+  guard written precisely to stop a poisoned master from exporting a session of near-zero tiles does not
+  fire here: `ToUnitRange` divides the whole frame by 2.46e8 and the sky lands at 8.7e-7. Whether the MTF
+  then rescues it is unmeasured. The guard wants a second clause about the RATIO, not just the value.
 - [ ] **A saturated core is not an outlier, and the rejection is treating it as one.** The biggest
   "drizzle hole" in the bake is not a coverage gap: it is the blown Trapezium. On
   `SVBONY SV605CC / L-Ultimate 3nm / Great Orion / 2025-10-14` the interior NaN is 1,856 px of which
