@@ -273,12 +273,26 @@ Filed 2026-09-13, out of the Explorer-thumbnail work (`fix(thumbnails): read not
   around canvas columns 6 to 9 once registration has placed and dithered them, which is exactly where the
   master's bright band is. Nothing after calibration amplifies anything: `MeanCombiner` is `sum / cnt`
   over an integer count, so it cannot raise a value at all.
+  **The exact line is `Calibrator.FlatEpsilon`, and the arithmetic closes to the last digit.** The
+  formula is `max(light - bias - dark + pedestal, 0) / max(flat, epsilon)` with `FlatEpsilon = 1e-6f`,
+  documented as preventing "inf/NaN on dead sensor pixels". A flat pixel of exactly 0 is therefore
+  clamped to 1e-6 and the light is **multiplied by a million**: 245,827,712 x 1e-6 = **245.83**, which is
+  an ordinary bias-subtracted ADU value in an overscan column. The master's peak is not an accumulation
+  of anything, it is one light pixel divided by the epsilon.
+  **That clamp is the bug, not the guard.** It does not prevent the division by zero, it converts an
+  infinity into a finite number a million times too big, which is strictly worse: an infinity or a NaN
+  says "no calibration information here" and every consumer already knows what to do with it, while
+  245,827,712 is indistinguishable from data and travels through warp, staging, the mean and the master
+  into everything downstream. A dead pixel HAS no flat value; the honest output is absence.
   **Two fixes, and they are not alternatives.** Upstream, crop QHY to its effective area on import as
-  Canon already is, so shielded columns never enter a light OR a flat. At the division itself, **a flat
-  pixel far below the flat's own median is not a divisor**: it is a pixel with no calibration, and the
-  honest output is absence rather than a number six orders out. The second is worth having whatever
-  happens to the first, because nothing about it is specific to this sensor or to overscan. Any dust
-  mote, any deep vignette corner and any dead region in a flat is the same division.
+  Canon already is, so shielded columns never enter a light OR a flat. At the division, **a flat pixel
+  far below the flat's own median is not a divisor**, and the clamp should mark the pixel absent rather
+  than scale it. The second is worth having whatever happens to the first, because nothing about it is
+  specific to this sensor or to overscan. Any dust mote, any deep vignette corner and any dead region in
+  a flat is the same division, and today they all produce numbers rather than absence.
+  Watch two things when changing it: `Image.FillInteriorHolesInPlace` will then interpolate these,
+  which is right for a dead pixel and wrong for a 21-column band, and the rectangle rule treats a
+  border-reachable NaN as absence, which is what would finally make the crop cut this band on its own.
   **This is the QHY half of [sensor-active-area](../plans/sensor-active-area.md) reaching the data.**
   That plan records that Canon is the only sensor the active-area crop is wired for, and that QHY
   exposes the same geometry (`GetQHYCCDEffectiveArea` / `GetQHYCCDOverScanArea` /
