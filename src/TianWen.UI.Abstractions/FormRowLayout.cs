@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using DIR.Lib;
 
 namespace TianWen.UI.Abstractions
@@ -38,6 +38,44 @@ namespace TianWen.UI.Abstractions
         /// (PaintLayout re-applies dpiScale). A disabled control keeps its hit regions but drops the
         /// click handlers (dimmed), so the layout/hit-test surface is unchanged.
         /// </summary>
+        /// <summary>
+        /// The mark a step / jog / pan button shows: an <see cref="Layout.Content.Icon"/> for every
+        /// glyph <see cref="Layout.IconKind"/> has a member for, and a drawn run for anything else.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>A mark is an Icon, never a symbol character in a Text run</b> (CLAUDE.md): a glyph draws
+        /// .notdef wherever the face lacks it, and the face is the host's. The left/right pair could
+        /// not follow that rule until DIR.Lib 9.2 gave <see cref="Layout.IconKind"/> its horizontal
+        /// carets, so nine buttons across three files were still passing a character. This is where
+        /// they all ask now, because the alternative -- the same switch copied per helper -- is how
+        /// one of them ends up a character again.
+        /// </para>
+        /// <para>
+        /// The fallthrough is not a loose end. The DOUBLE guillemets a coarse jog uses have no member,
+        /// and a run is still the right answer for a WORD; it is only a MARK that has to be baked.
+        /// </para>
+        /// <para>
+        /// The icon size is the same x-height ratio <c>Content.Icon.MatchesText</c> derives on its own,
+        /// stated explicitly because a mark here often sits beside a different font from its own
+        /// button's, and the sibling-derived size would then pick up the wrong one.
+        /// </para>
+        /// </remarks>
+        public static Layout.Node StepMark(string glyph, float fontSize, RGBAColor32 color)
+        {
+            var iconSize = fontSize * Layout.Content.Icon.TextSizeRatio;
+            return glyph switch
+            {
+                "+" => Layout.Builder.Icon(Layout.IconKind.Plus, iconSize, color),
+                "-" or "−" => Layout.Builder.Icon(Layout.IconKind.Minus, iconSize, color),
+                "◀" or "‹" => Layout.Builder.Icon(Layout.IconKind.CaretLeft, iconSize, color),
+                "▶" or "›" => Layout.Builder.Icon(Layout.IconKind.CaretRight, iconSize, color),
+                "▲" => Layout.Builder.Icon(Layout.IconKind.CaretUp, iconSize, color),
+                "▼" => Layout.Builder.Icon(Layout.IconKind.CaretDown, iconSize, color),
+                _ => Layout.Builder.Text(glyph, fontSize, color, TextAlign.Center, TextAlign.Center),
+            };
+        }
+
         public static Layout.Node StepperControl(
             in StepperStyle style,
             string decGlyph, string decHit, Action<InputModifier> onDec,
@@ -49,26 +87,10 @@ namespace TianWen.UI.Abstractions
             var btnFont = style.ButtonFontSize;
             var btnW = style.ButtonDesignW;
             var canClick = enabled;
-            // Same x-height ratio Content.Icon.MatchesText derives on its own -- stated explicitly
-            // because the icon leaf here sits beside the VALUE cell, not the button's own text, so the
-            // sibling-derived size would pick up the wrong font.
-            var iconSize = btnFont * Layout.Content.Icon.TextSizeRatio;
 
-            // A mark is an Icon, never a symbol character in a Text run (CLAUDE.md) -- for the two
-            // glyphs this control actually steps by. The gain-mode cycler reuses this same control with
-            // "◀"/"▶" (left/right caret), which DIR.Lib's IconKind has no member for yet, so
-            // that one glyph still falls through to a drawn Text run.
             Layout.Node Btn(string glyph, string hit, Action<InputModifier> onClick)
-            {
-                var mark = glyph switch
-                {
-                    "+" => Layout.Builder.Icon(Layout.IconKind.Plus, iconSize, btnText),
-                    "-" or "−" => Layout.Builder.Icon(Layout.IconKind.Minus, iconSize, btnText),
-                    _ => Layout.Builder.Text(glyph, btnFont, btnText, TextAlign.Center, TextAlign.Center),
-                };
-                return mark.WFixed(btnW).HStar().Bg(btnBg)
+                => StepMark(glyph, btnFont, btnText).WFixed(btnW).HStar().Bg(btnBg)
                     .Clickable(new HitResult.ButtonHit(hit), canClick ? onClick : null);
-            }
 
             var value = Layout.Builder.Text(valueText, valueFontSize, valueColor, TextAlign.Center, TextAlign.Center).Stretch();
 
