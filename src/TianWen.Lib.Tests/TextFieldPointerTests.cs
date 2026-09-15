@@ -1,22 +1,21 @@
 using System;
 using DIR.Lib;
 using Shouldly;
-using TianWen.UI.Abstractions;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// A press on a text field lands the caret where it was aimed, a second click takes the WORD under it and a
-/// third the whole field, on the CPU renderer and therefore on every pixel host.
+/// A press on a text field lands the caret where it was aimed, a second click takes the WORD under it, a
+/// third the whole field, and a drag out of the press extends the selection -- on the CPU renderer and
+/// therefore on every pixel host.
 /// </summary>
 /// <remarks>
-/// Driven through the pair the hosts use -- the widget that painted the field answers
-/// <see cref="ICaretPlacingWidget.CaretIndexAt"/>, and
-/// <see cref="TextFieldPointerInteraction.HandleMouseDown"/> decides what the click MEANS -- rather than
-/// through a host's own dispatcher, so it pins the rule for the GUI and the web build at once. Before this,
-/// each of them focused the field and left the caret at the END of the text, and a double click selected
-/// the lot: what the test presses on is chosen so that BOTH of those answers are wrong here.
+/// Driven through <see cref="InputRouter"/>, which is the dispatcher both hosts now hand their presses to,
+/// so the rule is pinned once for the desktop and the web build rather than through a tianwen-side helper
+/// each of them happened to call. Before any of this, both focused the field and left the caret at the END
+/// of the text and a double click selected the lot: what the test presses on is chosen so that BOTH of
+/// those answers are wrong here.
 /// <para>
 /// The press position is derived from the SAME measurement the paint used (through the widget's own
 /// renderer and font), never from a pixel literal: a literal would pin nothing but whichever face this box
@@ -40,8 +39,7 @@ public class TextFieldPointerTests
     /// protected helper every production widget paints its fields with, so the hit carries the
     /// <see cref="TextInputGeometry"/> a real tab's would.
     /// </summary>
-    private sealed class FieldWidget(RgbaImageRenderer renderer)
-        : PixelWidgetBase<RgbaImage>(renderer), ICaretPlacingWidget
+    private sealed class FieldWidget(RgbaImageRenderer renderer) : PixelWidgetBase<RgbaImage>(renderer)
     {
         public void Render(TextInputState field)
         {
@@ -58,6 +56,7 @@ public class TextFieldPointerTests
     {
         private readonly RgbaImageRenderer _renderer;
         private readonly FieldWidget _widget;
+        private readonly InputRouter _router;
 
         public Harness()
         {
@@ -68,20 +67,30 @@ public class TextFieldPointerTests
 
             // Through the real hit test, so a geometry the paint failed to register shows up here rather
             // than as a caret quietly landing at zero.
-            Hit = _widget.HitTest(FieldX + 5f, FieldY + FieldH / 2f).ShouldBeOfType<HitResult.TextInputHit>();
-            Hit.Input.ShouldBeSameAs(Field);
+            var hit = _widget.HitTest(FieldX + 5f, FieldY + FieldH / 2f).ShouldBeOfType<HitResult.TextInputHit>();
+            hit.Input.ShouldBeSameAs(Field);
+
+            _router = new InputRouter(_widget.Ui, new BackgroundTaskTracker(), () => { })
+            {
+                Widgets = () => [_widget],
+            };
         }
 
         public TextInputState Field { get; }
 
-        public TextInputFocus Focus { get; } = new TextInputFocus();
-
-        public HitResult.TextInputHit Hit { get; }
+        public TextInputFocus Focus => _widget.Ui.Focus;
 
         /// <summary>A press at <paramref name="pointerX"/>, exactly as a host routes one.</summary>
         public void Press(float pointerX, int clicks, InputModifier modifiers = InputModifier.None)
-            => TextFieldPointerInteraction.HandleMouseDown(
-                Hit, _widget, pointerX, clicks, modifiers, Focus, () => { });
+            => _router.Handle(new InputEvent.MouseDown(
+                pointerX, FieldY + FieldH / 2f, MouseButton.Left, modifiers, clicks));
+
+        /// <summary>A move with the button still down: the gesture the press claimed.</summary>
+        public void DragTo(float pointerX)
+            => _router.Handle(new InputEvent.MouseMove(pointerX, FieldY + FieldH / 2f, MouseButton.Left));
+
+        public void Release(float pointerX)
+            => _router.Handle(new InputEvent.MouseUp(pointerX, FieldY + FieldH / 2f, MouseButton.Left));
 
         /// <summary>
         /// A pointer in the left quarter of the glyph that starts at <paramref name="boundary"/> --
@@ -143,5 +152,27 @@ public class TextFieldPointerTests
 
         h.Field.SelectionStart.ShouldBe(WordStart);
         h.Field.SelectionEnd.ShouldBe(Value.Length);
+    }
+
+    /// <summary>
+    /// Dragging out of a press extends the selection, which is the half neither host could do before the
+    /// router: a move event carried no button of its own, so a dispatcher that saw only the move had no
+    /// way to tell a drag from a hover. The router holds the gesture the press claimed.
+    /// </summary>
+    [Fact]
+    public void ADragOutOfThePressExtendsTheSelection()
+    {
+        using var h = new Harness();
+
+        h.Press(h.XOfBoundary(0), clicks: 1);
+        h.DragTo(h.XOfBoundary(WordStart));
+
+        h.Field.SelectionStart.ShouldBe(0);
+        h.Field.SelectionEnd.ShouldBe(WordStart);
+
+        // And the release leaves it where the drag ended rather than collapsing it.
+        h.Release(h.XOfBoundary(WordStart));
+        h.Field.SelectionStart.ShouldBe(0);
+        h.Field.SelectionEnd.ShouldBe(WordStart);
     }
 }
