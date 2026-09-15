@@ -39,6 +39,13 @@
     Where to write the baked record. Defaults to release-notes/<Version>.txt beside this script,
     which is the name it should be committed under.
 
+.PARAMETER PasteFile
+    Optional. Writes the What's New block ALONE to this path, exactly the bytes the Partner Center
+    field should receive. Selecting a block out of a 20 KB record by eye is its own error: take in
+    a marker line or the sentence above it and the listing carries it. Off by default because the
+    record is the repo's single copy and a second one there would be free to drift; CI passes it,
+    so the artifact carries both and nothing has to be selected by hand.
+
 .PARAMETER MaxWhatsNewChars
     Partner Center's cap. Only a parameter so the failure path can be tested.
 #>
@@ -48,6 +55,7 @@ param(
     [string] $RunId = '',
     [string] $Template = '',
     [string] $OutFile = '',
+    [string] $PasteFile = '',
     [int] $MaxWhatsNewChars = 1500
 )
 
@@ -88,6 +96,11 @@ if ($previous) {
     } catch {
         Write-Warning "Could not count commits since v$previousVersion (shallow checkout or missing tag)."
     }
+    # git's exit code would otherwise become the SCRIPT's, because PowerShell hands back the last
+    # native command's status and nothing here overrides it. A clone without the previous tag exits
+    # 128, which would fail the step and, in a job that has already packed the bundle, report a
+    # broken packaging lane for a record that baked perfectly. Caught exactly that way.
+    $global:LASTEXITCODE = 0
 }
 
 $text = [System.IO.File]::ReadAllText($Template) -replace "`r`n", "`n"
@@ -166,3 +179,13 @@ if ($outDir -and -not (Test-Path -LiteralPath $outDir)) {
 # can be committed without a renormalisation diff.
 [System.IO.File]::WriteAllText($OutFile, $text, (New-Object System.Text.UTF8Encoding $false))
 Write-Host "Baked $Template -> $OutFile (supersedes $previousPackage, $spanCommits commits)."
+
+# Written only after the record itself, so the two can never disagree about what was approved: this
+# is the same $block the cap was measured on, not a re-read of the file.
+if ($PasteFile) {
+    [System.IO.File]::WriteAllText($PasteFile, $block, (New-Object System.Text.UTF8Encoding $false))
+    Write-Host "Partner Center copy alone -> $PasteFile ($lfChars chars)."
+}
+
+# Explicit, so the script's success is stated rather than inherited from whatever ran last.
+exit 0

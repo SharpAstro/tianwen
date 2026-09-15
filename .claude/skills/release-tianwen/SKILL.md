@@ -149,11 +149,16 @@ After a successful run, if this was a Store submission:
 
 ```bash
 gh run download $RUN_ID -n msix-store-package     # AstroPhotoViewer.msixbundle, ~145 MB
-gh run download $RUN_ID -n msix-release-notes     # the baked record
+gh run download $RUN_ID -n msix-release-notes     # the baked record + the paste copy
 ```
 
-Then commit the baked file as `packaging/windows/msix/release-notes/<version>.txt` and reset
-`NEXT.txt` for the next cycle. That directory is the only record of what has been submitted.
+The notes artifact holds two files: the record, and `whats-new-<version>.txt`, which is the
+Partner Center copy ALONE. Paste the second one; selecting the block out of a 20 KB record by eye
+is its own error, since taking in a marker line or the sentence above it puts that in the listing.
+
+Then commit the record as `packaging/windows/msix/release-notes/<version>.txt` and reset
+`NEXT.txt` for the next cycle. That directory is the only record of what has been submitted; the
+paste copy is derived, so it is not committed.
 
 ## When NOT to use this skill
 

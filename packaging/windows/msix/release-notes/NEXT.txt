@@ -97,11 +97,14 @@ SUBMISSION
   1. Download the package and this record from the run that baked it:
        gh run download {{RUN_ID}} -n msix-store-package
        gh run download {{RUN_ID}} -n msix-release-notes
-     The bundle is about 145 MB. Retention is 30 days on both.
+     The bundle is about 145 MB. Retention is 30 days on both. The notes artifact
+     holds this record AND whats-new-{{VERSION}}.txt, which is the Partner Center
+     copy alone, so nothing has to be selected out of a 20 KB file by eye.
   2. Upload AstroPhotoViewer.msixbundle to the draft submission for
      Store ID 9PMDZP16TGBG. It is unsigned by design; the Store re-signs after
      certification, so it cannot be installed by double-clicking.
-  3. Paste the WHAT'S NEW block into "What's new in this version".
+  3. Paste whats-new-{{VERSION}}.txt into "What's new in this version". It is
+     exactly the bytes the field should receive, markers and commentary excluded.
   4. If the bundle was signed locally for testing, re-download before uploading;
      signing edits the package in place.
   5. Commit this baked file as release-notes/{{VERSION}}.txt and reset NEXT.txt.

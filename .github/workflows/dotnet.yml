@@ -792,7 +792,8 @@ jobs:
       run: |
         ./packaging/windows/msix/bake-release-notes.ps1 `
           -Version $env:VERSION_PREFIX -RunId $env:GITHUB_RUN_ID `
-          -OutFile "notes/$($env:VERSION_PREFIX).txt"
+          -OutFile "notes/$($env:VERSION_PREFIX).txt" `
+          -PasteFile "notes/whats-new-$($env:VERSION_PREFIX).txt"
     - uses: actions/upload-artifact@v7
       with:
         name: msix-release-notes
