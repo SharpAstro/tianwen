@@ -77,6 +77,12 @@ public class ViewerTonePopoverTests
         public RectF32 ImageArea => ImageAreaRect;
 
         public ImmutableArray<Layout.ArrangedNode<float>> Arranged => ToneLayoutForTest;
+
+        public SliderState Boost => ToneBoostSliderState;
+
+        public SliderState Amount => ToneAmountSliderState;
+
+        public SliderState Knee => ToneKneeSliderState;
     }
 
     private static async Task<(ToneViewer Viewer, ViewerState State, AstroImageDocument Document)>
@@ -116,12 +122,32 @@ public class ViewerTonePopoverTests
     {
         var button = Button(viewer);
         Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));
-        state.TonePanelOpen.ShouldBeTrue("the button opens the popover");
+        state.TonePopover.IsOpen.ShouldBeTrue("the button opens the popover");
         viewer.Render(document, state);
     }
 
     private static RectF32 Rect(Layout.ArrangedNode<float> n)
         => new RectF32(n.Bounds.X, n.Bounds.Y, n.Bounds.Width, n.Bounds.Height);
+
+    /// <summary>
+    /// The popover's own box. The arranged root is the full-window overlay the backdrop fills, and the
+    /// content is what the engine placed against the button: the node right after the
+    /// <see cref="Layout.Node.Anchored"/>, which pre-order puts at one greater depth (an Anchored is
+    /// recorded against the rect it was GIVEN, so its own entry carries the whole window).
+    /// </summary>
+    private static RectF32 Panel(ToneViewer viewer)
+    {
+        var arranged = viewer.Arranged;
+        for (var i = 0; i < arranged.Length - 1; i++)
+        {
+            if (arranged[i].Node is Layout.Node.Anchored)
+            {
+                return Rect(arranged[i + 1]);
+            }
+        }
+
+        throw new Xunit.Sdk.XunitException("the popover arranged no anchored content");
+    }
 
     /// <summary>Where the engine put the node carrying this button hit.</summary>
     private static RectF32 RegionOf(ToneViewer viewer, string action)
@@ -133,25 +159,35 @@ public class ViewerTonePopoverTests
         return Rect(found[0]);
     }
 
-    /// <summary>Where the engine put one dial's track.</summary>
-    private static RectF32 DialOf(ToneViewer viewer, string fillKey)
+    /// <summary>Where the engine put one dial's track, found by the state the leaf points AT rather
+    /// than by a key beside it: a <see cref="Layout.Content.Slider"/> carries its caller-owned state,
+    /// so identity is the question and there is nothing to keep in step.</summary>
+    private static RectF32 DialOf(ToneViewer viewer, SliderState dial)
     {
         var found = viewer.Arranged
-            .Where(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Fill f } && f.Key == fillKey)
+            .Where(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Slider s } && ReferenceEquals(s.State, dial))
             .ToArray();
-        found.Length.ShouldBe(1, $"exactly one fill is keyed {fillKey}");
+        found.Length.ShouldBe(1, "exactly one leaf declares this dial");
         return Rect(found[0]);
     }
 
     /// <summary>
-    /// Whether a dial answers a press: the rect comes from the tree, the ANSWER from the real hit
-    /// tracker, because a dim dial is still laid out and simply registers no band.
+    /// Whether a dial answers a press: the rect comes from the tree, the ANSWER from the real region
+    /// the paint registered, because a dim dial is still laid out and still registers -- it simply
+    /// binds no press, so it swallows one instead of letting it reach the backdrop.
     /// </summary>
-    private static bool IsDraggable(ToneViewer viewer, string fillKey, ToneSlider slider)
+    private static bool IsDraggable(ToneViewer viewer, SliderState dial)
     {
-        var track = DialOf(viewer, fillKey);
-        return viewer.HitTest(track.X + (track.Width / 2f), track.Y + (track.Height / 2f))
-            is ToneSliderHit hit && hit.Slider == slider;
+        var track = DialOf(viewer, dial);
+        var x = track.X + (track.Width / 2f);
+        var y = track.Y + (track.Height / 2f);
+        viewer.HitTest(x, y).ShouldBeOfType<HitResult.SliderStateHit>(
+            "a dim dial still registers, so a press on it stops there")
+            .State.ShouldBeSameAs(dial);
+
+        return viewer.GetRegisteredRegions()
+            .Any(r => r.Result is HitResult.SliderStateHit hit
+                && ReferenceEquals(hit.State, dial) && r.OnPress is not null);
     }
 
     /// <summary>
@@ -166,7 +202,7 @@ public class ViewerTonePopoverTests
         var (viewer, state, document) = await NewViewerAsync(renderer, ct);
 
         Button(viewer).Width.ShouldBeGreaterThan(0f);
-        state.TonePanelOpen.ShouldBeFalse("closed until pressed");
+        state.TonePopover.IsOpen.ShouldBeFalse("closed until pressed");
         viewer.Arranged.ShouldBeEmpty("a closed popover arranges nothing");
 
         OpenPanel(viewer, state, document);
@@ -195,7 +231,7 @@ public class ViewerTonePopoverTests
         // than falling through to the backdrop and closing what the user was reading.
         Press(viewer, block.X + (block.Width / 2f), block.Y + (block.Height / 2f));
 
-        state.TonePanelOpen.ShouldBeTrue("the display-HDR block consumes a press without acting");
+        state.TonePopover.IsOpen.ShouldBeTrue("the display-HDR block consumes a press without acting");
     }
 
     /// <summary>
@@ -212,16 +248,23 @@ public class ViewerTonePopoverTests
         state.HdrAmount.ShouldBe(0f, "a fresh viewer clips nothing");
         OpenPanel(viewer, state, document);
 
-        var track = DialOf(viewer, "toneAmount");
+        var track = DialOf(viewer, viewer.Amount);
         var x = track.X + track.Width - 1f;
         var y = track.Y + (track.Height / 2f);
         viewer.HandleInput(new InputEvent.MouseDown(x, y));
 
         state.HdrAmount.ShouldBeGreaterThan(1f, "the far end of the track is the hardest clip");
-        state.ToneDragSlider.ShouldBe(ToneSlider.SoftClipAmount);
 
-        viewer.HandleInput(new InputEvent.MouseUp(x, y));
-        state.ToneDragSlider.ShouldBeNull("release ends the drag");
+        // The gesture is live, so a move with no press between them still tracks.
+        viewer.HandleInput(new InputEvent.MouseMove(track.X + 1f, y));
+        var dragged = state.HdrAmount;
+        dragged.ShouldBeLessThan(0.1f, "the near end of the track is no clip at all");
+
+        // Release ends it, and the assertion is that the NEXT move changes nothing. That is what the
+        // drag flag was there to make true, and what a spent capture now makes true with no flag.
+        viewer.HandleInput(new InputEvent.MouseUp(track.X + 1f, y));
+        viewer.HandleInput(new InputEvent.MouseMove(track.X + track.Width - 1f, y));
+        state.HdrAmount.ShouldBe(dragged, "release ends the drag");
     }
 
     /// <summary>
@@ -237,12 +280,12 @@ public class ViewerTonePopoverTests
         var (viewer, state, document) = await NewViewerAsync(renderer, ct);
 
         OpenPanel(viewer, state, document);
-        IsDraggable(viewer, "toneKnee", ToneSlider.SoftClipKnee).ShouldBeFalse();
+        IsDraggable(viewer, viewer.Knee).ShouldBeFalse();
 
         state.HdrAmount = 1f;
         viewer.Render(document, state);
 
-        IsDraggable(viewer, "toneKnee", ToneSlider.SoftClipKnee).ShouldBeTrue();
+        IsDraggable(viewer, viewer.Knee).ShouldBeTrue();
     }
 
     /// <summary>
@@ -260,7 +303,7 @@ public class ViewerTonePopoverTests
         document.Stars.ShouldBeNull("the fixture has not been through star detection");
         OpenPanel(viewer, state, document);
 
-        IsDraggable(viewer, "toneBoost", ToneSlider.Boost).ShouldBeFalse();
+        IsDraggable(viewer, viewer.Boost).ShouldBeFalse();
     }
 
     /// <summary>
@@ -277,12 +320,14 @@ public class ViewerTonePopoverTests
         var (viewer, state, document) = await NewViewerAsync(renderer, ct);
 
         OpenPanel(viewer, state, document);
-        var panel = Rect(viewer.Arranged[0]);
+        var panel = Panel(viewer);
 
         panel.X.ShouldBeGreaterThanOrEqualTo(0f);
         panel.Right.ShouldBeLessThanOrEqualTo(WindowW, "the panel stays on screen");
 
-        foreach (var node in viewer.Arranged)
+        // The backdrop is the full window by construction, so the containment question is about the
+        // popover's CONTENT: everything from the anchored node onward.
+        foreach (var node in viewer.Arranged.SkipWhile(n => n.Node is not Layout.Node.Anchored).Skip(1))
         {
             var r = Rect(node);
             r.X.ShouldBeGreaterThanOrEqualTo(panel.X - 0.5f);
@@ -302,15 +347,15 @@ public class ViewerTonePopoverTests
         var (viewer, state, document) = await NewViewerAsync(renderer, ct);
 
         OpenPanel(viewer, state, document);
-        var track = DialOf(viewer, "toneAmount");
+        var track = DialOf(viewer, viewer.Amount);
         var x = track.X + (track.Width / 2f);
         var y = track.Y + (track.Height / 2f);
 
-        state.TonePanelOpen = false;
+        state.TonePopover.Close();
         viewer.Render(document, state);
 
         viewer.Arranged.ShouldBeEmpty();
-        viewer.HitTest(x, y).ShouldNotBeOfType<ToneSliderHit>(
+        viewer.HitTest(x, y).ShouldNotBeOfType<HitResult.SliderStateHit>(
             "a closed panel answers no drag where its dial used to be");
     }
 
@@ -326,7 +371,7 @@ public class ViewerTonePopoverTests
 
         viewer.HandleInput(new InputEvent.KeyDown(InputKey.Escape));
 
-        state.TonePanelOpen.ShouldBeFalse("Escape closes it");
+        state.TonePopover.IsOpen.ShouldBeFalse("Escape closes it");
     }
 
     /// <summary>
@@ -343,7 +388,7 @@ public class ViewerTonePopoverTests
         OpenPanel(viewer, state, document);
         var image = viewer.ImageArea;
         Press(viewer, image.X + (image.Width / 2f), image.Y + (image.Height / 2f));
-        state.TonePanelOpen.ShouldBeFalse("a press on the picture closes it");
+        state.TonePopover.IsOpen.ShouldBeFalse("a press on the picture closes it");
 
         // A frame is drawn between two presses in the running app, and it matters here: while the
         // panel was open its backdrop covered the whole window, so without a repaint the next press
@@ -353,6 +398,6 @@ public class ViewerTonePopoverTests
 
         var button = Button(viewer);
         Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));
-        state.TonePanelOpen.ShouldBeFalse("a second press on the button closes what the first opened");
+        state.TonePopover.IsOpen.ShouldBeFalse("a second press on the button closes what the first opened");
     }
 }

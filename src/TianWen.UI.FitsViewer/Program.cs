@@ -858,9 +858,12 @@ bool HandleMouseDown(InputEvent.MouseDown down)
             return true;
         }
 
-        if (hit is ToneSliderHit { Slider: var toneSlider })
+        // A declared slider arms its own drag from the rect the engine painted it into, so this is one
+        // branch for every Content.Slider leaf rather than one per control. The move and the release
+        // reach it through imageRenderer.HandleInput, which holds the capture.
+        if (hit is HitResult.SliderStateHit)
         {
-            imageRenderer.BeginToneDragAt(toneSlider, px);
+            imageRenderer.TryBeginRegionDrag(px, py, down.Button, down.Modifiers, down.ClickCount);
             return true;
         }
 

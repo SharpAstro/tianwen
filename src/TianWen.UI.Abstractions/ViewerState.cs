@@ -14,6 +14,15 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public sealed class ViewerState
 {
+    /// <summary>
+    /// A popover closes from three places the consumer does not see -- Escape, the backdrop, and the
+    /// engine standing it down when its anchor stops being painted -- so the repaint is hung on the
+    /// transition itself rather than restated at each of them. That event exists for exactly this: a
+    /// reader polling <see cref="PopoverState.IsOpen"/> would have to remember last frame's value to
+    /// notice a close.
+    /// </summary>
+    public ViewerState() => TonePopover.Closed += () => NeedsRedraw = true;
+
     public StretchMode StretchMode { get; set; } = ViewerActions.DefaultStretchMode;
     public StretchParameters StretchParameters { get; set; } = StretchParameters.Default;
     public ChannelView ChannelView { get; set; } = ChannelView.Composite;
@@ -38,11 +47,17 @@ public sealed class ViewerState
     public bool WhiteBalancePanelOpen { get; set; }
 
     /// <summary>
-    /// Whether the tone popover (the curves boost, the highlight soft clip, and the display HDR
-    /// that is neither, under the toolbar's <see cref="ToolbarAction.Tone"/> button) is open. It
-    /// behaves as a menu on exactly the terms the white-balance popover above does.
+    /// The tone popover (the curves boost, the highlight soft clip, and the display HDR that is
+    /// neither, under the toolbar's <see cref="ToolbarAction.Tone"/> button).
     /// </summary>
-    public bool TonePanelOpen { get; set; }
+    /// <remarks>
+    /// A <see cref="PopoverState"/> rather than a bool, because the five things "open" used to imply
+    /// -- the backdrop that dismisses, the placement, the Escape route, the pointer claim and a line
+    /// in each host's press dispatcher -- belong to <see cref="Layout.Builder.Popover"/> now, and this
+    /// is what it is handed. It is also the only writer of the flag, which is what gives the close
+    /// transition somewhere to be observed.
+    /// </remarks>
+    public PopoverState TonePopover { get; } = new();
 
     /// <summary>Curves boost amount applied in the display shader (0.0 = off, up to 1.0).</summary>
     public float CurvesBoost { get; set; }
@@ -208,10 +223,6 @@ public sealed class ViewerState
     /// release clears it.</summary>
     public int WhiteBalanceDragChannel { get; set; } = -1;
 
-    /// <summary>Which tone-popover dial is being dragged, or null when idle. Null rather than the
-    /// -1 its neighbours use because the dial is an enum and there is no -1th one.</summary>
-    public ToneSlider? ToneDragSlider { get; set; }
-
     /// <summary>Whether detected star circles are visible.</summary>
     public bool ShowStarOverlay { get; set; }
 
@@ -282,7 +293,7 @@ public sealed class ViewerState
     /// </summary>
     public bool OverlayOwnsPointer => ToolbarDropdown.IsOpen
         || WhiteBalancePanelOpen
-        || TonePanelOpen
+        || TonePopover.IsOpen
         || (ShowSkyBackdrop && SkyLayerPalette is { IsEngaged: true });
 
     /// <summary>
