@@ -198,6 +198,50 @@ internal sealed class TuiPlannerTab(
     }
 
     /// <summary>
+    /// Steps the target list by one row and mirrors the result into the shared selection.
+    /// </summary>
+    /// <remarks>
+    /// The list owns the walk -- its own item count, its own clamp, its own scroll follow -- where this
+    /// used to be a hand-written bounds check against a separately recomputed filtered list, which is two
+    /// derivations of one row count. The selection itself stays in <see cref="PlannerState"/>, the GUI
+    /// reading it too, so the cursor is placed FROM it before the step exactly as the click path writes
+    /// it straight (see <see cref="DispatchTargetListClick"/>).
+    /// <para>
+    /// With nothing selected a step forward lands on the first row and a step back on nothing, which is
+    /// where the bounds check left it.
+    /// </para>
+    /// </remarks>
+    private void MoveTargetCursor(int delta)
+    {
+        if (_targetList is not { ItemCount: > 0 } list)
+        {
+            return;
+        }
+
+        var current = plannerState.SelectedTargetIndex;
+        if (current < 0)
+        {
+            if (delta <= 0)
+            {
+                return;
+            }
+
+            list.MoveTo(0);
+        }
+        else
+        {
+            list.MoveTo(current);
+            if (!list.MoveCursor(delta))
+            {
+                return;
+            }
+        }
+
+        plannerState.SelectedTargetIndex = list.CursorIndex;
+        NeedsRedraw = true;
+    }
+
+    /// <summary>
     /// Resolves a click on the target list to the target behind it. The list owns the geometry -- including
     /// yielding the scrollbar column, which this used to compute for itself.
     /// <para>
@@ -331,19 +375,8 @@ internal sealed class TuiPlannerTab(
                 switch (key)
                 {
                     case InputKey.Up:
-                        if (plannerState.SelectedTargetIndex > 0)
-                        {
-                            plannerState.SelectedTargetIndex--;
-                            NeedsRedraw = true;
-                        }
-                        return;
-
                     case InputKey.Down:
-                        if (plannerState.SelectedTargetIndex < filtered.Count - 1)
-                        {
-                            plannerState.SelectedTargetIndex++;
-                            NeedsRedraw = true;
-                        }
+                        MoveTargetCursor(key == InputKey.Down ? 1 : -1);
                         return;
 
                     case InputKey.Enter:

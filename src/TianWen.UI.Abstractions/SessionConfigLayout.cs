@@ -47,6 +47,12 @@ namespace TianWen.UI.Abstractions
         private static readonly Action<InputModifier> NoOp = _ => { };
 
         /// <summary>
+        /// The list the config rows declare themselves as, and the one the keyboard cursor is opened on.
+        /// Named so the row and the cursor cannot drift into two spellings of one list.
+        /// </summary>
+        public const string FieldListId = "ConfigField";
+
+        /// <summary>
         /// The text shown in a stepper's centre value cell: formatted value + optional unit. Public so the
         /// host measures the shared value-column width against the exact strings this builder renders (one
         /// source of truth -- a drift here would mis-size the column).
@@ -134,7 +140,7 @@ namespace TianWen.UI.Abstractions
                 Pad(style.Padding),
                 Layout.Builder.Text(field.Label, style.FontSize, style.BodyText).WFixed(style.LabelWidth).HStar())
             .HStar()
-            .Clickable(new HitResult.ListItemHit("ConfigField", idx), onSelectField?.Invoke(idx));
+            .Clickable(new HitResult.ListItemHit(FieldListId, idx), onSelectField?.Invoke(idx));
 
             var control = Control(field, config, valueWidth, btnW, running, style, onDecrement, onIncrement);
 
