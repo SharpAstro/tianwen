@@ -211,7 +211,7 @@ namespace TianWen.UI.Abstractions
         /// layout-node replacement for the old keyed-Fill + hand-drawn FillRect separator.</summary>
         private static Layout.Node SeparatorRow()
             => Layout.Builder.VStack(
-                    Layout.Builder.Spacer().RowH(1f).Bg(SeparatorColor),
+                    Layout.Builder.Box(0f, 1f, SeparatorColor).RowH(1f),
                     Layout.Builder.Spacer().RowH(BasePadding - 1f));
 
         /// <summary>
@@ -573,10 +573,10 @@ namespace TianWen.UI.Abstractions
             var arrowW = BaseArrowWidth * dpiScale;
             var isActive = State.ActiveAssignment == slot;
 
-            // Device name -- pre-truncate to the name column width (the engine's Text leaf doesn't clip).
+            // Device name -- pre-truncate to the name column width the slot row divides into.
             var nameW = (1f - EquipmentPanelLayout.LabelShare) * (innerW - padding - arrowW);
             var deviceLabel = EquipmentActions.DeviceLabel(deviceUri, registry: null);
-            var truncated = TruncateToWidth(deviceLabel, fontSize, nameW);
+            var truncated = TextFit.TrimToWidth(Renderer, deviceLabel, fontPath, FontFallback, fontSize, nameW, TextTrim.End);
 
             // Right-edge indicator. When a device is assigned + we have the live hub + discovery snapshot,
             // draw a coloured reachability square; the active-assignment highlight always wins and shows [>].
