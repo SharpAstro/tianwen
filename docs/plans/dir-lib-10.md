@@ -304,16 +304,37 @@ Kept as the record of what was outstanding, not as a to-do list. Where it stands
   popovers and sliders). Gone as types: `OverlayPlacement`, `ISelfDispatchingInputWidget`,
   `TextFieldPointerInteraction`, `ICaretPlacingWidget` and its six implementations, two bespoke keyboard
   claimants, two slider hit types, two drag flags, the Ctrl+letter map and the F3 special case.
-- **Still open:** T3 (the viewer chrome onto trees, `.BgHover`, `LayoutDamage`), **D2 / 10.0** (the cuts,
-  plus upstreaming `RenderDropdownMenu`, which is the biggest remaining hand-written chrome and DELETES
-  code), C1, and the two engine seams T1 worked around (a `TabItem` that can carry neither a chord nor a
-  select handler; two sibling top-level widgets that cannot share one `WindowUiSettings`).
+- **Still open:** T3 (the viewer chrome onto trees, `.BgHover`, `LayoutDamage`), **D2 / 10.0** (the cuts),
+  C1, upstreaming `RenderDropdownMenu`, and the two engine seams T1 worked around (a `TabItem` that can
+  carry neither a chord nor a select handler; two sibling top-level widgets that cannot share one
+  `WindowUiSettings`).
+- **The dropdown is its own item, and it is ADDITIVE.** It was listed under D2 above until 2026-09-16,
+  which reads as "wait for the major" and is wrong: a `Builder` node over `PopoverState` breaks nothing,
+  so it can go out in a 9.x whenever someone has the afternoon. It is still the biggest remaining
+  hand-written chrome and it DELETES code on the tianwen side, including the close-then-reopen-next-frame
+  dance in `PumpHelpPanel`. Landing it as a second mechanism beside `Popover` is the way to get this
+  wrong; it is the same shape 9.2 already solved for panels.
 
 **Three bugs were found by the consumer adopting a feature, not by the tests written for it**, and all
 three are the same shape: a rule gated on an opt-in the host never set, failing silently. `PointerOwner`
 never released on a host leaving `FrameId` at 0; the Tab ring spanning every tab ever visited, same
 cause; and two `IconKind` members with no cell glyph, because adding a kind is a TWO-REPO change.
 **Adding an `IconKind` upstream means adding its `CellLayout` glyph in Console.Lib in the same wave.**
+
+### Picking this up on another box
+
+The campaign ran on the desktop (win-x64) and may go back to the Surface (win-arm64). **This file is the
+state.** A session task list does not travel and memory does not sync between the two boxes, so anything
+that is not written here is not handed over. The plan was itself unfindable on the desktop once for
+exactly that reason.
+
+**Pull every sibling before building anything.** `UseLocalSiblings` is all-or-nothing and self-enabling,
+so tianwen compiles against whatever sibling SOURCE is checked out and the `PackageReference` version is
+never exercised. A pre-9.2 `DIR.Lib` checkout does not fail as a version mismatch: T1's and T2's code
+does not compile at all (no `InputRouter`, no `Popover` node, no `Content.Slider`), which reads as tianwen
+being broken rather than as a stale sibling. The floor is DIR.Lib **9.2.3051**, Console.Lib **4.35.1841**,
+SdlVulkan.Renderer **7.38.3151**; `dotnet build -c Release -p:UseLocalSiblings=false` is how to check what
+CI would restore, and pulling the siblings is the fix, never turning the switch off.
 
 Everything below is the pre-landing record.
 
@@ -786,9 +807,12 @@ the interesting part.
 - **The toolbar dropdowns and the help menu are not convertible in 9.2, by this plan's own design.** D1's
   wave 2 ends "`RenderDropdownMenu` is left alone in 9.2", and it was, so tianwen still owns their list
   painting, scrolling, keyboard navigation, disabled rows and tooltips. Converting them means moving all
-  of that into a `Layout.Node` tree, which is **D2 / T3 work and the largest remaining block of
-  hand-written chrome**. The help menu is a toolbar dropdown (`ToolbarAction.Shortcuts` opens one), so it
-  is the same item. This is the upstreaming the user asked for, and it deletes code rather than adding it.
+  of that into a `Layout.Node` tree, **the largest remaining block of hand-written chrome**. The help menu
+  is a toolbar dropdown (`ToolbarAction.Shortcuts` opens one), so it is the same item. This is the
+  upstreaming the user asked for, and it deletes code rather than adding it. **The two halves are not in
+  the same wave** (corrected 2026-09-16, this bullet said "D2 / T3 work" flat): the DIR.Lib half is a node
+  over `PopoverState` and is additive, so it goes out in a **9.x** on its own schedule, while the tianwen
+  half is the conversion and rides with T3.
 - **The sky palette is not a popover by nature.** `FloatingPaletteState` is draggable, snappable,
   fade-timed and persistent, with no backdrop and no Escape dismissal. `Popover` would delete its
   behaviour rather than express it. Leave it.
