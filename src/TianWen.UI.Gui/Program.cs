@@ -462,6 +462,15 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
     OnRender = () =>
     {
+        // Count the frame BEFORE painting it. DIR.Lib gates "are this widget's registered regions current"
+        // on Ui.FrameId, and a host that never moves it leaves that test always true, so a widget the host
+        // has stopped drawing goes on answering with whatever it last painted. That is not theoretical
+        // here: the chrome's children are ALL the tabs, not just the active one, so with the counter
+        // parked the Tab ring spanned every tab that had ever been on screen and the keyboard could land
+        // in a field on a tab nobody can see. Counting is the opt-in DIR.Lib documents for exactly this,
+        // and it is one line rather than a rule the tab ring would otherwise have to special-case.
+        guiRenderer.Ui.FrameId++;
+
         var renderStart = System.Diagnostics.Stopwatch.GetTimestamp();
         guiRenderer.Render(appState, plannerState, viewerState, timeProvider);
         var renderElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(renderStart);
