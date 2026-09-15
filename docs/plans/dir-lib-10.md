@@ -598,8 +598,9 @@ extends the selection while the button is down. Acceptance: a double-click on a 
 on all three surfaces, pinned by a test that presses twice on a field and reads `SelectionStart/End`.
 This is the user's exact complaint and needs no engine change.
 
-**T0 is IMPLEMENTED on `feat/text-field-pointer` (2026-09-15 evening, not pushed) and BLOCKED on a
-Console.Lib release.** DIR.Lib 9.1 changed `HitResult.TextInputHit(TextInputState)` to
+**T0 is IMPLEMENTED on `feat/text-field-pointer` (2026-09-15 evening, not pushed). It WAS blocked on a
+Console.Lib release; Console.Lib 4.34.1821 (the rebuild against 9.1) shipped the same evening and the branch
+pins it, so the TUI hit test is green on the package path.** DIR.Lib 9.1 changed `HitResult.TextInputHit(TextInputState)` to
 `TextInputHit(TextInputState, TextInputGeometry Painted = default)`. Source-compatible, and the 9.1 notes
 say "additive throughout", but **an added optional parameter on a record's primary constructor DELETES the
 old constructor from the assembly**: Console.Lib 4.33.1811, compiled against 9.0, calls
