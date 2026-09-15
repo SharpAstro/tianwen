@@ -220,6 +220,25 @@ Filed 2026-09-13, out of the Explorer-thumbnail work (`fix(thumbnails): read not
 
 ## Imaging
 
+- [ ] **A saturated core is not an outlier, and the rejection is treating it as one.** The biggest
+  "drizzle hole" in the bake is not a coverage gap: it is the blown Trapezium. On
+  `SVBONY SV605CC / L-Ultimate 3nm / Great Orion / 2025-10-14` the interior NaN is 1,856 px of which
+  **1,812 are one component**, sitting on the core, and the pixels immediately around it read a median of
+  0.489 against a sky median of 0.0014 with 21 percent of that rim at or above the frame's p99.99
+  (measured 2026-09-16). Where every contributing sub is clipped, kappa-sigma rejects every sample, the
+  output pixel gets zero weight and the drizzle writes NaN. **This is the same defect as the carved core
+  pixels**, [deconvolver-training](../plans/deconvolver-training.md), the 20:50 addendum under E3.0,
+  where the rejection clips an undersampled core in ONE colour plane on about a tenth of bright stars and
+  RL then turns each into a black pixel inside the halo; the Trapezium is that case taken to every plane
+  at once. The per-channel NaN counts say the same thing: 12,085 red, 5,258 green, 11,622 blue, green
+  being half because a Bayer green has twice the photosites feeding it and so twice the chance that some
+  sample survives. Fix belongs in the integrator (do not reject a sample for being at the ceiling; a
+  clipped core is signal we know the value of a bound for), not in the consumers.
+  **And it makes `FillInteriorHolesInPlace` worse than it looks on this frame**: the fill interpolates
+  the hole from its rim, so on the Trapezium it invents the brightest structure in the picture out of
+  saturated neighbours, plausibly enough that nothing looks wrong. `AstroImageDocument.InteriorHolesFilled`
+  is the only tell. Filling sky specks is right; filling a blown core is not, and the two are the same
+  code path today.
 - [ ] **Crop the canvas ring before `DatasetDegradationExporter`'s stretch gate, or take the gate's
   anchor off the minimum.** Two sessions are refused by that gate and both are admitted inside the
   viewer's crop rectangle; the measurement is done and written up in
