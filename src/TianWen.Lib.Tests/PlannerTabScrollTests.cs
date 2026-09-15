@@ -167,5 +167,41 @@ namespace TianWen.Lib.Tests
             regions.Any(x => x.Result is HitResult.ListItemHit { ListId: "TargetList" }).ShouldBeFalse();
             regions.Any(x => x.Result is HitResult.ButtonHit { Action: "AddProposal" }).ShouldBeTrue();
         }
+
+        /// <summary>
+        /// The keyboard walk down the target list, end to end: two Downs move the selection two rows and
+        /// Enter pins whatever is under it.
+        /// <para>
+        /// Asserted on the OBJECT, never on the index, because Enter re-orders the list under the cursor:
+        /// <c>ToggleProposal(followPinnedSelection: true)</c> moves the pinned target up into the pinned
+        /// section and the selection follows it there, so an index assertion would pass just as happily on
+        /// a walk that pinned the wrong row. Both ends are checked -- which object got pinned, and that the
+        /// selection is still sitting on it afterwards.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void KeyboardDownDownEnter_PinsTheTargetTwoRowsDown()
+        {
+            using var r = new RgbaImageRenderer(1600, 1000);
+            var state = BuildState(6);
+            var tab = new PlannerTab<RgbaImage>(r);
+            RenderInto(tab, r, state);
+
+            // The list the tab navigates is the one it last rendered, so read the expected object from it.
+            var expected = tab.FilteredTargets[2].Target;
+
+            tab.HandleInput(new InputEvent.KeyDown(InputKey.Down)).ShouldBeTrue();
+            tab.HandleInput(new InputEvent.KeyDown(InputKey.Down)).ShouldBeTrue();
+            state.SelectedTargetIndex.ShouldBe(2);
+
+            tab.HandleInput(new InputEvent.KeyDown(InputKey.Enter)).ShouldBeTrue();
+
+            state.Proposals.Length.ShouldBe(1);
+            state.Proposals[0].Target.ShouldBe(expected);
+
+            // ...and the cursor followed it into the pinned section rather than staying at row 2, where an
+            // unrelated target has since slid underneath.
+            PlannerActions.GetFilteredTargets(state)[state.SelectedTargetIndex].Target.ShouldBe(expected);
+        }
     }
 }

@@ -31,6 +31,12 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 GotoDisabledBg   = new(0x38, 0x38, 0x3C, 0xFF);
 
         /// <summary>
+        /// The id the result rows declare, and the one the <see cref="ListCursor"/> is opened on -- stated
+        /// once so the row a click reaches and the row the keyboard lights cannot be two different lists.
+        /// </summary>
+        private const string SearchResultListId = "SearchResult";
+
+        /// <summary>
         /// The atlas's own chrome for the shared object panel.
         /// </summary>
         /// <remarks>
@@ -163,6 +169,12 @@ namespace TianWen.UI.Abstractions
                 DrawSearchModal(contentRect, db,
                     siteLat, siteLon, viewingTime, site);
             }
+            else
+            {
+                // The results list is the only list this tab declares, so a closed modal leaves the
+                // keyboard in no list at all rather than parked on rows nothing paints any more.
+                ListCursor.Close();
+            }
         }
 
         private void DrawSearchModal(
@@ -203,6 +215,12 @@ namespace TianWen.UI.Abstractions
             // Results area design height (panel minus title + body padding + input + gap), for the row cap.
             var resultsDesignH = SearchPanelHeight - headerHDesign - bodyPad * 2f - inputHDesign - inputGap;
             var visibleRows = Math.Max(0, (int)(resultsDesignH / SearchRowHeight));
+
+            // The keyboard's position in the results IS the interaction's SelectedIndex (SearchInteraction
+            // owns Up/Down/Enter here), so the cursor is OPENED from it each paint rather than being a
+            // second highlight index kept beside the rows -- which is what lets a row declare its highlight
+            // once, as .BgFocus over the ListItemHit it already registers for the mouse.
+            ListCursor.Open(SearchResultListId, State.Search.Interaction?.SelectedIndex ?? -1);
 
             // Body: search field (a TextInput leaf, so it draws + focuses itself) + results list, padded.
             // MUST be .Stretch() -- an Auto-width/height VStack collapses to intrinsic (the input + rows
@@ -266,9 +284,12 @@ namespace TianWen.UI.Abstractions
                     .RowH(SearchRowHeight)
                     // Mouse commit == keyboard Enter-on-highlight: CommitAt sets the selected index AND
                     // commits through the same base path (which posts SkyMapSearchCommitSignal).
-                    .Clickable(new HitResult.ListItemHit("SearchResult", capturedIndex),
-                        _ => State.Search.Interaction?.CommitAt(capturedIndex));
-                if (isSelected) rowNode = rowNode.Bg(SearchRowHover);
+                    .Clickable(new HitResult.ListItemHit(SearchResultListId, capturedIndex),
+                        _ => State.Search.Interaction?.CommitAt(capturedIndex))
+                    // Unconditional: FocusBackground paints only while the cursor is on this row, and an
+                    // unselected row has no Background of its own, so this is the same picture the
+                    // `if (isSelected) .Bg(...)` drew -- stated on the row instead of beside it.
+                    .BgFocus(SearchRowHover);
                 rows.Add(rowNode);
             }
 
