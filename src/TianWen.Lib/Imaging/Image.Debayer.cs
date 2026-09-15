@@ -196,26 +196,37 @@ public partial class Image
             CancellationToken = cancellationToken,
         };
 
-        // Process all rows except the last one in parallel
+        // Process all rows except the last one in parallel. Two source rows and one destination row
+        // as spans, taken once per row: a [y, x] read on a float[,] is a multiply and two bounds
+        // checks the compiler cannot lift, where a row slice is bounded once (see PlaneAccessBenchmarks
+        // for the measurement that put the spelling, not the storage, at the root of the cost).
         Parallel.For(0, h1, parallelOptions, y =>
         {
+            var r0 = MemoryMarshal.CreateReadOnlySpan(ref srcChannel[y, 0], width);
+            var r1 = MemoryMarshal.CreateReadOnlySpan(ref srcChannel[y + 1, 0], width);
+            var d = MemoryMarshal.CreateSpan(ref dstChannel[y, 0], width);
             for (int x = 0; x < w1; x++)
             {
-                dstChannel[y, x] = (float)(0.25d * s * ((double)srcChannel[y, x] + srcChannel[y + 1, x + 1] + srcChannel[y, x + 1] + srcChannel[y + 1, x]));
+                d[x] = (float)(0.25d * s * ((double)r0[x] + r1[x + 1] + r0[x + 1] + r1[x]));
             }
 
             // last column
-            dstChannel[y, w1] = (float)(0.25d * s * ((double)srcChannel[y, w1] + srcChannel[y + 1, w1 - 1] + srcChannel[y, w1 - 1] + srcChannel[y + 1, w1]));
+            d[w1] = (float)(0.25d * s * ((double)r0[w1] + r1[w1 - 1] + r0[w1 - 1] + r1[w1]));
         });
 
         // last row (processed sequentially as it's a single row)
-        for (int x = 0; x < w1; x++)
         {
-            dstChannel[h1, x] = (float)(0.25d * s * ((double)srcChannel[h1, x] + srcChannel[h1 - 1, x + 1] + srcChannel[h1, x + 1] + srcChannel[h1 - 1, x]));
-        }
+            var rh = MemoryMarshal.CreateReadOnlySpan(ref srcChannel[h1, 0], width);
+            var rh1 = MemoryMarshal.CreateReadOnlySpan(ref srcChannel[h1 - 1, 0], width);
+            var d = MemoryMarshal.CreateSpan(ref dstChannel[h1, 0], width);
+            for (int x = 0; x < w1; x++)
+            {
+                d[x] = (float)(0.25d * s * ((double)rh[x] + rh1[x + 1] + rh[x + 1] + rh1[x]));
+            }
 
-        // last pixel
-        dstChannel[h1, w1] = (float)(0.25d * s * ((double)srcChannel[h1, w1] + srcChannel[h1 - 1, w1 - 1] + srcChannel[h1, w1 - 1] + srcChannel[h1 - 1, w1]));
+            // last pixel
+            d[w1] = (float)(0.25d * s * ((double)rh[w1] + rh1[w1 - 1] + rh[w1 - 1] + rh1[w1]));
+        }
 
         return new Image(debayered, BitDepth.Float32,
             MaxValue * scale,
@@ -259,8 +270,72 @@ public partial class Image
         Parallel.For(0, height, parallelOptions, y =>
         {
             var yRed = (y & 1) == ry;
+            var dR = MemoryMarshal.CreateSpan(ref dstR[y, 0], width);
+            var dG = MemoryMarshal.CreateSpan(ref dstG[y, 0], width);
+            var dB = MemoryMarshal.CreateSpan(ref dstB[y, 0], width);
+
+            // The INTERIOR takes the same 5x5 kernels over five row spans with no clamp: for a row
+            // two or more from either edge and a column two or more from either side, every tap is
+            // inside the plane by construction. The clamped path is kept for the two-pixel border only.
+            // Same coefficients in the same order, so the interior is bit-identical to the clamped
+            // kernels where both are defined; it is the read that changed, from a bounds-checked
+            // float[,] index behind four branches per tap to a slice bounded once per row.
+            var xEnd = 0;
+            if (y >= 2 && y < height - 2 && width >= 5)
+            {
+                var m2 = MemoryMarshal.CreateReadOnlySpan(ref src[y - 2, 0], width);
+                var m1 = MemoryMarshal.CreateReadOnlySpan(ref src[y - 1, 0], width);
+                var m0 = MemoryMarshal.CreateReadOnlySpan(ref src[y, 0], width);
+                var p1 = MemoryMarshal.CreateReadOnlySpan(ref src[y + 1, 0], width);
+                var p2 = MemoryMarshal.CreateReadOnlySpan(ref src[y + 2, 0], width);
+                xEnd = width - 2;
+                for (var x = 2; x < xEnd; x++)
+                {
+                    var c = m0[x];
+                    var xRed = (x & 1) == rx;
+
+                    float r, g, b;
+                    if (xRed && yRed) // red site
+                    {
+                        r = c;
+                        g = MhcGreenInterior(m2, m1, m0, p1, p2, x);
+                        b = MhcDiagonalInterior(m2, m1, m0, p1, p2, x);
+                    }
+                    else if (!xRed && !yRed) // blue site
+                    {
+                        b = c;
+                        g = MhcGreenInterior(m2, m1, m0, p1, p2, x);
+                        r = MhcDiagonalInterior(m2, m1, m0, p1, p2, x);
+                    }
+                    else // green site
+                    {
+                        g = c;
+                        if (yRed) // red row: red neighbours horizontal, blue vertical
+                        {
+                            r = MhcHorizontalInterior(m2, m1, m0, p1, p2, x);
+                            b = MhcVerticalInterior(m2, m1, m0, p1, p2, x);
+                        }
+                        else // blue row: red neighbours vertical, blue horizontal
+                        {
+                            r = MhcVerticalInterior(m2, m1, m0, p1, p2, x);
+                            b = MhcHorizontalInterior(m2, m1, m0, p1, p2, x);
+                        }
+                    }
+
+                    dR[x] = r * scale;
+                    dG[x] = g * scale;
+                    dB[x] = b * scale;
+                }
+            }
+
+            // The border (or the whole row, near the top and bottom), clamped as before.
             for (var x = 0; x < width; x++)
             {
+                if (x == 2 && xEnd > 2)
+                {
+                    x = xEnd; // skip the interior the loop above has written
+                }
+
                 var c = src[y, x];
                 var xRed = (x & 1) == rx;
 
@@ -292,9 +367,9 @@ public partial class Image
                     }
                 }
 
-                dstR[y, x] = r * scale;
-                dstG[y, x] = g * scale;
-                dstB[y, x] = b * scale;
+                dR[x] = r * scale;
+                dG[x] = g * scale;
+                dB[x] = b * scale;
             }
         });
 
@@ -345,6 +420,41 @@ public partial class Image
             - (AtClamped(s, w, h, x - 1, y - 1) + AtClamped(s, w, h, x + 1, y - 1) + AtClamped(s, w, h, x - 1, y + 1) + AtClamped(s, w, h, x + 1, y + 1))
             + (0.5f * (AtClamped(s, w, h, x - 2, y) + AtClamped(s, w, h, x + 2, y)))
             - (AtClamped(s, w, h, x, y - 2) + AtClamped(s, w, h, x, y + 2)))
+           * 0.125f;
+
+    // The same four kernels over five row spans (y - 2 .. y + 2) for a pixel whose whole 5x5 window
+    // is inside the plane. Term order matches the clamped versions above exactly, so the two agree to
+    // the bit where both apply; keep them in step if a coefficient ever moves.
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static float MhcGreenInterior(ReadOnlySpan<float> m2, ReadOnlySpan<float> m1, ReadOnlySpan<float> m0, ReadOnlySpan<float> p1, ReadOnlySpan<float> p2, int x)
+        => ((4f * m0[x])
+            + (2f * (m1[x] + p1[x] + m0[x - 1] + m0[x + 1]))
+            - (m2[x] + p2[x] + m0[x - 2] + m0[x + 2]))
+           * 0.125f;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static float MhcDiagonalInterior(ReadOnlySpan<float> m2, ReadOnlySpan<float> m1, ReadOnlySpan<float> m0, ReadOnlySpan<float> p1, ReadOnlySpan<float> p2, int x)
+        => ((6f * m0[x])
+            + (2f * (m1[x - 1] + m1[x + 1] + p1[x - 1] + p1[x + 1]))
+            - (1.5f * (m2[x] + p2[x] + m0[x - 2] + m0[x + 2])))
+           * 0.125f;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static float MhcHorizontalInterior(ReadOnlySpan<float> m2, ReadOnlySpan<float> m1, ReadOnlySpan<float> m0, ReadOnlySpan<float> p1, ReadOnlySpan<float> p2, int x)
+        => ((5f * m0[x])
+            + (4f * (m0[x - 1] + m0[x + 1]))
+            - (m1[x - 1] + m1[x + 1] + p1[x - 1] + p1[x + 1])
+            + (0.5f * (m2[x] + p2[x]))
+            - (m0[x - 2] + m0[x + 2]))
+           * 0.125f;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static float MhcVerticalInterior(ReadOnlySpan<float> m2, ReadOnlySpan<float> m1, ReadOnlySpan<float> m0, ReadOnlySpan<float> p1, ReadOnlySpan<float> p2, int x)
+        => ((5f * m0[x])
+            + (4f * (m1[x] + p1[x]))
+            - (m1[x - 1] + m1[x + 1] + p1[x - 1] + p1[x + 1])
+            + (0.5f * (m0[x - 2] + m0[x + 2]))
+            - (m2[x] + p2[x]))
            * 0.125f;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]

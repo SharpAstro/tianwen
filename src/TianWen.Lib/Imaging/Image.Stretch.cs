@@ -48,23 +48,31 @@ public partial class Image
             var lumaChannel = new float[height, width];
             var lumaMin = float.MaxValue;
 
-            for (var y = 0; y < height; y++)
+            // Residency resolved ONCE, and every plane read as a flat span: this loop went through the
+            // Planes accessor three times per pixel, which is the per-sample residency check Image.cs
+            // documents at +8.7 to +20.3 percent on the resample loops, on top of a [y, x] index each.
+            var n = lumaChannel.Length;
+            if (n > 0)
             {
-                for (var x = 0; x < width; x++)
+                var r = GetChannelSpan(0);
+                var g = GetChannelSpan(1);
+                var b = GetChannelSpan(2);
+                var luma = MemoryMarshal.CreateSpan(ref lumaChannel[0, 0], n);
+                for (var i = 0; i < n; i++)
                 {
-                    var r = Planes[0].Data[y, x];
-                    var g = Planes[1].Data[y, x];
-                    var b = Planes[2].Data[y, x];
-                    if (float.IsNaN(r) || float.IsNaN(g) || float.IsNaN(b))
+                    var rv = r[i];
+                    var gv = g[i];
+                    var bv = b[i];
+                    if (float.IsNaN(rv) || float.IsNaN(gv) || float.IsNaN(bv))
                     {
-                        lumaChannel[y, x] = float.NaN;
+                        luma[i] = float.NaN;
                     }
                     else
                     {
-                        if (needsNorm) { r *= normFactor; g *= normFactor; b *= normFactor; }
-                        var luma = LumaWeighting.Rec709.ToLuma(r, g, b);
-                        lumaChannel[y, x] = luma;
-                        if (luma < lumaMin) lumaMin = luma;
+                        if (needsNorm) { rv *= normFactor; gv *= normFactor; bv *= normFactor; }
+                        var l = LumaWeighting.Rec709.ToLuma(rv, gv, bv);
+                        luma[i] = l;
+                        if (l < lumaMin) lumaMin = l;
                     }
                 }
             }

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Runtime.InteropServices;
 
 namespace TianWen.Lib.Imaging;
 
@@ -45,18 +46,27 @@ public partial class Image
         var src = Planes[0].Data;
         float[,] r = planes[0], g1 = planes[1], g2 = planes[2], b = planes[3];
 
+        // Two source rows and four destination rows as spans per sub-plane row: eight [y, x] index
+        // computations per photosite quad become eight bounded slice reads (PlaneAccessBenchmarks).
+        var width = Width;
         for (var sy = 0; sy < ph; sy++)
         {
             var yR = (sy * 2) + oy;       // red / G1 row (yp == 0)
             var yB = (sy * 2) + (1 - oy); // blue / G2 row (yp == 1)
+            var srcR = MemoryMarshal.CreateReadOnlySpan(ref src[yR, 0], width);
+            var srcB = MemoryMarshal.CreateReadOnlySpan(ref src[yB, 0], width);
+            var rRow = MemoryMarshal.CreateSpan(ref r[sy, 0], pw);
+            var g1Row = MemoryMarshal.CreateSpan(ref g1[sy, 0], pw);
+            var g2Row = MemoryMarshal.CreateSpan(ref g2[sy, 0], pw);
+            var bRow = MemoryMarshal.CreateSpan(ref b[sy, 0], pw);
             for (var sx = 0; sx < pw; sx++)
             {
                 var xR = (sx * 2) + ox;       // red / G2 column (xp == 0)
                 var xB = (sx * 2) + (1 - ox); // blue / G1 column (xp == 1)
-                r[sy, sx] = src[yR, xR];
-                g1[sy, sx] = src[yR, xB];
-                g2[sy, sx] = src[yB, xR];
-                b[sy, sx] = src[yB, xB];
+                rRow[sx] = srcR[xR];
+                g1Row[sx] = srcR[xB];
+                g2Row[sx] = srcB[xR];
+                bRow[sx] = srcB[xB];
             }
         }
 
@@ -162,18 +172,25 @@ public partial class Image
         var dst = mosaic[0];
         float[,] r = Planes[0].Data, g1 = Planes[1].Data, g2 = Planes[2].Data, b = Planes[3].Data;
 
+        var mosaicWidth = pw * 2;
         for (var sy = 0; sy < ph; sy++)
         {
             var yR = (sy * 2) + oy;
             var yB = (sy * 2) + (1 - oy);
+            var dstR = MemoryMarshal.CreateSpan(ref dst[yR, 0], mosaicWidth);
+            var dstB = MemoryMarshal.CreateSpan(ref dst[yB, 0], mosaicWidth);
+            var rRow = MemoryMarshal.CreateReadOnlySpan(ref r[sy, 0], pw);
+            var g1Row = MemoryMarshal.CreateReadOnlySpan(ref g1[sy, 0], pw);
+            var g2Row = MemoryMarshal.CreateReadOnlySpan(ref g2[sy, 0], pw);
+            var bRow = MemoryMarshal.CreateReadOnlySpan(ref b[sy, 0], pw);
             for (var sx = 0; sx < pw; sx++)
             {
                 var xR = (sx * 2) + ox;
                 var xB = (sx * 2) + (1 - ox);
-                dst[yR, xR] = r[sy, sx];
-                dst[yR, xB] = g1[sy, sx];
-                dst[yB, xR] = g2[sy, sx];
-                dst[yB, xB] = b[sy, sx];
+                dstR[xR] = rRow[sx];
+                dstR[xB] = g1Row[sx];
+                dstB[xR] = g2Row[sx];
+                dstB[xB] = bRow[sx];
             }
         }
 

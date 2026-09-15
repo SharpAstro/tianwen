@@ -85,6 +85,92 @@ flowchart TD
 5. **`image.Release()`**: Decrements `ChannelBuffer` refcount to zero → `onRelease` fires → `float[,]` goes into `_freeBuffers`.
 6. **Next exposure**: `StopExposureCore` grabs a buffer from `_freeBuffers` via `TryTake()` and passes it as `dest` to `Render()` → **zero allocation**.
 
+## How a plane is READ, and why the storage type is not the lever (2026-09-15)
+
+The planes are `float[,]` and stay `float[,]`: `Channel.Data`, `ChannelBuffer`, `Image.FromChannel`
+and `AlpacaImageBytes.DecodeChannel` are public with that type, four camera drivers recycle it
+through their free-buffer bags, and FITS.Lib hands it back. The question whether to migrate them to
+a flat `float[]` came up after the `BitMatrix` rework (which did exactly that for `ulong[,]`), and
+was answered by measurement rather than by analogy.
+
+**The microbenchmark** (3024 x 3025 plane, win-arm64, best of 9, one plane, three access shapes in
+three spellings; the AOT column is what ships):
+
+| shape / spelling | JIT ms | AOT ms |
+|---|---|---|
+| stream, `float[,]` `[y, x]` | 8.07 | 8.10 |
+| stream, `float[]` `y * w + x` | 8.07 | 8.14 |
+| stream, row slices of a span over the `float[,]` | 8.12 | 8.09 |
+| 3x3 stencil, `float[,]` `[y, x]` | 28.14 | 28.68 |
+| 3x3 stencil, `float[]` `y * w + x` | 19.19 | 19.35 |
+| 3x3 stencil, row slices of a span over the `float[,]` | 16.53 | **11.75** |
+| bilinear gather, `float[,]` `[y, x]` | 18.79 | 17.46 |
+| bilinear gather, `float[]` `y * w + x` | 17.02 | 15.43 |
+| bilinear gather, flat span over the `float[,]` | 16.43 | 14.72 |
+
+Three things follow, and they are the rules:
+
+- **The storage type is not the lever.** A span over the EXISTING `float[,]`, sliced per row, beats a
+  native flat `float[]` on the stencil (11.8 against 19.4 ms under AOT), because a bounded slice is
+  what lets the compiler drop the per-element checks, where `y * w + x` on a 1D array still checks
+  every load. Migrating `Channel.Data` would have made the loops slower than the idiom already in
+  `Image.Arithmetic` / `Masks` / `Resize` / `Stretch`, at the price of a package break.
+- **The `[y, x]` spelling is the cost, and AOT widens it.** A multi-dimensional index is a multiply
+  and two bounds checks the compiler cannot lift; 2.4x on a neighbourhood loop, 15 percent on a
+  gather, nothing on a stream (a stream is bound by the dependent add, not the address).
+- **Take the view once per operation, exactly as residency is resolved once.** `Image.ResidentPlanes`
+  exists because a per-sample residency check cost +8.7 to +20.3 percent; a per-sample
+  `MemoryMarshal.CreateReadOnlySpan(ref plane[0, 0], plane.Length)` is the same mistake one level
+  down. `SubpixelValue` and `Lanczos3Value` therefore have span-plus-width overloads, the `float[,]`
+  ones are wrappers for a caller sampling a handful of positions, and the warp loops take the view
+  once per ROW (a span cannot be captured by the `Parallel.For` lambda; once per row is 1 / width of
+  the per-sample cost). The row is the natural unit for a stencil too: MHC reads its five source rows
+  as spans and runs the same kernels unclamped over the interior, with the clamped path kept for the
+  two-pixel border.
+
+**What it bought, measured with `PlaneAccessBenchmarks`, `DebayerBenchmarks` and `WarpBenchmarks`
+before and after, same box, same day** (the baseline from a worktree at the benchmark commit, so the
+edits could not leak into it):
+
+| benchmark (win-arm64, JIT, Release) | size | before | after |
+|---|---|---|---|
+| `Lanczos3Value`, every pixel, single-threaded | 1024 sq | 164.0 ms | 120.8 ms |
+| `Lanczos3Value` | 2048 sq | 518.7 ms | 470.2 ms |
+| `GetLumaStretchStatsAsync` | 1024 sq | 8.36 ms | 4.01 ms |
+| `GetLumaStretchStatsAsync` | 2048 sq | 26.7 ms | 14.2 ms |
+| `SplitBayerChannels` + `MergeBayerChannels` | 1024 sq | 3.79 ms | 1.93 ms |
+| `SplitBayerChannels` + `MergeBayerChannels` | 2048 sq | 12.3 ms | 9.73 ms |
+| `Accumulate_Mono` (CONTROL: sampler through the `float[,]` wrapper) | 1024 / 2048 sq | 9.11 / 36.5 ms | 8.89 / 35.4 ms |
+| `Accumulate_Color` (CONTROL) | 1024 / 2048 sq | 25.3 / 110.4 ms | 23.8 / 102.8 ms |
+| MHC debayer, `Parallel.For`, real 3008 sq frame | 3008 sq | 27 to 85 ms (four runs) | 6.0 to 16 ms (three runs) |
+| BilinearMono debayer (2x2 fold), same | 3008 sq | 3.0 to 10 ms | 3.5 to 4.2 ms |
+| VNG debayer (CONTROL, untouched), same | 3008 sq | 73 to 141 ms | 41 to 74 ms |
+
+Read the two halves differently. The single-threaded rows are default-job BenchmarkDotNet (15 or more
+iterations) and the controls moved by 2 to 7 percent, within the spread `WarpBenchmarks` records, so the
+changed rows are attributable: the luma statistic HALVED, and that is the per-sample residency check
+removed (it went through the `Planes` accessor three times per pixel), not the index; Lanczos3 gained
+26 percent at 1024 and 9 at 2048, so at the larger plane the 36-tap gather is partly memory-bound and
+the address arithmetic was never all of it; the CFA split/merge gained 49 and 21 percent the same way.
+
+The debayer rows are a `Parallel.For` across every core judged by a `[ShortRunJob]`, and the
+UNTOUCHED control swung by a factor of two between runs of the same binary (VNG 73 to 141 ms; AHD, also
+untouched, read 338, 871 and 409 ms). Nothing finer than an order of magnitude can be read off them,
+which is why they are ranges and not means. Two things can: **MHC is an order of magnitude faster**
+(its worst after-reading, 16 ms, is under its best before-reading, 27 ms, and the typical pairing is
+64 to 6 ms), which is what removing thirty clamped `float[,]` reads per pixel should buy; and **the 2x2
+mono fold did not measurably change**, exactly as the stream row of the microbenchmark predicted for a
+loop that touches each element about once. The fold's span spelling is kept for uniformity, not as a
+win, and a future reader should not cite it as one. A parallel debayer wants the default job and a
+quiet box before any single-digit-percent claim, the same rule `WarpBenchmarks` already states.
+
+Loops still spelled `[y, x]` after this pass, by site count: `Stacking/CometModel.cs` (26),
+`Stacking/ChunkedTwoPassStrategy.cs` (20), `Planetary/FrameSharpnessMap.cs` (10),
+`Calibration/BadPixelAccumulator.cs` (7), plus the planetary `Accumulate*Into` kernels' STORE side
+(`channelAccum[c][y, x] +=`, left as the control that shows whether the sampler or the store is the
+cost). Convert one per measured commit; the import decoders (`Image.Import.cs`) are I/O-bound and not
+worth touching.
+
 ## GPU Debayer & Stretch
 
 The fragment shader handles all image processing in a single pass per pixel:
