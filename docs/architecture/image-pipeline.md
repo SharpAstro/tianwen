@@ -187,11 +187,49 @@ percent here, 47 to 52 there), which is the strongest support for the attributio
 per-sample residency check, and a residency check costs much the same anywhere because it is a branch
 rather than an addressing mode. The CFA split and merge carries over too, and beats its arm64 figure
 at 2048. **Lanczos3 is the row that does not travel**, 6 percent here against 26 at 1024. The gain is
-real and outside the error bars (232.3 +/- 2.4 to 218.2 +/- 1.2), simply small, and the reason is the
-one the arm64 reading already gives for its own 2048 column. A 36-tap gather is partly memory-bound
-and the address arithmetic was never all of it; this box runs that loop about 1.8x slower in absolute
-terms, so it is memory-bound at 1024 already, where the Surface was not. **Do not quote the 26
+real and outside the error bars (232.3 +/- 2.4 to 218.2 +/- 1.2), simply small. **Do not quote the 26
 percent as the gain this change buys.**
+
+**Why it is small here was measured rather than reasoned about, and the first answer written down was
+wrong.** That answer was "the 36-tap gather is memory-bound on this box", which a bigger L1 and L2
+argue against before any measurement does, and which the numbers refute outright. A decomposition of
+the kernel into four variants (the shipped shape with `[sy, sx]`, the shipped shape with row spans,
+the same with the weights hoisted out, and the twelve weights on their own) says:
+
+| share of the Lanczos3 loop, x64 | 1024 sq (4 MB) | 2048 sq (16 MB) |
+|---|---|---|
+| the addressing, which is what this commit changed | 5.7% | 5.4% |
+| the weight math, which nothing changed | 71.7% | 71.8% |
+
+**Both shares are flat across a four-fold change in working set**, which is the opposite of what a
+cache effect looks like, and the weights-only variant prices the same 72 percent on its own rather
+than by subtracting two other measurements. So on x64 the loop is dominated by the twelve
+`MathF.Sin` calls per destination pixel, and the addressing was only ever about a twentieth of it.
+The Surface's own fall from 26 percent at 1024 to 9 at 2048 IS size-dependent and is still consistent
+with a cache effect there; this box's flat 5 to 6 percent is a different situation with the same
+symptom, and reading one as the other is what produced the wrong sentence.
+
+**The 72 percent is reducible, and the lever is algebra rather than a table (measured, NOT yet
+implemented).** The six taps of one axis sit at `t_i = f + 2 - i` for one fraction `f`, so their
+sines are not six independent values: `sin(PI*t_i)` is `(-1)^i sin(PI*f)`, and `sin(PI*t_i/3)` is one
+angle addition away from `sin` and `cos` of `PI*f/3`, whose per-tap coefficients are constants. One
+axis therefore needs a `Math.Sin` and a `Math.SinCos` where the direct form makes six `MathF.Sin`
+calls. A prototype of exactly that (scratch, x64, same harness) runs the whole kernel at **1.86 to
+1.89x** and is **ten times MORE accurate than the shipped form** against a double reference, worst
+weight error 3.0e-8 against 2.9e-7, because it evaluates from the fraction instead of from a
+float-rounded tap offset. No approximation and no lookup table, so the clamp measurements and
+`WarpInterpolationTests` stand to be re-run rather than re-derived.
+
+**Two traps found while proving it, both of which made the prototype look wrong when it was not.**
+The reduction has to be done in the tap offset's own arithmetic: `double t = f + 2 - i` with `f` a
+float and int literals is FLOAT arithmetic that widens afterwards, so `fl(f + 2)` rounds by up to
+half an ulp of 3, and a numerator taken from the exact fraction against a denominator taken from the
+rounded offset reads as a 2.4e-3 weight error at the tap nearest the sample. The shipped kernel is
+immune to this precisely because it uses one rounded offset in both halves, where the error cancels,
+which is also why it beats a careless "more exact" rewrite. And the comparison that settles it is
+against a DOUBLE reference, never against the shipped form: judged against the shipped form the
+prototype and the bug are indistinguishable, and the first two diagnoses written down were both wrong
+because they were reasoned from a disagreement rather than from a truth.
 
 **Not re-measured on x64**: the two `Accumulate_*` controls and all three debayer rows. The controls
 are worth having and would make the x64 rows attributable the way the arm64 ones are; the debayer
