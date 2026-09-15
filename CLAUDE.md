@@ -1673,22 +1673,29 @@ The rules that bite:
   (`DrawCollapsibleHeading`) and, open, are a TABLE at measured column stops (`InfoPanelData.GetStatisticsTable`
   + `DrawTable`; space-padding aligns nothing in a proportional face). **The white balance is a popover
   under a mark-only toolbar button** (`ToolbarAction.WhiteBalance`, lit while the EFFECTIVE white balance
-  is not neutral; `ImageRendererBase.WhiteBalancePanel.cs`). **A popover is a menu in everything but its
-  contents**: painted with the dropdowns, a full-window backdrop closes it on any other press (the button
-  included), it claims the keyboard as it paints so Escape needs no branch, `OverlayOwnsPointer` names it;
-  closed, it clears its slider bands. Pinned through the hit tracker, not pixels. P33.
-- **There are TWO popovers now, and a new one needs one line in the PRESS dispatcher or its button is
-  dead.** `HandleViewerMouseDown` routes a toolbar press to `ViewerActions.HandleToolbarAction`, which
-  has no arm for a button that only opens a panel, so a popover action must be named in the
-  `is ToolbarAction.WhiteBalance or ToolbarAction.Tone` test above it. The second is the **tone
-  popover** (`ToolbarAction.Tone`, `ImageRendererBase.TonePanel.cs`): the curves boost and its curve
+  is not neutral; `ImageRendererBase.WhiteBalancePanel.cs`).
+- **A popover is a `Layout.Builder.Popover` node and a `PopoverState`, and that is the whole
+  declaration.** It used to cost FIVE obligations written out per panel -- a flag, a full-window backdrop
+  that dismisses and consumes the press, a placement with its own clamp, a ten-line `IKeyboardClaimant`
+  whose body was "Escape closes me", and pointer ownership -- and forgetting one was silent, because the
+  overlay still opened, still drew and still took clicks. Both viewer popovers are nodes now
+  (`ViewerState.TonePopover` / `WhiteBalancePopover`), arranged over the whole window, and their sliders
+  are `Layout.Content.Slider` leaves that arm their own drag. **A SIXTH obligation is still the
+  consumer's**: `HandleViewerMouseDown` routes a toolbar press to `ViewerActions.HandleToolbarAction`,
+  which has no arm for a button that only opens a panel, so a popover action must be named in the
+  `is ToolbarAction.WhiteBalance or ToolbarAction.Tone` test above it. That line goes when the toolbar
+  goes on the tree and the button carries `.Clickable(hit, _ => state.Toggle())` itself.
+- **A closed popover gives the pointer back only because the viewer clears it.**
+  `WindowUiSettings.PointerOwner` is claimed BY BEING PAINTED and cleared once per frame -- keyed on
+  `Ui.FrameId`, which nothing here bumps, so the engine's own clear fires once in the process lifetime.
+  `ImageRendererBase.Render` clears it after `BeginFrame`; without that a popover owns the pointer
+  forever after its first close and every hover outside its ghost rect stays cold.
+- The second popover is the **tone popover** (`ToolbarAction.Tone`, `ImageRendererBase.TonePanel.cs`):
+  the curves boost and its curve
   mode, the highlight soft clip's amount and knee, and a greyed block naming the display HDR the
   viewer cannot do. It folded two buttons on the terms Calibrate and SPCC folded into the white
   balance, and it renamed nothing internally -- `HdrAmount` / `HdrKnee` / `Image.ApplyHdr` and the
-  shader are untouched, because the MATH was never the problem. **It is also the one viewer overlay
-  built as ONE arranged tree**, with its box taken from `Layout.Engine.Measure` rather than summed by
-  hand, so a test reads arranged nodes instead of sweeping the window: copy it, not the white-balance
-  popover beside it, and see `docs/plans/viewer-layout-engine.md` for why the rest has not moved yet. **`HDR` on that button was a soft knee
+  shader are untouched, because the MATH was never the problem. **`HDR` on that button was a soft knee
   after the MTF, inside [0, 1]**, so it promised the one thing the viewer does not do; the plan and the
   measurements are `docs/plans/hdr-display.md`.
 - **The "?" panel is a MENU** (`HelpPage`); row 0 of a sub-page is the way back. **A page change re-opens
@@ -1808,7 +1815,10 @@ before any layout work. The short form:
   all-Star children arrange to nothing (state `.WStar()`); never pair `.CollapseBelow(u)` with a Star
   minimum, and a child that must survive takes NO threshold; an icon inks the full square it DECLARES.
 - **A mark is a `Layout.Content.Icon`, never a symbol character in a `Text` run** (a glyph draws
-  .notdef where the face lacks it).
+  .notdef where the face lacks it), and every step / jog / pan mark resolves in ONE place,
+  `FormRowLayout.StepMark` -- the switch copied per helper is how one of them drifts back to a
+  character. Its fallthrough to a run is deliberate: the double guillemets a coarse jog shows have no
+  `IconKind` member, and a run is still right for a WORD.
 - **`.PadX(u)` / `.Pad(across, down)` for a FIXED-height bar**, or the icon becomes a stub while the
   text overflows and goes on looking correct.
 - **`PushClip(x, y, w, h)` / `PopClip()` on the widget base**, never `Renderer.PushClip` with a
@@ -1837,7 +1847,11 @@ key routing). The rules that bite:
   transparent (`null`, not Default), so a row inherits its card's cursor. The `CursorKind` -> SDL
   mapping lives in SdlVulkan.Renderer.
 - **HOVER needs a z-order answer, `ViewerState.OverlayOwnsPointer`**, because hover is decided at PAINT
-  time; add an overlay to that ONE property, never a call site.
+  time; add an overlay to that ONE property, never a call site. **It is NOT
+  `WindowUiSettings.PointerOwner`, which an open `Popover` sets as it paints**: that one is a RECORD and
+  confines hover for whatever paints AFTER it, which is free for a `PaintLayout` tree; this one is a
+  PREDICTION, for hand-painted chrome that resolves its hover BEFORE any overlay has drawn. The viewer's
+  toolbar, histogram and file list are all of the second kind, so the flag stays until they are trees.
 - **Every host routes through `DIR.Lib.InputRouter`, and the ORDER is the engine's**: an open popover,
   then any PAINTED node whose declared `Shortcut` matches, then the focused field, then the widget. The
   desktop (`GuiEventHandlerBase`) and the browser (`Planner.razor`) each keep only what is theirs -- the
@@ -1851,7 +1865,7 @@ key routing). The rules that bite:
     NEXT tab rather than a tab, so they are answered before the router in `GuiEventHandlerBase`.
   - **A press on a region is CONSUMED there**, so anything that used to run after a hit test runs
     before the router instead, off a non-dispatching `HitTest` (the planner's handoff-divider drag, the
-    one such site left; T2's `Content.Slider` deletes it).
+    one such site left; a `Content.Slider` deletes it when that divider becomes one).
 - **A text field is a declaration**, `Layout.Builder.TextInput(state, fontSize)` and nothing else
   (`TextInputRenderer`, `TextInputHit`, `CursorKind.Text`; `CellLayout` on a terminal). `fontSize` is in
   DESIGN units (the painter crosses `ctx.FontScale`); intrinsic width comes from the placeholder.
