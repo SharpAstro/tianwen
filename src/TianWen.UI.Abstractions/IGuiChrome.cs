@@ -6,7 +6,7 @@ namespace TianWen.UI.Abstractions;
 /// Interface for the GUI chrome (sidebar, status bar) that the event handler needs.
 /// Implemented by the concrete GUI renderer (e.g. VkGuiRenderer).
 /// </summary>
-public interface IGuiChrome : IPixelWidget
+public interface IGuiChrome : IPixelWidget, ICaretPlacingWidget
 {
     /// <summary>The currently active tab widget, or null.</summary>
     IPixelWidget? ActiveTab { get; }

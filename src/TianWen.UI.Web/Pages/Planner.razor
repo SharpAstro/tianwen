@@ -784,14 +784,16 @@
         }
     };
 
-    void ActivateTextInput(TextInputState input, int clicks)
-    {
-        _focus.Focus(input);
-        if (clicks >= 2 && input.Text.Length > 0)
-        {
-            input.SelectAll();
-        }
-    }
+    // A press on a canvas field, through the same rule the desktop host uses: focus it, then place the caret
+    // under the pointer, select the word under a second click and the field under a third. The caret index
+    // comes from ActivePixelTab, which is the widget that hit-tested the press AND knows its own surface
+    // type, so it can answer through the very renderer and fallback chain the field was drawn with.
+    //
+    // Drag-to-extend is NOT wired here: OnPointerMove would have to know the button is still down, and that
+    // belongs to the DIR.Lib 9.2 input router (docs/plans/dir-lib-10.md, D1), not to a second copy here.
+    void ActivateTextInput(HitResult.TextInputHit hit, float pointerX, int clicks, InputModifier modifiers)
+        => TextFieldPointerInteraction.HandleMouseDown(
+            hit, ActivePixelTab, pointerX, clicks, modifiers, _focus, RenderFrame);
 
     void DeactivateTextInput() => _focus.Blur();
 
@@ -966,8 +968,7 @@
 
         _bus.Subscribe<OpenSkyMapSearchSignal>(_ =>
         {
-            SkyMapSearchActions.OpenSearch(skySearch, Db, _state.Comets);
-            ActivateTextInput(skySearch.SearchInput, clicks: 1);
+            SkyMapSearchActions.OpenSearch(skySearch, Db, _focus, _state.Comets);
             skyState.NeedsRedraw = true;
         });
         _bus.Subscribe<CloseSkyMapSearchSignal>(_ =>
@@ -2476,10 +2477,11 @@
         var hit = tab.HitTestAndDispatch(e.X, e.Y, mods);
 
         // Text-input focus management (desktop: GuiEventHandlerBase's TextInputHit branch).
-        if (hit is HitResult.TextInputHit { Input: { } clickedInput })
+        if (hit is HitResult.TextInputHit textHit)
         {
-            ActivateTextInput(clickedInput, (int)e.Original.Detail);
-            RenderFrame();
+            // No RenderFrame() of our own: the interaction asks for one once the caret has moved, and this
+            // host paints per event, so a second call here is a whole extra canvas repaint per press.
+            ActivateTextInput(textHit, e.X, (int)e.Original.Detail, mods);
             return;
         }
 

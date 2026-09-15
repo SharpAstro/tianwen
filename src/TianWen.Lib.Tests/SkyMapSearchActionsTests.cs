@@ -574,7 +574,7 @@ public class SkyMapSearchActionsTests
             StubCometRepository.Comet("10P", "Tempel"),
             StubCometRepository.Comet("C/1864 N1", "Tempel"));
 
-        SkyMapSearchActions.OpenSearch(search, new EmptyDb(), repo);
+        SkyMapSearchActions.OpenSearch(search, new EmptyDb(), new TextInputFocus(), repo);
         var results = SkyMapSearchActions.FilterResults(search, new EmptyDb(), "Tempel");
 
         results.Select(r => r.Display).ShouldBe(
@@ -593,7 +593,7 @@ public class SkyMapSearchActionsTests
             StubCometRepository.Comet("9P", "Tempel"),
             StubCometRepository.Comet("10P", "Tempel"));
 
-        SkyMapSearchActions.OpenSearch(search, new EmptyDb(), repo);
+        SkyMapSearchActions.OpenSearch(search, new EmptyDb(), new TextInputFocus(), repo);
         var results = SkyMapSearchActions.FilterResults(search, new EmptyDb(), "10P");
 
         results.ShouldHaveSingleItem().Display.ShouldBe("10P/Tempel");
