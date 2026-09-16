@@ -926,11 +926,27 @@ name alone gets both wrong in both directions.
 | `TextInputHit.Painted` required | n/a | consumers already read it; making it required IS the break. |
 | `Ui.KeyboardClaimant` -> popover stack | rides the claimant row | one change, not two. |
 
-`OverlayOwnsPointer` is **6 production uses across 4 files** (`ImageRendererBase.FileList.cs` x2,
-`.Histogram.cs`, `.Toolbar.cs` x2, `ViewerState.cs`) and is not a listed cut, but it falls out of the
-same work: it is a PREDICTION consulted by hand-painted chrome that resolves hover before any overlay
-has drawn, so it survives exactly as long as the viewer's toolbar, histogram and file list are painted
-rather than declared.
+**The two cuts left are ONE piece: the viewer adopts `InputRouter`.** Verified 2026-09-17 rather than
+assumed:
+
+- `TianWen.UI.FitsViewer/Program.cs` contains **zero** `InputRouter` references. The viewer is its own
+  host and dispatches input itself -- `ImageRendererBase.Input.cs` is 1265 lines with 44 `case InputKey`
+  arms.
+- That is why the ONE `Ui.KeyboardClaimant` consult exists (`Input.cs:206`): it is the viewer hand-doing
+  what the router does for every other surface. It goes with the adoption, NOT with declaring the
+  overlays -- the overlays are already `Popover` nodes and DIR.Lib sets the claimant itself when it
+  paints one (`PixelWidgetBase.cs:1284`).
+- The same adoption is what removes the viewer's own `HitTestAndDispatch` call and the two overrides
+  that compose it, so the 10 sites and the 1 claimant are not two jobs.
+
+**`OverlayOwnsPointer` is NOT one of D2's cuts, and it is not blocked on any of this.**
+`PixelWidgetBase.PointerWithin` already consults `WindowUiSettings.PointerOwner` -- "no owner, or inside
+the owner" -- so a DECLARED node's hover is confined by an open popover with no node knowing one exists.
+What keeps the viewer's six hand-written consults alive is **paint order**: its chrome paints before its
+overlays, so `PointerOwner` is still unset when the toolbar, file list and histogram resolve hover, and a
+flag read from the popover's own `IsOpen` is the only thing available that early. Retiring it is
+therefore its own small change -- set `PointerOwner` from state at the top of the frame instead of at
+paint time -- and not part of the gate.
 
 So D2 is **not startable today**, and the gate is T2's remainder plus the viewer's last painted
 overlays -- not anything in DIR.Lib. Nothing above waits on a new engine feature; every replacement
