@@ -133,6 +133,36 @@ public class QhySensorGeometryProbe(ITestOutputHelper output)
             var ignore = IsQHYCCDControlAvailable(handle, CONTROL_ID.CAM_IGNOREOVERSCAN_INTERFACE);
             output.WriteLine($"  ignore-overscan control: {(ignore is Success ? "AVAILABLE" : "not available")}"
                 + " (asked only, never set: setting it discards the black reference P5 wants)");
+
+            // The controls a capture actually rides on, reported as the camera has them RIGHT NOW.
+            // Two are here for specific questions. USB traffic is the classic cause of dropped or
+            // torn frames and nothing in the dark probe touched it, so whatever it reads is the
+            // camera's own default and is what those measurements were taken at. And the current
+            // temperature is worth asking for on a body running with NO external power: the TEC
+            // cannot run, but the sensor's thermistor is a different circuit, so whether the reading
+            // is still meaningful is a question about the hardware, not about the cooler.
+            output.WriteLine("");
+            output.WriteLine($"  {"control",-22} {"available",-10} {"current",10} {"min",10} {"max",10} {"step",8}");
+            foreach (var control in new[]
+                     {
+                         CONTROL_ID.CONTROL_USBTRAFFIC, CONTROL_ID.CONTROL_SPEED, CONTROL_ID.CONTROL_TRANSFERBIT,
+                         CONTROL_ID.CONTROL_CURTEMP, CONTROL_ID.CONTROL_CURPWM, CONTROL_ID.CONTROL_COOLER,
+                         CONTROL_ID.CONTROL_GAIN, CONTROL_ID.CONTROL_OFFSET, CONTROL_ID.CONTROL_EXPOSURE,
+                     })
+            {
+                var available = IsQHYCCDControlAvailable(handle, control) is Success;
+                if (!available)
+                {
+                    output.WriteLine($"  {control,-22} {"no",-10}");
+                    continue;
+                }
+
+                var value = GetQHYCCDParam(handle, control);
+                var range = GetQHYCCDParamMinMaxStep(handle, control, out var min, out var max, out var step) is Success
+                    ? $"{min,10:F2} {max,10:F2} {step,8:F2}"
+                    : $"{"?",10} {"?",10} {"?",8}";
+                output.WriteLine($"  {control,-22} {"yes",-10} {value,10:F2} {range}");
+            }
         }
         finally
         {
