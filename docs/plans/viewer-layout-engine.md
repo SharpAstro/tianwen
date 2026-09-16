@@ -123,35 +123,45 @@ the wrapped row narrows and buttons that fit today start being dropped --
 drops rather than clips for the same reason a dropped button must not be merely invisible: a clipped
 child still registers its region and keeps taking the clicks aimed at whatever covers it.
 
-**`ReservedLabelWidth` is still there, and the reason is a conflict this phase resolved by measuring.**
-This document says deleting it follows from every button being at its widest state. The method's own
-remarks say the opposite -- that "reserving room for every variant would spend width the run does not
-have". Probed directly: adding **+20 px to every button** (about 300 px across the run) drops nothing at
-the 1150 px ordinary window. **So the width objection is wrong and this document is right**; the run has
-headroom.
+**`ReservedLabelWidth` stays, and the reason is now MEASURED on both sides rather than argued.** This
+document said deleting it follows from every button being at its widest state. The method's own remarks
+said the opposite -- that "reserving room for every variant would spend width the run does not have --
+it already wraps to a second row on a narrow window". **The remarks are right and this document was
+wrong**, and the first probe of it was wrong too, for the ordinary reason: it was taken at one width.
 
-What remains before it can go is therefore not width. It is a DEPENDENCY, and naming it that way
-matters, because this was queued for a while as a judgement call the user had to make and it is not one:
+Built the whole thing to find out (2026-09-16). Every varying button got a candidate list -- the zoom
+menu, the three link modes wrapped in "Auto (x)", the debayer algorithms, the `ChannelView` enum, the
+solve glyphs, the enhance backends, the neutralisation method with its percentage, and the
+`StretchParameters` PRESETS, which turn out to enumerate after a free-text guess had cost 92 px for
+nothing. `ReservedLabelWidth` was deleted and the width rule became one universal
+`max(live, widest candidate)`.
 
-- **The buttons are not nodes yet, so there is nowhere to put the replacement.** P2's layout half put
-  the RUN's placement on the engine; each button is still hand-painted (`DrawText` + `RegisterClickable`,
-  `ImageRendererBase.Toolbar.cs:535`). `Text.WidthSample` is the engine's own spelling of "measure this
-  as if it held that string", and this document's own inventory lists `ReservedLabelWidth` as the
-  hand-rolled version of it -- but a sample goes ON a node, and there is no node. Deleting the
-  reservation before the buttons are declared removes the workaround and restores the flicker, which is
-  strictly worse than either end state.
-- **A widest-state sample per action, and not all of them enumerate.** `Stars` is a star count,
-  `StretchParams` a parameter string, `Zoom` a percentage -- these need a representative `widthSample`
-  ("99999"), not a union over a list. Zoom and Enhance, the two the reservation already covers, are the
-  enumerable ones. Note this FAILS SOFT: the width is `max(measured, reserved)`, so a sample that turns
-  out too small only means that button drifts again, never that a label is clipped.
-- **It is still a visible change**, since every button with a varying label gets permanently wider to
-  hold a state it is not in. Worth saying out loud when it lands -- but it arrives as a consequence of
-  declaring the buttons, not as a separate decision to take first.
+| | left run, 19 buttons | placed at 1400 | at 1150 | **at 800** |
+|---|---|---|---|---|
+| reserving two buttons (today) | 1250.7 px | 19 | 19 | **19** |
+| reserving every varying button | 1646.5 px | 19 | 19 | **16** |
 
-Moving the layout to the engine did NOT make the reservation unnecessary on its own: the run is still
-left-packed, so a width change still shoves its neighbours, and the reservation is still what holds the
-two noticed buttons steady.
+**+395.8 px, +31.6%, and at an 800 px window three buttons drop off the end** -- one of them
+`WhiteBalance`, caught by `ViewerWhiteBalancePopoverTests` at its `windowW: 800` case rather than by
+anything in the toolbar's own suite. A dropped button is not a smaller button: `MaxLines` removes it
+from the tree, so it is unreachable, and trading a drift nobody dies of for a control that is simply
+gone is the wrong way round.
+
+Two things worth keeping from the attempt:
+
+- **The `StretchParams` label enumerates** (`StretchParameters.Presets`), so the "not all of them
+  enumerate" objection is smaller than it looked -- it is really only `Stars`, a count with no bound.
+- **`ViewerToolbarLayoutTests.TheHelpButtonDoesNotMoveWhenANeighbourRelabels` fails against the fix**,
+  because its guard-the-guard line asserts the button WIDENS on a relabel. Under widest-state sizing it
+  cannot, so the test has to be rewritten to assert three equal widths across `Linked` / `Unlinked` /
+  `Auto` -- `Auto` being the longest label, which is what stops three equal widths being a coincidence.
+  That rewrite is right whenever this does land.
+
+**So the deletion is not blocked on width alone, it is blocked on the narrow case having an answer
+other than dropping.** That answer is `TextTrim` on a declared button -- ellipsise the label when the
+run runs out of room instead of losing the whole control -- and `Text.Trim` has zero uses anywhere in
+tianwen today. Which puts the removal back where the paragraph below already puts it: it needs the
+buttons to BE nodes.
 
 Lay the bar out as a `WrapH` of buttons (it already wraps by hand on a narrow window) with each button
 a node carrying its own `widthSample` -- its widest state, stated once, on the node, rather than
