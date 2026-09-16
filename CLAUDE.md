@@ -1215,11 +1215,13 @@ the Home-tab decisions and every measurement; the pieces are `TianWen.Hosting.Co
 emoji render inconsistently), written as backslash-U escapes. **Adding a tab touches five places:**
 the `GuiTab` enum, `TabOrder`, `TabChrome`, two `VkGuiRenderer` switches, and
 `GuiTabNavigationTests.TabOrder_IsTheSidebarLayoutOrder` (pins the order, will go red by design).
-The Ctrl+letter map is gone: `TabChrome` carries the `KeyChord` itself, `VkGuiRenderer` re-states each
-rail cell as the tab it selects (`RailTab` / `SelectTab`, read by `CollectPaintedRegions` for the
-handler and `CollectPaintedNodes` for the chord), and the tooltip is printed from the chord. **What a
-rail cell means is said in that ONE pair** -- `TabBar` reports an indexed `ListItemHit` and has no seam
-for either, so a second statement anywhere is how a chord and a click come to disagree.
+The Ctrl+letter map is gone, and since DIR.Lib 9.5 so is the walk that replaced it: **a
+`TabItem<GuiTab>` carries its own `Shortcut` and its own `OnSelect`**, so `TabChrome`'s chord and
+`SelectTab` reach the painted node through the item rather than through a `CollectPaintedNodes`
+override that rewrote every cell once per frame. The bar drops both for a LOCKED tab, which is what
+makes its chord inert with no guard beside the key. What is still re-stated afterwards is the LABEL
+alone (`RailTab` / `TabButton` in `CollectPaintedRegions`, so click-by-label can drive it), and the
+tooltip is printed from the chord.
 
 ### Colour Theme (`GuiTheme`, four states incl. Night)
 

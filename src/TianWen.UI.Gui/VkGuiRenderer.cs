@@ -140,6 +140,13 @@ namespace TianWen.UI.Gui
         /// <summary>The action id a rail cell reports, which is what click-by-label drives a tab by.</summary>
         private static HitResult.ButtonHit TabButton(GuiTab tab) => new HitResult.ButtonHit($"Tab:{tab}");
 
+        /// <summary>
+        /// <see cref="SelectTab"/> as a delegate, made ONCE. The item list is rebuilt every frame, so a
+        /// method group written at the item site would allocate one delegate per tab per frame for a
+        /// handler that never varies.
+        /// </summary>
+        private Action<GuiTab>? _selectTab;
+
         /// <summary>Puts <paramref name="tab"/> on screen. What a rail press and a rail cell's chord both do.</summary>
         private void SelectTab(GuiTab tab)
         {
@@ -163,10 +170,9 @@ namespace TianWen.UI.Gui
         /// the bar was handed, so this adds no second geometry.
         /// </para>
         /// <para>
-        /// The HANDLER is here because <see cref="TabBar{TSurface}"/> has no seam to hand one to: its cells
-        /// are built by <c>TabStripTree</c>, which takes an <c>onSelect</c> the bar never passes, so a cell
-        /// reaches a router carrying a hit and nothing to do about it. Until the bar can be told, this is
-        /// where a rail press becomes a tab switch.
+        /// Only the LABEL now. The handler used to be here too, because the bar had no seam to hand one
+        /// to; <see cref="TabItem{T}.OnSelect"/> is that seam, so the cell arrives already knowing what it
+        /// does and this walk leaves <see cref="ClickableRegion.OnClick"/> alone.
         /// </para>
         /// </remarks>
         public override void CollectPaintedRegions(List<ClickableRegion> into)
@@ -178,61 +184,26 @@ namespace TianWen.UI.Gui
             {
                 if (RailTab(into[i].Result) is { } tab)
                 {
-                    into[i] = into[i] with { Result = TabButton(tab), OnClick = _ => SelectTab(tab) };
+                    into[i] = into[i] with { Result = TabButton(tab) };
                 }
             }
         }
 
         /// <summary>
-        /// Every node painted this frame, with each rail cell carrying the chord that reaches it --
-        /// Ctrl+H for Home, Ctrl+E for Equipment, and so on down <see cref="TabChrome"/>.
+        /// Composed dispatch, with a press on the navigation rail reported as the tab button it means --
+        /// for a caller that hit-tests rather than routing.
         /// </summary>
         /// <remarks>
-        /// Stated on the NODE so the router matches it against the painted tree, which is what makes a
-        /// chord for a locked tab inert (the cell reports <see cref="TabBarRegions.DisabledTabs"/> and
-        /// <see cref="RailTab"/> declines it) without a guard beside every key. It replaces a hand-written
-        /// Ctrl+letter map in the host's key router, which fired whatever the window was showing. Like the
-        /// handler above, it is re-stated here only because <see cref="TabItem{T}"/> has nowhere to carry a
-        /// <see cref="KeyChord"/> of its own.
+        /// The SWITCH is not done here any more: the base dispatch has already run the cell's own handler,
+        /// which is <see cref="TabItem{T}.OnSelect"/> now rather than something this class attached
+        /// afterwards. What is left is the re-label, which is a naming affordance (<c>Tab:&lt;name&gt;</c>
+        /// for click-by-label) and not behaviour.
         /// </remarks>
-        public override void CollectPaintedNodes(List<Layout.ArrangedNode<float>> into)
-        {
-            var first = into.Count;
-            base.CollectPaintedNodes(into);
-
-            for (var i = first; i < into.Count; i++)
-            {
-                if (RailTab(into[i].Node.Hit) is { } tab)
-                {
-                    var selected = tab;
-                    into[i] = into[i] with
-                    {
-                        Node = into[i].Node with
-                        {
-                            Shortcut = TabChrome[selected].Shortcut,
-                            OnActivate = _ => SelectTab(selected),
-                        },
-                    };
-                }
-            }
-        }
-
-        /// <summary>
-        /// Composed dispatch, with a press on the navigation rail turned into the tab switch it means --
-        /// for a caller that hit-tests rather than routing (the input router dispatches through
-        /// <see cref="CollectPaintedRegions"/> instead, where the same handler already sits).
-        /// </summary>
         public override HitResult? HitTestAndDispatch(float x, float y, InputModifier modifiers = InputModifier.None)
         {
             var hit = base.HitTestAndDispatch(x, y, modifiers);
 
-            if (RailTab(hit) is { } tab)
-            {
-                SelectTab(tab);
-                return TabButton(tab);
-            }
-
-            return hit;
+            return RailTab(hit) is { } tab ? TabButton(tab) : hit;
         }
 
         /// <summary>The regions the debug inspector enumerates: exactly what the router dispatches over.</summary>
@@ -662,6 +633,11 @@ namespace TianWen.UI.Gui
                     Icon = icon,
                     IsEnabled = !locked,
                     Tooltip = tooltip,
+                    // The binding and the handler are the ITEM's (DIR.Lib 9.5), so neither has to be put
+                    // back on after the paint. The strip drops both for a locked tab, which is what makes
+                    // its chord inert without a guard beside the key.
+                    Shortcut = TabChrome[tab].Shortcut,
+                    OnSelect = _selectTab ??= SelectTab,
                 });
             }
 
