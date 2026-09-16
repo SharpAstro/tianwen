@@ -28,6 +28,6 @@
          `split-pin`, and a pin below what nuget.org already carries now reads BEHIND-PUBLISHED rather
          than minor-pending; before both of those it was reported in the same routine bucket as a pin
          waiting on an unpublished bump, which is why 27 minors of drift went unnoticed in plain sight. -->
-    <PackageReference Include="SdlVulkan.Renderer" Version="7.37.*" />
+    <PackageReference Include="SdlVulkan.Renderer" />
   </ItemGroup>
 </Project>

@@ -6,7 +6,7 @@ mechanism itself is documented once, in the org root's `.github` clone (`../.git
 "Versioning" + `../.github/docs/dotnet-ci-pattern.md`), NOT here and not in this repo's own
 `.github/`.
 
-## Central package management: no opt-outs left in `src/`
+## Central package management: no opt-outs left, in `src/` OR `tools/`
 
 **A new one needs a real technical justification, not "this project is not in the solution".**
 `TianWen.UI.Web` + `.E2E` were the two opt-outs and each drifted exactly as you would expect: a
@@ -17,6 +17,16 @@ then unified DIR.Lib by highest-version rather than by intent), and `Microsoft.N
 
 **Being outside a solution never had any bearing on CPM**, which resolves by walking directories, so
 the opt-out bought nothing.
+
+**2026-09-16: `Directory.Packages.props` moved from `src/` to the repo root, and `tools/` came under it.**
+The heading above said `src/` because that is as far as the file reached, and the same drift the section
+describes then happened one directory over: `tools/lavapipe-repro` pinned `SdlVulkan.Renderer 7.37.*`
+inline while the central pin beside it read `7.38.*`, and the sibling-family sweep could not see it --
+"a version the sweep cannot see is a version that drifts", for the third time now. `tools/BakeShaders`
+had the same shape with `Vortice.ShaderCompiler`. Both are versionless now and both versions are central.
+The move costs four `Directory.Packages.props` path references in the workflows (three
+`cache-dependency-path`, one `pages.yml` path filter); CPM itself needed no change, since it resolves by
+walking directories. SdlVulkan.Renderer did exactly this in `81f7a78` for the same reason.
 
 ## The `UseLocalSiblings` gate, and the two ways it drifts
 
