@@ -254,7 +254,7 @@ removes the region in the driver and reports that everything calibrates fine.
 | # | Scope | Status |
 |---|---|---|
 | P0 | Canon: `CanonRawFile.ActiveArea` (FC.SDK.Raw 3.1) + crop in `Image.TryReadCanonRaw` | **DONE** 2026-09-07 |
-| P1 | QHY: call `GetQHYCCDEffectiveArea` / `GetQHYCCDOverScanArea` and probe `CAM_IGNOREOVERSCAN_INTERFACE` at connect, log all three. **Measurement only, no behaviour change.** Never SET the ignore flag: it discards the black reference P5 wants | NOT STARTED (gated on a body) |
+| P1 | QHY: call `GetQHYCCDEffectiveArea` / `GetQHYCCDOverScanArea` and probe `CAM_IGNOREOVERSCAN_INTERFACE` at connect, log all three. **Measurement only, no behaviour change.** Never SET the ignore flag: it discards the black reference P5 wants | **READ 2026-09-16 on a QHY178M** (`QhySensorGeometryProbe`); the gate is lifted for that body and still down for every other |
 | P2 | `ImageMeta.DataSection` / `BiasSection`; `Image` keeps the raster | NOT STARTED |
 | P3 | `DATASEC`/`BIASSEC`/`TRIMSEC` read in `ParseImageMetaFromHeader` + written by the FITS writer, one 1-based converter, round-trip test | NOT STARTED |
 | P4 | The crop gates: viewer/save, registration transform, plate-solve CRPix shift | NOT STARTED |
@@ -282,6 +282,69 @@ files, and it was, off the flat's column medians above. That changes the order o
   SW8Q QHY294 set has no overscan and needs nothing, which is the measurement that says a per-body
   query is still required rather than a rule. The bench queue carries the rest, one home per item, in
   [hardware-validation.md](../todo/hardware-validation.md) under "Gated on gear but NOT validations".
+
+---
+
+## P1 READ on a QHY178M (2026-09-16): no margin at all, and the SDK never reached the box
+
+A body was attached, which lifted the gate for the first time. `QhySensorGeometryProbe` (opt in with
+`TIANWEN_QHY_PROBE=1`, measurement only, never SETS the ignore flag):
+
+```
+QHY178M-688f524c91b5c8859, SDK v25.9.29.10
+  readout     3056 x 2048 px, pixel 2.400 um, 16 bpp
+  effective   origin (0, 0) size 3056 x 2048     <- the WHOLE readout
+  overscan    origin (0, 0) size 0 x 0           <- empty
+  ignore-overscan control: not available
+```
+
+**This body ships no margin, so P2 to P5 buy it nothing**, and the archive's 2024 QHY set does carry
+one. Two QHY bodies, two answers: **the per-body SDK query is mandatory and no vendor-level rule
+exists**, which is exactly what the phase table suspected and is now measured rather than assumed.
+A second, independent check agrees: `chipW x chipH` equals `imageW x pixelW` exactly here
+(7334.4 = 3056 x 2.4, 4915.2 = 2048 x 2.4), so the readout contains nothing the pixel grid does not
+account for. Where those two disagree, the difference IS the margin, which makes it a free test on
+any body. **Note the unit**: the SDK returns those dimensions in MICRONS though the field is widely
+documented as mm, a 1000x trap for anyone who exposes it. Nothing in TianWen consumes them today.
+
+**Getting there found a bug worth more than the measurement.** `QHYCCD.SDK` packed the native
+`qhyccd.dll` into `runtimes/<rid>/native` for the NuGet package and nowhere else, and that layout is
+a NuGet resolution mechanism: a ProjectReference consumer got the managed assembly and no native
+library. Since `UseLocalSiblings` self-enables whenever the sibling clone is present, **QHY cameras
+worked from the published package and had never once worked from a local build**, silently, because
+a `DllImport` with nothing to bind looks exactly like no camera being plugged in. Fixed in the
+sibling ("the native library now reaches a ProjectReference consumer"); the camera was discovered on
+the first attempt afterwards.
+
+## The first frame after `InitQHYCCD` is not like the others (2026-09-16)
+
+Chasing the owner's long-standing report that this camera "randomly doesn't show frames, or old
+frames, or super bright frames and then dim frames", `QhyDarkSequenceProbe` takes a dark sequence
+and reads each frame's level AND a digest, because a REPEAT (a stale buffer handed back twice) and a
+LEVEL EXCURSION (a real readout at the wrong offset) are two different bugs wearing one description.
+
+| | |
+|---|---|
+| repeats | **none**, 12 of 12 frames distinct. The "old frames" symptom did not reproduce through the raw SDK, which points at the consumer rather than at the SDK |
+| frame 0 | median **16**, mean **20.2** |
+| frames 1 to 11 | median **40**, mean **39.7 to 41.9**, a spread of 0.4 percent |
+
+**Reproduced 2 runs of 2.** It is not an exposure-time effect: 1 s and 2 s frames read the same mean
+(~40), so dark current is negligible at these lengths and what moves is the BIAS. It is not a
+parameter lag either, which was the first hypothesis and is refuted: stepping the exposure 1 s, 2 s,
+1 s moves the wall time on the exact frame the change was commanded (2951, 3949, 2978 ms), with the
+readback agreeing. And it is per-OPEN rather than per-change: within a run the level holds steady
+through two exposure changes. **So it is the first readout after `InitQHYCCD`, at about half the
+bias level of every frame after it.**
+
+A per-frame black level would correct precisely this, which is what the owner suspected, **but this
+body exposes no shielded strip to measure one from** (P1 above). So the options are a settling frame
+at connect, or flagging the first frame and letting the quality gate drop it. **Neither is
+implemented; the measurement is filed and the choice is open.** Two cautions for whoever takes it:
+discarding at EXPOSURE time cannot tell "first frame of the session" from "first frame after a
+filter change" and would risk silently binning a long sub, and **one body is not a vendor**, which
+is why PHD2 ships "discard initial frames" as a per-camera option rather than a blanket rule. Our
+own SDK has no first-frame handling of any kind today.
 
 ---
 
