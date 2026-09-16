@@ -884,11 +884,6 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
-            if (hit is WaveletSliderHit { Band: var wlBand })
-            {
-                BeginWaveletDragAt(wlBand, px);
-                return true;
-            }
 
             // A declared slider arms its own drag from the rect it was painted into. ONE branch for
             // every Content.Slider leaf in the viewer, where the tone dials and the white-balance
@@ -1052,11 +1047,6 @@ namespace TianWen.UI.Abstractions
             }
 
             // Wavelet-layer slider drag: continuously re-derive the per-layer gain from cursor-X.
-            if (state.WaveletDragBand >= 0)
-            {
-                UpdateWaveletDrag(px);
-                return true;
-            }
 
             // File-list resize drag: width tracks the cursor's X position in
             // DPI-independent units. Clamped by FileListWidthBase's setter.
@@ -1157,11 +1147,6 @@ namespace TianWen.UI.Abstractions
                 if (state.IsScrubbing)
                 {
                     state.IsScrubbing = false;
-                    state.NeedsRedraw = true;
-                }
-                if (state.WaveletDragBand >= 0)
-                {
-                    state.WaveletDragBand = -1;
                     state.NeedsRedraw = true;
                 }
                 if (state.IsResizingFileList)

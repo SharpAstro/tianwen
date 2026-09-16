@@ -160,16 +160,21 @@ namespace TianWen.UI.Abstractions
                 .RowH(FontSize + WbGap);
 
         /// <summary>
-        /// One button in the popover's action row, held at <paramref name="widthSample"/> so toggling
-        /// its label cannot move its neighbours.
+        /// One button in a panel's action row, held at <paramref name="widthSample"/> so toggling its
+        /// label cannot move its neighbours.
         /// </summary>
+        /// <remarks>
+        /// Shared with the wavelet block rather than copied into it: the rule below -- register even
+        /// when the button cannot act -- is the kind this codebase has had to walk back from two
+        /// independent copies of more than once.
+        /// </remarks>
         /// <remarks>
         /// Registered even when it cannot act, so a press lands on the button and stops there. Reset
         /// and the calibration button both used to register nothing while dim, which let the press
         /// reach the backdrop behind them and CLOSE the panel -- so pressing a busy or unavailable
         /// control made the whole popover vanish, which reads as a crash rather than as a refusal.
         /// </remarks>
-        private Layout.Node WhiteBalanceButton(string label, string hit, bool enabled,
+        private Layout.Node PanelButton(string label, string hit, bool enabled,
             Action onPress, string? widthSample = null, RGBAColor32? background = null)
             => Layout.Builder.Text(label, FontSize,
                     enabled ? ViewerTheme.Palette.BodyText : ViewerTheme.Palette.DimText,
@@ -248,7 +253,7 @@ namespace TianWen.UI.Abstractions
 
             // Auto runs gray-world over the current frame and drops the result into the sliders --
             // which then act as the fine-tune.
-            var auto = WhiteBalanceButton("Auto", "AutoWhiteBalance", enabled: true, () =>
+            var auto = PanelButton("Auto", "AutoWhiteBalance", enabled: true, () =>
             {
                 if (_source is { } src && AutoWhiteBalance.GrayWorld(src) is { } grayWorld)
                 {
@@ -278,7 +283,7 @@ namespace TianWen.UI.Abstractions
                 ? "Reset to calibrated"
                 : "Reset WB";
             var canReset = state.ManualWhiteBalance != (1f, 1f, 1f);
-            var reset = WhiteBalanceButton(resetLabel, "ResetWhiteBalance", canReset, () =>
+            var reset = PanelButton(resetLabel, "ResetWhiteBalance", canReset, () =>
             {
                 state.ManualWhiteBalance = (1f, 1f, 1f);
                 // Drop the parked triple too: the user has just said explicitly that identity is
@@ -311,7 +316,7 @@ namespace TianWen.UI.Abstractions
             // NOT "SpccCalibrate" or any other ToolbarAction name: a ButtonHit whose label parses as
             // one is ALSO run by the toolbar action handler, so the toggle would fire twice and
             // cancel itself. The two buttons above avoid it by accident; this one says so.
-            var spcc = WhiteBalanceButton(spccLabel, "ToggleColorCalibration", canCalibrate, () =>
+            var spcc = PanelButton(spccLabel, "ToggleColorCalibration", canCalibrate, () =>
             {
                 // The action follows the LABEL. "Calibrate" fits; "SPCC on"/"SPCC off" toggles the
                 // fit this frame already has. It used to do both unconditionally, which was
