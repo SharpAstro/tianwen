@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.IO;
+using System.Collections.Frozen;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -149,8 +150,24 @@ public static class DatasetBuildRunner
 
         // 2. Pinned by-session split, written up front (independent of registration).
         var splitPath = Path.Combine(outDir, DatasetSplitWriter.TestSessionsFileName);
-        var testSessions = await DatasetSplitWriter.WriteAsync(sessions.Select(s => s.Id), options.TestFraction, splitPath, cancellationToken);
-        progress?.Report($"[dataset] pinned test split: {testSessions.Length}/{sessions.Length} sessions held out");
+        var alwaysHeldOut = options.AlwaysHeldOutSessions.IsDefaultOrEmpty
+            ? null
+            : options.AlwaysHeldOutSessions.ToFrozenSet(StringComparer.Ordinal);
+        var testSessions = await DatasetSplitWriter.WriteAsync(
+            sessions.Select(s => s.Id), options.TestFraction, splitPath, alwaysHeldOut, cancellationToken);
+        var forcedPresent = alwaysHeldOut is null ? 0 : sessions.Count(s => alwaysHeldOut.Contains(s.Id));
+        progress?.Report($"[dataset] pinned test split: {testSessions.Length}/{sessions.Length} sessions held out"
+            + (forcedPresent > 0 ? $" ({forcedPresent} forced)" : ""));
+        // A forced id that matches NOTHING is almost always a typo or a renamed session, and silence
+        // there means a session everyone believes is excluded is quietly training.
+        if (alwaysHeldOut is not null)
+        {
+            var ids = sessions.Select(s => s.Id).ToFrozenSet(StringComparer.Ordinal);
+            foreach (var missing in alwaysHeldOut.Where(h => !ids.Contains(h)))
+            {
+                logger?.LogWarning("Hold-out session id matches no session in this archive: {SessionId}", missing);
+            }
+        }
 
         // Fresh manifest per run (the exporter appends per session) -- UNLESS resuming, where the
         // existing manifest IS the checkpoint: a session's rows are appended in one block as the

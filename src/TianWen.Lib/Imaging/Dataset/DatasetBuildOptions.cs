@@ -47,6 +47,22 @@ public sealed record DatasetBuildOptions
     /// registration + a meaningful master). Default 10.</summary>
     public int MinSubsPerSession { get; init; } = 10;
 
+    /// <summary>
+    /// Session ids FORCED into the held-out test split whatever their hash bucket says, for a
+    /// judgement the hash cannot make.
+    /// </summary>
+    /// <remarks>
+    /// <para>The case this exists for: a night whose field rotation is strong enough that the stacked
+    /// canvas is mostly partial coverage. It is worthless as a TRAINING example, because the wedges
+    /// where only a few subs reached are a canvas artefact rather than sky, and it is valuable as a
+    /// TEST fixture, being exactly the input the auto-crop and the gradient remover have to survive.
+    /// Dropping the session would throw the fixture away; leaving it in training would teach the net
+    /// the artefact.</para>
+    /// <para>It can only force INTO test, never out, so adding an id cannot move any other session
+    /// between train and test and cannot invalidate a past eval number.</para>
+    /// </remarks>
+    public ImmutableArray<string> AlwaysHeldOutSessions { get; init; } = [];
+
     /// <summary>MAD threshold (standard-deviation-equivalent units) for the session-relative
     /// quality gate (<see cref="SessionFrameAnalyzer.ApplyGate"/>); the stacker's
     /// <c>--quality-reject-sigma</c> semantics. 0 disables the relative gate

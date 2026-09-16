@@ -32,14 +32,38 @@ public static class DatasetSplitWriter
     public static bool IsTestSession(string sessionId, double testFraction)
         => StableBucket(sessionId) < (uint)(Math.Clamp(testFraction, 0.0, 1.0) * Resolution);
 
+    /// <summary>
+    /// The same, plus sessions FORCED into the held-out set whatever their bucket says.
+    /// </summary>
+    /// <remarks>
+    /// <para>For a session that must never train, on a judgement the hash cannot know: a night whose
+    /// field rotation is so strong the stacked canvas is mostly partial coverage is worthless as a
+    /// training example and valuable as a TEST fixture, being exactly the input the auto-crop and the
+    /// gradient remover have to survive. Deleting it would throw away that fixture; leaving it in
+    /// training would teach the net a canvas artefact.</para>
+    /// <para>It FORCES INTO test and can never pull a session out, so the guarantee that matters is
+    /// preserved: adding a forced id cannot move any other session between train and test, and so
+    /// cannot silently invalidate a past eval number. A forced id that is already in the bucket is a
+    /// no-op.</para>
+    /// </remarks>
+    public static bool IsTestSession(string sessionId, double testFraction, IReadOnlySet<string>? alwaysHeldOut)
+        => (alwaysHeldOut is not null && alwaysHeldOut.Contains(sessionId))
+           || IsTestSession(sessionId, testFraction);
+
     /// <summary>The held-out TEST session ids among <paramref name="sessionIds"/>, ordinal-sorted
     /// (canonical order, independent of input order).</summary>
     public static ImmutableArray<string> SelectTestSessions(IEnumerable<string> sessionIds, double testFraction)
+        => SelectTestSessions(sessionIds, testFraction, alwaysHeldOut: null);
+
+    /// <summary>The held-out TEST session ids, including any forced by
+    /// <paramref name="alwaysHeldOut"/>. Ordinal-sorted.</summary>
+    public static ImmutableArray<string> SelectTestSessions(
+        IEnumerable<string> sessionIds, double testFraction, IReadOnlySet<string>? alwaysHeldOut)
     {
         var test = ImmutableArray.CreateBuilder<string>();
         foreach (var id in sessionIds)
         {
-            if (IsTestSession(id, testFraction))
+            if (IsTestSession(id, testFraction, alwaysHeldOut))
             {
                 test.Add(id);
             }
@@ -49,16 +73,25 @@ public static class DatasetSplitWriter
 
     /// <summary>Selects + writes <see cref="TestSessionsFileName"/> (one session id per line, sorted,
     /// with a header comment) and returns the chosen test ids.</summary>
-    public static async Task<ImmutableArray<string>> WriteAsync(
+    public static Task<ImmutableArray<string>> WriteAsync(
         IEnumerable<string> sessionIds, double testFraction, string path, CancellationToken cancellationToken = default)
+        => WriteAsync(sessionIds, testFraction, path, alwaysHeldOut: null, cancellationToken);
+
+    /// <summary>The same, honouring <paramref name="alwaysHeldOut"/> and MARKING those entries in the
+    /// file, so a reader can tell a deliberate exclusion from a hash outcome.</summary>
+    public static async Task<ImmutableArray<string>> WriteAsync(
+        IEnumerable<string> sessionIds, double testFraction, string path,
+        IReadOnlySet<string>? alwaysHeldOut, CancellationToken cancellationToken = default)
     {
-        var test = SelectTestSessions(sessionIds, testFraction);
+        var test = SelectTestSessions(sessionIds, testFraction, alwaysHeldOut);
         var sb = new StringBuilder();
         sb.AppendLine("# Pinned held-out TEST sessions (by session id). Training MUST exclude these.");
         sb.AppendLine("# Assignment is a stable hash bucket of the id -- adding sessions never reshuffles the split.");
+        sb.AppendLine("# A line marked FORCED was held out deliberately, not by its bucket.");
         foreach (var id in test)
         {
-            sb.AppendLine(id);
+            var forced = alwaysHeldOut is not null && alwaysHeldOut.Contains(id);
+            sb.AppendLine(forced ? $"{id}	# FORCED" : id);
         }
         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
         await File.WriteAllTextAsync(path, sb.ToString(), cancellationToken);

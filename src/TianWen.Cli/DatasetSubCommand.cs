@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -60,6 +60,17 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                           "cleanly even when it shares a dated LIGHT folder). Empty = no exclusion.",
             DefaultValueFactory = _ => "",
         };
+        var holdOutOpt = new Option<string[]>("--hold-out-session")
+        {
+            Description = "Session id(s) FORCED into the held-out test split whatever their hash " +
+                          "bucket says (repeatable). For a session that must never TRAIN but is worth " +
+                          "keeping as a test fixture, e.g. a night whose field rotation leaves the " +
+                          "stacked canvas mostly partial coverage: useless to learn from, and exactly " +
+                          "what the auto-crop and gradient remover have to survive. Forces INTO test " +
+                          "only, so it can never move another session between train and test.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+
         var excludePathOpt = new Option<string[]>("--exclude-path")
         {
             Description = "Case-insensitive wildcard(s) matched against each PATH SEGMENT; a frame " +
@@ -223,7 +234,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             Options =
             {
                 archiveRootOpt, outOpt,
-                minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, minSubsOpt,
+                minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, holdOutOpt, minSubsOpt,
                 tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, hotPixelSigmaOpt, warpInterpolationOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt, forcePsfOpt, remeasureSubsOpt, siteOpt, scratchRootOpt,
             },
         };
@@ -279,6 +290,11 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             if (extraExcludePaths is { Length: > 0 })
             {
                 options = options with { ExcludePathSegments = options.ExcludePathSegments.AddRange(extraExcludePaths) };
+            }
+
+            if (parseResult.GetValue(holdOutOpt) is { Length: > 0 } holdOut)
+            {
+                options = options with { AlwaysHeldOutSessions = [.. holdOut] };
             }
 
             consoleHost.WriteScrollable($"[dataset] scanning {roots.Length} root(s) for raw lights ...");
