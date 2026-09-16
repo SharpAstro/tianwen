@@ -83,7 +83,12 @@ def gate_read(truth_lum, input_lum, output_lum, masks=None):
         ring_self = DG.ring_excess(lum, ys_in, xs_in, w_in, med_in, mad_in) - ring_null_self
         return w / truth_w, len(oy) / n_truth, e - ring_null, sk, dr, dres, ds, dsres, ring_self
 
-    return truth_w, n_truth, row(input_lum), row(output_lum) if output_lum is not None else None, row
+    # E7.5: the field as the INPUT describes itself, the only coordinates a per-window rule can key a
+    # ring target on at inference. `ring_null` is the input's own absolute ring statistic before any
+    # subtraction, which is the candidate normaliser the offset is read against.
+    self_stats = dict(n=len(ys_in), width=w_in, median=med_in, mad=mad_in, ring_null=ring_null_self)
+    return (truth_w, n_truth, row(input_lum), row(output_lum) if output_lum is not None else None,
+            row, self_stats)
 
 
 def main():
@@ -203,9 +208,14 @@ def main():
 
     truth_lum = sharp_s.mean(axis=0)
     input_lum = soft_s.mean(axis=0)
-    truth_w, n_truth, inp, _, row = gate_read(truth_lum, input_lum, None, masks)
+    truth_w, n_truth, inp, _, row, self_stats = gate_read(truth_lum, input_lum, None, masks)
     print(f"\ntruth (sharp) {n_truth} stars at 12 MAD, width {truth_w:.3f} px on the stretched luminance; "
           f"noise MAD of the stretched luminance: truth {M.bg_stats(truth_lum)[1]:.5f}, input {M.bg_stats(input_lum)[1]:.5f}")
+    read_px = soft_s.shape[-1]
+    print(f"field (the INPUT's own, nothing from the truth): {self_stats['n']} detections at 12 MAD over "
+          f"{read_px} px square ({self_stats['n'] * 1e5 / read_px ** 2:.1f} per 1e5 px), width "
+          f"{self_stats['width']:.3f} px, median {self_stats['median']:.5f}, MAD {self_stats['mad']:.5f}, "
+          f"ring null {self_stats['ring_null']:.3f} MAD")
     struct_cols = masks is not None
     head = f"{'arm':28s} {'out/truth':>9} {'stars':>6} {'ring excess':>11} {'skirt':>6} {'detail':>6} {'d.resid':>8}"
     if struct_cols:

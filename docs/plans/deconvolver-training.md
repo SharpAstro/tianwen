@@ -2970,6 +2970,62 @@ recall it and the measurement puts it broadband but cannot separate no-filter fr
 a light-pollution filter), which does not matter for a PSF experiment but does mean the folder name
 is provisional.
 
+#### E7.5, pre-registered: what the ring target is a function of, and how big a window it wants (2026-09-16, 18:20)
+
+E7.4 left two numbers unattributed and one of them is the port's shape. `ring.self` is monotonic in
+the kernel on both crops, which is what makes a bisection possible, but the two crops sit about **0.2
+MAD apart at equal skirt**, so one target picks conservatively wherever the offset runs against it;
+and the two crops want kernels **1.3x apart**. Both readings come off ONE pair and TWO crops, and
+those two crops differ in PLACE and in SIZE at once, so neither number is attributed to either.
+
+**The measurement.** A **3x3 grid of 512 px crops across the Statue frame** (origins x in
+{0, 1256, 2512}, y in {141, 1323, 2505}; the centre cell IS E7.4's nebula crop, so the grid is
+anchored to the table already read), each through `n2n_operator_real.py` with `e34d_s0_final.pt` at
+the 1.28x round trip, on the frame-wide base kernel (0.77 / 0.91 / 0.98 px) scaled by a third-octave
+ladder **0.5 / 0.63 / 0.79 / 1.0 / 1.26 / 1.58 / 2.0**, so a pick reads to about a tenth by
+interpolation and the ladder is symmetric in the ratio the answer is in. Then the same centre PLACE
+at **1024 px** (crop 1000,1067,1024): the grid's left-middle cell is already a sub-window of E7.4's
+primary 1024 crop, and this makes two places measured at both sizes, which is what separates size
+from place. Then the **Orion E2.10c pair** (the second real pair, 1.26x) on three crops along its
+diagonal at its own est-c kernel (1.21 / 1.03 / 1.05 px), its zoom calibrated first so its truth
+width lands where the Statue's does rather than assuming the same 1.28x.
+
+Every run now also prints the field as the INPUT describes itself and nothing else: its own detection
+count at 12 MAD, its own star width, its own median and MAD, and **its own ring null**. Those are the
+only coordinates a runtime rule may key a target on, so a normalisation must be a function of them.
+
+**Question 1, the offset.** Per crop the SAFE PICK is the largest scale at which all four star clauses
+hold (width 1.15 or under, stars 0.85 to 1.10, ring within 1 MAD, skirt 0.90 or over), read by
+interpolation on the ladder; `R*` is `ring.self` there. Candidate normalisers, **declared in this
+order, the first to meet the line being the answer** and the rest description rather than selection:
+
+1. the input's own ring null (`R* / null.self`),
+2. the input's own detection density, as a linear term in its log,
+3. the input's own noise MAD,
+4. the structure fraction from the library's masks.
+
+*Pass:* one normaliser more than halves the spread of `R*` over the twelve field crops, AND a single
+normalised target picks a scale landing all four star clauses on every one of them. *Kill:* none
+does, so the offset is not a function of anything a window can read about itself, and E7 falls back
+to a target calibrated per rig off one pair, which is the weaker rule the port would then ship.
+
+**Question 2, the window.** The picked ABSOLUTE kernel per cell, across the grid (one size, nine
+places) and against the two 1024 crops (two sizes, two shared places). *Read:* the spread over the
+nine cells and the difference between adjacent cells, against E7.1's measured tolerance of about a
+tenth either way. Under a tenth between neighbours means 512 px is finer than the field needs and a
+window can be a third of the frame; over it means the field term wants windows no larger than that
+separation. If the centre and left cells pick what their containing 1024 crops picked, E7.4's 1.3x
+was PLACE and window size is bounded only by how few stars a window may hold; if they do not, the
+statistic moves with the window and the size is part of the rule, not a free parameter.
+
+*Prediction, so a miss is visible:* the offset tracks the ring null, which already varies 1.45 to
+3.96 MAD between crops of one Orion master; and the grid's picks spread by more than a tenth, since
+the left-edge cell at 1.0x reads skirt 1.26 and width 1.18, both still asking for a LARGER kernel
+where the nebula centre asked for a smaller one.
+
+Driver `C:/temp/e2/scripts-e7-5/run-e7-5.py`, output `C:/temp/e2/e7-5/`, CPU, one run about 23 s at
+512 px.
+
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
 Every retained master in `2026-09-full` predates the two registration fixes and R1, and E3 trains on
