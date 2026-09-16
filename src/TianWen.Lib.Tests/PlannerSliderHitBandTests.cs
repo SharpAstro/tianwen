@@ -1,4 +1,4 @@
-using DIR.Lib;
+﻿using DIR.Lib;
 using Shouldly;
 using System;
 using System.Collections.Immutable;
@@ -167,6 +167,85 @@ namespace TianWen.Lib.Tests
             // The struct is returned by value, so a default instance is reachable; its ImmutableArray is
             // default too, and Length on that throws.
             default(PlannerSliderInteraction.HitBands).Count.ShouldBe(0);
+        }
+        // ---- The gesture the bands exist for, armed from the region rather than from a dispatcher ----
+
+        /// <summary>
+        /// A press on a handle arms a drag, and every move re-times THAT divider.
+        /// </summary>
+        /// <remarks>
+        /// This is the half that used to be spread over three branches in each of three hosts -- a press
+        /// arm, a move arm keyed on a flag, and a release arm to clear it. The capture is the whole
+        /// gesture now, so a move cannot arrive while a host believes no drag is running.
+        /// </remarks>
+        [Fact]
+        public void ADragFromAHandleRetimesThatDivider()
+        {
+            var state = State(Dusk + TimeSpan.FromHours(3), Dusk + TimeSpan.FromHours(9));
+            var before = state.HandoffSliders[0];
+
+            var capture = PlannerSliderInteraction.BeginDrag(state, 0, Chart);
+            state.DraggingSliderIndex.ShouldBe(0, "the chart highlights the divider being moved");
+
+            var plot = Plot(state, Chart);
+            capture.Move(new PointerMove(plot.X + plot.W * 0.75f, plot.Y + plot.H * 0.5f, MouseButton.Left, InputModifier.None));
+
+            state.HandoffSliders[0].ShouldBeGreaterThan(before, "the divider followed the pointer");
+            state.HandoffSliders[1].ShouldBe(Dusk + TimeSpan.FromHours(9), "and only that one moved");
+
+            capture.Release(new PointerMove(plot.X + plot.W * 0.75f, plot.Y + plot.H * 0.5f, MouseButton.Left, InputModifier.None));
+            state.DraggingSliderIndex.ShouldBe(-1, "the capture owns the flag's lifetime, so a release clears it");
+        }
+
+        /// <summary>
+        /// A press on the plot but not on a handle moves the NEAREST divider there and keeps dragging, so
+        /// the same press can refine it.
+        /// </summary>
+        [Fact]
+        public void APressOnThePlotPlacesTheNearestDividerAndKeepsDragging()
+        {
+            var state = State(Dusk + TimeSpan.FromHours(1), Dusk + TimeSpan.FromHours(11));
+            var plot = Plot(state, Chart);
+
+            // Just right of the FIRST divider, so "nearest" is unambiguous.
+            var capture = PlannerSliderInteraction.BeginPlaceNearest(
+                state, Chart, plot.X + plot.W * 0.25f, plot.Y + plot.H * 0.5f);
+
+            capture.ShouldNotBeNull("a press inside the plot places");
+            state.DraggingSliderIndex.ShouldBe(0);
+            state.HandoffSliders[0].ShouldBeGreaterThan(Dusk + TimeSpan.FromHours(1));
+        }
+
+        /// <summary>
+        /// A press ABOVE the plot -- the weather band -- places nothing, which is the same bound the hit
+        /// bands enforce and the reason the chart's region is wider than the area it acts on.
+        /// </summary>
+        [Fact]
+        public void APressOutsideThePlotPlacesNothing()
+        {
+            var state = State(Dusk + TimeSpan.FromHours(6));
+            var plot = Plot(state, Chart);
+
+            PlannerSliderInteraction
+                .BeginPlaceNearest(state, Chart, plot.X + plot.W * 0.5f, Chart.Y + 1f)
+                .ShouldBeNull();
+
+            state.HandoffSliders[0].ShouldBe(Dusk + TimeSpan.FromHours(6));
+            state.DraggingSliderIndex.ShouldBe(-1);
+        }
+
+        /// <summary>A press that reached no region at all deselects, and says whether it changed anything.</summary>
+        [Fact]
+        public void APressWithNoTargetDeselects()
+        {
+            var state = State(Dusk + TimeSpan.FromHours(6));
+            PlannerActions.SelectSlider(state, 0);
+
+            PlannerSliderInteraction.HandlePressWithNoTarget(state).ShouldBeTrue();
+            state.SelectedSliderIndex.ShouldBe(-1);
+
+            PlannerSliderInteraction.HandlePressWithNoTarget(state)
+                .ShouldBeFalse("nothing was selected, so nothing changed");
         }
     }
 }

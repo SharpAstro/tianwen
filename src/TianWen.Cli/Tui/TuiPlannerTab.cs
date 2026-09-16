@@ -281,10 +281,18 @@ internal sealed class TuiPlannerTab(
         var bands = PlannerSliderInteraction.GetHitBands(plannerState, geometry.Rect,
             MathF.Max(PlannerSliderInteraction.DefaultBandWidth, geometry.CellWidth));
 
+        // The chart first, the handles over it: a later registration wins, so a press on a handle grabs
+        // it and a press anywhere else in the plot places the nearest one -- the same order the GUI uses.
+        Tracker.Register(geometry.Rect.X, geometry.Rect.Y, geometry.Rect.Width, geometry.Rect.Height,
+            new HitResult.ButtonHit(PlannerSliderInteraction.ChartRegion));
+
         for (var i = 0; i < bands.Count; i++)
         {
             var band = bands[i];
-            Tracker.Register(band.X, band.Y, band.Width, band.Height, new HitResult.SliderHit(i));
+            var index = i;
+            Tracker.Register(band.X, band.Y, band.Width, band.Height,
+                new HitResult.ButtonHit(PlannerSliderInteraction.DividerRegion),
+                onClick: _ => PlannerActions.SelectSlider(plannerState, index));
         }
     }
 
@@ -331,15 +339,25 @@ internal sealed class TuiPlannerTab(
                 }
 
                 var selectedBefore = plannerState.SelectedSliderIndex;
-                var hit = Tracker.HitTestAndDispatch(x, y);
 
-                // Select / click-to-place / deselect all belong to the shared state machine, so the TUI
-                // cannot fork the behaviour. A terminal click is a zero-length drag: press then release in
-                // one go, which leaves no drag outstanding for a move event that will never arrive.
-                if (PlannerSliderInteraction.HandleMouseDown(
-                        plannerState, hit, ChartCanvasGeometry()?.Rect ?? default, x, y))
+                // Dispatching runs a handle's own click handler, which selects it. Two cases it cannot
+                // carry: the CHART needs the press position to know where to place, and a click that
+                // reached nothing means deselect.
+                var hit = Tracker.HitTestAndDispatch(x, y);
+                switch (hit)
                 {
-                    PlannerSliderInteraction.HandleMouseUp(plannerState);
+                    case HitResult.ButtonHit { Action: PlannerSliderInteraction.ChartRegion }:
+                        // A terminal click is a ZERO-LENGTH drag: press and release arrive together, so
+                        // the capture is opened and closed here rather than left for a move that never
+                        // comes. Everything else about the gesture is the shared definition's.
+                        PlannerSliderInteraction
+                            .BeginPlaceNearest(plannerState, ChartCanvasGeometry()?.Rect ?? default, x, y)
+                            ?.Release(default);
+                        break;
+
+                    case null:
+                        PlannerSliderInteraction.HandlePressWithNoTarget(plannerState);
+                        break;
                 }
 
                 if (hit is not null || plannerState.SelectedSliderIndex != selectedBefore)

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
@@ -252,6 +252,42 @@ namespace TianWen.Lib.Tests
         /// so a click commits identically. Asserts a click on the second dropdown row reaches the commit
         /// (box reset + focus released); the index->suggestion binding is unit-pinned in DIR.Lib's
         /// SearchInteractionTests.
+
+        /// <summary>
+        /// A handle beats the chart under it, because the handles are registered AFTER it.
+        /// </summary>
+        /// <remarks>
+        /// The ordering is load-bearing and silent when wrong. Registered the other way round, the chart
+        /// wins every press, so every handle is unreachable and every grab becomes a click-to-place --
+        /// which still moves a divider to roughly where you pressed, so it LOOKS like the feature working.
+        /// Stated here against the registered regions rather than against the picture, because the order
+        /// is the only thing that distinguishes the two behaviours.
+        /// </remarks>
+        [Fact]
+        public void ADividerHandleIsRegisteredOverTheChartSoAPressGrabsItRatherThanPlacing()
+        {
+            using var renderer = new RgbaImageRenderer(1600, 1000);
+            var tab = new PlannerTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+            var state = BuildState();
+            state.HandoffSliders = [NightStart + TimeSpan.FromHours(4)];
+
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero));
+            tab.Render(state, new RectF32(0, 0, 1600, 1000), time);
+
+            var regions = tab.GetRegisteredRegions().ToArray();
+            var chartAt = Array.FindIndex(regions,
+                r => r.Result is HitResult.ButtonHit { Action: PlannerSliderInteraction.ChartRegion });
+            var handleAt = Array.FindIndex(regions,
+                r => r.Result is HitResult.ButtonHit { Action: PlannerSliderInteraction.DividerRegion });
+
+            chartAt.ShouldBeGreaterThanOrEqualTo(0, "the chart registers a click-to-place surface");
+            handleAt.ShouldBeGreaterThan(chartAt, "and each handle registers after it, so it wins the press");
+
+            // Both carry a press handler, which is what makes either able to arm its own drag.
+            regions[chartAt].OnPress.ShouldNotBeNull();
+            regions[handleAt].OnPress.ShouldNotBeNull();
+        }
+
         /// </summary>
         [Fact]
         public void SuggestionDropdown_MouseClick_CommitsTheClickedSuggestion()

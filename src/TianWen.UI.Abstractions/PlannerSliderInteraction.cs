@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Immutable;
 using DIR.Lib;
 
@@ -81,97 +81,111 @@ namespace TianWen.UI.Abstractions
                 : default;
         }
 
+        /// <summary>The chart's own region: a press here that misses a handle places the nearest one.</summary>
+        public const string ChartRegion = "PlannerChart";
+
+        /// <summary>A handoff divider's grab handle, registered OVER the chart so it wins the press.</summary>
+        public const string DividerRegion = "PlannerDivider";
+
         /// <summary>
-        /// Handles a primary-button press after hit testing. A press directly on a slider
-        /// handle (<see cref="HitResult.SliderHit"/>) selects it and starts a drag; a press on
-        /// empty chart plot area moves the nearest slider there (click-to-place) and starts a
-        /// drag so the same press can refine it. Any other press deselects a selected slider.
-        /// Returns true when a drag started (the press is consumed).
+        /// The drag a press on divider <paramref name="index"/> starts: every move re-times that divider,
+        /// the release ends it.
         /// </summary>
-        /// <param name="allowClickToPlace">
-        /// False when the planner chart is not the active surface (e.g. another GUI tab is
-        /// shown), so a stray press cannot move a slider through a stale chart rect.
-        /// </param>
-        public static bool HandleMouseDown(
-            PlannerState state, HitResult? hit, RectF32 chartRect, float px, float py,
-            bool allowClickToPlace = true)
+        /// <remarks>
+        /// <para>
+        /// A <see cref="DragCapture"/> rather than a flag the host's move and release branches consult.
+        /// The gesture is armed BY THE REGION THAT WAS PRESSED, so "draw == hit" extends to "draw ==
+        /// drag": there is no second statement of where the handle was, and no way for a move to arrive
+        /// while the host believes no drag is running. What this replaced was a press branch, a move
+        /// branch and a release branch in every host, agreeing by convention.
+        /// </para>
+        /// <para>
+        /// <see cref="PlannerState.DraggingSliderIndex"/> is still set, because it is not the drag's
+        /// state machine any more -- it is what the chart HIGHLIGHTS
+        /// (<c>AltitudeChartRenderer</c>) and what suppresses the mouse follower while a divider is being
+        /// moved. The capture owns its lifetime, so it cannot be left behind by a release nobody routed.
+        /// </para>
+        /// </remarks>
+        public static DragCapture BeginDrag(PlannerState state, int index, RectF32 chartRect)
         {
-            // Drag start + selection (clicked directly on a slider handle)
-            if (hit is HitResult.SliderHit { SliderIndex: var sliderIdx })
-            {
-                state.DraggingSliderIndex = sliderIdx;
-                PlannerActions.SelectSlider(state, sliderIdx);
-                return true;
-            }
+            state.DraggingSliderIndex = index;
 
-            // Click-to-place: a click anywhere in the planner chart (but not directly on a
-            // slider handle) moves the nearest handoff slider to that time and begins a drag,
-            // so the same press can refine it. Selecting it also makes Left/Right step the
-            // slider (which trumps date-switching).
-            if (allowClickToPlace && hit is null && state.HandoffSliders.Length > 0)
-            {
-                var (tStart, tEnd, plotX, plotY, plotW, plotH) = AltitudeChartRenderer.GetChartPlotLayout(
-                    state, (int)chartRect.X, (int)chartRect.Y, (int)chartRect.Width, (int)chartRect.Height);
-                // Only inside the PLOT area -- a click on the weather band / icons above the plot
-                // (or the legend / axis below it) must NOT move a handoff divider.
-                if (px >= plotX && px <= plotX + plotW && py >= plotY && py <= plotY + plotH)
+            return new DragCapture(
+                move =>
                 {
-                    var clickedTime = AltitudeChartRenderer.XToTime(px, tStart, tEnd, plotX, plotW);
-                    if (PlannerActions.PlaceNearestSlider(state, clickedTime) is var moved && moved >= 0)
+                    // Rebuilt mid-drag by a recompute: abandon rather than re-time a divider that is now
+                    // somebody else. The capture still owns the gesture until its release.
+                    if (state.DraggingSliderIndex is var idx && idx >= 0 && idx < state.HandoffSliders.Length)
                     {
-                        state.DraggingSliderIndex = moved;
-                        return true;
+                        var (tStart, tEnd, plotX, plotW) = AltitudeChartRenderer.GetChartTimeLayout(
+                            state, (int)chartRect.X, (int)chartRect.Width);
+                        PlannerActions.MoveSlider(state, idx,
+                            AltitudeChartRenderer.XToTime(move.X, tStart, tEnd, plotX, plotW));
+                        state.NeedsRedraw = true;
                     }
-                }
-            }
-
-            // Clicking outside a slider and outside the chart -> deselect
-            if (state.SelectedSliderIndex >= 0)
-            {
-                PlannerActions.SelectSlider(state, -1);
-            }
-
-            return false;
+                },
+                _ =>
+                {
+                    state.DraggingSliderIndex = -1;
+                    state.NeedsRedraw = true;
+                });
         }
 
         /// <summary>
-        /// Handles a mouse move while a slider drag may be active. Returns true when a drag is
-        /// active and the move was consumed (the caller must NOT forward the move to the tab);
-        /// false when no drag is active.
+        /// A press anywhere in the chart's PLOT that was not on a handle: move the nearest divider there
+        /// and keep dragging, so the same press can refine it. Null when there is nothing to move.
         /// </summary>
-        public static bool HandleMouseMove(PlannerState state, RectF32 chartRect, float px)
+        /// <remarks>
+        /// Registered as a region UNDER the handles (the handles register later and so win), which is what
+        /// lets both gestures arm the same way. It used to be the <c>hit is null</c> arm of a press
+        /// handler, i.e. click-to-place was defined by what it was NOT -- and "not on a handle" and "not
+        /// on anything at all" are different questions that arm shared the answer to.
+        /// </remarks>
+        public static DragCapture? BeginPlaceNearest(PlannerState state, RectF32 chartRect, float px, float py)
         {
-            var idx = state.DraggingSliderIndex;
-            if (idx < 0)
+            if (state.HandoffSliders.Length == 0)
+            {
+                return null;
+            }
+
+            var (tStart, tEnd, plotX, plotY, plotW, plotH) = AltitudeChartRenderer.GetChartPlotLayout(
+                state, (int)chartRect.X, (int)chartRect.Y, (int)chartRect.Width, (int)chartRect.Height);
+
+            // Only inside the PLOT area -- a press on the weather band above it, or the legend below,
+            // must not move a divider. The region is the whole chart, so this is the narrowing.
+            if (px < plotX || px > plotX + plotW || py < plotY || py > plotY + plotH)
+            {
+                return null;
+            }
+
+            var moved = PlannerActions.PlaceNearestSlider(
+                state, AltitudeChartRenderer.XToTime(px, tStart, tEnd, plotX, plotW));
+            if (moved < 0)
+            {
+                return null;
+            }
+
+            state.NeedsRedraw = true;
+            return BeginDrag(state, moved, chartRect);
+        }
+
+        /// <summary>
+        /// A press that reached no region at all: deselect. Returns true when something changed.
+        /// </summary>
+        /// <remarks>
+        /// All that is left of what used to be one press handler holding three cases. The other two are
+        /// regions now, and this one is the only one that is genuinely about the ABSENCE of a target --
+        /// which is why it belongs on the host's unhandled path and the other two do not.
+        /// </remarks>
+        public static bool HandlePressWithNoTarget(PlannerState state)
+        {
+            if (state.SelectedSliderIndex < 0)
             {
                 return false;
             }
 
-            if (idx >= state.HandoffSliders.Length)
-            {
-                // Sliders were rebuilt mid-drag (recompute) - abandon the drag but still own the move.
-                state.DraggingSliderIndex = -1;
-                return true;
-            }
-
-            var (tStart, tEnd, plotX, plotW) = AltitudeChartRenderer.GetChartTimeLayout(
-                state, (int)chartRect.X, (int)chartRect.Width);
-
-            var newTime = AltitudeChartRenderer.XToTime(px, tStart, tEnd, plotX, plotW);
-            PlannerActions.MoveSlider(state, idx, newTime);
+            PlannerActions.SelectSlider(state, -1);
             return true;
-        }
-
-        /// <summary>Ends an active slider drag. Returns true when a drag was in progress.</summary>
-        public static bool HandleMouseUp(PlannerState state)
-        {
-            if (state.DraggingSliderIndex >= 0)
-            {
-                state.DraggingSliderIndex = -1;
-                return true;
-            }
-
-            return false;
         }
     }
 }

@@ -1,4 +1,4 @@
-using DIR.Lib;
+﻿using DIR.Lib;
 using Shouldly;
 using System;
 using TianWen.UI.Abstractions;
@@ -67,30 +67,32 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// A pointer move over the planner during startup. Passes even unfixed -- the handler returns
-        /// early with no drag in progress -- so this guards that early return rather than reproducing
-        /// the crash. Remove the early return and this is the test that catches it.
+        /// A press on the chart during startup. Click-to-place would ask for the plot layout to convert
+        /// X to a time, and is skipped while there are no sliders -- so this guards that early return
+        /// rather than reproducing the crash.
         /// </summary>
-        [Fact]
-        public void PointerMove_BeforeTheFirstSweep_DoesNotThrow()
-        {
-            var state = Uncomputed();
-
-            Should.NotThrow(() => PlannerSliderInteraction.HandleMouseMove(state, Chart, px: 400f));
-        }
-
-        /// <summary>
-        /// The same for a press. Click-to-place would ask for the plot layout to convert X to a time,
-        /// but is skipped while there are no sliders -- so, like the move above, this guards an early
-        /// return rather than reproducing the crash.
-        /// </summary>
+        /// <remarks>
+        /// The move half of this pair is gone with the handler it tested: a move now reaches a
+        /// <see cref="DragCapture"/> that only exists once a press armed it, and a press before the first
+        /// sweep arms none, so there is no unswept move to test for.
+        /// </remarks>
         [Fact]
         public void PointerDown_BeforeTheFirstSweep_DoesNotThrow()
         {
             var state = Uncomputed();
 
-            Should.NotThrow(() => PlannerSliderInteraction.HandleMouseDown(
-                state, hit: null, Chart, px: 400f, py: 200f));
+            Should.NotThrow(() => PlannerSliderInteraction.BeginPlaceNearest(state, Chart, px: 400f, py: 200f));
+        }
+
+        /// <summary>
+        /// And it arms nothing, which is what makes the missing move test above unnecessary rather than
+        /// merely inconvenient.
+        /// </summary>
+        [Fact]
+        public void PointerDown_BeforeTheFirstSweep_ArmsNoDrag()
+        {
+            PlannerSliderInteraction.BeginPlaceNearest(Uncomputed(), Chart, px: 400f, py: 200f)
+                .ShouldBeNull();
         }
 
         /// <summary>
