@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Immutable;
 using System.Linq;
 using DIR.Lib;
@@ -78,7 +78,8 @@ namespace TianWen.Lib.Tests
 
         private static void Escape(EscapeViewer viewer, SignalBus bus)
         {
-            viewer.HandleInput(new InputEvent.KeyDown(InputKey.Escape));
+            // Routed, because that is how every host sends a key -- see ViewerKeyRouting.
+            ViewerKeyRouting.RouteKey(viewer, InputKey.Escape);
             bus.ProcessPending();
         }
 
