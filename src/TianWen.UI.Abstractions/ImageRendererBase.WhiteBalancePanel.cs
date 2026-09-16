@@ -379,11 +379,7 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var ctx = new PixelMeasureContext<TSurface>(Renderer, FontPath, Scale.X, Scale.Y)
-            {
-                Fallback = FontFallback,
-                EmojiFontPath = EmojiFontPath,
-            };
+            var ctx = MeasureContext();
 
             // WIDE ENOUGH FOR THE BUTTON ROW, not merely the info panel's width. That was
             // BaseInfoPanelWidth alone while the button row is measured text, so once a calibration
