@@ -81,6 +81,15 @@ the master at canvas columns 6 to 9, since registration places and dithers the s
 across about four canvas ones, and the auto-crop rectangle starts at column 20 so it removes most but
 not all of it.
 
+**QHY's own SDK already does this, which is vendor confirmation of P5's thesis rather than our
+inference.** `CONTROL_ROWNOISERE`, from the SDK manual: *"When the function is on, the SDK will
+calculate according to the AVERAGE VALUE OF THE OVERSWEEP AREA, so as to reduce the horizontal
+random fringe. Only QHY5II-M cameras currently support this feature."* So the overscan is a per-frame
+correction input in the vendor's own design, applied inside the SDK, and the limitation is which
+bodies expose one rather than whether the idea works. Consistent with the P1 read below: the QHY178M
+reports `CONTROL_ROWNOISERE` as NOT supported and an EMPTY overscan, which is the same fact twice, a
+body with no shielded strip having nothing for the feature to average.
+
 **The overscan is an INPUT, not waste, which is the whole point of P5.** Shielded columns are the
 sensor's own per-frame black reference, and a per-frame offset is the one thing a master bias cannot
 supply: the master is an average of another night's readouts, while the overscan is this exposure's.
@@ -340,6 +349,13 @@ the first attempt afterwards.
 > `InitQHYCCD`, which makes the "does it latch pre-init?" test meaningless as well. Three wrong
 > inferences in a row, each from measurement without the manual; the driver's own `EnableDDR = 1` is
 > correct as written, a no-op in single-frame mode and load-bearing in continuous.
+>
+> **TianWen is always in SINGLE-FRAME mode on QHY**, the SDK hard-coding
+> `SetQHYCCDStreamMode(_handle, 0)` in two places, and the live-video path for these bodies is Phase D
+> and unimplemented. So DDR is permanently forced on for our QHY path and the driver's `EnableDDR = 1`
+> is an inert write there, reachable only by ZWO through the shared base class or by a live-video path
+> that does not exist yet. It also means the probes, which set the same mode, measure what the driver
+> actually does rather than an artefact of how the camera was driven.
 >
 > **USB traffic, by contrast, latches and works**, which is what says the camera is functioning
 > rather than undefined: 0, 10, 30, 50, 60 all read back, and the wall time per frame rises
