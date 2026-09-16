@@ -111,6 +111,17 @@ So the crop must do what Canon's does, take the overscan off the picture while l
 and **never** set `CAM_IGNOREOVERSCAN_INTERFACE`, which would throw the reference away in the driver
 before anything could use it.
 
+**Two more found by reading the SDK manual against our bindings (2026-09-16).** The `CONTROL_ID`
+enum is correctly ALIGNED, every shared name carrying the same numeric value in both, so nothing has
+ever been commanding the wrong control; the ten entries we lack are all at 77 and above, appended
+after our last, which is the safe way to be out of date. **But `ElectronPerADU` is fabricated**:
+`QHYCamera.cs` computes it as `GetQHYCCDParam(_handle, CONTROL_ID.CONTROL_GAIN) >= 0 ? 1.0 : 0.0`,
+which is not electrons per ADU but "is gain readable", answering a constant 1.0 that
+`DALCameraDriver` then assigns to `ElectronsPerADU`. So every QHY frame claims 1.0 e-/ADU and any
+noise or SNR modelling downstream trusts a made-up number. The real source is among the unbound ten:
+controls 82 to 85 are `CAM_GainDBConversion`, `CAM_CurveSystemGain`, `CAM_CurveFullWell` and
+`CAM_CurveReadoutNoise`, sensor characterisation from the camera itself.
+
 A separate latent bug found while reading: `SetROIFormat` resets the start position to `(0, 0)`, so a
 prior `SetStartPosition` is silently discarded by a later `SetROIFormat`. Two public methods, one
 hidden ordering dependency, no test.
