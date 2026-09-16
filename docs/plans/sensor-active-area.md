@@ -90,6 +90,20 @@ bodies expose one rather than whether the idea works. Consistent with the P1 rea
 reports `CONTROL_ROWNOISERE` as NOT supported and an EMPTY overscan, which is the same fact twice, a
 body with no shielded strip having nothing for the feature to average.
 
+**Three things `GetQHYCCDOverScanArea`'s own documentation settles, one of which breaks an assumption
+this plan was built on.** (a) *"The starting position is the coordinate (0,0) of the UPPER LEFT
+corner of the image as the reference point"*, so QHY's rectangles are top-down, the same convention
+as our raster and as `FitsSection`, and populating `DataSection` / `BiasSection` from the SDK needs
+no flip. (b) *"If the size of the overscan area obtained is 0, it means that the camera does not
+have an overscan area"*, which is what makes the QHY178M's `(0, 0, 0, 0)` a measured NONE rather than
+an unknown. (c) **the one that bites**: *"the location of the overscan area is not limited to a
+certain side of the effective area, but may also be located in OTHER LOCATIONS of the effective
+area"*. So **`BiasSection` cannot be assumed to lie outside `DataSection`**, which is what a
+margin-shaped mental model would have it do, and the two rectangles may overlap. Anything that
+derives the picture by subtracting the bias strip from the raster, or that assumes cropping to
+`DataSection` discards the reference, is wrong on some body. The manual also notes the geometry is
+per model and constant within a model, which is the licence to cache it per model once measured.
+
 **The overscan is an INPUT, not waste, which is the whole point of P5.** Shielded columns are the
 sensor's own per-frame black reference, and a per-frame offset is the one thing a master bias cannot
 supply: the master is an average of another night's readouts, while the overscan is this exposure's.
