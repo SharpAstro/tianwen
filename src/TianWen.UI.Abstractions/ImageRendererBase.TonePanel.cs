@@ -294,11 +294,7 @@ partial class ImageRendererBase<TSurface>
             return;
         }
 
-        var ctx = new PixelMeasureContext<TSurface>(Renderer, FontPath, Scale.X, Scale.Y)
-        {
-            Fallback = FontFallback,
-            EmojiFontPath = EmojiFontPath,
-        };
+        var ctx = MeasureContext();
 
         // THE BOX IS THE MEASUREMENT, and that is the whole point of the tree. The first draft of
         // this panel summed its own height from the constants its body drew with and took its width
