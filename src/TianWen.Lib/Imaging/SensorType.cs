@@ -64,10 +64,19 @@ public static class SensorTypeEx
                 _ => (SensorType.Unknown, 0, 0)
             };
 
+            // The declared pattern and the file's own offset COMPOSE; neither overrides the other.
+            // Pinned by SensorTypeTests, and the "not sure if this is true?" that sat here was
+            // stale rather than doubtful: CONFIRMED against real files 2026-09-16. SharpCap before
+            // 4.0 writes BAYERPAT='GBRG' with the legacy BAYOFFY=1 beside it and annotates the card
+            // "NOTE: Use RGGB on some software (eg PixInsight)", so GBRG's (0,1) plus the file's
+            // (0,1) is (0,0) and the pair means RGGB. The PIXELS agree independently, by the same
+            // subplane statistic the VALID arm above records: on a 2021 ASI533MC Pro frame the two
+            // greens differ by 0.0 ADU under the RGGB pairing and by 684 ADU under the GBRG one.
+            // All 68 such directories in the archive resolve to RGGB this way, over four bodies.
+            // Reading the pattern alone, or the offset alone, is wrong on every one of them.
             var offsetX = (fileOffsetX + sensorOffsetX) % 2;
             var offsetY = (fileOffsetY + sensorOffsetY) % 2;
 
-            // TODO: not sure if this is true?
             return (sensorType, offsetX, offsetY);
         }
 

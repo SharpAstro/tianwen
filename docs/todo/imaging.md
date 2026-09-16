@@ -186,6 +186,38 @@ Closed from the same review, recorded so nobody re-litigates them: `SNAPSHOT` (t
 `STACK_N`) and `SWMODIFY` (modifying-software card) were adopted and shipped; `READOUTM` folded into
 the calibration temporal/tolerance work and shipped with it.
 
+## Quad-Bayer sensors and the read mode that changes what a CFA even is
+
+Filed 2026-09-16 (owner). **The QHY294C Pro is an IMX492, a QUAD-Bayer sensor with two read modes,
+and nothing in TianWen has a concept of a read mode at all** (`grep ReadMode src/TianWen.Lib/Devices`
+returns nothing; the `READOUTM` card was folded into the calibration tolerance work and never became
+a capability). The 11 MP mode is the one the whole archive is in (77 directories, 4164 x 2795, plain
+`RGGB`) and it is effectively bin 2: four same-colour photosites combined on the sensor. The other
+mode reads all of them, roughly 47 MP at half the pitch, and there **the colour filter is not a 2x2
+Bayer tile but a 4x4 block of 2x2 same-colour quads**, so a standard demosaic is wrong on it by
+construction rather than by a phase error.
+
+- [ ] **Decide whether the 4x mode is supported by SPLITTING rather than by a new demosaic.** The
+  owner's suggestion, and it looks like the cheap path: deal the quad mosaic into **four standard
+  RGGB sub-images** at the 11 MP geometry, one photosite per 2x2 same-colour quad, and everything
+  downstream works unchanged. The machinery is already here and proven twice -- the planetary
+  stacker's `SplitCfa` per-photosite path, and Bayer drizzle forward-scattering the raw CFA -- so
+  this is a deal-and-relabel, not a new algorithm. **The four sub-images are independent photosites,
+  so their noise is independent**, which makes them a free four-way N2N pair source on a single
+  exposure and is worth more to the training work than the resolution is
+  ([denoiser-training.md](../plans/denoiser-training.md) H8 wanted exactly this property and could
+  not get it from a night's halves).
+- [ ] **Read the mode rather than infer it from the dimensions.** Two modes means two pixel
+  pitches, two full-well figures and two gain tables, so `MasterGroupKey` must not pair a frame from
+  one with a dark from the other. Today the only tell would be `NAXIS1/2`, which is a guess dressed
+  as a fact; the driver knows, and `READOUTM` is the card for it.
+- [ ] **Confirm the block geometry on a real 4x frame before writing any of it.** GATED ON GEAR: the
+  archive has no 47 MP frame, so the 4x4 layout, its phase and whether QHY's own driver already
+  de-quads it are all unmeasured. The green-pair statistic generalises to the check
+  (`SensorType.FromFITSValue`'s `VALID` arm and the 2026-09-16 SharpCap reading both use it): in a
+  correct split, each sub-image's two greens agree and its own CFA phase reads plain `RGGB`.
+  Bench queue: [hardware-validation.md](hardware-validation.md).
+
 ## An embedded preview HDU in our own masters
 
 Filed 2026-09-13, out of the Explorer-thumbnail work (`fix(thumbnails): read nothing until asked`).

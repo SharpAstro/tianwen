@@ -42,6 +42,21 @@ namespace TianWen.Lib.Tests
             => SensorType.FromFITSValue(null, 1, 1, 0, "GRBG")
                 .ShouldBe((SensorType.RGGB, 0, 0));
 
+        [Theory]
+        // The shape the archive's oldest data actually has, measured 2026-09-16 over 68 directories
+        // and four bodies: SharpCap before 4.0 writes the pattern SHIFTED and the legacy offset card
+        // beside it, and the two compose back to RGGB. Its own card says so ("NOTE: Use RGGB on some
+        // software (eg PixInsight)"), and the pixels agree -- on a 2021 ASI533MC Pro frame the two
+        // greens differ by 0.0 ADU under the RGGB pairing against 684 ADU under the declared GBRG.
+        // Honouring either card alone gets every one of those frames wrong, which is why this is a
+        // case rather than a comment.
+        [InlineData("GBRG", 0, 1)]      // ASI294MC, ASI462MC, ASI533MC Pro: 52 directories
+        [InlineData("GRBG", 1, 0)]      // ASI462MC, the same night's other sessions: 16
+        public void FromFITSValue_OldSharpCapsShiftedPatternPlusItsLegacyOffsetIsPlainRggb(
+            string pattern, int fileOffsetX, int fileOffsetY)
+            => SensorType.FromFITSValue(null, 1, fileOffsetX, fileOffsetY, pattern)
+                .ShouldBe((SensorType.RGGB, 0, 0));
+
         [Fact]
         public void FromFITSValue_AnUnknownTokenStaysUnknown_NeverAGuess()
             => SensorType.FromFITSValue(null, 1, 0, 0, "XTRANS")
