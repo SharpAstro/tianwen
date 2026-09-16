@@ -38,6 +38,10 @@ public class QhyDarkSequenceProbe(ITestOutputHelper output)
     /// <summary>ExpQHYCCDSingleFrame answers this, not Success, on a read-directly body. Not an error.</summary>
     private const uint ReadDirectly = 0x2001;
 
+    private double Gain { get; set; } = 10;
+    private double Offset { get; set; } = 10;
+    private double SettleMs { get; set; }
+
     [Fact]
     public void ReportWhatASequenceOfDarksActuallyDelivers()
     {
@@ -45,6 +49,14 @@ public class QhyDarkSequenceProbe(ITestOutputHelper output)
             $"{GateVar} is not 1 (needs a QHY body attached, capped, and free)");
         var frames = int.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_FRAMES"), out var n) ? n : 12;
         var exposureMs = double.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_EXPOSURE_MS"), out var e) ? e : 1000.0;
+        Gain = double.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_GAIN"), out var g) ? g : 10;
+        Offset = double.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_OFFSET"), out var o) ? o : 10;
+        // The measurement that decides whether a SHORT settling frame is enough: take one throwaway
+        // at the minimum exposure before the sequence, and see whether frame 0 of the sequence still
+        // comes out low. If it does not, a cheap settle at connect fixes this and need not match the
+        // science exposure. If it does, the settle has to be as long as the frame it protects, which
+        // is a very different cost.
+        SettleMs = double.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_SETTLE_MS"), out var s) ? s : 0.0;
 
         Assert.SkipUnless(InitQHYCCDResource() is Success, "InitQHYCCDResource failed");
         try
@@ -201,16 +213,41 @@ public class QhyDarkSequenceProbe(ITestOutputHelper output)
 
             SetQHYCCDBitsMode(handle, 16);
             SetQHYCCDResolution(handle, 0, 0, width, height);
-            SetQHYCCDParam(handle, CONTROL_ID.CONTROL_GAIN, 10);
-            SetQHYCCDParam(handle, CONTROL_ID.CONTROL_OFFSET, 10);
-            SetQHYCCDParam(handle, CONTROL_ID.CONTROL_EXPOSURE, exposureMs * 1000.0);   // microseconds
+            // Set, then READ BACK. A value outside the camera's range is clamped or refused rather
+            // than reported, so a run labelled by what it ASKED for can be a run at settings nobody
+            // chose: asking this body for gain 60 when its maximum is 51 produced exactly that, and
+            // the mislabelled sweep was only caught later by dumping the controls. The readback is
+            // the record, and a divergence is printed rather than swallowed.
+            SetQHYCCDParam(handle, CONTROL_ID.CONTROL_GAIN, Gain);
+            SetQHYCCDParam(handle, CONTROL_ID.CONTROL_OFFSET, Offset);
+            var gainBack = GetQHYCCDParam(handle, CONTROL_ID.CONTROL_GAIN);
+            var offsetBack = GetQHYCCDParam(handle, CONTROL_ID.CONTROL_OFFSET);
+            if (Math.Abs(gainBack - Gain) > 0.01 || Math.Abs(offsetBack - Offset) > 0.01)
+            {
+                output.WriteLine($"REFUSED OR CLAMPED: asked gain {Gain:F0} offset {Offset:F0}, "
+                    + $"the camera reports gain {gainBack:F0} offset {offsetBack:F0}. Every number below is at the "
+                    + "REPORTED settings, not the asked ones.");
+            }
 
             var bufferLength = GetQHYCCDMemLength(handle);
             Assert.SkipWhen(bufferLength is 0 or uint.MaxValue, "GetQHYCCDMemLength refused");
             var buffer = Marshal.AllocHGlobal((int)bufferLength);
             var dir = SharedTestData.CreateTempTestOutputDir();
 
-            output.WriteLine($"{id}: {frames} darks of {exposureMs:F0} ms at gain 10 offset 10, "
+            if (SettleMs > 0)
+            {
+                SetQHYCCDParam(handle, CONTROL_ID.CONTROL_EXPOSURE, SettleMs * 1000.0);
+                var settleExp = ExpQHYCCDSingleFrame(handle);
+                var settleGot = settleExp is Success or ReadDirectly
+                    ? GetQHYCCDSingleFrame(handle, out _, out _, out _, out _, buffer)
+                    : settleExp;
+                output.WriteLine($"settling frame of {SettleMs:F0} ms taken and DISCARDED "
+                    + $"({(settleGot is Success ? "arrived" : $"refused 0x{settleGot:X}")})");
+            }
+
+            SetQHYCCDParam(handle, CONTROL_ID.CONTROL_EXPOSURE, exposureMs * 1000.0);   // microseconds
+
+            output.WriteLine($"{id}: {frames} darks of {exposureMs:F0} ms at gain {Gain:F0} offset {Offset:F0}, "
                 + $"{width} x {height}, buffer {bufferLength / 1024} KiB");
             output.WriteLine($"written to {dir}");
             output.WriteLine("");
