@@ -114,7 +114,7 @@ public class ViewerTonePopoverTests
 
     private static void Press(ToneViewer viewer, float x, float y)
     {
-        ViewerKeyRouting.Route(viewer,
+        UiRouting.Route(viewer,
             new InputEvent.MouseDown(x, y),
             new InputEvent.MouseUp(x, y));
     }
@@ -255,7 +255,7 @@ public class ViewerTonePopoverTests
         // ONE router for the whole gesture, because the capture the press arms lives on it -- a fresh
         // router per event is three unrelated events, which is exactly what the release assertion below
         // is meant to distinguish from a live drag.
-        var router = ViewerKeyRouting.RouterFor(viewer);
+        var router = UiRouting.RouterFor(viewer);
         router.Handle(new InputEvent.MouseDown(x, y));
 
         state.HdrAmount.ShouldBeGreaterThan(1f, "the far end of the track is the hardest clip");
@@ -406,8 +406,8 @@ public class ViewerTonePopoverTests
 
         OpenPanel(viewer, state, document);
 
-        // Routed, because that is how every host sends a key -- see ViewerKeyRouting.
-        ViewerKeyRouting.RouteKey(viewer, InputKey.Escape);
+        // Routed, because that is how every host sends a key -- see UiRouting.
+        UiRouting.RouteKey(viewer, InputKey.Escape);
 
         state.TonePopover.IsOpen.ShouldBeFalse("Escape closes it");
     }

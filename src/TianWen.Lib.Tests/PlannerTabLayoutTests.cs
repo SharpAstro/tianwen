@@ -297,7 +297,7 @@ namespace TianWen.Lib.Tests
             var state = BuildState();
             // The dropdown only renders when the search input is active with suggestions present. A null
             // transform makes the commit skip DB resolution and just reset the box (the observable effect).
-            state.SearchInput.Activate("M3");
+            new TextInputFocus().Focus(state.SearchInput, "M3");
             var deactivated = 0;
             state.Search = new PlannerSearchInteraction(
                 state, db: null!, createTransform: () => null,
@@ -309,12 +309,13 @@ namespace TianWen.Lib.Tests
             var time = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero));
             tab.Render(state, new RectF32(0, 0, 1600, 1000), time);
 
-            // The dropdown is painted last, so its rows are the topmost regions at their pixels -- a click
-            // on the second row's centre dispatches that row (HitTestAndDispatch returns topmost-first),
-            // invoking search.CommitAt(1).
+            // The dropdown is painted last, so its rows are the topmost regions at their pixels -- a routed
+            // press on the second row's centre reaches that row (the router walks topmost-first), invoking
+            // search.CommitAt(1).
             var region = tab.GetRegisteredRegions()
                 .First(r => r.Result is HitResult.ListItemHit { ListId: "Suggestion", Index: 1 });
-            var hit = tab.HitTestAndDispatch(region.X + region.Width / 2f, region.Y + region.Height / 2f);
+            var hit = tab.HitTest(region.X + region.Width / 2f, region.Y + region.Height / 2f);
+            UiRouting.RoutePress(tab, region.X + region.Width / 2f, region.Y + region.Height / 2f);
 
             hit.ShouldBeOfType<HitResult.ListItemHit>().Index.ShouldBe(1);
             // CommitAt(1) reached the commit path: the box reset (text + dropdown cleared) and focus released.
@@ -360,7 +361,7 @@ namespace TianWen.Lib.Tests
             using var renderer = new RgbaImageRenderer(1600, 1000);
             var tab = new PlannerTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont() };
             var state = BuildState();
-            state.SearchInput.Activate("M3");
+            new TextInputFocus().Focus(state.SearchInput, "M3");
             state.Search = new PlannerSearchInteraction(
                 state, db: null!, createTransform: () => null,
                 autoComplete: () => ["M31", "M32"],
@@ -410,7 +411,7 @@ namespace TianWen.Lib.Tests
             // The name registers a LinkHit; a click on it returns that hit with the article URL built
             // from the canonical designation (IC 1000 -> IC_1000), spaces mapped to '_'.
             var region = tab.GetRegisteredRegions().First(r => r.Result is HitResult.LinkHit);
-            var hit = tab.HitTestAndDispatch(region.X + region.Width / 2f, region.Y + region.Height / 2f);
+            var hit = tab.HitTest(region.X + region.Width / 2f, region.Y + region.Height / 2f);
 
             hit.ShouldBeOfType<HitResult.LinkHit>().Url.ShouldBe("https://en.wikipedia.org/wiki/IC_1000");
         }

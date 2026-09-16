@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using DIR.Lib;
@@ -677,7 +677,7 @@ namespace TianWen.Lib.Tests
             var bandIndex = System.Array.FindIndex(regions, r => r.Result is ResizeHandleHit { Id: "Split" });
             bandIndex.ShouldBeGreaterThanOrEqualTo(0);
             var band = regions[bandIndex];
-            viewer.HitTestAndDispatch(band.X + band.Width / 2f, band.Y + band.Height / 2f);
+            UiRouting.RoutePress(viewer, band.X + band.Width / 2f, band.Y + band.Height / 2f);
             viewer.Split.IsDragging.ShouldBeTrue();
 
             // Motion and release go through HandleInput, which BOTH hosts already forward. This is the

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -141,7 +141,7 @@ namespace TianWen.Lib.Tests
         }
 
         private static void Click(StripViewer viewer, float y)
-            => viewer.HitTestAndDispatch(viewer.CurrentInfoPanelRect.X + 8f, y);
+            => UiRouting.RoutePress(viewer, viewer.CurrentInfoPanelRect.X + 8f, y);
 
         [Fact]
         public async Task StatisticsStartRolledUpBehindTheirHeading()

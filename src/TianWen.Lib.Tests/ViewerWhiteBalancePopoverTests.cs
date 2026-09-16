@@ -113,7 +113,7 @@ namespace TianWen.Lib.Tests
 
         private static void Press(PopoverViewer viewer, float x, float y)
         {
-            ViewerKeyRouting.Route(viewer,
+            UiRouting.Route(viewer,
                 new InputEvent.MouseDown(x, y),
                 new InputEvent.MouseUp(x, y));
         }
@@ -393,7 +393,7 @@ namespace TianWen.Lib.Tests
             // BeginWhiteBalanceDragAt to call and the press itself is what moves the value.
             var dragX = redTrack.Value.Right - 1f;
             var dragY = redTrack.Value.Y + (redTrack.Value.Height / 2f);
-            ViewerKeyRouting.Route(viewer,
+            UiRouting.Route(viewer,
                 new InputEvent.MouseDown(dragX, dragY),
                 new InputEvent.MouseUp(dragX, dragY));
             state.ManualWhiteBalance.R.ShouldNotBe(1f, "the track took the drag");
@@ -403,7 +403,7 @@ namespace TianWen.Lib.Tests
             viewer.Render(document, state);
             var (buttons, _, _) = HitsBelowTheBar(viewer);
             var reset = buttons["ResetWhiteBalance"];
-            viewer.HitTestAndDispatch(reset.X, reset.Y);
+            UiRouting.RoutePress(viewer, reset.X, reset.Y);
             state.ManualWhiteBalance.ShouldBe((1f, 1f, 1f));
             viewer.IsToolbarButtonActiveForTest(ToolbarAction.WhiteBalance, state)
                 .ShouldBeFalse("reset puts it out");
@@ -430,8 +430,8 @@ namespace TianWen.Lib.Tests
             var dragX = redTrack.Value.Right - 1f;
             var dragY = redTrack.Value.Y + (redTrack.Value.Height / 2f);
 
-            // Routed, because that is how every host sends a key -- see ViewerKeyRouting.
-            ViewerKeyRouting.RouteKey(viewer, InputKey.Escape);
+            // Routed, because that is how every host sends a key -- see UiRouting.
+            UiRouting.RouteKey(viewer, InputKey.Escape);
 
             state.WhiteBalancePopover.IsOpen.ShouldBeFalse("Escape closes it");
             exits().ShouldBe(0, "and nothing asked to exit");
@@ -441,7 +441,7 @@ namespace TianWen.Lib.Tests
             var (_, sliders, _) = HitsBelowTheBar(viewer);
             sliders.ShouldBeFalse();
             var before = state.ManualWhiteBalance;
-            ViewerKeyRouting.Route(viewer,
+            UiRouting.Route(viewer,
                 new InputEvent.MouseDown(dragX, dragY),
                 new InputEvent.MouseUp(dragX, dragY));
             state.ManualWhiteBalance.ShouldBe(before, "a closed popover has no track to drag");

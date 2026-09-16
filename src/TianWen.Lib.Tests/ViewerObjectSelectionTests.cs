@@ -198,7 +198,7 @@ namespace TianWen.Lib.Tests
         /// <summary>Presses and releases at the same point: a tap, not a drag.</summary>
         private static void TapAt(SelectionViewer viewer, float x, float y)
         {
-            ViewerKeyRouting.Route(viewer,
+            UiRouting.Route(viewer,
                 new InputEvent.MouseDown(x, y),
                 new InputEvent.MouseUp(x, y));
         }
@@ -256,7 +256,7 @@ namespace TianWen.Lib.Tests
             viewer.Render(document, state);
             var (x, y) = ObjectOnScreen(viewer, state);
 
-            ViewerKeyRouting.Route(viewer,
+            UiRouting.Route(viewer,
                 new InputEvent.MouseDown(x, y),
                 new InputEvent.MouseMove(x + 60f, y + 40f),
                 new InputEvent.MouseUp(x + 60f, y + 40f));
@@ -1258,7 +1258,7 @@ namespace TianWen.Lib.Tests
             var px = area.X + 22f;
             var py = MathF.Max(area.Y, area.Y + area.Height - ph - 12f) + (ph * 0.5f);
 
-            (viewer.HitTestAndDispatch(px, py) is HitResult.ButtonHit { Action: "SelectionPanelBackground" })
+            (viewer.HitTest(px, py) is HitResult.ButtonHit { Action: "SelectionPanelBackground" })
                 .ShouldBeFalse("a chromeless host paints no panel, so nothing there can claim a press");
         }
 
@@ -1288,9 +1288,9 @@ namespace TianWen.Lib.Tests
             viewer.Render(document, state);
 
             var px = area.X + 22f;
-            (viewer.HitTestAndDispatch(px, area.Y + 4f) is HitResult.ButtonHit { Action: "SelectionPanelBackground" })
+            (viewer.HitTest(px, area.Y + 4f) is HitResult.ButtonHit { Action: "SelectionPanelBackground" })
                 .ShouldBeTrue("clamped to the top of the image area, the panel starts there");
-            (viewer.HitTestAndDispatch(px, area.Y - 8f) is HitResult.ButtonHit { Action: "SelectionPanelBackground" })
+            (viewer.HitTest(px, area.Y - 8f) is HitResult.ButtonHit { Action: "SelectionPanelBackground" })
                 .ShouldBeFalse("and it must not reach above the image area into the toolbar");
         }
     }

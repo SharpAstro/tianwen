@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using DIR.Lib;
 using Shouldly;
@@ -83,7 +83,7 @@ namespace TianWen.Lib.Tests
             // Half way down the panel: clear of the close X (the top DesignCloseSize) and of the
             // button row (the bottom DesignButtonHeight plus its margin).
             var (x, y) = PanelBody(content, 0.5f);
-            var hit = tab.HitTestAndDispatch(x, y);
+            var hit = tab.HitTest(x, y);
 
             // Named, not merely non-null: any region claiming that pixel would satisfy a bare
             // ShouldNotBeNull, and the one this test is about is the panel's own background.
@@ -101,7 +101,7 @@ namespace TianWen.Lib.Tests
             tab.Render(planner, content, clock);
 
             // Top-right corner of the content rect: well clear of the panel, which sits bottom-left.
-            var hit = tab.HitTestAndDispatch(content.Width - 5f, 5f);
+            var hit = tab.HitTest(content.Width - 5f, 5f);
 
             (hit is HitResult.ButtonHit { Action: "InfoPanelBackground" }).ShouldBeFalse(
                 "the background region must not reach outside the panel it belongs to");

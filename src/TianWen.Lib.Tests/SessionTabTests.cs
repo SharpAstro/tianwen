@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using Console.Lib;
 using DIR.Lib;
@@ -133,7 +133,8 @@ namespace TianWen.Lib.Tests
 
             // Act: click on the first field's label area (somewhere in the left part of the config panel)
             // Config panel fills the left side; first field is below the first group header
-            var hit = tab.HitTestAndDispatch(10f, 60f); // approximate position of first field label
+            var hit = tab.HitTest(10f, 60f); // approximate position of first field label
+            UiRouting.RoutePress(tab, 10f, 60f);
 
             // Assert
             hit.ShouldNotBeNull();
@@ -160,7 +161,8 @@ namespace TianWen.Lib.Tests
 
             // Act: click in the config label area (x=60 is 8px into the content, y=60 is 32px into content)
             // First group header is at y=28 (contentRect.Y), 28px tall, so first field starts at y≈56
-            var hit = tab.HitTestAndDispatch(60f, 60f);
+            var hit = tab.HitTest(60f, 60f);
+            UiRouting.RoutePress(tab, 60f, 60f);
 
             // Assert
             hit.ShouldNotBeNull();
@@ -189,8 +191,9 @@ namespace TianWen.Lib.Tests
                     && (action.StartsWith("Inc:", StringComparison.Ordinal)
                         || action.StartsWith("Dec:", StringComparison.Ordinal)));
 
-            tab.HitTestAndDispatch(stepper.X + stepper.Width / 2f, stepper.Y + stepper.Height / 2f)
+            tab.HitTest(stepper.X + stepper.Width / 2f, stepper.Y + stepper.Height / 2f)
                 .ShouldBeOfType<HitResult.ButtonHit>();
+            UiRouting.RoutePress(tab, stepper.X + stepper.Width / 2f, stepper.Y + stepper.Height / 2f);
 
             // Assert
             state.Configuration.ShouldNotBe(initialConfig);

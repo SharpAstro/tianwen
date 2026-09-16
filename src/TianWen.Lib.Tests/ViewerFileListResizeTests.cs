@@ -90,7 +90,7 @@ namespace TianWen.Lib.Tests
             viewer.Render(null, state);
             var divider = viewer.FileList.Right;
 
-            ViewerKeyRouting.Route(viewer,
+            UiRouting.Route(viewer,
                 new InputEvent.MouseDown(divider + 1f, NarrowH * 0.5f, MouseButton.Left),
                 new InputEvent.MouseMove(targetX, NarrowH * 0.5f),
                 new InputEvent.MouseUp(targetX, NarrowH * 0.5f, MouseButton.Left));
@@ -236,7 +236,7 @@ namespace TianWen.Lib.Tests
             var x = band.X + (band.Width / 2f);
             var y = band.Y + (band.Height / 2f);
 
-            ViewerKeyRouting.Route(viewer,
+            UiRouting.Route(viewer,
                 new InputEvent.MouseDown(x, y),
                 new InputEvent.MouseMove(x + 40f, y + 30f),
                 new InputEvent.MouseUp(x + 40f, y + 30f));
@@ -265,7 +265,7 @@ namespace TianWen.Lib.Tests
             var x = band.X + (band.Width / 2f);
             var y = band.Y + (band.Height / 2f);
 
-            ViewerKeyRouting.Route(viewer,
+            UiRouting.Route(viewer,
                 new InputEvent.MouseDown(x, y),
                 new InputEvent.MouseMove(x + 40f, y + 30f),
                 new InputEvent.MouseUp(x + 40f, y + 30f));

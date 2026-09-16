@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -17,8 +17,8 @@ namespace TianWen.Lib.Tests
     /// <c>ListScrollController</c> (atom model). The atom math itself is exhaustively pinned in DIR.Lib's
     /// <c>ListScrollControllerTests</c>; these prove <see cref="PlannerTab{TSurface}"/> is wired to it
     /// correctly over the CPU <see cref="RgbaImageRenderer"/> -- input is fed exactly as the GUI/web hosts
-    /// do it (HitTestAndDispatch first, then HandleInput on a miss), so tap-on-release selection, drag
-    /// scrolling, sub-unit wheel accumulation, and pin-button coexistence are exercised end-to-end.
+    /// feed it, through an <see cref="InputRouter"/>, so tap-on-release selection, drag scrolling,
+    /// sub-unit wheel accumulation, and pin-button coexistence are exercised end-to-end.
     /// </summary>
     [Collection("UI")]
     public class PlannerTabScrollTests
@@ -66,15 +66,13 @@ namespace TianWen.Lib.Tests
             tab.Render(state, new RectF32(0, 0, r.Width, r.Height), time);
         }
 
-        // Mirror the GUI/web host: on a press, dispatch registered clickables first; only forward the
-        // raw press to HandleInput when nothing claimed it. Move/Up always go straight to HandleInput.
+        // Mirror the GUI/web host, which is now one line: the router walks the registered regions and
+        // offers what none of them claimed to the tab's own HandleInput. This used to be written out here
+        // -- dispatch first, forward on a miss -- which is the host press walk DIR.Lib 10.0 retired, and a
+        // hand-written copy of it is exactly what stops a test seeing a divergence in the real one.
+        // Move/Up still go straight to HandleInput, as both hosts forward them.
         private static void HostPress(PlannerTab<RgbaImage> tab, float x, float y)
-        {
-            if (tab.HitTestAndDispatch(x, y) is null)
-            {
-                tab.HandleInput(new InputEvent.MouseDown(x, y));
-            }
-        }
+            => UiRouting.RoutePress(tab, x, y);
 
         // A point on the top visible row's body (just left of its pin button), derived from the registered
         // pin-button region so no private geometry is needed.
@@ -156,8 +154,8 @@ namespace TianWen.Lib.Tests
         public void RowBodyIsUnclaimed_ButPinButtonStaysRegistered()
         {
             // The structural change behind tap-on-release: the row-select ListItemHit is gone (so a body
-            // press falls through to the controller), while the per-row pin button stays a clickable that
-            // HitTestAndDispatch claims first.
+            // press falls through to the controller), while the per-row pin button stays a clickable the
+            // router claims first.
             using var r = new RgbaImageRenderer(1600, 400);
             var state = BuildState(40);
             var tab = new PlannerTab<RgbaImage>(r);

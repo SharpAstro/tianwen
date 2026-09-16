@@ -1,3 +1,4 @@
+﻿using DIR.Lib;
 using Shouldly;
 using TianWen.UI.Abstractions;
 using Xunit;
@@ -18,7 +19,9 @@ public class PlannerSearchInteractionTests
     public void CommitSuggestion_ClearsInputDropsDropdownAndReleasesFocus()
     {
         var state = new PlannerState();
-        state.SearchInput.Activate("Androm");
+        // Seeded and focused, the way OpenSearch does it: the owner claims the keyboard and selects the
+        // seed, and the caret position does not matter here because the query is driven by OnTextChanged.
+        new TextInputFocus().Focus(state.SearchInput, "Androm");
         var deactivated = 0;
 
         var search = new PlannerSearchInteraction(
