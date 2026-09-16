@@ -31,6 +31,39 @@ stay, their dates stay verifiable, and `git log v3.6.493..v4.0.564` answers the 
 always did. Hashes quoted in the docs from before the migration were re-pointed the same way. Any
 other commit hash from before 2026-04-22 no longer resolves anywhere.
 
+## 8.2
+
+The sibling pins move as a family, and a flat pixel with no throughput stops being multiplied by a
+million.
+
+**A dead flat pixel yields absence, not a number six orders too big.** `Calibrator` divided by
+`max(flat, FlatEpsilon)` with an epsilon of 1e-6, and that clamp does not prevent a division by
+zero: it converts one into a multiplication by a million and returns a finite value nothing
+downstream can tell from data. Measured in the wild on `Eta Car SII NB / QHYCCD / 2024-03-02`, whose
+overscan columns are exactly 0 in the flat, the integrated master peaks at 2.46e8 against a sky of
+213, and 245,827,712 x 1e-6 = 245.83 is precisely the ADU value that went in. Those pixels rode
+through warp, staging and the mean into the master.
+
+`FlatEpsilon` keeps its name and changes both its meaning and its default, to **0.02**: it is now
+the throughput below which a flat pixel carries no calibration, and such a pixel is marked
+`NaN`. That is the vocabulary the rest of the pipeline already has for absence, and
+`LargestCoveredRectangle`, `MeanCombiner` and `FillInteriorHolesInPlace` each do the right thing
+with it where none of them could do anything with the old number. The threshold was measured, not
+chosen: across the 18 master flats of the reference bake, 15 carry no pixel at all below 0.3 of the
+mean and the three that do have populations complete by 0.02, so the dead pixels and the shallowest
+real vignette sit either side of an empty band 15x wide.
+
+**This changes OUTPUT for existing inputs**, which no API-compatibility check can catch: a caller
+relying on the clamp now gets `NaN`, and a master rebuilt after this differs from one built before.
+Only 3 of the bake's 18 flats contain a pixel the new floor touches, so a session calibrated with
+any of the other 15 is byte-identical and needs no re-bake.
+
+**The pins move together** (`DIR.Lib` 9.2 to 9.3, `Console.Lib` 4.35 to 4.36, `SdlVulkan.Renderer`
+7.38 to 7.40, `WebGl.Renderer` 1.29 to 1.30), which the 9.1 `MouseUp`/`MouseMove` release made
+mandatory, and `Directory.Packages.props` moves from `src/` to the repo root so `tools/` comes under
+CPM as well. A split pin in `tools/lavapipe-repro` had been invisible to the sibling sweep for the
+third time in this repo's history; a version the sweep cannot see is a version that drifts.
+
 ## 8.1
 
 Additive: one new method on `Image`, a fix to what the auto-crop calls absence, and a viewer control
