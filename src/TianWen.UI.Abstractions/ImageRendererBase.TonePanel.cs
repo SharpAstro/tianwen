@@ -131,15 +131,15 @@ partial class ImageRendererBase<TSurface>
     /// </remarks>
     private Layout.Node ToneDialRow(string label, SliderState dial, string valueText, RGBAColor32 accent)
         => Layout.Builder.HStack(
-                Layout.Builder.Text(label, FontSize,
+                Layout.Builder.Text(label, BaseFontSize,
                     dial.Enabled ? ViewerTheme.Palette.BodyText : ViewerTheme.Palette.DimText,
                     widthSample: ToneLabelWidthSample),
                 Layout.Builder.Slider(dial, accent, TrackChrome).WStar(1f, ToneTrackMinWidth).HStar(),
-                Layout.Builder.Text(valueText, FontSize, ViewerTheme.Palette.DimText,
+                Layout.Builder.Text(valueText, BaseFontSize, ViewerTheme.Palette.DimText,
                     hAlign: TextAlign.Far, widthSample: ToneValueWidthSample))
             .WithGap(ToneGap)
             .CrossCenter()
-            .RowH(FontSize + ToneGap);
+            .RowH(BaseFontSize + ToneGap);
 
     /// <summary>A reason under a dim control, indented past the label column to the control it
     /// explains. The indent is a spacer sized by the same sample the label column uses, so the two
@@ -160,8 +160,8 @@ partial class ImageRendererBase<TSurface>
     /// </summary>
     private Layout.Node BuildToneTree(ViewerState state)
     {
-        var small = FontSize * 0.85f;
-        var rowH = FontSize + ToneGap;
+        var small = BaseFontSize * 0.85f;
+        var rowH = BaseFontSize + ToneGap;
 
         // The boost keeps the precondition its own toolbar button carried. Stated, rather than left
         // as a control that quietly does nothing.
@@ -207,8 +207,8 @@ partial class ImageRendererBase<TSurface>
         }
 
         rows.Add(Layout.Builder.HStack(
-                Layout.Builder.Text(string.Empty, FontSize, widthSample: ToneLabelWidthSample),
-                Layout.Builder.Text(curveLabel, FontSize,
+                Layout.Builder.Text(string.Empty, BaseFontSize, widthSample: ToneLabelWidthSample),
+                Layout.Builder.Text(curveLabel, BaseFontSize,
                         curveModeLive ? ViewerTheme.Palette.BodyText : ViewerTheme.Palette.DimText,
                         hAlign: TextAlign.Center, widthSample: CurveModeWidthSample)
                     .PadX(ToneGap)
@@ -247,7 +247,7 @@ partial class ImageRendererBase<TSurface>
         // wrapper is clickable and inert: it swallows a press that would otherwise reach the
         // backdrop and close the panel being read.
         rows.Add(Layout.Builder.VStack(
-                Layout.Builder.Text(DisplayHdrLabel, FontSize, ViewerTheme.Palette.DimText).RowH(rowH),
+                Layout.Builder.Text(DisplayHdrLabel, BaseFontSize, ViewerTheme.Palette.DimText).RowH(rowH),
                 Layout.Builder.Text(DisplayHdrReason, small, ViewerTheme.Palette.DimText)
                     .RowH(small + ToneGap))
             .Clickable(new HitResult.ButtonHit("ToneDisplayHdr"), _ => { })
@@ -258,7 +258,7 @@ partial class ImageRendererBase<TSurface>
         return Layout.Builder.VStack(
                 Layout.Builder.VStack(rows.ToImmutable().AsSpan())
                     .WithGap(ToneGap * 0.5f)
-                    .Pad(PanelPadding / Scale.X)
+                    .Pad(BasePanelPadding)
                     .Bg(ViewerTheme.InfoPanelBg)
                     .Clickable(new HitResult.ButtonHit("TonePanelBackground"), _ => { })
                     .WStar())

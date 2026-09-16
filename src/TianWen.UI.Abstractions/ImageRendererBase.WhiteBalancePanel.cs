@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Immutable;
 using DIR.Lib;
 using TianWen.Lib.Imaging;
@@ -150,14 +150,14 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private Layout.Node WhiteBalanceRow(int channel, float value)
             => Layout.Builder.HStack(
-                    Layout.Builder.Text(WbChannelLabels[channel], FontSize, ViewerTheme.Palette.BodyText,
+                    Layout.Builder.Text(WbChannelLabels[channel], BaseFontSize, ViewerTheme.Palette.BodyText,
                         widthSample: WbLabelWidthSample),
                     Layout.Builder.Slider(_wbSliders[channel], WbChannelFill[channel], TrackChrome).HStar(),
-                    Layout.Builder.Text(value.ToString("0.00"), FontSize, ViewerTheme.Palette.DimText,
+                    Layout.Builder.Text(value.ToString("0.00"), BaseFontSize, ViewerTheme.Palette.DimText,
                         hAlign: TextAlign.Far, widthSample: WbValueWidthSample))
                 .WithGap(WbGap)
                 .CrossCenter()
-                .RowH(FontSize + WbGap);
+                .RowH(BaseFontSize + WbGap);
 
         /// <summary>
         /// One button in a panel's action row, held at <paramref name="widthSample"/> so toggling its
@@ -176,7 +176,7 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         private Layout.Node PanelButton(string label, string hit, bool enabled,
             Action onPress, string? widthSample = null, RGBAColor32? background = null)
-            => Layout.Builder.Text(label, FontSize,
+            => Layout.Builder.Text(label, BaseFontSize,
                     enabled ? ViewerTheme.Palette.BodyText : ViewerTheme.Palette.DimText,
                     hAlign: TextAlign.Center, widthSample: widthSample)
                 .PadX(WbGap)
@@ -211,7 +211,7 @@ namespace TianWen.UI.Abstractions
             // panel's width, and the box would change size the moment a calibration landed.
             if (state.ColorCalibrationEnabled && _document?.ColorCalibrationSummary is { } summary)
             {
-                rows.Add(Layout.Builder.Text(summary.Describe(), FontSize, ViewerTheme.Palette.DimText,
+                rows.Add(Layout.Builder.Text(summary.Describe(), BaseFontSize, ViewerTheme.Palette.DimText,
                         widthSample: string.Empty)
                     .RowH(TextLineAdvance));
             }
@@ -345,13 +345,13 @@ namespace TianWen.UI.Abstractions
             rows.Add(Layout.Builder.HStack(auto, reset, spcc, Layout.Builder.Spacer().WStar())
                 .WithGap(WbGap)
                 .CrossCenter()
-                .RowH(FontSize + WbGap));
+                .RowH(BaseFontSize + WbGap));
 
             // Outer: a one-unit border ring around the padded body, so the frame is part of the tree
             // rather than two rectangles drawn before it. The body swallows a press anywhere on it.
             return Layout.Builder.VStack(
                     Layout.Builder.VStack(rows.ToImmutable().AsSpan())
-                        .Pad(PanelPadding / Scale.X)
+                        .Pad(BasePanelPadding)
                         .Bg(ViewerTheme.InfoPanelBg)
                         .Clickable(new HitResult.ButtonHit("WhiteBalancePanelBackground"), _ => { })
                         .WStar())
