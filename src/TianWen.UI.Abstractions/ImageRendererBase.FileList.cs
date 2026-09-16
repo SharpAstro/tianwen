@@ -184,6 +184,21 @@ namespace TianWen.UI.Abstractions
 
             FillRect(lx, listTop, FileListWidth, listHeight, ViewerTheme.FileListBg);
 
+            // The divider's GRAB, registered here rather than declared on the Split, because a node's
+            // dividerHit carries a hit and no handler -- and a region with a hit and no handler is
+            // silently dead under a router, which consumes the press whether or not anything ran. The
+            // same shape RenderSplitDivider already uses for the before/after divider. The Split's own
+            // dividerHit stays for the cursor and the inspector; this sits over it and acts.
+            var grabW = MathF.Max(BaseFileListDividerWidth * DpiScale, BaseSplitGrabWidth * DpiScale);
+            RegisterClickable(fl.Right - grabW / 2f, listTop, grabW, listHeight,
+                new ResizeHandleHit(FileListId), cursor: CursorKind.ResizeEW,
+                onPress: _ =>
+                {
+                    state.IsResizingFileList = true;
+                    state.NeedsRedraw = true;
+                    return null;
+                });
+
             if (string.IsNullOrEmpty(FontPath))
             {
                 return;
@@ -300,7 +315,7 @@ namespace TianWen.UI.Abstractions
                     new HitResult.ListItemHit(FileListId, fileIndex), onClick: null, cursor: CursorKind.Default,
                     onPress: press =>
                     {
-                        HandleFileListInput(new InputEvent.MouseDown(press.X, press.Y, press.Button,
+                        HandleFileListScroll(state, new InputEvent.MouseDown(press.X, press.Y, press.Button,
                             press.Modifiers, press.Clicks));
                         return null;
                     });

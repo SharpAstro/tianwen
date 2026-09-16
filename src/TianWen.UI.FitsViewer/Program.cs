@@ -307,6 +307,23 @@ var imageRenderer = gpu.Top;
 
 StartupTrace.Mark("gpu");
 
+// Keys go through the engine's router, which answers the three things every surface answers the same
+// way -- an overlay that claimed the keyboard, a chord declared on a painted node, the focused field --
+// before anything of this viewer's own runs. The GUI has routed keys this way since T1; the standalone
+// viewer was the last host still asking Ui.KeyboardClaimant by hand, which is D2's IKeyboardClaimant
+// cut and was the only thing keeping that type alive in tianwen.
+//
+// KEYS ONLY, deliberately. A press is not separable the same way: the router consumes a press for ANY
+// region under the pointer whether or not a handler ran, and this viewer's toolbar and file-list
+// regions carry no handler, so routing presses would silently deaden them. That is its own step.
+var inputRouter = new InputRouter(imageRenderer.Ui, tracker, () => state.NeedsRedraw = true)
+{
+    Widgets = () => [imageRenderer],
+    Unhandled = evt => evt is InputEvent.MouseDown down
+        ? HandleUnroutedPress(down)
+        : imageRenderer.HandleInput(evt),
+};
+
 // The sky the photograph came from, drawn behind it on the context ladder's top rung (O, three
 // times). The map is the SAME class the GUI's atlas tab is -- renderer-agnostic, already on this
 // app's compile path -- pointed at the frame every render instead of at a site's zenith.
@@ -453,7 +470,9 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     {
         var handled = evt switch
         {
-            InputEvent.MouseDown down => HandleMouseDown(down),
+            // Presses route like keys: the regions the last paint declared answer first, and whatever
+            // they decline reaches HandleUnroutedPress through the router's Unhandled.
+            InputEvent.MouseDown down => RoutePress(down),
             _ => imageRenderer.HandleInput(evt),
         };
 
@@ -673,24 +692,10 @@ loop.OnBeforeFrame = () =>
     }
 };
 
-// Keys go through the engine's router, which answers the three things every surface answers the same
-// way -- an overlay that claimed the keyboard, a chord declared on a painted node, the focused field --
-// before anything of this viewer's own runs. The GUI has routed keys this way since T1; the standalone
-// viewer was the last host still asking Ui.KeyboardClaimant by hand, which is D2's IKeyboardClaimant
-// cut and was the only thing keeping that type alive in tianwen.
-//
-// KEYS ONLY, deliberately. A press is not separable the same way: the router consumes a press for ANY
-// region under the pointer whether or not a handler ran, and this viewer's toolbar and file-list
-// regions carry no handler, so routing presses would silently deaden them. That is its own step.
-var keyRouter = new InputRouter(imageRenderer.Ui, tracker, () => state.NeedsRedraw = true)
-{
-    Widgets = () => [imageRenderer],
-    Unhandled = evt => imageRenderer.HandleInput(evt),
-};
 
 loop.OnKeyDown = keyEvent =>
 {
-    keyRouter.Handle(keyEvent);
+    inputRouter.Handle(keyEvent);
     return true;
 };
 
@@ -852,80 +857,39 @@ void UpdateCursor()
     sdlWindow.SetSystemCursor(cursor.ToSystemCursor);
 }
 
-bool HandleMouseDown(InputEvent.MouseDown down)
+// The press walk this host used to carry is gone: every region it branched on now acts for itself --
+// a toolbar button through ToolbarPressPolicy, the file-list divider and its rows, the transport
+// scrub, and a Content.Slider through the engine's own drag. What is left is genuinely this host's
+// and reaches the router's Unhandled: the context menu on an unclaimed right press, and the pan.
+//
+// The order that mattered in the walk is the region stack's now -- topmost wins, later registration
+// wins -- and the one thing that is NOT automatic is that a region with a hit and no handler still
+// SWALLOWS the press. That was a live bug on four regions before this, so the rule to keep is:
+// registering a hit without a handler means "nothing happens here", never "someone else will do it".
+bool RoutePress(InputEvent.MouseDown down)
+{
+    state.MouseScreenPosition = (down.X, down.Y);
+    inputRouter.Handle(down);
+    return true; // every press consumed, as the old always-true OnMouseDown lambda was
+}
+
+bool HandleUnroutedPress(InputEvent.MouseDown down)
 {
     var (px, py) = (down.X, down.Y);
-    state.MouseScreenPosition = (px, py);
 
-    if (down.Button is MouseButton.Left or MouseButton.Right)
+    // An unclaimed right press on the image is the context menu. Only a press that would otherwise
+    // start a pan opens one; a right press that already meant something was consumed by its region.
+    if (down.Button == MouseButton.Right && imageRenderer.TryOpenImageContextMenu(state, px, py))
     {
-        // Hit test: base class handles pure state actions (file list, toggles)
-        var hit = imageRenderer.HitTestAndDispatch(px, py);
-
-        if (hit is HitResult.ButtonHit { Action: var action } && Enum.TryParse<ToolbarAction>(action, out var toolbarAction))
-        {
-            // This host's own policy, stated ONCE on the renderer rather than written out here as well.
-            imageRenderer.PressToolbarButton(state, toolbarAction, down.Button);
-            return true;
-        }
-
-        if (hit is ResizeHandleHit { Id: "FileList" })
-        {
-            state.IsResizingFileList = true;
-            state.NeedsRedraw = true;
-            return true;
-        }
-
-        if (hit is TransportScrubHit)
-        {
-            imageRenderer.BeginScrubAt(px);
-            return true;
-        }
-
-        // A declared slider arms its own drag from the rect the engine painted it into, so this is one
-        // branch for every Content.Slider leaf rather than one per control. The move and the release
-        // reach it through imageRenderer.HandleInput, which holds the capture.
-        if (hit is HitResult.SliderStateHit)
-        {
-            imageRenderer.TryBeginRegionDrag(px, py, down.Button, down.Modifiers, down.ClickCount);
-            return true;
-        }
-
-        // A file-list row registers a region (so it has a cursor, a hover tooltip and is visible to
-        // the inspector) but must NOT be claimed here: the press has to continue to the scroll
-        // controller below, which owns drag-to-scroll and fires selection on the tap RELEASE.
-        //
-        // This is the SECOND copy of this dispatcher -- ImageRendererBase.HandleViewerMouseDown is the
-        // embedded one -- and fixing only that one is why single-click selection stayed broken here:
-        // the standalone viewer never runs it. Any new hit type that needs to fall through has to be
-        // excluded in both.
-        if (hit is not null && hit is not HitResult.ListItemHit { ListId: ImageRendererBase<VkTexture>.FileListId })
-        {
-            return true; // OnClick already handled it (e.g. HistogramLog, PlayPause)
-        }
-
-        // Unclaimed left press over the file list arms the scroll controller (drag-to-scroll / thumb
-        // grab); select fires on the tap release, routed through HandleViewerMouseUp via OnPointerInput.
-        if (down.Button == MouseButton.Left && imageRenderer.HandleFileListInput(down))
-        {
-            return true;
-        }
-
-        // An unclaimed right press on the image is the context menu. Deliberately after every hit
-        // branch above, so a right-click that already meant something (reverse-cycling a toolbar
-        // button) still means it; only a press that would otherwise start a pan opens a menu. The
-        // embedded dispatcher (ImageRendererBase.HandleViewerMouseDown) carries the same call.
-        if (down.Button == MouseButton.Right && imageRenderer.TryOpenImageContextMenu(state, px, py))
-        {
-            return true;
-        }
+        return true;
     }
 
-    // Left or middle mouse button starts panning (the PanZoomController gesture on the renderer;
-    // move/release continue through imageRenderer.HandleInput)
+    // Left or middle starts panning (the PanZoomController gesture on the renderer; move and release
+    // continue through imageRenderer.HandleInput).
     if (down.Button is MouseButton.Left or MouseButton.Middle)
     {
         imageRenderer.BeginViewportPan(px, py);
     }
-    return true; // every press consumed (matches the old always-true OnMouseDown lambda)
+
+    return true;
 }
