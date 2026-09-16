@@ -189,6 +189,34 @@ A test over the widget assemblies asserting that a file which paints chrome does
 file list's ellipsis budget, anything inside a `drawFill`). Without it the count goes back up one
 convenient call at a time, which is how it got to 47.
 
+## The unit rule this uncovered, which is the cost of adopting the engine
+
+**A declared tree is authored in DESIGN units.** The measure context turns them into device pixels,
+so a value that is ALREADY device pixels gets the scale applied a second time. The viewer's
+`FontSize` is `BaseFontSize * DpiScale`, and P0/P1 handed it straight to a tree measured through
+`MeasureContext()`, whose scale is `DpiScale`: the popover text rendered at
+`BaseFontSize * DpiScale^2`.
+
+Measured at 2x DPI, before the fix: the tone popover was **3.85x wider and 3.26x taller** than at 1x
+instead of 2x. The two ratios differ because the gaps beside the text (`ToneGap`, `WbGap`,
+`WaveletGap`) are plain constants and scaled only ONCE -- so every part of the panel was internally
+consistent, it simply did not match the chrome around it. `.Pad(PanelPadding / Scale.X)` was the same
+fact half-discovered: the padding had already been divided back out by hand and the fonts left alone.
+
+**Every viewer test runs at `DpiScale = 1f`, where squaring the scale is the identity.** That is why
+it shipped, and why the regression test (`ThePanelScalesLinearlyWithTheDpiScale`) renders at 1x AND
+2x -- a single scale can never see it.
+
+What this means for the phases still to come: converting a hand-laid panel is not only "move the
+arithmetic onto the tree". The constants the old painter used are device pixels by the time they
+reach it, and each one has to go back to its `Base*` form on the way onto a node. The exception is a
+tree arranged at `DesignScale.One` -- which is what `ImageRendererBase.Toolbar.cs` does, because
+every measurement in that file is already device pixels and there is no `Base*` form to return to.
+
+A sweep for the rest of it -- every property whose body multiplies by `DpiScale`, matched against the
+extents handed to declared nodes -- finds no other site. `SessionConfigStyle` already passes
+`BaseFontSize`, which is the shape to copy.
+
 ## What this does NOT do
 
 - **It does not touch the picture.** Every number in the image pipeline, the stretch and the overlays
