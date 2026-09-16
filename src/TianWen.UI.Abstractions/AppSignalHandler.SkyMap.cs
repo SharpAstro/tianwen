@@ -88,8 +88,10 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<CloseSkyMapSearchSignal>(_ =>
             {
-                SkyMapSearchActions.CloseSearch(skySearch);
-                bus.Post(new DeactivateTextInputSignal());
+                // No DeactivateTextInputSignal beside it any more: CloseSearch releases the
+                // keyboard through the owner, and posting a blur as well was the second answer to
+                // "which field is live" -- the one TextInputFocus exists to remove.
+                SkyMapSearchActions.CloseSearch(skySearch, appState.TextInputFocus);
                 skyMapState.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
             });
@@ -112,9 +114,9 @@ namespace TianWen.UI.Abstractions
                 SkyMapSearchActions.CommitResult(
                     skySearch, skyMapState, db,
                     interaction.Results[interaction.SelectedIndex],
+                    appState.TextInputFocus,
                     plannerState.SiteLatitude, plannerState.SiteLongitude,
                     viewingUtc, site, plannerState.Comets);
-                bus.Post(new DeactivateTextInputSignal());
                 skyMapState.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
             });

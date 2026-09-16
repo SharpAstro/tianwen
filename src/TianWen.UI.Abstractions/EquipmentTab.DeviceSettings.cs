@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -134,7 +134,16 @@ namespace TianWen.UI.Abstractions
                             : rawValue;
                         if (displayValue.Length == 0) displayValue = desc.Placeholder ?? "(empty)";
                         control = Btn(displayValue, $"Edit_{desc.Key}", EditButtonBg,
-                            _ => { State.EditingStringSettingKey = capturedDesc.Key; State.StringSettingInput.Activate(capturedDesc.FormatValue(editingUri)); });
+                            _ =>
+                            {
+                                State.EditingStringSettingKey = capturedDesc.Key;
+                                // Through the OWNER, not Activate: an Activate lights the field and
+                                // leaves TextInputFocus still naming whatever was focused before, so
+                                // the host's platform binding keeps typing into the old one. Seeding
+                                // and selecting are one act here, which is what opening an editor on
+                                // an existing value means.
+                                Ui.Focus.Focus(State.StringSettingInput, capturedDesc.FormatValue(editingUri));
+                            });
                         break;
                     }
 

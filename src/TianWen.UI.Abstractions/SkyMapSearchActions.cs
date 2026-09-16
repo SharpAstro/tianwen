@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
@@ -106,10 +106,22 @@ public static class SkyMapSearchActions
     }
 
     /// <summary>Close the modal. Keeps the info panel so the user still sees the selection.</summary>
-    public static void CloseSearch(SkyMapSearchState search)
+    /// <param name="focus">
+    /// Who has the keyboard, for the same reason <see cref="OpenSearch"/> takes it: closing the search
+    /// box and the search box giving up the keyboard are one act. This used to <c>Deactivate()</c> the
+    /// field directly and leave each host to blur separately afterwards -- two answers to "which field
+    /// is live", which is what <see cref="TextInputFocus"/> exists to prevent, and both hosts really did
+    /// carry the second one.
+    /// <para>
+    /// <see cref="TextInputFocus.BlurIfFocused"/> rather than <c>Blur()</c>, because this is reachable
+    /// from a DEEP LINK (<see cref="TrySelectByToken"/>) where the modal was never opened and some other
+    /// field may hold the keyboard. An unconditional blur would take it away from them.
+    /// </para>
+    /// </param>
+    public static void CloseSearch(SkyMapSearchState search, TextInputFocus focus)
     {
         search.IsOpen = false;
-        search.SearchInput.Deactivate();
+        focus.BlurIfFocused(search.SearchInput);
     }
 
     /// <summary>
@@ -285,6 +297,7 @@ public static class SkyMapSearchActions
         SkyMapState skyMap,
         ICelestialObjectDB db,
         string token,
+        TextInputFocus focus,
         double siteLat, double siteLon,
         DateTimeOffset viewingUtc,
         in SiteContext site,
@@ -300,14 +313,14 @@ public static class SkyMapSearchActions
         {
             return CommitResult(search, skyMap, db,
                 new SkyMapSearchResult(cometDisplay, cometIndex, ObjectType.Comet, float.NaN),
-                siteLat, siteLon, viewingUtc, site, comets);
+                focus, siteLat, siteLon, viewingUtc, site, comets);
         }
 
         if (TryResolveToObject(db, trimmed, out var obj))
         {
             return CommitResult(search, skyMap, db,
                 new SkyMapSearchResult(trimmed, obj.Index, obj.ObjectType, (float)obj.V_Mag),
-                siteLat, siteLon, viewingUtc, site, comets);
+                focus, siteLat, siteLon, viewingUtc, site, comets);
         }
 
         return false;
@@ -440,6 +453,7 @@ public static class SkyMapSearchActions
         SkyMapState skyMap,
         ICelestialObjectDB db,
         SkyMapSearchResult result,
+        TextInputFocus focus,
         double siteLat, double siteLon,
         DateTimeOffset viewingUtc,
         in SiteContext site,
@@ -457,7 +471,7 @@ public static class SkyMapSearchActions
             }
             SlewTo(skyMap, cometRa, cometDec);
             search.InfoPanel = CometInfoPanel(comets, catIdx, cometRa, cometDec, cometMag, siteLat, siteLon, viewingUtc, site);
-            CloseSearch(search);
+            CloseSearch(search, focus);
             return true;
         }
 
@@ -476,7 +490,7 @@ public static class SkyMapSearchActions
                 {
                     SlewTo(skyMap, pRa, pDec);
                     search.InfoPanel = PlanetInfoPanel(db, catIdx, pRa, pDec, siteLat, siteLon, viewingUtc, site);
-                    CloseSearch(search);
+                    CloseSearch(search, focus);
                     return true;
                 }
             }
@@ -488,7 +502,7 @@ public static class SkyMapSearchActions
             obj, siteLat, siteLon, viewingUtc, site,
             ResolveShape(db, catIdx));
 
-        CloseSearch(search);
+        CloseSearch(search, focus);
         return true;
     }
 

@@ -998,8 +998,9 @@
         });
         _bus.Subscribe<CloseSkyMapSearchSignal>(_ =>
         {
-            SkyMapSearchActions.CloseSearch(skySearch);
-            DeactivateTextInput();
+            // CloseSearch releases the keyboard through the owner now, so the blur that used to
+            // sit beside it is gone -- it was the second answer to "which field is live".
+            SkyMapSearchActions.CloseSearch(skySearch, _focus);
             skyState.NeedsRedraw = true;
         });
         _bus.Subscribe<SkyMapSearchCommitSignal>(commit =>
@@ -1016,9 +1017,8 @@
             var site = SiteContext.Create(_state.SiteLatitude, _state.SiteLongitude, viewingUtc);
             SkyMapSearchActions.CommitResult(
                 skySearch, skyState, Db, interaction.Results[interaction.SelectedIndex],
-                _state.SiteLatitude, _state.SiteLongitude,
+                _focus, _state.SiteLatitude, _state.SiteLongitude,
                 viewingUtc, site, _state.Comets);
-            DeactivateTextInput();
             skyState.NeedsRedraw = true;
             _tracker.Run(() => InvokeAsync(SyncObjectToUrl), "Sync object to URL");
         });
@@ -2065,7 +2065,7 @@
         var viewingUtc = (_state.PlanningDate?.ToUniversalTime() ?? Time.GetUtcNow()) + skyState.TimeOffset;
         var site = SiteContext.Create(_state.SiteLatitude, _state.SiteLongitude, viewingUtc);
         SkyMapSearchActions.TrySelectByToken(
-            skyState.Search, skyState, Db, token,
+            skyState.Search, skyState, Db, token, _focus,
             _state.SiteLatitude, _state.SiteLongitude, viewingUtc, site, _state.Comets);
         skyState.NeedsRedraw = true;
     }
@@ -2092,7 +2092,7 @@
         var viewingUtc = (_state.PlanningDate?.ToUniversalTime() ?? Time.GetUtcNow()) + skyState.TimeOffset;
         var site = SiteContext.Create(_state.SiteLatitude, _state.SiteLongitude, viewingUtc);
         if (SkyMapSearchActions.TrySelectByToken(
-                skyState.Search, skyState, Db, token,
+                skyState.Search, skyState, Db, token, _focus,
                 _state.SiteLatitude, _state.SiteLongitude, viewingUtc, site, _state.Comets))
         {
             skyState.NeedsRedraw = true;

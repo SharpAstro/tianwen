@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -201,7 +201,9 @@ namespace TianWen.UI.Abstractions
                     State.FiltersDirty = true;
                 }
                 State.CustomFilterSlotIndex = -1;
-                State.CustomFilterNameInput.Deactivate();
+                // The field was focused through the owner (ActivateTextInputSignal above), so releasing
+                // it any other way leaves the owner naming a field nothing is typing into.
+                Ui.Focus.BlurIfFocused(State.CustomFilterNameInput);
                 return Task.CompletedTask;
             };
             State.CustomFilterNameInput.OnCancel = () =>
