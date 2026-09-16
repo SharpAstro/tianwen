@@ -73,6 +73,11 @@ Each phase is independently landable and independently useful; none is a big-ban
 
 ### P0: a measure seam on the widget base (SMALL, unblocks the rest)
 
+**DONE (shipped in DIR.Lib 9.2), and ADOPTED 2026-09-16.** The seam existed but the two panels it was
+added for still built a `PixelMeasureContext` by hand -- the "second statement of the font and the scale"
+its own remarks warn about. Both now call `MeasureContext()`; there is no `new PixelMeasureContext` left
+in tianwen.
+
 `Layout.Engine.Measure` is public but `PixelWidgetBase.DefaultContext` is private, so a consumer that
 wants "how big is this tree" has to build a `PixelMeasureContext` by hand (which is what the tone panel
 does today). Add `protected Size<float> MeasureLayout(Layout.Node root, Size<float> available)` beside
@@ -84,6 +89,15 @@ and SdlVulkan.Renderer, then the pin here). Nothing else in this plan needs a si
 
 ### P1: the popovers and the info strip (MEDIUM)
 
+**DONE 2026-09-16.** The white-balance panel and both sweeping tests were already converted by T2 -- they
+read arranged regions now, not a 900x700 pixel scan. What remained was the wavelet block in
+`InfoPanel.cs`, and it was the whole smell at once: a `ref float y` cursor, `MeasureText` per button
+width, and `FillRect` + `DrawText` + `RegisterClickable` written separately so the drawn rect and the hit
+rect could drift. It is `Content.Slider` now, and the drag machinery behind it -- `WaveletSliderHit`
+(the type), `ViewerState.WaveletDragBand`, `BeginWaveletDragAt`, `WaveletTrackRect`,
+`UpdateWaveletDrag`, and four dispatcher blocks across two hosts -- is deleted rather than moved.
+`InfoPanel.cs`: `MeasureText` 4 -> 0, `RegisterClickable` 2 -> 0.
+
 `ImageRendererBase.WhiteBalancePanel.cs` and `ImageRendererBase.InfoPanel.cs`, the two that already
 have a tree-shaped body and a hand-summed box. The white-balance panel is the direct analogue of the
 tone popover and should end up looking like it: one `BuildWhiteBalanceTree`, the box from the measure,
@@ -92,6 +106,41 @@ button nodes. **Its test then stops sweeping**, which is the acceptance test for
 window scan, read arranged nodes, and the suite must still be green.
 
 ### P2: the toolbar, which is where `ReservedLabelWidth` dies (MEDIUM, the visible win)
+
+**Layout half DONE 2026-09-16.** The run is a flow the engine lays out; `WalkToolbarRows` and the
+`_toolbarSlots` cache are gone, and all 16 `ViewerToolbarLayoutTests` pass UNCHANGED. It needed three
+additions to `Node.Wrap`, because the bar was hand-writing three things the engine could not say:
+
+| the bar's rule | now |
+|---|---|
+| only row one stops short of the help button | `FirstLineReserve` |
+| a group gap that does not lead a wrapped row | `LeadingGap` (on the child) |
+| past two rows the tail is DROPPED, not clipped | `MaxLines` |
+
+**None of the three is a `Dock`, and that is the point.** A dock reserves its strip on EVERY line, so
+the wrapped row narrows and buttons that fit today start being dropped --
+`AnOrdinaryWindowWrapsToASecondRowInsteadOfDroppingButtons` is the pin that catches it. `MaxLines`
+drops rather than clips for the same reason a dropped button must not be merely invisible: a clipped
+child still registers its region and keeps taking the clicks aimed at whatever covers it.
+
+**`ReservedLabelWidth` is still there, and the reason is a conflict this phase resolved by measuring.**
+This document says deleting it follows from every button being at its widest state. The method's own
+remarks say the opposite -- that "reserving room for every variant would spend width the run does not
+have". Probed directly: adding **+20 px to every button** (about 300 px across the run) drops nothing at
+the 1150 px ordinary window. **So the width objection is wrong and this document is right**; the run has
+headroom.
+
+What remains before it can go is therefore not width, it is two other things:
+
+- **A widest-state sample per action, and not all of them enumerate.** `Stars` is a star count,
+  `StretchParams` a parameter string, `Zoom` a percentage -- these need a representative `widthSample`
+  ("99999"), not a union over a list. Zoom and Enhance, the two the reservation already covers, are the
+  enumerable ones.
+- **It is a VISIBLE change.** Every button with a varying label gets wider, permanently, to hold a state
+  it is not in. That is the same class as "19 marks as text runs to `IconKind`" elsewhere in these plans
+  -- flagged as needing sign-off rather than done on the way past. Moving the layout to the engine did
+  NOT make the reservation unnecessary on its own: the run is still left-packed, so a width change still
+  shoves its neighbours, and the reservation is still what holds the two noticed buttons steady.
 
 Lay the bar out as a `WrapH` of buttons (it already wraps by hand on a narrow window) with each button
 a node carrying its own `widthSample` -- its widest state, stated once, on the node, rather than
