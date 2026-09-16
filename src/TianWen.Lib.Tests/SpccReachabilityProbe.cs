@@ -89,6 +89,12 @@ public class SpccReachabilityProbe(ITestOutputHelper output)
         foreach (var candidate in (string[])[
             "IDAS LPS-D3", "IDAS LPS D3", "LPS-D3", "LPS-D2", "IDAS-LPS-D3", "IDAS", "LPS",
             "IDAS NBZ", "RGB", "Unknown",
+            // The slugs D:/Astro-Organized actually uses as its filter directory names, verbatim
+            // and hyphenated. These are the strings a bake reads off the tree, so they are the ones
+            // that decide whether a session gets a curve; the prose spellings below are what a FITS
+            // card might say instead. A slug that stops resolving is a silent SPCC skip for every
+            // session under it, which is how "LPS" went unnoticed.
+            "Optolong-L-Ultimate-3nm", "Optolong-L-Quad-Enhance", "IDAS-LPS-D3",
             // Filters we do NOT carry, listed so the report says what a card naming one would
             // resolve to instead. A confident WRONG match is worse than no match: the curve is
             // then used as if it described the glass in front of the sensor.
