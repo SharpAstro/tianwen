@@ -64,6 +64,24 @@ internal sealed class TuiEquipmentTab(
     /// </summary>
     private TextInputState? ActiveInlineInput => _mode == Mode.InlineEdit ? SiteFocus.Current : null;
 
+    /// <summary>
+    /// Puts a value in a field WITHOUT claiming the keyboard for it.
+    /// </summary>
+    /// <remarks>
+    /// The site editor opens three fields and focuses one, so two of them must hold a value and not be
+    /// live. <c>Activate(text)</c> does both at once, which left all three reporting
+    /// <see cref="TextInputState.IsActive"/> true while <see cref="SiteFocus"/> named only the first --
+    /// the same two-answers-to-one-question that the <c>_activeInlineInput</c> pointer above was, moved
+    /// into the field's own flag. Seeding and focusing are separate acts here because the editor really
+    /// does want them separately; where they ARE one act, <c>TextInputFocus.Focus(input, seed)</c> is the
+    /// single call that says so.
+    /// </remarks>
+    private static void Seed(TextInputState input, string text)
+    {
+        input.Text = text;
+        input.CursorPos = text.Length;
+    }
+
     /// <summary>Cached profile list for the picker.</summary>
     private IReadOnlyCollection<Profile> _cachedProfiles = [];
 
@@ -1026,18 +1044,9 @@ internal sealed class TuiEquipmentTab(
                 if (appState.ActiveProfile?.Data is { } pd)
                 {
                     var site = EquipmentActions.GetSiteFromProfile(pd);
-                    if (site.HasValue)
-                    {
-                        eqState.LatitudeInput.Activate(site.Value.Lat.ToString(CultureInfo.InvariantCulture));
-                        eqState.LongitudeInput.Activate(site.Value.Lon.ToString(CultureInfo.InvariantCulture));
-                        eqState.ElevationInput.Activate(site.Value.Elev?.ToString(CultureInfo.InvariantCulture) ?? "");
-                    }
-                    else
-                    {
-                        eqState.LatitudeInput.Activate("");
-                        eqState.LongitudeInput.Activate("");
-                        eqState.ElevationInput.Activate("");
-                    }
+                    Seed(eqState.LatitudeInput, site?.Lat.ToString(CultureInfo.InvariantCulture) ?? "");
+                    Seed(eqState.LongitudeInput, site?.Lon.ToString(CultureInfo.InvariantCulture) ?? "");
+                    Seed(eqState.ElevationInput, site?.Elev?.ToString(CultureInfo.InvariantCulture) ?? "");
                 }
                 eqState.IsEditingSite = true;
                 // Focus lands on the first field through the owner, so Tab cycles from a known
