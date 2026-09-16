@@ -1,5 +1,5 @@
-﻿using System;
-using System.Drawing;
+using System;
+using TianWen.Lib.Geometry;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -271,7 +271,7 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
         {
             ct.ThrowIfCancellationRequested();
             var stripH = Math.Min(StripHeight, canvasH - stripY0);
-            var stripRect = new Rectangle(0, stripY0, canvasW, stripH);
+            var stripRect = new PixelRect(0, stripY0, canvasW, stripH);
 
             // Allocate strip-local flux/weight. Zero-initialised by .NET so
             // uncovered cells stay 0 -- the FinaliseDivide pass converts

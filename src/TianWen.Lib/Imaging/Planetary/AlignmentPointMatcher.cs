@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Immutable;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Planetary;
@@ -17,10 +17,10 @@ public sealed class AlignmentPointMatcher
     private readonly int _patchSize;
     private readonly int _width;
     private readonly int _height;
-    private readonly ImmutableArray<Point> _apCenters;
+    private readonly ImmutableArray<PixelPoint> _apCenters;
     private readonly float[][] _referencePatches;
 
-    private AlignmentPointMatcher(int patchSize, int width, int height, ImmutableArray<Point> apCenters, float[][] referencePatches)
+    private AlignmentPointMatcher(int patchSize, int width, int height, ImmutableArray<PixelPoint> apCenters, float[][] referencePatches)
     {
         _patchSize = patchSize;
         _width = width;
@@ -30,13 +30,13 @@ public sealed class AlignmentPointMatcher
     }
 
     /// <summary>The alignment-point centres being tracked (reference-frame coordinates).</summary>
-    public ImmutableArray<Point> AlignmentPoints => _apCenters;
+    public ImmutableArray<PixelPoint> AlignmentPoints => _apCenters;
 
     /// <summary>
     /// Caches a luminance patch of <paramref name="patchSize"/> (power of two) per AP centre from the
     /// reference frame.
     /// </summary>
-    public static AlignmentPointMatcher FromReference(Image reference, ImmutableArray<Point> apCenters, int patchSize = 32)
+    public static AlignmentPointMatcher FromReference(Image reference, ImmutableArray<PixelPoint> apCenters, int patchSize = 32)
     {
         ArgumentNullException.ThrowIfNull(reference);
         if (!ComplexFft.IsPowerOfTwo(patchSize))

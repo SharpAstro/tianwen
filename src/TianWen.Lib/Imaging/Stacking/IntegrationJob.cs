@@ -1,6 +1,6 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Numerics;
 using System.Threading;
 using TianWen.Lib.Imaging.Calibration;
@@ -39,7 +39,7 @@ public sealed record RawLightSource(string Path, Matrix3x2 TransformToCanvas);
 /// caller wants to inspect intermediate files.</param>
 /// <param name="StatsRect">Per-frame normalisation stats are taken over this
 /// rectangle (intersection of all warped frame footprints on the canvas).
-/// Pass <see cref="Rectangle.Empty"/> to fall back to whole-frame stats.</param>
+/// Pass <see cref="PixelRect.Empty"/> to fall back to whole-frame stats.</param>
 /// <param name="FrameFootprints">Per-frame non-NaN bounding boxes on the
 /// canvas, indexed in the same order as <see cref="WarpedFrames"/> yields.
 /// Used by <see cref="FootprintStagedStrategy"/> to write only the footprint
@@ -70,8 +70,8 @@ public sealed record IntegrationJob(
     int ExpectedFrameCount,
     IntegrationOptions Options,
     string StagingDir,
-    Rectangle StatsRect,
-    IReadOnlyList<Rectangle>? FrameFootprints = null,
+    PixelRect StatsRect,
+    IReadOnlyList<PixelRect>? FrameFootprints = null,
     IReadOnlyList<RawLightSource>? RawLightSources = null,
     Calibrator? Calibrator = null,
     DebayerAlgorithm DebayerAlgorithm = DebayerAlgorithm.VNG,

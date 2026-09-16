@@ -1,4 +1,4 @@
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Numerics;
 using System.Threading.Tasks;
 using Shouldly;
@@ -38,7 +38,7 @@ public class WarpRegionAsyncTests
 
         var ct = TestContext.Current.CancellationToken;
         var full = await src.WarpToReferenceGridAsync(transform, CanvasW, CanvasH, ct);
-        var region = await src.WarpRegionAsync(transform, new Rectangle(rx, ry, rw, rh), CanvasW, CanvasH, ct);
+        var region = await src.WarpRegionAsync(transform, new PixelRect(rx, ry, rw, rh), CanvasW, CanvasH, ct);
 
         region.Width.ShouldBe(rw);
         region.Height.ShouldBe(rh);
@@ -76,11 +76,11 @@ public class WarpRegionAsyncTests
         // Identity is not invertible-safe for the canvas extent here, but the
         // bounds-check fires before invert: the region must lie inside canvas.
         await Should.ThrowAsync<System.ArgumentOutOfRangeException>(async () =>
-            await src.WarpRegionAsync(transform, new Rectangle(-1, 0, 8, 8), CanvasW, CanvasH));
+            await src.WarpRegionAsync(transform, new PixelRect(-1, 0, 8, 8), CanvasW, CanvasH));
         await Should.ThrowAsync<System.ArgumentOutOfRangeException>(async () =>
-            await src.WarpRegionAsync(transform, new Rectangle(0, 0, CanvasW + 1, 8), CanvasW, CanvasH));
+            await src.WarpRegionAsync(transform, new PixelRect(0, 0, CanvasW + 1, 8), CanvasW, CanvasH));
         await Should.ThrowAsync<System.ArgumentOutOfRangeException>(async () =>
-            await src.WarpRegionAsync(transform, new Rectangle(0, 0, 0, 8), CanvasW, CanvasH));
+            await src.WarpRegionAsync(transform, new PixelRect(0, 0, 0, 8), CanvasW, CanvasH));
     }
 
     private static Image BuildSyntheticSource()

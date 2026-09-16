@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using Xunit;
@@ -47,7 +47,7 @@ public class CoverageFloodEquivalenceTests
     }
 
     /// <summary>Absence one pixel at a time: unusable, and reachable from the border through unusable.</summary>
-    private static (Rectangle Best, bool[,] Absent) ReferenceRectangle(char[][] rows)
+    private static (PixelRect Best, bool[,] Absent) ReferenceRectangle(char[][] rows)
     {
         var h = rows.Length;
         var w = rows[0].Length;
@@ -92,7 +92,7 @@ public class CoverageFloodEquivalenceTests
 
         // Largest rectangle of covered pixels, by the textbook histogram scan.
         var heights = new int[w];
-        var best = Rectangle.Empty;
+        var best = PixelRect.Empty;
         for (var y = 0; y < h; y++)
         {
             for (var x = 0; x < w; x++)
@@ -114,7 +114,7 @@ public class CoverageFloodEquivalenceTests
                     var area = minHeight * (right - left + 1);
                     if (area > best.Width * best.Height)
                     {
-                        best = new Rectangle(left, y - minHeight + 1, right - left + 1, minHeight);
+                        best = new PixelRect(left, y - minHeight + 1, right - left + 1, minHeight);
                     }
                 }
             }
@@ -134,7 +134,7 @@ public class CoverageFloodEquivalenceTests
     /// pins the two properties the crop actually depends on, and still fails the moment the flood marks
     /// the wrong pixels, because that changes what is reachable.
     /// </remarks>
-    private static void ShouldMatch(Rectangle actual, Rectangle expected, bool[,] absent, string because)
+    private static void ShouldMatch(PixelRect actual, PixelRect expected, bool[,] absent, string because)
     {
         (actual.Width * actual.Height).ShouldBe(expected.Width * expected.Height, because);
 

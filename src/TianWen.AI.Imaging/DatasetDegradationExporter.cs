@@ -1,9 +1,9 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -501,7 +501,7 @@ namespace TianWen.AI.Imaging
                 foreach (var cell in selected)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var origin = new Point(cell.X, cell.Y);
+                    var origin = new PixelPoint(cell.X, cell.Y);
 
                     var cleanFile = $"x{cell.X}_y{cell.Y}_{FrameClean}{DatasetTileExporter.TileExtension}";
                     var cleanMad = DatasetTileExporter.WriteTile(cleanStretched, origin, cell.TileSize, Path.Combine(tilesDir, cleanFile), sessionId);
@@ -575,7 +575,7 @@ namespace TianWen.AI.Imaging
             Options options,
             Image unitMaster,
             CellSpec cell,
-            Point origin,
+            PixelPoint origin,
             int draw,
             int seed,
             int stackedFrames,
@@ -872,7 +872,7 @@ namespace TianWen.AI.Imaging
                 stretchedCell = cellImage.MtfStretchWith(origMin, balances);
                 var frame = FrameForDraw(draw);
                 var file = $"x{cell.X}_y{cell.Y}_{frame}{DatasetTileExporter.TileExtension}";
-                DatasetTileExporter.WriteTile(stretchedCell, Point.Empty, size, Path.Combine(tilesDir, file), sessionId);
+                DatasetTileExporter.WriteTile(stretchedCell, PixelPoint.Empty, size, Path.Combine(tilesDir, file), sessionId);
 
                 return new DegradationRow(
                     Tile: $"tiles/{slug}/{file}",
@@ -925,7 +925,7 @@ namespace TianWen.AI.Imaging
         /// degraded draw really is the same pixels plus a degradation; anything else says the two paths
         /// have drifted and every pair in the run is suspect.
         /// </summary>
-        private static double ParityAgainstP0(string bakeRoot, CellSpec cell, Image cleanStretched, Point origin, string sessionId)
+        private static double ParityAgainstP0(string bakeRoot, CellSpec cell, Image cleanStretched, PixelPoint origin, string sessionId)
         {
             var p0 = Path.Combine(bakeRoot, cell.MasterTileRelative.Replace('/', Path.DirectorySeparatorChar));
             if (!File.Exists(p0))
@@ -1245,7 +1245,7 @@ namespace TianWen.AI.Imaging
         /// Measured on the LINEAR master through the same estimator inference uses, so it is on the
         /// same footing as the degraded measurement it will be composed with.
         /// </summary>
-        private static async Task<double?> MeasureCleanFwhmAsync(Image unitMaster, Point origin, int size, CancellationToken cancellationToken)
+        private static async Task<double?> MeasureCleanFwhmAsync(Image unitMaster, PixelPoint origin, int size, CancellationToken cancellationToken)
         {
             var cell = CutCell(unitMaster, origin, size);
             try
@@ -1260,7 +1260,7 @@ namespace TianWen.AI.Imaging
         }
 
         /// <summary>The clean LINEAR cell as its own image, every channel, clamped at the master's edge.</summary>
-        private static Image CutCell(Image unitMaster, Point origin, int size)
+        private static Image CutCell(Image unitMaster, PixelPoint origin, int size)
         {
             var channels = unitMaster.ChannelCount;
             var planes = new float[channels][,];
@@ -1285,15 +1285,15 @@ namespace TianWen.AI.Imaging
         /// <summary>The estimator's window: <paramref name="windowPx"/> square centred on the cell, never
         /// smaller than the cell; the cut clamps at the master's edge, so a corner cell reads a window that
         /// repeats its edge rows rather than one shifted inward.</summary>
-        internal static (Point Origin, int Size) EstimationWindow(Point origin, int size, int windowPx)
+        internal static (PixelPoint Origin, int Size) EstimationWindow(PixelPoint origin, int size, int windowPx)
         {
             var windowSize = Math.Max(size, windowPx);
             var shift = (windowSize - size) / 2;
-            return (new Point(origin.X - shift, origin.Y - shift), windowSize);
+            return (new PixelPoint(origin.X - shift, origin.Y - shift), windowSize);
         }
 
         /// <summary>The estimator step's fit on the clean linear cell, once per cell (see <see cref="FitProfileOnAsync"/>).</summary>
-        private static async Task<(PsfProfileFit.Result? Fit, string? Refusal)> FitCleanCellAsync(Image unitMaster, Point origin, int size, EstimatorClock clock, CancellationToken cancellationToken)
+        private static async Task<(PsfProfileFit.Result? Fit, string? Refusal)> FitCleanCellAsync(Image unitMaster, PixelPoint origin, int size, EstimatorClock clock, CancellationToken cancellationToken)
         {
             var cell = CutCell(unitMaster, origin, size);
             try

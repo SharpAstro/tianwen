@@ -1,5 +1,5 @@
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
@@ -67,7 +67,7 @@ public class FrameQualityTests
         IFrameQualityEstimator est = laplacian ? new LaplacianEnergyEstimator() : new GradientEnergyEstimator();
         var sharp = Detail(32, 32);
         var blurred = BoxBlur(BoxBlur(sharp));
-        var region = new Rectangle(0, 0, 32, 32);
+        var region = new PixelRect(0, 0, 32, 32);
 
         est.Score(Mono(sharp), region).ShouldBeGreaterThan(est.Score(Mono(blurred), region));
     }
@@ -91,7 +91,7 @@ public class FrameQualityTests
             }
         }
 
-        var region = new Rectangle(0, 0, 24, 24);
+        var region = new PixelRect(0, 0, 24, 24);
         var s1 = est.Score(Mono(px), region);
         var s2 = est.Score(Mono(bright), region);
 
@@ -104,7 +104,7 @@ public class FrameQualityTests
         var est = new LaplacianEnergyEstimator();
         var sharp = Mono(Detail(16, 16));
 
-        est.Score(sharp, Rectangle.Empty).ShouldBe(est.Score(sharp, new Rectangle(0, 0, 16, 16)));
+        est.Score(sharp, PixelRect.Empty).ShouldBe(est.Score(sharp, new PixelRect(0, 0, 16, 16)));
     }
 
     [Fact]
@@ -134,6 +134,6 @@ public class FrameQualityTests
         var flat = new float[32, 32]; // uniform: no bright pixels above threshold
         var bbox = PlanetaryDisk.BoundingBox(Mono(flat));
 
-        bbox.ShouldBe(new Rectangle(0, 0, 32, 32));
+        bbox.ShouldBe(new PixelRect(0, 0, 32, 32));
     }
 }

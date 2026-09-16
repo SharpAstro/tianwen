@@ -1,5 +1,5 @@
-﻿using System;
-using System.Drawing;
+using System;
+using TianWen.Lib.Geometry;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -242,7 +242,7 @@ namespace TianWen.UI.Abstractions
         /// <see cref="ViewerState.ResolveDisplayCrop"/>, so this does no clamping of its own: a second
         /// opinion on what fits is how two of them come to disagree.
         /// </remarks>
-        private static byte[] CropRaster(byte[] rgba, int width, Rectangle region)
+        private static byte[] CropRaster(byte[] rgba, int width, PixelRect region)
         {
             var stride = region.Width * 4;
             var cropped = new byte[stride * region.Height];

@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Immutable;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -165,7 +165,7 @@ public sealed class LuckyImagingStacker
             {
                 var shift = ctx.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
                 var mosaic = frame.MergeBayerChannels();
-                var sourceRect = new Rectangle(0, 0, mosaic.Width, mosaic.Height);
+                var sourceRect = new PixelRect(0, 0, mosaic.Width, mosaic.Height);
                 if (ctx.Matcher is { } matcher)
                 {
                     // AP-mesh drizzle: forward-scatter each raw sample through the per-AP displacement mesh.

@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using static TianWen.Lib.Stat.StatisticsHelper;
 
+using TianWen.Lib.Geometry;
 namespace TianWen.Lib.Imaging;
 
 public partial class Image
@@ -82,7 +83,7 @@ public partial class Image
     /// must add halo for the algorithm (AHD needs radius+homogeneityRadius=4
     /// pixels; warp consumers typically add 1 more for bilinear sampling) so
     /// the pixels they care about have valid neighbours inside the rect.</param>
-    public Task<Image> DebayerRegionIntoAsync(Channel[] destination, DebayerAlgorithm debayerAlgorithm, System.Drawing.Rectangle sourceRect, CancellationToken cancellationToken = default)
+    public Task<Image> DebayerRegionIntoAsync(Channel[] destination, DebayerAlgorithm debayerAlgorithm, PixelRect sourceRect, CancellationToken cancellationToken = default)
     {
         var destArrays = new float[destination.Length][,];
         for (var c = 0; c < destination.Length; c++) destArrays[c] = destination[c].Data;
@@ -105,7 +106,7 @@ public partial class Image
         };
     }
 
-    private void CopyRectIntoDestination(float[][,] destArrays, System.Drawing.Rectangle sourceRect)
+    private void CopyRectIntoDestination(float[][,] destArrays, PixelRect sourceRect)
     {
         var y0 = Math.Max(0, sourceRect.Y);
         var y1 = Math.Min(Height, sourceRect.Y + sourceRect.Height);
@@ -750,14 +751,14 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private void ProcessEdgePixels(float[][,] debayered, int width, int height, int radius, int[,] bayerPattern, float scale = 1.0f, System.Drawing.Rectangle? activeRect = null)
+    private void ProcessEdgePixels(float[][,] debayered, int width, int height, int radius, int[,] bayerPattern, float scale = 1.0f, PixelRect? activeRect = null)
     {
         // If the caller is debayering a sub-region, restrict edge-pixel
         // filling to the canvas-edge zone INSIDE that rect; pixels outside
         // the rect aren't touched (caller doesn't care about them and the
         // scratch arrays may hold pool-garbage there). Interior rects are
         // typically a no-op (fast intersection check below).
-        var rect = activeRect ?? new System.Drawing.Rectangle(0, 0, width, height);
+        var rect = activeRect ?? new PixelRect(0, 0, width, height);
         var rx0 = Math.Max(0, rect.X);
         var ry0 = Math.Max(0, rect.Y);
         var rx1 = Math.Min(width, rect.X + rect.Width);
@@ -834,7 +835,7 @@ public partial class Image
         return count > 0 ? sum / count : 0;
     }
 
-    private async Task<Image> DebayerAHDAsync(float scale, CancellationToken cancellationToken, float[][,]? destination = null, System.Drawing.Rectangle? sourceRect = null)
+    private async Task<Image> DebayerAHDAsync(float scale, CancellationToken cancellationToken, float[][,]? destination = null, PixelRect? sourceRect = null)
     {
         var width = Width;
         var height = Height;
@@ -874,7 +875,7 @@ public partial class Image
         //  by-1 so Phase 4's halo reads land on valid edge fill.
         // Pixels inside the rect that fall in the canvas-edge zone get the
         // standard ProcessEdgePixels treatment below.
-        var rect = sourceRect ?? new System.Drawing.Rectangle(0, 0, width, height);
+        var rect = sourceRect ?? new PixelRect(0, 0, width, height);
         var rectRight = rect.X + rect.Width;
         var rectBottom = rect.Y + rect.Height;
         const int phase4Halo = 1;
@@ -900,8 +901,8 @@ public partial class Image
         // (rect.Y - 1, *) etc. is filled with canvas-edge values where it
         // lies in the radius zone.
         var edgeFillRect = sourceRect is null
-            ? (System.Drawing.Rectangle?)null
-            : new System.Drawing.Rectangle(rect.X - phase4Halo, rect.Y - phase4Halo, rect.Width + 2 * phase4Halo, rect.Height + 2 * phase4Halo);
+            ? (PixelRect?)null
+            : new PixelRect(rect.X - phase4Halo, rect.Y - phase4Halo, rect.Width + 2 * phase4Halo, rect.Height + 2 * phase4Halo);
 
         // Phase 1 & 2: Build horizontal and vertical full-color interpolations in parallel
         var rgbH = destination ?? CreateChannelData(3, height, width);

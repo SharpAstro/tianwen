@@ -1,5 +1,5 @@
-﻿using System;
-using System.Drawing;
+using System;
+using TianWen.Lib.Geometry;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -34,7 +34,7 @@ public sealed class ViewerController(
 
     /// <summary>
     /// The pending auto-crop scan. Held as a Task rather than written into state from the pool: the
-    /// result carries a <see cref="Rectangle"/>, whose write is wider than a pointer and so not atomic,
+    /// result carries a <see cref="PixelRect"/>, whose write is wider than a pointer and so not atomic,
     /// and the Task IS the synchronisation primitive (see the concurrency rules in CLAUDE.md).
     /// </summary>
     private Task<ViewerActions.CropScan>? _cropTask;
@@ -52,7 +52,7 @@ public sealed class ViewerController(
     /// never come back. Verified live 2026-09-09 on the Sagittarius Triplet master, which is also the
     /// session that showed the crop itself survives an enhance untouched.
     /// </remarks>
-    private Rectangle? _rememberedCrop;
+    private PixelRect? _rememberedCrop;
 
     /// <summary>
     /// The crop to reapply once an Enhance-revert reload (<see cref="RevertEnhance"/>'s no-retained-
@@ -60,7 +60,7 @@ public sealed class ViewerController(
     /// unrelated file open never applies someone else's rectangle. Consumed once, in
     /// <see cref="HandleFileRequest"/>.
     /// </summary>
-    private (string Path, Rectangle? Crop)? _pendingRevertCrop;
+    private (string Path, PixelRect? Crop)? _pendingRevertCrop;
 
     private CancellationTokenSource? _starDetectionCts;
 

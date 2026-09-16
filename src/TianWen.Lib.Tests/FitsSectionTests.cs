@@ -1,4 +1,4 @@
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using Xunit;
@@ -27,7 +27,7 @@ public class FitsSectionTests
     public void ASectionIsOneBasedAndInclusiveWhereARectangleIsNot(string value, int x, int y, int w, int h)
     {
         FitsSection.TryParse(value, out var section).ShouldBeTrue();
-        section.ShouldBe(new Rectangle(x, y, w, h));
+        section.ShouldBe(new PixelRect(x, y, w, h));
     }
 
     [Theory]
@@ -54,7 +54,7 @@ public class FitsSectionTests
     [InlineData(6, 8, 1, 1, "[7:7,9:9]")]
     public void FormatWritesBackWhatParseRead(int x, int y, int w, int h, string expected)
     {
-        var section = new Rectangle(x, y, w, h);
+        var section = new PixelRect(x, y, w, h);
         FitsSection.Format(section).ShouldBe(expected);
         FitsSection.TryParse(expected, out var round).ShouldBeTrue();
         round.ShouldBe(section);
@@ -65,8 +65,8 @@ public class FitsSectionTests
     {
         // A zero-width section would format as [5:4,...], which reads back as reversed and is refused
         // above, so the round trip would silently lose it. Throwing says so at the write instead.
-        Should.Throw<System.ArgumentOutOfRangeException>(() => FitsSection.Format(new Rectangle(4, 0, 0, 8)));
-        Should.Throw<System.ArgumentOutOfRangeException>(() => FitsSection.Format(new Rectangle(4, 0, 8, 0)));
-        Should.Throw<System.ArgumentOutOfRangeException>(() => FitsSection.Format(new Rectangle(-1, 0, 8, 8)));
+        Should.Throw<System.ArgumentOutOfRangeException>(() => FitsSection.Format(new PixelRect(4, 0, 0, 8)));
+        Should.Throw<System.ArgumentOutOfRangeException>(() => FitsSection.Format(new PixelRect(4, 0, 8, 0)));
+        Should.Throw<System.ArgumentOutOfRangeException>(() => FitsSection.Format(new PixelRect(-1, 0, 8, 8)));
     }
 }

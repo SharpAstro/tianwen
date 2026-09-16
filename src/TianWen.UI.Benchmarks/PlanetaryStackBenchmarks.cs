@@ -1,5 +1,5 @@
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using TianWen.Lib.Imaging;
@@ -34,7 +34,7 @@ public class PlanetaryStackBenchmarks
     private LaplacianEnergyEstimator _estimator = null!;
     private float[][,] _sum = null!;
     private float[,] _weight = null!;
-    private Rectangle[] _regions = null!;
+    private PixelRect[] _regions = null!;
 
     [GlobalSetup]
     public void Setup()
@@ -44,7 +44,7 @@ public class PlanetaryStackBenchmarks
         _estimator = new LaplacianEnergyEstimator();
 
         _frames = new Image[Frames];
-        _regions = new Rectangle[Frames];
+        _regions = new PixelRect[Frames];
         for (var i = 0; i < Frames; i++)
         {
             _frames[i] = Image.FromChannel(_data[i], 1f, 0f); // share the buffer (read-only in the stage benches)

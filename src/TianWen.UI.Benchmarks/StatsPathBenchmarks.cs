@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Immutable;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -43,7 +43,7 @@ public class StatsPathBenchmarks
     private Image _warped = null!;
     // BitMatrix is a struct, so no null-forgiving initialiser here.
     private BitMatrix _mask;
-    private Rectangle _box;
+    private PixelRect _box;
 
     [Params(1280, 3008)]
     public int Size { get; set; }
@@ -58,7 +58,7 @@ public class StatsPathBenchmarks
         _mask = stars.StarMask ?? new BitMatrix(Size, Size);
 
         var inset = Math.Max(8, Size / 16);
-        _box = new Rectangle(inset, inset + 40, Size - 2 * inset, Size - 2 * inset - 60);
+        _box = new PixelRect(inset, inset + 40, Size - 2 * inset, Size - 2 * inset - 60);
     }
 
     // ------------------------------------------------------------------ star-masked median + MAD
@@ -191,7 +191,7 @@ public class StatsPathBenchmarks
     }
 
     /// <summary>The box path as it stood: a two-dimensional copy, then the same two passes over it.</summary>
-    private static NormalizationStats OldBox(Image image, Rectangle box)
+    private static NormalizationStats OldBox(Image image, PixelRect box)
     {
         var x0 = Math.Max(0, box.X);
         var y0 = Math.Max(0, box.Y);

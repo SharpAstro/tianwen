@@ -1,6 +1,6 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -257,7 +257,7 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
         {
             ct.ThrowIfCancellationRequested();
             var stripH = Math.Min(StripHeight, canvasH - stripY0);
-            var stripRect = new Rectangle(0, stripY0, canvasW, stripH);
+            var stripRect = new PixelRect(0, stripY0, canvasW, stripH);
 
             var stripFrames = new List<Image>(n);
             for (var f = 0; f < n; f++)

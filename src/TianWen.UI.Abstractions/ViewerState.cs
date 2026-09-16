@@ -1,6 +1,6 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Collections.Immutable;
 using DIR.Lib;
 using TianWen.Lib.Imaging;
@@ -438,7 +438,7 @@ public sealed class ViewerState
     /// across a file step: a folder of masters off one rig shares its canvas ring, and a frame of another
     /// size simply shows in full rather than needing the crop cleared by whoever changed the document.</para>
     /// </remarks>
-    public Rectangle? DisplayCrop { get; set; }
+    public PixelRect? DisplayCrop { get; set; }
 
     /// <summary>
     /// The crop to show, or null for none: <see cref="DisplayCrop"/> when it is set and fits the frame.
@@ -449,7 +449,7 @@ public sealed class ViewerState
     /// what lets one survive a step to the next file. A folder of masters off one rig shares its canvas
     /// ring, and a frame of another size simply shows in full.
     /// </remarks>
-    public static Rectangle? ResolveDisplayCrop(Rectangle? crop, int imageWidth, int imageHeight)
+    public static PixelRect? ResolveDisplayCrop(PixelRect? crop, int imageWidth, int imageHeight)
         => crop is { Width: > 0, Height: > 0 } c
             && c.X >= 0 && c.Y >= 0
             && c.Right <= imageWidth && c.Bottom <= imageHeight

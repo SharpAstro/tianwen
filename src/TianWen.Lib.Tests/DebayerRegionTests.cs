@@ -1,4 +1,4 @@
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Imaging;
@@ -36,7 +36,7 @@ public class DebayerRegionTests
         // we're comparing the algorithm proper, not edge fill.
         const int stripY = 200;
         const int stripH = 64;
-        var sourceRect = new Rectangle(0, stripY, image.Width, stripH);
+        var sourceRect = new PixelRect(0, stripY, image.Width, stripH);
 
         // Pre-allocate full-canvas destination channels (same shape as full
         // frame); the sub-region pass only fills the strip rows + halo.
@@ -86,7 +86,7 @@ public class DebayerRegionTests
 
         const int stripY = 500;
         const int stripH = 4;
-        var sourceRect = new Rectangle(0, stripY, image.Width, stripH);
+        var sourceRect = new PixelRect(0, stripY, image.Width, stripH);
 
         var destChannels = new Channel[]
         {

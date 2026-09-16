@@ -1,5 +1,6 @@
 using System;
-using System.Drawing;
+using System.Buffers;
+using TianWen.Lib.Geometry;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
@@ -94,7 +95,7 @@ public static class Normalizer
     /// (intersection was disjoint) or clamps to image bounds.
     /// </para>
     /// </summary>
-    public static NormalizationStats ComputeStats(Image image, Rectangle box)
+    public static NormalizationStats ComputeStats(Image image, PixelRect box)
     {
         var x0 = Math.Max(0, box.X);
         var y0 = Math.Max(0, box.Y);

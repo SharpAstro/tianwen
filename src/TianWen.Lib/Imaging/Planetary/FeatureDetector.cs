@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Immutable;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
@@ -20,7 +20,7 @@ public static class FeatureDetector
     /// <paramref name="maxPoints"/> (strongest first). A cell with no gradient above
     /// <paramref name="minGradientFraction"/> of the region's peak contributes none.
     /// </summary>
-    public static ImmutableArray<Point> DetectAlignmentPoints(Image frame, Rectangle region, int spacing = 24, int maxPoints = 64, double minGradientFraction = 0.2)
+    public static ImmutableArray<PixelPoint> DetectAlignmentPoints(Image frame, PixelRect region, int spacing = 24, int maxPoints = 64, double minGradientFraction = 0.2)
     {
         ArgumentNullException.ThrowIfNull(frame);
         ArgumentOutOfRangeException.ThrowIfLessThan(spacing, 4);
@@ -33,7 +33,7 @@ public static class FeatureDetector
         var rh = region.Height;
         if (rw < 3 || rh < 3)
         {
-            return ImmutableArray<Point>.Empty;
+            return ImmutableArray<PixelPoint>.Empty;
         }
 
         using var lumaBuf = ArrayPoolHelper.Rent<float>(rw * rh);
@@ -66,11 +66,11 @@ public static class FeatureDetector
 
         if (maxGrad <= 0f)
         {
-            return ImmutableArray<Point>.Empty;
+            return ImmutableArray<PixelPoint>.Empty;
         }
 
         var threshold = (float)(minGradientFraction * maxGrad);
-        var candidates = ImmutableArray.CreateBuilder<(float Score, Point P)>();
+        var candidates = ImmutableArray.CreateBuilder<(float Score, PixelPoint P)>();
         for (var cy = 0; cy < rh; cy += spacing)
         {
             for (var cx = 0; cx < rw; cx += spacing)
@@ -97,14 +97,14 @@ public static class FeatureDetector
 
                 if (bestX >= 0)
                 {
-                    candidates.Add((bestScore, new Point(region.Left + bestX, region.Top + bestY)));
+                    candidates.Add((bestScore, new PixelPoint(region.Left + bestX, region.Top + bestY)));
                 }
             }
         }
 
         candidates.Sort(static (a, b) => b.Score.CompareTo(a.Score));
         var keep = Math.Min(maxPoints, candidates.Count);
-        var points = ImmutableArray.CreateBuilder<Point>(keep);
+        var points = ImmutableArray.CreateBuilder<PixelPoint>(keep);
         for (var i = 0; i < keep; i++)
         {
             points.Add(candidates[i].P);

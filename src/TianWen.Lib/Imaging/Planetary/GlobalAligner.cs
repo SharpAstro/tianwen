@@ -1,5 +1,5 @@
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Numerics;
 using TianWen.Lib.Stat;
 
@@ -40,7 +40,7 @@ public sealed class GlobalAligner
     /// planet-centred luminance tile, so each <see cref="Estimate"/> correlates against the precomputed
     /// reference spectrum instead of re-transforming the (fixed) reference per frame.
     /// </summary>
-    public static GlobalAligner FromReference(Image reference, Rectangle region, int tileSize)
+    public static GlobalAligner FromReference(Image reference, PixelRect region, int tileSize)
     {
         ArgumentNullException.ThrowIfNull(reference);
         if (!ComplexFft.IsPowerOfTwo(tileSize))
@@ -69,7 +69,7 @@ public sealed class GlobalAligner
     /// plus the phase-correlation sub-pixel residual. The result's <c>(Dx, Dy)</c> feed
     /// <see cref="Image.AccumulateTranslatedInto"/> directly (sample the frame at <c>(x + Dx, y + Dy)</c>).
     /// </summary>
-    public PhaseCorrelation.Shift Estimate(Image frame, Rectangle region)
+    public PhaseCorrelation.Shift Estimate(Image frame, PixelRect region)
     {
         ArgumentNullException.ThrowIfNull(frame);
         var (cx, cy) = PlanetaryDisk.CenterOfMass(frame, region);

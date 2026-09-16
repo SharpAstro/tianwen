@@ -1,5 +1,5 @@
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using Xunit;
@@ -51,7 +51,7 @@ namespace TianWen.Lib.Tests
                 imageMeta: new ImageMeta { Instrument = "synth", SensorType = SensorType.Monochrome });
         }
 
-        private static Rectangle Whole(Image image) => new Rectangle(0, 0, image.Width, image.Height);
+        private static PixelRect Whole(Image image) => new PixelRect(0, 0, image.Width, image.Height);
 
         /// <summary>A record struct would hand every caller zeros here; the type is a record class for
         /// exactly that reason, and this is the assertion that says so.</summary>
@@ -177,7 +177,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void TrimsThatWouldEmptyTheRectangleLeaveItAlone()
         {
-            var rect = new Rectangle(10, 20, 40, 30);
+            var rect = new PixelRect(10, 20, 40, 30);
             var trims = new CoverageEdgeTrims(
                 new CoverageEdgeTrim(30, true, 2.0),
                 new CoverageEdgeTrim(20, true, 2.0),
@@ -194,7 +194,7 @@ namespace TianWen.Lib.Tests
             var image = NoiseFrame(1024, 1024, static (_, y) => y < 132 ? 2.5 : 1.0);
 
             // Told to start 100 px in, only the remaining 32 px of the band are its business.
-            var trims = CoverageEdgeWalk.Measure(image, new Rectangle(0, 100, 1024, 924));
+            var trims = CoverageEdgeWalk.Measure(image, new PixelRect(0, 100, 1024, 924));
 
             trims.Top.Depth.ShouldBeInRange(28, 40);
         }

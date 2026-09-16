@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.IO;
 using System.Threading.Tasks;
 using Shouldly;
@@ -58,7 +58,7 @@ public class ChunkedTwoPassStrategyTests
                 Rejector: new SigmaClipRejector(LowSigma: 3f, HighSigma: 3f),
                 ApplyNormalization: false),
             StagingDir: Path.GetTempPath(),
-            StatsRect: Rectangle.Empty);
+            StatsRect: PixelRect.Empty);
 
         var result = await strategy.RunAsync(job, ct);
 
@@ -108,7 +108,7 @@ public class ChunkedTwoPassStrategyTests
             ExpectedFrameCount: frames.Count,
             Options: new IntegrationOptions(Rejector: null, ApplyNormalization: false),
             StagingDir: Path.GetTempPath(),
-            StatsRect: Rectangle.Empty);
+            StatsRect: PixelRect.Empty);
 
         var result = await strategy.RunAsync(job, ct);
 

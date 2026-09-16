@@ -2,7 +2,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.IO;
 using System.Linq;
 using System.Numerics;
@@ -186,7 +186,7 @@ public static class SessionRegistrar
         ImmutableArray<RegisteredSub> Subs,
         int CanvasWidth,
         int CanvasHeight,
-        Rectangle StatsRect,
+        PixelRect StatsRect,
         FrameInfo Reference,
         int GatedCount,
         int RegisteredCount,

@@ -1,5 +1,5 @@
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -275,7 +275,7 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
                 flux, weight,
                 xStart: 0, xEnd: canvasW,
                 yStart: 0, yEnd: canvasH,
-                new Rectangle(0, 0, srcW, srcH),
+                new PixelRect(0, 0, srcW, srcH),
                 badPixelMask, hasBadPixelMask);
 
             frameCount++;

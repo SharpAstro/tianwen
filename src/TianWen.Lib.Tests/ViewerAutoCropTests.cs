@@ -1,5 +1,5 @@
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Threading.Tasks;
 using DIR.Lib;
 using Shouldly;
@@ -174,7 +174,7 @@ namespace TianWen.Lib.Tests
             viewer.Render(null, state);
             var fullFrameZoom = state.Zoom;
 
-            state.DisplayCrop = new Rectangle(0, 0, ImageW / 2, ImageH / 2);
+            state.DisplayCrop = new PixelRect(0, 0, ImageW / 2, ImageH / 2);
             state.ZoomToFit = true;
             viewer.Render(null, state);
 
@@ -190,7 +190,7 @@ namespace TianWen.Lib.Tests
         public void TheQuadStillCoversTheWholeImage()
         {
             var (viewer, state) = NewViewer();
-            state.DisplayCrop = new Rectangle(40, 30, 200, 150);
+            state.DisplayCrop = new PixelRect(40, 30, 200, 150);
             viewer.Render(null, state);
 
             var scale = state.Zoom;
@@ -207,7 +207,7 @@ namespace TianWen.Lib.Tests
         public void TheShownRegionIsTheCrop()
         {
             var (viewer, state) = NewViewer();
-            state.DisplayCrop = new Rectangle(40, 30, 200, 150);
+            state.DisplayCrop = new PixelRect(40, 30, 200, 150);
             viewer.Render(null, state);
 
             viewer.Shown.Width.ShouldBe(200 * state.Zoom, 0.01f);
@@ -230,7 +230,7 @@ namespace TianWen.Lib.Tests
             viewer.Render(null, state);
             var uncropped = viewer.Shown;
 
-            state.DisplayCrop = new Rectangle(x, y, w, h);
+            state.DisplayCrop = new PixelRect(x, y, w, h);
             state.ZoomToFit = true;
             viewer.Render(null, state);
 
@@ -272,7 +272,7 @@ namespace TianWen.Lib.Tests
         public void NothingOutsideTheCropReachesTheScreenWhenZoomedIn(float panX, float panY)
         {
             var (viewer, state) = NewViewer();
-            var crop = new Rectangle(40, 30, 200, 150);
+            var crop = new PixelRect(40, 30, 200, 150);
             state.DisplayCrop = crop;
 
             // Well above fit, so the shown region overflows the pane on both axes.
@@ -323,7 +323,7 @@ namespace TianWen.Lib.Tests
         public void TheCachedLayerBlitIsNarrowedToTheCrop()
         {
             var (viewer, state) = NewViewer();
-            var crop = new Rectangle(40, 30, 200, 150);
+            var crop = new PixelRect(40, 30, 200, 150);
             viewer.UseCachedImageLayer = true;
             state.DisplayCrop = crop;
 
@@ -382,7 +382,7 @@ namespace TianWen.Lib.Tests
                 .ShouldBeTrue("a whole frame is exactly what the crop button is for");
 
             var baked = await AstroImageDocument.AdoptImageAsync(SyntheticFrame(), DebayerAlgorithm.None,
-                filePath: "master.fits", sourceCrop: new Rectangle(8, 6, ImageW, ImageH), cancellationToken: ct);
+                filePath: "master.fits", sourceCrop: new PixelRect(8, 6, ImageW, ImageH), cancellationToken: ct);
             viewer.Render(baked, state);
             viewer.TryGetPaintedToolbarRect(ToolbarAction.AutoCrop, out _)
                 .ShouldBeFalse("these pixels ARE the crop");
@@ -405,7 +405,7 @@ namespace TianWen.Lib.Tests
         {
             var ct = TestContext.Current.CancellationToken;
             var (viewer, state) = NewViewer();
-            var crop = new Rectangle(8, 6, ImageW - 16, ImageH - 18);
+            var crop = new PixelRect(8, 6, ImageW - 16, ImageH - 18);
 
             // The live document is the crop; the retained textures are the frame it came from.
             var baked = await AstroImageDocument.AdoptImageAsync(SyntheticFrame(crop.Width, crop.Height),
@@ -445,7 +445,7 @@ namespace TianWen.Lib.Tests
         public void ACropWithNoEnhanceComparesCroppedAgainstUncropped()
         {
             var (viewer, state) = NewViewer();
-            state.DisplayCrop = new Rectangle(40, 30, 200, 150);
+            state.DisplayCrop = new PixelRect(40, 30, 200, 150);
             viewer.Render(null, state);
 
             viewer.Split.Toggle(hasBeforePixels: false, hasCrop: true);
@@ -476,7 +476,7 @@ namespace TianWen.Lib.Tests
         public void TheCompareButtonPicksTheCropComparisonToo()
         {
             var (viewer, state) = NewViewer();
-            state.DisplayCrop = new Rectangle(40, 30, 200, 150);
+            state.DisplayCrop = new PixelRect(40, 30, 200, 150);
             viewer.Render(null, state);
 
             ViewerActions.HandleToolbarAction(state, document: null, ToolbarAction.Compare,
@@ -501,7 +501,7 @@ namespace TianWen.Lib.Tests
         {
             var ct = TestContext.Current.CancellationToken;
             var (viewer, state) = NewViewer();
-            var crop = new Rectangle(8, 6, ImageW - 16, ImageH - 18);
+            var crop = new PixelRect(8, 6, ImageW - 16, ImageH - 18);
 
             var baked = await AstroImageDocument.AdoptImageAsync(SyntheticFrame(crop.Width, crop.Height),
                 DebayerAlgorithm.None, filePath: "master.fits", sourceCrop: crop, cancellationToken: ct);

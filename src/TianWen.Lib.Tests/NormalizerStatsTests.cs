@@ -1,5 +1,5 @@
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
@@ -117,7 +117,7 @@ public class NormalizerStatsTests
             [-999f, 999f, 999f, -999f],
         ]);
 
-        var stats = Normalizer.ComputeStats(image, new Rectangle(1, 1, 2, 2));
+        var stats = Normalizer.ComputeStats(image, new PixelRect(1, 1, 2, 2));
 
         stats.PerChannelMedian[0].ShouldBe(25f);
     }
@@ -131,7 +131,7 @@ public class NormalizerStatsTests
         ]);
 
         // Asking for 10x10 at (1,1) can only yield the single pixel at (1,1).
-        var stats = Normalizer.ComputeStats(image, new Rectangle(1, 1, 10, 10));
+        var stats = Normalizer.ComputeStats(image, new PixelRect(1, 1, 10, 10));
 
         stats.PerChannelMedian[0].ShouldBe(4f);
     }
@@ -153,7 +153,7 @@ public class NormalizerStatsTests
             [7f, 8f, 9f],
         ]);
 
-        var stats = Normalizer.ComputeStats(image, new Rectangle(x, y, w, h));
+        var stats = Normalizer.ComputeStats(image, new PixelRect(x, y, w, h));
         var whole = Normalizer.ComputeStats(image);
 
         stats.PerChannelFloor[0].ShouldBe(whole.PerChannelFloor[0]);
@@ -169,7 +169,7 @@ public class NormalizerStatsTests
             [7f, float.NaN, float.NaN],
         ]);
 
-        var stats = Normalizer.ComputeStats(image, new Rectangle(1, 1, 2, 2));
+        var stats = Normalizer.ComputeStats(image, new PixelRect(1, 1, 2, 2));
 
         stats.PerChannelFloor[0].ShouldBe(0f);
         stats.PerChannelMedian[0].ShouldBe(0f);

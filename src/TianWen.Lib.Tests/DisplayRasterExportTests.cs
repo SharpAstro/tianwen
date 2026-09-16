@@ -1,7 +1,7 @@
 using Shouldly;
 using SharpAstro.Png;
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.IO;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
@@ -288,7 +288,7 @@ public class DisplayRasterExportTests
 
         // Neither at the origin nor the whole frame, so an ignored offset and an ignored crop are
         // different failures.
-        var region = new Rectangle(2, 1, 4, 3);
+        var region = new PixelRect(2, 1, 4, 3);
         try
         {
             await DisplayRasterExport.WriteAsync(ColourImage(), fullPath, format, Uniforms(),

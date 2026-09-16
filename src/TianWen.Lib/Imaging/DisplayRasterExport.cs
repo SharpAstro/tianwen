@@ -1,5 +1,5 @@
 using SharpAstro.Color.Icc;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using SharpAstro.Jpeg;
 using SharpAstro.Png;
 using SharpAstro.Tiff;
@@ -187,7 +187,7 @@ public static class DisplayRasterExport
         int? displayedChannel = null,
         DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG,
         int jpegQuality = 92,
-        Rectangle? crop = null,
+        PixelRect? crop = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(image);

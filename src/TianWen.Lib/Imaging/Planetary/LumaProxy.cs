@@ -1,5 +1,5 @@
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Numerics.Tensors;
 
 namespace TianWen.Lib.Imaging.Planetary;
@@ -14,14 +14,14 @@ namespace TianWen.Lib.Imaging.Planetary;
 internal static class LumaProxy
 {
     /// <summary>The whole-frame region for <paramref name="frame"/>.</summary>
-    public static Rectangle FullFrame(Image frame) => new(0, 0, frame.Width, frame.Height);
+    public static PixelRect FullFrame(Image frame) => new(0, 0, frame.Width, frame.Height);
 
     /// <summary>
     /// Fills <paramref name="dst"/> (length <c>region.Width * region.Height</c>, row-major) with the
     /// channel-mean luminance of <paramref name="frame"/> over <paramref name="region"/>. The region must
     /// lie within the frame.
     /// </summary>
-    public static void Fill(Image frame, Rectangle region, Span<float> dst)
+    public static void Fill(Image frame, PixelRect region, Span<float> dst)
     {
         var rw = region.Width;
         var rh = region.Height;
