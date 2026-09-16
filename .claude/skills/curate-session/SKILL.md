@@ -167,6 +167,26 @@ folder, and filing by session date left 10 of 18 sessions with no flats folder a
 **One night can hold several targets.** Split the lights on `OBJECT`, not on the folder. Normalise a
 truncated card (`ome Cen Cluster`) in the path and keep the original in the manifest.
 
+## Step 4b: what may be BORROWED from another session, and what may not
+
+A session with no calibration of its own is common here, and the split is by what each frame type
+depends on:
+
+| frame | depends on | borrowable? |
+|---|---|---|
+| BIAS | sensor, gain, offset, (temperature) | **yes**, across optics and across months |
+| DARK | sensor, gain, offset, temperature, EXPOSURE | yes at a matching exposure; else scale it, never ignore it |
+| FLAT / DARKFLAT | the OPTICAL TRAIN: vignetting, dust, spacing | **NO** |
+
+**A flat from another train is worse than no flat**, because it imposes a vignette the frame does not
+have. `Eta Car 24mm LeHance` and `SMC 120s LEnh` are the same camera, the same filter and the same
+gain and offset, so the bias transfers cleanly; they are 24 mm and 368.8 mm, so the flats do not.
+
+**A missing dark is not a free pass either.** The ASI585 measures +294 ADU over bias at 120 s and
+-10 C, so a 60 s frame on that body carries real dark current and the honest options are scaling the
+120 s set or recording the gap. Write what is missing into the map's verdict columns; a blank there
+is what tells a later stack why its background looks wrong.
+
 ## Step 5: record the association, then the junctions
 
 The calibration association is **many-to-many** (one flat set serves several nights; one night draws
