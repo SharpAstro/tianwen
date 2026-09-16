@@ -123,6 +123,116 @@ public class QhyDarkSequenceProbe(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// Does a frame contain the exposure that was just taken, or the one BEFORE it?
+    /// </summary>
+    /// <remarks>
+    /// <para>The owner's recollection is of a camera whose snapshot shows the LAST frame, leaving the
+    /// first one dodgy. That is a different bug from an unsettled first readout and it has the same
+    /// symptom, and <b>the exposure-step test above cannot tell them apart</b>: it judged the change
+    /// immediate by the WALL CLOCK, while the frame CONTENT at 1 s and 2 s is identical here, the
+    /// level being bias-dominated rather than integration-dominated. A returned-previous-frame bug is
+    /// therefore invisible to it, and so is the settling frame's own content.</para>
+    /// <para>GAIN is the discriminator, because it changes what is in the frame rather than how long
+    /// it took. Stepped in blocks with the level read per frame: a level that moves ON the frame
+    /// whose gain was just set means the content is current, and a level that moves ONE FRAME LATE
+    /// means every frame is showing its predecessor.</para>
+    /// </remarks>
+    [Fact]
+    public void ReportWhetherAFrameHoldsItsOwnExposureOrThePreviousOne()
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable(GateVar) == "1",
+            $"{GateVar} is not 1 (needs a QHY body attached, capped, and free)");
+        Assert.SkipUnless(InitQHYCCDResource() is Success, "InitQHYCCDResource failed");
+        try
+        {
+            Assert.SkipWhen(ScanQHYCCD() is 0 or uint.MaxValue, "no QHY device found");
+            var id = new StringBuilder(64);
+            Assert.SkipUnless(GetQHYCCDId(0, id) is Success, "GetQHYCCDId failed");
+            var idPtr = Marshal.StringToHGlobalAnsi(id.ToString());
+            try
+            {
+                StepGain(idPtr);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(idPtr);
+            }
+        }
+        finally
+        {
+            ReleaseQHYCCDResource();
+        }
+    }
+
+    private void StepGain(IntPtr idPtr)
+    {
+        double[] gains = [5, 5, 5, 40, 40, 40, 5, 5, 5];
+        var handle = OpenQHYCCD(idPtr);
+        Assert.SkipWhen(handle == IntPtr.Zero, "OpenQHYCCD returned null");
+        try
+        {
+            SetQHYCCDStreamMode(handle, 0);
+            Assert.SkipUnless(InitQHYCCD(handle) is Success, "InitQHYCCD failed");
+            Assert.SkipUnless(
+                GetQHYCCDChipInfo(handle, out _, out _, out var width, out var height, out _, out _, out _) is Success,
+                "GetQHYCCDChipInfo failed");
+            SetQHYCCDBitsMode(handle, 16);
+            SetQHYCCDResolution(handle, 0, 0, width, height);
+            // An offset high enough that neither gain clips at the floor: at offset 30 a gain of 45
+            // pinned the median at 4 and the distribution could not move, which made that run
+            // useless as evidence.
+            SetQHYCCDParam(handle, CONTROL_ID.CONTROL_OFFSET, 100);
+            SetQHYCCDParam(handle, CONTROL_ID.CONTROL_EXPOSURE, 1000 * 1000.0);
+
+            var buffer = Marshal.AllocHGlobal((int)GetQHYCCDMemLength(handle));
+            output.WriteLine($"{"#",3} {"gain",6} {"readback",9} {"median",8} {"mean",10}  note");
+            try
+            {
+                for (var i = 0; i < gains.Length; i++)
+                {
+                    SetQHYCCDParam(handle, CONTROL_ID.CONTROL_GAIN, gains[i]);
+                    var back = GetQHYCCDParam(handle, CONTROL_ID.CONTROL_GAIN);
+                    var exp = ExpQHYCCDSingleFrame(handle);
+                    if (exp is not Success and not ReadDirectly
+                        || GetQHYCCDSingleFrame(handle, out var w, out var h, out _, out _, buffer) is not Success)
+                    {
+                        output.WriteLine($"{i,3} frame refused");
+                        continue;
+                    }
+
+                    var shorts = new short[w * h];
+                    Marshal.Copy(buffer, shorts, 0, (int)(w * h));
+                    var pixels = new ushort[shorts.Length];
+                    for (var p = 0; p < shorts.Length; p++)
+                    {
+                        pixels[p] = unchecked((ushort)shorts[p]);
+                    }
+
+                    var sorted = pixels.Order().ToArray();
+                    var changed = i > 0 && gains[i] != gains[i - 1];
+                    output.WriteLine($"{i,3} {gains[i],6:F0} {back,9:F0} {sorted[sorted.Length / 2],8} "
+                        + $"{pixels.Aggregate(0.0, (a, v) => a + v) / pixels.Length,10:F2}"
+                        + (changed ? "  <- the GAIN was CHANGED before this frame" : ""));
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+
+            output.WriteLine("");
+            output.WriteLine("read: the level moving ON the frame marked CHANGED means the frame holds its own "
+                + "exposure. The level moving ONE FRAME LATE means every frame carries its predecessor's content, "
+                + "which is a different bug from an unsettled first readout and wears the same symptom.");
+        }
+        finally
+        {
+            CancelQHYCCDExposingAndReadout(handle);
+            CloseQHYCCD(handle);
+        }
+    }
+
     private void StepExposure(IntPtr idPtr)
     {
         double[] commanded = [1000, 1000, 1000, 2000, 2000, 2000, 1000, 1000, 1000];

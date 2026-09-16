@@ -337,10 +337,22 @@ readback agreeing. And it is per-OPEN rather than per-change: within a run the l
 through two exposure changes. **So it is the first readout after `InitQHYCCD`, at about half the
 bias level of every frame after it.**
 
+**Two rival explanations were tested and both are refuted**, each by a measurement the earlier ones
+could not have made. A STALE BUFFER handed back twice: refuted, 12 of 12 frames carry distinct
+digests. A frame carrying the PREVIOUS exposure's content, which is what the owner recalled of this
+camera in other software: refuted by stepping the GAIN, where the level moves on the commanded frame
+(median 396 to 4 and back to 384) rather than one frame later. **That second test was necessary
+rather than belt-and-braces**: the exposure-step test judged immediacy by the WALL CLOCK, and the
+frame CONTENT at 1 s and 2 s is identical here because the level is bias-dominated, so a
+returned-previous-frame bug would have been invisible to it, and so would the settling frame's own
+content. Gain changes what is IN the frame, which is why it can separate them and exposure cannot.
+
 A per-frame black level would correct precisely this, which is what the owner suspected, **but this
 body exposes no shielded strip to measure one from** (P1 above). So the options are a settling frame
-at connect, or flagging the first frame and letting the quality gate drop it. **Neither is
-implemented; the measurement is filed and the choice is open.** Two cautions for whoever takes it:
+at connect, or flagging the first frame and letting the quality gate drop it. **A 100 ms throwaway settles a 10 s frame**, so the settling frame need not match the science
+exposure: at gain 10 the sequence goes from a 30.8 percent level spread to 0.0 percent. The direction
+of the frame-0 error FLIPS with gain, high at one setting and low at another, so no fixed offset can
+correct it and only discarding works. Two cautions for whoever takes it:
 discarding at EXPOSURE time cannot tell "first frame of the session" from "first frame after a
 filter change" and would risk silently binning a long sub, and **one body is not a vendor**, which
 is why PHD2 ships "discard initial frames" as a per-camera option rather than a blanket rule. Our
