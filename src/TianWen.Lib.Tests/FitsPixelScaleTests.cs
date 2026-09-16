@@ -1,5 +1,8 @@
-﻿using Shouldly;
+﻿using nom.tam.fits;
+using nom.tam.util;
+using Shouldly;
 using System;
+using System.Drawing;
 using System.Threading.Tasks;
 using System.IO;
 using TianWen.Lib.Astrometry;
@@ -149,6 +152,104 @@ public class FitsPixelScaleTests
         Image.TryReadFitsHeader(fitsPath, out var viaHeader).ShouldBeTrue();
 
         viaHeader.Meta.ShouldBe(viaPixels!.ImageMeta);
+    }
+
+    [Fact]
+    public void TheSectionsSurviveTheRoundTripAndAreAbsentWhenTheFrameDeclaresNone()
+    {
+        // The QHY294 shape: 24 shielded columns down the left, the picture beside them. Written as
+        // 1-based inclusive cards and read back as the 0-based rectangles they went in as; both read
+        // paths share one parse, so TheTwoReadPathsAgreeOnEveryMetadataField covers the pair from
+        // here on without anyone extending it.
+        var testDir = SharedTestData.CreateTempTestOutputDir();
+        var withSections = Path.Combine(testDir, "sections.fits");
+        var data = new Rectangle(24, 0, 4176, 2795);
+        var bias = new Rectangle(0, 0, 24, 2795);
+        ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN) with
+        {
+            DataSection = data,
+            BiasSection = bias,
+        }).WriteToFitsFile(withSections);
+
+        Image.TryReadFitsHeader(withSections, out var read).ShouldBeTrue();
+        read.Meta.DataSection.ShouldBe(data);
+        read.Meta.BiasSection.ShouldBe(bias);
+
+        // Absent is the common case and must stay null rather than becoming the whole raster: the
+        // cards are what tell a cropped frame from an uncropped one, so a default would erase the
+        // distinction they exist for.
+        var without = Path.Combine(testDir, "no-sections.fits");
+        ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN)).WriteToFitsFile(without);
+
+        Image.TryReadFitsHeader(without, out var plain).ShouldBeTrue();
+        plain.Meta.DataSection.ShouldBeNull();
+        plain.Meta.BiasSection.ShouldBeNull();
+    }
+
+    [Fact]
+    public void TrimsecStandsInForDatasecOnlyWhenTheFrameDeclaresNoDatasec()
+    {
+        // Where both exist they can differ, TRIMSEC being what a pipeline chose to keep and DATASEC
+        // what the detector says is lit, so the detector's answer wins and TRIMSEC is a fallback.
+        var testDir = SharedTestData.CreateTempTestOutputDir();
+        var path = Path.Combine(testDir, "trimsec.fits");
+        ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN)).WriteToFitsFile(path);
+        AddCards(path, ("TRIMSEC", "[9:40,3:6]"));
+
+        Image.TryReadFitsHeader(path, out var viaTrim).ShouldBeTrue();
+        viaTrim.Meta.DataSection.ShouldBe(new Rectangle(8, 2, 32, 4));
+
+        var both = Path.Combine(testDir, "trimsec-and-datasec.fits");
+        ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN)).WriteToFitsFile(both);
+        AddCards(both, ("TRIMSEC", "[9:40,3:6]"), ("DATASEC", "[5:36,1:8]"));
+
+        Image.TryReadFitsHeader(both, out var viaData).ShouldBeTrue();
+        viaData.Meta.DataSection.ShouldBe(new Rectangle(4, 0, 32, 8));
+    }
+
+    [Fact]
+    public void AMalformedSectionReadsAsAbsentRatherThanStoppingTheFrame()
+    {
+        // Somebody else's writer emitting nonsense must not cost us the frame: the pixels are still
+        // there and every other card is still true.
+        var testDir = SharedTestData.CreateTempTestOutputDir();
+        var path = Path.Combine(testDir, "bad-section.fits");
+        ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN)).WriteToFitsFile(path);
+        AddCards(path, ("DATASEC", "[16:1,1:8]"), ("BIASSEC", "not a section"));
+
+        Image.TryReadFitsHeader(path, out var read).ShouldBeTrue();
+        read.Meta.DataSection.ShouldBeNull();
+        read.Meta.BiasSection.ShouldBeNull();
+        read.Meta.FocalLength.ShouldBe(203);
+    }
+
+    /// <summary>Adds string cards to an existing FITS file's first image HDU, so a test can pin how a
+    /// card written by OTHER software reads without this writer having to be able to emit it.</summary>
+    private static void AddCards(string path, params (string Key, string Value)[] cards)
+    {
+        // An HDU's image data is tiled lazily off the stream it was read from, so the SOURCE must
+        // still be open when the copy is written; and the destination cannot be the same file while
+        // it is. Write beside it and move, which satisfies both.
+        var staging = path + ".tmp";
+        using (var source = new BufferedFile(path, FileAccess.Read, FileShare.Read, 4 * 2880))
+        {
+            var hdus = new Fits(source).Read();
+            foreach (var (key, value) in cards)
+            {
+                hdus[0].Header.AddValue(key, value, "");
+            }
+
+            var rewritten = new Fits();
+            foreach (var hdu in hdus)
+            {
+                rewritten.AddHDU(hdu);
+            }
+
+            using var stream = new BufferedFile(staging, FileAccess.ReadWrite, FileShare.None, 4 * 2880);
+            rewritten.Write(stream);
+        }
+
+        File.Move(staging, path, overwrite: true);
     }
 
     [Fact]

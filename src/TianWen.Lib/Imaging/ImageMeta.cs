@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Drawing;
 using TianWen.Lib.Astrometry;
 
 namespace TianWen.Lib.Imaging;
@@ -221,6 +222,35 @@ public record struct ImageMeta(
     /// skip masters entirely and stay raw-only. Default false.
     /// </summary>
     public bool IsMaster { get; init; } = false;
+
+    /// <summary>
+    /// The frame's PICTURE, as the IRAF <c>DATASEC</c> card declares it: the sub-rectangle of the
+    /// raster that carries light, 0-based with an exclusive width (<see cref="FitsSection"/> owns the
+    /// conversion). Null when the file declares none, which is the common case and means "the whole
+    /// raster", NOT "unknown".
+    /// </summary>
+    /// <remarks>
+    /// <b>This is metadata and the raster is left whole.</b> A frame that was captured with its
+    /// shielded columns in it carries them, and they are worth keeping: <see cref="BiasSection"/>
+    /// points at them. Cropping is a decision for a consumer, the way
+    /// <c>CanonRawFile.ActiveArea</c> is applied by <c>Image.TryReadCanonRaw</c> rather than by
+    /// FC.SDK.Raw. See <c>docs/plans/sensor-active-area.md</c>.
+    /// </remarks>
+    public Rectangle? DataSection { get; init; } = null;
+
+    /// <summary>
+    /// The usable shielded strip, as the IRAF <c>BIASSEC</c> card declares it, 0-based with an
+    /// exclusive width. Null when the file declares none.
+    /// </summary>
+    /// <remarks>
+    /// <b>It is the MEASURED usable strip, not the whole discarded margin.</b> The columns between a
+    /// shielded region and the picture are typically lit but only partly masked, so they belong to
+    /// neither and a consumer that takes "everything outside DATASEC" gets a contaminated reference.
+    /// <b>And what a CMOS body exposes here is optically black PHOTOSITES, which integrate dark
+    /// current like every other pixel</b>, so a level taken in it is bias plus mean dark, never a
+    /// dark frame's substitute.
+    /// </remarks>
+    public Rectangle? BiasSection { get; init; } = null;
 
     /// <summary>
     /// Rescales the scale-dependent metadata by the same factor applied to the pixel values, keeping
