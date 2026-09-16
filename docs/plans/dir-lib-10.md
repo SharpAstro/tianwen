@@ -909,6 +909,32 @@ all-or-nothing on the click handler, so a list whose Enter differs from its clic
 selects) keeps Enter by hand until the row can declare an `OnActivate` beside `OnClick`. Both belong on
 the node in D1.
 
+**Readiness, measured 2026-09-16.** D2's whole premise is that the consumer diff is DELETIONS only,
+which holds only once tianwen is off every replaced thing. Counted in `src/`, production code only
+(tests and comments excluded, since a test that drives a retired API is deleted with it):
+
+| cut | tianwen still uses | what has to happen first |
+|---|---|---|
+| `LayoutInspection` | **0** | nothing. Ready. |
+| `IKeyboardClaimant` / `Ui.KeyboardClaimant` | **1** (`ImageRendererBase.Input.cs:206`) | the ONE consult left, and it is the viewer's Escape order. It goes when the viewer's remaining overlays are `Popover` nodes -- the router already knows a popover. |
+| `TextInputState.Activate` / `Deactivate` | **2** (`EquipmentTab.FilterTable.cs:204`, `SkyMapSearchActions.cs:112`), both `Deactivate` | two "close this editor" sites to route through `TextInputFocus`. (`sdlWindow.Activate()` in the two `Program.cs` is WINDOW activation, an unrelated name.) |
+| `HitResult.SliderHit(int)` | **4** (`PlannerTab.cs:258`, `TuiPlannerTab.cs:287`, `PlannerSliderInteraction.cs:100`, + the register call) | the planner's handoff sliders, on BOTH surfaces, become `Content.Slider`. This is the last of T2's five drag flags. |
+| `TextInputHit.Painted` required | n/a | consumers already read it; making it required is the break. |
+| `IPixelWidget.HitTestAndDispatch` | **9** production sites, 2 of them OVERRIDES (`ImageRendererBase.Sky.cs:95`, `VkGuiRenderer.cs:202`) | the biggest one. Four TUI tabs call it on their tracker, the viewer calls it on itself, and the two overrides compose it. Each needs the router instead, and the two overrides need what they re-state to move onto the node -- which is exactly what DIR.Lib 9.5 just did for the nav rail's chord and handler, leaving only the `Tab:<name>` re-label. |
+| `Ui.KeyboardClaimant` -> popover stack | rides on the claimant row above | one change, not two. |
+
+`OverlayOwnsPointer` is **12 sites across 6 production files** and is not on the cut list, but it is the
+same shape and falls out of the same work: it is a PREDICTION consulted by hand-painted chrome that
+resolves hover before any overlay has drawn, so it survives exactly as long as the viewer's toolbar,
+histogram and file list are painted rather than declared.
+
+`ISelfDispatchingInputWidget` is **already gone** -- the single remaining match is a comment recording
+its deletion.
+
+So D2 is **not startable today**, and the gate is T2's remainder plus the viewer's last painted
+overlays, not anything in DIR.Lib. Nothing above needs a new engine feature; every replacement it
+waits on has shipped.
+
 ### C1. Console.Lib: one list model (independent, any time after D1)
 
 `ScrollableList<T>` is a second implementation of `ListCursor` + `ListScrollController` on the cell
