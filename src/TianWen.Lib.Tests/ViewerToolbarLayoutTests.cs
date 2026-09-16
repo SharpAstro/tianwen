@@ -222,6 +222,49 @@ namespace TianWen.Lib.Tests
             }
         }
 
+        /// <summary>
+        /// A host can replace what a toolbar press DOES, and saying nothing keeps the embedded behaviour.
+        /// </summary>
+        /// <remarks>
+        /// The two hosts disagree on purpose -- the GUI tab cycles a stateful button where
+        /// <c>tianwen-fits</c> opens its menu -- and that disagreement used to be two press WALKS, which
+        /// is how single-click selection stayed broken in the standalone viewer after the embedded walk
+        /// was fixed. One hook is what lets both be right; this pins that the hook is actually consulted
+        /// and that the default is unchanged for a host that sets none.
+        /// </remarks>
+        [Fact]
+        public void AHostCanReplaceWhatAToolbarPressDoes()
+        {
+            using var renderer = new RgbaImageRenderer(SurfaceW, SurfaceH);
+            var viewer = NewViewer(renderer);
+            var state = NewState();
+            viewer.Render(null, state);
+
+            var seen = new System.Collections.Generic.List<(ToolbarAction Action, MouseButton Button)>();
+            viewer.ToolbarPressPolicy = (_, action, button) => seen.Add((action, button));
+
+            viewer.PressToolbarButton(state, ToolbarAction.Zoom, MouseButton.Right);
+
+            seen.ShouldBe([(ToolbarAction.Zoom, MouseButton.Right)],
+                "the press reaches the policy, button and all -- a right press is what reverse-cycling needs");
+        }
+
+        /// <summary>The default is the embedded behaviour: a stateful button CYCLES rather than opening a menu.</summary>
+        [Fact]
+        public void WithNoPolicyAToolbarPressStillCyclesTheButton()
+        {
+            using var renderer = new RgbaImageRenderer(SurfaceW, SurfaceH);
+            var viewer = NewViewer(renderer);
+            var state = NewState();
+            viewer.Render(null, state);
+
+            var before = state.StretchMode;
+            viewer.PressToolbarButton(state, ToolbarAction.StretchLink, MouseButton.Left);
+
+            state.StretchMode.ShouldNotBe(before, "no policy set, so the embedded default cycled it");
+            state.ToolbarDropdown.IsOpen.ShouldBeFalse("and did not open a menu, which is the other host's answer");
+        }
+
         [Fact]
         public void TheHelpButtonDoesNotMoveWhenANeighbourRelabels()
         {
