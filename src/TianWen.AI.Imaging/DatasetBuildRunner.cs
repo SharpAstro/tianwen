@@ -298,6 +298,10 @@ public static class DatasetBuildRunner
                             options.QualityRejectSigma, options.QualityMaxRejectFraction,
                             fallbackSite: options.FallbackSite,
                             cancellationToken: cancellationToken);
+                        if (subsCalibrator?.Provenance is { } subsProvenance)
+                        {
+                            remeasured = remeasured with { Calibration = subsProvenance };
+                        }
                         subsTimings.Record(StageNames.Measure, subsStart, items: session.Lights.Length);
 
                         await DatasetPsfStore.AppendAsync(psfStorePath, remeasured, cancellationToken);
@@ -508,7 +512,12 @@ public static class DatasetBuildRunner
                 // session measured so far, and the rendered report is rebuilt from the store rather
                 // than from this run's in-memory accumulator.
                 var psfStart = StageTimings.Start();
-                var psf = await DatasetPsfNoiseReport.MeasureSessionAsync(reg, logger: logger, fallbackSite: options.FallbackSite, cancellationToken: cancellationToken);
+                var psf = await DatasetPsfNoiseReport.MeasureSessionAsync(reg, logger: logger, fallbackSite: options.FallbackSite, cancellationToken: cancellationToken)
+                    is var measured && calibrator?.Provenance is { } calProvenance
+                        // Stamp WHICH masters calibrated this session. The resolver is the only place
+                        // that knows, and the record is the only place it survives the run.
+                        ? measured with { Calibration = calProvenance }
+                        : measured;
                 // Persisting the measurement must not be able to fail the SESSION. By the time we get
                 // here the tiles are written and their manifest rows are appended, so the session IS
                 // part of the dataset; letting an I/O fault fall to the per-session catch marked a

@@ -81,6 +81,24 @@ public sealed record Calibrator(
     float DarkScale = 1f,
     Image? DarkBias = null)
 {
+    /// <summary>
+    /// Which masters these frames were actually calibrated with, as the resolver's own group slugs,
+    /// or null when nobody recorded it.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>An image cannot say what calibrated it, and until this existed nothing else could
+    /// either.</b> When <see cref="FlatEpsilon"/> changed what a dead flat pixel does, working out
+    /// which stacked masters were affected needed the question "which session used which flat", and
+    /// the answer was recorded in no bake artefact, no manifest and no log. It could only be had by
+    /// re-running the whole bake, which is an hour to learn something the run already knew and threw
+    /// away.</para>
+    /// <para>Carried here rather than returned separately because this object IS what the resolver
+    /// hands the caller, so there is no signature anywhere to keep in step, and a consumer that does
+    /// not care never sees it. The value is the master's group slug, the same string the cache names
+    /// its file with, so it joins straight to <c>masters/</c> on disk.</para>
+    /// </remarks>
+    public CalibrationProvenance? Provenance { get; init; }
+
     /// <summary>Below this the scale is treated as exactly 1 and the dark is used verbatim, so a
     /// caller computing a ratio that lands a hair off 1.0 does not silently take the scaling path
     /// and require a bias it has no reason to supply.</summary>
