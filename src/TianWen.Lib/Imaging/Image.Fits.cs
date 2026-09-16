@@ -1,11 +1,11 @@
-﻿using CommunityToolkit.HighPerformance;
+using CommunityToolkit.HighPerformance;
 using nom.tam.fits;
 using nom.tam.util;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.IO;
 using System.Linq;
 using System.Numerics;
@@ -299,10 +299,22 @@ public partial class Image
         // fact about somebody else's writer, and it must not stop the frame being read.
         var dataSection = FitsSection.TryParse(hdu.Header.GetStringValue("DATASEC"), out var parsedData)
             ? parsedData
-            : FitsSection.TryParse(hdu.Header.GetStringValue("TRIMSEC"), out var parsedTrim) ? parsedTrim : null as Rectangle?;
+            : FitsSection.TryParse(hdu.Header.GetStringValue("TRIMSEC"), out var parsedTrim) ? parsedTrim : null as PixelRect?;
         var biasSection = FitsSection.TryParse(hdu.Header.GetStringValue("BIASSEC"), out var parsedBias)
             ? parsedBias
-            : null as Rectangle?;
+            : null as PixelRect?;
+        // A number with no stated source defaults to SOFTWARE, which is the WEAKER claim: a software
+        // count cannot report a dropped frame, so a consumer told "software" concludes "cannot tell"
+        // where "hardware" would let it conclude "none were dropped". Defaulting the other way would
+        // turn a missing card into a guarantee nobody made. Only an explicit HW earns that.
+        var frameSequence = hdu.Header.GetLongValue("FRAMESEQ", -1L);
+        var frameCounterSource = frameSequence < 0
+            ? FrameCounterSource.None
+            : hdu.Header.GetStringValue("SEQSRC")?.Trim().ToUpperInvariant() switch
+            {
+                "HW" => FrameCounterSource.Hardware,
+                _ => FrameCounterSource.Software,
+            };
         var focusPos = hdu.Header.GetIntValue("FOCUSPOS", hdu.Header.GetIntValue("FOCPOS", -1));
         var filterName = hdu.Header.GetStringValue("FILTER");
         var filterClassName = hdu.Header.GetStringValue("FILTCLAS");
@@ -440,7 +452,13 @@ public partial class Image
             Guiding: guiding,
             Airmass: airmass
         )
-        { IsMaster = isMaster, DataSection = dataSection, BiasSection = biasSection };
+        {
+            IsMaster = isMaster,
+            DataSection = dataSection,
+            BiasSection = biasSection,
+            FrameSequence = frameSequence,
+            FrameCounterSource = frameCounterSource
+        };
     }
 
     /// <summary>
@@ -912,6 +930,15 @@ public partial class Image
         if (imageMeta.BiasSection is { } biasSection)
         {
             AddHeaderValueIfHasValue("BIASSEC", FitsSection.Format(biasSection), "shielded strip, 1-based inclusive");
+        }
+        // Written only when a driver actually counted, so an absent card means "nobody was counting"
+        // rather than "frame 0". The SOURCE travels with the number because a GAP in the sequence is
+        // evidence of a dropped frame for a hardware counter and means nothing for a software one.
+        if (imageMeta.FrameSequence >= 0 && imageMeta.FrameCounterSource is not FrameCounterSource.None)
+        {
+            AddHeaderValueIfHasValue("FRAMESEQ", imageMeta.FrameSequence, "frame index since camera open, 0-based");
+            AddHeaderValueIfHasValue("SEQSRC", imageMeta.FrameCounterSource is FrameCounterSource.Hardware ? "HW" : "SW",
+                "frame counter: HW gaps are dropped frames");
         }
         // FILTER = full manufacturer name (NINA convention), FILTCLAS = coarse classification
         AddHeaderValueIfHasValue("FILTER", imageMeta.Filter.FilterNameForFits, "");

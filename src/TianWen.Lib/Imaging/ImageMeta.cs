@@ -1,5 +1,5 @@
-﻿using System;
-using System.Drawing;
+using System;
+using TianWen.Lib.Geometry;
 using TianWen.Lib.Astrometry;
 
 namespace TianWen.Lib.Imaging;
@@ -224,6 +224,44 @@ public record struct ImageMeta(
     public bool IsMaster { get; init; } = false;
 
     /// <summary>
+    /// Which frame this is since the camera was opened, 0 for the first. <c>-1</c> when the driver
+    /// does not track it, which is not the same as 0.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The first frames after a camera open are not like the rest, and nothing downstream
+    /// could previously tell which they were.</b> Measured on a QHY178M 2026-09-16, powered and held
+    /// at +6 C: within a run the bias is superb, a standard deviation of 0.0 to 1.1 ADU over about
+    /// 230 frames with one run byte-identical across 58 consecutive frames, but the first one or two
+    /// frames after an open sit at a different level, and the level a run settles to is NOT
+    /// reproducible between opens (16, 20, 40, 44 and 52 all seen at identical gain, offset and
+    /// temperature). A capture-side throwaway does not fix it, because there is no stable level to
+    /// aim at.</para>
+    /// <para>So the driver records WHICH frame this was and leaves the decision to whoever holds the
+    /// whole sequence: a dark integrator can reject the first frames, a light path can flag them, a
+    /// quality gate can refuse sequence 0. It also makes the effect falsifiable in the archive rather
+    /// than only live, since the card travels to disk.</para>
+    /// <para><b>It is a <see cref="long"/> because a planetary capture makes an ordinal cheap to
+    /// exhaust.</b> A deep-sky night is a few hundred frames, but a lucky-imaging run is video rate:
+    /// at 200 fps an <see cref="int"/> lasts about four months of continuous capture, and a counter
+    /// that wraps silently is worse than no counter at all, since a wrapped value still reads as a
+    /// valid ordinal. Eight bytes per frame buys the question never being asked.</para>
+    /// <para>See <see cref="FrameCounterSource"/> for the half of this that decides whether a GAP in
+    /// the sequence is evidence of a dropped frame or merely an artefact of how it was counted.</para>
+    /// </remarks>
+    public long FrameSequence { get; init; } = -1;
+
+    /// <summary>
+    /// Whether <see cref="FrameSequence"/> was counted by the driver or read from the camera
+    /// (FITS: <c>SEQSRC</c>, <c>'SW'</c> or <c>'HW'</c>).
+    /// </summary>
+    /// <remarks>
+    /// A dropped-frame count is only derivable from <see cref="FrameCounterSource.Hardware"/>, so a
+    /// consumer that subtracts consecutive sequence numbers must read this first. Stamped together
+    /// with the number and never inferred from it.
+    /// </remarks>
+    public FrameCounterSource FrameCounterSource { get; init; } = FrameCounterSource.None;
+
+    /// <summary>
     /// The frame's PICTURE, as the IRAF <c>DATASEC</c> card declares it: the sub-rectangle of the
     /// raster that carries light, 0-based with an exclusive width (<see cref="FitsSection"/> owns the
     /// conversion). Null when the file declares none, which is the common case and means "the whole
@@ -236,7 +274,7 @@ public record struct ImageMeta(
     /// <c>CanonRawFile.ActiveArea</c> is applied by <c>Image.TryReadCanonRaw</c> rather than by
     /// FC.SDK.Raw. See <c>docs/plans/sensor-active-area.md</c>.
     /// </remarks>
-    public Rectangle? DataSection { get; init; } = null;
+    public PixelRect? DataSection { get; init; } = null;
 
     /// <summary>
     /// The usable shielded strip, as the IRAF <c>BIASSEC</c> card declares it, 0-based with an
@@ -250,7 +288,7 @@ public record struct ImageMeta(
     /// current like every other pixel</b>, so a level taken in it is bias plus mean dark, never a
     /// dark frame's substitute.
     /// </remarks>
-    public Rectangle? BiasSection { get; init; } = null;
+    public PixelRect? BiasSection { get; init; } = null;
 
     /// <summary>
     /// Rescales the scale-dependent metadata by the same factor applied to the pixel values, keeping

@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -398,6 +398,15 @@ public interface ICameraDriver : IDeviceDriver
                 SiteElevation: (float)(SiteElevation ?? double.NaN),
                 Guiding: GuideStats
             )
+            {
+                // Stamped in the ONE place every driver's ImageMeta is built, so a driver that
+                // tracks the count gets it recorded without each having to remember. The source
+                // travels with the number because a gap only means a dropped frame for one of them.
+                FrameSequence = FrameSequence,
+                FrameCounterSource = FrameCounterSource,
+                DataSection = DataSection,
+                BiasSection = BiasSection,
+            }
         );
 
         // Ownership of the channel buffer transferred to the consumer (no AddRef, the camera's
@@ -467,6 +476,44 @@ public interface ICameraDriver : IDeviceDriver
     /// expensive mistake.
     /// </remarks>
     Imaging.GuidingStats? GuideStats { get; set; }
+
+    /// <summary>
+    /// Which frame this is since the camera was opened, 0 for the first, or -1 when this driver does
+    /// not track one. Stamped onto every frame as <see cref="Imaging.ImageMeta.FrameSequence"/>.
+    /// </summary>
+    /// <remarks>
+    /// Default -1 rather than 0 so a driver that never implements this is DISTINGUISHABLE from one
+    /// reporting its first frame, which is exactly the frame a consumer most wants to find.
+    /// </remarks>
+    long FrameSequence => -1;
+
+    /// <summary>
+    /// Whether <see cref="FrameSequence"/> is the driver's own count or the camera's, which is what
+    /// decides whether a gap in it means a dropped frame. See <see cref="Imaging.FrameCounterSource"/>.
+    /// </summary>
+    Imaging.FrameCounterSource FrameCounterSource => Imaging.FrameCounterSource.None;
+
+    /// <summary>
+    /// The lit sub-raster of the frames this camera is currently producing, in the STORED frame's own
+    /// 0-based coordinates, or null when the whole raster is the picture. Stamped as
+    /// <see cref="Imaging.ImageMeta.DataSection"/> and written as the IRAF <c>DATASEC</c> card.
+    /// </summary>
+    /// <remarks>
+    /// Null is the common and correct answer: most sensors read out nothing but picture, and an
+    /// absent card means "the whole raster", so declaring the full frame on every file would turn a
+    /// fact into noise and destroy the one distinction the card exists to make.
+    /// </remarks>
+    Geometry.PixelRect? DataSection => null;
+
+    /// <summary>
+    /// The shielded strip of the frames this camera is currently producing, in the stored frame's own
+    /// coordinates, or null when it exposes none. Written as the IRAF <c>BIASSEC</c> card.
+    /// </summary>
+    /// <remarks>
+    /// This is the per-frame black reference, the only part of a frame that says what the bias was
+    /// during THAT exposure. It is not necessarily outside <see cref="DataSection"/>.
+    /// </remarks>
+    Geometry.PixelRect? BiasSection => null;
     #endregion
 
     /// <summary>
