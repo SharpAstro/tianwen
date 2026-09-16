@@ -51,6 +51,7 @@ Available in `.claude/skills/<name>/SKILL.md`: auto-invocable when the request m
 | `test-output-prune` | Delete old `yyyyMMdd` test-output folders, keeping the N most recent |
 | `stack` | Run `tianwen stack` against a folder of FITS lights + calibration |
 | `digitize-filter` | Digitise a vendor filter chart into `FilterCurveDatabase` (three chart families, the validation gates, the matcher re-check) |
+| `curate-session` | File a capture session into `Astro-Organized` so a bake can use it: the four archive tiers, backfilling a filter identity by measurement, checking a calibration set against the pixels, and what to stop and report rather than guess |
 | `tick-todo` | Mark a TODO item done and update CLAUDE.md, PLAN files, and memory |
 
 ## Project Overview
