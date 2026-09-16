@@ -60,6 +60,15 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                           "cleanly even when it shares a dated LIGHT folder). Empty = no exclusion.",
             DefaultValueFactory = _ => "",
         };
+        var parametersOpt = new Option<string>("--parameters")
+        {
+            Description = "Path to dataset-parameters.json, the dataset's STANDING decisions (held-out " +
+                          "sessions with their reasons, extra path exclusions). Defaults to that name " +
+                          "in the working directory; a missing file is not an error. Command-line " +
+                          "options WIN over the file, so a one-off run needs no edit to it.",
+            DefaultValueFactory = _ => DatasetParameters.FileName,
+        };
+
         var holdOutOpt = new Option<string[]>("--hold-out-session")
         {
             Description = "Session id(s) FORCED into the held-out test split whatever their hash " +
@@ -234,7 +243,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             Options =
             {
                 archiveRootOpt, outOpt,
-                minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, holdOutOpt, minSubsOpt,
+                minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, holdOutOpt, parametersOpt, minSubsOpt,
                 tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, hotPixelSigmaOpt, warpInterpolationOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt, forcePsfOpt, remeasureSubsOpt, siteOpt, scratchRootOpt,
             },
         };
@@ -290,6 +299,27 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             if (extraExcludePaths is { Length: > 0 })
             {
                 options = options with { ExcludePathSegments = options.ExcludePathSegments.AddRange(extraExcludePaths) };
+            }
+
+            // The file is applied FIRST and the command line overrides it, so a standing decision
+            // needs no flag and a one-off experiment needs no edit to the file.
+            var parametersPath = parseResult.GetValue(parametersOpt) ?? DatasetParameters.FileName;
+            var parameters = await DatasetParameters.ReadAsync(parametersPath, ct);
+            if (!parameters.HeldOutSessions.IsDefaultOrEmpty)
+            {
+                options = options with { AlwaysHeldOutSessions = parameters.HeldOutSessionIds };
+                consoleHost.WriteScrollable(
+                    $"[dataset] {parameters.HeldOutSessions.Length} held-out session(s) from {parametersPath}");
+            }
+
+            if (!parameters.ExcludePathSegments.IsDefaultOrEmpty)
+            {
+                options = options with { ExcludePathSegments = options.ExcludePathSegments.AddRange(parameters.ExcludePathSegments) };
+            }
+
+            if (parameters.TestFraction is { } tf)
+            {
+                options = options with { TestFraction = tf };
             }
 
             if (parseResult.GetValue(holdOutOpt) is { Length: > 0 } holdOut)

@@ -1,0 +1,8 @@
+{
+  "heldOutSessions": [
+    {
+      "session": "QHYCCD-QHY294C/IDAS-LPS-D3/Small-Magellanic-Cloud/2026-08-01|QHY294PROC|Small Magellanic Cloud",
+      "reason": "Field rotation over the 250 subs leaves the stacked canvas mostly partial coverage: the pale wedges are where only a handful of frames reached, so the coverage normalisation amplifies them. Useless as a training example, because those wedges are a canvas artefact and not sky. Kept deliberately as a TEST fixture, being exactly the input auto-cropping (LargestCoveredRectangle, the coverage edge walk) and gradient removal have to survive. Decided 2026-09-17."
+    }
+  ]
+}
