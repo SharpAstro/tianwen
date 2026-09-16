@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Text;
 using TianWen.Lib.Imaging;
 using Xunit;
@@ -43,6 +44,68 @@ public class QhyDarkSequenceProbe(ITestOutputHelper output)
     private double SettleMs { get; set; }
     private double? Ddr { get; set; }
     private double? UsbTraffic { get; set; }
+    /// <summary>A cooler setpoint in Celsius. WRITES cooling, so it needs its own gate.</summary>
+    private double? CoolerC { get; set; }
+    private int CoolWaitSeconds { get; set; } = 180;
+    /// <summary>Where each cooling reading is appended as it is taken, since xunit buffers.</summary>
+    private string? ProgressLog { get; set; }
+
+    /// <summary>
+    /// Drives the TEC to <see cref="CoolerC"/> and waits for it to arrive, printing the approach so a
+    /// run can be read against the temperature it was actually taken at rather than the one asked for.
+    /// Returns the setpoint found on the way in, which the caller restores.
+    /// </summary>
+    /// <remarks>
+    /// Separately gated on <c>TIANWEN_QHY_COOLER_PROBE=1</c> because it writes cooling, and a setpoint
+    /// PERSISTS across a close on this body: whatever is left behind is inherited by the next thing to
+    /// connect, which is why the original is read first and put back at the end.
+    /// </remarks>
+    private double Cool(IntPtr handle, double setpoint)
+    {
+        var original = GetQHYCCDParam(handle, CONTROL_ID.CONTROL_COOLER);
+        var header = $"cooler: found at {original:F1}, driving to {setpoint:F1} C (waiting up to {CoolWaitSeconds} s)";
+        output.WriteLine(header);
+        if (ProgressLog is { } startLog)
+        {
+            File.AppendAllText(startLog, $"{DateTime.Now:HH:mm:ss}  {header}{Environment.NewLine}");
+        }
+        SetQHYCCDParam(handle, CONTROL_ID.CONTROL_COOLER, setpoint);
+
+        var deadline = DateTime.UtcNow.AddSeconds(CoolWaitSeconds);
+        double temperature = double.NaN, pwm = double.NaN;
+        var settledFor = 0;
+        while (DateTime.UtcNow < deadline)
+        {
+            Thread.Sleep(5000);
+            temperature = GetQHYCCDParam(handle, CONTROL_ID.CONTROL_CURTEMP);
+            pwm = GetQHYCCDParam(handle, CONTROL_ID.CONTROL_CURPWM);
+            var line = $"  t {temperature,6:F1} C   pwm {pwm,5:F0}   ddr {GetQHYCCDParam(handle, CONTROL_ID.CONTROL_DDR):F0}";
+            output.WriteLine(line);
+            // ALSO straight to a file, flushed per reading. xunit buffers ITestOutputHelper until the
+            // test completes, so a ten-minute wait shows nothing at all until it is over, which is
+            // useless for watching a cooler descend (or for noticing that it is not descending).
+            if (ProgressLog is { } progress)
+            {
+                File.AppendAllText(progress, $"{DateTime.Now:HH:mm:ss}{line}{Environment.NewLine}");
+            }
+            // Two consecutive readings inside half a degree is arrival, not one: the sensor wanders.
+            settledFor = Math.Abs(temperature - setpoint) <= 0.5 ? settledFor + 1 : 0;
+            if (settledFor >= 2)
+            {
+                output.WriteLine($"  reached {setpoint:F1} C and held it");
+                return original;
+            }
+        }
+
+        // Capturing anyway would produce frames at a temperature nobody chose and label them with one
+        // that was only asked for, which is worse than no data. Put the setpoint back and stop.
+        SetQHYCCDParam(handle, CONTROL_ID.CONTROL_COOLER, original);
+        throw new InvalidOperationException(
+            $"the cooler did not reach {setpoint:F1} C within {CoolWaitSeconds} s (last {temperature:F1} C at "
+            + $"pwm {pwm:F0}); no frames were taken, and the setpoint was restored to {original:F1}. Either the "
+            + "setpoint is below what this TEC can hold against ambient, or the wait is too short "
+            + "(TIANWEN_QHY_COOL_WAIT_S).");
+    }
 
     [Fact]
     public void ReportWhatASequenceOfDarksActuallyDelivers()
@@ -61,6 +124,11 @@ public class QhyDarkSequenceProbe(ITestOutputHelper output)
         SettleMs = double.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_SETTLE_MS"), out var s) ? s : 0.0;
         Ddr = double.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_DDR"), out var d) ? d : null;
         UsbTraffic = double.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_USBTRAFFIC"), out var u) ? u : null;
+        // Cooling is gated SEPARATELY, because it writes a setpoint that outlives the process.
+        CoolerC = Environment.GetEnvironmentVariable("TIANWEN_QHY_COOLER_PROBE") == "1"
+                  && double.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_COOLER_C"), out var c) ? c : null;
+        CoolWaitSeconds = int.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_COOL_WAIT_S"), out var cw) ? cw : 180;
+        ProgressLog = Environment.GetEnvironmentVariable("TIANWEN_QHY_PROGRESS_LOG");
 
         Assert.SkipUnless(InitQHYCCDResource() is Success, "InitQHYCCDResource failed");
         try
@@ -376,6 +444,11 @@ public class QhyDarkSequenceProbe(ITestOutputHelper output)
                     + "REPORTED settings, not the asked ones.");
             }
 
+            if (CoolerC is { } wanted)
+            {
+                _coolerOnEntry = Cool(handle, wanted);
+            }
+
             var bufferLength = GetQHYCCDMemLength(handle);
             Assert.SkipWhen(bufferLength is 0 or uint.MaxValue, "GetQHYCCDMemLength refused");
             var buffer = Marshal.AllocHGlobal((int)bufferLength);
@@ -453,10 +526,19 @@ public class QhyDarkSequenceProbe(ITestOutputHelper output)
         }
         finally
         {
+            // The cooler is deliberately LEFT WHERE IT IS. Restoring it here would mean snapping a
+            // cooled sensor back toward ambient at the end of every run, and an abrupt warm is
+            // thermal stress rather than a tidy-up; it would also re-cool from scratch for the next
+            // run, which wastes minutes and puts the sensor through the cycle twice. A setpoint
+            // survives the close on this body, so leaving it set is the cheap and safe choice
+            // between runs. Warming is its own explicit step, ONCE, when the testing is finished:
+            // QhyCoolerPersistenceProbe.WarmUpToAmbient.
             CancelQHYCCDExposingAndReadout(handle);
             CloseQHYCCD(handle);
         }
     }
+
+    private double _coolerOnEntry = -100;
 
     private void Summarise(List<(int Index, double Median, double Mean, ushort Min, ushort Max, string Digest)> rows)
     {
