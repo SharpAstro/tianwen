@@ -1045,7 +1045,13 @@ public static class FilterCurveDatabase
         return tokens;
     }
 
-    private static List<string> TokenizeFromUnderscores(string name)
+    /// <summary>
+    /// Splits a CURVE's own name into the tokens the matcher compares. Internal rather than private
+    /// so a test can group the embedded curves the same way the matcher reads them: a probe that
+    /// substring-matched instead reported <c>OPTOLONG_L_ENHANCE</c> under "Ha", because "enHAnce"
+    /// contains it.
+    /// </summary>
+    internal static List<string> TokenizeFromUnderscores(string name)
     {
         var parts = name.Split(['_', '/'], StringSplitOptions.RemoveEmptyEntries);
         var tokens = new List<string>(parts.Length * 2);

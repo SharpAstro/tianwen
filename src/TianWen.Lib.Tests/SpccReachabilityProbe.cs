@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Frozen;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Imaging;
@@ -57,6 +59,20 @@ public class SpccReachabilityProbe(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// The filter families worth listing. A SET of tokens compared against the curve's OWN tokens,
+    /// not a chain of substring tests: <c>Contains("HA")</c> matches "en<b>HA</b>nce" and filed
+    /// <c>OPTOLONG_L_ENHANCE</c> under Ha, which is the same class of false positive the matcher's
+    /// own token rules exist to avoid. Tokenising through
+    /// <see cref="FilterCurveDatabase.TokenizeFromUnderscores"/> means this groups the curves the way
+    /// the matcher reads them rather than a second way.
+    /// </summary>
+    private static readonly FrozenSet<string> FamilyTokens = new[]
+    {
+        "IDAS", "LPS", "UHC", "CLS", "PRO", "QUAD", "TRI", "TRIBAND", "ENHANCE",
+        "HA", "ALPHA", "OIII", "SII", "LUM", "LUMINANCE",
+    }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// What light-pollution / broadband filters the embedded curve database actually knows, and
     /// whether a given name resolves. Not env-gated: it reads only embedded resources.
     /// </summary>
@@ -68,19 +84,12 @@ public class SpccReachabilityProbe(ITestOutputHelper output)
 
         output.WriteLine($"{FilterCurveDatabase.AllFilters.Length} filter curves embedded.");
         output.WriteLine("");
-        output.WriteLine("-- names containing IDAS / LPS / UHC / CLS / L-Pro / Quad / Tri --");
+        output.WriteLine($"-- curves carrying any of: {string.Join(", ", FamilyTokens.Order())} --");
         foreach (var f in FilterCurveDatabase.AllFilters)
         {
-            var n = f.Name;
-            if (n.Contains("IDAS", StringComparison.OrdinalIgnoreCase)
-                || n.Contains("LPS", StringComparison.OrdinalIgnoreCase)
-                || n.Contains("UHC", StringComparison.OrdinalIgnoreCase)
-                || n.Contains("CLS", StringComparison.OrdinalIgnoreCase)
-                || n.Contains("L-Pro", StringComparison.OrdinalIgnoreCase)
-                || n.Contains("Quad", StringComparison.OrdinalIgnoreCase)
-                || n.Contains("Tri", StringComparison.OrdinalIgnoreCase))
+            if (FilterCurveDatabase.TokenizeFromUnderscores(f.Name).Any(FamilyTokens.Contains))
             {
-                output.WriteLine($"  {n}");
+                output.WriteLine($"  {f.Name}");
             }
         }
 
@@ -101,6 +110,9 @@ public class SpccReachabilityProbe(ITestOutputHelper output)
             // would be worse than having none, because SPCC would then use it as if it described the
             // glass. Listed here so that stays true if the matcher's token rules ever loosen.
             "Unidentified-Broadband",
+            // Mono channel names, for the two ASI1600MM sessions. A mono session has one filter and
+            // no CFA, so the pixel method cannot help and the path tag is the only evidence.
+            "Ha", "H-Alpha", "Luminance", "LUM", "Baader Ha", "Astrodon Ha",
             // Filters we do NOT carry, listed so the report says what a card naming one would
             // resolve to instead. A confident WRONG match is worse than no match: the curve is
             // then used as if it described the glass in front of the sensor.
