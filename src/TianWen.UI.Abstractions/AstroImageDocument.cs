@@ -1,8 +1,8 @@
-﻿using CommunityToolkit.HighPerformance;
+using CommunityToolkit.HighPerformance;
 using System;
 using System.Collections.Immutable;
 using System.Diagnostics;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -63,7 +63,7 @@ public sealed class AstroImageDocument : IPreviewSource
     /// origin. A UI flag would have to be cleared on every path that replaces the document, and the one
     /// that was missed would be a document claiming a crop it does not have.
     /// </remarks>
-    public Rectangle? SourceCrop { get; private init; }
+    public PixelRect? SourceCrop { get; private init; }
 
     /// <summary>
     /// How many pixel-channels were interpolated at load because no frame's footprint reached them, or
@@ -515,7 +515,7 @@ public sealed class AstroImageDocument : IPreviewSource
     /// <c>Adopt</c> in the name states, per the rule that ownership transfer is visible in the name.
     /// See the frame-ownership notes on <see cref="Image"/>.</para>
     /// </remarks>
-    public static async Task<AstroImageDocument> AdoptImageAsync(Image image, DebayerAlgorithm algorithm = DebayerAlgorithm.VNG, WCS? wcs = null, string filePath = "", Rectangle? sourceCrop = null, CancellationToken cancellationToken = default)
+    public static async Task<AstroImageDocument> AdoptImageAsync(Image image, DebayerAlgorithm algorithm = DebayerAlgorithm.VNG, WCS? wcs = null, string filePath = "", PixelRect? sourceCrop = null, CancellationToken cancellationToken = default)
     {
         // For Bayer images: skip CPU debayer but normalize to [0,1] so stretch stats
         // match the existing histogram-based computation, and because the shader's VNG thresholds

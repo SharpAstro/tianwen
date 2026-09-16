@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Runtime.CompilerServices;
 
 namespace TianWen.Lib.Imaging;
@@ -10,7 +10,7 @@ public partial class Image
     /// <summary>
     /// The largest axis-aligned rectangle containing no pixel that no frame covered, i.e. what is left of
     /// a stacked master once its canvas ring is discarded. The whole frame when there is nothing to
-    /// discard, and <see cref="Rectangle.Empty"/> for an image with no covered pixel at all.
+    /// discard, and <see cref="PixelRect.Empty"/> for an image with no covered pixel at all.
     /// </summary>
     /// <remarks>
     /// <para><b>A pixel counts as absent when it is unusable AND reachable from the border.</b> Unusable
@@ -61,13 +61,13 @@ public partial class Image
     /// on a full-frame master, so it belongs behind an action rather than on the path every document
     /// takes.</para>
     /// </remarks>
-    public Rectangle LargestCoveredRectangle()
+    public PixelRect LargestCoveredRectangle()
     {
         var width = Width;
         var height = Height;
         if (width <= 0 || height <= 0 || ChannelCount <= 0)
         {
-            return Rectangle.Empty;
+            return PixelRect.Empty;
         }
 
         var absent = ScanAbsence().Absent;
@@ -553,7 +553,7 @@ public partial class Image
     /// comes from the geometric intersection of the frame footprints and already lands inside 0.99
     /// coverage on all four edges.</para>
     /// </remarks>
-    public Rectangle LargestCoveredRectangle(Image coverage, double minFraction = 0.95, int blockSize = 16)
+    public PixelRect LargestCoveredRectangle(Image coverage, double minFraction = 0.95, int blockSize = 16)
     {
         ArgumentNullException.ThrowIfNull(coverage);
         var width = Width;
@@ -561,7 +561,7 @@ public partial class Image
         var channels = ChannelCount;
         if (width <= 0 || height <= 0 || channels <= 0)
         {
-            return Rectangle.Empty;
+            return PixelRect.Empty;
         }
         if (coverage.Width != width || coverage.Height != height)
         {
@@ -653,7 +653,7 @@ public partial class Image
     /// the best answer available for a frame that carries no coverage plane. See
     /// <see cref="CoverageEdgeWalk"/> for what the walk can and cannot see.
     /// </summary>
-    public Rectangle SettledCoverageRectangle(CoverageEdgeWalkOptions? options = null)
+    public PixelRect SettledCoverageRectangle(CoverageEdgeWalkOptions? options = null)
     {
         var start = LargestCoveredRectangle();
         return start.Width > 0 && start.Height > 0 ? CoverageEdgeWalk.Trim(this, start, options) : start;
@@ -696,12 +696,12 @@ public partial class Image
     /// The largest-rectangle-under-a-histogram scan, shared by every definition of "covered" -- the
     /// definition is the caller's and only reaches here as a row of booleans.
     /// </summary>
-    private static Rectangle LargestRectangle(int width, int height, CoveredRowProbe probe)
+    private static PixelRect LargestRectangle(int width, int height, CoveredRowProbe probe)
     {
         var heights = new int[width];
         var stack = new int[width];
         var covered = new bool[width];
-        var best = Rectangle.Empty;
+        var best = PixelRect.Empty;
         var bestArea = 0L;
 
         for (var y = 0; y < height; y++)
@@ -729,7 +729,7 @@ public partial class Image
                     if (area > bestArea)
                     {
                         bestArea = area;
-                        best = new Rectangle(left, y - barHeight + 1, barWidth, barHeight);
+                        best = new PixelRect(left, y - barHeight + 1, barWidth, barHeight);
                     }
                 }
 

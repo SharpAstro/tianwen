@@ -1,5 +1,5 @@
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.IO;
 using BenchmarkDotNet.Attributes;
 using nom.tam.fits.IO;
@@ -13,7 +13,7 @@ namespace TianWen.UI.Benchmarks;
 /// (FITS.Lib full HDU load + per-pixel byte-swap + scaled into a
 /// <c>float[,]</c>). Both readers must touch every pixel of the same
 /// fixture; <c>PartialFitsReader.ReadRegion</c> is called with
-/// <c>new Rectangle(0, 0, Width, Height)</c> so the comparison is
+/// <c>new PixelRect(0, 0, Width, Height)</c> so the comparison is
 /// apples-to-apples (same pixel work, same physical pixel format).
 ///
 /// <para>Expected: mmap path is markedly faster, especially in steady state
@@ -97,7 +97,7 @@ public class PartialFitsReaderBenchmarks
     public int FullRead_PartialFitsReader()
     {
         using var reader = new PartialFitsReader(_fitsPath);
-        reader.ReadRegion(new Rectangle(0, 0, _width, _height), _destBuffer);
+        reader.ReadRegion(0, 0, _width, _height, _destBuffer);
         // Return a synthesised sum so the read isn't dead-code-eliminated;
         // we can't return a `float[]` (BDN warns on unstable identity).
         // Sum is cheap relative to the read so it doesn't skew the result.
@@ -117,8 +117,8 @@ public class PartialFitsReaderBenchmarks
     public int TileRead_PartialFitsReader()
     {
         using var reader = new PartialFitsReader(_fitsPath);
-        var rect = new Rectangle(_width / 2 - TileSide / 2, _height / 2 - TileSide / 2, TileSide, TileSide);
-        reader.ReadRegion(rect, _tileBuffer);
+        var rect = new PixelRect(_width / 2 - TileSide / 2, _height / 2 - TileSide / 2, TileSide, TileSide);
+        reader.ReadRegion(rect.X, rect.Y, rect.Width, rect.Height, _tileBuffer);
         var sum = 0f;
         for (var i = 0; i < _tileBuffer.Length; i++) sum += _tileBuffer[i];
         return (int)sum;

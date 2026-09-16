@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Immutable;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -22,14 +22,14 @@ public sealed class FrameGrader(IFrameQualityEstimator estimator)
     public IFrameQualityEstimator Estimator => estimator;
 
     /// <summary>
-    /// Grades every frame. When <paramref name="region"/> is <see cref="Rectangle.Empty"/> the disk
+    /// Grades every frame. When <paramref name="region"/> is <see cref="PixelRect.Empty"/> the disk
     /// bounding box is auto-detected per frame (<see cref="PlanetaryDisk.BoundingBox"/>) so each frame is
     /// scored over its own disk, robust to the planet drifting before alignment. The returned grades are
     /// in frame order; use <see cref="SelectBest"/> / <see cref="Reference"/> to rank them.
     /// <para>Sequential by design (deterministic, and frame I/O dominates); parallel grading is a later
     /// perf lever -- the estimator is stateless and the SER reader is thread-safe.</para>
     /// </summary>
-    public async Task<ImmutableArray<FrameGrade>> GradeAllAsync(IPlanetaryFrameStream stream, Rectangle region = default, CancellationToken cancellationToken = default)
+    public async Task<ImmutableArray<FrameGrade>> GradeAllAsync(IPlanetaryFrameStream stream, PixelRect region = default, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(stream);
         var count = stream.FrameCount;

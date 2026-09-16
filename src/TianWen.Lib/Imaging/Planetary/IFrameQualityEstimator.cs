@@ -1,5 +1,4 @@
-using System.Drawing;
-
+using TianWen.Lib.Geometry;
 namespace TianWen.Lib.Imaging.Planetary;
 
 /// <summary>
@@ -26,7 +25,7 @@ public interface IFrameQualityEstimator
     /// <summary>
     /// Scores <paramref name="frame"/>'s sharpness over <paramref name="region"/> (higher = sharper).
     /// Multi-channel frames (RGB, split-CFA) are scored on a per-pixel luminance proxy (the channel
-    /// mean). Pass <see cref="Rectangle.Empty"/> to score the whole frame.
+    /// mean). Pass <see cref="PixelRect.Empty"/> to score the whole frame.
     /// </summary>
-    float Score(Image frame, Rectangle region);
+    float Score(Image frame, PixelRect region);
 }

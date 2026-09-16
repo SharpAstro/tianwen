@@ -1,8 +1,8 @@
-﻿using DIR.Lib;
+using DIR.Lib;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -915,7 +915,7 @@ public static class ViewerActions
     /// the edge-noise walk did (an estimate).</param>
     /// <param name="Declined">True when at least one edge refused: its noise was still falling at the
     /// bound, so that edge was left alone. Only meaningful for the walk.</param>
-    public readonly record struct CropScan(Rectangle Rect, bool FromCoverage, bool Declined);
+    public readonly record struct CropScan(PixelRect Rect, bool FromCoverage, bool Declined);
 
     /// <summary>
     /// Finds the area of a stacked master worth showing. Runs off the render thread: reading a coverage

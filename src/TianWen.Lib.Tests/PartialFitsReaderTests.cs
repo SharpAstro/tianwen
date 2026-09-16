@@ -1,6 +1,6 @@
 using System;
 using System.Buffers.Binary;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
@@ -55,7 +55,7 @@ public class PartialFitsReaderTests
         using var partial = new PartialFitsReader(fixture.Path);
 
         var buf = new float[w * h];
-        partial.ReadRegion(new Rectangle(x, y, w, h), buf);
+        partial.ReadRegion(x, y, w, h, buf);
 
         var fullChannel = fullImage!.GetChannelArray(0);
         // Both readers return physical pixel values (post-BZERO+BSCALE);
@@ -82,11 +82,11 @@ public class PartialFitsReaderTests
 
         var buf = new float[16];
         Should.Throw<ArgumentOutOfRangeException>(() =>
-            partial.ReadRegion(new Rectangle(-1, 0, 4, 4), buf));
+            partial.ReadRegion(-1, 0, 4, 4, buf));
         Should.Throw<ArgumentOutOfRangeException>(() =>
-            partial.ReadRegion(new Rectangle(3000, 0, 16, 4), buf));
+            partial.ReadRegion(3000, 0, 16, 4, buf));
         Should.Throw<ArgumentOutOfRangeException>(() =>
-            partial.ReadRegion(new Rectangle(0, 0, 0, 4), buf));
+            partial.ReadRegion(0, 0, 0, 4, buf));
     }
 
     [Fact]
@@ -97,7 +97,7 @@ public class PartialFitsReaderTests
 
         var tooSmall = new float[10];
         Should.Throw<ArgumentException>(() =>
-            partial.ReadRegion(new Rectangle(0, 0, 16, 16), tooSmall));
+            partial.ReadRegion(0, 0, 16, 16, tooSmall));
     }
 
     /// <summary>
@@ -118,7 +118,7 @@ public class PartialFitsReaderTests
         {
             var rx = rng.Next(0, partial.Width - 256);
             var ry = rng.Next(0, partial.Height - 256);
-            partial.ReadRegion(new Rectangle(rx, ry, 256, 256), buf);
+            partial.ReadRegion(rx, ry, 256, 256, buf);
         }
         sw.Stop();
         sw.ElapsedMilliseconds.ShouldBeLessThan(1000,
@@ -156,7 +156,7 @@ public class PartialFitsReaderTests
         partial.Height.ShouldBe(height);
 
         var dest = new float[rw * rh];
-        partial.ReadRegion(new Rectangle(rx, ry, rw, rh), dest);
+        partial.ReadRegion(rx, ry, rw, rh, dest);
 
         for (var r = 0; r < rh; r++)
         {

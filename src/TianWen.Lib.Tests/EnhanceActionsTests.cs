@@ -1,4 +1,4 @@
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
@@ -83,7 +83,7 @@ public class EnhanceActionsTests
         var wcs = new WCS(5.5, -12.25) { CRPix1 = 8, CRPix2 = 8, CD1_1 = -Scale, CD1_2 = 0, CD2_1 = 0, CD2_2 = Scale };
         var source = await AstroImageDocument.AdoptImageAsync(SyntheticRgb(16, 16, 0.4f),
             DebayerAlgorithm.None, wcs, filePath: "test.fits", cancellationToken: ct);
-        var crop = new Rectangle(4, 3, 8, 9);
+        var crop = new PixelRect(4, 3, 8, 9);
         var state = new ViewerState();
 
         var result = await EnhanceActions.EnhanceAsync(

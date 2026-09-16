@@ -5,6 +5,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 using Xunit;
 
+using TianWen.Lib.Geometry;
 namespace TianWen.Lib.Tests;
 
 public class FeatureDetectorTests
@@ -33,7 +34,7 @@ public class FeatureDetectorTests
             AddBlob(px, fx, fy, 1.6, 0.9f);
         }
 
-        var aps = FeatureDetector.DetectAlignmentPoints(Image.FromChannel(px), new System.Drawing.Rectangle(0, 0, 64, 64), spacing: 16, maxPoints: 32, minGradientFraction: 0.2);
+        var aps = FeatureDetector.DetectAlignmentPoints(Image.FromChannel(px), new PixelRect(0, 0, 64, 64), spacing: 16, maxPoints: 32, minGradientFraction: 0.2);
 
         aps.Length.ShouldBeGreaterThan(0);
 
@@ -51,7 +52,7 @@ public class FeatureDetectorTests
         var flat = new float[48, 48];
         Array.Clear(flat); // all zero -> no gradient
 
-        var aps = FeatureDetector.DetectAlignmentPoints(Image.FromChannel(flat), new System.Drawing.Rectangle(0, 0, 48, 48));
+        var aps = FeatureDetector.DetectAlignmentPoints(Image.FromChannel(flat), new PixelRect(0, 0, 48, 48));
 
         aps.ShouldBeEmpty();
     }

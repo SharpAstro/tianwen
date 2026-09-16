@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Numerics;
 
 namespace TianWen.Lib.Imaging.Stacking;
@@ -72,7 +72,7 @@ internal static class CanvasGeometry
     /// to mirror the production warp path.</param>
     /// <param name="canvasShift">Reference-to-canvas translation
     /// (from <see cref="ComputeUnionCanvas"/>).</param>
-    public static (List<Rectangle> Footprints, Rectangle StatsRect)
+    public static (List<PixelRect> Footprints, PixelRect StatsRect)
         ComputeFootprintsAndStatsRect(
             IReadOnlyList<Matrix3x2> transforms,
             Matrix3x2 canvasShift,
@@ -88,7 +88,7 @@ internal static class CanvasGeometry
         };
         // Heap-allocate quad buffer once outside the loop (CA2014).
         var quad = new Vector2[4];
-        var footprints = new List<Rectangle>(transforms.Count);
+        var footprints = new List<PixelRect>(transforms.Count);
         for (var f = 0; f < transforms.Count; f++)
         {
             var t = transforms[f] * canvasShift;
@@ -109,23 +109,23 @@ internal static class CanvasGeometry
             var ffY = Math.Max(0, (int)MathF.Floor(fyMin));
             var ffR = Math.Min(canvasW, (int)MathF.Ceiling(fxMax));
             var ffB = Math.Min(canvasH, (int)MathF.Ceiling(fyMax));
-            footprints.Add(new Rectangle(ffX, ffY, Math.Max(0, ffR - ffX), Math.Max(0, ffB - ffY)));
+            footprints.Add(new PixelRect(ffX, ffY, Math.Max(0, ffR - ffX), Math.Max(0, ffB - ffY)));
 
             EnsureCwInCanvas(quad);
             intersectionPoly = ClipConvex(intersectionPoly, quad);
             if (intersectionPoly.Count == 0) break;
         }
         // If clipping bailed early, pad the remaining footprints with the
-        // full canvas rect so the caller still gets one Rectangle per frame.
+        // full canvas rect so the caller still gets one PixelRect per frame.
         while (footprints.Count < transforms.Count)
         {
-            footprints.Add(new Rectangle(0, 0, canvasW, canvasH));
+            footprints.Add(new PixelRect(0, 0, canvasW, canvasH));
         }
 
-        Rectangle statsRect;
+        PixelRect statsRect;
         if (intersectionPoly.Count == 0)
         {
-            statsRect = Rectangle.Empty;
+            statsRect = PixelRect.Empty;
         }
         else
         {
@@ -142,7 +142,7 @@ internal static class CanvasGeometry
             var ry = (int)MathF.Ceiling(yMin);
             var rw = (int)MathF.Floor(xMax) - rx;
             var rh = (int)MathF.Floor(yMax) - ry;
-            statsRect = new Rectangle(rx, ry, Math.Max(0, rw), Math.Max(0, rh));
+            statsRect = new PixelRect(rx, ry, Math.Max(0, rw), Math.Max(0, rh));
         }
         return (footprints, statsRect);
     }
@@ -235,15 +235,15 @@ internal static class CanvasGeometry
     /// <param name="halo">Pixels to expand on each side for sampler safety
     /// (bilinear: 1 px; AHD: 5 px; drizzle forward-project: 1 px is sufficient
     /// since the drop covers a unit cell at most).</param>
-    public static Rectangle ProjectCanvasRectToSourceRect(
-        Rectangle canvasRect, Matrix3x2 transformToCanvas, int srcW, int srcH, int halo)
+    public static PixelRect ProjectCanvasRectToSourceRect(
+        PixelRect canvasRect, Matrix3x2 transformToCanvas, int srcW, int srcH, int halo)
     {
         if (!Matrix3x2.Invert(transformToCanvas, out var inverse))
         {
             // Non-invertible transform shouldn't happen for affine fits we
             // ship -- fall back to the whole source so the caller still gets
             // a non-empty result rather than dropping the frame silently.
-            return new Rectangle(0, 0, srcW, srcH);
+            return new PixelRect(0, 0, srcW, srcH);
         }
 
         Span<Vector2> corners = stackalloc Vector2[4];
@@ -265,6 +265,6 @@ internal static class CanvasGeometry
         var y0 = Math.Max(0, (int)Math.Floor(min.Y) - halo);
         var x1 = Math.Min(srcW, (int)Math.Ceiling(max.X) + halo);
         var y1 = Math.Min(srcH, (int)Math.Ceiling(max.Y) + halo);
-        return new Rectangle(x0, y0, Math.Max(0, x1 - x0), Math.Max(0, y1 - y0));
+        return new PixelRect(x0, y0, Math.Max(0, x1 - x0), Math.Max(0, y1 - y0));
     }
 }

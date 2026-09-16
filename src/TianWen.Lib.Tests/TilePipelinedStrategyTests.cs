@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.IO;
 using System.Numerics;
 using System.Threading.Tasks;
@@ -142,7 +142,7 @@ public class TilePipelinedStrategyTests
             ExpectedFrameCount: rawSources.Count,
             Options: opts,
             StagingDir: Path.GetTempPath(),
-            StatsRect: Rectangle.Empty,
+            StatsRect: PixelRect.Empty,
             RawLightSources: rawSources,
             Calibrator: new Calibrator(), // all-null masters: pass-through
             DebayerAlgorithm: DebayerAlgorithm.BilinearMono,

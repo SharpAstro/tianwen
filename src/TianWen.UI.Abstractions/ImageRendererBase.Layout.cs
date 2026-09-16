@@ -1,5 +1,5 @@
 ﻿using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading;
@@ -229,9 +229,9 @@ namespace TianWen.UI.Abstractions
         /// set AND fits the image that is currently loaded, the whole frame otherwise. The fit test is what
         /// lets a crop survive a step to the next file without anyone having to clear it.
         /// </summary>
-        private Rectangle VisibleImageRegion(ViewerState state)
+        private PixelRect VisibleImageRegion(ViewerState state)
             => ViewerState.ResolveDisplayCrop(state.DisplayCrop, ImageWidth, ImageHeight)
-                ?? new Rectangle(0, 0, ImageWidth, ImageHeight);
+                ?? new PixelRect(0, 0, ImageWidth, ImageHeight);
 
         private void ComputeImagePlacement(ViewerState state)
         {

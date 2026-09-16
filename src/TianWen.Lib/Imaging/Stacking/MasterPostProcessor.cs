@@ -1,7 +1,7 @@
-﻿using System;
+using System;
 using System.Collections.Immutable;
 using System.Diagnostics;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -55,7 +55,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         WCS? searchHint,
         ImageDim? imageDim,
         ImageMeta refMeta,
-        Rectangle autocropRect,
+        PixelRect autocropRect,
         IntegrationStrategyKind strategy,
         bool enhance,
         float enhanceBlend,
@@ -128,7 +128,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         //    correct for narrow NaN rings, and the more general future
         //    case (heavy crop on short-FOV scopes) still has a path.
         WCS? solvedWcs = null;
-        Rectangle solveCrop = default;
+        PixelRect solveCrop = default;
         if (searchHint is { } hint && catalogDb is { } db)
         {
             try
@@ -404,7 +404,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
     /// for typical narrow-ring drizzle masters; broader pathologies
     /// (heavy short-FOV crop) accept the catalog overlap risk.
     /// </summary>
-    private static bool PreferAutocropForPlateSolve(Rectangle crop, Image master, ImageDim? imageDim)
+    private static bool PreferAutocropForPlateSolve(PixelRect crop, Image master, ImageDim? imageDim)
     {
         const double MinAreaRatio = 0.40;
         const double MinSideDeg = 0.30;
@@ -454,7 +454,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         WCS? croppedWcs,
         IntegrationStrategyKind strategy,
         IntegrationResult? croppedResult,
-        Rectangle autocropRect,
+        PixelRect autocropRect,
         float enhanceBlend,
         bool splitPlates,
         EnhanceOptions enhanceOptions,
@@ -629,7 +629,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
     private async Task<PreviewRender?> RenderPreviewAsync(
         MasterPreviewRenderer renderer,
         Image fullMaster, Image? cropMaster, ImageMeta sensorMeta,
-        WCS? fullWcs, WCS? cropWcs, string masterPath, Rectangle autocropRect,
+        WCS? fullWcs, WCS? cropWcs, string masterPath, PixelRect autocropRect,
         MaskedBoostOptions? previewBoost, MasterRenderOutputs outputs, float ultraHdrPeakNits,
         ColourCalibration? inheritedWhiteBalance,
         CancellationToken ct)
@@ -659,7 +659,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
     /// released here.</summary>
     private async Task RenderPlateTiffAsync(
         MasterPreviewRenderer renderer, Image plate, (float R, float G, float B)? sharedWb,
-        string fitsBasePath, bool doCrop, Rectangle autocropRect, CancellationToken ct)
+        string fitsBasePath, bool doCrop, PixelRect autocropRect, CancellationToken ct)
     {
         var src = doCrop ? CropImage(plate, autocropRect) : plate;
         try
@@ -672,7 +672,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         }
     }
 
-    private static IntegrationResult CropIntegrationResult(IntegrationResult full, Rectangle rect)
+    private static IntegrationResult CropIntegrationResult(IntegrationResult full, PixelRect rect)
     {
         var croppedMaster = CropImage(full.Master, rect);
         var croppedRejection = CropImage(full.RejectionMap, rect);
@@ -692,5 +692,5 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
 
     // Hoisted onto Image so the viewer's save can crop the same way this does. Kept as a named
     // local here because the call sites read as pipeline steps, not as image arithmetic.
-    private static Image CropImage(Image src, Rectangle rect) => src.Crop(rect);
+    private static Image CropImage(Image src, PixelRect rect) => src.Crop(rect);
 }

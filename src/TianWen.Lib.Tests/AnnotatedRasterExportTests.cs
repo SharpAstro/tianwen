@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Concurrent;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.IO;
 using System.Threading.Tasks;
 using SharpAstro.Png;
@@ -118,7 +118,7 @@ namespace TianWen.Lib.Tests
 
             // Asymmetric on both axes, so a transposed crop and an origin-ignoring one are different
             // failures rather than the same one.
-            var region = new Rectangle(3, 2, full.Width - 7, full.Height - 5);
+            var region = new PixelRect(3, 2, full.Width - 7, full.Height - 5);
             state.DisplayCrop = region;
             var cropped = await ExportAnnotatedAsync(document, state);
 

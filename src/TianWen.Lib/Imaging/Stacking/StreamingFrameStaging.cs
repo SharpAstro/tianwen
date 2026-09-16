@@ -1,5 +1,6 @@
 using System;
-using System.Drawing;
+using System.Buffers;
+using TianWen.Lib.Geometry;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -84,7 +85,7 @@ public static class StreamingFrameStaging
     /// <param name="footprint">Sub-rectangle of the canvas to actually persist.
     /// Must be entirely within <paramref name="image"/>'s shape.</param>
     /// <exception cref="ArgumentException">Footprint out of canvas bounds.</exception>
-    public static void WriteWithFootprint(Image image, string path, Rectangle footprint)
+    public static void WriteWithFootprint(Image image, string path, PixelRect footprint)
     {
         var (channels, canvasWidth, canvasHeight) = image.Shape;
         if (footprint.X < 0 || footprint.Y < 0

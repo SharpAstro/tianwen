@@ -1,5 +1,5 @@
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
@@ -17,9 +17,9 @@ public static class PlanetaryDisk
     /// clamped to the frame. Falls back to the whole frame when too few bright pixels are found (a safe
     /// default for a low-contrast or empty capture, so grading still runs).
     /// </summary>
-    public static Rectangle BoundingBox(Image frame, double sigmaAboveBackground = 3.0, int pad = 4)
+    public static PixelRect BoundingBox(Image frame, double sigmaAboveBackground = 3.0, int pad = 4)
     {
-        var full = new Rectangle(0, 0, frame.Width, frame.Height);
+        var full = new PixelRect(0, 0, frame.Width, frame.Height);
         int w = frame.Width, h = frame.Height;
         var n = w * h;
         if (n == 0)
@@ -72,7 +72,7 @@ public static class PlanetaryDisk
         minY = Math.Max(0, minY - pad);
         maxX = Math.Min(w - 1, maxX + pad);
         maxY = Math.Min(h - 1, maxY + pad);
-        return Rectangle.FromLTRB(minX, minY, maxX + 1, maxY + 1);
+        return PixelRect.FromLTRB(minX, minY, maxX + 1, maxY + 1);
     }
 
     /// <summary>
@@ -84,7 +84,7 @@ public static class PlanetaryDisk
     /// phase (crescent / gibbous): de-rotation's absolute centre must come from the Phase 5/10 limb fit,
     /// never from this. Returns the region centre when there is no signal.
     /// </summary>
-    public static (double X, double Y) CenterOfMass(Image frame, Rectangle region)
+    public static (double X, double Y) CenterOfMass(Image frame, PixelRect region)
     {
         if (region.IsEmpty)
         {
@@ -156,7 +156,7 @@ public static class PlanetaryDisk
         using var rented = ArrayPoolHelper.Rent<float>(n);
         using var sortBuf = ArrayPoolHelper.Rent<float>(n);
         var luma = rented.AsSpan(0, n);
-        LumaProxy.Fill(reference, new Rectangle(0, 0, w, h), luma);
+        LumaProxy.Fill(reference, new PixelRect(0, 0, w, h), luma);
 
         // Most of a planetary frame is sky, so a low percentile is the background and a high percentile
         // is the disk peak -- robust to hot pixels / cosmic hits at the extremes.

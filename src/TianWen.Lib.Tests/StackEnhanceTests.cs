@@ -1,5 +1,5 @@
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -103,7 +103,7 @@ public class StackEnhanceTests
 
             // Autocrop = inset 4 px on each side -> proper sub-rectangle so
             // the autocrop-sibling path runs.
-            var autocrop = new Rectangle(4, 4, 56, 56);
+            var autocrop = new PixelRect(4, 4, 56, 56);
 
             var postResult = await processor.WriteMasterAsync(
                 result, masterPath, searchHint: null, imageDim: null, refMeta: master.ImageMeta,
@@ -177,7 +177,7 @@ public class StackEnhanceTests
                 catalogDb: null,
                 sharpenPipeline: sharpenPipeline);
 
-            var autocrop = new Rectangle(4, 4, 56, 56);
+            var autocrop = new PixelRect(4, 4, 56, 56);
 
             var postResult = await processor.WriteMasterAsync(
                 result, masterPath, searchHint: null, imageDim: null, refMeta: master.ImageMeta,

@@ -15,6 +15,7 @@ using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Overlays;
 using Xunit;
 
+using TianWen.Lib.Geometry;
 namespace TianWen.Lib.Tests
 {
     /// <summary>
@@ -984,7 +985,7 @@ namespace TianWen.Lib.Tests
             if (offCentreCrop)
             {
                 state.Zoom = 2f;
-                state.DisplayCrop = new System.Drawing.Rectangle(0, 0, 400, 300);
+                state.DisplayCrop = new PixelRect(0, 0, 400, 300);
             }
 
             var (star, _) = StarCircle(viewer, state, document);
@@ -1098,7 +1099,7 @@ namespace TianWen.Lib.Tests
             // The left 400 by 300 of a 600 by 400 frame: the star at the frame's centre is inside it,
             // 100 pixels right of and 50 below the crop's own centre.
             state.Zoom = 2f;
-            state.DisplayCrop = new System.Drawing.Rectangle(0, 0, 400, 300);
+            state.DisplayCrop = new PixelRect(0, 0, 400, 300);
 
             var (star, baseline) = StarCircle(viewer, state, document);
 

@@ -1,5 +1,6 @@
 using System;
-using System.Drawing;
+using System.Buffers;
+using TianWen.Lib.Geometry;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging
@@ -84,12 +85,12 @@ namespace TianWen.Lib.Imaging
         public int TotalDepth => Left.Depth + Top.Depth + Right.Depth + Bottom.Depth;
 
         /// <summary>Applies the trims to the rectangle they were measured on.</summary>
-        public Rectangle Apply(Rectangle rect)
+        public PixelRect Apply(PixelRect rect)
         {
             var width = rect.Width - Left.Depth - Right.Depth;
             var height = rect.Height - Top.Depth - Bottom.Depth;
             return width > 0 && height > 0
-                ? new Rectangle(rect.X + Left.Depth, rect.Y + Top.Depth, width, height)
+                ? new PixelRect(rect.X + Left.Depth, rect.Y + Top.Depth, width, height)
                 : rect;
         }
     }
@@ -135,15 +136,15 @@ namespace TianWen.Lib.Imaging
     public static class CoverageEdgeWalk
     {
         /// <summary>The rectangle left once every edge's under-exposed band is discarded.</summary>
-        public static Rectangle Trim(Image image, Rectangle start, CoverageEdgeWalkOptions? options = null)
+        public static PixelRect Trim(Image image, PixelRect start, CoverageEdgeWalkOptions? options = null)
             => Measure(image, start, options).Apply(start);
 
         /// <summary>Per-edge verdicts, so a caller can report what happened as well as apply it.</summary>
-        public static CoverageEdgeTrims Measure(Image image, Rectangle start, CoverageEdgeWalkOptions? options = null)
+        public static CoverageEdgeTrims Measure(Image image, PixelRect start, CoverageEdgeWalkOptions? options = null)
         {
             ArgumentNullException.ThrowIfNull(image);
             var o = options ?? CoverageEdgeWalkOptions.Default;
-            var rect = Rectangle.Intersect(start, new Rectangle(0, 0, image.Width, image.Height));
+            var rect = PixelRect.Intersect(start, new PixelRect(0, 0, image.Width, image.Height));
             if (rect.Width <= 0 || rect.Height <= 0)
             {
                 return new CoverageEdgeTrims(Nothing, Nothing, Nothing, Nothing);
@@ -159,7 +160,7 @@ namespace TianWen.Lib.Imaging
         private static CoverageEdgeTrim Nothing => new CoverageEdgeTrim(0, Settled: true, EdgeRatio: 1.0);
 
         /// <summary>One edge, internal so the tests can pin the refusal and the trim separately.</summary>
-        internal static CoverageEdgeTrim MeasureEdge(Image image, Rectangle rect, CoverageEdge edge, CoverageEdgeWalkOptions o)
+        internal static CoverageEdgeTrim MeasureEdge(Image image, PixelRect rect, CoverageEdge edge, CoverageEdgeWalkOptions o)
         {
             var horizontal = edge is CoverageEdge.Top or CoverageEdge.Bottom;
             var span = horizontal ? rect.Height : rect.Width;
@@ -227,7 +228,7 @@ namespace TianWen.Lib.Imaging
         /// <see cref="CoverageEdgeWalkOptions.ReferenceFraction"/> and all of it, sparsely sampled
         /// because it is a level and not a profile.
         /// </summary>
-        private static double SettledLevel(Image image, Rectangle rect, CoverageEdge edge, int reference, CoverageEdgeWalkOptions o)
+        private static double SettledLevel(Image image, PixelRect rect, CoverageEdge edge, int reference, CoverageEdgeWalkOptions o)
         {
             var stride = Math.Max(o.Step, 32);
             var from = reference / 2;
@@ -271,7 +272,7 @@ namespace TianWen.Lib.Imaging
         /// The noisiest channel's percentile of per-tile sigmas for the band at <paramref name="depth"/>.
         /// The worst channel decides: a band under-exposed in one channel of three is under-exposed.
         /// </summary>
-        internal static double BandNoise(Image image, Rectangle rect, CoverageEdge edge, int depth, CoverageEdgeWalkOptions o)
+        internal static double BandNoise(Image image, PixelRect rect, CoverageEdge edge, int depth, CoverageEdgeWalkOptions o)
         {
             var horizontal = edge is CoverageEdge.Top or CoverageEdge.Bottom;
             var band = BandRect(rect, edge, depth, o.BandThickness);
@@ -293,12 +294,12 @@ namespace TianWen.Lib.Imaging
             return worst;
         }
 
-        private static Rectangle BandRect(Rectangle rect, CoverageEdge edge, int depth, int thickness) => edge switch
+        private static PixelRect BandRect(PixelRect rect, CoverageEdge edge, int depth, int thickness) => edge switch
         {
-            CoverageEdge.Top => new Rectangle(rect.X, rect.Y + depth, rect.Width, thickness),
-            CoverageEdge.Bottom => new Rectangle(rect.X, rect.Bottom - depth - thickness, rect.Width, thickness),
-            CoverageEdge.Left => new Rectangle(rect.X + depth, rect.Y, thickness, rect.Height),
-            _ => new Rectangle(rect.Right - depth - thickness, rect.Y, thickness, rect.Height),
+            CoverageEdge.Top => new PixelRect(rect.X, rect.Y + depth, rect.Width, thickness),
+            CoverageEdge.Bottom => new PixelRect(rect.X, rect.Bottom - depth - thickness, rect.Width, thickness),
+            CoverageEdge.Left => new PixelRect(rect.X + depth, rect.Y, thickness, rect.Height),
+            _ => new PixelRect(rect.Right - depth - thickness, rect.Y, thickness, rect.Height),
         };
 
         /// <summary>
@@ -308,7 +309,7 @@ namespace TianWen.Lib.Imaging
         /// about level.
         /// </summary>
         private static double ChannelBandNoise(
-            ReadOnlySpan<float> plane, int imageWidth, Rectangle band, bool horizontal, CoverageEdgeWalkOptions o)
+            ReadOnlySpan<float> plane, int imageWidth, PixelRect band, bool horizontal, CoverageEdgeWalkOptions o)
         {
             var along = horizontal ? band.Width : band.Height;
             var across = horizontal ? band.Height : band.Width;

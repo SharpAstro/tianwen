@@ -1,7 +1,7 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.IO;
 using System.Linq;
 using System.Numerics;
@@ -1415,7 +1415,7 @@ public sealed class StackingPipeline(
         string? layerSkipReason = null;
         async Task<(string MasterPath, MasterWriteResult Post, int MaskedPixels,
                     IntegrationResult Integration, Matrix3x2 CanvasShift,
-                    Rectangle StatsRect, IntegrationStrategyKind Strategy)?> IntegrateLayerAsync(
+                    PixelRect StatsRect, IntegrationStrategyKind Strategy)?> IntegrateLayerAsync(
             IReadOnlyList<Matrix3x2> layerTransforms,
             CometMask? layerMask,
             CometModel? layerModel,
@@ -1806,7 +1806,7 @@ public sealed class StackingPipeline(
         // the day an assumed 1.0 adds a comet 34x too faint and nobody notices.
         async Task<string?> WriteCompositeAsync(
             IntegrationResult starLayer, Image cometMaster, CometModel bodyModel, Vector2 bodyOnStarCanvas,
-            Rectangle layerStatsRect, IntegrationStrategyKind layerStrategy, AlignmentProvenance cometAlignment,
+            PixelRect layerStatsRect, IntegrationStrategyKind layerStrategy, AlignmentProvenance cometAlignment,
             CancellationToken token)
         {
             var compositeStart = StageTimings.Start();

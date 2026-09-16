@@ -1,5 +1,5 @@
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
@@ -85,7 +85,7 @@ public class RollingWindowStackerTests
         return frames;
     }
 
-    private static double MeanAbsDiff(Image a, Image b, Rectangle region)
+    private static double MeanAbsDiff(Image a, Image b, PixelRect region)
     {
         double sum = 0;
         var cnt = 0;
@@ -148,7 +148,7 @@ public class RollingWindowStackerTests
         b.WindowStart.ShouldBe(3);
         b.ReferenceIndex.ShouldBe(5);
 
-        MeanAbsDiff(masterA, masterB, new Rectangle(6, 6, 28, 28)).ShouldBeLessThan(1e-3);
+        MeanAbsDiff(masterA, masterB, new PixelRect(6, 6, 28, 28)).ShouldBeLessThan(1e-3);
     }
 
     [Fact]

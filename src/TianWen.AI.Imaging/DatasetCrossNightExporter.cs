@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -757,7 +757,7 @@ namespace TianWen.AI.Imaging
                         var stretchedCell = cellImage.MtfStretchWith(origMin, balances);
                         var frame = DatasetDegradationExporter.FrameForDraw(draw);
                         var file = $"x{cell.X}_y{cell.Y}_{frame}{DatasetTileExporter.TileExtension}";
-                        var mad = DatasetTileExporter.WriteTile(stretchedCell, Point.Empty, TileSize, Path.Combine(tilesDir, file), pairId);
+                        var mad = DatasetTileExporter.WriteTile(stretchedCell, PixelPoint.Empty, TileSize, Path.Combine(tilesDir, file), pairId);
                         stretchedCell.Release();
                         rows.Add(new DatasetTileExporter.TileManifestRow(
                             Tile: $"tiles/{slug}/{file}",
@@ -1003,7 +1003,7 @@ namespace TianWen.AI.Imaging
         }
 
         /// <summary>One cell of a plane, row-major, as the noise injection wants it.</summary>
-        internal static float[] CutCell(float[,] plane, Point origin, int size)
+        internal static float[] CutCell(float[,] plane, PixelPoint origin, int size)
         {
             var region = new float[size * size];
             var height = plane.GetLength(0);
@@ -1498,7 +1498,7 @@ namespace TianWen.AI.Imaging
 
         /// <summary>Tile origins at half-tile stride whose whole tile is finite in <paramref name="plane"/>,
         /// by a summed-area table over the finite mask.</summary>
-        internal static List<Point> FiniteTileOrigins(float[,] plane, int width, int height)
+        internal static List<PixelPoint> FiniteTileOrigins(float[,] plane, int width, int height)
         {
             var sat = new int[(height + 1) * (width + 1)];
             var stride = width + 1;
@@ -1511,7 +1511,7 @@ namespace TianWen.AI.Imaging
                     sat[(y * stride) + x] = sat[((y - 1) * stride) + x] + rowSum;
                 }
             }
-            var candidates = new List<Point>();
+            var candidates = new List<PixelPoint>();
             var step = TileSize / 2;
             var full = TileSize * TileSize;
             for (var oy = 0; oy + TileSize <= height; oy += step)
@@ -1525,7 +1525,7 @@ namespace TianWen.AI.Imaging
                     var finite = sat[(y1 * stride) + x1] - sat[(y0 * stride) + x1] - sat[(y1 * stride) + x0] + sat[(y0 * stride) + x0];
                     if (finite == full)
                     {
-                        candidates.Add(new Point(ox, oy));
+                        candidates.Add(new PixelPoint(ox, oy));
                     }
                 }
             }

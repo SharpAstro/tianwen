@@ -1,7 +1,7 @@
 using Shouldly;
 using System;
 using System.Collections.Immutable;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -126,7 +126,7 @@ namespace TianWen.Lib.Tests
             balances.ShouldNotBeNull();
 
             var rows = ImmutableArray.CreateBuilder<DatasetTileExporter.TileManifestRow>();
-            foreach (var cell in new[] { new Point(0, 0), new Point(W - TileSize, H - TileSize) })
+            foreach (var cell in new[] { new PixelPoint(0, 0), new PixelPoint(W - TileSize, H - TileSize) })
             {
                 var file = $"x{cell.X}_y{cell.Y}_master.f16";
                 var mad = DatasetTileExporter.WriteTile(stretched, cell, TileSize, Path.Combine(tilesDir, file), SessionId);

@@ -1,5 +1,5 @@
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -190,7 +190,7 @@ public partial class Image
     /// against <paramref name="canvasRegion"/>).</param>
     public Task<Image> WarpRegionAsync(
         Matrix3x2 transform,
-        Rectangle canvasRegion,
+        PixelRect canvasRegion,
         int canvasWidth,
         int canvasHeight,
         CancellationToken cancellationToken = default)
@@ -200,7 +200,7 @@ public partial class Image
     /// <see cref="WarpToReferenceGridAsync(Matrix3x2, int, int, WarpInterpolation, CancellationToken)"/>.</summary>
     public async Task<Image> WarpRegionAsync(
         Matrix3x2 transform,
-        Rectangle canvasRegion,
+        PixelRect canvasRegion,
         int canvasWidth,
         int canvasHeight,
         WarpInterpolation interpolation,
@@ -853,7 +853,7 @@ public partial class Image
     /// </remarks>
     /// <param name="rect">The region to keep, in image pixels. Clamped to the frame.</param>
     /// <exception cref="ArgumentException">The rectangle keeps nothing once clamped.</exception>
-    public Image Crop(Rectangle rect)
+    public Image Crop(PixelRect rect)
     {
         var x0 = Math.Max(0, rect.X);
         var y0 = Math.Max(0, rect.Y);

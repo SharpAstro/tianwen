@@ -1,5 +1,5 @@
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Numerics;
 using Shouldly;
 using TianWen.Lib.Imaging;
@@ -206,7 +206,7 @@ public class NormalizerTests
         for (var i = 0; i < 15; i++) values[i] = 0.01f * i;
         var image = Mono(values);
 
-        var stats = Normalizer.ComputeStats(image, new Rectangle(0, 0, 5, 1));
+        var stats = Normalizer.ComputeStats(image, new PixelRect(0, 0, 5, 1));
 
         stats.PerChannelFloor[0].ShouldBe(0.00f, tolerance: 1e-5f);
         stats.PerChannelMedian[0].ShouldBe(0.02f, tolerance: 1e-5f);
@@ -222,7 +222,7 @@ public class NormalizerTests
         values[7] = float.NaN;
         var image = Mono(values);
 
-        var stats = Normalizer.ComputeStats(image, new Rectangle(0, 1, 5, 1));
+        var stats = Normalizer.ComputeStats(image, new PixelRect(0, 1, 5, 1));
 
         stats.PerChannelMedian[0].ShouldBe(0.07f, tolerance: 1e-5f);
     }
@@ -235,7 +235,7 @@ public class NormalizerTests
         var image = Mono(values);
 
         var statsWhole = Normalizer.ComputeStats(image);
-        var statsEmpty = Normalizer.ComputeStats(image, new Rectangle(10, 10, 0, 0));
+        var statsEmpty = Normalizer.ComputeStats(image, new PixelRect(10, 10, 0, 0));
 
         statsEmpty.PerChannelFloor[0].ShouldBe(statsWhole.PerChannelFloor[0], tolerance: 1e-5f);
         statsEmpty.PerChannelMedian[0].ShouldBe(statsWhole.PerChannelMedian[0], tolerance: 1e-5f);
@@ -246,12 +246,12 @@ public class NormalizerTests
     {
         // Rect overruns image to the right (width=10 vs image width=5).
         // Should clamp to the image width (covers full row 0) and produce
-        // the same stats as Rectangle(0, 0, 5, 1).
+        // the same stats as PixelRect(0, 0, 5, 1).
         var values = new float[15];
         for (var i = 0; i < 15; i++) values[i] = 0.01f * i;
         var image = Mono(values);
 
-        var clamped = Normalizer.ComputeStats(image, new Rectangle(0, 0, 10, 1));
+        var clamped = Normalizer.ComputeStats(image, new PixelRect(0, 0, 10, 1));
 
         clamped.PerChannelMedian[0].ShouldBe(0.02f, tolerance: 1e-5f);
     }

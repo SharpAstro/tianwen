@@ -1,5 +1,5 @@
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using TianWen.Lib;
 using System.Threading;
 using System.Threading.Tasks;
@@ -33,7 +33,7 @@ public static class EnhanceActions
         SharpenPipeline pipeline,
         EnhanceOptions options,
         DebayerAlgorithm debayerAlgorithm,
-        Rectangle? crop = null,
+        PixelRect? crop = null,
         CancellationToken cancellationToken = default)
     {
         // A crop is applied to the INPUT, not left for the display to hide afterwards. Every enhancer

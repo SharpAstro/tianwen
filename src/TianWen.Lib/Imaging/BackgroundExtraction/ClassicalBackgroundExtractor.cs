@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Diagnostics;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -203,12 +203,12 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
         /// rounded away anyway. Costs one pass over four bands, against a fit that iterates the whole
         /// grid to convergence.
         /// </remarks>
-        private static Rectangle SettledRegion(Image source)
+        private static PixelRect SettledRegion(Image source)
         {
             var union = source.LargestCoveredRectangle();
             if (union.Width <= 0 || union.Height <= 0)
             {
-                return new Rectangle(0, 0, source.Width, source.Height);
+                return new PixelRect(0, 0, source.Width, source.Height);
             }
             var options = new CoverageEdgeWalkOptions { Step = 16, BandThickness = 16 };
             return CoverageEdgeWalk.Trim(source, union, options);
@@ -218,7 +218,7 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
         /// Adds everything outside <paramref name="keep"/> to the fit's exclusion mask, mapping working
         /// pixels to full-image ones the same way <see cref="RasterizeExclusions"/> does.
         /// </summary>
-        private static bool[] ExcludeOutside(bool[] excluded, Rectangle keep, int ws, int hs, int fullPixelsPerWorkingPixel)
+        private static bool[] ExcludeOutside(bool[] excluded, PixelRect keep, int ws, int hs, int fullPixelsPerWorkingPixel)
         {
             if (keep.Width <= 0 || keep.Height <= 0)
             {

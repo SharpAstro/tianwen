@@ -1,5 +1,6 @@
 using System;
-using System.Drawing;
+using System.Buffers;
+using TianWen.Lib.Geometry;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
@@ -17,7 +18,7 @@ namespace TianWen.Lib.Imaging.Planetary;
 public sealed class GradientEnergyEstimator(bool normalizeBrightness = true) : IFrameQualityEstimator
 {
     /// <inheritdoc/>
-    public float Score(Image frame, Rectangle region)
+    public float Score(Image frame, PixelRect region)
     {
         if (region.IsEmpty)
         {

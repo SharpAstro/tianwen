@@ -1,5 +1,5 @@
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.IO;
 using System.Threading.Tasks;
 using SharpAstro.Ser;
@@ -99,7 +99,7 @@ public class PlanetaryApStackTests
         return f;
     }
 
-    private static double MeanAbsDiffToBase(Image master, float[,] baseDisk, Rectangle region)
+    private static double MeanAbsDiffToBase(Image master, float[,] baseDisk, PixelRect region)
     {
         double sum = 0;
         var n = 0;
@@ -169,7 +169,7 @@ public class PlanetaryApStackTests
             }
 
             ap.ReferenceIndex.ShouldBe(0); // the undistorted base
-            var region = new Rectangle(22, 22, 36, 36);
+            var region = new PixelRect(22, 22, 36, 36);
             var apErr = MeanAbsDiffToBase(ap.Master, baseDisk, region);
             var globalErr = MeanAbsDiffToBase(global.Master, baseDisk, region);
 
@@ -271,8 +271,8 @@ public class PlanetaryApStackTests
                     new PlanetaryStackOptions { KeepFraction = 1.0, PerPointQualityWeighting = false }, TestContext.Current.CancellationToken)).Master;
             }
 
-            var left = new Rectangle(8, 22, 18, 20);
-            var right = new Rectangle(38, 22, 18, 20);
+            var left = new PixelRect(8, 22, 18, 20);
+            var right = new PixelRect(38, 22, 18, 20);
 
             // Per-AP best-of pulls each half from the frames that were sharp there, so the master lands
             // closer to the sharp base on both halves than the flat global-weight average does.
@@ -302,7 +302,7 @@ public class PlanetaryApStackTests
         var weighted = Stack(sharpImg, blurImg, identity, qualityHigh, qualityLow, n);
         var equal = Stack(sharpImg, blurImg, identity, qualityFlat, qualityFlat, n);
 
-        var region = new Rectangle(8, 8, 32, 32);
+        var region = new PixelRect(8, 8, 32, 32);
         // Weighting the sharp frame 4x the blurred one lands closer to the sharp base than an equal blend.
         MeanAbsDiff(weighted, baseDisk, region).ShouldBeLessThan(MeanAbsDiff(equal, baseDisk, region));
     }
@@ -503,7 +503,7 @@ public class PlanetaryApStackTests
         return plane;
     }
 
-    private static double MeanAbsDiff(float[,] plane, float[,] baseDisk, Rectangle region)
+    private static double MeanAbsDiff(float[,] plane, float[,] baseDisk, PixelRect region)
     {
         double sum = 0;
         var cnt = 0;

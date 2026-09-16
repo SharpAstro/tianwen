@@ -1,5 +1,5 @@
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 
@@ -88,7 +88,7 @@ internal static class DrizzleKernel
         int xEnd,
         int yStart,
         int yEnd,
-        Rectangle sourceRect,
+        PixelRect sourceRect,
         BitMatrix badPixelMask,
         bool hasBadPixelMask)
         => IterateAndDeposit(
@@ -113,7 +113,7 @@ internal static class DrizzleKernel
         int xEnd,
         int yStart,
         int yEnd,
-        Rectangle sourceRect,
+        PixelRect sourceRect,
         BitMatrix badPixelMask,
         bool hasBadPixelMask)
         where TMap : struct, ISourceToCanvas

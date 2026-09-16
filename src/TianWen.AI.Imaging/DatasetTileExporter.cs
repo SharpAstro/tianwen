@@ -2,7 +2,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -211,12 +211,12 @@ public static class DatasetTileExporter
         // NaN-free StatsRect while giving the sampler more candidates than it needs.
         var rect = session.StatsRect;
         var stride = Math.Max(1, tileSize / 2);
-        var candidates = new List<Point>();
+        var candidates = new List<PixelPoint>();
         for (var oy = rect.Y; oy + tileSize <= rect.Bottom; oy += stride)
         {
             for (var ox = rect.X; ox + tileSize <= rect.Right; ox += stride)
             {
-                candidates.Add(new Point(ox, oy));
+                candidates.Add(new PixelPoint(ox, oy));
             }
         }
         if (candidates.Count == 0)
@@ -367,7 +367,7 @@ public static class DatasetTileExporter
             cancellationToken.ThrowIfCancellationRequested();
             var row = rows[i];
             var stretched = ResolveStretched(row);
-            var expected = ExtractTileHalfs(stretched, new Point(row.CellX, row.CellY), row.TileSize, out _);
+            var expected = ExtractTileHalfs(stretched, new PixelPoint(row.CellX, row.CellY), row.TileSize, out _);
 
             var blobPath = Path.Combine(outDir, row.Tile.Replace('/', Path.DirectorySeparatorChar));
             var storedBytes = await File.ReadAllBytesAsync(blobPath, cancellationToken);
@@ -474,7 +474,7 @@ public static class DatasetTileExporter
 
     /// <summary>Writes one CHW fp16 tile at <paramref name="cell"/> and returns the MAD of the
     /// stored channel-0 tile (the manifest's per-tile noise proxy).</summary>
-    internal static double WriteTile(Image stretched, Point cell, int tileSize, string path, string sessionId)
+    internal static double WriteTile(Image stretched, PixelPoint cell, int tileSize, string path, string sessionId)
     {
         var halfs = ExtractTileHalfs(stretched, cell, tileSize, out var ch0Buf);
         EnsureTileIsUsable(halfs, cell, sessionId, path);
@@ -498,7 +498,7 @@ public static class DatasetTileExporter
     /// files. The master-level check in <see cref="ExportAsync"/> should catch that case first and
     /// with a better message; this covers whatever it does not anticipate.</para>
     /// </summary>
-    private static void EnsureTileIsUsable(ReadOnlySpan<Half> samples, Point cell, string sessionId, string path)
+    private static void EnsureTileIsUsable(ReadOnlySpan<Half> samples, PixelPoint cell, string sessionId, string path)
     {
         var allZero = true;
         for (var i = 0; i < samples.Length; i++)
@@ -531,7 +531,7 @@ public static class DatasetTileExporter
     /// the parity check re-derives through this exact path so "stored == re-stretched" is pinned.
     /// NaN samples (which should not occur inside StatsRect) are clamped to 0 so a stray edge pixel
     /// can never poison training.</summary>
-    internal static Half[] ExtractTileHalfs(Image stretched, Point cell, int tileSize, out float[] ch0)
+    internal static Half[] ExtractTileHalfs(Image stretched, PixelPoint cell, int tileSize, out float[] ch0)
     {
         var channels = stretched.ChannelCount;
         var w = stretched.Width;
@@ -567,7 +567,7 @@ public static class DatasetTileExporter
     /// sampler's internal ordering. Shared with the cross-night exporter, whose candidates come from a
     /// registered pair's common footprint rather than one session's intersection.
     /// </summary>
-    internal static List<Point> SampleCells(List<Point> candidates, Image stretchedMaster, int tileSize, int count, Random rng)
+    internal static List<PixelPoint> SampleCells(List<PixelPoint> candidates, Image stretchedMaster, int tileSize, int count, Random rng)
     {
         var ch0 = stretchedMaster.GetChannelSpan(0);
         var width = stretchedMaster.Width;
@@ -610,11 +610,11 @@ public static class DatasetTileExporter
 
     /// <summary>Efraimidis-Spirakis weighted sampling without replacement: key = u^(1/w), take the
     /// top <paramref name="k"/> by key. Deterministic given the seeded <paramref name="rng"/>.</summary>
-    private static List<Point> WeightedSampleWithoutReplacement(List<Point> items, double[] weights, int k, Random rng)
+    private static List<PixelPoint> WeightedSampleWithoutReplacement(List<PixelPoint> items, double[] weights, int k, Random rng)
     {
         if (k >= items.Count)
         {
-            return new List<Point>(items);
+            return new List<PixelPoint>(items);
         }
         var keyed = new (int Index, double Key)[items.Count];
         for (var i = 0; i < items.Count; i++)
@@ -624,7 +624,7 @@ public static class DatasetTileExporter
             keyed[i] = (i, Math.Pow(u, 1.0 / w));
         }
         Array.Sort(keyed, static (a, b) => b.Key.CompareTo(a.Key));
-        var picked = new List<Point>(k);
+        var picked = new List<PixelPoint>(k);
         for (var i = 0; i < k; i++)
         {
             picked.Add(items[keyed[i].Index]);

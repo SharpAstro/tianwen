@@ -1,5 +1,5 @@
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using Xunit;
@@ -49,7 +49,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void AFrameWithNothingToDiscardKeepsItself()
             => Frame(["####", "####", "####"]).LargestCoveredRectangle()
-                .ShouldBe(new Rectangle(0, 0, 4, 3));
+                .ShouldBe(new PixelRect(0, 0, 4, 3));
 
         [Fact]
         public void APlainBorderIsDiscarded()
@@ -58,7 +58,7 @@ namespace TianWen.Lib.Tests
                 ".####.",
                 ".####.",
                 "......",
-            ]).LargestCoveredRectangle().ShouldBe(new Rectangle(1, 1, 4, 2));
+            ]).LargestCoveredRectangle().ShouldBe(new PixelRect(1, 1, 4, 2));
 
         /// <summary>NaN is absence, on the same border-reachability terms as zero.</summary>
         [Fact]
@@ -67,7 +67,7 @@ namespace TianWen.Lib.Tests
                 "nnnnn",
                 "n###n",
                 "nnnnn",
-            ]).LargestCoveredRectangle().ShouldBe(new Rectangle(1, 1, 3, 1));
+            ]).LargestCoveredRectangle().ShouldBe(new PixelRect(1, 1, 3, 1));
 
         /// <summary>
         /// <b>An interior NaN is a DRIZZLE HOLE, not a canvas ring, and this used to shred the frame.</b>
@@ -88,7 +88,7 @@ namespace TianWen.Lib.Tests
                 "#####",
                 "##n##",
                 "#####",
-            ]).LargestCoveredRectangle().ShouldBe(new Rectangle(0, 0, 5, 3));
+            ]).LargestCoveredRectangle().ShouldBe(new PixelRect(0, 0, 5, 3));
 
         /// <summary>
         /// A real ring is RAGGED and mixes the two producers: a drizzle canvas leaves NaN where no drop
@@ -102,7 +102,7 @@ namespace TianWen.Lib.Tests
                 "n####.",
                 ".####n",
                 "..nn..",
-            ]).LargestCoveredRectangle().ShouldBe(new Rectangle(1, 1, 4, 2));
+            ]).LargestCoveredRectangle().ShouldBe(new PixelRect(1, 1, 4, 2));
 
         /// <summary>
         /// A zero surrounded by data is a pixel some calibration clipped, not a canvas ring, and unlike
@@ -117,7 +117,7 @@ namespace TianWen.Lib.Tests
                 "#####",
                 "##.##",
                 "#####",
-            ]).LargestCoveredRectangle().ShouldBe(new Rectangle(0, 0, 5, 3));
+            ]).LargestCoveredRectangle().ShouldBe(new PixelRect(0, 0, 5, 3));
 
         /// <summary>
         /// Both halves of the rule at once: the ring still goes, and the zero island inside it still
@@ -131,7 +131,7 @@ namespace TianWen.Lib.Tests
                 ".##.##.",
                 ".#####.",
                 ".......",
-            ]).LargestCoveredRectangle().ShouldBe(new Rectangle(1, 1, 5, 3));
+            ]).LargestCoveredRectangle().ShouldBe(new PixelRect(1, 1, 5, 3));
 
         /// <summary>
         /// The shape that makes this a largest-rectangle problem: absent pixels touch every edge, so the
@@ -150,7 +150,7 @@ namespace TianWen.Lib.Tests
 
             var rect = image.LargestCoveredRectangle();
 
-            rect.ShouldBe(new Rectangle(1, 1, 4, 3));
+            rect.ShouldBe(new PixelRect(1, 1, 4, 3));
             rect.Width.ShouldBeLessThan(image.Width, "a bounding box of the covered pixels would be the frame");
         }
 
@@ -165,7 +165,7 @@ namespace TianWen.Lib.Tests
                 "....#....",
                 "....#....",
                 "....#....",
-            ]).LargestCoveredRectangle().ShouldBe(new Rectangle(0, 0, 9, 2));
+            ]).LargestCoveredRectangle().ShouldBe(new PixelRect(0, 0, 9, 2));
 
         /// <summary>
         /// The other side of the same rule. Once the rectangle KEEPS an interior hole, something has to
@@ -208,7 +208,7 @@ namespace TianWen.Lib.Tests
             var plane = image.GetChannelArray(0);
             float.IsNaN(plane[0, 0]).ShouldBeTrue();
             float.IsNaN(plane[1, 0]).ShouldBeTrue();
-            image.LargestCoveredRectangle().ShouldBe(new Rectangle(1, 1, 3, 1), "the crop still has its evidence");
+            image.LargestCoveredRectangle().ShouldBe(new PixelRect(1, 1, 3, 1), "the crop still has its evidence");
         }
 
         /// <summary>
@@ -275,12 +275,12 @@ namespace TianWen.Lib.Tests
             var plane = image.GetChannelArray(1);
             plane[0, 1] = 0f;
 
-            image.LargestCoveredRectangle().ShouldBe(new Rectangle(0, 0, 3, 2));
+            image.LargestCoveredRectangle().ShouldBe(new PixelRect(0, 0, 3, 2));
         }
 
         [Fact]
         public void AnEntirelyAbsentFrameKeepsNothing()
-            => Frame(["...", "..."]).LargestCoveredRectangle().ShouldBe(Rectangle.Empty);
+            => Frame(["...", "..."]).LargestCoveredRectangle().ShouldBe(PixelRect.Empty);
 
         /// <summary>A flat frame of the given size, so a coverage plane has something to be measured
         /// against; the pixel values do not matter to the coverage overload.</summary>
@@ -317,7 +317,7 @@ namespace TianWen.Lib.Tests
 
             var rect = image.LargestCoveredRectangle(coverage, minFraction: 0.95, blockSize: 16);
 
-            rect.ShouldBe(new Rectangle(32, 0, 224, 128));
+            rect.ShouldBe(new PixelRect(32, 0, 224, 128));
         }
 
         /// <summary>
@@ -335,7 +335,7 @@ namespace TianWen.Lib.Tests
 
             var rect = image.LargestCoveredRectangle(coverage, minFraction: 0.95, blockSize: 16);
 
-            rect.ShouldBe(new Rectangle(0, 0, 256, 128));
+            rect.ShouldBe(new PixelRect(0, 0, 256, 128));
         }
 
         /// <summary>An unknown weight is not a full one.</summary>
@@ -347,7 +347,7 @@ namespace TianWen.Lib.Tests
 
             var rect = image.LargestCoveredRectangle(coverage, minFraction: 0.95, blockSize: 16);
 
-            rect.Contains(new Point(0, 0)).ShouldBeFalse();
+            rect.Contains(new PixelPoint(0, 0)).ShouldBeFalse();
             rect.Width.ShouldBe(240);
         }
 
@@ -367,7 +367,7 @@ namespace TianWen.Lib.Tests
             });
 
             image.LargestCoveredRectangle(coverage, minFraction: 0.95, blockSize: 16)
-                .ShouldBe(new Rectangle(48, 0, 208, 128));
+                .ShouldBe(new PixelRect(48, 0, 208, 128));
         }
 
         /// <summary>One coverage channel is broadcast: a mono weight map for a colour master is legal.</summary>
@@ -378,7 +378,7 @@ namespace TianWen.Lib.Tests
             var coverage = Synthetic(256, 128, 1, static (_, x, _) => x < 32 ? 10f : 40f);
 
             image.LargestCoveredRectangle(coverage, minFraction: 0.95, blockSize: 16)
-                .ShouldBe(new Rectangle(32, 0, 224, 128));
+                .ShouldBe(new PixelRect(32, 0, 224, 128));
         }
 
         [Fact]
