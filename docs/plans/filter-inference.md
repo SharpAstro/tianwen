@@ -90,6 +90,32 @@ then attach every other session by its flat set. Note that R/G is again the usel
 the cooler not holding, at +4 to +12 C, and a warm sky measurement is a worse measurement; the flats
 are unaffected because they are short exposures where dark current cannot accumulate.
 
+### 2a-bis. Two ASI533 flat sets match NEITHER known population (measured 2026-09-16)
+
+Measured while curating, by the section 2a method (flat minus its own dark-flat, so no bias is
+needed and the panel's brightness cancels out of the ratio). Both are unfiled ASI533 sessions that
+carry their own flats, and both land between the two populations this plan established:
+
+| ASI533 flat set | R/G | B/G |
+|---|---|---|
+| `Optolong-L-Ultimate-3nm` 2025-05-03 (known) | 0.1569 | **0.5670** |
+| `ASI533mc -10deg 240s` (UNKNOWN) | 0.1999 | **0.7184** |
+| `Rosette Dec 24` (UNKNOWN) | 0.5934 | **0.8515** |
+| `Optolong-L-Quad-Enhance` 2026-04-22 (known) | 0.4405 | **1.0024** |
+
+**They do not match each other either.** 0.8515 against 0.7184 is 0.13 apart where section 2a's
+within-population agreement is 0.021 or better, so this is not one new population but potentially
+two, or one plus a confound. Their R/G differs threefold, which section 2a already warns is the
+uninformative axis.
+
+**Neither is nameable from the pixels alone and both stay parked.** `Rosette Dec 24`'s folder says
+`Rosette RGB 120s`, and `RGB` is a processing mode rather than a filter by section 1's own rule, so
+there is no textual hint to corroborate. A B/G between a 3 nm dual-band and a quad-band is where an
+L-eNhance would sit physically, and the ASI585's L-eNhance reads 0.85 on ITS sensor, but that is a
+cross-sensor coincidence and this plan's central caution is that the bands belong to a sensor
+family. Naming either needs the owner, a reference frame on this body, or a flat set shot through a
+filter already identified.
+
 ### 2b. The owner's hand-labelled reference frames are the naming evidence
 
 `C:/temp/tests/examples/` holds four frames the owner set aside with the filter appended to the
