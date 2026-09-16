@@ -307,11 +307,12 @@ Kept as the record of what was outstanding, not as a to-do list. Where it stands
   popovers and sliders). Gone as types: `OverlayPlacement`, `ISelfDispatchingInputWidget`,
   `TextFieldPointerInteraction`, `ICaretPlacingWidget` and its six implementations, two bespoke keyboard
   claimants, two slider hit types, two drag flags, the Ctrl+letter map and the F3 special case.
-- **Still open:** the TIANWEN HALF of the dropdown (below, and now unblocked -- the shortest of these),
-  T3 (the viewer chrome onto trees, `.BgHover`, `LayoutDamage`), **D2 / 10.0** (the cuts), C1, and the two
-  engine seams T1 worked around (a `TabItem` that can carry neither a chord nor a select handler; two
-  sibling top-level widgets that cannot share one `WindowUiSettings`). Only D2 has a hard predecessor: it
-  deletes what T3 stops using.
+- **Still open:** T3 (the viewer chrome onto trees, `.BgHover`, `LayoutDamage`) -- which now also carries
+  what the dropdown item wrongly claimed, `OpenToolbarDropdown`'s switch and `PumpHelpPanel`; **D2 / 10.0**
+  (the cuts, including `RenderDropdownMenu` once the migration below lands); C1; and the two engine seams
+  T1 worked around (a `TabItem` that can carry neither a chord nor a select handler; two sibling top-level
+  widgets that cannot share one `WindowUiSettings`). The only genuinely independent piece left of the
+  dropdown item is the menu migration, which is a branch away and adds lines rather than removing them.
 - **The dropdown is its own item, and it is ADDITIVE.** It was listed under D2 above until 2026-09-16,
   which reads as "wait for the major" and is wrong: a `Builder` node over `PopoverState` breaks nothing,
   so it can go out in a 9.x whenever someone has the afternoon. It is still the biggest remaining
@@ -324,13 +325,40 @@ Kept as the record of what was outstanding, not as a to-do list. Where it stands
   `DropdownMenuState` now HOLDS a `PopoverState` with `IsOpen` reading and writing through it, so the
   declared menu and the rendered one cannot disagree. `RenderDropdownMenu` and the anchor fields STAY, so
   nothing has to move until the tianwen side is done.
-  **What remains is the tianwen half, and it is the whole point of the item:** `OpenToolbarDropdown`'s
-  switch, the `PumpHelpPanel` close-then-reopen dance, and the two hand-built result lists
-  (`PlannerTab.RenderSuggestionDropdown`, `SkyMapTab.BuildSearchResults`, about 90 lines, and they gain
-  scrolling). **It is UNBLOCKED as of 2026-09-16:** the whole chain is walked -- DIR.Lib `9.3.3111`,
-  Console.Lib `4.36.1861`, SdlVulkan.Renderer `7.40.3221`, WebGl.Renderer `1.30.481`, tianwen `8.2.17821`
-  -- and tianwen's pins now read `9.3.*` / `4.36.*` / `7.40.*` / `1.30.*`. Nothing stands in front of the
-  deletes any more.
+  The chain is walked as of 2026-09-16 -- DIR.Lib `9.3.3111`, Console.Lib `4.36.1861`,
+  SdlVulkan.Renderer `7.40.3221`, WebGl.Renderer `1.30.481`, tianwen `8.2.17821`, pins following -- so
+  nothing is blocked on a package any more.
+
+  **But this item was mis-scoped, and the correction matters more than the unblocking.** It reads as one
+  independently deliverable piece. It is not. Taking its three named parts in turn:
+
+  1. **The two hand-built result lists were ALREADY done.** Sweep B converted
+     `PlannerTab.RenderSuggestionDropdown` and `SkyMapTab.BuildSearchResults` to arranged trees with
+     `ListCursor` + `.BgFocus` -- "the dropdown is ONE arranged tree ... draw==hit suggestion rows" is in
+     `PlannerTab` now. That work is on `main`. They should also **stay their own mechanism**: a `Popover`
+     brings a full-window backdrop that dismisses on any outside press, which is right for a menu opened
+     from a button and wrong for a suggestion list under a text field, where a click elsewhere in the
+     panel must not be swallowed by a scrim. "A THIRD popup mechanism" is not automatically a defect.
+  2. **`OpenToolbarDropdown`'s switch and `PumpHelpPanel` are T3 work, not this item's.** The switch opens
+     with `TryGetPaintedToolbarRect(action, out var bounds)` -- it reads geometry back out of hand-painted
+     chrome. `ImageRendererBase.Toolbar.cs` is 2,309 lines with 17 hand-paint calls and 2 layout-tree
+     references. What deletes the switch is a toolbar BUTTON that can carry
+     `.Clickable(hit, _ => state.Popover.Toggle())`, and a hand-drawn button has no node to carry it. The
+     183 lines are menu CONTENT and per-action behaviour; declaring the menu relocates them next to the
+     button, it does not remove them. Same for `PumpHelpPanel`, whose anchor is `_helpAnchor` off the same
+     painted rect.
+  3. **What IS available now is the menu migration, and it ADDS lines.** All four `DropdownMenuState`
+     instances (filter name, profile, live-session mode, and the viewer toolbar -- which is also the help
+     panel, same state with different content) move from `RenderDropdownMenu` to
+     `Layout.Builder.Dropdown`. Branch `refactor/dropdown-as-declaration`, pushed, +80/-37. Each site now
+     states its own anchor rect and `maxHeight` because `RenderDropdownMenu` computed both internally and
+     a `Builder` call has no viewport to derive them from. **`maxHeight` is not cosmetic:** it is the
+     clamp to the space between anchor and bottom edge, and it is what engages the scroll on a long menu.
+
+  So the item's real payoff is deferred to **D2**: with zero consumers left, `RenderDropdownMenu` -- 127
+  lines, a ten-parameter signature and a "must be called LAST in the render pass" obligation -- becomes
+  cuttable. Trading +43 lines here for that cut is a good trade; it is not the deletion this entry
+  claimed.
   **Two things that half learned, and a T3 session will hit both:**
   1. **`.Disabled(reason)` STRIPS a handler; it does not create a region.** A row declared disabled without
      a `Hit` registers nothing, so its press falls through to the backdrop and DISMISSES the menu -- the
