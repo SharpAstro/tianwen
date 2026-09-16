@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Numerics;
@@ -290,6 +291,18 @@ public partial class Image
         var focalLength = (int)Math.Round(hdu.Header.GetDoubleValue("FOCALLEN",
             hdu.Header.GetDoubleValue("FOCLEN", -1.0)));
         var aperture = hdu.Header.GetIntValue("APTDIA", -1);
+        // DATASEC / BIASSEC are IRAF section strings, 1-based and inclusive; FitsSection is the one
+        // place that convention is converted. TRIMSEC is accepted as DATASEC's synonym only when
+        // DATASEC is absent: where both exist they can differ (TRIMSEC is what a pipeline chose to
+        // keep, DATASEC what the detector says is lit), and the detector's answer is the one meant
+        // here. An unparseable card reads as absent rather than throwing: a malformed section is a
+        // fact about somebody else's writer, and it must not stop the frame being read.
+        var dataSection = FitsSection.TryParse(hdu.Header.GetStringValue("DATASEC"), out var parsedData)
+            ? parsedData
+            : FitsSection.TryParse(hdu.Header.GetStringValue("TRIMSEC"), out var parsedTrim) ? parsedTrim : null as Rectangle?;
+        var biasSection = FitsSection.TryParse(hdu.Header.GetStringValue("BIASSEC"), out var parsedBias)
+            ? parsedBias
+            : null as Rectangle?;
         var focusPos = hdu.Header.GetIntValue("FOCUSPOS", hdu.Header.GetIntValue("FOCPOS", -1));
         var filterName = hdu.Header.GetStringValue("FILTER");
         var filterClassName = hdu.Header.GetStringValue("FILTCLAS");
@@ -427,7 +440,7 @@ public partial class Image
             Guiding: guiding,
             Airmass: airmass
         )
-        { IsMaster = isMaster };
+        { IsMaster = isMaster, DataSection = dataSection, BiasSection = biasSection };
     }
 
     /// <summary>
@@ -887,6 +900,18 @@ public partial class Image
         {
             AddHeaderValueIfHasValue("FOCUSPOS", imageMeta.FocusPos, "steps");
             AddHeaderValueIfHasValue("FOCPOS", imageMeta.FocusPos, "steps");
+        }
+        // Written only when the frame actually declares one: an absent section means "the whole
+        // raster", so stamping the full frame on every file would turn a fact into noise and make
+        // the cards useless for telling a cropped frame from an uncropped one. TRIMSEC is not
+        // written at all, having no meaning until something here trims.
+        if (imageMeta.DataSection is { } dataSection)
+        {
+            AddHeaderValueIfHasValue("DATASEC", FitsSection.Format(dataSection), "lit sub-raster, 1-based inclusive");
+        }
+        if (imageMeta.BiasSection is { } biasSection)
+        {
+            AddHeaderValueIfHasValue("BIASSEC", FitsSection.Format(biasSection), "shielded strip, 1-based inclusive");
         }
         // FILTER = full manufacturer name (NINA convention), FILTCLAS = coarse classification
         AddHeaderValueIfHasValue("FILTER", imageMeta.Filter.FilterNameForFits, "");
