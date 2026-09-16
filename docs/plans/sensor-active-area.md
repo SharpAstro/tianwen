@@ -321,6 +321,43 @@ the first attempt afterwards.
 
 ## The first frame after `InitQHYCCD` is not like the others (2026-09-16)
 
+> **EVERYTHING IN THIS SECTION IS PROVISIONAL AND WAS TAKEN ON AN UNPOWERED BODY.** The QHY178M was
+> connected over USB with no 12 V supply, and **a QHY is essentially undefined without it** (owner),
+> so re-take the whole sequence on a powered body before trusting any number. The same doubt does
+> NOT extend to the P1 geometry read above, which is a static capability query. The cooler
+> commanding 255 PWM it cannot deliver is one visible consequence.
+>
+> **The DDR comparison below is void, and not for the reason first recorded.** `CONTROL_DDR` accepts
+> a write and reads back 0, which was taken first for "DDR is off" and then for "the write did not
+> latch, so it was off against off". **The SDK manual says otherwise and both readings were wrong:**
+> *"In single-frame mode, DDR is enabled by default, but cannot be disabled. In continuous mode, DDR
+> can be enabled or disabled as required."* The probe runs `SetQHYCCDStreamMode(handle, 0)`, which
+> IS single-frame, so **DDR was forced ON throughout and the comparison was on against on**. The
+> read-back of 0 is the getter not reflecting a forced state. The manual also says to set it AFTER
+> `InitQHYCCD`, which makes the "does it latch pre-init?" test meaningless as well. Three wrong
+> inferences in a row, each from measurement without the manual; the driver's own `EnableDDR = 1` is
+> correct as written, a no-op in single-frame mode and load-bearing in continuous.
+>
+> **USB traffic, by contrast, latches and works**, which is what says the camera is functioning
+> rather than undefined: 0, 10, 30, 50, 60 all read back, and the wall time per frame rises
+> monotonically 1175, 1396, 1941, 2383, 2633 ms at a 200 ms exposure, so it is all transfer and
+> higher is slower and safer, exactly QHY's convention.
+>
+> **And the leading explanation is now AMP GLOW, not a black level at all** (owner's suggestion,
+> supported by the numbers already taken). Across a jump the MEDIAN more than doubles, 16 to 40,
+> while the MIN stays at 4 and the MAX at 65528. A bias step would carry the floor with it and does
+> not: the bulk of the distribution moves and the floor is pinned, which is a broad spatial glow
+> rather than an offset. `CONTROL_AMPV`, which the manual calls amp glow on/off,
+> reads 0 of a 0 to 2 range and nothing sets it.
+>
+> **Then the spatial test REFUTED it.** Differencing a post-jump frame against a pre-jump one gives
+> **exactly +16.00 ADU in every ninth of the frame and every column tenth**: spatially flat to the
+> precision of a median, where this body's amp glow sits right of centre. So it is a uniform offset
+> step after all, and the min/max argument that suggested a glow was bad statistics, the minimum and
+> maximum over 6.3 million pixels being extreme order statistics that say nothing about a 16 ADU
+> shift. `AMPV` is still worth sweeping on the powered re-test, since nothing sets it, but it is not
+> this.
+
 Chasing the owner's long-standing report that this camera "randomly doesn't show frames, or old
 frames, or super bright frames and then dim frames", `QhyDarkSequenceProbe` takes a dark sequence
 and reads each frame's level AND a digest, because a REPEAT (a stale buffer handed back twice) and a
@@ -385,9 +422,10 @@ sequences that happened to be taken, and a settling frame cannot protect against
 arrives later. Three further readings. The levels are **quantised in steps of 4** and wander between
 a handful of discrete states (8, 12, 16, 20, 36, 40) both within a connect and between connects at
 identical gain, offset and exposure. The jump is **one-way within a run**, always upward, never back.
-And **the DDR buffer makes no difference**: five repeats each read 2 of 5 excursions with it on and
-1 of 5 with it off, indistinguishable at that count, so the buffer is worth having for the USB-stall
-failure it is actually for and is not this.
+And **the DDR buffer is not the cause**, though not by the comparison first attempted: five repeats
+each read 2 of 5 excursions and 1 of 5, but both arms were single-frame mode where the manual says
+DDR is forced ON and cannot be disabled, so that was on against on. What it does show is that the
+excursions happen WITH the buffer enabled, which is enough to exclude it.
 
 **So the owner's first instinct was right and the fix is the one this plan is about.** An unstable
 black level that can move at any frame is exactly what a PER-FRAME reference corrects and what a
