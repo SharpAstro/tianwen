@@ -891,55 +891,6 @@ namespace TianWen.UI.Abstractions
 
             state.MouseScreenPosition = (px, py);
 
-            // Unified hit test: OnClick handlers fire for self-contained actions (e.g. HistogramLog).
-            // A control that arms its OWN drag from the region it painted (the split divider) has
-            // already done so by the time this returns -- which is why there is no branch for it below,
-            // in either of the viewer's two press dispatchers.
-            var hit = HitTestAndDispatch(px, py);
-
-            if (hit is HitResult.ButtonHit { Action: var action } && Enum.TryParse<ToolbarAction>(action, out var toolbarAction))
-            {
-                var button = evt is InputEvent.MouseDown b ? b.Button : MouseButton.Left;
-                PressToolbarButton(state, toolbarAction, button);
-                return true;
-            }
-
-            if (hit is ResizeHandleHit { Id: "FileList" })
-            {
-                state.IsResizingFileList = true;
-                state.NeedsRedraw = true;
-                return true;
-            }
-
-            if (hit is TransportScrubHit)
-            {
-                BeginScrubAt(px);
-                return true;
-            }
-
-
-            // A declared slider arms its own drag from the rect it was painted into. ONE branch for
-            // every Content.Slider leaf in the viewer, where the tone dials and the white-balance
-            // channels used to have a hit type, a state flag and a branch each.
-            if (hit is HitResult.SliderStateHit)
-            {
-                var (button, mods, clicks) = evt is InputEvent.MouseDown d
-                    ? (d.Button, d.Modifiers, d.ClickCount)
-                    : (MouseButton.Left, InputModifier.None, 1);
-                TryBeginRegionDrag(px, py, button, mods, clicks);
-                return true;
-            }
-
-            // A file-list row is registered as a region but is NOT claimed here: it carries no OnClick,
-            // and the press has to continue to the scroll controller below or drag-to-scroll dies and
-            // nothing ever selects (the tap is taken on RELEASE). Excluded by TYPE rather than by
-            // rebuilding the pane's geometry here -- the whole reason the row registers a region is so
-            // that this file does not own a second copy of where the rows are.
-            if (hit is not null && hit is not HitResult.ListItemHit { ListId: FileListId })
-            {
-                return true; // OnClick already handled it (e.g. HistogramLog, PlayPause)
-            }
-
             // Unclaimed press over the file list falls through to the scroll controller (viewport-gated):
             // arms drag-to-scroll / grabs the thumb. Select fires on the tap RELEASE (TakeAtomTap in
             // HandleViewerMouseUp), so a touch drag scrolls instead of selecting the row under the finger.

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -198,8 +198,9 @@ namespace TianWen.Lib.Tests
         /// <summary>Presses and releases at the same point: a tap, not a drag.</summary>
         private static void TapAt(SelectionViewer viewer, float x, float y)
         {
-            viewer.HandleInput(new InputEvent.MouseDown(x, y));
-            viewer.HandleInput(new InputEvent.MouseUp(x, y));
+            ViewerKeyRouting.Route(viewer,
+                new InputEvent.MouseDown(x, y),
+                new InputEvent.MouseUp(x, y));
         }
 
         /// <summary>Where the frame's reference pixel is on screen -- i.e. where the object is.</summary>
@@ -255,9 +256,10 @@ namespace TianWen.Lib.Tests
             viewer.Render(document, state);
             var (x, y) = ObjectOnScreen(viewer, state);
 
-            viewer.HandleInput(new InputEvent.MouseDown(x, y));
-            viewer.HandleInput(new InputEvent.MouseMove(x + 60f, y + 40f));
-            viewer.HandleInput(new InputEvent.MouseUp(x + 60f, y + 40f));
+            ViewerKeyRouting.Route(viewer,
+                new InputEvent.MouseDown(x, y),
+                new InputEvent.MouseMove(x + 60f, y + 40f),
+                new InputEvent.MouseUp(x + 60f, y + 40f));
 
             state.SelectedObject.ShouldBeNull("a drag is a pan, not a question about what is under it");
         }

@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using DIR.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Devices;
@@ -90,10 +90,6 @@ namespace TianWen.UI.Abstractions
         /// <inheritdoc/>
         public override HitResult? HitTest(float x, float y)
             => PaintedSkyBackdrop?.HitTest(x, y) ?? base.HitTest(x, y);
-
-        /// <inheritdoc/>
-        public override HitResult? HitTestAndDispatch(float x, float y, InputModifier modifiers = InputModifier.None)
-            => PaintedSkyBackdrop?.HitTestAndDispatch(x, y, modifiers) ?? base.HitTestAndDispatch(x, y, modifiers);
 
         /// <inheritdoc/>
         public override CursorKind? HitTestCursor(float x, float y)

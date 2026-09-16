@@ -1,4 +1,4 @@
-using DIR.Lib;
+﻿using DIR.Lib;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 
@@ -30,6 +30,20 @@ internal static class ViewerKeyRouting
             Widgets = () => [viewer],
             Unhandled = viewer.HandleInput,
         };
+
+    /// <summary>
+    /// A whole gesture through ONE router, which is what makes press / move / release a gesture rather
+    /// than three unrelated events: the capture a press arms lives on the router, so a fresh one per
+    /// event would drop the drag between them.
+    /// </summary>
+    internal static void Route(IPixelWidget viewer, params InputEvent[] events)
+    {
+        var router = RouterFor(viewer);
+        foreach (var evt in events)
+        {
+            router.Handle(evt);
+        }
+    }
 
     /// <summary>One key, routed.</summary>
     internal static void RouteKey(IPixelWidget viewer, InputKey key, InputModifier modifiers = InputModifier.None)
