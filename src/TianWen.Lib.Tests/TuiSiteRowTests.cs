@@ -48,12 +48,23 @@ namespace TianWen.Lib.Tests
 
         private static TextInputState Field(string text) => new TextInputState { Text = text };
 
+        /// <summary>
+        /// Gives a field the keyboard the one way there is. DIR.Lib 10.0 made <c>Activate</c> and the
+        /// <c>IsActive</c> setter internal, which is what makes the distinction this class is ABOUT --
+        /// seeded versus focused -- unstateable any other way.
+        /// </summary>
+        private static TextInputState Focus(TextInputState field)
+        {
+            new TextInputFocus().Focus(field);
+            return field;
+        }
+
         /// <summary>Arranges and paints the row, returning the painted line and where the caret was parked.</summary>
         private static (string Row, int? Caret) Paint(int focusedIndex, int cursorPos,
             string lat = "33.8", string lon = "151.2", string elev = "58")
         {
             var fields = new[] { Field(lat), Field(lon), Field(elev) };
-            fields[focusedIndex].Activate();
+            Focus(fields[focusedIndex]);
             fields[focusedIndex].CursorPos = cursorPos;
 
             var buffer = new CellBuffer { ColorMode = ColorMode.TrueColor };
@@ -197,7 +208,7 @@ namespace TianWen.Lib.Tests
             var lat = Field("33.8");
             var lon = Field("151.2");
             var elev = Field("58");
-            lon.Activate();
+            Focus(lon);
 
             var buffer = new CellBuffer { ColorMode = ColorMode.TrueColor };
             buffer.Resize(Width, 1);

@@ -5,7 +5,7 @@ using TianWen.UI.Abstractions;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Sends a key to a viewer the way its HOSTS send one: through <see cref="InputRouter"/>.
+/// Sends input to a widget the way its HOSTS send it: through <see cref="InputRouter"/>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -21,7 +21,7 @@ namespace TianWen.Lib.Tests;
 /// same question about the same path.
 /// </para>
 /// </remarks>
-internal static class ViewerKeyRouting
+internal static class UiRouting
 {
     /// <summary>A router over one viewer, with everything the router declines falling back to it.</summary>
     internal static InputRouter RouterFor(IPixelWidget viewer)
@@ -48,4 +48,18 @@ internal static class ViewerKeyRouting
     /// <summary>One key, routed.</summary>
     internal static void RouteKey(IPixelWidget viewer, InputKey key, InputModifier modifiers = InputModifier.None)
         => RouterFor(viewer).Handle(new InputEvent.KeyDown(key, modifiers));
+
+    /// <summary>
+    /// One press, routed. Returns whether it was consumed -- which a region under the pointer does
+    /// whether or not a handler ran, so it does not answer "did something happen". Ask
+    /// <see cref="IPixelWidget.HitTest"/> for WHAT is there and the state for what it DID.
+    /// </summary>
+    /// <remarks>
+    /// This is what <c>HitTestAndDispatch</c> spelled before DIR.Lib 10.0 retired it. The widening from
+    /// keys to presses is the same move the hosts made: a press walk written beside the router is a second
+    /// dispatcher over the same rects, and a test driving one is not testing the path that runs.
+    /// </remarks>
+    internal static bool RoutePress(IPixelWidget widget, float x, float y,
+        MouseButton button = MouseButton.Left, InputModifier modifiers = InputModifier.None, int clicks = 1)
+        => RouterFor(widget).Handle(new InputEvent.MouseDown(x, y, button, modifiers, clicks));
 }

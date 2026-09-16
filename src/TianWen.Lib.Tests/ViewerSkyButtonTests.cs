@@ -218,7 +218,7 @@ namespace TianWen.Lib.Tests
             viewer.TryGetPaintedToolbarRect(ToolbarAction.SkyBackdrop, out var rect).ShouldBeTrue();
             var (cx, cy) = (rect.X + (rect.Width / 2f), rect.Y + (rect.Height / 2f));
 
-            ViewerKeyRouting.Route(viewer,
+            UiRouting.Route(viewer,
                 new InputEvent.MouseDown(cx, cy),
                 new InputEvent.MouseUp(cx, cy));
             state.ShowSkyBackdrop.ShouldBeTrue("the button is the affordance for the same one line Y runs");
@@ -227,7 +227,7 @@ namespace TianWen.Lib.Tests
             viewer.IsToolbarButtonActiveForTest(ToolbarAction.SkyBackdrop, state)
                 .ShouldBeTrue("and it lights while the sky is wanted");
 
-            ViewerKeyRouting.Route(viewer,
+            UiRouting.Route(viewer,
                 new InputEvent.MouseDown(cx, cy),
                 new InputEvent.MouseUp(cx, cy));
             state.ShowSkyBackdrop.ShouldBeFalse("a second press puts it away");

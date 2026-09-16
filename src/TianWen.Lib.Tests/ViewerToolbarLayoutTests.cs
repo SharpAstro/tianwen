@@ -255,7 +255,7 @@ namespace TianWen.Lib.Tests
             var seen = new System.Collections.Generic.List<(ToolbarAction Action, MouseButton Button)>();
             viewer.ToolbarPressPolicy = (_, action, button) => seen.Add((action, button));
 
-            ViewerKeyRouting.RouterFor(viewer).Handle(new InputEvent.MouseDown(
+            UiRouting.RouterFor(viewer).Handle(new InputEvent.MouseDown(
                 rect.X + rect.Width / 2f, rect.Y + rect.Height / 2f, MouseButton.Right));
 
             seen.ShouldBe([(ToolbarAction.Shortcuts, MouseButton.Right)],

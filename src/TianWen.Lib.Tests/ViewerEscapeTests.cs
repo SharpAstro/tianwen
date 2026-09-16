@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using DIR.Lib;
@@ -61,8 +62,9 @@ namespace TianWen.Lib.Tests
 
             protected override HistogramDisplay? GetHistogramDisplay() => null;
 
-            /// <summary>Who owns the keyboard, per the shared per-window settings.</summary>
-            public IKeyboardClaimant? ClaimantForTest => Ui.KeyboardClaimant;
+            /// <summary>What owns the keyboard, per the shared per-window settings: the popovers this
+            /// frame painted, topmost last. One slot until DIR.Lib 10.0, a stack since.</summary>
+            public IReadOnlyList<PopoverState> PaintedPopoversForTest => Ui.PaintedPopovers;
         }
 
         private static (EscapeViewer Viewer, ViewerState State, SignalBus Bus, Func<int> Exits) NewViewer()
@@ -78,8 +80,8 @@ namespace TianWen.Lib.Tests
 
         private static void Escape(EscapeViewer viewer, SignalBus bus)
         {
-            // Routed, because that is how every host sends a key -- see ViewerKeyRouting.
-            ViewerKeyRouting.RouteKey(viewer, InputKey.Escape);
+            // Routed, because that is how every host sends a key -- see UiRouting.
+            UiRouting.RouteKey(viewer, InputKey.Escape);
             bus.ProcessPending();
         }
 
@@ -102,7 +104,8 @@ namespace TianWen.Lib.Tests
             viewer.Render(null, state);
 
             OpenAPanel(viewer, state);
-            viewer.ClaimantForTest.ShouldNotBeNull("painting the menu is what claims the keyboard");
+            viewer.PaintedPopoversForTest.ShouldContain(state.ToolbarDropdown.Popover,
+                "painting the menu is what claims the keyboard");
 
             Escape(viewer, bus);
 
