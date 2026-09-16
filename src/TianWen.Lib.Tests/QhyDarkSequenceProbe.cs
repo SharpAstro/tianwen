@@ -44,6 +44,9 @@ public class QhyDarkSequenceProbe(ITestOutputHelper output)
     private double SettleMs { get; set; }
     private double? Ddr { get; set; }
     private double? UsbTraffic { get; set; }
+    /// <summary>QHY's glow/amplifier control. 1 ENABLES suppression per the SDK manual; this
+    /// body reads 0 and nothing in TianWen ever sets it.</summary>
+    private double? Ampv { get; set; }
     /// <summary>A cooler setpoint in Celsius. WRITES cooling, so it needs its own gate.</summary>
     private double? CoolerC { get; set; }
     private int CoolWaitSeconds { get; set; } = 180;
@@ -124,6 +127,7 @@ public class QhyDarkSequenceProbe(ITestOutputHelper output)
         SettleMs = double.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_SETTLE_MS"), out var s) ? s : 0.0;
         Ddr = double.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_DDR"), out var d) ? d : null;
         UsbTraffic = double.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_USBTRAFFIC"), out var u) ? u : null;
+        Ampv = double.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_AMPV"), out var av) ? av : null;
         // Cooling is gated SEPARATELY, because it writes a setpoint that outlives the process.
         CoolerC = Environment.GetEnvironmentVariable("TIANWEN_QHY_COOLER_PROBE") == "1"
                   && double.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_COOLER_C"), out var c) ? c : null;
@@ -428,6 +432,13 @@ public class QhyDarkSequenceProbe(ITestOutputHelper output)
                     + $"reads back {GetQHYCCDParam(handle, CONTROL_ID.CONTROL_USBTRAFFIC):F0}");
             }
 
+            if (Ampv is { } ampv)
+            {
+                var accepted = SetQHYCCDParam(handle, CONTROL_ID.CONTROL_AMPV, ampv) is Success;
+                output.WriteLine($"AMPV set to {ampv:F0} ({(accepted ? "accepted" : "REFUSED")}), "
+                    + $"reads back {GetQHYCCDParam(handle, CONTROL_ID.CONTROL_AMPV):F0}");
+            }
+
             // Set, then READ BACK. A value outside the camera's range is clamped or refused rather
             // than reported, so a run labelled by what it ASKED for can be a run at settings nobody
             // chose: asking this body for gain 60 when its maximum is 51 produced exactly that, and
@@ -471,13 +482,19 @@ public class QhyDarkSequenceProbe(ITestOutputHelper output)
                 + $"{width} x {height}, buffer {bufferLength / 1024} KiB");
             output.WriteLine($"written to {dir}");
             output.WriteLine("");
-            output.WriteLine($"{"#",3} {"ms",6} {"median",8} {"min",7} {"max",8} {"mean",9} {"digest",10}  note");
+            output.WriteLine($"{"#",3} {"ms",6} {"median",8} {"min",7} {"max",8} {"mean",9} "
+                + $"{"tempC",6} {"pwm",5} {"digest",10}  note");
 
             try
             {
                 var rows = new List<(int Index, double Median, double Mean, ushort Min, ushort Max, string Digest)>();
                 for (var i = 0; i < frames; i++)
                 {
+                    // The sensor temperature AT CAPTURE, not from the setup. An intermittent level
+                    // excursion that coincides with a temperature or PWM blip is a different animal
+                    // from one that does not, and without these columns the two cannot be told apart.
+                    var frameTemp = GetQHYCCDParam(handle, CONTROL_ID.CONTROL_CURTEMP);
+                    var framePwm = GetQHYCCDParam(handle, CONTROL_ID.CONTROL_CURPWM);
                     var started = DateTime.UtcNow;
                     var exp = ExpQHYCCDSingleFrame(handle);
                     if (exp is not Success and not ReadDirectly)
@@ -511,8 +528,11 @@ public class QhyDarkSequenceProbe(ITestOutputHelper output)
                     var repeat = rows.Count > 0 && rows[^1].Digest == digest;
                     rows.Add((i, median, mean, sorted[0], sorted[^1], digest));
 
-                    output.WriteLine($"{i,3} {elapsed,6:F0} {median,8} {sorted[0],7} {sorted[^1],8} {mean,9:F2} {digest,10}"
-                        + (repeat ? "  REPEAT of the previous frame (stale buffer)" : ""));
+                    var excursion = rows.Count > 0 && Math.Abs(median - rows[^1].Median) > 4;
+                    output.WriteLine($"{i,3} {elapsed,6:F0} {median,8} {sorted[0],7} {sorted[^1],8} {mean,9:F2} "
+                        + $"{frameTemp,6:F1} {framePwm,5:F0} {digest,10}"
+                        + (repeat ? "  REPEAT of the previous frame (stale buffer)"
+                           : excursion ? $"  <== LEVEL JUMPED {median - rows[^1].Median:+0;-0} ADU" : ""));
 
                     WriteFrame(dir, i, pixels, (int)w, (int)h, channels, bpp);
                 }

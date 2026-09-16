@@ -1,5 +1,5 @@
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Globalization;
 
 namespace TianWen.Lib.Imaging;
@@ -9,7 +9,7 @@ namespace TianWen.Lib.Imaging;
 /// the ONE place its convention is converted.
 /// </summary>
 /// <remarks>
-/// <para><b>A section is 1-based and INCLUSIVE at both ends; a <see cref="Rectangle"/> is 0-based
+/// <para><b>A section is 1-based and INCLUSIVE at both ends; a <see cref="PixelRect"/> is 0-based
 /// with an exclusive width.</b> <c>[1:16,1:8]</c> is the first sixteen columns of the first eight
 /// rows, and lands as <c>X = 0, Y = 0, Width = 16, Height = 8</c>. This is the same trap as CRPIX,
 /// which is why it is converted here and nowhere else: the two conventions differ by one in the
@@ -34,13 +34,13 @@ namespace TianWen.Lib.Imaging;
 public static class FitsSection
 {
     /// <summary>
-    /// Parses <c>[x1:x2,y1:y2]</c> into a 0-based <see cref="Rectangle"/>. The brackets are optional
+    /// Parses <c>[x1:x2,y1:y2]</c> into a 0-based <see cref="PixelRect"/>. The brackets are optional
     /// (some writers omit them) and a third axis, legal on a cube, is accepted and ignored: the
     /// spatial rectangle is what a section means to every consumer here. A strided section
     /// (<c>x1:x2:step</c>) is REFUSED rather than silently read as its bounds, since a stride is not
     /// a rectangle and quietly dropping it would hand back a region the file does not describe.
     /// </summary>
-    public static bool TryParse(string? value, out Rectangle section)
+    public static bool TryParse(string? value, out PixelRect section)
     {
         section = default;
         if (string.IsNullOrWhiteSpace(value))
@@ -65,13 +65,13 @@ public static class FitsSection
             return false;
         }
 
-        section = new Rectangle(x1 - 1, y1 - 1, x2 - x1 + 1, y2 - y1 + 1);
+        section = new PixelRect(x1 - 1, y1 - 1, x2 - x1 + 1, y2 - y1 + 1);
         return true;
     }
 
     /// <summary>The 1-based inclusive section string for a 0-based rectangle, as a FITS card value.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The rectangle is empty or starts before the origin.</exception>
-    public static string Format(Rectangle section)
+    public static string Format(PixelRect section)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(section.X, 0);
         ArgumentOutOfRangeException.ThrowIfLessThan(section.Y, 0);
@@ -100,4 +100,5 @@ public static class FitsSection
         // read, and is refused here for the same reason a stride is: it is not this rectangle.
         return lo >= 1 && hi >= lo;
     }
+
 }

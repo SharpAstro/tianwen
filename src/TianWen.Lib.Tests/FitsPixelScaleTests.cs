@@ -1,8 +1,8 @@
-﻿using nom.tam.fits;
+using nom.tam.fits;
 using nom.tam.util;
 using Shouldly;
 using System;
-using System.Drawing;
+using TianWen.Lib.Geometry;
 using System.Threading.Tasks;
 using System.IO;
 using TianWen.Lib.Astrometry;
@@ -163,8 +163,8 @@ public class FitsPixelScaleTests
         // here on without anyone extending it.
         var testDir = SharedTestData.CreateTempTestOutputDir();
         var withSections = Path.Combine(testDir, "sections.fits");
-        var data = new Rectangle(24, 0, 4176, 2795);
-        var bias = new Rectangle(0, 0, 24, 2795);
+        var data = new PixelRect(24, 0, 4176, 2795);
+        var bias = new PixelRect(0, 0, 24, 2795);
         ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN) with
         {
             DataSection = data,
@@ -187,6 +187,43 @@ public class FitsPixelScaleTests
     }
 
     [Fact]
+    public void TheFrameSequenceSurvivesTheRoundTripAndAnUnsourcedCountReadsAsTheWeakerClaim()
+    {
+        var testDir = SharedTestData.CreateTempTestOutputDir();
+        var counted = Path.Combine(testDir, "frameseq.fits");
+        ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN) with
+        {
+            FrameSequence = 42,
+            FrameCounterSource = FrameCounterSource.Software,
+        }).WriteToFitsFile(counted);
+
+        Image.TryReadFitsHeader(counted, out var read).ShouldBeTrue();
+        read.Meta.FrameSequence.ShouldBe(42);
+        read.Meta.FrameCounterSource.ShouldBe(FrameCounterSource.Software);
+
+        // Absent must stay -1 and None. Defaulting an uncounted frame to 0 would make it look like
+        // the FIRST frame after an open, which is precisely the frame a dark integrator is looking
+        // for, so the default would manufacture the thing the card exists to identify.
+        var uncounted = Path.Combine(testDir, "no-frameseq.fits");
+        ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN)).WriteToFitsFile(uncounted);
+
+        Image.TryReadFitsHeader(uncounted, out var plain).ShouldBeTrue();
+        plain.Meta.FrameSequence.ShouldBe(-1);
+        plain.Meta.FrameCounterSource.ShouldBe(FrameCounterSource.None);
+
+        // A number with no SEQSRC reads as SOFTWARE, never as hardware: only a hardware counter can
+        // skip, so "software" leaves a consumer at "cannot tell whether a frame was dropped" while
+        // "hardware" would let it conclude none were. The weaker claim is the safe default.
+        var unsourced = Path.Combine(testDir, "frameseq-no-source.fits");
+        ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN)).WriteToFitsFile(unsourced);
+        AddIntegerCards(unsourced, ("FRAMESEQ", 7));
+
+        Image.TryReadFitsHeader(unsourced, out var noSource).ShouldBeTrue();
+        noSource.Meta.FrameSequence.ShouldBe(7);
+        noSource.Meta.FrameCounterSource.ShouldBe(FrameCounterSource.Software);
+    }
+
+    [Fact]
     public void TrimsecStandsInForDatasecOnlyWhenTheFrameDeclaresNoDatasec()
     {
         // Where both exist they can differ, TRIMSEC being what a pipeline chose to keep and DATASEC
@@ -197,14 +234,14 @@ public class FitsPixelScaleTests
         AddCards(path, ("TRIMSEC", "[9:40,3:6]"));
 
         Image.TryReadFitsHeader(path, out var viaTrim).ShouldBeTrue();
-        viaTrim.Meta.DataSection.ShouldBe(new Rectangle(8, 2, 32, 4));
+        viaTrim.Meta.DataSection.ShouldBe(new PixelRect(8, 2, 32, 4));
 
         var both = Path.Combine(testDir, "trimsec-and-datasec.fits");
         ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN)).WriteToFitsFile(both);
         AddCards(both, ("TRIMSEC", "[9:40,3:6]"), ("DATASEC", "[5:36,1:8]"));
 
         Image.TryReadFitsHeader(both, out var viaData).ShouldBeTrue();
-        viaData.Meta.DataSection.ShouldBe(new Rectangle(4, 0, 32, 8));
+        viaData.Meta.DataSection.ShouldBe(new PixelRect(4, 0, 32, 8));
     }
 
     [Fact]
@@ -226,6 +263,26 @@ public class FitsPixelScaleTests
     /// <summary>Adds string cards to an existing FITS file's first image HDU, so a test can pin how a
     /// card written by OTHER software reads without this writer having to be able to emit it.</summary>
     private static void AddCards(string path, params (string Key, string Value)[] cards)
+        => MutateFirstImageHeader(path, header =>
+        {
+            foreach (var (key, value) in cards)
+            {
+                header.AddValue(key, value, "");
+            }
+        });
+
+    /// <summary>The same, for cards that must be written as NUMBERS: a numeric card read back as a
+    /// string is a different fact, and the integer getters do not coerce one into the other.</summary>
+    private static void AddIntegerCards(string path, params (string Key, long Value)[] cards)
+        => MutateFirstImageHeader(path, header =>
+        {
+            foreach (var (key, value) in cards)
+            {
+                header.AddValue(key, value, "");
+            }
+        });
+
+    private static void MutateFirstImageHeader(string path, Action<Header> mutate)
     {
         // An HDU's image data is tiled lazily off the stream it was read from, so the SOURCE must
         // still be open when the copy is written; and the destination cannot be the same file while
@@ -234,10 +291,7 @@ public class FitsPixelScaleTests
         using (var source = new BufferedFile(path, FileAccess.Read, FileShare.Read, 4 * 2880))
         {
             var hdus = new Fits(source).Read();
-            foreach (var (key, value) in cards)
-            {
-                hdus[0].Header.AddValue(key, value, "");
-            }
+            mutate(hdus[0].Header);
 
             var rewritten = new Fits();
             foreach (var hdu in hdus)

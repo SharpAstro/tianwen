@@ -138,7 +138,13 @@ public class QhyCoolerPersistenceProbe(ITestOutputHelper output)
                     + $"pwm {GetQHYCCDParam(handle, CONTROL_ID.CONTROL_CURPWM),5:F0}", progress);
             }
 
-            SetQHYCCDParam(handle, CONTROL_ID.CONTROL_COOLER, -100);
+            // Manual mode at zero duty is the SDK's actual "stop cooling" (the manual: CONTROL_COOLER
+            // is "Set cooler target temperature" and CONTROL_MANULPWM is "Set cooler PWM"). This used
+            // to write -100 to CONTROL_COOLER, which is not a documented off switch at all but an
+            // out-of-range TEMPERATURE, and the one reading immediately after it came back at a
+            // physically impossible -22.5 C. Every reading since has been sane, so that remains an
+            // open question rather than a finding, but there is no reason to keep asking it.
+            SetQHYCCDParam(handle, CONTROL_ID.CONTROL_MANULPWM, 0);
             Thread.Sleep(5000);
             Log($"cooler released; sensor {GetQHYCCDParam(handle, CONTROL_ID.CONTROL_CURTEMP):F1} C, "
                 + $"pwm {GetQHYCCDParam(handle, CONTROL_ID.CONTROL_CURPWM):F0}. Safe to unplug.", progress);

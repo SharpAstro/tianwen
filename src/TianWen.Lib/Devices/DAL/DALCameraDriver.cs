@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -24,6 +24,30 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
     private CameraSettings _cameraSettings;
     private CameraSettings _exposureSettings;
     private ExposureData? _exposureData;
+
+    /// <summary>
+    /// Frames started since this camera was opened; -1 until the first one. Reset in
+    /// <see cref="InitCamera"/>, which runs on every connect, so it counts per OPEN and not per
+    /// process: re-opening the same body starts again at 0, which is the whole point of it.
+    /// </summary>
+    /// <remarks>
+    /// <para>Incremented when an exposure STARTS rather than when it is read out, so the ordinal is
+    /// fixed for the whole exposure and is already answerable while the frame is in flight. A frame
+    /// that starts and then fails to read out therefore consumes its number, which is the honest
+    /// record of what the camera was asked to do.</para>
+    /// <para>Counting here and not in each concrete driver is what makes it true for ZWO and QHY
+    /// alike; see <see cref="ICameraDriver.FrameSequence"/> for why it exists at all.</para>
+    /// </remarks>
+    private long _frameSequence = -1;
+
+    /// <summary>
+    /// What the SENSOR says about its own geometry, in unbinned photosites from the readout origin,
+    /// read once per connect. Null when the body declares none, which is the common case.
+    /// </summary>
+    private Geometry.PixelRect? _sensorEffectiveArea;
+
+    /// <summary>The shielded strip in the same coordinates, null when the body exposes none.</summary>
+    private Geometry.PixelRect? _sensorOverscanArea;
     private IReadOnlySet<BitDepth> _supportedBitDepth = ImmutableHashSet.Create<BitDepth>();
 
     /// <summary>
@@ -533,6 +557,20 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
             GainMax = short.MinValue;
         }
 
+        // A fresh open is a fresh sequence: this runs on every connect, and the first frames after an
+        // open are exactly what the number exists to identify.
+        Interlocked.Exchange(ref _frameSequence, -1);
+
+        // Sensor geometry is a property of the BODY, so it is asked once per connect rather than per
+        // frame. Both are routinely absent (a QHY178M reports its effective area as the whole readout
+        // and an overscan of 0 x 0), and absent is a real answer, not a failure.
+        _sensorEffectiveArea = _deviceInfo.TryGetEffectiveArea(out var effX, out var effY, out var effW, out var effH)
+            ? new Geometry.PixelRect(effX, effY, effW, effH)
+            : null;
+        _sensorOverscanArea = _deviceInfo.TryGetOverscanArea(out var osX, out var osY, out var osW, out var osH)
+            ? new Geometry.PixelRect(osX, osY, osW, osH)
+            : null;
+
         var initControlValues = new Dictionary<CMOSControlType, int>
         {
             [CMOSControlType.Flip] = 0,
@@ -662,9 +700,14 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         {
             throw OperationalException(CMOSErrorCode.GeneralError, "Cooler set CCD temp is not supported");
         }
-        else if (_deviceInfo.GetControlValue(CMOSControlType.TargetTemperature, out var val, out _) is var code and not CMOSErrorCode.Success)
+        else if (_deviceInfo.GetControlValue(CMOSControlType.TargetTemperature, out var val, out _) is not CMOSErrorCode.Success)
         {
-            throw OperationalException(code, "Failed to get CCD temperature");
+            // NOT an error: a camera with no setpoint engaged has no target to report, which QHY
+            // signals by answering out of band. Throwing here would be counted as a driver fault by
+            // the resilience layer on EVERY telemetry poll and eventually trigger a spurious
+            // reconnect, so the honest answer is "unknown", which is what NaN means for this value
+            // everywhere it lands (ImageMeta.SetCCDTemperature, the cooling graph).
+            return ValueTask.FromResult(double.NaN);
         }
         else
         {
@@ -794,6 +837,68 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         return ValueTask.CompletedTask;
     }
 
+    /// <inheritdoc/>
+    public long FrameSequence => Interlocked.Read(ref _frameSequence);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Always <see cref="FrameCounterSource.Software"/>, and deliberately not conditional on the
+    /// camera's own capability. QHY does expose a hardware counter, but only as part of BURST mode
+    /// (<c>EnableQHYCCDBurstCountFun</c> plus <c>ResetQHYCCDFrameCounter</c>, a sub-mode of continuous
+    /// mode) and with no function anywhere in the SDK to read the value back, so there is nothing to
+    /// prefer here yet; ZWO offers none at all. Reporting Software is what keeps a consumer from
+    /// reading a dense sequence as proof that no frame was dropped.
+    /// </remarks>
+    public FrameCounterSource FrameCounterSource => FrameCounterSource.Software;
+
+    /// <inheritdoc/>
+    public Geometry.PixelRect? DataSection => PictureSection();
+
+    /// <inheritdoc/>
+    public Geometry.PixelRect? BiasSection => SectionForStoredFrame(_sensorOverscanArea);
+
+    private Geometry.PixelRect? PictureSection()
+    {
+        if (SectionForStoredFrame(_sensorEffectiveArea) is not { } area)
+        {
+            return null;
+        }
+
+        // An effective area equal to the whole readout states NOTHING, and must be reported as
+        // absent rather than as a full-frame section: the card's only job is to tell a frame with a
+        // shielded margin from one without, so stamping the whole raster on every file from a body
+        // that has no margin (a QHY178M reports exactly this, 3056 x 2048 with an empty overscan)
+        // would destroy the distinction it exists to make.
+        return area.X is 0 && area.Y is 0 && area.Width == _deviceInfo.MaxWidth && area.Height == _deviceInfo.MaxHeight
+            ? null
+            : area;
+    }
+
+    /// <summary>
+    /// Maps a sensor-stated area onto the frame actually being stored, or null when that mapping is
+    /// not certain.
+    /// </summary>
+    /// <remarks>
+    /// The sensor states its geometry in UNBINNED photosites from the readout's own origin, and only
+    /// a full-frame unbinned capture carries those coordinates onto the stored raster unchanged.
+    /// Under a bin or an ROI the mapping is a translate and a divide whose exact convention varies by
+    /// vendor and by which SDK call set the ROI, and <b>a section that is wrong is worse than one
+    /// that is absent</b>: absent means "the whole raster is the picture", which is what every
+    /// consumer already assumed, while a wrong one silently mislabels which pixels are lit and which
+    /// are the black reference. So this declares a section only where it is certain. Widening it
+    /// wants a body that actually exposes an overscan to measure against, which the QHY178M does not.
+    /// </remarks>
+    private Geometry.PixelRect? SectionForStoredFrame(Geometry.PixelRect? sensorArea)
+    {
+        var settings = _exposureSettings;
+        return sensorArea is { } area
+            && BinX is 1 && BinY is 1
+            && settings.StartX is 0 && settings.StartY is 0
+            && settings.Width == _deviceInfo.MaxWidth && settings.Height == _deviceInfo.MaxHeight
+            ? area
+            : null;
+    }
+
     public ValueTask<DateTimeOffset> StartExposureAsync(TimeSpan duration, FrameType frameType = FrameType.Light, CancellationToken cancellationToken = default)
     {
         var settingsSnapshot = _cameraSettings;
@@ -893,6 +998,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         if (startExposureErrorCode is CMOSErrorCode.Success)
         {
             _camState = CameraState.Exposing;
+            Interlocked.Increment(ref _frameSequence);
             var startTime = TimeProvider.GetUtcNow();
             _deviceInfo.GetControlValue(CMOSControlType.Gain, out var currentGain, out _);
             _deviceInfo.GetControlValue(CMOSControlType.Brightness, out var currentOffset, out _);
@@ -913,7 +1019,15 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
     public ValueTask StartPulseGuideAsync(GuideDirection guideDirection, TimeSpan duration, CancellationToken cancellationToken = default)
     {
         var timer = TimeProvider.CreateTimer(StopPulseGuiding, guideDirection, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
-        if (_deviceInfo.PulseGuideOn(guideDirection) is var code and not CMOSErrorCode.Success)
+
+        // A device that times its own pulse is TOLD the duration; one that does not is started here
+        // and stopped by the timer below. The timer runs either way, because the in-flight bookkeeping
+        // that IsPulseGuidingAsync reports has to be cleared when the pulse ends whoever ended it.
+        var selfTimed = _deviceInfo.CanPulseGuideForDuration;
+        var startCode = selfTimed
+            ? _deviceInfo.PulseGuideOn(guideDirection, duration)
+            : _deviceInfo.PulseGuideOn(guideDirection);
+        if (startCode is var code and not CMOSErrorCode.Success)
         {
             throw OperationalException(code, $"Failed to pulse guide {guideDirection} for {duration:o}");
         }
@@ -943,7 +1057,13 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
     {
         if (obj is GuideDirection guideDirection)
         {
-            if (_deviceInfo.PulseGuideOff(guideDirection) is var code and not CMOSErrorCode.Success)
+            // Only ASK to stop a device that needs stopping. On one that timed its own pulse the
+            // pulse is already over, and an extra stop is at best a wasted call and at worst a
+            // command the SDK does not have, so the timer here only clears the in-flight state.
+            var code = _deviceInfo.CanPulseGuideForDuration
+                ? CMOSErrorCode.Success
+                : _deviceInfo.PulseGuideOff(guideDirection);
+            if (code is not CMOSErrorCode.Success)
             {
                 Logger.LogError("Failed to stop guiding in direction {GuideDirection} due to error: {ErrorCode}", guideDirection, code);
             }
