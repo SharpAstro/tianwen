@@ -206,13 +206,7 @@ namespace TianWen.UI.Abstractions
 
                 if (state.ModeDropdown.IsOpen)
                 {
-                    RenderDropdownMenu(state.ModeDropdown, fontPath, fs,
-                        bgColor: GuiTheme.Palette.HeaderBg,
-                        highlightColor: new RGBAColor32(0x44, 0x66, 0x99, 0xff),
-                        textColor: BodyText,
-                        borderColor: new RGBAColor32(0x44, 0x44, 0x55, 0xff),
-                        viewportWidth: Renderer.Width,
-                        viewportHeight: Renderer.Height);
+                    RenderModeMenu(state.ModeDropdown, fs);
                 }
 
                 // Prompts can fire in any mode -- draw the overlay here too so the planetary early-return
@@ -384,16 +378,7 @@ namespace TianWen.UI.Abstractions
             // by the trigger inside RenderTopStrip.
             if (state.ModeDropdown.IsOpen)
             {
-                var dropdownBg = GuiTheme.Palette.HeaderBg;
-                var highlight  = new RGBAColor32(0x44, 0x66, 0x99, 0xff);
-                var border     = new RGBAColor32(0x44, 0x44, 0x55, 0xff);
-                RenderDropdownMenu(state.ModeDropdown, fontPath, fs,
-                    bgColor: dropdownBg,
-                    highlightColor: highlight,
-                    textColor: BodyText,
-                    borderColor: border,
-                    viewportWidth: Renderer.Width,
-                    viewportHeight: Renderer.Height);
+                RenderModeMenu(state.ModeDropdown, fs);
             }
 
             // Session-driven user prompt (e.g. "switch on the manual panel") -- topmost overlay so its
@@ -413,5 +398,30 @@ namespace TianWen.UI.Abstractions
         /// embedded preview's [T] button + key). Preserves the old mini viewer's 4-way cycle; the full viewer's
         /// own [T] is a 2-way toggle, but the preview keeps the cycle so all modes stay reachable chromeless.
         /// </summary>
+
+        /// <summary>
+        /// The mode menu, declared. Both call sites went through <c>RenderDropdownMenu</c> with the same
+        /// four colours spelled out twice; the node owns the backdrop, the Escape claim and the z-order,
+        /// so neither site has to be "rendered last" any more.
+        /// </summary>
+        /// <remarks>
+        /// <c>maxHeight</c> is the space between the anchor and the bottom of the window, which is what
+        /// the rendered form worked out internally and what makes a long list scroll rather than run off
+        /// the edge. A Builder call has no viewport, so the caller states it.
+        /// </remarks>
+        private void RenderModeMenu<T>(DropdownMenuState<T> menu, float fontSize)
+        {
+            var viewport = new RectF32(0f, 0f, Renderer.Width, Renderer.Height);
+            var anchor = new RectF32(menu.AnchorX, menu.AnchorY, menu.AnchorWidth, 0f);
+            RenderLayout(
+                Layout.Builder.Dropdown(anchor, menu,
+                    fontSize: fontSize,
+                    textColor: BodyText,
+                    background: GuiTheme.Palette.HeaderBg,
+                    highlight: new RGBAColor32(0x44, 0x66, 0x99, 0xff),
+                    maxHeight: MathF.Max(fontSize, viewport.Size.Y - menu.AnchorY)),
+                viewport);
+        }
+
     }
 }

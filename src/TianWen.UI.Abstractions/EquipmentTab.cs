@@ -255,16 +255,13 @@ namespace TianWen.UI.Abstractions
 
             RenderProfileView(appState, contentRect, liveSessionState);
 
-            // Dropdown overlay -- rendered absolutely last so it paints on top of everything
+            // Declared, not painted last. The node carries its own backdrop and owns z-order, so the
+            // "must be rendered absolutely last" obligation these two used to carry is gone with it.
             var fontSize = BaseFontSize * dpiScale;
-            RenderDropdownMenu(State.FilterNameDropdown, fontPath, fontSize * 0.85f,
-                FilterTableBg, SlotActive, BodyText, SeparatorColor,
-                viewportWidth: contentRect.X + contentRect.Width,
-                viewportHeight: contentRect.Y + contentRect.Height);
-            RenderDropdownMenu(State.ProfileDropdown, fontPath, fontSize * 0.85f,
-                FilterTableBg, SlotActive, BodyText, SeparatorColor,
-                viewportWidth: contentRect.X + contentRect.Width,
-                viewportHeight: contentRect.Y + contentRect.Height);
+            var viewport = new RectF32(0f, 0f,
+                contentRect.X + contentRect.Width, contentRect.Y + contentRect.Height);
+            RenderMenu(State.FilterNameDropdown, viewport, fontSize * 0.85f);
+            RenderMenu(State.ProfileDropdown, viewport, fontSize * 0.85f);
 
             // Refused-profile-switch modal goes on top of even the dropdown (the dropdown is what
             // raised it, and its own selection already closed it).
@@ -473,5 +470,35 @@ namespace TianWen.UI.Abstractions
                 DeviceType.Profile        => "Profile",
                 _                         => "?"
             };
+
+        /// <summary>
+        /// One menu, declared. <see cref="Layout.Builder.Dropdown"/> owns the backdrop, the Escape claim
+        /// and the z-order, so this replaces the pair of obligations the rendered form carried: call it
+        /// last, and pass the viewport twice.
+        /// </summary>
+        /// <remarks>
+        /// <paramref name="viewport"/> is passed as the arrange rect so the popover's backdrop is
+        /// full-bleed, and <c>maxHeight</c> is the space between the anchor and the bottom of it --
+        /// which is what <c>RenderDropdownMenu</c> computed internally and what makes a long menu scroll
+        /// instead of running off the edge. The node cannot derive it: a Builder call has no viewport.
+        /// </remarks>
+        private void RenderMenu<T>(DropdownMenuState<T> menu, RectF32 viewport, float fontSize)
+        {
+            if (!menu.IsOpen)
+            {
+                return;
+            }
+
+            var anchor = new RectF32(menu.AnchorX, menu.AnchorY, menu.AnchorWidth, 0f);
+            RenderLayout(
+                Layout.Builder.Dropdown(anchor, menu,
+                    fontSize: fontSize,
+                    textColor: BodyText,
+                    background: FilterTableBg,
+                    highlight: SlotActive,
+                    maxHeight: MathF.Max(fontSize, viewport.Size.Y - menu.AnchorY)),
+                viewport);
+        }
+
     }
 }

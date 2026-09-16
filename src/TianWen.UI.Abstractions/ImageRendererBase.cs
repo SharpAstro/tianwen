@@ -1095,18 +1095,24 @@ namespace TianWen.UI.Abstractions
                 RenderTonePanel(state);
             }
 
-            // Dropdown overlays: rendered last so their clickables win z-order
-            // (RegisterClickable resolves by paint order). RenderDropdownMenu is
-            // a no-op when the state is closed. Toolbar-driven, so skipped with the chrome.
-            if (!state.HideChrome && !string.IsNullOrEmpty(FontPath))
+            // Declared. The node carries its own backdrop and owns z-order, so the "rendered last so
+            // their clickables win" rule this block used to state is the engine's now. Still skipped
+            // with the chrome, because it is toolbar-driven.
+            if (!state.HideChrome && !string.IsNullOrEmpty(FontPath) && state.ToolbarDropdown.IsOpen)
             {
-                RenderDropdownMenu(state.ToolbarDropdown, FontPath, ToolbarFontSize,
-                    bgColor: GuiTheme.Palette.PanelBg,
-                    highlightColor: GuiTheme.Palette.Selection,
-                    textColor: GuiTheme.Palette.BodyText,
-                    borderColor: GuiTheme.Palette.SeparatorStrong,
-                    viewportWidth: Width,
-                    viewportHeight: Height);
+                var viewport = new RectF32(0f, 0f, Width, Height);
+                var menu = state.ToolbarDropdown;
+                RenderLayout(
+                    Layout.Builder.Dropdown(
+                        new RectF32(menu.AnchorX, menu.AnchorY, menu.AnchorWidth, 0f), menu,
+                        fontSize: ToolbarFontSize,
+                        textColor: GuiTheme.Palette.BodyText,
+                        background: GuiTheme.Palette.PanelBg,
+                        highlight: GuiTheme.Palette.Selection,
+                        // What RenderDropdownMenu clamped to internally: the space between the anchor
+                        // and the bottom edge, which is what makes a long menu scroll in view.
+                        maxHeight: MathF.Max(ToolbarFontSize, Height - menu.AnchorY)),
+                    viewport);
             }
 
             // Last of all, so it paints over every other piece of chrome.
