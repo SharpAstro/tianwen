@@ -96,6 +96,6 @@
 
     <PackageVersion Include="QHYCCD.SDK" Version="1.1.*" />
     <PackageVersion Include="TianWen.DAL" Version="2.1.*" />
-    <PackageVersion Include="ZWOptical.SDK" Version="4.2.*" />
+    <PackageVersion Include="ZWOptical.SDK" Version="4.3.*" />
   </ItemGroup>
 </Project>

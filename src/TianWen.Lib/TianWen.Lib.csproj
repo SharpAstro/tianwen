@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Library</OutputType>
@@ -298,7 +298,6 @@
     <PackageReference Include="System.IO.Ports" />
     <PackageReference Include="System.Numerics.Tensors" />
     <PackageReference Include="FC.SDK" />
-    <PackageReference Include="ZWOptical.SDK" />
   </ItemGroup>
 
   <!-- TianWen.DAL: the native-camera abstraction every driver in Devices/ does
@@ -314,6 +313,18 @@
        what made those gaps easy to leave alone. -->
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
     <ProjectReference Include="..\..\..\TianWen.DAL\TianWen.DAL.csproj" />
+  </ItemGroup>
+
+  <!-- ZWOptical.SDK: native ZWO camera / focuser / filter-wheel drivers. Folded into
+       UseLocalSiblings for the same reason as the DAL it depends on: its published
+       package declares TianWen.DAL 2.1.x, which OUTRANKS a locally built sibling, so
+       taking it as a package while building the DAL from source puts two assemblies of
+       the same simple name in front of the compiler (CS1704). -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\ZWOptical.SDK\ZWOptical.SDK.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="ZWOptical.SDK" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="TianWen.DAL" />

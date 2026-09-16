@@ -62,6 +62,7 @@ $siblings = @"
     <Project Path="../Codecs/src/SharpAstro.Codecs/SharpAstro.Codecs.csproj" />
     <Project Path="../QHYCCD.SDK/QHYCCD.SDK.csproj" />
     <Project Path="../TianWen.DAL/TianWen.DAL.csproj" />
+    <Project Path="../ZWOptical.SDK/ZWOptical.SDK.csproj" />
     <Project Path="../FITS.Lib/CSharpFITS/CSharpFITS.csproj" />
     <Project Path="../SER.Lib/src/SER.Lib/SER.Lib.csproj" />
     <Project Path="../Lzip.Lib/src/Lzip.Lib/Lzip.Lib.csproj" />
