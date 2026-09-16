@@ -322,8 +322,11 @@ the first attempt afterwards.
 ## The first frame after `InitQHYCCD` is not like the others (2026-09-16)
 
 > **EVERYTHING IN THIS SECTION IS PROVISIONAL AND WAS TAKEN ON AN UNPOWERED BODY.** The QHY178M was
-> connected over USB with no 12 V supply, and **a QHY is essentially undefined without it** (owner),
-> so re-take the whole sequence on a powered body before trusting any number. The same doubt does
+> connected over USB with no 12 V supply, and a QHY may be "essentially undefined" without it (owner,
+> explicitly flagged as recollection rather than confirmed). **The USB-traffic sweep is evidence
+> AGAINST that being the whole story**, since traffic latches and times correctly, so treat the power
+> state as one suspect rather than the explanation. Re-take the sequence on a powered body regardless,
+> before trusting any number. The same doubt does
 > NOT extend to the P1 geometry read above, which is a static capability query. The cooler
 > commanding 255 PWM it cannot deliver is one visible consequence.
 >
@@ -355,8 +358,13 @@ the first attempt afterwards.
 > precision of a median, where this body's amp glow sits right of centre. So it is a uniform offset
 > step after all, and the min/max argument that suggested a glow was bad statistics, the minimum and
 > maximum over 6.3 million pixels being extreme order statistics that say nothing about a 16 ADU
-> shift. `AMPV` is still worth sweeping on the powered re-test, since nothing sets it, but it is not
-> this.
+> shift. `AMPV` is not this, then, but the manual makes it worth acting on anyway: **"set to 1, it is
+> enabled ... Enabling this function can reduce the glow effect in the image"**, so 1 SUPPRESSES glow
+> and this body reads 0. Glow is presumably present and constant, which is why it cancels in a
+> difference. **`DALCameraDriver` never sets `CONTROL_AMPV`** (its connect-time writes are
+> `PatternAdjust`, `BandwidthOverload`, `EnableDDR`, `Gain`, `Brightness`), so TianWen leaves
+> suppression off on every QHY that offers it. Sweep it on the powered re-test and then decide the
+> default.
 
 Chasing the owner's long-standing report that this camera "randomly doesn't show frames, or old
 frames, or super bright frames and then dim frames", `QhyDarkSequenceProbe` takes a dark sequence
