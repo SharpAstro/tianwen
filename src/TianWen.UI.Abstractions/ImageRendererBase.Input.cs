@@ -829,6 +829,63 @@ namespace TianWen.UI.Abstractions
         /// if panning was started (caller may need to handle toolbar actions via
         /// <see cref="ViewerActions.HandleToolbarAction"/>).
         /// </summary>
+        /// <summary>
+        /// What a press on toolbar button <paramref name="action"/> DOES. Replaceable, because the two
+        /// hosts genuinely disagree and neither is wrong.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The GUI's viewer tab opens a menu only for the two popover buttons and CYCLES every other
+        /// stateful button; the standalone viewer opens whichever menu the button has and reverse-cycles
+        /// on a right press. Clicking Zoom therefore opens a list in <c>tianwen-fits</c> and steps the
+        /// zoom in the GUI. They are different products, and this is the one place that difference is
+        /// allowed to live.
+        /// </para>
+        /// <para>
+        /// <b>It exists because it was a DUPLICATE, not a seam.</b> The policy was written out twice --
+        /// here and in the standalone host's own press walk -- and the file that held the second copy
+        /// records what that cost: "fixing only that one is why single-click selection stayed broken
+        /// here". A press walk in each host is also what stops the viewer routing through
+        /// <see cref="InputRouter"/> at all, since a toolbar region that carries no handler is swallowed
+        /// by the router with nothing run. One hook, set by the host, is what makes both fixable.
+        /// </para>
+        /// <para>
+        /// Null keeps the embedded behaviour, so a host that says nothing gets exactly what it had.
+        /// </para>
+        /// </remarks>
+        public Action<ViewerState, ToolbarAction, MouseButton>? ToolbarPressPolicy { get; set; }
+
+        /// <summary>Runs <see cref="ToolbarPressPolicy"/>, or the embedded default when none is set.</summary>
+        public void PressToolbarButton(ViewerState state, ToolbarAction action, MouseButton button)
+        {
+            if (ToolbarPressPolicy is { } policy)
+            {
+                policy(state, action, button);
+                return;
+            }
+
+            // A popover button opens a panel and cycles nothing. Without this the press falls through to
+            // HandleToolbarAction, which has no arm for either and so does nothing at all -- a button
+            // that looks dead. White balance was the only one until the boost and the soft clip folded
+            // into Tone; ADD A POPOVER HERE or its button will not open.
+            if (action is ToolbarAction.WhiteBalance or ToolbarAction.Tone
+                && OpenToolbarDropdown(state, action))
+            {
+                return;
+            }
+
+            ViewerActions.HandleToolbarAction(state, _document, action,
+                split: Split, hasBeforePixels: HasBeforeImageTextures, hasCrop: HasDisplayCrop);
+            if (action is ToolbarAction.ColorCalibrate)
+            {
+                TryStartColorCalibration(state);
+            }
+            else if (action is ToolbarAction.BackgroundNeutralize)
+            {
+                TryToggleBackgroundNeutralization(state);
+            }
+        }
+
         private bool HandleViewerMouseDown(float px, float py, InputEvent evt)
         {
             if (_state is not { } state)
@@ -846,28 +903,8 @@ namespace TianWen.UI.Abstractions
 
             if (hit is HitResult.ButtonHit { Action: var action } && Enum.TryParse<ToolbarAction>(action, out var toolbarAction))
             {
-                // A popover button opens a panel and cycles nothing, so it takes the dropdown route
-                // here as well as in the standalone host's dispatcher (which consults
-                // OpenToolbarDropdown for every button). Without it the press falls through to
-                // HandleToolbarAction, which has no arm for either of these and so does nothing at all
-                // -- a button that looks dead. White balance was the only one until the boost and the
-                // soft clip folded into Tone; ADD A POPOVER HERE or its button will not open.
-                if (toolbarAction is ToolbarAction.WhiteBalance or ToolbarAction.Tone
-                    && OpenToolbarDropdown(state, toolbarAction))
-                {
-                    return true;
-                }
-
-                ViewerActions.HandleToolbarAction(state, _document, toolbarAction,
-                    split: Split, hasBeforePixels: HasBeforeImageTextures, hasCrop: HasDisplayCrop);
-                if (toolbarAction is ToolbarAction.ColorCalibrate)
-                {
-                    TryStartColorCalibration(state);
-                }
-                else if (toolbarAction is ToolbarAction.BackgroundNeutralize)
-                {
-                    TryToggleBackgroundNeutralization(state);
-                }
+                var button = evt is InputEvent.MouseDown b ? b.Button : MouseButton.Left;
+                PressToolbarButton(state, toolbarAction, button);
                 return true;
             }
 

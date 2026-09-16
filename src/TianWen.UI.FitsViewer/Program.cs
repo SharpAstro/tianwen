@@ -303,6 +303,8 @@ using var gpu = new GpuStack<VkImageRenderer>(logger, sdlWindow, (uint)pixW, (ui
     });
 var renderer = gpu.Renderer;
 var imageRenderer = gpu.Top;
+
+
 StartupTrace.Mark("gpu");
 
 // The sky the photograph came from, drawn behind it on the context ladder's top rung (O, three
@@ -351,6 +353,31 @@ var prepareCalls = 0;
 var resizeCalls = 0;
 
 using var cts = new CancellationTokenSource();
+
+// THIS host's toolbar policy, which is not the embedded one. A left press opens whichever menu the
+// button has (OpenToolbarDropdown answers false for a button with none, so no parallel list of which
+// buttons are dropdowns is needed here); a right press falls past it so power users can still
+// reverse-cycle without summoning the popup; and an action the pure-state handler does not own goes to
+// the controller, which is where the DI-dependent ones live.
+//
+// The GUI's viewer tab wants none of that -- it cycles every stateful button and has no reverse -- and
+// the two policies used to be two press WALKS, which is how single-click selection stayed broken here
+// after the embedded one was fixed. One hook, two policies, one walk.
+imageRenderer.ToolbarPressPolicy = (viewerState, action, button) =>
+{
+    if (button == MouseButton.Left && imageRenderer.OpenToolbarDropdown(viewerState, action))
+    {
+        return;
+    }
+
+    var reverse = button == MouseButton.Right;
+    if (!ViewerActions.HandleToolbarAction(viewerState, controller.Document, action, reverse,
+            split: imageRenderer.Split, hasBeforePixels: imageRenderer.HasBeforeImageTextures,
+            hasCrop: imageRenderer.HasDisplayCrop))
+    {
+        controller.HandleToolbarAction(action, reverse, cts.Token);
+    }
+};
 imageRenderer.AppToken = cts.Token;
 
 // The cached image layer is a render pass of its own, and render passes cannot nest -- so it has
@@ -823,25 +850,8 @@ bool HandleMouseDown(InputEvent.MouseDown down)
 
         if (hit is HitResult.ButtonHit { Action: var action } && Enum.TryParse<ToolbarAction>(action, out var toolbarAction))
         {
-            // Left-click on any dropdown-capable toolbar button opens the
-            // overlay; right-click falls through so power users
-            // can still reverse-cycle without summoning the popup. The set of
-            // dropdown actions is encoded in OpenToolbarDropdown's switch; 
-            // it returns false for non-dropdown actions so we never need a
-            // parallel "is dropdown action" list here.
-            if (down.Button == MouseButton.Left && imageRenderer.OpenToolbarDropdown(state, toolbarAction))
-            {
-                return true;
-            }
-
-            // Base handles pure state; controller handles DI-dependent actions
-            var reverse = down.Button == MouseButton.Right;
-            if (!ViewerActions.HandleToolbarAction(state, controller.Document, toolbarAction, reverse,
-                    split: imageRenderer.Split, hasBeforePixels: imageRenderer.HasBeforeImageTextures,
-                    hasCrop: imageRenderer.HasDisplayCrop))
-            {
-                controller.HandleToolbarAction(toolbarAction, reverse, cts.Token);
-            }
+            // This host's own policy, stated ONCE on the renderer rather than written out here as well.
+            imageRenderer.PressToolbarButton(state, toolbarAction, down.Button);
             return true;
         }
 
