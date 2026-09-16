@@ -197,14 +197,24 @@ mode reads all of them, roughly 47 MP at half the pitch, and there **the colour 
 Bayer tile but a 4x4 block of 2x2 same-colour quads**, so a standard demosaic is wrong on it by
 construction rather than by a phase error.
 
-- [ ] **FIRST, measure whether the 4x mode buys anything on the rig that has it.** This was nearly
-  designed before it was asked (owner, 2026-09-16). The QHY294C sits on the SWQ8, 800 mm, where the
-  11 MP mode is **1.19 arcsec/px, about 2.1 px across a 2.5 arcsec FWHM** -- already at Nyquist --
-  and the 4x mode is **0.60 arcsec/px, about 4.2 px**, which is oversampled against any realistic
-  seeing. So for deep-sky on this train the 4x mode plausibly buys **no detail at all**, for four
-  times the data and a quarter of the per-pixel SNR. It is a different question for planetary and
-  lunar, where oversampling is wanted and the target is bright, and for a shorter focal length.
-  **Nothing below is worth building until this is answered.**
+- [ ] **Whether the 4x mode buys anything is a question about the TRAIN, and the two trains answer
+  it oppositely** (owner, 2026-09-16; the first draft of this entry got it wrong by asking only the
+  Quattro). The camera currently sits on the **SV204, 45 mm at f/4.5, about 202 mm**, where a 45 mm
+  aperture is well under a typical r0 so the PSF is **diffraction-limited at about 2.57 arcsec**,
+  not seeing-limited:
+
+  | train | 11 MP | 47 MP (4x) |
+  |---|---|---|
+  | SV204, 202 mm, PSF 2.57 arcsec | 4.72 arcsec/px, **0.55 px per FWHM** | 2.36 arcsec/px, **1.09 px per FWHM** |
+  | SWQ8, 800 mm, PSF about 2.5 arcsec seeing | 1.19 arcsec/px, 2.09 px | 0.60 arcsec/px, 4.19 px |
+
+  **On the SV204 the 11 MP mode is severely undersampled -- stars are SUB-PIXEL -- and the 4x mode
+  still does not reach Nyquist**, so it is plainly worth having; on the Quattro the 11 MP mode is
+  already at Nyquist and the 4x mode is oversampled, so it buys nothing for four times the data and
+  a quarter of the per-pixel SNR. The archive corroborates the first row: the 10P set on that train
+  **solved at 4.7172 arcsec/px** against the 4.72 this predicts. Undersampled dithered data is the
+  case drizzle was invented for, which is a second reason the drizzle-only decision below is right.
+  **Not high priority** (owner), but the answer is yes for the rig as it stands today.
 - [ ] **A plain four-way split does NOT preserve the resolution, and the first version of this entry
   was wrong to say it would** (owner caught it). Each 2x2 sub-lattice of the quad mosaic does come
   out as clean `RGGB` -- sub-lattice (0,0) takes R at (0,0), G at (2,0), G at (0,2), B at (2,2) --
@@ -214,6 +224,22 @@ construction rather than by a phase error.
   drizzle with exactly-known (0/1, 0/1) offsets, which is what drizzle is for and which the pipeline
   already has -- or a true remosaic. A per-split demosaic throws away precisely the thing the 4x
   mode exists for.
+- [ ] **DECIDED (owner, 2026-09-16): no quad-Bayer demosaic is to be written. Drizzle is the only
+  path to native resolution.** That also avoids the shader obligation, since an algorithm the viewer
+  OFFERS must have its own branch in `image.frag` or a Save writes a different picture from the one
+  on screen. **And it costs no extra frames**: `DrizzleOptions.MinFrameCount` is 60 for the density
+  reason its own doc gives ("R and B, each only 25% of input pixels under RGGB"), and under
+  quad-Bayer red is 4 of 16 photosites, still 25%. The per-pixel coverage probability is unchanged
+  too: an output pixel is covered iff the frame's dither phase `(dx,dy) mod 4` lands the 2x2 red
+  block on it, **4 of 16 phases = 1/4**, exactly RGGB's 1 of 4 mod 2, so `P(no red after N)` is
+  `(3/4)^N` either way and 3e-8 at 60. **What changes is the dither AMPLITUDE**: the CFA cell is 4 px
+  rather than 2, so phases must be sampled over a 4-pixel cell (about 2 binned px, which any normal
+  dither clears). The red samples arriving in contiguous 2x2 clumps rather than singly makes
+  coverage lumpier at a given N, which argues for a modest uplift to the floor, not a multiple.
+- [ ] **Drizzle-only leaves a single quad frame with NO colour path, and that is where the split
+  earns its keep** -- not for integration but for display. One sub-lattice is a clean 11 MP RGGB
+  image the viewer, the thumbnailer and any single-frame measurement can use with no new demosaic
+  and no new shader branch.
 - [ ] **The split's one unambiguous win survives the above, and is not about resolution.** The four
   sub-images are independent PHOTOSITES, so their noise is independent while the scene is identical:
   a four-way N2N pair source from a SINGLE exposure. That is exactly the shared-scene,
