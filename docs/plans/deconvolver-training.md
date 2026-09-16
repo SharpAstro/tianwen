@@ -2946,6 +2946,30 @@ The open measurements before the port: the ring target on a SECOND pair (the Ori
 1.26x), and the window size the field term wants (the two crops here are 1024 and 512 px, 1.3x apart in
 kernel).
 
+### Real test data for the per-window kernel: a rig with a known corner PSF (2026-09-16)
+
+E7.4's finding that **two crops of one frame want kernels 1.3x apart** is what made per-window
+kernels the shape of the port rather than a refinement of it. That measurement came off one frame,
+and what it needs next is data where the field term is known independently rather than inferred.
+
+The owner supplied it while the archive was being curated: **the ASI585 + ZS61 sessions have a field
+flattener that leaves residues in the corners, with visibly elongated stars there**, and correcting
+that is something they want the model to do. Now filed:
+
+| session | frames | in Astro-Organized |
+|---|---|---|
+| Tarantula Nebula, 2024-10-02 | 120 lights, 120 s | `lights/ZWO-ASI585MC-Pro/Unidentified-Broadband/Tarantula-Nebula/2024-10-02` |
+| Small Magellanic Cloud, 2024-10-02 | 67 lights, 120 s | `.../Small-Magellanic-Cloud/2024-10-02` |
+| Vela SNR, 2025-01-30 | 68 lights, 60 s | `.../Vela-SNR/2025-01-30` |
+
+Same rig and the same measured filter population for all three; the first two share a night and its
+flat set. **Treat the corner ellipticity as the SIGNAL, not a defect**: a quality gate that drops
+elongated frames would remove precisely the cases the per-window loop is for, and the E7.5 grid has
+a real field term to read rather than a synthetic one. The filter is unnamed (the owner could not
+recall it and the measurement puts it broadband but cannot separate no-filter from a UV/IR cut from
+a light-pollution filter), which does not matter for a PSF experiment but does mean the folder name
+is provisional.
+
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
 Every retained master in `2026-09-full` predates the two registration fixes and R1, and E3 trains on
