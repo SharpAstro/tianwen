@@ -1,4 +1,4 @@
-﻿<Project>
+<Project>
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
 
@@ -13,7 +13,7 @@
     <PackageVersion Include="CommunityToolkit.HighPerformance" Version="8.4.2" />
     <PackageVersion Include="DotNext.Threading" Version="6.1.0" />
 
-    <PackageVersion Include="FITS.Lib" Version="5.0.*" />
+    <PackageVersion Include="FITS.Lib" Version="6.0.*" />
 
     <PackageVersion Include="SER.Lib" Version="1.1.*" />
 
@@ -94,8 +94,8 @@
     <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.9" />
     <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.9" />
 
-    <PackageVersion Include="QHYCCD.SDK" Version="1.0.*" />
-    <PackageVersion Include="TianWen.DAL" Version="2.0.*" />
+    <PackageVersion Include="QHYCCD.SDK" Version="1.1.*" />
+    <PackageVersion Include="TianWen.DAL" Version="2.1.*" />
     <PackageVersion Include="ZWOptical.SDK" Version="4.2.*" />
   </ItemGroup>
 </Project>

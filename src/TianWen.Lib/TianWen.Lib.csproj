@@ -299,10 +299,23 @@
     <PackageReference Include="System.Numerics.Tensors" />
     <PackageReference Include="FC.SDK" />
     <PackageReference Include="ZWOptical.SDK" />
-    <!-- Every device driver in Devices/ does `using TianWen.DAL`. Declaring it
-         directly here (rather than relying on the transitive via QHYCCD.SDK /
-         ZWOptical.SDK) is the honest "this project imports it" signal; same
-         pattern as the SharpAstro codec direct refs below. -->
+  </ItemGroup>
+
+  <!-- TianWen.DAL: the native-camera abstraction every driver in Devices/ does
+       `using TianWen.DAL` for. Declared directly (rather than relying on the
+       transitive via QHYCCD.SDK / ZWOptical.SDK) as the honest "this project
+       imports it" signal; same pattern as the SharpAstro codec direct refs below.
+
+       Folded into UseLocalSiblings because it is where a camera CAPABILITY is
+       expressed, so it is edited in the same breath as the driver that needs one:
+       a QHY feature the abstraction cannot name (a frame counter, the effective
+       area) is a change to this interface, its QHYCCD.SDK implementation AND the
+       consumer here, and routing that through a NuGet round-trip per iteration is
+       what made those gaps easy to leave alone. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\TianWen.DAL\TianWen.DAL.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="TianWen.DAL" />
   </ItemGroup>
 
