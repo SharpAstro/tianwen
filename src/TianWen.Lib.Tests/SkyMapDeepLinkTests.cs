@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
+using DIR.Lib;
 using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
@@ -35,7 +36,7 @@ public class SkyMapDeepLinkTests
 
     private static bool Select(ICelestialObjectDB db, SkyMapState state, string token)
         => SkyMapSearchActions.TrySelectByToken(
-            state.Search, state, db, token,
+            state.Search, state, db, token, new TextInputFocus(),
             SiteLat, SiteLon, ViewingUtc,
             SiteContext.Create(SiteLat, SiteLon, ViewingUtc));
 
@@ -90,7 +91,7 @@ public class SkyMapDeepLinkTests
         {
             var state = new SkyMapState { Mode = SkyMapMode.Equatorial };
             SkyMapSearchActions.TrySelectByToken(
-                state.Search, state, db, token,
+                state.Search, state, db, token, new TextInputFocus(),
                 SiteLat, SiteLon, ViewingUtc,
                 SiteContext.Create(SiteLat, SiteLon, ViewingUtc), comets).ShouldBeTrue($"'{token}' must resolve");
 

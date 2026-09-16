@@ -131,17 +131,45 @@ public class SkyMapSearchActionsTests
         return (search, new DesignationDb(indices), indices[0]);
     }
 
+    /// <summary>
+    /// Closing hands the keyboard back THROUGH THE OWNER, so the owner agrees that nothing is focused.
+    /// </summary>
+    /// <remarks>
+    /// The field is focused through <see cref="TextInputFocus"/> here rather than activated directly,
+    /// which is the point: the close used to call <c>Deactivate()</c> on the field and leave the owner
+    /// still naming it as current, and each host then blurred separately to paper over that. A test that
+    /// seeds with a bare Activate cannot see the difference, because there is no owner to disagree with.
+    /// </remarks>
     [Fact]
-    public void CloseSearchDeactivatesInputAndClearsOpenFlag()
+    public void CloseSearchHandsTheKeyboardBackThroughTheOwner()
     {
         var search = new SkyMapSearchState();
+        var focus = new TextInputFocus();
         search.IsOpen = true;
-        search.SearchInput.Activate("test");
+        focus.Focus(search.SearchInput, "test");
 
-        SkyMapSearchActions.CloseSearch(search);
+        SkyMapSearchActions.CloseSearch(search, focus);
 
         search.IsOpen.ShouldBeFalse();
         search.SearchInput.IsActive.ShouldBeFalse();
+        focus.Current.ShouldBeNull("the owner is what the router and the host both read");
+    }
+
+    /// <summary>
+    /// A close reached from a DEEP LINK leaves another field's focus alone. Unconditional
+    /// <c>Blur()</c> -- which is what both hosts posted beside the old call -- would take it away.
+    /// </summary>
+    [Fact]
+    public void CloseSearchDoesNotBlurAFieldThatIsNotTheSearchBox()
+    {
+        var search = new SkyMapSearchState();
+        var focus = new TextInputFocus();
+        var elsewhere = new TextInputState();
+        focus.Focus(elsewhere, "typing here");
+
+        SkyMapSearchActions.CloseSearch(search, focus);
+
+        focus.Current.ShouldBe(elsewhere);
     }
 
     [Fact]
@@ -154,6 +182,7 @@ public class SkyMapSearchActionsTests
         var ok = SkyMapSearchActions.CommitResult(
             search, skyMap, new EmptyDb(),
             new SkyMapSearchResult("nothing", Index: null, ObjType: default, VMag: float.NaN),
+            new TextInputFocus(),
             siteLat: 0, siteLon: 0,
             viewingUtc: DateTimeOffset.UtcNow,
             site: default);
@@ -429,7 +458,8 @@ public class SkyMapSearchActionsTests
         var result = new SkyMapSearchResult(Display: "TestPlanet", Index: planetIdx, ObjType: ObjectType.Unknown, VMag: float.NaN);
 
         var site = SiteContext.Create(0, 0, viewingUtc);
-        SkyMapSearchActions.CommitResult(search, skyMap, db, result, 0, 0, viewingUtc, site).ShouldBeTrue();
+        SkyMapSearchActions.CommitResult(search, skyMap, db, result, new TextInputFocus(), 0, 0, viewingUtc, site)
+            .ShouldBeTrue();
 
         var info = search.InfoPanel.ShouldNotBeNull();
         info.Name.ShouldBe("TestPlanet");
