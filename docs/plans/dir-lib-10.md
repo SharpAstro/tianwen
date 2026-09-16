@@ -307,10 +307,11 @@ Kept as the record of what was outstanding, not as a to-do list. Where it stands
   popovers and sliders). Gone as types: `OverlayPlacement`, `ISelfDispatchingInputWidget`,
   `TextFieldPointerInteraction`, `ICaretPlacingWidget` and its six implementations, two bespoke keyboard
   claimants, two slider hit types, two drag flags, the Ctrl+letter map and the F3 special case.
-- **Still open:** T3 (the viewer chrome onto trees, `.BgHover`, `LayoutDamage`), **D2 / 10.0** (the cuts),
-  C1, the TIANWEN HALF of the dropdown (below), and the two engine seams T1 worked around (a `TabItem` that
-  can carry neither a chord nor a select handler; two sibling top-level widgets that cannot share one
-  `WindowUiSettings`).
+- **Still open:** the TIANWEN HALF of the dropdown (below, and now unblocked -- the shortest of these),
+  T3 (the viewer chrome onto trees, `.BgHover`, `LayoutDamage`), **D2 / 10.0** (the cuts), C1, and the two
+  engine seams T1 worked around (a `TabItem` that can carry neither a chord nor a select handler; two
+  sibling top-level widgets that cannot share one `WindowUiSettings`). Only D2 has a hard predecessor: it
+  deletes what T3 stops using.
 - **The dropdown is its own item, and it is ADDITIVE.** It was listed under D2 above until 2026-09-16,
   which reads as "wait for the major" and is wrong: a `Builder` node over `PopoverState` breaks nothing,
   so it can go out in a 9.x whenever someone has the afternoon. It is still the biggest remaining
@@ -326,8 +327,10 @@ Kept as the record of what was outstanding, not as a to-do list. Where it stands
   **What remains is the tianwen half, and it is the whole point of the item:** `OpenToolbarDropdown`'s
   switch, the `PumpHelpPanel` close-then-reopen dance, and the two hand-built result lists
   (`PlannerTab.RenderSuggestionDropdown`, `SkyMapTab.BuildSearchResults`, about 90 lines, and they gain
-  scrolling). 9.3 IS published; what it still needs is the sibling rebuilds and tianwen's `DIR.Lib` pin
-  moved from `9.2.*` to `9.3.*`.
+  scrolling). **It is UNBLOCKED as of 2026-09-16:** the whole chain is walked -- DIR.Lib `9.3.3111`,
+  Console.Lib `4.36.1861`, SdlVulkan.Renderer `7.40.3221`, WebGl.Renderer `1.30.481`, tianwen `8.2.17821`
+  -- and tianwen's pins now read `9.3.*` / `4.36.*` / `7.40.*` / `1.30.*`. Nothing stands in front of the
+  deletes any more.
   **Two things that half learned, and a T3 session will hit both:**
   1. **`.Disabled(reason)` STRIPS a handler; it does not create a region.** A row declared disabled without
      a `Hit` registers nothing, so its press falls through to the backdrop and DISMISSES the menu -- the
