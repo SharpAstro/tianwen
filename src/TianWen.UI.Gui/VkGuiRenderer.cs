@@ -189,23 +189,6 @@ namespace TianWen.UI.Gui
             }
         }
 
-        /// <summary>
-        /// Composed dispatch, with a press on the navigation rail reported as the tab button it means --
-        /// for a caller that hit-tests rather than routing.
-        /// </summary>
-        /// <remarks>
-        /// The SWITCH is not done here any more: the base dispatch has already run the cell's own handler,
-        /// which is <see cref="TabItem{T}.OnSelect"/> now rather than something this class attached
-        /// afterwards. What is left is the re-label, which is a naming affordance (<c>Tab:&lt;name&gt;</c>
-        /// for click-by-label) and not behaviour.
-        /// </remarks>
-        public override HitResult? HitTestAndDispatch(float x, float y, InputModifier modifiers = InputModifier.None)
-        {
-            var hit = base.HitTestAndDispatch(x, y, modifiers);
-
-            return RailTab(hit) is { } tab ? TabButton(tab) : hit;
-        }
-
         /// <summary>The regions the debug inspector enumerates: exactly what the router dispatches over.</summary>
         public IReadOnlyList<ClickableRegion> InspectorRegions()
         {
