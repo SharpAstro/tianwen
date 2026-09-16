@@ -197,16 +197,30 @@ mode reads all of them, roughly 47 MP at half the pitch, and there **the colour 
 Bayer tile but a 4x4 block of 2x2 same-colour quads**, so a standard demosaic is wrong on it by
 construction rather than by a phase error.
 
-- [ ] **Decide whether the 4x mode is supported by SPLITTING rather than by a new demosaic.** The
-  owner's suggestion, and it looks like the cheap path: deal the quad mosaic into **four standard
-  RGGB sub-images** at the 11 MP geometry, one photosite per 2x2 same-colour quad, and everything
-  downstream works unchanged. The machinery is already here and proven twice -- the planetary
-  stacker's `SplitCfa` per-photosite path, and Bayer drizzle forward-scattering the raw CFA -- so
-  this is a deal-and-relabel, not a new algorithm. **The four sub-images are independent photosites,
-  so their noise is independent**, which makes them a free four-way N2N pair source on a single
-  exposure and is worth more to the training work than the resolution is
-  ([denoiser-training.md](../plans/denoiser-training.md) H8 wanted exactly this property and could
-  not get it from a night's halves).
+- [ ] **FIRST, measure whether the 4x mode buys anything on the rig that has it.** This was nearly
+  designed before it was asked (owner, 2026-09-16). The QHY294C sits on the SWQ8, 800 mm, where the
+  11 MP mode is **1.19 arcsec/px, about 2.1 px across a 2.5 arcsec FWHM** -- already at Nyquist --
+  and the 4x mode is **0.60 arcsec/px, about 4.2 px**, which is oversampled against any realistic
+  seeing. So for deep-sky on this train the 4x mode plausibly buys **no detail at all**, for four
+  times the data and a quarter of the per-pixel SNR. It is a different question for planetary and
+  lunar, where oversampling is wanted and the target is bright, and for a shorter focal length.
+  **Nothing below is worth building until this is answered.**
+- [ ] **A plain four-way split does NOT preserve the resolution, and the first version of this entry
+  was wrong to say it would** (owner caught it). Each 2x2 sub-lattice of the quad mosaic does come
+  out as clean `RGGB` -- sub-lattice (0,0) takes R at (0,0), G at (2,0), G at (0,2), B at (2,2) --
+  but it samples on the **4.63 um grid, which IS the 11 MP geometry**. Four splits are therefore
+  four 11 MP images, not one 47 MP image: **the resolution lives in the OFFSETS between them, not
+  inside any one of them.** Keeping it means recombining the four on the native grid -- Bayer
+  drizzle with exactly-known (0/1, 0/1) offsets, which is what drizzle is for and which the pipeline
+  already has -- or a true remosaic. A per-split demosaic throws away precisely the thing the 4x
+  mode exists for.
+- [ ] **The split's one unambiguous win survives the above, and is not about resolution.** The four
+  sub-images are independent PHOTOSITES, so their noise is independent while the scene is identical:
+  a four-way N2N pair source from a SINGLE exposure. That is exactly the shared-scene,
+  independent-noise property [denoiser-training.md](../plans/denoiser-training.md) H8 needed and
+  could not get from a night's halves, where the sky's own systematic (5.5 to 18.6 percent of the
+  deviation) broke the zero-conditional-mean requirement. Worth having even if the resolution
+  question above comes back "no".
 - [ ] **Read the mode rather than infer it from the dimensions.** Two modes means two pixel
   pitches, two full-well figures and two gain tables, so `MasterGroupKey` must not pair a frame from
   one with a dark from the other. Today the only tell would be `NAXIS1/2`, which is a guess dressed
