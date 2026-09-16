@@ -62,6 +62,7 @@
       AND Exists('$(MSBuildThisFileDirectory)..\..\Codecs\src\SharpAstro.Codecs\SharpAstro.Codecs.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\QHYCCD.SDK\QHYCCD.SDK.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\TianWen.DAL\TianWen.DAL.csproj')
+      AND Exists('$(MSBuildThisFileDirectory)..\..\ZWOptical.SDK\ZWOptical.SDK.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\FITS.Lib\CSharpFITS\CSharpFITS.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\SER.Lib\src\SER.Lib\SER.Lib.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\Lzip.Lib\src\Lzip.Lib\Lzip.Lib.csproj')
