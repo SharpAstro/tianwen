@@ -156,11 +156,33 @@ computed in a switch. Two consequences worth stating in advance:
 
 ### P3: the live-session panels and the sky-map tab (LARGER, lower value)
 
+**Re-counted 2026-09-16: the named targets are already clear.** `LiveSessionTab.Polar.cs` (7 cursor
+lines when this was written), `.Panels.cs`, `.Flats.cs` and `GuiderTab.cs` no longer call `MeasureText`
+or carry a `ref float y` at all -- earlier waves took them. What is actually left, ranked:
+
+| file | `MeasureText` | `ref float y` |
+|---|---|---|
+| `ImageRendererBase.cs` | 11 | 5 |
+| `VkSkyMapTab.cs` | 6 | 0 |
+| `ImageRendererBase.Toolbar.cs` | 6 | 0 |
+| `ImageRendererBase.Overlays.cs` | 5 | 0 |
+| the other nine | 1-3 each | 0 |
+
+So P3's remaining scope is the viewer's own core file and the sky-map tab, not the live-session panels.
+Still lower value and still piecemeal -- and now ratcheted by P4, so it cannot quietly grow while it
+waits.
+
 `LiveSessionTab.Polar.cs` (7 cursor lines), `.Panels.cs`, `.Flats.cs`, `GuiderTab.cs`, `VkSkyMapTab.cs`
 (6 measurements). These are reports rather than controls, so the drift costs less and nothing has been
 reported against them; they come last and can come piecemeal.
 
 ### P4: a guard, so it does not come back (SMALL)
+
+**DONE 2026-09-16** -- `ChromeMeasuresThroughTheEngineTests`. It could not demand zero (46 calls across
+13 files), so it is a RATCHET: a per-file allowance that fails on any increase, a hard refusal for any
+NEW file, and a third test that fails when an allowance is no longer earned -- debt that has been paid,
+where leaving the number behind lets it be re-spent silently. Verified to bite both ways before being
+trusted.
 
 A test over the widget assemblies asserting that a file which paints chrome does not call `MeasureText`
 -- allow-listed for the genuine escape hatches (an overlay label placed against a star's ellipse, the
