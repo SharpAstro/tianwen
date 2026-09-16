@@ -299,10 +299,10 @@ widely than the example, and most of the fix is adoption, not engine work.
 Kept as the record of what was outstanding, not as a to-do list. Where it stands now:
 
 - **Published:** DIR.Lib **9.2.3051**, Console.Lib **4.35.1841**, SdlVulkan.Renderer **7.38.3151**.
-  tianwen `main` pins all three. **DIR.Lib 9.3 is cut but NOT yet published** (PR #84): merging it starts
-  the release chain -- publish, then Console.Lib / SdlVulkan.Renderer / WebGl.Renderer rebuilt against it,
-  then tianwen's pins move together, which the 9.1 `MouseUp`/`MouseMove` lesson makes mandatory rather
-  than optional.
+  tianwen `main` pins all three. **DIR.Lib 9.3.3111 published 2026-09-16** (PR #84, the dropdown node).
+  The rest of that release chain is NOT done: Console.Lib / SdlVulkan.Renderer / WebGl.Renderer still have
+  to be rebuilt against 9.3 before tianwen's pin moves from `9.2.*` to `9.3.*`, and they move together --
+  which the 9.1 `MouseUp`/`MouseMove` lesson makes mandatory rather than optional.
 - **Landed in tianwen:** #267, #269, #270, #271, #273, then **T1** (#275, the router) and **T2** (#276,
   popovers and sliders). Gone as types: `OverlayPlacement`, `ISelfDispatchingInputWidget`,
   `TextFieldPointerInteraction`, `ICaretPlacingWidget` and its six implementations, two bespoke keyboard
@@ -317,7 +317,7 @@ Kept as the record of what was outstanding, not as a to-do list. Where it stands
   hand-written chrome and it DELETES code on the tianwen side, including the close-then-reopen-next-frame
   dance in `PumpHelpPanel`. Landing it as a second mechanism beside `Popover` is the way to get this
   wrong; it is the same shape 9.2 already solved for panels.
-- **The ENGINE half of the dropdown landed 2026-09-16 in DIR.Lib 9.3** (PR SharpAstro/DIR.Lib#84).
+- **The ENGINE half of the dropdown landed 2026-09-16 in DIR.Lib 9.3.3111** (PR SharpAstro/DIR.Lib#84).
   `Layout.Builder.Dropdown(anchor, state)` composes from what already existed -- `Popover` for the backdrop
   and the Escape claim, `.Disabled(reason)` for a refused row, `.BgHover`, `.WithScroll` -- and
   `DropdownMenuState` now HOLDS a `PopoverState` with `IsOpen` reading and writing through it, so the
@@ -326,7 +326,8 @@ Kept as the record of what was outstanding, not as a to-do list. Where it stands
   **What remains is the tianwen half, and it is the whole point of the item:** `OpenToolbarDropdown`'s
   switch, the `PumpHelpPanel` close-then-reopen dance, and the two hand-built result lists
   (`PlannerTab.RenderSuggestionDropdown`, `SkyMapTab.BuildSearchResults`, about 90 lines, and they gain
-  scrolling). It needs 9.3 published and tianwen's `DIR.Lib` pin moved from `9.2.*` to `9.3.*` first.
+  scrolling). 9.3 IS published; what it still needs is the sibling rebuilds and tianwen's `DIR.Lib` pin
+  moved from `9.2.*` to `9.3.*`.
   **Two things that half learned, and a T3 session will hit both:**
   1. **`.Disabled(reason)` STRIPS a handler; it does not create a region.** A row declared disabled without
      a `Hit` registers nothing, so its press falls through to the backdrop and DISMISSES the menu -- the
