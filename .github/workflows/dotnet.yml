@@ -117,7 +117,7 @@ jobs:
       with:
         dotnet-version: 10.0.x
         cache: true
-        cache-dependency-path: src/Directory.Packages.props
+        cache-dependency-path: Directory.Packages.props
     # Read the major.minor back from the ONE place it is written (src/Directory.Build.props ->
     # VersionMajorMinor) instead of restating it in this file. It used to be a literal in the
     # workflow `env:`, so the number lived in two places and nothing compared them.
@@ -338,7 +338,7 @@ jobs:
       with:
         dotnet-version: 10.0.x
         cache: true
-        cache-dependency-path: src/Directory.Packages.props
+        cache-dependency-path: Directory.Packages.props
     - name: Restore dependencies
       run: dotnet restore
       working-directory: src
@@ -516,7 +516,7 @@ jobs:
       with:
         dotnet-version: 10.0.x
         cache: true
-        cache-dependency-path: src/Directory.Packages.props
+        cache-dependency-path: Directory.Packages.props
     - name: Restore dependencies
       run: dotnet restore
       working-directory: src

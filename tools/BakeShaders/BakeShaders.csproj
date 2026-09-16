@@ -17,7 +17,7 @@
   <ItemGroup>
     <!-- The same shaderc wrapper TianWen.UI.Shared used at runtime, but here it runs only on the
          build host (win/linux/osx RIDs ship the native), so the shipped assembly needs no shaderc. -->
-    <PackageReference Include="Vortice.ShaderCompiler" Version="1.9.0" />
+    <PackageReference Include="Vortice.ShaderCompiler" />
   </ItemGroup>
 
 </Project>

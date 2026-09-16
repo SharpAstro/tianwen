@@ -40,7 +40,7 @@ on:
       # main-thread time (a discarded pointermove crossing per touch move) and, listing only source
       # directories, this workflow did not run for it. The fix was merged and not deployed, which is
       # the worst of both: green CI, unchanged site, and nothing saying so.
-      - 'src/Directory.Packages.props'
+      - 'Directory.Packages.props'
       - 'src/Directory.Build.props'
       # The bake tools decide what the site SERVES, which makes them as load-bearing as the source
       # directories above and subject to exactly the same failure: change a tool alone, get green CI,
