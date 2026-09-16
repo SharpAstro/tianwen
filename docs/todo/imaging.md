@@ -220,6 +220,26 @@ Filed 2026-09-13, out of the Explorer-thumbnail work (`fix(thumbnails): read not
 
 ## Imaging
 
+- [ ] **A bare `LPS` filter tag resolves to NO curve, and at least one baked master carries one.**
+  Measured 2026-09-16 with `SpccReachabilityProbe`, which already had these exact spellings in its
+  list: `IDAS LPS-D3`, `IDAS LPS D3`, `LPS-D3` and `IDAS-LPS-D3` **all resolve to `IDAS_LPS_D3`**,
+  while **`LPS` and `IDAS` each resolve to nothing**. That is the matcher working as designed (a brand
+  alone, or a family alone, must not answer), but it means the archive's older short convention is a
+  silent SPCC skip: `Rim Nebula 120s F2.8 LPS RGB / 2024-06-06 / ASI533MC` is baked with its filter
+  tagged `LPS` in the master's own filename, so it gets no curve. Its FITS `FILTER` card reads
+  `'None'`, so nothing downstream can recover the identity either.
+  **The fix is the long name, not a shorter one**, which inverts the usual worry about verbose cards:
+  a tag that says less resolves worse here, and a one-sided difference still matches (`LPS-D3` leaves
+  `{idas}` unmatched and resolves anyway), so there is no cost to writing it out in full. **No LPS
+  dataset in the archive carries a `FILTER` card at all** (all `<absent>`, bar two frames saying `RGB`
+  and `all channels`, which are processing modes), so the tag is ours to choose everywhere and nothing
+  is being contradicted by writing `IDAS-LPS-D3`.
+  Two more gaps the same probe printed, worth their own look: **`LPS-D2` resolves to nothing** (no D2
+  curve exists, only D3 and P3), and **`Optolong L-eXtreme` resolves to nothing** while L-eNhance,
+  L-Ultimate, L-Quad and L-Pro all do.
+  Candidates to re-tag: `Rim Nebula 120s F2.8 LPS RGB` (baked), `ASI55mc Cal June LPS 60s 8deg`, and
+  `2026-08 SV545` (1,122 files, QHY294PROC, carries a `USING_IDAS_LPS.txt` marker and is not in the
+  bake or in Astro-Organized).
 - [ ] **A calibration set is chosen entirely on metadata, and nothing ever checks it against the
   pixels.** `CalibrationResolver` scores gain, offset, exposure, temperature and instrument, plus a
   capture-date distance, and `CalibrationCoverageReport` reports availability under those gates. Neither
