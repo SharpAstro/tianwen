@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
@@ -218,16 +218,18 @@ namespace TianWen.Lib.Tests
             viewer.TryGetPaintedToolbarRect(ToolbarAction.SkyBackdrop, out var rect).ShouldBeTrue();
             var (cx, cy) = (rect.X + (rect.Width / 2f), rect.Y + (rect.Height / 2f));
 
-            viewer.HandleInput(new InputEvent.MouseDown(cx, cy));
-            viewer.HandleInput(new InputEvent.MouseUp(cx, cy));
+            ViewerKeyRouting.Route(viewer,
+                new InputEvent.MouseDown(cx, cy),
+                new InputEvent.MouseUp(cx, cy));
             state.ShowSkyBackdrop.ShouldBeTrue("the button is the affordance for the same one line Y runs");
 
             viewer.Render(document, state);
             viewer.IsToolbarButtonActiveForTest(ToolbarAction.SkyBackdrop, state)
                 .ShouldBeTrue("and it lights while the sky is wanted");
 
-            viewer.HandleInput(new InputEvent.MouseDown(cx, cy));
-            viewer.HandleInput(new InputEvent.MouseUp(cx, cy));
+            ViewerKeyRouting.Route(viewer,
+                new InputEvent.MouseDown(cx, cy),
+                new InputEvent.MouseUp(cx, cy));
             state.ShowSkyBackdrop.ShouldBeFalse("a second press puts it away");
         }
 

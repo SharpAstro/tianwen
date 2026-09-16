@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -129,7 +129,10 @@ namespace TianWen.UI.Abstractions
                     Layout.Axis.Horizontal,
                     firstExtent: state.FileListWidthBase,
                     dividerThickness: BaseFileListDividerWidth,
-                    dividerHit: new ResizeHandleHit("FileList"),
+                    // NO dividerHit: a Split's divider carries a hit and no handler, and such a region
+                    // swallows the press under a router while running nothing. The grab is registered
+                    // over the divider in RenderFileList instead, with its handler and its cursor --
+                    // and it has to be the region that ANSWERS, so the tree must not register a rival.
                     dividerColor: state.IsResizingFileList ? ResizeHandleActiveColor : ResizeHandleIdleColor)
                 : content;
 

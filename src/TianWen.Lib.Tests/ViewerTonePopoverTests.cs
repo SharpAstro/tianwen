@@ -114,8 +114,9 @@ public class ViewerTonePopoverTests
 
     private static void Press(ToneViewer viewer, float x, float y)
     {
-        viewer.HandleInput(new InputEvent.MouseDown(x, y));
-        viewer.HandleInput(new InputEvent.MouseUp(x, y));
+        ViewerKeyRouting.Route(viewer,
+            new InputEvent.MouseDown(x, y),
+            new InputEvent.MouseUp(x, y));
     }
 
     private static void OpenPanel(ToneViewer viewer, ViewerState state, AstroImageDocument document)
@@ -251,19 +252,23 @@ public class ViewerTonePopoverTests
         var track = DialOf(viewer, viewer.Amount);
         var x = track.X + track.Width - 1f;
         var y = track.Y + (track.Height / 2f);
-        viewer.HandleInput(new InputEvent.MouseDown(x, y));
+        // ONE router for the whole gesture, because the capture the press arms lives on it -- a fresh
+        // router per event is three unrelated events, which is exactly what the release assertion below
+        // is meant to distinguish from a live drag.
+        var router = ViewerKeyRouting.RouterFor(viewer);
+        router.Handle(new InputEvent.MouseDown(x, y));
 
         state.HdrAmount.ShouldBeGreaterThan(1f, "the far end of the track is the hardest clip");
 
         // The gesture is live, so a move with no press between them still tracks.
-        viewer.HandleInput(new InputEvent.MouseMove(track.X + 1f, y));
+        router.Handle(new InputEvent.MouseMove(track.X + 1f, y));
         var dragged = state.HdrAmount;
         dragged.ShouldBeLessThan(0.1f, "the near end of the track is no clip at all");
 
         // Release ends it, and the assertion is that the NEXT move changes nothing. That is what the
         // drag flag was there to make true, and what a spent capture now makes true with no flag.
-        viewer.HandleInput(new InputEvent.MouseUp(track.X + 1f, y));
-        viewer.HandleInput(new InputEvent.MouseMove(track.X + track.Width - 1f, y));
+        router.Handle(new InputEvent.MouseUp(track.X + 1f, y));
+        router.Handle(new InputEvent.MouseMove(track.X + track.Width - 1f, y));
         state.HdrAmount.ShouldBe(dragged, "release ends the drag");
     }
 

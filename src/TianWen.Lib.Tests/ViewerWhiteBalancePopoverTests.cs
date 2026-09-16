@@ -113,8 +113,9 @@ namespace TianWen.Lib.Tests
 
         private static void Press(PopoverViewer viewer, float x, float y)
         {
-            viewer.HandleInput(new InputEvent.MouseDown(x, y));
-            viewer.HandleInput(new InputEvent.MouseUp(x, y));
+            ViewerKeyRouting.Route(viewer,
+                new InputEvent.MouseDown(x, y),
+                new InputEvent.MouseUp(x, y));
         }
 
         /// <summary>
@@ -392,8 +393,9 @@ namespace TianWen.Lib.Tests
             // BeginWhiteBalanceDragAt to call and the press itself is what moves the value.
             var dragX = redTrack.Value.Right - 1f;
             var dragY = redTrack.Value.Y + (redTrack.Value.Height / 2f);
-            viewer.HandleInput(new InputEvent.MouseDown(dragX, dragY));
-            viewer.HandleInput(new InputEvent.MouseUp(dragX, dragY));
+            ViewerKeyRouting.Route(viewer,
+                new InputEvent.MouseDown(dragX, dragY),
+                new InputEvent.MouseUp(dragX, dragY));
             state.ManualWhiteBalance.R.ShouldNotBe(1f, "the track took the drag");
             viewer.IsToolbarButtonActiveForTest(ToolbarAction.WhiteBalance, state)
                 .ShouldBeTrue("a white balance in force lights the button");
@@ -439,8 +441,9 @@ namespace TianWen.Lib.Tests
             var (_, sliders, _) = HitsBelowTheBar(viewer);
             sliders.ShouldBeFalse();
             var before = state.ManualWhiteBalance;
-            viewer.HandleInput(new InputEvent.MouseDown(dragX, dragY));
-            viewer.HandleInput(new InputEvent.MouseUp(dragX, dragY));
+            ViewerKeyRouting.Route(viewer,
+                new InputEvent.MouseDown(dragX, dragY),
+                new InputEvent.MouseUp(dragX, dragY));
             state.ManualWhiteBalance.ShouldBe(before, "a closed popover has no track to drag");
         }
 

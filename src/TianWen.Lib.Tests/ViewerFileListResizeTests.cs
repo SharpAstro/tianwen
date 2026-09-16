@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using DIR.Lib;
 using Shouldly;
 using TianWen.Lib.Astrometry;
@@ -90,9 +90,10 @@ namespace TianWen.Lib.Tests
             viewer.Render(null, state);
             var divider = viewer.FileList.Right;
 
-            viewer.HandleInput(new InputEvent.MouseDown(divider + 1f, NarrowH * 0.5f, MouseButton.Left));
-            viewer.HandleInput(new InputEvent.MouseMove(targetX, NarrowH * 0.5f));
-            viewer.HandleInput(new InputEvent.MouseUp(targetX, NarrowH * 0.5f, MouseButton.Left));
+            ViewerKeyRouting.Route(viewer,
+                new InputEvent.MouseDown(divider + 1f, NarrowH * 0.5f, MouseButton.Left),
+                new InputEvent.MouseMove(targetX, NarrowH * 0.5f),
+                new InputEvent.MouseUp(targetX, NarrowH * 0.5f, MouseButton.Left));
 
             viewer.Render(null, state);
             return viewer.FileList.Width;
@@ -235,9 +236,10 @@ namespace TianWen.Lib.Tests
             var x = band.X + (band.Width / 2f);
             var y = band.Y + (band.Height / 2f);
 
-            viewer.HandleInput(new InputEvent.MouseDown(x, y));
-            viewer.HandleInput(new InputEvent.MouseMove(x + 40f, y + 30f));
-            viewer.HandleInput(new InputEvent.MouseUp(x + 40f, y + 30f));
+            ViewerKeyRouting.Route(viewer,
+                new InputEvent.MouseDown(x, y),
+                new InputEvent.MouseMove(x + 40f, y + 30f),
+                new InputEvent.MouseUp(x + 40f, y + 30f));
 
             state.PanOffset.ShouldNotBe(before, "a drag in the collapsed list's band must pan the image");
         }
@@ -263,9 +265,10 @@ namespace TianWen.Lib.Tests
             var x = band.X + (band.Width / 2f);
             var y = band.Y + (band.Height / 2f);
 
-            viewer.HandleInput(new InputEvent.MouseDown(x, y));
-            viewer.HandleInput(new InputEvent.MouseMove(x + 40f, y + 30f));
-            viewer.HandleInput(new InputEvent.MouseUp(x + 40f, y + 30f));
+            ViewerKeyRouting.Route(viewer,
+                new InputEvent.MouseDown(x, y),
+                new InputEvent.MouseMove(x + 40f, y + 30f),
+                new InputEvent.MouseUp(x + 40f, y + 30f));
 
             state.PanOffset.ShouldBe(before, "a press on the visible list belongs to the list");
         }
