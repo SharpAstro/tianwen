@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using QHYCCD.SDK;
@@ -141,28 +143,38 @@ public class QhySensorGeometryProbe(ITestOutputHelper output)
             // temperature is worth asking for on a body running with NO external power: the TEC
             // cannot run, but the sensor's thermistor is a different circuit, so whether the reading
             // is still meaningful is a question about the hardware, not about the cooler.
+            // EVERY control the enum knows, not a hand-picked few: what a body supports is the thing
+            // being measured, and choosing the list in advance is choosing the answer. Reads only,
+            // so this is safe to run against anyone's camera; distinct by VALUE because the enum
+            // carries aliases that would otherwise be asked twice.
             output.WriteLine("");
-            output.WriteLine($"  {"control",-22} {"available",-10} {"current",10} {"min",10} {"max",10} {"step",8}");
-            foreach (var control in new[]
-                     {
-                         CONTROL_ID.CONTROL_USBTRAFFIC, CONTROL_ID.CONTROL_SPEED, CONTROL_ID.CONTROL_TRANSFERBIT,
-                         CONTROL_ID.CONTROL_CURTEMP, CONTROL_ID.CONTROL_CURPWM, CONTROL_ID.CONTROL_COOLER,
-                         CONTROL_ID.CONTROL_GAIN, CONTROL_ID.CONTROL_OFFSET, CONTROL_ID.CONTROL_EXPOSURE,
-                     })
+            output.WriteLine($"  {"control",-28} {"current",12} {"min",12} {"max",14} {"step",8}");
+            var unsupported = new List<string>();
+            foreach (var control in Enum.GetValues<CONTROL_ID>()
+                         .DistinctBy(c => (int)c)
+                         .OrderBy(c => (int)c))
             {
-                var available = IsQHYCCDControlAvailable(handle, control) is Success;
-                if (!available)
+                if (IsQHYCCDControlAvailable(handle, control) is not Success)
                 {
-                    output.WriteLine($"  {control,-22} {"no",-10}");
+                    unsupported.Add(control.ToString());
                     continue;
                 }
 
+                // GetQHYCCDParam signals failure by RETURNING the error sentinel as the value, so a
+                // caller that reads it as a number gets 4294967295. On this body nine controls answer
+                // that way and every one of them is a set-only MODE FLAG (the bin modes, the bit
+                // depths, single-frame against live video): they are available to set and meaningless
+                // to read, which is a different thing from unsupported and is worth saying so.
                 var value = GetQHYCCDParam(handle, control);
+                var readable = value is not (double)uint.MaxValue and not (double)int.MaxValue;
                 var range = GetQHYCCDParamMinMaxStep(handle, control, out var min, out var max, out var step) is Success
-                    ? $"{min,10:F2} {max,10:F2} {step,8:F2}"
-                    : $"{"?",10} {"?",10} {"?",8}";
-                output.WriteLine($"  {control,-22} {"yes",-10} {value,10:F2} {range}");
+                    ? $"{min,12:F2} {max,14:F2} {step,8:F2}"
+                    : $"{"(no range)",12} {"",14} {"",8}";
+                output.WriteLine($"  {control,-28} {(readable ? $"{value,12:F2}" : $"{"(set-only)",12}")} {range}");
             }
+
+            output.WriteLine("");
+            output.WriteLine($"  NOT supported on this body ({unsupported.Count}): {string.Join(", ", unsupported)}");
         }
         finally
         {
