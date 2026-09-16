@@ -398,7 +398,7 @@ everything and above it recovers little.
 | E2.8b | **RUN 2026-09-07, not killed by one seed** (under E2.8's results). Arm N, the star term's counterpart over EMPTY target windows: observer fabrication 34-45x to 2.6-9.7x (four of five under the input's own null) as predicted, but four of five seeds lose the sharpening (selected 1.32-1.34 against an input of 1.38, stars 0.63, trained toward the identity); seed 1, the lowest weight, keeps both (1.183 selected, observer 9.7x). Arm W, the weight re-fixed at step 400: observer 22-42x, three of five under 1.30; not the mechanism. E2.8c (arm N at seed 1's fixed weight) pre-registered to say whether the weight was the cause. | 10 x ~10 min GPU | a per-star term can be honest; whether it can be honest AND sharp rides on the weight |
 | E2.8c | **RUN 2026-09-07, prediction failed, not killed** (under E2.8b's results). Arm N with the weight fixed at 1.84e-3: two of five seeds hold both (selected 1.238 and 1.163 at 0.74 to 0.76 stars, observer 11 and 10x), sharpening only after step 3,000; three never leave the input. Every seed honest on the observer (1.5 to 11x against 34 to 45). The weight was part of the cause, the optimisation the rest; the profile of a regulariser, which is how it enters the unrolled operator. **The fork is decided below: the unrolled operator, the estimator step under it, no capacity arm.** | 5 x ~10 min GPU | the honest recipe has an operating point on two seeds in five |
 | E2.9 | **RUN 2026-09-07, then WITHDRAWN to inconclusive the same afternoon** (section below). FWHM against air mass over 79 sessions, 8,507 subs re-measured in 62.6 min, read 0 of 67 sessions reaching a 1.3x span explained by air mass; but E2.10a's diagnostic showed the store's per-sub width is the mosaic mono path's, which reads 1.70 on every sub of an OSC night whatever the seeing, so the slopes measure an instrument floor. Standing: computed air mass agrees with N.I.N.A.'s card to 0.015 on 50 of 52 sessions; SharpCap writes no site cards (27 sessions uncomputed, `--site` supplies one now). **Re-read on `SubFwhmGreen` the same evening: the kill line stands in substance.** 76 of 79 fitted; 1 reaches a 1.3x explained span with a slope of +3.15 (five times what seeing can give); slopes in [0.3, 0.9] on 12 of 76, medians near zero on every train but ZS61 and the ASI1600; within-night p90/p10 on green 1.04 to 1.21x. The green fit refused 27 percent of subs and every sub of the three warmest SV605CC sessions, whose lists were half warm pixels (fixed in the detector that evening; re-measure running). | 62.6 min CPU, plus two re-measures of 87 min | Air-mass pairing is dead as a real-blur source; the heavy end stays synthetic |
-| E2.10 | **E2.10a RUN 2026-09-07: no pair to score** (section below). The Orion night's sharp and soft thirds, built as pre-registered, measure the same width (2.82 against 2.72 px on the green fit, B/A 0.97 to 1.03), and the oracle correctly did nothing. Diagnosed stage by stage: the store's per-sub width is the mosaic mono path's floor (1.70 on every sub) so the split was ranked on noise; the subs do differ on the green plane by 1.15 to 1.25x; and every stack of the night, drizzle included, sits at 2.7 to 2.8 px from 1.7 to 2.5 px subs. Two stacker fixes came out of it (`--group-temp-tolerance`, the `CANVASX0/Y0` cards). **The evening placed the stack's blur** ("the third finding placed"): the registration refiner HALVED every shift under 5 px because half of each frame's detections were warm pixels pairing with themselves (fixed, validated to 0.03 px), the detector accepted a single warm photosite as a star (fixed; the "1.70 floor" was their width), and what remains is the bilinear warp (a master is the mean of its warped frames to 0.3 percent; frames at fractional phase widen from 2.15 to 2.4 to 2.7 px). Candidates on green: 14 of 75 at p90/p10 1.15, thirds only 1.10 to 1.25x, the sampled trains 1.15 to 1.17x (SH61 Statue 251 subs, Rosette 115, Helix 119). On the guarded store (re-measured the same evening): 19 of 77 candidates, the best now the Orion L-Quad 2025-10-15 night itself at 1.26 (sharp third 1.89 px against soft 2.38 on 55 green fits), the night E2.10a found no pair in on the floor-ranked list. **E2.10b READ the same evening on the Statue 2026-02-14 night (244 subs of 60 s, Lanczos-3): the first real-blur pair.** The thirds' masters differ 1.19 to 1.22 on the green fit (predicted 1.10 to 1.16), and the oracle with the estimated kernel (0.8 to 1.0 px on 1.7 px cores) recovers to rec/A 1.007 and 1.085 on two channels (1.139 on the third), stars 0.84 to 1.07 of A, ring excess 14 to 36 percent, converged by 20 iterations. **E2.10c READ on the Orion night (19-frame thirds, 1.89 against 2.38 px subs):** the masters differ 1.17 to 1.27 on the fit (the ranking was what E2.10a lacked); rec/A 0.951 / 1.119 / 1.123 misses the 1.00 to 1.10 band on every channel without a kill (stars 1.04 / 0.94 / 0.85, ring 7 to 14 percent), the heavy-winged sharp core over-reading its difference kernel. | two days, eleven launches | Two real-blur pairs exist (1.2x and 1.2 to 1.27x); the estimator's kernel recovers the Statue's within 1 to 9 percent on two channels and over-sharpens one Orion channel; the star count is the number to watch |
+| E2.10 | **E2.10a RUN 2026-09-07: no pair to score** (section below). The Orion night's sharp and soft thirds, built as pre-registered, measure the same width (2.82 against 2.72 px on the green fit, B/A 0.97 to 1.03), and the oracle correctly did nothing. Diagnosed stage by stage: the store's per-sub width is the mosaic mono path's floor (1.70 on every sub) so the split was ranked on noise; the subs do differ on the green plane by 1.15 to 1.25x; and every stack of the night, drizzle included, sits at 2.7 to 2.8 px from 1.7 to 2.5 px subs. Two stacker fixes came out of it (`--group-temp-tolerance`, the `CANVASX0/Y0` cards). **The evening placed the stack's blur** ("the third finding placed"): the registration refiner HALVED every shift under 5 px because half of each frame's detections were warm pixels pairing with themselves (fixed, validated to 0.03 px), the detector accepted a single warm photosite as a star (fixed; the "1.70 floor" was their width), and what remains is the bilinear warp (a master is the mean of its warped frames to 0.3 percent; frames at fractional phase widen from 2.15 to 2.4 to 2.7 px). Candidates on green: 14 of 75 at p90/p10 1.15, thirds only 1.10 to 1.25x, the sampled trains 1.15 to 1.17x (SH61 Statue 251 subs, Rosette 115, Helix 119). On the guarded store (re-measured the same evening): 19 of 77 candidates, the best now the Orion L-Quad 2025-10-15 night itself at 1.26 (sharp third 1.89 px against soft 2.38 on 55 green fits), the night E2.10a found no pair in on the floor-ranked list. **E2.10b READ the same evening on the Statue 2026-02-14 night (244 subs of 60 s, Lanczos-3): the first real-blur pair.** The thirds' masters differ 1.19 to 1.22 on the green fit (predicted 1.10 to 1.16), and the oracle with the estimated kernel (0.8 to 1.0 px on 1.7 px cores) recovers to rec/A 1.007 and 1.085 on two channels (1.139 on the third), stars 0.84 to 1.07 of A, ring excess 14 to 36 percent, converged by 20 iterations. **E2.10c READ on the Orion night (19-frame thirds, 1.89 against 2.38 px subs; both this pair's numbers and E2.10b's were re-read per field on 2026-09-16 and are about a tenth high, see "E2.10 re-read per field"):** the masters differ 1.17 to 1.27 on the fit (the ranking was what E2.10a lacked); rec/A 0.951 / 1.119 / 1.123 misses the 1.00 to 1.10 band on every channel without a kill (stars 1.04 / 0.94 / 0.85, ring 7 to 14 percent), the heavy-winged sharp core over-reading its difference kernel. | two days, eleven launches | Two real-blur pairs exist (1.2x and 1.2 to 1.27x); the estimator's kernel recovers the Statue's within 1 to 9 percent on two channels and over-sharpens one Orion channel; the star count is the number to watch |
 | R1 | **RUN 2026-09-07 evening: Lanczos-3 removes the kernel's blur, no ringing measurable** (section below). Synthetic half-pixel shift: +1.15 px in quadrature under bilinear (predicted 1.1 to 1.3), +0.00 under Lanczos-3 (under 0.4). Real: the near6 master reads 2.15 px per star against the bilinear twin's 2.39 (predicted under 2.25), the frames rank by their own subs' seeing rather than by phase; the whole night 2.48 against 2.70 per star, fit 2.61 against 2.81 (the "under 2.5" missed because the night's subs average 2.4, not the 2.2 the six near frames suggested), still the mean of its frames. Ringing identical to bilinear on the annulus undershoot, the radial profile and the synthetic dip. `PsfProfileFit` refused the sharper near6 master (rms 0.83): its log-space fit reads far-wing background residue, which a narrower core exposes (E1g). Default stays bilinear; the flip is the user's. | an hour of code, two stacks, four probes | A master can keep its subs' width at 2 px seeing; every retained master carries about a pixel in quadrature it need not |
 | E1g, E1g-2 | **E1g KILLED, E1g-2 RUN, both 2026-09-07 evening** (sections under R1). The profile fit refused every sharp input (the R1 Lanczos master, a two-frame stack, a 1.8 px sub). E1g, a floor relative to the profile's outer level, changed nothing (30 refusals of 180, the same 30 as E1e) and broke a detached-halo refusal's reason: the fit's annulus already leaves the outer bins near zero, and the fit's own profile, now exposed in `Diagnostics`, shows a Gaussian core with a faint wing that no fixed-width Moffat follows. E1g-2 fits the core (bins above 2 percent of peak) and reports the wing at 2 and 3 FWHM: every refused profile returns (2.32, 2.20, 1.73 to 1.90 px), accepted widths unchanged to 0.01, exponents up by 1 to 3 everywhere, exponents above about 6 no longer told apart. The store's `MoffatBeta` is the old quantity until a re-measure. Oracle rows over E1e's 180: 25 refusals against 30, the prediction of under 10 MISSED; the fit's own refusals fell from nine entries to one, and 24 of the 25 rows left are `TooFewStacked` on the Eta Car 24 mm frame, whose brightness band holds 38 / 10 / 2 / 0 stars at 1 / 2 / 3 / 4 px of blur (a star budget, not a fit); fitted widths identical on every row, recovery unchanged at p50, composed kernel estimates 0.01 to 0.06 wider through the higher clean exponent. | two builds, two oracle runs | The estimator step measures sharp inputs; the store's beta semantics changed |
 | D1 | **BUILT 2026-09-07, off by default; both halves measured** (under "The next four"). Per-tile psf01 at inference: `ChunkedNafnetRunner` extras per chunk, `OnnxNonStellarDeconvolver` estimating per chunk region with a frame-level fallback, so inference matches the per-cell training label. CPU half: on the seven Rim masters the per-tile radius spans 8 to 61 percent p10 to p90 and 10 to 16 percent of tiles starve. GPU half: a NULL on the shipped SAS graph, per-tile and whole-image outputs within 0.01 px and one percent in count on every master, including four where 250 of 289 tiles carried a different label; the switch stays off for that graph and ships for E7's own. Side finding: on stars the shipped graph widens soft cores and drops most of the outer third's stars. The fixed-psf01 check (0 / 0.5 / 1 over the whole shipped range) moves the output by 0.03 to 0.06 px and three percent in count: the shipped graph's conditioning input is inert on a real master's stars, so the null is the graph's property. | half a day | The field-varying half of the optics blur |
@@ -3087,10 +3087,12 @@ for the same reason.
 1. **A seeing split's sharp/soft label is decided frame-wide and does not hold across the frame.**
    `w.in / w.true` runs **0.96 to 1.22** over the Statue grid: the whole top row has nothing to
    remove (0.996 and 0.959 in two cells, where the "soft" master is the sharper one), while the
-   bottom row carries 1.16 to 1.22. On Orion it reverses harder, **0.808** in the bottom-right
-   corner, a "soft" third a quarter sharper than the "sharp" one there. Every pair-level number in
-   E2.10b and E2.10c is therefore an average over a field that changes sign, which is also the
-   likeliest reading of E2.10c's rec/A over 1 on two channels.
+   bottom row carries 1.16 to 1.22. On Orion it appeared to reverse harder, **0.808** in the
+   bottom-right corner; **that number is WITHDRAWN by the per-field re-read below**, which matches
+   the two frames' star lists and reads 1.076 there, the Orion frame's worst being 0.967. The Statue
+   inversions stand and the re-read confirms them. Every pair-level number in E2.10b and E2.10c is
+   still an average over a field that changes sign, which is also the likeliest reading of E2.10c's
+   rec/A over 1 on two channels.
 2. **On a window with no blur the operator does not decline, it does harm.** That same Orion corner
    comes back at **2.0x the truth's width at every scale on the ladder**, stars 0.61, ring -12, and
    it is the one crop of fourteen where `ring.self` is not monotonic (it falls 0.43 at 1.58x).
@@ -3106,6 +3108,65 @@ any of it is written is a **truth-free estimator of the blur EXCESS**, not of th
 DECLINE: the runtime must be able to answer "no kernel" for a window, and today it cannot. Until
 one exists, a frame-wide kernel from the pair probe's estimator is the honest shipping rule, and it
 is what the 1024 px crops already do at 1.07x to 1.12x of their sub-windows.
+
+##### E2.10 re-read per field: the split is a TILT, channel 0 carries no blur, and one pair number overstates by a tenth (2026-09-16, 18:15)
+
+E7.5's first finding said a seeing split's sharp/soft label is decided frame-wide and need not hold
+across the frame. `SeeingSplitPairProbe.ReportHowTheSplitVariesAcrossTheField` takes that back to the
+pairs it came from: the whole common region tiled in 512 px windows (36 on the Statue, 40 on Orion),
+per channel, in the probe's own statistics rather than the gate's.
+
+**A per-frame median is over each frame's OWN detections, and that is a brightness selection, not a
+blur.** The soft master is shallower, so it detects fewer and brighter stars, and brighter stars
+measure wider: every own-star ratio here runs about a tenth high. The probe now also reports a
+MATCHED ratio, the median HFD over only the stars BOTH frames detect, centroid-matched inside 2 px,
+which is the apples-to-apples one and the statistic E2.10b and E2.10c never had.
+
+| pair | published pair number | own-star median per channel | MATCHED median per channel |
+|---|---|---|---|
+| Statue (E2.10b) | 1.19 to 1.22 on the green fit | 1.075 / 1.162 / 1.146 | **0.990 / 1.113 / 1.118** |
+| Orion (E2.10c) | 1.17 to 1.27 on the fit | 1.127 / 1.192 / 1.226 | **1.021 / 1.117 / 1.120** |
+
+Three readings.
+
+1. **Both pairs are the SAME strength, and it is about 1.12, not 1.2.** The published numbers are the
+   own-star statistic on one hand-picked square and overstate by 7 to 10 percent. E2.10c was ranked
+   as the better pair at 1.26; on the matched statistic the two are indistinguishable.
+2. **Channel 0 carries no usable blur on EITHER pair** (matched median 0.990 and 1.021, with 21 of 36
+   and 11 of 40 windows reading under 1). Anything fitted, trained or scored per channel on channel 0
+   from these pairs is fitting noise, and its rec/A was never going to land.
+3. **The Statue split is a TILT, not seeing.** The matched ratio on channel 1 by row, top to bottom:
+   **1.00, 1.06, 1.10, 1.14, 1.25, 1.30**, monotone, with the left column highest in every row, so the
+   minimum is the top edge (0.954) and the maximum the bottom-left corner (1.436). Seeing is
+   uniform over a field this size; this is not. The reason is visible in the two masters separately:
+   **the SHARP third is widest at the TOP** (A 1.87 to 2.40 px at y = 0 against 1.68 to 1.81 at
+   y = 2505) **and the SOFT third is widest at the BOTTOM** (B 1.84 to 2.24 against 2.28 to 2.69).
+   Each third has its own best-focus zone and they sit at opposite ends of the frame, so the ratio's
+   gradient is the two tilts added. A split ranked on a frame-wide median per sub cannot see that,
+   and this one did not.
+
+**Two corrections to the E7.5 read above, both mine.**
+
+- **The Orion corner's 0.808 is WITHDRAWN.** No Orion window is inverted by anything like that: the
+  matched ratio there is 1.076 and the frame's worst is 0.967. The 0.808 compared 1368 sharp
+  detections at 1.569 px against 2303 soft ones at 1.267 px, and a blurrier frame cannot out-detect
+  a sharper one by 68 percent; the narrower median was the fainter stars the lower threshold reached.
+  The Statue inversions stand, because there the counts match to within a few percent and the matched
+  statistic confirms them.
+- **E7.5's field term is this PAIR's differential focus, not a rig's field curvature.** The 3.12x
+  spread of picked kernels across the Statue frame is real and is what a per-window loop would have
+  to follow on this input, but it is the tilt above, not how much the telescope's PSF varies over its
+  field. An optics field term is common to both thirds and largely cancels in a ratio. **Do not quote
+  E7.5's 3.12x as a rig number.** Everything else in that read is unaffected: Q1's kill is about
+  whether a truth-free target finds the kernel a window needs, whatever put it there; the 1.07x and
+  1.12x size controls are same-place comparisons; and r = +0.967 against the quadrature kernel holds.
+
+**What this costs the training data.** A pair whose windows straddle 1.0 cannot be scored, trained on
+or validated against as one number, and two of the six channel-pairs here are entirely in that
+condition. The usable material is channels 1 and 2 of both pairs, and even there the blur runs 0.95
+to 1.44 across the field. The honest options are to rank the split per region rather than per sub, or
+to restrict each pair to the windows where the matched ratio clears some floor, and either is a
+change to how `tools/psf-seeing-split.py` picks thirds rather than a change to the probe.
 
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
