@@ -204,7 +204,7 @@ five panes and hands each to an imperative painter through a `Fill` key.
 | `.WithGap(g)` | 38 | 73 `Spacer().WFixed(pad)` nodes counted by grep, **of which only 4 were uniform between-sibling gaps** when the sweep looked at each: the rest are start/end padding, non-uniform gaps, or root fills into an explicit rect where `.Bg` is the honest spelling. A count from a grep is a ceiling, not a yield |
 | `HoverBackground` / `.BgHover` (8.1) | **0** | 5 hover tests at the call site (`FileList.cs:250` `rowRect.Contains(mouseX, mouseY)`, `Toolbar.cs:456`, `Histogram.cs:83`, `VkPlannerTab.cs:296`) plus the repaint bookkeeping the feature removes (`_lastHoveredToolbarButton`, `_lastHoveredFileListRow`, `hoverRepaint`, about 50 lines of `Input.cs`) |
 | `FocusBackground` / `.BgFocus` + `ListCursor` (8.20) | **0** | 9 `isSelected ? SelectedBg : RowBg` ternaries and about five `SelectedIndex` fields, on rows that ALREADY register `ListItemHit` (14 sites), so they are navigable-shaped and nobody asked |
-| `IconKind.Plus` / `Minus` / `CaretUp` / `CaretDown` | 0 / 0 / 0 / 1 | **19 marks as text runs**: 14 steppers (`"+"`, `"-"`, `"\u2212"`, `"[+]"`, `"[-]"` in `PlannerTab`, `SessionTab`, `FormRowLayout`, `SessionConfigLayout`, `EquipmentTab.*`, `LiveSessionTab.*`) and 5 carets/jogs (`"\u25b6"`, `"\u25c0"`, `"\u00ab"`, `"\u203a"`), against `CLAUDE.md`'s own rule that a mark is an `Icon` |
+| `IconKind.Plus` / `Minus` / `CaretUp` / `CaretDown` | ~~0 / 0 / 0 / 1~~ **DONE 2026-09-16** | Was "19 marks as text runs". Every step, jog and pan mark now resolves through `FormRowLayout.StepMark`, which maps the glyph to an `IconKind`; the call sites still pass a glyph STRING, which is why a grep for the literals still finds them and why this row read as outstanding. Two deliberate exceptions remain, both correct: the coarse-jog guillemets in `VkPlanetaryTab` fall through to a text run because `IconKind` has no member for them, and the TUI's bracketed pair are cell-surface characters, where a character IS the mark |
 | `IconKind.List` | 0 | `DrawFileListMark`, whose comment re-derives the kind's own rationale ("a face without the codepoint draws .notdef") |
 | `IconKind.Search` + `TextInput.LeadingIcon` (8.11) | 0 | two search fields, neither marked |
 | `MatchIconsToText` (8.10) | never fires | all four `Icon` calls state a size; `LiveSessionTab.Strips.cs:69` derives it from the sibling label by hand, the exact duplication 8.10 removed |
@@ -273,7 +273,7 @@ text stack instead. Zero-use and unneeded: `ContentTransform`, the Markdown and 
 |---|---|---|---|
 | 1 | spacer-as-gap | `.WithGap` | 4 nodes converted (73 matched; see the table) |
 | 2 | the viewer's imperative chrome inside the five `Fill` panes | subtrees under the arrangement `Layout.cs` already makes | about 55 draw/hit sites (25 `RegisterClickable`, 28 cursor advances) plus four helpers (`DrawTextLine`, `DrawSectionHeading`, `DrawTable`, `DrawWrappedTextLine`) |
-| 3 | marks as text runs | `IconKind.Plus/Minus/CaretUp/CaretDown` | 19 |
+| 3 | marks as text runs | `IconKind.Plus/Minus/CaretUp/CaretDown` | ~~19~~ 0 (done) |
 | 4 | `isSelected ?` row backgrounds + selection-index plumbing | `.BgFocus` + `ListCursor` | 9 ternaries, about 5 fields |
 | 5 | call-site hover + repaint bookkeeping | `.BgHover` (+ `LayoutDamage`) | 5 sites, about 50 lines |
 | 6 | `ImageRendererBase.Damage.cs` | `LayoutDamage` | 86 lines, 4 sites, and narrowing reaches the GUI |
@@ -427,8 +427,7 @@ They will rebase cleanly onto each other except possibly `Directory.Packages.pro
    **T2** (popovers and sliders as nodes; delete `OverlayOwnsPointer`, the five drag flags,
    `ISelfDispatchingInputWidget`, `OpenToolbarDropdown`'s switch), **T3** (the viewer chrome onto trees,
    `.BgHover`, `LayoutDamage` in the GUI), **D2** (the 10.0 cuts, Console.Lib major), **C1**.
-4. **T0b leftovers** that need no engine change and no agent has taken: 19 marks as text runs to `IconKind`
-   (VISIBLE change, the user has not signed off), `OverlayPlacement` to `Anchored`, the 15 web-host
+4. **T0b leftovers** that need no engine change and no agent has taken: `OverlayPlacement` to `Anchored`, the 15 web-host
    fire-and-forget calls onto the tracker, the two hand-built result lists onto `RenderDropdownMenu`, the
    six per-frame rect caches, the four pixel-sweep tests.
 
