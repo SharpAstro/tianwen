@@ -434,6 +434,242 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
         output.WriteLine("read: a rule's kernel over est-c near 1.0 lands the pair's answer; the plan's E7.1 sweep says how far from 1.0 the prior tolerates. NaN from a floor means the frame is already sharper than that floor.");
     }
 
+    private const string WindowVar = "TIANWEN_E210_WINDOW";
+    private const int DefaultWindow = 512;
+    /// <summary>Two detections this close are the same star. The masters share a reference frame, so
+    /// the residual is registration, not pointing.</summary>
+    private const double MatchTolerancePx = 2.0;
+
+    /// <summary>Every window of <paramref name="side"/> px that both masters cover, tiled left to right
+    /// and top to bottom over the common region with no overlap, the last column and row flush against
+    /// its far edge so the frame's own corners are read rather than dropped.</summary>
+    private static IEnumerable<Region> TileCommonRegion(Pair pair, int channel, int side)
+    {
+        var a = pair.Sharp;
+        var b = pair.Soft;
+        var left = Math.Max(a.OriginX, b.OriginX);
+        var top = Math.Max(a.OriginY, b.OriginY);
+        var right = Math.Min(a.OriginX + a.Width, b.OriginX + b.Width);
+        var bottom = Math.Min(a.OriginY + a.Height, b.OriginY + b.Height);
+        if (right - left < side || bottom - top < side)
+        {
+            yield break;
+        }
+
+        var xs = new List<int>();
+        for (var x = left; x + side <= right; x += side)
+        {
+            xs.Add(x);
+        }
+
+        if (xs[^1] + side < right)
+        {
+            xs.Add(right - side);
+        }
+
+        var ys = new List<int>();
+        for (var y = top; y + side <= bottom; y += side)
+        {
+            ys.Add(y);
+        }
+
+        if (ys[^1] + side < bottom)
+        {
+            ys.Add(bottom - side);
+        }
+
+        foreach (var y in ys)
+        {
+            foreach (var x in xs)
+            {
+                var region = new Region(x - a.OriginX, y - a.OriginY, x - b.OriginX, y - b.OriginY, side, 0);
+                if (UncoveredFraction(a.Image, channel, region.SharpX, region.SharpY, side) <= MaxUncoveredFraction
+                    && UncoveredFraction(b.Image, channel, region.SoftX, region.SoftY, side) <= MaxUncoveredFraction)
+                {
+                    yield return region;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// The two frames' widths over the stars they BOTH have, matched by centroid inside
+    /// <paramref name="tolPx"/>. A per-frame median is over each frame's OWN detections, so it moves
+    /// when the two frames detect to different depths: on one Orion window the soft crop offered 68
+    /// percent MORE detections than the sharp one and its median read wider, which is a brightness
+    /// selection and not a blur. Matching first removes that, and the match count says how much of
+    /// each frame took part.
+    /// </summary>
+    private static (double RatioHfd, double MedianA, double MedianB, int Matched, double MedianSnr) MatchedWidths(
+        StarList a, StarList b, double tolPx)
+    {
+        var bs = b.ToList();
+        var used = new bool[bs.Count];
+        var wa = new List<double>();
+        var wb = new List<double>();
+        var snr = new List<double>();
+        foreach (var star in a)
+        {
+            var best = -1;
+            var bestD = tolPx * tolPx;
+            for (var i = 0; i < bs.Count; i++)
+            {
+                if (used[i])
+                {
+                    continue;
+                }
+
+                var dx = bs[i].XCentroid - star.XCentroid;
+                var dy = bs[i].YCentroid - star.YCentroid;
+                var d = (dx * dx) + (dy * dy);
+                if (d < bestD)
+                {
+                    bestD = d;
+                    best = i;
+                }
+            }
+
+            if (best >= 0)
+            {
+                used[best] = true;
+                wa.Add(star.HFD);
+                wb.Add(bs[best].HFD);
+                snr.Add(Math.Min(star.SNR, bs[best].SNR));
+            }
+        }
+
+        if (wa.Count == 0)
+        {
+            return (double.NaN, double.NaN, double.NaN, 0, double.NaN);
+        }
+
+        var ma = Median(wa);
+        var mb = Median(wb);
+        return (mb / ma, ma, mb, wa.Count, Median(snr));
+    }
+
+    /// <summary>
+    /// E7.5's finding, taken back to the pair it came from: <b>which third is the sharp one is decided
+    /// FRAME-WIDE and does not have to hold across the frame.</b> E2.10b and E2.10c each read one square
+    /// per channel, chosen for its star count, and reported one B/A for the pair; E7.5 then measured the
+    /// same two pairs over twelve windows and found the ratio running 0.96 to 1.22 on the Statue and
+    /// reversing to 0.81 in an Orion corner, so a pair number is an average over a field that can change
+    /// sign. This tiles the whole common region and reports B/A per window per channel, in the SAME
+    /// statistics the pair probe uses (the deployed estimator's HFD-based FWHM, and PsfProfileFit's core
+    /// width), so the two readings are comparable rather than merely consistent. No oracle: the question
+    /// is which frame is sharper WHERE, and every recovery number downstream inherits the answer.
+    /// </summary>
+    [Fact]
+    public async Task ReportHowTheSplitVariesAcrossTheField()
+    {
+        using var pair = Load(out var skip);
+        Assert.SkipWhen(pair is null, skip);
+        var ct = TestContext.Current.CancellationToken;
+        var channels = pair!.Sharp.Image.Shape.ChannelCount;
+        var side = int.TryParse(Environment.GetEnvironmentVariable(WindowVar), out var w) && w >= 128 ? w : DefaultWindow;
+
+        output.WriteLine($"sharp     {pair.Sharp.Path} ({pair.Sharp.Width} x {pair.Sharp.Height}, origin {pair.Sharp.OriginX}, {pair.Sharp.OriginY})");
+        output.WriteLine($"soft      {pair.Soft.Path} ({pair.Soft.Width} x {pair.Soft.Height}, origin {pair.Soft.OriginX}, {pair.Soft.OriginY})");
+        output.WriteLine($"windows   {side} px, tiled over the region both masters cover, the far column and row flush against its edge; "
+            + $"a window over {MaxUncoveredFraction:P0} uncovered in either master is dropped ({WindowVar} sets the side)");
+        output.WriteLine($"widths    hfd: the deployed estimator's median FWHM over each frame's OWN detections (what E2.10b/c's A and B columns are); "
+            + $"m B/A: the median HFD ratio over the stars BOTH frames detect, matched inside {MatchTolerancePx} px, which is the "
+            + $"apples-to-apples one; fit: PsfProfileFit core width, the estimator the kernel comes from");
+        output.WriteLine("");
+
+        for (var c = 0; c < channels; c++)
+        {
+            var regions = TileCommonRegion(pair, c, side).ToList();
+            if (regions.Count == 0)
+            {
+                output.WriteLine($"{c,2} (no covered window of {side} px; skipped)");
+                continue;
+            }
+
+            output.WriteLine($"ch {c}: {regions.Count} windows");
+            output.WriteLine($"   {"sharp x,y",12} {"A hfd",6} {"B hfd",6} {"B/A",6} {"A n",5} {"B n",5} "
+                + $"{"m B/A",6} {"m n",5} {"m snr",6} {"fit A",6} {"fit B",6} {"fit B/A",7} {"est-c",6}");
+            var ratios = new List<double>();
+            var matchedRatios = new List<double>();
+            var fitRatios = new List<double>();
+            foreach (var r in regions)
+            {
+                var truth = Cut(pair.Sharp.Image, c, r.SharpX, r.SharpY, r.Side, r.Side);
+                var observed = Cut(pair.Soft.Image, c, r.SoftX, r.SoftY, r.Side, r.Side);
+                var (aHfd, aStars) = await MeasuredFwhmAsync(truth, r.Side, ct);
+                var (bHfd, bStars) = await MeasuredFwhmAsync(observed, r.Side, ct);
+                var (fitA, _) = await FitStarProfileAsync(truth, r.Side, r.Side, PsfProfileFit.StarSelection.SignalFloor, EstimatorSnrMin, EstimatorMaxStars, ct);
+                var (fitB, _) = await FitStarProfileAsync(observed, r.Side, r.Side, PsfProfileFit.StarSelection.SignalFloor, EstimatorSnrMin, EstimatorMaxStars, ct);
+                var ratio = bHfd / aHfd;
+                if (double.IsFinite(ratio))
+                {
+                    ratios.Add(ratio);
+                }
+
+                var truthWrap = Wrap(truth, r.Side, r.Side);
+                var softWrap = Wrap(observed, r.Side, r.Side);
+                (double RatioHfd, double MedianA, double MedianB, int Matched, double MedianSnr) matched;
+                try
+                {
+                    var starsA = await truthWrap.FindStarsAsync(channel: 0, snrMin: EstimatorSnrMin, maxStars: EstimatorMaxStars, cancellationToken: ct);
+                    var starsB = await softWrap.FindStarsAsync(channel: 0, snrMin: EstimatorSnrMin, maxStars: EstimatorMaxStars, cancellationToken: ct);
+                    matched = MatchedWidths(starsA, starsB, MatchTolerancePx);
+                }
+                finally
+                {
+                    truthWrap.Release();
+                    softWrap.Release();
+                }
+
+                if (double.IsFinite(matched.RatioHfd))
+                {
+                    matchedRatios.Add(matched.RatioHfd);
+                }
+
+                var fitText = "     .      .       .      .";
+                if (fitA is { } fa && fitB is { } fb)
+                {
+                    var estC = MoffatComposition.DifferenceFwhm(fa.Fwhm, fa.MoffatBeta, fb.Fwhm, SyntheticKernelBeta);
+                    fitRatios.Add(fb.Fwhm / fa.Fwhm);
+                    fitText = $"{fa.Fwhm,6:F2} {fb.Fwhm,6:F2} {fb.Fwhm / fa.Fwhm,7:F3} {estC,6:F2}";
+                }
+
+                output.WriteLine($"   {$"{r.SharpX},{r.SharpY}",12} {aHfd,6:F2} {bHfd,6:F2} {ratio,6:F3} {aStars,5} {bStars,5} "
+                    + $"{matched.RatioHfd,6:F3} {matched.Matched,5} {matched.MedianSnr,6:F0} {fitText}"
+                    + (matched.RatioHfd < 1.0 ? "   INVERTED" : ratio < 1.0 ? "   (own-star only)" : ""));
+            }
+
+            if (ratios.Count > 0)
+            {
+                ratios.Sort();
+                output.WriteLine($"ch {c}: own-star B/A over {ratios.Count} windows {ratios[0]:F3} to {ratios[^1]:F3}, "
+                    + $"median {ratios[ratios.Count / 2]:F3}; {ratios.Count(v => v < 1.0)} under 1");
+            }
+
+            if (matchedRatios.Count > 0)
+            {
+                matchedRatios.Sort();
+                var inverted = matchedRatios.Count(v => v < 1.0);
+                output.WriteLine($"ch {c}: MATCHED-star B/A over {matchedRatios.Count} windows {matchedRatios[0]:F3} to "
+                    + $"{matchedRatios[^1]:F3}, median {matchedRatios[matchedRatios.Count / 2]:F3}; "
+                    + $"{inverted} window(s) INVERTED (the soft master is the sharper one there)");
+            }
+
+            if (fitRatios.Count > 0)
+            {
+                fitRatios.Sort();
+                output.WriteLine($"ch {c}: fitted B/A over {fitRatios.Count} windows {fitRatios[0]:F3} to {fitRatios[^1]:F3}, "
+                    + $"median {fitRatios[fitRatios.Count / 2]:F3}; {fitRatios.Count(v => v < 1.0)} inverted");
+            }
+
+            output.WriteLine("");
+        }
+
+        output.WriteLine("read: one B/A for a pair is an AVERAGE over this field. A window at or under 1.000 has no blur to remove, "
+            + "and a deconvolution there can only invent; a pair whose windows straddle 1.0 cannot be scored, trained on or "
+            + "validated against as one number.");
+    }
+
     [Fact]
     public async Task ReportWhatTheShippedGraphDoesOnARealSeeingSplit()
     {
