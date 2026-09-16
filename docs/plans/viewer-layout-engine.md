@@ -130,17 +130,28 @@ have". Probed directly: adding **+20 px to every button** (about 300 px across t
 the 1150 px ordinary window. **So the width objection is wrong and this document is right**; the run has
 headroom.
 
-What remains before it can go is therefore not width, it is two other things:
+What remains before it can go is therefore not width. It is a DEPENDENCY, and naming it that way
+matters, because this was queued for a while as a judgement call the user had to make and it is not one:
 
+- **The buttons are not nodes yet, so there is nowhere to put the replacement.** P2's layout half put
+  the RUN's placement on the engine; each button is still hand-painted (`DrawText` + `RegisterClickable`,
+  `ImageRendererBase.Toolbar.cs:535`). `Text.WidthSample` is the engine's own spelling of "measure this
+  as if it held that string", and this document's own inventory lists `ReservedLabelWidth` as the
+  hand-rolled version of it -- but a sample goes ON a node, and there is no node. Deleting the
+  reservation before the buttons are declared removes the workaround and restores the flicker, which is
+  strictly worse than either end state.
 - **A widest-state sample per action, and not all of them enumerate.** `Stars` is a star count,
   `StretchParams` a parameter string, `Zoom` a percentage -- these need a representative `widthSample`
   ("99999"), not a union over a list. Zoom and Enhance, the two the reservation already covers, are the
-  enumerable ones.
-- **It is a VISIBLE change.** Every button with a varying label gets wider, permanently, to hold a state
-  it is not in. That is the same class as "19 marks as text runs to `IconKind`" elsewhere in these plans
-  -- flagged as needing sign-off rather than done on the way past. Moving the layout to the engine did
-  NOT make the reservation unnecessary on its own: the run is still left-packed, so a width change still
-  shoves its neighbours, and the reservation is still what holds the two noticed buttons steady.
+  enumerable ones. Note this FAILS SOFT: the width is `max(measured, reserved)`, so a sample that turns
+  out too small only means that button drifts again, never that a label is clipped.
+- **It is still a visible change**, since every button with a varying label gets permanently wider to
+  hold a state it is not in. Worth saying out loud when it lands -- but it arrives as a consequence of
+  declaring the buttons, not as a separate decision to take first.
+
+Moving the layout to the engine did NOT make the reservation unnecessary on its own: the run is still
+left-packed, so a width change still shoves its neighbours, and the reservation is still what holds the
+two noticed buttons steady.
 
 Lay the bar out as a `WrapH` of buttons (it already wraps by hand on a narrow window) with each button
 a node carrying its own `widthSample` -- its widest state, stated once, on the node, rather than
