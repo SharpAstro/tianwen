@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -192,7 +192,25 @@ public static class DatasetPsfNoiseReport
         float[]? SubHeaderAirmass = null,
         string? SubSelection = null,
         bool? SubSiteFromFallback = null,
-        float[]? SubFwhmGreen = null);
+        float[]? SubFwhmGreen = null)
+    {
+        /// <summary>
+        /// Which calibration masters this session's frames were calibrated with, by the resolver's
+        /// own group slugs. Null for a record written before this was captured.
+        /// </summary>
+        /// <remarks>
+        /// <para>An init property rather than another positional parameter: this record ships in the
+        /// TianWen.Lib package, where a defaulted parameter on a record's primary constructor is a
+        /// BINARY break for anyone compiled against the old one.</para>
+        /// <para>It is here because a calibration change can invalidate stacked masters, and working
+        /// out WHICH ones needed a question no bake artefact could answer. When Calibrator.FlatEpsilon
+        /// changed what a dead flat pixel does, only 3 of 18 master flats contained such a pixel, but
+        /// nothing recorded which sessions had used those three, so the affected set could only come
+        /// from re-running the bake: an hour to recover something the run had computed and discarded.
+        /// One field makes it a grep.</para>
+        /// </remarks>
+        public Imaging.Calibration.CalibrationProvenance? Calibration { get; init; }
+    }
 
     /// <summary>Value of <see cref="SessionPsf.SubSelection"/> when the sub arrays describe the
     /// registered subs, in registration order.</summary>

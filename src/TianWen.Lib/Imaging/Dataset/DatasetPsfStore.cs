@@ -51,6 +51,9 @@ namespace TianWen.Lib.Imaging.Dataset
     // a NaN. Without it the first record with an unknown air mass failed its append, the runner's
     // per-session catch counted the session FAILED, and every runner test went red at once.
     [JsonSerializable(typeof(DatasetPsfNoiseReport.SessionPsf))]
+    // Registered explicitly rather than left to the generator's type walk: this context is consumed
+    // from AOT-published binaries, where a type it did not emit a converter for fails at RUNTIME.
+    [JsonSerializable(typeof(Calibration.CalibrationProvenance))]
     [JsonSourceGenerationOptions(WriteIndented = false, NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals)]
     internal partial class DatasetPsfJsonContext : JsonSerializerContext;
 }

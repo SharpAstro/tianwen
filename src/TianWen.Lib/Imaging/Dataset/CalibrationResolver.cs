@@ -322,6 +322,10 @@ public static class CalibrationResolver
         // ExposureCompatible bounds k to [0.5, 2.0], capping the worst case at 2x.
         var darkScale = 1f;
         Image? darkBias = null;
+        // Named here rather than inside the scaling block so the provenance can state it either way:
+        // its ABSENCE is the fact that the dark went on unscaled, which is the case the warning below
+        // exists for.
+        string? darkBiasSlug = null;
         if (darkGroup is not null && dark is not null)
         {
             var darkSeconds = darkGroup.Key.Exposure.TotalSeconds;
@@ -340,6 +344,7 @@ public static class CalibrationResolver
                 if (darkBiasGroup is not null && darkBias is not null)
                 {
                     darkScale = (float)(lightSeconds / darkSeconds);
+                    darkBiasSlug = darkBiasGroup.Key.Slug();
                     logger?.LogInformation(
                         "  [{Session}] dark scaled x{Scale:F3} ({DarkExp:F0}s dark -> {LightExp:F0}s lights) using bias {Bias}",
                         session.Id, darkScale, darkSeconds, lightSeconds, darkBiasGroup.Key.Slug());
@@ -357,7 +362,19 @@ public static class CalibrationResolver
             }
         }
 
+        // Record WHICH masters these are. The run knows it here and nowhere else: an Image cannot
+        // say what it was built from, so without this the only way to answer "which sessions used
+        // this flat" is to re-run the whole bake.
+        var provenance = new CalibrationProvenance(
+            Dark: darkGroup?.Key.Slug(),
+            Flat: flatGroup?.Key.Slug(),
+            Bias: null,
+            DarkBias: darkBiasSlug);
+
         return new Calibrator(Bias: null, Dark: dark, Flat: flat, DarkScale: darkScale, DarkBias: darkBias)
+        {
+            Provenance = provenance.IsEmpty ? null : provenance
+        }
             .EnsureValid();
     }
 
