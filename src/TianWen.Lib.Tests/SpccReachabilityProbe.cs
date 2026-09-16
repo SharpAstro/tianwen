@@ -96,6 +96,11 @@ public class SpccReachabilityProbe(ITestOutputHelper output)
             // session under it, which is how "LPS" went unnoticed.
             "Optolong-L-Ultimate-3nm", "Optolong-L-Quad-Enhance", "IDAS-LPS-D3",
             "Optolong-L-eNhance",
+            // A PROVISIONAL slug for a measured-but-unnamed population (ASI585 + ZS61, 2024-10 and
+            // 2025-01). It must resolve to NO MATCH: inventing a curve for a filter nobody can name
+            // would be worse than having none, because SPCC would then use it as if it described the
+            // glass. Listed here so that stays true if the matcher's token rules ever loosen.
+            "Unidentified-Broadband",
             // Filters we do NOT carry, listed so the report says what a card naming one would
             // resolve to instead. A confident WRONG match is worse than no match: the curve is
             // then used as if it described the glass in front of the sensor.

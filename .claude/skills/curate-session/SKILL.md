@@ -135,6 +135,15 @@ Model the script on `_provenance/organizeD.py` (or `organizeC.py`, the longer pr
   `MASTERBIAS` / `MASTERDARK` / `MASTERFLAT` / `MASTERDARKFLAT` / `BADPIXELMAP` are derived, and a
   `LIGHT` whose `EXPTIME` is far above the session's sub length is a STACKED OUTPUT with the
   integration time in that card (5820 s = 97 x 60 s), sitting beside the subs it was made from.
+- **A SharpCap frame name is unique only within a capture RUN.** It numbers from `frame_00001` and
+  restarts for the next run, so a night with two runs (`10_29_51Z` and `12_30_55Z`) holds two
+  DIFFERENT frames called `frame_00001.fits`, an hour and a half apart. Filing them into one night
+  folder by their own names collides, and the content check refuses it correctly. Prefix with the run
+  (`10_29_51Z_frame_00001.fits`), which is unique by construction and keeps the original readable.
+  **The run directory is not always the parent**: the subs sit under `<run>/rawframes/`, so walk UP
+  the path components for the first that matches, rather than taking the immediate folder. N.I.N.A.
+  names already carry a timestamp and need none of this, and a single-run SharpCap session never
+  shows the problem, which is exactly why it will surface on a later session rather than the first.
 - **Resolve a destination collision by CONTENT, not by inode.** Two sources landing on one
   destination are usually the same frame stored twice at different inodes, which no link check sees,
   because copying is how this archive duplicates. Hash both: identical means keep one and record the
