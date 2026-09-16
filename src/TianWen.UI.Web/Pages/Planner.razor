@@ -813,7 +813,17 @@
         {
             // One widget: the page paints the active view alone, and the other has nothing on screen.
             Widgets = () => ActiveTab is { } tab ? [tab] : [],
-            Unhandled = evt => ActiveTab?.HandleInput(evt) ?? false,
+            Unhandled = evt =>
+            {
+                // A press that reached no region at all deselects the divider, the one case of the three
+                // that is about the ABSENCE of a target. The other two are regions the router dispatches.
+                if (evt is InputEvent.MouseDown && _view == View.Planner)
+                {
+                    PlannerSliderInteraction.HandlePressWithNoTarget(_state);
+                }
+
+                return ActiveTab?.HandleInput(evt) ?? false;
+            },
             ActiveSearch = () => _focus.Current is { } active ? ResolveActiveSearch(active) : null,
         };
 
@@ -2501,18 +2511,6 @@
         _pointerGestureActive = true; // a pause inside a drag is not the end of it (see ScheduleLabelSettle)
         var mods = ToModifiers(e.Original);
 
-        // The handoff divider arms from a press and needs the press POSITION, so it is asked before the
-        // router dispatches, off a hit test that dispatches nothing. The same temporary step the desktop
-        // host keeps, and T2's Content.Slider deletes both.
-        var probe = ActivePixelTab?.HitTest(e.X, e.Y);
-        if (probe is not HitResult.TextInputHit
-            && _view == View.Planner && _tab is not null
-            && PlannerSliderInteraction.HandleMouseDown(_state, probe, _tab.ChartRect, e.X, e.Y))
-        {
-            RenderFrame();
-            return;
-        }
-
         router.Handle(new InputEvent.MouseDown(e.X, e.Y, Modifiers: mods, ClickCount: (int)e.Original.Detail));
 
         // A press on the map claims the keyboard for it. This also covers a ONE-FINGER touch pan, which
@@ -2528,14 +2526,11 @@
         if (CanvasInputBlocked) return;
         if (_router is not { } router || ActiveTab is null) return;
         _mouse = (e.X, e.Y);
-        // An active divider drag consumes the move (shared state machine with the desktop
-        // event handler); otherwise the router routes it -- to a gesture it captured (a drag that
-        // extends a field's selection), else to hover, else to the tab.
-        if (_view != View.Planner || _tab is null
-            || !PlannerSliderInteraction.HandleMouseMove(_state, _tab.ChartRect, e.X))
-        {
-            router.Handle(new InputEvent.MouseMove(e.X, e.Y));
-        }
+        // The router routes it -- to a gesture it captured (a divider drag, or a drag that extends a
+        // field's selection), else to hover, else to the tab. The divider used to be tested here first,
+        // off a state machine this page drove by hand; it arms its own DragCapture now, so there is
+        // nothing left for a host to consult.
+        router.Handle(new InputEvent.MouseMove(e.X, e.Y));
         // Coalesced: a drag delivers several moves per vsync and only the last is ever presented.
         RequestRenderCoalesced(); // mouse-follower / sky-map drag pan
     }
@@ -2549,10 +2544,6 @@
         if (CanvasInputBlocked) return;
         if (_router is not { } router || ActiveTab is null) return;
         router.Handle(new InputEvent.MouseUp(e.X, e.Y));
-        if (_view == View.Planner)
-        {
-            PlannerSliderInteraction.HandleMouseUp(_state);
-        }
         RenderFrame();
     }
 

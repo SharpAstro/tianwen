@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 using DIR.Lib;
 using TianWen.Lib.Devices;
@@ -119,10 +119,6 @@ namespace TianWen.UI.Abstractions
             {
                 case InputEvent.MouseDown down:
                     _appState.MouseScreenPosition = (down.X, down.Y);
-                    if (HandleSliderPress(down))
-                    {
-                        return true;
-                    }
                     break;
 
                 case InputEvent.MouseMove move:
@@ -182,56 +178,27 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         private bool HandleMissedPress(InputEvent.MouseDown down)
         {
+            // Nothing was hit, so nothing is selected either. Click-to-place and the handle grab are both
+            // regions now (PlannerTab.RegisterSliderHitRegions), and a press that reached neither is the
+            // only one of the three cases that is genuinely about the ABSENCE of a target.
+            PlannerSliderInteraction.HandlePressWithNoTarget(_plannerState);
+
             var consumed = _chrome.ActiveTab?.HandleInput(down) ?? false;
             _appState.NeedsRedraw = true;
             return consumed;
         }
 
+        // No divider branch: a drag is a DragCapture the region armed, and the router delivers every move
+        // to it without this path seeing them at all. What is left is the tab's (hover, drag-pan, scrollbar).
         private bool HandleMissedMove(InputEvent.MouseMove move)
-            // An active divider drag owns the move; the tab gets it otherwise (hover, drag-pan, scrollbar).
-            => PlannerSliderInteraction.HandleMouseMove(_plannerState, _chrome.PlannerChartRect, move.X)
-                || (_chrome.ActiveTab?.HandleInput(move) ?? false);
+            => _chrome.ActiveTab?.HandleInput(move) ?? false;
 
         private bool HandleMissedRelease(InputEvent.MouseUp up)
         {
-            // The tab first (drag-pan release, sky-map click-select), then the divider drag, as before.
+            // The tab's alone now (drag-pan release, sky-map click-select). A divider drag ends in its own
+            // capture's release, which the router calls before this path is offered anything.
             _chrome.ActiveTab?.HandleInput(up);
-
-            if (PlannerSliderInteraction.HandleMouseUp(_plannerState))
-            {
-                _appState.NeedsRedraw = true;
-                return true;
-            }
-
             return false;
-        }
-
-        /// <summary>
-        /// The planner's handoff-divider drag, which arms from a press and needs the press POSITION, so
-        /// it is asked before the router dispatches, off a hit test that dispatches nothing.
-        /// </summary>
-        /// <remarks>
-        /// Temporary, and the last thing in this file that is not routing: DIR.Lib 9.2's
-        /// <c>Content.Slider</c> lets a slider arm its own drag from the node it painted, which is T2 and
-        /// deletes both this and <see cref="PlannerSliderInteraction"/>'s three branches.
-        /// </remarks>
-        private bool HandleSliderPress(InputEvent.MouseDown down)
-        {
-            var probe = _chrome.HitTest(down.X, down.Y);
-            if (probe is HitResult.TextInputHit)
-            {
-                return false;
-            }
-
-            if (!PlannerSliderInteraction.HandleMouseDown(
-                    _plannerState, probe, _chrome.PlannerChartRect, down.X, down.Y,
-                    allowClickToPlace: _appState.ActiveTab == GuiTab.Planner))
-            {
-                return false;
-            }
-
-            _appState.NeedsRedraw = true;
-            return true;
         }
 
         /// <summary>

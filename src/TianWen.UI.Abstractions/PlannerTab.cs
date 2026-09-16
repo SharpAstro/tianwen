@@ -245,17 +245,46 @@ namespace TianWen.UI.Abstractions
                 selectedIndex, chartCurrentTime, mousePos, EmojiFontPath);
         }
 
+        /// <summary>
+        /// The chart as a click-to-place surface, with a grab handle over each divider.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Both ARM THEIR OWN DRAG, through <see cref="ClickableRegion.OnPress"/>'s
+        /// <see cref="DragCapture"/>. That is what deleted the press / move / release branch trio every
+        /// host carried for this one control, and <c>HitResult.SliderHit</c> with it: a region that can
+        /// start a gesture needs no hit result for a dispatcher to recognise.
+        /// </para>
+        /// <para>
+        /// ORDER IS LOAD-BEARING. The chart registers first and the handles after it, because a later
+        /// registration wins the hit -- so a press on a handle grabs it and a press anywhere else in the
+        /// plot places the nearest one. The other way round makes every handle unreachable, and it looks
+        /// like click-to-place working perfectly.
+        /// </para>
+        /// </remarks>
         private void RegisterSliderHitRegions(PlannerState state)
         {
+            var chart = _chartRect;
+            RegisterClickable(chart.X, chart.Y, chart.Width, chart.Height,
+                new HitResult.ButtonHit(PlannerSliderInteraction.ChartRegion),
+                onPress: press => PlannerSliderInteraction.BeginPlaceNearest(state, chart, press.X, press.Y));
+
             // Band geometry (including the plot-Y bound that keeps a click on the weather band above the
             // plot from grabbing a divider) is shared with every other host that hit-tests this chart.
             var bands = PlannerSliderInteraction.GetHitBands(
-                state, _chartRect, PlannerSliderInteraction.DefaultBandWidth * DpiScale);
+                state, chart, PlannerSliderInteraction.DefaultBandWidth * DpiScale);
 
             for (var i = 0; i < bands.Count; i++)
             {
                 var band = bands[i];
-                RegisterClickable(band.X, band.Y, band.Width, band.Height, new HitResult.SliderHit(i));
+                var index = i;
+                RegisterClickable(band.X, band.Y, band.Width, band.Height,
+                    new HitResult.ButtonHit(PlannerSliderInteraction.DividerRegion),
+                    onPress: _ =>
+                    {
+                        PlannerActions.SelectSlider(state, index);
+                        return PlannerSliderInteraction.BeginDrag(state, index, chart);
+                    });
             }
         }
 
