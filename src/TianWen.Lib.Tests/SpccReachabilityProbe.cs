@@ -95,6 +95,7 @@ public class SpccReachabilityProbe(ITestOutputHelper output)
             // card might say instead. A slug that stops resolving is a silent SPCC skip for every
             // session under it, which is how "LPS" went unnoticed.
             "Optolong-L-Ultimate-3nm", "Optolong-L-Quad-Enhance", "IDAS-LPS-D3",
+            "Optolong-L-eNhance",
             // Filters we do NOT carry, listed so the report says what a card naming one would
             // resolve to instead. A confident WRONG match is worse than no match: the curve is
             // then used as if it described the glass in front of the sensor.

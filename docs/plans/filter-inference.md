@@ -339,6 +339,32 @@ signatures) a single pass over its calibration frames rather than three.
   cross-channel ratio, because the floors genuinely differ (R and B about 1.3x green). With that
   subtraction the ASI585's B/G is usable, which is what the ADU-scale doubt was blocking.
   The three parked ASI585 + ZS61 sessions can be measured on this basis.
+
+  **Measured the same day, and the ASI585 splits into TWO populations, only one of which is
+  nameable.** Every session below is the same body in the same SharpCap build, bias-subtracted per
+  channel, compared against this archive's own ASI585 reference frame
+  (`frame_00002_LeEnhance.fits`, R/G 0.4288, B/G 0.8707) rather than against the IMX533 bands, which
+  do not apply to an IMX585:
+
+  | session | focal | offset | R/G | B/G | vs the reference |
+  |---|---|---|---|---|---|
+  | `SMC 120s LEnh ASI585 252g` | 368.8 | 7 | 0.5299 | 0.8491 | 0.975x |
+  | `Eta Car 24mm LeHance 60s -10d` | 368.8 | 7 | 0.4265 | 0.8701 | **0.999x** |
+  | `Tarantula Neb ZS61 ... 66rb` | 289 | 7 | 0.8510 | 0.6609 | 0.759x |
+  | `SMC ZS61 ... 66rb` | 289 | 7 | 0.8382 | 0.6909 | 0.794x |
+  | `Vela SNR 60s 6deg` | - | 3 | 0.7935 | 0.6785 | 0.779x |
+  | `2025-03-20` | - | 13 | 0.8295 | 0.7153 | 0.822x |
+
+  **The first two are L-eNhance and can be filed**: both folder names say so (`LEnh`, `LeHance`),
+  both sit at 368.8 mm, and they match the reference to 2.5 percent and 0.1 percent.
+
+  **The other four are NOT nameable from this, and the reason is a confound rather than a weak
+  signal.** Their R/G is about twice the reference's while their B/G is a third lower, which is a
+  large difference, but two of them carry **`66rb` in the folder name**, which reads as a camera
+  white-balance setting, and **SharpCap writes no white-balance card at all** (the headers carry
+  `GAIN` and nothing else of the kind). A per-channel gain applied in the camera and a different
+  passband are indistinguishable in these ratios, so the four stay parked until the owner says what
+  `66rb` was. They are also a different scope (289 mm, the ZS61), so optics differ too.
   `_provenance/reference-frames/reference-frames.csv` now carries an `adu_scale` verdict per frame,
   computed per CFA channel rather than on the whole frame at once so a per-channel mismatch like
   this one is named rather than averaged away; 13 of the 14 reference frames come out a clean x4
