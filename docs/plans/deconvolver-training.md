@@ -2934,7 +2934,10 @@ that the other way (primary about 1.04x with the skirt near 0.90, nebula about 0
 target is a dial between safe and tight, calibrated once per prior, and -0.6 is the safe end.
 
 **Verdict: E7.4 passes as the runtime's kernel rule, in its conservative setting, and it is what
-makes per-window kernels possible**: the bisection is a per-window loop by construction (the window's
+makes per-window kernels possible** (**overturned as the PER-WINDOW rule by E7.5 two days later**,
+which put twelve windows under it instead of two and found no target, normalised or flat, that
+serves more than four of them; the pass below stands only for the one place and size it was measured
+on, and the read is the E7.5 section): the bisection is a per-window loop by construction (the window's
 own detections, width and MAD are its inputs), and the frame just measured wants it, with the fraction
 rule (0.52 x the window's HFD width) as the starting point of each bisection. What the port needs, in
 order: the ring statistic and the star detection on the runtime side (the library has both since PR
@@ -2944,7 +2947,8 @@ not baked), the round trip's resample either side of it, and a bisection of thre
 runs per window on a crop, which on DirectML is seconds where the CPU readout takes a minute a run.
 The open measurements before the port: the ring target on a SECOND pair (the Orion E2.10c pair at
 1.26x), and the window size the field term wants (the two crops here are 1024 and 512 px, 1.3x apart in
-kernel).
+kernel). **Both were taken by E7.5 and neither answered the way this paragraph expected**: the 1.3x
+is PLACE, size costs 1.07x to 1.12x, and the target does not survive a second pair or a third crop.
 
 ### Real test data for the per-window kernel: a rig with a known corner PSF (2026-09-16)
 
@@ -3025,6 +3029,83 @@ where the nebula centre asked for a smaller one.
 
 Driver `C:/temp/e2/scripts-e7-5/run-e7-5.py`, output `C:/temp/e2/e7-5/`, CPU, one run about 23 s at
 512 px.
+
+##### E7.5 read: the window is PLACE, and the ring target is killed as the per-window rule (2026-09-16, 17:45)
+
+98 runs, 14 crops, 42 minutes on the CPU, read by `C:/temp/e2/scripts-e7-5/read-e7-5.py`. The
+re-run of E7.4's nebula crop reproduces its published row to every digit (1.129 / 0.89 / -0.56 /
+1.19 at 0.5x), so the harness and the added field print changed nothing.
+
+**Q2 passes, and the answer is the good half of the day.** The per-window kernel is a real, large and
+SMOOTH field, and it is a function of PLACE alone. The picked absolute kernel over the Statue grid,
+rows top to bottom:
+
+| | x = 0 | x = 1256 | x = 2512 |
+|---|---|---|---|
+| y = 141 | 0.586 | 0.393 | 0.385 |
+| y = 1323 | 0.901 | 0.595 | 0.684 |
+| y = 2505 | 1.202 | 0.957 | 1.111 |
+
+**3.12x across one frame**, a monotone gradient down it, neighbours 1.02x to 1.78x apart (median
+1.51x), every step of which is far outside E7.1's measured tolerance of a tenth. **Size is nearly
+free**: the two places measured at both sizes pick 1.07x and 1.12x apart (centre 1024 px 0.639
+against 512 px 0.595; E7.4's own primary 1024 px 0.801 against the 512 cell inside it 0.901), both at
+or inside that same tolerance. **So E7.4's 1.3x was place, and a window is sized by how many stars it
+needs to measure, not by what the statistic does.**
+
+**The pick is what is actually missing, which is the reading that makes the rest meaningful.**
+Against the kernel the two measured widths imply in quadrature, `r = +0.967` over the eight crops
+that carry blur, the pick running 0.73 to 0.97 of it (conservative, the direction E7.4 chose); and on
+the two crops carrying NO blur the pick runs to the ladder floor, which is the rule declining as far
+as it can. So the clause-based pick is the per-window kernel, and the field it traces is the thing
+worth having.
+
+**Q1 is KILLED on its own line, and the kill is not close.** `R*` spreads 2.33 MAD over the ten
+pickable field crops. No declared normaliser halves that (the best, the input's own ring null, takes
+the relative spread 2.42 to 1.96). The half that decides is worse: **a flat target serves at best 3
+of the 12 field crops, and every one of the four declared normalisers, given TWO free parameters
+instead of one, serves 4.** Relaxing the skirt clause from 0.90 through 0.85 and 0.80 to 0.70, a
+skirt by then a third gone, moves the best to 5 of 12, so the kill is not an artefact of a threshold.
+At the best fit six windows are over-deconvolved (the skirt goes) and two under (the width stays).
+
+**The reason is legible in the correlations, and it is the one E7 could not have designed around.**
+`R*`'s strongest correlate is the blur ACTUALLY PRESENT, `w.in / w.true` at **+0.751**, which is
+exactly the quantity a window cannot measure about itself. Every truth-free candidate reads |r| at
+0.52 or under (ring null -0.515, MAD +0.437, w.in +0.416, log density -0.398, structure +0.376).
+A bisection's starting point is not the confound: a bisection converges to where `ring.self` meets
+the target whatever kernel it starts from, and the ladder's absolute span (0.385 to 1.54 px on
+channel 0) contains every window's fraction-rule start (1.01 to 1.17 px).
+
+**And the fraction rule fails per window in the same way the target does.** 0.52 x the window's own
+width gives 1.01 to 1.17 px across the Statue frame, a 1.16x spread, where the truth wants 0 to 1.27
+px: it is 0.91x to 1.65x of the implied kernel on the blurred windows, and on the two windows with
+nothing to remove it still asks for a full pixel. Being truth-free is what makes it useless here,
+for the same reason.
+
+**Two findings outside the pre-registration, both about the DATA rather than the rule.**
+
+1. **A seeing split's sharp/soft label is decided frame-wide and does not hold across the frame.**
+   `w.in / w.true` runs **0.96 to 1.22** over the Statue grid: the whole top row has nothing to
+   remove (0.996 and 0.959 in two cells, where the "soft" master is the sharper one), while the
+   bottom row carries 1.16 to 1.22. On Orion it reverses harder, **0.808** in the bottom-right
+   corner, a "soft" third a quarter sharper than the "sharp" one there. Every pair-level number in
+   E2.10b and E2.10c is therefore an average over a field that changes sign, which is also the
+   likeliest reading of E2.10c's rec/A over 1 on two channels.
+2. **On a window with no blur the operator does not decline, it does harm.** That same Orion corner
+   comes back at **2.0x the truth's width at every scale on the ladder**, stars 0.61, ring -12, and
+   it is the one crop of fourteen where `ring.self` is not monotonic (it falls 0.43 at 1.58x).
+   Orion's top-left never meets the width clause at any kernel either. **Two of twelve windows are
+   servable by no kernel at all**, which no target and no calibration can fix, and nothing in the
+   current rule can express "leave this window alone".
+
+**Where this leaves E7.** The bisection on `ring.self` against a calibrated target is dead as the
+PER-WINDOW rule; E7.4's pass stands only as what it was measured on, one place at one size. What
+survives is worth keeping: `ring.self` is monotonic in the kernel on 13 of 14 crops, the per-window
+kernel field is real and large, and the clause-based pick finds it. What the port now needs before
+any of it is written is a **truth-free estimator of the blur EXCESS**, not of the width, plus a
+DECLINE: the runtime must be able to answer "no kernel" for a window, and today it cannot. Until
+one exists, a frame-wide kernel from the pair probe's estimator is the honest shipping rule, and it
+is what the 1024 px crops already do at 1.07x to 1.12x of their sub-windows.
 
 ### The re-bake, in four steps (2026-09-07, 21:20)
 
