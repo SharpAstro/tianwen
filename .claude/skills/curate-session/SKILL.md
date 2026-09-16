@@ -115,9 +115,15 @@ correct, not a gap -- the database holds **no standalone Ha, OIII, SII or Lumina
 POOL GROUPING, keeping a 30 s Ha run out of the same training population as a 60 s luminance run,
 and for that it only has to be true and consistent. Brand-qualify later if the filter is identified.
 
-**For OPTICS, neither the folder nor the header is authoritative: SOLVE IT.** The luminance
-session's folder says `FMA180` while all 247 of its lights carry `TELESCOP = WO RC51` and
-`FOCALLEN = 250.0`, and the header is the one that is wrong. `tianwen solve` measures **4.349
+**Folder against header is roughly 50:50, so treat DISAGREEMENT as the signal and let a plate
+solve arbitrate.** Neither source is reliable on its own: a folder name is typed by hand and a header
+comes from a capture profile that may not have been changed back. Both have been wrong in this
+archive -- the folder in `2026-08 SV545` (240 SMC frames filed under Lobster Nebula) and the header in
+the luminance session below. **What matters is that everything else agrees**; when it does, take it,
+and when it does not, stop and measure rather than picking a side.
+
+The luminance session's folder says `FMA180` while all 247 of its lights carry `TELESCOP = WO RC51`
+and `FOCALLEN = 250.0`, and there the header is the one that is wrong. `tianwen solve` measures **4.349
 arcsec/px**, which on the ASI1600MM's 3.8 um pixels is **180.2 mm**, against the 3.135 arcsec/px
 that 250 mm would give. The Ha session beside it measures 4.347, so the two are the same train.
 
