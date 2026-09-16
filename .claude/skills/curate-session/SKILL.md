@@ -100,6 +100,25 @@ dotnet test TianWen.Lib.Tests -c Debug --filter "FullyQualifiedName~SpccReachabi
 still matches, so writing the full name costs nothing. **Add any new slug to that probe's list**, so
 a later rename that breaks resolution is visible instead of silent.
 
+## Step 2b: a MONO session is a different problem, and a short slug is fine there
+
+A mono frame has no `BAYERPAT`, so there is no CFA to read a passband off and **the pixel method of
+step 1 does not apply at all**. The path tag, a `FILTER` card if one exists, and the owner are the
+only evidence.
+
+**And the short-slug danger of step 2 does not apply either.** A bare `LPS` is dangerous because it
+resolves to no curve and silently costs a colour calibration. Neither half of that reaches a mono
+session: SPCC is broadband-only by design, and a mono frame has ONE channel, so there is no colour to
+calibrate and no curve to miss. `Ha` and `Luminance` therefore resolve to NO MATCH and that is
+correct, not a gap -- the database holds **no standalone Ha, OIII, SII or Luminance curve at all**
+(183 curves, all broadband families or pre-convolved Canon/Sony combinations). The tag's job here is
+POOL GROUPING, keeping a 30 s Ha run out of the same training population as a 60 s luminance run,
+and for that it only has to be true and consistent. Brand-qualify later if the filter is identified.
+
+**The folder name loses to the header on OPTICS as well as on target.** The luminance session's
+folder says `FMA180`, and its lights carry `TELESCOP = WO RC51` at 250 mm. That decides whether its
+flats can be shared with the Ha session beside it: they cannot, being a different train.
+
 ## Step 3: is the calibration actually safe?
 
 `CalibrationResolver` scores metadata only (gain, offset, exposure, temperature, instrument, date
