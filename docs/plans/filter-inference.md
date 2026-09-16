@@ -315,10 +315,30 @@ signatures) a single pass over its calibration frames rather than three.
   software carry the identical per-channel quantization, so channel-wise bias/dark subtraction still
   cancels correctly. It only bites the filter-inference ratios (B/G, R/G) specifically, and only if
   green's multiple-of-16 values represent a genuine 16x gain difference from red/blue rather than
-  merely a coarser rounding of the same underlying signal scale, **which is not yet known** because
-  no bias or dark exists anywhere in the archive for this rig to check the absolute floor per
-  channel. Until that is shot, do not assume either direction: don't divide green by 16, and don't
-  use it unscaled, in a cross-channel ratio.
+  merely a coarser rounding of the same underlying signal scale.
+
+  **ANSWERED 2026-09-16, and the bias it needed was already in the archive.** The paragraph above
+  used to end "which is not yet known, because no bias or dark exists anywhere in the archive for
+  this rig to check the absolute floor per channel. Until that is shot, do not assume either
+  direction." That premise was wrong: ASI585 BIAS sets exist at **three** different offsets, and all
+  three agree.
+
+  | bias set | R | G | B | G/R | min step R/G/B |
+  |---|---|---|---|---|---|
+  | `Vela SNR 60s 6deg` (o3) | 285.0 | 224.0 | 285.0 | 0.786 | 1 / 16 / 1 |
+  | `SMC 120s LEnh ASI585 252g` (o7) | 619.5 | 472.0 | 619.5 | 0.762 | 1 / 16 / 1 |
+  | `2025-03-20` (o13) | 1120.0 | 864.0 | 1120.0 | 0.771 | 2 / 16 / 2 |
+
+  **Green is NOT 16x gained: the ratio is 0.77, and it holds across every offset.** Red and blue are
+  identical to the ADU at each one, green sits consistently at about 0.77 of them, and the same 0.77
+  appears in the SLOPE against offset (83.5 ADU per offset unit on red and blue, 64 on green). So the
+  multiple-of-16 spacing is quantisation, exactly as the "coarser rounding" reading proposed, and the
+  scale is shared rather than 16x apart.
+
+  **What this changes:** do not divide green by 16, and do subtract the per-channel bias before any
+  cross-channel ratio, because the floors genuinely differ (R and B about 1.3x green). With that
+  subtraction the ASI585's B/G is usable, which is what the ADU-scale doubt was blocking.
+  The three parked ASI585 + ZS61 sessions can be measured on this basis.
   `_provenance/reference-frames/reference-frames.csv` now carries an `adu_scale` verdict per frame,
   computed per CFA channel rather than on the whole frame at once so a per-channel mismatch like
   this one is named rather than averaged away; 13 of the 14 reference frames come out a clean x4
