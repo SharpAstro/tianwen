@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using Console.Lib;
 using DIR.Lib;
 using Shouldly;
@@ -72,6 +72,61 @@ namespace TianWen.Lib.Tests
             }
 
             return (new string(chars), viewport.Caret?.Column);
+        }
+
+        /// <summary>
+        /// Exactly ONE field wears the focused pen, and it is the one that has the keyboard.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The row picks its pen from <see cref="TextInputState.IsActive"/>, so a field that is merely
+        /// SEEDED must not be active. The editor opens three fields and focuses one, and it used to
+        /// <c>Activate(text)</c> all three -- so every field painted as focused and the row said nothing
+        /// about where typing would go.
+        /// </para>
+        /// <para>
+        /// The tests above could not see it: <c>Paint</c> activates exactly one field, so the fixture
+        /// supplied the very invariant the production path was breaking. This one asks the row about all
+        /// three at once.
+        /// </para>
+        /// </remarks>
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        [InlineData(2)]
+        public void OnlyTheFieldWithTheKeyboardWearsTheFocusedPen(int focusedIndex)
+        {
+            var fields = new[] { Field("33.8"), Field("151.2"), Field("58") };
+            var focus = new TextInputFocus();
+            focus.Focus(fields[focusedIndex]);
+
+            fields[focusedIndex].IsActive.ShouldBeTrue();
+            for (var i = 0; i < fields.Length; i++)
+            {
+                if (i != focusedIndex)
+                {
+                    fields[i].IsActive.ShouldBeFalse(
+                        $"field {i} holds a value but not the keyboard, so it must not paint as focused");
+                }
+            }
+        }
+
+        /// <summary>
+        /// And the owner moves the pen with it: focusing a second field un-focuses the first, so the row
+        /// can never show two.
+        /// </summary>
+        [Fact]
+        public void MovingTheKeyboardMovesTheFocusedPen()
+        {
+            var fields = new[] { Field("33.8"), Field("151.2"), Field("58") };
+            var focus = new TextInputFocus();
+
+            focus.Focus(fields[0]);
+            focus.Focus(fields[2]);
+
+            fields[0].IsActive.ShouldBeFalse("the owner deactivates what it takes the keyboard from");
+            fields[1].IsActive.ShouldBeFalse();
+            fields[2].IsActive.ShouldBeTrue();
         }
 
         /// <summary>
