@@ -544,7 +544,24 @@ namespace TianWen.UI.Abstractions
                 {
                     // Only enabled buttons register, so a dropdown anchor (see OpenToolbarDropdown) or a
                     // hover query only ever finds a button that can actually be clicked.
-                    RegisterClickable(r.X, r.Y, r.Width, r.Height, new HitResult.ButtonHit(box.Action.ToString()));
+                    //
+                    // The button carries WHAT IT DOES, through PressToolbarButton -- which is the host's
+                    // own policy where one is set (ToolbarPressPolicy) and the embedded default where it
+                    // is not. Registering a hit with no handler is what the region model calls silently
+                    // dead: InputRouter consumes a press for ANY region under the pointer whether or not
+                    // anything ran, so under a router every button looked live and did nothing. The GUI
+                    // routes, and the planetary tab shows this bar, so that was shipped.
+                    //
+                    // OnPress, not OnClick, because the POLICY needs the button (a right press
+                    // reverse-cycles in tianwen-fits). Returning null declines the drag, which is the
+                    // documented way to say "acted, but this is not a gesture".
+                    var action = box.Action;
+                    RegisterClickable(r.X, r.Y, r.Width, r.Height, new HitResult.ButtonHit(action.ToString()),
+                        onPress: press =>
+                        {
+                            PressToolbarButton(state, action, press.Button);
+                            return null;
+                        });
                 }
             }
         }

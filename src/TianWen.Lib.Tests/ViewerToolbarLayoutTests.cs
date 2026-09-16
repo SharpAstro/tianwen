@@ -223,6 +223,46 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// A ROUTED press on a toolbar button runs that button's action.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This was a shipped bug, and the shape of it is the region model's sharpest edge:
+        /// <c>InputRouter</c> consumes a press for ANY region under the pointer, whether or not a handler
+        /// ran ("the press is consumed either way, the topmost region under the pointer being the one
+        /// that owns it"). The toolbar registered a <c>ButtonHit</c> and no handler, so under a router
+        /// every button hit-tested, showed its hover and its tooltip, and did NOTHING -- and the GUI
+        /// routes, with the planetary tab showing this bar.
+        /// </para>
+        /// <para>
+        /// Asserted through <see cref="ImageRendererBase{TSurface}.ToolbarPressPolicy"/> rather than
+        /// through any one action's side effect, because what is being pinned is that the press REACHES
+        /// the button's own handler at all. Which action it then performs is each host's policy, and
+        /// the two hosts differ on purpose.
+        /// </para>
+        /// </remarks>
+        [Fact]
+        public void ARoutedPressOnAToolbarButtonRunsThatButtonsAction()
+        {
+            using var renderer = new RgbaImageRenderer(SurfaceW, SurfaceH);
+            var viewer = NewViewer(renderer);
+            var state = NewState();
+            viewer.Render(null, state);
+
+            viewer.TryGetPaintedToolbarRect(ToolbarAction.Shortcuts, out var rect)
+                .ShouldBeTrue("the help button is always on the bar");
+
+            var seen = new System.Collections.Generic.List<(ToolbarAction Action, MouseButton Button)>();
+            viewer.ToolbarPressPolicy = (_, action, button) => seen.Add((action, button));
+
+            ViewerKeyRouting.RouterFor(viewer).Handle(new InputEvent.MouseDown(
+                rect.X + rect.Width / 2f, rect.Y + rect.Height / 2f, MouseButton.Right));
+
+            seen.ShouldBe([(ToolbarAction.Shortcuts, MouseButton.Right)],
+                "the button carries its own handler, and the press brings the button with it");
+        }
+
+        /// <summary>
         /// A host can replace what a toolbar press DOES, and saying nothing keeps the embedded behaviour.
         /// </summary>
         /// <remarks>

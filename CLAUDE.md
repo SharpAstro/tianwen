@@ -1700,11 +1700,14 @@ The rules that bite:
   whose body was "Escape closes me", and pointer ownership -- and forgetting one was silent, because the
   overlay still opened, still drew and still took clicks. Both viewer popovers are nodes now
   (`ViewerState.TonePopover` / `WhiteBalancePopover`), arranged over the whole window, and their sliders
-  are `Layout.Content.Slider` leaves that arm their own drag. **A SIXTH obligation is still the
-  consumer's**: `HandleViewerMouseDown` routes a toolbar press to `ViewerActions.HandleToolbarAction`,
-  which has no arm for a button that only opens a panel, so a popover action must be named in the
-  `is ToolbarAction.WhiteBalance or ToolbarAction.Tone` test above it. That line goes when the toolbar
-  goes on the tree and the button carries `.Clickable(hit, _ => state.Toggle())` itself.
+  are `Layout.Content.Slider` leaves that arm their own drag. **The SIXTH obligation is now the BUTTON's**: a toolbar
+  region carries `onPress: PressToolbarButton(...)`, which is the host's own `ToolbarPressPolicy` where
+  one is set and the embedded default otherwise -- and the embedded default is where the
+  `is ToolbarAction.WhiteBalance or ToolbarAction.Tone` test lives, since a popover button opens a panel
+  and cycles nothing. **A handler-less region is silently dead under a router**, which consumes a press
+  for any region under the pointer whether or not anything ran; that is what made every toolbar button
+  on the GUI's planetary tab do nothing, pinned now by
+  `ViewerToolbarLayoutTests.ARoutedPressOnAToolbarButtonRunsThatButtonsAction`.
 - **A closed popover gives the pointer back only because the viewer clears it.**
   `WindowUiSettings.PointerOwner` is claimed BY BEING PAINTED and cleared once per frame -- keyed on
   `Ui.FrameId`, which nothing here bumps, so the engine's own clear fires once in the process lifetime.
