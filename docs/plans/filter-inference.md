@@ -90,6 +90,52 @@ then attach every other session by its flat set. Note that R/G is again the usel
 the cooler not holding, at +4 to +12 C, and a warm sky measurement is a worse measurement; the flats
 are unaffected because they are short exposures where dark current cannot accumulate.
 
+### 2a-ter. On the ASI585 the discriminator is R/G, not B/G, and "66rb" is not a confound
+
+Two corrections from curating the ASI585, both measured 2026-09-16.
+
+**"66rb" is the SharpCap white balance, and it is NOT a confound.** SharpCap writes a
+`*.CameraSettings.txt` beside every capture (the FITS headers carry no white-balance card, which is
+what made this look unanswerable from the headers alone), and it reads `White Bal (R)=66`,
+`White Bal (B)=66`. The folder name simply records that. But the setting is **the same on the
+L-eNhance sessions**, so it cannot explain any difference between them:
+
+| session | WB_R | WB_B | Brightness |
+|---|---|---|---|
+| `SMC 120s LEnh` (L-eNhance) | 66 | 66 | 7 |
+| `Eta Car 24mm LeHance` (L-eNhance) | 66 | 66 | 7 |
+| `Tarantula ZS61 ... 66rb` | 66 | 66 | 7 |
+| `SMC ZS61 ... 66rb` | 66 | 66 | 7 |
+| `Vela SNR 60s 6deg` | 64 | 64 | 3 |
+| `2025-03-20` | 65 | 65 | 13 |
+
+Every session sits within two units on a 0-100 scale, which cannot produce the 30 percent ratio
+difference these sessions show. **Always read the `CameraSettings.txt` before calling a setting a
+confound**; it also records gain, binning, colour space, cooler state and capture area.
+
+**On this body R/G is the discriminating axis and B/G is the flat one, which is the reverse of
+section 2's rule.** Flat sets, each minus its own dark-flat:
+
+| ASI585 flat set | R/G | B/G |
+|---|---|---|
+| `SMC 120s LEnh` **(L-eNhance)** | **0.1669** | 0.8615 |
+| `Tarantula ZS61 66rb` | **0.7653** | 0.8433 |
+| `2025-03-20` | **0.7479** | 0.8134 |
+| `Vela SNR 60s 6deg` | **0.7377** | 0.8010 |
+
+B/G spans 0.80 to 0.86 across all four and separates nothing; R/G separates 4.5-fold. So section 2's
+"B/G is the discriminator, R/G is useless" is a property of the ASI533/SV605 measurements it was
+derived from, **not a general rule**, and the axis to trust has to be chosen per sensor by looking at
+which one actually splits the known population.
+
+**The other three are one population and it looks BROADBAND**, agreeing to 0.03 in R/G and 0.04 in
+B/G, with all three channels within about 25 percent of each other. That is what an unfiltered (or
+UV/IR-cut only) train through a broadband flat panel looks like, and the opposite of L-eNhance's
+narrow Ha and OIII windows cutting red to 0.17. **Still not named**: the three need the owner to say
+what was in the ZS61 train in 2024-10 and 2025, and whether it was anything at all.
+`SMC ZS61 66rb` carries no flats, so it attaches only by its sky ratio (B/G 0.691, nearest
+`Tarantula ZS61` at 0.661) and by sharing a rig name.
+
 ### 2a-bis. Two ASI533 flat sets match NEITHER known population (measured 2026-09-16)
 
 Measured while curating, by the section 2a method (flat minus its own dark-flat, so no bias is
