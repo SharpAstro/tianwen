@@ -867,12 +867,6 @@ bool HandleMouseDown(InputEvent.MouseDown down)
             return true;
         }
 
-        if (hit is WaveletSliderHit { Band: var waveletBand })
-        {
-            imageRenderer.BeginWaveletDragAt(waveletBand, px);
-            return true;
-        }
-
         // A file-list row registers a region (so it has a cursor, a hover tooltip and is visible to
         // the inspector) but must NOT be claimed here: the press has to continue to the scroll
         // controller below, which owns drag-to-scroll and fires selection on the tap RELEASE.

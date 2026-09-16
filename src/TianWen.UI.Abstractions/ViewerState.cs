@@ -384,9 +384,6 @@ public sealed class ViewerState
     /// Defaults to the validated planetary curve so enabling gives a good look immediately.</summary>
     public ImmutableArray<float> WaveletGains { get; set; } = WaveletSharpenOptions.PlanetaryDefault.Gains;
 
-    /// <summary>Layer (0=finest .. 5=coarsest) of the wavelet slider currently being dragged, or -1 when
-    /// idle. Mirrors <see cref="WhiteBalanceDragChannel"/>.</summary>
-    public int WaveletDragBand { get; set; } = -1;
 
     /// <summary>Set when the wavelet parameters change so the controller re-pushes them to the live stack
     /// source (which re-sharpens the cached master off-thread, no re-stack). Cleared once pushed.</summary>

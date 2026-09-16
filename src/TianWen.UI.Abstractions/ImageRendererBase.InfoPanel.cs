@@ -121,120 +121,134 @@ namespace TianWen.UI.Abstractions
         // image follows within a frame or two. Same press + drag + release model as the WB sliders.
         // -----------------------------------------------------------------------
 
-        private void RenderWaveletControls(ViewerState state, ref float y, float x, float panelWidth)
+        /// <summary>Inter-row and inter-column gap for the wavelet block, design units.</summary>
+        private const float WaveletGap = 6f;
+
+        /// <summary>The band-number column and the value column, at their widest readings.</summary>
+        private const string WaveletBandWidthSample = "6";
+        private const string WaveletValueWidthSample = "0.0";
+
+        // One dial per band, living across frames because the tree does not: a Content.Slider leaf
+        // carries a REFERENCE to caller-owned state, and the drag the engine arms on a press holds that
+        // same reference until the release. Seeded from ViewerState at the top of every build, exactly
+        // as the white-balance dials one section up are.
+        //
+        // What each carries is the track FRACTION, not the gain: a SliderState's range is 0..1 and the
+        // gain runs to WaveletGainMax, so the scale lives in the two conversions either side -- which is
+        // where it lived when a drag mapped a cursor X onto a gain by hand.
+        private readonly SliderState[] _waveletSliders =
+            [new SliderState(), new SliderState(), new SliderState(),
+             new SliderState(), new SliderState(), new SliderState()];
+
+        /// <summary>Test seam: one band's dial, so a test can find its arranged leaf by identity.</summary>
+        internal SliderState WaveletSliderState(int band) => _waveletSliders[band];
+
+        /// <summary>
+        /// One band's row: number, track, gain. The track is a <see cref="Layout.Content.Slider"/> leaf,
+        /// so the engine draws it, registers it and arms its drag from the rect it painted -- draw ==
+        /// drag by construction, where this used to read the band's track back out of the region list
+        /// on every pointer move.
+        /// </summary>
+        private Layout.Node WaveletRow(int band, float gain, RGBAColor32 fill)
+            => Layout.Builder.HStack(
+                    Layout.Builder.Text((band + 1).ToString(), FontSize, ViewerTheme.Palette.BodyText,
+                        widthSample: WaveletBandWidthSample),
+                    Layout.Builder.Slider(_waveletSliders[band], fill, TrackChrome).HStar(),
+                    Layout.Builder.Text(gain.ToString("0.0"), FontSize, ViewerTheme.Palette.DimText,
+                        hAlign: TextAlign.Far, widthSample: WaveletValueWidthSample))
+                .WithGap(WaveletGap)
+                .CrossCenter()
+                .RowH(FontSize + WaveletGap);
+
+        /// <summary>
+        /// The wavelet block as one tree: an action row over one row per band. Nothing here is
+        /// positioned and nothing is measured by hand; the engine is told what the content is and does
+        /// both.
+        /// </summary>
+        private Layout.Node BuildWaveletTree(ViewerState state)
         {
-            DrawSectionHeading(ref y, x, "Wavelet Sharpen", panelWidth);
+            var gains = state.WaveletGains;
 
-            var gap = 6f * DpiScale;
-            var btnH = FontSize + gap;
-
-            // On/Off toggle (active = blue) + Reset-to-default, both self-contained via OnClick.
-            var toggleLabel = state.WaveletSharpenEnabled ? "Sharpen: On" : "Sharpen: Off";
-            var toggleW = MeasureText(toggleLabel, FontSize) + gap * 2f;
-            FillRect(x, y, toggleW, btnH, state.WaveletSharpenEnabled ? TransportTrackFill : ToolbarButtonBg);
-            DrawText(toggleLabel, x + gap, y + gap / 2f, FontSize, ViewerTheme.Palette.BodyText);
-            RegisterClickable(x, y, toggleW, btnH, new HitResult.ButtonHit("WaveletToggle"),
-                _ => { state.WaveletSharpenEnabled = !state.WaveletSharpenEnabled; state.WaveletDirty = true; state.NeedsRedraw = true; });
-
-            const string resetLabel = "Reset";
-            var resetW = MeasureText(resetLabel, FontSize) + gap * 2f;
-            var resetX = x + toggleW + gap;
-            FillRect(resetX, y, resetW, btnH, ToolbarButtonBg);
-            DrawText(resetLabel, resetX + gap, y + gap / 2f, FontSize, ViewerTheme.Palette.BodyText);
-            RegisterClickable(resetX, y, resetW, btnH, new HitResult.ButtonHit("WaveletReset"),
-                _ => { state.WaveletGains = WaveletSharpenOptions.PlanetaryDefault.Gains; state.WaveletDirty = true; state.NeedsRedraw = true; });
-            y += btnH + gap;
-
-            var rowH = FontSize + gap;
-            var labelW = MeasureText("6", FontSize) + gap;
-            var valueW = MeasureText("0.0", FontSize) + gap;
-            // Brighter track fill when active; dim when sharpening is off (the sliders still work -- a drag
-            // re-enables -- but read as inactive).
+            // Brighter track when active; dim when sharpening is off. The sliders still WORK while dim
+            // -- a drag re-enables -- they just read as inactive, which is the behaviour the hand-laid
+            // version had and the reason this is a colour rather than a disabled node.
             var fill = state.WaveletSharpenEnabled
                 ? RGBAColor32.FromFloat(0.45f, 0.72f, 0.78f, 1f)
                 : RGBAColor32.FromFloat(0.40f, 0.45f, 0.48f, 1f);
 
-            var gains = state.WaveletGains;
-            for (var b = 0; b < WaveletBandCount; b++)
+            var rows = ImmutableArray.CreateBuilder<Layout.Node>();
+
+            rows.Add(Layout.Builder.HStack(
+                    PanelButton(
+                        state.WaveletSharpenEnabled ? "Sharpen: On" : "Sharpen: Off",
+                        "WaveletToggle", enabled: true,
+                        onPress: () =>
+                        {
+                            state.WaveletSharpenEnabled = !state.WaveletSharpenEnabled;
+                            state.WaveletDirty = true;
+                            state.NeedsRedraw = true;
+                        },
+                        // Widest of the two labels, stated once on the node, so toggling it cannot move
+                        // the Reset button beside it.
+                        widthSample: "Sharpen: Off",
+                        background: state.WaveletSharpenEnabled ? TransportTrackFill : ToolbarButtonBg),
+                    PanelButton("Reset", "WaveletReset", enabled: true,
+                        onPress: () =>
+                        {
+                            state.WaveletGains = WaveletSharpenOptions.PlanetaryDefault.Gains;
+                            state.WaveletDirty = true;
+                            state.NeedsRedraw = true;
+                        }),
+                    Layout.Builder.Spacer().HStar())
+                .WithGap(WaveletGap)
+                .CrossCenter()
+                .RowH(FontSize + WaveletGap));
+
+            for (var b = 0; b < WaveletBandCount && b < gains.Length; b++)
             {
-                if (b >= gains.Length)
-                {
-                    continue;
-                }
-
-                var rowY = y;
-                DrawText((b + 1).ToString(), x, rowY, FontSize, ViewerTheme.Palette.BodyText);
-
-                var trackX = x + labelW;
-                var trackRight = x + panelWidth - valueW;
-                var trackW = MathF.Max(0f, trackRight - trackX);
-                if (trackW > 0f)
-                {
-                    var frac = Math.Clamp(gains[b] / WaveletGainMax, 0f, 1f);
-                    var hitBand = new RectF32(trackX, rowY - gap / 2f, trackW, FontSize + gap);
-                    DrawTrackSlider(trackX, trackW, rowY, FontSize, frac,
-                        fill, hitBand, new WaveletSliderHit(b), TrackChrome, Scale);
-                }
-
-                DrawText(gains[b].ToString("0.0"), trackRight, rowY, FontSize, ViewerTheme.Palette.DimText);
-                y = rowY + rowH;
+                rows.Add(WaveletRow(b, gains[b], fill));
             }
+
+            return Layout.Builder.VStack([.. rows]).WithGap(WaveletGap);
         }
 
         /// <summary>
-        /// Begins a wavelet-layer slider drag (press on a layer track). Public so both mouse-down paths
-        /// (FitsViewer Program + GUI viewer tab) dispatch identically, mirroring <see cref="BeginWhiteBalanceDragAt"/>.
-        /// Touching a layer turns sharpening on.
+        /// The wavelet block. Seeds each band's dial from the gains, then measures and paints the tree
+        /// through the widget base's own context, so measure, arrange and paint are handed ONE instance
+        /// rather than three that have to agree by hand.
         /// </summary>
-        public void BeginWaveletDragAt(int band, float px)
+        private void RenderWaveletControls(ViewerState state, ref float y, float x, float panelWidth)
         {
-            if (_state is not { } state || (uint)band >= WaveletBandCount)
-            {
-                return;
-            }
+            DrawSectionHeading(ref y, x, "Wavelet Sharpen", panelWidth);
 
-            state.WaveletDragBand = band;
-            state.WaveletSharpenEnabled = true;
-            UpdateWaveletDrag(px);
-        }
-
-        // The band's track rect, read back from what RenderWaveletControls already registered via
-        // DrawTrackSlider -- see WhiteBalanceTrackRect, the same shape one row up in the panel.
-        private RectF32 WaveletTrackRect(int band)
-        {
-            foreach (var region in RegisteredRegions)
+            var gains = state.WaveletGains;
+            for (var b = 0; b < WaveletBandCount && b < gains.Length; b++)
             {
-                if (region.Result is WaveletSliderHit { Band: var b } && b == band)
+                var band = b;
+                _waveletSliders[b].Value = Math.Clamp(gains[b] / WaveletGainMax, 0f, 1f);
+                _waveletSliders[b].OnChanged = frac =>
                 {
-                    return new RectF32(region.X, region.Y, region.Width, region.Height);
-                }
+                    if (_state is not { } dragState)
+                    {
+                        return;
+                    }
+
+                    // Touching a layer turns sharpening on. That rule used to live in a public
+                    // BeginWaveletDragAt that two hosts had to remember to call; it is now on the only
+                    // path that can move a gain at all.
+                    dragState.WaveletSharpenEnabled = true;
+                    dragState.WaveletGains = dragState.WaveletGains.SetItem(band, frac * WaveletGainMax);
+                    dragState.WaveletDirty = true;
+                    dragState.NeedsRedraw = true;
+                };
             }
 
-            return default;
-        }
-
-        // Maps a cursor X onto a per-layer gain for the active drag band against its registered track rect.
-        private void UpdateWaveletDrag(float px)
-        {
-            if (_state is not { } state)
-            {
-                return;
-            }
-            var b = state.WaveletDragBand;
-            if ((uint)b >= WaveletBandCount || b >= state.WaveletGains.Length)
-            {
-                return;
-            }
-            var track = WaveletTrackRect(b);
-            if (track.Width <= 0f)
-            {
-                return;
-            }
-
-            var frac = TrackFrac(track, px);
-            state.WaveletGains = state.WaveletGains.SetItem(b, frac * WaveletGainMax);
-            state.WaveletDirty = true;
-            state.NeedsRedraw = true;
+            var tree = BuildWaveletTree(state);
+            var ctx = MeasureContext();
+            var measured = MeasureLayout(tree, new Layout.Size<float>(panelWidth, float.MaxValue));
+            var rect = new RectF32(x, y, panelWidth, measured.Height);
+            PaintLayout(ArrangeLayout(tree, rect, ctx), ctx);
+            y = rect.Bottom + WaveletGap;
         }
 
     }
