@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
@@ -286,12 +286,24 @@ namespace TianWen.UI.Abstractions
                 // to provide. ButtonHit is not an option either: the press handler runs every ButtonHit
                 // whose action parses as a ToolbarAction, and a file can be named anything.
                 //
-                // NO OnClick, deliberately. The press must reach the scroll controller below or
-                // drag-to-scroll dies and nothing selects at all -- selection is taken on the tap
-                // RELEASE. An OnClick here would fire on PRESS, so a drag would open whichever row the
-                // pointer started on. The press handler matches this hit by ListId to fall through.
+                // NO OnClick, deliberately, and that has not changed: an OnClick fires on PRESS, so a
+                // drag would open whichever row the pointer started on, where selection is taken on the
+                // tap RELEASE.
+                //
+                // What IS new is that the row hands the press to the scroll controller ITSELF, rather
+                // than declining and letting a host's press walk do it. Under a router there is no
+                // declining: a region under the pointer consumes the press whether or not anything ran,
+                // so a row that only registered a hit would kill drag-to-scroll and every selection with
+                // it. Returning null is "acted, but this is not a drag I own" -- the controller keeps
+                // whatever gesture it armed.
                 RegisterClickable(rowRect.X, rowRect.Y, rowRect.Width, rowRect.Height,
-                    new HitResult.ListItemHit(FileListId, fileIndex), onClick: null, cursor: CursorKind.Default);
+                    new HitResult.ListItemHit(FileListId, fileIndex), onClick: null, cursor: CursorKind.Default,
+                    onPress: press =>
+                    {
+                        HandleFileListInput(new InputEvent.MouseDown(press.X, press.Y, press.Button,
+                            press.Modifiers, press.Clicks));
+                        return null;
+                    });
 
                 // Only when the name is actually cut -- a tooltip repeating a fully visible label is
                 // noise. Anchored on the row so it appears where the pointer is.
