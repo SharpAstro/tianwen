@@ -939,6 +939,27 @@ assumed:
 - The same adoption is what removes the viewer's own `HitTestAndDispatch` call and the two overrides
   that compose it, so the 10 sites and the 1 claimant are not two jobs.
 
+**And the adoption needs a PRODUCT decision first, because the viewer's two press dispatchers do not
+agree.** `ImageRendererBase.HandleViewerMouseDown` (the embedded one, used by the GUI's viewer tab) and
+`TianWen.UI.FitsViewer/Program.cs:814` (the standalone host's) are described in the code as two copies of
+one dispatcher -- its own comment records that fixing one and not the other is why single-click selection
+stayed broken in the standalone viewer. They are not copies. Counted 2026-09-17:
+
+| on a left press | embedded (GUI tab) | standalone (`tianwen-fits`) |
+|---|---|---|
+| a dropdown-capable toolbar button | opens a menu ONLY for `WhiteBalance` / `Tone`; every other button CYCLES through `HandleToolbarAction` | opens that button's menu, for any action `OpenToolbarDropdown` answers |
+| right-click | no reverse | reverse-cycles |
+| a DI-dependent action | `TryStartColorCalibration` / `TryToggleBackgroundNeutralization` inline | falls through to `controller.HandleToolbarAction` |
+| `TransportScrubHit`, `SliderStateHit` | branches present | absent |
+| unclaimed right press on the image | -- | `TryOpenImageContextMenu` |
+
+So clicking Zoom opens a menu in `tianwen-fits` and cycles the zoom in the GUI. Both work; they are
+different products. Collapsing them into one declaration -- which is what adopting the router means --
+therefore has to pick one, and that is the user's call rather than a refactor's. **Ask before starting
+the adoption**, and note that `OpenToolbarDropdown` is reachable from KEYS in the embedded path
+(`Save`, `Shortcuts`, `WhiteBalance`, `Zoom`), so the GUI tab is not without menus, only without them on
+a press.
+
 **`OverlayOwnsPointer` is NOT one of D2's cuts, and it is not blocked on any of this.**
 `PixelWidgetBase.PointerWithin` already consults `WindowUiSettings.PointerOwner` -- "no owner, or inside
 the owner" -- so a DECLARED node's hover is confined by an open popover with no node knowing one exists.
