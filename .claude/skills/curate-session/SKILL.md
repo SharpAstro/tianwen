@@ -44,6 +44,14 @@ size arithmetic does not apply there.
 `dedup-skip` row rather than copying the same file twice under two names). A session reached through
 two paths is normal here, not a sign of a mistake.
 
+**Measure the gap over FITS ONLY, or it inflates.** Raw frames in this archive are always `.fits`;
+`.xisf` is a PixInsight intermediate and nothing reads it (no `.xisf` support exists). Counting them
+put the unfiled total at 69,005 frames / 1.63 TiB where the real figure is **62,846 / 1.15 TiB**, and
+made `2025/2025-10` look like 2,365 unfiled frames when it is essentially complete: 1,096 of its 1,195
+FITS are filed and the remaining 99 are stacked outputs, `MASTER*`, `BADPIXELMAP`, `CALIBRATED-LIGHT`
+and zero-exposure aborts. The ledger's `kind` field separates them (`fits-data` against
+`whole-file`).
+
 **`D:/Astro-Pics/Unsorted` is NOT `D:/Astro-Unsorted`.** The first is a subfolder of the raw archive
 and holds 2,103 FITS; the second is a bake root. A survey that walks only the year folders
 (`2024/`, `2025/`, `2026/`) misses it entirely, which is exactly what happened on the first pass.
@@ -120,8 +128,22 @@ Model the script on `_provenance/organizeD.py` (or `organizeC.py`, the longer pr
   exposure, and on a frame whose camera or readout mode does not match.
 - **Declare the exposures a folder may contain.** A folder name states a kind and cannot be trusted
   to hold only that kind: one folder called `DARK` held dark-flats, another held daylight frames at
-  +22 C. Grouping on `(date, exposure)` and declaring the expectation makes an unlisted exposure
-  REFUSE rather than land somewhere its name misdescribes.
+  +22 C, and a third (`2026-08 SV545`) held 10.10 s frames typed `DARK` that are the dark-flats for
+  the 10.10 s flats beside them. Grouping on `(date, exposure)` and declaring the expectation makes
+  an unlisted exposure REFUSE rather than land somewhere its name misdescribes.
+- **Exclude what is not a frame, and none of it is obvious from a name.** `IMAGETYP` of
+  `MASTERBIAS` / `MASTERDARK` / `MASTERFLAT` / `MASTERDARKFLAT` / `BADPIXELMAP` are derived, and a
+  `LIGHT` whose `EXPTIME` is far above the session's sub length is a STACKED OUTPUT with the
+  integration time in that card (5820 s = 97 x 60 s), sitting beside the subs it was made from.
+- **Resolve a destination collision by CONTENT, not by inode.** Two sources landing on one
+  destination are usually the same frame stored twice at different inodes, which no link check sees,
+  because copying is how this archive duplicates. Hash both: identical means keep one and record the
+  rest; differing is a real refusal, since one destination cannot hold two different frames.
+  **The folder is what is wrong in that case, not the header.** In `2026-08 SV545`, 240 frames under
+  `Lobster Nebula/LIGHT/` carry `OBJECT = Small Magellanic Cloud` with the SMC's RA and Dec, and are
+  byte-identical to frames in the `SMC/` folder beside them. Splitting on `OBJECT` files them
+  correctly and the duplicates collapse; trusting the folder would have filed 240 SMC frames as
+  Lobster.
 - **sha256 every copy** against its source and write a manifest.
 
 Destinations:
