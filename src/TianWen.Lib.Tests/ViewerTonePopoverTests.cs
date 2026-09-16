@@ -40,12 +40,12 @@ public class ViewerTonePopoverTests
 
     private sealed class ToneViewer : ImageRendererBase<RgbaImage>
     {
-        public ToneViewer(RgbaImageRenderer renderer, SignalBus bus) : base(renderer)
+        public ToneViewer(RgbaImageRenderer renderer, SignalBus bus, float dpiScale = 1f) : base(renderer)
         {
             Bus = bus;
             Width = renderer.Width;
             Height = renderer.Height;
-            DpiScale = 1f;
+            DpiScale = dpiScale;
             FontPath = FontResolver.ResolveSystemFont();
         }
 
@@ -86,10 +86,10 @@ public class ViewerTonePopoverTests
     }
 
     private static async Task<(ToneViewer Viewer, ViewerState State, AstroImageDocument Document)>
-        NewViewerAsync(RgbaImageRenderer renderer, CancellationToken ct)
+        NewViewerAsync(RgbaImageRenderer renderer, CancellationToken ct, float dpiScale = 1f)
     {
         var document = await ViewerInfoPanelCollapseTests.NewColourDocumentAsync(ct);
-        var viewer = new ToneViewer(renderer, new SignalBus());
+        var viewer = new ToneViewer(renderer, new SignalBus(), dpiScale);
         viewer.UploadChannelTexture(ReadOnlySpan<float>.Empty, 0, ImageW, ImageH);
         var state = new ViewerState
         {
@@ -431,5 +431,51 @@ public class ViewerTonePopoverTests
         var button = Button(viewer);
         Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));
         state.TonePopover.IsOpen.ShouldBeFalse("a second press on the button closes what the first opened");
+    }
+
+    /// <summary>
+    /// The panel scales LINEARLY with the DPI scale, which is the one thing a declared tree can get
+    /// wrong in a way no other test sees.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A tree is authored in DESIGN units and the measure context turns them into device pixels. So a
+    /// value that is already device pixels -- and every font size in this panel was
+    /// <c>BaseFontSize * DpiScale</c> -- gets the scale applied to it a SECOND time. Measured before the
+    /// fix: 3.85x wider and 3.26x taller at 2x DPI, the two ratios differing because the gaps beside the
+    /// text were plain constants and scaled only once. Both halves were internally consistent, so the
+    /// panel looked right on its own and simply did not match the chrome around it.
+    /// </para>
+    /// <para>
+    /// Every viewer test runs at <c>DpiScale = 1f</c>, where squaring the scale is the identity -- which
+    /// is exactly why this shipped. Two DPIs are the whole test; one can never see it.
+    /// </para>
+    /// <para>
+    /// The tolerance is for the FACE, not for slack in the layout: a glyph advance at 36 px is not
+    /// twice the advance at 18 px once hinting has rounded it, so the measured width lands near 2x
+    /// rather than on it. The height, which the row boxes drive, comes out exact.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task ThePanelScalesLinearlyWithTheDpiScale()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // Wide enough at BOTH scales that the popover is never clamped to the window -- a clamp would
+        // cap the 2x panel and hide the very thing being measured.
+        using var oneX = new RgbaImageRenderer(1800, 1400);
+        var (v1, s1, d1) = await NewViewerAsync(oneX, ct);
+        OpenPanel(v1, s1, d1);
+        var atOne = Panel(v1);
+
+        using var twoX = new RgbaImageRenderer(1800, 1400);
+        var (v2, s2, d2) = await NewViewerAsync(twoX, ct, dpiScale: 2f);
+        OpenPanel(v2, s2, d2);
+        var atTwo = Panel(v2);
+
+        atTwo.Height.ShouldBe(atOne.Height * 2f, 0.5f,
+            "the row boxes are pure layout, so twice the scale is exactly twice the height");
+        (atTwo.Width / atOne.Width).ShouldBe(2f, 0.1f,
+            "and the width, within what glyph hinting moves between 18 px and 36 px");
     }
 }

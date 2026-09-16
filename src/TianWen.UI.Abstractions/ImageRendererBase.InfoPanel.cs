@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading;
@@ -151,14 +151,14 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private Layout.Node WaveletRow(int band, float gain, RGBAColor32 fill)
             => Layout.Builder.HStack(
-                    Layout.Builder.Text((band + 1).ToString(), FontSize, ViewerTheme.Palette.BodyText,
+                    Layout.Builder.Text((band + 1).ToString(), BaseFontSize, ViewerTheme.Palette.BodyText,
                         widthSample: WaveletBandWidthSample),
                     Layout.Builder.Slider(_waveletSliders[band], fill, TrackChrome).HStar(),
-                    Layout.Builder.Text(gain.ToString("0.0"), FontSize, ViewerTheme.Palette.DimText,
+                    Layout.Builder.Text(gain.ToString("0.0"), BaseFontSize, ViewerTheme.Palette.DimText,
                         hAlign: TextAlign.Far, widthSample: WaveletValueWidthSample))
                 .WithGap(WaveletGap)
                 .CrossCenter()
-                .RowH(FontSize + WaveletGap);
+                .RowH(BaseFontSize + WaveletGap);
 
         /// <summary>
         /// The wavelet block as one tree: an action row over one row per band. Nothing here is
@@ -202,7 +202,7 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.Spacer().HStar())
                 .WithGap(WaveletGap)
                 .CrossCenter()
-                .RowH(FontSize + WaveletGap));
+                .RowH(BaseFontSize + WaveletGap));
 
             for (var b = 0; b < WaveletBandCount && b < gains.Length; b++)
             {
@@ -248,7 +248,7 @@ namespace TianWen.UI.Abstractions
             var measured = MeasureLayout(tree, new Layout.Size<float>(panelWidth, float.MaxValue));
             var rect = new RectF32(x, y, panelWidth, measured.Height);
             PaintLayout(ArrangeLayout(tree, rect, ctx), ctx);
-            y = rect.Bottom + WaveletGap;
+            y = rect.Bottom + (WaveletGap * DpiScale);
         }
 
     }
