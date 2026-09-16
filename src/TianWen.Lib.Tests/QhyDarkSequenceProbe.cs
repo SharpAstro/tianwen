@@ -1,0 +1,341 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text;
+using TianWen.Lib.Imaging;
+using Xunit;
+using static QHYCCD.SDK.QHYCamera;
+
+namespace TianWen.Lib.Tests;
+
+/// <summary>
+/// A dark SEQUENCE off an attached QHY, read frame by frame, to tell three failure modes apart:
+/// a frame that never arrived, a frame that is a REPEAT of the one before it, and a frame whose
+/// level simply differs from its neighbours.
+/// </summary>
+/// <remarks>
+/// <para>The owner's long-standing report on the QHY178M is that SharpCap "randomly doesn't show
+/// frames, or old frames, or super bright frames and then dim frames". Those are three different
+/// bugs wearing one description, and the sequence separates them: a repeat has an IDENTICAL digest
+/// to its predecessor (a stale buffer handed back twice), while a level excursion has a different
+/// digest and a different median (a real readout that came out at the wrong offset). Nothing else
+/// here distinguishes them, which is why the digest is taken at all.</para>
+/// <para>Deliberately the RAW SDK rather than TianWen's own driver: the question is whether the
+/// behaviour lives BELOW us. If the raw sequence is clean, the fault is in the consumer; if it is
+/// not, no amount of driver work fixes it.</para>
+/// <para>Gated on <c>TIANWEN_QHY_PROBE=1</c>, with the count and exposure overridable by
+/// <c>TIANWEN_QHY_FRAMES</c> / <c>TIANWEN_QHY_EXPOSURE_MS</c>. Writes FITS into the test output so
+/// the frames can be looked at rather than only summarised. <b>Touches no cooler setting</b>: the
+/// body under test is running without external power, so the TEC is not available and asking for a
+/// setpoint would be asking for a failure.</b></para>
+/// </remarks>
+public class QhyDarkSequenceProbe(ITestOutputHelper output)
+{
+    private const string GateVar = "TIANWEN_QHY_PROBE";
+    private const uint Success = 0;
+    /// <summary>ExpQHYCCDSingleFrame answers this, not Success, on a read-directly body. Not an error.</summary>
+    private const uint ReadDirectly = 0x2001;
+
+    [Fact]
+    public void ReportWhatASequenceOfDarksActuallyDelivers()
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable(GateVar) == "1",
+            $"{GateVar} is not 1 (needs a QHY body attached, capped, and free)");
+        var frames = int.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_FRAMES"), out var n) ? n : 12;
+        var exposureMs = double.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_EXPOSURE_MS"), out var e) ? e : 1000.0;
+
+        Assert.SkipUnless(InitQHYCCDResource() is Success, "InitQHYCCDResource failed");
+        try
+        {
+            var count = ScanQHYCCD();
+            Assert.SkipWhen(count is 0 or uint.MaxValue, "no QHY device found (the SDK is exclusive; is something else holding it?)");
+
+            var id = new StringBuilder(64);
+            Assert.SkipUnless(GetQHYCCDId(0, id) is Success, "GetQHYCCDId failed");
+            var idPtr = Marshal.StringToHGlobalAnsi(id.ToString());
+            try
+            {
+                Capture(id.ToString(), idPtr, frames, exposureMs);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(idPtr);
+            }
+        }
+        finally
+        {
+            ReleaseQHYCCDResource();
+        }
+    }
+
+    /// <summary>
+    /// Does a parameter change take effect on the NEXT frame, or the one after it? The dark sequence
+    /// above found frame 0 at a LOWER level than every frame after it (median 16 against 40), and
+    /// "less signal than commanded" is what an exposure that ran at the PREVIOUS setting looks like.
+    /// If that is the mechanism then the first frame is not defective, it is correct for settings
+    /// nobody wanted, and the two call for different handling: a settling frame at connect versus
+    /// reading the parameter back before trusting it.
+    /// </summary>
+    /// <remarks>
+    /// The exposure is stepped 1 s, 2 s, 1 s in blocks, commanding the change before each frame and
+    /// recording BOTH the commanded value and what the camera reports back. A level that tracks the
+    /// command on the same frame says the change is immediate; a level that lags by exactly one frame
+    /// says it is not, and the readback says whether the camera admits it.
+    /// </remarks>
+    [Fact]
+    public void ReportWhetherAParameterChangeLandsOnTheFrameThatFollowsIt()
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable(GateVar) == "1",
+            $"{GateVar} is not 1 (needs a QHY body attached, capped, and free)");
+        Assert.SkipUnless(InitQHYCCDResource() is Success, "InitQHYCCDResource failed");
+        try
+        {
+            Assert.SkipWhen(ScanQHYCCD() is 0 or uint.MaxValue, "no QHY device found");
+            var id = new StringBuilder(64);
+            Assert.SkipUnless(GetQHYCCDId(0, id) is Success, "GetQHYCCDId failed");
+            var idPtr = Marshal.StringToHGlobalAnsi(id.ToString());
+            try
+            {
+                StepExposure(idPtr);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(idPtr);
+            }
+        }
+        finally
+        {
+            ReleaseQHYCCDResource();
+        }
+    }
+
+    private void StepExposure(IntPtr idPtr)
+    {
+        double[] commanded = [1000, 1000, 1000, 2000, 2000, 2000, 1000, 1000, 1000];
+        var handle = OpenQHYCCD(idPtr);
+        Assert.SkipWhen(handle == IntPtr.Zero, "OpenQHYCCD returned null");
+        try
+        {
+            SetQHYCCDStreamMode(handle, 0);
+            Assert.SkipUnless(InitQHYCCD(handle) is Success, "InitQHYCCD failed");
+            Assert.SkipUnless(
+                GetQHYCCDChipInfo(handle, out _, out _, out var width, out var height, out _, out _, out _) is Success,
+                "GetQHYCCDChipInfo failed");
+            SetQHYCCDBitsMode(handle, 16);
+            SetQHYCCDResolution(handle, 0, 0, width, height);
+            SetQHYCCDParam(handle, CONTROL_ID.CONTROL_GAIN, 10);
+            SetQHYCCDParam(handle, CONTROL_ID.CONTROL_OFFSET, 10);
+
+            var bufferLength = GetQHYCCDMemLength(handle);
+            var buffer = Marshal.AllocHGlobal((int)bufferLength);
+            output.WriteLine($"{"#",3} {"asked",7} {"readback",9} {"wall ms",8} {"median",7} {"mean",9}  note");
+            try
+            {
+                for (var i = 0; i < commanded.Length; i++)
+                {
+                    SetQHYCCDParam(handle, CONTROL_ID.CONTROL_EXPOSURE, commanded[i] * 1000.0);
+                    var readback = GetQHYCCDParam(handle, CONTROL_ID.CONTROL_EXPOSURE) / 1000.0;
+                    var started = DateTime.UtcNow;
+                    var exp = ExpQHYCCDSingleFrame(handle);
+                    if (exp is not Success and not ReadDirectly)
+                    {
+                        output.WriteLine($"{i,3} exposure refused (0x{exp:X})");
+                        continue;
+                    }
+
+                    if (GetQHYCCDSingleFrame(handle, out var w, out var h, out _, out _, buffer) is not Success)
+                    {
+                        output.WriteLine($"{i,3} frame never arrived");
+                        continue;
+                    }
+
+                    var wall = (DateTime.UtcNow - started).TotalMilliseconds;
+                    var shorts = new short[w * h];
+                    Marshal.Copy(buffer, shorts, 0, (int)(w * h));
+                    var pixels = new ushort[shorts.Length];
+                    for (var p = 0; p < shorts.Length; p++)
+                    {
+                        pixels[p] = unchecked((ushort)shorts[p]);
+                    }
+
+                    var sorted = pixels.Order().ToArray();
+                    var mean = pixels.Aggregate(0.0, (acc, v) => acc + v) / pixels.Length;
+                    var changed = i > 0 && commanded[i] != commanded[i - 1];
+                    output.WriteLine($"{i,3} {commanded[i],7:F0} {readback,9:F0} {wall,8:F0} "
+                        + $"{sorted[sorted.Length / 2],7} {mean,9:F2}"
+                        + (changed ? "  <- the exposure was CHANGED before this frame" : ""));
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+
+            output.WriteLine("");
+            output.WriteLine("read: if the wall time and the level both move on the frame marked CHANGED, the parameter "
+                + "is immediate and frame 0 of a run is merely unsettled. If they move one frame LATER, the change "
+                + "lands on the frame after next, and a caller that trusts the readback is being told something the "
+                + "hardware has not done yet.");
+        }
+        finally
+        {
+            CancelQHYCCDExposingAndReadout(handle);
+            CloseQHYCCD(handle);
+        }
+    }
+
+    private void Capture(string id, IntPtr idPtr, int frames, double exposureMs)
+    {
+        // Stream mode must be chosen BEFORE InitQHYCCD: 0 is single-frame, which is what a dark is.
+        var handle = OpenQHYCCD(idPtr);
+        Assert.SkipWhen(handle == IntPtr.Zero, "OpenQHYCCD returned null");
+        try
+        {
+            SetQHYCCDStreamMode(handle, 0);
+            Assert.SkipUnless(InitQHYCCD(handle) is Success, "InitQHYCCD failed");
+            Assert.SkipUnless(
+                GetQHYCCDChipInfo(handle, out _, out _, out var width, out var height, out _, out _, out _) is Success,
+                "GetQHYCCDChipInfo failed");
+
+            SetQHYCCDBitsMode(handle, 16);
+            SetQHYCCDResolution(handle, 0, 0, width, height);
+            SetQHYCCDParam(handle, CONTROL_ID.CONTROL_GAIN, 10);
+            SetQHYCCDParam(handle, CONTROL_ID.CONTROL_OFFSET, 10);
+            SetQHYCCDParam(handle, CONTROL_ID.CONTROL_EXPOSURE, exposureMs * 1000.0);   // microseconds
+
+            var bufferLength = GetQHYCCDMemLength(handle);
+            Assert.SkipWhen(bufferLength is 0 or uint.MaxValue, "GetQHYCCDMemLength refused");
+            var buffer = Marshal.AllocHGlobal((int)bufferLength);
+            var dir = SharedTestData.CreateTempTestOutputDir();
+
+            output.WriteLine($"{id}: {frames} darks of {exposureMs:F0} ms at gain 10 offset 10, "
+                + $"{width} x {height}, buffer {bufferLength / 1024} KiB");
+            output.WriteLine($"written to {dir}");
+            output.WriteLine("");
+            output.WriteLine($"{"#",3} {"ms",6} {"median",8} {"min",7} {"max",8} {"mean",9} {"digest",10}  note");
+
+            try
+            {
+                var rows = new List<(int Index, double Median, double Mean, ushort Min, ushort Max, string Digest)>();
+                for (var i = 0; i < frames; i++)
+                {
+                    var started = DateTime.UtcNow;
+                    var exp = ExpQHYCCDSingleFrame(handle);
+                    if (exp is not Success and not ReadDirectly)
+                    {
+                        output.WriteLine($"{i,3} ExpQHYCCDSingleFrame refused (0x{exp:X})");
+                        continue;
+                    }
+
+                    var got = GetQHYCCDSingleFrame(handle, out var w, out var h, out var bpp, out var channels, buffer);
+                    var elapsed = (DateTime.UtcNow - started).TotalMilliseconds;
+                    if (got is not Success)
+                    {
+                        output.WriteLine($"{i,3} {elapsed,6:F0} GetQHYCCDSingleFrame refused (0x{got:X})   FRAME NEVER ARRIVED");
+                        continue;
+                    }
+
+                    var pixels = new ushort[w * h];
+                    Marshal.Copy(buffer, MemoryMarshal.AsBytes<ushort>(pixels).ToArray(), 0, (int)(w * h * 2));
+                    // Marshal.Copy has no ushort overload from IntPtr, so go through the short view.
+                    var shorts = new short[w * h];
+                    Marshal.Copy(buffer, shorts, 0, (int)(w * h));
+                    for (var p = 0; p < shorts.Length; p++)
+                    {
+                        pixels[p] = unchecked((ushort)shorts[p]);
+                    }
+
+                    var sorted = pixels.Order().ToArray();
+                    var median = sorted[sorted.Length / 2];
+                    var mean = pixels.Aggregate(0.0, (acc, v) => acc + v) / pixels.Length;
+                    var digest = Digest(pixels);
+                    var repeat = rows.Count > 0 && rows[^1].Digest == digest;
+                    rows.Add((i, median, mean, sorted[0], sorted[^1], digest));
+
+                    output.WriteLine($"{i,3} {elapsed,6:F0} {median,8} {sorted[0],7} {sorted[^1],8} {mean,9:F2} {digest,10}"
+                        + (repeat ? "  REPEAT of the previous frame (stale buffer)" : ""));
+
+                    WriteFrame(dir, i, pixels, (int)w, (int)h, channels, bpp);
+                }
+
+                Summarise(rows);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+        finally
+        {
+            CancelQHYCCDExposingAndReadout(handle);
+            CloseQHYCCD(handle);
+        }
+    }
+
+    private void Summarise(List<(int Index, double Median, double Mean, ushort Min, ushort Max, string Digest)> rows)
+    {
+        if (rows.Count < 2)
+        {
+            return;
+        }
+
+        var medians = rows.Select(r => r.Median).ToArray();
+        var repeats = rows.Skip(1).Count(r => rows[rows.FindIndex(x => x.Index == r.Index) - 1].Digest == r.Digest);
+        var distinct = rows.Select(r => r.Digest).Distinct().Count();
+        output.WriteLine("");
+        output.WriteLine($"median over {rows.Count} frames: {medians.Min():F0} to {medians.Max():F0} "
+            + $"(spread {medians.Max() - medians.Min():F0} ADU, {(medians.Max() - medians.Min()) / Math.Max(medians.Average(), 1) * 100:F1} percent of the mean level)");
+        output.WriteLine($"distinct frames: {distinct} of {rows.Count}"
+            + (distinct < rows.Count ? $"   <- {rows.Count - distinct} REPEAT(S): the SDK handed back a frame it had already given" : "   (no repeats: every frame is its own readout)"));
+        output.WriteLine("");
+        output.WriteLine("read: a REPEAT is a stale buffer and is a different bug from a level excursion, which has its "
+            + "own digest and its own median. A level spread of a few ADU is ordinary bias wander; a spread of many "
+            + "percent between neighbouring darks at one exposure is the 'bright then dim' complaint, and is what a "
+            + "per-frame black level would correct IF this body exposed a shielded strip to measure one from. It does "
+            + "not: P1 measured effective == full readout and an EMPTY overscan on this camera.");
+    }
+
+    private static string Digest(ushort[] pixels)
+    {
+        var hash = System.IO.Hashing.XxHash128.Hash(MemoryMarshal.AsBytes<ushort>(pixels));
+        return Convert.ToHexString(hash)[..10];
+    }
+
+    private static void WriteFrame(string dir, int index, ushort[] pixels, int width, int height, uint channels, uint bpp)
+    {
+        var plane = new float[height, width];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                plane[y, x] = pixels[(y * width) + x];
+            }
+        }
+
+        var image = new Image([plane], BitDepth.Int16,
+            maxValue: pixels.Max(), minValue: pixels.Min(), pedestal: 0f,
+            new ImageMeta(
+                Instrument: "QHY178M",
+                ExposureStartTime: DateTimeOffset.UtcNow,
+                ExposureDuration: TimeSpan.Zero,
+                FrameType: FrameType.Dark,
+                Telescope: "",
+                PixelSizeX: 2.4f,
+                PixelSizeY: 2.4f,
+                FocalLength: -1,
+                FocusPos: -1,
+                Filter: Filter.Unknown,
+                BinX: 1,
+                BinY: 1,
+                CCDTemperature: float.NaN,
+                SensorType: SensorType.Monochrome,
+                BayerOffsetX: 0,
+                BayerOffsetY: 0,
+                RowOrder: RowOrder.TopDown,
+                Latitude: float.NaN,
+                Longitude: float.NaN));
+        image.WriteToFitsFile(Path.Combine(dir, $"dark_{index:D3}.fits"));
+    }
+}
