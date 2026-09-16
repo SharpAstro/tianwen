@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading;
@@ -117,6 +117,17 @@ namespace TianWen.UI.Abstractions
             _scrubTrackRect = new RectF32(trackX, btnY, trackW, contentH);
             DrawTrackSlider(trackX, trackW, r.Y + r.Height / 2f, btnY, contentH, frac,
                 TransportTrackFill, _scrubTrackRect, new TransportScrubHit(), TrackChrome, Scale);
+
+            // DrawTrackSlider registers the band with a HIT and no handler, and a region with a hit and
+            // no handler is silently dead under a router -- it consumes the press and runs nothing. So
+            // the scrub arms from its own region, registered after (later registration wins) and needing
+            // the press POSITION, which is what a scrub is: seek to where you pressed.
+            RegisterClickable(_scrubTrackRect.X, _scrubTrackRect.Y, _scrubTrackRect.Width, _scrubTrackRect.Height,
+                new TransportScrubHit(), onPress: press =>
+                {
+                    BeginScrubAt(press.X);
+                    return null;
+                });
         }
 
         /// <summary>
