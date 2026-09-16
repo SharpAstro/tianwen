@@ -320,7 +320,20 @@ public class QhyDarkSequenceProbe(ITestOutputHelper output)
         try
         {
             SetQHYCCDStreamMode(handle, 0);
+
+            // BEFORE InitQHYCCD, deliberately. Several QHY controls only latch pre-init, the way
+            // stream mode does, and setting DDR after init answered Success and read back 0 on a
+            // body that physically carries 128 MB of DDRII. If it latches here and not there, the
+            // driver's own EnableDDR is in the wrong place too: it runs from QueryCapabilities,
+            // after init.
+            if (Ddr is { } preInitDdr)
+            {
+                var ok = SetQHYCCDParam(handle, CONTROL_ID.CONTROL_DDR, preInitDdr) is Success;
+                output.WriteLine($"DDR set to {preInitDdr:F0} PRE-init ({(ok ? "accepted" : "REFUSED")})");
+            }
+
             Assert.SkipUnless(InitQHYCCD(handle) is Success, "InitQHYCCD failed");
+            output.WriteLine($"after InitQHYCCD, DDR reads back {GetQHYCCDParam(handle, CONTROL_ID.CONTROL_DDR):F0}");
             Assert.SkipUnless(
                 GetQHYCCDChipInfo(handle, out _, out _, out var width, out var height, out _, out _, out _) is Success,
                 "GetQHYCCDChipInfo failed");
