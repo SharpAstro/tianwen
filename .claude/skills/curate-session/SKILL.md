@@ -115,9 +115,17 @@ correct, not a gap -- the database holds **no standalone Ha, OIII, SII or Lumina
 POOL GROUPING, keeping a 30 s Ha run out of the same training population as a 60 s luminance run,
 and for that it only has to be true and consistent. Brand-qualify later if the filter is identified.
 
-**The folder name loses to the header on OPTICS as well as on target.** The luminance session's
-folder says `FMA180`, and its lights carry `TELESCOP = WO RC51` at 250 mm. That decides whether its
-flats can be shared with the Ha session beside it: they cannot, being a different train.
+**For OPTICS, neither the folder nor the header is authoritative: SOLVE IT.** The luminance
+session's folder says `FMA180` while all 247 of its lights carry `TELESCOP = WO RC51` and
+`FOCALLEN = 250.0`, and the header is the one that is wrong. `tianwen solve` measures **4.349
+arcsec/px**, which on the ASI1600MM's 3.8 um pixels is **180.2 mm**, against the 3.135 arcsec/px
+that 250 mm would give. The Ha session beside it measures 4.347, so the two are the same train.
+
+That is the rule `CLAUDE.md` already states ("a declared pixel scale beats `FOCALLEN`, which is only
+a hint") reaching its limit: with **no** `PIXSCALE` card, deriving the scale from `FOCALLEN` merely
+restates the card, so the sky is the only independent arbiter. **Do not conclude "different optics"
+from a `TELESCOP` or `FOCALLEN` card alone**, because a stale capture profile writes a scope that was
+swapped out. A blind solve costs seconds and settles it; this one reversed the conclusion.
 
 ## Step 3: is the calibration actually safe?
 
