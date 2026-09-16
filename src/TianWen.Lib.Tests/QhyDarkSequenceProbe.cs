@@ -41,6 +41,8 @@ public class QhyDarkSequenceProbe(ITestOutputHelper output)
     private double Gain { get; set; } = 10;
     private double Offset { get; set; } = 10;
     private double SettleMs { get; set; }
+    private double? Ddr { get; set; }
+    private double? UsbTraffic { get; set; }
 
     [Fact]
     public void ReportWhatASequenceOfDarksActuallyDelivers()
@@ -57,6 +59,8 @@ public class QhyDarkSequenceProbe(ITestOutputHelper output)
         // science exposure. If it does, the settle has to be as long as the frame it protects, which
         // is a very different cost.
         SettleMs = double.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_SETTLE_MS"), out var s) ? s : 0.0;
+        Ddr = double.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_DDR"), out var d) ? d : null;
+        UsbTraffic = double.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_USBTRAFFIC"), out var u) ? u : null;
 
         Assert.SkipUnless(InitQHYCCDResource() is Success, "InitQHYCCDResource failed");
         try
@@ -323,6 +327,26 @@ public class QhyDarkSequenceProbe(ITestOutputHelper output)
 
             SetQHYCCDBitsMode(handle, 16);
             SetQHYCCDResolution(handle, 0, 0, width, height);
+
+            // Every measurement before this existed was taken with the DDR buffer OFF and USB traffic
+            // at whatever the camera defaulted to, because this probe is RAW SDK and never goes
+            // through QHYCameraDriver, which is where the driver's own DDR enablement lives. Both are
+            // knobs on whether a readout survives the trip intact, so both belong to the measurement
+            // rather than sitting in its background unrecorded.
+            if (Ddr is { } ddr)
+            {
+                var accepted = SetQHYCCDParam(handle, CONTROL_ID.CONTROL_DDR, ddr) is Success;
+                output.WriteLine($"DDR set to {ddr:F0} ({(accepted ? "accepted" : "REFUSED")}), "
+                    + $"reads back {GetQHYCCDParam(handle, CONTROL_ID.CONTROL_DDR):F0}");
+            }
+
+            if (UsbTraffic is { } traffic)
+            {
+                var accepted = SetQHYCCDParam(handle, CONTROL_ID.CONTROL_USBTRAFFIC, traffic) is Success;
+                output.WriteLine($"USB traffic set to {traffic:F0} ({(accepted ? "accepted" : "REFUSED")}), "
+                    + $"reads back {GetQHYCCDParam(handle, CONTROL_ID.CONTROL_USBTRAFFIC):F0}");
+            }
+
             // Set, then READ BACK. A value outside the camera's range is clamped or refused rather
             // than reported, so a run labelled by what it ASKED for can be a run at settings nobody
             // chose: asking this body for gain 60 when its maximum is 51 produced exactly that, and

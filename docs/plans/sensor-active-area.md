@@ -1,6 +1,9 @@
 # PLAN: the sensor's active area, its overscan, and `*SEC`
 
-**Status: P0 DONE (Canon, 2026-09-07). P1-P5 NOT STARTED.**
+**Status: P0 DONE (Canon, 2026-09-07). P1 READ on a QHY178M (2026-09-16), which found that body has
+no margin at all, so the gate is lifted for it and still down for every other. P2 and P3 DONE the
+same day (`FitsSection`, `ImageMeta.DataSection`/`BiasSection`, read and written). P4 and P5 NOT
+STARTED, and nothing populates the sections yet.**
 
 A frame off a sensor is usually bigger than the photograph. Cameras record shielded photosites at
 one or two edges — the optical black the camera uses for its own black-level calibration — plus, on
@@ -347,12 +350,51 @@ frame CONTENT at 1 s and 2 s is identical here because the level is bias-dominat
 returned-previous-frame bug would have been invisible to it, and so would the settling frame's own
 content. Gain changes what is IN the frame, which is why it can separate them and exposure cannot.
 
+**Two things the driver already does, found while nearly duplicating them.** `DALCameraDriver`'s
+connect-time control writes include `EnableDDR = 1` and `BandwidthOverload = 50`, so TianWen has
+been enabling the DDR buffer and pinning USB traffic on every DAL camera all along; a QHY-specific
+enablement was written, then deleted on finding it. The probes read `CONTROL_DDR` as 0 only because
+they are RAW SDK and bypass the driver entirely, which is a thing to remember before concluding
+anything about "what the camera does" from them.
+
+**Cooler setpoints PERSIST across a close, and the connect inherits them.** Measured the same
+evening: written -10 on one handle, a FRESH handle after a close reads -10 back and `CURPWM` goes
+straight to 255, full power, on a body whose TEC has no power at all. The DDR buffer is the
+opposite, reading 0 on every fresh open. So cooling is state somebody else owns, and any diagnostic
+path must leave it alone rather than configure it. `CONTROL_COOLER` also reports **-100 while
+declaring its own range as -50 to 100**, an out-of-band sentinel on a control whose range claims to
+be degrees; `DALCameraDriver` maps BOTH `CoolerOn` and `TargetTemperature` onto that one control and
+models no sentinel.
+
 A per-frame black level would correct precisely this, which is what the owner suspected, **but this
 body exposes no shielded strip to measure one from** (P1 above). So the options are a settling frame
-at connect, or flagging the first frame and letting the quality gate drop it. **A 100 ms throwaway settles a 10 s frame**, so the settling frame need not match the science
-exposure: at gain 10 the sequence goes from a 30.8 percent level spread to 0.0 percent. The direction
-of the frame-0 error FLIPS with gain, high at one setting and low at another, so no fixed offset can
-correct it and only discarding works. Two cautions for whoever takes it:
+at connect, or flagging the first frame and letting the quality gate drop it. **A settling frame was chosen, measured, and then KILLED by the measurement, which is the most
+important paragraph here.** A 100 ms throwaway does clean up a sequence whose excursion happens to
+land on frame 0, and the first three sequences taken all looked like that. Repeating the SAME
+configuration six times, each already settled, does not:
+
+```
+run 1 : 12 12 12 12     run 3 : 16 16 16 36   <- jumps at frame 3
+run 2 : 16 16 36 36     run 4 :  8  8  8  8
+   <- jumps at frame 2  run 5 : 12 12 12 12   run 6 : 16 16 16 16
+```
+
+**The level jumps MID-SEQUENCE, at frame 2 or 3, after settling.** Two of six. So "the first readout
+after `InitQHYCCD` is unsettled" is an insufficient model: it was only ever the first frame in the
+sequences that happened to be taken, and a settling frame cannot protect against an excursion that
+arrives later. Three further readings. The levels are **quantised in steps of 4** and wander between
+a handful of discrete states (8, 12, 16, 20, 36, 40) both within a connect and between connects at
+identical gain, offset and exposure. The jump is **one-way within a run**, always upward, never back.
+And **the DDR buffer makes no difference**: five repeats each read 2 of 5 excursions with it on and
+1 of 5 with it off, indistinguishable at that count, so the buffer is worth having for the USB-stall
+failure it is actually for and is not this.
+
+**So the owner's first instinct was right and the fix is the one this plan is about.** An unstable
+black level that can move at any frame is exactly what a PER-FRAME reference corrects and what a
+master bias cannot, the master being an average of another night's readouts. The reason this camera
+has been unfixable is P1's finding: it exposes no shielded strip to measure one from. A settling
+frame was NOT implemented, because it would cost an exposure per connect and still leave those two
+runs broken. Two cautions for whoever takes it:
 discarding at EXPOSURE time cannot tell "first frame of the session" from "first frame after a
 filter change" and would risk silently binning a long sub, and **one body is not a vendor**, which
 is why PHD2 ships "discard initial frames" as a per-camera option rather than a blanket rule. Our
