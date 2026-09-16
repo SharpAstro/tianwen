@@ -673,10 +673,24 @@ loop.OnBeforeFrame = () =>
     }
 };
 
-// OnKeyDown wired separately: imageRenderer.HandleInput handles F11 via signal bus
+// Keys go through the engine's router, which answers the three things every surface answers the same
+// way -- an overlay that claimed the keyboard, a chord declared on a painted node, the focused field --
+// before anything of this viewer's own runs. The GUI has routed keys this way since T1; the standalone
+// viewer was the last host still asking Ui.KeyboardClaimant by hand, which is D2's IKeyboardClaimant
+// cut and was the only thing keeping that type alive in tianwen.
+//
+// KEYS ONLY, deliberately. A press is not separable the same way: the router consumes a press for ANY
+// region under the pointer whether or not a handler ran, and this viewer's toolbar and file-list
+// regions carry no handler, so routing presses would silently deaden them. That is its own step.
+var keyRouter = new InputRouter(imageRenderer.Ui, tracker, () => state.NeedsRedraw = true)
+{
+    Widgets = () => [imageRenderer],
+    Unhandled = evt => imageRenderer.HandleInput(evt),
+};
+
 loop.OnKeyDown = keyEvent =>
 {
-    imageRenderer.HandleInput(keyEvent);
+    keyRouter.Handle(keyEvent);
     return true;
 };
 

@@ -428,7 +428,8 @@ namespace TianWen.Lib.Tests
             var dragX = redTrack.Value.Right - 1f;
             var dragY = redTrack.Value.Y + (redTrack.Value.Height / 2f);
 
-            viewer.HandleInput(new InputEvent.KeyDown(InputKey.Escape));
+            // Routed, because that is how every host sends a key -- see ViewerKeyRouting.
+            ViewerKeyRouting.RouteKey(viewer, InputKey.Escape);
 
             state.WhiteBalancePopover.IsOpen.ShouldBeFalse("Escape closes it");
             exits().ShouldBe(0, "and nothing asked to exit");

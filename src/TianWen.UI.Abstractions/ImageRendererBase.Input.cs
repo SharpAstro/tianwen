@@ -198,16 +198,12 @@ namespace TianWen.UI.Abstractions
                 return false;
             }
 
-            // An open overlay gets first crack at the keyboard, so Escape/Enter/Arrows reach it before
-            // falling through to global shortcuts (Escape would otherwise quit via RequestExitSignal).
-            // Asked of whatever CLAIMED the keyboard by painting, not of one named dropdown: this viewer is
-            // its own host when it runs standalone (tianwen-fits), so a second overlay added here would
-            // otherwise need its own line, which is the omission this whole mechanism removes.
-            if (Ui.KeyboardClaimant?.HandleKeyDown(key) == true)
-            {
-                state.NeedsRedraw = true;
-                return true;
-            }
+            // No claimant check here any more. An open overlay still gets first crack at the keyboard --
+            // Escape closes a popover before anything else reads the key, or Escape would quit via
+            // RequestExitSignal -- but that is the ROUTER's first act now, in both hosts: the GUI has
+            // routed keys since T1 and the standalone viewer builds its own key router. Asking again here
+            // would be a second answer to a question InputRouter owns, and it is what kept
+            // IKeyboardClaimant alive in tianwen.
 
             // An auto-repeat is the same press arriving again at the OS repeat rate, so only a STEP may
             // act on one. Every other key here either toggles something or is a one-shot, and a toggle

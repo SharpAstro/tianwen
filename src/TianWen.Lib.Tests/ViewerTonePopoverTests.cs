@@ -401,7 +401,8 @@ public class ViewerTonePopoverTests
 
         OpenPanel(viewer, state, document);
 
-        viewer.HandleInput(new InputEvent.KeyDown(InputKey.Escape));
+        // Routed, because that is how every host sends a key -- see ViewerKeyRouting.
+        ViewerKeyRouting.RouteKey(viewer, InputKey.Escape);
 
         state.TonePopover.IsOpen.ShouldBeFalse("Escape closes it");
     }
