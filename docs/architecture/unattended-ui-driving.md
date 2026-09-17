@@ -160,3 +160,40 @@ verified on the Guider tab (every sampled canvas cell reports `kind=Image`, so t
 around the picture instead of blanking it). Ctrl+H also works now -- Console.Lib's byte table special-cased
 `0x08` as Backspace, shadowing the general `0x01..0x1A -> letter+Ctrl` rule (the Backspace KEY sends DEL
 0x7F), so Ctrl+H was the one unbindable letter.
+
+---
+
+## `tianwen-fits` end to end without its window (in CI)
+
+The inspectors above need a Debug build, sibling sources and a GPU, so none of it runs in CI. The
+in-process tier does: `ViewerE2E` (`TianWen.Lib.Tests`) constructs `StandaloneViewerHost`, the class
+`tianwen-fits`' `Program.cs` itself runs, over a real `ViewerController`, a real `DocumentCache` opening
+real FITS files it writes into a scratch folder, and the real viewer painting onto a CPU surface. Input
+enters the way SDL hands it to `Program.cs` (`HandlePointer`, `HandleKeyDown`/`HandleKeyUp`,
+`HandleDropFile`), and a frame is the loop's own `BeforeFrame` / `Render` / `AfterFrame`. Assertions read
+state and the PAINTED regions, which is what a click and the inspector both resolve against.
+
+**Why the host is a class.** Its routing, toolbar policy and between-frames steps used to be written
+inline in `Program.cs`, where nothing could reach them, and the tests drove the viewer through a COPY
+of that wiring (`UiRouting.RouterFor`). A host that wired itself differently from the copy passed every
+test, which is how a routed press on four regions of this host did nothing while the suite was green
+(fixed in PR #289). **A new host step goes into
+`StandaloneViewerHost`, never back into `Program.cs`**, or no test can reach it. `UiRouting` stays for
+widget-level tests that want no host.
+
+**Two scales, always.** `ViewerE2ETests` runs every case at DPI 1 and 1.5. Every viewer test used to run at
+1, where applying the scale twice changes nothing, which is how the declared dropdowns shipped at the
+square of the DPI (`docs/plans/dir-lib-10.md`, "Three things that half learned"). The menu case asserts a
+row is the height of the button that opened it, which is the whole regression in one ratio (1.519 at 1.5x
+with the fix removed).
+
+**Proven by sabotage, 2026-09-17.** Undoing the dropdown fix failed only the 1.5x menu case; cutting the
+host's unrouted-press fallback failed the context-menu and pan cases at both scales; emptying the toolbar
+press policy and stripping the file-list row's handler failed the menu, popover, toggle and file-list
+cases at both scales. The remaining cases passed in each run, so each assertion is tied to the code it
+names.
+
+**What it cannot see**, by construction: SDL's event pump, the Vulkan upload and draw (so the picture
+itself, the histogram panel and its LOG toggle, which only exist with a GPU histogram), the window, the
+instance gate. The GPU side has its own tests and the live inspector above. The file dialog and the plate
+solver are substitutes, because one waits on a human and the other on a catalogue.

@@ -307,23 +307,6 @@ var imageRenderer = gpu.Top;
 
 StartupTrace.Mark("gpu");
 
-// Keys go through the engine's router, which answers the three things every surface answers the same
-// way -- an overlay that claimed the keyboard, a chord declared on a painted node, the focused field --
-// before anything of this viewer's own runs. The GUI has routed keys this way since T1; the standalone
-// viewer was the last host still asking Ui.KeyboardClaimant by hand, which is D2's IKeyboardClaimant
-// cut and was the only thing keeping that type alive in tianwen.
-//
-// KEYS ONLY, deliberately. A press is not separable the same way: the router consumes a press for ANY
-// region under the pointer whether or not a handler ran, and this viewer's toolbar and file-list
-// regions carry no handler, so routing presses would silently deaden them. That is its own step.
-var inputRouter = new InputRouter(imageRenderer.Ui, tracker, () => state.NeedsRedraw = true)
-{
-    Widgets = () => [imageRenderer],
-    Unhandled = evt => evt is InputEvent.MouseDown down
-        ? HandleUnroutedPress(down)
-        : imageRenderer.HandleInput(evt),
-};
-
 // The sky the photograph came from, drawn behind it on the context ladder's top rung (O, three
 // times). The map is the SAME class the GUI's atlas tab is -- renderer-agnostic, already on this
 // app's compile path -- pointed at the frame every render instead of at a site's zenith.
@@ -371,31 +354,10 @@ var resizeCalls = 0;
 
 using var cts = new CancellationTokenSource();
 
-// THIS host's toolbar policy, which is not the embedded one. A left press opens whichever menu the
-// button has (OpenToolbarDropdown answers false for a button with none, so no parallel list of which
-// buttons are dropdowns is needed here); a right press falls past it so power users can still
-// reverse-cycle without summoning the popup; and an action the pure-state handler does not own goes to
-// the controller, which is where the DI-dependent ones live.
-//
-// The GUI's viewer tab wants none of that -- it cycles every stateful button and has no reverse -- and
-// the two policies used to be two press WALKS, which is how single-click selection stayed broken here
-// after the embedded one was fixed. One hook, two policies, one walk.
-imageRenderer.ToolbarPressPolicy = (viewerState, action, button) =>
-{
-    if (button == MouseButton.Left && imageRenderer.OpenToolbarDropdown(viewerState, action))
-    {
-        return;
-    }
-
-    var reverse = button == MouseButton.Right;
-    if (!ViewerActions.HandleToolbarAction(viewerState, controller.Document, action, reverse,
-            split: imageRenderer.Split, hasBeforePixels: imageRenderer.HasBeforeImageTextures,
-            hasCrop: imageRenderer.HasDisplayCrop))
-    {
-        controller.HandleToolbarAction(action, reverse, cts.Token);
-    }
-};
-imageRenderer.AppToken = cts.Token;
+// The input router, this host's toolbar policy, the between-frames steps and the controller's signals.
+// They live in StandaloneViewerHost rather than here so the end-to-end tests construct the SAME wiring
+// the window runs; everything left in this file is the window, the GPU, the instance gate and tracing.
+var host = new StandaloneViewerHost<VulkanContext>(imageRenderer, state, controller, tracker, bus, logger, cts.Token);
 
 // The cached image layer is a render pass of its own, and render passes cannot nest -- so it has
 // to be recorded before the main one opens, which is what this hook is. PrepareFrame decides the
@@ -468,13 +430,9 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     // shared viewer input path.
     OnPointerInput = evt =>
     {
-        var handled = evt switch
-        {
-            // Presses route like keys: the regions the last paint declared answer first, and whatever
-            // they decline reaches HandleUnroutedPress through the router's Unhandled.
-            InputEvent.MouseDown down => RoutePress(down),
-            _ => imageRenderer.HandleInput(evt),
-        };
+        // Presses route like keys: the regions the last paint declared answer first, and whatever they
+        // decline reaches the host's unrouted-press fallback through the router's Unhandled.
+        var handled = host.HandlePointer(evt);
 
         // Cursor feedback happens HERE, on the move, and not at the end of OnRender where it used to
         // live. OnRender is gated by CheckNeedsRedraw, and a move that changes no pixel requests no
@@ -502,12 +460,11 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     // wired even though OnPointerInput above already forwards everything it carries. Without these two
     // the events were raised and dropped, which is exactly what "pinch zoom does nothing" looked like.
     // The viewer decides what to do with the source; this host only forwards.
-    OnPinch = (scale, mx, my, source) =>
-        imageRenderer.HandleInput(new InputEvent.Pinch(scale, mx, my) { Source = source }),
+    OnPinch = host.HandlePinch,
 
-    OnPinchEnd = () => imageRenderer.HandleInput(new InputEvent.PinchEnd()),
+    OnPinchEnd = host.HandlePinchEnd,
 
-    OnDropFile = (path) => { if (path is not null) ViewerActions.HandleFileDrop(state, path); },
+    OnDropFile = (path) => { if (path is not null) host.HandleDropFile(path); },
 
     // TickPlayback() FIRST (and always, via || short-circuit order): it runs every loop iteration --
     // including the idle WaitEventTimeout polls -- which is how SER playback stays frame-paced without
@@ -524,21 +481,13 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             StartupTrace.Mark("events");
         }
 
-        // BOTH of these must run on EVERY iteration, so neither may sit on the right of a ||:
-        // TickPlayback paces SER playback (see the note above), and the gate pump is the only
-        // place a hand-off from a later launch is noticed. Evaluate them, then combine.
+        // BOTH of these must run on EVERY iteration, so neither may sit on the right of a ||: the gate
+        // pump is the only place a hand-off from a later launch is noticed, and the host's own question
+        // paces SER playback and the blink and consumes the sky's request (see WantsFrame). Evaluate
+        // them, then combine.
         var handedOff = PumpInstanceGate();
-        var playback = controller.TickPlayback();
-        // Same rule for the blink: it paces the file-list step from this call, so it may not sit on the
-        // right of a || either.
-        var blinked = controller.TickBlink();
-        // And the same rule again for the sky: the ask is CONSUMED by reading it, so on the right of a
-        // || a frame requested by the star buffer landing would be swallowed by an unrelated true and
-        // never drawn. The map keeps its own flag because it has its own off-thread work.
-        var skyMoved = imageRenderer.TakeSkyRedrawRequest();
-        return handedOff || playback || blinked || skyMoved
-            || state.NeedsRedraw || state.NeedsTextureUpdate || state.RequestedFilePath is not null
-            || controller.IsLoadPending;
+        var wantsFrame = host.WantsFrame();
+        return handedOff || wantsFrame;
     },
 
     OnRender = () =>
@@ -583,25 +532,12 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         UpdateCursor();
     },
 
-    OnPostFrame = () =>
-    {
-        bus.ProcessPending();
-        state.NeedsRedraw = false;
-        controller.ReleaseCompletedTasks();
-    }
+    OnPostFrame = host.AfterFrame
 };
 
 // Signal subscriptions for app-level actions
 bus.Subscribe<RequestExitSignal>(_ => loop.Stop());
 bus.Subscribe<ToggleFullscreenSignal>(_ => sdlWindow.ToggleFullscreen());
-bus.Subscribe<PlateSolveSignal>(_ =>
-    controller.HandleToolbarAction(ToolbarAction.PlateSolve, reverse: false, cts.Token));
-bus.Subscribe<EnhanceImageSignal>(_ =>
-    controller.HandleToolbarAction(ToolbarAction.Enhance, reverse: false, cts.Token));
-bus.Subscribe<AutoCropSignal>(_ =>
-    controller.HandleToolbarAction(ToolbarAction.AutoCrop, reverse: false, cts.Token));
-bus.Subscribe<OpenFileSignal>(_ =>
-    controller.HandleToolbarAction(ToolbarAction.Open, reverse: false, cts.Token));
 
 // The "?" panel's two action rows (the user guide, and a prepared bug report). Host-level and
 // desktop-only on purpose: UseShellExecute routes a URL through the shell, which the WASM-shared
@@ -621,12 +557,6 @@ bus.Subscribe<OpenUrlSignal>(sig =>
     }
 });
 
-// The Save dropdown's two rows. The annotation is read off the renderer here rather than reached for
-// inside the controller, because the renderer is what holds it -- so a plate-solve verification or a
-// polar-alignment overlay lands in the saved file too.
-bus.Subscribe<SaveImageSignal>(sig =>
-    controller.SaveImage(sig.WithOverlays, sig.PngDepth, cts.Token, imageRenderer.Annotation));
-
 // Damage: hand the renderer the rects this frame changed, so it preserves the previous frame and
 // repaints only those. Anything that asked for a frame without saying what moved comes back false
 // here and the whole surface is repainted, which is what the viewer always did.
@@ -645,38 +575,9 @@ loop.OnBeforeFrame = () =>
         StartupTrace.Mark("loop");
     }
 
-    // The document may only change BETWEEN frames. A swap recreates the channel textures, and the
-    // recreate destroys the previous views; done inside a frame it invalidated whatever this frame's
-    // command buffer had already recorded against them (the cached-layer pre-pass), and the GPU
-    // faulted on submit -- the LiveKernelEvent 141 that took the Store viewer down on 2026-08-27,
-    // "VkImageView was destroyed" under the validation layer. So every step that can replace
-    // controller.Source runs here, before BeginFrame, and the upload itself runs in PrepareFrame.
-    //
-    // Retire finished background work (the file dialog, a plate solve) and log anything that
-    // faulted. Deliberately NOT gated on tracker.HasPending in CheckNeedsRedraw: that would spin
-    // the render loop for the whole of a multi-second solve on a GPU we want quiet. Each guarded
-    // operation flags a redraw in its onFinally instead, so the loop wakes exactly once, here.
-    tracker.ProcessCompletions(logger);
-
-    controller.HandleFileRequest(cts.Token);
-
-    // Apply a finished AI-enhance result (swaps in the enhanced document + flags a texture
-    // re-upload). No-op until the background enhance task completes.
-    controller.TryApplyPendingEnhance(cts.Token);
-    controller.TryApplyPendingCrop();
-
-    if (state.NeedsReprocess)
-    {
-        ViewerActions.Reprocess(state);
-    }
-
-    // A frame that swaps its document repaints everything, whatever narrowing a mouse move in the
-    // same tick may have declared: stale pixels from the previous document are the one failure the
-    // damage tracking must never produce.
-    if (state.NeedsTextureUpdate)
-    {
-        imageRenderer.RequestFullFrameDamage();
-    }
+    // The document may only change BETWEEN frames, before BeginFrame, and the upload itself runs in
+    // PrepareFrame; the host's BeforeFrame says why (the LiveKernelEvent 141 of 2026-08-27).
+    host.BeforeFrame();
 
     frameDamage.Clear();
     if (imageRenderer.TryTakeFrameDamage(frameDamage))
@@ -693,19 +594,11 @@ loop.OnBeforeFrame = () =>
 };
 
 
-loop.OnKeyDown = keyEvent =>
-{
-    inputRouter.Handle(keyEvent);
-    return true;
-};
+loop.OnKeyDown = host.HandleKeyDown;
 
-// The release half. Bound because holding Space suspends a blink, which is the one binding here whose
-// meaning lasts as long as the key is down; SdlEventLoop dispatches key-up only to a host that asks.
-loop.OnKeyUp = keyEvent =>
-{
-    imageRenderer.HandleInput(keyEvent);
-    return true;
-};
+// The release half. SdlEventLoop dispatches key-up only to a host that asks, and holding Space suspends
+// a blink (see the host's HandleKeyUp).
+loop.OnKeyUp = host.HandleKeyUp;
 
 #if SIBLING_DEBUG_INSPECTORS
 // Live UI debug inspector (DEBUG only -- compiled out of Release). Exposes this process to the
@@ -855,41 +748,4 @@ void UpdateCursor()
         : imageRenderer.HitTestCursor(mx, my)
             ?? (imageRenderer.HitTest(mx, my) is ResizeHandleHit ? CursorKind.ResizeEW : CursorKind.Default);
     sdlWindow.SetSystemCursor(cursor.ToSystemCursor);
-}
-
-// The press walk this host used to carry is gone: every region it branched on now acts for itself --
-// a toolbar button through ToolbarPressPolicy, the file-list divider and its rows, the transport
-// scrub, and a Content.Slider through the engine's own drag. What is left is genuinely this host's
-// and reaches the router's Unhandled: the context menu on an unclaimed right press, and the pan.
-//
-// The order that mattered in the walk is the region stack's now -- topmost wins, later registration
-// wins -- and the one thing that is NOT automatic is that a region with a hit and no handler still
-// SWALLOWS the press. That was a live bug on four regions before this, so the rule to keep is:
-// registering a hit without a handler means "nothing happens here", never "someone else will do it".
-bool RoutePress(InputEvent.MouseDown down)
-{
-    state.MouseScreenPosition = (down.X, down.Y);
-    inputRouter.Handle(down);
-    return true; // every press consumed, as the old always-true OnMouseDown lambda was
-}
-
-bool HandleUnroutedPress(InputEvent.MouseDown down)
-{
-    var (px, py) = (down.X, down.Y);
-
-    // An unclaimed right press on the image is the context menu. Only a press that would otherwise
-    // start a pan opens one; a right press that already meant something was consumed by its region.
-    if (down.Button == MouseButton.Right && imageRenderer.TryOpenImageContextMenu(state, px, py))
-    {
-        return true;
-    }
-
-    // Left or middle starts panning (the PanZoomController gesture on the renderer; move and release
-    // continue through imageRenderer.HandleInput).
-    if (down.Button is MouseButton.Left or MouseButton.Middle)
-    {
-        imageRenderer.BeginViewportPan(px, py);
-    }
-
-    return true;
 }
