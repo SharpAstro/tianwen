@@ -544,9 +544,9 @@ reading and the next person will reach for it again.
   fakes already surface from discovery behind `IncludeFake:true` and carry the real URI shapes; the web
   host simply never offers them. That is what makes the deployed showcase demonstrate framing rather
   than only rendering.
-- [ ] **Milky Way texture in the web sky map.** The desktop path has it
-  ([skymap-milkyway](../plans/skymap-milkyway.md)); the WebGL pipeline does not. IMPLEMENTED 2026-09-17 as
-  that plan's Phase 6; tick it once WebGl.Renderer 1.33 is published and pinned.
+- [x] **Milky Way texture in the web sky map: DONE (2026-09-17).** The desktop path had it
+  ([skymap-milkyway](../plans/skymap-milkyway.md)); the WebGL pipeline did not. Shipped as that plan's
+  Phase 6, on WebGl.Renderer 1.33 (SharpAstro/WebGl.Renderer#9).
 - [ ] **Copy a link to a point (right-click), and the `&t=<time of capture>` parameter behind it.**
   This is the other end of the viewer's share-link item (P20): the viewer needs somewhere to point, so
   the web build has to accept a position AND an instant before that menu entry can exist.
