@@ -60,6 +60,33 @@ and holds 2,103 FITS; the second is a bake root. A survey that walks only the ye
 **Two kinds of folder must stay out, and neither is obvious from its name:** a `PROC/` folder is
 processed output, and `2026-02-20 BAD LIGHT EXAMPLES` is deliberately bad data kept as a reference.
 
+## Step 0b: the frame TYPE, and where it is written
+
+**Read `FRAMETYP`, then `IMAGETYP`, then `FRAME`, the reader's order (`Image.Fits.cs`).** Everything
+before N.I.N.A. here is SharpCap: version 4 writes the type into `FRAMETYP` ONLY, version 3 writes no
+type card at all. A survey that read `IMAGETYP` alone called 28,803 frames untyped when 18,492 of them
+state a type; 9,522 (98 capture sets, 2021 and some focusing runs) genuinely carry none.
+
+**`INSTRUME` is not proof of a raw capture.** Astro Pixel Processor keeps it on every calibrated,
+registered, cropped and extracted frame (4,087 of them in the gap, beside 57 SharpCap live stacks
+that slip under any exposure cap). A product shows as `SOFTWARE = 'Astro Pixel Processor...'`, a
+`CALFRAME`/`CALLIGHT` card, a `SKIPPED` card or a `Stack_` name (SharpCap live stack), `NAXIS3`, or a
+negative `BITPIX`.
+
+**Decide an untyped set by the SKY, never by a star count.** TianWen's own detector finds 141
+"stars" at FWHM 1.7 px on a +4 C 120 s ASI533 dark (hot pixels), and a 35 or 50 mm lens puts real
+stars at that width too. A blind `tianwen solve` cannot be fooled: it answered NGC 6744 and NGC 3766
+in 8 and 15 s and returned the scale (which names the optics), and found nothing on the dark, but only
+after 153 s, so gate it: a 0 s exposure is a bias, a median many times the camera's floor is a flat,
+and only what is left gets a solve. Unsolved above the floor (clouds, focusing, the Moon) is reported,
+not guessed. A `FRAMETYP` label deserves the same check, since SharpCap's type is a dropdown.
+
+**Backfill the type with `tianwen dataset tag-frame-type`, in Astro-Organized only.** Default touches
+a frame with NO type card; `--frame-type None Dark --as Dark` also fills `IMAGETYP` beside a
+`FRAMETYP` that agrees, and a contradicting pair is refused as an argument error. A focusing run is
+`--as Focus`, which is what keeps it out of every light group. Record it like any correction
+(`CORRECTIONS.md` section, a row per file in `label-corrections.csv`).
+
 ## Step 1: the filter, when nothing states it
 
 **Most sessions here have NO `FILTER` card at all.** Check first; a card saying `RGB`, `LUM` or

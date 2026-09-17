@@ -126,10 +126,12 @@ public static class FitsHeaderEditor
     /// <param name="keyword">Card keyword, at most 8 characters (e.g. <c>FILTER</c>).</param>
     /// <param name="value">Card value. Must fit one 80-byte card; no <c>CONTINUE</c> support.</param>
     /// <param name="comment">Trailing comment, silently truncated to fit the card.</param>
-    /// <param name="allowedFrameTypes">When non-empty, only amend files whose <c>IMAGETYP</c> parses
-    /// to one of these. The guard exists because an archive folder holds more than lights: bad-pixel
-    /// maps and master darks sit next to the subs, and a blanket tag would stamp a filter onto data
-    /// where it means nothing.</param>
+    /// <param name="allowedFrameTypes">When non-empty, only amend files whose frame type
+    /// (<c>FRAMETYP</c>, else <c>IMAGETYP</c>, else Astro Pixel Processor's <c>FRAME</c>, the reader's
+    /// order) parses to one of these. The guard exists because an archive folder holds more than lights:
+    /// bad-pixel maps and master darks sit next to the subs, and a blanket tag would stamp a filter onto
+    /// data where it means nothing. <see cref="FrameType.None"/> admits a frame with NO type card only;
+    /// a card whose value does not parse matches nothing.</param>
     /// <param name="overwriteExisting">Replace a keyword that already has a non-blank value. Off by
     /// default: the job is filling in what was never recorded, and silently relabelling a frame that
     /// stated its own filter is a different and far more dangerous operation.</param>
@@ -229,11 +231,18 @@ public static class FitsHeaderEditor
 
         if (allowedFrameTypes is { Count: > 0 })
         {
-            var raw = CardValue(cards, "FRAMETYP") ?? CardValue(cards, "IMAGETYP");
-            var frameType = raw is { } rawType ? FrameType.FromFITSValue(rawType) ?? FrameType.None : FrameType.None;
-            if (!allowedFrameTypes.Contains(frameType))
+            // The same three cards in the same order as Image.Fits reads them. FRAME matters for what it
+            // rules OUT: an Astro Pixel Processor product carries FRAME='Other/Processed' and no other type
+            // card, so a guard that skipped it saw an untyped frame and would admit a processed file to a
+            // backfill of the type.
+            var raw = CardValue(cards, "FRAMETYP") ?? CardValue(cards, "IMAGETYP") ?? CardValue(cards, "FRAME");
+            // ABSENT is None; a value that does not parse is NOT. "Never recorded" is the one state a
+            // backfill may fill in, and a 'BADPIXELMAP' is a statement about the file, not a missing card.
+            var frameType = raw is null ? FrameType.None : FrameType.FromFITSValue(raw);
+            if (frameType is not { } stated || !allowedFrameTypes.Contains(stated))
             {
-                return new TagResult(path, TagOutcome.FrameTypeExcluded, raw is null ? "no IMAGETYP" : $"IMAGETYP={raw}");
+                return new TagResult(
+                    path, TagOutcome.FrameTypeExcluded, raw is null ? "no frame type card" : $"frame type '{raw}'");
             }
         }
 

@@ -263,6 +263,83 @@ namespace TianWen.Lib.Tests
             Sha(File.ReadAllBytes(bpm)).ShouldBe(before);
         }
 
+        private static readonly HashSet<FrameType> UntypedOnly = [FrameType.None];
+
+        [Fact]
+        public async Task GivenAFrameWithNoTypeCardAtAll_WhenBackfillingItsType_ThenOurReaderResolvesIt()
+        {
+            // SharpCap 3 wrote no IMAGETYP, FRAMETYP or FRAME, so such a frame reads as None and is
+            // invisible to the stacker until the type is filled in.
+            var dir = CreateTempDir();
+            var (path, payload) = WriteFits(dir, "dark.fits", ["EXPTIME =                120.0"], payloadBytes: 40 * 36 * 2);
+            var before = Sha(payload);
+
+            var result = await FitsHeaderEditor.SetStringCardAsync(
+                path, "IMAGETYP", "Dark", "Type of exposure", allowedFrameTypes: UntypedOnly, apply: true,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.Tagged);
+            Sha(PayloadOf(path)).ShouldBe(before);
+            Image.TryReadFitsHeader(path, out var info).ShouldBeTrue();
+            info.ShouldNotBeNull();
+            info.Meta.FrameType.ShouldBe(FrameType.Dark);
+        }
+
+        [Fact]
+        public async Task GivenATypeValueThatDoesNotParse_WhenOnlyUntypedFramesMayBeFilled_ThenItIsNotTakenForUntyped()
+        {
+            // A 'BADPIXELMAP' STATES what the file is. Reading an unparseable value as None made it
+            // look never-recorded, so a type backfill would have stamped a bad-pixel map as a dark.
+            var dir = CreateTempDir();
+            var (bpm, _) = WriteFits(dir, "bpm.fits", ["IMAGETYP= 'BADPIXELMAP'"]);
+            var before = Sha(File.ReadAllBytes(bpm));
+
+            var result = await FitsHeaderEditor.SetStringCardAsync(
+                bpm, "IMAGETYP", "Dark", allowedFrameTypes: UntypedOnly, overwriteExisting: true, apply: true,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.FrameTypeExcluded);
+            Sha(File.ReadAllBytes(bpm)).ShouldBe(before);
+        }
+
+        [Fact]
+        public async Task GivenAnAstroPixelProcessorProduct_WhenOnlyUntypedFramesMayBeFilled_ThenItsFrameCardExcludesIt()
+        {
+            // APP writes FRAME='Other/Processed' and no other type card. The reader takes FRAME last;
+            // a guard that did not would see an untyped frame and admit a processed file.
+            var dir = CreateTempDir();
+            var (product, _) = WriteFits(dir, "integration.fits", ["FRAME   = 'Other/Processed'"]);
+            var before = Sha(File.ReadAllBytes(product));
+
+            var result = await FitsHeaderEditor.SetStringCardAsync(
+                product, "IMAGETYP", "Light", allowedFrameTypes: UntypedOnly, apply: true,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.FrameTypeExcluded);
+            Sha(File.ReadAllBytes(product)).ShouldBe(before);
+        }
+
+        [Theory]
+        [InlineData("Dark", FitsHeaderEditor.TagOutcome.Tagged)]
+        [InlineData("Light", FitsHeaderEditor.TagOutcome.FrameTypeExcluded)]
+        public async Task GivenASharpCapFrametypeOnly_WhenFillingImagetyp_ThenOnlyAnAgreeingValueIsWritten(
+            string frametyp, FitsHeaderEditor.TagOutcome expected)
+        {
+            // SharpCap 4 writes FRAMETYP and no IMAGETYP. Filling IMAGETYP beside it is safe only when the
+            // two agree, since the reader takes FRAMETYP first and other tools take IMAGETYP.
+            var dir = CreateTempDir();
+            var (path, payload) = WriteFits(dir, "sc4.fits", [$"FRAMETYP= '{frametyp}'"]);
+            var before = Sha(payload);
+
+            var result = await FitsHeaderEditor.SetStringCardAsync(
+                path, "IMAGETYP", "Dark", allowedFrameTypes: new HashSet<FrameType> { FrameType.None, FrameType.Dark },
+                apply: true, cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(expected);
+            HeaderValue(path, "IMAGETYP").ShouldBe(expected is FitsHeaderEditor.TagOutcome.Tagged ? "Dark" : null);
+            Sha(PayloadOf(path)).ShouldBe(before);
+        }
+
         [Fact]
         public async Task GivenANonFitsFile_WhenTagging_ThenItIsReportedUnreadableAndLeftAlone()
         {
