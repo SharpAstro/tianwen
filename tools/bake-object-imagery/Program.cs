@@ -532,8 +532,10 @@ internal static partial class Program
     /// <summary>
     /// Commons' credit for each file that is a PICTURE of its object. No entry, so the article keeps its link
     /// and loses only the image, for: a file Commons does not hold (a local, non-free upload); an SVG (every
-    /// SVG lead measured was a constellation map); a file with no licence, which no credit line can state;
-    /// and a chart. Star articles often lead with a light curve, a position chart or a constellation map:
+    /// SVG lead measured was a constellation map); any other format the desktop store does not decode (JPEG,
+    /// PNG and TIFF are what <c>ObjectPictureStore.Decode</c> reads, a TIFF through its JPEG rendering; a GIF
+    /// or a WebP would reserve a slot on the panel it could never fill); a file with no licence, which no
+    /// credit line can state; and a chart. Star articles often lead with a light curve, a position chart or a constellation map:
     /// 105 of the first bake's 425 kept files. Commons' own categories find 100 of them ("Light curves of
     /// Delta Scuti variables", "Star location maps") and the file name finds 103, 98 in common, so a file
     /// either one flags is dropped.
@@ -543,6 +545,7 @@ internal static partial class Program
         var credits = new Dictionary<string, ObjectArticleImage>(StringComparer.Ordinal);
         var ordered = files.Order(StringComparer.Ordinal).ToArray();
         var svg = 0;
+        var otherFormat = 0;
         var notOnCommons = 0;
         var unlicensed = 0;
         var charts = 0;
@@ -570,9 +573,15 @@ internal static partial class Program
                 }
 
                 var info = infos[0];
-                if (info.GetProperty("mime").GetString() == "image/svg+xml")
+                var mime = info.GetProperty("mime").GetString();
+                if (mime == "image/svg+xml")
                 {
                     svg++;
+                    continue;
+                }
+                if (mime is not ("image/jpeg" or "image/png" or "image/tiff"))
+                {
+                    otherFormat++;
                     continue;
                 }
 
@@ -609,7 +618,7 @@ internal static partial class Program
             }
             await Task.Delay(ApiPause, ct);
         }
-        Log($"image credits: {credits.Count} of {ordered.Length} files ({svg} SVG, {charts} charts, {unlicensed} unlicensed, {notOnCommons} not on Commons dropped)");
+        Log($"image credits: {credits.Count} of {ordered.Length} files ({svg} SVG, {otherFormat} other formats, {charts} charts, {unlicensed} unlicensed, {notOnCommons} not on Commons dropped)");
         return credits;
     }
 

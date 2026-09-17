@@ -34,7 +34,7 @@ Every rule was measured first; the numbers are in the plan's "P0 measured" secti
    nearer wins.
 5. **The lead image** the article itself shows (`prop=pageimages`), not Wikidata's `P18`, which agreed with
    it for only a third of articles. Dropped, keeping the article's link: an SVG (every one measured was a
-   constellation map); a CHART, which is what star articles often lead with (a light curve, a position
+   constellation map); any format but JPEG, PNG and TIFF, which are what the desktop store decodes; a CHART, which is what star articles often lead with (a light curve, a position
    chart, a constellation map), flagged by Commons' own categories or by the file name, since each catches
    a few the other misses; a file with no licence, which no credit line can state; and a file Commons does
    not hold. Licence, artist, credit and the attribution flag come from Commons `extmetadata`, as plain
