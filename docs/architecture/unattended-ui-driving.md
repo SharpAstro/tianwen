@@ -73,9 +73,9 @@ screenshot-poll-and-OCR**. Three pieces compose:
      clickable-only `describe_ui` (which only shows interactive leaves); use it to debug placement (clipping,
      gaps, why a panel is the size it is, nesting). Widgets retain their arranged tree via
      `PixelWidgetBase.GetCapturedLayout()`. **Capture is UNCONDITIONAL as of DIR.Lib 8.8** -- the old
-     `LayoutInspection.Enabled` gate that `DebugInspector.Attach` used to flip is obsolete, is no longer
-     read, and is scheduled for deletion at the next DIR.Lib major, so do not assert the "production
-     paints carry no overhead" claim it used to buy. Empty if the app draws without the layout DSL.
+     `LayoutInspection.Enabled` gate that `DebugInspector.Attach` used to flip stopped being read then and
+     was DELETED in 10.0, so do not assert the "production paints carry no overhead" claim it used to buy.
+     Empty if the app draws without the layout DSL.
    - **Render-thread watchdog** (`render_liveness`, `SdlVulkan.Renderer.Inspector` 6.8+): the inspector runs
      every command (incl. `ping`) ON the render thread, so a `ping` that round-trips proves the render loop is
      pumping; a connected-but-silent probe means it's blocked (a hang) while the process is still up.
