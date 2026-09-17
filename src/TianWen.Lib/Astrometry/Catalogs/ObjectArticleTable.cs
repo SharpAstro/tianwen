@@ -39,17 +39,32 @@ internal static class ObjectArticleTable
     private const int SchemaVersion = 2;
 
     /// <summary>
-    /// Reads the table, or answers false when its header names another schema or it has none: a table this
-    /// build does not know, which a consumer to whom the table is an enrichment simply goes without. The
-    /// header is checked before any record is parsed; a table whose header matches but whose records do not
-    /// is corrupt, and that still throws.
+    /// Reads the table, or answers false when its header names another schema or it has none, or when the
+    /// bytes are not gzip at all: a table this build cannot read, which a consumer to whom the table is an
+    /// enrichment simply goes without. The header is checked before any record is parsed; a table whose
+    /// header matches but whose records do not is corrupt, and that still throws.
     /// </summary>
+    /// <remarks>
+    /// A TRUNCATED stream is not refused here, because it cannot be told apart: .NET's gzip decoder ends a
+    /// cut-short stream silently (measured; no trailer, no CRC, no exception), so the records before the cut
+    /// read as a whole table and only the record the cut fell inside can fail, and only when it tore a field
+    /// the parser needs (a torn number still parses, as a different number). Telling would take a row count
+    /// in the header, a schema bump and a re-bake; the consumer contains the failure instead.
+    /// </remarks>
     public static bool TryRead(Stream gzipped, out FrozenDictionary<CatalogIndex, ObjectArticle> table)
     {
         using var decompressed = new MemoryStream();
-        using (var gz = new GZipStream(gzipped, CompressionMode.Decompress, leaveOpen: true))
+        try
         {
+            using var gz = new GZipStream(gzipped, CompressionMode.Decompress, leaveOpen: true);
             gz.CopyTo(decompressed);
+        }
+        catch (InvalidDataException)
+        {
+            // Not gzip: the header cannot even be looked at. The same answer as a header this build does not
+            // know.
+            table = FrozenDictionary<CatalogIndex, ObjectArticle>.Empty;
+            return false;
         }
 
         var payload = new ReadOnlyMemory<byte>(decompressed.GetBuffer(), 0, (int)decompressed.Length);

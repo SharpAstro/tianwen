@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.IO;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -64,6 +65,45 @@ public class ObjectArticleTableTests
         table[Index("M1")].Image.ShouldNotBeNull().Artist.ShouldBe("An artist");
         table[Index("M1")].Image.ShouldNotBeNull().Width.ShouldBe(10);
         table[Index("M2")].ShouldBe(next);
+    }
+
+    [Fact]
+    public void BytesThatAreNotGzipAreRefusedRatherThanThrown()
+    {
+        using var notGzip = new MemoryStream("TianWenObjectArticles\u001E2\u001D"u8.ToArray());
+
+        ObjectArticleTable.TryRead(notGzip, out var table).ShouldBeFalse();
+        table.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void ATornRecordIsNoArticlesToTheCatalogueNotAFailedInit()
+    {
+        // A truncated resource ends the gzip stream silently, so what the catalogue sees is the records before
+        // the cut and the one it fell inside. Cut this one just before its last field: the image's height is
+        // then missing and the parser throws, which is TryRead's contract and must be the catalogue's "no
+        // articles", never a failed init. (A cut elsewhere in the record may parse; see TryRead's remark.)
+        var image = new ObjectArticleImage("Crab.jpg", "ab", "CC0", "", "", AttributionRequired: false, Width: 10, Height: 7);
+        using var whole = Written(new ObjectArticleRow(new ObjectArticle(13903, "Crab Nebula", image), [Index("M1")]));
+        using var payload = new MemoryStream();
+        using (var gz = new GZipStream(whole, CompressionMode.Decompress, leaveOpen: true))
+        {
+            gz.CopyTo(payload);
+        }
+        var bytes = payload.ToArray();
+        var cut = Array.LastIndexOf(bytes, AsciiRecordReader.RecordSeparator);
+        cut.ShouldBeGreaterThan(0);
+
+        using var torn = new MemoryStream();
+        using (var gz = new GZipStream(torn, CompressionLevel.Fastest, leaveOpen: true))
+        {
+            gz.Write(bytes, 0, cut);
+        }
+        torn.Position = 0;
+
+        var table = CelestialObjectDB.ReadObjectArticles(torn, out var unreadable);
+        unreadable.ShouldBeTrue();
+        table.ShouldBeEmpty();
     }
 
     [Fact]
