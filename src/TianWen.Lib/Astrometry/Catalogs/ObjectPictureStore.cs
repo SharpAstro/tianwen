@@ -61,7 +61,11 @@ internal sealed class ObjectPictureStore : IObjectPictureStore
 
     private static HttpClient CreateHttpClient()
     {
-        var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        // Shared for the process, so its pooled connections need a lifetime: the default is infinite, under
+        // which a connection is reused until the server drops it and DNS is consulted only for a new one,
+        // pinning a long session to one Wikimedia edge address. Two minutes re-resolves and rotates.
+        var handler = new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(2) };
+        var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
         http.DefaultRequestHeaders.UserAgent.ParseAdd("TianWen (https://github.com/SharpAstro/tianwen)");
         return http;
     }
