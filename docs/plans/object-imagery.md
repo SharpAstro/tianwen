@@ -1,6 +1,6 @@
 # Object imagery from Wikipedia and Wikimedia Commons (plan)
 
-**Status: P0 DONE (2026-09-17); P1 PARTIAL (2026-09-18: the picture and its credit are in both atlas hosts; the large view and the session credit list are not); P2 NOT STARTED. Written 2026-09-17** from the astrophoto.app field note in
+**Status: P0 and P1 DONE (2026-09-17 and 2026-09-18); P2 NOT STARTED. Written 2026-09-17** from the astrophoto.app field note in
 [inbox.md](../todo/inbox.md) ("Field note: astrophoto.app"), after reading that site's shipped JavaScript
 and measuring every endpoint below. Raised by the user: the viewer and the atlas should show an object's
 picture the way that site does, with attribution, positioned on the sky where we can, and the identity
@@ -16,8 +16,9 @@ imagery layer, and its browser phase, which lands the texture seam this plan reu
   designation (`CatalogIndex.ToCanonical()`, spaces to `_`). It was a GUESS: the planner's name line linked
   there and nothing checked the page existed or was about this object. `PlannerDetailsTests` pinned only
   the URL shape. Since P0 it reads the verified table, and an unverified object gets no link.
-- Nothing fetches a summary, an image, or a licence. The atlas info panel and the viewer's selection
-  panel (`ObjectInfoPanel`) show catalogue data only. That is still true until P1.
+- Nothing fetched a summary, an image, or a licence: the atlas info panel and the viewer's selection
+  panel (`ObjectInfoPanel`) showed catalogue data only. Since P1 they show the article's picture and its
+  credit; a summary extract is still not fetched.
 
 ## What astrophoto.app actually does (read from its bundle, 2026-09-17)
 
@@ -205,8 +206,10 @@ an object absent from the table gets no link rather than a dead one.
 - The atlas info panel and the viewer's selection panel (`ObjectInfoPanel`) show the thumbnail, and a
   click opens the large image, which is the astrophoto.app interaction the user pointed at.
 - **A credit line under every image**, built from the bake: "ESO/S. Guisard, CC BY 4.0", linking to the
-  Commons file page. The help menu additionally lists the images shown this session. A help-menu list
-  alone is thin for CC BY and CC BY-SA, which is what most of these images are.
+  Commons file page. **No separate session list in the help menu** (the user's call, 2026-09-18): the
+  credit travels WITH the picture, on the panel and on the large view, which is what CC BY and CC BY-SA
+  ask for. A list elsewhere would be a second copy of the same fact, in the one place nobody looking at
+  the picture is looking.
 - Fetched on selection, never pre-fetched. Desktop caches under a new `AppData/TianWen/ObjectImages/`
   (add it to the CLAUDE.md AppData list and to whatever owns the others); the browser relies on its HTTP
   cache.
@@ -239,8 +242,8 @@ an object absent from the table gets no link rather than a dead one.
   dismisses it, with the credit under it and Escape as the way out (Escape retires the picture before the
   selection it belongs to). The same host hook fills the big slot, so it asks Wikimedia for a wider standard
   width by virtue of being bigger, and the desktop caches that width beside the thumbnail.
-- **Outstanding in P1**: the help menu's list of the pictures shown this session, which is the belt-and-braces
-  half of the attribution (every picture already carries its own credit where it is shown).
+- **Nothing is outstanding in P1.** The session credit list was dropped rather than built, because the
+  credit is already under the picture in both places it is shown.
 
 ### P2: positioned images on the atlas
 
