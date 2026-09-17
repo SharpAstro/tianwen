@@ -21,9 +21,11 @@ namespace TianWen.Lib.Imaging.Dataset;
 /// seams and emits, for one <see cref="ImagingSession"/>:
 /// <list type="bullet">
 ///   <item>the <b>registered subs</b>, each surviving light calibrated, debayered, and
-///     warped onto a common union canvas, persisted as scratch FITS so the tiler (#40)
-///     can read cell footprints back without re-warping. Cell (i, j) of any two subs is
-///     an N2N training pair by construction (§2.4).</item>
+///     warped onto a common union canvas. Cell (i, j) of any two subs is an N2N training
+///     pair by construction (§2.4). A STAGED session persists them as scratch FITS, which
+///     is what its integrator consumes; a DRIZZLED one persists nothing, because its
+///     integrator takes the raw CFA instead and the tiler re-warps what it needs
+///     (<see cref="WarpedSubSource"/>, which is how either kind is read back).</item>
 ///   <item>the <b>session master</b>: the robust integration of those subs, the N2N eval
 ///     truth and the deconv synthetic-degradation source (§2.1/§2.2).</item>
 /// </list>
@@ -125,6 +127,49 @@ public static class SessionRegistrar
         return true;
     }
 
+    /// <summary>What a staged session's warped scratch would need against what the scratch drive has,
+    /// when the first does not fit in the second.</summary>
+    /// <param name="NeedBytes">Bytes the warped subs would occupy.</param>
+    /// <param name="FreeBytes">Bytes free on <paramref name="Drive"/> when asked.</param>
+    /// <param name="Drive">Root of the scratch drive, for a message that names where to look.</param>
+    internal sealed record ScratchShortfallReport(long NeedBytes, long FreeBytes, string Drive);
+
+    /// <summary>
+    /// Whether the warped subs of a STAGED session fit on the scratch drive, answered before the
+    /// first one is written. Null means they fit (or that the drive could not be interrogated, which
+    /// is never worth refusing a session over).
+    ///
+    /// <para>The requirement is exactly the file the warp pass writes, once per sub: a canvas-sized
+    /// float32 FITS of three channels. A tenth is added on top for the integrator's own staging and
+    /// the FITS headers, so a session that just fits is not admitted to fail at its last frame.</para>
+    ///
+    /// <para>Asked because the alternative is how the failure actually presented: the 861-sub
+    /// ASI294MC eta Car session measured, registered and warped for about forty minutes before dying
+    /// at <c>warped_0572.fits</c> with <c>nom.tam.fits.FitsException: IO Error on image write: There
+    /// is not enough space on the disk</c>, an exception that names a frame number and a path and
+    /// nothing about the session being three times the size of the disk it was given.</para>
+    /// </summary>
+    internal static ScratchShortfallReport? ScratchShortfall(string scratchDir, int subCount, int canvasWidth, int canvasHeight)
+    {
+        var need = (long)subCount * canvasWidth * canvasHeight * 3 * sizeof(float);
+        need += need / 10;
+        try
+        {
+            var root = Path.GetPathRoot(Path.GetFullPath(scratchDir));
+            if (string.IsNullOrEmpty(root))
+            {
+                return null;
+            }
+            var free = new DriveInfo(root).AvailableFreeSpace;
+            return free < need ? new ScratchShortfallReport(need, free, root) : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            // A drive that will not answer is not evidence of anything; let the write decide.
+            return null;
+        }
+    }
+
     /// <summary>The cap on the brightest stars that form the quad fingerprints. Lives in
     /// <see cref="FrameRegistration"/> now: it used to be declared here AND in
     /// <c>StackingPipeline</c>, which is how the two ended up at 100 and 500 respectively with only
@@ -139,14 +184,19 @@ public static class SessionRegistrar
     /// <param name="WarpedPath">Scratch FITS of the calibrated + debayered sub warped to the
     /// canvas grid (float32, linear, NaN outside the source footprint). Shares the exact
     /// pixel grid with every other sub and the master, so cell (i, j) is a fixed sky footprint
-    /// across the whole session.</param>
+    /// across the whole session. <c>null</c> on a DRIZZLED session, which writes none: nothing
+    /// there reads a warped sub until the tiler does, and it re-warps from
+    /// <paramref name="Source"/> instead. Read one through
+    /// <see cref="RegisteredSession.WarpedSubs"/> rather than this path, and never assume it is
+    /// on disk.</param>
     /// <param name="TransformToCanvas">Composed source→canvas affine (registration transform
-    /// left-multiplied by the union-canvas shift).</param>
-    /// <param name="Metrics">The sub's PSF metrics from the gate (retained, not recomputed); 
+    /// left-multiplied by the union-canvas shift). Also what a re-warp places the sub with, so it
+    /// is the one number both routes to a warped sub share.</param>
+    /// <param name="Metrics">The sub's PSF metrics from the gate (retained, not recomputed);
     /// median HFD/FWHM/ellipticity + star count. Feeds the per-tile manifest + stats report.</param>
     public sealed record RegisteredSub(
         FrameInfo Source,
-        string WarpedPath,
+        string? WarpedPath,
         Matrix3x2 TransformToCanvas,
         FrameMetrics Metrics);
 
@@ -193,7 +243,15 @@ public static class SessionRegistrar
         int SkippedCount,
         IntegrationStrategyKind MasterStrategy = IntegrationStrategyKind.Float16Staged,
         Image? HalfMasterA = null,
-        Image? HalfMasterB = null);
+        Image? HalfMasterB = null)
+    {
+        /// <summary>How to obtain a sub warped onto this session's canvas, whichever way the session
+        /// was built: the scratch FITS where one was written, a re-warp of the source where it was
+        /// not. <b>Every reader of a warped sub goes through this</b>, because
+        /// <see cref="RegisteredSub.WarpedPath"/> is null for every drizzled session.
+        /// <c>null</c> only on a hand-built session in a test that never asks for one.</summary>
+        public WarpedSubSource? WarpedSubs { get; init; }
+    }
 
     /// <summary>
     /// Measures + gates a session's lights, registers the survivors to a common reference,
@@ -486,6 +544,11 @@ public static class SessionRegistrar
         }
         Directory.CreateDirectory(sessionScratch);
 
+        // Built before the pass that decides whether anything is written, because it is what closes
+        // the two routes to a warped sub: read the scratch FITS, or warp the source again with the
+        // very arguments this pass is about to use.
+        var warpedSubs = new WarpedSubSource(calibrator, debayerAlgorithm, warpInterpolation, canvasW, canvasH);
+
         var warpStart = StageTimings.Start();
         var subs = ImmutableArray.CreateBuilder<RegisteredSub>(matched.Count);
         // Captured off the first raw load: the drizzle gate keys off it and there is no cheaper
@@ -496,6 +559,16 @@ public static class SessionRegistrar
         // for the drizzle sky reference below. Cheap beside the warp, and the only pass that sees
         // every frame before integration.
         var cfaSkies = new List<Normalizer.CfaNormalizationStats>(matched.Count);
+        // The STRATEGY is decided here, one raw load in, rather than between this pass and the
+        // integration where it used to sit -- because it decides whether this pass has to write
+        // anything at all. DrizzleStrategy consumes IntegrationJob.RawBayerFrames only (it
+        // forward-projects the raw CFA, which is the whole point of it) and both half-masters take
+        // the master's strategy, so on a drizzled session the warped scratch has exactly ONE reader:
+        // the tiler's per-sub pass, which runs after the master exists and can re-warp a sub from its
+        // source instead (see WarpedSubSource). Not writing it takes such a session's disk cost from
+        // subs x canvas bytes to nothing, and that is not a marginal saving: the 861-sub ASI294MC eta
+        // Car session needs ~120 GB of scratch and died mid-warp on a full disk in the 2026-09-17 bake.
+        var useDrizzle = false;
         for (var i = 0; i < matched.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -504,11 +577,52 @@ public static class SessionRegistrar
             if (i == 0)
             {
                 sensorType = raw.ImageMeta.SensorType;
+                var probe = IntegrationProbe.Snapshot(
+                    frameCount: matched.Count,
+                    frameWidth: refW,
+                    frameHeight: refH,
+                    channelCount: 3,
+                    canvasWidth: canvasW,
+                    canvasHeight: canvasH,
+                    stagingDir: sessionScratch,
+                    sensorType: sensorType);
+                useDrizzle = TryDrizzle(probe, calibrator, logger, session.Id);
+                // Only the staged path writes, so only it has to fit. Asked BEFORE the first warp
+                // rather than discovered at the frame that fills the disk: the 861-sub session above
+                // spent forty minutes to fail at warped_0572, and the requirement was knowable from
+                // the sub count and the canvas before any of it.
+                if (!useDrizzle && ScratchShortfall(sessionScratch, matched.Count, canvasW, canvasH) is { } shortfall)
+                {
+                    logger?.LogWarning(
+                        "  [{Session}] needs {Need:F1} GB of warped scratch for {Subs} subs on a {W}x{H} canvas and " +
+                        "{Free:F1} GB is free on {Drive} -- skipped. Point --scratch-root at a bigger disk.",
+                        session.Id, shortfall.NeedBytes / (double)(1L << 30), matched.Count, canvasW, canvasH,
+                        shortfall.FreeBytes / (double)(1L << 30), shortfall.Drive);
+                    await DatasetSkipStore.RecordAsync(skipStorePath, new DatasetSkipStore.SkippedSession(
+                        SessionId: session.Id,
+                        Reason: "scratch-space-insufficient",
+                        Survivors: survivors.Length,
+                        Registered: matched.Count,
+                        SkippedTooFewStars: registerLoop.SkippedTooFewStars,
+                        SkippedNoQuadFit: registerLoop.SkippedNoQuadFit,
+                        ReferenceFile: Path.GetFileName(reference.Frame.Path),
+                        ReferenceStars: registerLoop.ReferenceStarCount,
+                        ReferenceQuads: registerLoop.ReferenceQuadCount,
+                        Census: spread), logger, cancellationToken);
+                    return null;
+                }
             }
             var calibrated = calibrator?.Apply(raw) ?? raw;
             if (calibrated.IsCfaMosaic)
             {
                 cfaSkies.Add(Normalizer.ComputeCfaStats(calibrated));
+            }
+            if (useDrizzle)
+            {
+                // The composition WarpToCanvasAsync would have returned, which is the only part of it
+                // a drizzled session needs; kept in lockstep with that method's own `shifted`.
+                subs.Add(new RegisteredSub(f.Frame, null, transform * canvasShift, f.Metrics));
+                continue;
             }
             // The shared debayer + warp step (FrameRegistration.WarpToCanvasAsync) -- the same
             // three lines StackingPipeline's producer runs, so the two paths cannot drift here.
@@ -544,16 +658,9 @@ public static class SessionRegistrar
         //    never lets a neighbour invent a colour value, which is exactly what a dataset meant
         //    to serve as TRUTH needs. AHD + sigma-clip otherwise. Both kinds legitimately coexist,
         //    hence RegisteredSession.MasterStrategy.
-        var probe = IntegrationProbe.Snapshot(
-            frameCount: subsList.Length,
-            frameWidth: refW,
-            frameHeight: refH,
-            channelCount: 3,
-            canvasWidth: canvasW,
-            canvasHeight: canvasH,
-            stagingDir: sessionScratch,
-            sensorType: sensorType);
-        var useDrizzle = TryDrizzle(probe, calibrator, logger, session.Id);
+        // useDrizzle was settled in the warp pass above, off the first raw load's SensorType and the
+        // same probe this line used to build; it has to be known before a sub is warped because it
+        // decides whether a warped sub is written at all.
 
         // Hot-pixel mask, the thing this path was missing. StackingPipeline has built one since it
         // hit this exact failure ("visible hot-pixel clusters survived into the master", its own
@@ -687,7 +794,10 @@ public static class SessionRegistrar
             session, master, subsList, canvasW, canvasH, statsRect,
             reference.Frame, survivors.Length, matched.Count, registerLoop.SkippedTooFewStars + registerLoop.SkippedNoQuadFit,
             useDrizzle ? IntegrationStrategyKind.BayerDrizzle : IntegrationStrategyKind.Float16Staged,
-            halfA, halfB);
+            halfA, halfB)
+        {
+            WarpedSubs = warpedSubs,
+        };
 
         async Task<Image> IntegrateSubsetAsync(ImmutableArray<int> pick, string scratchName)
         {
@@ -722,12 +832,11 @@ public static class SessionRegistrar
             foreach (var i in pick)
             {
                 token.ThrowIfCancellationRequested();
-                var sub = subsList[i];
-                if (!Image.TryReadFitsFile(sub.WarpedPath, out var img))
-                {
-                    throw new IOException($"Failed to re-read warped scratch FITS: {sub.WarpedPath}");
-                }
-                yield return img;
+                // Only Float16StagedStrategy consumes this producer, and only a staged session
+                // materialises its subs, so this reads the scratch FITS every time; it goes through
+                // the shared source anyway rather than opening the path itself, so there is one
+                // definition of what a warped sub is.
+                yield return await warpedSubs.LoadAsync(subsList[i], token);
             }
         }
 

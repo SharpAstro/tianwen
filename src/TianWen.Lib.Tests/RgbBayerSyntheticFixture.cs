@@ -61,11 +61,26 @@ internal static class RgbBayerSyntheticFixture
     /// other inliers at the same canvas position.</summary>
     public static readonly int[] HotPixelFrames = [1, 3, 5];
 
-    public static void WriteSyntheticLights(string lightsDir)
+    public static void WriteSyntheticLights(string lightsDir) => WriteSyntheticLights(lightsDir, LightCount);
+
+    /// <summary>
+    /// The same lights, <paramref name="count"/> of them. Past <see cref="DitherOffsets"/>'s eight the
+    /// pattern repeats with a small per-lap shift, so a deep session keeps dithering instead of
+    /// stacking every ninth frame on frame 0's exact grid.
+    ///
+    /// <para>Written for the drizzle side of the warp pass: the strategy gate is
+    /// <see cref="Stacking.DrizzleStrategy.AutoSelectMinFrameCount"/> frames, so a session that
+    /// drizzles cannot be built out of eight, and whether a session drizzles is what decides whether
+    /// it writes any warped scratch at all.</para>
+    /// </summary>
+    public static void WriteSyntheticLights(string lightsDir, int count)
     {
-        for (var i = 0; i < LightCount; i++)
+        for (var i = 0; i < count; i++)
         {
-            var (dx, dy) = DitherOffsets[i];
+            var lap = i / DitherOffsets.Length;
+            var (dx, dy) = DitherOffsets[i % DitherOffsets.Length];
+            dx += lap * 0.31;
+            dy -= lap * 0.23;
             var hotCount = HotPixelFrames.Contains(i) ? 1 : 0;
             // SyntheticStarFieldRenderer renders mono Gaussian stars; we
             // hand the buffer to BuildBayerMosaic to overlay an RGGB colour
@@ -95,7 +110,8 @@ internal static class RgbBayerSyntheticFixture
             var meta = new ImageMeta
             {
                 Instrument = "SynthBayer",
-                ExposureStartTime = new DateTimeOffset(2026, 5, 18, 0, 0, i, TimeSpan.Zero),
+                // AddSeconds rather than a seconds field, so a count past 60 stays a legal time.
+                ExposureStartTime = new DateTimeOffset(2026, 5, 18, 0, 0, 0, TimeSpan.Zero).AddSeconds(i),
                 ExposureDuration = TimeSpan.FromSeconds(1),
                 FrameType = FrameType.Light,
                 PixelSizeX = 3.76f,

@@ -230,11 +230,13 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
         {
             Description = "Parent for the per-session warped-sub scratch (a '_scratch' subdirectory " +
                           "is created and deleted there; the parent is never touched). Default: " +
-                          "beside the output. Scratch is the build's dominant I/O and is pure churn: " +
-                          "every sub is warped to a ~117 MB float32 FITS, read back by the " +
-                          "integrator, then deleted. Putting it on a fast local disk when the " +
-                          "archive lives on a slow one is often the single biggest speedup available. " +
-                          "Size for the largest SESSION, not the archive: ~40 GB for 300 subs.",
+                          "beside the output. Only a session integrated WITHOUT drizzle writes there, " +
+                          "one ~117 MB float32 FITS per sub, read back by the integrator and the " +
+                          "tiler and then deleted; a drizzled session writes nothing at all, because " +
+                          "it integrates the raw CFA and its subs are re-warped on demand. So size " +
+                          "this for the largest NON-DRIZZLED session, not the archive (~40 GB for " +
+                          "300 subs), and put it on a fast local disk when the archive lives on a " +
+                          "slow one: for those sessions it is the build's dominant I/O.",
             DefaultValueFactory = _ => "",
         };
 

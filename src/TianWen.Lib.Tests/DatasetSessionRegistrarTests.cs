@@ -357,5 +357,135 @@ namespace TianWen.Lib.Tests
             median.Red.PerChannelFloor[0].ShouldBe(10f);
             SessionRegistrar.MedianSky([Sky(1, 2, 3), Sky(3, 6, 9)]).Green.PerChannelMedian[0].ShouldBe(4f, "an even count takes the mean of the middle two");
         }
+
+        /// <summary>
+        /// The two ways to a warped sub agree pixel for pixel: reading the scratch FITS the warp pass
+        /// wrote, and warping the source again. That equality is what lets a drizzled session write no
+        /// scratch at all, and it is not free -- the re-warp has to use the same calibration, the same
+        /// demosaic, the same interpolation kernel and the same canvas, and each of those silently
+        /// produces a plausible-but-different frame if it drifts (VNG against MHC is a measurable
+        /// difference in flat-field bias alone).
+        ///
+        /// <para>Asserted on a STAGED session, because that is the only kind that has both routes
+        /// available: it wrote the files, and the sub carries the transform a re-warp needs. The
+        /// drizzled case is the one below, where there is nothing to compare against because there is
+        /// nothing on disk.</para>
+        /// </summary>
+        [Fact]
+        public async Task ARewarpedSubIsTheSubTheWarpPassWouldHaveWritten()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var registered = await DatasetSyntheticFixtures.RegisterAsync(_dir, ct);
+
+            registered.MasterStrategy.ShouldBe(IntegrationStrategyKind.Float16Staged, "8 subs is far under drizzle's floor");
+            registered.WarpedSubs.ShouldNotBeNull();
+            var source = registered.WarpedSubs;
+
+            var sub = registered.Subs[registered.Subs.Length - 1];
+            sub.WarpedPath.ShouldNotBeNull("a staged session materialises every sub");
+            File.Exists(sub.WarpedPath).ShouldBeTrue();
+
+            var fromScratch = await source.LoadAsync(sub, ct);
+            // The same sub with its path taken away is exactly what a drizzled session hands over.
+            var rewarped = await source.LoadAsync(sub with { WarpedPath = null }, ct);
+
+            rewarped.Width.ShouldBe(fromScratch.Width);
+            rewarped.Height.ShouldBe(fromScratch.Height);
+            rewarped.ChannelCount.ShouldBe(fromScratch.ChannelCount);
+
+            var maxDiff = 0f;
+            var compared = 0;
+            for (var c = 0; c < fromScratch.ChannelCount; c++)
+            {
+                var a = fromScratch.GetChannelSpan(c);
+                var b = rewarped.GetChannelSpan(c);
+                a.Length.ShouldBe(b.Length);
+                for (var i = 0; i < a.Length; i++)
+                {
+                    // Outside the source footprint both are NaN, which is equality here and not a
+                    // comparison: NaN != NaN, so it has to be said rather than measured.
+                    if (float.IsNaN(a[i]) || float.IsNaN(b[i]))
+                    {
+                        float.IsNaN(a[i]).ShouldBe(float.IsNaN(b[i]), $"channel {c} sample {i} is absent in one route only");
+                        continue;
+                    }
+                    maxDiff = Math.Max(maxDiff, Math.Abs(a[i] - b[i]));
+                    compared++;
+                }
+            }
+            compared.ShouldBeGreaterThan(0);
+            output.WriteLine($"compared {compared} samples, max |diff| = {maxDiff}");
+            // A float32 FITS round trip is exact, and so is running the same kernels over the same
+            // pixels, so this is equality rather than a tolerance; the epsilon is only there to keep
+            // the failure message useful if a future writer ever quantises.
+            maxDiff.ShouldBeLessThanOrEqualTo(1e-6f);
+        }
+
+        /// <summary>
+        /// A drizzled session writes no warped scratch, because nothing in it reads one:
+        /// <see cref="DrizzleStrategy"/> forward-projects the raw CFA (<c>RawBayerFrames</c>), both
+        /// half-masters take the master's strategy, and the tiler re-warps what it needs. The cost
+        /// avoided is the whole session at once: a canvas-sized float32 FITS per sub, ~117 MB each on
+        /// a 24 MP OSC frame, which is what put the 861-sub ASI294MC eta Car session at ~120 GB and
+        /// killed it mid-warp on a full disk.
+        /// </summary>
+        [Fact]
+        public async Task ADrizzledSessionWritesNoWarpedScratch()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var lightsDir = Path.Combine(_dir, "LIGHT");
+            Directory.CreateDirectory(lightsDir);
+            // The drizzle gate is a frame count, so the session has to clear it to BE a drizzled one.
+            RgbBayerSyntheticFixture.WriteSyntheticLights(lightsDir, DrizzleStrategy.AutoSelectMinFrameCount);
+            var calibrator = await BuildDarkCalibratorAsync(ct);
+            var session = new ImagingSession(
+                lightsDir, "synth/rggb-deep", "SynthBayer", "SynthRgb", "", [.. ReadFrames(lightsDir, "light_*.fits")]);
+            var scratch = Path.Combine(_dir, "scratch");
+
+            var registered = await SessionRegistrar.RegisterAsync(
+                session, calibrator, scratch, minSubs: 4, logger: new XunitLogger(output), cancellationToken: ct);
+
+            registered.ShouldNotBeNull();
+            registered.MasterStrategy.ShouldBe(IntegrationStrategyKind.BayerDrizzle);
+            registered.Subs.ShouldAllBe(s => s.WarpedPath == null);
+            Directory.GetFiles(scratch, "warped_*.fits", SearchOption.AllDirectories).ShouldBeEmpty();
+            // The subs are still readable, which is the whole point: the tiler asks for them after
+            // the master exists and gets them warped on demand.
+            registered.WarpedSubs.ShouldNotBeNull();
+            var rewarped = await registered.WarpedSubs.LoadAsync(registered.Subs[0], ct);
+            rewarped.Width.ShouldBe(registered.CanvasWidth);
+            rewarped.Height.ShouldBe(registered.CanvasHeight);
+            rewarped.ChannelCount.ShouldBe(3);
+        }
+
+        /// <summary>
+        /// The scratch requirement is answered before the first sub is warped, not discovered at the
+        /// one that fills the disk. The session it was written for spent forty minutes measuring,
+        /// registering and warping before dying at <c>warped_0572.fits</c> on "There is not enough
+        /// space on the disk", an exception naming a frame and a path and nothing about the session
+        /// being three times the size of the drive it was given.
+        /// </summary>
+        [Fact]
+        public void TheScratchRequirementIsTheWarpedSubsThemselves()
+        {
+            Directory.CreateDirectory(_dir);
+
+            // A canvas-sized float32 FITS per sub, three channels. Two subs of a 384x384 canvas is
+            // about 3.5 MB, which fits on any drive a test runs on.
+            SessionRegistrar.ScratchShortfall(_dir, subCount: 2, canvasWidth: 384, canvasHeight: 384).ShouldBeNull();
+
+            // 100k subs of a 24 MP canvas is ~12 TB: refused, and the report carries the numbers the
+            // log line needs rather than a bare bool, because "not enough space" without the
+            // requirement beside it is what made the real failure unreadable.
+            var shortfall = SessionRegistrar.ScratchShortfall(_dir, subCount: 100_000, canvasWidth: 6000, canvasHeight: 4000);
+            shortfall.ShouldNotBeNull();
+            shortfall.NeedBytes.ShouldBeGreaterThan(shortfall.FreeBytes);
+            shortfall.NeedBytes.ShouldBeGreaterThan(100_000L * 6000 * 4000 * 3 * sizeof(float));
+            shortfall.Drive.ShouldNotBeNullOrEmpty();
+
+            // A path on no drive at all answers nothing rather than refusing the session: a drive that
+            // will not report its free space is not evidence that the session is too big.
+            SessionRegistrar.ScratchShortfall("\0not-a-path", subCount: 1, canvasWidth: 1, canvasHeight: 1).ShouldBeNull();
+        }
     }
 }
