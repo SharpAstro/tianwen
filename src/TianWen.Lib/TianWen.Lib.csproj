@@ -79,6 +79,8 @@
          regardless of disk state at evaluation time. -->
     <EmbeddedResource Include="Astrometry/Catalogs/filter_curves.gs.gz" WithCulture="false" />
     <EmbeddedResource Include="Astrometry/Catalogs/hd_hip_cross.bin.gz" WithCulture="false" />
+    <!-- Verified Wikipedia articles and lead-image credits, baked by tools/bake-object-imagery. -->
+    <EmbeddedResource Include="Astrometry/Catalogs/object_articles.gs.gz" WithCulture="false" />
     <EmbeddedResource Include="Astrometry/Catalogs/pickles_sed.gs.gz" WithCulture="false" />
     <EmbeddedResource Include="Astrometry/Catalogs/sensor_qe.gs.gz" WithCulture="false" />
     <EmbeddedResource Include="Astrometry/Catalogs/simbad_merge.bin.gz" WithCulture="false" />

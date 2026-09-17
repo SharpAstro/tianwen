@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
@@ -51,6 +52,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossIndexLookuptable = new(39000);
     private readonly Dictionary<string, (CatalogIndex i1, CatalogIndex[]? ext)> _objectsByCommonName = new(5700);
     private readonly Dictionary<CatalogIndex, CelestialObjectShape> _shapesByIndex = new(11000);
+
+    // Written once, by init, before _isInitialized is raised; empty until then and in a build that embeds
+    // no table. A reference swap, so a reader racing init sees the empty table or the whole one.
+    private volatile FrozenDictionary<CatalogIndex, ObjectArticle> _articles = FrozenDictionary<CatalogIndex, ObjectArticle>.Empty;
 
     /// <summary>
     /// Memoised <see cref="TryGetCrossIndices"/> results. Concurrent because the sky map's overlay
@@ -338,6 +343,33 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// <inheritdoc/>
     public bool TryGetShape(CatalogIndex index, out CelestialObjectShape shape) => _shapesByIndex.TryGetValue(index, out shape);
 
+    /// <inheritdoc/>
+    public bool TryGetArticle(CatalogIndex index, out ObjectArticle article)
+    {
+        var articles = _articles;
+        if (articles.TryGetValue(index, out article))
+        {
+            return true;
+        }
+
+        // The bake keys an article by the indices it scoped, which are the catalogue's main entries. A
+        // caller holding another name for the same object (M 42 for NGC 1976) reaches it through the
+        // cross-indices the catalogue already knows.
+        if (articles.Count > 0 && TryGetCrossIndices(index, out var crossIndices))
+        {
+            foreach (var crossIndex in crossIndices)
+            {
+                if (articles.TryGetValue(crossIndex, out article))
+                {
+                    return true;
+                }
+            }
+        }
+
+        article = default;
+        return false;
+    }
+
     public bool TryGetCrossIndices(CatalogIndex catalogIndex, out IReadOnlySet<CatalogIndex> crossIndices)
     {
         // An index with no cross-reference row cannot have a closure. Answering that before
@@ -473,6 +505,9 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // applies cleanly; it stays in `_tycho2BulkLoadTask` for runtime callers
         // (sky map / plate solver) to await via EnsureTycho2DataLoadedAsync().
         var tycho2CrossRefTask = Task.Run(() => ReadTycho2CrossRefArrays(assembly, manifestNames), cancellationToken);
+        // Independent of every other phase (it reads its own resource and touches nothing shared until
+        // the join below), so it decompresses alongside them.
+        var articlesTask = Task.Run(() => ReadObjectArticles(assembly, manifestNames), cancellationToken);
         _tycho2BulkLoadTask = Task.Run(() => ReadTycho2Bulk(assembly, manifestNames), cancellationToken);
 
         // Start HR's SIMBAD parse on the thread pool too - HR is the heaviest SIMBAD
@@ -700,6 +735,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // then and the await is a no-op.
         _autoCompleteListTask = Task.Run(BuildSortedAutoCompleteList, cancellationToken);
 
+        phaseSw.Restart();
+        _articles = await articlesTask;
+        _lastInitPhaseTimings.Add(("object-articles-join", phaseSw.Elapsed));
+
         // Optional: gate init completion on the bulk Tycho-2 load. Default false; runtime
         // callers that need this data will await EnsureTycho2DataLoadedAsync themselves.
         // Set true when the caller wants InitDBAsync to return only after every bit of
@@ -715,6 +754,25 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         _isInitialized = true;
         LastInitProcessed = totalProcessed;
         LastInitFailed = totalFailed;
+    }
+
+    /// <summary>
+    /// Decodes the embedded <c>object_articles.gs.gz</c>, the verified Wikipedia articles the
+    /// <c>tools/bake-object-imagery</c> bake wrote. A build without it has no articles, and every
+    /// <see cref="TryGetArticle"/> answers false, which is the honest answer: no link rather than a guess.
+    /// </summary>
+    private static FrozenDictionary<CatalogIndex, ObjectArticle> ReadObjectArticles(Assembly assembly, string[] manifestNames)
+    {
+        var resource = manifestNames.FirstOrDefault(n => n.EndsWith(ObjectArticleTable.ResourceSuffix, StringComparison.Ordinal));
+        if (resource is null || assembly.GetManifestResourceStream(resource) is not { } stream)
+        {
+            return FrozenDictionary<CatalogIndex, ObjectArticle>.Empty;
+        }
+
+        using (stream)
+        {
+            return ObjectArticleTable.Read(stream);
+        }
     }
 
     /// <summary>

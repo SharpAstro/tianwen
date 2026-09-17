@@ -46,6 +46,7 @@
     <resource name="TianWen.Lib.Astrometry.Catalogs.hip_to_tyc.bin" action="remove" />
     <resource name="TianWen.Lib.Astrometry.Catalogs.hip_to_tyc.bin.lz" action="remove" />
     <resource name="TianWen.Lib.Astrometry.Catalogs.hip_to_tyc_multi.json.lz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.object_articles.gs.gz" action="remove" />
     <resource name="TianWen.Lib.Astrometry.Catalogs.pickles_sed.gs.gz" action="remove" />
     <resource name="TianWen.Lib.Astrometry.Catalogs.sensor_qe.gs.gz" action="remove" />
     <resource name="TianWen.Lib.Astrometry.Catalogs.simbad_merge.bin.gz" action="remove" />

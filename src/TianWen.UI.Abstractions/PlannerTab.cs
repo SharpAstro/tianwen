@@ -571,9 +571,10 @@ namespace TianWen.UI.Abstractions
 
             var lineH = rect.Height / lines.Count;
 
-            // The name line links to the object's Wikipedia article (built from its MAIN catalog
-            // designation). Web-only affordance: the DOM text layer renders it as a real <a href>; the
-            // desktop raster path ignores the href and draws the name as before. Null for bare positions.
+            // The name line links to the object's Wikipedia article, the one the object-imagery bake
+            // verified. Web-only affordance: the DOM text layer renders it as a real <a href>; the
+            // desktop raster path ignores the href and draws the name as before. Null for bare positions
+            // and for any object the bake verified no article for.
             var nameHref = PlannerDetails.GetWikipediaUrl(state, _lastFilteredTargets);
 
             for (var i = 0; i < lines.Count; i++)

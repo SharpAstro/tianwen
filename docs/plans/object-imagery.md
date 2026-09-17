@@ -1,6 +1,6 @@
 # Object imagery from Wikipedia and Wikimedia Commons (plan)
 
-**Status: P0 IN PROGRESS (measured 2026-09-17). Written 2026-09-17** from the astrophoto.app field note in
+**Status: P0 DONE (2026-09-17); P1 and P2 NOT STARTED. Written 2026-09-17** from the astrophoto.app field note in
 [inbox.md](../todo/inbox.md) ("Field note: astrophoto.app"), after reading that site's shipped JavaScript
 and measuring every endpoint below. Raised by the user: the viewer and the atlas should show an object's
 picture the way that site does, with attribution, positioned on the sky where we can, and the identity
@@ -10,14 +10,14 @@ Companions: [in-app-sky-atlas](in-app-sky-atlas.md) (the selection panel this fe
 [web-showcase](web-showcase.md) (the browser build), [skymap-milkyway](skymap-milkyway.md) (the other
 imagery layer, and its browser phase, which lands the texture seam this plan reuses).
 
-## What exists today
+## What existed before P0
 
-- `PlannerDetails.GetWikipediaUrl` builds `https://en.wikipedia.org/wiki/` + the object's MAIN catalogue
-  designation (`CatalogIndex.ToCanonical()`, spaces to `_`). It is a GUESS: the planner's name line links
-  there and nothing checks the page exists or is about this object. `PlannerDetailsTests` pins only the
-  URL shape.
+- `PlannerDetails.GetWikipediaUrl` built `https://en.wikipedia.org/wiki/` + the object's MAIN catalogue
+  designation (`CatalogIndex.ToCanonical()`, spaces to `_`). It was a GUESS: the planner's name line linked
+  there and nothing checked the page existed or was about this object. `PlannerDetailsTests` pinned only
+  the URL shape. Since P0 it reads the verified table, and an unverified object gets no link.
 - Nothing fetches a summary, an image, or a licence. The atlas info panel and the viewer's selection
-  panel (`ObjectInfoPanel`) show catalogue data only.
+  panel (`ObjectInfoPanel`) show catalogue data only. That is still true until P1.
 
 ## What astrophoto.app actually does (read from its bundle, 2026-09-17)
 
@@ -132,6 +132,34 @@ matches land thousands of arcminutes away (the p90 separation over all candidate
   84 CC BY 4.0, 59 public domain, 43 CC BY-SA 4.0, 39 CC BY-SA 3.0, 30 CC0, 20 CC BY 2.0, 17 CC BY 3.0,
   5 other CC BY-SA, 1 with no licence field. 208 require attribution. Median width 2,405 px, p10 667 px.
 
+### The full bake, and what star articles lead with (2026-09-17)
+
+The whole scope through the tool, stars included by the user's decision:
+
+| | Indices in scope | With a candidate | With a verified article |
+|---|---|---|---|
+| Non-stars | 627 | 611 | 527 |
+| Stars | 10,382 | 10,373 | 7,446 |
+
+7,973 indices resolve to **2,785 articles** (a star is three indices, HR, HD and HIP), 81 KB gzipped.
+**All 110 Messier objects** have one; Caldwell misses the same four the sample did (C33 Eastern Veil,
+C40, C41 Hyades, C74 Eight-Burst Nebula).
+
+**The images are where stars differ.** 2,311 articles have a lead image but they share only 581 files,
+because a star article usually leads with a picture that is not of the star:
+
+- **156 SVG files are constellation maps**, shared across roughly 1,800 star articles.
+- **105 more are charts**: light curves (`54AurLightCurve.png`), position charts, star maps, asterism
+  diagrams. Commons' own categories flag 100 of them ("Light curves of Delta Scuti variables", "Star
+  location maps") and the file name 103, with 98 in common, so either one drops a file.
+- **1 file has no licence field**, and no credit line could state one.
+
+That leaves **337 articles with a picture**, almost all of the non-stars plus the stars that genuinely lead
+with a photograph (Mintaka, Gamma Velorum). Licences: CC BY 4.0 96, public domain 81, CC BY-SA 4.0 57,
+CC0 31, CC BY-SA 3.0 28, CC BY 2.0 21, CC BY 3.0 17, 6 other. A shared file that survives the filter is a
+real picture shown on a member's article (the Pleiades on Alcyone, the Trapezium on Theta1 Orionis C),
+which is kept: it is what the article shows.
+
 ## Design
 
 ### P0: the identity bake (the part that replaces guessing)
@@ -153,6 +181,24 @@ object worth a picture:
 Output: a compact embedded table in `TianWen.Lib` keyed by `CatalogIndex`, same shape and loading path
 as the other baked catalogue snapshots. No pixels. `GetWikipediaUrl` reads the table and stops guessing;
 an object absent from the table gets no link rather than a dead one.
+
+**As built:**
+
+- `object_articles.gs.gz`, the `.gs.gz` ASCII-record format the other catalogues use, one record per
+  ARTICLE naming every index that resolved to it (raw `CatalogIndex` values, as the snapshots store
+  them). Read and written by `ObjectArticleTable`; a separator byte in upstream text becomes a space.
+  Named in `ILLink.Substitutions.xml`, so the thumbnail DLL drops it with the other catalogues.
+- `ICelestialObjectDB.TryGetArticle(index, out ObjectArticle)` answers directly or through the index's
+  cross-indices (the bake keys main entries; `M 42` reaches `NGC 1976`'s article). The table decodes in its
+  own init task alongside the other phases and is joined as `object-articles-join`; the interface default
+  answers false, for a host with none. Measured on arm64 Release: the decode takes 4 to 5 ms warm (16 ms
+  cold, first run) for 7,973 keys, and the join waits 0.00 ms, the decode having finished long before init
+  reaches it.
+- `ObjectArticle` (Wikidata item, title, `Url`) and `ObjectArticleImage` (file name, licence, artist,
+  credit, attribution flag, size, `FilePageUrl`) are the public shape P1 consumes.
+- `tools/bake-object-imagery` is run by hand and its output committed. The table is binary, so the bake's
+  stdout report is the review: coverage, Messier and Caldwell misses, licences, and every index added,
+  removed or retitled since the table it replaced.
 
 ### P1: the picture in the selection panel
 

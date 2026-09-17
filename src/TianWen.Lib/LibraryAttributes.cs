@@ -10,3 +10,4 @@
 [assembly: InternalsVisibleTo("PrecomputeHdHipCross")]
 [assembly: InternalsVisibleTo("PrecomputeSimbadMerge")]
 [assembly: InternalsVisibleTo("BakeComets")]
+[assembly: InternalsVisibleTo("BakeObjectImagery")]

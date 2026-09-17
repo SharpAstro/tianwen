@@ -135,6 +135,18 @@ public interface ICelestialObjectDB
     bool TryGetShape(CatalogIndex index, out CelestialObjectShape shape);
 
     /// <summary>
+    /// The English Wikipedia article the object-imagery bake VERIFIED for <paramref name="index"/>, found
+    /// directly or through the index's cross-indices. False for an object the bake did not verify, which
+    /// must show no link rather than a guessed one (docs/plans/object-imagery.md). The default answers
+    /// false, for a host with no table.
+    /// </summary>
+    bool TryGetArticle(CatalogIndex index, out ObjectArticle article)
+    {
+        article = default;
+        return false;
+    }
+
+    /// <summary>
     /// Fast HIP number → RA/Dec/mag/color lookup via the Tycho-2 cross-reference array.
     /// Avoids string parsing of "HIP nnn" on every call. O(1) array index.
     /// </summary>

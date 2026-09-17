@@ -125,16 +125,15 @@ public static class PlannerDetails
         return lines;
     }
 
-    private const string WikipediaArticleBase = "https://en.wikipedia.org/wiki/";
-
     /// <summary>
-    /// The Wikipedia article URL for the currently selected target, built from its MAIN catalog
-    /// designation (e.g. "NGC 6523" -> https://en.wikipedia.org/wiki/NGC_6523). Returns null when nothing
-    /// is selected or the target carries no catalog index (bare positions). Spaces map to '_' (the
-    /// MediaWiki title convention) and the rest is percent-encoded -- MediaWiki decodes encoded titles, so
-    /// the link stays correct even for designations containing '/', '(' or an en-dash (comets, named DSOs).
-    /// The name line rendered in the details panel is the display name; the LINK deliberately uses the
-    /// canonical catalog designation so it resolves regardless of which common name we happen to show.
+    /// The English Wikipedia article URL for the currently selected target, the article the object-imagery
+    /// bake VERIFIED for it (<see cref="ICelestialObjectDB.TryGetArticle"/>: the Wikidata item's position
+    /// agrees with ours). Null when nothing is selected, the target carries no catalog index (bare
+    /// positions), there is no object DB, or the bake verified no article.
+    /// <para>It used to be built from the MAIN catalog designation, which was a guess: it 404'd wherever
+    /// Wikipedia has no page under that designation (<c>ACO 1656</c>, <c>vdB 142</c>, <c>GUM 12</c>) and
+    /// nothing could tell a same-named wrong page from the right one. Where nothing was verified, no link
+    /// is the honest answer (docs/plans/object-imagery.md).</para>
     /// </summary>
     public static string? GetWikipediaUrl(PlannerState state, IReadOnlyList<ScoredTarget> filteredTargets)
     {
@@ -143,16 +142,11 @@ public static class PlannerDetails
         {
             return null;
         }
-        if (filteredTargets[idx].Target.CatalogIndex is not { } index)
+        if (filteredTargets[idx].Target.CatalogIndex is not { } index || state.ObjectDb is not { } db)
         {
             return null;
         }
-        var name = index.ToCanonical();
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            return null;
-        }
-        return WikipediaArticleBase + Uri.EscapeDataString(name.Replace(' ', '_'));
+        return db.TryGetArticle(index, out var article) ? article.Url : null;
     }
 
     /// <summary>
