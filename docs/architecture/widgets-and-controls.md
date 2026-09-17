@@ -11,7 +11,7 @@ be a control*.
 
 | Layer | Contract | Input | Paint |
 |---|---|---|---|
-| Widget (pixel hosts) | `PixelWidgetBase<TSurface>` (DIR.Lib) | host routes `HitTestAndDispatch` first, then `HandleInput` on miss (desktop `GuiEventHandlerBase`, web `Planner.razor`; `tianwen-fits` still has its own press dispatch, because its toolbar is not on the tree) | layout DSL / draw helpers; registers clickables |
+| Widget (pixel hosts) | `PixelWidgetBase<TSurface>` (DIR.Lib) | every host routes through `DIR.Lib.InputRouter`, which walks the regions the last paint registered and offers what none of them claimed to the widget's own `HandleInput`. `IPixelWidget.HitTestAndDispatch` is GONE (10.0) -- a widget that hit-tests AND runs the handler is a second dispatcher over the same rects, and the two `tianwen-fits` and the GUI tab carried disagreed about what a toolbar press means. `HitTest` stays, for asking WHAT is under a point without running it | layout DSL / draw helpers; registers clickables |
 | Widget (TUI) | `ITuiTab` / `TuiTabBase` (TianWen.Cli) | keyboard only, over Console.Lib widgets | Console.Lib |
 | Control | plain class/struct/static, no base | the OWNING widget forwards events (`controller.HandleInput(evt)`) or wires callbacks | either draws via caller-passed delegates (`DrawScrollBar(FillRect)`) or is state-only |
 

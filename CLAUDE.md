@@ -1696,9 +1696,12 @@ The rules that bite:
   is not neutral; `ImageRendererBase.WhiteBalancePanel.cs`).
 - **A popover is a `Layout.Builder.Popover` node and a `PopoverState`, and that is the whole
   declaration.** It used to cost FIVE obligations written out per panel -- a flag, a full-window backdrop
-  that dismisses and consumes the press, a placement with its own clamp, a ten-line `IKeyboardClaimant`
-  whose body was "Escape closes me", and pointer ownership -- and forgetting one was silent, because the
-  overlay still opened, still drew and still took clicks. Both viewer popovers are nodes now
+  that dismisses and consumes the press, a placement with its own clamp, a ten-line keyboard-claimant
+  class whose body was "Escape closes me", and pointer ownership -- and forgetting one was silent, because
+  the overlay still opened, still drew and still took clicks. (`IKeyboardClaimant` itself no longer exists:
+  DIR.Lib 10.0 retired it for a STACK of the popovers a frame painted, `WindowUiSettings.PaintedPopovers`,
+  which the router walks topmost-first. One slot meant a popover raised over another took the keyboard
+  outright and the one underneath never answered Escape again.) Both viewer popovers are nodes now
   (`ViewerState.TonePopover` / `WhiteBalancePopover`), arranged over the whole window, and their sliders
   are `Layout.Content.Slider` leaves that arm their own drag. **The SIXTH obligation is now the BUTTON's**: a toolbar
   region carries `onPress: PressToolbarButton(...)`, which is the host's own `ToolbarPressPolicy` where
