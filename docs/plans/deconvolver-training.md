@@ -3027,12 +3027,12 @@ statistic moves with the window and the size is part of the rule, not a free par
 the left-edge cell at 1.0x reads skirt 1.26 and width 1.18, both still asking for a LARGER kernel
 where the nebula centre asked for a smaller one.
 
-Driver `C:/temp/e2/scripts-e7-5/run-e7-5.py`, output `C:/temp/e2/e7-5/`, CPU, one run about 23 s at
+Driver `training/denoise/run-e7-5.py`, output `C:/temp/e2/e7-5/`, CPU, one run about 23 s at
 512 px.
 
 ##### E7.5 read: the window is PLACE, and the ring target is killed as the per-window rule (2026-09-16, 17:45)
 
-98 runs, 14 crops, 42 minutes on the CPU, read by `C:/temp/e2/scripts-e7-5/read-e7-5.py`. The
+98 runs, 14 crops, 42 minutes on the CPU, read by `training/denoise/read-e7-5.py`. The
 re-run of E7.4's nebula crop reproduces its published row to every digit (1.129 / 0.89 / -0.56 /
 1.19 at 0.5x), so the harness and the added field print changed nothing.
 
