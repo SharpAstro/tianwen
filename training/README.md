@@ -14,6 +14,13 @@ and the tiles these scripts train on come from the C# exporter (`DatasetTileExpo
 | `EXPERIMENTS.md` | one line per run or measurement, with its verdict, negatives included |
 | `denoise/` | the OSC Noise2Noise denoiser: `n2n_smoke.py` (prepare / train / eval, and the module every scorer imports for cache access), `n2n_gate.py`, `n2n_metrics.py`, the scorers, the ship set (`n2n_export.py`, `n2n_dial.py`, `n2n_fixture.py`, `SHIP-NOTES.md`, the export record and dial results), the arm lists under `arms/`, and `repro-v19d.ps1` |
 | `denoise/n2n_paths.py` | the one place machine paths live; `TIANWEN_SCRATCH` and `TIANWEN_DATASETS` override them |
+| `denoise/run-e1*.ps1`, `run-d1-*.ps1`, `run-e210*.ps1` | the pre-registered launchers of the deconvolver plan's E1b to E1g-2, D1 and E2.10a to E2.10c (`docs/plans/deconvolver-training.md`): `dotnet test` over an opt-in probe (`DeconvolutionOracleCeilingProbe`, `SeeingSplitPairProbe`, the D1 conditioning probe) or a `tianwen stack` of a seeing split, prediction and kill line in each header |
+| `denoise/e1d_effective_width.py`, `moffat_discrete_kernel.py`, `moffat_quadrature.py`, `moffat_small_ratio.py`, `kernel_rows.py` | E1b and E1d's kernel arithmetic: what a point-sampled kernel is worth, how a quadrature of FWHMs reads a Moffat difference, and the estimator's kernel against the drawn one per cache row |
+| `denoise/e210_xcorr_raw.py`, `e210_xcorr_warped.py` | E2.10a's phase correlations of the raw and the warped subs, independent of star centroids: how the refiner's halved shifts were found |
+| `denoise/build_matrix.py`, `render_matrix_pngs.py` | the whole-master comparison page ("The whole master, looked at") |
+| `denoise/run-e7-5.py`, `read-e7-5.py` | E7.5's 98-run crop grid through `n2n_operator_real.py`, and its read |
+| `denoise/condprobe.py`, `condpool.py` | where a cache and every master of a bake sit on the conditioning plane (`docs/plans/denoiser-training.md`) |
+| `denoise/run-x2r-export.ps1` | arm X2R's `dataset pair` export with the nights swapped |
 
 The roadmap's `common/`, `deconv/`, `gradient/` and `starless/` do not exist yet. The gate and the
 metrics import the trainer module for cache access, so splitting them out is a refactor with its own
@@ -29,6 +36,12 @@ and fixture), three scorers that survive only in older generations because a lat
 (`n2n_frontier.py` from v19, `n2n_halfscore.py` from v16, `n2n_depth.py` from v9), and the six arm
 lists. Left on D: deliberately: the bake audits and figure scripts of v9 and v16, one-off reports on
 data that no longer changes.
+
+The deconvolver campaign's probe launchers, kernel arithmetic, E7.5 sweep and conditioning-plane
+probes came across on 2026-09-17 from `C:/temp/e2` and two session scratchpads, where the plans had
+been citing them. They keep their machine paths as constants (outputs under `C:/temp/e2`, caches under
+`C:/temp/tianwen-scratch`), since each is the record of one run; the per-run launch snapshots
+(`C:/temp/e2/scripts-*`) were copies of this folder and stay where they are.
 
 The port changed no behaviour: the acceptance test re-ran the shipped recipe from its prepared cache
 and both checkpoints came back with every parameter bit-identical to the shipped ones

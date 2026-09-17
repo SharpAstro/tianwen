@@ -1632,7 +1632,7 @@ composition says 1.32 on the 1.53 px core, and matches composition to 0.01 at 2,
 kernel is the cause. `PsfKernel.Build` samples the profile at pixel CENTRES**, so a 1 px FWHM
 Moffat lands 65 percent of its mass in one pixel and a 0.5 px one is a delta with four percent in its
 neighbours. Composing the DISCRETE kernel with a Moffat core numerically and inverting through the
-composition model (`moffat_discrete_kernel.py`, scratch): a nominal 1.0 px kernel is worth 0.59 px on
+composition model (`training/denoise/moffat_discrete_kernel.py`): a nominal 1.0 px kernel is worth 0.59 px on
 a 1.53 px core, 0.73 on 2.15, 0.79 on 2.81; a nominal 0.5 px kernel 0.09 to 0.14 px; 2 px and above
 within 1 to 3 percent of nominal. Re-scoring E1d's rows against that effective width
 (`e1d_effective_width.py`, core beta 3, which moves the answer by under 0.03): `est-c` at the 1 px

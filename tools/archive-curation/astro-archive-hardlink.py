@@ -20,7 +20,7 @@ Safety model:
   - Dry-run by default: writes hardlink-plan.csv, touches nothing.
 
 Usage:
-  python tools/astro-archive-hardlink.py --index "D:\\Astro-Reports\\fits-index.jsonl" ^
+  python tools/archive-curation/astro-archive-hardlink.py --index "D:\\Astro-Reports\\fits-index.jsonl" ^
       --canonical "D:\\Astro-Pics" --out "D:\\Astro-Reports" [--apply] [--full-verify]
 """
 

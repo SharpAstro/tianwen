@@ -45,3 +45,14 @@ part of the profile.
 The same master's right edge shows why the walk can never replace a coverage plane: at 69% coverage it
 reads 1.08x, because partial coverage raises the sample noise and correlates the neighbours at the same
 time, and on drizzled data the two nearly cancel.
+
+## The other edge and hole readouts
+
+Three scripts from the 2026-09-15 and 16 auto-crop and overscan work (#250, `docs/plans/sensor-active-area.md`),
+all read-only, all wanting `Pillow` for the renders:
+
+| script | what it answers |
+|---|---|
+| `hole_map.py <master> <label> <out prefix>` | the absent pixels of one master, interior NaN holes in pink and the exact-zero canvas ring in blue, whole frame plus a 2:1 zoom on the largest hole. Two defects that look alike and are not: the ring is what anchors the exporter's min-based stretch gate, the holes are what shredded the crop rectangle |
+| `edge_level.py <bake>/session-masters` | per master and per edge, how far an edge band's LEVEL rises over the interior. Level matching was refused for the walk at the 1.1x scale of a drizzle edge; this asks whether an overscan-sized excursion separates from that cleanly |
+| `edge_band.py <master> top\|bottom\|left\|right <out.png>` | one edge's line-median profile, printed, with the lines above the bar tinted in a render, for the mild bands a per-pixel mark cannot show |

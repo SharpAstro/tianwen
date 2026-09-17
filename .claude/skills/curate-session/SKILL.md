@@ -5,6 +5,10 @@ description: File a capture session from D:/Astro-Pics or D:/Astro-Unsorted into
 
 Usage: `/curate-session <session path>`, or with no argument to report what is unreachable first.
 
+This file is the method. The scripts it was measured and executed with are in
+`tools/archive-curation/`, indexed by the steps below in that folder's README; start from those
+rather than writing a survey from scratch.
+
 ## The four stores are TIERS, and only two are bake roots
 
 | store | what it is | a bake root? |
@@ -94,7 +98,7 @@ negative `BITPIX`.
 **Decide an untyped set by the SKY, never by a star count, and treat a label as evidence.** TianWen's
 own detector finds 141 "stars" at FWHM 1.7 px on a +4 C 120 s ASI533 dark (hot pixels), and a 35 or
 50 mm lens puts real stars at that width too. A `tianwen solve` cannot be fooled by either. The method
-that survived three wrong passes over 300 capture sets (`C:/temp/e2/classify_sets.py`, 2026-09-17):
+that survived three wrong passes over 300 capture sets (`tools/archive-curation/classify_sets.py`, 2026-09-17):
 
 - **A bias is the camera's MINIMUM exposure** (32 us ZWO, 10 us Uranus-C, 1 us QHY). Read the exact
   `EXPTIME`: a two-decimal copy turned a 0.61 ms Moon frame into a "0 s" bias.
@@ -224,7 +228,8 @@ extraction removes anyway. A measured verdict beats a date: one set 184 days old
 
 ## Step 4: copy, in the proven shape
 
-Model the script on `_provenance/organizeD.py` (or `organizeC.py`, the longer precedent). Non-negotiable:
+Model the script on `tools/archive-curation/organizeM.py`, the current shape (every rule below is in
+it); the per-group scripts before it stay in `_provenance` beside the manifests they wrote. Non-negotiable:
 
 - **READ-ONLY on the source.** Everything under Organized is a copy; the raw archive is never written.
 - **Dry-run by default**, `--apply` to execute. Print the destinations and the per-kind counts.
@@ -307,7 +312,7 @@ The calibration association is **many-to-many** (one flat set serves several nig
 on sets shot weeks apart), so it lives in `_provenance/session-calibration-map.csv` and never in a
 path. Write the measured verdicts from step 3 into the `*_verdict` columns rather than "ok".
 
-Then `python _provenance/targetview.py --apply` to rebuild `targets/` (junctions, lights only). If a
+Then `python tools/archive-curation/targetview.py --apply` to rebuild `targets/` (junctions, lights only). If a
 filter slug changed, **remove the stale junctions first**: they store an absolute path, and one
 pointing at a renamed folder is a broken link that the rebuild will not clean up.
 
@@ -356,7 +361,9 @@ same 7x gap whenever a dedup report is read without splitting links from copies.
 Prior art is `_provenance/deletion-candidates.csv`, 9,009 rows from an earlier pass, each carrying
 `archive_path`, `archive_inode`, `link_count`, `represented_by_rel` and `sha256_current_tree`. That
 shape is the one to keep: the row records WHICH Organized file represents the path and what its
-content hashed to, so the decision is auditable after the fact.
+content hashed to, so the decision is auditable after the fact. The audits for this step are
+`tools/archive-curation/prune_audit.py` (what the rule would drop) and `twins_from_ledger.py` (where
+each twin lives); neither deletes anything.
 
 Required before unlinking anything:
 
@@ -374,7 +381,7 @@ hand it over rather than executing it. Same rule as any destructive operation on
 
 ## The ledger, and what it is not
 
-`tools/astro-digest-store.py` maintains **`D:/Astro-Reports/digests.jsonl`**, one record per path:
+`tools/archive-curation/astro-digest-store.py` maintains **`D:/Astro-Reports/digests.jsonl`**, one record per path:
 `{path, size, mtime, dev, ino, nlink, digest, kind}`. It is keyed per INODE so a hard link is never
 re-hashed, it is resumable (an unchanged size and mtime is not re-read), and FITS are digested over
 the DATA SECTION only, matching `ContentDigest` / `StackManifest.DigestData`. Last full pass: 97,706

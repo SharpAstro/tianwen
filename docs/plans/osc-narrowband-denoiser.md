@@ -781,7 +781,7 @@ Ordered by value per unit of work, not by dependency.
   `psf-sessions.jsonl`, `session-timings.jsonl`, `skipped-sessions.jsonl`). The previous
   `2025-2026-darkscaled` bake is what v15/v17 trained on and is NOT interchangeable with it:
   different session ids, different pool, no filter.
-- Folder-vs-header survey: `tools/astro-archive-folder-vs-object.py`, which reads the bake's own
+- Folder-vs-header survey: `tools/archive-curation/astro-archive-folder-vs-object.py`, which reads the bake's own
   scan summary rather than walking `D:`, so sizing the task #38 mosaic-panel question costs no disk
   I/O against a running bake.
 - **Arm-to-filter mapping: `D:\Astro-Dataset\n2n-smoke\arm-filter-mapping.csv`**, built by

@@ -30,7 +30,7 @@ THREE THINGS THIS GETS RIGHT, each of which cost something to learn:
    bare count.
 
 Usage:
-  python tools/astro-digest-store.py --root "D:/Astro-Pics" --root "C:/temp/astro" --out "D:/Astro-Reports"
+  python tools/archive-curation/astro-digest-store.py --root "D:/Astro-Pics" --root "C:/temp/astro" --out "D:/Astro-Reports"
   ... --fits-only          # skip .xisf/.tif/.png etc, digest only FITS
   ... --limit 500          # smoke test
 """

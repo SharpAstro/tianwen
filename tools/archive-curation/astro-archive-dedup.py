@@ -15,7 +15,7 @@ Outputs (in --out):
   summary.txt               human summary (also printed to console)
 
 Usage:
-  python tools/astro-archive-dedup.py --root "D:\\Astro-Pics" --root "D:\\BobbyBox-Temp" --out "D:\\Astro-Reports"
+  python tools/archive-curation/astro-archive-dedup.py --root "D:\\Astro-Pics" --root "D:\\BobbyBox-Temp" --out "D:\\Astro-Reports"
   ... --limit 500          # smoke test on the first N FITS files found
 """
 
