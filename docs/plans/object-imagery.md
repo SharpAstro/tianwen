@@ -1,6 +1,6 @@
 # Object imagery from Wikipedia and Wikimedia Commons (plan)
 
-**Status: P0 DONE (2026-09-17); P1 and P2 NOT STARTED. Written 2026-09-17** from the astrophoto.app field note in
+**Status: P0 DONE (2026-09-17); P1 PARTIAL (2026-09-18: the picture and its credit are in both atlas hosts; the large view and the session credit list are not); P2 NOT STARTED. Written 2026-09-17** from the astrophoto.app field note in
 [inbox.md](../todo/inbox.md) ("Field note: astrophoto.app"), after reading that site's shipped JavaScript
 and measuring every endpoint below. Raised by the user: the viewer and the atlas should show an object's
 picture the way that site does, with attribution, positioned on the sky where we can, and the identity
@@ -212,6 +212,31 @@ an object absent from the table gets no link rather than a dead one.
   cache.
 - Offline or blocked: the panel shows what it shows today. No retry storm: remember a failed file for the
   session, the lesson `ApparitionRetryCooldown` was written for.
+
+**As built (2026-09-18), thumbnail and credit:**
+
+- **The picture is a section of the shared panel**, under the rows and above the buttons, sized from the
+  aspect ratio the table records so the panel is its final height before any byte of the picture arrives.
+  At the top the close affordance would sit on the picture. `ObjectInfoPanel.BuildPictureSection` emits a
+  keyed `Fill` the host draws into, plus the credit as a `LinkHit` to the Commons file page, which is a
+  real anchor on the web and opens the browser on the desktop.
+- **The width asked for is the slot's own pixel width**, rounded up to a standard Wikimedia width, so a
+  high-DPI panel gets a sharper picture. The panel is 332 design units wide, which is the 500 px bucket at
+  1.5x.
+- **Desktop**: `ObjectPictureStore` (`AppData/TianWen/ObjectImages`) fetches once per width, writes the
+  file atomically and decodes PNG or JPEG to RGBA; `VkObjectPictures` uploads the texture on a later frame.
+  **Browser**: the same URL goes to `WebGlRenderer.LoadTextureAsync`, so the browser fetches, caches and
+  decodes it natively; `WebGlObjectPictures` draws a textured quad in its own pipeline.
+- **`ObjectPictureCache` is the shared policy**: one load for a panel that asks every frame, a failure left
+  alone for five minutes, six pictures kept. Unit-tested on a manual clock with no GPU.
+- **Sizes, measured over the baked set** (40 files sampled): a 500 px thumbnail is 61 KB at the median and
+  112 KB at the mean, so all 319 files would be about 35 MB; at 1280 px it is 372 KB and 726 KB, about
+  230 MB for every file. The cache only grows with what was looked at, so no cap is set yet.
+- **Verified**: in the GUI atlas (the Hubble M42 mosaic, its credit under it, one 50 KB file cached) and in
+  the browser atlas through the opt-in `ObjectPictureProbe`. NOT yet verified in `tianwen-fits`, which
+  draws through the same Vulkan helper.
+- **Outstanding in P1**: the click that opens the large picture, and the help menu's list of the pictures
+  shown this session.
 
 ### P2: positioned images on the atlas
 

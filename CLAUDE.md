@@ -2102,6 +2102,7 @@ TianWen/
 ├── Session/            # Session-setup state, <profileId>.json (SessionPersistence)
 ├── Guider/             # Guider frames dumped for plate solving (guider_*.fits + .ini)
 ├── Weather/            # OpenMeteo / OpenWeatherMap forecast cache
+├── ObjectImages/       # Wikimedia object pictures, one file per (image, standard width) (ObjectPictureStore)
 ├── SmallBodies/        # JPL SBDB comet cache: comets.json + apparitions.json
 ├── models/             # AI ONNX models (ModelResolver; also probes SASpro's own models dir)
 ├── Secrets/            # Non-Windows only: 0600 file per device secret (Windows uses Credential Manager)
