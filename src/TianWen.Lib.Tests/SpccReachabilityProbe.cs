@@ -110,6 +110,14 @@ public class SpccReachabilityProbe(ITestOutputHelper output)
             // would be worse than having none, because SPCC would then use it as if it described the
             // glass. Listed here so that stays true if the matcher's token rules ever loosen.
             "Unidentified-Broadband",
+            // A SECOND measured-but-unnamed population on the same camera (ASI585 + ZS61,
+            // 2025-05-25). It is distinct from the one above and must also resolve to NO MATCH.
+            // Measured: bias-corrected flat R/G 0.607 B/G 0.497 against Unidentified-Broadband's
+            // 0.737/0.801 and L-eNhance's 0.166/0.862, with sky brightness of 151 and 128 ADU/s
+            // against 190 broadband and 19 narrowband. So it is broadband-throughput with the blue
+            // suppressed, consistent with a light-pollution filter and NOT proven to be one: the
+            // ratios that could name it are IMX533-derived and do not transfer to this IMX585.
+            "Unidentified-Broadband-BlueCut",
             // Mono channel names, for the two ASI1600MM sessions. A mono session has one filter and
             // no CFA, so the pixel method cannot help and the path tag is the only evidence.
             "Ha", "H-Alpha", "Luminance", "LUM", "Baader Ha", "Astrodon Ha",
