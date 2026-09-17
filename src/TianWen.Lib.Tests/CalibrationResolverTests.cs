@@ -551,10 +551,125 @@ namespace TianWen.Lib.Tests
         {
             // A missing TELESCOP/FOCALLEN header must not wrongly drop an otherwise-matching flat
             // (same camera) -- unknown fields are lenient, only two KNOWN differing values reject.
+            // Lenient is not proven, though: this flat is kept because it was shot with the lights
+            // (both default to the same instant here); the tests below take the date away.
             var flatNoScope = Group(FrameType.Flat, 3, -5, gain: 121, instrument: "ZWO ASI533MC Pro", telescope: "", focalLength: -1);
             var light = Light(60, -5, gain: 121, instrument: "ZWO ASI533MC Pro", telescope: "Askar", focalLength: 400);
 
             CalibrationResolver.BestFlat([flatNoScope], light).ShouldBe(flatNoScope);
+        }
+
+        private static DateTimeOffset Utc(int year, int month, int day, int hour, int minute)
+            => new DateTimeOffset(year, month, day, hour, minute, 0, TimeSpan.Zero);
+
+        [Fact]
+        public void BestFlat_AFlatWithNoTrainCards_FromAnotherMonth_IsRefused_TheBorrowedLensFlat()
+        {
+            // The 2026-09-16-flatfloor bake, verbatim: 49 SharpCap lights through a 24 mm lens
+            // (FOCALLEN=24, no TELESCOP) and three SharpCap flat sets on the same body, none of which
+            // carries TELESCOP or FOCALLEN. The wildcard handed the session the 289 mm ZS61 flat
+            // shot 103 days earlier through a different filter, on temperature alone; the calibration
+            // map says this session has no flat of its own and must not borrow one.
+            const string Camera = "ZWO ASI585MC Pro";
+            var lEnhance369 = Group(FrameType.Flat, 0.1, -11, gain: 252, instrument: Camera, telescope: "", focalLength: -1, when: Utc(2024, 9, 28, 9, 54));
+            var zs61Broadband = Group(FrameType.Flat, 0.5, -10, gain: 252, instrument: Camera, telescope: "", focalLength: -1, when: Utc(2024, 10, 3, 10, 21));
+            var velaLens = Group(FrameType.Flat, 0.25, 17, gain: 252, instrument: Camera, telescope: "", focalLength: -1, when: Utc(2025, 2, 1, 0, 18));
+            var light = Light(60, -10, gain: 252, instrument: Camera, telescope: "", focalLength: 24, when: Utc(2025, 1, 14, 12, 5));
+
+            CalibrationResolver.BestFlat([lEnhance369, zs61Broadband, velaLens], light).ShouldBeNull();
+        }
+
+        [Fact]
+        public void BestFlat_AmongFlatsWithNoTrainCards_TheOneShotWithTheLightsWins_NotTheCloserTemperature()
+        {
+            // The same bake: N.I.N.A. Luminance lights (FMA180 @ 180 mm, -10 C) and two SharpCap flat
+            // sets on the same FMA180 with no train or filter cards, the Ha set 12 days before at
+            // +10 C and the Luminance set the next day at +20 C. Temperature picked the Ha flat. With
+            // nothing in the cards to tell the two apart, being shot with the lights is the evidence.
+            const string Camera = "ZWO ASI1600MM Pro";
+            var haFlat = Group(FrameType.Flat, 0.5, 10, gain: 139, instrument: Camera, telescope: "", focalLength: -1, when: Utc(2025, 2, 8, 11, 1));
+            var lumFlat = Group(FrameType.Flat, 0.0625, 20, gain: 139, instrument: Camera, telescope: "", focalLength: -1, when: Utc(2025, 2, 21, 22, 35));
+            var light = Light(60, -10, gain: 139, instrument: Camera, telescope: "FMA180", focalLength: 180, when: Utc(2025, 2, 20, 11, 51));
+
+            CalibrationResolver.BestFlat([haFlat, lumFlat], light).ShouldBe(lumFlat);
+            CalibrationResolver.BestFlat([lumFlat, haFlat], light).ShouldBe(lumFlat);
+        }
+
+        [Fact]
+        public void BestFlat_AmongFlatsWithNoTrainCards_NearestInTimeWins_EvenInsideTheWindow()
+        {
+            // Two unproven flats both inside the window: the SMC L-eNhance session (368.8 mm) with
+            // its own flat 1.00 day later at -11 C, and the 289 mm broadband flat, really 6.01 days
+            // away, moved here to 2.5 days at the lights' exact temperature so that only the
+            // ordering can refuse it.
+            const string Camera = "ZWO ASI585MC Pro";
+            var own = Group(FrameType.Flat, 0.1, -11, gain: 252, instrument: Camera, telescope: "", focalLength: -1, when: Utc(2024, 9, 28, 9, 54));
+            var otherTrain = Group(FrameType.Flat, 0.5, -10, gain: 252, instrument: Camera, telescope: "", focalLength: -1, when: Utc(2024, 9, 29, 22, 0));
+            var light = Light(120, -10, gain: 252, instrument: Camera, telescope: "", focalLength: 369, when: Utc(2024, 9, 27, 10, 1));
+
+            CalibrationResolver.BestFlat([otherTrain, own], light).ShouldBe(own);
+            CalibrationResolver.BestFlat([own, otherTrain], light).ShouldBe(own);
+        }
+
+        [Fact]
+        public void BestFlat_AFlatWithNoTrainCards_IsAcceptedAtTheWindow_AndRefusedJustPastIt()
+        {
+            var light = Light(60, -5, gain: 121, instrument: "ZWO ASI533MC Pro", telescope: "Askar", focalLength: 400, when: Utc(2026, 1, 10, 12, 0));
+            var window = TimeSpan.FromDays(CalibrationResolver.UnprovenFlatMaxDays);
+            var atLimit = Group(FrameType.Flat, 3, -5, gain: 121, instrument: "ZWO ASI533MC Pro", telescope: "", focalLength: -1,
+                when: light.Meta.ExposureStartTime + window);
+            var pastLimit = Group(FrameType.Flat, 3, -5, gain: 121, instrument: "ZWO ASI533MC Pro", telescope: "", focalLength: -1,
+                when: light.Meta.ExposureStartTime - window - TimeSpan.FromMinutes(1));
+
+            CalibrationResolver.BestFlat([atLimit], light).ShouldBe(atLimit);
+            CalibrationResolver.BestFlat([pastLimit], light).ShouldBeNull();
+        }
+
+        [Fact]
+        public void BestFlat_AFlatWhoseCardsProveTheTrain_NeedsNoWindow()
+        {
+            // A focal length known on BOTH sides and agreeing is proof, whatever the telescope card
+            // says on either side: a SharpCap light (FOCALLEN only) against a N.I.N.A. flat 40 days
+            // away is the same train by its cards, exactly as before this rule existed.
+            var flat = Group(FrameType.Flat, 3, -5, gain: 121, instrument: "ZWO ASI1600MM Pro", telescope: "FMA180", focalLength: 180, when: Utc(2025, 1, 1, 0, 0));
+            var light = Light(60, -5, gain: 121, instrument: "ZWO ASI1600MM Pro", telescope: "", focalLength: 180, when: Utc(2025, 2, 10, 0, 0));
+
+            CalibrationResolver.BestFlat([flat], light).ShouldBe(flat);
+        }
+
+        [Fact]
+        public void BestFlat_AProvenFlat_BeatsAnUnprovenOneShotTheSameNight()
+        {
+            // Cards that agree are proof; a date is circumstantial. When both kinds exist the proven
+            // flat wins, because a wrong flat is worse than a stale right one.
+            const string Camera = "ZWO ASI533MC Pro";
+            var light = Light(60, -5, gain: 121, instrument: Camera, telescope: "Samyang 135", focalLength: 130, when: Utc(2026, 1, 10, 12, 0));
+            var proven = Group(FrameType.Flat, 4.61, -5, gain: 121, instrument: Camera, telescope: "Samyang 135", focalLength: 130, when: Utc(2025, 12, 20, 0, 0));
+            var unproven = Group(FrameType.Flat, 3, -5, gain: 121, instrument: Camera, telescope: "", focalLength: -1, when: Utc(2026, 1, 10, 20, 0));
+
+            CalibrationResolver.BestFlat([unproven, proven], light).ShouldBe(proven);
+            CalibrationResolver.BestFlat([proven, unproven], light).ShouldBe(proven);
+        }
+
+        [Fact]
+        public void BestFlat_ALightWithNoTrainCards_CannotProveAFlatEither()
+        {
+            // Proof needs an optics card on BOTH sides, so a light that states no train is judged by
+            // date against a flat that states one, the mirror of the SharpCap-flat case.
+            var flat = Group(FrameType.Flat, 3, -5, gain: 121, instrument: "ZWO ASI533MC Pro", telescope: "Askar", focalLength: 400, when: Utc(2025, 6, 1, 0, 0));
+            var light = Light(60, -5, gain: 121, instrument: "ZWO ASI533MC Pro", telescope: "", focalLength: -1, when: Utc(2026, 1, 10, 0, 0));
+
+            CalibrationResolver.BestFlat([flat], light).ShouldBeNull();
+        }
+
+        [Fact]
+        public void BestFlat_AnUnprovenFlat_WithNoDateOnEitherSide_IsRefused()
+        {
+            // No card and no date is no evidence at all.
+            var undatedFlat = Group(FrameType.Flat, 3, -5, gain: 121, instrument: "ZWO ASI533MC Pro", telescope: "", focalLength: -1, when: default(DateTimeOffset));
+            var light = Light(60, -5, gain: 121, instrument: "ZWO ASI533MC Pro", telescope: "Askar", focalLength: 400, when: Utc(2026, 1, 10, 0, 0));
+
+            CalibrationResolver.BestFlat([undatedFlat], light).ShouldBeNull();
         }
     }
 }

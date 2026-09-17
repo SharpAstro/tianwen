@@ -78,11 +78,21 @@ public static class CalibrationResolver
         public bool CameraCompatibleWith(CalTrain light) => !KnownAndDiffer(Instrument, light.Instrument);
 
         /// <summary>Same camera AND telescope AND focal length (each lenient on unknown) -- the gate a
-        /// flat must pass against its light so one scope's vignetting/dust is never borrowed for another.</summary>
+        /// flat must pass against its light so one scope's vignetting/dust is never borrowed for another.
+        /// Lenient means NOT REFUSED, never proven: <see cref="ProvesOpticsOf"/> is the other half.</summary>
         public bool TrainCompatibleWith(CalTrain light) =>
             !KnownAndDiffer(Instrument, light.Instrument)
             && !KnownAndDiffer(Telescope, light.Telescope)
             && !KnownAndDiffer(FocalLength, light.FocalLength);
+
+        /// <summary>Do the CARDS show these are the same optics? Compatible, and at least one optics
+        /// card (telescope or focal length) stated on BOTH sides. Every card unknown on one side is
+        /// compatible with anything and proves nothing, which is the whole SharpCap era: its flats
+        /// carry neither card, so on cards alone a 24 mm lens and a 289 mm refractor on one body are
+        /// indistinguishable (<see cref="BestFlat"/> then asks the capture date instead).</summary>
+        public bool ProvesOpticsOf(CalTrain light) =>
+            TrainCompatibleWith(light)
+            && ((Telescope.Length > 0 && light.Telescope.Length > 0) || (FocalLength > 0 && light.FocalLength > 0));
 
         /// <summary>Filename-safe suffix appended to the master slug so two trains that share a
         /// <see cref="MasterGroupKey"/> (same sensor/gain/temp/filter) never collide on the shared
@@ -410,6 +420,68 @@ public static class CalibrationResolver
     /// beats a dated one a couple of years away.</summary>
     internal const double TimeUnknownPenalty = 2.0;
 
+    /// <summary>How far, in days, a flat whose cards cannot prove the light's optical train
+    /// (<see cref="CalTrain.ProvesOpticsOf"/>) may lie from the lights and still be used. Being shot
+    /// with the lights is then the only evidence the train was the same, so the window is a
+    /// SESSION, not a staleness tolerance.
+    ///
+    /// <para>Measured on every Organized session whose flats carry no train cards (2026-09-17): each
+    /// session's own flat set lies 0.42 to 1.97 days from its first light; the nearest set of a
+    /// DIFFERENT train on the same body lies 4.02 days away (the ASI585's 368.8 mm L-eNhance flat
+    /// against its 289 mm broadband lights), and the two sets the wildcard wrongly chose lay 12.03
+    /// and 103.07 days away. Three days sits between the session and the neighbour, and the
+    /// nearest-first ordering among unproven flats keeps a neighbour that does fall inside from
+    /// winning.</para></summary>
+    internal const double UnprovenFlatMaxDays = 3.0;
+
+    /// <summary>Days between <paramref name="target"/> and the group's capture span, zero inside it;
+    /// null when either side is undated.</summary>
+    internal static double? DaysFromEpoch(CalGroup g, DateTimeOffset target)
+    {
+        if (g.EpochStart == default || target == default)
+        {
+            return null;
+        }
+        var end = g.EpochEnd == default ? g.EpochStart : g.EpochEnd;
+        if (target >= g.EpochStart && target <= end)
+        {
+            return 0.0;
+        }
+        return (target < g.EpochStart ? g.EpochStart - target : target - end).TotalDays;
+    }
+
+    /// <summary>
+    /// Whether a flat group may calibrate a light at all. The one gate, shared with
+    /// <see cref="CalibrationCoverageReport"/> so its candidate counts cannot disagree with the pick.
+    ///
+    /// <para>Buildable, dimension-compatible, and train-compatible as before; then EITHER its cards
+    /// prove the optics, OR it was shot within <see cref="UnprovenFlatMaxDays"/> of the lights. The
+    /// second half is what the old wildcard lacked: an unknown card was taken as a match, so a flat
+    /// with no train cards was a candidate for every light on that body, and temperature then picked
+    /// among them.</para>
+    /// </summary>
+    /// <param name="unprovenDays">Null when the cards prove the train; otherwise the distance in
+    /// days that admitted it, which <see cref="BestFlat"/> ranks on.</param>
+    internal static bool IsFlatCandidate(
+        CalGroup g, MasterGroupKey lightKey, CalTrain lightTrain, DateTimeOffset lightStart, out double? unprovenDays)
+    {
+        unprovenDays = null;
+        if (!Buildable(g) || !DimensionCompatible(g.Key, lightKey) || !g.Train.TrainCompatibleWith(lightTrain))
+        {
+            return false;
+        }
+        if (g.Train.ProvesOpticsOf(lightTrain))
+        {
+            return true;
+        }
+        if (DaysFromEpoch(g, lightStart) is not { } days || days > UnprovenFlatMaxDays)
+        {
+            return false;
+        }
+        unprovenDays = days;
+        return true;
+    }
+
     /// <summary>Capture-date distance score between a calibration epoch and the frames it would
     /// calibrate; see <see cref="TimePenaltyPerYear"/>. <c>default</c> on either side means the
     /// date is unknown.</summary>
@@ -481,30 +553,43 @@ public static class CalibrationResolver
     /// is simply wrong), dimension/sensor-compatible, preferring the same filter (Name + Bandpass),
     /// then closest temperature, then matching gain (flat division normalises most of the gain away,
     /// but same-gain is still the better master when both exist). Exposure is irrelevant for flats;
-    /// offset cancels in the flat normalisation. Ties break by ordinal slug, as for darks.</summary>
+    /// offset cancels in the flat normalisation. Ties break by ordinal slug, as for darks.
+    ///
+    /// <para><b>A flat whose cards cannot prove the train ranks BEHIND every flat whose cards can,
+    /// and among its own kind the one shot nearest the lights wins</b> (see
+    /// <see cref="IsFlatCandidate"/>). Temperature is the wrong axis there: it picked the Ha flat for
+    /// Luminance lights 12 days away over their own flat the next day, because the Ha set happened
+    /// to be shot 10 C nearer the lights' setpoint.</para></summary>
     internal static CalGroup? BestFlat(List<CalGroup>? flats, FrameInfo light)
     {
         if (flats is null) return null;
         var lightKey = MasterGroupKey.FromFrame(light);
         var lightTrain = CalTrain.OpticalTrain(light);
+        var lightStart = light.Meta.ExposureStartTime;
         CalGroup? best = null;
-        var bestScore = double.PositiveInfinity;
+        var bestRank = (Tier: 0, Primary: 0.0, Secondary: 0.0);
         foreach (var g in flats)
         {
-            // Skip unbuildable singletons (see BestDark): a lone raw flat frame can't build a master,
-            // so it must not out-rank a multi-frame flat and leave the session with no flat at all. A
-            // foreign master flat is exempt (loaded directly).
-            if (!Buildable(g) || !DimensionCompatible(g.Key, lightKey) || !g.Train.TrainCompatibleWith(lightTrain)) continue;
+            // Unbuildable singletons are not candidates (see BestDark): a lone raw flat frame can't
+            // build a master, so it must not out-rank a multi-frame flat and leave the session with
+            // no flat at all. A foreign master flat is exempt (loaded directly).
+            if (!IsFlatCandidate(g, lightKey, lightTrain, lightStart, out var unprovenDays)) continue;
             var filterMismatch = g.Key.SameFilterAs(lightKey) ? 0.0 : 1000.0;
             // Time matters a little more for flats than the constant's sizing suggests (dust moves
             // between seasons), but it is still no physical axis: filter and temperature dominate,
             // and time separates two epochs of the SAME train's flats -- the season whose dust
             // matches the lights wins.
             var score = filterMismatch + TempPenalty(g.Key, lightKey) * 10.0 + GainPenalty(g.Key, lightKey)
-                + TimePenalty(g.EpochStart, light.Meta.ExposureStartTime);
-            if (score < bestScore || (score == bestScore && SlugBefore(g, best)))
+                + TimePenalty(g.EpochStart, lightStart);
+            // Proven flats keep the score above untouched. Unproven ones come after all of them, by
+            // filter label first (1000 dwarfs a window of days), then distance, then that score.
+            var rank = unprovenDays is { } days
+                ? (Tier: 1, Primary: filterMismatch + days, Secondary: score)
+                : (Tier: 0, Primary: score, Secondary: 0.0);
+            var order = best is null ? -1 : rank.CompareTo(bestRank);
+            if (order < 0 || (order == 0 && SlugBefore(g, best)))
             {
-                bestScore = score;
+                bestRank = rank;
                 best = g;
             }
         }

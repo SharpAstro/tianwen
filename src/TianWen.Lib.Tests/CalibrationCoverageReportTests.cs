@@ -101,6 +101,8 @@ namespace TianWen.Lib.Tests
             Cell("flat_found").ShouldBe("true");
             Cell("flat_filter_match").ShouldBe("true");
             Cell("flat_within_30d").ShouldBe("true");
+            // Every synthetic frame states SynthScope @ 135 mm, so the cards prove the train.
+            Cell("flat_train_proof").ShouldBe("cards");
             // The 3s IMAGETYP=DARK set must beat the bias for the flat's pedestal, by exposure and
             // never by label, and must be counted as the one exposure-gated candidate.
             Cell("pedestal_kind").ShouldBe("dark");
