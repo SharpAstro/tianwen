@@ -173,6 +173,12 @@ namespace TianWen.UI.Abstractions
         public bool ShowLayerPalette { get; set; } = true;
 
         /// <summary>
+        /// Whether the selected object's picture is open large over the map. Set by a click on the panel's
+        /// thumbnail, cleared by Escape, by the scrim, and whenever the panel has no picture to show.
+        /// </summary>
+        public bool PictureExpanded { get; set; }
+
+        /// <summary>
         /// The layer palette's placement and interaction state: where it sits along the right edge,
         /// whether it is rolled up, its drag and its idle fade. DIR.Lib owns the rules
         /// (<see cref="DIR.Lib.FloatingPaletteState"/>); this is only where the sky map keeps them.

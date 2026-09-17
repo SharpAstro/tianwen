@@ -288,6 +288,15 @@ namespace TianWen.UI.Abstractions
                     // Escape retires the most recent thing it can, and only quits when there is
                     // nothing left to retire. Without this the only way to clear a selection is a
                     // click on empty sky, which is not available when the frame is full of objects.
+                    // The large picture goes first: it covers the photograph, so nothing under it is
+                    // reachable while it is open, and the selection it belongs to outlives it.
+                    if (state.PictureExpanded)
+                    {
+                        state.PictureExpanded = false;
+                        state.NeedsRedraw = true;
+                        return true;
+                    }
+
                     if (state.SelectedObject is not null)
                     {
                         state.SelectedObject = null;

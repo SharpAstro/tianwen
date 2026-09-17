@@ -62,6 +62,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>Dismisses the info panel. The <c>Close</c> action handed to the shared panel.</summary>
         private void CloseInfoPanel()
         {
+            State.PictureExpanded = false;
             State.Search.InfoPanel = null;
             State.NeedsRedraw = true;
         }
@@ -311,6 +312,18 @@ namespace TianWen.UI.Abstractions
         {
         }
 
+        private void ExpandPicture()
+        {
+            State.PictureExpanded = true;
+            State.NeedsRedraw = true;
+        }
+
+        private void CollapsePicture()
+        {
+            State.PictureExpanded = false;
+            State.NeedsRedraw = true;
+        }
+
         private void DrawInfoPanel(
             PlannerState plannerState,
             in SkyMapInfoPanelData info,
@@ -415,7 +428,7 @@ namespace TianWen.UI.Abstractions
             {
                 var sectionY = py + row + 8f * dpiScale
                     + (hasCurve ? (ObjectInfoPanel.DesignSparklineHeight + 4f) * dpiScale : 0f);
-                RenderLayout(ObjectInfoPanel.BuildPictureSection(in picture, in palette),
+                RenderLayout(ObjectInfoPanel.BuildPictureSection(in picture, in palette, onOpen: ExpandPicture),
                     new RectF32(px, sectionY, pw, ObjectInfoPanel.DesignPictureSectionHeight(in picture) * dpiScale),
                     scale: Scale,
                     drawFill: (fill, rect) =>
@@ -425,6 +438,12 @@ namespace TianWen.UI.Abstractions
                             DrawObjectPicture(in picture, rect);
                         }
                     });
+            }
+            else
+            {
+                // Nothing to expand: an object whose article kept no picture, or one whose panel replaced a
+                // picture that was open.
+                State.PictureExpanded = false;
             }
 
             var btnH = ObjectInfoPanel.DesignButtonHeight * dpiScale;
@@ -440,6 +459,26 @@ namespace TianWen.UI.Abstractions
             {
                 RenderLayout(closeNode,
                     new RectF32(px + pw - closeSize, py, closeSize, closeSize), scale: Scale);
+            }
+
+            // The large view covers the map, so it is drawn after everything the panel put on it. The same
+            // host hook fills it, at a rect big enough that a wider standard thumbnail is asked for.
+            if (State.PictureExpanded && options.Picture is { } expanded)
+            {
+                var pictureRect = ObjectInfoPanel.LargePictureRect(contentRect, in expanded, dpiScale);
+                var (scrim, body) = ObjectInfoPanel.BuildLargePicture(in expanded, in palette, pictureRect, CollapsePicture);
+                RenderLayout(scrim, contentRect);
+                RenderLayout(body,
+                    new RectF32(pictureRect.X, pictureRect.Y, pictureRect.Width,
+                        pictureRect.Height + (ObjectInfoPanel.DesignRowHeight * dpiScale)),
+                    scale: Scale,
+                    drawFill: (fill, rect) =>
+                    {
+                        if (fill.Key == ObjectInfoPanel.LargePictureFillKey)
+                        {
+                            DrawObjectPicture(in expanded, rect);
+                        }
+                    });
             }
 
             // Path across the sky for a selected solar-system body (planet / comet): a thin polyline of its

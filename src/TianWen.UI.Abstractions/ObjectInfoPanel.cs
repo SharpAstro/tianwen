@@ -90,6 +90,12 @@ namespace TianWen.UI.Abstractions
         /// <summary>The key of the picture slot's <see cref="Layout.Content.Fill"/>, which the host draws into.</summary>
         public const string PictureFillKey = "ObjectInfoPicture";
 
+        /// <summary>The key of the large view's slot, drawn by the same host hook at a bigger size.</summary>
+        public const string LargePictureFillKey = "ObjectInfoPictureLarge";
+
+        /// <summary>The share of the host's content rect the large view may cover.</summary>
+        private const float LargePictureShare = 0.8f;
+
         /// <summary>The picture's design width: the panel's, less an 8-unit margin either side.</summary>
         public const float DesignPictureWidth = DesignWidth - 16f;
 
@@ -346,15 +352,21 @@ namespace TianWen.UI.Abstractions
         /// The credit is a <see cref="HitResult.LinkHit"/> on the node, so the web host renders it as a real
         /// anchor and a desktop host opens it in the browser, from this one declaration.
         /// </remarks>
-        public static Layout.Node BuildPictureSection(in ObjectArticleImage image, in PanelPalette palette)
+        public static Layout.Node BuildPictureSection(in ObjectArticleImage image, in PanelPalette palette, Action? onOpen = null)
         {
             var credit = CreditLine(in image);
             var filePage = image.FilePageUrl;
+            var slot = Layout.Builder.Fill(key: PictureFillKey).WStar().HStar().Bg(PictureFrame);
+            if (onOpen is not null)
+            {
+                slot = slot.Clickable(new HitResult.ButtonHit("ObjectInfoPictureOpen"), _ => onOpen(), CursorKind.Pointer);
+            }
+
             return Layout.Builder.VStack(
                 Layout.Builder.Spacer().RowH(4f),
                 Layout.Builder.HStack(
                     Layout.Builder.Spacer().WFixed(8f).HStar(),
-                    Layout.Builder.Fill(key: PictureFillKey).WStar().HStar().Bg(PictureFrame),
+                    slot,
                     Layout.Builder.Spacer().WFixed(8f).HStar())
                     .RowH(DesignPictureHeight(in image)),
                 Layout.Builder.HStack(
@@ -370,6 +382,49 @@ namespace TianWen.UI.Abstractions
         // A picture frame is near-black in every theme, as image data is never re-tinted: a dim grey would
         // read as a mat around the picture rather than the absence of one.
         private static readonly RGBAColor32 PictureFrame = new RGBAColor32(0x08, 0x08, 0x0C, 0xFF);
+
+        // What the large view dims its host behind: dark enough that the picture is what the eye lands on,
+        // and translucent so the sky (or the photograph) is still recognisably there.
+        private static readonly RGBAColor32 LargePictureScrim = new RGBAColor32(0x00, 0x00, 0x00, 0xC8);
+
+        /// <summary>
+        /// Where the large view's picture goes in <paramref name="content"/>: the object's own aspect ratio, as
+        /// large as fits in <see cref="LargePictureShare"/> of it, centred, with its credit row below.
+        /// </summary>
+        public static RectF32 LargePictureRect(RectF32 content, in ObjectArticleImage image, float dpiScale)
+        {
+            var creditRow = DesignRowHeight * dpiScale;
+            var boxW = content.Width * LargePictureShare;
+            var boxH = (content.Height * LargePictureShare) - creditRow;
+            var aspect = image.Width > 0 && image.Height > 0 ? (float)image.Height / image.Width : 0.75f;
+            var w = MathF.Min(boxW, boxH / aspect);
+            var h = w * aspect;
+            return new RectF32(
+                content.X + ((content.Width - w) / 2f),
+                content.Y + ((content.Height - h - creditRow) / 2f),
+                w, h);
+        }
+
+        /// <summary>
+        /// The large view: a scrim over the whole content rect that dismisses it, the picture in its own slot,
+        /// and the credit under it. Drawn by the host after everything else, so it covers what it dims.
+        /// </summary>
+        /// <param name="picture">Where the picture goes, from <see cref="LargePictureRect"/>.</param>
+        public static (Layout.Node Scrim, Layout.Node Picture) BuildLargePicture(
+            in ObjectArticleImage image, in PanelPalette palette, RectF32 picture, Action close)
+        {
+            var credit = CreditLine(in image) + "   (Esc closes)";
+            var filePage = image.FilePageUrl;
+            var scrim = Layout.Builder.Spacer().Bg(LargePictureScrim)
+                .Clickable(new HitResult.ButtonHit("ObjectInfoPictureClose"), _ => close());
+            var body = Layout.Builder.VStack(
+                Layout.Builder.Fill(key: LargePictureFillKey).WStar().HStar().Bg(PictureFrame)
+                    .RowH(picture.Height),
+                Layout.Builder.Text(credit, DesignFontSize * 0.9f, palette.DimText, TextAlign.Center, TextAlign.Center)
+                    .RowH(DesignRowHeight)
+                    .Clickable(new HitResult.LinkHit(filePage), cursor: CursorKind.Pointer));
+            return (scrim, body);
+        }
 
         /// <summary>
         /// The action row, right-aligned, or null when the host offered no actions.

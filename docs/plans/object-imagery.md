@@ -235,8 +235,12 @@ an object absent from the table gets no link rather than a dead one.
 - **Verified**: in the GUI atlas (the Hubble M42 mosaic, its credit under it, one 50 KB file cached) and in
   the browser atlas through the opt-in `ObjectPictureProbe`. NOT yet verified in `tianwen-fits`, which
   draws through the same Vulkan helper.
-- **Outstanding in P1**: the click that opens the large picture, and the help menu's list of the pictures
-  shown this session.
+- **A click on the thumbnail opens the picture large** over the host's content, dimmed behind a scrim that
+  dismisses it, with the credit under it and Escape as the way out (Escape retires the picture before the
+  selection it belongs to). The same host hook fills the big slot, so it asks Wikimedia for a wider standard
+  width by virtue of being bigger, and the desktop caches that width beside the thumbnail.
+- **Outstanding in P1**: the help menu's list of the pictures shown this session, which is the belt-and-braces
+  half of the attribution (every picture already carries its own credit where it is shown).
 
 ### P2: positioned images on the atlas
 
