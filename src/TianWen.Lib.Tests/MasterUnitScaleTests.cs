@@ -62,8 +62,14 @@ public class MasterUnitScaleTests
         planes[0][StarY, StarX] = starR;
         planes[1][StarY, StarX] = starG;
         planes[2][StarY, StarX] = starB;
-        // A drizzle hole: a peak scan that does not skip it answers NaN and scales nothing.
-        planes[1][5, 5] = float.NaN;
+        // Drizzle holes in EVERY channel, the first pixel among them, as a real drizzle canvas has: a
+        // peak scan that does not skip NaN answers NaN and scales nothing. A hole in one channel only
+        // hid exactly that, because the channels without one still supplied the peak.
+        for (var c = 0; c < 3; c++)
+        {
+            planes[c][0, 0] = float.NaN;
+            planes[c][5, 5] = float.NaN;
+        }
 
         var meta = new ImageMeta("synth", DateTime.UtcNow, TimeSpan.FromSeconds(60),
             FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
@@ -94,6 +100,18 @@ public class MasterUnitScaleTests
         Image.TryReadFitsFile(Path.Combine(dir, "master_test_autocrop.fits"), out var crop, out _)
             .ShouldBeTrue("the autocrop FITS reads back");
         return (full!, crop!, master);
+    }
+
+    /// <summary>
+    /// The pipeline-level half of this contract, for any test that stacks a master through
+    /// <c>StackingPipeline</c> and reads the written file back: its brightest finite pixel is at most 1
+    /// and its label states that peak.
+    /// </summary>
+    internal static void ShouldBeUnitScaleWithATrueLabel(Image written, string what)
+    {
+        var peak = FinitePeak(written);
+        peak.ShouldBeLessThanOrEqualTo(1f + 1e-5f, $"{what}: the written master's brightest finite pixel is in [0, 1]");
+        written.MaxValue.ShouldBe(peak, 1e-5f, $"{what}: its DATAMAX / MaxValue is that peak");
     }
 
     private static float FinitePeak(Image image)

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Numerics;
 using System.Numerics.Tensors;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -666,11 +667,19 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
         => TensorPrimitives.Multiply(src, scalar, dst);
 
     /// <summary>
-    /// The observed minimum and maximum over every plane, vectorised, with NaN skipped
-    /// (IEEE 754 minNum / maxNum): a drizzle hole or an uncovered canvas cell is NaN and must not
-    /// become the answer. The one scan behind an image's OBSERVED <see cref="MaxValue"/>, shared by
-    /// the FITS reader and every integrated master.
+    /// The observed minimum and maximum over every plane, vectorised, with NaN skipped: a drizzle hole
+    /// or an uncovered canvas cell is NaN and must not become the answer. The one scan behind an
+    /// image's OBSERVED <see cref="MaxValue"/>, shared by the FITS reader and every integrated master.
+    /// Returns <c>(float.MaxValue, float.MinValue)</c> for planes with no number at all.
     /// </summary>
+    /// <remarks>
+    /// <b>Not <c>TensorPrimitives.MaxNumber</c>.</b> Its name reads as IEEE 754 maxNum, and this reader
+    /// used it on that belief, but over a span holding a NaN it answered NaN: every plane of a real
+    /// drizzle master (NaN around the canvas) scanned to NaN, so the master kept the label it was
+    /// handed and was written <c>DATAMAX = 1</c> over pixels up to 9.8 in the synthetic drizzle
+    /// pipeline test. The mask below is <see cref="Stacking.MeanCombiner"/>'s: <c>Vector.Equals(v, v)</c>
+    /// is false exactly on NaN lanes, which are replaced by the identity of the fold.
+    /// </remarks>
     internal static (float Min, float Max) ObservedRange(float[][,] channels)
     {
         var min = float.MaxValue;
@@ -678,8 +687,37 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
         foreach (var channel in channels)
         {
             var span = MemoryMarshal.CreateReadOnlySpan(ref channel[0, 0], channel.Length);
-            max = float.MaxNumber(max, TensorPrimitives.MaxNumber(span));
-            min = float.MinNumber(min, TensorPrimitives.MinNumber(span));
+            var i = 0;
+            if (Vector.IsHardwareAccelerated && span.Length >= Vector<float>.Count)
+            {
+                var lowest = new Vector<float>(float.MinValue);
+                var highest = new Vector<float>(float.MaxValue);
+                var maxVec = lowest;
+                var minVec = highest;
+                for (; i <= span.Length - Vector<float>.Count; i += Vector<float>.Count)
+                {
+                    var v = new Vector<float>(span.Slice(i, Vector<float>.Count));
+                    var isNumber = Vector.Equals(v, v);
+                    maxVec = Vector.Max(maxVec, Vector.ConditionalSelect(isNumber, v, lowest));
+                    minVec = Vector.Min(minVec, Vector.ConditionalSelect(isNumber, v, highest));
+                }
+
+                for (var k = 0; k < Vector<float>.Count; k++)
+                {
+                    max = MathF.Max(max, maxVec[k]);
+                    min = MathF.Min(min, minVec[k]);
+                }
+            }
+
+            for (; i < span.Length; i++)
+            {
+                var v = span[i];
+                if (!float.IsNaN(v))
+                {
+                    max = MathF.Max(max, v);
+                    min = MathF.Min(min, v);
+                }
+            }
         }
 
         return (min, max);

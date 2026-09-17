@@ -98,6 +98,7 @@ public class StackingPipelineRgbBayerDrizzleTest(ITestOutputHelper output)
         master.ChannelCount.ShouldBe(3, "drizzle on RGGB should produce a 3-channel master");
         master.Width.ShouldBeGreaterThanOrEqualTo(RgbBayerSyntheticFixture.FrameSize);
         master.Height.ShouldBeGreaterThanOrEqualTo(RgbBayerSyntheticFixture.FrameSize);
+        MasterUnitScaleTests.ShouldBeUnitScaleWithATrueLabel(master, "the drizzle master written by the pipeline");
 
         // 3) Every channel carries signal. A "median > epsilon" check alone would pass even when
         //    Bayer dispatch is fully broken (e.g. R<->B swapped), since every channel still ends
