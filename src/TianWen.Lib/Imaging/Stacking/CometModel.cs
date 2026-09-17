@@ -281,11 +281,15 @@ internal sealed class CometModel
         // Normalise to the integrator's own target before the remover sees it. A star remover is a
         // neural net and cares where its input sits in [0,1], not merely that the SNR is good.
         //
-        // This is not hypothetical. A drizzled comet layer does no per-frame normalisation, so its
-        // master's background sits at 0.0145; the plate this technique was proven on was an
-        // InRamAllFrames master, normalised to a background of 0.5. Handed the un-normalised crop,
-        // sxt found only the very peak (crop max 0.063 -> 0.044) and left the whole coma: radial
-        // medians ran 0.000028 at r=20 against a noise floor of 0.000077, i.e. nothing.
+        // This is not hypothetical. A drizzled comet layer built with an un-normalised
+        // DrizzleStrategy had its master's background sit at 0.0145; the plate this technique was
+        // proven on was an InRamAllFrames master, normalised to a background of 0.5. Handed the
+        // un-normalised crop, sxt found only the very peak (crop max 0.063 -> 0.044) and left the
+        // whole coma: radial medians ran 0.000028 at r=20 against a noise floor of 0.000077, i.e.
+        // nothing. DrizzleStrategy/TilePipelinedDrizzleStrategy now normalise per frame too (same
+        // root-cause fix as the phase-locked colour bias -- see docs/architecture/
+        // stacking-render-pipeline.md), so a fresh drizzled master already lands near 0.5; this call
+        // stays as the guard for a master built by an OLDER un-normalised run or any other producer.
         //
         // The absolute scale is free to change here because the per-frame amplitude is FITTED later
         // rather than derived, so any linear factor is absorbed by FitScale.

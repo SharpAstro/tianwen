@@ -185,19 +185,38 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
         var badPixelMask = job.BadPixelMask is { Length: > 0 } m ? m[0] : default;
         var hasBadPixelMask = job.BadPixelMask is { Length: > 0 };
 
+        // Per-frame normalisation -- same mechanism and same rationale as DrizzleStrategy (see its
+        // RunAsync for the full comment): each frame's own whole-plane median is mapped onto
+        // job.Options.NormalizationTarget once, right after calibration, so every subsequent
+        // strip-deposit pass (a cached frame is re-iterated across MULTIPLE strips here) reads
+        // already-normalised values. Applying it once at load time -- not per strip -- is what keeps
+        // this byte-identical to DrizzleStrategy's single full-canvas pass.
+        var applyNormalization = job.Options.ApplyNormalization;
+        var normalizationTarget = job.Options.NormalizationTarget;
+
+        Image LoadCalibrateNormalize(RawLightSource source)
+        {
+            var calibrated = DecodeCalibrate(source, calibrator, job.Intermediates);
+            return applyNormalization
+                ? Normalizer.Apply(calibrated, Normalizer.ComputeStats(calibrated), normalizationTarget)
+                : calibrated;
+        }
+
         // ---------------- Pass 1: load + calibrate every frame, cache ----------------
         // Cache calibrated 1-channel Bayer (~36 MB / frame at 3008^2) so
         // pass 2 can re-iterate per strip without re-reading FITS. Same
         // FrameCache + cap policy as TilePipelinedStrategy: roomy hosts
         // hold all N; tight hosts evict and re-decode on miss in pass 2.
         ct.ThrowIfCancellationRequested();
-        var firstCalibrated = DecodeCalibrate(sources[0], calibrator, job.Intermediates);
+        var firstCalibrated = LoadCalibrateNormalize(sources[0]);
         var calibratedBytes = (long)firstCalibrated.Width * firstCalibrated.Height * firstCalibrated.ChannelCount * sizeof(float);
         var cache = new FrameCache(n, FrameCache.DecideCacheCap(n, calibratedBytes));
         var refMeta = firstCalibrated.ImageMeta;
         // UnitScaleDivisor, not MaxValue -- see the note on the same line in DrizzleStrategy. The two
         // drizzle producers must agree on the divisor or the same input stacks to two brightnesses
-        // depending on which one the host's memory budget picked.
+        // depending on which one the host's memory budget picked. Only read when normalisation is
+        // off (the fallback path); when it's on, every deposited sample already sits near [0, 1] and
+        // this value is unused (see invMax below).
         var sourceMaxValue = firstCalibrated.UnitScaleDivisor;
         // Cache the first frame BEFORE the loop so pass-2 can refer to it
         // through the cache uniformly with the other frames -- no special
@@ -208,7 +227,7 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
         for (var f = 1; f < n; f++)
         {
             ct.ThrowIfCancellationRequested();
-            var calibrated = DecodeCalibrate(sources[f], calibrator, job.Intermediates);
+            var calibrated = LoadCalibrateNormalize(sources[f]);
             cache.Set(f, calibrated);
             job.Progress?.Report(new IntegrationProgress(IntegrationPhase.LoadingFrames, f + 1, n, swStrat.Elapsed));
         }
@@ -274,9 +293,10 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
                 ct.ThrowIfCancellationRequested();
                 if (!cache.TryGet(f, out var calibrated))
                 {
-                    // Tier miss: re-decode + recalibrate. Re-add to cache;
-                    // the cache may evict another frame to make room.
-                    calibrated = DecodeCalibrate(sources[f], calibrator, job.Intermediates);
+                    // Tier miss: re-decode + recalibrate (+ re-normalise, same as pass 1 -- a
+                    // frame's deposited values must be identical whichever tier serves it). Re-add
+                    // to cache; the cache may evict another frame to make room.
+                    calibrated = LoadCalibrateNormalize(sources[f]);
                     cache.Set(f, calibrated);
                 }
 
@@ -326,8 +346,12 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
         // Master and coverage map carry the FITS contract DrizzleStrategy
         // established (master in [0, 1], coverage as the rejection-map
         // sidecar, uncovered cells reported as "rejections" for the
-        // existing writer gate).
-        var invMax = sourceMaxValue > 0f ? 1f / sourceMaxValue : 1f;
+        // existing writer gate). invMax mirrors DrizzleStrategy: normalised samples already sit
+        // near [0, 1] (median ~= normalizationTarget), so dividing by sourceMaxValue too would
+        // double-scale; only the disabled-normalisation fallback needs it.
+        var invMax = applyNormalization
+            ? 1f
+            : sourceMaxValue > 0f ? 1f / sourceMaxValue : 1f;
         var totalCells = (long)canvasH * canvasW * 3;
         var coveredCells = DrizzleKernel.FinaliseDivide(masterFlux, masterWeight, invMax, canvasH, canvasW);
 
