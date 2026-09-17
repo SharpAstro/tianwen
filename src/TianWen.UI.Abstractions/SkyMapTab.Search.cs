@@ -300,6 +300,17 @@ namespace TianWen.UI.Abstractions
             return Layout.Builder.VStack([.. rows]);
         }
 
+        /// <summary>
+        /// Draws an object's picture into its slot on the info panel. The base draws nothing, so the slot shows
+        /// its dark frame: this renderer-agnostic tab cannot draw an image, and the hosts that can override it
+        /// (a Vulkan texture on the desktop, a WebGL texture in the browser).
+        /// </summary>
+        /// <param name="image">The picture, whose <see cref="ObjectArticleImage.ThumbnailUrl"/> the host fetches.</param>
+        /// <param name="rect">The slot, in surface pixels. Its width is what the host asks Wikimedia for.</param>
+        protected virtual void DrawObjectPicture(in ObjectArticleImage image, RectF32 rect)
+        {
+        }
+
         private void DrawInfoPanel(
             PlannerState plannerState,
             in SkyMapInfoPanelData info,
@@ -325,7 +336,8 @@ namespace TianWen.UI.Abstractions
                 ShowAltAz: true,
                 ShowRiseSet: true,
                 TimeZone: plannerState.SiteTimeZone,
-                Sparkline: hasCurve);
+                Sparkline: hasCurve,
+                Picture: ObjectInfoPanel.PictureFor(info.Index, plannerState.ObjectDb));
 
             // Copied into locals because a click lambda cannot close over an `in` parameter.
             var pinName = info.Name;
@@ -395,6 +407,24 @@ namespace TianWen.UI.Abstractions
                 DrawMagnitudeSparkline(magCurve,
                     textX, py + row + 2f * dpiScale, textW, ObjectInfoPanel.DesignSparklineHeight * dpiScale,
                     fontSize);
+            }
+
+            // The picture sits under the rows and the sparkline and above the buttons, not at the top, where
+            // the close affordance would land on it.
+            if (options.Picture is { } picture)
+            {
+                var sectionY = py + row + 8f * dpiScale
+                    + (hasCurve ? (ObjectInfoPanel.DesignSparklineHeight + 4f) * dpiScale : 0f);
+                RenderLayout(ObjectInfoPanel.BuildPictureSection(in picture, in palette),
+                    new RectF32(px, sectionY, pw, ObjectInfoPanel.DesignPictureSectionHeight(in picture) * dpiScale),
+                    scale: Scale,
+                    drawFill: (fill, rect) =>
+                    {
+                        if (fill.Key == ObjectInfoPanel.PictureFillKey)
+                        {
+                            DrawObjectPicture(in picture, rect);
+                        }
+                    });
             }
 
             var btnH = ObjectInfoPanel.DesignButtonHeight * dpiScale;

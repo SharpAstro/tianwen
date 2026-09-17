@@ -1239,6 +1239,32 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         return (ctx.VertexBuffer, byteOffset, (uint)(floats.Count / 3));
     }
 
+    private VkObjectPictures? _pictures;
+    private IObjectPictureStore? _pictureStore;
+
+    /// <summary>
+    /// Where the info panel's pictures come from. Set by the host from its services; unset, the panel keeps
+    /// its picture slot's dark frame and fetches nothing.
+    /// </summary>
+    public IObjectPictureStore? PictureStore
+    {
+        get => _pictureStore;
+        set
+        {
+            _pictureStore = value;
+            if (_pictures is { } pictures)
+            {
+                pictures.Store = value;
+            }
+        }
+    }
+
+    protected override void DrawObjectPicture(in ObjectArticleImage image, RectF32 rect)
+    {
+        _pictures ??= new VkObjectPictures(renderer.Context, () => State.NeedsRedraw = true) { Store = _pictureStore };
+        _pictures.Draw(renderer, image, rect);
+    }
+
     protected override void OnMilkyWayLoaded(ReadOnlySpan<byte> bgraData, int width, int height)
     {
         _pipeline?.LoadMilkyWayTexture(bgraData, width, height);

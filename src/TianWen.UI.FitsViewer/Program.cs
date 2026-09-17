@@ -2,6 +2,7 @@
 using DIR.Lib;
 using SdlVulkan.Renderer;
 using TianWen.Lib;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.AI.Imaging;
 using TianWen.Lib.Logging;
 using TianWen.UI.Abstractions;
@@ -274,6 +275,8 @@ using var gpu = new GpuStack<VkImageRenderer>(logger, sdlWindow, (uint)pixW, (ui
         Bus = bus,
         DpiScale = sdlWindow.DisplayScale,
         CelestialObjectDB = celestialObjectDB,
+        // The selection panel's picture of the object, fetched on selection and cached on disk.
+        PictureStore = sp.GetRequiredService<IObjectPictureStore>(),
         // The viewer starts its own background work (colour calibration): give it the same tracker and
         // logger the controller uses, so it is drained at shutdown and its failures reach the app log.
         Tracker = tracker,

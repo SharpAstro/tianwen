@@ -58,5 +58,8 @@ public static class AstrometryServiceCollectionExtensions
         // configuration: no seed, so the source reports a miss and the live path above is used.
         .AddSingleton<IApparitionSeedSource>(sp => new ApparitionSeedSource(
             apparitionSeedUri, sp.GetRequiredService<ILogger<ApparitionSeedSource>>()))
-        .AddSingleton<ICometRepository, CometRepository>();
+        .AddSingleton<ICometRepository, CometRepository>()
+        // Object pictures for the selection panels, fetched on selection and cached on disk. The browser
+        // build never resolves it: it hands the same thumbnail URL to the browser, which fetches natively.
+        .AddSingleton<IObjectPictureStore, ObjectPictureStore>();
 }

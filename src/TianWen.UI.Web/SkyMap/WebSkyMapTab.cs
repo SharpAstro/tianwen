@@ -22,6 +22,23 @@ namespace TianWen.UI.Web.SkyMap
     internal sealed class WebSkyMapTab(WebGlRenderer renderer) : SkyMapTab<WebGlContext>(renderer)
     {
         private readonly WebGlSkyMapPipeline _pipeline = new(renderer);
+        private WebGlObjectPictures? _pictures;
+
+        /// <summary>
+        /// Asks the page for a frame. The browser paints per event, so a picture that finished loading while
+        /// nothing happened would otherwise wait for the next pointer move to appear.
+        /// </summary>
+        public Action? RequestRepaint { get; set; }
+
+        protected override void DrawObjectPicture(in ObjectArticleImage image, RectF32 rect)
+        {
+            _pictures ??= new WebGlObjectPictures(renderer, () =>
+            {
+                State.NeedsRedraw = true;
+                RequestRepaint?.Invoke();
+            });
+            _pictures.Draw(in image, rect);
+        }
 
         /// <summary>
         /// Hands <paramref name="sibling"/> this tab's <see cref="WindowUiSettings"/>, so the page's two

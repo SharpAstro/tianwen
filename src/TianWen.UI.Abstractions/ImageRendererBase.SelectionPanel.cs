@@ -1,5 +1,6 @@
 using System;
 using DIR.Lib;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.UI.Abstractions
@@ -29,6 +30,16 @@ namespace TianWen.UI.Abstractions
                 ViewBg: ToolbarButtonBg,
                 PinBg: ToolbarButtonBg,
                 UnpinBg: ToolbarButtonBg);
+
+        /// <summary>
+        /// Draws an object's picture into its slot on the selection panel. The base draws nothing, so the slot
+        /// shows its dark frame: a renderer-agnostic viewer cannot draw an image, and the Vulkan host overrides it.
+        /// </summary>
+        /// <param name="image">The picture, whose <see cref="ObjectArticleImage.ThumbnailUrl"/> the host fetches.</param>
+        /// <param name="rect">The slot, in surface pixels. Its width is what the host asks Wikimedia for.</param>
+        protected virtual void DrawObjectPicture(in ObjectArticleImage image, RectF32 rect)
+        {
+        }
 
         /// <summary>
         /// Draws the selected object's floating info panel over the picture, bottom-left of the image
@@ -76,7 +87,8 @@ namespace TianWen.UI.Abstractions
                 ShowAltAz: haveSiteRows,
                 ShowRiseSet: haveSiteRows,
                 TimeZone: capturedAt?.Offset ?? TimeSpan.Zero,
-                Footnote: capturedAt is { } cap ? $"at capture, {cap:yyyy-MM-dd HH:mm}" : null);
+                Footnote: capturedAt is { } cap ? $"at capture, {cap:yyyy-MM-dd HH:mm}" : null,
+                Picture: ObjectInfoPanel.PictureFor(selection.Index, LoadedCatalog));
 
             var actions = new ObjectInfoPanel.PanelActions(
                 Close: () =>
@@ -124,6 +136,22 @@ namespace TianWen.UI.Abstractions
             var textBlockH = ObjectInfoPanel.DesignTextBlockHeight(in options) * dpiScale;
             RenderLayout(ObjectInfoPanel.BuildTextRows(in selection, in options, in palette),
                 new RectF32(textX, py, textW, textBlockH), scale: Scale);
+
+            // Under the rows and above the buttons, as in the atlas: at the top the close affordance would sit
+            // on the picture.
+            if (options.Picture is { } picture)
+            {
+                RenderLayout(ObjectInfoPanel.BuildPictureSection(in picture, in palette),
+                    new RectF32(px, py + textBlockH + (8f * dpiScale), pw, ObjectInfoPanel.DesignPictureSectionHeight(in picture) * dpiScale),
+                    scale: Scale,
+                    drawFill: (fill, rect) =>
+                    {
+                        if (fill.Key == ObjectInfoPanel.PictureFillKey)
+                        {
+                            DrawObjectPicture(in picture, rect);
+                        }
+                    });
+            }
 
             var btnH = ObjectInfoPanel.DesignButtonHeight * dpiScale;
             var btnY = py + ph - btnH - (8f * dpiScale);

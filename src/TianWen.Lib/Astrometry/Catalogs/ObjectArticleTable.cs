@@ -25,9 +25,9 @@ internal readonly record struct ObjectArticleRow(ObjectArticle Article, Immutabl
 /// <remarks>
 /// <para>The first record is a header, <c>TianWenObjectArticles</c> and the schema version. Each record
 /// after it is one article, fields in this order: Wikidata item number, title, the catalogue indices
-/// (raw <see cref="CatalogIndex"/> values, decimal, unit-separated), then the lead image's file name,
-/// licence, artist, credit, attribution flag (<c>1</c> or <c>0</c>), width and height. An article with no
-/// image leaves all seven image fields empty.</para>
+/// (raw <see cref="CatalogIndex"/> values, decimal, unit-separated), then the lead image's file name, hash
+/// prefix, licence, artist, credit, attribution flag (<c>1</c> or <c>0</c>), width and height. An article
+/// with no image leaves all eight image fields empty.</para>
 /// <para>Indices are stored as their raw values, as the other catalogue snapshots store them, so a change
 /// to the <see cref="CatalogIndex"/> encoding invalidates this table exactly as it does those.</para>
 /// </remarks>
@@ -36,9 +36,15 @@ internal static class ObjectArticleTable
     public const string ResourceSuffix = ".object_articles.gs.gz";
 
     private const string Magic = "TianWenObjectArticles";
-    private const int SchemaVersion = 1;
+    private const int SchemaVersion = 2;
 
-    public static FrozenDictionary<CatalogIndex, ObjectArticle> Read(Stream gzipped)
+    /// <summary>
+    /// Reads the table, or answers false when its header names another schema or it has none: a table this
+    /// build does not know, which a consumer to whom the table is an enrichment simply goes without. The
+    /// header is checked before any record is parsed; a table whose header matches but whose records do not
+    /// is corrupt, and that still throws.
+    /// </summary>
+    public static bool TryRead(Stream gzipped, out FrozenDictionary<CatalogIndex, ObjectArticle> table)
     {
         using var decompressed = new MemoryStream();
         using (var gz = new GZipStream(gzipped, CompressionMode.Decompress, leaveOpen: true))
@@ -60,7 +66,8 @@ internal static class ObjectArticleTable
                 var version = AsciiRecordReader.ReadString(AsciiRecordReader.TakeField(ref record));
                 if (magic != Magic || version != SchemaVersion.ToString(CultureInfo.InvariantCulture))
                 {
-                    throw new InvalidDataException($"Not an object article table of schema {SchemaVersion}: '{magic}' version '{version}'.");
+                    table = FrozenDictionary<CatalogIndex, ObjectArticle>.Empty;
+                    return false;
                 }
                 continue;
             }
@@ -74,6 +81,7 @@ internal static class ObjectArticleTable
             var title = AsciiRecordReader.ReadString(AsciiRecordReader.TakeField(ref record));
             var indices = AsciiRecordReader.ReadStringArray(AsciiRecordReader.TakeField(ref record));
             var fileName = AsciiRecordReader.ReadString(AsciiRecordReader.TakeField(ref record));
+            var hashPrefix = AsciiRecordReader.ReadString(AsciiRecordReader.TakeField(ref record));
             var licence = AsciiRecordReader.ReadString(AsciiRecordReader.TakeField(ref record));
             var artist = AsciiRecordReader.ReadString(AsciiRecordReader.TakeField(ref record));
             var credit = AsciiRecordReader.ReadString(AsciiRecordReader.TakeField(ref record));
@@ -83,7 +91,7 @@ internal static class ObjectArticleTable
 
             ObjectArticleImage? image = fileName.Length == 0
                 ? null
-                : new ObjectArticleImage(fileName, licence, artist, credit,
+                : new ObjectArticleImage(fileName, hashPrefix, licence, artist, credit,
                     AttributionRequired: attribution.SequenceEqual("1"u8),
                     Width: int.Parse(width, NumberStyles.None, CultureInfo.InvariantCulture),
                     Height: int.Parse(height, NumberStyles.None, CultureInfo.InvariantCulture));
@@ -95,13 +103,15 @@ internal static class ObjectArticleTable
             }
         }
 
-        if (first)
-        {
-            throw new InvalidDataException("The object article table is empty: it has no header.");
-        }
-
-        return byIndex.ToFrozenDictionary();
+        table = byIndex.ToFrozenDictionary();
+        return !first;
     }
+
+    /// <summary><see cref="TryRead"/> for a caller that needs the table: one it cannot read throws.</summary>
+    public static FrozenDictionary<CatalogIndex, ObjectArticle> Read(Stream gzipped)
+        => TryRead(gzipped, out var table)
+            ? table
+            : throw new InvalidDataException($"Not an object article table of schema {SchemaVersion}.");
 
     public static void Write(Stream destination, IEnumerable<ObjectArticleRow> rows)
     {
@@ -131,6 +141,7 @@ internal static class ObjectArticleTable
             if (article.Image is { } image)
             {
                 text.Append(Clean(image.FileName)).Append((char)AsciiRecordReader.RecordSeparator)
+                    .Append(Clean(image.HashPrefix)).Append((char)AsciiRecordReader.RecordSeparator)
                     .Append(Clean(image.Licence)).Append((char)AsciiRecordReader.RecordSeparator)
                     .Append(Clean(image.Artist)).Append((char)AsciiRecordReader.RecordSeparator)
                     .Append(Clean(image.Credit)).Append((char)AsciiRecordReader.RecordSeparator)
@@ -140,7 +151,7 @@ internal static class ObjectArticleTable
             }
             else
             {
-                text.Append((char)AsciiRecordReader.RecordSeparator, 6);
+                text.Append((char)AsciiRecordReader.RecordSeparator, 7);
             }
 
             text.Append((char)AsciiRecordReader.GroupSeparator);

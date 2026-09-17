@@ -295,7 +295,8 @@
             // and surface as real, selectable DOM spans instead (see SyncSelectableTextLayer).
             _webGl.HostRendersSelectableText = true;
             _tab = new PlannerTab<WebGlContext>(_webGl) { Bus = _bus };
-            _skyTab = new WebSkyMapTab(_webGl) { Bus = _bus };
+            // RequestRepaint: an object picture that lands between events paints on the next animation frame.
+            _skyTab = new WebSkyMapTab(_webGl) { Bus = _bus, RequestRepaint = RequestRenderCoalesced };
             // One window, one context: the sky tab hands the planner tab its own WindowUiSettings, so
             // "which field has the keyboard" has a single answer across both views -- and it is the one
             // the router resolves focus against. The platform binding goes on afterwards, so it is bound
