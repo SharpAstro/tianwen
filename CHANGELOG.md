@@ -31,6 +31,78 @@ stay, their dates stay verifiable, and `git log v3.6.493..v4.0.564` answers the 
 always did. Hashes quoted in the docs from before the migration were re-pointed the same way. Any
 other commit hash from before 2026-04-22 no longer resolves anywhere.
 
+## 9.0
+
+Breaking, so a major. The geometry types in `TianWen.Lib`'s public API are its own now, the
+dependency floor moves two majors, and a filter name the library does not recognise stops comparing
+equal to `Filter.Unknown`. Two further changes alter what a dataset bake produces from the same
+archive, which no signature announces.
+
+**`System.Drawing.Rectangle` and `Point` are gone from the public API**, replaced by
+`TianWen.Lib.Geometry.PixelRect` and `PixelPoint` in 24 public signatures, among them `Image.Crop`,
+`Image.LargestCoveredRectangle`, `Image.SettledCoverageRectangle`, `Image.DebayerRegionIntoAsync` and
+`CoverageEdgeWalk.Trim` / `Measure`. The assembly was never the GDI+ one, but the name carried a
+drawing and Windows association the imaging and device layers do not want, and `Devices` had already
+kept it out with its own `RoiRect`. `Right` and `Bottom` stay EXCLUSIVE, as the replaced type defines
+them; the one inclusive convention is the FITS section cards, converted in `FitsSection` and nowhere
+else. A caller swaps the type and changes nothing else.
+
+**The dependency floor moves**: DIR.Lib 9.3 to 10.0 and FITS.Lib 5.0 to 6.0, both majors (FITS.Lib's
+`PartialFitsReader.ReadRegion` takes four edges instead of a drawing rectangle, which is what let the
+namespace go), with TianWen.DAL 2.1, QHYCCD.SDK 1.1 and ZWOptical.SDK 4.3. The DIR.Lib move landed on
+`main` after 8.2's entry was written and so was published under 8.2 packages; Console.Lib 5.0,
+SdlVulkan.Renderer 7.43 and WebGl.Renderer 1.33 moved with it.
+
+**`Filter.FromName` keeps a name it does not recognise.** It returned `Filter.Unknown` and dropped the
+text, and an unknown filter's identity IS that text, so every such filter built from a name (the
+implicit string conversion, a manual filter wheel) was identical to no filter at all: the info panel
+showed "Filter: Unknown" over every L-eNhance and LPS-D3 frame, and a manual wheel stored the literal
+`Unknown` in its URI and lost the filter it was created for. Only the FITS reader put the text back,
+by hand. It now returns an unknown filter carrying the text as `RawName`, which is also its
+`IdentityKey`. A test of `filter == Filter.Unknown` no longer
+catches it: ask `filter.IsUnknown`. A blank or whitespace name still returns `Filter.Unknown` itself.
+
+**A flat whose headers cannot prove the optical train is used only within 14 days of the lights.**
+`CalibrationResolver` read a missing `TELESCOP` or `FOCALLEN` as a wildcard, and SharpCap writes
+neither on a flat, so a flat from one train could be chosen for lights shot through another on the
+same camera. Flats now rank by filter first in three levels (same filter, one side unstated, both
+stated and different), then a train the cards prove ahead of one only the date admits, then the old
+score or the distance in days; `calibration-coverage.tsv` gains a `flat_train_proof` column saying
+which. The window is the archive's own distances: a session's own flats sit 0.03 to 1.97 days from
+its lights, a SharpCap campaign's shared set up to 8.9, and the nearest set from another train 17.5.
+On the reference archive 19 of 95 sessions changed flat, all of the SharpCap era, and one now has
+none.
+
+**An unnormalised drizzle shifts every frame's sky onto the session's.** The dataset bake integrates
+with normalisation off so its masters stay on the subs' linear scale, and drizzle's uneven weights
+over the four Bayer phases turned sky drift into a fixed 2x2 level pattern: a median 0.28 sigma over
+the 2026-09-16 bake's 57 drizzled masters, 8.9 at worst. `IntegrationOptions.DrizzleSkyReference`
+(opt-in, ignored when normalising) moves each frame's per-colour sky onto one reference without
+touching its scale, and `SessionRegistrar` hands the median sky of the session's subs to the master
+and both halves. On Statue of Liberty the worst term went from 8.88 sigma to 0.06 and blue's
+background sigma from 7.1e-4 to 1.8e-4, with the sky level within 7 percent of before. A drizzled
+master baked earlier keeps the pattern until it is re-baked.
+
+**Published under 8.2 after its entry was written, and recorded here (#292).** With normalisation on,
+drizzle normalises each frame per CFA colour, closing a phase-locked colour bias and the column
+stripe a whole-frame scalar left behind. Every integration strategy writes its master in [0, 1],
+labelled with its observed peak as `MaxValue`, no `SensorFullScaleAdu`, and the pedestal and black
+point the normalisation actually left; a master written before claimed `DATAMAX = 1` over pixels up
+to 62.
+
+**Additive**: `ImageMeta.DataSection` and `BiasSection`, read and written as `DATASEC` / `BIASSEC`
+(`TRIMSEC` stands in only where `DATASEC` is absent); `ImageMeta.FrameSequence` with its counter
+source (`FRAMESEQ`, `SEQSRC`), counted per connect by the DAL camera driver; the sensor geometry DAL
+2.1 exposes, declared on full-frame unbinned captures only; `FitsHeaderEditor.SetFrameTypeAsync` and
+the `dataset tag-frame-type` and `relabel-frame-type` verbs; `CalibrationProvenance` on the PSF
+store's session record; `--hold-out-session` and a `dataset-parameters.json` for standing bake
+decisions.
+
+**Device behaviour**: a QHY guide pulse now runs for the duration asked where the device can time its
+own, where it was a fixed 50 seconds nothing could stop; a QHY cooler with nothing engaged reports its
+setpoint as `NaN` rather than a plausible -100; the QHY DDR frame buffer is enabled on every connect,
+since it reads off on each freshly opened handle.
+
 ## 8.2
 
 The sibling pins move as a family, and a flat pixel with no throughput stops being multiplied by a
