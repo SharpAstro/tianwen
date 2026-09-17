@@ -2,9 +2,12 @@
 IntegrationOptions.DrizzleSkyReference for the dataset bake's unnormalised one; the measurements are in
 docs/architecture/stacking-render-pipeline.md.)
 
-    python tools/drizzle-phase-pattern/measure.py <folder of master FITS> [drizzle]
+    python tools/master-quality/measure.py <folder of master FITS or files> [drizzle]
 
 `drizzle` limits it to STRATEGY = 'BayerDrizzle' masters. Per channel, on the central 1536 px square,
+the field median (`lvl`) and the background sigma (`bg`, 1.4826 MAD of the pixels at or under the 55th
+percentile), which is the pair to compare between two bakes of one session: a pattern inflates `bg`
+(Statue of Liberty's blue read 7.1e-4 with it, 1.8e-4 without), a shifted sky moves `lvl`. Then,
 background pixels only:
 
   col = (median(x[:, 2k] - x[:, 2k+1]) - median(x[:, 2k+1] - x[:, 2k+2])) / 2
@@ -59,7 +62,14 @@ def measure(plane):
     return out
 
 
-rows = []
+def level_and_sigma(plane):
+    """Field median, and 1.4826 MAD of the pixels at or under the 55th percentile about that median."""
+    finite = plane[np.isfinite(plane)]
+    med = np.median(finite)
+    low = finite[finite <= np.percentile(finite, 55)]
+    return med, 1.4826 * np.median(np.abs(low - med))
+
+
 for path in PATHS:
     name = os.path.basename(path)
     with fits.open(path, memmap=True) as hdul:
@@ -74,6 +84,7 @@ for path in PATHS:
         y0, x0 = H // 2 - HALF, W // 2 - HALF
         crop = np.array(data[:, y0:y0 + 2 * HALF, x0:x0 + 2 * HALF], dtype=np.float64)
     res = [measure(crop[ch]) for ch in range(c)]
-    line = f"{strategy[:12]:12s} " + "  ".join(
-        f"{'RGB'[ch] if c == 3 else 'M'} col {r[0][0]:6.3f} ({r[0][1]*100:3.0f}%) row {r[1][0]:6.3f} ({r[1][1]*100:3.0f}%) chk {r[2][0]:6.3f} ({r[2][1]*100:3.0f}%)" for ch, r in enumerate(res)) + f"  {name[:60]}"
+    line = f"{str(strategy)[:12]:12s} " + "  ".join(
+        f"{'RGB'[ch] if c == 3 else 'M'} lvl {lvl:.5f} bg {bg:.2e} col {r[0][0]:6.3f} ({r[0][1]*100:3.0f}%) row {r[1][0]:6.3f} ({r[1][1]*100:3.0f}%) chk {r[2][0]:6.3f} ({r[2][1]*100:3.0f}%)"
+        for ch, r in enumerate(res) for lvl, bg in [level_and_sigma(crop[ch])]) + f"  {name[:60]}"
     print(line, flush=True)

@@ -1373,7 +1373,7 @@ to named sessions; the per-field matched comparison is `--only <field>`.
 
 Artefacts: `C:/temp/e2/x.log` (both launches), `C:/temp/e2/scripts-x/` (the scripts as run),
 `C:/temp/e2/gaia/starsplit-x-final-{eval4b,eval4,etacar}.txt` and `starsplit-x-preview-*.txt` (the
-scores), `C:/temp/e2/gaia/condprobe.py` with `condprobe-out.txt` and `condprobe-e2.txt` (the
+scores), `training/denoise/condprobe.py` with `C:/temp/e2/gaia/condprobe-out.txt` and `condprobe-e2.txt` (the
 conditioning ranges per cache and session), `C:/temp/tianwen-scratch/n2n-x/x_s{0,1,2}.pt`,
 `n2n-x-ctl/xctl_s{0,1,2}.pt` (gate-selected) and `_final.pt`.
 
@@ -1381,7 +1381,7 @@ conditioning ranges per cache and session), `C:/temp/tianwen-scratch/n2n-x/x_s{0
 
 Arm X's autopsy said the supervised arms share its blind spot: their injected inputs never go below
 0.23 on the conditioning plane. Before another arm, the plane was measured everywhere it matters
-(`C:/temp/e2/gaia/condpool.py`, output `condpool-out.txt`).
+(`training/denoise/condpool.py`, output `C:/temp/e2/gaia/condpool-out.txt`).
 
 **Inside the E2 S-warped cache, the range covers each session's own master by construction.** Per
 training session, the injected input's p5 sits at 0.94 to 1.09 of the clean master's median plane
@@ -1473,7 +1473,7 @@ ships for that seed.
   1.0) and keeps 0.74 of the faint-star amplitude where gate1500 keeps 0.65, on this one frame through
   the path that ships.
 
-Artefacts: `C:/temp/e2/gaia/condpool.py`, `condpool-out.txt`, `metrics-hp-eval4.txt`,
+Artefacts: `training/denoise/condpool.py`, `C:/temp/e2/gaia/condpool-out.txt`, `metrics-hp-eval4.txt`,
 `C:/temp/e2/starsplit-wide-eval4.txt` and `starsplit-warped9-eval4.txt` (the low-plane scores, three
 wide seeds and all nine warped ones),
 `seamprobe-{gate1500,shipped4000}[-nostars].txt`, `C:/temp/e2/models-old/` (the previous ONNX from

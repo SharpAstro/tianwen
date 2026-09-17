@@ -16,7 +16,7 @@ refusing if the target already exists, and records every rename in move-log.csv 
 record: swap columns to reverse). Nothing is ever deleted.
 
 Usage:
-  python tools/astro-archive-organize.py --index "D:\\Astro-Reports\\fits-index.jsonl" ^
+  python tools/archive-curation/astro-archive-organize.py --index "D:\\Astro-Reports\\fits-index.jsonl" ^
       --source "D:\\BobbyBox-Temp" --canonical "D:\\Astro-Pics" --out "D:\\Astro-Reports"
   ... --apply     # execute the MOVE rows after reviewing move-plan.csv
 """
@@ -199,7 +199,7 @@ def write_summaries(records: list[dict], roots: list[str]) -> int:
         lines = [
             f"# Session summary - {os.path.basename(session)}",
             "",
-            f"> Machine-written by `tools/astro-archive-organize.py --write-summaries` on {today};",
+            f"> Machine-written by `tools/archive-curation/astro-archive-organize.py --write-summaries` on {today};",
             "> safe to delete, regenerated on the next organize run. Matching is by FITS header",
             "> (camera + exposure + gain + binning [+ filter]); darks/bias rank temperature-first",
             "> (dT vs the lights' setpoint, >2C flagged), flats rank night-proximity-first.",
