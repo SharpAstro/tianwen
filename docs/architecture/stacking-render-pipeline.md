@@ -80,29 +80,65 @@ width, so a master's width is its subs' plus the kernel's plus any misregistrati
 The measurements behind each clause: `docs/plans/deconvolver-training.md`, E2.10a "the third finding
 placed" and R1; the traps: `docs/known-limitations.md`.
 
-**Drizzle normalises per frame too, same as every other strategy.** `DrizzleStrategy` and
-`TilePipelinedDrizzleStrategy` forward-project raw CFA samples directly (no debayer, no warp), and
-used to skip `Normalizer` entirely on the theory that "every interior pixel averages the same frames,
-so a session-long sky trend is one constant across the whole master." That was never true: the
-forward-project deposit spreads weight UNEVENLY across the 2x2 CFA phases under sub-pixel dither
-(measured 13-30% per-frame variance on a real 135-sub RGGB session), so different output channels end
-up as the weighted average of a different effective MIX of frames. A session-long sky trend then bakes
-into the master as a fixed phase-locked 2x2 colour bias (measured R 1.67, G 1.06, B 1.90 sigma of
-block-median spread on 10P/Tempel 2), independent of any comet mask -- see "A masked layer needs a
-strategy that NORMALISES" in `docs/plans/comet-integration.md`, which found the same root cause first,
-just amplified by masking. Both strategies now call `Normalizer.ComputeStats`/`Apply` on each frame's
-whole raw CFA plane (one scalar per frame, mixing all four Bayer positions -- it corrects the frame's
-overall sky level and never touches the colour ratio WITHIN a frame) before depositing, using
-`IntegrationJob.Options.ApplyNormalization`/`NormalizationTarget` like every other strategy; the old
-final `flux/weight * (1/sourceMaxValue)` divide is now the identity in the normalised case (dividing
-twice would re-introduce the bug in a different form) and survives only as the fallback for a caller
-that explicitly disables normalisation. `TilePipelinedDrizzleStrategy` normalises once at load time
-(pass 1 and the pass-2 cache-miss reload path), not per strip, so a cached frame stays byte-identical
-to `DrizzleStrategy`'s single full-canvas pass -- pinned by the existing
-`Stack_TilePipelinedDrizzle_MatchesBayerDrizzleByteForByte` parity test. Reproduced and pinned by
-`DrizzlePerFrameNormalizationTests` (a flat RGGB set whose dither drifts and sky level both ramp
-monotonically with frame index, the same time-correlated shape a real session's periodic tracking
-error / progressive dithering plus its sky trend produce).
+**Drizzle normalises per frame, per CFA COLOUR, same as every other strategy normalises per channel.**
+`DrizzleStrategy` and `TilePipelinedDrizzleStrategy` forward-project raw CFA samples directly (no
+debayer, no warp), and used to skip `Normalizer` entirely on the theory that "every interior pixel
+averages the same frames, so a session-long sky trend is one constant across the whole master." That
+was never true: the forward-project deposit spreads weight UNEVENLY across the 2x2 CFA phases under
+sub-pixel dither (measured 13-30% per-frame variance on a real 135-sub RGGB session), so different
+output channels end up as the weighted average of a different effective MIX of frames. A session-long
+sky trend then bakes into the master as a fixed phase-locked 2x2 colour bias (measured R 1.67, G 1.06,
+B 1.90 sigma of block-median spread on 10P/Tempel 2), independent of any comet mask -- see "A masked
+layer needs a strategy that NORMALISES" in `docs/plans/comet-integration.md`, which found the same root
+cause first, just amplified by masking.
+
+The first fix called `Normalizer.ComputeStats`/`Apply` on each frame's whole raw CFA plane -- ONE
+scalar per frame, mixing all four Bayer positions together, dominated by green (2x the photosites of
+red or blue). That closed most of the gap (R 1.67 -> 0.45, B 1.90 -> 0.40 sigma) but left a visible
+residual (R 0.31, B 0.30 sigma even/odd COLUMN level, same sign in 100% of blocks) because a pooled
+scalar cannot follow a per-COLOUR drift: measured on the same 10P/Tempel 2 session, bias-subtracted
+sky G fell 46% while R/G and B/G held within only ~2-3% -- small, but real, and invisible to a scalar
+dominated by G. Both strategies now call `Normalizer.ComputeCfaStats`/`ApplyCfa` instead: Red, Green
+and Blue photosites are each mapped onto `IntegrationJob.Options.NormalizationTarget` with their OWN
+scale (mirroring how every debayered strategy already normalises R/G/B independently via
+`Normalizer.ComputeStats`'s per-`ChannelCount` loop -- a raw Bayer plane is `ChannelCount == 1`, so the
+per-channel discretion needs a per-colour CFA traversal instead). This dropped the residual to R 0.02,
+B 0.01 sigma even/odd column level (same sign in ~57% of blocks, i.e. noise, not bias) and R 0.06,
+B 0.06 sigma block-median phase spread (down from 0.45/0.40, now level with G's 0.04). Per-pixel noise
+did not move materially.
+
+**Matched-star R/G and B/G colour ratios DID move substantially (measured ~3.7x and ~1.6x) between a
+single-scalar/unfixed master and a per-colour one -- checked, and this is expected, not a regression.**
+A single WHOLE-FRAME scalar is the SAME multiplier for every colour, so it cannot change the RATIO
+between channels (confirmed: R/G, B/G moved <0.4% between the unfixed and single-scalar masters).
+Per-colour normalisation maps each colour's OWN median to the target independently, which is
+mathematically equivalent to DIVIDING every star's apparent brightness in that colour by that colour's
+own sky level -- so it erases the camera's raw inter-channel colour balance, star and sky alike, not
+just the session-long DRIFT in it. That sounds alarming until you check what the STANDARD (debayered)
+path already does: `Integrator`/`TilePipelinedStrategy`'s existing, unmodified `ApplyNormalization`
+(default on everywhere) runs the exact same per-channel scale-to-target on a debayered frame's R/G/B
+planes, and on the shared `RgbBayerSyntheticFixture` (a fixed per-colour gain baked into BOTH sky and
+star equally) it washes the master's R/G/B medians to EXACTLY 1.0000, not the raw gain ratio --
+confirmed by instrumenting `StackingPipelineRgbBayerSyntheticTest`. TianWen has never preserved raw
+camera colour through integration on EITHER path: § 4 below, "The render model: WB once, per-plate
+self-stretch", is why -- SPCC fits colour against real Gaia photometry on the FINISHED master, which is where a
+systematic per-channel multiplicative error (exactly what per-colour normalisation introduces, and
+exactly what SPCC's white-balance fit corrects) belongs. Per-colour drizzle bringing its PRE-SPCC
+colour handling in line with the standard path's PRE-SPCC colour handling is the fix working as
+intended, not a side effect to walk back. (The two masters compared here used `--no-plate-solve`, so
+neither ever reached SPCC; the comparison is pre-SPCC against pre-SPCC on both sides.)
+
+The old final `flux/weight * (1/sourceMaxValue)` divide is now
+the identity in the normalised case (dividing twice would re-introduce the bug in a different form)
+and survives only as the fallback for a caller that explicitly disables normalisation.
+`TilePipelinedDrizzleStrategy` normalises once at load time (pass 1 and the pass-2 cache-miss reload
+path), not per strip, so a cached frame stays byte-identical to `DrizzleStrategy`'s single full-canvas
+pass -- pinned by the existing `Stack_TilePipelinedDrizzle_MatchesBayerDrizzleByteForByte` parity test.
+Reproduced and pinned by `DrizzlePerFrameNormalizationTests` (a flat RGGB set whose dither drifts and
+sky level both ramp monotonically with frame index, the same time-correlated shape a real session's
+periodic tracking error / progressive dithering plus its sky trend produce, PLUS a small per-colour
+ratio drift riding on top -- the second fixture case that fails the single-scalar version and passes
+the per-colour one).
 
 ---
 

@@ -16,9 +16,9 @@ namespace TianWen.Lib.Tests;
 /// <summary>
 /// Reproduces the phase-locked 2x2 colour bias in <see cref="DrizzleStrategy"/> /
 /// <see cref="TilePipelinedDrizzleStrategy"/> diagnosed on a real BayerDrizzle master
-/// (10P/Tempel 2, 135 subs): neither strategy applies any per-frame normalization before
+/// (10P/Tempel 2, 135 subs): neither strategy applied any per-frame normalization before
 /// depositing, so a session-long sky trend combined with dither-driven uneven per-CFA-phase
-/// frame weighting bakes a residual 2x2 checkerboard bias into each output channel plane, even
+/// frame weighting baked a residual 2x2 checkerboard bias into each output channel plane, even
 /// with no comet mask involved (see <c>docs/plans/comet-integration.md</c>, "A masked layer
 /// needs a strategy that NORMALISES" -- the same root cause, minus the mask).
 ///
@@ -28,6 +28,16 @@ namespace TianWen.Lib.Tests;
 /// sky trend). Both riding on the same time axis is what turns "uneven per-frame weighting" into
 /// a systematic, sign-consistent bias rather than noise that averages out -- purely random
 /// per-frame dither uncorrelated with the trend would NOT reproduce this reliably.</para>
+///
+/// <para><b>A SECOND, smaller drift rides on top: R/G and B/G background ratios also drift a few
+/// percent across the session</b> (matching what a real 10P/Tempel 2 session measured: R/G held
+/// within ~2.3%, B/G ~3.0%, while G itself fell 46%). A single WHOLE-FRAME normalisation scalar is
+/// dominated by green (2x the photosites of red or blue) and removes only the G-shaped trend, so
+/// this per-colour residual survives even after the single-scalar fix
+/// (<c>DrizzleStrategy</c>/<c>TilePipelinedDrizzleStrategy</c> commit "fix(stacking): drizzle
+/// normalises per frame") and still bakes a (smaller) phase-locked bias into R and B. Per-CFA-colour
+/// normalisation (<see cref="Normalizer.ComputeCfaStats"/> / <see cref="Normalizer.ApplyCfa"/>)
+/// removes it because each colour is mapped onto the target independently.</para>
 /// </summary>
 [Collection("Imaging")]
 public class DrizzlePerFrameNormalizationTests
@@ -39,6 +49,17 @@ public class DrizzlePerFrameNormalizationTests
     private const float NoiseSigma = 8f;
     private const float BgStart = 1000f;
     private const float BgEnd = 1600f;
+
+    /// <summary>R/G background ratio at the start/end of the session -- a 10% relative drift
+    /// riding on top of the dominant (G-shaped) trend, several times the ~2-3% measured on the
+    /// real session for a clean synthetic margin.</summary>
+    private const float RgRatioStart = 0.30f;
+    private const float RgRatioEnd = 0.33f;
+
+    /// <summary>B/G background ratio at the start/end of the session -- drifts the opposite
+    /// direction from R/G, same shape as the measured session (R/G and B/G did not move together).</summary>
+    private const float BgRatioStart = 0.60f;
+    private const float BgRatioEnd = 0.57f;
 
     /// <summary>
     /// Central sub-region, well inside every frame's footprint across the whole dither drift
@@ -66,22 +87,27 @@ public class DrizzlePerFrameNormalizationTests
         // Per-channel phase-median spread, in units of the region's own robust (MAD) sigma -- the
         // same normalisation the real-master diagnosis used. A spread near 0 means the four
         // (y%2, x%2) sub-medians agree (no residual CFA-phase structure); a large spread means a
-        // session-long trend leaked into the master as a fixed 2x2 pattern. Measured against the
-        // unfixed strategy: R 2.245, G 1.350, B 2.256 sigma, all well above the 0.75 bound below;
-        // against the fixed one: R 0.241, G 0.171, B 0.354 sigma.
+        // trend leaked into the master as a fixed 2x2 pattern. Measured against the single-scalar
+        // fix ("fix(stacking): drizzle normalises per frame", a pooled whole-frame scalar
+        // dominated by green): R 2.287, G 1.414, B 1.850 sigma, all well above the 0.75 bound --
+        // the per-colour ratio drift this fixture adds survives a pooled scalar (G's own trend is
+        // fully removed, but R and B's OWN drift relative to G is not). Measured against the
+        // per-colour fix (Normalizer.ComputeCfaStats/ApplyCfa, this commit): R 0.231, G 0.183,
+        // B 0.198 sigma -- all three channels pass.
         for (var c = 0; c < 3; c++)
         {
             var channel = result.Master.GetChannelArray(c);
             var (spreadSigma, medians) = MeasurePhaseSpread(channel, RegionX0, RegionX1, RegionY0, RegionY1);
 
-            // Noise floor: after per-frame normalisation removes the sky trend, the four phases
-            // draw from statistically the same population and should agree to well under 1 sigma.
+            // Noise floor: after per-frame, per-CFA-colour normalisation removes both the dominant
+            // trend and each colour's own drift, the four phases draw from statistically the same
+            // population and should agree to well under 1 sigma.
             spreadSigma.ShouldBeLessThan(0.75,
                 $"channel {c}: phase-median spread {spreadSigma:F3} sigma (medians "
                     + $"[{medians[0]:F2}, {medians[1]:F2}, {medians[2]:F2}, {medians[3]:F2}]) -- "
-                    + "DrizzleStrategy must normalise each frame's sky level before deposit so an "
-                    + "uneven per-CFA-phase frame weighting cannot bake a session-long trend into "
-                    + "a fixed checkerboard bias.");
+                    + "DrizzleStrategy must normalise each CFA colour's sky level independently "
+                    + "before deposit so a per-colour drift riding on the dominant (green) trend "
+                    + "cannot bake a fixed checkerboard bias into R or B.");
         }
     }
 
@@ -99,14 +125,33 @@ public class DrizzlePerFrameNormalizationTests
             var dy = Margin + 0.035f * i;
 
             // Session-long sky trend: a monotonic ramp across the run, same shape (if a larger
-            // fraction, for a clean margin) as the diagnosed 10P/Tempel 2 session.
-            var bg = BgStart + (BgEnd - BgStart) * i / (FrameCount - 1);
+            // fraction, for a clean margin) as the diagnosed 10P/Tempel 2 session. Dominant
+            // (G-weighted) level, plus each colour's OWN small ratio drift on top (see class
+            // remarks) -- a single pooled scalar removes only the G-shaped part of this.
+            var bgG = BgStart + (BgEnd - BgStart) * i / (FrameCount - 1);
+            var t = (float)i / (FrameCount - 1);
+            var rgRatio = RgRatioStart + (RgRatioEnd - RgRatioStart) * t;
+            var bgRatio = BgRatioStart + (BgRatioEnd - BgRatioStart) * t;
+            var bgR = bgG * rgRatio;
+            var bgB = bgG * bgRatio;
 
             var plane = new float[FrameSize, FrameSize];
             for (var y = 0; y < FrameSize; y++)
             {
+                var isEvenRow = (y & 1) == 0;
                 for (var x = 0; x < FrameSize; x++)
                 {
+                    // RGGB, offset (0, 0): R at (even, even), G at (even, odd) / (odd, even), B at
+                    // (odd, odd) -- the same convention SensorType.GetBayerPatternMatrix(0, 0) and
+                    // Image.CfaPhaseStarts share.
+                    var isEvenCol = (x & 1) == 0;
+                    var bg = (isEvenRow, isEvenCol) switch
+                    {
+                        (true, true) => bgR,
+                        (true, false) => bgG,
+                        (false, true) => bgG,
+                        (false, false) => bgB,
+                    };
                     plane[y, x] = bg + NextGaussian(rng) * NoiseSigma;
                 }
             }

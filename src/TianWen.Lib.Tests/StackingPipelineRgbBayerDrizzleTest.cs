@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
+using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Imaging;
@@ -95,14 +99,15 @@ public class StackingPipelineRgbBayerDrizzleTest(ITestOutputHelper output)
         master.Width.ShouldBeGreaterThanOrEqualTo(RgbBayerSyntheticFixture.FrameSize);
         master.Height.ShouldBeGreaterThanOrEqualTo(RgbBayerSyntheticFixture.FrameSize);
 
-        // 3) Every channel carries signal AND the per-channel medians match
-        //    the gain ratio baked into BuildBayerMosaic (R=1.0, G=0.7,
-        //    B=0.4). A "median > epsilon" check alone passes even when
-        //    Bayer dispatch is fully broken (e.g. R<->B swapped) because
-        //    every channel still ends up with SOME signal. The ratio check
-        //    is the actual guard: an R<->B swap inverts the master's
-        //    channel ratios from 1.0:0.7:0.4 to 0.4:0.7:1.0, which the
-        //    tolerance below catches by 5+ sigma.
+        // 3) Every channel carries signal. A "median > epsilon" check alone would pass even when
+        //    Bayer dispatch is fully broken (e.g. R<->B swapped), since every channel still ends
+        //    up with SOME signal -- the ratio check below is the actual guard, but it can no
+        //    longer run on THIS (normalised) master: per-CFA-colour normalisation
+        //    (Normalizer.ComputeCfaStats/ApplyCfa) maps each of R, G, B onto the SAME target
+        //    median independently, and BuildBayerMosaic's gain multiplies sky AND stars
+        //    identically, so any dimensionless ratio within one colour is gain-invariant once
+        //    that colour's own sky level becomes the target -- a correct dispatch and an R<->B
+        //    swap both converge to R/G ~= B/G ~= 1.0 post-normalisation. See below.
         var medians = new float[master.ChannelCount];
         for (var c = 0; c < master.ChannelCount; c++)
         {
@@ -111,18 +116,26 @@ public class StackingPipelineRgbBayerDrizzleTest(ITestOutputHelper output)
             median.ShouldBeGreaterThan(1e-4f,
                 $"channel {c} median {median:F6} too close to zero -- drizzle Bayer dispatch likely wrong");
         }
-        // Ratios relative to G (channel 1) so we don't depend on absolute
-        // sky-background brightness. Expected R/G = 1.0/0.7 = 1.43,
-        // B/G = 0.4/0.7 = 0.57. Tolerance is generous (~30%) to cover
-        // drizzle's per-cell coverage noise + dark-subtraction residual
-        // on a small synthetic fixture; the R<->B-swap regression would
-        // flip them to R/G ~= 0.57 and B/G ~= 1.43, well outside.
-        var rRatio = medians[0] / medians[1];
-        var bRatio = medians[2] / medians[1];
+
+        // 3b) Bayer dispatch (R<->B not swapped): runs DrizzleStrategy directly, UNNORMALISED, over
+        //     the fixture's own light files, so the gain ratio baked into BuildBayerMosaic
+        //     (R=1.0, G=0.7, B=0.4) survives to be checked. This exercises the exact same deposit
+        //     dispatch (DrizzleKernel via SensorType.GetBayerPatternMatrix) the pipeline run above
+        //     used -- normalisation runs as a separate pass before deposit (see DrizzleStrategy.
+        //     RunAsync), so disabling it here changes nothing about what's being tested.
+        var rawMedians = await DrizzleUnnormalizedForDispatchCheck(workspace.LightsDir, ct);
+        // Fixture darkPedestal (RgbBayerSyntheticFixture.DarkLevel) is additive and colour-blind,
+        // baked into raw ADU before the drizzle scales by 1/sourceMaxValue (4096, the fixture's
+        // Image ctor maxValue) -- subtract it in the same units so the ratios below read close to
+        // the clean 1.0/0.7 = 1.43 and 0.4/0.7 = 0.57 the gain implies, same as the pre-fix check.
+        const float fixtureMaxAdu = 4096f;
+        var darkFraction = RgbBayerSyntheticFixture.DarkLevel / fixtureMaxAdu;
+        var rRatio = (rawMedians[0] - darkFraction) / (rawMedians[1] - darkFraction);
+        var bRatio = (rawMedians[2] - darkFraction) / (rawMedians[1] - darkFraction);
         rRatio.ShouldBeInRange(1.0f, 2.0f,
-            $"R/G ratio {rRatio:F2} outside [1.0, 2.0] -- channels likely swapped (Bayer dispatch regression)");
+            $"R/G ratio {rRatio:F2} outside [1.0, 2.0] on the unnormalised drizzle output -- channels likely swapped (Bayer dispatch regression)");
         bRatio.ShouldBeInRange(0.3f, 0.9f,
-            $"B/G ratio {bRatio:F2} outside [0.3, 0.9] -- channels likely swapped (Bayer dispatch regression)");
+            $"B/G ratio {bRatio:F2} outside [0.3, 0.9] on the unnormalised drizzle output -- channels likely swapped (Bayer dispatch regression)");
 
         // 4) The IntegrationResult is the drizzle variant -- TotalRejections
         //    is repurposed to count uncovered cells, the rejection map is
@@ -333,5 +346,79 @@ public class StackingPipelineRgbBayerDrizzleTest(ITestOutputHelper output)
         result.SkipReason.ShouldContain("BayerDrizzle requires >= 60 matched frames");
         result.MasterFitsPath.ShouldBeNull("no master should be written when the drizzle gate fires");
         result.Result.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// Runs <see cref="DrizzleStrategy"/> directly (<c>ApplyNormalization: false</c>) over every
+    /// light FITS in <paramref name="lightsDir"/>, each at an identity transform (dispatch
+    /// correctness doesn't depend on registration, and holding every frame at the same position
+    /// keeps this deterministic: full weight everywhere, no sub-pixel drop splitting). Returns each
+    /// channel's median. Used ONLY to verify Bayer dispatch (R&lt;-&gt;B not swapped) -- see the
+    /// comment at the call site for why the full pipeline's NORMALISED master can no longer carry
+    /// that signal.
+    /// </summary>
+    private static async Task<float[]> DrizzleUnnormalizedForDispatchCheck(string lightsDir, CancellationToken ct)
+    {
+        var files = Directory.GetFiles(lightsDir, "*.fits");
+        files.Length.ShouldBeGreaterThan(0);
+
+        var frames = new List<RawBayerFrame>(files.Length);
+        foreach (var file in files)
+        {
+            Image.TryReadFitsFile(file, out var img).ShouldBeTrue();
+            img.ShouldNotBeNull();
+            frames.Add(new RawBayerFrame(img, Matrix3x2.Identity));
+        }
+
+        async IAsyncEnumerable<RawBayerFrame> RawBayerFramesProducer([EnumeratorCancellation] CancellationToken token)
+        {
+            foreach (var frame in frames)
+            {
+                token.ThrowIfCancellationRequested();
+                yield return frame;
+                await Task.Yield();
+            }
+        }
+
+        static async IAsyncEnumerable<Image> EmptyWarpedFrames([EnumeratorCancellation] CancellationToken token)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
+
+        var job = new IntegrationJob(
+            WarpedFrames: EmptyWarpedFrames,
+            ExpectedFrameCount: frames.Count,
+            Options: new IntegrationOptions(ApplyNormalization: false),
+            StagingDir: Path.GetTempPath(),
+            StatsRect: Rectangle.Empty,
+            RawBayerFrames: RawBayerFramesProducer,
+            DrizzleOptions: new DrizzleOptions(),
+            CanvasWidth: RgbBayerSyntheticFixture.FrameSize,
+            CanvasHeight: RgbBayerSyntheticFixture.FrameSize);
+
+        var strategy = new DrizzleStrategy();
+        var result = await strategy.RunAsync(job, ct);
+
+        var medians = new float[3];
+        for (var c = 0; c < 3; c++)
+        {
+            var channel = result.Master.GetChannelArray(c);
+            var values = new List<float>(channel.Length);
+            for (var y = 0; y < channel.GetLength(0); y++)
+            {
+                for (var x = 0; x < channel.GetLength(1); x++)
+                {
+                    var v = channel[y, x];
+                    if (!float.IsNaN(v))
+                    {
+                        values.Add(v);
+                    }
+                }
+            }
+            values.Sort();
+            medians[c] = values.Count == 0 ? 0f : values[values.Count / 2];
+        }
+        return medians;
     }
 }

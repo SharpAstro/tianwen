@@ -185,12 +185,12 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
         var badPixelMask = job.BadPixelMask is { Length: > 0 } m ? m[0] : default;
         var hasBadPixelMask = job.BadPixelMask is { Length: > 0 };
 
-        // Per-frame normalisation -- same mechanism and same rationale as DrizzleStrategy (see its
-        // RunAsync for the full comment): each frame's own whole-plane median is mapped onto
-        // job.Options.NormalizationTarget once, right after calibration, so every subsequent
-        // strip-deposit pass (a cached frame is re-iterated across MULTIPLE strips here) reads
-        // already-normalised values. Applying it once at load time -- not per strip -- is what keeps
-        // this byte-identical to DrizzleStrategy's single full-canvas pass.
+        // Per-frame, per-CFA-colour normalisation -- same mechanism and same rationale as
+        // DrizzleStrategy (see its RunAsync for the full comment): each of Red, Green and Blue is
+        // mapped onto job.Options.NormalizationTarget with its OWN scale once, right after
+        // calibration, so every subsequent strip-deposit pass (a cached frame is re-iterated across
+        // MULTIPLE strips here) reads already-normalised values. Applying it once at load time -- not
+        // per strip -- is what keeps this byte-identical to DrizzleStrategy's single full-canvas pass.
         var applyNormalization = job.Options.ApplyNormalization;
         var normalizationTarget = job.Options.NormalizationTarget;
 
@@ -198,7 +198,7 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
         {
             var calibrated = DecodeCalibrate(source, calibrator, job.Intermediates);
             return applyNormalization
-                ? Normalizer.Apply(calibrated, Normalizer.ComputeStats(calibrated), normalizationTarget)
+                ? Normalizer.ApplyCfa(calibrated, Normalizer.ComputeCfaStats(calibrated), normalizationTarget)
                 : calibrated;
         }
 

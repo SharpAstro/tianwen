@@ -177,20 +177,34 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
         var pixfrac = options.Pixfrac;
         var halfP = pixfrac * 0.5f;
         ImageMeta? refMeta = null;
-        // Per-frame normalisation -- the same mechanism every other integration strategy applies
-        // (Integrator / TilePipelinedStrategy via Normalizer), now here too: each frame's own
-        // median (over the WHOLE 1-channel raw CFA plane, i.e. one scalar mixing all four Bayer
-        // positions together) is mapped onto job.Options.NormalizationTarget before its samples are
-        // deposited. This is a per-frame multiplicative gain anchored on the frame's Pedestal, so it
-        // never touches the ratio between colours WITHIN one frame -- it only removes the
-        // frame-to-frame SKY LEVEL (a session-long trend), which is exactly what registration +
-        // dither need to be invisible to: drizzle deposit spreads weight UNEVENLY across the 2x2 CFA
-        // phases (measured 13-30% per-frame variance), so without this, different phases end up as
-        // the weighted average of a different effective MIX of frames and a session-long sky trend
-        // bakes into the master as a fixed phase-locked colour bias (see DrizzleKernel/StackingPipeline
-        // comments, and docs/architecture/stacking-render-pipeline.md). Falls back to the previous
-        // unnormalised behaviour (scale by the frame's own UnitScaleDivisor at the very end) only when
-        // a caller explicitly disables normalisation.
+        // Per-frame, per-CFA-COLOUR normalisation -- the same mechanism every other integration
+        // strategy applies (Integrator / TilePipelinedStrategy normalise each of a debayered frame's
+        // R/G/B planes independently via Normalizer.ComputeStats' per-ChannelCount loop), now here
+        // too via Normalizer.ComputeCfaStats/ApplyCfa: Red, Green and Blue photosites are each mapped
+        // onto job.Options.NormalizationTarget with their OWN scale before deposit. A raw Bayer plane
+        // is ChannelCount=1 (three colours sharing one array), so the per-channel discretion every
+        // other strategy gets for free needs the CFA traversal instead.
+        //
+        // A single WHOLE-FRAME scalar (the first version of this fix, "fix(stacking): drizzle
+        // normalises per frame") is not enough: it is dominated by green (2x the photosites of red or
+        // blue) and cannot follow a per-colour sky drift -- measured on a real session, G background
+        // fell 46% while R/G and B/G held within ~3%, a small but real chromatic drift the pooled
+        // scalar cannot see. Combined with drizzle's uneven per-CFA-phase deposit weighting (measured
+        // 13-30% per-frame variance -- see DrizzleKernel/StackingPipeline comments and
+        // docs/architecture/stacking-render-pipeline.md), that residual per-colour drift still baked a
+        // phase-locked colour bias into the master, just a smaller one than the unnormalised original.
+        // Falls back to the previous unnormalised behaviour (scale by the frame's own UnitScaleDivisor
+        // at the very end) only when a caller explicitly disables normalisation.
+        //
+        // This DOES change matched-star R/G, B/G colour ratios substantially relative to an unfixed or
+        // single-scalar master (measured ~3.7x, ~1.6x) -- checked deliberately, and it is expected, not
+        // a regression: a per-colour scale divides every pixel of that colour (star included) by that
+        // colour's own sky level, which is exactly what Integrator/TilePipelinedStrategy's EXISTING
+        // per-channel normalisation already does to every debayered master (confirmed: it washes
+        // RgbBayerSyntheticFixture's R/G/B medians to EXACTLY 1.0000, not the raw gain ratio). Raw
+        // camera colour was never meant to survive integration on EITHER path -- SPCC restores it
+        // afterward, against real Gaia photometry, on the finished master. See
+        // docs/architecture/stacking-render-pipeline.md § 1 for the full comparison.
         var applyNormalization = job.Options.ApplyNormalization;
         var normalizationTarget = job.Options.NormalizationTarget;
         var sourceMaxValue = 1.0f;
@@ -237,9 +251,10 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
             // Normalise BEFORE deposit, exactly like TilePipelinedStrategy normalises its debayered-
             // but-not-yet-warped frame: stats are whole-frame (there is no canvas-space StatsRect to
             // restrict to here -- the raw CFA plane is still in SOURCE coordinates, pre-warp), and the
-            // transform applies unchanged afterwards.
+            // transform applies unchanged afterwards. Per-CFA-colour (not the pooled whole-plane
+            // scalar) -- see the comment above this loop.
             var raw = applyNormalization
-                ? Normalizer.Apply(frame.RawCfa, Normalizer.ComputeStats(frame.RawCfa), normalizationTarget)
+                ? Normalizer.ApplyCfa(frame.RawCfa, Normalizer.ComputeCfaStats(frame.RawCfa), normalizationTarget)
                 : frame.RawCfa;
             var srcW = raw.Width;
             var srcH = raw.Height;
