@@ -409,9 +409,14 @@ namespace TianWen.UI.Abstractions
         /// The large view: a scrim over the whole content rect that dismisses it, the picture in its own slot,
         /// and the credit under it. Drawn by the host after everything else, so it covers what it dims.
         /// </summary>
-        /// <param name="picture">Where the picture goes, from <see cref="LargePictureRect"/>.</param>
+        /// <param name="pictureDesignHeight">
+        /// The picture slot's height in DESIGN units: the height of the rect <see cref="LargePictureRect"/>
+        /// placed it in, divided by the DPI scale the host arranges this tree at. The rect is in pixels and
+        /// the tree is not; stating the pixel height here arranged a slot 1.5x too tall on a 1.5x screen, so
+        /// the picture sat below the centre under a black band and the credit row fell off the window.
+        /// </param>
         public static (Layout.Node Scrim, Layout.Node Picture) BuildLargePicture(
-            in ObjectArticleImage image, in PanelPalette palette, RectF32 picture, Action close)
+            in ObjectArticleImage image, in PanelPalette palette, float pictureDesignHeight, Action close)
         {
             var credit = CreditLine(in image) + "   (Esc closes)";
             var filePage = image.FilePageUrl;
@@ -419,7 +424,7 @@ namespace TianWen.UI.Abstractions
                 .Clickable(new HitResult.ButtonHit("ObjectInfoPictureClose"), _ => close());
             var body = Layout.Builder.VStack(
                 Layout.Builder.Fill(key: LargePictureFillKey).WStar().HStar().Bg(PictureFrame)
-                    .RowH(picture.Height),
+                    .RowH(pictureDesignHeight),
                 Layout.Builder.Text(credit, DesignFontSize * 0.9f, palette.DimText, TextAlign.Center, TextAlign.Center)
                     .RowH(DesignRowHeight)
                     .Clickable(new HitResult.LinkHit(filePage), cursor: CursorKind.Pointer));

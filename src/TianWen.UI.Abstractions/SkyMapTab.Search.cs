@@ -312,6 +312,49 @@ namespace TianWen.UI.Abstractions
         {
         }
 
+        /// <summary>
+        /// The selected object's picture open large over the map: a scrim over the whole content rect that
+        /// closes it, the picture, and its credit. Called by <see cref="Render"/> AFTER everything else the
+        /// tab paints, because paint order is z-order for both the pixels and the hit test. It used to be
+        /// drawn inside <see cref="DrawInfoPanel"/>, which the selection marker, a comet's path and the layer
+        /// palette all follow: each painted over the scrim, and the palette's rows, registered after the
+        /// scrim's, took the press meant to close it. The one thing that outranks it is the search window,
+        /// which owns the screen while it is open; the picture is retired rather than drawn over it.
+        /// </summary>
+        private void RenderLargePicture(PlannerState plannerState, RectF32 contentRect)
+        {
+            if (!State.PictureExpanded)
+            {
+                return;
+            }
+
+            if (State.Search.IsOpen || State.Search.InfoPanel is not { } info
+                || ObjectInfoPanel.PictureFor(info.Index, plannerState.ObjectDb) is not { } picture)
+            {
+                State.PictureExpanded = false;
+                return;
+            }
+
+            var dpiScale = DpiScale;
+            var pictureRect = ObjectInfoPanel.LargePictureRect(contentRect, in picture, dpiScale);
+            // The same host hook that fills the panel's thumbnail fills this, at a rect big enough that a wider
+            // standard thumbnail is asked for.
+            var (scrim, body) = ObjectInfoPanel.BuildLargePicture(
+                in picture, InfoPanelPalette, pictureRect.Height / dpiScale, CollapsePicture);
+            RenderLayout(scrim, contentRect);
+            RenderLayout(body,
+                new RectF32(pictureRect.X, pictureRect.Y, pictureRect.Width,
+                    pictureRect.Height + (ObjectInfoPanel.DesignRowHeight * dpiScale)),
+                scale: Scale,
+                drawFill: (fill, rect) =>
+                {
+                    if (fill.Key == ObjectInfoPanel.LargePictureFillKey)
+                    {
+                        DrawObjectPicture(in picture, rect);
+                    }
+                });
+        }
+
         private void ExpandPicture()
         {
             State.PictureExpanded = true;
@@ -461,25 +504,7 @@ namespace TianWen.UI.Abstractions
                     new RectF32(px + pw - closeSize, py, closeSize, closeSize), scale: Scale);
             }
 
-            // The large view covers the map, so it is drawn after everything the panel put on it. The same
-            // host hook fills it, at a rect big enough that a wider standard thumbnail is asked for.
-            if (State.PictureExpanded && options.Picture is { } expanded)
-            {
-                var pictureRect = ObjectInfoPanel.LargePictureRect(contentRect, in expanded, dpiScale);
-                var (scrim, body) = ObjectInfoPanel.BuildLargePicture(in expanded, in palette, pictureRect, CollapsePicture);
-                RenderLayout(scrim, contentRect);
-                RenderLayout(body,
-                    new RectF32(pictureRect.X, pictureRect.Y, pictureRect.Width,
-                        pictureRect.Height + (ObjectInfoPanel.DesignRowHeight * dpiScale)),
-                    scale: Scale,
-                    drawFill: (fill, rect) =>
-                    {
-                        if (fill.Key == ObjectInfoPanel.LargePictureFillKey)
-                        {
-                            DrawObjectPicture(in expanded, rect);
-                        }
-                    });
-            }
+            // The large view is NOT drawn here: see RenderLargePicture, which Render calls last.
 
             // Path across the sky for a selected solar-system body (planet / comet): a thin polyline of its
             // motion over a body-appropriate window + labelled event markers (stations, elongation,

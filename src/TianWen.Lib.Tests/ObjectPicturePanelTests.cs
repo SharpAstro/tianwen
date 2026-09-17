@@ -111,8 +111,12 @@ public sealed class ObjectPicturePanelTests
         credit.Y.ShouldBeGreaterThanOrEqualTo(rect.Y + rect.Height - 1f);
     }
 
-    [Fact]
-    public async Task ClickingThePictureOpensItLargeAndEscapeClosesIt()
+    /// <summary>The atlas with M31 selected and its picture opened large by a press on the thumbnail.</summary>
+    private sealed record ExpandedAtlas(
+        PictureCapturingTab Tab, PlannerState Planner, ITimeProvider Clock, RectF32 Content,
+        ObjectArticleImage Picture, RectF32 Thumbnail, InputRouter Router);
+
+    private static async Task<ExpandedAtlas> ExpandedAtlasAsync(RgbaImageRenderer renderer, float dpiScale)
     {
         var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
         db.TryLookupByIndex("M31", out var andromeda).ShouldBeTrue();
@@ -123,8 +127,8 @@ public sealed class ObjectPicturePanelTests
         var site = SiteContext.Create(45.0, -75.0, now);
         var info = SkyMapInfoPanelData.FromCatalogObject(andromeda, 45.0, -75.0, now, site, null);
 
-        using var renderer = new RgbaImageRenderer(900, 900);
         var (tab, planner, clock, content) = Atlas(db, renderer, info, now);
+        tab.DpiScale = dpiScale;
         tab.Render(planner, content, clock);
 
         // Press the thumbnail, which is where the panel asked for the picture to be drawn.
@@ -144,6 +148,15 @@ public sealed class ObjectPicturePanelTests
 
         tab.Pictures.Clear();
         tab.Render(planner, content, clock);
+        return new ExpandedAtlas(tab, planner, clock, content, picture, thumbnail, router);
+    }
+
+    [Fact]
+    public async Task ClickingThePictureOpensItLargeAndEscapeClosesIt()
+    {
+        using var renderer = new RgbaImageRenderer(900, 900);
+        var atlas = await ExpandedAtlasAsync(renderer, dpiScale: 1f);
+        var (tab, content, thumbnail) = (atlas.Tab, atlas.Content, atlas.Thumbnail);
 
         // Two draws now: the panel's thumbnail and the large view, which is much bigger and therefore asks
         // Wikimedia for a wider standard width.
@@ -155,9 +168,62 @@ public sealed class ObjectPicturePanelTests
         large.X.ShouldBeGreaterThanOrEqualTo(content.X);
         (large.X + large.Width).ShouldBeLessThanOrEqualTo(content.X + content.Width);
 
-        router.Handle(new InputEvent.KeyDown(InputKey.Escape)).ShouldBeTrue("Escape retires the large picture first");
+        atlas.Router.Handle(new InputEvent.KeyDown(InputKey.Escape)).ShouldBeTrue("Escape retires the large picture first");
         tab.State.PictureExpanded.ShouldBeFalse();
         tab.State.Search.InfoPanel.ShouldNotBeNull("closing the picture must not close the panel it came from");
+    }
+
+    [Fact]
+    public async Task TheLargeViewIsTheRectItWasPlacedInOnAHighDpiScreen()
+    {
+        // 1.5 is the desktop this shipped on, where the picture row was stated in PIXELS to a tree
+        // arranged at design scale: the slot came out 1.5x too tall, so the picture sat below the centre
+        // of the screen under a black band, and the credit row landed off the bottom of the window.
+        using var renderer = new RgbaImageRenderer(1350, 1350);
+        var atlas = await ExpandedAtlasAsync(renderer, dpiScale: 1.5f);
+        var expected = ObjectInfoPanel.LargePictureRect(atlas.Content, atlas.Picture, 1.5f);
+
+        var large = atlas.Tab.Pictures[^1].Rect;
+        large.Y.ShouldBe(expected.Y, 1f);
+        large.Height.ShouldBe(expected.Height, 1f, "the slot must be the rect the picture was placed in, at every DPI");
+
+        // And the credit reads directly under it, on screen.
+        var creditY = large.Y + large.Height + (ObjectInfoPanel.DesignRowHeight * 1.5f / 2f);
+        creditY.ShouldBeLessThan(atlas.Content.Y + atlas.Content.Height);
+        atlas.Tab.HitTest(large.X + (large.Width / 2f), creditY)
+            .ShouldBeOfType<HitResult.LinkHit>().Url.ShouldBe(atlas.Picture.FilePageUrl);
+    }
+
+    [Fact]
+    public async Task TheLargeViewCoversTheLayerPalette()
+    {
+        // The large view is drawn LAST in the frame. It used to be drawn inside the info panel, which the
+        // selection marker, a comet's path and the layer palette all follow, so each painted over the
+        // scrim -- and the palette's rows, registered after the scrim's, took the press meant to close it.
+        using var renderer = new RgbaImageRenderer(900, 900);
+        var atlas = await ExpandedAtlasAsync(renderer, dpiScale: 1f);
+        var palette = atlas.Tab.State.LayerPalette.PanelRect;
+        palette.Width.ShouldBeGreaterThan(0f, "the palette is on screen in this test, or it proves nothing");
+
+        atlas.Tab.HitTest(palette.X + (palette.Width / 2f), palette.Y + (palette.Height / 2f))
+            .ShouldBeOfType<HitResult.ButtonHit>().Action
+            .ShouldBe("ObjectInfoPictureClose", "a press on a palette row under the scrim closes the picture, it does not toggle a layer");
+    }
+
+    [Fact]
+    public async Task OpeningTheSearchRetiresTheLargeView()
+    {
+        // The search window owns the screen while it is open; a picture drawn last would cover it.
+        using var renderer = new RgbaImageRenderer(900, 900);
+        var atlas = await ExpandedAtlasAsync(renderer, dpiScale: 1f);
+
+        atlas.Tab.State.Search.IsOpen = true;
+        atlas.Tab.Pictures.Clear();
+        atlas.Tab.Render(atlas.Planner, atlas.Content, atlas.Clock);
+
+        atlas.Tab.State.PictureExpanded.ShouldBeFalse();
+        // The panel itself stays painted under the modal, as it always has; only the large view goes.
+        atlas.Tab.Pictures.ShouldHaveSingleItem().Rect.ShouldBe(atlas.Thumbnail);
     }
 
     [Fact]
