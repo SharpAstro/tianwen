@@ -420,7 +420,10 @@ namespace TianWen.UI.Abstractions
                     background: GuiTheme.Palette.HeaderBg,
                     highlight: new RGBAColor32(0x44, 0x66, 0x99, 0xff),
                     maxHeight: MathF.Max(fontSize, viewport.Size.Y - menu.AnchorY)),
-                viewport);
+                viewport,
+                // The font size and the anchor are device pixels (the mode pill's arranged rect), so the
+                // tree is too. The default context would scale it as design units and square the DPI.
+                scale: DesignScale.One);
         }
 
     }

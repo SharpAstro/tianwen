@@ -497,7 +497,10 @@ namespace TianWen.UI.Abstractions
                     background: FilterTableBg,
                     highlight: SlotActive,
                     maxHeight: MathF.Max(fontSize, viewport.Size.Y - menu.AnchorY)),
-                viewport);
+                viewport,
+                // The font size and the anchor are device pixels (the trigger's arranged rect), so the
+                // tree is too. The default context would scale it as design units and square the DPI.
+                scale: DesignScale.One);
         }
 
     }

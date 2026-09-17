@@ -383,7 +383,7 @@ Kept as the record of what was outstanding, not as a to-do list. Where it stands
   lines, a ten-parameter signature and a "must be called LAST in the render pass" obligation -- becomes
   cuttable. Trading +43 lines here for that cut is a good trade; it is not the deletion this entry
   claimed.
-  **Two things that half learned, and a T3 session will hit both:**
+  **Three things that half learned, and a T3 session will hit all of them:**
   1. **`.Disabled(reason)` STRIPS a handler; it does not create a region.** A row declared disabled without
      a `Hit` registers nothing, so its press falls through to the backdrop and DISMISSES the menu -- the
      click looks like it did nothing, which is the dead-end the disabled state exists to remove. Every row
@@ -392,6 +392,16 @@ Kept as the record of what was outstanding, not as a to-do list. Where it stands
      implements `IKeyboardClaimant` is never asked, and a declared menu opened and dismissed but could not
      be navigated. `PopoverState.ContentKeys` (new in 9.3) is how content reaches the keys the popover does
      not handle; Escape stays the popover's. Any T3 chrome put inside a popover has the same problem.
+  3. **A declared node is measured in DESIGN units; `RenderDropdownMenu` took DEVICE pixels.** The migration
+     kept every call site's `BaseFontSize * DpiScale` font size and its anchor, which is a painted rect,
+     and arranged the tree through the default context, which scales again. So every migrated menu came
+     out at the square of the DPI scale: 72.9 px rows against a 48 px toolbar button at 1.5x, and the help
+     menu 1.5 times too wide, pushed against the window edge (reported 2026-09-17). Every test ran at
+     `DpiScale = 1`, where the square is the identity. Fixed by arranging all three sites with
+     `scale: DesignScale.One`, the way the toolbar that anchors the viewer's menu already arranges, and
+     pinned at TWO scales by `ViewerToolbarLayoutTests.AToolbarDropdownAppliesTheDpiScaleOnce` and
+     `GuiDropdownDpiScaleTests`. **When a device-pixel call becomes a declared node, pick one unit for the
+     whole tree and state it at the arrange, and test at two scales.**
 
 **Three bugs were found by the consumer adopting a feature, not by the tests written for it**, and all
 three are the same shape: a rule gated on an opt-in the host never set, failing silently. `PointerOwner`

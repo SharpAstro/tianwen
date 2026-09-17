@@ -1,6 +1,8 @@
 ﻿using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using DIR.Lib;
 using SharpAstro.Png;
 using Shouldly;
@@ -220,6 +222,62 @@ namespace TianWen.Lib.Tests
                 // the click aimed at whatever is drawn over it.
                 Overlaps(rect, help).ShouldBeFalse($"{action} runs into the help button");
             }
+        }
+
+        /// <summary>
+        /// A toolbar dropdown applies the DPI scale ONCE: twice the scale gives twice the row height, and
+        /// the rows are exactly as wide as the menu the button opened.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The menu is a declared <c>Layout.Builder.Dropdown</c>, and everything the toolbar hands it is
+        /// already in device pixels: the font size (<c>BaseToolbarFontSize * DpiScale</c>), the anchor
+        /// (the button's painted rect) and the width <c>OpenDropdown</c> measured with that font. The
+        /// default measure context reads a tree as DESIGN units and scales it, so the scale was applied a
+        /// second time. At 1.5x that gave 72.9 px rows against a 48 px button and 40.5 px text against 27,
+        /// which is the "help menu DPI seems off" report, and a menu 1.5 times too wide pushed against
+        /// the right edge.
+        /// </para>
+        /// <para>
+        /// Every viewer test ran at DpiScale 1, where applying the scale twice changes nothing, so two
+        /// scales are the whole test. StretchParams is the menu from that report; it goes through the
+        /// same <c>OpenDropdown</c> as the help menu and every other toolbar menu.
+        /// </para>
+        /// </remarks>
+        [Fact]
+        public async Task AToolbarDropdownAppliesTheDpiScaleOnce()
+        {
+            var ct = TestContext.Current.CancellationToken;
+
+            using var oneX = new RgbaImageRenderer(SurfaceW, SurfaceH);
+            var (rowAtOne, widthAtOne) = await OpenStretchParamsMenuAsync(oneX, 1f, ct);
+
+            using var twoX = new RgbaImageRenderer(SurfaceW, SurfaceH);
+            var (rowAtTwo, widthAtTwo) = await OpenStretchParamsMenuAsync(twoX, 2f, ct);
+
+            rowAtTwo.Height.ShouldBe(rowAtOne.Height * 2f, 0.5f,
+                "a row is sized from the font alone, so twice the scale is exactly twice the height");
+            rowAtOne.Width.ShouldBe(widthAtOne, 0.5f, "the rows are as wide as the menu OpenDropdown measured");
+            rowAtTwo.Width.ShouldBe(widthAtTwo, 0.5f,
+                "and that width is already device pixels, so it must not be scaled a second time");
+        }
+
+        private static async Task<(RectF32 Row, float MenuWidth)> OpenStretchParamsMenuAsync(
+            RgbaImageRenderer renderer, float dpiScale, CancellationToken ct)
+        {
+            var document = await ViewerInfoPanelCollapseTests.NewColourDocumentAsync(ct);
+            var viewer = NewViewer(renderer);
+            viewer.DpiScale = dpiScale;
+            viewer.UploadChannelTexture(ReadOnlySpan<float>.Empty, 0,
+                document.UnstretchedImage.Width, document.UnstretchedImage.Height);
+            var state = NewState();
+
+            viewer.Render(document, state);
+            viewer.OpenToolbarDropdown(state, ToolbarAction.StretchParams)
+                .ShouldBeTrue("the stretch-parameters button is on the bar once a document is open");
+            viewer.Render(document, state);
+
+            return (DropdownRows.First(viewer), state.ToolbarDropdown.AnchorWidth);
         }
 
         /// <summary>
