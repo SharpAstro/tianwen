@@ -60,6 +60,24 @@ and holds 2,103 FITS; the second is a bake root. A survey that walks only the ye
 **Two kinds of folder must stay out, and neither is obvious from its name:** a `PROC/` folder is
 processed output, and `2026-02-20 BAD LIGHT EXAMPLES` is deliberately bad data kept as a reference.
 
+## Step 0a: what is NOT filed at all (owner's decision, 2026-09-17)
+
+**Organized holds what a bake can use; too few frames or too low a quality stays in Astro-Pics.** Not
+filing loses nothing, because Pics is the canonical raw archive and is never pruned of its last copy,
+so this is reversible by filing later. It also shrinks the real gap: "salvageable but unreachable"
+means "meets this rule and is not filed yet", not "any raw capture".
+
+- **Too few lights:** fewer than `DatasetBuildOptions.MinSubsPerSession` (10) per night, camera,
+  target and filter, the key `SessionDiscovery` groups on. The bake drops such a session anyway, so
+  read the threshold from there rather than restating a number that can drift.
+- **Too low a quality:** a light set that does not solve, or survives as fewer than 10 frames once
+  clouded frames are out; a calibration set the pixels refuse (a dark with a gradient or a rate heat
+  cannot explain, a flat not at flat level). Focusing runs and Moon frames are not deep-sky lights.
+- **Calibration is filed for a filed session, never for its own sake.** A bias or dark library that
+  serves no filed light stays where it is; the coverage matcher is what says whether it serves one.
+- **Say what was left out and why.** A skip is a decision with a reason, recorded like a filing, so
+  a later survey does not rediscover the same frames as a gap.
+
 ## Step 0b: the frame TYPE, and where it is written
 
 **Read `FRAMETYP`, then `IMAGETYP`, then `FRAME`, the reader's order (`Image.Fits.cs`).** Everything
