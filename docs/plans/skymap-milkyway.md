@@ -113,7 +113,7 @@ Already largely present in Phase 1 (sun altitude fade), but can be extended:
 - [ ] Saturation control (HSV in-shader for "how colorful" slider)
 - [ ] Fade at horizon when horizon clipping is enabled
 
-### 🟡 Phase 6: The Browser Sky Map (IMPLEMENTED 2026-09-17; ships with WebGl.Renderer 1.33)
+### ✅ Phase 6: The Browser Sky Map (DONE 2026-09-17, on WebGl.Renderer 1.33, SharpAstro/WebGl.Renderer#9)
 
 The web atlas (`WebGlSkyMapPipeline`) had no Milky Way at all; `docs/todo/ui.md` carried it as an open
 item. Nothing in the texture or the shader blocks it. Two seams were missing:
