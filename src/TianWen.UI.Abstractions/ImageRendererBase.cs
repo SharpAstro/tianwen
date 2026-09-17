@@ -1112,7 +1112,11 @@ namespace TianWen.UI.Abstractions
                         // What RenderDropdownMenu clamped to internally: the space between the anchor
                         // and the bottom edge, which is what makes a long menu scroll in view.
                         maxHeight: MathF.Max(ToolbarFontSize, Height - menu.AnchorY)),
-                    viewport);
+                    viewport,
+                    // Everything above is already device pixels (the font size, the anchor, the width
+                    // OpenDropdown measured), as it is for the toolbar that anchors the menu. The default
+                    // context would scale the tree as design units and square the DPI scale.
+                    scale: DesignScale.One);
             }
 
             // Last of all, so it paints over every other piece of chrome.
