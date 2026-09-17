@@ -648,10 +648,10 @@ public partial class Image
 
         if (needsMinMaxValRecalc)
         {
-            RecalcMinMax(imgChannels, channelCount, ref minValue, ref maxValue);
+            (minValue, maxValue) = ObservedRange(imgChannels);
         }
 
-        // No min/max tracking here on purpose: RecalcMinMax below computes exactly the same two
+        // No min/max tracking here on purpose: ObservedRange above computes exactly the same two
         // values from the same planes, vectorised, under the same needsMinMaxValRecalc flag -- so
         // tracking them inline was a scalar duplicate of a pass that runs anyway, paid as a branch
         // and two MathF calls on every pixel of the hot conversion loop. The NaN semantics match:
@@ -669,20 +669,6 @@ public partial class Image
                 {
                     row[w] = bscale * float.CreateTruncating(src[h, w]) + bzero;
                 }
-            }
-        }
-
-        static void RecalcMinMax(float[][,] channels, int channelCount, ref float minValue, ref float maxValue)
-        {
-            for (int c = 0; c < channelCount; c++)
-            {
-                // The local PARAMETER, not the field: this is a static local function, so it has no
-                // instance to ask for residency and its caller has already materialised the arrays.
-                var channel = channels[c];
-                var span = MemoryMarshal.CreateReadOnlySpan(ref channel[0, 0], channel.Length);
-                // MinNumber/MaxNumber skip NaN values (IEEE 754 minNum/maxNum semantics)
-                maxValue = MathF.Max(maxValue, TensorPrimitives.MaxNumber(span));
-                minValue = MathF.Min(minValue, TensorPrimitives.MinNumber(span));
             }
         }
 

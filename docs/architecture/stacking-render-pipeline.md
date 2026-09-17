@@ -146,7 +146,7 @@ the per-colour one).
 
 ```mermaid
 flowchart TD
-    In([WriteMasterAsync]) --> Fix[Fix MaxValue tag to 1.0<br/>no pixel rescale]
+    In([WriteMasterAsync]) --> Fix[Scale into 0..1 by the observed peak<br/>new planes, one scalar for all channels]
     Fix --> Crop[Pre-compute autocrop<br/>footprint-intersection AABB]
     Crop --> Solve[Plate-solve<br/>prefer autocrop input, NaN-ring-free]
     Solve --> FL[Backfill focal length<br/>from solved pixel scale]
@@ -162,6 +162,27 @@ flowchart TD
     Prev -->|yes| Done([return MasterWriteResult<br/>Result, SolvedWcs, Spcc])
     RawPng --> Done
 ```
+
+**A master's labels are true, and it is written in [0, 1].** Every strategy normalises each frame so a
+channel's sky median lands on `NormalizationTarget` (0.5), and nothing divides back afterwards, so a
+star sits tens of times above it. Measured on the 10P/Tempel 2 set on 2026-09-17: the tile strategy's
+master peaked at 61.7, the per-colour drizzle's at 62.0, with 0.07 to 0.17 percent of pixels above 1.
+The strategies labelled those masters `MaxValue = 1` (the first source frame's value, or a hard-coded
+1), and step 0 here re-tagged anything else to 1 on the belief the data were "already in [0, 1]", so the
+file claimed `DATAMAX = 1` over pixels up to 62 and the viewer, trusting the label, clipped every star
+core flat. Two rules now hold:
+
+- **`IntegratedMaster.Labelled` at every strategy's master creation** (and the comet composite): the
+  observed peak as `MaxValue` (`Image.ObservedRange`, the vectorised NaN-skipping scan the FITS reader
+  uses), and **no `SensorFullScaleAdu`**. The second is not cosmetic: a TianWen-captured light carries its
+  MaxADU as `SATURATE`, `UnitScaleDivisor` prefers it over the peak, and without the clear a master of
+  such lights is divided by 65535 instead of its peak (measured in the test: a peak of 0.0009 instead of
+  1). A normalised master has no sensor saturation level.
+- **Step 0 scales through the canonical path**, `Image.ScaleFloatValuesToUnit`, into NEW planes: one
+  scalar for every channel, so colour and the sky-to-star ratio survive, and never in place, because the
+  pipeline still holds the integration and builds the comet composite from it afterwards. Pinned by
+  `MasterUnitScaleTests`, which asserts the ratios alongside the ceiling (a per-channel divide would also
+  "fit in [0, 1]" and change every star's colour).
 
 **Output contract by data type (do not regress):**
 

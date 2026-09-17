@@ -45,8 +45,9 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
     /// was supplied, also writes <c>_sharpened.fits</c> + (when autocrop is
     /// active) <c>_sharpened_autocrop.fits</c> sibling files; the raw masters
     /// are never replaced. Returns the (possibly updated)
-    /// <see cref="IntegrationResult"/> -- focal-length and MaxValue may have
-    /// been backfilled on the master.
+    /// <see cref="IntegrationResult"/> -- the master may have been scaled into
+    /// <c>[0, 1]</c> by its observed peak (a new image; <paramref name="result"/>'s
+    /// own master is never modified), and its focal length and MaxValue backfilled.
     /// </summary>
     public async Task<MasterWriteResult> WriteMasterAsync(
         IntegrationResult result,
@@ -70,24 +71,21 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         var sw = Stopwatch.StartNew();
         var master = result.Master;
 
-        // 0) Fix the master's MaxValue tag without rescaling pixels. The
-        //    integrator inherits MaxValue from the source frames (65535)
-        //    but its actual pixel data is already in [0, 1] -- the warp
-        //    + debayer pipeline emits normalised floats. The metadata-
-        //    vs-data mismatch silently breaks downstream consumers that
-        //    key on MaxValue (most importantly Histogram(), which puts
-        //    MaxValue=65535 into the "non-rescale" branch and produces
-        //    a 59k-bin histogram for pixel data living entirely in
-        //    bin 0). Wrap the same data arrays in a new Image record
-        //    with MaxValue=1; no pixel mutation.
+        // 0) Bring the master into unit scale. Every strategy labels its master with its OBSERVED
+        //    peak and no sensor full scale (IntegratedMaster.Labelled), and normalises each frame so a
+        //    channel's sky median lands on NormalizationTarget (0.5) with nothing dividing back, so a
+        //    star sits tens of times above it: 61.7 on the 10P/Tempel 2 master from the tile
+        //    strategy, 62.0 from the per-colour drizzle. Before those labels were true this step
+        //    re-tagged such a master MaxValue = 1 on the belief its data were already in [0, 1], and
+        //    the file claimed DATAMAX = 1 over pixels up to 62, which the viewer clipped flat.
+        //    ScaleFloatValuesToUnit is the canonical [0, 1] path (UnitScaleDivisor, the observed peak
+        //    here) and one scalar for every channel, so colour and the sky-to-star ratio survive. It
+        //    returns NEW planes: the pipeline still holds this integration and builds the comet
+        //    composite from it after this returns, in integration units.
         if (!master.HasUnitScalePeak)
         {
-            var data = new float[master.ChannelCount][,];
-            for (var c = 0; c < master.ChannelCount; c++)
-            {
-                data[c] = master.GetChannelArray(c);
-            }
-            master = new Image(data, BitDepth.Float32, 1.0f, 0f, master.Pedestal, master.ImageMeta);
+            logger.LogInformation("  master peak {Peak:G4} scaled into [0, 1]", master.MaxValue);
+            master = master.ScaleFloatValuesToUnit();
             result = result with { Master = master };
         }
 

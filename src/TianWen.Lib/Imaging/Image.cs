@@ -666,6 +666,26 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
         => TensorPrimitives.Multiply(src, scalar, dst);
 
     /// <summary>
+    /// The observed minimum and maximum over every plane, vectorised, with NaN skipped
+    /// (IEEE 754 minNum / maxNum): a drizzle hole or an uncovered canvas cell is NaN and must not
+    /// become the answer. The one scan behind an image's OBSERVED <see cref="MaxValue"/>, shared by
+    /// the FITS reader and every integrated master.
+    /// </summary>
+    internal static (float Min, float Max) ObservedRange(float[][,] channels)
+    {
+        var min = float.MaxValue;
+        var max = float.MinValue;
+        foreach (var channel in channels)
+        {
+            var span = MemoryMarshal.CreateReadOnlySpan(ref channel[0, 0], channel.Length);
+            max = float.MaxNumber(max, TensorPrimitives.MaxNumber(span));
+            min = float.MinNumber(min, TensorPrimitives.MinNumber(span));
+        }
+
+        return (min, max);
+    }
+
+    /// <summary>
     /// Creates a jagged channel array structure: an array of 2D float arrays, one per channel.
     /// This avoids a single huge LOH allocation for multi-channel images.
     /// </summary>

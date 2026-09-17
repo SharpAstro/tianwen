@@ -215,10 +215,10 @@ public sealed class ChunkedTwoPassStrategy : IIntegrationStrategy
             ? (double)totalRejections / ((double)framesSeen * width * height * channels)
             : 0.0;
 
-        var masterImage = new Image(
+        var masterImage = IntegratedMaster.Labelled(new Image(
             data: masterData, bitDepth: BitDepth.Float32,
             maxValue: firstFrame.MaxValue, minValue: 0f,
-            pedestal: firstFrame.Pedestal, imageMeta: firstFrame.ImageMeta);
+            pedestal: firstFrame.Pedestal, imageMeta: firstFrame.ImageMeta));
         var rejectMapImage = new Image(
             data: rejectMapData, bitDepth: BitDepth.Float32,
             maxValue: 1f, minValue: 0f, pedestal: 0f,

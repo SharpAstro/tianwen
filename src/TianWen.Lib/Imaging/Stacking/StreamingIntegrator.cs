@@ -264,12 +264,12 @@ public static class StreamingIntegrator
             : 0.0;
 
         var firstFrame = alignedFrames[0];
-        var masterImage = masterSinkInUse.FinaliseAsImage(
+        var masterImage = IntegratedMaster.Labelled(masterSinkInUse.FinaliseAsImage(
             BitDepth.Float32,
             maxValue: firstFrame.MaxValue,
             minValue: 0f,
             pedestal: firstFrame.Pedestal,
-            meta: firstFrame.Meta);
+            meta: firstFrame.Meta));
         var rejectMapImage = rejectSinkInUse.FinaliseAsImage(
             BitDepth.Float32,
             maxValue: 1f,
