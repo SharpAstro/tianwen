@@ -555,6 +555,33 @@ because at flat exposures they are the same measurement (a 1.09 s dark-flat medi
 bias's 788, dark current over a second on a cooled sensor being nil) and bias needs no exposure
 match. See `MasterFrameBuilder.BuildFlatMaster`, pinned by `MasterFrameBuilderTests`.
 
+### A flat with no optics cards matched every light on its camera (FIXED 2026-09-17)
+
+`CalibrationResolver` refuses a flat whose `TELESCOP` or `FOCALLEN` differs from the light's, and
+treated a card missing on either side as a match. SharpCap writes neither card on a flat (and only
+`FOCALLEN` on a light), so every SharpCap flat was a candidate for every light on that body, and
+temperature chose among them. The `2026-09-16-flatfloor` bake shows two wrong picks:
+
+- the ASI585's 24 mm eta Car session, which has no flat of its own, got the 289 mm ZS61 flat shot
+  103 days earlier through a different filter;
+- the ASI1600MM's Luminance session got the Ha flat from 12 days earlier over its own flat from the
+  next day, because the Ha set was 10 C nearer the lights' setpoint.
+
+Nothing looked wrong, because a flat from another train still divides out to a plausible picture;
+only the calibration map, which records the right association and is never read by code, said so.
+
+**Unknown means NOT REFUSED, never proven.** A flat is now used when its cards prove the train (an
+optics card stated on BOTH sides and agreeing, `CalTrain.ProvesOpticsOf`) or when it was shot within
+`CalibrationResolver.UnprovenFlatMaxDays` (3) of the lights. A card-proven flat ranks ahead of a
+date-proven one, and among date-proven ones the nearest wins, never the closest temperature. The
+window is measured, in the constant's own remarks. Every N.I.N.A. set in Organized carries both
+cards, so this only moves SharpCap-era sessions. The coverage report's `flat_train_proof` column
+says which evidence admitted each flat. Pinned by `CalibrationResolverTests` (both real cases).
+
+The durable fix is data: an old flat set shot days away from its lights is only usable once it has
+optics cards, and the evidence for which train it was on is the calibration map and the folders,
+since a flat cannot be plate-solved.
+
 ### Some dark-flats are recorded as `IMAGETYP='DARK'`
 
 On the reference archive, 2,220 dark-flat frames sit in a `DARKFLAT` folder while their header says

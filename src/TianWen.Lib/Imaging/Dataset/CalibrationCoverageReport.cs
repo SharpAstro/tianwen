@@ -117,7 +117,7 @@ public static class CalibrationCoverageReport
         "session_id", "date", "target", "camera", "telescope", "focal_mm", "sw_creator",
         "filter", "filter_source", "lights", "exposure_s", "gain", "offset", "temp_c", "below_bake_min_subs",
         "flat_found", "flat_slug", "flat_is_master", "flat_frames", "flat_filter", "flat_filter_match",
-        "flat_gain", "flat_offset", "flat_temp_c", "flat_epoch", "flat_age_days", "flat_within_30d",
+        "flat_gain", "flat_offset", "flat_temp_c", "flat_epoch", "flat_age_days", "flat_within_30d", "flat_train_proof",
         "flat_candidates", "flat_candidates_same_filter",
         "pedestal_kind", "pedestal_slug", "pedestal_frames", "pedestal_exposure_s", "pedestal_gain", "pedestal_offset",
         "darkflat_candidates",
@@ -159,7 +159,7 @@ public static class CalibrationCoverageReport
             : null;
 
         var (darkCandidates, flatCandidates, flatCandidatesSameFilter, biasGroups, biasFrames, biasMasterPresent) =
-            CountAvailability(options, darks, flats, biases, lightKey, lightCamera, lightTrain);
+            CountAvailability(options, darks, flats, biases, lightKey, lightCamera, lightTrain, sessionDate);
         var darkFlatCandidates = flatGroup is null ? (int?)null : CountPedestalCandidates(darkFlats, darks, flatGroup);
 
         var bpm = bpmCensus.GetValueOrDefault((light.Width, light.Height));
@@ -167,6 +167,13 @@ public static class CalibrationCoverageReport
         var filterMatch = flatGroup is null
             ? (bool?)null
             : flatGroup.Key.SameFilterAs(lightKey);
+        // Cards or date: which evidence admitted the flat. A "date" row is a flat whose cards say
+        // nothing about the optics, trusted only because it was shot with the lights.
+        var flatTrainProof = flatGroup is null
+            ? ""
+            : CalibrationResolver.IsFlatCandidate(flatGroup, lightKey, lightTrain, sessionDate, out var unprovenDays) && unprovenDays is null
+                ? "cards"
+                : "date";
         var flatAgeDays = AgeDays(flatGroup?.EpochStart, sessionDate);
         var darkAgeDays = AgeDays(darkGroup?.EpochStart, sessionDate);
         var darkGainMatch = darkGroup is null
@@ -204,6 +211,7 @@ public static class CalibrationCoverageReport
             EpochText(flatGroup),
             flatAgeDays?.ToString(CultureInfo.InvariantCulture) ?? "",
             flatAgeDays is null ? "" : Bool(flatAgeDays.Value <= FlatTimeframeDays),
+            flatTrainProof,
             flatCandidates.ToString(CultureInfo.InvariantCulture),
             flatCandidatesSameFilter.ToString(CultureInfo.InvariantCulture),
             pedestal is null ? (flatGroup is { IsMaster: true } ? "master-flat" : "none") : PedestalKind(pedestal.Key.Type),
@@ -250,7 +258,8 @@ public static class CalibrationCoverageReport
             List<CalibrationResolver.CalGroup>? biases,
             MasterGroupKey lightKey,
             CalibrationResolver.CalTrain lightCamera,
-            CalibrationResolver.CalTrain lightTrain)
+            CalibrationResolver.CalTrain lightTrain,
+            DateTimeOffset lightStart)
     {
         var darkCandidates = 0;
         if (darks is not null)
@@ -274,7 +283,7 @@ public static class CalibrationCoverageReport
         {
             foreach (var g in flats)
             {
-                if (!Buildable(g) || !CalibrationResolver.DimensionCompatible(g.Key, lightKey) || !g.Train.TrainCompatibleWith(lightTrain))
+                if (!CalibrationResolver.IsFlatCandidate(g, lightKey, lightTrain, lightStart, out _))
                 {
                     continue;
                 }
@@ -428,7 +437,7 @@ public static class CalibrationCoverageReport
         SessionDiscovery.DiscoveryStats stats,
         DatasetBuildOptions options)
     {
-        int darkFound = 0, darkGainMatched = 0, flatFound = 0, flatFilterMatched = 0, flatInTimeframe = 0;
+        int darkFound = 0, darkGainMatched = 0, flatFound = 0, flatFilterMatched = 0, flatInTimeframe = 0, flatByDate = 0;
         int pedestalDarkFlat = 0, pedestalBias = 0, pedestalNone = 0, biasAvailable = 0, bpmPresent = 0, belowMinSubs = 0;
         var col = ColumnIndex();
         foreach (var row in rows)
@@ -438,6 +447,7 @@ public static class CalibrationCoverageReport
             if (row[col["flat_found"]] == "true") flatFound++;
             if (row[col["flat_filter_match"]] == "true") flatFilterMatched++;
             if (row[col["flat_within_30d"]] == "true") flatInTimeframe++;
+            if (row[col["flat_train_proof"]] == "date") flatByDate++;
             switch (row[col["pedestal_kind"]])
             {
                 case "darkflat" or "dark": pedestalDarkFlat++; break;
@@ -458,7 +468,7 @@ public static class CalibrationCoverageReport
         sb.AppendLine();
         sb.AppendLine(FormattableString.Invariant($"- Sessions: **{n}** ({stats.Lights} lights); {belowMinSubs} below the bake threshold of {options.MinSubsPerSession} subs"));
         sb.AppendLine(FormattableString.Invariant($"- Dark resolved: **{darkFound}/{n}** ({Pct(darkFound, n)}); gain-matched: {darkGainMatched}"));
-        sb.AppendLine(FormattableString.Invariant($"- Flat resolved: **{flatFound}/{n}** ({Pct(flatFound, n)}); filter-matched: {flatFilterMatched}; within {FlatTimeframeDays:F0} days: {flatInTimeframe}"));
+        sb.AppendLine(FormattableString.Invariant($"- Flat resolved: **{flatFound}/{n}** ({Pct(flatFound, n)}); filter-matched: {flatFilterMatched}; within {FlatTimeframeDays:F0} days: {flatInTimeframe}; train proven by the capture date alone, no optics cards: {flatByDate}"));
         sb.AppendLine(FormattableString.Invariant($"- Flat pedestal: dark-flat/dark {pedestalDarkFlat}, bias {pedestalBias}, none {pedestalNone}"));
         sb.AppendLine(FormattableString.Invariant($"- Bias available (any compatible group): {biasAvailable}/{n}"));
         sb.AppendLine(FormattableString.Invariant($"- APP BPM present for the sensor geometry: {bpmPresent}/{n}"));

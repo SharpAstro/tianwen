@@ -286,6 +286,14 @@ depends on:
 have. `Eta Car 24mm LeHance` and `SMC 120s LEnh` are the same camera, the same filter and the same
 gain and offset, so the bias transfers cleanly; they are 24 mm and 368.8 mm, so the flats do not.
 
+**The bake can only tell trains apart by `TELESCOP` and `FOCALLEN`, and SharpCap writes neither on
+a flat.** A flat whose cards do not prove the train is used only within 3 days of the lights
+(`CalibrationResolver.UnprovenFlatMaxDays`, `docs/known-limitations.md`). Filing such a set with its
+own session is therefore enough; one meant to serve lights further away does nothing until its
+optics cards are written. After filing, check `flat_train_proof` in `tianwen dataset coverage`:
+`date` is a flat trusted only because it was shot with the lights. Until 2026-09-17 a card missing
+on either side counted as a match, which is how the 24 mm session above was handed a 289 mm flat.
+
 **A missing dark is not a free pass either.** The ASI585 measures +294 ADU over bias at 120 s and
 -10 C, so a 60 s frame on that body carries real dark current and the honest options are scaling the
 120 s set or recording the gap. Write what is missing into the map's verdict columns; a blank there
