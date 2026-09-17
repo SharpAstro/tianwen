@@ -233,4 +233,154 @@ public static class Normalizer
             dst[i] = (src[i] - floor) * scale;
         }
     }
+
+    /// <summary>
+    /// Per-CFA-colour <see cref="NormalizationStats"/>: the drizzle-path counterpart of the
+    /// per-channel stats every debayered strategy already takes. A debayered frame has
+    /// <c>ChannelCount == 3</c>, so <see cref="ComputeStats(Image)"/>'s per-channel loop already
+    /// normalises R, G and B independently; a raw Bayer plane is <c>ChannelCount == 1</c> (three
+    /// colours sharing one array), so the same independence needs a per-colour traversal instead of
+    /// a per-channel one. <see cref="Green"/> is the pooled statistic over BOTH green phases (G1 and
+    /// G2 together), matching <see cref="CfaChannel.Green"/>'s own definition -- not the mean of two
+    /// half-plane statistics.
+    /// </summary>
+    public sealed record CfaNormalizationStats(NormalizationStats Red, NormalizationStats Green, NormalizationStats Blue);
+
+    /// <summary>
+    /// Computes <see cref="CfaNormalizationStats"/> for a raw (pre-debayer) Bayer mosaic: the
+    /// pedestal as each colour's floor (same anchor <see cref="ComputeStats(Image)"/> uses -- never
+    /// a pixel statistic, see the class remarks above), and each colour's own median via quickselect
+    /// (<see cref="StatisticsHelper.MedianFast(Span{float})"/>, the same exact-median primitive
+    /// <see cref="ComputeStats(Image)"/> uses, not the coarser histogram-binned median
+    /// <see cref="Image.Statistics"/> returns). The traversal itself -- which photosites belong to
+    /// which colour -- is NOT hand-rolled here: it reuses <see cref="Image.CfaPhaseStarts"/> /
+    /// <see cref="Image.CfaStep"/>, the exact primitive <see cref="Image.Histogram"/> and
+    /// <see cref="StretchSolver.CollectPerChannelStats"/> already walk a mosaic with, so a colour's
+    /// stats come from its own photosites and nothing else -- no <see cref="Image.SplitBayerChannels"/>
+    /// copy. Colours run in parallel, mirroring <see cref="ComputeStats(Image)"/>'s per-channel
+    /// parallelism.
+    /// </summary>
+    public static CfaNormalizationStats ComputeCfaStats(Image image)
+    {
+        if (!image.IsCfaMosaic)
+        {
+            throw new ArgumentException(
+                $"ComputeCfaStats requires a single-channel Bayer CFA mosaic; got {image.ChannelCount} "
+                    + $"channel(s), {image.ImageMeta.SensorType}.",
+                nameof(image));
+        }
+
+        var results = new NormalizationStats[3];
+        Parallel.For(0, 3, i => results[i] = ComputeCfaChannelStats(image, (CfaChannel)i));
+        return new CfaNormalizationStats(results[0], results[1], results[2]);
+    }
+
+    private static NormalizationStats ComputeCfaChannelStats(Image image, CfaChannel cfa)
+    {
+        var width = image.Width;
+        var height = image.Height;
+        var channel = image.GetChannelArray(0);
+        var flat = MemoryMarshal.CreateReadOnlySpan(ref channel[0, 0], channel.Length);
+
+        Span<(int Row, int Col)> phaseStarts = stackalloc (int Row, int Col)[2];
+        var phaseCount = image.CfaPhaseStarts(cfa, phaseStarts);
+        var step = Image.CfaStep(cfa, 1);
+
+        // Upper bound on sample count: green visits two phases, red/blue one, each at up to
+        // ceil(h/2) x ceil(w/2) photosites. Renting the green-sized bound for every colour keeps
+        // this a single ArrayPool call regardless of which colour is being gathered.
+        var maxSamples = phaseCount * ((height + 1) / 2) * ((width + 1) / 2);
+        var buf = ArrayPool<float>.Shared.Rent(Math.Max(1, maxSamples));
+        try
+        {
+            var n = 0;
+            for (var phase = 0; phase < phaseCount; phase++)
+            {
+                var (rowStart, colStart) = phaseStarts[phase];
+                for (var h = rowStart; h < height; h += step)
+                {
+                    var row = flat.Slice(h * width, width);
+                    for (var w = colStart; w < width; w += step)
+                    {
+                        var v = row[w];
+                        if (!float.IsNaN(v))
+                        {
+                            buf[n++] = v;
+                        }
+                    }
+                }
+            }
+
+            var median = n == 0 ? image.Pedestal : MedianFast(buf.AsSpan(0, n));
+            return new NormalizationStats([image.Pedestal], [median]);
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(buf);
+        }
+    }
+
+    /// <summary>
+    /// Per-CFA-colour whole-frame normalize: the drizzle-path counterpart of <see cref="Apply"/>.
+    /// Each of Red, Green and Blue is mapped onto <paramref name="targetMedian"/> independently
+    /// using its OWN <see cref="NormalizationStats"/> (from <see cref="ComputeCfaStats"/>), so a
+    /// per-colour sky drift (e.g. a transparency change that reddens or blues the background across
+    /// a session) is removed the same way <see cref="Apply"/> removes a whole-frame trend -- a single
+    /// frame-wide scalar cannot follow that, since it is dominated by whichever colour has the most
+    /// photosites (green, at 2x red or blue). Reuses <see cref="Image.CfaPhaseStarts"/> /
+    /// <see cref="Image.CfaStep"/> for the write-back traversal, same as the stats gather above.
+    /// </summary>
+    public static Image ApplyCfa(Image image, CfaNormalizationStats stats, float targetMedian)
+    {
+        if (!image.IsCfaMosaic)
+        {
+            throw new ArgumentException(
+                $"ApplyCfa requires a single-channel Bayer CFA mosaic; got {image.ChannelCount} "
+                    + $"channel(s), {image.ImageMeta.SensorType}.",
+                nameof(image));
+        }
+
+        var width = image.Width;
+        var height = image.Height;
+        var srcChannel = image.GetChannelArray(0);
+        var srcFlat = MemoryMarshal.CreateReadOnlySpan(ref srcChannel[0, 0], srcChannel.Length);
+
+        var dst = Image.CreateChannelData(1, height, width);
+        var dstChannel = dst[0];
+        var dstFlat = MemoryMarshal.CreateSpan(ref dstChannel[0, 0], dstChannel.Length);
+
+        ApplyCfaChannel(image, CfaChannel.Red, srcFlat, dstFlat, width, height, stats.Red, targetMedian);
+        ApplyCfaChannel(image, CfaChannel.Green, srcFlat, dstFlat, width, height, stats.Green, targetMedian);
+        ApplyCfaChannel(image, CfaChannel.Blue, srcFlat, dstFlat, width, height, stats.Blue, targetMedian);
+
+        // The pedestal has been mapped to zero per colour, so the result carries none -- same
+        // post-condition as Apply.
+        return new Image([dst[0]], BitDepth.Float32, image.MaxValue, 0f, 0f, image.ImageMeta);
+    }
+
+    private static void ApplyCfaChannel(
+        Image image, CfaChannel cfa, ReadOnlySpan<float> src, Span<float> dst,
+        int width, int height, NormalizationStats stats, float targetMedian)
+    {
+        var floor = stats.PerChannelFloor[0];
+        var scale = ComputeScale(stats.PerChannelMedian[0], floor, targetMedian);
+
+        Span<(int Row, int Col)> phaseStarts = stackalloc (int Row, int Col)[2];
+        var phaseCount = image.CfaPhaseStarts(cfa, phaseStarts);
+        var step = Image.CfaStep(cfa, 1);
+
+        for (var phase = 0; phase < phaseCount; phase++)
+        {
+            var (rowStart, colStart) = phaseStarts[phase];
+            for (var h = rowStart; h < height; h += step)
+            {
+                var rowOffset = h * width;
+                for (var w = colStart; w < width; w += step)
+                {
+                    var idx = rowOffset + w;
+                    dst[idx] = (src[idx] - floor) * scale;
+                }
+            }
+        }
+    }
 }

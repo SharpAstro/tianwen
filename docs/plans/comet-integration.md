@@ -883,10 +883,14 @@ spreads weight UNEVENLY across the 2x2 CFA phases under ordinary sub-pixel dithe
 per-frame variance), so different output channels are already the weighted average of a different
 effective MIX of frames before any mask is involved -- a mask made the effect easier to SEE (it turns
 a diffuse bias into a sharp along-track signature) but did not create it. Both `DrizzleStrategy` and
-`TilePipelinedDrizzleStrategy` now normalise each frame's whole raw CFA plane (one scalar per frame,
-`Normalizer.ComputeStats`/`Apply` on the un-warped plane, same target as every other strategy) before
-deposit, which removes the session-long sky trend at the source regardless of masking. Detail, the
-synthetic repro (`DrizzlePerFrameNormalizationTests`) and the before/after numbers:
+`TilePipelinedDrizzleStrategy` now normalise each frame's raw CFA plane -- per COLOUR, not one pooled
+scalar (`Normalizer.ComputeCfaStats`/`ApplyCfa` on the un-warped plane, same target as every other
+strategy normalises R/G/B independently) -- before deposit, which removes the session-long sky trend
+AND each colour's own smaller drift relative to it at the source, regardless of masking. (A single
+whole-frame scalar was tried first and closed most of the gap but left a real residual: it is
+dominated by green, 2x the photosites of red or blue, and a real session showed G falling 46% while
+R/G and B/G held within only ~2-3% -- small, but enough to leave a visible bias a pooled scalar cannot
+see.) Detail, the synthetic repro (`DrizzlePerFrameNormalizationTests`) and the before/after numbers:
 `docs/architecture/stacking-render-pipeline.md` § 1.
 
 So a masked layer excludes four strategy kinds, for two different reasons -- one still current, one
