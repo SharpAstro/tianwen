@@ -91,13 +91,30 @@ that slip under any exposure cap). A product shows as `SOFTWARE = 'Astro Pixel P
 `CALFRAME`/`CALLIGHT` card, a `SKIPPED` card or a `Stack_` name (SharpCap live stack), `NAXIS3`, or a
 negative `BITPIX`.
 
-**Decide an untyped set by the SKY, never by a star count.** TianWen's own detector finds 141
-"stars" at FWHM 1.7 px on a +4 C 120 s ASI533 dark (hot pixels), and a 35 or 50 mm lens puts real
-stars at that width too. A blind `tianwen solve` cannot be fooled: it answered NGC 6744 and NGC 3766
-in 8 and 15 s and returned the scale (which names the optics), and found nothing on the dark, but only
-after 153 s, so gate it: a 0 s exposure is a bias, a median many times the camera's floor is a flat,
-and only what is left gets a solve. Unsolved above the floor (clouds, focusing, the Moon) is reported,
-not guessed. A `FRAMETYP` label deserves the same check, since SharpCap's type is a dropdown.
+**Decide an untyped set by the SKY, never by a star count, and treat a label as evidence.** TianWen's
+own detector finds 141 "stars" at FWHM 1.7 px on a +4 C 120 s ASI533 dark (hot pixels), and a 35 or
+50 mm lens puts real stars at that width too. A `tianwen solve` cannot be fooled by either. The method
+that survived three wrong passes over 300 capture sets (`C:/temp/e2/classify_sets.py`, 2026-09-17):
+
+- **A bias is the camera's MINIMUM exposure** (32 us ZWO, 10 us Uranus-C, 1 us QHY). Read the exact
+  `EXPTIME`: a two-decimal copy turned a 0.61 ms Moon frame into a "0 s" bias.
+- **The level floor is a bias of the same camera, gain AND `BLKLEVEL`, nearest in the tree.** Offsets
+  change between sessions; a camera-wide minimum put an offset-25 bias at 597x "the floor".
+- **Ask the sky before the level.** A 10 s Cen A light with a bright sky sits 500x its bias, so
+  "far above the floor" is not "flat". Flat means flat-level AND flat-shaped (p99.9 near the median).
+- **Solve blind with a cap (30 s), then retry the misses with a position and a scale.** Blind timed out
+  on 35 mm lens frames that a hint solved in 3 s at 21.25 arcsec/px. The D50 index cannot place a
+  24 mm field at all, and a tiny field with 1-6 stars never solves. The bake never needs a solve to
+  register, so judge an unplaceable set on its STAR COUNT and FWHM instead.
+- **Heat versus light in a dark: compare its rate with the camera's own darks.** Normalise excess per
+  second to 25 C (heat doubles about every 6 C). Seven ASI462MC dark sets sat at 0.7 to 6.2 ADU/s; a
+  2 s set shot at midday at 86, among the sky lights. A fitted gradient does NOT separate them (heat
+  sets showed 7 to 13 percent planes too), and a gain conversion across gains was ~3x off, so require
+  the level to agree (13-14x the bias for both real leaks) before refusing a dark.
+- **A wrong label shows up as a disagreement, not a guess.** 2024-02-03 held 304 flats and 70 darks
+  typed Light; the pixels said so, and the folders (`Flats`, `eta Car Darks`) agreed. On-the-floor and
+  unsolved is NOT enough to call a labelled light a dark: 395 narrowband Saturn Nebula lights sit at
+  1.08x their bias.
 
 **Backfill the type with `tianwen dataset tag-frame-type`, in Astro-Organized only.** Default touches
 a frame with NO type card; `--frame-type None Dark --as Dark` also fills `IMAGETYP` beside a
