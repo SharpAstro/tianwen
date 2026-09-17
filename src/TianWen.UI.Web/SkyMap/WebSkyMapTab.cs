@@ -30,6 +30,9 @@ namespace TianWen.UI.Web.SkyMap
         /// </summary>
         public Action? RequestRepaint { get; set; }
 
+        /// <summary>How many times the info panel has drawn a picture that was in hand, for the E2E render stats.</summary>
+        internal int PicturesDrawn => _pictures?.Drawn ?? 0;
+
         protected override void DrawObjectPicture(in ObjectArticleImage image, RectF32 rect)
         {
             _pictures ??= new WebGlObjectPictures(renderer, () =>

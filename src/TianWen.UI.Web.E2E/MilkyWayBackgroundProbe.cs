@@ -80,11 +80,13 @@ public sealed class MilkyWayBackgroundProbe(TianWenWebFixture fixture, ITestOutp
 
         // Resolves once a frame has DRAWN with the layer in the wanted state. The stats call runs on the
         // single WASM thread, so it can never observe a frame half-drawn: frames > n means the repaint that
-        // followed the toggle has completed.
+        // followed the toggle has completed. The predicate is synchronous on purpose (RenderStatsWait): an
+        // async one returned a Promise, which Playwright took as truthy on the first poll.
         async Task<int> DrawnWithLayerAsync(bool on, int afterFrame)
         {
-            var script = "async () => { const s = JSON.parse(await window.__tianwenTest.getRenderStats()); "
-                + $"return s.milkyWay === {(on ? "true" : "false")} && s.frames > {afterFrame.ToString(CultureInfo.InvariantCulture)} ? s.frames : 0; }}";
+            var script = RenderStatsWait.Script(
+                $"s.milkyWay === {(on ? "true" : "false")} && s.frames > {afterFrame.ToString(CultureInfo.InvariantCulture)}",
+                "s.frames");
             var handle = await page.WaitForFunctionAsync(script, null, new PageWaitForFunctionOptions { Timeout = FrameTimeout });
             return await handle.JsonValueAsync<int>();
         }
