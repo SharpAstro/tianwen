@@ -141,9 +141,12 @@ Record it like any correction (`CORRECTIONS.md` section, a row per file in `labe
 `all channels` is a processing mode, not a filter, and must not be taken as one.
 
 The method, and the reasoning behind it, is `docs/plans/filter-inference.md`. In short: a filter's
-passband is imprinted on the **raw, undebayered** frame, and **background B/G is the discriminator**
-while R/G is useless (the populations overlap). Corroborate with the channel ratios of the session's
-own FLAT set, which carries the passband with none of the sky's confounds.
+passband is imprinted on the **raw, undebayered** frame, and on the ASI533 and SV605CC **background
+B/G is the discriminator** while R/G is useless (the populations overlap). **That is a property of the
+sensor, not a rule**: on the ASI585 it is reversed, B/G separating nothing (0.80 to 0.86) and R/G
+separating 4.5-fold (filter-inference.md 2a-ter), so find which ratio separates on a new body before
+reading either. Corroborate with the channel ratios of the session's own FLAT set, which carries the
+passband with none of the sky's confounds.
 
 Four traps, each of which produced a confident wrong answer before it was caught:
 

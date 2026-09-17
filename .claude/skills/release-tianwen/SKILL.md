@@ -118,6 +118,10 @@ reports the resulting GitHub Release URL.
 - `publish-nuget` runs on every push to main (gated on tests), independent
   of binary releases. The library can ship to NuGet without a binary
   release and vice versa.
+- A reproducer too big for an issue (the CLI will not attach 100 MB to one) goes on a DATA-ONLY
+  prerelease under a non-version tag, as `test-data-autocrop-holes` did for #250. No workflow here
+  triggers on a tag, so nothing builds or publishes; the release notes must say it is not a release,
+  and it is deleted when the issue closes.
 - Run number progression: as of 2026-09-15 the latest `run_number` is 1716.
   Each push to main + each workflow_dispatch increments it, so the number is a
   poor estimate of how many releases there have been.

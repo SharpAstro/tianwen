@@ -108,7 +108,12 @@ Four rules, each of which cost a wrong conclusion once (the roadmap's section 4 
 - **One prepared cache per arm, never edited between runs.** The row in `EXPERIMENTS.md` names the
   cache and the commit the scripts ran from.
 - **Launch long jobs detached** (`Start-Process`, as the header of `repro-v19d.ps1` shows) and never
-  read a file a running job is appending to; read its status file.
+  read a file a running job is appending to; read its status file. `Start-Process pwsh -File` wants a
+  Windows path, not a Git Bash one, and a launcher that snapshots the scripts cannot `Copy-Item` the
+  snapshot onto itself, so a relaunch runs from a copy of the snapshot directory.
+- **The GPU runs one thing; the CPU runs several.** Never share the card between a training run and a
+  probe. The Richardson-Lucy oracle and `PsfKernel.Convolve` are single-threaded, so CPU arms run side
+  by side on the 16 cores.
 
 The C# parity fixture is what `n2n_fixture.py` writes; regenerate it whenever the checkpoint or the
 plate changes, then run `N2nDenoiserTests`.

@@ -151,7 +151,20 @@ pinned BY NAME inside each cache's `meta.json`. Adding sessions never reshuffles
 Written down once here because each item cost a wrong conclusion in the first campaign.
 
 - **Pre-register.** Predictions in the run script header before the prepare; a result that needs a new
-  explanation afterwards is recorded as a finding, not drawn as a conclusion.
+  explanation afterwards is recorded as a finding, not drawn as a conclusion. Name a REFUSAL rate as
+  well as an accuracy (an estimator's usual failure is availability, E1b) and the session a result must
+  TRANSFER to, not only the one it was selected on; check the frame count and exposure against the
+  folder before launching (E2.10b's first stack took thirteen 120 s frames of a 288-frame 60 s night
+  and looked finished).
+- **A refusal count counts the FIRST check that failed.** Clearing one exposes the one behind it, so
+  predict per mechanism (E1g-2 went 30 to 25 against a prediction of under 10, the fit's own refusals
+  9 to 1 and the rest a star budget).
+- **Read a kill line against its premise before calling it.** A kill can rest on something the data
+  refute (E7.4's "the two crops share a kernel"); say so in the plan rather than killing or passing on
+  the letter. Equally, **a pass from two cancelling errors is not a pass** (E1d: a quadrature over-read
+  of 1.3x cancelled a kernel delivering 0.7x of its label).
+- **Make a null say why.** A probe that answers "refused" without the reason costs a day; one
+  diagnostics overload turned "half refused" into "28 of 30 PoorFit on rich fields" in eleven minutes.
 - **Seed everything and prove it.** Init and draw seeded, cuDNN deterministic; two runs of one seed
   must produce identical tensors (compare checkpoints, not logs).
 - **Several seeds per arm, and rotate the axis the conclusion rides on.** One training set, one

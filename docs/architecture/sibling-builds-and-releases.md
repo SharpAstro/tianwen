@@ -47,6 +47,14 @@ that**: it had drifted to `../StbImageSharp` for all seven codec projects (that 
 now) and was missing three others. A generated solution with unresolvable entries loads with them
 silently unloaded rather than failing, so touch one file and re-read the other.
 
+**After a rebase, a build failure in sibling code is usually the SIBLING, not the rebase.** A local
+build compiles against whatever each clone has checked out, so main moving to a newer sibling API
+fails here as a missing member even though the tianwen side merged cleanly. Seen twice: `Codecs` 13
+commits behind with `DIR.Lib` parked on a feature branch that predated the palette main needed
+(2026-09-12), and the DIR.Lib 10 APIs after #292 (2026-09-17). The fix is to fast-forward or switch
+the siblings to their mains, never `-p:UseLocalSiblings=false`, which builds against published
+packages and hides whether the local sources agree.
+
 ## The web projects: out of the solution, in CI
 
 **They were both out of `TianWen.slnx`, treated as one decision, and only one of them earned it.**
