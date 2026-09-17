@@ -161,6 +161,42 @@ CC0 31, CC BY-SA 3.0 28, CC BY 2.0 21, CC BY 3.0 17, 6 other. A shared file that
 real picture shown on a member's article (the Pleiades on Alcyone, the Trapezium on Theta1 Orionis C),
 which is kept: it is what the article shows.
 
+### Widened to every NGC and IC entry (2026-09-18)
+
+The name rule never asked about an NGC or IC entry with no common name, and English Wikipedia has a
+stub, usually with a survey image, for a large share of them. Raised by the user; the scope is now every
+object with a common name, every NGC and IC entry, plus Messier and Caldwell:
+
+| | Indices in scope | With a candidate | With a verified article |
+|---|---|---|---|
+| Non-stars | 13,460 | 12,889 | 3,745 |
+| Stars | 11,234 | 11,081 | 7,495 |
+
+**5,759 articles** (from 2,785), 200 KB gzipped and 784 KB decoded (from 82 KB and 259 KB), **3,208 with a
+picture** (from 337): the
+nameless NGC and IC articles lead with a photograph far more often than a star article does. The bake
+was additive, 3,267 added and none removed or retitled, so nothing a user had is different. Messier and
+Caldwell coverage is unchanged (all 110; C33, C40, C41, C74 still without). The larger table costs init
+nothing measurable: it decodes in its own task and joins at 0 ms behind the cross-index phase.
+
+Two things the widening taught the bake. **A third chart shape**: a self-published `NGC 146 map.png`
+whose Commons description is "Map of NGC 146" and whose only categories are the licence and the
+constellation, so neither the category rule nor the name rule caught it; a designation followed by
+"map" is a chart now (three files), while an annotated survey image (`N11 legacy dr10 small annotated
+map.jpg`) is a picture and stays. And **the MIME allow-list earned its keep on its first run**: five
+lead images in a format the store does not decode were dropped before they could reserve a slot.
+
+The run itself is no longer "a few minutes": 29,327 codes and 19,013 titles, about 35 minutes, and
+Wikidata's SPARQL endpoint answers 429 partway through the codes pass, which the bake honours with the
+server's own 120 s `Retry-After`. Four runs were needed to land it, each a lesson now in the tool: a
+transport reset from Wikidata mid-response was not retried (the second run died 35 minutes in with
+nothing written; a failure with no status is retried like a timeout now, and it carried the fourth run
+across a train-to-office network change without losing a batch); the clients had the default infinite
+pooled-connection lifetime, pinned to one edge address for the whole run (two minutes now, the picture
+store's too); and a `\b` written through an inline Python edit had become a literal backspace byte in
+the chart-name regex, which matched nothing, the same defect the category regex had carried since its
+first commit (`spectra\b`, so that alternative never fired).
+
 ## Design
 
 ### P0: the identity bake (the part that replaces guessing)
