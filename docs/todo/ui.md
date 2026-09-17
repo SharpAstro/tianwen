@@ -545,7 +545,8 @@ reading and the next person will reach for it again.
   host simply never offers them. That is what makes the deployed showcase demonstrate framing rather
   than only rendering.
 - [ ] **Milky Way texture in the web sky map.** The desktop path has it
-  ([skymap-milkyway](../plans/skymap-milkyway.md)); the WebGL pipeline does not.
+  ([skymap-milkyway](../plans/skymap-milkyway.md)); the WebGL pipeline does not. IN PROGRESS 2026-09-17 as
+  that plan's Phase 6.
 - [ ] **Copy a link to a point (right-click), and the `&t=<time of capture>` parameter behind it.**
   This is the other end of the viewer's share-link item (P20): the viewer needs somewhere to point, so
   the web build has to accept a position AND an instant before that menu entry can exist.

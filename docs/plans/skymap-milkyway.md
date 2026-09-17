@@ -46,7 +46,8 @@ rgb           = bv_to_rgb(weighted_mean_bv) * normalise(sqrt(visible))
 ### ✅ Phase 2: Texture Pipeline (DONE, "Milky Way sky background, overlay improvements, RGBAColor32.FromFloat")
 
 - 8-byte header (int32 LE width + height) + raw BGRA, lzip-compressed
-- Shipped as `TianWen.UI.Gui/Resources/milkyway.bgra.lz` (~131 KB at 2048x1024)
+- Shipped as `TianWen.UI.Gui/Resources/milkyway.bgra.lz` (2048x1024; 1,511,914 bytes compressed and
+  8,388,616 decoded, measured 2026-09-17; this line said ~131 KB, the size of the analytical placeholder)
 - Current content: analytical model from `tools/generate_milkyway.py`; bright
   band at b=0, bulge at l=0, smooth warm/cool tint. **Placeholder only**; no
   real galactic structure.
@@ -111,6 +112,33 @@ Already largely present in Phase 1 (sun altitude fade), but can be extended:
 - [ ] Modulate alpha by Bortle index from weather/site data
 - [ ] Saturation control (HSV in-shader for "how colorful" slider)
 - [ ] Fade at horizon when horizon clipping is enabled
+
+### 🟡 Phase 6: The Browser Sky Map (IN PROGRESS, 2026-09-17)
+
+The web atlas (`WebGlSkyMapPipeline`) had no Milky Way at all; `docs/todo/ui.md` carried it as an open
+item. Nothing in the texture or the shader blocks it. Two seams were missing:
+
+- **WebGl.Renderer could not give a custom pipeline a texture.** Its custom-pipeline seam registers
+  programs, persistent buffers and a uniform block; its only textures were the SDF atlas pages. The
+  sibling gains an image-texture API: the JS side fetches a URL, decodes it with `createImageBitmap`
+  (`premultiplyAlpha: "none"`, `colorSpaceConversion: "none"`, so the bytes arrive as baked), uploads
+  it to a texture table SEPARATE from the atlas pages (which splice on destroy), and a bind opcode puts
+  it on unit 0, which every program's `uTexture` already samples.
+- **The browser cannot read a file next to the executable.** Desktop `TryLoadMilkyWayTexture` reads
+  `milkyway.bgra.lz` from `AppContext.BaseDirectory`. The web build instead serves a **PNG baked by
+  `pages.yml`** from that same committed `.lz` (`tools/bake-milkyway`, sibling of `bake-tycho2`), so
+  the browser decodes it natively, off the main thread, instead of running an 8.4 MB lzip decode and a
+  byte-order swap in WebAssembly. Derived from the committed file rather than re-baked from catalogues,
+  so desktop and web cannot drift into different skies; the tool decodes its own PNG back and refuses
+  to write on any mismatch.
+
+The shader is a transcription of `skymap_mw.frag` to GLSL ES 3.00. One real difference: the desktop
+additive pipeline blends colour as `SrcAlpha, One`, WebGl.Renderer's `Additive` is `One, One`, so the
+web shader outputs premultiplied colour (`rgb * a`). The alpha (sun altitude times the FOV dimming)
+moves out of `VkSkyMapTab` into `SkyMapState` so both hosts compute it once, the same way.
+
+A local `dotnet run` of the web project has no PNG unless the tool is run by hand; the map degrades
+gracefully, exactly as desktop does without the `.lz` (`MilkyWayAvailable` stays false).
 
 ## Tool Usage
 
