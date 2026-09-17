@@ -317,7 +317,9 @@ StartupTrace.Mark("gpu");
 // Nothing here starts: the pipeline is built on the map's first draw, the catalog is the lazy above
 // (which the ladder warms when a rung needs it), and the milky-way texture decodes off-thread. A
 // viewer that never reaches the top rung pays for none of it.
-var skyBackdrop = new VkSkyMapTab(renderer) { Bus = bus, Logger = logger };
+// Declared after the GPU stack, so it is disposed before it: its textures and pipeline go while the
+// device is still there to destroy them.
+using var skyBackdrop = new VkSkyMapTab(renderer) { Bus = bus, Logger = logger };
 skyBackdrop.State.ViewDrivenExternally = true;
 // Defaults chosen for a sky drawn BEHIND a picture rather than for an atlas: the grid and the
 // objects are the ladder's own lower rungs and are already drawn over the frame by the viewer, so

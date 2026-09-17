@@ -21,7 +21,7 @@ namespace TianWen.UI.Shared;
 /// as J2000 unit vectors in persistent GPU buffers; projection happens in the vertex shader.
 /// Text labels are drawn natively by the base class on top.
 /// </summary>
-public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanContext>(renderer)
+public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanContext>(renderer), IDisposable
 {
     private VkSkyMapPipeline? _pipeline;
 
@@ -1269,5 +1269,19 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     {
         _pipeline?.LoadMilkyWayTexture(bgraData, width, height);
         State.MilkyWayAvailable = _pipeline?.HasMilkyWayTexture ?? false;
+    }
+
+    /// <summary>
+    /// Releases what this tab put on the GPU: the object pictures' textures and the sky-map pipeline with
+    /// its buffers and the Milky Way texture. Owned by whoever created the tab (the GUI renderer, the
+    /// viewer's backdrop), which disposes it before the renderer and the context go, the order
+    /// <see cref="GpuStack{TTop}"/> keeps. The pictures go first: a texture's own dispose is DEFERRED to
+    /// the context (a frame in flight may still sample it) and the pipeline's dispose waits for the
+    /// device to idle, after which the context's teardown flushes that queue.
+    /// </summary>
+    public void Dispose()
+    {
+        _pictures?.Dispose();
+        _pipeline?.Dispose();
     }
 }
