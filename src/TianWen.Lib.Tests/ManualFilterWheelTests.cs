@@ -67,6 +67,16 @@ public class ManualFilterWheelTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void GivenAnUnrecognisedFilterNameWhenCreatingDeviceThenTheNameSurvivesTheUri()
+    {
+        // The URI stored the canonical Name, which for any filter the patterns do not know is the
+        // literal "Unknown", so the one thing identifying the installed filter was thrown away.
+        var device = new ManualFilterWheelDevice("Optolong L-eNhance");
+
+        device.InstalledFilter.IdentityKey.ShouldBe("Optolong L-eNhance");
+    }
+
+    [Fact]
     public void GivenDeviceUriWhenCreatingDeviceThenFilterIsEncodedInQuery()
     {
         var device = new ManualFilterWheelDevice(Filter.SulphurII);

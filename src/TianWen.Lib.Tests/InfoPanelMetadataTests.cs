@@ -104,6 +104,19 @@ namespace TianWen.Lib.Tests
             lines.ShouldContain("Frame: Flat");
         }
 
+        [Fact]
+        public async Task AnUnrecognisedFilterIsShownByItsOwnName()
+        {
+            // Every FITS file with a descriptive FILTER card reads as Unknown carrying that text, and
+            // the panel compared against the bare Unknown instance, so it said "Filter: Unknown" over
+            // an image SPCC had just calibrated through that very filter's curve.
+            var document = await NewDocumentAsync(Meta() with { Filter = Filter.FromName("IDAS LPS-D3") });
+
+            var lines = InfoPanelData.GetMetadataLines(document);
+
+            lines.ShouldContain("Filter: IDAS LPS-D3");
+        }
+
         private static Task<AstroImageDocument> NewDocumentAsync(ImageMeta meta)
         {
             var plane = new float[Height, Width];

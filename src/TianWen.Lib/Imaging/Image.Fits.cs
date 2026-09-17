@@ -334,7 +334,7 @@ public partial class Image
         // definitive "no filter" and discarded FILTER unread. FILTCLAS is our own convention, so
         // that silently made EVERY third-party file with a filter (all of N.I.N.A.'s) read as
         // unfiltered. Pinned by FitsHeaderEditorTests + FilterHeaderFallbackTests.
-        var filter = !string.IsNullOrWhiteSpace(filterClassName) && Filter.FromName(filterClassName) is var f && f != Filter.Unknown
+        var filter = !string.IsNullOrWhiteSpace(filterClassName) && Filter.FromName(filterClassName) is { IsUnknown: false } f
             ? f : Filter.FromName(filterName);
         filter = filter with { RawName = filterName };
         var (isCFA, cfaPattern) = ParseCfaImageCard(hdu.Header);
