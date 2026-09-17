@@ -293,20 +293,21 @@ public static class DatasetTileExporter
             return selected.Count;
         }
 
-        // Sub tiles, iterated sub-major so only one stretched sub is resident at a time.
+        // Sub tiles, iterated sub-major so only one stretched sub is resident at a time -- which is
+        // also what keeps a drizzled session's re-warp to one per sub rather than one per cell.
+        var warpedSubs = session.WarpedSubs
+            ?? throw new InvalidOperationException(
+                $"Session {imaging.Id} carries no WarpedSubs, so its subs cannot be read back for tiling.");
         var subTiles = 0;
         foreach (var (subIdx, cellsForSub) in subToCells)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var sub = session.Subs[subIdx];
-            var warped = await Task.Run(() =>
-            {
-                if (!Image.TryReadFitsFile(sub.WarpedPath, out var img))
-                {
-                    throw new IOException($"Failed to re-read warped scratch FITS: {sub.WarpedPath}");
-                }
-                return img;
-            }, cancellationToken);
+            // Through the session's own source, because a drizzled session wrote no warped scratch:
+            // there the sub is warped again here, from the raw light, with the warp pass's arguments
+            // (WarpedSubSource). Still off the calling thread -- it is a file read on a staged
+            // session and a debayer plus a warp on a drizzled one, and neither belongs inline.
+            var warped = await Task.Run(async () => await warpedSubs.LoadAsync(sub, cancellationToken), cancellationToken);
             var (subStretched, _, _, _) = ChunkedNafnetRunner.ApplyInputStretch(ToUnitRange(warped));
             var sourceName = Path.GetFileName(sub.Source.Path);
             var subMeta = sub.Source.Meta;
@@ -366,7 +367,7 @@ public static class DatasetTileExporter
         {
             cancellationToken.ThrowIfCancellationRequested();
             var row = rows[i];
-            var stretched = ResolveStretched(row);
+            var stretched = await ResolveStretchedAsync(row);
             var expected = ExtractTileHalfs(stretched, new PixelPoint(row.CellX, row.CellY), row.TileSize, out _);
 
             var blobPath = Path.Combine(outDir, row.Tile.Replace('/', Path.DirectorySeparatorChar));
@@ -386,7 +387,7 @@ public static class DatasetTileExporter
         }
         return new ParityResult(checkedCount, maxDiff);
 
-        Image ResolveStretched(TileManifestRow row)
+        async Task<Image> ResolveStretchedAsync(TileManifestRow row)
         {
             // Keyed by FRAME for every whole-session kind and by source file for a sub. A key derived
             // from SourceFile alone cannot work here: the master and both half-masters carry "", so
@@ -421,11 +422,14 @@ public static class DatasetTileExporter
                         break;
                     }
                 }
-                if (match is null || !Image.TryReadFitsFile(match.WarpedPath, out var img))
+                // Same source as the export itself, so a drizzled session's sub is re-warped here
+                // exactly as it was when its tile was written; comparing a tile against a frame
+                // obtained some other way would be checking two things at once.
+                if (match is null || session.WarpedSubs is not { } warpedSubs)
                 {
                     throw new IOException($"Parity check could not resolve source for {row.Tile} (frame={row.Frame}, source={row.SourceFile}).");
                 }
-                frame = img;
+                frame = await warpedSubs.LoadAsync(match, cancellationToken);
             }
             var (stretched, _, _, _) = ChunkedNafnetRunner.ApplyInputStretch(ToUnitRange(frame));
             stretchedCache[key] = stretched;

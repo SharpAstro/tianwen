@@ -10,6 +10,7 @@ using TianWen.AI.Imaging;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
+using TianWen.Lib.Imaging.Stacking;
 using Xunit;
 
 namespace TianWen.Lib.Tests
@@ -352,6 +353,48 @@ namespace TianWen.Lib.Tests
                     subsPerCell: SubsPerCell, logger: new XunitLogger(output), cancellationToken: ct));
 
             ex.Message.ShouldContain("entirely zero");
+        }
+
+        /// <summary>
+        /// Tiling a DRIZZLED session, which is the kind that has no warped scratch to read: its subs
+        /// are warped again here, one per sub because the export loop is sub-major. The parity check
+        /// re-warps them a second time and finds the stored tiles bit-identical, which is the
+        /// end-to-end statement that a sub is the same frame however it was obtained -- the
+        /// registrar test asserts the two routes agree, and this asserts the exporter is on the
+        /// route it thinks it is.
+        /// </summary>
+        [Fact]
+        public async Task ADrizzledSessionsSubsAreTiledByRewarpingThem()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var lightsDir = Path.Combine(_dir, "LIGHT");
+            var darksDir = Path.Combine(_dir, "DARK");
+            Directory.CreateDirectory(lightsDir);
+            Directory.CreateDirectory(darksDir);
+            RgbBayerSyntheticFixture.WriteSyntheticLights(lightsDir, DrizzleStrategy.AutoSelectMinFrameCount);
+            RgbBayerSyntheticFixture.WriteSyntheticDarks(darksDir);
+            var calibrator = new Calibrator(Dark: await MasterFrameBuilder.BuildDarkMasterAsync(ReadFrames(darksDir, "dark_*.fits"), ct));
+            var session = new ImagingSession(
+                lightsDir, "synth/rggb-deep", "SynthBayer", "SynthRgb", "", [.. ReadFrames(lightsDir, "light_*.fits")]);
+            var scratch = Path.Combine(_dir, "scratch");
+            var registered = await SessionRegistrar.RegisterAsync(
+                session, calibrator, scratch, minSubs: 4, minSubsForHalfMasters: int.MaxValue,
+                logger: new XunitLogger(output), cancellationToken: ct);
+            registered.ShouldNotBeNull();
+            registered.MasterStrategy.ShouldBe(IntegrationStrategyKind.BayerDrizzle);
+            Directory.GetFiles(scratch, "warped_*.fits", SearchOption.AllDirectories).ShouldBeEmpty();
+
+            var outDir = Path.Combine(_dir, "out");
+            var result = await DatasetTileExporter.ExportAsync(
+                registered, outDir, tileSize: TileSize, cellsPerSession: 10, subsPerCell: SubsPerCell,
+                logger: new XunitLogger(output), cancellationToken: ct);
+
+            result.Cells.ShouldBeGreaterThan(0);
+            result.Rows.Count(r => r.Frame == DatasetTileExporter.FrameSub).ShouldBe(result.Cells * SubsPerCell);
+            var parity = await DatasetTileExporter.VerifyParityAsync(
+                registered, outDir, result.Rows, sampleCount: 12, cancellationToken: ct);
+            parity.Checked.ShouldBeGreaterThan(0);
+            parity.MaxAbsDiff.ShouldBe(0.0);
         }
     }
 }
