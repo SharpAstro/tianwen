@@ -22,7 +22,7 @@ namespace BakeObjectImagery;
 /// <remarks>
 /// Every rule here was measured before it was written (docs/plans/object-imagery.md, "P0 measured"):
 /// <list type="bullet">
-/// <item>Scope: every object with a common name, plus Messier and Caldwell.</item>
+/// <item>Scope: every object with a common name, every NGC and IC entry, plus Messier and Caldwell.</item>
 /// <item>Two candidate routes, because each misses what the other finds: Wikidata catalogue codes in
 /// Wikidata's own spelling, and English Wikipedia titles with redirects followed.</item>
 /// <item>A candidate is accepted only when the Wikidata item's position lies within a tolerance of ours,
@@ -69,7 +69,11 @@ internal static partial class Program
         var scope = BuildScope(db);
         Log($"scope: {scope.Count} indices ({scope.Values.Count(o => o.IsStar)} stars)");
 
-        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
+        // A bounded pooled-connection lifetime, because the default is infinite: a connection is then reused
+        // until the server drops it and DNS is consulted only when a new one is opened, so a 35-minute run
+        // stays pinned to the first Wikimedia edge address it reached and never rotates across the others.
+        using var handler = new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(2) };
+        using var http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(2) };
         http.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
 
         var candidates = new Dictionary<CatalogIndex, Dictionary<uint, Route>>();
@@ -160,7 +164,12 @@ internal static partial class Program
 
         foreach (var index in db.AllObjectIndices)
         {
-            if (db.TryLookupByIndex(index, out var obj) && obj.CommonNames.Count > 0)
+            // Every NGC and IC entry, named or not: English Wikipedia has an article for a large share of
+            // them with no common name at all (stubs with a survey image), which the name rule never asked
+            // about. The code and title routes both spell these designations already.
+            var catalog = index.ToCatalog();
+            if (catalog is Catalog.NGC or Catalog.IC
+                || (db.TryLookupByIndex(index, out var obj) && obj.CommonNames.Count > 0))
             {
                 Add(index);
             }
@@ -538,7 +547,10 @@ internal static partial class Program
     /// credit line can state; and a chart. Star articles often lead with a light curve, a position chart or a constellation map:
     /// 105 of the first bake's 425 kept files. Commons' own categories find 100 of them ("Light curves of
     /// Delta Scuti variables", "Star location maps") and the file name finds 103, 98 in common, so a file
-    /// either one flags is dropped.
+    /// either one flags is dropped. The NGC and IC widening added a third shape neither caught: a
+    /// self-published "NGC 146 map.png" whose Commons description is "Map of NGC 146" and whose only
+    /// categories are the licence and the constellation, so the designation-plus-"map" name is the rule.
+    /// (An annotated survey image, "N11 legacy dr10 small annotated map.jpg", is a picture and stays.)
     /// </summary>
     private static async Task<Dictionary<string, ObjectArticleImage>> GetImageCreditsAsync(HttpClient http, IReadOnlyCollection<string> files, CancellationToken ct)
     {
@@ -790,8 +802,9 @@ internal static partial class Program
     }
 
     /// <summary>
-    /// One POST, retried with a growing pause on a throttle, a server error or a timeout, honouring a
-    /// Retry-After. POST rather than GET because a batch of titles or codes overruns a URL.
+    /// One POST, retried with a growing pause on a throttle, a server error, a timeout or a transport
+    /// failure, honouring a Retry-After. POST rather than GET because a batch of titles or codes overruns
+    /// a URL.
     /// </summary>
     private static async Task<JsonDocument> PostAsync(HttpClient http, string url, Dictionary<string, string> form, CancellationToken ct)
     {
@@ -811,7 +824,8 @@ internal static partial class Program
                 var retryable = response.StatusCode is HttpStatusCode.TooManyRequests || (int)response.StatusCode >= 500;
                 if (!retryable || attempt >= 5)
                 {
-                    throw new HttpRequestException($"{url} answered {(int)response.StatusCode} {response.ReasonPhrase}");
+                    // Carries the status, which is what tells an ANSWER apart from a transport failure below.
+                    throw new HttpRequestException($"{url} answered {(int)response.StatusCode} {response.ReasonPhrase}", null, response.StatusCode);
                 }
 
                 var wait = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(10 * attempt);
@@ -823,6 +837,14 @@ internal static partial class Program
             catch (OperationCanceledException) when (!ct.IsCancellationRequested && attempt < 5)
             {
                 Log($"{url} timed out; retrying");
+                await Task.Delay(TimeSpan.FromSeconds(10 * attempt), ct);
+            }
+            // A transport failure is not an answer either: Wikidata reset the connection mid-response 88
+            // batches into a 118-batch codes pass (2026-09-18), and the run died 35 minutes in with nothing
+            // written. No status on the exception is what says it never answered; the throws above carry one.
+            catch (HttpRequestException ex) when (ex.StatusCode is null && attempt < 5)
+            {
+                Log($"{url} failed to answer ({ex.Message}); retrying");
                 await Task.Delay(TimeSpan.FromSeconds(10 * attempt), ct);
             }
         }
@@ -854,9 +876,9 @@ internal static partial class Program
     [GeneratedRegex(@"^Barnard (\d+)$")] private static partial Regex BarnardCode();
     [GeneratedRegex(@"^(NGC|IC) \d+$")] private static partial Regex NgcOrIc();
     [GeneratedRegex(@"\b(IRS|NED)\d*\b")] private static partial Regex InstrumentSuffix();
-    [GeneratedRegex(@"light curves|location maps|constellation maps|astronomical maps|star charts|finder charts|diagrams|spectra|orbits|asterisms", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"light curves|location maps|constellation maps|astronomical maps|star charts|finder charts|diagrams|spectra\b|orbits|asterisms", RegexOptions.IgnoreCase)]
     private static partial Regex ChartCategory();
-    [GeneratedRegex(@"light ?curve|constellation map|star ?map|^File:Position |asterism|chart|finder|diagram|orbit|spectrum|location of|location map", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"light ?curve|constellation map|star ?map|^File:Position |^File:(?:NGC|IC) \d+ map\b|asterism|chart|finder|diagram|orbit|spectrum|location of|location map", RegexOptions.IgnoreCase)]
     private static partial Regex ChartName();
     [GeneratedRegex("<[^>]+>")] private static partial Regex HtmlTag();
     [GeneratedRegex(@"\s+")] private static partial Regex Whitespace();

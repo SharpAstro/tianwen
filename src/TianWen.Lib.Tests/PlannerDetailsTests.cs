@@ -128,10 +128,19 @@ public class PlannerDetailsTests
     {
         var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
 
-        // NGC 7, a faint galaxy with no common name and in neither Messier nor Caldwell, so outside the
-        // bake's scope. The old designation guess linked it all the same.
-        db.TryLookupByIndex("NGC7", out var obj).ShouldBeTrue();
-        db.TryGetArticle(obj.Index, out _).ShouldBeFalse("the test needs an object the table does not cover");
+        // An object outside the bake's scope: not NGC or IC (every one of those is asked about since the
+        // 2026-09-18 widening; NGC 7 used to be the example here, and now has its stub), no common name, in
+        // neither Messier nor Caldwell. The first nameless Sharpless region with no article, FOUND rather
+        // than named, so a wider bake turns this into a search for the next one instead of a red test. The
+        // old designation guess linked every one of them all the same.
+        var outside = db.AllObjectIndices
+            .Where(i => i.ToCatalog() == Catalog.Sharpless
+                && db.TryLookupByIndex(i, out var o) && o.CommonNames.Count == 0
+                && !db.TryGetArticle(i, out _))
+            .OrderBy(i => (ulong)i)
+            .FirstOrDefault();
+        outside.ShouldNotBe(default(CatalogIndex), "the test needs an object the table does not cover");
+        db.TryLookupByIndex(outside, out var obj).ShouldBeTrue();
 
         var target = new Target(obj.RA, obj.Dec, obj.DisplayName, obj.Index);
         var scored = Scored(target, obj.ObjectType);

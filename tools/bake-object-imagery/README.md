@@ -14,14 +14,18 @@ Run it by hand and commit the output. Not per deploy: Wikipedia changes slowly, 
 every push is a table nobody reviewed. The table is binary, so **the report on stdout is the review**:
 coverage, the Messier and Caldwell objects left without an article, the licence spread, lead images whose
 file name says `map`, and every index added, removed or retitled since the table it replaced. Progress
-goes to stderr. A full run is a few minutes of requests made one at a time.
+goes to stderr. A full run is about 35 minutes of requests made one at a time (29,327 codes, 19,013
+titles), and Wikidata's SPARQL endpoint answers 429 partway through the codes pass, which the bake waits
+out with the server's own `Retry-After`.
 
 ## What it does, and why each step is the way it is
 
 Every rule was measured first; the numbers are in the plan's "P0 measured" section.
 
-1. **Scope**: every object with a common name, plus Messier and Caldwell by their main catalogue entries.
-   Most of it is stars whose common name is a Bayer or Flamsteed designation, included by decision.
+1. **Scope**: every object with a common name, every NGC and IC entry named or not (since 2026-09-18:
+   English Wikipedia has a stub with a survey image for a large share of the nameless ones), plus Messier
+   and Caldwell by their main catalogue entries. Most of the named set is stars whose common name is a
+   Bayer or Flamsteed designation, included by decision.
 2. **Candidates by catalogue code** (Wikidata `P528`), spelled Wikidata's way, which is neither ours nor
    consistent: `M 42` but `M99`, `SH 2-25`, `Gum 33`, `B 33`. Caldwell asks nothing: its Wikidata codes
    carry cluster designations, and a bare `C 99` answers a mazurka.
