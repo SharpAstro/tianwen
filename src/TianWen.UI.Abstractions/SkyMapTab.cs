@@ -6,7 +6,6 @@ using System.Numerics;
 using System.Threading.Tasks;
 using DIR.Lib;
 using Microsoft.Extensions.Logging;
-using SharpAstro.Lzip;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
@@ -51,11 +50,7 @@ namespace TianWen.UI.Abstractions
         // the GPU upload (OnMilkyWayLoaded) on a later render frame once it completes, mirroring
         // the async Tycho-2 star-buffer swap. No lock needed: the field is only touched on the
         // render thread, and the decoded payload travels via the Task's result (TPL-safe).
-        private Task<DecodedMilkyWay?>? _milkyWayLoadTask;
-
-        /// <summary>Decoded Milky Way texture awaiting GPU upload: the lzip-decompressed buffer
-        /// (8-byte width/height header followed by BGRA pixels) plus its dimensions.</summary>
-        private readonly record struct DecodedMilkyWay(byte[] Raw, int Width, int Height);
+        private Task<MilkyWayTextureFile?>? _milkyWayLoadTask;
 
         // Cached live viewing time -- refreshed once per second to avoid per-frame GetUtcNow() calls.
         // GetTimestamp() is a cheap stopwatch read; GetUtcNow() is a heavier system call.
@@ -1241,33 +1236,17 @@ namespace TianWen.UI.Abstractions
             // TryApplyPendingMilkyWay does the GPU upload on a later render frame. The inner
             // try/catch returns null on a bad/corrupt file (logged) so a failure reads as "no
             // Milky Way" instead of tearing down the process.
-            var task = Task.Run<DecodedMilkyWay?>(() =>
+            var task = Task.Run<MilkyWayTextureFile?>(() =>
             {
                 try
                 {
                     Logger?.LogInformation("Loading Milky Way texture from {Path}", texturePath);
-                    var compressed = File.ReadAllBytes(texturePath);
-                    var raw = LzipDecoder.Decompress(compressed);
-
-                    // Header: 4 bytes width + 4 bytes height (little-endian int32)
-                    if (raw.Length < 8)
-                    {
-                        Logger?.LogWarning("Milky Way texture file too small ({Length} bytes)", raw.Length);
-                        return null;
-                    }
-
-                    var width = BitConverter.ToInt32(raw, 0);
-                    var height = BitConverter.ToInt32(raw, 4);
-                    var expectedSize = 8 + width * height * 4;
-                    if (raw.Length < expectedSize || width <= 0 || height <= 0)
-                    {
-                        Logger?.LogWarning("Milky Way texture header invalid: {Width}x{Height}, file {Length} bytes",
-                            width, height, raw.Length);
-                        return null;
-                    }
-
-                    Logger?.LogInformation("Milky Way texture {Width}x{Height} decompressed ({RawSize} bytes)", width, height, raw.Length);
-                    return new DecodedMilkyWay(raw, width, height);
+                    // The header parse and its validation live in MilkyWayTextureFile, shared with the
+                    // web build's PNG bake; a bad file throws InvalidDataException into the catch below.
+                    var decoded = MilkyWayTextureFile.Decode(File.ReadAllBytes(texturePath));
+                    Logger?.LogInformation("Milky Way texture {Width}x{Height} decompressed ({RawSize} bytes)",
+                        decoded.Width, decoded.Height, decoded.Raw.Length);
+                    return decoded;
                 }
                 catch (Exception ex)
                 {
@@ -1301,7 +1280,7 @@ namespace TianWen.UI.Abstractions
             // already-logged "bad file" path. Reading .Result on a completed Task does not block.
             if (task.IsCompletedSuccessfully && task.Result is { } decoded)
             {
-                OnMilkyWayLoaded(decoded.Raw.AsSpan(8, decoded.Width * decoded.Height * 4), decoded.Width, decoded.Height);
+                OnMilkyWayLoaded(decoded.Bgra, decoded.Width, decoded.Height);
                 Logger?.LogInformation("Milky Way texture loaded, available={Available}", State.MilkyWayAvailable);
             }
         }

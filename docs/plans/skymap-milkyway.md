@@ -113,7 +113,7 @@ Already largely present in Phase 1 (sun altitude fade), but can be extended:
 - [ ] Saturation control (HSV in-shader for "how colorful" slider)
 - [ ] Fade at horizon when horizon clipping is enabled
 
-### 🟡 Phase 6: The Browser Sky Map (IN PROGRESS, 2026-09-17)
+### 🟡 Phase 6: The Browser Sky Map (IMPLEMENTED 2026-09-17; ships with WebGl.Renderer 1.33)
 
 The web atlas (`WebGlSkyMapPipeline`) had no Milky Way at all; `docs/todo/ui.md` carried it as an open
 item. Nothing in the texture or the shader blocks it. Two seams were missing:
@@ -134,11 +134,35 @@ item. Nothing in the texture or the shader blocks it. Two seams were missing:
 
 The shader is a transcription of `skymap_mw.frag` to GLSL ES 3.00. One real difference: the desktop
 additive pipeline blends colour as `SrcAlpha, One`, WebGl.Renderer's `Additive` is `One, One`, so the
-web shader outputs premultiplied colour (`rgb * a`). The alpha (sun altitude times the FOV dimming)
-moves out of `VkSkyMapTab` into `SkyMapState` so both hosts compute it once, the same way.
+web side needs PREMULTIPLIED colour. It is premultiplied at bake time, not in the shader: the texture's
+alpha is brightness, and a PNG carrying it would leave each browser to decide whether to premultiply on
+decode, losing precision at exactly the low alphas this texture is made of. So the PNG is opaque RGB with
+colour already multiplied by alpha (`MilkyWayTextureFile.ToPremultipliedRgb`, pinned for channel order by
+`MilkyWayTextureFileTests`), and the shader adds it times the fade. The fade (sun altitude times the FOV
+dimming) moves out of `VkSkyMapTab` into `SkyMapState.MilkyWayAlpha` so both hosts compute it once, the
+same way.
 
 A local `dotnet run` of the web project has no PNG unless the tool is run by hand; the map degrades
 gracefully, exactly as desktop does without the `.lz` (`MilkyWayAvailable` stays false).
+
+**Verified in Edge, 2026-09-17**, by `MilkyWayBackgroundProbe` (opt-in, `TIANWEN_WEB_PROBE=1`) against a
+dev server with the PNG staged, at Cygnus two hours past astronomical dusk:
+
+| Measurement | Value |
+|---|---|
+| PNG size (opaque RGB, premultiplied) | 936,300 bytes, against 1,511,914 for the `.lz` |
+| Texture fetch, decode and upload, interpreted dev build | 33 ms |
+| Canvas pixels brighter with the layer on | 672,706; mean added 18 of 765 (RGB sum) over the sky |
+| Sky pixels differing between two "on" captures | 0 |
+
+The first capture pair was NOT identical, and every differing pixel sat inside the "Loading the sky you
+are looking at" banner, which animates on a server without the Tycho-2 members staged. The probe clips
+its captures to the sky for that reason; a full-canvas comparison proves nothing on such a server.
+
+Nothing here compares the browser against the desktop pixel for pixel. The argument for parity is the
+arithmetic above (premultiplied colour under `One, One` equals unpremultiplied colour under
+`SrcAlpha, One`, to one 8-bit rounding step) and the shared fade, `SkyMapState.MilkyWayAlpha`, pinned by
+`SkyMapMilkyWayAlphaTests`.
 
 ## Tool Usage
 

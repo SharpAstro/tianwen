@@ -50,6 +50,10 @@ on:
       # BY this workflow, which is precisely why only this workflow can notice them.
       - 'tools/bake-comets/**'
       - 'tools/bake-tycho2/**'
+      # bake-milkyway writes the sky background the atlas loads, from a texture that lives in the GUI
+      # project rather than anywhere the web build references, so both need listing.
+      - 'tools/bake-milkyway/**'
+      - 'src/TianWen.UI.Gui/Resources/milkyway.bgra.lz'
       - '.github/workflows/pages.yml'
   schedule:
     # Weekly redeploy to re-bake the comet assets: orbit solutions update on new observation
@@ -172,6 +176,20 @@ jobs:
           dotnet run --project tools/bake-tycho2/BakeTycho2.csproj -c Release -- \
             "$src" src/TianWen.UI.Web/wwwroot/tyc2
           echo "staged $(ls src/TianWen.UI.Web/wwwroot/tyc2 | wc -l) member files"
+
+      # Stage the Milky Way background as a PNG the browser decodes natively (skymap-milkyway.md Phase 6).
+      # DERIVED from the committed desktop texture, not re-baked from the catalogues, so the desktop and
+      # the web draw the same sky; the tool decodes its own PNG back and refuses to write on a mismatch.
+      # A PNG rather than the .lz because the browser's decoder runs off the main thread, where an lzip
+      # decode and a byte-order swap of 8 MB would run in WebAssembly on it. The .lz is an LFS object
+      # pulled above; the size check turns a pointer stub into a message that names the cause.
+      - name: Stage the Milky Way texture for the Sky Atlas (PNG the browser decodes)
+        run: |
+          set -euo pipefail
+          src="src/TianWen.UI.Gui/Resources/milkyway.bgra.lz"
+          [ "$(stat -c%s "$src")" -gt 100000 ] || { echo "milkyway.bgra.lz looks like an LFS pointer, not the object"; exit 1; }
+          # No --nologo, for the same reason as the bake-comets and bake-tycho2 runs above.
+          dotnet run --project tools/bake-milkyway/BakeMilkyWay.csproj -c Release -- "$src" src/TianWen.UI.Web/wwwroot/milkyway.png
 
       # No sibling checkouts in CI: WebGl.Renderer + DIR.Lib resolve from NuGet
       # (UseLocalSiblings=false). Lightweight strips the 30 MB tyc2 catalog; AOT is the

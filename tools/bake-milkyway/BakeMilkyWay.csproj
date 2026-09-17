@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Build-time tool: turn the committed Milky Way texture (src/TianWen.UI.Gui/Resources/milkyway.bgra.lz)
+    into the opaque PNG the browser sky map loads, milkyway.png.
+
+    DERIVED from the committed file rather than re-baked from the catalogues, on purpose: the desktop and
+    the web then draw the same sky from the same bytes. The tool decodes its own PNG back and refuses to
+    write unless every sample matches.
+
+    Not part of the solution; not packed; not shipped. See tools/bake-milkyway/README.md, the "Stage the
+    Milky Way texture" step in .github/workflows/pages.yml, and docs/plans/skymap-milkyway.md Phase 6.
+    Sibling of bake-tycho2 and bake-comets.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>BakeMilkyWay</AssemblyName>
+    <RootNamespace>BakeMilkyWay</RootNamespace>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TianWen.Lib\TianWen.Lib.csproj" />
+  </ItemGroup>
+
+</Project>

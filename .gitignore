@@ -39,6 +39,9 @@ src/TianWen.UI.Web/wwwroot/tyc2.bin.lz
 # ... and the region-aligned members bake-tycho2 derives from it (166 files + manifest.bin), so a
 # view can fetch only the sky it is looking at. Derived on the runner, never committed.
 src/TianWen.UI.Web/wwwroot/tyc2/
+# CI-baked Milky Way background (pages.yml runs tools/bake-milkyway into wwwroot on the runner, from the
+# committed GUI texture); a local copy made by hand must not be committed either.
+src/TianWen.UI.Web/wwwroot/milkyway.png
 # Isolated AOT-publish output (local :5100 perf builds; keeps the dev server's obj/bin unclobbered)
 bin-aot/
 obj-aot/

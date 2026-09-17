@@ -360,8 +360,8 @@ public static class MilkyWayTextureBaker
 
     /// <summary>
     /// Write <paramref name="bgra"/> with an 8-byte int32 LE width+height header
-    /// to the given path. Matches the format the runtime loader in
-    /// <c>SkyMapTab.TryLoadMilkyWayTexture</c> expects (sans lzip framing).
+    /// to the given path. Matches the format <see cref="MilkyWayTextureFile.Decode"/> reads
+    /// (sans lzip framing).
     /// </summary>
     public static void WriteRaw(string path, int width, int height, ReadOnlySpan<byte> bgra)
     {

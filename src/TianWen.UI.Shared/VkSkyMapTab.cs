@@ -236,10 +236,8 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
         // Milky Way: fades with sun altitude. Fully visible below -18 deg (astro night),
         // zero at -6 deg (civil twilight). Also dims at wide FOV to avoid overpowering.
-        float milkyWayAlpha = State.ShowMilkyWay && State.MilkyWayAvailable
-            ? MathF.Max(MathF.Min((float)(-sunAltDeg - 6.0) / 12f, 1f), 0f)
-              * MathF.Max(MathF.Min(40f / (float)State.FieldOfViewDeg, 1f), 0.3f)
-            : 0f;
+        // The formula is SkyMapState's, shared with the browser sky map.
+        float milkyWayAlpha = State.MilkyWayAlpha(sunAltDeg);
 
         // Draw the sky map layers this phase covers. A host splitting the two (the FITS viewer,
         // which puts a photograph between them) gets the imagery here and the lines from

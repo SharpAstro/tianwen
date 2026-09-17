@@ -47,6 +47,17 @@ namespace TianWen.UI.Web.SkyMap
         public void SubmitTycho2Stars(float[] verts, int starCount, StarChunk[] chunks)
             => _pipeline.SubmitTycho2Stars(verts, starCount, chunks);
 
+        /// <summary>
+        /// Adopts the Milky Way texture the page loaded and makes the layer available, which is what the
+        /// desktop's file loader does through <c>OnMilkyWayLoaded</c>. The browser cannot read a file beside
+        /// the executable, so the page fetches the baked PNG instead.
+        /// </summary>
+        public void SubmitMilkyWay(TextureHandle texture)
+        {
+            _pipeline.SetMilkyWayTexture(texture);
+            State.MilkyWayAvailable = _pipeline.HasMilkyWayTexture;
+        }
+
         protected override void RenderSkyMap(
             ICelestialObjectDB db, RectF32 contentRect,
             System.DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site,
@@ -65,7 +76,9 @@ namespace TianWen.UI.Web.SkyMap
             _pipeline.UpdateFrame(State, contentRect.Width, contentRect.Height, site);
             SkyUpdateFrameMs += Elapsed(ref mark);
 
-            _pipeline.Draw(State, site);
+            // The desktop's fade, from the sun-altitude cache the background fill above has just warmed.
+            var milkyWayAlpha = State.MilkyWayAlpha(State.GetSunAltitudeDegCached(viewingTime, siteLat, siteLon));
+            _pipeline.Draw(State, site, milkyWayAlpha);
             SkyDrawMs += Elapsed(ref mark);
         }
 
