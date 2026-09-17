@@ -412,7 +412,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
 
         return new Command("dataset", "Training-dataset tooling (see docs/plans/ai-denoise-deconv.md).")
         {
-            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildGradientReportCommand(), BuildDegradeCommand(), BuildPairCommand(), BuildCoverageCommand(consoleHost), BuildTagFilterCommand(), BuildTagObjectCommand(), BuildTagSiteElevationCommand(), BuildTagFrameTypeCommand() },
+            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildGradientReportCommand(), BuildDegradeCommand(), BuildPairCommand(), BuildCoverageCommand(consoleHost), BuildTagFilterCommand(), BuildTagObjectCommand(), BuildTagSiteElevationCommand(), BuildTagFrameTypeCommand(), BuildRelabelFrameTypeCommand() },
         };
     }
 
@@ -1115,23 +1115,21 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             numeric: true);
 
     /// <summary>
-    /// <c>tianwen dataset tag-frame-type</c> fills in <c>IMAGETYP</c> on frames whose capture software
-    /// never wrote it.
+    /// <c>tianwen dataset tag-frame-type</c> fills in the frame type on frames whose capture software
+    /// never wrote it in full.
     ///
-    /// <para>SharpCap 4 writes the frame type into <c>FRAMETYP</c> only, and SharpCap 3 writes no type
-    /// card at all. TianWen reads <c>FRAMETYP</c> first, so the first family is already understood here,
-    /// but <c>IMAGETYP</c> is the card every other tool keys on: a survey of the archive that read only
-    /// it reported 28,803 untyped frames when 18,492 of them stated a type. The second family is
-    /// invisible to the stacker and the dataset builder until something says what each frame is.</para>
+    /// <para>SharpCap 4 writes the frame type into <c>FRAMETYP</c> only, SharpCap 3 writes no type card at
+    /// all, and N.I.N.A. writes only <c>IMAGETYP</c>. TianWen reads <c>FRAMETYP</c> first while
+    /// <c>IMAGETYP</c> is the card every other tool keys on: a survey of the archive that read only it
+    /// reported 28,803 untyped frames when 18,492 of them stated a type. The untyped family is invisible
+    /// to the stacker and the dataset builder until something says what each frame is.</para>
     ///
     /// <para><b>The type is never inferred here.</b> It is measured beforehand, one capture run at a
-    /// time (a blind solve answers for a light; the level against the camera's floor for the rest,
-    /// since a warm dark yields plenty of star-shaped hot pixels), and passed in. The guard runs the
-    /// other way from <c>tag-object</c>: by default only a frame with NO type card is touched, and
-    /// <c>--frame-type</c> may name a stated type only when it is the one being written. That lets the
-    /// verb fill <c>IMAGETYP</c> beside a <c>FRAMETYP</c> that agrees, and makes a disagreeing pair
-    /// impossible to write, which matters because the reader takes <c>FRAMETYP</c> first: such a pair
-    /// would leave TianWen on one answer and every other tool on the other.</para>
+    /// time (a solve answers for a light; the level against a bias at the same gain and offset for the
+    /// rest, since a warm dark yields plenty of star-shaped hot pixels), and passed in. Both cards are
+    /// written in one rewrite by <see cref="FitsHeaderEditor.SetFrameTypeAsync"/>, which leaves a card
+    /// that already states the type untouched and refuses a frame stating a DIFFERENT one: changing a
+    /// stated type is <c>relabel-frame-type</c>, a separately named act.</para>
     /// </summary>
     private Command BuildTagFrameTypeCommand()
         => BuildTagCardCommand(
@@ -1139,18 +1137,61 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             keyword: "IMAGETYP",
             cardComment: "Type of exposure",
             valueOptionName: "--as",
-            valueDescription: "Frame type to write, spelled the way TianWen's own writer spells it: " +
-                              string.Join(", ", BackfillableFrameTypes) + ".",
-            summary: "Fill in IMAGETYP on frames whose capture software never wrote it (header-surgical; dry run by default).",
+            valueDescription: "Frame type to state, spelled the way TianWen's own writer spells it: " +
+                              string.Join(", ", BackfillableFrameTypes) + ". Written to IMAGETYP and FRAMETYP " +
+                              "wherever either is absent.",
+            summary: "Fill in IMAGETYP/FRAMETYP on frames whose capture software never wrote them (header-surgical; dry run by default).",
             defaultFrameTypes: ["None"],
-            frameTypeDescription: "Which frames to fill in, by the type they already state. Defaults to None: only a frame " +
-                                  "with no FRAMETYP, IMAGETYP or FRAME card. Add the --as type (--frame-type None Dark " +
-                                  "--as Dark) to also fill IMAGETYP beside a FRAMETYP that already says so. Any other " +
-                                  "type is refused, so a frame can never end up stating two types.",
+            frameTypeDescription: "Which frames to fill in, by the type they already state. Defaults to None: a frame with no " +
+                                  "FRAMETYP, IMAGETYP or FRAME card, plus any frame already stating the --as type, whose " +
+                                  "missing card is completed. A different stated type is refused here; correcting one is " +
+                                  "relabel-frame-type.",
             refusalAdvice: "Pass --hard-links relink to bring the other names along (they name the same frame, so the " +
                            "same type applies to all of them).",
             readCurrent: meta => meta.FrameType.ToFITSValue(),
-            validateArguments: ValidateFrameTypeArguments);
+            overwriteDescription: "Ignored: a card already stating the type is kept as it is, and changing a stated type " +
+                                  "is relabel-frame-type.",
+            validateArguments: ValidateFillFrameTypeArguments,
+            tagFile: TagFrameTypeAsync);
+
+    /// <summary>
+    /// <c>tianwen dataset relabel-frame-type</c> corrects a frame type the capture software got WRONG,
+    /// in both cards at once.
+    ///
+    /// <para>SharpCap's type is a dropdown, and 2024-02-03 holds 70 darks and 304 flats it typed
+    /// <c>Light</c>. Because the reader takes <c>FRAMETYP</c> first, filing them as they are would hand
+    /// the bake two extra "light" sessions. This is the <c>tag-object</c> shape: a relabel, bounded by
+    /// naming the ONE wrong type being corrected in <c>--frame-type</c>, so a folder that turns out to
+    /// hold something else is refused frame by frame instead of relabelled wholesale. The evidence that
+    /// the label is wrong comes from the pixels and the sky, measured beforehand, never from here.</para>
+    /// </summary>
+    private Command BuildRelabelFrameTypeCommand()
+        => BuildTagCardCommand(
+            label: "relabel-frame-type",
+            keyword: "FRAMETYP",
+            cardComment: "Type of exposure",
+            valueOptionName: "--as",
+            valueDescription: "The frame type the frames really are, spelled the way TianWen's own writer spells it: " +
+                              string.Join(", ", BackfillableFrameTypes) + ".",
+            summary: "Correct a frame type the capture software recorded wrongly, in IMAGETYP and FRAMETYP together " +
+                     "(header-surgical; dry run by default).",
+            defaultFrameTypes: [],
+            frameTypeDescription: "REQUIRED: the one wrong type being corrected (e.g. --frame-type Light --as Dark). A frame " +
+                                  "stating anything else, or already stating the --as type in both cards, is left alone.",
+            refusalAdvice: "Pass --hard-links relink to bring the other names along (they name the same frame, so the " +
+                           "same type applies to all of them).",
+            readCurrent: meta => meta.FrameType.ToFITSValue(),
+            overwriteDescription: "Ignored: correcting a type is by definition a replacement, bounded by --frame-type.",
+            validateArguments: ValidateRelabelFrameTypeArguments,
+            tagFile: TagFrameTypeAsync);
+
+    private static Task<FitsHeaderEditor.TagResult> TagFrameTypeAsync(
+        string file, string value, IReadOnlySet<FrameType> replaceable, FitsHeaderEditor.HardLinkPolicy hardLinks,
+        bool apply, CancellationToken cancellationToken)
+        => FitsHeaderEditor.SetFrameTypeAsync(
+            file,
+            FrameType.FromFITSValue(value) ?? throw new ArgumentException($"'{value}' is not a frame type", nameof(value)),
+            replaceable, hardLinks, apply, cancellationToken);
 
     /// <summary>What a backfill may say a frame IS. <see cref="FrameType.Focus"/> is in because a
     /// focusing run is a captured frame that must never integrate as a light, and naming it is what keeps
@@ -1159,25 +1200,50 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
     internal static readonly FrameType[] BackfillableFrameTypes =
         [FrameType.Light, FrameType.Dark, FrameType.Bias, FrameType.Flat, FrameType.DarkFlat, FrameType.Focus];
 
-    /// <summary>The argument check for <c>tag-frame-type</c>, or null when the arguments are sound.</summary>
-    internal static string? ValidateFrameTypeArguments(string value, IReadOnlySet<FrameType> allowed)
+    /// <summary>--as must name a backfillable type in the writer's own spelling, or the error.</summary>
+    private static string? ValidateFrameTypeValue(string value, out FrameType type)
     {
-        if (FrameType.FromFITSValue(value) is not { } type || Array.IndexOf(BackfillableFrameTypes, type) < 0)
+        if (FrameType.FromFITSValue(value) is not { } parsed || Array.IndexOf(BackfillableFrameTypes, parsed) < 0)
         {
+            type = FrameType.None;
             return $"--as must be one of {string.Join(", ", BackfillableFrameTypes)}; got '{value}'";
         }
-        if (!string.Equals(value, type.ToFITSValue(), StringComparison.Ordinal))
+        type = parsed;
+        // Refused rather than normalised: one archive carrying 'DARK' and 'Dark' side by side is exactly
+        // the drift a backfill should not add.
+        return string.Equals(value, parsed.ToFITSValue(), StringComparison.Ordinal)
+            ? null
+            : $"--as '{value}' reads as {parsed}; write '{parsed.ToFITSValue()}', the spelling TianWen's own writer uses";
+    }
+
+    /// <summary>The argument check for <c>tag-frame-type</c>, or null when the arguments are sound.</summary>
+    internal static string? ValidateFillFrameTypeArguments(string value, IReadOnlySet<FrameType> allowed)
+    {
+        if (ValidateFrameTypeValue(value, out var type) is { } error)
         {
-            // Refused rather than normalised: the builder writes the value it was given, and one archive
-            // carrying 'DARK' and 'Dark' side by side is exactly the drift a backfill should not add.
-            return $"--as '{value}' reads as {type}; write '{type.ToFITSValue()}', the spelling TianWen's own writer uses";
+            return error;
         }
         foreach (var stated in allowed)
         {
             if (stated != FrameType.None && stated != type)
             {
-                return $"--frame-type {stated} with --as {type} would write an IMAGETYP contradicting the frame's own {stated} card";
+                return $"--frame-type {stated} with --as {type} would CHANGE a stated type; that is relabel-frame-type";
             }
+        }
+        return null;
+    }
+
+    /// <summary>The argument check for <c>relabel-frame-type</c>, or null when the arguments are sound.</summary>
+    internal static string? ValidateRelabelFrameTypeArguments(string value, IReadOnlySet<FrameType> allowed)
+    {
+        if (ValidateFrameTypeValue(value, out var type) is { } error)
+        {
+            return error;
+        }
+        if (allowed.Count != 1 || allowed.Contains(FrameType.None) || allowed.Contains(type))
+        {
+            return "--frame-type must name exactly ONE wrong type being corrected, not None and not the --as type " +
+                   $"(e.g. --frame-type Light --as {type})";
         }
         return null;
     }
@@ -1222,7 +1288,10 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
         Func<ImageMeta, string?> readCurrent,
         bool relabels = false,
         bool numeric = false,
-        Func<string, IReadOnlySet<FrameType>, string?>? validateArguments = null)
+        Func<string, IReadOnlySet<FrameType>, string?>? validateArguments = null,
+        string? overwriteDescription = null,
+        Func<string, string, IReadOnlySet<FrameType>, FitsHeaderEditor.HardLinkPolicy, bool, CancellationToken,
+            Task<FitsHeaderEditor.TagResult>>? tagFile = null)
     {
         var pathOpt = new Option<string>("--path")
         {
@@ -1247,10 +1316,10 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
         var applyOpt = new Option<bool>("--apply") { Description = "Actually write. Omit for a dry run that reports what would change." };
         var overwriteOpt = new Option<bool>("--overwrite-existing")
         {
-            Description = relabels
+            Description = overwriteDescription ?? (relabels
                 ? $"Ignored: correcting {keyword} is by definition a replacement, so this is always on. Use --expect to bound it."
                 : $"Also replace a {keyword} card that already has a value. Off by default: filling in what " +
-                  "was never recorded is a different and far safer act than relabelling a frame that stated its own.",
+                  "was never recorded is a different and far safer act than relabelling a frame that stated its own."),
         };
         var frameTypesOpt = new Option<string[]>("--frame-type")
         {
@@ -1363,7 +1432,9 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                         }
                     }
 
-                    var result = numeric
+                    var result = tagFile is not null
+                        ? await tagFile(file, cardValue, allowed, hardLinks, apply, ct)
+                        : numeric
                         ? await FitsHeaderEditor.SetNumericCardAsync(
                             file, keyword, numericValue, cardComment, allowed,
                             overwriteExisting: overwrite, hardLinks: hardLinks, apply: apply,

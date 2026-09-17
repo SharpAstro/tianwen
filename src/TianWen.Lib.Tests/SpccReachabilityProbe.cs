@@ -118,6 +118,11 @@ public class SpccReachabilityProbe(ITestOutputHelper output)
             // suppressed, consistent with a light-pollution filter and NOT proven to be one: the
             // ratios that could name it are IMX533-derived and do not transfer to this IMX585.
             "Unidentified-Broadband-BlueCut",
+            // A UV/IR cut on the ZWO ASI294MC (2024-02-03, 135 mm, Eta Carinae), by the owner's
+            // recollection. Measured broadband: flat B/G 0.81 against 0.53 for the IDAS LPS-D3 on the
+            // same IMX294 sensor. A generic cut must not resolve to a SPECIFIC brand's curve.
+            "UV-IR-Cut", "UV/IR Cut", "UV IR Cut", "IR-Cut", "IR Cut", "Baader UV/IR Cut", "ZWO IR Cut",
+            "Optolong UV/IR Cut", "Svbony UV/IR Cut",
             // Mono channel names, for the two ASI1600MM sessions. A mono session has one filter and
             // no CFA, so the pixel method cannot help and the path tag is the only evidence.
             "Ha", "H-Alpha", "Luminance", "LUM", "Baader Ha", "Astrodon Ha",

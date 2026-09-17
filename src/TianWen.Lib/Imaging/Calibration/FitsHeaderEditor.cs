@@ -200,6 +200,120 @@ public static class FitsHeaderEditor
         }
     }
 
+    /// <summary>
+    /// States what a frame IS, in both cards that say so: <c>IMAGETYP</c> and <c>FRAMETYP</c>.
+    ///
+    /// <para><b>Why a frame type is not just another string card.</b> Two cards carry it, and the reader
+    /// takes <c>FRAMETYP</c> first (then <c>IMAGETYP</c>, then Astro Pixel Processor's <c>FRAME</c>) while
+    /// most other tools key on <c>IMAGETYP</c>. SharpCap 4 writes only <c>FRAMETYP</c>, SharpCap 3 neither,
+    /// N.I.N.A. only <c>IMAGETYP</c>. Editing one card can therefore leave a pair that disagrees, on which
+    /// TianWen and every other tool reach opposite answers, so this edits both in ONE rewrite.</para>
+    ///
+    /// <para><b>A card that already states the right type is left exactly as it is</b>, spelling
+    /// included (N.I.N.A.'s <c>'LIGHT'</c> is not rewritten to <c>'Light'</c>): the job is making the
+    /// frame say what it is, not normalising cards that were right. An ABSENT card is written. A card
+    /// stating a DIFFERENT type is changed only when that type is in <paramref name="replaceable"/>,
+    /// which is how a frame SharpCap typed Light and the pixels show to be a dark is corrected; a
+    /// stated type outside that set refuses the whole frame, as does a value that does not parse or
+    /// names a master (writing <c>'Dark'</c> beside <c>'MASTERDARK'</c> would strip the master flag,
+    /// because the reader takes <c>FRAMETYP</c> first).</para>
+    /// </summary>
+    /// <param name="frameType">The type to state. Never <see cref="FrameType.None"/>.</param>
+    /// <param name="replaceable">Stated types that may be replaced by <paramref name="frameType"/>.
+    /// <see cref="FrameType.None"/> means "no type card at all", which is what a backfill fills.</param>
+    public static async Task<TagResult> SetFrameTypeAsync(
+        string path,
+        FrameType frameType,
+        IReadOnlySet<FrameType> replaceable,
+        HardLinkPolicy hardLinks = HardLinkPolicy.Refuse,
+        bool apply = false,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(replaceable);
+        if (frameType is FrameType.None)
+        {
+            throw new ArgumentException("The frame type to write cannot be None.", nameof(frameType));
+        }
+
+        var (failure, headerLength, cards) = await ReadHeaderForEditAsync(path, cancellationToken);
+        if (failure is not null)
+        {
+            return failure;
+        }
+
+        var (raw, stated) = StatedFrameType(cards);
+        if (raw is not null && FrameType.IsMasterFITSValue(raw))
+        {
+            return new TagResult(path, TagOutcome.FrameTypeExcluded, $"frame type '{raw}' is a master");
+        }
+        if (stated is not { } current || (current != frameType && !replaceable.Contains(current)))
+        {
+            return new TagResult(
+                path, TagOutcome.FrameTypeExcluded, raw is null ? "no frame type card" : $"frame type '{raw}'", raw);
+        }
+
+        var value = frameType.ToFITSValue();
+        var edits = new List<(string Keyword, string Card)>(2);
+        foreach (var keyword in (ReadOnlySpan<string>)["IMAGETYP", "FRAMETYP"])
+        {
+            var existing = CardValue(cards, keyword);
+            if (existing is not { Length: > 0 })
+            {
+                edits.Add((keyword, FormatStringCard(keyword, value, "Type of exposure")));
+                continue;
+            }
+            var said = FrameType.FromFITSValue(existing);
+            if (said == frameType)
+            {
+                continue;
+            }
+            if (said is { } other && replaceable.Contains(other) && !FrameType.IsMasterFITSValue(existing))
+            {
+                edits.Add((keyword, FormatStringCard(keyword, value, "Type of exposure")));
+                continue;
+            }
+            return new TagResult(path, TagOutcome.FrameTypeExcluded, $"{keyword}='{existing}' disagrees and may not be replaced", raw);
+        }
+
+        if (edits.Count == 0)
+        {
+            return new TagResult(path, TagOutcome.AlreadyPresent, $"already {value}", raw);
+        }
+        return await CommitAsync(path, headerLength, cards, edits, raw, hardLinks, apply, cancellationToken);
+    }
+
+    /// <summary>The frame type as the reader resolves it: <c>FRAMETYP</c>, then <c>IMAGETYP</c>, then
+    /// Astro Pixel Processor's <c>FRAME</c>. ABSENT is <see cref="FrameType.None"/>; a value that does not
+    /// parse is null, never None, because "never recorded" is the one state a backfill may fill in and a
+    /// <c>'BADPIXELMAP'</c> is a statement about the file.</summary>
+    private static (string? Raw, FrameType? Type) StatedFrameType(List<string> cards)
+    {
+        // FRAME matters for what it rules OUT: an Astro Pixel Processor product carries
+        // FRAME='Other/Processed' and no other type card, so a guard that skipped it saw an untyped frame
+        // and would admit a processed file to a backfill of the type.
+        var raw = CardValue(cards, "FRAMETYP") ?? CardValue(cards, "IMAGETYP") ?? CardValue(cards, "FRAME");
+        return (raw, raw is null ? FrameType.None : FrameType.FromFITSValue(raw));
+    }
+
+    /// <summary>Opens and parses the primary header, or says why it cannot be edited.</summary>
+    private static async Task<(TagResult? Failure, int HeaderLength, List<string> Cards)> ReadHeaderForEditAsync(
+        string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var read = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, BlockSize, useAsync: true);
+            var parsed = await ReadPrimaryHeaderAsync(read, cancellationToken);
+            return parsed is { } ok
+                ? (null, ok.Length, ok.Cards)
+                : (new TagResult(path, TagOutcome.Unreadable, "not a FITS primary header"), 0, []);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return (new TagResult(path, TagOutcome.Unreadable, ex.Message), 0, []);
+        }
+    }
+
     /// <summary>The half both public setters share: read the primary header, apply every guard, then
     /// splice in the already-formatted card.</summary>
     private static async Task<TagResult> SetCardAsync(
@@ -212,34 +326,16 @@ public static class FitsHeaderEditor
         bool apply,
         CancellationToken cancellationToken)
     {
-        int headerLength;
-        List<string> cards;
-        try
+        var (failure, headerLength, cards) = await ReadHeaderForEditAsync(path, cancellationToken);
+        if (failure is not null)
         {
-            await using var read = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, BlockSize, useAsync: true);
-            var parsed = await ReadPrimaryHeaderAsync(read, cancellationToken);
-            if (parsed is null)
-            {
-                return new TagResult(path, TagOutcome.Unreadable, "not a FITS primary header");
-            }
-            (headerLength, cards) = parsed.Value;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return new TagResult(path, TagOutcome.Unreadable, ex.Message);
+            return failure;
         }
 
         if (allowedFrameTypes is { Count: > 0 })
         {
-            // The same three cards in the same order as Image.Fits reads them. FRAME matters for what it
-            // rules OUT: an Astro Pixel Processor product carries FRAME='Other/Processed' and no other type
-            // card, so a guard that skipped it saw an untyped frame and would admit a processed file to a
-            // backfill of the type.
-            var raw = CardValue(cards, "FRAMETYP") ?? CardValue(cards, "IMAGETYP") ?? CardValue(cards, "FRAME");
-            // ABSENT is None; a value that does not parse is NOT. "Never recorded" is the one state a
-            // backfill may fill in, and a 'BADPIXELMAP' is a statement about the file, not a missing card.
-            var frameType = raw is null ? FrameType.None : FrameType.FromFITSValue(raw);
-            if (frameType is not { } stated || !allowedFrameTypes.Contains(stated))
+            var (raw, stated) = StatedFrameType(cards);
+            if (stated is not { } frameType || !allowedFrameTypes.Contains(frameType))
             {
                 return new TagResult(
                     path, TagOutcome.FrameTypeExcluded, raw is null ? "no frame type card" : $"frame type '{raw}'");
@@ -252,6 +348,23 @@ public static class FitsHeaderEditor
             return new TagResult(path, TagOutcome.AlreadyPresent, $"{keyword}={existing}", existing);
         }
 
+        return await CommitAsync(path, headerLength, cards, [(keyword, newCard)], existing, hardLinks, apply, cancellationToken);
+    }
+
+    /// <summary>
+    /// Everything after the decision: the hard-link policy, the dry run, the verified rewrite and the
+    /// relink. Shared so a multi-card edit (the frame type) can never take a different path to disk.
+    /// </summary>
+    private static async Task<TagResult> CommitAsync(
+        string path,
+        int headerLength,
+        List<string> cards,
+        IReadOnlyList<(string Keyword, string Card)> edits,
+        string? existing,
+        HardLinkPolicy hardLinks,
+        bool apply,
+        CancellationToken cancellationToken)
+    {
         // Resolved BEFORE the dry-run return on purpose: the whole value of a dry run is finding out
         // what a real run would do, and "this edit reaches one of three names for the same frame,
         // one of them outside the directory you pointed at" is the single most consequential thing
@@ -277,7 +390,7 @@ public static class FitsHeaderEditor
                 path, relink ? TagOutcome.TaggedAndRelinked : TagOutcome.Tagged, "dry run", existing, otherLinks);
         }
 
-        var rewritten = RewriteHeader(cards, keyword, newCard);
+        var rewritten = RewriteHeader(cards, edits);
         await ReplaceHeaderAsync(path, headerLength, rewritten, cancellationToken);
 
         if (!relink || before is not { } original)
@@ -434,25 +547,28 @@ public static class FitsHeaderEditor
         return null;
     }
 
-    /// <summary>Replaces the card with <paramref name="keyword"/> in place, or appends it, then
-    /// serialises the block-padded header with a trailing <c>END</c>.</summary>
-    private static byte[] RewriteHeader(List<string> cards, string keyword, string newCard)
+    /// <summary>Replaces each edited card in place, or appends it, then serialises the block-padded
+    /// header with a trailing <c>END</c>.</summary>
+    private static byte[] RewriteHeader(List<string> cards, IReadOnlyList<(string Keyword, string Card)> edits)
     {
-        var replaced = false;
-        for (var i = 0; i < cards.Count; i++)
+        foreach (var (keyword, newCard) in edits)
         {
-            if (MatchesKeyword(cards[i], keyword))
+            var replaced = false;
+            for (var i = 0; i < cards.Count; i++)
             {
-                cards[i] = newCard;
-                replaced = true;
-                break;
+                if (MatchesKeyword(cards[i], keyword))
+                {
+                    cards[i] = newCard;
+                    replaced = true;
+                    break;
+                }
             }
-        }
-        if (!replaced)
-        {
-            // Appending keeps every original card at its original index, so a diff of the two
-            // headers shows exactly one added line.
-            cards.Add(newCard);
+            if (!replaced)
+            {
+                // Appending keeps every original card at its original index, so a diff of the two
+                // headers shows exactly the added lines.
+                cards.Add(newCard);
+            }
         }
 
         var withEnd = cards.Count + 1;

@@ -116,11 +116,20 @@ that survived three wrong passes over 300 capture sets (`C:/temp/e2/classify_set
   unsolved is NOT enough to call a labelled light a dark: 395 narrowband Saturn Nebula lights sit at
   1.08x their bias.
 
-**Backfill the type with `tianwen dataset tag-frame-type`, in Astro-Organized only.** Default touches
-a frame with NO type card; `--frame-type None Dark --as Dark` also fills `IMAGETYP` beside a
-`FRAMETYP` that agrees, and a contradicting pair is refused as an argument error. A focusing run is
-`--as Focus`, which is what keeps it out of every light group. Record it like any correction
-(`CORRECTIONS.md` section, a row per file in `label-corrections.csv`).
+**Write the type with TianWen's editor, in Astro-Organized only, and always into BOTH cards.** The
+reader takes `FRAMETYP` first and other tools take `IMAGETYP`, so an edit to one can leave a pair
+that disagrees; `FitsHeaderEditor.SetFrameTypeAsync` writes the missing or wrong card(s) in one
+rewrite and keeps a card that already states the type byte-for-byte (N.I.N.A.'s `'LIGHT'` stays).
+
+- `tianwen dataset tag-frame-type --path <dir> --as Dark` FILLS: a frame with no type card, or one
+  already stating Dark in one card. A different stated type is refused.
+- `tianwen dataset relabel-frame-type --path <dir> --frame-type Light --as Dark` CORRECTS one named
+  wrong type. **Filing a mislabelled calibration frame without this is not cosmetic**: 70 darks and
+  304 flats typed `Light` (2024-02-03) would enter the bake as two extra light sessions.
+- A master, an APP product and an unparseable value (`BADPIXELMAP`) are refused by both. A focusing
+  run is `--as Focus`, which is what keeps it out of every light group.
+
+Record it like any correction (`CORRECTIONS.md` section, a row per file in `label-corrections.csv`).
 
 ## Step 1: the filter, when nothing states it
 
