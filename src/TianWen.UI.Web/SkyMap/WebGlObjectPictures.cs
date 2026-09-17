@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using DIR.Lib;
+using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.UI.Abstractions;
 using WebGl.Renderer;
@@ -58,14 +59,15 @@ namespace TianWen.UI.Web.SkyMap
         /// <summary>How many times a picture that was in hand has been drawn.</summary>
         public int Drawn { get; private set; }
 
-        public WebGlObjectPictures(WebGlRenderer renderer, Action requestRedraw)
+        public WebGlObjectPictures(WebGlRenderer renderer, Action requestRedraw, ILogger? logger)
         {
             _renderer = renderer;
             _cache = new ObjectPictureCache<LoadedTexture, TextureHandle>(
                 load: LoadAsync,
                 adopt: loaded => loaded.Handle,
                 release: renderer.DestroyTexture,
-                requestRedraw: requestRedraw);
+                requestRedraw: requestRedraw,
+                logger: logger);
         }
 
         private async Task<LoadedTexture?> LoadAsync(ObjectArticleImage image, int pixels)

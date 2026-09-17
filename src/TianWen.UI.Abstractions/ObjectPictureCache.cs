@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
 using DIR.Lib;
+using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry.Catalogs;
 
 namespace TianWen.UI.Abstractions;
@@ -19,7 +20,10 @@ namespace TianWen.UI.Abstractions;
 /// here, so no field is shared between threads.</para>
 /// <para><b>A failure is remembered</b> for <see cref="RetryAfter"/>: the panel asks every frame, and a picture
 /// that cannot be had must not become a request per frame (the lesson the comet apparition fetch paid for). A
-/// faulted load and a load that came back empty are the same answer here.</para>
+/// faulted load and a load that came back empty are the same answer here, and the faulted one is LOGGED here,
+/// because this is the only place that sees it: the load's own exception is what it faults with (a DNS
+/// failure, a timeout, a decode error on a cached file), and nothing downstream is handed it. A load that
+/// came back empty logged its own reason where it decided (the store's refused status).</para>
 /// <para><b>Few pictures are kept.</b> A panel shows one at a time, so the cache holds the
 /// <see cref="Capacity"/> most recently drawn and releases the rest.</para>
 /// </remarks>
@@ -30,7 +34,8 @@ public sealed class ObjectPictureCache<TLoaded, THandle>(
     Func<TLoaded, THandle> adopt,
     Action<THandle> release,
     Action requestRedraw,
-    TimeProvider? clock = null)
+    TimeProvider? clock = null,
+    ILogger? logger = null)
     where TLoaded : class
 {
     /// <summary>How long a picture that could not be had is left alone before it is asked for again.</summary>
@@ -80,9 +85,14 @@ public sealed class ObjectPictureCache<TLoaded, THandle>(
             }
             else
             {
-                // Read so a faulted load's exception counts as observed: the failure IS handled, by the retry
-                // memory, and must not resurface as an unobserved-task warning at finalisation.
-                _ = finished.Exception;
+                // Reading the exception is what makes it observed, so it never resurfaces as an unobserved-task
+                // warning at finalisation; logging it is what makes the failure visible at all. A timeout is a
+                // cancellation to the task and is logged the same, since nothing here asked for one.
+                if (finished.Exception is { } failure)
+                {
+                    logger?.LogWarning(failure.InnerException ?? failure,
+                        "Object picture {Url} could not be loaded; not asked for again for {RetryAfter}", key, RetryAfter);
+                }
                 slot.FailedAt = now;
             }
         }

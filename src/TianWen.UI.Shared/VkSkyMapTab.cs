@@ -1261,7 +1261,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
     protected override void DrawObjectPicture(in ObjectArticleImage image, RectF32 rect)
     {
-        _pictures ??= new VkObjectPictures(renderer.Context, () => State.NeedsRedraw = true) { Store = _pictureStore };
+        _pictures ??= new VkObjectPictures(renderer.Context, () => State.NeedsRedraw = true, Logger) { Store = _pictureStore };
         _pictures.Draw(renderer, image, rect);
     }
 

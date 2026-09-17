@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using DIR.Lib;
+using Microsoft.Extensions.Logging;
 using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.UI.Abstractions;
@@ -29,12 +30,29 @@ public sealed class ObjectPictureCacheTests
 
     private sealed record Loaded(string Name);
 
+    /// <summary>Keeps every entry logged, which is the one thing these tests ask of a log.</summary>
+    private sealed class RecordingLogger : ILogger
+    {
+        public List<(LogLevel Level, Exception? Exception, string Message)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            lock (Entries) { Entries.Add((logLevel, exception, formatter(state, exception))); }
+        }
+    }
+
     private sealed class Harness
     {
         public readonly ManualClock Clock = new ManualClock();
         public readonly Dictionary<string, TaskCompletionSource<Loaded?>> Pending = [];
         public readonly List<string> Released = [];
         public readonly TaskCompletionSource Redrawn = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        public readonly RecordingLogger Log = new RecordingLogger();
         public readonly ObjectPictureCache<Loaded, string> Cache;
 
         public Harness()
@@ -49,7 +67,8 @@ public sealed class ObjectPictureCacheTests
                 adopt: loaded => "handle:" + loaded.Name,
                 release: Released.Add,
                 requestRedraw: () => Redrawn.TrySetResult(),
-                clock: Clock);
+                clock: Clock,
+                logger: Log);
         }
     }
 
@@ -103,6 +122,28 @@ public sealed class ObjectPictureCacheTests
         harness.Clock.Advance(TimeSpan.FromSeconds(2));
         harness.Cache.TryGet(in image, 330, out _).ShouldBeFalse();
         harness.Cache.LoadsStarted.ShouldBe(2, "after the interval the picture is asked for again");
+    }
+
+    [Fact]
+    public async Task AFailedLoadIsLoggedWithItsOwnException()
+    {
+        // The cache is the only thing that ever sees why a load faulted; before this it read the exception
+        // to keep the finaliser quiet and dropped it, so a dark picture frame had no line in any log.
+        var harness = new Harness();
+        var image = Image("crab");
+        harness.Cache.TryGet(in image, 330, out _);
+        harness.Pending["crab.jpg"].SetException(new InvalidOperationException("offline"));
+        await harness.Redrawn.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        harness.Cache.TryGet(in image, 330, out _).ShouldBeFalse();
+
+        var entry = harness.Log.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Exception.ShouldBeOfType<InvalidOperationException>().Message.ShouldBe("offline");
+        entry.Message.ShouldContain(image.ThumbnailUrl(330));
+
+        // And once only: the frames that follow read the retry memory, not the task.
+        harness.Cache.TryGet(in image, 330, out _).ShouldBeFalse();
+        harness.Log.Entries.Count.ShouldBe(1);
     }
 
     [Fact]

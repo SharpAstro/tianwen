@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using DIR.Lib;
+using Microsoft.Extensions.Logging;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.UI.Abstractions;
@@ -22,7 +23,7 @@ internal sealed class VkObjectPictures : IDisposable
 {
     private readonly ObjectPictureCache<ObjectPicture, VkTexture> _cache;
 
-    public VkObjectPictures(VulkanContext context, Action requestRedraw)
+    public VkObjectPictures(VulkanContext context, Action requestRedraw, ILogger? logger)
     {
         _cache = new ObjectPictureCache<ObjectPicture, VkTexture>(
             load: (image, pixels) => Store is { } store
@@ -30,7 +31,8 @@ internal sealed class VkObjectPictures : IDisposable
                 : Task.FromResult<ObjectPicture?>(null),
             adopt: picture => Upload(context, picture),
             release: texture => texture.Dispose(),
-            requestRedraw: requestRedraw);
+            requestRedraw: requestRedraw,
+            logger: logger);
     }
 
     /// <summary>Where pictures come from; null draws nothing, which is the host with no network service.</summary>
