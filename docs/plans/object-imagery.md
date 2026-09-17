@@ -1,6 +1,6 @@
 # Object imagery from Wikipedia and Wikimedia Commons (plan)
 
-**Status: NOT STARTED. Written 2026-09-17** from the astrophoto.app field note in
+**Status: P0 IN PROGRESS (measured 2026-09-17). Written 2026-09-17** from the astrophoto.app field note in
 [inbox.md](../todo/inbox.md) ("Field note: astrophoto.app"), after reading that site's shipped JavaScript
 and measuring every endpoint below. Raised by the user: the viewer and the atlas should show an object's
 picture the way that site does, with attribution, positioned on the sky where we can, and the identity
@@ -89,6 +89,49 @@ Visualization Metadata) in its XMP: `Spatial.ReferenceValue 270.904114 -24.38693
 no plate solve. The ESO `Lagoon_Nebula_(ESO).jpg` has none. Space-agency images (ESO, ESA/Hubble, NASA)
 are the ones likely to carry it; coverage is unmeasured.
 
+### P0 measured: what verifies against our catalogue (2026-09-17)
+
+**Scope, as the user agreed it: objects with a common name, plus Messier and Caldwell.** Taken from the
+object DB that is 11,019 indices, and the number hides a split: **10,383 are stars whose "common name" is a
+Bayer or Flamsteed designation** (`32 Oph`, `gam Pic`), with 636 non-stars (627 once the planets, which
+have no fixed position, are dropped). Measured on all 627 non-stars and a random 500 of the stars.
+
+**Two routes, because each misses what the other finds:**
+
+- **Catalogue codes** (`P528`) in Wikidata's spelling, which is not ours and not even consistent:
+  `M 42` but `M99`, `SH 2-25` for our `Sh2-25`, `Gum 33` for `GUM 33`. So both Messier spellings are
+  asked. The `P972` catalogue qualifier is **not usable as a check**: Caldwell codes carry cluster
+  designations like `C 0021-723`, and `C 99` answers a Chopin mazurka. The position check replaces it.
+- **English Wikipedia titles** (`Messier N`, `NGC N`, the common names), one `action=query` per 50 titles
+  with `redirects=1` and `ppprop=wikibase_item|disambiguation`. It is what finds the items that carry no
+  codes at all: M100, M110, the Hyades and the Coalsack had none.
+
+**Verification is a separation, with a tolerance by kind.** The object's catalogued major axis where we
+have one, else **one degree for an extended kind** (nebulae, clusters, associations, remnants) **and ten
+arcminutes for everything else**. A two-arcminute floor rejected correct matches for every large object our
+catalogue gives no size: the Pleiades sat 6.6' off, North America 13', the Witch Head 58'. Wrong code
+matches land thousands of arcminutes away (the p90 separation over all candidates was 2,044').
+
+| Group | Objects | Any candidate | Position verified | With an English article | With an image |
+|---|---|---|---|---|---|
+| Non-stars | 627 | 611 | 603 | 527 | 499 |
+| of which Messier | 107 | 107 | 107 | 107 | 107 |
+| of which Caldwell | 108 | 107 | 106 | 104 | 106 |
+| Stars (500 sampled, codes only) | 500 | 499 | 498 | 353 | 94 (Wikidata `P18`) |
+
+- **Choosing between verified items:** 8 non-stars verify against more than one item with an article
+  (Carina Nebula and Keyhole Nebula; NGC 2070 and Tarantula Nebula; IC 434 and Flame Nebula). Rank an item
+  found by both routes over code only over title only, then by separation. That picks Carina, NGC 2070 and
+  IC 434, each the article about the index itself. Title-only accepts, reviewed by hand: all right or a
+  deliberate Wikipedia redirect (`Maia Nebula` to the star Maia, `Burnham's Nebula` to T Tauri).
+- **One object, many indices.** The 527 indices resolve to 309 distinct articles: our catalogue lists the
+  Carina Nebula as NGC 3372, C92, GUM 33 and RCW 53. The table maps index to item and stores each item once.
+- **Use the article's lead image, not Wikidata's `P18`.** They agree on 98 of 309 items; the lead image is
+  what the article shows and exists for 305. **Drop SVG leads**: all 17 are constellation maps.
+- **Every lead image is on Commons** (298 files, none local or fair use), so every one has `extmetadata`:
+  84 CC BY 4.0, 59 public domain, 43 CC BY-SA 4.0, 39 CC BY-SA 3.0, 30 CC0, 20 CC BY 2.0, 17 CC BY 3.0,
+  5 other CC BY-SA, 1 with no licence field. 208 require attribution. Median width 2,405 px, p10 667 px.
+
 ## Design
 
 ### P0: the identity bake (the part that replaces guessing)
@@ -99,15 +142,13 @@ object worth a picture:
 
 1. Try **every designation we already hold for it**: the main index and its cross-indices
    (`M 8`, `NGC 6523`, `Sh2-25` are one object to us).
-2. Candidates from both sources: Wikidata `P528` with the `P972` catalogue qualifier checked against the
-   catalogue we meant, and the Wikipedia title (redirects followed, disambiguation pages rejected by the
-   summary's `type`).
+2. Candidates from both sources: Wikidata `P528` in Wikidata's spellings, and English Wikipedia titles
+   (redirects followed, disambiguation pages dropped). Not the `P972` qualifier; see the measurements.
 3. **Accept a candidate only when its sky position agrees with ours**, from Wikidata's right ascension
-   (`P6257`) and declination (`P6258`), within a tolerance scaled by the object's catalogued size. This is
-   what makes the answer a verification instead of a guess. How many astronomical items carry both
-   properties is unmeasured and is P0's first number.
-4. Record per object: Wikidata item, English article title, lead image file name, its licence short name,
-   artist, credit text, `AttributionRequired`, and the image's pixel size.
+   (`P6257`) and declination (`P6258`), within the tolerance by kind measured above. This is what makes
+   the answer a verification instead of a guess. Rank several survivors by route, then separation.
+4. Record per item: Wikidata item, English article title, the article's lead image file name (not SVG),
+   its licence short name, artist, credit text, `AttributionRequired`, and the image's pixel size.
 
 Output: a compact embedded table in `TianWen.Lib` keyed by `CatalogIndex`, same shape and loading path
 as the other baked catalogue snapshots. No pixels. `GetWikipediaUrl` reads the table and stops guessing;
