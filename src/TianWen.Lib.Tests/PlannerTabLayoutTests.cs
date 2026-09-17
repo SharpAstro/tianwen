@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using DIR.Lib;
 using SharpAstro.Png;
 using Shouldly;
@@ -32,10 +33,11 @@ namespace TianWen.Lib.Tests
         /// <summary>A planner state with two selectable targets so the chart, list rows, and details
         /// panel all have real content to paint. <paramref name="firstIndex"/> optionally gives the first
         /// target a catalog index (so the details name line becomes a Wikipedia link).</summary>
-        private static PlannerState BuildState(CatalogIndex? firstIndex = null)
+        private static PlannerState BuildState(CatalogIndex? firstIndex = null, ICelestialObjectDB? db = null)
         {
             var state = new PlannerState
             {
+                ObjectDb = db,
                 AstroDark = NightStart,
                 AstroTwilight = NightEnd,
                 MinHeightAboveHorizon = 0,
@@ -390,30 +392,46 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// The details name line for a catalogued target is a Wikipedia link: it registers a
-        /// <see cref="HitResult.LinkHit"/> carrying the article URL built from the MAIN catalog
-        /// designation. The host decides what a link does (the SDL/Vulkan chrome maps LinkHit ->
-        /// open the OS browser + a pointer cursor on hover; the web renders a real &lt;a&gt;), so this
-        /// pins only the tab's contract -- that the region exists with the right URL.
+        /// The details name line for a catalogued target with a VERIFIED article is a Wikipedia link: it
+        /// registers a <see cref="HitResult.LinkHit"/> carrying that article's URL
+        /// (<see cref="ICelestialObjectDB.TryGetArticle"/>). The host decides what a link does (the
+        /// SDL/Vulkan chrome maps LinkHit -> open the OS browser + a pointer cursor on hover; the web
+        /// renders a real &lt;a&gt;), so this pins only the tab's contract -- that the region exists with
+        /// the right URL, and does not exist for an object the bake verified no article for.
         /// </summary>
         [Fact]
-        public void DetailsName_ForCataloguedTarget_RegistersWikipediaLinkHit()
+        public async Task DetailsName_ForVerifiedArticle_RegistersWikipediaLinkHit()
         {
+            var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
+            CatalogUtils.TryGetCleanedUpCatalogName("M31", out var m31).ShouldBeTrue();
+
             using var renderer = new RgbaImageRenderer(1600, 1000);
             var tab = new PlannerTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont() };
-
-            // A catalogued selected target (IC 1000) -> the name line carries the link.
-            var state = BuildState(CatalogIndex.IC1000);
-
             var time = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero));
-            tab.Render(state, new RectF32(0, 0, 1600, 1000), time);
+            tab.Render(BuildState(m31, db), new RectF32(0, 0, 1600, 1000), time);
 
-            // The name registers a LinkHit; a click on it returns that hit with the article URL built
-            // from the canonical designation (IC 1000 -> IC_1000), spaces mapped to '_'.
             var region = tab.GetRegisteredRegions().First(r => r.Result is HitResult.LinkHit);
             var hit = tab.HitTest(region.X + region.Width / 2f, region.Y + region.Height / 2f);
 
-            hit.ShouldBeOfType<HitResult.LinkHit>().Url.ShouldBe("https://en.wikipedia.org/wiki/IC_1000");
+            // The verified article, not a page named after the designation (which was M31).
+            hit.ShouldBeOfType<HitResult.LinkHit>().Url.ShouldBe("https://en.wikipedia.org/wiki/Andromeda_Galaxy");
+        }
+
+        [Fact]
+        public async Task DetailsName_ForUnverifiedObject_RegistersNoLink()
+        {
+            var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
+
+            // IC 1000 used to link https://en.wikipedia.org/wiki/IC_1000 on its designation alone; the bake
+            // verified no article for it, so there is nothing to link.
+            db.TryGetArticle(CatalogIndex.IC1000, out _).ShouldBeFalse("the test needs an object the table does not cover");
+
+            using var renderer = new RgbaImageRenderer(1600, 1000);
+            var tab = new PlannerTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero));
+            tab.Render(BuildState(CatalogIndex.IC1000, db), new RectF32(0, 0, 1600, 1000), time);
+
+            tab.GetRegisteredRegions().ShouldNotContain(r => r.Result is HitResult.LinkHit);
         }
     }
 }

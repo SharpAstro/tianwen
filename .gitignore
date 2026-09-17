@@ -26,6 +26,9 @@ src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
 !src/TianWen.Lib/Astrometry/Catalogs/filter_curves.gs.gz
 !src/TianWen.Lib/Astrometry/Catalogs/sensor_qe.gs.gz
 !src/TianWen.Lib/Astrometry/Catalogs/pickles_sed.gs.gz
+# The verified Wikipedia article table is baked by tools/bake-object-imagery from live Wikimedia queries,
+# so it has no source in the repo to regenerate from either, and is tracked for the same reason.
+!src/TianWen.Lib/Astrometry/Catalogs/object_articles.gs.gz
 # Lavapipe min-repro zip (built artifact for upstream bug filing)
 LavapipeMinRepro.zip
 __pycache__/

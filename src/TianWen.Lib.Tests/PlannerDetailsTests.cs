@@ -109,7 +109,7 @@ public class PlannerDetailsTests
     }
 
     [Fact]
-    public async Task GivenCataloguedTargetWhenGetWikipediaUrlThenLinksMainCatalogName()
+    public async Task GivenCataloguedTargetWhenGetWikipediaUrlThenLinksTheVerifiedArticle()
     {
         var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
         db.TryLookupByIndex("M31", out var obj).ShouldBeTrue();
@@ -117,15 +117,25 @@ public class PlannerDetailsTests
         var target = new Target(obj.RA, obj.Dec, obj.DisplayName, obj.Index);
         var scored = Scored(target, obj.ObjectType);
 
-        var url = PlannerDetails.GetWikipediaUrl(BuildState(scored, db), [scored]);
+        // The article the bake verified, not a page named after the designation: the old link was
+        // https://en.wikipedia.org/wiki/ + the main catalog name, which Wikipedia only sometimes redirects.
+        PlannerDetails.GetWikipediaUrl(BuildState(scored, db), [scored])
+            .ShouldBe("https://en.wikipedia.org/wiki/Andromeda_Galaxy");
+    }
 
-        // The link points at en.wikipedia.org and uses the MAIN catalog designation, NOT the display
-        // name: decoding the path (and '_' -> ' ') must reproduce Index.ToCanonical(). No raw spaces.
-        url.ShouldNotBeNull();
-        url.ShouldStartWith("https://en.wikipedia.org/wiki/");
-        url.ShouldNotContain(" ");
-        var slug = url["https://en.wikipedia.org/wiki/".Length..];
-        Uri.UnescapeDataString(slug).Replace('_', ' ').ShouldBe(obj.Index.ToCanonical());
+    [Fact]
+    public async Task GivenCataloguedTargetTheBakeDidNotVerifyWhenGetWikipediaUrlThenNoLink()
+    {
+        var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
+
+        // NGC 7, a faint galaxy with no common name and in neither Messier nor Caldwell, so outside the
+        // bake's scope. The old designation guess linked it all the same.
+        db.TryLookupByIndex("NGC7", out var obj).ShouldBeTrue();
+        db.TryGetArticle(obj.Index, out _).ShouldBeFalse("the test needs an object the table does not cover");
+
+        var target = new Target(obj.RA, obj.Dec, obj.DisplayName, obj.Index);
+        var scored = Scored(target, obj.ObjectType);
+        PlannerDetails.GetWikipediaUrl(BuildState(scored, db), [scored]).ShouldBeNull();
     }
 
     [Fact]

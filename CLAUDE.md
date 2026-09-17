@@ -563,6 +563,17 @@ bug they fix was "Venus is in a proposal but doesn't appear in the planner so I 
 
 Pinned by `PlannerSolarSystemPinTests`.
 
+### A Wikipedia link is the article the bake VERIFIED, never one built from a designation
+
+`ICelestialObjectDB.TryGetArticle` reads `object_articles.gs.gz` (`tools/bake-object-imagery`): an
+article is in it only because its Wikidata position agrees with ours, and it carries the lead image's
+file name and credit, never pixels. **An object the bake did not verify gets NO link**, which is the
+point: the designation guess it replaced 404'd or linked a same-named page silently. The bake keys main
+catalogue entries and the lookup follows cross-indices (`M 92` reaches `NGC 6341`'s article), so a test
+of that path must use an index that is not itself a key (M 42 is one). Re-bake by hand and commit; the
+table is binary, so the bake's stdout report is the review. Measurements and the image rules (no SVG, no
+charts, no unlicensed file): `docs/plans/object-imagery.md`.
+
 ### Smart Framing (planner co-framing groups)
 
 Pinning M8 with a wide-field profile auto-groups M20 into the same pointing: the planner derives the
