@@ -99,7 +99,13 @@ internal static partial class Program
             })
             .ToList();
 
-        var previous = File.Exists(output) ? ReadTable(output) : null;
+        // The table being replaced may be one this build cannot read (the schema moved on); the report then
+        // has nothing to diff against, which is not a reason to throw the bake away.
+        var previous = File.Exists(output) && TryReadTable(output) is { } readable ? readable : null;
+        if (File.Exists(output) && previous is null)
+        {
+            Log("the previous table is another schema; the report shows no diff");
+        }
         WriteAtomically(output, rows);
         Report(db, scope, candidates, rows, previous, ReadTable(output));
         return 0;
@@ -587,6 +593,7 @@ internal static partial class Program
 
                 var image = new ObjectArticleImage(
                     FileName: "",
+                    HashPrefix: "",
                     Licence: MetaText(meta, "LicenseShortName"),
                     Artist: MetaText(meta, "Artist"),
                     Credit: MetaText(meta, "Credit"),
@@ -597,7 +604,7 @@ internal static partial class Program
                 foreach (var original in asked.Where(t => landedOn[t] == pageTitle))
                 {
                     var file = original["File:".Length..];
-                    credits[file] = image with { FileName = file };
+                    credits[file] = image with { FileName = file, HashPrefix = CommonsHashPrefix(file) };
                 }
             }
             await Task.Delay(ApiPause, ct);
@@ -669,6 +676,12 @@ internal static partial class Program
     {
         using var stream = File.OpenRead(path);
         return new FrozenTable(ObjectArticleTable.Read(stream));
+    }
+
+    private static FrozenTable? TryReadTable(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return ObjectArticleTable.TryRead(stream, out var table) ? new FrozenTable(table) : null;
     }
 
     private sealed record FrozenTable(IReadOnlyDictionary<CatalogIndex, ObjectArticle> ByIndex);
@@ -807,6 +820,10 @@ internal static partial class Program
     }
 
     private static string SparqlString(string value) => JsonSerializer.Serialize(value);
+
+    /// <summary>The two hex digits Commons files an upload under: the MD5 of the name with underscores.</summary>
+    private static string CommonsHashPrefix(string fileName)
+        => Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData(Encoding.UTF8.GetBytes(fileName.Replace(' ', '_'))))[..2];
 
     private static double? SparqlDouble(JsonElement binding, string name)
         => binding.TryGetProperty(name, out var v)

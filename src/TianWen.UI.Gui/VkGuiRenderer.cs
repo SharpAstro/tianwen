@@ -5,6 +5,7 @@ using DIR.Lib;
 using Microsoft.Extensions.Logging;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
@@ -246,6 +247,13 @@ namespace TianWen.UI.Gui
 
         /// <inheritdoc/>
         public SkyMapState SkyMapState => _skyMapTab.State;
+
+        /// <summary>Where the atlas info panel's pictures come from; see <see cref="VkSkyMapTab.PictureStore"/>.</summary>
+        public IObjectPictureStore? ObjectPictureStore
+        {
+            get => _skyMapTab.PictureStore;
+            set => _skyMapTab.PictureStore = value;
+        }
 
         /// <inheritdoc/>
         public RectF32 PlannerChartRect => _plannerTab.ChartRect;

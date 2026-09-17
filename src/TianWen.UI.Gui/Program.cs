@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using SdlVulkan.Renderer;
 using TianWen.Lib;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Discovery;
 using TianWen.Lib.Extensions;
@@ -178,6 +179,8 @@ using var gpu = new GpuStack<VkGuiRenderer>(logger, sdlWindow, (uint)pixW, (uint
     r => new VkGuiRenderer(r, (uint)pixW, (uint)pixH, bus, logger) { DpiScale = sdlWindow.DisplayScale });
 var renderer = gpu.Renderer;
 var guiRenderer = gpu.Top;
+// The atlas info panel's picture of the object, fetched on selection and cached on disk.
+guiRenderer.ObjectPictureStore = sp.GetRequiredService<IObjectPictureStore>();
 // The 🪐 planetary tab renders the live capture/stack via this shared controller (also driven by
 // StartVideoCaptureSignal/StopVideoCaptureSignal in AppSignalHandler).
 var planetaryCapture = sp.GetRequiredService<PlanetaryCaptureController>();

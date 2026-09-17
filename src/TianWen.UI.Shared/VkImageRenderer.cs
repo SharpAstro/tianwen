@@ -2,6 +2,7 @@ using System;
 using DIR.Lib;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 
@@ -39,6 +40,38 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
         Height = height;
         _fitsPipeline = new VkFitsImagePipeline(renderer.Surface);
         ResolveFontPath();
+    }
+
+    private VkObjectPictures? _pictures;
+    private IObjectPictureStore? _pictureStore;
+
+    /// <summary>
+    /// Where the selection panel's pictures come from. Set by the host from its services; unset, the panel keeps
+    /// its picture slot's dark frame and fetches nothing.
+    /// </summary>
+    public IObjectPictureStore? PictureStore
+    {
+        get => _pictureStore;
+        set
+        {
+            _pictureStore = value;
+            if (_pictures is { } pictures)
+            {
+                pictures.Store = value;
+            }
+        }
+    }
+
+    protected override void DrawObjectPicture(in ObjectArticleImage image, RectF32 rect)
+    {
+        _pictures ??= new VkObjectPictures(_renderer.Context, () =>
+        {
+            if (CurrentViewerState is { } state)
+            {
+                state.NeedsRedraw = true;
+            }
+        }) { Store = _pictureStore };
+        _pictures.Draw(_renderer, image, rect);
     }
 
     protected override void OnResize(uint width, uint height)
@@ -438,5 +471,6 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
     public void Dispose()
     {
         _fitsPipeline.Dispose();
+        _pictures?.Dispose();
     }
 }

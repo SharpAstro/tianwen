@@ -33,7 +33,7 @@ public class ObjectArticleTableTests
     public void ARowReadsBackUnderEveryIndexItNames()
     {
         var carina = new ObjectArticle(50042, "Carina Nebula",
-            new ObjectArticleImage("Carina Nebula by ESO.jpg", "CC BY 4.0", "ESO/T. Preibisch", "ESO", AttributionRequired: true, Width: 6000, Height: 4000));
+            new ObjectArticleImage("Carina Nebula by ESO.jpg", "2c", "CC BY 4.0", "ESO/T. Preibisch", "ESO", AttributionRequired: true, Width: 6000, Height: 4000));
         var noImage = new ObjectArticle(14273, "Coalsack Nebula", Image: null);
 
         using var stream = Written(
@@ -54,7 +54,7 @@ public class ObjectArticleTableTests
         // Upstream text can carry anything. Were a record or group separator written through verbatim,
         // the fields after it would shift and the next article would parse as garbage.
         var odd = new ObjectArticle(1, "Odd\u001DTitle",
-            new ObjectArticleImage("File\u001E.jpg", "CC0", "An\u001Fartist", "Line\nbreak", AttributionRequired: false, Width: 10, Height: 20));
+            new ObjectArticleImage("File\u001E.jpg", "ab", "CC0", "An\u001Fartist", "Line\nbreak", AttributionRequired: false, Width: 10, Height: 20));
         var next = new ObjectArticle(2, "Next", Image: null);
 
         using var stream = Written(new ObjectArticleRow(odd, [Index("M1")]), new ObjectArticleRow(next, [Index("M2")]));

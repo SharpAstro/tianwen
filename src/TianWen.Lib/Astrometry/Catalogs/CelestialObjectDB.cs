@@ -737,7 +737,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
         phaseSw.Restart();
         _articles = await articlesTask;
-        _lastInitPhaseTimings.Add(("object-articles-join", phaseSw.Elapsed));
+        _lastInitPhaseTimings.Add((_objectArticlesUnreadable ? "object-articles:unreadable" : "object-articles-join", phaseSw.Elapsed));
 
         // Optional: gate init completion on the bulk Tycho-2 load. Default false; runtime
         // callers that need this data will await EnsureTycho2DataLoadedAsync themselves.
@@ -761,7 +761,13 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// <c>tools/bake-object-imagery</c> bake wrote. A build without it has no articles, and every
     /// <see cref="TryGetArticle"/> answers false, which is the honest answer: no link rather than a guess.
     /// </summary>
-    private static FrozenDictionary<CatalogIndex, ObjectArticle> ReadObjectArticles(Assembly assembly, string[] manifestNames)
+    /// <remarks>
+    /// An unreadable table (a schema this build does not know, a truncated resource) is NO articles, never a
+    /// failed init: the articles enrich the catalogue, and a table written by a newer bake once took down
+    /// every catalogue lookup in the tool that was about to replace it. Reported as the
+    /// <c>object-articles:unreadable</c> phase, since this class has no logger.
+    /// </remarks>
+    private FrozenDictionary<CatalogIndex, ObjectArticle> ReadObjectArticles(Assembly assembly, string[] manifestNames)
     {
         var resource = manifestNames.FirstOrDefault(n => n.EndsWith(ObjectArticleTable.ResourceSuffix, StringComparison.Ordinal));
         if (resource is null || assembly.GetManifestResourceStream(resource) is not { } stream)
@@ -771,9 +777,17 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
         using (stream)
         {
-            return ObjectArticleTable.Read(stream);
+            if (ObjectArticleTable.TryRead(stream, out var articles))
+            {
+                return articles;
+            }
         }
+
+        _objectArticlesUnreadable = true;
+        return FrozenDictionary<CatalogIndex, ObjectArticle>.Empty;
     }
+
+    private volatile bool _objectArticlesUnreadable;
 
     /// <summary>
     /// Hot phase: decompresses the small (~1.2 MB) HIP→TYC and HD→TYC cross-reference arrays.

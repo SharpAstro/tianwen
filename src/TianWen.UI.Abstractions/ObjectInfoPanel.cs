@@ -74,12 +74,53 @@ namespace TianWen.UI.Abstractions
         /// tonight, and nothing else on the panel would give that away.
         /// </param>
         /// <param name="Sparkline">Leave room under the rows for a host-drawn magnitude curve.</param>
+        /// <param name="Picture">
+        /// The object's picture, when its verified article has one (<see cref="ICelestialObjectDB.TryGetArticle"/>),
+        /// shown under the rows with its credit. Sized from the aspect ratio the table records, so the panel is
+        /// its final height before a single byte of the picture has arrived and does not jump when it does.
+        /// </param>
         public readonly record struct PanelDisplayOptions(
             bool ShowAltAz = false,
             bool ShowRiseSet = false,
             TimeSpan TimeZone = default,
             string? Footnote = null,
-            bool Sparkline = false);
+            bool Sparkline = false,
+            ObjectArticleImage? Picture = null);
+
+        /// <summary>The key of the picture slot's <see cref="Layout.Content.Fill"/>, which the host draws into.</summary>
+        public const string PictureFillKey = "ObjectInfoPicture";
+
+        /// <summary>The picture's design width: the panel's, less an 8-unit margin either side.</summary>
+        public const float DesignPictureWidth = DesignWidth - 16f;
+
+        /// <summary>The shortest and tallest the picture is drawn, whatever its aspect ratio.</summary>
+        public const float DesignPictureMinHeight = 60f;
+
+        /// <inheritdoc cref="DesignPictureMinHeight"/>
+        public const float DesignPictureMaxHeight = 220f;
+
+        /// <summary>
+        /// The picture's design height at <see cref="DesignPictureWidth"/>, from the table's recorded size and
+        /// clamped, so a panorama does not become a sliver and a tall frame does not push the buttons off.
+        /// </summary>
+        public static float DesignPictureHeight(in ObjectArticleImage image)
+            => image.Width > 0 && image.Height > 0
+                ? Math.Clamp(DesignPictureWidth * image.Height / image.Width, DesignPictureMinHeight, DesignPictureMaxHeight)
+                : DesignPictureMinHeight;
+
+        /// <summary>
+        /// The picture a selected object's panel shows: its verified article's lead image, or null for an object
+        /// with no article, an article with no picture the bake kept, or no catalogue to ask.
+        /// </summary>
+        public static ObjectArticleImage? PictureFor(CatalogIndex? index, ICelestialObjectDB? db)
+            => index is { } catalogIndex && db is not null
+               && db.TryGetArticle(catalogIndex, out var article) && article.Image is { } image
+                ? image
+                : null;
+
+        /// <summary>The picture section's whole design height: margins, the picture and its credit row.</summary>
+        public static float DesignPictureSectionHeight(in ObjectArticleImage image)
+            => 4f + DesignPictureHeight(in image) + DesignRowHeight + 4f;
 
         /// <summary>
         /// What the panel's buttons DO. A null callback is a button that is not offered.
@@ -159,6 +200,10 @@ namespace TianWen.UI.Abstractions
             if (options.Sparkline)
             {
                 height += DesignSparklineHeight + 4f;
+            }
+            if (options.Picture is { } picture)
+            {
+                height += DesignPictureSectionHeight(in picture);
             }
             if (actions.HasButtons)
             {
@@ -275,6 +320,56 @@ namespace TianWen.UI.Abstractions
 
             return Layout.Builder.VStack(rows);
         }
+
+        /// <summary>
+        /// The credit a picture is shown with: who made it and under what licence, which is what CC BY and
+        /// CC BY-SA require wherever the picture appears. The artist where Commons names one, else its credit
+        /// text; long values are cut, since the whole credit is one click away on the file page.
+        /// </summary>
+        public static string CreditLine(in ObjectArticleImage image)
+        {
+            const int MaxWho = 48;
+            var who = image.Artist is { Length: > 0 } artist ? artist : image.Credit;
+            if (who.Length > MaxWho)
+            {
+                who = who[..MaxWho].TrimEnd() + "...";
+            }
+            return who.Length > 0 ? $"{who}, {image.Licence}" : image.Licence;
+        }
+
+        /// <summary>
+        /// The picture section: the slot the host draws the picture into (a keyed
+        /// <see cref="Layout.Content.Fill"/>, backed dark so it reads as a picture frame while loading) and the
+        /// credit under it, which links to the Commons file page.
+        /// </summary>
+        /// <remarks>
+        /// The credit is a <see cref="HitResult.LinkHit"/> on the node, so the web host renders it as a real
+        /// anchor and a desktop host opens it in the browser, from this one declaration.
+        /// </remarks>
+        public static Layout.Node BuildPictureSection(in ObjectArticleImage image, in PanelPalette palette)
+        {
+            var credit = CreditLine(in image);
+            var filePage = image.FilePageUrl;
+            return Layout.Builder.VStack(
+                Layout.Builder.Spacer().RowH(4f),
+                Layout.Builder.HStack(
+                    Layout.Builder.Spacer().WFixed(8f).HStar(),
+                    Layout.Builder.Fill(key: PictureFillKey).WStar().HStar().Bg(PictureFrame),
+                    Layout.Builder.Spacer().WFixed(8f).HStar())
+                    .RowH(DesignPictureHeight(in image)),
+                Layout.Builder.HStack(
+                    Layout.Builder.Spacer().WFixed(8f).HStar(),
+                    Layout.Builder.Text(credit, DesignFontSize * 0.8f, palette.DimText, TextAlign.Near, TextAlign.Center)
+                        .WStar().HStar()
+                        .Clickable(new HitResult.LinkHit(filePage), cursor: CursorKind.Pointer),
+                    Layout.Builder.Spacer().WFixed(8f).HStar())
+                    .RowH(DesignRowHeight),
+                Layout.Builder.Spacer().RowH(4f));
+        }
+
+        // A picture frame is near-black in every theme, as image data is never re-tinted: a dim grey would
+        // read as a mat around the picture rather than the absence of one.
+        private static readonly RGBAColor32 PictureFrame = new RGBAColor32(0x08, 0x08, 0x0C, 0xFF);
 
         /// <summary>
         /// The action row, right-aligned, or null when the host offered no actions.

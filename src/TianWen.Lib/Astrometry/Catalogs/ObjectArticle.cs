@@ -28,6 +28,11 @@ public readonly record struct ObjectArticle(uint WikidataItem, string Title, Obj
 /// (Wikimedia refuses arbitrary ones).
 /// </summary>
 /// <param name="FileName">The Commons file name without the <c>File:</c> prefix, spaces and all.</param>
+/// <param name="HashPrefix">
+/// The first two hex digits of the MD5 of the file name (underscores for spaces), which Commons files every
+/// upload under. Baked rather than computed at runtime because a browser build of .NET has no MD5, and the
+/// redirect endpoints that would spare the hash (<c>Special:FilePath</c>) answer without a CORS header.
+/// </param>
 /// <param name="Licence">Commons' <c>LicenseShortName</c>, e.g. <c>CC BY 4.0</c> or <c>Public domain</c>.</param>
 /// <param name="Artist">Commons' <c>Artist</c> as plain text (the HTML stripped); may be empty.</param>
 /// <param name="Credit">Commons' <c>Credit</c> as plain text; may be empty.</param>
@@ -36,6 +41,7 @@ public readonly record struct ObjectArticle(uint WikidataItem, string Title, Obj
 /// <param name="Height">Full-size height in pixels.</param>
 public readonly record struct ObjectArticleImage(
     string FileName,
+    string HashPrefix,
     string Licence,
     string Artist,
     string Credit,
@@ -44,7 +50,45 @@ public readonly record struct ObjectArticleImage(
     int Height)
 {
     private const string FilePageBase = "https://commons.wikimedia.org/wiki/File:";
+    private const string ThumbnailBase = "https://upload.wikimedia.org/wikipedia/commons/thumb/";
+
+    /// <summary>
+    /// The thumbnail widths Wikimedia's image servers render. Any other width is refused with a 400 (640 was,
+    /// measured), while a standard width wider than the original is answered at the original's size, so
+    /// asking for the next standard width up is always safe.
+    /// </summary>
+    public static ReadOnlySpan<int> StandardWidths => [250, 330, 500, 960, 1280, 1920];
 
     /// <summary>The Commons file page, which is where a credit line links: it carries the full licence.</summary>
     public string FilePageUrl => FilePageBase + Uri.EscapeDataString(FileName.Replace(' ', '_'));
+
+    /// <summary>The smallest standard width that covers <paramref name="pixels"/>, or the largest one.</summary>
+    public static int StandardWidthFor(int pixels)
+    {
+        foreach (var width in StandardWidths)
+        {
+            if (width >= pixels)
+            {
+                return width;
+            }
+        }
+        return StandardWidths[^1];
+    }
+
+    /// <summary>
+    /// The thumbnail URL at the standard width covering <paramref name="pixels"/>. A TIFF is rendered as a
+    /// JPEG of its first page, which is the only form a client can decode.
+    /// </summary>
+    public string ThumbnailUrl(int pixels)
+    {
+        var width = StandardWidthFor(pixels).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var name = Uri.EscapeDataString(FileName.Replace(' ', '_'));
+        var folder = ThumbnailBase + HashPrefix[..1] + "/" + HashPrefix + "/" + name + "/";
+        return IsTiff
+            ? folder + "lossy-page1-" + width + "px-" + name + ".jpg"
+            : folder + width + "px-" + name;
+    }
+
+    private bool IsTiff => FileName.EndsWith(".tif", StringComparison.OrdinalIgnoreCase)
+        || FileName.EndsWith(".tiff", StringComparison.OrdinalIgnoreCase);
 }
