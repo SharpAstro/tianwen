@@ -55,6 +55,9 @@ namespace TianWen.UI.Web.SkyMap
         private PipelineHandle? _pipeline;
         private GpuBufferHandle? _buffer;
 
+        /// <summary>How many times a picture that was in hand has been drawn.</summary>
+        public int Drawn { get; private set; }
+
         public WebGlObjectPictures(WebGlRenderer renderer, Action requestRedraw)
         {
             _renderer = renderer;
@@ -123,6 +126,7 @@ namespace TianWen.UI.Web.SkyMap
             _renderer.SetPipelineColor(new RGBAColor32(0xFF, 0xFF, 0xFF, 0xFF));
             _renderer.BindTexture(texture);
             _renderer.DrawBuffer(buffer, 0, 6);
+            Drawn++;
         }
 
         public void Dispose()
