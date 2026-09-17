@@ -151,13 +151,19 @@ dev server with the PNG staged, at Cygnus two hours past astronomical dusk:
 | Measurement | Value |
 |---|---|
 | PNG size (opaque RGB, premultiplied) | 936,300 bytes, against 1,511,914 for the `.lz` |
-| Texture fetch, decode and upload, interpreted dev build | 33 ms |
 | Canvas pixels brighter with the layer on | 672,706; mean added 18 of 765 (RGB sum) over the sky |
-| Sky pixels differing between two "on" captures | 0 |
+| Sky pixels differing between two "on" captures | 0 (the two captures hash identically) |
+
+No load time is quoted: the app's own line read 33 ms on one run and 3,619 ms on the next, against a
+freshly restarted interpreted server, which is a statement about the dev build and not the texture.
 
 The first capture pair was NOT identical, and every differing pixel sat inside the "Loading the sky you
 are looking at" banner, which animates on a server without the Tycho-2 members staged. The probe clips
-its captures to the sky for that reason; a full-canvas comparison proves nothing on such a server.
+its captures to the sky for that reason; a full-canvas comparison proves nothing on such a server. Its
+first version also slept 400 ms before each capture and polled the console every 500 ms; it now waits
+only on what the app reports (the texture line, and the `?e2e=1` render stats' new `milkyWay` flag with a
+`frames` counter), because a key reaches .NET through an asynchronous interop hop and the key press
+returning says nothing about the frame.
 
 Nothing here compares the browser against the desktop pixel for pixel. The argument for parity is the
 arithmetic above (premultiplied colour under `One, One` equals unpremultiplied colour under

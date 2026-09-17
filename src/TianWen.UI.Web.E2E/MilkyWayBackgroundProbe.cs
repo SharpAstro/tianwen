@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Playwright;
 using Xunit;
 using static Microsoft.Playwright.Assertions;
@@ -15,6 +16,11 @@ namespace TianWen.UI.Web.E2E;
 /// <para>The link pins the instant (<c>t=</c>) at an astronomically dark hour at the default site, so the
 /// fade is 1 and the frame is static: the two "on" captures should be identical and "off" should differ
 /// from both. Without a pinned time the sky advances between shots and a difference proves nothing.</para>
+/// <para><b>No sleeps.</b> Every wait is on something the app reports: the console line it prints when the
+/// texture lands, and the <c>milkyWay</c> flag and <c>frames</c> counter in the <c>?e2e=1</c> render stats
+/// for "a frame with the new layer state has drawn". A fixed delay would be a guess about the interpreted
+/// build's speed, and a key toggles the layer through an asynchronous interop hop, so the key press
+/// returning says nothing about the frame.</para>
 /// <code>
 /// dotnet run --project tools/bake-milkyway/BakeMilkyWay.csproj -c Release -- \
 ///   src/TianWen.UI.Gui/Resources/milkyway.bgra.lz src/TianWen.UI.Web/wwwroot/milkyway.png
@@ -27,10 +33,12 @@ namespace TianWen.UI.Web.E2E;
 public sealed class MilkyWayBackgroundProbe(TianWenWebFixture fixture, ITestOutputHelper output)
 {
     private const float BootTimeout = 180_000;
+    private const float FrameTimeout = 30_000;
 
     // Cygnus, high in the south-west at 23:00 local on 2026-09-17 at the default site (47.5 N, 11 E),
-    // two hours past astronomical dusk: the fade is 1 and the band crosses the whole field.
-    private const string NightLink = "?ra=305&dec=38&fov=90&t=2026-09-17T21:00:00Z";
+    // two hours past astronomical dusk: the fade is 1 and the band crosses the whole field. e2e=1 turns
+    // on the render-stats hook the waits below read.
+    private const string NightLink = "?e2e=1&ra=305&dec=38&fov=90&t=2026-09-17T21:00:00Z";
 
     [Fact]
     public async Task CaptureAsync()
@@ -45,29 +53,23 @@ public sealed class MilkyWayBackgroundProbe(TianWenWebFixture fixture, ITestOutp
         var page = await fixture.NewPageAsync();
         var console = new List<string>();
         page.Console += (_, m) => { lock (console) { console.Add($"[{m.Type}] {m.Text}"); } };
-        page.PageError += (_, e) => { lock (console) { console.Add($"[pageerror] {e}"); } };
 
+        // Armed BEFORE navigating: the texture can land before the page is interactive, and a waiter set up
+        // afterwards would miss the line and wait out the whole timeout. Either outcome ends the wait, so a
+        // 404 fails at once with its reason instead of after three minutes.
+        var textureOutcome = page.WaitForConsoleMessageAsync(new PageWaitForConsoleMessageOptions
+        {
+            Predicate = m => m.Text.Contains("milky way texture loaded") || m.Text.Contains("no Milky Way background"),
+            Timeout = BootTimeout,
+        });
         await page.GotoAsync(fixture.BaseUrl + NightLink, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
         await Expect(page.Locator("[data-view=sky]")).ToBeVisibleAsync(new() { Timeout = BootTimeout });
-        var canvas = page.Locator("#planner");
 
-        // The app says when the texture landed; a line that has printed cannot un-print, so this cannot
-        // pass before the upload. The failure line is watched too, so a 404 fails fast with its reason.
-        var deadline = DateTime.UtcNow.AddMilliseconds(BootTimeout);
-        string? outcome = null;
-        while (outcome is null && DateTime.UtcNow < deadline)
-        {
-            lock (console)
-            {
-                outcome = console.FirstOrDefault(c => c.Contains("milky way texture loaded") || c.Contains("no Milky Way background"));
-            }
-            if (outcome is null)
-            {
-                await Task.Delay(500, TestContext.Current.CancellationToken);
-            }
-        }
-        output.WriteLine($"texture: {outcome ?? "no line within the boot timeout"}");
-        Assert.True(outcome?.Contains("milky way texture loaded") == true, $"the Milky Way texture did not load: {outcome}");
+        var outcome = (await textureOutcome).Text;
+        output.WriteLine($"texture: {outcome}");
+        Assert.Contains("milky way texture loaded", outcome);
+
+        var canvas = page.Locator("#planner");
 
         // The SKY only. Two things on the canvas move independently of the background and would make any
         // comparison prove nothing: the "Loading the sky you are looking at" banner animates across the
@@ -76,31 +78,45 @@ public sealed class MilkyWayBackgroundProbe(TianWenWebFixture fixture, ITestOutp
         var box = await canvas.BoundingBoxAsync() ?? throw new InvalidOperationException("the atlas canvas has no box");
         var sky = new Clip { X = box.X, Y = box.Y + 80, Width = box.Width - 160, Height = box.Height - 120 };
 
+        // Resolves once a frame has DRAWN with the layer in the wanted state. The stats call runs on the
+        // single WASM thread, so it can never observe a frame half-drawn: frames > n means the repaint that
+        // followed the toggle has completed.
+        async Task<int> DrawnWithLayerAsync(bool on, int afterFrame)
+        {
+            var script = "async () => { const s = JSON.parse(await window.__tianwenTest.getRenderStats()); "
+                + $"return s.milkyWay === {(on ? "true" : "false")} && s.frames > {afterFrame.ToString(CultureInfo.InvariantCulture)} ? s.frames : 0; }}";
+            var handle = await page.WaitForFunctionAsync(script, null, new PageWaitForFunctionOptions { Timeout = FrameTimeout });
+            return await handle.JsonValueAsync<int>();
+        }
+
         async Task<byte[]> ShootAsync(string name)
         {
-            await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
-            await Task.Delay(400);
             var path = Path.Combine(dir, name + ".png");
             var png = await page.ScreenshotAsync(new PageScreenshotOptions { Path = path, Clip = sky });
             output.WriteLine($"{name,-12} {png.Length,9} bytes  {path}");
             return png;
         }
 
+        var frame = await DrawnWithLayerAsync(on: true, afterFrame: 0);
         var on = await ShootAsync("1-on");
+
         await canvas.PressAsync("s");
+        frame = await DrawnWithLayerAsync(on: false, afterFrame: frame);
         var off = await ShootAsync("2-off");
+
         await canvas.PressAsync("s");
+        await DrawnWithLayerAsync(on: true, afterFrame: frame);
         var onAgain = await ShootAsync("3-on-again");
 
         lock (console)
         {
-            foreach (var line in console.Where(c => c.Contains("[tianwen-web]") || c.Contains("error", StringComparison.OrdinalIgnoreCase)))
+            foreach (var line in console.Where(c => c.Contains("[tianwen-web]")))
             {
                 output.WriteLine("  " + line);
             }
         }
 
         Assert.False(on.AsSpan().SequenceEqual(off), "switching the layer off changed nothing on screen");
-        Assert.True(on.AsSpan().SequenceEqual(onAgain), "the two 'on' captures differ, so the frame is not static and the comparison proves nothing");
+        Assert.True(on.AsSpan().SequenceEqual(onAgain), "the two 'on' captures of the sky differ, so the frame is not static and the comparison proves nothing");
     }
 }
