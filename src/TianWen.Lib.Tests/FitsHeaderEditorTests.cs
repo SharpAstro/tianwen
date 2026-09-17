@@ -319,6 +319,100 @@ namespace TianWen.Lib.Tests
             Sha(File.ReadAllBytes(product)).ShouldBe(before);
         }
 
+        [Fact]
+        public async Task GivenAnUntypedFrame_WhenStatingItsType_ThenBothCardsAreWrittenInOneRewrite()
+        {
+            var dir = CreateTempDir();
+            var (path, payload) = WriteFits(dir, "sc3.fits", ["EXPTIME =                 10.0"], payloadBytes: 40 * 36 * 2);
+            var before = Sha(payload);
+
+            var result = await FitsHeaderEditor.SetFrameTypeAsync(
+                path, FrameType.Dark, UntypedOnly, apply: true, cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.Tagged);
+            HeaderValue(path, "IMAGETYP").ShouldBe("Dark");
+            HeaderValue(path, "FRAMETYP").ShouldBe("Dark");
+            Sha(PayloadOf(path)).ShouldBe(before);
+            Image.TryReadFitsHeader(path, out var info).ShouldBeTrue();
+            info.ShouldNotBeNull();
+            info.Meta.FrameType.ShouldBe(FrameType.Dark);
+        }
+
+        [Theory]
+        [InlineData("FRAMETYP= 'Light'", "IMAGETYP")]   // SharpCap 4
+        [InlineData("IMAGETYP= 'LIGHT'", "FRAMETYP")]   // N.I.N.A., upper case
+        public async Task GivenOneCardAlreadyStatingTheType_WhenStatingIt_ThenOnlyTheMissingCardIsAddedAndTheOtherKeepsItsBytes(
+            string statedCard, string missing)
+        {
+            // The job is making the frame say what it is, not normalising a card that was right:
+            // N.I.N.A.'s 'LIGHT' must not come out as 'Light'.
+            var dir = CreateTempDir();
+            var (path, payload) = WriteFits(dir, "one.fits", [statedCard]);
+            var stated = statedCard[..8].Trim();
+            var cardBefore = RawCard(path, stated);
+
+            var result = await FitsHeaderEditor.SetFrameTypeAsync(
+                path, FrameType.Light, UntypedOnly, apply: true, cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.Tagged);
+            RawCard(path, stated).ShouldBe(cardBefore);
+            HeaderValue(path, missing).ShouldBe("Light");
+            Sha(PayloadOf(path)).ShouldBe(Sha(payload));
+        }
+
+        [Fact]
+        public async Task GivenAFrameAlreadyStatingItsTypeInBothCards_WhenStatingIt_ThenTheFileIsNotRewritten()
+        {
+            var dir = CreateTempDir();
+            var (path, _) = WriteFits(dir, "both.fits", ["IMAGETYP= 'Dark'", "FRAMETYP= 'Dark'"]);
+            var before = Sha(File.ReadAllBytes(path));
+
+            var result = await FitsHeaderEditor.SetFrameTypeAsync(
+                path, FrameType.Dark, UntypedOnly, apply: true, cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.AlreadyPresent);
+            Sha(File.ReadAllBytes(path)).ShouldBe(before, "a re-run must be a no-op, not a rewrite");
+        }
+
+        [Fact]
+        public async Task GivenADarkThatSharpCapTypedLight_WhenRelabelled_ThenBothCardsSayDarkAndTheReaderAgrees()
+        {
+            // 2024-02-03: 70 darks carry FRAMETYP='Light'. The reader takes FRAMETYP first, so filed as
+            // they are the bake would ingest them as a light session.
+            var dir = CreateTempDir();
+            var (path, payload) = WriteFits(dir, "dark.fits", ["FRAMETYP= 'Light'"], payloadBytes: 40 * 36 * 2);
+
+            var result = await FitsHeaderEditor.SetFrameTypeAsync(
+                path, FrameType.Dark, new HashSet<FrameType> { FrameType.Light }, apply: true,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.Tagged);
+            HeaderValue(path, "FRAMETYP").ShouldBe("Dark");
+            HeaderValue(path, "IMAGETYP").ShouldBe("Dark");
+            Sha(PayloadOf(path)).ShouldBe(Sha(payload));
+            Image.TryReadFitsHeader(path, out var info).ShouldBeTrue();
+            info.ShouldNotBeNull();
+            info.Meta.FrameType.ShouldBe(FrameType.Dark);
+        }
+
+        [Theory]
+        [InlineData("FRAMETYP= 'Light'")]               // a different type, not named as replaceable
+        [InlineData("IMAGETYP= 'MASTERDARK'")]          // a master: FRAMETYP='Dark' beside it would strip the flag
+        [InlineData("FRAME   = 'Other/Processed'")]     // an APP product
+        [InlineData("IMAGETYP= 'BADPIXELMAP'")]         // a value that does not parse is not "untyped"
+        public async Task GivenAFrameTheBackfillMustNotTouch_WhenStatingDark_ThenItIsExcludedAndByteIdentical(string card)
+        {
+            var dir = CreateTempDir();
+            var (path, _) = WriteFits(dir, "keep.fits", [card]);
+            var before = Sha(File.ReadAllBytes(path));
+
+            var result = await FitsHeaderEditor.SetFrameTypeAsync(
+                path, FrameType.Dark, UntypedOnly, apply: true, cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.FrameTypeExcluded);
+            Sha(File.ReadAllBytes(path)).ShouldBe(before);
+        }
+
         [Theory]
         [InlineData("Dark", FitsHeaderEditor.TagOutcome.Tagged)]
         [InlineData("Light", FitsHeaderEditor.TagOutcome.FrameTypeExcluded)]
