@@ -423,16 +423,30 @@ public static class CalibrationResolver
     /// <summary>How far, in days, a flat whose cards cannot prove the light's optical train
     /// (<see cref="CalTrain.ProvesOpticsOf"/>) may lie from the lights and still be used. Being shot
     /// with the lights is then the only evidence the train was the same, so the window is a
-    /// SESSION, not a staleness tolerance.
+    /// CAMPAIGN, not a staleness tolerance.
     ///
-    /// <para>Measured on every Organized session whose flats carry no train cards (2026-09-17): each
-    /// session's own flat set lies 0.42 to 1.97 days from its first light; the nearest set of a
-    /// DIFFERENT train on the same body lies 4.02 days away (the ASI585's 368.8 mm L-eNhance flat
-    /// against its 289 mm broadband lights), and the two sets the wildcard wrongly chose lay 12.03
-    /// and 103.07 days away. Three days sits between the session and the neighbour, and the
-    /// nearest-first ordering among unproven flats keeps a neighbour that does fall inside from
-    /// winning.</para></summary>
-    internal const double UnprovenFlatMaxDays = 3.0;
+    /// <para>Measured on every SharpCap-era session in both bake roots (2026-09-17). A session's own
+    /// flat set lies 0.03 to 1.97 days from its first light when it was shot with that night; a
+    /// campaign's shared set lies further (the ASI533's Vela mosaic panels 5.9 to 7.0 days from their
+    /// 2024-02-10 set, Seagull 4.1 days from the Rosette set, Oph 8.9 days from the "Cal Jun" set).
+    /// The nearest flat from ANOTHER train that only the window can refuse lies 17.5 days away (the
+    /// ASI585's 36 mm set against its 24 mm lights). Closer wrong trains exist (4.02 days on the
+    /// ASI585, the Ha flat 12.03 days from Luminance lights), but each of those sessions has its own
+    /// set nearer, and the nearest-first ordering picks it. Two weeks sits between 8.9 and 17.5.
+    /// A tighter window is not the safer one: a session refused here falls through to whatever
+    /// card-proven flat remains, which on the ASI533 is a narrowband set a year away.</para></summary>
+    internal const double UnprovenFlatMaxDays = 14.0;
+
+    /// <summary>How far a flat's filter is from the light's, as the leading ranking term. The same
+    /// filter costs nothing; a filter stated on only ONE side costs half, since nothing says it
+    /// differs; two stated filters that differ cost the full 1000. Collapsing the middle case into
+    /// the last one is the optics mistake again: in Astro-Unsorted a session whose filter comes from a
+    /// sidecar ("LPS") saw its own card-less flat from that morning as exactly as wrong as a
+    /// narrowband set 575 days away, and the proven-train tier then chose the narrowband set.</summary>
+    internal static double FlatFilterPenalty(MasterGroupKey flat, MasterGroupKey light) =>
+        flat.SameFilterAs(light) ? 0.0
+        : flat.FilterIdentity.Length == 0 || light.FilterIdentity.Length == 0 ? 500.0
+        : 1000.0;
 
     /// <summary>Days between <paramref name="target"/> and the group's capture span, zero inside it;
     /// null when either side is undated.</summary>
@@ -567,25 +581,27 @@ public static class CalibrationResolver
         var lightTrain = CalTrain.OpticalTrain(light);
         var lightStart = light.Meta.ExposureStartTime;
         CalGroup? best = null;
-        var bestRank = (Tier: 0, Primary: 0.0, Secondary: 0.0);
+        var bestRank = (Filter: 0.0, Tier: 0, Primary: 0.0, Secondary: 0.0);
         foreach (var g in flats)
         {
             // Unbuildable singletons are not candidates (see BestDark): a lone raw flat frame can't
             // build a master, so it must not out-rank a multi-frame flat and leave the session with
             // no flat at all. A foreign master flat is exempt (loaded directly).
             if (!IsFlatCandidate(g, lightKey, lightTrain, lightStart, out var unprovenDays)) continue;
-            var filterMismatch = g.Key.SameFilterAs(lightKey) ? 0.0 : 1000.0;
+            var filterMismatch = FlatFilterPenalty(g.Key, lightKey);
             // Time matters a little more for flats than the constant's sizing suggests (dust moves
             // between seasons), but it is still no physical axis: filter and temperature dominate,
             // and time separates two epochs of the SAME train's flats -- the season whose dust
             // matches the lights wins.
             var score = filterMismatch + TempPenalty(g.Key, lightKey) * 10.0 + GainPenalty(g.Key, lightKey)
                 + TimePenalty(g.EpochStart, lightStart);
-            // Proven flats keep the score above untouched. Unproven ones come after all of them, by
-            // filter label first (1000 dwarfs a window of days), then distance, then that score.
+            // The filter label decides first, for both kinds: a flat whose cards prove the lens but
+            // state another filter must never outrank a same-night flat of the lights' own filter.
+            // Then proven before date-admitted, and within each kind the old score (proven) or the
+            // distance (date-admitted).
             var rank = unprovenDays is { } days
-                ? (Tier: 1, Primary: filterMismatch + days, Secondary: score)
-                : (Tier: 0, Primary: score, Secondary: 0.0);
+                ? (Filter: filterMismatch, Tier: 1, Primary: days, Secondary: score)
+                : (Filter: filterMismatch, Tier: 0, Primary: score, Secondary: 0.0);
             var order = best is null ? -1 : rank.CompareTo(bestRank);
             if (order < 0 || (order == 0 && SlugBefore(g, best)))
             {

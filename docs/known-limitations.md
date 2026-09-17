@@ -572,11 +572,23 @@ only the calibration map, which records the right association and is never read 
 
 **Unknown means NOT REFUSED, never proven.** A flat is now used when its cards prove the train (an
 optics card stated on BOTH sides and agreeing, `CalTrain.ProvesOpticsOf`) or when it was shot within
-`CalibrationResolver.UnprovenFlatMaxDays` (3) of the lights. A card-proven flat ranks ahead of a
-date-proven one, and among date-proven ones the nearest wins, never the closest temperature. The
-window is measured, in the constant's own remarks. Every N.I.N.A. set in Organized carries both
+`CalibrationResolver.UnprovenFlatMaxDays` (14) of the lights. The ranking is: filter first, then
+card-proven ahead of date-proven, then the old score for the first kind and the distance for the
+second, never the closest temperature. The filter has to lead: ranked after the proof, the ASI533's
+N.I.N.A. L-Ultimate 3nm flats (whose `FOCALLEN` proves the Samyang) outranked sixteen SharpCap
+sessions' own broadband flats, one of them 0.89 days away. **And the filter term has three levels,
+for the same reason the optics do** (`FlatFilterPenalty`): the same filter, a filter stated on only
+one side, and two stated filters that differ. With the middle case scored as a full mismatch, a
+session whose filter comes from a sidecar saw its own card-less flat from that morning as exactly
+as wrong as the narrowband set 575 days away, and the proof tier picked the narrowband one.
+
+**A tighter window is not the safer one.** A session refused by it falls through to whatever
+card-proven flat is left, and on the ASI533 that is a narrowband set a year away. Measured over
+both bake roots: a night's own set lies 0.03 to 1.97 days out, a campaign's shared set up to 8.9
+(the Vela mosaic panels, "Cal Jun"), and the nearest other-train flat only the window can refuse
+17.5. The constant's remarks carry the rest. Every N.I.N.A. set in Organized carries both optics
 cards, so this only moves SharpCap-era sessions. The coverage report's `flat_train_proof` column
-says which evidence admitted each flat. Pinned by `CalibrationResolverTests` (both real cases).
+says which evidence admitted each flat. Pinned by `CalibrationResolverTests` (three real cases).
 
 The durable fix is data: an old flat set shot days away from its lights is only usable once it has
 optics cards, and the evidence for which train it was on is the calibration map and the folders,
