@@ -63,3 +63,8 @@ BenchmarkDotNet.Artifacts/
 # src/TianWen.AI.Imaging/models/, by hand, through n2n_export.py.
 training/**/*.pt
 training/**/*.onnx
+
+# Images staged for an Artifact publish (a rendered gallery of a bake's masters, tens of MB of
+# JPEG/PNG). Derived from a dataset store and re-renderable from it; here rather than in the
+# scratchpad only because a publish reads its supporting files from the working tree.
+.artifact-gallery/
