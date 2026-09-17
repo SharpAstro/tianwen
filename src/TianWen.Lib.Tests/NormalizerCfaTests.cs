@@ -139,6 +139,65 @@ public class NormalizerCfaTests
         }
     }
 
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(1, 1)]
+    public void TheSkyOffsetMovesEachColourOntoTheReference_AndLeavesEverythingElseWhereItWas(int bayerOffsetX, int bayerOffsetY)
+    {
+        // Sky per colour R 300, G 1000, B 600 on the reference; the frame is brighter by a different
+        // amount in each colour, and carries one bright photosite that must keep its excess.
+        float Sky(float r, float g, float b, int y, int x)
+        {
+            var yEven = ((y + bayerOffsetY) & 1) == 0;
+            var xEven = ((x + bayerOffsetX) & 1) == 0;
+            return (yEven, xEven) switch { (true, true) => r, (false, false) => b, _ => g };
+        }
+        var reference = Normalizer.ComputeCfaStats(Mosaic(bayerOffsetX, bayerOffsetY, pedestal: 20f, (y, x) => Sky(300f, 1000f, 600f, y, x)));
+        var frame = Mosaic(bayerOffsetX, bayerOffsetY, pedestal: 20f, (y, x) => Sky(420f, 1500f, 700f, y, x) + (y == 5 && x == 6 ? 5000f : 0f));
+        var stats = Normalizer.ComputeCfaStats(frame);
+
+        var shifted = Normalizer.OffsetCfaToReference(frame, stats, reference);
+
+        var after = Normalizer.ComputeCfaStats(shifted);
+        after.Red.PerChannelMedian[0].ShouldBe(300f);
+        after.Green.PerChannelMedian[0].ShouldBe(1000f);
+        after.Blue.PerChannelMedian[0].ShouldBe(600f);
+        var starSky = Sky(420f, 1500f, 700f, 5, 6);
+        var starReferenceSky = Sky(300f, 1000f, 600f, 5, 6);
+        shifted.GetChannelArray(0)[5, 6].ShouldBe(starReferenceSky + 5000f, "a star keeps its excess over the sky: a shift, not a rescale");
+        shifted.Pedestal.ShouldBe(frame.Pedestal, "the offset moves the sky, not the readout pedestal");
+        shifted.MaxValue.ShouldBe(frame.MaxValue, "the scale is untouched");
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(1, 1)]
+    public void TheInPlaceSkyOffsetWritesExactlyWhatTheCopyWrites(int bayerOffsetX, int bayerOffsetY)
+    {
+        static float Value(int y, int x) => y == 3 && x == 4 ? float.NaN : 100f + (y * 31 + x * 17) % 23 * 2.5f;
+        static float ReferenceValue(int y, int x) => 60f + (y * 13 + x * 7) % 19 * 1.5f;
+
+        var source = Mosaic(bayerOffsetX, bayerOffsetY, pedestal: 20f, Value);
+        var owned = Mosaic(bayerOffsetX, bayerOffsetY, pedestal: 20f, Value);
+        var stats = Normalizer.ComputeCfaStats(source);
+        var reference = Normalizer.ComputeCfaStats(Mosaic(bayerOffsetX, bayerOffsetY, pedestal: 20f, ReferenceValue));
+
+        var copied = Normalizer.OffsetCfaToReference(source, stats, reference);
+        var ownedPlane = owned.GetChannelArray(0);
+        var inPlace = Normalizer.OffsetCfaToReferenceInPlace(owned, stats, reference);
+
+        ReferenceEquals(inPlace.GetChannelArray(0), ownedPlane).ShouldBeTrue("the result is the consumed frame's own plane");
+        var expected = copied.GetChannelArray(0);
+        for (var y = 0; y < Height; y++)
+        {
+            for (var x = 0; x < Width; x++)
+            {
+                BitConverter.SingleToInt32Bits(ownedPlane[y, x]).ShouldBe(BitConverter.SingleToInt32Bits(expected[y, x]),
+                    $"photosite ({y}, {x}) differs between the in-place and copying sky offset");
+            }
+        }
+    }
+
     [Fact]
     public void TheInPlaceNormaliseAllocatesNoPlane()
     {

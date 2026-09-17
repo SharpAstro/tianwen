@@ -128,6 +128,34 @@ colour handling in line with the standard path's PRE-SPCC colour handling is the
 intended, not a side effect to walk back. (The two masters compared here used `--no-plate-solve`, so
 neither ever reached SPCC; the comparison is pre-SPCC against pre-SPCC on both sides.)
 
+**An UNNORMALISED drizzle has the same phase bias, and the fix there is a SHIFT, not a rescale.** The
+dataset bake (`SessionRegistrar`) integrates with `ApplyNormalization` off on purpose: its master must
+stay on the subs' linear scale for the tiler and the N2N pairs, so none of the above reached it, and
+its drizzled masters carried the pattern. Measured on the 2026-09-16 bake with the even/odd
+adjacent-difference metric (`tools/drizzle-phase-pattern/measure.py`, background pixels of the central square,
+in per-pixel sigma): 57 drizzled masters at a median 0.28 sigma, 27 above 0.3, 9 above 1, worst 8.9
+(Statue of Liberty); 28 non-drizzle masters at most 0.053, which is the metric's floor.
+`IntegrationOptions.DrizzleSkyReference` fixes it without touching the scale: every frame's per-CFA
+colour sky is shifted onto one session-wide sky (`Normalizer.OffsetCfaToReference`), so the phases
+agree and a star keeps its flux over the sky. The registrar takes that sky as each colour's MEDIAN
+over the subs, measured on the calibrated raw frames its warp pass already loads, and hands the same
+sky to the master and both halves, so the pair stays level-matched. **Not the registration
+reference's own sky**, which was the first version: the reference is chosen for its stars, and on
+Statue of Liberty its sky was 2.1x the session's, which lifted the whole master onto that pedestal
+and halved every structure's contrast relative to the sky (the absolute differences were unchanged),
+the quantity the tile stretch works in. Rebaked Great Orion (SV605CC, 68 frames): R and B column
+offsets 2.20 and 2.39 sigma (94 and 96 percent sign agreement) became 0.02 and 0.00 (51 and 50
+percent), and the green checkerboard (0.77, invisible to the row and column terms until the metric
+gained one) went to 0.03. Rebaked Statue of Liberty (SV605CC, 256 frames, median sky): the worst
+master's blue column offset of 8.88 sigma (100 percent) became 0.06 (52 percent), every term of every
+channel is at most 0.12, and the field median sits 6 to 7 percent under the old master in all three
+colours (R 0.00619 against 0.00662), where the reference-frame sky had doubled it. Blue's background
+sigma fell from 7.3e-4 to 1.7e-4: a quarter of what that plane had been reporting as noise was the
+pattern. It also removes the dark and bright bands along a drizzled master's
+partly covered edges, which were the same drift: an edge pixel averages only the frames that reached
+it. Pinned by `DrizzlePerFrameNormalizationTests` (the unnormalised pattern, then its removal at the
+reference's levels), `NormalizerCfaTests` and `DatasetSessionRegistrarTests`.
+
 The old final `flux/weight * (1/sourceMaxValue)` divide is now
 the identity in the normalised case (dividing twice would re-introduce the bug in a different form)
 and survives only as the fallback for a caller that explicitly disables normalisation.

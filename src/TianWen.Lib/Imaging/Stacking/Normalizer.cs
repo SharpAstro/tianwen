@@ -391,8 +391,71 @@ public static class Normalizer
         int width, int height, NormalizationStats stats, float targetMedian)
     {
         var floor = stats.PerChannelFloor[0];
-        var scale = ComputeScale(stats.PerChannelMedian[0], floor, targetMedian);
+        WriteCfaChannel(image, cfa, src, dst, width, height, floor, ComputeScale(stats.PerChannelMedian[0], floor, targetMedian));
+    }
 
+    /// <summary>
+    /// Shifts each CFA colour's sky onto <paramref name="reference"/>'s: every photosite of a colour
+    /// moves by that colour's median difference, so the frame's per-colour medians become the
+    /// reference's while its scale, its pedestal and every star's excess over the sky stay exactly
+    /// what they were. The unnormalised drizzle's counterpart of <see cref="ApplyCfa"/>; see
+    /// <see cref="IntegrationOptions.DrizzleSkyReference"/> for why an unnormalised drizzle needs it.
+    /// </summary>
+    public static Image OffsetCfaToReference(Image image, CfaNormalizationStats stats, CfaNormalizationStats reference)
+    {
+        if (!image.IsCfaMosaic)
+        {
+            throw new ArgumentException(
+                $"OffsetCfaToReference requires a single-channel Bayer CFA mosaic; got {image.ChannelCount} "
+                    + $"channel(s), {image.ImageMeta.SensorType}.",
+                nameof(image));
+        }
+
+        var dst = Image.CreateChannelData(1, image.Height, image.Width);
+        OffsetCfaColours(image, image.GetChannelArray(0), dst[0], stats, reference);
+        return new Image(dst, BitDepth.Float32, image.MaxValue, image.MinValue, image.Pedestal, image.ImageMeta);
+    }
+
+    /// <summary>
+    /// <see cref="OffsetCfaToReference"/> written into <paramref name="image"/>'s own plane, bit for
+    /// bit the same. <b>Consumes</b> <paramref name="image"/>, exactly as
+    /// <see cref="ApplyCfaInPlace"/> does and for the same one caller.
+    /// </summary>
+    internal static Image OffsetCfaToReferenceInPlace(Image image, CfaNormalizationStats stats, CfaNormalizationStats reference)
+    {
+        if (!image.IsCfaMosaic)
+        {
+            throw new ArgumentException(
+                $"OffsetCfaToReferenceInPlace requires a single-channel Bayer CFA mosaic; got {image.ChannelCount} "
+                    + $"channel(s), {image.ImageMeta.SensorType}.",
+                nameof(image));
+        }
+
+        var plane = image.GetChannelArray(0);
+        OffsetCfaColours(image, plane, plane, stats, reference);
+        return new Image([plane], BitDepth.Float32, image.MaxValue, image.MinValue, image.Pedestal, image.ImageMeta);
+    }
+
+    private static void OffsetCfaColours(Image image, float[,] src, float[,] dst, CfaNormalizationStats stats, CfaNormalizationStats reference)
+    {
+        var width = image.Width;
+        var height = image.Height;
+        var srcFlat = MemoryMarshal.CreateReadOnlySpan(ref src[0, 0], src.Length);
+        var dstFlat = MemoryMarshal.CreateSpan(ref dst[0, 0], dst.Length);
+
+        WriteCfaChannel(image, CfaChannel.Red, srcFlat, dstFlat, width, height,
+            stats.Red.PerChannelMedian[0] - reference.Red.PerChannelMedian[0], 1f);
+        WriteCfaChannel(image, CfaChannel.Green, srcFlat, dstFlat, width, height,
+            stats.Green.PerChannelMedian[0] - reference.Green.PerChannelMedian[0], 1f);
+        WriteCfaChannel(image, CfaChannel.Blue, srcFlat, dstFlat, width, height,
+            stats.Blue.PerChannelMedian[0] - reference.Blue.PerChannelMedian[0], 1f);
+    }
+
+    /// <summary>The one traversal of a colour's photosites that writes: <c>dst = (src - subtract) * multiply</c>.</summary>
+    private static void WriteCfaChannel(
+        Image image, CfaChannel cfa, ReadOnlySpan<float> src, Span<float> dst,
+        int width, int height, float subtract, float multiply)
+    {
         Span<(int Row, int Col)> phaseStarts = stackalloc (int Row, int Col)[2];
         var phaseCount = image.CfaPhaseStarts(cfa, phaseStarts);
         var step = Image.CfaStep(cfa, 1);
@@ -406,7 +469,7 @@ public static class Normalizer
                 for (var w = colStart; w < width; w += step)
                 {
                     var idx = rowOffset + w;
-                    dst[idx] = (src[idx] - floor) * scale;
+                    dst[idx] = (src[idx] - subtract) * multiply;
                 }
             }
         }

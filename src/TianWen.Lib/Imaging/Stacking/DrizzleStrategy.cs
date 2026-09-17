@@ -257,9 +257,13 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
             // restrict to here -- the raw CFA plane is still in SOURCE coordinates, pre-warp), and the
             // transform applies unchanged afterwards. Per-CFA-colour (not the pooled whole-plane
             // scalar) -- see the comment above this loop.
+            // Unnormalised, the sky still has to agree across frames at every phase, so a caller that
+            // keeps the linear scale (the dataset bake) shifts each colour onto one reference sky.
             var raw = applyNormalization
                 ? Normalizer.ApplyCfa(frame.RawCfa, Normalizer.ComputeCfaStats(frame.RawCfa), normalizationTarget)
-                : frame.RawCfa;
+                : job.Options.DrizzleSkyReference is { } skyReference
+                    ? Normalizer.OffsetCfaToReference(frame.RawCfa, Normalizer.ComputeCfaStats(frame.RawCfa), skyReference)
+                    : frame.RawCfa;
             var srcW = raw.Width;
             var srcH = raw.Height;
 

@@ -202,7 +202,9 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
             var calibrated = DecodeCalibrate(source, calibrator, job.Intermediates);
             return applyNormalization
                 ? Normalizer.ApplyCfaInPlace(calibrated, Normalizer.ComputeCfaStats(calibrated), normalizationTarget)
-                : calibrated;
+                : job.Options.DrizzleSkyReference is { } skyReference
+                    ? Normalizer.OffsetCfaToReferenceInPlace(calibrated, Normalizer.ComputeCfaStats(calibrated), skyReference)
+                    : calibrated;
         }
 
         // ---------------- Pass 1: load + calibrate every frame, cache ----------------

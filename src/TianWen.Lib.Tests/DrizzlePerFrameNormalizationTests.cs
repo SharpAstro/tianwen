@@ -111,6 +111,54 @@ public class DrizzlePerFrameNormalizationTests
         }
     }
 
+    [Fact]
+    public async Task Drizzle_Unnormalised_KeepsThePhasePattern_WhichIsTheDatasetBakesCase()
+    {
+        // The dataset bake integrates with ApplyNormalization OFF, because its master must stay on the
+        // same linear scale as the subs, so the per-colour normalisation above never runs there. Pinned
+        // so the next test is known to be removing something: on the bake's own masters this measured
+        // a median 0.28 sigma over 57 drizzled sessions and 8.9 sigma at worst.
+        var ct = TestContext.Current.CancellationToken;
+        var result = await new DrizzleStrategy().RunAsync(
+            BuildJob(BuildFrames(), new IntegrationOptions(ApplyNormalization: false)), ct);
+
+        var worst = 0.0;
+        for (var c = 0; c < 3; c++)
+        {
+            worst = Math.Max(worst, MeasurePhaseSpread(result.Master.GetChannelArray(c), RegionX0, RegionX1, RegionY0, RegionY1).SpreadSigma);
+        }
+        worst.ShouldBeGreaterThan(0.75, "the fixture no longer reproduces the unnormalised pattern, so the fix below proves nothing");
+    }
+
+    [Fact]
+    public async Task Drizzle_Unnormalised_WithASkyReference_RemovesThePattern_AndKeepsTheReferencesLevels()
+    {
+        // Each frame's sky is SHIFTED per colour onto one reference frame's, never rescaled: star flux
+        // and the linear scale stay what they were, and every frame's background agrees at every
+        // phase, which is what drizzle's uneven phase weighting needs.
+        var ct = TestContext.Current.CancellationToken;
+        var frames = BuildFrames();
+        var reference = Normalizer.ComputeCfaStats(frames[0].RawCfa);
+        var options = new IntegrationOptions(ApplyNormalization: false) { DrizzleSkyReference = reference };
+
+        var result = await new DrizzleStrategy().RunAsync(BuildJob(frames, options), ct);
+
+        var divisor = frames[0].RawCfa.UnitScaleDivisor;
+        var referenceLevels = new[] { reference.Red, reference.Green, reference.Blue };
+        for (var c = 0; c < 3; c++)
+        {
+            var channel = result.Master.GetChannelArray(c);
+            var (spreadSigma, medians) = MeasurePhaseSpread(channel, RegionX0, RegionX1, RegionY0, RegionY1);
+            spreadSigma.ShouldBeLessThan(0.75, $"channel {c}: phase-median spread {spreadSigma:F3} sigma with a sky reference");
+
+            var expected = referenceLevels[c].PerChannelMedian[0] / divisor;
+            var level = (medians[0] + medians[1] + medians[2] + medians[3]) / 4.0;
+            // Two ADU on the frames' own scale: well above the reference median's sampling error, far
+            // below the 300 to 600 ADU the sky drifted by, so a rescale or a mean level cannot pass.
+            level.ShouldBe(expected, 2.0 / divisor, $"channel {c} left the reference frame's sky level");
+        }
+    }
+
     private static List<RawBayerFrame> BuildFrames()
     {
         var frames = new List<RawBayerFrame>(FrameCount);
@@ -164,7 +212,7 @@ public class DrizzlePerFrameNormalizationTests
         return frames;
     }
 
-    private static IntegrationJob BuildJob(List<RawBayerFrame> frames)
+    private static IntegrationJob BuildJob(List<RawBayerFrame> frames, IntegrationOptions? options = null)
     {
         async IAsyncEnumerable<RawBayerFrame> RawBayerFramesProducer(
             [EnumeratorCancellation] CancellationToken token)
@@ -189,7 +237,7 @@ public class DrizzlePerFrameNormalizationTests
         return new IntegrationJob(
             WarpedFrames: EmptyWarpedFrames,
             ExpectedFrameCount: frames.Count,
-            Options: new IntegrationOptions(),
+            Options: options ?? new IntegrationOptions(),
             StagingDir: Path.GetTempPath(),
             StatsRect: PixelRect.Empty,
             RawBayerFrames: RawBayerFramesProducer,
