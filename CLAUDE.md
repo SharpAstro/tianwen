@@ -301,6 +301,10 @@ screenshot-poll-and-OCR**. **Every mechanism -- the fake-device URI shapes incl.
   `cell` report the **front** cell buffer, and `cell` adds the resolved pen (`#000000` on `#000000` is
   invisible on screen yet identical to a correct one in a text dump). The modifier parameter is
   **`mods`** (`"ctrl+shift"`), not a `ctrl` boolean.
+- **`tianwen-fits` also runs end to end WITHOUT its window, in CI**: `ViewerE2E` constructs the same
+  `StandaloneViewerHost` `Program.cs` runs (router, toolbar policy, between-frames steps) over a CPU
+  surface and real files. A viewer behaviour test goes through it at DPI 1 AND 1.5, and **a new host step
+  goes into `StandaloneViewerHost`, never back into `Program.cs`**, where no test can reach it.
 
 ## Coding Style
 
