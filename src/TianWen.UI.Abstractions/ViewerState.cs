@@ -247,6 +247,12 @@ public sealed class ViewerState
     public bool HideChrome { get; set; }
 
     /// <summary>
+    /// Whether the selected object's picture is open large over the photograph. Set by a click on the
+    /// selection panel's thumbnail, cleared by Escape, by the scrim, and when the selection goes.
+    /// </summary>
+    public bool PictureExpanded { get; set; }
+
+    /// <summary>
     /// Freeze the display stretch statistics: while set, a live source reuses its cached median/MAD instead of
     /// rescanning each frame, so the stretch does not re-fire on every exposure. A polar-align correctness
     /// requirement (keeps the field visually stable across the slow refine exposures); a one-shot recompute

@@ -1668,6 +1668,12 @@ namespace TianWen.UI.Abstractions
 
             switch (key)
             {
+                // The large picture is what Escape retires first: it covers the map, so nothing else on
+                // screen is reachable while it is open.
+                case InputKey.Escape when State.PictureExpanded:
+                    CollapsePicture();
+                    return true;
+
                 // Every layer toggle (G / A / H / C / B / S / O / D / E / M) resolves through the one
                 // table the palette also renders, so a layer cannot reach the keyboard and not the
                 // panel. TryToggleByKey answers false for a key no layer claims AND for one whose

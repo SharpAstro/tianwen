@@ -112,6 +112,55 @@ public sealed class ObjectPicturePanelTests
     }
 
     [Fact]
+    public async Task ClickingThePictureOpensItLargeAndEscapeClosesIt()
+    {
+        var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
+        db.TryLookupByIndex("M31", out var andromeda).ShouldBeTrue();
+        db.TryGetArticle(andromeda.Index, out var article).ShouldBeTrue();
+        var picture = article.Image.ShouldNotBeNull();
+
+        var now = new DateTimeOffset(2026, 9, 18, 22, 0, 0, TimeSpan.Zero);
+        var site = SiteContext.Create(45.0, -75.0, now);
+        var info = SkyMapInfoPanelData.FromCatalogObject(andromeda, 45.0, -75.0, now, site, null);
+
+        using var renderer = new RgbaImageRenderer(900, 900);
+        var (tab, planner, clock, content) = Atlas(db, renderer, info, now);
+        tab.Render(planner, content, clock);
+
+        // Press the thumbnail, which is where the panel asked for the picture to be drawn.
+        var thumbnail = tab.Pictures.ShouldHaveSingleItem().Rect;
+        var cx = thumbnail.X + (thumbnail.Width / 2f);
+        var cy = thumbnail.Y + (thumbnail.Height / 2f);
+        // Through a router, as a real press arrives: the router is what consumes a press on a painted
+        // region, and a press the tab handles itself starts a pan instead.
+        var router = new InputRouter(tab.Ui, new BackgroundTaskTracker(), () => { })
+        {
+            Widgets = () => [tab],
+            // What a host wires: the routing that is the tab's own, which is where its key handling lives.
+            Unhandled = tab.HandleInput,
+        };
+        router.Handle(new InputEvent.MouseDown(cx, cy)).ShouldBeTrue();
+        tab.State.PictureExpanded.ShouldBeTrue();
+
+        tab.Pictures.Clear();
+        tab.Render(planner, content, clock);
+
+        // Two draws now: the panel's thumbnail and the large view, which is much bigger and therefore asks
+        // Wikimedia for a wider standard width.
+        tab.Pictures.Count.ShouldBe(2);
+        var large = tab.Pictures[^1].Rect;
+        large.Width.ShouldBeGreaterThan(thumbnail.Width * 2f);
+        ObjectArticleImage.StandardWidthFor((int)large.Width)
+            .ShouldBeGreaterThan(ObjectArticleImage.StandardWidthFor((int)thumbnail.Width));
+        large.X.ShouldBeGreaterThanOrEqualTo(content.X);
+        (large.X + large.Width).ShouldBeLessThanOrEqualTo(content.X + content.Width);
+
+        router.Handle(new InputEvent.KeyDown(InputKey.Escape)).ShouldBeTrue("Escape retires the large picture first");
+        tab.State.PictureExpanded.ShouldBeFalse();
+        tab.State.Search.InfoPanel.ShouldNotBeNull("closing the picture must not close the panel it came from");
+    }
+
+    [Fact]
     public async Task APositionWithNoCatalogueIndexHasNoPictureSection()
     {
         var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);

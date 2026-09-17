@@ -95,6 +95,7 @@ namespace TianWen.UI.Abstractions
                 {
                     state.SelectedObject = null;
                     state.StatusMessage = null;
+                    state.PictureExpanded = false;
                     state.NeedsRedraw = true;
                 },
                 OpenInAtlas: () =>
@@ -139,9 +140,18 @@ namespace TianWen.UI.Abstractions
 
             // Under the rows and above the buttons, as in the atlas: at the top the close affordance would sit
             // on the picture.
-            if (options.Picture is { } picture)
+            if (options.Picture is not { } picture)
             {
-                RenderLayout(ObjectInfoPanel.BuildPictureSection(in picture, in palette),
+                // Nothing to expand: this object's article kept no picture.
+                state.PictureExpanded = false;
+            }
+            else
+            {
+                RenderLayout(ObjectInfoPanel.BuildPictureSection(in picture, in palette, onOpen: () =>
+                    {
+                        state.PictureExpanded = true;
+                        state.NeedsRedraw = true;
+                    }),
                     new RectF32(px, py + textBlockH + (8f * dpiScale), pw, ObjectInfoPanel.DesignPictureSectionHeight(in picture) * dpiScale),
                     scale: Scale,
                     drawFill: (fill, rect) =>
@@ -165,6 +175,30 @@ namespace TianWen.UI.Abstractions
             {
                 RenderLayout(closeNode,
                     new RectF32(px + pw - closeSize, py, closeSize, closeSize), scale: Scale);
+            }
+
+            // The large view covers the photograph, so it is drawn after the panel. The same host hook fills
+            // it, at a rect big enough that a wider standard thumbnail is asked for.
+            if (state.PictureExpanded && options.Picture is { } expanded)
+            {
+                var pictureRect = ObjectInfoPanel.LargePictureRect(area, in expanded, dpiScale);
+                var (scrim, body) = ObjectInfoPanel.BuildLargePicture(in expanded, in palette, pictureRect, () =>
+                {
+                    state.PictureExpanded = false;
+                    state.NeedsRedraw = true;
+                });
+                RenderLayout(scrim, area);
+                RenderLayout(body,
+                    new RectF32(pictureRect.X, pictureRect.Y, pictureRect.Width,
+                        pictureRect.Height + (ObjectInfoPanel.DesignRowHeight * dpiScale)),
+                    scale: Scale,
+                    drawFill: (fill, rect) =>
+                    {
+                        if (fill.Key == ObjectInfoPanel.LargePictureFillKey)
+                        {
+                            DrawObjectPicture(in expanded, rect);
+                        }
+                    });
             }
         }
     }
