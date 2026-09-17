@@ -79,7 +79,41 @@ public sealed class FilterTests
     [InlineData("IDAS NBZ")]
     public void FromName_Unknown_ReturnsUnknown(string input)
     {
+        Filter.FromName(input).Name.ShouldBe(Filter.Unknown.Name);
+    }
+
+    [Theory]
+    [InlineData("Optolong L-Ultimate 3nm")]
+    [InlineData("IDAS LPS-D3")]
+    [InlineData("Ha 3nm")]
+    public void FromName_AnUnrecognisedName_KeepsItsText_WhichIsItsIdentity(string input)
+    {
+        // For a name no pattern recognises, the text IS the identity. Dropping it made every such
+        // filter identical to "no filter at all", so a narrowband flat matched unfiltered lights.
+        var filter = Filter.FromName(input);
+
+        filter.RawName.ShouldBe(input);
+        filter.IdentityKey.ShouldBe(input);
+        filter.IdentityKey.ShouldNotBe(Filter.None.IdentityKey);
+        ((Filter)input).IdentityKey.ShouldBe(input, "the implicit conversion goes through FromName");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void FromName_ABlankName_KeepsNoText(string input)
+    {
         Filter.FromName(input).ShouldBe(Filter.Unknown);
+    }
+
+    [Theory]
+    [InlineData("Ha")]
+    [InlineData("H-Alpha")]
+    [InlineData("L")]
+    public void FromName_ARecognisedName_StaysEqualToItsCanonicalInstance(string input)
+    {
+        // The canonical Name is the identity there, and "Ha" and "H-Alpha" must stay one filter.
+        Filter.FromName(input).RawName.ShouldBeNull();
     }
 
     [Fact]

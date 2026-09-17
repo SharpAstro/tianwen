@@ -370,8 +370,8 @@ public class MasterFrameBuilderTests
         var lPro = FlatKeyWithFilter("Optolong L-Pro");
 
         // Precondition: the bug is only interesting because neither name is recognised.
-        Filter.FromName("IDAS LPS-D3").ShouldBe(Filter.Unknown);
-        Filter.FromName("Optolong L-Pro").ShouldBe(Filter.Unknown);
+        Filter.FromName("IDAS LPS-D3").IsUnknown.ShouldBeTrue();
+        Filter.FromName("Optolong L-Pro").IsUnknown.ShouldBeTrue();
 
         d3.SameFilterAs(lPro).ShouldBeFalse();
         d3.ShouldNotBe(lPro);

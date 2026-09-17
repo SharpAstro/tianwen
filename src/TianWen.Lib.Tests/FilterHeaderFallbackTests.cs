@@ -112,5 +112,20 @@ namespace TianWen.Lib.Tests
             info.ShouldNotBeNull();
             info.Meta.Filter.IdentityKey.ShouldBe("HydrogenAlpha");
         }
+
+        [Fact]
+        public void GivenAnUnrecognisedFiltclas_WhenReadingTheHeader_ThenFilterIsStillConsulted()
+        {
+            // The reader asks whether FILTCLAS was RECOGNISED. A FILTCLAS it cannot parse carries its
+            // own text, so a test for equality with the bare Unknown instance would take it as a
+            // recognised class and never read FILTER.
+            var path = WriteFits(TempDir(), "l1.fits",
+                "FILTER  = 'Ha'",
+                "FILTCLAS= 'SomethingElse'");
+
+            Image.TryReadFitsHeader(path, out var info).ShouldBeTrue();
+            info.ShouldNotBeNull();
+            info.Meta.Filter.IdentityKey.ShouldBe("HydrogenAlpha");
+        }
     }
 }

@@ -85,7 +85,19 @@ public readonly partial record struct Filter(string Name, string ShortName, stri
     [GeneratedRegex(@"^\s*none\s*$", RegexOptions.IgnoreCase)]
     private static partial Regex NonePattern();
 
-    /// <summary>Parses a known set of filters or <see cref="Unknown"/> if none match.</summary>
+    /// <summary>A name no pattern recognised. Ask this, never <c>== Unknown</c>: an unrecognised name
+    /// keeps its text (<see cref="FromName"/>), so it is a different record from the bare instance.</summary>
+    public readonly bool IsUnknown => Name == Unknown.Name;
+
+    /// <summary>
+    /// Parses a known set of filters, or <see cref="Unknown"/> carrying the name as
+    /// <see cref="RawName"/> when none match.
+    ///
+    /// <para><b>The text is kept because it is the identity</b> (<see cref="IdentityKey"/>): an
+    /// unrecognised filter with no text is indistinguishable from no filter at all, so a narrowband
+    /// flat matched lights with no filter card. A RECOGNISED name keeps nothing, since its canonical
+    /// <see cref="Name"/> is the identity and "Ha" and "H-Alpha" must stay one record.</para>
+    /// </summary>
     public static Filter FromName(string? name)
     {
         if (name is null)
@@ -108,7 +120,7 @@ public readonly partial record struct Filter(string Name, string ShortName, stri
         if (OIIIPattern().IsMatch(name)) return OxygenIII;
         if (SIIPattern().IsMatch(name)) return SulphurII;
 
-        return Unknown;
+        return string.IsNullOrWhiteSpace(name) ? Unknown : Unknown with { RawName = name };
     }
 
     public static implicit operator Filter(string name) => FromName(name);

@@ -17,7 +17,9 @@ public record class ManualFilterWheelDevice(Uri DeviceUri) : DeviceBase(DeviceUr
     private const string DefaultDisplayName = "Manual Filter Holder";
 
     public ManualFilterWheelDevice(Filter filter)
-        : this(new Uri($"{DeviceType.FilterWheel}://{typeof(ManualFilterWheelDevice).Name}/{DefaultDeviceId}?filter1={Uri.EscapeDataString(filter.Name)}#{DefaultDisplayName} ({filter.ShortName})"))
+        // An unrecognised filter is stored by its own text: its canonical Name is the literal
+        // "Unknown", which would lose the one thing identifying it.
+        : this(new Uri($"{DeviceType.FilterWheel}://{typeof(ManualFilterWheelDevice).Name}/{DefaultDeviceId}?filter1={Uri.EscapeDataString(filter.IsUnknown ? filter.IdentityKey : filter.Name)}#{DefaultDisplayName} ({(filter.IsUnknown ? filter.IdentityKey : filter.ShortName)})"))
     {
     }
 

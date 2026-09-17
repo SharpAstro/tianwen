@@ -78,7 +78,9 @@ public static class InfoPanelData
             // reading 1.00 over a calibrated frame, and the same fix -- show what is actually in use.
             var raw = meta.Filter.FilterNameForFits;
             var canonical = meta.Filter.ShortName is { Length: > 0 } shortName ? shortName : meta.Filter.Name;
-            var filterDisplay = meta.Filter == Filter.Unknown && raw is { Length: > 0 } ? raw : canonical;
+            // IsUnknown, not == Unknown: every file's filter carries its card text, so the equality
+            // never held for a real frame and this line showed "Unknown" all along.
+            var filterDisplay = meta.Filter.IsUnknown && raw is { Length: > 0 } ? raw : canonical;
             lines.Add($"Filter: {filterDisplay}");
         }
         if (!float.IsNaN(meta.CCDTemperature))

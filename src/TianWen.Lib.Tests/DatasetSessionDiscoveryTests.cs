@@ -144,8 +144,8 @@ namespace TianWen.Lib.Tests
             // Filter.FromName's patterns are anchored, so real descriptive header text canonicalises
             // to Filter.Unknown. Keying on the canonical name alone would merge these right back
             // together, which is the whole failure this split exists to prevent.
-            Filter.FromName("Ha 3nm").ShouldBe(Filter.Unknown);
-            Filter.FromName("OIII 3nm").ShouldBe(Filter.Unknown);
+            Filter.FromName("Ha 3nm").IsUnknown.ShouldBeTrue();
+            Filter.FromName("OIII 3nm").IsUnknown.ShouldBeTrue();
 
             var (sessions, _) = Group(Options(),
             [

@@ -58,7 +58,11 @@ public static class FilterPlanBuilder
             {
                 luminance = i;
             }
-            else if (filter.Filter != Filter.None && filter.Filter != Filter.Unknown)
+            // Any filter that names itself, a recognised one or a named unknown ("L-eNhance"), is
+            // imaged with the broadband tier; no filter and a nameless unknown are not. Stated on the
+            // identity, because an equality test against Unknown only ever excluded the nameless one
+            // by accident of a named one carrying its text.
+            else if (filter.Filter.IdentityKey.Length > 0)
             {
                 rgb.Add((i, filter));
             }
