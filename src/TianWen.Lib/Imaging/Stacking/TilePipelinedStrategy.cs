@@ -304,13 +304,13 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
         }
 
         var firstMeta = metaSeed.ImageMeta;
-        var masterImage = new Image(
+        var masterImage = IntegratedMaster.Labelled(new Image(
             data: masterData,
             bitDepth: BitDepth.Float32,
             maxValue: metaSeed.MaxValue,
             minValue: 0f,
             pedestal: metaSeed.Pedestal,
-            imageMeta: firstMeta);
+            imageMeta: firstMeta));
         var rejectMapImage = new Image(
             data: rejectMapData,
             bitDepth: BitDepth.Float32,

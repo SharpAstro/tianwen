@@ -241,12 +241,12 @@ public static class Integrator
             : 0.0;
 
         var firstMeta = alignedFrames[0].ImageMeta;
-        var masterImage = masterSinkInUse.FinaliseAsImage(
+        var masterImage = IntegratedMaster.Labelled(masterSinkInUse.FinaliseAsImage(
             BitDepth.Float32,
             maxValue: alignedFrames[0].MaxValue,
             minValue: 0f,
             pedestal: alignedFrames[0].Pedestal,
-            meta: firstMeta);
+            meta: firstMeta));
         var rejectMapImage = rejectSinkInUse.FinaliseAsImage(
             BitDepth.Float32,
             maxValue: 1f,

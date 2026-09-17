@@ -1840,18 +1840,9 @@ public sealed class StackingPipeline(
                     bodyOnStarCanvas.X, bodyOnStarCanvas.Y, starMaster.Width, starMaster.Height);
                 return null;
             }
-            var min = float.MaxValue;
-            var max = float.MinValue;
-            foreach (var plane in planes)
-            {
-                foreach (var v in plane)
-                {
-                    if (!float.IsFinite(v)) { continue; }
-                    if (v < min) { min = v; }
-                    if (v > max) { max = v; }
-                }
-            }
-            var composite = new Image(planes, BitDepth.Float32, max, min, starMaster.Pedestal, starMaster.ImageMeta);
+            var (min, _) = Image.ObservedRange(planes);
+            var composite = IntegratedMaster.Labelled(
+                new Image(planes, BitDepth.Float32, 1f, min, starMaster.Pedestal, starMaster.ImageMeta));
             var path = Path.Combine(outputDir, $"master_{slug}_composite.fits");
             var postProcessor = new MasterPostProcessor(logger, catalogDb, options.Enhance ? sharpenPipeline : null, enhanceProgress);
             await postProcessor.WriteMasterAsync(

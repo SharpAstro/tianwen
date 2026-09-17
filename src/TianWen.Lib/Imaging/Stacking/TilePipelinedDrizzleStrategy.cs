@@ -355,13 +355,13 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
         var totalCells = (long)canvasH * canvasW * 3;
         var coveredCells = DrizzleKernel.FinaliseDivide(masterFlux, masterWeight, invMax, canvasH, canvasW);
 
-        var master = new Image(
+        var master = IntegratedMaster.Labelled(new Image(
             data: masterFlux,
             bitDepth: BitDepth.Float32,
             maxValue: 1.0f,
             minValue: 0f,
             pedestal: 0f,
-            imageMeta: refMeta);
+            imageMeta: refMeta));
         var coverageMap = new Image(
             data: masterWeight,
             bitDepth: BitDepth.Float32,

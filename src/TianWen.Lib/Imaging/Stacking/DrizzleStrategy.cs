@@ -295,13 +295,13 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
         var totalCells = (long)canvasH * canvasW * 3;
         var coveredCells = DrizzleKernel.FinaliseDivide(flux, weight, invMax, canvasH, canvasW);
 
-        var master = new Image(
+        var master = IntegratedMaster.Labelled(new Image(
             data: flux,
             bitDepth: BitDepth.Float32,
             maxValue: 1.0f,
             minValue: 0f,
             pedestal: 0f,
-            imageMeta: refMeta.Value);
+            imageMeta: refMeta.Value));
 
         // Coverage map doubles as the rejection map: per-channel weight
         // accumulated; low-coverage cells are effectively "rejected" by
