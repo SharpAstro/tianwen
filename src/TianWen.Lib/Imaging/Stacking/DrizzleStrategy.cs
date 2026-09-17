@@ -208,6 +208,9 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
         var applyNormalization = job.Options.ApplyNormalization;
         var normalizationTarget = job.Options.NormalizationTarget;
         var sourceMaxValue = 1.0f;
+        // The first frame's pedestal, which an UNNORMALISED drizzle keeps in its data (every sample is
+        // divided by sourceMaxValue and nothing is subtracted), so the master states it in those units.
+        var sourcePedestal = 0f;
         var frameCount = 0;
         // Bad-pixel mask is 1-channel (the raw Bayer plane is 1-channel
         // pre-debayer). We pick the first channel of the mask -- callers
@@ -230,6 +233,7 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
                 // full scale -- a per-frame starless plate, whose brightest pixel was a star that has
                 // been removed, so its peak understates its scale by ~7x.
                 sourceMaxValue = frame.RawCfa.UnitScaleDivisor;
+                sourcePedestal = frame.RawCfa.Pedestal;
             }
 
             var meta = frame.RawCfa.ImageMeta;
@@ -300,8 +304,8 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
             bitDepth: BitDepth.Float32,
             maxValue: 1.0f,
             minValue: 0f,
-            pedestal: 0f,
-            imageMeta: refMeta.Value));
+            pedestal: sourcePedestal * invMax,
+            imageMeta: refMeta.Value), normalised: applyNormalization);
 
         // Coverage map doubles as the rejection map: per-channel weight
         // accumulated; low-coverage cells are effectively "rejected" by

@@ -310,7 +310,7 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
             maxValue: metaSeed.MaxValue,
             minValue: 0f,
             pedestal: metaSeed.Pedestal,
-            imageMeta: firstMeta));
+            imageMeta: firstMeta), normalised: perFrameStats is not null);
         var rejectMapImage = new Image(
             data: rejectMapData,
             bitDepth: BitDepth.Float32,

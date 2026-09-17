@@ -218,7 +218,7 @@ public sealed class ChunkedTwoPassStrategy : IIntegrationStrategy
         var masterImage = IntegratedMaster.Labelled(new Image(
             data: masterData, bitDepth: BitDepth.Float32,
             maxValue: firstFrame.MaxValue, minValue: 0f,
-            pedestal: firstFrame.Pedestal, imageMeta: firstFrame.ImageMeta));
+            pedestal: firstFrame.Pedestal, imageMeta: firstFrame.ImageMeta), normalised: job.Options.ApplyNormalization);
         var rejectMapImage = new Image(
             data: rejectMapData, bitDepth: BitDepth.Float32,
             maxValue: 1f, minValue: 0f, pedestal: 0f,

@@ -134,6 +134,11 @@ and survives only as the fallback for a caller that explicitly disables normalis
 `TilePipelinedDrizzleStrategy` normalises once at load time (pass 1 and the pass-2 cache-miss reload
 path), not per strip, so a cached frame stays byte-identical to `DrizzleStrategy`'s single full-canvas
 pass -- pinned by the existing `Stack_TilePipelinedDrizzle_MatchesBayerDrizzleByteForByte` parity test.
+It normalises IN PLACE (`Normalizer.ApplyCfaInPlace`), because it owns the calibrated frame and keeps only
+the normalised one; the copy was a whole plane of garbage per frame, about 36 MB at 3008 squared.
+`DrizzleStrategy` keeps the copying `ApplyCfa`: both of today's
+`RawBayerFrame` producers drop the frame after yielding it, but the record states no hand-over, and
+convention 4 fails silently in the pixels.
 Reproduced and pinned by `DrizzlePerFrameNormalizationTests` (a flat RGGB set whose dither drifts and
 sky level both ramp monotonically with frame index, the same time-correlated shape a real session's
 periodic tracking error / progressive dithering plus its sky trend produce, PLUS a small per-colour
@@ -170,7 +175,7 @@ master peaked at 61.7, the per-colour drizzle's at 62.0, with 0.07 to 0.17 perce
 The strategies labelled those masters `MaxValue = 1` (the first source frame's value, or a hard-coded
 1), and step 0 here re-tagged anything else to 1 on the belief the data were "already in [0, 1]", so the
 file claimed `DATAMAX = 1` over pixels up to 62 and the viewer, trusting the label, clipped every star
-core flat. Two rules now hold:
+core flat. Three rules now hold:
 
 - **`IntegratedMaster.Labelled` at every strategy's master creation** (and the comet composite): the
   observed peak as `MaxValue` (`Image.ObservedRange`, the vectorised NaN-skipping scan the FITS reader
@@ -178,11 +183,26 @@ core flat. Two rules now hold:
   MaxADU as `SATURATE`, `UnitScaleDivisor` prefers it over the peak, and without the clear a master of
   such lights is divided by 65535 instead of its peak (measured in the test: a peak of 0.0009 instead of
   1). A normalised master has no sensor saturation level.
-- **Step 0 scales through the canonical path**, `Image.ScaleFloatValuesToUnit`, into NEW planes: one
-  scalar for every channel, so colour and the sky-to-star ratio survive, and never in place, because the
-  pipeline still holds the integration and builds the comet composite from it afterwards. Pinned by
+- **Step 0 scales by the canonical divisor whenever anything is above 1**, `Image.ScaleFloatValuesToUnitCeiling`,
+  into NEW planes: one scalar for every channel, so colour and the sky-to-star ratio survive, and never in
+  place, because the pipeline still holds the integration and builds the comet composite from it
+  afterwards. It is deliberately NOT `ScaleFloatValuesToUnit`, which is the same division behind a different
+  question, "are these samples ADU?", and so leaves a peak up to 2.0 alone (`Image.UnitScaleTolerance`,
+  flat-division overshoot). A starless or nebula-only layer normalised to a sky of 0.5 can peak at 1.5; the
+  first version of this step asked the tolerant question and wrote it with `DATAMAX = 1.5`. Pinned by
   `MasterUnitScaleTests`, which asserts the ratios alongside the ceiling (a per-channel divide would also
-  "fit in [0, 1]" and change every star's colour).
+  "fit in [0, 1]" and change every star's colour) and has a 1.5 case.
+- **Pedestal and black point are the integration's.** The normaliser maps each frame's pedestal to zero,
+  so the strategy tells the labeller whether its frames went through it (`normalised`) and a normalised
+  master states pedestal 0 and `MinValue` 0. Five strategies had copied the first frame's pedestal, which
+  the writer put in `PEDESTAL` and the display subtracts; both drizzle strategies had hard-coded 0 with
+  normalisation OFF, where the frames' pedestal divided by their full scale is still in the data.
+  **`MinValue` stays the stated zero, never the observed minimum**: it is the black point the display
+  takes its pedestal from (`GetPedestralMedianAndMADScaledToUnit`), and the 10P/Tempel 2 drizzle master's
+  darkest finite pixel is 69 percent of its sky median (0.00488 against 0.00712), so labelling it would
+  lift the zero most of the way to the sky off one pixel. The comet composite did exactly that until
+  `IntegratedMaster.Composite` gave it its layer's zero. Pinned for every strategy, drizzle both ways, by
+  `IntegratedMasterLabelTests`.
 
 **Output contract by data type (do not regress):**
 

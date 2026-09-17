@@ -865,11 +865,17 @@ be poisoned by partial-coverage / NaN-ring edges.
 
 **A written master is in [0, 1] and its labels are true.** Normalisation puts every channel's sky at 0.5
 and stars tens of times above it (61.7 on a real master), so **every strategy's master goes through
-`IntegratedMaster.Labelled`** (observed peak as `MaxValue`, NO `SensorFullScaleAdu`: a light's `SATURATE`
-would otherwise win `UnitScaleDivisor` and black the master out) and `MasterPostProcessor` scales it
-with `ScaleFloatValuesToUnit` into NEW planes, never in place (the comet composite is built from the
-integration afterwards). A new strategy that skips the labeller writes `DATAMAX = 1` over pixels up to 62
-again, which the viewer clips flat. `docs/architecture/stacking-render-pipeline.md` section 2.
+`IntegratedMaster.Labelled(master, normalised)`** (observed peak as `MaxValue`, NO `SensorFullScaleAdu`: a
+light's `SATURATE` would otherwise win `UnitScaleDivisor` and black the master out; and, when the STRATEGY
+says its frames were normalised, pedestal and black point zero, never the first frame's) and
+`MasterPostProcessor` scales it with **`ScaleFloatValuesToUnitCeiling`**, into NEW planes, never in place
+(the comet composite is built from the integration afterwards). **Not `ScaleFloatValuesToUnit`**: that
+asks whether samples are ADU and leaves any peak up to 2.0 alone, so a layer peaking at 1.5 was written
+unscaled. **`MinValue` is the black point, not a range statistic** (the display takes its pedestal from
+it, and a real drizzle master's darkest pixel is 69 percent of its sky), so it stays the strategy's zero;
+the composite takes its layer's via `IntegratedMaster.Composite`. A new strategy that skips the labeller
+writes `DATAMAX = 1` over pixels up to 62 again, which the viewer clips flat.
+`docs/architecture/stacking-render-pipeline.md` section 2.
 
 **Comet / moving-target integration (`stack --comet [designation]`)** registers on the BODY (comet
 sharp, stars trail); the rate derives from the frames (`OBJECT` + site + exposure epochs -> topocentric
@@ -1426,11 +1432,15 @@ pixel-scale precedence and the guiding cards:
 `Image` is logically immutable (no public setter, `GetChannelSpan -> ReadOnlySpan<float>`). Full
 design + ownership vocabulary (own/borrow/consume):
 `docs/plans/frame-lifecycle.md`,
-`docs/plans/viewer-memory-footprint.md`. Four things
+`docs/plans/viewer-memory-footprint.md`. Five things
 deliberately mutate `data[c]` or its planes in place; any new caller must respect the same rule:
 
 - **`Image.ScaleFloatValuesToUnitInPlace()`** (internal): rescales to `[0, 1]` reusing the
   underlying arrays -- the original instance's `MaxValue` is stale after the call.
+- **`Normalizer.ApplyCfaInPlace(Image, ...)`** CONSUMES a raw CFA frame, normalising each colour into its
+  own plane (bit-identical to `ApplyCfa`, `NormalizerCfaTests`). Only `TilePipelinedDrizzleStrategy` calls
+  it, because it owns the calibrated frame it caches; `DrizzleStrategy` keeps the copy, its frames arrive
+  through a `RawBayerFrame` record that states no hand-over.
 - **`Calibrator.Apply(Image light)`** CONSUMES the light regardless of configuration -- the one
   deliberate exception to "ownership transfer is visible in the name" (an established domain verb),
   pinned by `CalibratorOwnershipTests`.

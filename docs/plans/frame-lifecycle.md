@@ -523,6 +523,7 @@ to the policy, and the audit's value is the shape it establishes for next time r
 |---|---|---|
 | `AstroImageDocument.AdoptImageAsync` | a parameter | already conforms; it is the precedent |
 | `Image.ScaleFloatValuesToUnitInPlace` | its receiver | conforms -- `*InPlace` is the signal for an instance method that spends `this`, and is stronger than `*Into*` would be |
+| `Normalizer.ApplyCfaInPlace` | a parameter | conforms -- added after the sweep (PR #292) for `TilePipelinedDrizzleStrategy`, which owns its calibrated frame; result carries no buffer, as `ScaleFloatValuesToUnitInPlace` |
 | `Image.DebayerAsync` | **no longer anything** | fixed, see below |
 | `Calibrator.Apply` | a parameter | **deliberate exception**, recorded below |
 

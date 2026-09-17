@@ -183,6 +183,11 @@ public static class StatisticsHelper
     /// packed from index 0, and returns how many were written.
     /// </summary>
     /// <remarks>
+    /// <para><b>"Finite" in the name is not what it does: infinities are KEPT.</b> Only NaN has to go
+    /// (see below); a median ranks an infinity like any other bright outlier, such as the 1e9 spike a
+    /// flat's epsilon floor makes. The name has misled a review into claiming a finite-only filter, so
+    /// read this before changing either this or a traversal that is meant to agree with it
+    /// (<c>Normalizer.ComputeCfaStats</c>, pinned by <c>NormalizerCfaTests</c>).</para>
     /// <para>Compacting before a selection is not optional, it is a precondition: quickselect
     /// partitions with <c>&lt;</c> and <c>&gt;</c>, both of which are FALSE against NaN, so a NaN
     /// left in the buffer lands in an unpredictable partition position and the answer depends on
