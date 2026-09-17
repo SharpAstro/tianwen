@@ -762,10 +762,14 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// <see cref="TryGetArticle"/> answers false, which is the honest answer: no link rather than a guess.
     /// </summary>
     /// <remarks>
-    /// An unreadable table (a schema this build does not know, a truncated resource) is NO articles, never a
-    /// failed init: the articles enrich the catalogue, and a table written by a newer bake once took down
-    /// every catalogue lookup in the tool that was about to replace it. Reported as the
-    /// <c>object-articles:unreadable</c> phase, since this class has no logger.
+    /// An unreadable table is NO articles, never a failed init: the articles enrich the catalogue, and a
+    /// table written by a newer bake once took down every catalogue lookup in the tool that was about to
+    /// replace it. Unreadable is a schema this build does not know or bytes that are not gzip, which
+    /// <see cref="ObjectArticleTable.TryRead"/> answers false, and a record the parser cannot read, which it
+    /// throws on by contract and <see cref="ReadObjectArticles(Stream, out bool)"/> catches. A truncated
+    /// resource is the likely way to the latter, and it is only sometimes that: the gzip decoder ends a
+    /// cut-short stream silently, so the records before the cut read as a table (see the remark on
+    /// <c>TryRead</c>). Reported as the <c>object-articles:unreadable</c> phase, since this class has no logger.
     /// </remarks>
     private FrozenDictionary<CatalogIndex, ObjectArticle> ReadObjectArticles(Assembly assembly, string[] manifestNames)
     {
@@ -777,13 +781,36 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
         using (stream)
         {
+            var articles = ReadObjectArticles(stream, out var unreadable);
+            _objectArticlesUnreadable = unreadable;
+            return articles;
+        }
+    }
+
+    /// <summary>
+    /// The table in <paramref name="stream"/>, or none with <paramref name="unreadable"/> set when it cannot
+    /// be read, for whatever reason: the one place that decides an article table is an enrichment the
+    /// catalogue goes without rather than a fault that ends its init. A seam, so a test can hand it a torn
+    /// table without an assembly to embed one in.
+    /// </summary>
+    internal static FrozenDictionary<CatalogIndex, ObjectArticle> ReadObjectArticles(Stream stream, out bool unreadable)
+    {
+        try
+        {
             if (ObjectArticleTable.TryRead(stream, out var articles))
             {
+                unreadable = false;
                 return articles;
             }
         }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // A record the parser could not read: a torn field where the resource was cut, or a bake that
+            // wrote something this reader does not expect. TryRead throws on it by contract; to this consumer
+            // it is the same fact as a header it does not know.
+        }
 
-        _objectArticlesUnreadable = true;
+        unreadable = true;
         return FrozenDictionary<CatalogIndex, ObjectArticle>.Empty;
     }
 
