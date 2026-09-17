@@ -435,6 +435,12 @@ namespace TianWen.UI.Abstractions
         private DeferredLinePass? _deferredLines;
 
         /// <summary>
+        /// Whether <see cref="RenderLayerPalette"/> draws the palette this frame. One definition, because
+        /// the grid labels step out of its way and must agree with it about whether it is there.
+        /// </summary>
+        private bool LayerPaletteShown => State.ShowLayerPalette && !State.Search.IsOpen;
+
+        /// <summary>
         /// The layer palette on its own, floated against the right edge of <paramref name="contentRect"/>
         /// -- the half of the content area the info panel does not use, since that one pins itself
         /// bottom-left above the status strip.
@@ -457,7 +463,7 @@ namespace TianWen.UI.Abstractions
 
             // The one thing that outranks it is the search modal, which owns the screen while it is
             // open -- so the palette stands down rather than floating over a modal.
-            if (State.ShowLayerPalette && !State.Search.IsOpen)
+            if (LayerPaletteShown)
             {
                 var paletteNodes = RenderLayout(
                     SkyMapLayerPalette.Build(State, BaseFontSize * 0.9f,
@@ -666,8 +672,29 @@ namespace TianWen.UI.Abstractions
                 _gridLabelsFontSizeKey = fontSize;
             }
 
+            // A grid label sits where its line meets the edge of the view, and the layer palette floats
+            // against an edge, so on the right-hand side labels land under it on almost every pan. The
+            // palette recedes to 40 percent when idle, so a label under it is not covered but read
+            // through, garbling the row it crosses (a "15h" through "Objects" on the deployed atlas,
+            // 2026-09-17). Skipping it loses nothing: the line still runs under the palette and its
+            // neighbours' labels say which hour it is. Only grid labels, because only they are pinned to
+            // the edge the palette docks against; a sky-anchored name passes under it and out again.
+            // The test is on the label's layout box rather than its measured text (chrome measurement is
+            // ratcheted by ChromeMeasuresThroughTheEngineTests), so a label ending just short of the
+            // palette can go too. The rect is where the palette landed LAST frame, since it is arranged
+            // after this pass: a drag moves the gap one frame late, which does not show.
+            var palette = LayerPaletteShown ? State.LayerPalette.PanelRect : default;
+            var avoidPalette = palette.Width > 0f && palette.Height > 0f;
+
             foreach (var (x, y, w, h, label) in _gridLabelsCache)
             {
+                if (avoidPalette
+                    && x < palette.Right && x + w > palette.X
+                    && y < palette.Bottom && y + h > palette.Y)
+                {
+                    continue;
+                }
+
                 DrawText(label.AsSpan(), fontPath,
                     x, y, w, h,
                     fontSize, GridLabelColor, TextAlign.Near, TextAlign.Near);
