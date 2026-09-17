@@ -269,6 +269,30 @@ text stack instead. Zero-use and unneeded: `ContentTransform`, the Markdown and 
 
 ### The payoff, ranked by sites deleted
 
+> **MEASURED 2026-09-17, and this table is the thing the campaign got wrong.** It sells the work as a
+> deletion. It was not. Over tianwen's UI PRODUCTION code (`src/TianWen.UI.*` + `src/TianWen.Cli/Tui`,
+> tests excluded), from the DIR.Lib 9.0 repin to D2 landing:
+>
+> | | added | removed | net |
+> |---|---|---|---|
+> | all lines | 3270 | 1929 | **+1341** |
+> | code only (no comments or blanks) | 1549 | 1273 | **+276** |
+>
+> Comments are 53% of what went IN and 34% of what came OUT -- the imperative chrome deleted was dense,
+> the declarations replacing it carry their reasoning -- but even code-only the campaign ADDED lines.
+> Four files went outright (`ISelfDispatchingInputWidget` 23, `OverlayPlacement` 85, `WaveletSliderHit`
+> and `WhiteBalanceSliderHit` 22) and `GuiEventHandlerBase` went 368 to 280; **the three hand-written
+> routers came to -109 lines between them**, not the shrink-to-a-platform-binding this file describes,
+> and `VkGuiRenderer` GREW by 28. Some of the +1341 is not the campaign at all (the Tone panel +316 is a
+> new feature, two benchmark files +202, `AstroImageDocument` +157).
+>
+> **The deletion landed in the ENGINE, not the consumer**: DIR.Lib 10.0 is -83 net in the library, 162
+> lines of code removed. What tianwen bought is that the failure modes are unrepresentable -- a
+> handler-less region is dead under a router, a popover costs one declaration instead of six obligations,
+> a shortcut on an unpainted panel is inert with nothing guarding it -- and NOT a smaller codebase.
+> Rank a future wave by failure modes closed, because sites-deleted was measured and was wrong.
+
+
 | # | hand-rolled | declares instead | sites |
 |---|---|---|---|
 | 1 | spacer-as-gap | `.WithGap` | 4 nodes converted (73 matched; see the table) |
@@ -887,6 +911,35 @@ the drag" becomes "a move after the release changes nothing", which is the prope
 
 ### D2. DIR.Lib 10.0: the cuts
 
+**DONE 2026-09-17.** DIR.Lib `10.0.*` published (SharpAstro/DIR.Lib#87); Console.Lib 5.0
+(SharpAstro/Console.Lib#30, carrying C1), SdlVulkan.Renderer 7.43 (#106) and WebGl.Renderer 1.32 (#8)
+rebuilt against it; tianwen's four pins move together in SharpAstro/tianwen#290. Seven cuts plus
+`RenderDropdownMenu`, and one addition -- `ListCursor.Step` -- which is what C1 needed.
+
+**tianwen's own diff was +0 / -0 PRODUCTION lines**, which is the readiness count's claim checked: all
+64 compile errors were in the test project. (That is D2 alone. The campaign as a whole ADDED lines to
+tianwen -- see the measurement above the payoff table.)
+
+Three things worth carrying forward:
+
+1. **`IsActive`'s setter had to go with `Activate`, or the cut was a rename.** `TextInputState.IsActive`
+   is a cache of `TextInputFocus`'s record of focus; leaving it publicly writable left the same back door
+   in a different spelling -- assign it and the field paints as focused while the owner knows nothing, so
+   the caret blinks in a box the keyboard does not reach. Not on the original cut list, found while doing
+   it.
+2. **The claimant slot became a STACK, not merely a deletion.** One slot meant the last painter won and
+   nothing restored, so a popover raised over another took the keyboard outright and the one underneath
+   never answered Escape again. `WindowUiSettings.PaintedPopovers` is filled by PAINTING and cleared per
+   paint CYCLE -- the same mechanism as `PointerOwner`, and what retires the interface, whose whole
+   contract was an implementer promising to decline once off screen because the slot was never cleared.
+3. **`-c Release` cannot see a DEBUG-only break.** SdlVulkan.Renderer's only break was inside
+   `#if DEBUG` (`DebugInspector`'s `SliderHit` arm), so the Release build the package is made from never
+   compiled the line that broke. Build the chain BOTH ways. Same asymmetry `../.github/CLAUDE.md` warns
+   about from the other side, where a Debug consumer of a Release package cannot find
+   `DIR.Lib.Diagnostics` at all.
+
+The original plan text follows.
+
 The five removals above, one wave, `MIGRATION.md` entry. tianwen's diff is deletions.
 
 **Sweep B (2026-09-15, `refactor/list-cursor-and-dock`, not pushed) converted the two fully painted lists
@@ -973,11 +1026,42 @@ So D2 is **not startable today**, and the gate is T2's remainder plus the viewer
 overlays -- not anything in DIR.Lib. Nothing above waits on a new engine feature; every replacement
 has shipped.
 
+**That gate opened 2026-09-17, and the product decision it was waiting on dissolved rather than being
+taken.** The two press dispatchers became a SEAM (`ImageRendererBase.ToolbarPressPolicy`), so
+`tianwen-fits` keeps opening a menu where the GUI tab keeps cycling, and adopting the router cost
+neither host its behaviour. Asking the user to pick one would have been asking them to give a shipped
+behaviour up for a refactor's convenience.
+
 ### C1. Console.Lib: one list model (independent, any time after D1)
+
+**DONE 2026-09-17**, riding the 10.0 wave as Console.Lib 5.0 (SharpAstro/Console.Lib#30).
 
 `ScrollableList<T>` is a second implementation of `ListCursor` + `ListScrollController` on the cell
 surface, sharing the tree and the hit test but not navigation or scrolling. Rebase it on the two, so a
 list behaves the same way under the arrows on both surfaces. Nothing in this plan depends on it.
+
+**What it needed that this entry did not say: the WALK had to move first.** `ListCursor` held an index
+and knew nothing about stepping -- the walk was `PixelWidgetBase.MoveListCursor`, reading its tracker's
+regions -- so "rebase on `ListCursor`" would have shared the STORAGE and left the two surfaces stepping
+differently, which is the whole defect. DIR.Lib 10.0 adds `ListCursor.Step(delta, painted)` +
+`ListCursor.PaintedRow(Index, IsDisabled)`: reduced to that pair the rule is one rule, and what stays
+per-surface is only where the pair list comes from (registered regions on pixels, the drawn window on
+cells), which is genuinely different knowledge. `MoveListCursor` is unchanged from outside and projects
+its regions onto it.
+
+Two decisions inside the rebase:
+
+- **The scrollbar is still drawn in Console.Lib**, in box-drawing characters.
+  `ListScrollController.DrawScrollBar` paints pixel rects, which a cell grid cannot express; what is
+  shared is the MODEL the bar reports, not the drawing. A cell is the atom, so `atomExtentPx` is 1 and
+  `AtomOffset` IS the first visible item's index -- the same number the hand-written offset held.
+- **The painted window is taken from the CURRENT offset, not from the last `Render`.** Otherwise a list
+  navigated before its first frame has dead arrows, which is not a rule anybody asked for.
+
+All 36 existing cursor tests passed through the rebase UNCHANGED -- the evidence that mattered, since it
+says the behaviour was already the engine's, written twice. The major is NOT the dependency's (DIR.Lib
+9.0 was breaking and Console.Lib went 4.32 to 4.33 across it); it is a decision for this chain, because
+the most-used widget in the library navigates and scrolls on a different model underneath.
 
 ### T3. the chrome on the engine
 
