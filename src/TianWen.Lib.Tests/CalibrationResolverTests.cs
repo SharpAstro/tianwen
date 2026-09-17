@@ -20,7 +20,7 @@ namespace TianWen.Lib.Tests
     {
         private static FrameInfo Cal(FrameType type, double expoSec, float tempC, short gain = 100,
             string instrument = "TestCam", string telescope = "T", int focalLength = 135, bool isMaster = false,
-            DateTimeOffset? when = null)
+            DateTimeOffset? when = null, Filter? filter = null)
         {
             var meta = new ImageMeta(
                 Instrument: instrument,
@@ -32,7 +32,7 @@ namespace TianWen.Lib.Tests
                 PixelSizeY: 3.76f,
                 FocalLength: focalLength,
                 FocusPos: -1,
-                Filter: Filter.None,
+                Filter: filter ?? Filter.None,
                 BinX: 1,
                 BinY: 1,
                 CCDTemperature: tempC,
@@ -50,9 +50,9 @@ namespace TianWen.Lib.Tests
 
         private static CalibrationResolver.CalGroup Group(FrameType type, double expoSec, float tempC, short gain = 100,
             string instrument = "TestCam", string telescope = "T", int focalLength = 135, int frameCount = 2, bool isMaster = false,
-            DateTimeOffset? when = null)
+            DateTimeOffset? when = null, Filter? filter = null)
         {
-            var f = Cal(type, expoSec, tempC, gain, instrument, telescope, focalLength, isMaster, when);
+            var f = Cal(type, expoSec, tempC, gain, instrument, telescope, focalLength, isMaster, when, filter);
             // Default 2 frames = buildable (a raw master needs >= 2); pass frameCount: 1 to model an
             // unbuildable singleton, or isMaster: true for a foreign master (a single frame IS
             // buildable -- loaded directly). The frames' content is irrelevant to Best* (they read
@@ -64,8 +64,9 @@ namespace TianWen.Lib.Tests
         }
 
         private static FrameInfo Light(double expoSec, float tempC, short gain,
-            string instrument = "TestCam", string telescope = "T", int focalLength = 135, DateTimeOffset? when = null)
-            => Cal(FrameType.Light, expoSec, tempC, gain, instrument, telescope, focalLength, when: when);
+            string instrument = "TestCam", string telescope = "T", int focalLength = 135, DateTimeOffset? when = null,
+            Filter? filter = null)
+            => Cal(FrameType.Light, expoSec, tempC, gain, instrument, telescope, focalLength, when: when, filter: filter);
 
         [Fact]
         public void GroupCalibration_SplitsAReShotLibraryIntoEpochs()
@@ -586,6 +587,7 @@ namespace TianWen.Lib.Tests
             // sets on the same FMA180 with no train or filter cards, the Ha set 12 days before at
             // +10 C and the Luminance set the next day at +20 C. Temperature picked the Ha flat. With
             // nothing in the cards to tell the two apart, being shot with the lights is the evidence.
+            // Both lie inside the window, so this pins the ordering, not the window.
             const string Camera = "ZWO ASI1600MM Pro";
             var haFlat = Group(FrameType.Flat, 0.5, 10, gain: 139, instrument: Camera, telescope: "", focalLength: -1, when: Utc(2025, 2, 8, 11, 1));
             var lumFlat = Group(FrameType.Flat, 0.0625, 20, gain: 139, instrument: Camera, telescope: "", focalLength: -1, when: Utc(2025, 2, 21, 22, 35));
@@ -599,12 +601,11 @@ namespace TianWen.Lib.Tests
         public void BestFlat_AmongFlatsWithNoTrainCards_NearestInTimeWins_EvenInsideTheWindow()
         {
             // Two unproven flats both inside the window: the SMC L-eNhance session (368.8 mm) with
-            // its own flat 1.00 day later at -11 C, and the 289 mm broadband flat, really 6.01 days
-            // away, moved here to 2.5 days at the lights' exact temperature so that only the
-            // ordering can refuse it.
+            // its own flat 1.00 day later at -11 C, and the 289 mm broadband flat 6.01 days away at
+            // the lights' exact temperature, so only the ordering can refuse it.
             const string Camera = "ZWO ASI585MC Pro";
             var own = Group(FrameType.Flat, 0.1, -11, gain: 252, instrument: Camera, telescope: "", focalLength: -1, when: Utc(2024, 9, 28, 9, 54));
-            var otherTrain = Group(FrameType.Flat, 0.5, -10, gain: 252, instrument: Camera, telescope: "", focalLength: -1, when: Utc(2024, 9, 29, 22, 0));
+            var otherTrain = Group(FrameType.Flat, 0.5, -10, gain: 252, instrument: Camera, telescope: "", focalLength: -1, when: Utc(2024, 10, 3, 10, 21));
             var light = Light(120, -10, gain: 252, instrument: Camera, telescope: "", focalLength: 369, when: Utc(2024, 9, 27, 10, 1));
 
             CalibrationResolver.BestFlat([otherTrain, own], light).ShouldBe(own);
@@ -649,6 +650,46 @@ namespace TianWen.Lib.Tests
 
             CalibrationResolver.BestFlat([unproven, proven], light).ShouldBe(proven);
             CalibrationResolver.BestFlat([proven, unproven], light).ShouldBe(proven);
+        }
+
+        [Fact]
+        public void BestFlat_AProvenFlatOfAnotherFilter_NeverOutranksTheLightsOwnSameNightFlat()
+        {
+            // Astro-Unsorted, Rosette 2024-12-29: SharpCap lights on the Samyang 135 (FOCALLEN 129.5,
+            // no FILTER) and their own SharpCap flat the next morning (no cards at all), beside the
+            // N.I.N.A. L-Ultimate 3nm flat on the same lens a year later, whose FOCALLEN proves the
+            // lens and whose FILTER card names a narrowband filter the lights do not state. Ranking
+            // proof before the filter handed the session the narrowband flat.
+            const string Camera = "ZWO ASI533MC Pro";
+            var light = Light(120, -5, gain: 121, instrument: Camera, telescope: "", focalLength: 130, when: Utc(2024, 12, 29, 11, 24));
+            var ownFlat = Group(FrameType.Flat, 1, 20, gain: 121, instrument: Camera, telescope: "", focalLength: -1, when: Utc(2024, 12, 30, 8, 40));
+            var narrowband = Group(FrameType.Flat, 4.61, -5, gain: 121, instrument: Camera, telescope: "Samyang 135 f/2 ED",
+                focalLength: 130, when: Utc(2026, 1, 21, 0, 0), filter: Filter.FromName("Optolong L-Ultimate 3nm"));
+            MasterGroupKey.FromFrame(narrowband.Frames[0]).SameFilterAs(MasterGroupKey.FromFrame(light)).ShouldBeFalse(
+                "the fixture must state a filter the lights do not, or this test proves nothing");
+
+            CalibrationResolver.BestFlat([narrowband, ownFlat], light).ShouldBe(ownFlat);
+            CalibrationResolver.BestFlat([ownFlat, narrowband], light).ShouldBe(ownFlat);
+        }
+
+        [Fact]
+        public void BestFlat_AFlatThatStatesNoFilter_OutranksOneThatStatesAnother()
+        {
+            // Astro-Unsorted, Rim Nebula 2024-06-06: SharpCap lights whose filter ("LPS") comes from a
+            // sidecar, their own "Cal Jun" SharpCap flat 40 minutes earlier with no filter and no
+            // train cards, and the N.I.N.A. L-Ultimate 3nm flat on the same lens 575 days later.
+            // Scoring "states no filter" the same as "states a different filter" left the proven
+            // tier to decide, and it handed the session the narrowband flat.
+            const string Camera = "ZWO ASI533MC Pro";
+            var light = Light(120, 8, gain: 121, instrument: Camera, telescope: "", focalLength: 130,
+                when: Utc(2024, 6, 6, 9, 15), filter: Filter.FromName("LPS"));
+            var ownFlat = Group(FrameType.Flat, 0.1, 15, gain: 121, instrument: Camera, telescope: "", focalLength: -1,
+                when: Utc(2024, 6, 6, 8, 36));
+            var narrowband = Group(FrameType.Flat, 4.46, 21, gain: 121, instrument: Camera, telescope: "Samyang 135 f/2 ED",
+                focalLength: 130, when: Utc(2025, 12, 2, 0, 0), filter: Filter.FromName("Optolong L-Ultimate 3nm"));
+
+            CalibrationResolver.BestFlat([narrowband, ownFlat], light).ShouldBe(ownFlat);
+            CalibrationResolver.BestFlat([ownFlat, narrowband], light).ShouldBe(ownFlat);
         }
 
         [Fact]

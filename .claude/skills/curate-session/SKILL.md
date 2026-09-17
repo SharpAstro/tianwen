@@ -287,10 +287,12 @@ have. `Eta Car 24mm LeHance` and `SMC 120s LEnh` are the same camera, the same f
 gain and offset, so the bias transfers cleanly; they are 24 mm and 368.8 mm, so the flats do not.
 
 **The bake can only tell trains apart by `TELESCOP` and `FOCALLEN`, and SharpCap writes neither on
-a flat.** A flat whose cards do not prove the train is used only within 3 days of the lights
+a flat.** A flat whose cards do not prove the train is used only within two weeks of the lights
 (`CalibrationResolver.UnprovenFlatMaxDays`, `docs/known-limitations.md`). Filing such a set with its
-own session is therefore enough; one meant to serve lights further away does nothing until its
-optics cards are written. After filing, check `flat_train_proof` in `tianwen dataset coverage`:
+own session or campaign is therefore enough; one meant to serve lights further away does nothing
+until its optics cards are written. **The filter label outranks everything**, so a SharpCap flat
+set with no `FILTER` card only competes with other card-less flats: when a session's filter comes
+from a sidecar, its flats need the same declaration or they read as a mismatch. After filing, check `flat_train_proof` in `tianwen dataset coverage`:
 `date` is a flat trusted only because it was shot with the lights. Until 2026-09-17 a card missing
 on either side counted as a match, which is how the 24 mm session above was handed a 289 mm flat.
 
