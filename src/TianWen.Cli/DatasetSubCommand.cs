@@ -412,7 +412,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
 
         return new Command("dataset", "Training-dataset tooling (see docs/plans/ai-denoise-deconv.md).")
         {
-            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildGradientReportCommand(), BuildDegradeCommand(), BuildPairCommand(), BuildCoverageCommand(consoleHost), BuildTagFilterCommand(), BuildTagObjectCommand(), BuildTagSiteElevationCommand() },
+            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildGradientReportCommand(), BuildDegradeCommand(), BuildPairCommand(), BuildCoverageCommand(consoleHost), BuildTagFilterCommand(), BuildTagObjectCommand(), BuildTagSiteElevationCommand(), BuildTagFrameTypeCommand() },
         };
     }
 
@@ -1114,6 +1114,74 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             relabels: true,
             numeric: true);
 
+    /// <summary>
+    /// <c>tianwen dataset tag-frame-type</c> fills in <c>IMAGETYP</c> on frames whose capture software
+    /// never wrote it.
+    ///
+    /// <para>SharpCap 4 writes the frame type into <c>FRAMETYP</c> only, and SharpCap 3 writes no type
+    /// card at all. TianWen reads <c>FRAMETYP</c> first, so the first family is already understood here,
+    /// but <c>IMAGETYP</c> is the card every other tool keys on: a survey of the archive that read only
+    /// it reported 28,803 untyped frames when 18,492 of them stated a type. The second family is
+    /// invisible to the stacker and the dataset builder until something says what each frame is.</para>
+    ///
+    /// <para><b>The type is never inferred here.</b> It is measured beforehand, one capture run at a
+    /// time (a blind solve answers for a light; the level against the camera's floor for the rest,
+    /// since a warm dark yields plenty of star-shaped hot pixels), and passed in. The guard runs the
+    /// other way from <c>tag-object</c>: by default only a frame with NO type card is touched, and
+    /// <c>--frame-type</c> may name a stated type only when it is the one being written. That lets the
+    /// verb fill <c>IMAGETYP</c> beside a <c>FRAMETYP</c> that agrees, and makes a disagreeing pair
+    /// impossible to write, which matters because the reader takes <c>FRAMETYP</c> first: such a pair
+    /// would leave TianWen on one answer and every other tool on the other.</para>
+    /// </summary>
+    private Command BuildTagFrameTypeCommand()
+        => BuildTagCardCommand(
+            label: "tag-frame-type",
+            keyword: "IMAGETYP",
+            cardComment: "Type of exposure",
+            valueOptionName: "--as",
+            valueDescription: "Frame type to write, spelled the way TianWen's own writer spells it: " +
+                              string.Join(", ", BackfillableFrameTypes) + ".",
+            summary: "Fill in IMAGETYP on frames whose capture software never wrote it (header-surgical; dry run by default).",
+            defaultFrameTypes: ["None"],
+            frameTypeDescription: "Which frames to fill in, by the type they already state. Defaults to None: only a frame " +
+                                  "with no FRAMETYP, IMAGETYP or FRAME card. Add the --as type (--frame-type None Dark " +
+                                  "--as Dark) to also fill IMAGETYP beside a FRAMETYP that already says so. Any other " +
+                                  "type is refused, so a frame can never end up stating two types.",
+            refusalAdvice: "Pass --hard-links relink to bring the other names along (they name the same frame, so the " +
+                           "same type applies to all of them).",
+            readCurrent: meta => meta.FrameType.ToFITSValue(),
+            validateArguments: ValidateFrameTypeArguments);
+
+    /// <summary>What a backfill may say a frame IS. <see cref="FrameType.Focus"/> is in because a
+    /// focusing run is a captured frame that must never integrate as a light, and naming it is what keeps
+    /// it out; <see cref="FrameType.Processed"/> and <see cref="FrameType.Scout"/> are not, since neither
+    /// describes a raw capture that someone forgot to label.</summary>
+    internal static readonly FrameType[] BackfillableFrameTypes =
+        [FrameType.Light, FrameType.Dark, FrameType.Bias, FrameType.Flat, FrameType.DarkFlat, FrameType.Focus];
+
+    /// <summary>The argument check for <c>tag-frame-type</c>, or null when the arguments are sound.</summary>
+    internal static string? ValidateFrameTypeArguments(string value, IReadOnlySet<FrameType> allowed)
+    {
+        if (FrameType.FromFITSValue(value) is not { } type || Array.IndexOf(BackfillableFrameTypes, type) < 0)
+        {
+            return $"--as must be one of {string.Join(", ", BackfillableFrameTypes)}; got '{value}'";
+        }
+        if (!string.Equals(value, type.ToFITSValue(), StringComparison.Ordinal))
+        {
+            // Refused rather than normalised: the builder writes the value it was given, and one archive
+            // carrying 'DARK' and 'Dark' side by side is exactly the drift a backfill should not add.
+            return $"--as '{value}' reads as {type}; write '{type.ToFITSValue()}', the spelling TianWen's own writer uses";
+        }
+        foreach (var stated in allowed)
+        {
+            if (stated != FrameType.None && stated != type)
+            {
+                return $"--frame-type {stated} with --as {type} would write an IMAGETYP contradicting the frame's own {stated} card";
+            }
+        }
+        return null;
+    }
+
     /// <summary>Reads a FITS numeric card body (or a --expect value) in the invariant culture, which
     /// is the only correct reading: a header is ASCII and its numbers are never localised, so a
     /// machine set to a decimal-comma locale must not parse "74.0" as 740.</summary>
@@ -1153,7 +1221,8 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
         string refusalAdvice,
         Func<ImageMeta, string?> readCurrent,
         bool relabels = false,
-        bool numeric = false)
+        bool numeric = false,
+        Func<string, IReadOnlySet<FrameType>, string?>? validateArguments = null)
     {
         var pathOpt = new Option<string>("--path")
         {
@@ -1240,6 +1309,13 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                     consoleHost.WriteError($"Unrecognised frame type: {name}");
                     return 1;
                 }
+            }
+            // Before a single file is opened: an argument combination that would write something wrong
+            // must fail as an argument error, not as a dry run that looks plausible.
+            if (validateArguments?.Invoke(cardValue, allowed) is { } argumentError)
+            {
+                consoleHost.WriteError($"[{label}] {argumentError}");
+                return 1;
             }
 
             var files = FileEnumeration.EnumerateFiles(path, FitsFolderFrameSource.FitsExtensions, parseResult.GetValue(recursiveOpt))
