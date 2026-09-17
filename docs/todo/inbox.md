@@ -220,7 +220,7 @@ everything below is fetched client-side from the browser, keyless.
 
 Three things fall out of that for TianWen.
 
-- [ ] **`wind_speed_250hPa` is a seeing forecast for free, and we do not ask for it.**
+- [x] **Moved to [seeing-forecast](../plans/seeing-forecast.md) (2026-09-17).** **`wind_speed_250hPa` is a seeing forecast for free, and we do not ask for it.**
   `OpenMeteoDriver.HourlyParams`/`CurrentParams`
   (`src/TianWen.Lib/Devices/Weather/OpenMeteoDriver.cs:22-23`) request eleven fields; wind at the
   250 hPa level (~10 km, the jet stream) is not among them, and it is the standard cheap proxy for
@@ -234,7 +234,7 @@ Three things fall out of that for TianWen.
   [site-conditions](../plans/site-conditions.md), which established the driver as the live tier for
   pressure/temperature but only for refraction.
 
-- [ ] **Wikipedia's REST summary would give planner/sky-map targets an image and a description.**
+- [x] **Moved to [object-imagery](../plans/object-imagery.md) (2026-09-17)**, which also replaces the title guess below with a verified identity bake. **Wikipedia's REST summary would give planner/sky-map targets an image and a description.**
   We already build the article URL — `PlannerDetails.WikipediaArticleBase`
   (`src/TianWen.UI.Abstractions/PlannerDetails.cs:128`) plus `GetWikipediaUrl`, which resolves the
   MAIN catalogue designation into the slug and is unit-tested (`PlannerDetailsTests`) — so the hard
