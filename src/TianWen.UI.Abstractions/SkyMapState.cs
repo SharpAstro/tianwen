@@ -81,8 +81,32 @@ namespace TianWen.UI.Abstractions
         /// when <see cref="MilkyWayAvailable"/> is true (texture file loaded).</summary>
         public bool ShowMilkyWay { get; set; } = true;
 
-        /// <summary>True when the Milky Way texture has been loaded from disk.</summary>
+        /// <summary>True when the Milky Way texture has been loaded (from disk on desktop, as a baked PNG
+        /// in the browser).</summary>
         public bool MilkyWayAvailable { get; set; }
+
+        /// <summary>
+        /// How strongly the Milky Way background draws this frame, 0 to 1: fully below astronomical
+        /// twilight (sun at -18 degrees), not at all above civil twilight (-6), and dimmed toward 0.3 as the
+        /// field of view widens past 40 degrees so a whole-sky view is not washed out. Zero when switched
+        /// off, not loaded, or with no site (a NaN sun altitude).
+        /// </summary>
+        /// <remarks>
+        /// ONE formula for both hosts: it lived inline in the Vulkan tab, and the browser sky map needs the
+        /// same number. The web pipeline hands it to the shader as a colour byte, where a NaN would be
+        /// garbage, which is why NaN answers zero here rather than propagating (the desktop skipped the
+        /// draw for NaN either way).
+        /// </remarks>
+        public float MilkyWayAlpha(double sunAltDeg)
+        {
+            if (!ShowMilkyWay || !MilkyWayAvailable || double.IsNaN(sunAltDeg))
+            {
+                return 0f;
+            }
+
+            return MathF.Max(MathF.Min((float)(-sunAltDeg - 6.0) / 12f, 1f), 0f)
+                * MathF.Max(MathF.Min(40f / (float)FieldOfViewDeg, 1f), 0.3f);
+        }
 
         /// <summary>
         /// Set per frame by a host that is drawing the grid ITSELF this frame, so this map draws none.

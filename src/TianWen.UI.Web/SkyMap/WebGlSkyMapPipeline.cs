@@ -420,6 +420,60 @@ namespace TianWen.UI.Web.SkyMap
             }
             """;
 
+        // Milky Way background: the port of skymap_mw.frag over the same attributeless full-screen
+        // vertex pass as the horizon fill. Two deliberate differences from the Vulkan source:
+        //  - the fade arrives as uColor's alpha (the push-constant analog), and
+        //  - the texture is milkyway.png, which tools/bake-milkyway writes with each pixel's colour
+        //    ALREADY multiplied by its alpha and the alpha dropped. The desktop pipeline blends
+        //    SrcAlpha/One over an unpremultiplied texture; WebGl.Renderer's Additive is One/One, so
+        //    adding the premultiplied colour times the fade gives the same light. Alpha out is 0, so
+        //    the canvas alpha (already opaque from the sky fill) is left alone.
+        private static readonly string MilkyWayFragmentSource = $$"""
+            #version 300 es
+            precision highp float;
+            precision highp int;
+
+            {{UboGlsl}}
+
+            uniform sampler2D uTexture;
+            uniform vec4 uColor;
+
+            in vec2 vScreenPos;
+            out vec4 FragColor;
+
+            const float PI     = 3.14159265358979;
+            const float TWO_PI = 6.28318530717959;
+
+            void main() {
+                // Inverse stereographic projection: screen pixel -> camera-space direction
+                float x = (vScreenPos.x - viewportCenter.x) / pixelsPerRadian;
+                float y = -(vScreenPos.y - viewportCenter.y) / pixelsPerRadian;
+
+                float rho = length(vec2(x, y));
+                vec3 camDir;
+                if (rho < 0.00001) {
+                    camDir = vec3(0.0, 0.0, -1.0);
+                } else {
+                    float c = 2.0 * atan(rho * 0.5);
+                    float sinC = sin(c);
+                    float cosC = cos(c);
+                    camDir = vec3(sinC * x / rho, sinC * y / rho, -cosC);
+                }
+
+                // Rotate back to J2000 (view matrix is orthogonal, inverse = transpose)
+                vec3 j2000 = transpose(mat3(viewMatrix)) * camDir;
+
+                // J2000 unit vector -> equirectangular UV
+                float ra = atan(j2000.y, j2000.x);            // [-PI, PI]
+                float u = ra / TWO_PI + 0.5;                   // [0, 1]
+                float dec = asin(clamp(j2000.z, -1.0, 1.0));   // [-PI/2, PI/2]
+                float v = 0.5 - dec / PI;                      // [0, 1], north at top
+
+                vec3 mw = texture(uTexture, vec2(u, v)).rgb;
+                FragColor = vec4(mw * uColor.a, 0.0);
+            }
+            """;
+
         // Line colors mirror VkSkyMapPipeline.Draw's PushLineColor constants.
         // The RA/Dec grid colour now comes from SkyMapGpuGeometry.GridColorAt(fade), shared with the
         // Vulkan pipeline; this local copy was also a flat 0x70 against the desktop's 0xB0 at full
@@ -435,7 +489,12 @@ namespace TianWen.UI.Web.SkyMap
         private readonly PipelineHandle _starPipeline;
         private readonly PipelineHandle _linePipeline;
         private readonly PipelineHandle _horizonFillPipeline;
+        private readonly PipelineHandle _milkyWayPipeline;
         private readonly PipelineHandle _overlayPipeline;
+
+        // The baked Milky Way texture, handed over by the host once the browser has decoded it. Until
+        // then (and on a dev server that never staged the PNG) the map simply draws no background.
+        private TextureHandle? _milkyWayTexture;
 
         // The overlay instance buffer, re-uploaded only when the overlay's own inputs move (see
         // SubmitOverlayInstances). A pan changes none of them, so a drag uploads nothing.
@@ -506,6 +565,12 @@ namespace TianWen.UI.Web.SkyMap
             _horizonFillPipeline = renderer.RegisterPipeline(new CustomPipelineDescriptor(
                 HorizonFillVertexSource, HorizonFillFragmentSource,
                 Attribs: [],
+                UniformBlockName: "SkyMapUBO"));
+            // Attributeless like the horizon fill, and ADDITIVE like the desktop Milky Way pipeline.
+            _milkyWayPipeline = renderer.RegisterPipeline(new CustomPipelineDescriptor(
+                HorizonFillVertexSource, MilkyWayFragmentSource,
+                Attribs: [],
+                Blend: PipelineBlend.Additive,
                 UniformBlockName: "SkyMapUBO"));
             // Per-instance widths 3+2+1+1+4 = OverlayEllipseInstances.FloatsPerInstance, in
             // declaration order -- the descriptor interleaves same-divisor attributes into one
@@ -658,6 +723,15 @@ namespace TianWen.UI.Web.SkyMap
                 + $"{StarChunkIndex.ChunkCount} chunks, {atDefault} of them at V<=8.5)");
         }
 
+        /// <summary>
+        /// Adopts the Milky Way texture the host loaded (<c>milkyway.png</c>, see
+        /// <c>tools/bake-milkyway</c>). The draw starts on the next frame.
+        /// </summary>
+        public void SetMilkyWayTexture(TextureHandle texture) => _milkyWayTexture = texture;
+
+        /// <summary>True once <see cref="SetMilkyWayTexture"/> has handed over a texture.</summary>
+        public bool HasMilkyWayTexture => _milkyWayTexture is not null;
+
         /// <summary>Uploads the shared 112-byte view block to both pipelines (each has its own
         /// UBO binding point) and refreshes the site/time-dependent line sets when LST/latitude
         /// moved. Call once per frame before <see cref="Draw"/>.</summary>
@@ -668,6 +742,7 @@ namespace TianWen.UI.Web.SkyMap
             _renderer.SetUniformBlock(_starPipeline, block);
             _renderer.SetUniformBlock(_linePipeline, block);
             _renderer.SetUniformBlock(_horizonFillPipeline, block);
+            _renderer.SetUniformBlock(_milkyWayPipeline, block);
             _renderer.SetUniformBlock(_overlayPipeline, block);
 
             // Horizon + meridian + Alt/Az geometry depends on (LST, latitude). LST moves ~15
@@ -715,9 +790,11 @@ namespace TianWen.UI.Web.SkyMap
 
         private int _meridianVertexCount;
 
-        /// <summary>Records the frame's sky draws: lines back-to-front (grid, Alt/Az, meridian,
-        /// ecliptic, boundaries, figures, horizon), then the instanced star field on top.</summary>
-        public void Draw(SkyMapState state, SiteContext site)
+        /// <summary>Records the frame's sky draws: the Milky Way background, the ground shading, lines
+        /// back-to-front (grid, Alt/Az, meridian, ecliptic, boundaries, figures, horizon), then the
+        /// instanced star field on top. <paramref name="milkyWayAlpha"/> is
+        /// <see cref="SkyMapState.MilkyWayAlpha"/>, the fade both hosts share.</summary>
+        public void Draw(SkyMapState state, SiteContext site, float milkyWayAlpha)
         {
             if (!_geometryBuilt)
             {
@@ -726,6 +803,17 @@ namespace TianWen.UI.Web.SkyMap
 
             // Swap in a lazily-fetched Tycho-2 field the frame after the host submits it.
             ApplyPendingTycho2();
+
+            // Milky Way first, behind everything, as on the desktop. The texture is bound every frame:
+            // text draws bind atlas pages to the same unit, so last frame's binding is gone.
+            if (_milkyWayTexture is { } milkyWay && milkyWayAlpha > 0.005f)
+            {
+                _renderer.UsePipeline(_milkyWayPipeline);
+                _renderer.SetPipelineColor(RGBAColor32.FromFloat(1f, 1f, 1f, milkyWayAlpha));
+                _renderer.BindTexture(milkyWay);
+                // The buffer satisfies the record's slot; the attributeless pipeline reads none of it.
+                _renderer.DrawBuffer(_cornerQuad, 0, 6);
+            }
 
             // Ground shading first, so lines/stars draw on top of it (the desktop order).
             if (state.ShowHorizon && site.IsValid)

@@ -193,6 +193,8 @@
     // bundle - the atlas shows the HR bright-star seed until it lands (and stays HR-only if the
     // fetch 404s, e.g. a dev server without the CI-baked asset).
     bool _tycho2Requested;
+    // The Milky Way background, requested on the same first atlas paint (LoadMilkyWayAsync).
+    bool _milkyWayRequested;
     // E2E-only view-state hook (activated by ?e2e=1). Held so it can be disposed; null in a
     // normal session (the hook is never registered).
     DotNetObjectReference<Planner>? _testRef;
@@ -1144,6 +1146,34 @@
         }
     }
 
+    // First Sky-Atlas open: fetch the Milky Way background, which pages.yml bakes into milkyway.png from
+    // the desktop's own texture (tools/bake-milkyway). The browser decodes the PNG off the main thread and
+    // uploads it; only the texture handle crosses into WebAssembly. Best-effort, like Tycho-2: a dev server
+    // that never staged the PNG answers 404 and the atlas draws no background, exactly as the desktop does
+    // without its .lz.
+    async Task LoadMilkyWayAsync()
+    {
+        if (_webGl is null || _skyTab is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            // Repeat across right ascension: the equirectangular texture has no edge at 0h/24h, and
+            // linear filtering across that seam must blend both sides.
+            var texture = await _webGl.LoadTextureAsync("milkyway.png", TextureWrap.Repeat, TextureWrap.ClampToEdge);
+            _skyTab.SubmitMilkyWay(texture);
+            Console.WriteLine($"[tianwen-web] milky way texture loaded in {sw.ElapsedMilliseconds} ms");
+            RenderFrame();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[tianwen-web] no Milky Way background: {ex.Message}");
+        }
+    }
+
     // First Sky-Atlas open: fetch the full ~30 MB Tycho-2 catalog (stripped from the WASM bundle),
     // then decode + flatten it to star instances OFF the first-paint path and hand the buffer to
     // the sky pipeline for a render-thread swap. The HR bright-star seed stays on screen until it
@@ -1854,6 +1884,12 @@
                 {
                     _tycho2Requested = true;
                     _tracker.Run(() => EnsureTycho2AtlasAsync(), "Ensure Tycho-2 atlas loaded");
+                }
+                // Same trigger, same reason, for the Milky Way background.
+                if (!_milkyWayRequested)
+                {
+                    _milkyWayRequested = true;
+                    _tracker.Run(() => LoadMilkyWayAsync(), "Load the Milky Way texture");
                 }
                 // On the member path, panning and zooming reveal sky we have not fetched. Cheap: it
                 // returns immediately unless the quantized view key actually moved.
