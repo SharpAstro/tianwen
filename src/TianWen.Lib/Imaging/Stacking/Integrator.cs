@@ -27,7 +27,24 @@ public sealed record IntegrationOptions(
     IPixelRejector? Rejector = null,
     IPixelCombiner? Combiner = null,
     bool ApplyNormalization = true,
-    float NormalizationTarget = 0.5f);
+    float NormalizationTarget = 0.5f)
+{
+    /// <summary>
+    /// For the two Bayer drizzle strategies with <see cref="ApplyNormalization"/> OFF: the per-CFA-colour
+    /// sky every frame is SHIFTED onto before deposit (<see cref="Normalizer.OffsetCfaToReference"/>).
+    /// Ignored when normalisation is on, which already equalises the sky, and by every strategy that
+    /// debayers before combining, which has no Bayer phases to bias.
+    ///
+    /// <para><b>Why drizzle needs it even unnormalised.</b> Registration and dither spread drizzle weight
+    /// unevenly over the four CFA phases, so each phase averages a different mix of frames; a sky that
+    /// drifts through the session then settles each phase at a different level, a fixed 2x2 pattern in
+    /// the master. The dataset bake integrates unnormalised to keep its master on the subs' linear
+    /// scale, and its drizzled masters measured a median 0.28 sigma of it, 8.9 at worst. A shift keeps
+    /// that scale and every star's flux; a rescale would not. Set ONE reference for a master and the
+    /// halves built beside it, or the halves land on different sky levels.</para>
+    /// </summary>
+    public Normalizer.CfaNormalizationStats? DrizzleSkyReference { get; init; }
+}
 
 /// <summary>
 /// Result of a stack integration: the master image, a per-pixel rejection

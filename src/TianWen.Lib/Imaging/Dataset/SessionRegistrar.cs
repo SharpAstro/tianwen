@@ -492,6 +492,10 @@ public static class SessionRegistrar
         // authoritative source here. Invariant within a session by construction (frames with a
         // different sensor land in a different group).
         var sensorType = SensorType.Unknown;
+        // Every sub's per-CFA-colour sky, taken off the calibrated raw frame this loop already holds,
+        // for the drizzle sky reference below. Cheap beside the warp, and the only pass that sees
+        // every frame before integration.
+        var cfaSkies = new List<Normalizer.CfaNormalizationStats>(matched.Count);
         for (var i = 0; i < matched.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -502,6 +506,10 @@ public static class SessionRegistrar
                 sensorType = raw.ImageMeta.SensorType;
             }
             var calibrated = calibrator?.Apply(raw) ?? raw;
+            if (calibrated.IsCfaMosaic)
+            {
+                cfaSkies.Add(Normalizer.ComputeCfaStats(calibrated));
+            }
             // The shared debayer + warp step (FrameRegistration.WarpToCanvasAsync) -- the same
             // three lines StackingPipeline's producer runs, so the two paths cannot drift here.
             var (warped, shifted) = await FrameRegistration.WarpToCanvasAsync(
@@ -599,6 +607,28 @@ public static class SessionRegistrar
             badPixelMask = registrationMask;
         }
 
+        // One sky for the master AND both halves: the session's MEDIAN per CFA colour, over the same
+        // calibrated raw frames the drizzle producer will hand over. Unnormalised drizzle weights the
+        // four Bayer phases unevenly, so a sky that drifts through the session left a fixed 2x2 level
+        // pattern in every drizzled master (median 0.28 sigma over the 2026-09-16 bake's 57, 8.9 at
+        // worst). Shifting each frame onto this sky removes it while the master stays on the subs'
+        // linear scale, which is why normalisation stays off. One reference for all three integrations
+        // keeps the half-master pair on the same level.
+        //
+        // The median and not the registration reference's own sky: the reference is chosen for its
+        // STARS, and on Statue of Liberty its sky was 2.1x the session's, which put the whole master on
+        // that pedestal and halved every structure's contrast relative to the sky, the quantity the
+        // tile stretch works in. The median keeps the master where the unshifted mean put it.
+        Normalizer.CfaNormalizationStats? skyReference = null;
+        if (useDrizzle && cfaSkies.Count == subsList.Length)
+        {
+            skyReference = MedianSky(cfaSkies);
+            logger?.LogInformation(
+                "  [{Session}] drizzle sky reference, median over {Frames} subs: R {R:F1} G {G:F1} B {B:F1}",
+                session.Id, cfaSkies.Count,
+                skyReference.Red.PerChannelMedian[0], skyReference.Green.PerChannelMedian[0], skyReference.Blue.PerChannelMedian[0]);
+        }
+
         var all = Enumerable.Range(0, subsList.Length).ToImmutableArray();
         var integrateStart = StageTimings.Start();
         var master = await IntegrateSubsetAsync(all, "_integrate");
@@ -665,7 +695,10 @@ public static class SessionRegistrar
             var job = new IntegrationJob(
                 WarpedFrames: token => WarpedProducer(pick, token),
                 ExpectedFrameCount: pick.Length,
-                Options: new IntegrationOptions(Rejector: StackingPipeline.BuildRejector(pick.Length), ApplyNormalization: false),
+                Options: new IntegrationOptions(Rejector: StackingPipeline.BuildRejector(pick.Length), ApplyNormalization: false)
+                {
+                    DrizzleSkyReference = skyReference,
+                },
                 StagingDir: scratch,
                 StatsRect: statsRect,
                 // Footprints are indexed in registration order, the same order subsList is built
@@ -712,6 +745,34 @@ public static class SessionRegistrar
                 var raw = await sub.Source.LoadFullAsync(token);
                 yield return new RawBayerFrame(calibrator?.Apply(raw) ?? raw, sub.TransformToCanvas);
             }
+        }
+    }
+
+    /// <summary>The per-colour median of the subs' skies (and of their floors), each colour taken
+    /// independently. See the drizzle sky reference in <see cref="RegisterAsync"/> for why the median
+    /// and not the registration reference's own sky.</summary>
+    internal static Normalizer.CfaNormalizationStats MedianSky(IReadOnlyList<Normalizer.CfaNormalizationStats> skies)
+    {
+        if (skies.Count == 0)
+        {
+            throw new ArgumentException("No sub skies to take a median of.", nameof(skies));
+        }
+
+        return new Normalizer.CfaNormalizationStats(
+            Colour(skies.Select(s => s.Red)), Colour(skies.Select(s => s.Green)), Colour(skies.Select(s => s.Blue)));
+
+        static NormalizationStats Colour(IEnumerable<NormalizationStats> perSub)
+        {
+            var subs = perSub.ToArray();
+            return new NormalizationStats(
+                [Median(subs.Select(s => s.PerChannelFloor[0]))], [Median(subs.Select(s => s.PerChannelMedian[0]))]);
+        }
+
+        static float Median(IEnumerable<float> values)
+        {
+            var sorted = values.Order().ToArray();
+            var mid = sorted.Length / 2;
+            return sorted.Length % 2 == 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2f;
         }
     }
 

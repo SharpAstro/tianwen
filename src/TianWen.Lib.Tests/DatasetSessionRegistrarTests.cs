@@ -337,5 +337,25 @@ namespace TianWen.Lib.Tests
 
             result.ShouldBeNull();
         }
+
+        [Fact]
+        public void TheDrizzleSkyReferenceIsEachColoursMedianOverTheSubs_NotAnySingleSub()
+        {
+            // Statue of Liberty's registration reference sat on a sky 2.1x the session's, and taking its
+            // sky put the whole master on that pedestal. Each colour's median is taken on its own, so a
+            // colour-shifted sub cannot drag the other colours with it.
+            static Normalizer.CfaNormalizationStats Sky(float r, float g, float b)
+                => new(new NormalizationStats([10f], [r]), new NormalizationStats([10f], [g]), new NormalizationStats([10f], [b]));
+
+            var skies = new[] { Sky(300, 1000, 600), Sky(320, 900, 650), Sky(900, 2100, 1300), Sky(310, 950, 610), Sky(290, 1020, 700) };
+
+            var median = SessionRegistrar.MedianSky(skies);
+
+            median.Red.PerChannelMedian[0].ShouldBe(310f);
+            median.Green.PerChannelMedian[0].ShouldBe(1000f);
+            median.Blue.PerChannelMedian[0].ShouldBe(650f);
+            median.Red.PerChannelFloor[0].ShouldBe(10f);
+            SessionRegistrar.MedianSky([Sky(1, 2, 3), Sky(3, 6, 9)]).Green.PerChannelMedian[0].ShouldBe(4f, "an even count takes the mean of the middle two");
+        }
     }
 }
