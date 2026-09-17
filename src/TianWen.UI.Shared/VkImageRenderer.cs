@@ -70,7 +70,7 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
             {
                 state.NeedsRedraw = true;
             }
-        }) { Store = _pictureStore };
+        }, Logger) { Store = _pictureStore };
         _pictures.Draw(_renderer, image, rect);
     }
 

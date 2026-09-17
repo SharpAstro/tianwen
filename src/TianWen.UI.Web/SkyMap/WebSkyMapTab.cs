@@ -39,7 +39,7 @@ namespace TianWen.UI.Web.SkyMap
             {
                 State.NeedsRedraw = true;
                 RequestRepaint?.Invoke();
-            });
+            }, Logger);
             _pictures.Draw(in image, rect);
         }
 
