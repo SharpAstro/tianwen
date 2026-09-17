@@ -2354,6 +2354,10 @@
             + ",\"coalesced\":" + _rafCoalesced.ToString(CultureInfo.InvariantCulture)
             + ",\"gathers\":" + (_skyTab?.PrimOverlayGathers ?? 0).ToString(CultureInfo.InvariantCulture)
             + ",\"overlay\":" + ((_skyTab?.State.ShowObjectOverlay ?? false) ? "true" : "false")
+            // milkyWay - the background layer is loaded AND switched on. With `frames`, it is what a test
+            // waits on instead of sleeping: the texture lands asynchronously and a key toggles the layer
+            // through an async interop hop, so only the app can say when a frame with the new state drew.
+            + ",\"milkyWay\":" + ((_skyTab?.State is { MilkyWayAvailable: true, ShowMilkyWay: true }) ? "true" : "false")
             // pins - reported for exactly the reason `overlay` is. The overlay pass runs on every frame
             // whenever anything is pinned and early-outs when nothing is, so a test asserting the
             // gather stays bounded WITH pins passes trivially on zero pins, i.e. passes while measuring
