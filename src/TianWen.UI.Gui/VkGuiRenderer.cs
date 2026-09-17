@@ -573,6 +573,7 @@ namespace TianWen.UI.Gui
             _guiderViewer.Dispose();
             _planetaryTab.Dispose();
             _plannerTab.Dispose();
+            _skyMapTab.Dispose();
             // VkRenderer is owned by the caller; do not dispose here.
         }
 
