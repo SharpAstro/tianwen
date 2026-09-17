@@ -1,9 +1,9 @@
 using System;
-using System.Drawing;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
+using TianWen.Lib.Geometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Stacking;
@@ -92,7 +92,7 @@ public class MasterUnitScaleTests
         var processor = new MasterPostProcessor(NullLogger.Instance, catalogDb: null);
         await processor.WriteMasterAsync(
             result, masterPath, searchHint: null, imageDim: null, refMeta: master.ImageMeta,
-            autocropRect: new Rectangle(4, 4, Size - 8, Size - 8), strategy: IntegrationStrategyKind.InRamAllFrames,
+            autocropRect: new PixelRect(4, 4, Size - 8, Size - 8), strategy: IntegrationStrategyKind.InRamAllFrames,
             enhance: false, enhanceBlend: 1.0f, splitPlates: false, enhanceOptions: EnhanceOptions.Default,
             outputs: MasterRenderOutputs.None, ct: TestContext.Current.CancellationToken);
 

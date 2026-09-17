@@ -1,12 +1,12 @@
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.IO;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
+using TianWen.Lib.Geometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Stacking;
@@ -83,7 +83,7 @@ public class IntegratedMasterLabelTests
                 ExpectedFrameCount: frames.Count,
                 Options: new IntegrationOptions(ApplyNormalization: normalise),
                 StagingDir: staging.FullName,
-                StatsRect: Rectangle.Empty);
+                StatsRect: PixelRect.Empty);
 
             var master = (await strategy.RunAsync(job, ct)).Master;
 
@@ -118,7 +118,7 @@ public class IntegratedMasterLabelTests
                 ExpectedFrameCount: sources.Count,
                 Options: new IntegrationOptions(ApplyNormalization: normalise),
                 StagingDir: dir.FullName,
-                StatsRect: Rectangle.Empty,
+                StatsRect: PixelRect.Empty,
                 RawLightSources: sources,
                 Calibrator: new Calibrator(),
                 DebayerAlgorithm: DebayerAlgorithm.BilinearMono,
@@ -173,7 +173,7 @@ public class IntegratedMasterLabelTests
                 ExpectedFrameCount: frameCount,
                 Options: new IntegrationOptions(ApplyNormalization: normalise),
                 StagingDir: dir.FullName,
-                StatsRect: Rectangle.Empty,
+                StatsRect: PixelRect.Empty,
                 RawLightSources: tiled ? sources : null,
                 Calibrator: tiled ? new Calibrator() : null,
                 CanvasWidth: Size,

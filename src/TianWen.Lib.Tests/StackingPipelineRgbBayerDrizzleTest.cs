@@ -1,12 +1,12 @@
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.IO;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
+using TianWen.Lib.Geometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
 using Xunit;
@@ -392,7 +392,7 @@ public class StackingPipelineRgbBayerDrizzleTest(ITestOutputHelper output)
             ExpectedFrameCount: frames.Count,
             Options: new IntegrationOptions(ApplyNormalization: false),
             StagingDir: Path.GetTempPath(),
-            StatsRect: Rectangle.Empty,
+            StatsRect: PixelRect.Empty,
             RawBayerFrames: RawBayerFramesProducer,
             DrizzleOptions: new DrizzleOptions(),
             CanvasWidth: RgbBayerSyntheticFixture.FrameSize,
