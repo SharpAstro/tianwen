@@ -80,6 +80,30 @@ width, so a master's width is its subs' plus the kernel's plus any misregistrati
 The measurements behind each clause: `docs/plans/deconvolver-training.md`, E2.10a "the third finding
 placed" and R1; the traps: `docs/known-limitations.md`.
 
+**Drizzle normalises per frame too, same as every other strategy.** `DrizzleStrategy` and
+`TilePipelinedDrizzleStrategy` forward-project raw CFA samples directly (no debayer, no warp), and
+used to skip `Normalizer` entirely on the theory that "every interior pixel averages the same frames,
+so a session-long sky trend is one constant across the whole master." That was never true: the
+forward-project deposit spreads weight UNEVENLY across the 2x2 CFA phases under sub-pixel dither
+(measured 13-30% per-frame variance on a real 135-sub RGGB session), so different output channels end
+up as the weighted average of a different effective MIX of frames. A session-long sky trend then bakes
+into the master as a fixed phase-locked 2x2 colour bias (measured R 1.67, G 1.06, B 1.90 sigma of
+block-median spread on 10P/Tempel 2), independent of any comet mask -- see "A masked layer needs a
+strategy that NORMALISES" in `docs/plans/comet-integration.md`, which found the same root cause first,
+just amplified by masking. Both strategies now call `Normalizer.ComputeStats`/`Apply` on each frame's
+whole raw CFA plane (one scalar per frame, mixing all four Bayer positions -- it corrects the frame's
+overall sky level and never touches the colour ratio WITHIN a frame) before depositing, using
+`IntegrationJob.Options.ApplyNormalization`/`NormalizationTarget` like every other strategy; the old
+final `flux/weight * (1/sourceMaxValue)` divide is now the identity in the normalised case (dividing
+twice would re-introduce the bug in a different form) and survives only as the fallback for a caller
+that explicitly disables normalisation. `TilePipelinedDrizzleStrategy` normalises once at load time
+(pass 1 and the pass-2 cache-miss reload path), not per strip, so a cached frame stays byte-identical
+to `DrizzleStrategy`'s single full-canvas pass -- pinned by the existing
+`Stack_TilePipelinedDrizzle_MatchesBayerDrizzleByteForByte` parity test. Reproduced and pinned by
+`DrizzlePerFrameNormalizationTests` (a flat RGGB set whose dither drifts and sky level both ramp
+monotonically with frame index, the same time-correlated shape a real session's periodic tracking
+error / progressive dithering plus its sky trend produce).
+
 ---
 
 ## 2. Post-processing: `MasterPostProcessor.WriteMasterAsync`

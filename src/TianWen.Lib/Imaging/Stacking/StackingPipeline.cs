@@ -1598,27 +1598,35 @@ public sealed class StackingPipeline(
                     .ToArray();
             }
             // A masked layer needs a strategy that (a) consumes the producers above and (b) normalises
-            // per frame. Four kinds fail one or the other, for two quite different reasons, and both
-            // failures are silent:
+            // per frame. Two kinds still fail (a); BayerDrizzle no longer fails (b) (see below) but
+            // stays excluded here regardless -- the filter is deliberately conservative pending its
+            // own re-run of the "Result, same strategy on both sides" measurement further down this
+            // file, not evidence that a normalised BayerDrizzle is unsafe for a masked layer:
             //
             //   TilePipelined, TilePipelinedDrizzle -- bypass the producers entirely, re-loading,
             //   calibrating and warping each raw light themselves per tile from RawLightSources. The
             //   mask is simply never applied and the comet integrates straight back into the layer
             //   built to exclude it.
             //
-            //   BayerDrizzle, TilePipelinedDrizzle -- no per-frame normalisation (neither touches
-            //   Normalizer or Integrator). Ordinarily that costs nothing, because every interior pixel
-            //   averages the same frames, so a session-long sky trend is one constant across the whole
-            //   master. A MASK breaks that premise: it removes a different, time-contiguous slice of
-            //   frames at each pixel along the track, which turns the temporal trend into spatial
-            //   structure exactly where the layer is supposed to be cleanest.
+            //   BayerDrizzle, TilePipelinedDrizzle -- both now normalise each frame's sky level before
+            //   deposit (the same per-frame mechanism Normalizer/Integrator apply everywhere else; see
+            //   DrizzleStrategy.RunAsync). The premise this exclusion used to state here -- "every
+            //   interior pixel averages the same frames, so a session-long sky trend is one constant
+            //   across the whole master" -- was never true even WITHOUT a mask: drizzle's forward-
+            //   project deposit spreads weight UNEVENLY across the 2x2 CFA phases under sub-pixel
+            //   dither (measured 13-30% per-frame variance), so a session-long sky trend baked a fixed
+            //   phase-locked colour bias into every BayerDrizzle/TilePipelinedDrizzle master, masked or
+            //   not (see docs/architecture/stacking-render-pipeline.md and
+            //   DrizzlePerFrameNormalizationTests). Normalising each frame before deposit fixes that
+            //   root cause directly, independent of masking.
             //
             // Measured on C/2025 R2, whose sky rose 504 ADU (1.6%) monotonically as the field set. The
             // masked drizzle layer removed a clean coma profile across the track (2.89 sigma at the
             // centreline, zero by 70 px) while along the track the removal ran +4.50 sigma at the
             // late-session end and -1.08 sigma at the early-session end -- negative meaning the mask
             // made the layer BRIGHTER there. A comet residual cannot do that; it sweeps every track
-            // position equally and must be flat.
+            // position equally and must be flat. That measurement predates the normalisation fix and
+            // has not been re-run against a normalised BayerDrizzle.
             var preferredStrategy = options.ForcedStrategy;
             if (layerMask is not null && layerModel is null)
             {
@@ -1633,8 +1641,9 @@ public sealed class StackingPipeline(
                 {
                     logger.LogWarning(
                         "  [comet] --strategy {Kind} cannot build a masked layer correctly "
-                            + "(it either bypasses the mask or does not normalise per frame); "
-                            + "letting the selector pick for this layer",
+                            + "(it either bypasses the mask, or is excluded pending re-validation "
+                            + "of the normalised-drizzle masked-layer measurement); letting the "
+                            + "selector pick for this layer",
                         preferredStrategy);
                     preferredStrategy = null;
                 }

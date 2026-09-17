@@ -846,7 +846,10 @@ frame. The body is on the sensor by construction -- it is what the session was p
 is the signature of an anchor in the wrong basis, and the resulting master would carry an untouched
 comet while looking entirely plausible. Nothing about the pixels says so, so the count has to.
 
-### A masked layer needs a strategy that NORMALISES, which an unmasked one does not
+### A masked layer needs a strategy that NORMALISES -- and so does an unmasked one
+
+(Originally titled "...which an unmasked one does not"; that half was wrong, corrected below the
+"Cause" paragraph once a plain BayerDrizzle master -- no mask, no comet -- reproduced the same bias.)
 
 This is the part the measurement found and the design did not anticipate. The first working version
 picked `BayerDrizzle` (auto-selected at 89 RGGB frames) and the result was wrong in a way that looked
@@ -866,19 +869,38 @@ track position equally. It was not:
 
 Negative means masking made the layer BRIGHTER there, which no comet residual can do.
 
-**Cause: the sky rose 504 ADU (1.6%) monotonically across the session as the field set, and
-`DrizzleStrategy` does no per-frame normalisation** (it touches neither `Normalizer` nor
-`Integrator`; `TilePipelinedDrizzle` likewise). Ordinarily that costs nothing, because every interior
-pixel averages the same frames and a session-long trend is one constant across the whole master. A
-mask breaks that premise: it removes a different, time-contiguous slice of frames at each pixel along
-the track, turning the temporal trend into spatial structure precisely where the layer is supposed to
-be cleanest.
+**Cause, as first written here: the sky rose 504 ADU (1.6%) monotonically across the session as the
+field set, and `DrizzleStrategy` does no per-frame normalisation** (it touched neither `Normalizer`
+nor `Integrator`; `TilePipelinedDrizzle` likewise). ~~Ordinarily that costs nothing, because every
+interior pixel averages the same frames and a session-long trend is one constant across the whole
+master. A mask breaks that premise: it removes a different, time-contiguous slice of frames at each
+pixel along the track, turning the temporal trend into spatial structure precisely where the layer is
+supposed to be cleanest.~~ **That "ordinarily costs nothing" clause was the wrong premise, found by a
+later, unrelated diagnosis: a PLAIN BayerDrizzle master with no mask and no comet at all (10P/Tempel 2,
+135 RGGB subs) showed the identical phase-locked colour bias** (block-median spread of R 1.67, G 1.06,
+B 1.90 sigma). The real mechanism is registration, not masking: drizzle's forward-project deposit
+spreads weight UNEVENLY across the 2x2 CFA phases under ordinary sub-pixel dither (measured 13-30%
+per-frame variance), so different output channels are already the weighted average of a different
+effective MIX of frames before any mask is involved -- a mask made the effect easier to SEE (it turns
+a diffuse bias into a sharp along-track signature) but did not create it. Both `DrizzleStrategy` and
+`TilePipelinedDrizzleStrategy` now normalise each frame's whole raw CFA plane (one scalar per frame,
+`Normalizer.ComputeStats`/`Apply` on the un-warped plane, same target as every other strategy) before
+deposit, which removes the session-long sky trend at the source regardless of masking. Detail, the
+synthetic repro (`DrizzlePerFrameNormalizationTests`) and the before/after numbers:
+`docs/architecture/stacking-render-pipeline.md` § 1.
 
-So a masked layer excludes four strategy kinds, for two different reasons, both silent:
+So a masked layer excludes four strategy kinds, for two different reasons -- one still current, one
+now only a conservative default pending re-validation:
 
 - `TilePipelined`, `TilePipelinedDrizzle` -- bypass the producers entirely, re-loading and warping
-  each raw light themselves per tile from `RawLightSources`. The mask is never applied at all.
-- `BayerDrizzle`, `TilePipelinedDrizzle` -- no per-frame normalisation, as above.
+  each raw light themselves per tile from `RawLightSources`. The mask is never applied at all. Still
+  true; unaffected by the normalisation fix.
+- `BayerDrizzle`, `TilePipelinedDrizzle` -- excluded here for "no per-frame normalisation", which is
+  no longer true for either. `StackingPipeline`'s pool filter still excludes both for a masked layer
+  regardless -- deliberately conservative, since the table above ("Result, same strategy on both
+  sides") has not been re-run against a normalised BayerDrizzle. Re-running it (masked vs. unmasked,
+  same strategy, post-fix) is the natural next step before relaxing this filter for `BayerDrizzle`;
+  `TilePipelinedDrizzle` stays excluded either way on the first bullet.
 
 A forced `--strategy` of any of them is dropped for that layer with a warning rather than honoured.
 
@@ -969,10 +991,14 @@ plausible wrong answer rather than an error.
    model was cropped from blank sky.
 2. **A comet-aligned canvas carries NaN**, and RC-Astro answers an ALL-NaN plate for an input holding
    any. `SharpenPipeline` already guards this way. Crop first: the box is inside the covered region.
-3. **A star remover is a neural net and cares where its input sits in [0,1].** The comet layer is
-   auto-picked as `BayerDrizzle`, which does not normalise, so its background sits at 0.0145 against
-   the 0.5 the technique was proven on. `sxt` then found only the peak and left the whole coma
-   (radial medians 0.000028 at r=20 against a 0.000077 noise floor). Normalise the crop first.
+3. **A star remover is a neural net and cares where its input sits in [0,1].** The comet layer was
+   auto-picked as `BayerDrizzle`, which at the time did not normalise, so its background sat at 0.0145
+   against the 0.5 the technique was proven on. `sxt` then found only the peak and left the whole coma
+   (radial medians 0.000028 at r=20 against a 0.000077 noise floor). Normalise the crop first. (Since
+   the drizzle per-frame normalisation fix -- see "A masked layer needs a strategy that NORMALISES"
+   above -- a fresh `BayerDrizzle` master's background already sits near 0.5, but the crop-level
+   `Normalizer.Apply` call stays: it is the only guard for a master built by an OLDER un-normalised
+   drizzle run, or by any other producer this code does not control.)
 4. **`--remove-stars` used to REPLACE the frame list**, so both layers saw starless plates. The
    starless frame now rides alongside the original in `matched`.
 5. **Each layer needs the calibrator its own input wants.** `integrationCalibrator` is deliberately a

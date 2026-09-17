@@ -177,12 +177,22 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
         var pixfrac = options.Pixfrac;
         var halfP = pixfrac * 0.5f;
         ImageMeta? refMeta = null;
-        // The source's MaxValue (camera full-well ADU, e.g. 4096 / 65535)
-        // becomes our pre-normalization scale. We normalize the master to
-        // [0, 1] at the end so MasterPostProcessor's MaxValue fix-up sees
-        // a self-consistent pair (range = label = 1.0) -- the same
-        // post-condition the InRamAllFrames / Integrator path satisfies
-        // via per-frame normalization to NormalizationTarget=0.5.
+        // Per-frame normalisation -- the same mechanism every other integration strategy applies
+        // (Integrator / TilePipelinedStrategy via Normalizer), now here too: each frame's own
+        // median (over the WHOLE 1-channel raw CFA plane, i.e. one scalar mixing all four Bayer
+        // positions together) is mapped onto job.Options.NormalizationTarget before its samples are
+        // deposited. This is a per-frame multiplicative gain anchored on the frame's Pedestal, so it
+        // never touches the ratio between colours WITHIN one frame -- it only removes the
+        // frame-to-frame SKY LEVEL (a session-long trend), which is exactly what registration +
+        // dither need to be invisible to: drizzle deposit spreads weight UNEVENLY across the 2x2 CFA
+        // phases (measured 13-30% per-frame variance), so without this, different phases end up as
+        // the weighted average of a different effective MIX of frames and a session-long sky trend
+        // bakes into the master as a fixed phase-locked colour bias (see DrizzleKernel/StackingPipeline
+        // comments, and docs/architecture/stacking-render-pipeline.md). Falls back to the previous
+        // unnormalised behaviour (scale by the frame's own UnitScaleDivisor at the very end) only when
+        // a caller explicitly disables normalisation.
+        var applyNormalization = job.Options.ApplyNormalization;
+        var normalizationTarget = job.Options.NormalizationTarget;
         var sourceMaxValue = 1.0f;
         var frameCount = 0;
         // Bad-pixel mask is 1-channel (the raw Bayer plane is 1-channel
@@ -224,7 +234,13 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
             // Bayer dispatch; the fix for those is per-frame
             // astrometric refinement, not a pattern swap.)
             var pattern = meta.SensorType.GetBayerPatternMatrix(meta.BayerOffsetX, meta.BayerOffsetY);
-            var raw = frame.RawCfa;
+            // Normalise BEFORE deposit, exactly like TilePipelinedStrategy normalises its debayered-
+            // but-not-yet-warped frame: stats are whole-frame (there is no canvas-space StatsRect to
+            // restrict to here -- the raw CFA plane is still in SOURCE coordinates, pre-warp), and the
+            // transform applies unchanged afterwards.
+            var raw = applyNormalization
+                ? Normalizer.Apply(frame.RawCfa, Normalizer.ComputeStats(frame.RawCfa), normalizationTarget)
+                : frame.RawCfa;
             var srcW = raw.Width;
             var srcH = raw.Height;
 
@@ -251,12 +267,16 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
             throw new InvalidOperationException("DrizzleStrategy received zero frames from RawBayerFrames.");
         }
 
-        // Final divide -- master[c, y, x] = (flux / weight) / sourceMaxValue;
-        // NaN where weight is zero. The kernel helper mutates flux in place
-        // and returns the covered-cell count for the coverage-rate stat.
-        // Shared with TilePipelinedDrizzleStrategy so the post-processing
-        // path is identical regardless of memory layout.
-        var invMax = sourceMaxValue > 0f ? 1f / sourceMaxValue : 1f;
+        // Final divide -- master[c, y, x] = flux / weight, NaN where weight is zero. The kernel
+        // helper mutates flux in place and returns the covered-cell count for the coverage-rate
+        // stat. Shared with TilePipelinedDrizzleStrategy so the post-processing path is identical
+        // regardless of memory layout. When normalisation ran, every deposited sample already sits
+        // near [0, 1] (median ~= normalizationTarget) -- dividing by sourceMaxValue here as well
+        // would double-scale, so invMax is the identity in that case; it only falls back to the raw
+        // ADU-to-unit conversion when a caller explicitly disabled normalisation.
+        var invMax = applyNormalization
+            ? 1f
+            : sourceMaxValue > 0f ? 1f / sourceMaxValue : 1f;
         var totalCells = (long)canvasH * canvasW * 3;
         var coveredCells = DrizzleKernel.FinaliseDivide(flux, weight, invMax, canvasH, canvasW);
 
