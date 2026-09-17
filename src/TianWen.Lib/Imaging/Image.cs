@@ -670,7 +670,7 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// The observed minimum and maximum over every plane, vectorised, with NaN skipped: a drizzle hole
     /// or an uncovered canvas cell is NaN and must not become the answer. The one scan behind an
     /// image's OBSERVED <see cref="MaxValue"/>, shared by the FITS reader and every integrated master.
-    /// Returns <c>(float.MaxValue, float.MinValue)</c> for planes with no number at all.
+    /// Returns <c>(NaN, NaN)</c> for planes with no number at all.
     /// </summary>
     /// <remarks>
     /// <b>Not <c>TensorPrimitives.MaxNumber</c>.</b> Its name reads as IEEE 754 maxNum, and this reader
@@ -679,6 +679,11 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// handed and was written <c>DATAMAX = 1</c> over pixels up to 9.8 in the synthetic drizzle
     /// pipeline test. The mask below is <see cref="Stacking.MeanCombiner"/>'s: <c>Vector.Equals(v, v)</c>
     /// is false exactly on NaN lanes, which are replaced by the identity of the fold.
+    /// <para><b>No number is NaN, not the fold's identity.</b> An all-NaN image has no observed range, and
+    /// <c>(float.MaxValue, float.MinValue)</c> read as one: the FITS reader stored it as the image's labels,
+    /// a peak of <c>float.MinValue</c> that <see cref="HasUnitScalePeak"/> calls unit-referred. NaN is the
+    /// codebase's "no value" here: the FITS writer emits no <c>DATAMIN</c> / <c>DATAMAX</c> card for it, so
+    /// the file round-trips to the same answer.</para>
     /// </remarks>
     internal static (float Min, float Max) ObservedRange(float[][,] channels)
     {
@@ -720,7 +725,8 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
             }
         }
 
-        return (min, max);
+        // max < min only when no lane or sample held a number: every number moves both folds.
+        return max < min ? (float.NaN, float.NaN) : (min, max);
     }
 
     /// <summary>
@@ -1040,6 +1046,39 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
             return this;
         }
 
+        return ScaledByUnitScaleDivisor();
+    }
+
+    /// <summary>
+    /// <see cref="ScaleFloatValuesToUnit"/> for a producer that promises no sample above 1.0: it divides
+    /// by the same <see cref="UnitScaleDivisor"/> whenever the peak EXCEEDS 1.0, including the band up to
+    /// 2.0 that <see cref="HasUnitScalePeak"/> counts as unit-referred, and returns this image untouched
+    /// otherwise.
+    /// </summary>
+    /// <remarks>
+    /// The two ask different questions. <see cref="ScaleFloatValuesToUnit"/> asks whether the samples are
+    /// ADU, and a flat-divided sub whose saturated star off axis reads 1.05 is not, so it is rightly left
+    /// alone (see <see cref="UnitScaleTolerance"/>). This asks whether anything is above 1, which is what a
+    /// written stacked master promises: a starless or nebula-only layer normalised to a sky of 0.5 can peak
+    /// at 1.5, and the tolerant question wrote it unscaled with <c>DATAMAX = 1.5</c>, which a viewer clips
+    /// above 1. A NaN peak (no finite pixel) is left alone: there is nothing to divide by.
+    /// </remarks>
+    internal Image ScaleFloatValuesToUnitCeiling()
+    {
+        if (MaxValue <= 1.0f || float.IsNaN(MaxValue))
+        {
+            return this;
+        }
+
+        return ScaledByUnitScaleDivisor();
+    }
+
+    /// <summary>
+    /// The one body behind <see cref="ScaleFloatValuesToUnit"/> and <see cref="ScaleFloatValuesToUnitCeiling"/>,
+    /// which differ only in WHEN they divide: new planes, every channel by <see cref="UnitScaleDivisor"/>.
+    /// </summary>
+    private Image ScaledByUnitScaleDivisor()
+    {
         var (channelCount, width, height) = Shape;
         var normalized = CreateChannelData(channelCount, height, width);
         var invMax = 1.0f / UnitScaleDivisor;

@@ -194,11 +194,14 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
         var applyNormalization = job.Options.ApplyNormalization;
         var normalizationTarget = job.Options.NormalizationTarget;
 
+        // In place: DecodeCalibrate hands the calibrated frame to US (RawLightDecoder's contract), the
+        // calibrated-frame intermediate has already been written by then, and only the normalised
+        // frame is kept, so a copy would be a whole plane of garbage per frame.
         Image LoadCalibrateNormalize(RawLightSource source)
         {
             var calibrated = DecodeCalibrate(source, calibrator, job.Intermediates);
             return applyNormalization
-                ? Normalizer.ApplyCfa(calibrated, Normalizer.ComputeCfaStats(calibrated), normalizationTarget)
+                ? Normalizer.ApplyCfaInPlace(calibrated, Normalizer.ComputeCfaStats(calibrated), normalizationTarget)
                 : calibrated;
         }
 
@@ -360,8 +363,10 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
             bitDepth: BitDepth.Float32,
             maxValue: 1.0f,
             minValue: 0f,
-            pedestal: 0f,
-            imageMeta: refMeta));
+            // Unnormalised, every sample was divided by sourceMaxValue and nothing subtracted, so the
+            // frames' pedestal is still in the data in those units (same as DrizzleStrategy).
+            pedestal: firstCalibrated.Pedestal * invMax,
+            imageMeta: refMeta), normalised: applyNormalization);
         var coverageMap = new Image(
             data: masterWeight,
             bitDepth: BitDepth.Float32,

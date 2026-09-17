@@ -246,7 +246,7 @@ public static class Integrator
             maxValue: alignedFrames[0].MaxValue,
             minValue: 0f,
             pedestal: alignedFrames[0].Pedestal,
-            meta: firstMeta));
+            meta: firstMeta), normalised: frameMin is not null);
         var rejectMapImage = rejectSinkInUse.FinaliseAsImage(
             BitDepth.Float32,
             maxValue: 1f,

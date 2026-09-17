@@ -302,6 +302,10 @@ public static class Normalizer
                     var row = flat.Slice(h * width, width);
                     for (var w = colStart; w < width; w += step)
                     {
+                        // NaN only, exactly as ComputeStats' CompactFinite has it, so both paths
+                        // rank the same samples. CompactFinite keeps infinities despite its name, and
+                        // a median ranks one like any bright outlier. NormalizerCfaTests pins the
+                        // agreement, infinities included.
                         var v = row[w];
                         if (!float.IsNaN(v))
                         {
@@ -340,22 +344,67 @@ public static class Normalizer
                 nameof(image));
         }
 
+        var srcChannel = image.GetChannelArray(0);
+        var dst = Image.CreateChannelData(1, image.Height, image.Width);
+        ApplyCfaColours(image, srcChannel, dst[0], stats, targetMedian);
+
+        // The pedestal has been mapped to zero per colour, so the result carries none -- same
+        // post-condition as Apply.
+        return new Image(dst, BitDepth.Float32, image.MaxValue, 0f, 0f, image.ImageMeta);
+    }
+
+    /// <summary>
+    /// <see cref="ApplyCfa"/> written into <paramref name="image"/>'s own plane: the same arithmetic,
+    /// bit for bit, with no destination plane allocated.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Frame ownership: convention 4, a CONSUMED input</b> (see the remarks on
+    /// <see cref="Image"/>). The result is a new <see cref="Image"/> over the very same array, and
+    /// <paramref name="image"/> must not be read again: its pixels are now normalised while its labels
+    /// still describe the calibrated frame. For a caller that OWNS the frame and keeps only the
+    /// normalised one, which is <see cref="TilePipelinedDrizzleStrategy"/> caching every calibrated
+    /// frame for the whole run: the copy there was a whole plane per frame (about 36 MB at 3008
+    /// squared), garbage the moment the normalised frame replaced the calibrated one.
+    /// <see cref="DrizzleStrategy"/> keeps <see cref="ApplyCfa"/>, because its frames arrive from a
+    /// producer whose record states no hand-over.</para>
+    /// <para>In place is safe because the colours are disjoint photosites and each write reads only
+    /// the photosite it replaces, after the statistics were taken.</para>
+    /// <para>The channel's buffer is deliberately NOT carried onto the result, as in
+    /// <see cref="Image.ScaleFloatValuesToUnitInPlace"/>: release responsibility stays with the
+    /// consumed original, and carrying the ref would double-release a refcount-1 buffer.</para>
+    /// <para>Internal on purpose: a consuming call on a public package surface is a way to corrupt a
+    /// caller's frame silently, and the one caller that owns its frames is in this assembly.</para>
+    /// </remarks>
+    internal static Image ApplyCfaInPlace(Image image, CfaNormalizationStats stats, float targetMedian)
+    {
+        if (!image.IsCfaMosaic)
+        {
+            throw new ArgumentException(
+                $"ApplyCfaInPlace requires a single-channel Bayer CFA mosaic; got {image.ChannelCount} "
+                    + $"channel(s), {image.ImageMeta.SensorType}.",
+                nameof(image));
+        }
+
+        var plane = image.GetChannelArray(0);
+        ApplyCfaColours(image, plane, plane, stats, targetMedian);
+
+        return new Image([plane], BitDepth.Float32, image.MaxValue, 0f, 0f, image.ImageMeta);
+    }
+
+    /// <summary>
+    /// The per-colour write behind <see cref="ApplyCfa"/> and <see cref="ApplyCfaInPlace"/>;
+    /// <paramref name="src"/> and <paramref name="dst"/> may be the same array.
+    /// </summary>
+    private static void ApplyCfaColours(Image image, float[,] src, float[,] dst, CfaNormalizationStats stats, float targetMedian)
+    {
         var width = image.Width;
         var height = image.Height;
-        var srcChannel = image.GetChannelArray(0);
-        var srcFlat = MemoryMarshal.CreateReadOnlySpan(ref srcChannel[0, 0], srcChannel.Length);
-
-        var dst = Image.CreateChannelData(1, height, width);
-        var dstChannel = dst[0];
-        var dstFlat = MemoryMarshal.CreateSpan(ref dstChannel[0, 0], dstChannel.Length);
+        var srcFlat = MemoryMarshal.CreateReadOnlySpan(ref src[0, 0], src.Length);
+        var dstFlat = MemoryMarshal.CreateSpan(ref dst[0, 0], dst.Length);
 
         ApplyCfaChannel(image, CfaChannel.Red, srcFlat, dstFlat, width, height, stats.Red, targetMedian);
         ApplyCfaChannel(image, CfaChannel.Green, srcFlat, dstFlat, width, height, stats.Green, targetMedian);
         ApplyCfaChannel(image, CfaChannel.Blue, srcFlat, dstFlat, width, height, stats.Blue, targetMedian);
-
-        // The pedestal has been mapped to zero per colour, so the result carries none -- same
-        // post-condition as Apply.
-        return new Image([dst[0]], BitDepth.Float32, image.MaxValue, 0f, 0f, image.ImageMeta);
     }
 
     private static void ApplyCfaChannel(

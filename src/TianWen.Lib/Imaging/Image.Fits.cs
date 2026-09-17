@@ -657,7 +657,9 @@ public partial class Image
         // and two MathF calls on every pixel of the hot conversion loop. The NaN semantics match:
         // the guard here skipped NaN and ObservedRange skips it too. (This used to claim the same of
         // TensorPrimitives MinNumber/MaxNumber, which answered NaN over any span holding one, so a
-        // NaN-bearing file without DATAMIN/DATAMAX was read with a NaN peak.)
+        // NaN-bearing file without DATAMIN/DATAMAX was read with a NaN peak.) A file with NO number at
+        // all still reads as NaN, deliberately: it has no range, and the writer emits no DATAMIN /
+        // DATAMAX for NaN, so it round-trips to the same answer rather than to a float.MinValue peak.
         //
         // Not a hypothetical path -- a real sub carries no DATAMIN/DATAMAX (measured on three ASI533
         // frames), so needsMinMaxValRecalc is TRUE for the files this reader exists to read.

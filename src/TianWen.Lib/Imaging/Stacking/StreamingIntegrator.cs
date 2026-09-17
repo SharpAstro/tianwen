@@ -269,7 +269,7 @@ public static class StreamingIntegrator
             maxValue: firstFrame.MaxValue,
             minValue: 0f,
             pedestal: firstFrame.Pedestal,
-            meta: firstFrame.Meta));
+            meta: firstFrame.Meta), normalised: frameMin is not null);
         var rejectMapImage = rejectSinkInUse.FinaliseAsImage(
             BitDepth.Float32,
             maxValue: 1f,

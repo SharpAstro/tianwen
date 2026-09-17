@@ -78,14 +78,20 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         //    strategy, 62.0 from the per-colour drizzle. Before those labels were true this step
         //    re-tagged such a master MaxValue = 1 on the belief its data were already in [0, 1], and
         //    the file claimed DATAMAX = 1 over pixels up to 62, which the viewer clipped flat.
-        //    ScaleFloatValuesToUnit is the canonical [0, 1] path (UnitScaleDivisor, the observed peak
-        //    here) and one scalar for every channel, so colour and the sky-to-star ratio survive. It
-        //    returns NEW planes: the pipeline still holds this integration and builds the comet
-        //    composite from it after this returns, in integration units.
-        if (!master.HasUnitScalePeak)
+        //    ScaleFloatValuesToUnitCeiling divides by the canonical UnitScaleDivisor (the observed
+        //    peak here), one scalar for every channel, so colour and the sky-to-star ratio survive.
+        //    It is NOT ScaleFloatValuesToUnit, whose question is "are these samples ADU?" and which
+        //    therefore leaves a peak up to 2.0 alone (flat-division overshoot); a layer normalised to a
+        //    sky of 0.5 can peak at 1.5, and that question wrote it with DATAMAX 1.5. It returns NEW
+        //    planes: the pipeline still holds this integration and builds the comet composite from
+        //    it after this returns, in integration units.
+        //    The reference check asks "did it divide?", for the log line and the result record; nothing
+        //    is released on it.
+        var scaled = master.ScaleFloatValuesToUnitCeiling();
+        if (!ReferenceEquals(scaled, master))
         {
             logger.LogInformation("  master peak {Peak:G4} scaled into [0, 1]", master.MaxValue);
-            master = master.ScaleFloatValuesToUnit();
+            master = scaled;
             result = result with { Master = master };
         }
 

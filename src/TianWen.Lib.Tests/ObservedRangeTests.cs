@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using Xunit;
@@ -34,7 +35,8 @@ public class ObservedRangeTests
             }
         }
 
-        return (min, max);
+        // No number anywhere is no range, the same answer ObservedRange gives.
+        return max < min ? (float.NaN, float.NaN) : (min, max);
     }
 
     [Theory]
@@ -95,7 +97,46 @@ public class ObservedRangeTests
         numbers[2, 2] = -3f;
 
         Image.ObservedRange([allNaN, numbers]).ShouldBe((-3f, 42f));
-        Image.ObservedRange([allNaN]).ShouldBe((float.MaxValue, float.MinValue),
-            "no number at all answers the fold's identity, which a caller can recognise");
+        var (min, max) = Image.ObservedRange([allNaN]);
+        float.IsNaN(min).ShouldBeTrue("no number at all has no minimum; the fold's identity float.MaxValue is not one");
+        float.IsNaN(max).ShouldBeTrue("and no peak; float.MinValue read as a unit-scale peak");
+    }
+
+    /// <summary>
+    /// The FITS reader's recalculation is this scan, so a file of only NaN reads back with NaN labels:
+    /// no range, which the writer states by omitting DATAMIN / DATAMAX, rather than the fold's identity
+    /// stored as a peak of <c>float.MinValue</c>.
+    /// </summary>
+    [Fact]
+    public void AFitsFileOfOnlyNaNReadsBackWithNoRange()
+    {
+        var planes = new float[2][,];
+        for (var c = 0; c < planes.Length; c++)
+        {
+            planes[c] = new float[6, 5];
+            for (var y = 0; y < 6; y++)
+            {
+                for (var x = 0; x < 5; x++)
+                {
+                    planes[c][y, x] = float.NaN;
+                }
+            }
+        }
+
+        var dir = Directory.CreateTempSubdirectory("ObservedRangeTests_");
+        try
+        {
+            var path = Path.Combine(dir.FullName, "all-nan.fits");
+            new Image(planes, BitDepth.Float32, float.NaN, float.NaN, 0f, new ImageMeta { SensorType = SensorType.Monochrome })
+                .WriteToFitsFile(path);
+
+            Image.TryReadFitsFile(path, out var read).ShouldBeTrue();
+            float.IsNaN(read.MaxValue).ShouldBeTrue($"MaxValue read back as {read.MaxValue}");
+            float.IsNaN(read.MinValue).ShouldBeTrue($"MinValue read back as {read.MinValue}");
+        }
+        finally
+        {
+            try { dir.Delete(recursive: true); } catch (IOException) { /* best effort */ }
+        }
     }
 }

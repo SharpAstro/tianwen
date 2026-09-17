@@ -78,8 +78,8 @@ public class MasterUnitScaleTests
             SensorFullScaleAdu = 65535f,
         };
         // The labels a strategy used to hand over (MaxValue = 1, the light's full scale), through the
-        // one relabelling every strategy now applies.
-        return IntegratedMaster.Labelled(new Image(planes, BitDepth.Float32, 1.0f, 0f, 0f, meta));
+        // one relabelling every strategy now applies, as a strategy whose frames were normalised.
+        return IntegratedMaster.Labelled(new Image(planes, BitDepth.Float32, 1.0f, 0f, 0f, meta), normalised: true);
     }
 
     private static async Task<(Image Full, Image Crop, Image Input)> WriteAsync(Image master, string dir)
@@ -170,6 +170,40 @@ public class MasterUnitScaleTests
             // The pipeline keeps using the integration it handed over (the comet composite is built from
             // it afterwards), so the rescale must be a new image, never an in-place division.
             input.GetChannelArray(0)[StarY, StarX].ShouldBe(StarR, "the input master is not rescaled in place");
+        }
+        finally
+        {
+            try { dir.Delete(recursive: true); } catch (IOException) { /* best effort */ }
+        }
+    }
+
+    /// <summary>
+    /// A peak between 1 and 2 is still scaled to 1.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Image.HasUnitScalePeak"/> counts any peak up to 2.0 as unit-referred, because flat
+    /// division pushes a saturated star off axis above 1 by construction, and
+    /// <see cref="Image.ScaleFloatValuesToUnit"/> leaves such an image alone. That is the right answer
+    /// to "are these samples ADU?", and the wrong one to "is anything above 1?", which is what a written
+    /// master promises: a starless or nebula-only layer normalised to a sky of 0.5 can peak at 1.5, and
+    /// the tolerant question wrote it with <c>DATAMAX = 1.5</c>, which the viewer clips above 1.
+    /// </remarks>
+    [Fact]
+    public async Task AMasterPeakingInsideTheUnitScaleToleranceIsStillWrittenWithItsPeakAtOne()
+    {
+        var dir = Directory.CreateTempSubdirectory("MasterUnitScaleTests_");
+        try
+        {
+            const float starR = 1.5f;
+            const float starG = 0.6f;
+            const float starB = 0.9f;
+            var (full, _, _) = await WriteAsync(SyntheticMaster(starR, starG, starB), dir.FullName);
+
+            FinitePeak(full).ShouldBe(1f, 1e-5f, "a peak of 1.5 is inside HasUnitScalePeak's tolerance and must still land on 1");
+            full.MaxValue.ShouldBe(FinitePeak(full), 1e-5f, "and its label is that peak");
+            var g = full.GetChannelArray(1)[StarY, StarX];
+            (full.GetChannelArray(0)[StarY, StarX] / g).ShouldBe(starR / starG, 1e-4f, "one scalar for every channel");
+            (full.GetChannelArray(1)[40, 40] / g).ShouldBe(Background / starG, 1e-5f, "the sky keeps its level relative to the star");
         }
         finally
         {
