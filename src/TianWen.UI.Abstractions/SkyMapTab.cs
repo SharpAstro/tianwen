@@ -101,6 +101,8 @@ namespace TianWen.UI.Abstractions
             RenderSkyBehind(plannerState, contentRect, timeProvider);
             RenderLayerPalette(contentRect);
             RenderSearchBinding(contentRect);
+            // Last, over the palette too: it covers the map and takes every press until it is closed.
+            RenderLargePicture(plannerState, contentRect);
         }
 
         /// <summary>

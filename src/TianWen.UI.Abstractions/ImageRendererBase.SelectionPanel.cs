@@ -182,7 +182,7 @@ namespace TianWen.UI.Abstractions
             if (state.PictureExpanded && options.Picture is { } expanded)
             {
                 var pictureRect = ObjectInfoPanel.LargePictureRect(area, in expanded, dpiScale);
-                var (scrim, body) = ObjectInfoPanel.BuildLargePicture(in expanded, in palette, pictureRect, () =>
+                var (scrim, body) = ObjectInfoPanel.BuildLargePicture(in expanded, in palette, pictureRect.Height / dpiScale, () =>
                 {
                     state.PictureExpanded = false;
                     state.NeedsRedraw = true;
