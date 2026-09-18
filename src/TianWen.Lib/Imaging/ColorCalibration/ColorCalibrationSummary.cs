@@ -53,4 +53,15 @@ public readonly record struct ColorCalibrationSummary(
 
         return $"{Method} R={R:F3} G={G:F3} B={B:F3}{backing}";
     }
+
+    /// <summary>
+    /// The provenance alone, as short lines: the method with what it stood on, then the white reference
+    /// when the method declares one. For a panel that already shows the multipliers on its own controls,
+    /// where <see cref="Describe"/> would repeat them and run past the panel's edge.
+    /// </summary>
+    public System.Collections.Immutable.ImmutableArray<string> ProvenanceLines()
+    {
+        var method = StarCount > 0 ? $"{Method}, {StarCount} stars" : Method;
+        return WhiteReference is { Length: > 0 } white ? [method, $"White: {white}"] : [method];
+    }
 }
