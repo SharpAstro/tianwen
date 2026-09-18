@@ -97,6 +97,43 @@ public class ViewerE2ETests
     }
 
     /// <summary>
+    /// A popover's dial follows a DRAG through this host, not only the press. The host routed presses
+    /// through the router, which arms a dial's drag there, and sent the moves and the release straight to
+    /// the viewer, so the armed drag never saw a move: a dial jumped to where it was pressed and stayed
+    /// (2026-09-18, the tone popover's Boost). The popover tests drove a copy of the routing that sent
+    /// every event through a router, and passed.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Scales))]
+    public async Task APopoverDialFollowsADragAcrossItsTrack(float dpiScale)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var e2e = ViewerE2E.Start(dpiScale);
+        await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
+
+        // The soft clip's Amount rather than Boost: Boost wants stars, which this synthetic frame has none
+        // of. Every dial arms its drag the same way. White balance's R dial is the popover's other kind.
+        foreach (var (action, dial) in new[]
+                 {
+                     (ToolbarAction.Tone, e2e.Viewer.ToneAmountSliderState),
+                     (ToolbarAction.WhiteBalance, e2e.Viewer.WhiteBalanceSliderState(0)),
+                 })
+        {
+            e2e.Click(action);
+            var track = e2e.Region(hit => hit is HitResult.SliderStateHit { State: var state } && ReferenceEquals(state, dial),
+                $"the {action} dial's track");
+            var y = track.Y + (track.Height / 2f);
+
+            e2e.Drag(track.X + (track.Width * 0.25f), y, track.X + (track.Width * 0.75f), y);
+
+            // The press alone lands a quarter of the way along; only the moves carry it to three quarters.
+            ((dial.Value - dial.Min) / (dial.Max - dial.Min)).ShouldBe(0.75f, 0.05f,
+                $"the {action} dial follows the drag to its end at dpi {dpiScale}");
+            e2e.Key(InputKey.Escape);
+        }
+    }
+
+    /// <summary>
     /// Selects an object with no catalogue entry, whose panel therefore has exactly one link, the sky atlas's,
     /// and returns where it was painted.
     /// </summary>

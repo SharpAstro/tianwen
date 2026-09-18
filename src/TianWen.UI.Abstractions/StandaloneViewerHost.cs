@@ -110,12 +110,23 @@ public sealed class StandaloneViewerHost<TSurface>
     public InputRouter Router { get; }
 
     /// <summary>
-    /// One pointer event from the platform: a press is routed, everything else (move, release, wheel)
-    /// flows straight into the viewer's own input path.
+    /// One pointer event from the platform. A press, a move and a release all go through the router, and
+    /// whatever it does not claim reaches the viewer's own input path exactly as before; the wheel goes
+    /// straight to the viewer.
     /// </summary>
+    /// <remarks>
+    /// The move and the release have to reach the router because a press ARMS gestures there: a
+    /// <c>Layout.Content.Slider</c>'s press returns a capture the router holds, and only the router feeds
+    /// it the moves and ends it on the release. This host used to route the press alone, so every popover
+    /// dial jumped to where it was pressed and never followed the drag (2026-09-18, the tone popover's
+    /// Boost), while the popover tests passed through a copy of the routing that sent every event to a
+    /// router. With no capture held the router passes a move or release to <c>Unhandled</c>, which is the
+    /// viewer, so the pan, the readout and the file-list gestures see what they always saw.
+    /// </remarks>
     public bool HandlePointer(InputEvent evt) => evt switch
     {
         InputEvent.MouseDown down => RoutePress(down),
+        InputEvent.MouseMove or InputEvent.MouseUp => Router.Handle(evt),
         _ => _viewer.HandleInput(evt),
     };
 
