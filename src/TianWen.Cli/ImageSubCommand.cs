@@ -157,11 +157,16 @@ internal sealed class ImageSubCommand(
     IGradientCorrector gradientCorrector,
     IBackgroundExtractor backgroundExtractor,
     MasterPreviewRenderer previewRenderer,
+    // Optional, and nullable for the same reason SharpenPipeline's are: the deblurrer exists only
+    // when RC-Astro is installed and licensed, and the denoiser only when a backend serves the role.
+    // A verb that needs one says so at the point of use rather than failing composition.
+    IImageDeblurrer? deblurrer = null,
+    IDenoiseEnhancer? denoiser = null,
     ILogger<ImageSubCommand>? logger = null)
 {
     public Command Build()
     {
-        var image = new Command("image", "Single-image enhancement, render and measurement verbs (autocrop, sharpen, remove-stars, flatten, render, stats, sources).")
+        var image = new Command("image", "Single-image enhancement, render and measurement verbs (autocrop, sharpen, remove-stars, flatten, deblur, denoise, render, stats, sources).")
         {
             Subcommands =
             {
@@ -169,6 +174,8 @@ internal sealed class ImageSubCommand(
                 BuildSharpenCommand(),
                 BuildRemoveStarsCommand(),
                 BuildFlattenCommand(),
+                BuildDeblurCommand(),
+                BuildDenoiseCommand(),
                 BuildRenderCommand(),
                 BuildStatsCommand(),
                 BuildSourcesCommand(),
@@ -257,6 +264,132 @@ internal sealed class ImageSubCommand(
             return Task.FromResult(0);
         });
 
+        return cmd;
+    }
+
+    // The companion-file options, declared once instead of copied into every verb that offers them.
+    private static Option<ImageOutputFormat> BuildCompanionFormatOption() => new("--output-format")
+    {
+        Description = "2D-viewer companion file alongside the FITS output. 'none' (default) = no companion. 'png' = 16-bit RGBA + cICP sRGB (SDR). 'png-pq' = 16-bit RGBA + cICP HDR10 PQ (HDR display). 'jxr' = JPEG XR with float-true HDR pixels.",
+        DefaultValueFactory = _ => ImageOutputFormat.None,
+        CustomParser = ParseOutputFormat,
+    };
+
+    private static Option<float> BuildPngPqPeakNitsOption() => new("--png-pq-peak-nits")
+    {
+        Description = "Peak luminance for HDR PQ output (--output-format png-pq). Range (0, 10000]. Default 1000.",
+        DefaultValueFactory = _ => 1000f,
+    };
+
+    private static Option<PngPqGamut> BuildPngPqGamutOption() => new("--png-pq-gamut")
+    {
+        Description = "Colour primaries for HDR PQ output (--output-format png-pq). 'srgb' (default) keeps sRGB primaries, cICP {1, 16, 0, 1}. 'bt2020' applies sRGB-to-BT.2020 matrix, cICP {9, 16, 0, 1} = canonical HDR10.",
+        DefaultValueFactory = _ => PngPqGamut.Srgb,
+    };
+
+    // -------- tianwen image deblur / denoise ---------------------------
+
+    /// <summary>
+    /// One enhancer role, as a verb. <c>remove-stars</c> and <c>flatten</c> already expose
+    /// <see cref="IStarRemover"/> and <see cref="IGradientCorrector"/> this way; deblur and denoise
+    /// are the two roles a user reaches for just as often and could only be had by running the whole
+    /// <c>sharpen</c> program, which also removes stars and recombines. Running one step is a
+    /// legitimate thing to want -- to see what it did on its own, to feed another tool, or to stop
+    /// where a hand-processed flow wants to take over.
+    /// </summary>
+    private async Task<int> RunSingleRoleAsync(
+        string verb, IImageEnhancer? enhancer, string missingHint,
+        string input, string? output, ImageOutputFormat format,
+        float peakNits, bool gamutToBt2020, CancellationToken ct)
+    {
+        if (!File.Exists(input))
+        {
+            consoleHost.WriteError($"Input not found: {input}");
+            return 1;
+        }
+        if (enhancer is null)
+        {
+            consoleHost.WriteError($"No {verb} enhancer is registered. {missingHint}");
+            return 3;
+        }
+        if (!Image.TryReadFitsFile(input, out var src, out var wcs))
+        {
+            consoleHost.WriteError($"Failed to read FITS file: {input}");
+            return 1;
+        }
+
+        // AI enhancers require [0, 1]; a no-op when the master is already normalised.
+        var normalised = src.ScaleFloatValuesToUnit();
+        Image result;
+        try
+        {
+            result = await enhancer.EnhanceAsync(normalised, ct);
+        }
+        catch (Exception ex)
+        {
+            consoleHost.WriteError($"{verb} failed: {ex.Message}");
+            logger?.LogError(ex, "{Verb} failed for {Input}", verb, input);
+            return 2;
+        }
+
+        var dst = EnsureFitsExtension(output ?? DefaultOut(input, "_" + verb));
+        result.WriteToFitsFile(dst, wcs, SharpenPipeline.SwModifyHeader());
+        consoleHost.WriteScrollable($"[{verb}] {enhancer.Name}: wrote {dst}");
+        await WriteCompanionAsync(result, dst, format, src.ImageMeta, wcs, verb,
+            useStretchedPng: false, peakNits: peakNits, gamutToBt2020: gamutToBt2020, ct: ct);
+        return 0;
+    }
+
+    private Command BuildDeblurCommand()
+    {
+        var inputArg = new Argument<string>("input") { Description = "FITS image to deblur." };
+        var outputOpt = new Option<string?>("--output", "-o") { Description = "Output FITS. Default: <input>_deblur.fits." };
+        var formatOpt = BuildCompanionFormatOption();
+        var peakNitsOpt = BuildPngPqPeakNitsOption();
+        var gamutOpt = BuildPngPqGamutOption();
+
+        var cmd = new Command("deblur",
+            "Whole-frame deconvolution (RC-Astro BlurXTerminator) and nothing else. This is the step that "
+            + "heads the canonical BlurX-first flow, run on its own. Linear in, linear out; stars are NOT "
+            + "split out first, which is the point -- BlurX works on the whole frame.")
+        {
+            Arguments = { inputArg },
+            Options = { outputOpt, formatOpt, peakNitsOpt, gamutOpt },
+        };
+        cmd.SetAction((parseResult, ct) => RunSingleRoleAsync(
+            "deblur", deblurrer,
+            "It comes from RC-Astro: install the rc-astro CLI and license BlurXTerminator, or set RC_ASTRO_CLI.",
+            parseResult.Required(inputArg), parseResult.GetValue(outputOpt),
+            parseResult.GetValue(formatOpt),
+            Math.Clamp(parseResult.GetValue(peakNitsOpt), 1f, 10000f),
+            parseResult.GetValue(gamutOpt) == PngPqGamut.Bt2020, ct));
+        return cmd;
+    }
+
+    private Command BuildDenoiseCommand()
+    {
+        var inputArg = new Argument<string>("input") { Description = "FITS image to denoise." };
+        var outputOpt = new Option<string?>("--output", "-o") { Description = "Output FITS. Default: <input>_denoise.fits." };
+        var formatOpt = BuildCompanionFormatOption();
+        var peakNitsOpt = BuildPngPqPeakNitsOption();
+        var gamutOpt = BuildPngPqGamutOption();
+
+        var cmd = new Command("denoise",
+            "Noise reduction (RC-Astro NoiseXTerminator, the SETI Astro AI4 model, or the in-house N2N "
+            + "denoiser, whichever serves the role) and nothing else. Inside `sharpen` this runs on the "
+            + "STARLESS plate; here it runs on the frame as given, which is what you want when the input "
+            + "is already starless or when you are judging the denoiser on its own.")
+        {
+            Arguments = { inputArg },
+            Options = { outputOpt, formatOpt, peakNitsOpt, gamutOpt },
+        };
+        cmd.SetAction((parseResult, ct) => RunSingleRoleAsync(
+            "denoise", denoiser,
+            "Register one with AddTianWenAi() (SETI Astro weights), AddRcAstroAi() (NoiseXTerminator) or AddTianWenN2nDenoiser().",
+            parseResult.Required(inputArg), parseResult.GetValue(outputOpt),
+            parseResult.GetValue(formatOpt),
+            Math.Clamp(parseResult.GetValue(peakNitsOpt), 1f, 10000f),
+            parseResult.GetValue(gamutOpt) == PngPqGamut.Bt2020, ct));
         return cmd;
     }
 
