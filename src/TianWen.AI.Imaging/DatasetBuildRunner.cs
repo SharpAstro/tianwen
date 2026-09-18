@@ -457,6 +457,21 @@ public static class DatasetBuildRunner
                     continue;
                 }
 
+                // Where every frame of this session went, on the CONSOLE and not only in the log.
+                // SessionRegistrar logs a gate line and a full census per session at Information, but
+                // the CLI's console floor is Warning in Release, so an eleven-hour bake printed 26
+                // warnings and nothing else while 607 of 11,221 lights were dropped -- and answering
+                // "why did this session lose 33 frames" meant going to
+                // %LOCALAPPDATA%/TianWen/Logs afterwards to find out it was the quality gate.
+                // Surfaced here rather than by raising the global log floor, which is what
+                // Program.cs's own comment asks for and what keeps the rest of the firehose off.
+                var lights = session.Lights.Length;
+                var gateDropped = lights - reg.GatedCount;
+                progress?.Report(
+                    $"[dataset] ({idx}/{sessions.Length}) {session.Id} {reg.RegisteredCount}/{lights} subs" +
+                    $" (gate -{gateDropped}, registration -{reg.SkippedCount})" +
+                    $" {reg.CanvasWidth}x{reg.CanvasHeight} {reg.MasterStrategy}");
+
                 // Retain the integrated master BEFORE anything else touches it. This is the only
                 // perishable output of the whole run: scratch is wiped per session, so afterwards the
                 // master exists nowhere, and re-deriving anything measured on it has meant registering
