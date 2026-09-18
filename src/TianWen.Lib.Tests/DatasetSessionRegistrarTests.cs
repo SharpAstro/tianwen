@@ -474,12 +474,12 @@ namespace TianWen.Lib.Tests
 
             // A canvas-sized float32 FITS per sub, three channels. Two subs of a 384x384 canvas is
             // about 3.5 MB, which fits on any drive a test runs on.
-            SessionRegistrar.ScratchShortfall(_dir, subCount: 2, canvasWidth: 384, canvasHeight: 384).ShouldBeNull();
+            SessionRegistrar.ScratchShortfall(_dir, subCount: 2, canvasWidth: 384, canvasHeight: 384, channels: 3).ShouldBeNull();
 
             // 100k subs of a 24 MP canvas is ~12 TB: refused, and the report carries the numbers the
             // log line needs rather than a bare bool, because "not enough space" without the
             // requirement beside it is what made the real failure unreadable.
-            var shortfall = SessionRegistrar.ScratchShortfall(_dir, subCount: 100_000, canvasWidth: 6000, canvasHeight: 4000);
+            var shortfall = SessionRegistrar.ScratchShortfall(_dir, subCount: 100_000, canvasWidth: 6000, canvasHeight: 4000, channels: 3);
             shortfall.ShouldNotBeNull();
             shortfall.NeedBytes.ShouldBeGreaterThan(shortfall.FreeBytes);
             shortfall.NeedBytes.ShouldBeGreaterThan(100_000L * 6000 * 4000 * 3 * sizeof(float));
@@ -487,7 +487,39 @@ namespace TianWen.Lib.Tests
 
             // A path on no drive at all answers nothing rather than refusing the session: a drive that
             // will not report its free space is not evidence that the session is too big.
-            SessionRegistrar.ScratchShortfall("\0not-a-path", subCount: 1, canvasWidth: 1, canvasHeight: 1).ShouldBeNull();
+            SessionRegistrar.ScratchShortfall("\0not-a-path", subCount: 1, canvasWidth: 1, canvasHeight: 1, channels: 3).ShouldBeNull();
+        }
+
+        /// <summary>
+        /// A MONO session warps ONE plane per sub, not three, so estimating three refuses it three
+        /// times sooner than the disk requires.
+        /// <para>
+        /// Not hypothetical, and not a harmless over-estimate. The 2026-09-19 bake refused the eta Car
+        /// Ha session -- 328 subs, 4714x3558, ZWO ASI1600MM Pro -- claiming 67.6 GB against 59.0 GB
+        /// free, and skipped the deepest mono set in the archive. Its real requirement is 24.2 GB: it
+        /// would have fitted with 34 GB to spare, and the re-bake it cost was never needed.
+        /// </para>
+        /// <para>
+        /// The cause is that <c>FrameRegistration.WarpToCanvasAsync</c> debayers BEFORE warping and
+        /// <c>Image.DebayerAsync</c> is a documented no-op for a monochrome sensor, so the frame that
+        /// reaches the warp still carries its single plane.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void AMonoSessionWarpsOnePlanePerSub_NotThree()
+        {
+            SessionRegistrar.WarpedChannelCount(SensorType.Monochrome).ShouldBe(1);
+            SessionRegistrar.WarpedChannelCount(SensorType.RGGB).ShouldBe(3);
+            SessionRegistrar.WarpedChannelCount(SensorType.Color).ShouldBe(3);
+
+            // The session itself, in the numbers the refusal was written from.
+            const int Subs = 328, W = 4714, H = 3558;
+            const long Free = 59L << 30;
+            var mono = (long)Subs * W * H * SessionRegistrar.WarpedChannelCount(SensorType.Monochrome) * sizeof(float);
+            var colour = (long)Subs * W * H * SessionRegistrar.WarpedChannelCount(SensorType.RGGB) * sizeof(float);
+
+            (mono + mono / 10).ShouldBeLessThan(Free, "24.2 GB fits in the 59.0 GB that was free");
+            (colour + colour / 10).ShouldBeGreaterThan(Free, "and assuming three planes is exactly what refused it");
         }
 
         /// <summary>

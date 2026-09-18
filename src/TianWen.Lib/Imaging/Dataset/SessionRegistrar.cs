@@ -200,8 +200,10 @@ public static class SessionRegistrar
     /// is never worth refusing a session over).
     ///
     /// <para>The requirement is exactly the file the warp pass writes, once per sub: a canvas-sized
-    /// float32 FITS of three channels. A tenth is added on top for the integrator's own staging and
-    /// the FITS headers, so a session that just fits is not admitted to fail at its last frame.</para>
+    /// float32 FITS of <paramref name="channels"/> planes (see <see cref="WarpedChannelCount"/> --
+    /// three for anything that debayers, ONE for a mono session). A tenth is added on top for the
+    /// integrator's own staging and the FITS headers, so a session that just fits is not admitted to
+    /// fail at its last frame.</para>
     ///
     /// <para>Asked because the alternative is how the failure actually presented: the 861-sub
     /// ASI294MC eta Car session measured, registered and warped for about forty minutes before dying
@@ -209,9 +211,25 @@ public static class SessionRegistrar
     /// is not enough space on the disk</c>, an exception that names a frame number and a path and
     /// nothing about the session being three times the size of the disk it was given.</para>
     /// </summary>
-    internal static ScratchShortfallReport? ScratchShortfall(string scratchDir, int subCount, int canvasWidth, int canvasHeight)
+    /// <summary>
+    /// Planes the warp pass writes per sub. <see cref="Image.DebayerAsync"/> is a documented NO-OP
+    /// for <see cref="SensorType.Monochrome"/> and <see cref="FrameRegistration.WarpToCanvasAsync"/>
+    /// debayers BEFORE warping, so a mono session's <c>warped_*.fits</c> carries one plane where a
+    /// CFA mosaic or an already-colour frame carries three.
+    /// <para>
+    /// Worth its own method because assuming three is not a harmless over-estimate: it refuses a mono
+    /// session three times sooner than the disk requires. The eta Car Ha session -- 328 subs on a
+    /// 4714x3558 canvas -- was refused at a claimed 67.6 GB against 59.0 GB free, when its real
+    /// requirement was 24.2 GB and it would have fitted with room to spare.
+    /// </para>
+    /// </summary>
+    internal static int WarpedChannelCount(SensorType sensorType)
+        => sensorType == SensorType.Monochrome ? 1 : 3;
+
+    internal static ScratchShortfallReport? ScratchShortfall(
+        string scratchDir, int subCount, int canvasWidth, int canvasHeight, int channels)
     {
-        var need = (long)subCount * canvasWidth * canvasHeight * 3 * sizeof(float);
+        var need = (long)subCount * canvasWidth * canvasHeight * channels * sizeof(float);
         need += need / 10;
         try
         {
@@ -689,7 +707,8 @@ public static class SessionRegistrar
                 // rather than discovered at the frame that fills the disk: the 861-sub session above
                 // spent forty minutes to fail at warped_0572, and the requirement was knowable from
                 // the sub count and the canvas before any of it.
-                if (!useDrizzle && ScratchShortfall(sessionScratch, matched.Count, canvasW, canvasH) is { } shortfall)
+                if (!useDrizzle && ScratchShortfall(
+                        sessionScratch, matched.Count, canvasW, canvasH, WarpedChannelCount(sensorType)) is { } shortfall)
                 {
                     logger?.LogWarning(
                         "  [{Session}] needs {Need:F1} GB of warped scratch for {Subs} subs on a {W}x{H} canvas and " +

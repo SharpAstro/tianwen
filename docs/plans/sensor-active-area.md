@@ -292,8 +292,8 @@ removes the region in the driver and reports that everything calibrates fine.
 |---|---|---|
 | P0 | Canon: `CanonRawFile.ActiveArea` (FC.SDK.Raw 3.1) + crop in `Image.TryReadCanonRaw` | **DONE** 2026-09-07 |
 | P1 | QHY: call `GetQHYCCDEffectiveArea` / `GetQHYCCDOverScanArea` and probe `CAM_IGNOREOVERSCAN_INTERFACE` at connect, log all three. **Measurement only, no behaviour change.** Never SET the ignore flag: it discards the black reference P5 wants | **READ 2026-09-16 on a QHY178M** (`QhySensorGeometryProbe`); the gate is lifted for that body and still down for every other |
-| P2 | `ImageMeta.DataSection` / `BiasSection`; `Image` keeps the raster | NOT STARTED |
-| P3 | `DATASEC`/`BIASSEC`/`TRIMSEC` read in `ParseImageMetaFromHeader` + written by the FITS writer, one 1-based converter, round-trip test | NOT STARTED |
+| P2 | `ImageMeta.DataSection` / `BiasSection`; `Image` keeps the raster | **DONE** 2026-09-19 (`FitsSection`) |
+| P3 | `DATASEC`/`BIASSEC`/`TRIMSEC` read in `ParseImageMetaFromHeader` + written by the FITS writer, one 1-based converter, round-trip test | **DONE** 2026-09-19 |
 | P4 | The crop gates: viewer/save, registration transform, plate-solve CRPix shift | NOT STARTED |
 | P5 | Calibration consumes `BiasSection`: per-frame black level + read noise. **The FLAT path first**, since the drift enters the denominator | NOT STARTED, and now the leading piece: measurable from the archive, no body needed |
 
