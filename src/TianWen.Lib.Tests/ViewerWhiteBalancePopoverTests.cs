@@ -349,6 +349,45 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// <b>The popover's buttons are one row of one height.</b> Each is a text node, so a height taken
+        /// from its own label made "Calibrate" (ascenders) taller than "Auto" and "Reset WB" beside it, and
+        /// the row centred the three at three heights (2026-09-18). Measured in the face the viewer ships:
+        /// the harness's monospace default measures every label one height and hides it.
+        /// </summary>
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.5f)]
+        public async Task TheButtonsShareOneHeight(float dpiScale)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer((uint)(WindowW * dpiScale), (uint)(WindowH * dpiScale));
+            var (viewer, state, document, _) = await NewViewerAsync(renderer, ct);
+            viewer.FontPath = System.IO.Path.Combine(AppContext.BaseDirectory, "TestFonts", "DejaVuSans.ttf");
+            viewer.DpiScale = dpiScale;
+            viewer.Render(document, state);
+
+            var button = Button(viewer);
+            Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));
+            viewer.Render(document, state);
+
+            var row = new List<(string Action, float Y, float Height)>();
+            foreach (var region in viewer.GetRegisteredRegions())
+            {
+                if (region.Result is HitResult.ButtonHit { Action: "AutoWhiteBalance" or "ResetWhiteBalance" or "ToggleColorCalibration" } hit)
+                {
+                    row.Add((hit.Action, region.Y, region.Height));
+                }
+            }
+
+            row.Count.ShouldBe(3, "Auto, Reset and the calibration button are all registered, dim or not");
+            foreach (var (action, y, height) in row)
+            {
+                y.ShouldBe(row[0].Y, 0.01f, $"{action} starts where {row[0].Action} does at dpi {dpiScale}");
+                height.ShouldBe(row[0].Height, 0.01f, $"{action} is as tall as {row[0].Action} at dpi {dpiScale}");
+            }
+        }
+
+        /// <summary>
         /// <b>Reset does nothing when there is nothing to reset to, and that is not merely cosmetic.</b>
         /// It also clears the triple parked when the calibration was switched on -- so pressing a
         /// button that looked inert used to quietly change what switching SPCC back off would restore.
