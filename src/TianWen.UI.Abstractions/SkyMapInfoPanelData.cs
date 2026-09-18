@@ -43,12 +43,17 @@ public readonly record struct SkyMapInfoPanelData(
     /// Alt/az come from the same <see cref="SiteContext"/> the sky map uses; rise/set
     /// use <see cref="RiseTransitSetHelper"/> (Meeus alg. 15, fixed RA/Dec only).
     /// </summary>
+    /// <param name="db">
+    /// The catalogue, for the popular alias on the designation line (<see cref="DesignationLine"/>); null
+    /// shows the primary designation alone.
+    /// </param>
     public static SkyMapInfoPanelData FromCatalogObject(
         in CelestialObject obj,
         double siteLat, double siteLon,
         DateTimeOffset viewingUtc,
         in SiteContext site,
-        CelestialObjectShape? shape)
+        CelestialObjectShape? shape,
+        ICelestialObjectDB? db = null)
     {
         var (altDeg, azDeg) = ComputeAltAz(obj.RA, obj.Dec, site);
 
@@ -69,7 +74,7 @@ public readonly record struct SkyMapInfoPanelData(
 
         return new SkyMapInfoPanelData(
             Name: obj.DisplayName,
-            Canonical: obj.Index.ToCanonical(),
+            Canonical: DesignationLine(obj.Index, db),
             ObjType: obj.ObjectType,
             Constellation: obj.Constellation,
             RA: obj.RA,
@@ -87,6 +92,49 @@ public readonly record struct SkyMapInfoPanelData(
             Shape: shape,
             Index: obj.Index,
             SurfaceBrightness: (float)obj.SurfaceBrightness);
+    }
+
+    /// <summary>
+    /// The designation the panel shows: the primary one, with the Messier or Caldwell number beside it in
+    /// parentheses when the catalogue lists one among the object's cross-indices, e.g. <c>NGC 6523 (M8)</c>.
+    /// </summary>
+    /// <remarks>
+    /// The primary index is what the catalogue merge chose (NGC first), and a Messier number exists only
+    /// as a cross-index alias of it, so the line used to read "NGC 6523" for the Lagoon while the overlay
+    /// label beside it stacked every alias including M8 (raised 2026-09-18: M8 is what people know). Only
+    /// the popular number is added, never the whole alias list, which the overlay already shows and which
+    /// runs to four designations on the Carina Nebula.
+    /// </remarks>
+    public static string DesignationLine(CatalogIndex index, ICelestialObjectDB? db)
+    {
+        var canonical = index.ToCanonical();
+        if (db is null || !db.TryGetCrossIndices(index, out var crossIndices))
+        {
+            return canonical;
+        }
+
+        CatalogIndex? popular = null;
+        foreach (var cross in crossIndices)
+        {
+            if (cross == index)
+            {
+                continue;
+            }
+            var catalog = cross.ToCatalog();
+            if (catalog == Catalog.Messier)
+            {
+                popular = cross;
+                break;
+            }
+            if (catalog == Catalog.Caldwell && popular is null)
+            {
+                popular = cross;
+            }
+        }
+
+        return popular is { } alias && index.ToCatalog() != alias.ToCatalog()
+            ? $"{canonical} ({alias.ToCanonical()})"
+            : canonical;
     }
 
     /// <summary>
