@@ -43,7 +43,7 @@ public class ChromeMeasuresThroughTheEngineTests
         ["SkyMapTab.cs"] = 1,
         ["VkGuiRenderer.cs"] = 3,
         ["VkPlannerTab.cs"] = 1,
-        ["VkSkyMapTab.cs"] = 6,
+        ["VkSkyMapTab.cs"] = 4,
     };
 
     private static readonly string[] ChromeProjects =
