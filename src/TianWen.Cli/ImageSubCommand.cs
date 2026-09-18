@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SharpAstro.Png;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Geometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Enhancement;
@@ -214,6 +215,18 @@ internal sealed class ImageSubCommand(
         {
             Description = "Report the rectangle and which tier answered, and write nothing.",
         };
+        var marginOpt = new Option<double>("--margin")
+        {
+            Description = "Inset every edge by this FRACTION of the axis after the scan (0.01 = 1 percent). "
+                + "Default 0, which is the viewer's own answer. Raise it when the crop feeds a MODEL rather "
+                + "than an eye: the edge walk refuses an edge whose band never settles, and a refusal keeps "
+                + "the partial-coverage ramp, which a background-extraction model then fits. GraXpert is "
+                + "particular about this -- on the HIP 80609 master its declined left edge left green and "
+                + "blue at 0.98 of the interior for the first ten columns after flattening, visible at any "
+                + "hard stretch. A crop for a viewer should show every pixel that exists; a crop for a fit "
+                + "should give up a margin rather than hand it a ramp.",
+            DefaultValueFactory = _ => 0.0,
+        };
 
         var cmd = new Command("autocrop",
             "Crop a master to the rectangle its subs actually covered. Prefers the drizzle weight plane "
@@ -222,7 +235,7 @@ internal sealed class ImageSubCommand(
             + "and `tianwen stack` use. The WCS is translated with the crop, so the output still solves.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, dryRunOpt },
+            Options = { outputOpt, dryRunOpt, marginOpt },
         };
 
         cmd.SetAction((parseResult, ct) =>
@@ -242,6 +255,23 @@ internal sealed class ImageSubCommand(
 
             var scan = ViewerActions.ScanForCrop(src, input, logger);
             var rect = scan.Rect;
+            var margin = Math.Clamp(parseResult.GetValue(marginOpt), 0.0, 0.25);
+            if (margin > 0)
+            {
+                var ix = (int)Math.Round(src.Width * margin);
+                var iy = (int)Math.Round(src.Height * margin);
+                var inset = new PixelRect(rect.X + ix, rect.Y + iy, rect.Width - 2 * ix, rect.Height - 2 * iy);
+                if (inset.Width > 16 && inset.Height > 16)
+                {
+                    consoleHost.WriteScrollable(
+                        $"[autocrop] margin {margin:P1}: {rect.Width}x{rect.Height} -> {inset.Width}x{inset.Height}");
+                    rect = inset;
+                }
+                else
+                {
+                    consoleHost.WriteScrollable($"[autocrop] margin {margin:P1} would leave nothing; ignored.");
+                }
+            }
             var tier = scan.FromCoverage ? "coverage plane" : "edge walk";
             consoleHost.WriteScrollable(
                 $"[autocrop] {src.Width}x{src.Height} -> {rect.Width}x{rect.Height} at ({rect.X},{rect.Y}) "
