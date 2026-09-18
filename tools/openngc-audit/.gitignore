@@ -1,0 +1,3 @@
+# The audit writes its report and CSVs beside the script; the report is read, not committed.
+openngc-audit*.md
+openngc-audit-*.csv
