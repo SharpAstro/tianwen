@@ -17,6 +17,10 @@ jobs:
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    # Bounded like every job in this repo (see dotnet.yml). No measured figure yet: sized for a
+    # Release build plus a full TianWen.Lib.Tests run (test-unit's healthy ~6m) with room for the
+    # conversation around them, so a run over it is stuck rather than busy.
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -25,10 +29,52 @@ jobs:
       id-token: write
       actions: read # Required for Claude to read CI results on PRs
     steps:
+      # The steps up to the action give Claude the same environment test-unit has, so it can BUILD
+      # and TEST what it changes rather than only read and edit. Nothing is built here: a mention
+      # that only asks a question should not pay for a build, so Claude runs dotnet itself when it
+      # needs to (allowed in claude_args below).
+      #
+      # Package list AND version must stay identical to test-unit's: `version` is the apt cache
+      # key, so a different list under the same version would restore the wrong package set, and
+      # an identical one shares test-unit's cache. The Vulkan stack is what lets the GPU comp tests
+      # run on lavapipe instead of skipping.
+      - uses: SharpAstro/cache-apt-pkgs-action@v1
+        with:
+          packages: ghostscript fonts-urw-base35 fontconfig mesa-vulkan-drivers libvulkan1 vulkan-tools vulkan-validationlayers lldb
+          version: 1.4
+      - name: Rebuild fontconfig cache
+        run: fc-cache -f
+
+      # Depth 1 is enough: the action deepens a PR branch to 20 commits itself. The OpenNGC
+      # submodule is a build input (the catalog preprocess reads it).
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
+          submodules: recursive
+          lfs: false
+      # LFS is not optional even for a build: the catalog .lz files are PreprocessCatalogs' input,
+      # and a pointer stub in their place fails it. Same glob and same cache key as test-unit, so a
+      # mention normally rides the cache main's CI saved and transfers nothing: the LFS budget ran
+      # dry once already (2026-08-17), and a cold pull per mention would spend it again.
+      - name: Compute LFS cache key
+        id: lfs-key
+        run: |
+          HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.fits.gz' '*.CR2' '*.CR3' '*.cr2' '*.cr3' '*.onnx' | xargs cat | sha256sum | cut -c1-16)
+          echo "key=lfs-tests-${HASH}" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v6
+        with:
+          path: .git/lfs
+          key: ${{ steps.lfs-key.outputs.key }}
+          restore-keys: |
+            lfs-tests-
+      - name: Fetch required LFS objects
+        run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.fits.gz,*.CR2,*.CR3,*.cr2,*.cr3,*.onnx"
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: Directory.Packages.props
 
       - name: Run Claude Code
         id: claude
@@ -46,5 +92,12 @@ jobs:
           # Optional: Add claude_args to customize behavior and configuration
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
-          # claude_args: '--allowed-tools Bash(gh pr *)'
-
+          #
+          # dotnet restore/build/test only: enough to verify a change, and `dotnet run` stays out.
+          # The appended prompt carries the one fact CLAUDE.md states for a dev box and not for
+          # this runner: with no sibling clones beside the repo every SharpAstro library is a
+          # nuget.org PACKAGE, built Release, so a Debug build of the solution fails with CS0234
+          # on the #if DEBUG inspector namespaces and reads like a broken package.
+          claude_args: |
+            --allowedTools "Bash(dotnet restore:*),Bash(dotnet build:*),Bash(dotnet test:*)"
+            --append-system-prompt "This runner has none of the SharpAstro sibling repos checked out, so every SharpAstro library resolves as a nuget.org package, exactly as in CI. Run dotnet from src/ and build the solution with -c Release: a Debug solution build fails with CS0234 on DIR.Lib.Diagnostics because a published package is built Release. The LFS objects the tests need are already pulled. A full TianWen.Lib.Tests run takes several minutes here, so prefer a --filter run for the area you changed."
