@@ -313,6 +313,21 @@ public static class SessionRegistrar
         public WarpedSubSource? WarpedSubs { get; init; }
 
         /// <summary>
+        /// The integration's per-pixel map for <see cref="Master"/>: accumulated WEIGHT from a drizzle,
+        /// a rejection FRACTION from every other strategy, null when nothing was rejected.
+        /// <see cref="RejectionMapIsCoverage"/> is what tells the two apart, and a writer must stamp it.
+        /// </summary>
+        /// <remarks>Kept because a retained master without it forces every downstream crop onto the
+        /// edge-noise ESTIMATE. The walk measures where noise settles and a partial-coverage band is a
+        /// LEVEL, about 0.1 percent deep, so it can refuse an edge and leave a ramp that a background
+        /// model then fits.</remarks>
+        public Image? RejectionMap { get; init; }
+
+        /// <summary>Whether <see cref="RejectionMap"/> is a coverage/weight plane (high is well
+        /// covered) rather than a rejection fraction (high is heavily rejected).</summary>
+        public bool RejectionMapIsCoverage { get; init; }
+
+        /// <summary>
         /// The same night integrated once per FIELD ORIENTATION when it crossed the meridian, empty
         /// otherwise. Each is a session in its own right (its own master, stats rect, subs and, where
         /// it has the frames for one, its own half-master pair) and carries
@@ -821,7 +836,8 @@ public static class SessionRegistrar
 
         var all = Enumerable.Range(0, subsList.Length).ToImmutableArray();
         var integrateStart = StageTimings.Start();
-        var master = await IntegrateSubsetAsync(all, "_integrate");
+        var integration = await IntegrateSubsetAsync(all, "_integrate");
+        var master = integration.Master;
         timings?.Record(StageNames.Integrate, integrateStart, subsList.Length, (long)subsList.Length * canvasW * canvasH);
         logger?.LogInformation(
             "  [{Session}] master integrated via {Strategy} ({Frames} frames)",
@@ -853,10 +869,10 @@ public static class SessionRegistrar
             // so the per-item cost is directly comparable with Integrate above rather than being half
             // of it twice.
             var halvesStart = StageTimings.Start();
-            halfA = await IntegrateSubsetAsync(
-                all.Where(i => i % 2 == 0).ToImmutableArray(), "_half_a");
-            halfB = await IntegrateSubsetAsync(
-                all.Where(i => i % 2 == 1).ToImmutableArray(), "_half_b");
+            halfA = (await IntegrateSubsetAsync(
+                all.Where(i => i % 2 == 0).ToImmutableArray(), "_half_a")).Master;
+            halfB = (await IntegrateSubsetAsync(
+                all.Where(i => i % 2 == 1).ToImmutableArray(), "_half_b")).Master;
             timings?.Record(StageNames.Halves, halvesStart, subsList.Length, (long)subsList.Length * canvasW * canvasH);
             logger?.LogInformation(
                 "  [{Session}] half-master pair integrated ({A} + {B} frames)",
@@ -898,15 +914,16 @@ public static class SessionRegistrar
             {
                 var (_, sideStats) = CanvasGeometry.ComputeFootprintsAndStatsRect(
                     [.. pick.Select(i => transforms[i])], canvasShift, refW, refH, canvasW, canvasH);
-                var sideMaster = await IntegrateSubsetAsync(pick, $"_flip_{label}", sideStats);
+                var sideIntegration = await IntegrateSubsetAsync(pick, $"_flip_{label}", sideStats);
+                var sideMaster = sideIntegration.Master;
                 Image? sideHalfA = null;
                 Image? sideHalfB = null;
                 if (pick.Length >= halfMasterFloor)
                 {
-                    sideHalfA = await IntegrateSubsetAsync(
-                        [.. pick.Where((_, k) => k % 2 == 0)], $"_flip_{label}_half_a", sideStats);
-                    sideHalfB = await IntegrateSubsetAsync(
-                        [.. pick.Where((_, k) => k % 2 == 1)], $"_flip_{label}_half_b", sideStats);
+                    sideHalfA = (await IntegrateSubsetAsync(
+                        [.. pick.Where((_, k) => k % 2 == 0)], $"_flip_{label}_half_a", sideStats)).Master;
+                    sideHalfB = (await IntegrateSubsetAsync(
+                        [.. pick.Where((_, k) => k % 2 == 1)], $"_flip_{label}_half_b", sideStats)).Master;
                 }
                 built.Add(new RegisteredSession(
                     session with { FlipSide = label }, sideMaster, [.. pick.Select(i => subsList[i])],
@@ -915,6 +932,8 @@ public static class SessionRegistrar
                     sideHalfA, sideHalfB)
                 {
                     WarpedSubs = warpedSubs,
+                    RejectionMap = sideIntegration.TotalRejections > 0 ? sideIntegration.RejectionMap : null,
+                    RejectionMapIsCoverage = sideIntegration.RejectionMapIsCoverage,
                 });
             }
             sides = built.MoveToImmutable();
@@ -928,9 +947,11 @@ public static class SessionRegistrar
         {
             WarpedSubs = warpedSubs,
             FlipSides = sides,
+            RejectionMap = integration.TotalRejections > 0 ? integration.RejectionMap : null,
+            RejectionMapIsCoverage = integration.RejectionMapIsCoverage,
         };
 
-        async Task<Image> IntegrateSubsetAsync(ImmutableArray<int> pick, string scratchName, PixelRect? subsetStatsRect = null)
+        async Task<IntegrationResult> IntegrateSubsetAsync(ImmutableArray<int> pick, string scratchName, PixelRect? subsetStatsRect = null)
         {
             var scratch = Path.Combine(sessionScratch, scratchName);
             var job = new IntegrationJob(
@@ -954,10 +975,9 @@ public static class SessionRegistrar
                 RawBayerFrames: useDrizzle ? token => RawBayerProducer(pick, token) : null,
                 DrizzleOptions: useDrizzle ? new DrizzleOptions() : null,
                 BadPixelMask: badPixelMask);
-            var run = useDrizzle
+            return useDrizzle
                 ? await new DrizzleStrategy().RunAsync(job, cancellationToken)
                 : await new Float16StagedStrategy().RunAsync(job, cancellationToken);
-            return run.Master;
         }
 
         async IAsyncEnumerable<Image> WarpedProducer(

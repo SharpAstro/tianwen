@@ -146,27 +146,52 @@ public static class IntegrationFitsWriter
 
         if (result.TotalRejections > 0)
         {
-            var rejectionPath = RejectionPathFor(masterPath);
-            // MAPKIND, not IMAGETYP, says which of the two maps this is: the drizzle strategies put the
-            // accumulated per-pixel WEIGHT here rather than a rejection fraction, and the two are
-            // opposite in sense and different in range. IMAGETYP stays REJECTION for both, because
-            // third-party readers key on it and the file is a per-pixel diagnostic map either way.
-            var rejExtras = new Dictionary<string, (object Value, string Comment)>
-            {
-                ["STACK_N"] = (result.FrameCount, "Frames the rejection map was computed against"),
-                ["REJ_RATE"] = (result.MeanRejectionRate, "Mean rejection rate (this map's average)"),
-                ["SWCREATE"] = (SoftwareCreator, "Software that created this rejection map"),
-                ["IMAGETYP"] = ("REJECTION", "Per-pixel rejection-fraction map [0, 1]"),
-                ["MAPKIND"] = result.RejectionMapIsCoverage
-                    ? (CoverageMapKind, "Accumulated per-pixel weight; high is well covered")
-                    : (RejectionMapKind, "Per-pixel rejected/total; high is heavily rejected"),
-            };
-            if (strategy is { } s2)
-            {
-                rejExtras["STRATEGY"] = (s2.ToString(), "Integration strategy used (IntegrationStrategyKind)");
-            }
-            result.RejectionMap.WriteToFitsFile(rejectionPath, wcs: null, rejExtras);
+            WriteRejectionMap(masterPath, result.RejectionMap, result.FrameCount, result.MeanRejectionRate,
+                result.RejectionMapIsCoverage, strategy);
         }
+    }
+
+    /// <summary>
+    /// Writes the per-pixel map beside a master, at the master's path plus
+    /// <see cref="RejectionMapSuffix"/>.
+    /// </summary>
+    /// <remarks>
+    /// Its own method because the stacker is no longer the only producer of masters worth cropping:
+    /// a dataset bake retains one per session, and without this sidecar every consumer of those is
+    /// pushed onto <see cref="CoverageEdgeWalk"/>, which ESTIMATES where coverage ends from the noise
+    /// profile. That estimate refuses an edge whose band never settles, and the ramp it then keeps is
+    /// what a background model fits: measured on the QHY294C SMC master, the kept band renders as a
+    /// 7-level stripe after flattening. A coverage plane states the answer outright, so it is worth
+    /// the one extra file per master.
+    /// </remarks>
+    public static void WriteRejectionMap(
+        string masterPath,
+        Image map,
+        int frameCount,
+        double meanRejectionRate,
+        bool isCoverage,
+        IntegrationStrategyKind? strategy = null)
+    {
+        var rejectionPath = RejectionPathFor(masterPath);
+        // MAPKIND, not IMAGETYP, says which of the two maps this is: the drizzle strategies put the
+        // accumulated per-pixel WEIGHT here rather than a rejection fraction, and the two are
+        // opposite in sense and different in range. IMAGETYP stays REJECTION for both, because
+        // third-party readers key on it and the file is a per-pixel diagnostic map either way.
+        var rejExtras = new Dictionary<string, (object Value, string Comment)>
+        {
+            ["STACK_N"] = (frameCount, "Frames the rejection map was computed against"),
+            ["REJ_RATE"] = (meanRejectionRate, "Mean rejection rate (this map's average)"),
+            ["SWCREATE"] = (SoftwareCreator, "Software that created this rejection map"),
+            ["IMAGETYP"] = ("REJECTION", "Per-pixel rejection-fraction map [0, 1]"),
+            ["MAPKIND"] = isCoverage
+                ? (CoverageMapKind, "Accumulated per-pixel weight; high is well covered")
+                : (RejectionMapKind, "Per-pixel rejected/total; high is heavily rejected"),
+        };
+        if (strategy is { } s2)
+        {
+            rejExtras["STRATEGY"] = (s2.ToString(), "Integration strategy used (IntegrationStrategyKind)");
+        }
+        map.WriteToFitsFile(rejectionPath, wcs: null, rejExtras);
     }
 
     /// <summary>

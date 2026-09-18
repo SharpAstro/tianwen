@@ -227,6 +227,20 @@ internal sealed class ImageSubCommand(
                 + "should give up a margin rather than hand it a ramp.",
             DefaultValueFactory = _ => 0.0,
         };
+        var trimDeclinedOpt = new Option<double>("--trim-declined")
+        {
+            Description = "When the walk REFUSES an edge (its noise was still falling at the bound), trim "
+                + "that edge by this fraction of the axis anyway. Default 0.05, the walk's own bound: it "
+                + "looked that far and never saw the band settle, so that is the depth it cannot vouch for. "
+                + "0 keeps the viewer's behaviour, which is to leave a refused edge alone -- correct when a "
+                + "person is looking at every pixel that exists, wrong when the crop feeds a background "
+                + "model, because the ramp it keeps is exactly what the model then fits. Measured on the "
+                + "QHY294C SMC master, whose left and right edges both declined: the outermost ~130 px sit "
+                + "0.00003 linear under the plateau, which is 3 noise-MAD and renders as a 7-level band at "
+                + "the preview stretch, dying out by 500 px of 4108. Only declined edges are touched; an "
+                + "edge that answered is already trimmed to where it settled.",
+            DefaultValueFactory = _ => 0.05,
+        };
 
         var cmd = new Command("autocrop",
             "Crop a master to the rectangle its subs actually covered. Prefers the drizzle weight plane "
@@ -235,7 +249,7 @@ internal sealed class ImageSubCommand(
             + "and `tianwen stack` use. The WCS is translated with the crop, so the output still solves.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, dryRunOpt, marginOpt },
+            Options = { outputOpt, dryRunOpt, marginOpt, trimDeclinedOpt },
         };
 
         cmd.SetAction((parseResult, ct) =>
@@ -255,6 +269,42 @@ internal sealed class ImageSubCommand(
 
             var scan = ViewerActions.ScanForCrop(src, input, logger);
             var rect = scan.Rect;
+
+            // A refused edge is the one case where the scan's answer is "I do not know", and the two
+            // callers want opposite things from that: the viewer keeps the pixels, this keeps the ramp
+            // out of a background fit. Only the refused edges move, and only by the depth the walk
+            // searched, so an edge that DID settle is left exactly where it said.
+            var trimDeclined = Math.Clamp(parseResult.GetValue(trimDeclinedOpt), 0.0, 0.25);
+            if (trimDeclined > 0 && scan is { Declined: true, Trims: { } trims } && rect.Width > 0 && rect.Height > 0)
+            {
+                var dx = (int)Math.Round(rect.Width * trimDeclined);
+                var dy = (int)Math.Round(rect.Height * trimDeclined);
+                var left = trims.Left.Settled ? 0 : dx;
+                var right = trims.Right.Settled ? 0 : dx;
+                var top = trims.Top.Settled ? 0 : dy;
+                var bottom = trims.Bottom.Settled ? 0 : dy;
+                var held = new PixelRect(rect.X + left, rect.Y + top,
+                    rect.Width - left - right, rect.Height - top - bottom);
+                if (held.Width > 16 && held.Height > 16)
+                {
+                    var edges = string.Join(", ", new[]
+                    {
+                        trims.Left.Settled ? null : "left",
+                        trims.Top.Settled ? null : "top",
+                        trims.Right.Settled ? null : "right",
+                        trims.Bottom.Settled ? null : "bottom",
+                    }.Where(e => e is not null));
+                    consoleHost.WriteScrollable(
+                        $"[autocrop] declined ({edges}) trimmed by {trimDeclined:P1}: "
+                        + $"{rect.Width}x{rect.Height} -> {held.Width}x{held.Height}");
+                    rect = held;
+                }
+                else
+                {
+                    consoleHost.WriteScrollable($"[autocrop] trimming the declined edges would leave nothing; kept.");
+                }
+            }
+
             var margin = Math.Clamp(parseResult.GetValue(marginOpt), 0.0, 0.25);
             if (margin > 0)
             {

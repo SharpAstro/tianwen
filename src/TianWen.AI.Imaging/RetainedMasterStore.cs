@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
 
@@ -56,7 +57,11 @@ namespace TianWen.AI.Imaging
             Image master,
             int frameCount = 0,
             IntegrationStrategyKind? strategy = null,
-            ILogger? logger = null)
+            ILogger? logger = null,
+            WCS? wcs = null,
+            Image? rejectionMap = null,
+            bool rejectionMapIsCoverage = false,
+            double meanRejectionRate = 0.0)
         {
             var path = PathFor(outDir, sessionId);
             if (File.Exists(path))
@@ -97,9 +102,31 @@ namespace TianWen.AI.Imaging
 
             // Write-then-move, so an interrupted write cannot be read back as complete.
             var temp = path + PartialSuffix;
-            master.WriteToFitsFile(temp, wcs: null, extras);
+            master.WriteToFitsFile(temp, wcs, extras);
             File.Move(temp, path, overwrite: true);
-            logger?.LogDebug("  [{Session}] session master retained", sessionId);
+
+            // The coverage plane goes beside it, under the stacker's own name and cards, because
+            // otherwise every consumer of a bake master is pushed onto CoverageEdgeWalk. The walk
+            // ESTIMATES the border from where the noise settles, and partial coverage is a LEVEL about
+            // 0.1 percent deep, so it can refuse an edge and keep a ramp that a background model then
+            // fits: on the QHY294C SMC master that ramp renders as a 7-level stripe after flattening.
+            // Best-effort, and deliberately after the master's own move -- a master without its sidecar
+            // is the state every bake before this one produced, and is merely worse, not broken.
+            if (rejectionMap is not null)
+            {
+                try
+                {
+                    IntegrationFitsWriter.WriteRejectionMap(
+                        path, rejectionMap, frameCount, meanRejectionRate, rejectionMapIsCoverage, strategy);
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogWarning(ex, "  [{Session}] could not retain the coverage map; the master stands", sessionId);
+                }
+            }
+
+            logger?.LogDebug("  [{Session}] session master retained{Wcs}{Map}", sessionId,
+                wcs is not null ? " with a WCS" : "", rejectionMap is not null ? " and its coverage map" : "");
             return true;
         }
 
