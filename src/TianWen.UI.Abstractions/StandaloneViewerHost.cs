@@ -48,7 +48,16 @@ public sealed class StandaloneViewerHost<TSurface>
         // same way -- an overlay that claimed the keyboard, a chord declared on a painted node, the focused
         // field -- before anything of this viewer's own runs. Presses route the same way: the regions the
         // last paint declared answer first, and whatever they decline reaches HandleUnroutedPress.
-        Router = new InputRouter(viewer.Ui, tracker, () => state.NeedsRedraw = true)
+        //
+        // A frame the ROUTER asks for repaints the whole surface. It asks for a changed hover, a tooltip, a
+        // dial's drag or a focus change, none of which it can bound, and it asks BEFORE the viewer's own move
+        // handler runs, which narrows a move's damage to the pixel readout: without the full frame a
+        // button crossed while the pointer changed picture pixel kept its old fill.
+        Router = new InputRouter(viewer.Ui, tracker, () =>
+        {
+            state.NeedsRedraw = true;
+            viewer.RequestFullFrameDamage();
+        })
         {
             Widgets = () => [viewer],
             Unhandled = evt => evt is InputEvent.MouseDown down
