@@ -166,6 +166,11 @@ var rootCommand = new RootCommand
             new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
                 services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
                 services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>()),
+            // GetService, not GetRequiredService: the deblurrer exists only where RC-Astro is
+            // installed and licensed, and the denoiser only where a backend serves the role. The
+            // `deblur` / `denoise` verbs say so themselves; every other verb must still work.
+            services.GetService<IImageDeblurrer>(),
+            services.GetService<IDenoiseEnhancer>(),
             services.GetService<ILogger<ImageSubCommand>>()).Build(),
         new DatasetSubCommand(
             consoleHost,
