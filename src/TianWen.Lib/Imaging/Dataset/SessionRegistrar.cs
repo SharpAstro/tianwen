@@ -308,6 +308,32 @@ public static class SessionRegistrar
     /// 8-subs-per-cell tiles allow (4v4) is still 2.96x, so a model trained on tiles alone has
     /// to extrapolate. Two half-masters land at ~1.41x (sqrt 2), which closes it.</param>
     /// <param name="HalfMasterB">The complementary half. See <paramref name="HalfMasterA"/>.</param>
+    /// <summary>
+    /// One light that was MEASURED and did not reach the master, with the stage that dropped it and
+    /// the metrics it was judged on.
+    /// <para>
+    /// Kept because the store recorded only the subs that registered, so a dropped one left no trace
+    /// at all: answering "why did this session lose 33 frames" meant listing the archive folder,
+    /// diffing it against the store's own sub list to recover the names, and re-measuring frames by
+    /// hand. Everything here was already computed by the measure pass -- the gate runs after it -- so
+    /// this costs a list, not a measurement.
+    /// </para>
+    /// </summary>
+    /// <param name="Stage">Which stage dropped it: <see cref="DropStageGate"/> suffixed with the
+    /// failing criterion (the reason is a FLAGS enum, so a frame can fail several at once),
+    /// <see cref="DropStageTooFewStars"/>, or <see cref="DropStageNoQuadFit"/>.</param>
+    public sealed record DroppedSub(FrameInfo Source, string Stage, FrameMetrics Metrics);
+
+    /// <summary>The session-relative quality gate, which is where most drops happen: 523 of the 607
+    /// lost in the 2026-09-19 bake, against 84 for registration.</summary>
+    public const string DropStageGate = "gate";
+
+    /// <summary>Fewer detected stars than <see cref="FrameRegistration.MinStarsForMatch"/>.</summary>
+    public const string DropStageTooFewStars = "too-few-stars";
+
+    /// <summary>Quads that matched the reference at no rung of the tolerance ladder.</summary>
+    public const string DropStageNoQuadFit = "no-quad-fit";
+
     public sealed record RegisteredSession(
         ImagingSession Session,
         Image Master,
@@ -323,6 +349,15 @@ public static class SessionRegistrar
         Image? HalfMasterA = null,
         Image? HalfMasterB = null)
     {
+        /// <summary>
+        /// Every measured light that did NOT reach the master, with the stage that dropped it. Empty
+        /// on a session that lost nothing, and on a hand-built session in a test.
+        /// <para><see cref="GatedCount"/> and <see cref="SkippedCount"/> are the same information
+        /// counted; this is the same information ITEMISED, which is what turns "a third of that
+        /// session vanished" from a re-run into a sort.</para>
+        /// </summary>
+        public ImmutableArray<DroppedSub> Dropped { get; init; } = [];
+
         /// <summary>How to obtain a sub warped onto this session's canvas, whichever way the session
         /// was built: the scratch FITS where one was written, a re-warp of the source where it was
         /// not. <b>Every reader of a warped sub goes through this</b>, because
@@ -467,6 +502,14 @@ public static class SessionRegistrar
 
         // 2. Session-relative quality gate (star-count-led; see SessionFrameAnalyzer doc).
         var gate = SessionFrameAnalyzer.ApplyGate(analyzed, qualityRejectSigma, qualityMaxRejectFraction);
+
+        // Itemised as they are dropped, because nothing downstream can reconstruct them: the gate's
+        // rejects carry their own typed reason here and are unreachable once this scope ends.
+        var dropped = ImmutableArray.CreateBuilder<DroppedSub>();
+        foreach (var (rejected, reason) in gate.Rejected)
+        {
+            dropped.Add(new DroppedSub(rejected.Frame, $"{DropStageGate}:{reason}", rejected.Metrics));
+        }
         logger?.LogInformation(
             "  [{Session}] gate: kept {Kept}/{Total} ({Rejected} rejected{Floor})",
             session.Id, gate.Kept.Length, analyzed.Count, gate.Rejected.Length,
@@ -551,6 +594,10 @@ public static class SessionRegistrar
             var attempt = await registerLoop.RegisterAsync(f.Stars, f.Metrics, cancellationToken);
             if (attempt.Transform is not { } transform)
             {
+                dropped.Add(new DroppedSub(
+                    f.Frame,
+                    attempt.Skip is RegisterLoop.SkipCause.TooFewStars ? DropStageTooFewStars : DropStageNoQuadFit,
+                    f.Metrics));
                 if (attempt.Skip is RegisterLoop.SkipCause.TooFewStars)
                 {
                     logger?.LogDebug("  [{Session}] {File} stars={Stars} (< {Min}) -> skip (too few)",
@@ -968,6 +1015,10 @@ public static class SessionRegistrar
             FlipSides = sides,
             RejectionMap = integration.TotalRejections > 0 ? integration.RejectionMap : null,
             RejectionMapIsCoverage = integration.RejectionMapIsCoverage,
+            // On the COMBINED master only. A flip side is a subset of the same night's registered
+            // subs, so attaching the session's drops to each side would count every one of them
+            // twice and invite a reader to sum the sides.
+            Dropped = dropped.ToImmutable(),
         };
 
         async Task<IntegrationResult> IntegrateSubsetAsync(ImmutableArray<int> pick, string scratchName, PixelRect? subsetStatsRect = null)

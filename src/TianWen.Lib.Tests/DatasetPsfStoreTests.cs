@@ -133,6 +133,35 @@ namespace TianWen.Lib.Tests
             back.SubFwhmGreen[0].ShouldBe(1.92f);
             float.IsNaN(back.SubFwhmGreen[1]).ShouldBeTrue("a refused fit stays NaN through the file");
             plain.SubFwhmGreen.ShouldBeNull();
+
+            // The subs that did NOT get here. Round-tripped separately from the arrays above because
+            // they are the session's other half: those describe what reached the master, this
+            // describes what did not and why, and until it existed a dropped sub left no trace at all
+            // (607 of 11,221 lights in the 2026-09-19 bake).
+            var withDrops = written with
+            {
+                DroppedSubs =
+                [
+                    new DatasetPsfNoiseReport.DroppedSub(
+                        "D:/a/L_004.fits", "gate:StarCountTooLow", epochs[0], 2.9f, 3.1f, 0.48f, 742),
+                    new DatasetPsfNoiseReport.DroppedSub(
+                        "D:/a/L_005.fits", "no-quad-fit", epochs[1], 2.7f, 2.9f, 0.51f, 88),
+                ],
+            };
+            await DatasetPsfStore.AppendAsync(path, withDrops, ct);
+            var dropped = (await DatasetPsfStore.ReadAsync(path, cancellationToken: ct))[written.SessionId].DroppedSubs;
+
+            dropped.ShouldNotBeNull();
+            dropped.Length.ShouldBe(2);
+            // The STAGE is the point: "the night was bad" and "the matcher could not place it" have
+            // opposite fixes, and a bare count cannot tell them apart.
+            dropped[0].Stage.ShouldBe("gate:StarCountTooLow");
+            dropped[0].File.ShouldBe("D:/a/L_004.fits");
+            dropped[0].StarCount.ShouldBe(742);
+            dropped[1].Stage.ShouldBe("no-quad-fit");
+            dropped[0].EpochUtc.ShouldBe(epochs[0], "the epoch is what makes a drop CLUSTER visible");
+
+            back.DroppedSubs.ShouldBeNull("a record from before the column has no answer, which is not the same as losing nothing");
             DatasetPsfNoiseReport.SubIdentity.From(back).ShouldNotBeNull().UsedFallbackSite.ShouldBeTrue();
             back.SubAirmass.ShouldNotBeNull();
             back.SubAirmass.Length.ShouldBe(back.SubFwhm.Length);

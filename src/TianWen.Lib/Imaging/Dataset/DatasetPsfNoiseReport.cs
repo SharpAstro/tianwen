@@ -210,7 +210,44 @@ public static class DatasetPsfNoiseReport
         /// One field makes it a grep.</para>
         /// </remarks>
         public Imaging.Calibration.CalibrationProvenance? Calibration { get; init; }
+
+        /// <summary>
+        /// The measured lights that did NOT reach this master, each with the stage that dropped it.
+        /// Null on a record written before this was captured, empty on a session that lost nothing.
+        /// </summary>
+        /// <remarks>
+        /// <para>An init property for the same reason as <see cref="Calibration"/>: a defaulted
+        /// positional parameter on this record is a binary break for anything compiled against the
+        /// old one.</para>
+        /// <para>Here because the per-sub arrays above describe the subs that REGISTERED, so a
+        /// dropped one left no trace anywhere. Over the 2026-09-19 bake that hid 607 of 11,221
+        /// lights, and the split between its two causes -- 523 by the quality gate against 84 by
+        /// registration -- was only recoverable from a log file nobody was tailing. Answering it for
+        /// ONE session meant listing the archive folder, diffing it against <see cref="SubFile"/> to
+        /// recover the names, and re-measuring frames by hand; that work found the drops were the
+        /// first twelve frames of the night and the last twenty-one, failing for OPPOSITE reasons
+        /// (altitude at one end, dawn twilight at the other). All of it is a sort over this array.</para>
+        /// </remarks>
+        public DroppedSub[]? DroppedSubs { get; init; }
     }
+
+    /// <summary>
+    /// One measured light that did not reach the master. Flat rather than parallel arrays, unlike the
+    /// registered subs above: those predate this and their alignment is load-bearing for readers that
+    /// zip them, while nothing zips these and a misaligned drop record would be silently wrong.
+    /// </summary>
+    /// <param name="Stage">Which stage dropped it -- <c>gate:&lt;reason&gt;</c> (the reason is a flags
+    /// enum, so a frame can fail several criteria at once), <c>too-few-stars</c>, or
+    /// <c>no-quad-fit</c>. The prefix is what separates "the night was bad" from "the matcher could
+    /// not place it", which have opposite fixes.</param>
+    public readonly record struct DroppedSub(
+        string File,
+        string Stage,
+        DateTimeOffset EpochUtc,
+        float Hfd,
+        float Fwhm,
+        float Ellipticity,
+        int StarCount);
 
     /// <summary>Value of <see cref="SessionPsf.SubSelection"/> when the sub arrays describe the
     /// registered subs, in registration order.</summary>
@@ -451,12 +488,29 @@ public static class DatasetPsfNoiseReport
             sources[i] = session.Subs[i].Source;
         }
 
-        return await MeasureMasterAsync(
+        var measured = await MeasureMasterAsync(
             session.Session.Id, label, session.Master, session.CanvasWidth, session.CanvasHeight,
             subFwhm, subHfd, subEcc, session.MasterStrategy.ToString(),
             SubIdentity.From(sources, SubsRegistered, fallbackSite),
             subFwhmGreen: subFwhmGreen,
             radiusBins: radiusBins, snrMin: snrMin, maxStars: maxStars, logger: logger, cancellationToken: cancellationToken);
+
+        // The lights that did NOT get here, carried through so the record describes the whole session
+        // and not only its survivors. Empty stays empty rather than becoming null: "this session lost
+        // nothing" and "this record predates the field" are different facts.
+        return session.Dropped.IsDefault
+            ? measured
+            : measured with
+            {
+                DroppedSubs = [.. session.Dropped.Select(static d => new DroppedSub(
+                    d.Source.Path,
+                    d.Stage,
+                    d.Source.Meta.ExposureStartTime,
+                    d.Metrics.MedianHfd,
+                    d.Metrics.MedianFwhm,
+                    d.Metrics.MedianEllipticity,
+                    d.Metrics.StarCount))],
+            };
     }
 
     /// <summary>
