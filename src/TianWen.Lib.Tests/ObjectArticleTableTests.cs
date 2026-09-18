@@ -133,6 +133,20 @@ public class ObjectArticleTableTests
         Uri.UnescapeDataString(url["https://en.wikipedia.org/wiki/".Length..]).Replace('_', ' ').ShouldBe(title);
     }
 
+    [Theory]
+    [InlineData("M8")]
+    [InlineData("NGC6523")]
+    [InlineData("Sh2-25")]
+    public async Task TheLagoonNebulaHasItsArticleAndPictureUnderEveryName(string designation)
+    {
+        // Raised from the atlas (2026-09-18): the Lagoon's panel showed no picture section at all.
+        var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
+        db.TryLookupByIndex(designation, out var obj).ShouldBeTrue(designation);
+        db.TryGetArticle(obj.Index, out var article).ShouldBeTrue($"{designation} resolved to {obj.Index.ToCanonical()}");
+        article.Title.ShouldBe("Lagoon Nebula");
+        article.Image.ShouldNotBeNull().FileName.ShouldContain("Lagoon");
+    }
+
     [Fact]
     public async Task TheEmbeddedTableAnswersForAnObjectByAnyOfItsNames()
     {
