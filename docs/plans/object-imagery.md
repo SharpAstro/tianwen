@@ -197,6 +197,31 @@ store's too); and a `\b` written through an inline Python edit had become a lite
 the chart-name regex, which matched nothing, the same defect the category regex had carried since its
 first commit (`spectra\b`, so that alternative never fired).
 
+### Redirects, and articles about a whole (2026-09-18)
+
+Raised by the user on the Veil: NGC 6960's panel linked the right article but showed no picture. Wikidata's
+NGC 6960 item links `NGC 6960`, which is `#Redirect [[Veil Nebula]]`; the code route found that item, it
+outranked the title route's Veil Nebula item, and the pageimages query (which did not pass `redirects=1`)
+asked the redirect page itself, which has no image. The link worked only because Wikipedia follows a
+redirect for a browser.
+
+**Following redirects blindly would have been wrong.** Of the 2,551 image-less records, 96 were redirects:
+69 land on a LIST (`List of NGC objects (1–1000)`), and 22 of those lists lead with a picture of another
+object (Robert's Quartet for NGC 123); 27 land on a real article. So a sitelink that is a redirect is
+followed, and its landing item takes the redirecting item's place and routes, then is verified by position
+like any candidate. **That alone removed the Veil**: the Veil Nebula's item, like `NGC 6820 and NGC 6823`'s,
+has NO coordinates, being about a complex. It lists its parts (`P527`: the Western Veil NGC 6960, the
+Eastern Veil, IC 1340), so a whole with no position is placed by the nearest of its parts that is itself a
+candidate for the same object; the part's own verification carries it, and a list has no such part.
+
+| Against the committed table | |
+|---|---|
+| Sitelinks that are redirects | 115 |
+| Removed | 89: 79 list links, 6 Xi1/Xi2 Lupi (whole unverifiable; its lead was a constellation map), NGC 4059 and NGC 4443 (redirects to a different galaxy outside tolerance) |
+| Added | 42: NGC 6992 and C33 (the Eastern Veil, whose item has no article) to the Veil, joint articles (`NGC 4656 and NGC 4657`), double-star systems for their components |
+| Retitled | 41: NGC 6960 and C34 to Veil Nebula, NGC 6820/6823 to their joint article, Alpha Centauri A/B, NGC 2237 to Rosette Nebula |
+| Caldwell without an article | C40, C41, C74 (C33 and C34 recovered) |
+
 ## Design
 
 ### P0: the identity bake (the part that replaces guessing)
@@ -288,6 +313,15 @@ an object absent from the table gets no link rather than a dead one.
   width by virtue of being bigger, and the desktop caches that width beside the thumbnail.
 - **Nothing is outstanding in P1.** The session credit list was dropped rather than built, because the
   credit is already under the picture in both places it is shown.
+- **Which objects have a photo is shown before a click** (2026-09-18, the user's call among a label mark, a
+  marker tint and a layer): U+1F4F7 CAMERA after the label's first line, from the window's EMOJI face in
+  its own colours, faded with the label (`OverlayItem.HasPicture`, resolved once per candidate from the same
+  table the panel reads, so the two cannot disagree). The placement reserves it, so it collides like text.
+  Not a baked mask: every colour emoji that reads as a photo bakes to a solid block (detail drawn colour on
+  colour), and a mask is one `FillRect` per run, about thirty unbatched Vulkan draws per mark against one
+  bitmap-atlas quad. It needed colour glyphs on every renderer: DIR.Lib 10.1 made the CPU one fade them,
+  WebGl.Renderer 1.34 added them to the browser (verified in Edge by `PictureMarkProbe`), and the web host
+  loads a 2.9 KB SUBSET of the Noto COLRv1 face holding only the camera (the full face is 4.99 MB).
 
 ### P2: positioned images on the atlas
 

@@ -82,8 +82,10 @@ internal static partial class Program
 
         var itemIds = candidates.Values.SelectMany(c => c.Keys).ToHashSet();
         var facts = await GetItemFactsAsync(http, itemIds, ct);
+        await FollowRedirectedSitelinksAsync(http, candidates, facts, ct);
+        var parts = await GetPartsOfUnplacedAsync(http, facts, ct);
 
-        var chosen = Choose(scope, candidates, facts);
+        var chosen = Choose(scope, candidates, facts, parts);
         Log($"verified with an article: {chosen.Count} indices, {chosen.Values.Distinct().Count()} articles");
 
         var titlesByItem = chosen.Values.Distinct().ToDictionary(q => q, q => facts[q].Title ?? "");
@@ -431,13 +433,135 @@ internal static partial class Program
     }
 
     /// <summary>
+    /// An item whose English sitelink is a REDIRECT has no article of its own: its article is wherever the
+    /// redirect lands, so the landing page's item takes its place as a candidate, on the same routes, and is
+    /// then verified by position like any other. NGC 6960's item links <c>NGC 6960</c>, which is
+    /// <c>#Redirect [[Veil Nebula]]</c>; stored as it stood, that gave a link which only worked because
+    /// Wikipedia follows the redirect for a browser, and no picture, because a redirect page has none. The
+    /// position check is the guard, and it is needed: 69 sitelinks redirect to a list
+    /// (<c>List of NGC objects (1–1000)</c>), whose item has no position, and 22 of those lists lead with a
+    /// picture of a different object (Robert's Quartet for NGC 123). Measured on the 2026-09-18 table.
+    /// </summary>
+    private static async Task FollowRedirectedSitelinksAsync(HttpClient http,
+        Dictionary<CatalogIndex, Dictionary<uint, Route>> candidates, Dictionary<uint, ItemFacts> facts, CancellationToken ct)
+    {
+        var itemsByTitle = facts
+            .Select(kv => (Item: kv.Key, kv.Value.Title))
+            .Where(t => t.Title is not null)
+            .GroupBy(t => t.Title ?? "", StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Select(t => t.Item).ToArray(), StringComparer.Ordinal);
+        var titles = itemsByTitle.Keys.Order(StringComparer.Ordinal).ToArray();
+
+        // Item -> the item of the page its sitelink redirects to, or null when that page has none.
+        var landedItem = new Dictionary<uint, uint?>();
+        const int batch = 50;
+        for (var start = 0; start < titles.Length; start += batch)
+        {
+            var asked = titles.Skip(start).Take(batch).ToArray();
+            var json = await PostAsync(http, EnWikipediaApi, new Dictionary<string, string>
+            {
+                ["action"] = "query", ["format"] = "json", ["formatversion"] = "2", ["redirects"] = "1",
+                ["titles"] = string.Join('|', asked), ["prop"] = "pageprops", ["ppprop"] = "wikibase_item",
+            }, ct);
+
+            var query = json.RootElement.GetProperty("query");
+            var redirectedFrom = query.TryGetProperty("redirects", out var hops)
+                ? hops.EnumerateArray().Select(h => h.GetProperty("from").GetString()).ToHashSet(StringComparer.Ordinal)
+                : [];
+            var landedOn = FollowTitles(query, asked);
+            foreach (var page in query.TryGetProperty("pages", out var pages) ? pages.EnumerateArray() : default)
+            {
+                var pageTitle = page.GetProperty("title").GetString();
+                uint? target = page.TryGetProperty("pageprops", out var props) && props.TryGetProperty("wikibase_item", out var wikibase)
+                    ? ItemNumber(wikibase.GetString())
+                    : null;
+                foreach (var original in asked.Where(t => redirectedFrom.Contains(t) && landedOn[t] == pageTitle))
+                {
+                    foreach (var item in itemsByTitle[original].Where(i => i != target))
+                    {
+                        landedItem[item] = target;
+                    }
+                }
+            }
+
+            if ((start / batch) % 20 == 0)
+            {
+                Log($"sitelinks {Math.Min(start + batch, titles.Length)}/{titles.Length}");
+            }
+            await Task.Delay(ApiPause, ct);
+        }
+
+        // The redirecting item STAYS a candidate, with no article of its own: Choose can never pick it, but it
+        // can lend its verified position to a landing item that has none and lists it as a part (the Veil).
+        foreach (var (item, target) in landedItem)
+        {
+            facts[item] = facts[item] with { Title = null };
+            foreach (var items in candidates.Values)
+            {
+                if (items.TryGetValue(item, out var route) && target is { } landed)
+                {
+                    items[landed] = items.GetValueOrDefault(landed) | route;
+                }
+            }
+        }
+
+        var unseen = landedItem.Values.OfType<uint>().Where(t => !facts.ContainsKey(t)).ToHashSet();
+        foreach (var (item, fact) in unseen.Count > 0 ? await GetItemFactsAsync(http, unseen, ct) : [])
+        {
+            facts[item] = fact;
+        }
+        Log($"sitelinks that are redirects: {landedItem.Count}, {landedItem.Values.Count(t => t is null)} to a page with no item, {unseen.Count} landing items fetched");
+    }
+
+    /// <summary>
+    /// For every titled item with NO position of its own, the items Wikidata says are its parts (<c>P527</c> on
+    /// the whole, or <c>P361</c> on the part). An article about a complex has no single position to verify: the
+    /// Veil Nebula's item lists the Western Veil (NGC 6960), the Eastern Veil and IC 1340 and carries no
+    /// coordinates, and so does the item of the joint article <c>NGC 6820 and NGC 6823</c>. Measured on the
+    /// 2026-09-18 bake, where following redirects alone took NGC 6960, C34, NGC 6820 and NGC 6823 from a link
+    /// with no picture to no link at all.
+    /// </summary>
+    private static async Task<Dictionary<uint, HashSet<uint>>> GetPartsOfUnplacedAsync(HttpClient http,
+        Dictionary<uint, ItemFacts> facts, CancellationToken ct)
+    {
+        var wholes = facts.Where(kv => kv.Value is { Title: not null } && (kv.Value.RaDeg is null || kv.Value.Dec is null))
+            .Select(kv => kv.Key).Order().ToArray();
+        var parts = new Dictionary<uint, HashSet<uint>>();
+        const int batch = 300;
+        for (var start = 0; start < wholes.Length; start += batch)
+        {
+            var values = string.Join(' ', wholes.Skip(start).Take(batch).Select(q => "wd:Q" + q.ToString(CultureInfo.InvariantCulture)));
+            var query = $$"""
+                SELECT ?whole ?part WHERE {
+                  VALUES ?whole { {{values}} }
+                  { ?whole wdt:P527 ?part . } UNION { ?part wdt:P361 ?whole . }
+                }
+                """;
+            foreach (var binding in await SparqlAsync(http, query, ct))
+            {
+                var whole = ItemNumber(binding.GetProperty("whole").GetProperty("value").GetString());
+                var part = ItemNumber(binding.GetProperty("part").GetProperty("value").GetString());
+                if (!parts.TryGetValue(whole, out var set))
+                {
+                    parts[whole] = set = [];
+                }
+                set.Add(part);
+            }
+            await Task.Delay(SparqlPause, ct);
+        }
+        Log($"unplaced articles: {wholes.Length}, {parts.Count} with parts");
+        return parts;
+    }
+
+    /// <summary>
     /// For each index, the one verified item with an English article, or none. Accepted only inside the
     /// tolerance; among several, an item both routes found beats one found by code, which beats one found by
     /// title, and then the nearer wins. That rule picks the Carina Nebula over the Keyhole Nebula for
     /// NGC 3372, and the IC 434 article over the Flame Nebula for IC 434.
     /// </summary>
     private static Dictionary<CatalogIndex, uint> Choose(Dictionary<CatalogIndex, ScopedObject> scope,
-        Dictionary<CatalogIndex, Dictionary<uint, Route>> candidates, Dictionary<uint, ItemFacts> facts)
+        Dictionary<CatalogIndex, Dictionary<uint, Route>> candidates, Dictionary<uint, ItemFacts> facts,
+        Dictionary<uint, HashSet<uint>> parts)
     {
         var chosen = new Dictionary<CatalogIndex, uint>();
         foreach (var (index, items) in candidates)
@@ -445,9 +569,9 @@ internal static partial class Program
             var obj = scope[index];
             var tolerance = ToleranceDeg(obj);
             var best = items
-                .Where(kv => facts.TryGetValue(kv.Key, out var f) && f is { RaDeg: not null, Dec: not null, Title: not null })
+                .Where(kv => facts.TryGetValue(kv.Key, out var f) && f.Title is not null)
                 .Select(kv => (Item: kv.Key, Rank: RouteRank(kv.Value),
-                    Separation: SeparationDeg(obj.RaHours * 15.0, obj.Dec, facts[kv.Key].RaDeg ?? 0, facts[kv.Key].Dec ?? 0)))
+                    Separation: SeparationOf(obj, kv.Key, items, facts, parts)))
                 .Where(c => c.Separation <= tolerance)
                 .OrderBy(c => c.Rank).ThenBy(c => c.Separation).ThenBy(c => c.Item)
                 .FirstOrDefault();
@@ -458,6 +582,34 @@ internal static partial class Program
             }
         }
         return chosen;
+    }
+
+    /// <summary>
+    /// How far an item lies from the object: its own position where it has one. A WHOLE with none (an article
+    /// about a complex) is placed by the nearest of its parts that is itself a candidate for THIS object with a
+    /// position, so the part's verification carries it; that the part is a candidate here, found by the
+    /// object's own codes or titles, is what keeps an unrelated membership (a galaxy in a cluster) from lending
+    /// a cluster its article. Infinity when neither applies, which no tolerance accepts: a list page has no
+    /// position and no such part, which is what keeps the 69 list redirects out.
+    /// </summary>
+    private static double SeparationOf(ScopedObject obj, uint item, Dictionary<uint, Route> candidatesOfObject,
+        Dictionary<uint, ItemFacts> facts, Dictionary<uint, HashSet<uint>> parts)
+    {
+        if (facts[item] is { RaDeg: { } ra, Dec: { } dec })
+        {
+            return SeparationDeg(obj.RaHours * 15.0, obj.Dec, ra, dec);
+        }
+
+        var nearest = double.PositiveInfinity;
+        foreach (var part in parts.GetValueOrDefault(item) ?? [])
+        {
+            if (part != item && candidatesOfObject.ContainsKey(part)
+                && facts.TryGetValue(part, out var placed) && placed is { RaDeg: { } pra, Dec: { } pdec })
+            {
+                nearest = Math.Min(nearest, SeparationDeg(obj.RaHours * 15.0, obj.Dec, pra, pdec));
+            }
+        }
+        return nearest;
     }
 
     private static int RouteRank(Route route) => route switch

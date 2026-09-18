@@ -35,7 +35,17 @@ Every rule was measured first; the numbers are in the plan's "P0 measured" secti
 4. **Verification by position**: a candidate counts only when its Wikidata right ascension and declination
    lie within the object's catalogued major axis, or, with no size, one degree for an extended kind and ten
    arcminutes otherwise. Several survivors: found by both routes beats code only beats title only, then the
-   nearer wins.
+   nearer wins. **A sitelink that is a redirect is followed first**: the item's article is the page it
+   lands on, so that page's item replaces it on the same routes and is verified like any other. NGC 6960's
+   item links `NGC 6960`, a redirect to Veil Nebula, and was stored as the redirect, which linked (a browser
+   follows it) but carried no picture (the redirect page has none). The position check is what keeps the 69
+   sitelinks that redirect to a LIST (`List of NGC objects (1–1000)`) out: a list's item has no position, and
+   22 of them lead with a picture of another object. **An article about a complex has no position either**
+   (the Veil Nebula's item, the joint `NGC 6820 and NGC 6823`), so a WHOLE with none is placed by the nearest
+   of its Wikidata parts (`P527`, or `P361` on the part) that is itself a candidate for the same object: the
+   part's own verification carries it. Following redirects without this took NGC 6960 and C34 from a link
+   with no picture to no link at all; with it they, and the Eastern Veil (C33, whose item has no article of
+   its own), get the Veil Nebula and its picture. A list has no such part, so it stays out.
 5. **The lead image** the article itself shows (`prop=pageimages`), not Wikidata's `P18`, which agreed with
    it for only a third of articles. Dropped, keeping the article's link: an SVG (every one measured was a
    constellation map); any format but JPEG, PNG and TIFF, which are what the desktop store decodes; a CHART, which is what star articles often lead with (a light curve, a position
