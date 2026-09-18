@@ -541,9 +541,10 @@ locking the release scope was *"as long as we track everything we skipped in a p
     colours -- the split is deliberate, because the atlas floats its panel bottom-left over a
     whole-sky projection and the viewer puts it over a photograph, so the geometry is legitimately
     per-host while the strings and the row logic are not. An action is a CALLBACK
-    (`PanelActions.Goto`/`OpenInAtlas`/... ), never a flag, so a host that wires none of the mount
+    (`PanelActions.Goto`/`ViewInPlanner`/... ), never a flag, so a host that wires none of the mount
     actions gets a panel that simply has no mount buttons on it -- the viewer passes only `Close` and
-    `OpenInAtlas`. Equivalence for the atlas was checked ARITHMETICALLY (the design text-block height,
+    its links. (Open-in-atlas was a button here until 2026-09-18; it is the `AtlasUrl` link now, beside
+    the Wikipedia one, because both leave the app.) Equivalence for the atlas was checked ARITHMETICALLY (the design text-block height,
     row count and button widths matched line for line) rather than assumed, since the whole point of
     the move was that a shipped panel changes nothing a user can see.
   - **The viewer's own `ViewerState.SelectedObject` is now a `SkyMapInfoPanelData`, not a bespoke

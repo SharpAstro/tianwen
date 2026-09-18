@@ -253,6 +253,25 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// A control's fill under the pointer: <paramref name="fill"/> tinted toward <paramref name="ink"/>, the
+        /// colour drawn on it. The one hover rule for every layout-built button and link
+        /// (<c>Layout.Node.BgHover</c>), so a hover reads the same in every panel and follows the palette through
+        /// F12 and Night with no second colour to pick per control.
+        /// </summary>
+        /// <remarks>
+        /// Toward the ink rather than toward white, so it lightens on a dark ground, darkens on a light one and
+        /// stays red at night. Raised 2026-09-18: no panel or popover button in the app lit under the pointer,
+        /// while the hand-painted toolbar beside them always had.
+        /// </remarks>
+        public static RGBAColor32 Hover(RGBAColor32 fill, RGBAColor32 ink) => Mix(fill, ink, HoverShare);
+
+        /// <inheritdoc cref="Hover(RGBAColor32, RGBAColor32)"/>
+        public static RGBAColor32 Hover(RGBAColor32 fill) => Hover(fill, Palette.BodyText);
+
+        /// <summary>How far toward its ink a hovered fill moves.</summary>
+        private const float HoverShare = 0.16f;
+
+        /// <summary>
         /// The banding colour for alternate rows in a list sitting on <see cref="UiPalette.PanelBg"/>.
         /// </summary>
         /// <remarks>

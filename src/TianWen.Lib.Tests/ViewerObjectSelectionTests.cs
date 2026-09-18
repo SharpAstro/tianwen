@@ -1207,28 +1207,33 @@ namespace TianWen.Lib.Tests
             // a widget's clickables live only as long as the paint that produced them.
             viewer.Render(document, state);
 
-            // The same geometry RenderSelectionPanel itself derives: no site/capture time in this
-            // fixture, so the panel is Close + Atlas only, at ObjectInfoPanel's own computed height.
-            var options = new ObjectInfoPanel.PanelDisplayOptions();
-            var actions = new ObjectInfoPanel.PanelActions(Close: () => { }, OpenInAtlas: () => { });
-            var ph = ObjectInfoPanel.DesignHeight(in options, in actions);
+            var ph = await PanelDesignHeightAsync(CatalogIndex.NGC5194, ct);
 
             var area = viewer.ImageArea;
             var px = area.X + 22f;
-            // 40% of the panel height up from its bottom edge: clear of the close X at the top and
-            // the button row at the bottom.
-            var py = area.Y + area.Height - 12f - (ph * 0.4f);
+            // Halfway down the coordinates row, the third: text with nothing to press on it, so the panel's
+            // own background is what answers. It used to be 40 percent of the height up from the bottom, which
+            // was blank before the panel carried a picture and lands on the picture (itself a control) now.
+            var panelTop = area.Y + area.Height - 12f - ph;
+            var py = panelTop + ObjectInfoPanel.DesignTitleRowHeight + (ObjectInfoPanel.DesignRowHeight * 1.5f);
             TapAt(viewer, px, py);
 
             state.SelectedObject.ShouldBe(selected,
                 "the panel's own blank area must swallow the press, not hand it to the picture underneath");
         }
 
-        /// <summary>The panel's own design height for this fixture: no site, so Close + Atlas only.</summary>
-        private static float PanelDesignHeight()
+        /// <summary>
+        /// The panel's own design height for this fixture, derived as <c>RenderSelectionPanel</c> derives it: no
+        /// site, so no Alt/Az rows; the object's picture and article when the catalogue has them; Close and the
+        /// links. It used to assume no picture and no article, which M51 has both of, and the short-pane test
+        /// below stayed green only while the Atlas button made the estimate tall enough.
+        /// </summary>
+        private static async Task<float> PanelDesignHeightAsync(CatalogIndex index, CancellationToken ct)
         {
-            var options = new ObjectInfoPanel.PanelDisplayOptions();
-            var actions = new ObjectInfoPanel.PanelActions(Close: () => { }, OpenInAtlas: () => { });
+            var db = await SharedCatalogDB.InitAsync(ct);
+            var options = new ObjectInfoPanel.PanelDisplayOptions(Picture: ObjectInfoPanel.PictureFor(index, db));
+            var actions = new ObjectInfoPanel.PanelActions(Close: () => { },
+                ArticleUrl: ObjectInfoPanel.ArticleUrlFor(index, db), AtlasUrl: SkyAtlasLink.BaseUrl);
             return ObjectInfoPanel.DesignHeight(in options, in actions);
         }
 
@@ -1253,7 +1258,7 @@ namespace TianWen.Lib.Tests
             state.HideChrome = true;
             viewer.Render(document, state);
 
-            var ph = PanelDesignHeight();
+            var ph = await PanelDesignHeightAsync(CatalogIndex.NGC5194, ct);
             var area = viewer.ImageArea;
             var px = area.X + 22f;
             var py = MathF.Max(area.Y, area.Y + area.Height - ph - 12f) + (ph * 0.5f);
@@ -1275,7 +1280,7 @@ namespace TianWen.Lib.Tests
             var (viewer, state, document, _) = await NewViewerOnAsync(renderer, CatalogIndex.NGC5194, ct);
 
             viewer.Render(document, state);
-            var ph = PanelDesignHeight();
+            var ph = await PanelDesignHeightAsync(CatalogIndex.NGC5194, ct);
             var area = viewer.ImageArea;
             area.Height.ShouldBeLessThan(ph + 12f,
                 "the fixture only exercises the clamp while the pane is shorter than the panel");
@@ -1288,11 +1293,9 @@ namespace TianWen.Lib.Tests
             viewer.Render(document, state);
 
             var px = area.X + 22f;
-            // The probe lands on the title row, which is the article link when the object has one, and
-            // the link answers ahead of the panel's background: either is the panel, starting there.
-            (viewer.HitTest(px, area.Y + 4f) is HitResult.ButtonHit { Action: "SelectionPanelBackground" } or HitResult.LinkHit)
+            (viewer.HitTest(px, area.Y + 4f) is HitResult.ButtonHit { Action: "SelectionPanelBackground" })
                 .ShouldBeTrue("clamped to the top of the image area, the panel starts there");
-            (viewer.HitTest(px, area.Y - 8f) is HitResult.ButtonHit { Action: "SelectionPanelBackground" } or HitResult.LinkHit)
+            (viewer.HitTest(px, area.Y - 8f) is HitResult.ButtonHit { Action: "SelectionPanelBackground" })
                 .ShouldBeFalse("and it must not reach above the image area into the toolbar");
         }
     }

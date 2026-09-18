@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using DIR.Lib;
 using Shouldly;
@@ -39,6 +41,72 @@ public class ViewerE2ETests
         ToolbarAction.BackgroundNeutralize,
         ToolbarAction.Shortcuts,
     ];
+
+    /// <summary>
+    /// A link on the object panel opens its page, once, through this host. The standalone host's router had
+    /// no <c>OpenUrl</c> subscriber, so a press on a link took the hand pointer, was consumed and opened
+    /// nothing, while the same panel in the GUI worked (2026-09-18).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Scales))]
+    public async Task APressOnThePanelsAtlasLinkOpensThePageOnce(float dpiScale)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var e2e = ViewerE2E.Start(dpiScale);
+        await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
+        var opened = new List<string>();
+        e2e.Bus.Subscribe<OpenUrlSignal>(sig => opened.Add(sig.Url));
+
+        var link = SelectAndFindTheAtlasLink(e2e);
+        e2e.Click(link);
+
+        // Once: the link opens the page and the panel's own callback only says so on the status line.
+        opened.ShouldHaveSingleItem().ShouldStartWith(SkyAtlasLink.BaseUrl);
+        e2e.State.StatusMessage.ShouldBe("Opening the sky atlas...");
+    }
+
+    /// <summary>
+    /// Crossing onto a panel link asks for a frame, so the link lights under the pointer, and moving on
+    /// inside it does not. This viewer routes motion around the router, which is what repaints a hover in
+    /// every other host, so nothing drew the hover until something unrelated forced a frame.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Scales))]
+    public async Task CrossingOntoAPanelLinkRepaintsAndMovingWithinItDoesNot(float dpiScale)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var e2e = ViewerE2E.Start(dpiScale);
+        await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
+        var link = SelectAndFindTheAtlasLink(e2e);
+        var y = link.Y + (link.Height / 2f);
+
+        e2e.Host.HandlePointer(new InputEvent.MouseMove(link.X - 2f, y));
+        e2e.Frame();
+        var pixel = e2e.State.CursorImagePosition;
+
+        e2e.Host.HandlePointer(new InputEvent.MouseMove(link.X + 2f, y));
+        e2e.State.CursorImagePosition.ShouldBe(pixel,
+            "both probes are over one picture pixel, so the readout cannot be what asks for the frame");
+        e2e.State.NeedsRedraw.ShouldBeTrue("the pointer crossed onto the link");
+        e2e.Frame();
+        e2e.Viewer.HoverBackgroundRectAt(link.X + 2f, y).ShouldBe(link, "the lit node is the link itself");
+
+        e2e.Host.HandlePointer(new InputEvent.MouseMove(link.X + 3f, y));
+        e2e.State.CursorImagePosition.ShouldBe(pixel);
+        e2e.State.NeedsRedraw.ShouldBeFalse("moving within the lit link changes nothing on screen");
+    }
+
+    /// <summary>
+    /// Selects an object with no catalogue entry, whose panel therefore has exactly one link, the sky atlas's,
+    /// and returns where it was painted.
+    /// </summary>
+    private static RectF32 SelectAndFindTheAtlasLink(ViewerE2E e2e)
+    {
+        e2e.State.SelectedObject = SkyMapInfoPanelData.FromPosition(
+            "M 42", 5.588, -5.391, double.NaN, double.NaN, DateTimeOffset.UnixEpoch, default);
+        e2e.Frame();
+        return e2e.Region(hit => hit is HitResult.LinkHit, "the panel's sky-atlas link");
+    }
 
     [Theory]
     [MemberData(nameof(Scales))]

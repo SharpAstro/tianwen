@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using DIR.Lib;
 using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -228,7 +229,7 @@ namespace TianWen.Lib.Tests
         {
             var one = new ObjectInfoPanel.PanelActions(Goto: () => { });
             var two = one with { TogglePin = () => { } };
-            var three = two with { OpenInAtlas = () => { } };
+            var three = two with { ViewInPlanner = () => { } };
 
             // Leaves are: leading Star spacer, then per button a gap (all but the first) plus the
             // button itself, then the trailing margin spacer.
@@ -247,7 +248,86 @@ namespace TianWen.Lib.Tests
             DisabledBg: new RGBAColor32(0x38, 0x38, 0x3C, 0xFF),
             ViewBg: new RGBAColor32(0x3A, 0x4A, 0x5A, 0xFF),
             PinBg: new RGBAColor32(0x3A, 0x5A, 0x3A, 0xFF),
-            UnpinBg: new RGBAColor32(0x5A, 0x3A, 0x3A, 0xFF));
+            UnpinBg: new RGBAColor32(0x5A, 0x3A, 0x3A, 0xFF),
+            Link: new RGBAColor32(0x7A, 0xB4, 0xE8, 0xFF));
+
+        // --- a link leaves the app, so it is a link and not a button ---
+
+        /// <summary>
+        /// The article and the sky atlas are a row of their own: a host offering only links gets no button
+        /// row, and the links still take their height.
+        /// </summary>
+        [Fact]
+        public void LinksAreARowOfTheirOwnNotButtons()
+        {
+            var actions = new ObjectInfoPanel.PanelActions(
+                ArticleUrl: "https://en.wikipedia.org/wiki/Horsehead_Nebula", AtlasUrl: "https://example.org/atlas");
+            var options = new ObjectInfoPanel.PanelDisplayOptions();
+
+            actions.HasButtons.ShouldBeFalse();
+            actions.HasLinks.ShouldBeTrue();
+            ObjectInfoPanel.BuildButtonRow(in actions, in Palette).ShouldBeNull();
+
+            // The two links, the gap between them and the trailing spacer that keeps them left.
+            CountLeaves(ObjectInfoPanel.BuildLinkRow(in actions, in Palette).ShouldNotBeNull()).ShouldBe(4);
+            ObjectInfoPanel.DesignHeight(in options, in actions)
+                .ShouldBeGreaterThan(ObjectInfoPanel.DesignHeight(in options, new ObjectInfoPanel.PanelActions()));
+        }
+
+        /// <summary>A missing or empty URL is a link that is not offered, exactly as a null callback is a button.</summary>
+        [Fact]
+        public void NoUrlMeansNoLink()
+        {
+            var actions = new ObjectInfoPanel.PanelActions(Goto: () => { }, ArticleUrl: null, AtlasUrl: "");
+
+            actions.HasLinks.ShouldBeFalse();
+            ObjectInfoPanel.BuildLinkRow(in actions, in Palette).ShouldBeNull();
+        }
+
+        /// <summary>
+        /// The link row sits under everything else and above the buttons, with its top stated once for both
+        /// hosts: nothing it draws can land on the button row.
+        /// </summary>
+        [Fact]
+        public void TheLinkRowSitsAboveTheButtons()
+        {
+            var options = new ObjectInfoPanel.PanelDisplayOptions(ShowAltAz: true, ShowRiseSet: true);
+            var actions = new ObjectInfoPanel.PanelActions(Goto: () => { }, ArticleUrl: "https://en.wikipedia.org/wiki/M31");
+
+            var height = ObjectInfoPanel.DesignHeight(in options, in actions);
+            var linkTop = ObjectInfoPanel.DesignLinkRowTop(in options, in actions);
+            var buttonTop = height - ObjectInfoPanel.DesignButtonHeight - 8f;
+
+            (linkTop + ObjectInfoPanel.DesignLinkRowHeight).ShouldBeLessThan(buttonTop);
+            linkTop.ShouldBeGreaterThanOrEqualTo(ObjectInfoPanel.DesignTextBlockHeight(in options));
+        }
+
+        /// <summary>
+        /// Every control that can act lights under the pointer and a link says it is one with the hand
+        /// pointer. A disabled Goto does not light, since a press on it does nothing. Raised 2026-09-18: no
+        /// panel button in the app lit under the pointer.
+        /// </summary>
+        [Fact]
+        public void EveryControlThatCanActDeclaresAHover()
+        {
+            var actions = new ObjectInfoPanel.PanelActions(
+                Close: () => { }, Goto: () => { }, GotoEnabled: false, ViewInPlanner: () => { }, TogglePin: () => { },
+                ArticleUrl: "https://en.wikipedia.org/wiki/M31", AtlasUrl: "https://example.org/atlas");
+
+            var buttons = ObjectInfoPanel.BuildButtonRow(in actions, in Palette).ShouldBeOfType<Layout.Node.Stack>();
+            var clickable = buttons.Children.Where(c => c.Hit is not null).ToList();
+            clickable.Count.ShouldBe(2, "View in Planner and Pin; the disabled Goto registers nothing");
+            clickable.ShouldAllBe(c => c.HoverBackground != null);
+            buttons.Children.Single(c => c is Layout.Node.Leaf { Content: Layout.Content.Text { Value: "Goto" } })
+                .HoverBackground.ShouldBeNull("a disabled Goto does nothing, so it does not light");
+
+            var links = ObjectInfoPanel.BuildLinkRow(in actions, in Palette).ShouldBeOfType<Layout.Node.Stack>()
+                .Children.Where(c => c.Hit is HitResult.LinkHit).ToList();
+            links.Count.ShouldBe(2);
+            links.ShouldAllBe(l => l.HoverBackground != null && l.Cursor == CursorKind.Pointer);
+
+            ObjectInfoPanel.BuildCloseButton(in actions, in Palette).ShouldNotBeNull().HoverBackground.ShouldNotBeNull();
+        }
 
         /// <summary>
         /// How many children the row has. Counting rather than inspecting content: what matters is that
