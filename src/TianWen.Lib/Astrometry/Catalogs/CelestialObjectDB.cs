@@ -2802,6 +2802,11 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             return false;
         }
 
+        // A row OpenNGC has wrong upstream is corrected here, on the one path both readers take, before
+        // the SIMBAD merge or a consumer can see it: names and identifiers only, each line pinned to the
+        // raw row still being wrong. See OpenNgcCorrections.
+        OpenNgcCorrections.Apply(entryName, ref commonNamesArr, ref identifiers);
+
         var objectType = AbbreviationToEnumMember<OpenNGCObjectType>(objectTypeAbbr).ToObjectType();
         var @const = AbbreviationToEnumMember<Constellation>(constAbbr);
 
