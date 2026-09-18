@@ -186,6 +186,9 @@ namespace TianWen.UI.Abstractions
                     enabled ? ViewerTheme.Palette.BodyText : ViewerTheme.Palette.DimText,
                     hAlign: TextAlign.Center, widthSample: widthSample)
                 .PadX(WbGap)
+                // The row's height, not the label's: a text node measures its own glyphs, so "Calibrate"
+                // (ascenders) stood taller than "Auto" beside it and the centred row read as three sizes.
+                .HStar()
                 .Bg(fill)
                 .Clickable(new HitResult.ButtonHit(hit),
                     _ =>
