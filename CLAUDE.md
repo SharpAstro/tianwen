@@ -929,6 +929,21 @@ measurement, and thirteen traps that break the model SILENTLY. Four that reach b
 - **Judge these layers at 1:1, never by a band median** (use p0.5/min for streaks, and never compare
   differently-integrated layers against each other).
 
+**A WHOLE-FRAME STATISTIC OVER A CFA MOSAIC DESCRIBES NONE OF ITS FOUR POPULATIONS**, and the four
+need not share a level even in the dark: a non-neutral in-camera white balance is a digital gain on
+the raw stream, so it scales the PEDESTAL, and on the eta Carinae ASI294MC the photosite colours sit
+at R 540, G 520, G 520, B 621 ADU in a 10 s dark and 536/512/512/616 in a 32 us bias. Three places
+know this and each learned it the hard way -- `Normalizer.ApplyCfaInPlace` (a whole-frame scalar left
+a column stripe), `ClassicalBackgroundExtractor` (one plane removed the AVERAGE gradient and left
+each colour's own), and now `BadPixelDetection`, whose sampling stride was EVEN, which on a mosaic
+lands on (even, even) everywhere: the noise scale was one colour's, the sigma-8 threshold landed
+below blue's floor, 100% of blue was flagged hot and the master was written with an all-NaN blue
+plane while the session reported success. **Split by photosite before any median, MAD, sigma or
+gain**, keep a subsample stride ODD so an UNDECLARED mosaic cannot phase-lock, and remember the
+guard: a threshold flagging more than `BadPixelDetection.DefaultMaxMaskedFraction` is a degenerate
+estimate, not a defect set, so it masks nothing. `IntegratedMaster.Labelled` is the backstop for
+every strategy -- a master with a channel holding no finite pixel throws rather than being written.
+
 **Provenance skip (never re-ingest our own outputs).** The scan drops any TianWen-produced FITS
 (`STACK_N > 0` OR a TianWen `SWCREATE`, gated by `--include-integrations`). Markers, the ghost-master
 failure mode and the `ScanSummary` reporting: the architecture doc above.

@@ -13,18 +13,31 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// </summary>
 public static class BadPixelDetection
 {
-    /// <summary>Subsample stride used when computing the per-channel median +
+    /// <summary>Subsample stride used when computing the per-lattice median +
     /// MAD of the dark master. Denser than the original stride=32 because the
     /// iterative loop (<see cref="BuildMaskFromDark"/>) leans on the sample
     /// containing actual hot pixels: each iteration excludes the flagged
     /// strided positions and re-estimates noise stats from the inlier
     /// remainder, which only helps if a meaningful fraction of the sample
-    /// IS contaminated. At stride=8 a 6224x4168 IMX455 dark yields ~405k
+    /// IS contaminated. At this stride a 6224x4168 IMX455 dark yields ~530k
     /// samples per channel -- big enough to contain dozens of hot pixels at
     /// typical 0.01-0.1 % hot-pixel rates, so excluding them measurably
     /// tightens the MAD between iterations. Sort cost stays under 10 ms per
-    /// channel per iteration.</summary>
-    private const int StatStride = 8;
+    /// channel per iteration.
+    ///
+    /// <para><b>It must stay ODD, which is not a detail.</b> It was 8, and an
+    /// even stride walking a CFA mosaic lands on (even, even) at EVERY position:
+    /// the sample is then one Bayer colour rather than the frame, and the noise
+    /// scale of that one colour is applied to the other three. Measured on the
+    /// eta Carinae ASI294MC master dark, whose four photosite colours sit at
+    /// R 540, G 520, G 520, B 621 ADU: the stride-8 sample WAS the red plane
+    /// (median 540, MAD collapsed, non-zero-tail fallback 4.0), which put the
+    /// sigma-8 threshold at 587.4432 -- below blue's own floor -- so 100.000 %
+    /// of the blue photosites were flagged as hot and the master came out with
+    /// no blue at all. The dispatch in <see cref="BuildMaskFromDark"/> is the
+    /// real fix; an odd stride is what keeps a mosaic whose pattern was never
+    /// declared from failing the same way silently.</para></summary>
+    private const int StatStride = 7;
 
     /// <summary>Conventional MAD-to-Gaussian-sigma factor. Median +
     /// <see cref="GaussianFactor"/> * MAD approximates median + 1*sigma
@@ -63,6 +76,13 @@ public static class BadPixelDetection
     /// <para>1% is far above any plausible defect population (the measured
     /// consensus defect set for that sensor is 0.203% of the frame) and far
     /// below a runaway, so a sane threshold can never trip it.</para>
+    ///
+    /// <para><b>It guards the CHOSEN threshold too, not only the loop.</b> Bounding
+    /// the estimation alone leaves the one step that actually writes the mask
+    /// unguarded, and that is the step the eta Carinae ASI294MC dark went through:
+    /// its phase-1 estimate converged on iteration 0 without ever tripping this,
+    /// and the threshold it produced then flagged 25.17% of the sensor, which was
+    /// applied. A count over this fraction now masks nothing for that lattice.</para>
     /// </summary>
     public const float DefaultMaxMaskedFraction = 0.01f;
 
@@ -149,15 +169,62 @@ public static class BadPixelDetection
             return null;
         }
         var channelCount = darkMaster.ChannelCount;
+
+        // A CFA dark is ONE channel carrying four interleaved populations, and they do not share a
+        // level: on the eta Carinae ASI294MC dark the blue photosites sit 101 ADU above the red ones
+        // before a single photon is involved (a non-neutral in-camera white balance scales the
+        // PEDESTAL, which its 32 us bias shows just as clearly). One median and one MAD over the
+        // mosaic therefore describe none of the four, and the threshold they produce is measured
+        // from one colour's floor and applied to another's -- see StatStride for what that cost.
+        // Each Bayer position gets its own estimate instead. Which COLOUR a position holds does not
+        // matter to the statistic, only that the four are separated, so this is pattern-agnostic and
+        // the offsets are read solely to name the colour in the log.
+        var isMosaic = channelCount == 1 && darkMaster.ImageMeta.SensorType is SensorType.RGGB;
+
         var masks = new BitMatrix[channelCount];
         for (var c = 0; c < channelCount; c++)
         {
-            masks[c] = BuildMaskForChannel(darkMaster.GetChannelArray(c), c,
-                sigmaThreshold, maxIterations, convergenceFraction,
-                maxMaskedFraction, targetMaskedFraction, logger);
+            var data = darkMaster.GetChannelArray(c);
+            var mask = new BitMatrix(data.GetLength(0), data.GetLength(1));
+            masks[c] = mask;
+
+            if (isMosaic)
+            {
+                for (var dy = 0; dy < 2; dy++)
+                {
+                    for (var dx = 0; dx < 2; dx++)
+                    {
+                        MaskLattice(data, mask,
+                            $"ch={c} cfa=({dy},{dx}) {CfaColourAt(dy, dx, darkMaster.ImageMeta)}",
+                            dy, dx, step: 2,
+                            sigmaThreshold, maxIterations, convergenceFraction,
+                            maxMaskedFraction, targetMaskedFraction, logger);
+                    }
+                }
+            }
+            else
+            {
+                MaskLattice(data, mask, $"ch={c}", 0, 0, step: 1,
+                    sigmaThreshold, maxIterations, convergenceFraction,
+                    maxMaskedFraction, targetMaskedFraction, logger);
+            }
         }
         return masks;
     }
+
+    /// <summary>
+    /// The photosite colour at mosaic position (<paramref name="dy"/>, <paramref name="dx"/>), for the
+    /// log alone. <see cref="SensorType.RGGB"/> is the canonical base and the pattern's own origin is
+    /// carried as <see cref="ImageMeta.BayerOffsetX"/> / <see cref="ImageMeta.BayerOffsetY"/>, so
+    /// GRBG, GBRG and BGGR are the same base read from a shifted corner.
+    /// </summary>
+    private static string CfaColourAt(int dy, int dx, in ImageMeta meta)
+        => ((dy + meta.BayerOffsetY) & 1, (dx + meta.BayerOffsetX) & 1) switch
+        {
+            (0, 0) => "R",
+            (1, 1) => "B",
+            _ => "G",
+        };
 
     /// <summary>
     /// Counts the masked pixels (true bits) across all channels. Useful
@@ -185,7 +252,8 @@ public static class BadPixelDetection
     }
 
     /// <summary>
-    /// Builds one channel's mask in two SEPARATE phases, which is the whole
+    /// Masks one LATTICE of a channel -- the whole channel (<paramref name="step"/> 1), or one Bayer
+    /// position of a mosaic (<paramref name="step"/> 2) -- in two SEPARATE phases, which is the whole
     /// point of the shape:
     ///
     /// <list type="number">
@@ -206,15 +274,31 @@ public static class BadPixelDetection
     /// than bounding it. The guard in phase 1 remains as a backstop for a
     /// pathological dark.</para>
     /// </summary>
-    private static BitMatrix BuildMaskForChannel(
-        float[,] data, int channelIndex,
+    /// <param name="data">The whole channel. Only the lattice is read and only the lattice is written.</param>
+    /// <param name="mask">Full-channel mask, shared by every lattice of that channel.</param>
+    /// <param name="label">How this lattice names itself in the log, e.g. <c>ch=0 cfa=(1,1) B</c>.</param>
+    /// <param name="yStart">First row of the lattice.</param>
+    /// <param name="xStart">First column of the lattice.</param>
+    /// <param name="step">1 for a whole channel, 2 for one Bayer position of a mosaic.</param>
+    private static void MaskLattice(
+        float[,] data, BitMatrix mask, string label,
+        int yStart, int xStart, int step,
         float sigmaThreshold, int maxIterations, float convergenceFraction,
         float maxMaskedFraction, float targetMaskedFraction,
         ILogger? logger)
     {
         var h = data.GetLength(0);
         var w = data.GetLength(1);
-        var totalPx = (long)h * w;
+        // The lattice's own extent, which is what every fraction below is measured against: a budget
+        // of a quarter-frame lattice has to mean the same thing as a budget of a whole channel, or
+        // the four CFA phases would each be allowed four times the defects.
+        var latH = (h - yStart + step - 1) / step;
+        var latW = (w - xStart + step - 1) / step;
+        if (latH <= 0 || latW <= 0)
+        {
+            return;
+        }
+        var totalPx = (long)latH * latW;
         var convergenceFloor = (long)(totalPx * convergenceFraction);
         var runawayCeiling = maxMaskedFraction > 0f
             ? (long)(totalPx * maxMaskedFraction)
@@ -222,16 +306,16 @@ public static class BadPixelDetection
 
         // Strided sample collected once; reused (with exclusion filtering)
         // across the estimation iterations. Positions are no longer needed:
-        // phase 1 works purely on the sample, and the single full-channel pass
+        // phase 1 works purely on the sample, and the single full-lattice pass
         // happens in phase 2 once the threshold is settled.
-        var sampleCount = ((h + StatStride - 1) / StatStride) * ((w + StatStride - 1) / StatStride);
+        var sampleCount = ((latH + StatStride - 1) / StatStride) * ((latW + StatStride - 1) / StatStride);
         var sampleValues = new float[sampleCount];
         var idx = 0;
-        for (var y = 0; y < h; y += StatStride)
+        for (var ly = 0; ly < latH; ly += StatStride)
         {
-            for (var x = 0; x < w; x += StatStride)
+            for (var lx = 0; lx < latW; lx += StatStride)
             {
-                sampleValues[idx++] = data[y, x];
+                sampleValues[idx++] = data[yStart + ly * step, xStart + lx * step];
             }
         }
         var totalSample = idx;
@@ -308,14 +392,14 @@ public static class BadPixelDetection
                 {
                     // Truly uniform channel (every strided sample
                     // identical). Can't recover a noise scale; bail.
-                    logger?.LogDebug("  hot-pixel ch={Ch} iter={Iter}: every strided sample identical to median; stopping",
-                        channelIndex, iter);
+                    logger?.LogDebug("  hot-pixel {Lattice} iter={Iter}: every strided sample identical to median; stopping",
+                        label, iter);
                     break;
                 }
                 // Median of the non-zero deviation tail.
                 mad = workBuf[firstNonZero + (liveCount - firstNonZero) / 2];
-                logger?.LogDebug("  hot-pixel ch={Ch} iter={Iter}: MAD=0 (bias-dominated dark); using non-zero-tail MAD={Mad:F4}",
-                    channelIndex, iter, mad);
+                logger?.LogDebug("  hot-pixel {Lattice} iter={Iter}: MAD=0 (bias-dominated dark); using non-zero-tail MAD={Mad:F4}",
+                    label, iter, mad);
             }
 
             var threshold = median + sigmaThreshold * GaussianFactor * mad;
@@ -337,8 +421,8 @@ public static class BadPixelDetection
             var estimatedFullFrame = (long)(newlyExcluded * pixelsPerSample);
 
             logger?.LogDebug(
-                "  hot-pixel ch={Ch} iter={Iter}: median={Med:F4} mad={Mad:F4} threshold={T:F4} sample-excluded={Excluded} (~{Est} px)",
-                channelIndex, iter, median, mad, threshold, newlyExcluded, estimatedFullFrame);
+                "  hot-pixel {Lattice} iter={Iter}: median={Med:F4} mad={Mad:F4} threshold={T:F4} sample-excluded={Excluded} (~{Est} px)",
+                label, iter, median, mad, threshold, newlyExcluded, estimatedFullFrame);
 
             // RUNAWAY GUARD. Iteration 0 is always accepted: its median + MAD
             // come from the complete strided sample with nothing excluded, so
@@ -350,8 +434,8 @@ public static class BadPixelDetection
             if (iter > 0 && estimatedFullFrame > runawayCeiling)
             {
                 logger?.LogWarning(
-                    "  hot-pixel ch={Ch} iter={Iter}: refining the noise scale would flag ~{Est} px (over the {Ceiling} px guard); keeping the iter-{Prev} estimate median={Med:F4} mad={Mad:F4}",
-                    channelIndex, iter, estimatedFullFrame, runawayCeiling, iter - 1, acceptedMedian, acceptedMad);
+                    "  hot-pixel {Lattice} iter={Iter}: refining the noise scale would flag ~{Est} px (over the {Ceiling} px guard); keeping the iter-{Prev} estimate median={Med:F4} mad={Mad:F4}",
+                    label, iter, estimatedFullFrame, runawayCeiling, iter - 1, acceptedMedian, acceptedMad);
                 break;
             }
 
@@ -368,13 +452,12 @@ public static class BadPixelDetection
             }
         }
 
-        var mask = new BitMatrix(h, w);
         if (!haveEstimate)
         {
             logger?.LogWarning(
-                "  hot-pixel ch={Ch}: no usable noise scale (uniform or fully contaminated channel); masking nothing",
-                channelIndex);
-            return mask;
+                "  hot-pixel {Lattice}: no usable noise scale (uniform or fully contaminated lattice); masking nothing",
+                label);
+            return;
         }
 
         // PHASE 2: choose the threshold against the defect budget, then mask
@@ -384,7 +467,7 @@ public static class BadPixelDetection
         // when it was catastrophic inside the old combined loop.
         var chosenSigma = sigmaThreshold;
         var chosenThreshold = acceptedMedian + chosenSigma * GaussianFactor * acceptedMad;
-        var chosenCount = CountAbove(data, chosenThreshold);
+        var chosenCount = CountAbove(data, chosenThreshold, yStart, xStart, step, latH, latW);
 
         if (targetMaskedFraction > 0f)
         {
@@ -396,8 +479,8 @@ public static class BadPixelDetection
                 // safely, not to discard detections the caller asked for. A
                 // dark that does this is worth looking at.
                 logger?.LogWarning(
-                    "  hot-pixel ch={Ch}: sigma={Sigma:F2} already flags {Count} px, over the {Budget} px budget; not lowering further",
-                    channelIndex, chosenSigma, chosenCount, budget);
+                    "  hot-pixel {Lattice}: sigma={Sigma:F2} already flags {Count} px, over the {Budget} px budget; not lowering further",
+                    label, chosenSigma, chosenCount, budget);
             }
             else
             {
@@ -405,7 +488,7 @@ public static class BadPixelDetection
                 {
                     var nextSigma = chosenSigma * SigmaStepDown;
                     var nextThreshold = acceptedMedian + nextSigma * GaussianFactor * acceptedMad;
-                    var nextCount = CountAbove(data, nextThreshold);
+                    var nextCount = CountAbove(data, nextThreshold, yStart, xStart, step, latH, latW);
                     if (nextCount > budget)
                     {
                         break;
@@ -417,10 +500,32 @@ public static class BadPixelDetection
             }
         }
 
-        for (var y = 0; y < h; y++)
+        // The chosen threshold gets the SAME runaway guard the estimation loop has, and for the same
+        // reason: a count this far past any plausible defect population says the noise scale is
+        // degenerate, so the threshold is measuring something other than a defect tail and the safe
+        // reading of it is none. Distinct from the budget above, which deliberately keeps an
+        // over-budget mask -- that is a caller asking for more defects than usual, in the same
+        // distribution; this is an estimate that has lost the distribution. The eta Carinae ASI294MC
+        // dark reached here at 25.17% of the sensor, 84x the budget, and it was applied: blue's
+        // entire population sat above a threshold derived from red's floor, so the master was
+        // written with a 100% NaN blue plane and the session reported success.
+        if (chosenCount > runawayCeiling)
         {
-            for (var x = 0; x < w; x++)
+            logger?.LogError(
+                "  hot-pixel {Lattice}: the chosen threshold {T:F4} flags {Count} px, {Pct:F2}% of the lattice and past the {Ceiling} px guard. "
+                + "That is not a defect population, so the noise scale (median={Med:F4} mad={Mad:F4}) is degenerate and NOTHING is masked here. "
+                + "Check this dark: a lattice whose own level sits above the threshold reads as entirely hot.",
+                label, chosenThreshold, chosenCount, chosenCount * 100.0 / totalPx, runawayCeiling,
+                acceptedMedian, acceptedMad);
+            return;
+        }
+
+        for (var ly = 0; ly < latH; ly++)
+        {
+            var y = yStart + ly * step;
+            for (var lx = 0; lx < latW; lx++)
             {
+                var x = xStart + lx * step;
                 if (data[y, x] > chosenThreshold)
                 {
                     mask[y, x] = true;
@@ -429,26 +534,24 @@ public static class BadPixelDetection
         }
 
         logger?.LogInformation(
-            "  hot-pixel ch={Ch}: {Count} px ({Pct:F3}% of channel) at sigma={Sigma:F2} threshold={T:F4} (median={Med:F4} mad={Mad:F4}, {Iters} estimation iter(s))",
-            channelIndex, chosenCount, chosenCount * 100.0 / totalPx, chosenSigma, chosenThreshold,
+            "  hot-pixel {Lattice}: {Count} px ({Pct:F3}% of lattice) at sigma={Sigma:F2} threshold={T:F4} (median={Med:F4} mad={Mad:F4}, {Iters} estimation iter(s))",
+            label, chosenCount, chosenCount * 100.0 / totalPx, chosenSigma, chosenThreshold,
             acceptedMedian, acceptedMad, iterRan);
-
-        return mask;
     }
 
     /// <summary>Pixels strictly above <paramref name="threshold"/>. Kept separate
     /// so the budget walk reads as "how many would this threshold flag" without
     /// allocating or mutating a mask per candidate.</summary>
-    private static long CountAbove(float[,] data, float threshold)
+    private static long CountAbove(
+        float[,] data, float threshold, int yStart, int xStart, int step, int latH, int latW)
     {
-        var h = data.GetLength(0);
-        var w = data.GetLength(1);
         long count = 0;
-        for (var y = 0; y < h; y++)
+        for (var ly = 0; ly < latH; ly++)
         {
-            for (var x = 0; x < w; x++)
+            var y = yStart + ly * step;
+            for (var lx = 0; lx < latW; lx++)
             {
-                if (data[y, x] > threshold)
+                if (data[y, xStart + lx * step] > threshold)
                 {
                     count++;
                 }

@@ -1,3 +1,5 @@
+using System;
+
 namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
@@ -55,6 +57,7 @@ internal static class IntegratedMaster
     internal static Image Labelled(Image master, bool normalised)
     {
         var planes = Planes(master);
+        RefuseAnEmptyChannel(planes);
         var (_, observedPeak) = Image.ObservedRange(planes);
         // A master with no finite pixel at all has no peak to state; keep what the strategy said
         // rather than label it with NaN.
@@ -79,6 +82,61 @@ internal static class IntegratedMaster
     /// </remarks>
     internal static Image Composite(Image layer, float[][,] planes)
         => Labelled(new Image(planes, BitDepth.Float32, layer.MaxValue, layer.MinValue, layer.Pedestal, layer.ImageMeta), normalised: false);
+
+    /// <summary>
+    /// A channel with no finite pixel anywhere is not a dim channel, it is an ABSENT one, and the
+    /// integration that produced it failed. Every strategy passes through here, so this is the one
+    /// place that can say so for all of them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The failure it exists for: a hot-pixel mask built from one Bayer colour's noise scale flagged
+    /// 100% of another colour's photosites, drizzle deposited nothing into that plane, and the eta
+    /// Carinae ASI294MC master was written with an all-NaN blue channel. Nothing downstream objected
+    /// -- the session reported success, the enhancer turned the NaN plane into a pastel blur, and the
+    /// gallery card was the first thing that showed it. <c>BadPixelDetection</c> can no longer do
+    /// that, but a mask is only one of the ways a plane can end up empty (a rejector that consumes a
+    /// channel, a coverage map with a dead quadrant), so the refusal lives at the choke point rather
+    /// than beside the cause.
+    /// </para>
+    /// <para>
+    /// The test is deliberately ZERO finite pixels, not a coverage floor. A drizzle canvas is NaN
+    /// wherever no frame reached and a real master is full of legitimate holes, so any threshold
+    /// above zero would need a measurement to defend; nothing that stacked correctly can produce a
+    /// plane with not one finite sample. Across the 92 masters of the 2026-09-17 store this fires on
+    /// exactly one, and the next worst channel coverage is 98.6%.
+    /// </para>
+    /// </remarks>
+    private static void RefuseAnEmptyChannel(float[][,] planes)
+    {
+        for (var c = 0; c < planes.Length; c++)
+        {
+            var plane = planes[c];
+            var h = plane.GetLength(0);
+            var w = plane.GetLength(1);
+            var finite = false;
+            for (var y = 0; y < h && !finite; y++)
+            {
+                for (var x = 0; x < w; x++)
+                {
+                    if (float.IsFinite(plane[y, x]))
+                    {
+                        finite = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!finite)
+            {
+                throw new InvalidOperationException(
+                    $"Integration produced a master whose channel {c} of {planes.Length} has no finite pixel at all. "
+                    + "Nothing was deposited into that plane, so this is a failed integration and not a master. "
+                    + "The usual cause is a calibration mask that flagged the whole channel: check the hot-pixel "
+                    + "lines in the log for a lattice reported at or near 100%.");
+            }
+        }
+    }
 
     private static float[][,] Planes(Image image)
     {
