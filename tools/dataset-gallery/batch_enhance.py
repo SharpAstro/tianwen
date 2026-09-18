@@ -24,12 +24,34 @@ from concurrent.futures import ThreadPoolExecutor
 
 from PIL import Image as PILImage
 
+from astropy.io import fits
+
+from build_rows import is_rejection_map
+
 
 # The Release CLI. Override with TIANWEN_EXE; the default is this repo's own build output,
 # resolved from the script's location so a checkout anywhere works.
 EXE = os.environ.get('TIANWEN_EXE') or os.path.normpath(os.path.join(
     os.path.dirname(os.path.abspath(__file__)), '..', '..', 'src', 'TianWen.Cli',
     'bin', 'Release', 'net10.0', 'tianwen.exe'))
+
+
+def has_wcs(path):
+    """Whether the file already carries a plate solution, so the solve can be skipped.
+
+    CRPIX1 is the cheap tell: TianWen stamps it (with PIXORIG) whenever it writes a WCS, and a file
+    without it did not come from a solved pipeline. Read rather than assumed, because the answer
+    differs per master -- a wide field that no installed star index can place stays unsolved however
+    many times it is asked.
+    """
+    try:
+        with fits.open(path, memmap=True) as h:
+            for hdu in h:
+                if hdu.header.get('NAXIS', 0) >= 2:
+                    return 'CRPIX1' in hdu.header
+    except Exception:
+        return False
+    return False
 
 
 def run(name, store, outdir, rawhalf_only=False):
@@ -72,18 +94,28 @@ def run(name, store, outdir, rawhalf_only=False):
                     'error': (proc.stderr or proc.stdout or '')[-300:]}
         crop_line = next((l for l in proc.stdout.splitlines() if '[autocrop]' in l and '->' in l), '')
 
-        # SOLVE, because the colour balance depends on it. MasterPreviewRenderer runs SPCC only when
-        # the file carries a WCS, and a dataset-bake session master carries none -- `tianwen stack`
-        # plate-solves its masters, the bake does not. Without it the render falls back to sky-
-        # background white balance, which neutralises the BACKGROUND and leaves the signal on the raw
-        # OSC balance: Rho Ophiuchi came out uniformly green, Antares included. GraXpert does not fix
-        # this and is not meant to -- background extraction removes the gradient per plane and adds
-        # each plane's own median back, deliberately preserving the levels. One solve is enough for
-        # both halves, because `image sharpen` carries the WCS through to its output.
-        proc = subprocess.run([EXE, 'solve', croppath, '--update-fits'],
-                              capture_output=True, text=True, timeout=3600)
-        solved = proc.returncode == 0 and '[solve] wrote WCS' in (proc.stdout or '')
-        solve_line = next((l for l in proc.stdout.splitlines() if l.startswith('[solve] RA=')), '')
+        # A WCS, because the colour balance depends on it. MasterPreviewRenderer runs SPCC only when
+        # the file carries one; without it the render falls back to sky-background white balance,
+        # which neutralises the BACKGROUND and leaves the signal on the raw OSC balance -- Rho
+        # Ophiuchi came out uniformly green, Antares included. GraXpert does not fix this and is not
+        # meant to: background extraction removes the gradient per plane and adds each plane's own
+        # median back, deliberately preserving the levels.
+        #
+        # SINCE THE BAKE SOLVES ITS OWN MASTERS, this is usually already done. `image autocrop`
+        # carries the solution through (CRPIX shifted by the crop, PIXORIG stamped), so a blind
+        # re-solve here is the most expensive stage in the run bought for nothing -- 138 of the 139
+        # masters in the 2026-09-19 store arrive solved. Ask the file, and solve only what is
+        # genuinely unsolved (a wide field that no installed index can place stays unsolved, and
+        # renders on sky-background balance; that is issue #55, not something to spend minutes
+        # rediscovering per card).
+        solved = has_wcs(croppath)
+        solve_line = 'carried from the master'
+        if not solved:
+            proc = subprocess.run([EXE, 'solve', croppath, '--update-fits'],
+                                  capture_output=True, text=True, timeout=3600)
+            solved = proc.returncode == 0 and '[solve] wrote WCS' in (proc.stdout or '')
+            solve_line = next((l for l in proc.stdout.splitlines() if l.startswith('[solve] RA=')), '')
+            solve_line = solve_line.replace('[solve] ', '').strip() or 'solve failed'
 
         # The raw half is rendered NOW, while the cropped-and-solved file still exists: keeping 92 of
         # them as FITS would be 9 GB of scratch for a picture that is 512 px wide.
@@ -97,7 +129,7 @@ def run(name, store, outdir, rawhalf_only=False):
         if rawhalf_only:
             return {'name': stem, 'ok': True, 'seconds': round(time.time() - started, 1),
                     'crop': crop_line.replace('[autocrop] ', '').strip(),
-                    'solved': solved, 'solve': solve_line.replace('[solve] ', '').strip(),
+                    'solved': solved, 'solve': solve_line,
                     'rawhalf_only': True}
 
         proc = subprocess.run([EXE, 'image', 'sharpen', croppath, '-o', sharppath, '--ai-backend', 'rc'],
@@ -109,7 +141,7 @@ def run(name, store, outdir, rawhalf_only=False):
         os.replace(sharppath, os.path.join(outdir, 'enhanced', stem + '.fits'))
         return {'name': stem, 'ok': True, 'seconds': round(time.time() - started, 1),
                 'crop': crop_line.replace('[autocrop] ', '').strip(),
-                'solved': solved, 'solve': solve_line.replace('[solve] ', '').strip()}
+                'solved': solved, 'solve': solve_line}
     except Exception as ex:  # a failed master must not take the batch down
         return {'name': stem, 'ok': False, 'error': str(ex)[:300]}
     finally:
@@ -125,7 +157,11 @@ def main():
     rawhalf_only = '--rawhalf-only' in sys.argv
     os.makedirs(os.path.join(outdir, 'enhanced'), exist_ok=True)
     os.makedirs(os.path.join(outdir, 'rawhalf'), exist_ok=True)
-    names = sorted(n for n in os.listdir(os.path.join(store, 'session-masters')) if n.lower().endswith('.fits'))
+    # Not a bare *.fits listing: the coverage sidecar beside every master is also a .fits, so
+    # that enumerates 278 files for a 139-master store and spends an hour of GPU enhancing
+    # rejection maps. build_rows owns the one mirror of IntegrationFitsWriter's rule.
+    names = sorted(n for n in os.listdir(os.path.join(store, 'session-masters'))
+                   if n.lower().endswith('.fits') and not is_rejection_map(n))
     if '--names' in sys.argv:
         wanted = set(json.load(open(sys.argv[sys.argv.index('--names') + 1], encoding='utf-8')))
         names = [n for n in names if n in wanted]
