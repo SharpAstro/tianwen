@@ -106,6 +106,16 @@ there unless the web build grows a server.
   wind, so an OpenWeatherMap profile gets no empty row; the tooltip says "estimated from wind" and gives the
   250 hPa speed. `AltitudeChartRenderer` is shared, so the GUI, the TUI (sixel) and the web planner all have it.
   `StarFWHM` is untouched and nothing in the session reads the class.
+- **An OpenWeatherMap profile gets its winds from Open-Meteo (2026-09-19).** It showed no row at first, the
+  case on the user's own rig: the cache merge is fresh against cached within ONE provider, so nothing filled
+  the upper-air wind OpenWeatherMap lacks. The planner now fetches through
+  `IWeatherDriver.GetHourlyForecastWithUpperAirAsync` (`WeatherDriverExtensions`), which for an OpenWeatherMap
+  driver also asks keyless Open-Meteo for the same window and fills ONLY the missing upper-air fields at the same
+  instant (`WeatherForecastMerge.FillUpperAirWinds`): OpenWeatherMap's own numbers always win, and no hour only
+  Open-Meteo covers is added. Every other driver passes through, so a fake or hardware driver never reaches the
+  network from a test. Open-Meteo's own file cache keeps it to one request an hour. Pinned by
+  `WeatherUpperAirSupplementTests`, which drives both real drivers off fresh file caches and fails with the
+  fill disabled.
 
 ## Phasing
 
