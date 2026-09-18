@@ -574,6 +574,16 @@ of that path must use an index that is not itself a key (M 42 is one). Re-bake b
 table is binary, so the bake's stdout report is the review. Measurements and the image rules (no SVG, no
 charts, no unlicensed file): `docs/plans/object-imagery.md`.
 
+**What leaves the app is a LINK, and a link only works where the host's router has `OpenUrl` wired.** The
+object panel's Wikipedia and Sky atlas are underlined accent-coloured `LinkHit`s on their own row
+(`ObjectInfoPanel.BuildLinkRow`), never buttons; the web host draws each as a real anchor. On the desktop
+the router consumes a press on ANY region and opens a `LinkHit` only through `InputRouter.OpenUrl`:
+`StandaloneViewerHost` had no subscriber, so every link in `tianwen-fits` took the hand pointer and
+opened nothing while the same panel worked in the GUI. A new host owes that one line
+(`APressOnThePanelsAtlasLinkOpensThePageOnce`). **A layout button lights through `.BgHover(GuiTheme.Hover(fill))`**,
+one rule, only when a press would act; the viewer routes motion around the router, so it asks
+`HoverBackgroundRectAt` itself on every move.
+
 ### Smart Framing (planner co-framing groups)
 
 Pinning M8 with a wide-field profile auto-groups M20 into the same pointing: the planner derives the

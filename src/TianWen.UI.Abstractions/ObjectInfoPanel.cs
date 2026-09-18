@@ -20,8 +20,14 @@ namespace TianWen.UI.Abstractions
     /// <para><b>An action is a callback, not a flag.</b> A null callback means the button is not
     /// offered, so a host cannot switch a button on and leave it wired to nothing, and this class
     /// needs no knowledge of signals, planners or mounts to describe a Goto. The atlas passes four
-    /// (Goto, View in Planner, Pin, Solve &amp; Sync); the viewer passes Close and Open-in-atlas and
+    /// (Goto, View in Planner, Pin, Solve &amp; Sync); the viewer passes Close and the sky-atlas link and
     /// gets a panel with no mount actions on it at all.</para>
+    /// <para><b>Where an action LEAVES the app it is a link, not a button.</b> The object's Wikipedia
+    /// article and the web sky atlas open a browser, so they read as links: underlined words in the
+    /// palette's link colour, on a row of their own above the buttons, with the hand pointer. Each is a
+    /// <see cref="HitResult.LinkHit"/>, so the web host draws a real anchor and a desktop host opens the
+    /// page through its router's <c>OpenUrl</c>. A link is a URL for the reason an action is a callback:
+    /// null is a link that is not offered.</para>
     /// <para><b>The rows a host cannot answer are omitted, not blanked.</b> Alt/Az and rise/transit/set
     /// need a SITE, and a photograph does not always carry one -- so they are options rather than
     /// always-present rows showing dashes. See <see cref="PanelDisplayOptions"/>.</para>
@@ -79,22 +85,22 @@ namespace TianWen.UI.Abstractions
         /// shown under the rows with its credit. Sized from the aspect ratio the table records, so the panel is
         /// its final height before a single byte of the picture has arrived and does not jump when it does.
         /// </param>
-        /// <param name="ArticleUrl">
-        /// The object's verified Wikipedia article (<see cref="ICelestialObjectDB.TryGetArticle"/>), which the
-        /// title row links to, with a "Wikipedia" word at its right end so the link is visible. Null shows a
-        /// plain title: no link rather than a guessed one.
-        /// </param>
         public readonly record struct PanelDisplayOptions(
             bool ShowAltAz = false,
             bool ShowRiseSet = false,
             TimeSpan TimeZone = default,
             string? Footnote = null,
             bool Sparkline = false,
-            ObjectArticleImage? Picture = null,
-            string? ArticleUrl = null);
+            ObjectArticleImage? Picture = null);
 
-        /// <summary>The word at the right end of a linked title row.</summary>
+        /// <summary>What the article link reads.</summary>
         public const string ArticleLinkLabel = "Wikipedia";
+
+        /// <summary>What the sky-atlas link reads.</summary>
+        public const string AtlasLinkLabel = "Sky atlas";
+
+        /// <summary>The link row's design height: a text row and the underline under it.</summary>
+        public const float DesignLinkRowHeight = DesignRowHeight + 2f;
 
         /// <summary>The key of the picture slot's <see cref="Layout.Content.Fill"/>, which the host draws into.</summary>
         public const string PictureFillKey = "ObjectInfoPicture";
@@ -134,10 +140,8 @@ namespace TianWen.UI.Abstractions
                 : null;
 
         /// <summary>
-        /// The article URL a selected object's title links to: its verified article's, or null for an object
-        /// with no article or no catalogue to ask. The link is a <see cref="HitResult.LinkHit"/> on the title
-        /// row, which the browser build renders as a real anchor and the desktop opens through the router's
-        /// <c>OpenUrl</c>, the same way the picture's credit line and the planner's name line open.
+        /// The article a selected object's Wikipedia link opens: its verified article's URL, or null for an
+        /// object with no article or no catalogue to ask, which gets no link rather than a guessed one.
         /// </summary>
         public static string? ArticleUrlFor(CatalogIndex? index, ICelestialObjectDB? db)
             => index is { } catalogIndex && db is not null && db.TryGetArticle(catalogIndex, out var article)
@@ -166,7 +170,15 @@ namespace TianWen.UI.Abstractions
         /// pinning it makes no sense.
         /// </param>
         /// <param name="SolveInProgress">Draws Solve &amp; Sync busy and unclickable.</param>
-        /// <param name="OpenInAtlas">Open this object in the web sky atlas.</param>
+        /// <param name="ArticleUrl">
+        /// The object's verified Wikipedia article (<see cref="ArticleUrlFor"/>), offered as a link. Null for an
+        /// object the bake did not verify: no link rather than a guessed one.
+        /// </param>
+        /// <param name="AtlasUrl">This object in the web sky atlas (<see cref="SkyAtlasLink"/>), offered as a link.</param>
+        /// <param name="AtlasOpened">
+        /// What the host does beside the browser opening <paramref name="AtlasUrl"/>: the viewer says so on its
+        /// status line. Opening the page is the link's own job, never this callback's, so it cannot open twice.
+        /// </param>
         public readonly record struct PanelActions(
             Action? Close = null,
             Action? Goto = null,
@@ -176,12 +188,17 @@ namespace TianWen.UI.Abstractions
             bool IsPinned = false,
             Action? SolveSync = null,
             bool SolveInProgress = false,
-            Action? OpenInAtlas = null)
+            string? ArticleUrl = null,
+            string? AtlasUrl = null,
+            Action? AtlasOpened = null)
         {
             /// <summary>Whether any button at all is offered, i.e. whether the row needs its height.</summary>
             public bool HasButtons
                 => Goto is not null || ViewInPlanner is not null || TogglePin is not null
-                   || SolveSync is not null || OpenInAtlas is not null;
+                   || SolveSync is not null;
+
+            /// <summary>Whether any link is offered, i.e. whether the link row needs its height.</summary>
+            public bool HasLinks => ArticleUrl is { Length: > 0 } || AtlasUrl is { Length: > 0 };
         }
 
         /// <summary>
@@ -190,6 +207,10 @@ namespace TianWen.UI.Abstractions
         /// hand-picked literals from before there was a palette, and quietly re-tinting a shipped panel
         /// is not part of sharing its layout.
         /// </summary>
+        /// <param name="Link">
+        /// The links' words and underline. Both hosts pass the theme's accent, which is what makes a link read
+        /// as one and follows the palette into Night, where a fixed blue would be the brightest thing on screen.
+        /// </param>
         public readonly record struct PanelPalette(
             RGBAColor32 Background,
             RGBAColor32 Border,
@@ -200,7 +221,8 @@ namespace TianWen.UI.Abstractions
             RGBAColor32 DisabledBg,
             RGBAColor32 ViewBg,
             RGBAColor32 PinBg,
-            RGBAColor32 UnpinBg);
+            RGBAColor32 UnpinBg,
+            RGBAColor32 Link);
 
         /// <summary>
         /// How many text rows this panel shows: name, subtitle, RA/Dec and brightness always, then
@@ -231,12 +253,26 @@ namespace TianWen.UI.Abstractions
             {
                 height += DesignPictureSectionHeight(in picture);
             }
+            if (actions.HasLinks)
+            {
+                height += DesignLinkRowHeight + (actions.HasButtons ? 4f : 8f);
+            }
             if (actions.HasButtons)
             {
                 height += DesignButtonHeight + 16f;
             }
             return height;
         }
+
+        /// <summary>
+        /// The link row's top edge, in design units below the panel's top: just above the button row when there
+        /// is one, else above the bottom margin. Both hosts place the row with this, so it cannot sit on the
+        /// buttons in one host and float in the other.
+        /// </summary>
+        public static float DesignLinkRowTop(in PanelDisplayOptions options, in PanelActions actions)
+            => DesignHeight(in options, in actions)
+               - (actions.HasButtons ? DesignButtonHeight + 16f + 4f : 8f)
+               - DesignLinkRowHeight;
 
         /// <summary>
         /// Designation, constellation and type, joined by two spaces -- whichever of the three the
@@ -321,27 +357,9 @@ namespace TianWen.UI.Abstractions
 
             var rows = new Layout.Node[RowCount(in options)];
             var next = 0;
-            var title = Layout.Builder
+            rows[next++] = Layout.Builder
                 .Text(info.Name, dFont * 1.1f, palette.Text, TextAlign.Near, TextAlign.Near)
                 .RowH(DesignTitleRowHeight);
-            if (options.ArticleUrl is { Length: > 0 } articleUrl)
-            {
-                // The name and the word are two leaves of one link: the name is what a reader expects to be
-                // clickable, the word is what tells them it is. Both carry the same hit, so the web host draws
-                // one anchor each and the desktop opens the same page from either.
-                var link = new HitResult.LinkHit(articleUrl);
-                title = Layout.Builder.HStack(
-                        Layout.Builder
-                            .Text(info.Name, dFont * 1.1f, palette.Text, TextAlign.Near, TextAlign.Near)
-                            .WStar().HStar()
-                            .Clickable(link, cursor: CursorKind.Pointer),
-                        Layout.Builder
-                            .Text(ArticleLinkLabel, dFont * 0.8f, palette.DimText, TextAlign.Far, TextAlign.Center)
-                            .WFixed(64f).HStar()
-                            .Clickable(link, cursor: CursorKind.Pointer))
-                    .RowH(DesignTitleRowHeight);
-            }
-            rows[next++] = title;
             rows[next++] = Layout.Builder.Text(subtitle, dFont * 0.9f, palette.DimText).RowH(dRow);
             rows[next++] = Layout.Builder.Text(raDec, dFont, palette.Text).RowH(dRow);
             rows[next++] = Layout.Builder.Text(magLine, dFont, palette.Text).RowH(dRow);
@@ -498,7 +516,8 @@ namespace TianWen.UI.Abstractions
 
                 if (!solving)
                 {
-                    node = node.Clickable(new HitResult.ButtonHit("ObjectInfoSolveSync"), _ => solveSync());
+                    node = node.Clickable(new HitResult.ButtonHit("ObjectInfoSolveSync"), _ => solveSync())
+                        .BgHover(ButtonHover(palette.GotoBg, in palette));
                 }
 
                 return Layout.Builder.HStack(
@@ -507,7 +526,8 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.Spacer().WFixed(10f).HStar());
             }
 
-            // Up to four buttons, each present only if it has a handler, separated by fixed gaps.
+            // Up to three buttons, each present only if it has a handler, separated by fixed gaps. Every one
+            // that can act lights under the pointer; a disabled Goto does not, since nothing would happen.
             var parts = new System.Collections.Generic.List<Layout.Node>(9)
             {
                 Layout.Builder.Spacer().WStar(),
@@ -530,7 +550,8 @@ namespace TianWen.UI.Abstractions
                     .Bg(actions.GotoEnabled ? palette.GotoBg : palette.DisabledBg);
                 if (actions.GotoEnabled)
                 {
-                    node = node.Clickable(new HitResult.ButtonHit("ObjectInfoGoto"), _ => go());
+                    node = node.Clickable(new HitResult.ButtonHit("ObjectInfoGoto"), _ => go())
+                        .BgHover(ButtonHover(palette.GotoBg, in palette));
                 }
                 Add(node);
             }
@@ -542,24 +563,19 @@ namespace TianWen.UI.Abstractions
                     .Text("View in Planner", dFont * 0.9f, palette.ButtonText,
                         TextAlign.Center, TextAlign.Center)
                     .WFixed(116f).HStar().Bg(palette.ViewBg)
+                    .BgHover(ButtonHover(palette.ViewBg, in palette))
                     .Clickable(new HitResult.ButtonHit("ObjectInfoViewInPlanner"), _ => view()));
-            }
-
-            if (actions.OpenInAtlas is { } atlas)
-            {
-                Add(Layout.Builder
-                    .Text("Atlas", dFont, palette.ButtonText, TextAlign.Center, TextAlign.Center)
-                    .WFixed(80f).HStar().Bg(palette.ViewBg)
-                    .Clickable(new HitResult.ButtonHit("ObjectInfoOpenInAtlas"), _ => atlas()));
             }
 
             if (actions.TogglePin is { } pin)
             {
+                var pinFill = actions.IsPinned ? palette.UnpinBg : palette.PinBg;
                 Add(Layout.Builder
                     .Text(actions.IsPinned ? "Unpin" : "Pin", dFont, palette.ButtonText,
                         TextAlign.Center, TextAlign.Center)
                     .WFixed(90f).HStar()
-                    .Bg(actions.IsPinned ? palette.UnpinBg : palette.PinBg)
+                    .Bg(pinFill)
+                    .BgHover(ButtonHover(pinFill, in palette))
                     .Clickable(new HitResult.ButtonHit("ObjectInfoPinToggle"), _ => pin()));
             }
 
@@ -576,8 +592,61 @@ namespace TianWen.UI.Abstractions
                 ? Layout.Builder
                     .Text("X", DesignFontSize * 0.9f, palette.DimText, TextAlign.Center, TextAlign.Center)
                     .Stretch()
+                    .BgHover(ButtonHover(palette.Background, in palette))
                     .Clickable(new HitResult.ButtonHit("ObjectInfoClose"), _ => close())
                 : null;
+
+        /// <summary>
+        /// The link row, left-aligned under the text column, or null when the host offered no links: the
+        /// Wikipedia article when the object has a verified one, then the sky atlas.
+        /// </summary>
+        public static Layout.Node? BuildLinkRow(in PanelActions actions, in PanelPalette palette)
+        {
+            if (!actions.HasLinks)
+            {
+                return null;
+            }
+
+            var parts = new System.Collections.Generic.List<Layout.Node>(4);
+            if (actions.ArticleUrl is { Length: > 0 } article)
+            {
+                parts.Add(Link(ArticleLinkLabel, article, opened: null, in palette));
+            }
+
+            if (actions.AtlasUrl is { Length: > 0 } atlas)
+            {
+                if (parts.Count > 0)
+                {
+                    parts.Add(Layout.Builder.Spacer().WFixed(12f).HStar());
+                }
+                parts.Add(Link(AtlasLinkLabel, atlas, actions.AtlasOpened, in palette));
+            }
+
+            parts.Add(Layout.Builder.Spacer().WStar());
+            return Layout.Builder.HStack([.. parts]);
+        }
+
+        /// <summary>
+        /// One link: its word in <see cref="PanelPalette.Link"/>, underlined at the word's own width, with the
+        /// hand pointer and a hover tint. The <see cref="HitResult.LinkHit"/> is on the whole node, the padding
+        /// included, so the press target is a little larger than the word, as a button's is.
+        /// </summary>
+        /// <remarks>
+        /// The underline is the word's width because the stack is as wide as its widest child, the word, and a
+        /// Star child stretches across it. <paramref name="opened"/> runs beside the router opening the page,
+        /// never instead of it (see <see cref="PanelActions.AtlasOpened"/>).
+        /// </remarks>
+        private static Layout.Node Link(string label, string url, Action? opened, in PanelPalette palette)
+            => Layout.Builder.VStack(
+                    Layout.Builder.Text(label, DesignFontSize, palette.Link, TextAlign.Near, TextAlign.Center).HStar(),
+                    Layout.Builder.Spacer().Bg(palette.Link).WStar().HFixed(1f))
+                .PadX(3f)
+                .HStar()
+                .BgHover(GuiTheme.Hover(palette.Background, palette.Link))
+                .Clickable(new HitResult.LinkHit(url), opened is null ? null : _ => opened(), CursorKind.Pointer);
+
+        /// <summary>A button's fill under the pointer, tinted toward the text drawn on it (<see cref="GuiTheme.Hover(RGBAColor32, RGBAColor32)"/>).</summary>
+        private static RGBAColor32 ButtonHover(RGBAColor32 fill, in PanelPalette palette) => GuiTheme.Hover(fill, palette.Text);
 
         /// <summary>A clock time in the panel's stated offset, or dashes when there is none.</summary>
         public static string FormatHHMM(DateTimeOffset? t, TimeSpan timeZone)

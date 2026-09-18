@@ -271,9 +271,17 @@ an object absent from the table gets no link rather than a dead one.
 - **Sizes, measured over the baked set** (40 files sampled): a 500 px thumbnail is 61 KB at the median and
   112 KB at the mean, so all 319 files would be about 35 MB; at 1280 px it is 372 KB and 726 KB, about
   230 MB for every file. The cache only grows with what was looked at, so no cap is set yet.
-- **Verified**: in the GUI atlas (the Hubble M42 mosaic, its credit under it, one 50 KB file cached) and in
-  the browser atlas through the opt-in `ObjectPictureProbe`. NOT yet verified in `tianwen-fits`, which
-  draws through the same Vulkan helper.
+- **Verified**: in the GUI atlas (the Hubble M42 mosaic, its credit under it, one 50 KB file cached), in
+  the browser atlas through the opt-in `ObjectPictureProbe`, and in `tianwen-fits` on the Horsehead master
+  (2026-09-18: the ESO picture under Barnard 33's panel, and both links opening the browser).
+- **The article itself is a link** (2026-09-18: the panel had the picture and its credit but no way to the
+  article). A first cut made the title row the link, with a dim "Wikipedia" at its end; it read as a label
+  and, in the viewer, opened nothing, because `StandaloneViewerHost` never wired its router's `OpenUrl`
+  (the GUI's always had). As built: **a row of links above the buttons**, underlined in the theme accent
+  with the hand pointer and a hover tint, `Wikipedia` when the object has a verified article and `Sky
+  atlas` in the viewer, which replaced its Atlas button: both leave the app, so both are links
+  (`ObjectInfoPanel.BuildLinkRow`, `PanelActions.ArticleUrl` / `AtlasUrl`). The atlas URL is stated at
+  paint, not built in a click callback, since a web anchor must know its target before the click.
 - **A click on the thumbnail opens the picture large** over the host's content, dimmed behind a scrim that
   dismisses it, with the credit under it and Escape as the way out (Escape retires the picture before the
   selection it belongs to). The same host hook fills the big slot, so it asks Wikimedia for a wider standard

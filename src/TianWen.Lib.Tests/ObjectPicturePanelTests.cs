@@ -113,9 +113,10 @@ public sealed class ObjectPicturePanelTests
     }
 
     [Fact]
-    public async Task TheAtlasPanelsTitleLinksToTheVerifiedArticle()
+    public async Task TheAtlasPanelLinksToTheVerifiedArticle()
     {
         // Raised 2026-09-18: the panel had the article's picture and credit but no way to the article itself.
+        // A first cut put the link on the title row, where a dim word read as a label; it is a link row now.
         var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
         db.TryLookupByIndex("M31", out var andromeda).ShouldBeTrue();
         db.TryGetArticle(andromeda.Index, out var article).ShouldBeTrue();
@@ -128,17 +129,21 @@ public sealed class ObjectPicturePanelTests
         var (tab, planner, clock, content) = Atlas(db, renderer, info, now);
         tab.Render(planner, content, clock);
 
-        // Two leaves of one link, the name and the word, both on the title row above every other region of
-        // the panel, and the article is the VERIFIED one, never a designation guess.
-        var links = tab.GetRegisteredRegions()
+        // One link, to the VERIFIED article and never a designation guess, with the hand pointer, under the
+        // picture's credit and above the buttons.
+        var link = tab.GetRegisteredRegions()
             .Where(r => r.Result is HitResult.LinkHit { Url: var url } && url == article.Url)
-            .ToList();
-        links.Count.ShouldBe(2);
+            .ShouldHaveSingleItem();
         article.Url.ShouldStartWith("https://en.wikipedia.org/wiki/");
+        link.Cursor.ShouldBe(CursorKind.Pointer);
+
         var goto_ = tab.GetRegisteredRegions().First(r => r.Result is HitResult.ButtonHit { Action: "ObjectInfoGoto" });
-        foreach (var link in links)
+        (link.Y + link.Height).ShouldBeLessThanOrEqualTo(goto_.Y);
+        if (article.Image is { } picture)
         {
-            link.Y.ShouldBeLessThan(goto_.Y);
+            var credit = tab.GetRegisteredRegions()
+                .First(r => r.Result is HitResult.LinkHit { Url: var url } && url == picture.FilePageUrl);
+            link.Y.ShouldBeGreaterThanOrEqualTo(credit.Y + credit.Height);
         }
     }
 

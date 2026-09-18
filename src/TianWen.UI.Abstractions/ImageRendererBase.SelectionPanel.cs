@@ -14,7 +14,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         /// <remarks>
         /// <see cref="ObjectInfoPanel.PanelPalette.GotoBg"/>, <c>DisabledBg</c>, <c>PinBg</c> and
-        /// <c>UnpinBg</c> are never painted here -- the viewer offers only Close and Open-in-atlas, no
+        /// <c>UnpinBg</c> are never painted here -- the viewer offers only Close and its two links, no
         /// mount actions -- so they take the same neutral fill as everything else rather than inventing
         /// meaning for colours nothing draws.
         /// </remarks>
@@ -29,7 +29,8 @@ namespace TianWen.UI.Abstractions
                 DisabledBg: ToolbarButtonBg,
                 ViewBg: ToolbarButtonBg,
                 PinBg: ToolbarButtonBg,
-                UnpinBg: ToolbarButtonBg);
+                UnpinBg: ToolbarButtonBg,
+                Link: ViewerTheme.Palette.Accent);
 
         /// <summary>
         /// Draws an object's picture into its slot on the selection panel. The base draws nothing, so the slot
@@ -88,8 +89,16 @@ namespace TianWen.UI.Abstractions
                 ShowRiseSet: haveSiteRows,
                 TimeZone: capturedAt?.Offset ?? TimeSpan.Zero,
                 Footnote: capturedAt is { } cap ? $"at capture, {cap:yyyy-MM-dd HH:mm}" : null,
-                Picture: ObjectInfoPanel.PictureFor(selection.Index, LoadedCatalog),
-                ArticleUrl: ObjectInfoPanel.ArticleUrlFor(selection.Index, LoadedCatalog));
+                Picture: ObjectInfoPanel.PictureFor(selection.Index, LoadedCatalog));
+
+            // The atlas link is a URL stated at paint, not a callback building one at the press: a link the web
+            // host renders as an anchor has to know where it goes before anyone clicks it.
+            var img = _document?.UnstretchedImage;
+            var fovDeg = img is { } i
+                ? SkyAtlasLink.FieldOfViewDeg(_document?.Wcs, i.Width, i.Height)
+                : (double?)null;
+            var atlasUrl = SkyAtlasLink.For(selection.RA, selection.Dec, fovDeg, img?.ImageMeta.ExposureStartTime,
+                SkyAtlasLink.TokenFor(selection.Canonical, selection.Name));
 
             var actions = new ObjectInfoPanel.PanelActions(
                 Close: () =>
@@ -99,15 +108,10 @@ namespace TianWen.UI.Abstractions
                     state.PictureExpanded = false;
                     state.NeedsRedraw = true;
                 },
-                OpenInAtlas: () =>
+                ArticleUrl: ObjectInfoPanel.ArticleUrlFor(selection.Index, LoadedCatalog),
+                AtlasUrl: atlasUrl,
+                AtlasOpened: () =>
                 {
-                    var img = _document?.UnstretchedImage;
-                    var fovDeg = img is { } i
-                        ? SkyAtlasLink.FieldOfViewDeg(_document?.Wcs, i.Width, i.Height)
-                        : (double?)null;
-                    var token = SkyAtlasLink.TokenFor(selection.Canonical, selection.Name);
-                    PostSignal(new OpenUrlSignal(SkyAtlasLink.For(
-                        selection.RA, selection.Dec, fovDeg, img?.ImageMeta.ExposureStartTime, token)));
                     state.StatusMessage = "Opening the sky atlas...";
                     state.NeedsRedraw = true;
                 });
@@ -162,6 +166,16 @@ namespace TianWen.UI.Abstractions
                             DrawObjectPicture(in picture, rect);
                         }
                     });
+            }
+
+            // The links sit under the text column, their words aligned with it (the link's own 3-unit padding
+            // is what the row starts left of the column by).
+            if (ObjectInfoPanel.BuildLinkRow(in actions, in palette) is { } linkRow)
+            {
+                RenderLayout(linkRow,
+                    new RectF32(textX - (3f * dpiScale), py + (ObjectInfoPanel.DesignLinkRowTop(in options, in actions) * dpiScale),
+                        textW, ObjectInfoPanel.DesignLinkRowHeight * dpiScale),
+                    scale: Scale);
             }
 
             var btnH = ObjectInfoPanel.DesignButtonHeight * dpiScale;

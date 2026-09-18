@@ -938,6 +938,42 @@ namespace TianWen.UI.Abstractions
         /// <summary>Last hovered file-list row (-1 = the header, int.MinValue = not over the pane).</summary>
         private int _lastHoveredFileListRow = int.MinValue;
 
+        /// <summary>The arranged rect of the node lit under the pointer at the last move, or null.</summary>
+        private RectF32? _lastHoverBackgroundRect;
+
+        /// <summary>Reused by <see cref="HoverBackgroundRectAt"/>, which runs on every pointer move.</summary>
+        private readonly List<Layout.ArrangedNode<float>> _hoverProbe = [];
+
+        /// <summary>
+        /// The rect of the node the painter would light at (<paramref name="x"/>, <paramref name="y"/>): the
+        /// innermost painted node carrying a hover background that contains the point, or null. Confined to
+        /// an open popover's own content exactly as the painter confines it, or a move over what the popover
+        /// covers would ask for a frame the painter then declines to light.
+        /// </summary>
+        internal RectF32? HoverBackgroundRectAt(float x, float y)
+        {
+            if (Ui.PointerOwner is { } owner
+                && !(x >= owner.X && x < owner.X + owner.Width && y >= owner.Y && y < owner.Y + owner.Height))
+            {
+                return null;
+            }
+
+            _hoverProbe.Clear();
+            CollectPaintedNodes(_hoverProbe);
+            for (var i = _hoverProbe.Count - 1; i >= 0; i--)
+            {
+                var bounds = _hoverProbe[i].Bounds;
+                if (_hoverProbe[i].Node.HoverBackground is not null
+                    && x >= bounds.X && x < bounds.X + bounds.Width
+                    && y >= bounds.Y && y < bounds.Y + bounds.Height)
+                {
+                    return new RectF32(bounds.X, bounds.Y, bounds.Width, bounds.Height);
+                }
+            }
+
+            return null;
+        }
+
         private bool HandleViewerMouseMove(float px, float py, InputEvent evt)
         {
             if (_state is not { } state)
@@ -1008,6 +1044,20 @@ namespace TianWen.UI.Abstractions
             if (fileListHover != _lastHoveredFileListRow)
             {
                 _lastHoveredFileListRow = fileListHover;
+                state.NeedsRedraw = true;
+                hoverRepaint = true;
+            }
+
+            // The layout nodes that declared a hover background (a panel's buttons and links, a popover's
+            // buttons) light during PAINT, so crossing onto or off one is a reason to draw a frame. The
+            // router asks the same question for every host that routes motion through it; this viewer
+            // routes only presses there, so it asks here, with the router's own rule (the innermost lit
+            // node, confined to an open popover). Keyed on the node's RECT, because the tree is rebuilt
+            // every paint and a node reference changes each frame while the pointer sits still.
+            var hoverRect = HoverBackgroundRectAt(px, py);
+            if (hoverRect != _lastHoverBackgroundRect)
+            {
+                _lastHoverBackgroundRect = hoverRect;
                 state.NeedsRedraw = true;
                 hoverRepaint = true;
             }

@@ -57,7 +57,10 @@ namespace TianWen.UI.Abstractions
                 DisabledBg: GotoDisabledBg,
                 ViewBg: ViewButtonBg,
                 PinBg: PinButtonBg,
-                UnpinBg: UnpinButtonBg);
+                UnpinBg: UnpinButtonBg,
+                // The one colour here from the theme: a link colour is new, so there is no shipped literal
+                // to keep, and the accent is what follows the palette into Night.
+                Link: GuiTheme.Palette.Accent);
 
         /// <summary>Dismisses the info panel. The <c>Close</c> action handed to the shared panel.</summary>
         private void CloseInfoPanel()
@@ -393,8 +396,7 @@ namespace TianWen.UI.Abstractions
                 ShowRiseSet: true,
                 TimeZone: plannerState.SiteTimeZone,
                 Sparkline: hasCurve,
-                Picture: ObjectInfoPanel.PictureFor(info.Index, plannerState.ObjectDb),
-                ArticleUrl: ObjectInfoPanel.ArticleUrlFor(info.Index, plannerState.ObjectDb));
+                Picture: ObjectInfoPanel.PictureFor(info.Index, plannerState.ObjectDb));
 
             // Copied into locals because a click lambda cannot close over an `in` parameter.
             var pinName = info.Name;
@@ -420,7 +422,8 @@ namespace TianWen.UI.Abstractions
                         new ViewInPlannerSignal(pinName, pinRA, pinDec, pinIndex, pinType)),
                     TogglePin: () => PostSignal(
                         new SkyMapPinObjectSignal(pinName, pinRA, pinDec, pinIndex, pinType)),
-                    IsPinned: isPinned);
+                    IsPinned: isPinned,
+                    ArticleUrl: ObjectInfoPanel.ArticleUrlFor(info.Index, plannerState.ObjectDb));
 
             // The BOX comes from the same method the content does. It used to be two literals sitting
             // here (348 wide, 205 or 250 tall) while ObjectInfoPanel computed its own for the viewer,
@@ -488,6 +491,16 @@ namespace TianWen.UI.Abstractions
                 // Nothing to expand: an object whose article kept no picture, or one whose panel replaced a
                 // picture that was open.
                 State.PictureExpanded = false;
+            }
+
+            // The links sit under the text column, their words aligned with it (the link's own 3-unit padding
+            // is what the row starts left of the column by). Same placement rule as the viewer's copy.
+            if (ObjectInfoPanel.BuildLinkRow(in actions, in palette) is { } linkRow)
+            {
+                RenderLayout(linkRow,
+                    new RectF32(textX - 3f * dpiScale, py + ObjectInfoPanel.DesignLinkRowTop(in options, in actions) * dpiScale,
+                        textW, ObjectInfoPanel.DesignLinkRowHeight * dpiScale),
+                    scale: Scale);
             }
 
             var btnH = ObjectInfoPanel.DesignButtonHeight * dpiScale;

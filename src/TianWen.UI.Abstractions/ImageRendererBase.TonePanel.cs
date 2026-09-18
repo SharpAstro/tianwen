@@ -213,6 +213,7 @@ partial class ImageRendererBase<TSurface>
                         hAlign: TextAlign.Center, widthSample: CurveModeWidthSample)
                     .PadX(ToneGap)
                     .Bg(ToolbarButtonBg)
+                    .BgHover(curveModeLive ? GuiTheme.Hover(ToolbarButtonBg) : ToolbarButtonBg)
                     .Clickable(new HitResult.ButtonHit("ToneCurveMode"),
                         _ =>
                         {

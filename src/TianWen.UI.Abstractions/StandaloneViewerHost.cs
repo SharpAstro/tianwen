@@ -56,6 +56,12 @@ public sealed class StandaloneViewerHost<TSurface>
                 : viewer.HandleInput(evt),
         };
 
+        // A link -- the object panel's Wikipedia and sky-atlas links, a picture's credit -- opens through the
+        // signal the "?" menu's rows already post, which Program.cs answers with the OS browser. The GUI wires
+        // its own router the same way (GuiEventHandlerBase). This host had no subscriber, so every link in the
+        // viewer drew, took the hand pointer, swallowed the press and opened nothing (2026-09-18).
+        Router.OpenUrl += url => bus.Post(new OpenUrlSignal(url));
+
         // THIS host's toolbar policy, which is not the embedded one. A left press opens whichever menu the
         // button has (OpenToolbarDropdown answers false for a button with none, so no parallel list of which
         // buttons are dropdowns is needed here); a right press falls past it so power users can still
