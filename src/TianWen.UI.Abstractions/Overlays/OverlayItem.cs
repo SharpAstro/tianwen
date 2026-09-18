@@ -91,4 +91,11 @@ public sealed class OverlayItem
     /// the candidate instead), so the link back is what removes the duplication.</para>
     /// </summary>
     public int CandidateIndex { get; init; } = -1;
+
+    /// <summary>
+    /// Whether the object's verified article has a picture. When the placement is given a picture-mark
+    /// width it reserves that much after the FIRST line, so the mark is part of the measured box and
+    /// collides like the text does.
+    /// </summary>
+    public bool HasPicture { get; init; }
 }

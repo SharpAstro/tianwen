@@ -854,6 +854,91 @@ public class OverlayEngineTests
         placed.ShouldBeEmpty();
     }
 
+    // --- the picture mark after a label ---
+
+    private static float TenPerChar(string text, float _) => text.Length * 10f;
+
+    private static OverlayItem MakePictureItem(bool hasPicture, int slotHint = 0) =>
+        new OverlayItem
+        {
+            ScreenX = 500f,
+            ScreenY = 500f,
+            Marker = new OverlayMarker { Kind = OverlayMarkerKind.Cross },
+            LabelLines = ["Veil Nebula", "NGC 6960"],
+            LabelPriority = 10f,
+            LabelSlotHint = slotHint,
+            StableSortKey = 1,
+            HasPicture = hasPicture,
+        };
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void APictureMarkWidensOnlyTheFirstLineOfAnItemWithAPicture(bool collision)
+    {
+        var withPicture = new List<PlacedLabel>();
+        var without = new List<PlacedLabel>();
+
+        foreach (var (hasPicture, sink) in new[] { (true, withPicture), (false, without) })
+        {
+            if (collision)
+            {
+                OverlayEngine.PlaceLabels([MakePictureItem(hasPicture)], 10f, 4f, TenPerChar, sink.Add,
+                    pictureMarkWidth: 30f);
+            }
+            else
+            {
+                OverlayEngine.PlaceLabelsBestEffort([MakePictureItem(hasPicture)], 10f, 4f, TenPerChar, sink.Add,
+                    pictureMarkWidth: 30f);
+            }
+        }
+
+        // "Veil Nebula" is 110 wide and the widest line; the mark makes the box 140, and the text still ends at 110.
+        withPicture.ShouldHaveSingleItem().Width.ShouldBe(140f);
+        withPicture[0].FirstLineWidth.ShouldBe(110f);
+        without.ShouldHaveSingleItem().Width.ShouldBe(110f);
+        without[0].FirstLineWidth.ShouldBe(110f);
+    }
+
+    [Fact]
+    public void NoPictureMarkWidthLeavesEveryBoxAsItWas()
+    {
+        var placed = new List<PlacedLabel>();
+
+        OverlayEngine.PlaceLabelsBestEffort([MakePictureItem(hasPicture: true)], 10f, 4f, TenPerChar, placed.Add);
+
+        placed.ShouldHaveSingleItem().Width.ShouldBe(110f);
+    }
+
+    [Fact]
+    public void ALeftSlotLabelEndsBeforeTheMarkerMarkIncluded()
+    {
+        var placed = new List<PlacedLabel>();
+
+        OverlayEngine.PlaceLabelsBestEffort([MakePictureItem(hasPicture: true, slotHint: 1)], 10f, 4f, TenPerChar,
+            placed.Add, pictureMarkWidth: 30f);
+
+        // cx - width - labelPad - 6: the mark sits between the text and the marker, not on the marker.
+        placed.ShouldHaveSingleItem().X.ShouldBe(500f - 140f - 4f - 6f);
+    }
+
+    [Fact]
+    public void ThePictureMarkCollidesLikeTheText()
+    {
+        // A reserved box just past the text of the preferred right slot (text 510..620, mark 620..650).
+        (float X, float Y, float W, float H)[] reserved = [(630f, 494f, 10f, 24f)];
+        var withMark = new List<PlacedLabel>();
+        var withoutMark = new List<PlacedLabel>();
+
+        OverlayEngine.PlaceLabels([MakePictureItem(hasPicture: true)], 10f, 4f, TenPerChar, withMark.Add,
+            reservedRegions: reserved, pictureMarkWidth: 30f);
+        OverlayEngine.PlaceLabels([MakePictureItem(hasPicture: true)], 10f, 4f, TenPerChar, withoutMark.Add,
+            reservedRegions: reserved);
+
+        withoutMark.ShouldHaveSingleItem().X.ShouldBe(510f, "the text alone fits the right slot");
+        withMark.ShouldHaveSingleItem().X.ShouldNotBe(510f, "with its mark it no longer does, so it moves");
+    }
+
     // --- Helpers ---
 
     // --- constellation-figure stars appear at wider fields ---

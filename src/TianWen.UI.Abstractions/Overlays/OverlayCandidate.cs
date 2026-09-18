@@ -65,6 +65,13 @@ public readonly record struct OverlayCandidate
     /// gathering, against 3 and 193 ms with them switched off).</para>
     /// </summary>
     public required float ScreenSizeFilterArcmin { get; init; }
+
+    /// <summary>
+    /// Whether the object's verified article has a picture (<see cref="OverlayEngine.HasVerifiedPicture"/>),
+    /// which the atlas marks after the label so a photo can be found before a click. Resolved at gather
+    /// time, once per candidate, not per frame.
+    /// </summary>
+    public bool HasPicture { get; init; }
 }
 
 /// <summary>Marker payload that still requires the current view matrix (for screen PA)
