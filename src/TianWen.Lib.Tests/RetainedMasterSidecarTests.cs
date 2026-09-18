@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Shouldly;
 using TianWen.AI.Imaging;
 using TianWen.Lib.Astrometry;
@@ -97,6 +98,31 @@ namespace TianWen.Lib.Tests
             var cards = File.ReadAllText(sidecar, System.Text.Encoding.ASCII);
             cards.ShouldContain(IntegrationFitsWriter.MapKindCard);
             cards.ShouldContain(IntegrationFitsWriter.CoverageMapKind);
+        }
+
+        [Fact]
+        public void TheStoreEnumeratesMastersAndNotTheSidecarsBesideThem()
+        {
+            // The sidecar is a .fits in the SAME folder, so the moment one was written beside a
+            // master every `*.fits` glob started reporting twice as many masters as the bake made.
+            // Two of DatasetBuildRunnerTests' assertions were exactly that glob and went red on the
+            // change that added the sidecar -- red for the right reason, and in CI rather than here,
+            // because the suite I ran locally was chosen from the files I had edited rather than
+            // from the files my change AFFECTED.
+            RetainedMasterStore.Write(_root, SessionId, Frame(1000f), frameCount: 24,
+                strategy: IntegrationStrategyKind.BayerDrizzle,
+                rejectionMap: Frame(24f), rejectionMapIsCoverage: true, meanRejectionRate: 0.0)
+                .ShouldBeTrue();
+
+            var dir = Path.Combine(_root, RetainedMasterStore.DirectoryName);
+            Directory.GetFiles(dir, "*.fits").Length
+                .ShouldBe(2, "the master and its sidecar, which is what makes a bare glob wrong");
+
+            var masters = RetainedMasterStore.EnumerateMasters(_root).ToArray();
+            masters.Length.ShouldBe(1);
+            masters[0].ShouldBe(RetainedMasterStore.PathFor(_root, SessionId));
+            IntegrationFitsWriter.IsRejectionMapPath(masters[0]).ShouldBeFalse();
+            IntegrationFitsWriter.IsRejectionMapPath(IntegrationFitsWriter.RejectionPathFor(masters[0])).ShouldBeTrue();
         }
 
         [Fact]
