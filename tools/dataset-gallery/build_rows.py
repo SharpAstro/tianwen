@@ -73,6 +73,11 @@ def sanitize(session_id):
     return "".join("_" if c in _ILLEGAL else c for c in session_id)
 
 
+def rejection_path(master_path):
+    """IntegrationFitsWriter.RejectionPathFor: the .fits stem is STRIPPED before the suffix."""
+    return os.path.splitext(master_path)[0] + ".rejection.fits"
+
+
 def web_slug(text):
     """A url-ish token for the card anchor; never used to find a file."""
     return "".join(c if c.isalnum() or c in "-_" else "-" for c in text)
@@ -122,7 +127,7 @@ def main():
             # Stamped by the bake since the coverage/WCS change: a card can say whether the master
             # came out of the oven solved, rather than the gallery solving it again to find out.
             "solved": "CRPIX1" in hdr,
-            "coverage": os.path.exists(path + ".rejection.fits"),
+            "coverage": os.path.exists(rejection_path(path)),
             "flip": "flip=" in name,
             "id": i,
         })
