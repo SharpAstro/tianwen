@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Shouldly;
 using TianWen.Lib.Devices.Weather;
 using Xunit;
@@ -114,5 +115,48 @@ public class WeatherForecastMergeTests
         merged.WindSpeed250hPa.ShouldBe(44);
         merged.WindSpeed500hPa.ShouldBe(20, "only the MISSING field falls back to the cache");
         merged.WindSpeed850hPa.ShouldBe(9);
+    }
+
+    // --- a provider with no upper-air field gains the winds from one that has them ---
+
+    [Fact]
+    public void FillUpperAirWinds_TakesTheWindsAtTheSameInstantAndKeepsEverythingElse()
+    {
+        // OpenWeatherMap's hours (no upper-air field) against Open-Meteo's for the same instants, whose surface
+        // fields disagree on purpose: none of them may cross.
+        var primary = new List<HourlyWeatherForecast> { Hour(12, 81), Hour(13, 79) };
+        var upperAir = new List<HourlyWeatherForecast>
+        {
+            Hour(12, 50) with { CloudCover = 100, WindSpeed250hPa = 40, WindSpeed500hPa = 20, WindSpeed850hPa = 8 },
+            Hour(13, 50) with { CloudCover = 100, WindSpeed250hPa = 42, WindSpeed500hPa = 21, WindSpeed850hPa = 9 },
+        };
+
+        var filled = WeatherForecastMerge.FillUpperAirWinds(primary, upperAir);
+
+        filled.Count.ShouldBe(2);
+        filled[0].WindSpeed250hPa.ShouldBe(40);
+        filled[0].WindSpeed500hPa.ShouldBe(20);
+        filled[0].WindSpeed850hPa.ShouldBe(8);
+        filled[1].WindSpeed250hPa.ShouldBe(42);
+        filled[0].Humidity.ShouldBe(81, "the provider's own surface fields stay its own");
+        filled[0].CloudCover.ShouldBe(50);
+    }
+
+    [Fact]
+    public void FillUpperAirWinds_KeepsTheProvidersOwnWindsAndAddsNoHours()
+    {
+        var primary = new List<HourlyWeatherForecast> { Hour(12, 81) with { WindSpeed250hPa = 44 }, Hour(13, 79) };
+        var upperAir = new List<HourlyWeatherForecast>
+        {
+            Hour(11, 50) with { WindSpeed250hPa = 38 },
+            Hour(12, 50) with { WindSpeed250hPa = 40, WindSpeed500hPa = 20 },
+        };
+
+        var filled = WeatherForecastMerge.FillUpperAirWinds(primary, upperAir);
+
+        filled.Select(h => h.Time.Hour).ShouldBe([12, 13], "an hour only the supplement covers is not added");
+        filled[0].WindSpeed250hPa.ShouldBe(44, "a number the provider has is never overwritten");
+        filled[0].WindSpeed500hPa.ShouldBe(20, "only the MISSING field is filled");
+        double.IsNaN(filled[1].WindSpeed250hPa).ShouldBeTrue("an hour the supplement lacks stays unknown");
     }
 }

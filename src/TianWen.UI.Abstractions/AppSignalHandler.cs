@@ -837,8 +837,8 @@ namespace TianWen.UI.Abstractions
                 {
                     var tStart = _plannerState.CivilSet ?? _plannerState.AstroDark - TimeSpan.FromHours(1);
                     var tEnd = _plannerState.CivilRise ?? _plannerState.AstroTwilight + TimeSpan.FromHours(1);
-                    _plannerState.WeatherForecast = await weatherDriver.GetHourlyForecastAsync(
-                        _plannerState.SiteLatitude, _plannerState.SiteLongitude,
+                    _plannerState.WeatherForecast = await weatherDriver.GetHourlyForecastWithUpperAirAsync(
+                        _sp, _plannerState.SiteLatitude, _plannerState.SiteLongitude,
                         tStart, tEnd, ct);
                     _plannerState.NeedsRedraw = true;
                     _appState.NeedsRedraw = true;
