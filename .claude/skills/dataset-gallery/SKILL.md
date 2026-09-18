@@ -6,20 +6,36 @@ description: Build a browsable gallery of a dataset bake's session masters, each
 # A gallery of a bake's session masters
 
 `tianwen dataset build` leaves a `session-masters/` folder of linear FITS, one per session, and nothing
-that lets you LOOK at them together. This builds that: one card per master, the enhanced view on the
-card and the raw master beside it in a detail panel, published as an Artifact.
+that lets you LOOK at them together. This builds that: one card per master, showing it enhanced, the
+same crop before enhancement, and a 1:1 patch of its sky, published as an Artifact.
 
-## The pipeline is four tianwen verbs, in this order, and the order is the whole skill
+## The whole run, in order
+
+```
+python tools/dataset-gallery/build_rows.py   <store> rows.json
+python tools/dataset-gallery/batch_enhance.py <store> <outdir> [--jobs N] [--rawhalf-only]
+python tools/dataset-gallery/render_views.py rows.json <store> <outdir>/enhanced .artifact-gallery/img
+```
+
+and the enhance step is four tianwen verbs per master, in this order, which is the heart of the skill:
 
 ```
 tianwen image autocrop <master> -o crop.fits --margin 0.02
 tianwen solve crop.fits --update-fits
 tianwen image sharpen crop.fits -o sharp.fits --ai-backend rc
-tianwen image render <fits> -o <png>          # once per half
+tianwen image render <fits> -o <png>          # once per view
 ```
 
-`tools/dataset-gallery/batch_enhance.py` runs the first three per master;
-`tools/dataset-gallery/render_pairs.py` runs the fourth and composes the cards.
+**Since the bake retains a coverage plane and a WCS, the first two are cheaper and better**: `autocrop`
+reaches its exact tier from the `.rejection.fits` sidecar instead of estimating from the noise, and a
+master that already carries a WCS needs no solve at all. Check `solved` and `coverage` on the rows
+before assuming either step is still needed; a store baked before that change has neither.
+
+**One PNG per view, and the publish happens in batches.** `<id>_enhanced.png`, `<id>_raw.png`,
+`<id>_crop.png`. The 255-file cap is PER PUBLISH and files left out of a call are kept, so three views
+of ninety masters take three calls rather than a sprite. The sprite this replaced forced both views
+into one box at one width, which made the crop invisible: every card read as "before and after are the
+same size" while the crop had taken 15 percent of the canvas.
 
 **`--rawhalf-only` redoes the cheap half.** The raw half is the one output that depends on the
 RENDERER rather than on the enhancers, so a fix to `image render` invalidates it alone: re-running
@@ -70,26 +86,22 @@ core to a white blob, and amplified a sub-sigma edge into a visible border. `ima
 
 ## Composing and publishing
 
-One file holds both views side by side (left enhanced, right raw), because an Artifact takes at most
-255 supporting files and three views of ~92 masters is 276. The page addresses each half as a 50
-percent slice with `object-fit: cover` and `object-position: left|right center`.
-
-**The ENHANCED half sets the sheet's box.** It is the cropped picture and must never be padded; the
-raw half is centre-cropped to match. Letterboxing the shorter half put black bars along the top and
-bottom of every card, which reads as the coverage ring still being there.
+Three PNGs per card, each its own file, rendered at 1200 px. They are looked at to judge a crop edge
+and a noise floor, and at the old 512 a 130 px border band on a 4108 px master was sixteen screen
+pixels. PNG throughout: a JPEG puts its ringing exactly at the frame border, which is the thing being
+inspected.
 
 Publish with the Artifact tool from a folder the tool can read (`.artifact-gallery/` at the repo root,
-git-ignored). Re-publishing the same file path keeps the URL.
+git-ignored). Re-publishing the same file path keeps the URL. **Split the `files` map across calls of
+at most 255 entries** -- the cap is per publish, and every file left out of a call is kept, so the
+artifact ends up holding all of them.
 
 ## Rolling it out while the batch is still running
 
-`tools/dataset-gallery/sync_gallery.py <store> <enhance outdir> <gallery dir>` renders and stages only
-the cards whose enhanced FITS is newer than their staged image, carries `pairH` back into the page
-(the crop changes it), and prints a `PUBLISH_FILES` map to hand straight to the Artifact tool's
-`files`. Safe to run repeatedly against a batch in flight, which is the point: 92 masters is over an
-hour, and a partial publish lets the owner see the treatment early instead of approving it blind at
-the end. Cards not in the map keep the images they already have, so a partial rollout is genuinely
-partial and the gallery reads as mixed until the batch catches up.
+Publishing in parts is the point: ninety masters is over an hour of GPU, and a partial publish lets
+the owner see the treatment early instead of approving it blind at the end. Render the rows whose
+enhanced FITS exists, publish those files, and repeat; cards whose images are not in a call keep the
+ones they have, so the gallery reads as mixed until the batch catches up.
 
 ## What to check before believing a card
 
