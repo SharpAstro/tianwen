@@ -161,10 +161,11 @@ internal sealed class ImageSubCommand(
 {
     public Command Build()
     {
-        var image = new Command("image", "Single-image enhancement, render and measurement verbs (sharpen, remove-stars, flatten, render, stats, sources).")
+        var image = new Command("image", "Single-image enhancement, render and measurement verbs (autocrop, sharpen, remove-stars, flatten, render, stats, sources).")
         {
             Subcommands =
             {
+                BuildAutocropCommand(),
                 BuildSharpenCommand(),
                 BuildRemoveStarsCommand(),
                 BuildFlattenCommand(),
@@ -174,6 +175,89 @@ internal sealed class ImageSubCommand(
             },
         };
         return image;
+    }
+
+    // -------- tianwen image autocrop -----------------------------------
+
+    /// <summary>
+    /// The auto-crop the viewer performs, as a verb.
+    ///
+    /// <para>A union canvas's border is partial coverage, and everything downstream is wrong over it:
+    /// an enhancer reads the ring as structure, a stretch takes its statistics over pixels no exposure
+    /// produced, and a preview renders the absent part black. <see cref="ViewerActions.ScanForCrop"/>
+    /// already answers this exactly -- the drizzle weight plane from the <c>.rejection.fits</c> sidecar
+    /// where one exists, <see cref="CoverageEdgeWalk"/> over the pixels otherwise -- and the viewer and
+    /// <c>tianwen stack</c> have both used it for months. Only the <c>image</c> verbs could not reach
+    /// it, so every caller outside those two re-invented the trim and got it wrong: a fixed
+    /// "more than 2 percent absent" rule cannot see this edge at all, because these masters are absent
+    /// about 1 percent EVERYWHERE from interior drizzle holes. On the HIP 80609 ASI533 master the left
+    /// edge runs 100 / 84 / 63 / 42 / 20 / 2 percent absent over its first 25 columns; such a rule stops
+    /// with the band still 20 percent empty.</para>
+    ///
+    /// <para>This calls that one implementation and nothing of its own.</para>
+    /// </summary>
+    private Command BuildAutocropCommand()
+    {
+        var inputArg = new Argument<string>("input") { Description = "FITS master to crop." };
+        var outputOpt = new Option<string?>("--output", "-o")
+        {
+            Description = "Output FITS. Default: <input>_autocrop.fits beside the input.",
+        };
+        var dryRunOpt = new Option<bool>("--dry-run")
+        {
+            Description = "Report the rectangle and which tier answered, and write nothing.",
+        };
+
+        var cmd = new Command("autocrop",
+            "Crop a master to the rectangle its subs actually covered. Prefers the drizzle weight plane "
+            + "from the <master>.rejection.fits sidecar, which states the covered area outright, and falls "
+            + "back to the coverage edge walk over the pixels. The same scan the FITS viewer's auto-crop "
+            + "and `tianwen stack` use. The WCS is translated with the crop, so the output still solves.")
+        {
+            Arguments = { inputArg },
+            Options = { outputOpt, dryRunOpt },
+        };
+
+        cmd.SetAction((parseResult, ct) =>
+        {
+            var input = parseResult.Required(inputArg);
+            if (!File.Exists(input))
+            {
+                consoleHost.WriteError($"Input not found: {input}");
+                return Task.FromResult(1);
+            }
+
+            if (!Image.TryReadFitsFile(input, out var src, out var wcs))
+            {
+                consoleHost.WriteError($"Failed to read FITS file: {input}");
+                return Task.FromResult(1);
+            }
+
+            var scan = ViewerActions.ScanForCrop(src, input, logger);
+            var rect = scan.Rect;
+            var tier = scan.FromCoverage ? "coverage plane" : "edge walk";
+            consoleHost.WriteScrollable(
+                $"[autocrop] {src.Width}x{src.Height} -> {rect.Width}x{rect.Height} at ({rect.X},{rect.Y}) "
+                + $"via the {tier}{(scan.Declined ? ", one or more edges DECLINED (band never settled)" : "")}");
+
+            if (rect.Width <= 0 || rect.Height <= 0)
+            {
+                consoleHost.WriteError("The scan left nothing; refusing to write an empty crop.");
+                return Task.FromResult(2);
+            }
+            if (parseResult.GetValue(dryRunOpt))
+            {
+                return Task.FromResult(0);
+            }
+
+            var cropped = src.Crop(rect);
+            var dst = EnsureFitsExtension(parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_autocrop"));
+            cropped.WriteToFitsFile(dst, wcs?.CroppedTo(rect.X, rect.Y), SharpenPipeline.SwModifyHeader());
+            consoleHost.WriteScrollable($"[autocrop] wrote {dst}");
+            return Task.FromResult(0);
+        });
+
+        return cmd;
     }
 
     // -------- tianwen image sharpen ------------------------------------
@@ -196,6 +280,14 @@ internal sealed class ImageSubCommand(
         var stellarSharpenOpt = new Option<bool>("--stellar-sharpen")
         {
             Description = "Opt in to the SAS stellar-sharpening pass on the extracted stars (default OFF). Stars from a registered/drizzled stack are already round, and the SAS NAFNet over-sharpens bright cores - it pushes them past 1.0 (hard clamp) and hardens the edges into square white blocks. Left off, stars pass through to StarStretch/recombine unmodified. Hard override: when a BlurX deblurrer is live (RC-Astro present) this pass is skipped even if requested, since the BlurX-first flow deblurs whole-frame before star extraction.",
+        };
+        var noGradientOpt = new Option<bool>("--no-gradient")
+        {
+            Description = "Skip the gradient correction that heads the canonical flow. It runs by default because "
+                + "both canonical programs (SharpenRequest.Canonical / DeblurFirst) include it, and so do the viewer's "
+                + "Enhance button and `tianwen stack --enhance`; this verb used to omit it, which is why the same "
+                + "master came out differently here than in the viewer. Pass this for a plate already flattened "
+                + "elsewhere (GraXpert, Siril, PixInsight DBE), where a second pass has nothing to remove.",
         };
         var noDeconvOpt = new Option<bool>("--no-deconv")
         {
@@ -399,7 +491,7 @@ internal sealed class ImageSubCommand(
         var cmd = new Command("sharpen", "Full AI4 NAFNet sharpen pipeline: remove stars, sharpen the stars-only plate, deconvolve + denoise the starless plate, optional SCNR on stars, recombine.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, modeOpt, stellarSharpenOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, starStretchModeOpt, starlessStretchModeOpt, stretchModeOpt, ghsConvergeOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsStagesOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, asinhBetaOpt, asinhBlackPointOpt, asinhLumaOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt, aiBackendOpt, deblurSharpenOpt, denoiseStrengthOpt, denoiseIterationsOpt },
+            Options = { outputOpt, modeOpt, stellarSharpenOpt, noGradientOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, starStretchModeOpt, starlessStretchModeOpt, stretchModeOpt, ghsConvergeOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsStagesOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, asinhBetaOpt, asinhBlackPointOpt, asinhLumaOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt, aiBackendOpt, deblurSharpenOpt, denoiseStrengthOpt, denoiseIterationsOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -443,6 +535,10 @@ internal sealed class ImageSubCommand(
             var tuning = enhanceOptions.Tuning;
 
             var stellarOptIn = parseResult.GetValue(stellarSharpenOpt);
+            var noGradient = parseResult.GetValue(noGradientOpt);
+            // Whether the caller ASKED for the starless deconvolution, as opposed to leaving it at its
+            // default: with BlurX live the canonical program drops it, so only an explicit blend keeps it.
+            var deconvExplicit = parseResult.GetResult(deconvBlendOpt)?.Tokens.Count > 0;
             var noDeconv = parseResult.GetValue(noDeconvOpt);
             var noDenoise = parseResult.GetValue(noDenoiseOpt);
             var noRecombine = parseResult.GetValue(noRecombineOpt);
@@ -597,9 +693,25 @@ internal sealed class ImageSubCommand(
             // Build the SharpenStep list in canonical order. CLI flags toggle
             // step presence; the pipeline interprets the array in declared
             // order so this is also the execution order.
-            var steps = new List<SharpenStep> { new RemoveStarsStep(SplitMode: mode) };
+            // THE HEAD OF THE CANONICAL PROGRAM, which this verb used to omit. SharpenRequest.
+            // Canonical / DeblurFirst are the single source of truth for the step order, and the
+            // viewer's Enhance button and MasterPostProcessor both take their program from there;
+            // this list was assembled by hand and started at RemoveStarsStep, so `tianwen image
+            // sharpen` ran neither the whole-frame deblur nor the gradient correction that the two
+            // other callers have always run. The same master enhanced in the viewer and on the
+            // command line came out visibly different -- an uncorrected background with its colour
+            // cast intact -- and nothing said so.
+            var steps = new List<SharpenStep>();
+            // Blend left at the step default, as SharpenRequest.DeblurFirst has it; --deblur-sharpen
+            // tunes RC-Astro's own sharpening through EnhanceOptions and is a different dial.
+            if (deblurLive) steps.Add(new DeblurStep());
+            if (!noGradient) steps.Add(new GradientCorrectionStep());
+            steps.Add(new RemoveStarsStep(SplitMode: mode));
             if (doStellar) steps.Add(new SharpenStarsStep(Blend: stellarBlend));
-            if (!noDeconv) steps.Add(new DeconvolveStarlessStep(Blend: deconvBlend));
+            // With BlurX live the whole frame has already been deconvolved, so the starless
+            // deconvolution is a second pass over the same detail: DeblurFirst omits it for that
+            // reason and so does this, unless the caller asks for it outright.
+            if (!noDeconv && (!deblurLive || deconvExplicit)) steps.Add(new DeconvolveStarlessStep(Blend: deconvBlend));
             if (!noDenoise) steps.Add(new DenoiseStarlessStep(Blend: denoiseBlend, Variant: denoiseVariant));
             // Per-plate stretch (linear -> stretched) AFTER all AI ops.
             if (dualStretch)
