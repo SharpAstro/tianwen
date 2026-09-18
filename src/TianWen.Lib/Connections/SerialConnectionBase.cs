@@ -158,9 +158,18 @@ internal abstract class SerialConnectionBase : ISerialConnection
         return true;
     }
 
+    /// <summary>
+    /// The longest reply <see cref="TryReadTerminatedAsync"/> accepts, terminator included: a reply whose
+    /// terminator is not within this many bytes is refused (null), never truncated. 128 because that is the
+    /// window this read always had in practice -- it asked the pool for 100, was handed the 128-byte bucket,
+    /// and passed the whole array on -- until the <see cref="ArrayPoolHelper"/> migration handed on exactly
+    /// the 100 requested and silently cut it. Stated here so it no longer depends on the pool's rounding.
+    /// </summary>
+    internal const int MaxTerminatedResponseBytes = 128;
+
     public async ValueTask<string?> TryReadTerminatedAsync(ReadOnlyMemory<byte> terminators, CancellationToken cancellationToken)
     {
-        using var buffer = ArrayPoolHelper.Rent<byte>(100);
+        using var buffer = ArrayPoolHelper.Rent<byte>(MaxTerminatedResponseBytes);
         var bytesRead = await TryReadTerminatedRawAsync(buffer, terminators, cancellationToken);
         if (bytesRead >= 0)
         {
