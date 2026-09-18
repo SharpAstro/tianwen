@@ -1,0 +1,36 @@
+name: Install unit-test system packages (cached)
+description: >
+  The system packages TianWen.Lib.Tests needs on a Linux runner, installed through
+  cache-apt-pkgs-action: the first run pays the full ~80 MB, later runs restore in ~2 s. ONE
+  definition for every job that runs those tests (test-unit, gpu-stress, the @claude job), so
+  they test in the same environment and share one cache entry: the key is the package list plus
+  `version`, so a copy that drifts becomes a second entry and a different environment, silently.
+
+  mesa-vulkan-drivers + libvulkan1 + vulkan-tools are a software Vulkan stack (Mesa lavapipe),
+  so the GPU comp tests run end to end against the offscreen renderer instead of skipping: a
+  hosted runner has no GPU, so the loader auto-picks the lavapipe ICD. lldb is there so a native
+  testhost crash can be symbolicated on the SAME runner, where the crashed process's .so files
+  still exist: the offline analyze-crash-dump workflow cannot (a fresh runner lacks those .so,
+  hence lldb's "no associated executable images").
+
+  Editing the list re-keys the cache on its own; bump `version` to force a fresh download of an
+  unchanged list (a cached set that no longer suits the runner image).
+
+runs:
+  using: composite
+  steps:
+  - uses: SharpAstro/cache-apt-pkgs-action@v1
+    with:
+      packages: ghostscript fonts-urw-base35 fontconfig mesa-vulkan-drivers libvulkan1 vulkan-tools vulkan-validationlayers lldb
+      version: 1.4
+
+  # fc-cache rebuilds the local fontconfig index the restored fonts need.
+  - name: Rebuild fontconfig cache
+    shell: bash
+    run: fc-cache -f
+
+  # If this lists 0 ICDs the GPU comp tests SKIP rather than fail, so the summary in the log is
+  # what saves a round trip when they quietly stop running.
+  - name: Vulkan ICD summary
+    shell: bash
+    run: vulkaninfo --summary || true

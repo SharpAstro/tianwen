@@ -17,6 +17,11 @@ env:
   # The version is CAPTURED from `dotnet msbuild -getProperty` stdout in build's "Resolve version
   # prefix" step, so the SDK's first-run banner must not be able to land in it.
   DOTNET_NOLOGO: 1
+  # The LFS set the apps are built from, stated once: build pulls it and packs it into the
+  # lfs-payload artifact, publish-apps asserts every file in it arrived. Those were three
+  # spellings of one list, and an object the payload misses reaches every release asset as a
+  # pointer stub. The test jobs pull their own, wider sets.
+  APP_LFS_INCLUDE: '*.lz,*.ttf,*.bin.gz,*.onnx'
 
 jobs:
   build:
@@ -60,31 +65,16 @@ jobs:
     #
     # The .onnx is a real object in this glob again since 2026-09-06, when the LFS budget
     # came back and the `.gitattributes` exemption that had made the weights a plain git
-    # blob was removed. It must stay in the glob AND in the payload packed below: the
-    # publish matrix never touches LFS, so anything missing from the payload reaches a
+    # blob was removed. It must stay in APP_LFS_INCLUDE, which feeds the payload packed below as
+    # well: the publish matrix never touches LFS, so anything missing from the payload reaches a
     # released binary as a 130-byte pointer stub that ModelResolver then refuses.
-    - name: Compute LFS cache key
-      id: lfs-key
-      run: |
-        # Pointer file content (OID + size) changes only when the underlying
-        # LFS object changes, so a pointer-hash key reliably identifies which
-        # set of LFS objects we'd be pulling. Cache hit -> no LFS bandwidth.
-        HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.onnx' | xargs cat | sha256sum | cut -c1-16)
-        echo "key=lfs-build-${HASH}" >> $GITHUB_OUTPUT
-    - uses: actions/cache@v6
-      with:
-        path: .git/lfs
-        key: ${{ steps.lfs-key.outputs.key }}
-        # A changed key (any LFS pointer added or updated) restores the newest previous
-        # object set so `git lfs pull` fetches only the delta. Without this, adding one
-        # 3 MB file meant a full cold re-pull of every object in the glob per leg --
-        # which is what turned the 2026-08-17 LFS-budget refusal into a hard CI failure.
-        # (The budget itself was spent by non-CI pulls; every sampled run that month rode
-        # a cache hit and transferred nothing.)
-        restore-keys: |
-          lfs-build-
+    #
+    # The cache key, the restore-keys delta and why they matter: .github/actions/lfs-pull.
     - name: Fetch required LFS objects
-      run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.onnx"
+      uses: ./.github/actions/lfs-pull
+      with:
+        include: ${{ env.APP_LFS_INCLUDE }}
+        cache-prefix: lfs-build
     # Hand the materialised files to the publish matrix as an artifact so those legs never
     # touch LFS at all. They used to restore the lfs-build- cache this job saves, which a
     # Windows runner cannot read (actions/cache segregates Windows from POSIX entries unless
@@ -102,9 +92,11 @@ jobs:
     # checkout carried them and this list did not need them; now that they are an LFS object
     # again, leaving them out would ship a pointer stub as the model file in every release
     # asset -- a failure that looks like a broken model at runtime, not like a broken build.
+    # The list is APP_LFS_INCLUDE, the set the pull above fetched, so the two cannot differ.
     - name: Package LFS payload for the publish matrix
       run: |
-        git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.onnx' > lfs-payload.list
+        IFS=',' read -ra globs <<< "$APP_LFS_INCLUDE"
+        git ls-files -- "${globs[@]}" > lfs-payload.list
         tar -czf lfs-payload.tar.gz -T lfs-payload.list
         echo "packaged $(wc -l < lfs-payload.list) files, $(du -h lfs-payload.tar.gz | cut -f1)"
     - uses: actions/upload-artifact@v7
@@ -263,66 +255,34 @@ jobs:
     name: test-unit (${{ matrix.leg }})
     runs-on: ${{ matrix.runner }}
     steps:
-    # cache-apt-pkgs-action installs the listed packages (apt-get install behind
-    # the scenes) but caches /var/cache/apt by `version` key. First run pays
-    # the full ~80 MB; subsequent runs restore in ~2s. fc-cache still runs to
-    # rebuild the local fontconfig index.
-    #
-    # mesa-vulkan-drivers + libvulkan1 + vulkan-tools provide a software Vulkan
-    # stack (Mesa lavapipe) so the GPU comp tests can run end-to-end against the
-    # offscreen renderer instead of skipping. The GitHub-hosted ubuntu runner has
-    # no GPU, so the Vulkan loader auto-picks the lavapipe ICD. Bump `version`
-    # whenever this package list changes -- it controls the apt cache key.
-    - uses: SharpAstro/cache-apt-pkgs-action@v1
-      with:
-        # lldb: on a native testhost crash, symbolicate the runtime minidump on THIS runner (where
-        # the crashed process's .so files still exist) so the "Symbolicate crash dump" step below
-        # resolves module names -- the offline analyze-crash-dump workflow can't (a fresh runner
-        # lacks those .so, hence lldb's "no associated executable images").
-        packages: ghostscript fonts-urw-base35 fontconfig mesa-vulkan-drivers libvulkan1 vulkan-tools vulkan-validationlayers lldb
-        version: 1.4
-    - name: Rebuild fontconfig cache
-      run: fc-cache -f
-    # Sanity-check that the Vulkan loader can enumerate at least one ICD before
-    # the unit-test step. If this fails or lists 0 ICDs, the GPU comp tests
-    # will skip rather than fail -- but the diagnostic in the build log saves
-    # a round trip when debugging.
-    - name: Vulkan ICD summary
-      run: vulkaninfo --summary || true
+    # Checkout comes FIRST: the two setup steps below are composites in this repo, which only
+    # exist once it is on disk.
     - uses: actions/checkout@v7
       with:
         submodules: recursive
         lfs: false
+    # Fonts, the lavapipe software-Vulkan stack and lldb (for the "Symbolicate crash dump" step
+    # below). The list and why each package is there: .github/actions/unit-test-deps.
+    - name: Install unit-test system packages
+      uses: ./.github/actions/unit-test-deps
     # Narrow LFS pull: tests need catalogs (.lz), fonts (.ttf), FITS test
     # fixtures (.fits.gz) embedded in TianWen.Lib.Tests.dll, and the in-repo AI
     # model weights (.onnx) so N2nDenoiserTests' cross-language parity test runs
     # here instead of skipping.
-    - name: Compute LFS cache key
-      id: lfs-key
-      run: |
-        HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.fits.gz' '*.CR2' '*.CR3' '*.cr2' '*.cr3' '*.onnx' | xargs cat | sha256sum | cut -c1-16)
-        echo "key=lfs-tests-${HASH}" >> $GITHUB_OUTPUT
-    - uses: actions/cache@v6
-      with:
-        path: .git/lfs
-        key: ${{ steps.lfs-key.outputs.key }}
-        # A changed key (any LFS pointer added or updated) restores the newest previous
-        # object set so `git lfs pull` fetches only the delta. Without this, adding one
-        # 3 MB file meant a full ~205 MB cold re-pull per leg -- which is what turned the
-        # 2026-08-17 LFS-budget refusal into a hard CI failure. (The budget itself was
-        # spent by non-CI pulls; every sampled run that month rode a cache hit.) The
-        # prefix is shared with the other test job on purpose: their globs overlap almost
-        # entirely, so either job's saved set is a near-complete starting point for the
-        # other.
-        restore-keys: |
-          lfs-tests-
+    #
+    # `*.CR2`/`*.cr2` cover Cr2ImportTests (Data/CR2/*, ~19 MB). `*.CR3`/`*.cr3`
+    # cover Cr3ImportTests (Data/CR3/*, ~7 MB). Both case variants are tracked
+    # in .gitattributes; we only ship uppercase today but the include set is
+    # exhaustive so a future lowercase-named fixture from a Canon body that
+    # emits one doesn't silently skip in CI.
+    #
+    # The prefix is shared with test-functional on purpose: their sets overlap almost
+    # entirely, so either job's saved entry is a near-complete starting point for the other.
     - name: Fetch required LFS objects
-      # `*.CR2`/`*.cr2` cover Cr2ImportTests (Data/CR2/*, ~19 MB). `*.CR3`/`*.cr3`
-      # cover Cr3ImportTests (Data/CR3/*, ~7 MB). Both case variants are tracked
-      # in .gitattributes; we only ship uppercase today but the include set is
-      # exhaustive so a future lowercase-named fixture from a Canon body that
-      # emits one doesn't silently skip in CI.
-      run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.fits.gz,*.CR2,*.CR3,*.cr2,*.cr3,*.onnx"
+      uses: ./.github/actions/lfs-pull
+      with:
+        include: '*.lz,*.ttf,*.bin.gz,*.fits.gz,*.CR2,*.CR3,*.cr2,*.cr3,*.onnx'
+        cache-prefix: lfs-tests
     # Pull in the .gs.gz preprocessed catalogs from the build job so the
     # preprocess-catalog.ps1 script doesn't have to re-run here. Touch them to
     # be newer than .json.lz so MSBuild's Inputs/Outputs check skips the
@@ -483,28 +443,13 @@ jobs:
       with:
         submodules: recursive
         lfs: false
-    # Narrow LFS pull: same as test-unit -- catalogs, fonts, FITS fixtures.
-    - name: Compute LFS cache key
-      id: lfs-key
-      run: |
-        HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.fits.gz' | xargs cat | sha256sum | cut -c1-16)
-        echo "key=lfs-tests-${HASH}" >> $GITHUB_OUTPUT
-    - uses: actions/cache@v6
-      with:
-        path: .git/lfs
-        key: ${{ steps.lfs-key.outputs.key }}
-        # A changed key (any LFS pointer added or updated) restores the newest previous
-        # object set so `git lfs pull` fetches only the delta. Without this, adding one
-        # 3 MB file meant a full ~205 MB cold re-pull per leg -- which is what turned the
-        # 2026-08-17 LFS-budget refusal into a hard CI failure. (The budget itself was
-        # spent by non-CI pulls; every sampled run that month rode a cache hit.) The
-        # prefix is shared with the other test job on purpose: their globs overlap almost
-        # entirely, so either job's saved set is a near-complete starting point for the
-        # other.
-        restore-keys: |
-          lfs-tests-
+    # Narrow LFS pull: same as test-unit -- catalogs, fonts, FITS fixtures. The prefix is
+    # shared with test-unit on purpose (see there); cache mechanics: .github/actions/lfs-pull.
     - name: Fetch required LFS objects
-      run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.fits.gz"
+      uses: ./.github/actions/lfs-pull
+      with:
+        include: '*.lz,*.ttf,*.bin.gz,*.fits.gz'
+        cache-prefix: lfs-tests
     - name: Download preprocessed catalogs
       uses: actions/download-artifact@v8
       with:
@@ -607,7 +552,8 @@ jobs:
       shell: bash
       run: |
         stubs=0
-        for f in $(git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.onnx'); do
+        IFS=',' read -ra globs <<< "$APP_LFS_INCLUDE"
+        for f in $(git ls-files -- "${globs[@]}"); do
           if [ "$(head -c 23 "$f")" = "version https://git-lfs" ]; then
             echo "::error file=$f::still a Git LFS pointer after the pull, so it would ship as a stub"
             stubs=$((stubs + 1))

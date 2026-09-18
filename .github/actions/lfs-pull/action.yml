@@ -1,0 +1,64 @@
+name: Pull LFS objects (cached)
+description: >
+  Pull a NARROW set of Git LFS objects through the actions cache, so a job that has run before
+  transfers nothing from the metered LFS bandwidth. Every workflow that needs LFS goes through
+  here; the copies this replaced had already drifted (gpu-stress pulled cold on every run, and
+  each copy spelled its file list twice, once for the key and once for the pull, with nothing
+  comparing the two).
+
+  ONE list, `include`, is both the set the cache key hashes and the set `git lfs pull` fetches,
+  so the two cannot disagree. The key is the hash of the POINTER files, whose content (OID +
+  size) changes only when the underlying object does, so it identifies exactly which objects a
+  pull would fetch. That requires the checkout to leave pointers in the working tree: check out
+  with `lfs: false`. The hash is byte-identical to the inline form it replaced, so the migration
+  kept every existing cache entry.
+
+  A changed key (any LFS pointer added or updated) restores the newest previous entry under the
+  same prefix, so the pull fetches only the delta. Without that, adding one 3 MB file meant a
+  full ~205 MB cold re-pull per leg, which is what turned the 2026-08-17 LFS-budget refusal into
+  a hard CI failure. (The budget itself was spent by non-CI pulls; every sampled run that month
+  rode a cache hit.) Share a prefix between jobs whose sets overlap, so either one's saved entry
+  is a near-complete starting point for the other: `lfs-build` for the build-only sets,
+  `lfs-tests` for the sets carrying test fixtures.
+
+  A Windows runner cannot restore an entry a Linux job saved (actions/cache segregates Windows
+  unless `enableCrossOsArchive` is set). That flag goes on the cache step below and nowhere else:
+  docs/todo/infra.md, "Set enableCrossOsArchive".
+
+inputs:
+  include:
+    description: >
+      Comma-separated LFS globs, exactly as `git lfs pull --include` takes them
+      (e.g. "*.lz,*.ttf,*.bin.gz"). Also the set the cache key hashes.
+    required: true
+  cache-prefix:
+    description: Cache key prefix; the key is <prefix>-<hash> and any <prefix>-* entry is the fallback.
+    required: true
+
+runs:
+  using: composite
+  steps:
+  - name: Compute the LFS cache key
+    id: key
+    shell: bash
+    env:
+      INCLUDE: ${{ inputs.include }}
+      PREFIX: ${{ inputs.cache-prefix }}
+    run: |
+      set -euo pipefail
+      IFS=',' read -ra globs <<< "${INCLUDE//[[:space:]]/}"
+      hash=$(git ls-files -z -- "${globs[@]}" | xargs -0 cat | sha256sum | cut -c1-16)
+      echo "key=${PREFIX}-${hash}" >> "$GITHUB_OUTPUT"
+
+  - uses: actions/cache@v6
+    with:
+      path: .git/lfs
+      key: ${{ steps.key.outputs.key }}
+      restore-keys: |
+        ${{ inputs.cache-prefix }}-
+
+  - name: Fetch LFS objects
+    shell: bash
+    env:
+      INCLUDE: ${{ inputs.include }}
+    run: git lfs pull --include="${INCLUDE//[[:space:]]/}"
