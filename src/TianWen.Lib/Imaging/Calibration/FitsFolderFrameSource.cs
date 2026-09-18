@@ -41,6 +41,7 @@ public sealed class FitsFolderFrameSource : IFrameSource
     private readonly FrameMetaSidecarResolver? _sidecars;
     private int _filterFilled;
     private int _filterAlreadyPresent;
+    private int _rejectedAtCapture;
 
     /// <param name="folder">Folder to scan. Must exist.</param>
     /// <param name="recursive">If true, descend into subdirectories. Default false.</param>
@@ -67,6 +68,12 @@ public sealed class FitsFolderFrameSource : IFrameSource
     public FrameMetaSidecarStats SidecarStats => new(
         _sidecars?.FilesLoaded ?? 0, _sidecars?.FilesMalformed ?? 0, _filterFilled, _filterAlreadyPresent);
 
+    /// <summary>Frames the most recent enumeration dropped because they were marked rejected at
+    /// capture (<see cref="CaptureRejection"/>). Meaningful only after enumerating, and reported by
+    /// the caller: a scan that silently drops frames is indistinguishable from an archive that never
+    /// had them.</summary>
+    public int RejectedAtCapture => _rejectedAtCapture;
+
     /// <inheritdoc/>
     public async IAsyncEnumerable<FrameInfo> EnumerateAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
@@ -79,6 +86,14 @@ public sealed class FitsFolderFrameSource : IFrameSource
         foreach (var path in paths)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            // Before the header read, because the answer is in the name and the read is the cost.
+            // A frame graded out at the telescope stays out of every consumer of this source: the
+            // stacker, the calibration resolver and the dataset bake all enumerate through here.
+            if (CaptureRejection.IsRejectedAtCapture(path))
+            {
+                _rejectedAtCapture++;
+                continue;
+            }
             var info = await Task.Run(() => TryReadFrameInfo(path), cancellationToken);
             if (info is not null)
             {

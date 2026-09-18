@@ -23,6 +23,30 @@ The x64 binary runs under Windows-on-ARM x64 emulation and DirectML reaches the
 9.05 MP frame: sxt 18.7s, bxt 35.5s (GPU), vs sxt 111s on emulated CPU (~6x).
 Outputs are valid 32F FITS in [0, 1]. Good for a post-capture/batch step.
 
+### WHICH GPU is RC-Astro's setting, and it is worth checking once per machine
+
+TianWen passes no `--device`: the compute device is RC-Astro's own, saved in its
+config and shared with every other integration on the box, and choosing for it
+would mean ranking the machine's adapters ourselves. **On a machine with more
+than one GPU its `auto` can land on the weakest one.** Measured on the x64
+desktop (2026-09-18): `auto` resolved to `gpu0`, the Intel UHD Graphics 630, and
+one 30 MP master took **5m53s**; pinned to `gpu1`, the GTX 1070, the same master
+took **44.7s**, an 8x difference with byte-identical output (noise sigma per
+channel agreed to every digit). Nothing in the run said which device it used
+except the debug log line `RC-Astro nxt completed on gpu in 121658ms`, and
+`nvidia-smi` showed the discrete card idle at 139 MHz throughout while the
+Windows GPU-engine counter had `rc-astro` at 189% on the other adapter.
+
+So, once per machine:
+
+```
+rc-astro --device                 # lists auto / gpu0 / gpu1 / cpu and what auto resolves to
+rc-astro --device-default gpu1    # pin the discrete card; --device-default auto puts it back
+```
+
+A TianWen-side option would only be worth adding alongside an evaluator that can
+rank the adapters, since otherwise it moves the same guess into our code.
+
 ## Architecture
 
 Lives in `TianWen.AI.Imaging` (`RcAstro/` folder) so the present+licensed

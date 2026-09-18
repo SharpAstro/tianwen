@@ -338,6 +338,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                 $"{stats.InstrumentExcluded} excluded-instrument, {stats.SoftwareExcluded} excluded-software, " +
                 $"{stats.ObjectExcluded} excluded-object, " +
                 $"{stats.PathExcluded} excluded-path, " +
+                (stats.RejectedAtCapture > 0 ? $"{stats.RejectedAtCapture} rejected-at-capture (BAD_ prefix), " : "") +
                 (stats.NoSessionDir > 0
                     ? $"{stats.NoSessionDir} no-session-dir (frames sitting under a frame-type folder " +
                       "directly at the root: point --archive-root one level deeper, at the tree that " +
