@@ -17,7 +17,6 @@ assumed.
 """
 import json
 import os
-import re
 import subprocess
 import sys
 import time
@@ -36,55 +35,6 @@ EXE = os.environ.get('TIANWEN_EXE') or os.path.normpath(os.path.join(
     os.path.dirname(os.path.abspath(__file__)), '..', '..', 'src', 'TianWen.Cli',
     'bin', 'Release', 'net10.0', 'tianwen.exe'))
 
-# RC-Astro's own CLI, asked directly about its compute devices. TianWen locates it the same way
-# (RC_ASTRO_CLI, then the documented install dir, then PATH); this mirrors only the lookup, never
-# the decision about what to run.
-EXE_RC = os.environ.get('RC_ASTRO_CLI') or 'C:/Program Files/RC-Astro/CLI/rc-astro.exe'
-
-
-# RC-Astro names its compute devices by INDEX (gpu0, gpu1, ...) and the order is NOT STABLE: this box
-# enumerates the GTX 1070 twice with the Intel UHD 630 between them, so an index pinned today can name
-# a different card tomorrow. A saved `device = gpu0` therefore is not a guarantee, and when it drifts
-# nothing says so -- the 2026-09-19 gallery ran its first three masters of AI inference on the
-# integrated GPU at 99 percent while the 1070 sat at 1 percent and 31 C, about 2.3 minutes a master,
-# and the only symptom was that it felt slow.
-#
-# So the device is resolved BY NAME every run and the batch refuses to start if it cannot get there.
-# A wrong-device run is not a failure anyone sees; it is a correct gallery that took a day.
-PREFERRED_DEVICE = 'NVIDIA'
-
-
-def resolve_compute_device():
-    """(device, label) RC-Astro should use, resolved by NAME from its own device list."""
-    out = subprocess.run([EXE_RC, '--device', '--no-banner'], capture_output=True, text=True, timeout=300).stdout
-    devices, auto = [], None
-    for line in out.splitlines():
-        line = line.strip()
-        m = re.match(r'^(gpu\d+|cpu)\s+-\s+(.*)$', line)
-        if m:
-            devices.append((m.group(1), m.group(2).strip()))
-        m = re.match(r'^auto\s+-\s+.*currently\s+(\w+)', line)
-        if m:
-            auto = m.group(1)
-    preferred = next((d for d, label in devices if PREFERRED_DEVICE.lower() in label.lower()), None)
-    return preferred, auto, devices
-
-
-def ensure_compute_device():
-    preferred, auto, devices = resolve_compute_device()
-    labels = {d: l for d, l in devices}
-    if preferred is None:
-        raise SystemExit('rc-astro lists no %s device; refusing to enhance on %s. devices=%s'
-                         % (PREFERRED_DEVICE, labels.get(auto, auto), devices))
-    if auto != preferred:
-        print('rc-astro auto resolves to %s (%s); pinning %s (%s)'
-              % (auto, labels.get(auto, '?'), preferred, labels[preferred]), flush=True)
-        subprocess.run([EXE_RC, '--device-default', preferred, '--no-banner'],
-                       capture_output=True, text=True, timeout=300)
-        preferred, auto, devices = resolve_compute_device()
-        if auto != preferred:
-            raise SystemExit('rc-astro still resolves to %s after pinning %s' % (auto, preferred))
-    print('compute device: %s (%s)' % (auto, labels.get(auto, '?')), flush=True)
 
 
 def has_wcs(path):
@@ -206,10 +156,6 @@ def main():
     jobs = int(sys.argv[sys.argv.index('--jobs') + 1]) if '--jobs' in sys.argv else 1
     limit = int(sys.argv[sys.argv.index('--limit') + 1]) if '--limit' in sys.argv else 0
     rawhalf_only = '--rawhalf-only' in sys.argv
-    if not rawhalf_only:
-        # Before a multi-hour batch, not after it: the whole point is that a wrong device
-        # produces a CORRECT gallery, slowly, so nothing downstream can notice.
-        ensure_compute_device()
     os.makedirs(os.path.join(outdir, 'enhanced'), exist_ok=True)
     os.makedirs(os.path.join(outdir, 'rawhalf'), exist_ok=True)
     # Not a bare *.fits listing: the coverage sidecar beside every master is also a .fits, so

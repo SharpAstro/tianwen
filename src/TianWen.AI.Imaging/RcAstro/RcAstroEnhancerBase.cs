@@ -58,7 +58,25 @@ namespace TianWen.AI.Imaging.RcAstro
 
             try
             {
-                input.WriteToFitsFile(inputPath);
+                // [0, 1] is guaranteed HERE, not assumed of the caller and not delegated to the
+                // vendor. This used to write the plate verbatim on the remark that "pipeline plates
+                // are linear Float32 in [0, 1]", which is a claim about every caller rather than a
+                // property of the bytes -- and the bake has already shipped masters that break it
+                // (a Float16Staged master is written on its subs' ADU scale, which is what made
+                // `image render` produce near-black pictures until it rescaled too).
+                //
+                // It matters because RC-Astro normalises INTERNALLY by its own data-dependent rule.
+                // Hand it an ADU plate and it still returns a plausible picture, normalised against a
+                // range we did not choose and cannot see -- so the failure is not an error, it is a
+                // different answer wearing the same name. Image.UnitScaleDivisor is this codebase's
+                // single source of truth for the question, so the scale is ours.
+                //
+                // ScaleFloatValuesToUnit returns the image UNTOUCHED when it is already unit-referred,
+                // so the common path writes the same bytes it always did and allocates nothing. The
+                // transient it makes on the other path is never released here on purpose: it owns no
+                // pooled buffer, and deriving "may I release this?" from a ReferenceEquals is the
+                // ownership antipattern this codebase names explicitly. `input` stays the caller's.
+                input.ScaleFloatValuesToUnit().WriteToFitsFile(inputPath);
 
                 var progress = new Progress<RcAstroProgress>(p =>
                 {
