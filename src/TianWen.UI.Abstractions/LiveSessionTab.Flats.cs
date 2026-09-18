@@ -82,20 +82,23 @@ namespace TianWen.UI.Abstractions
 
             Layout.Node CountStep(Layout.IconKind icon, string action, Action onClick) =>
                 Layout.Builder.Icon(icon, BaseFontSize * 0.78f * Layout.Content.Icon.TextSizeRatio, BodyText)
-                    .WFixed(24f).HStar().Bg(GuiTheme.NeutralButtonBg)
+                    .WFixed(24f).HStar().Bg(GuiTheme.NeutralButtonBg).BgHover(GuiTheme.Hover(GuiTheme.NeutralButtonBg))
                     .Clickable(new HitResult.ButtonHit(action), _ => { onClick(); });
 
-            Layout.Node Button(string label, string action, float rowScale, RGBAColor32 bg, RGBAColor32 fg, Action<InputModifier> onClick) =>
-                Layout.Builder.Text(label, BaseFontSize * (rowScale > 1.4f ? 1f : 0.85f), fg, TextAlign.Center, TextAlign.Center)
+            Layout.Node Button(string label, string action, float rowScale, RGBAColor32 bg, RGBAColor32 fg, Action<InputModifier> onClick, bool enabled = true)
+            {
+                var node = Layout.Builder.Text(label, BaseFontSize * (rowScale > 1.4f ? 1f : 0.85f), fg, TextAlign.Center, TextAlign.Center)
                     .RowH(BaseRowHeight * rowScale).Bg(bg)
                     .Clickable(new HitResult.ButtonHit(action), onClick);
+                return enabled ? node.BgHover(GuiTheme.Hover(bg)) : node;
+            }
 
             var content = Layout.Builder.VStack(
                 Layout.Builder.Text("Flat Capture", BaseFontSize, HeaderText).RowH(BaseRowHeight),
                 Layout.Builder.Spacer().RowH(BasePadding),
                 LabeledRow("Source",
                     Layout.Builder.Text(FlatSourceLabel(state.FlatSetupSource), BaseFontSize * 0.78f, BodyText, TextAlign.Center, TextAlign.Center)
-                        .Bg(GuiTheme.PrimaryButtonBg)
+                        .Bg(GuiTheme.PrimaryButtonBg).BgHover(GuiTheme.Hover(GuiTheme.PrimaryButtonBg))
                         .Clickable(new HitResult.ButtonHit("FlatsSetupSource"), _ =>
                         {
                             state.FlatSetupSource = state.FlatSetupSource switch
@@ -124,7 +127,7 @@ namespace TianWen.UI.Abstractions
                     {
                         if (!canStart) { state.FlatStatusMessage = reason; state.NeedsRedraw = true; return; }
                         PostSignal(new StartFlatsSignal(state.FlatSetupSource, state.FlatSetupPerFilter));
-                    })).WithGap(BasePadding);
+                    }, enabled: canStart)).WithGap(BasePadding);
 
             var bottomH = BaseRowHeight * 1.2f + BasePadding + BaseRowHeight * 1.6f;
             var tree = Layout.Builder.Dock(content, Layout.Builder.Bottom(buttons, bottomH)).Pad(BasePadding);
@@ -188,6 +191,7 @@ namespace TianWen.UI.Abstractions
             var cancelNode = Layout.Builder.Text(cancelLabel, fontSize * 0.9f, cancelFg, TextAlign.Center, TextAlign.Center)
                 .Stretch().Bg(cancelBg)
                 .Clickable(new HitResult.ButtonHit("FlatsCancel"), _ => { if (canCancel) PostSignal(new CancelFlatsSignal()); });
+            if (canCancel) cancelNode = cancelNode.BgHover(GuiTheme.Hover(cancelBg));
             RenderLayout(cancelNode, new RectF32(x0, buttonY, w, rowH * 1.6f), scale: DesignScale.One);
         }
     }

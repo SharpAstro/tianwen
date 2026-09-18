@@ -406,7 +406,7 @@ namespace TianWen.UI.Abstractions
                     ? Layout.Builder.Text("Session running\u2026", BaseFontSize, DisabledBtnText, TextAlign.Center, TextAlign.Center).Bg(DisabledBtnBg)
                     : isTonight
                         ? Layout.Builder.Text("\u25B6 Start Session", BaseFontSize, StartBtnText, TextAlign.Center, TextAlign.Center)
-                            .Bg(StartBtnBg)
+                            .Bg(StartBtnBg).BgHover(GuiTheme.Hover(StartBtnBg))
                             .Clickable(new HitResult.ButtonHit("StartSession"), _ => PostSignal(new StartSessionSignal()))
                         : Layout.Builder.Text("Start (tonight only)", BaseFontSize, DisabledBtnText, TextAlign.Center, TextAlign.Center).Bg(DisabledBtnBg);
 
@@ -602,7 +602,7 @@ namespace TianWen.UI.Abstractions
 
                 Layout.Node ExpButton(Layout.IconKind icon, string hit, Action<InputModifier> onClick) =>
                     Layout.Builder.Icon(icon, BaseFontSize * 0.85f * Layout.Content.Icon.TextSizeRatio, BodyText)
-                        .WFixed(expBtnW).HStar().Bg(StepperBg)
+                        .WFixed(expBtnW).HStar().Bg(StepperBg).BgHover(GuiTheme.Hover(StepperBg))
                         .Clickable(new HitResult.ButtonHit(hit), onClick);
 
                 var expStepper = Layout.Builder.HStack(

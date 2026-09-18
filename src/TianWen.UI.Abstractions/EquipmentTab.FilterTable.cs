@@ -136,7 +136,7 @@ namespace TianWen.UI.Abstractions
 
                 Layout.Node OffBtn(Layout.IconKind icon, string action, int delta) =>
                     Layout.Builder.Icon(icon, BaseFontSize * 0.8f * Layout.Content.Icon.TextSizeRatio, BodyText)
-                        .WFixed(24f).HStar().Bg(EditButtonBg)
+                        .WFixed(24f).HStar().Bg(EditButtonBg).BgHover(GuiTheme.Hover(EditButtonBg))
                         .Clickable(new HitResult.ButtonHit(action), _ =>
                         {
                             if (capturedF < filters.Count)
@@ -168,7 +168,7 @@ namespace TianWen.UI.Abstractions
             {
                 Layout.Node ActionBtn(string label, RGBAColor32 bg, string action, Action<InputModifier> onClick) =>
                     Layout.Builder.Text(label, BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
-                        .WFixed(60f).HStar().Bg(bg).Clickable(new HitResult.ButtonHit(action), onClick);
+                        .WFixed(60f).HStar().Bg(bg).BgHover(GuiTheme.Hover(bg)).Clickable(new HitResult.ButtonHit(action), onClick);
 
                 rows.Add(Layout.Builder.HStack(
                         Layout.Builder.Spacer().WFixed(BasePadding * 2f).HStar(),

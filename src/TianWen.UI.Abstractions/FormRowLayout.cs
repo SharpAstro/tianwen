@@ -89,8 +89,11 @@ namespace TianWen.UI.Abstractions
             var canClick = enabled;
 
             Layout.Node Btn(string glyph, string hit, Action<InputModifier> onClick)
-                => StepMark(glyph, btnFont, btnText).WFixed(btnW).HStar().Bg(btnBg)
+            {
+                var node = StepMark(glyph, btnFont, btnText).WFixed(btnW).HStar().Bg(btnBg)
                     .Clickable(new HitResult.ButtonHit(hit), canClick ? onClick : null);
+                return canClick ? node.BgHover(GuiTheme.Hover(btnBg)) : node;
+            }
 
             var value = Layout.Builder.Text(valueText, valueFontSize, valueColor, TextAlign.Center, TextAlign.Center).Stretch();
 
@@ -132,7 +135,7 @@ namespace TianWen.UI.Abstractions
             HitResult hit, Action<InputModifier>? onClick)
         {
             return Layout.Builder.Text(label, fontSize, textColor)
-                .RowH(rowH).Bg(bg).Clickable(hit, onClick);
+                .RowH(rowH).Bg(bg).BgHover(GuiTheme.Hover(bg)).Clickable(hit, onClick);
         }
 
         /// <summary>
@@ -178,7 +181,7 @@ namespace TianWen.UI.Abstractions
             {
                 var btn = Layout.Builder.Icon(icon, iconSize, bodyText).WFixed(stepBtnW).HStar();
                 return stepEnabled
-                    ? btn.Bg(btnBg).Clickable(new HitResult.ButtonHit(hitKey), onClick)
+                    ? btn.Bg(btnBg).BgHover(GuiTheme.Hover(btnBg)).Clickable(new HitResult.ButtonHit(hitKey), onClick)
                     : btn;
             }
 

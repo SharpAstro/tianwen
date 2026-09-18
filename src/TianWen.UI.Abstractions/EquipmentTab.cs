@@ -299,7 +299,7 @@ namespace TianWen.UI.Abstractions
                         return Layout.Builder.HStack(
                                 Layout.Builder.Spacer().WStar(),
                                 Layout.Builder.Text(p.DisplayName, BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
-                                    .WFixed(buttonW).HStar().Bg(SlotNormal)
+                                    .WFixed(buttonW).HStar().Bg(SlotNormal).BgHover(GuiTheme.Hover(SlotNormal))
                                     .Clickable(new HitResult.ButtonHit($"SwitchProfile:{id}"), _ => PostSignal(new SwitchProfileSignal(id))),
                                 Layout.Builder.Spacer().WStar())
                             .RowH(BaseButtonHeight * 0.85f);
@@ -315,7 +315,7 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.HStack(
                             Layout.Builder.Spacer().WStar(),
                             Layout.Builder.Text("Create Profile", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
-                                .WFixed(buttonW).HStar().Bg(CreateButton)
+                                .WFixed(buttonW).HStar().Bg(CreateButton).BgHover(GuiTheme.Hover(CreateButton))
                                 .Clickable(new HitResult.ButtonHit("CreateProfile"), _ => PostSignal(new CreateProfileSignal())),
                             Layout.Builder.Spacer().WStar())
                         .RowH(BaseButtonHeight),
@@ -348,7 +348,7 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.Spacer().RowH(BasePadding),
                     Layout.Builder.HStack(
                             Layout.Builder.Text("Create", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
-                                .WFixed(120f).HStar().Bg(CreateButton)
+                                .WFixed(120f).HStar().Bg(CreateButton).BgHover(GuiTheme.Hover(CreateButton))
                                 .Clickable(new HitResult.ButtonHit("CreateProfile"), _ =>
                                 {
                                     if (State.ProfileNameInput.Text.Length > 0)

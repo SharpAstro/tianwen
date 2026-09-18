@@ -64,10 +64,13 @@ namespace TianWen.UI.Abstractions
             // The whole strip is ONE HStack of Clickable button nodes (was an `x += btnW + pad` cursor +
             // per-button RenderButton). Sizes are already device px, so the tree renders at DesignScale.One.
             // A status Text takes the middle Star cell, which naturally right-aligns the OTA buttons.
-            Layout.Node Btn(string label, float w, RGBAColor32 bg, RGBAColor32 fg, string action, Action<InputModifier> onClick) =>
-                Layout.Builder.Text(label, btnFs, fg, TextAlign.Center, TextAlign.Center)
+            Layout.Node Btn(string label, float w, RGBAColor32 bg, RGBAColor32 fg, string action, Action<InputModifier> onClick, bool enabled = true)
+            {
+                var node = Layout.Builder.Text(label, btnFs, fg, TextAlign.Center, TextAlign.Center)
                     .WFixed(w).HStar().Bg(bg)
                     .Clickable(new HitResult.ButtonHit(action), onClick);
+                return enabled ? node.BgHover(GuiTheme.Hover(bg)) : node;
+            }
 
             var stretchLabel = vs.StretchMode switch
             {
@@ -112,7 +115,7 @@ namespace TianWen.UI.Abstractions
                             vs.ShowGrid = !vs.ShowGrid;
                             liveState.NeedsRedraw = true;
                         }
-                    }));
+                    }, enabled: hasWcs));
             }
 
             // Status text (stretch info) fills the middle Star cell, pushing the OTA buttons to the right edge.
@@ -249,7 +252,7 @@ namespace TianWen.UI.Abstractions
                 // Jog buttons row: [<<] [<] "10 | 100" [>] [>>] as one HStack.
                 Layout.Node JogBtn(string glyph, string action, int delta) =>
                     FormRowLayout.StepMark(glyph, BaseFontSize * 0.85f, BodyText)
-                        .WFixed(32f).HStar().Bg(jogBg)
+                        .WFixed(32f).HStar().Bg(jogBg).BgHover(GuiTheme.Hover(jogBg))
                         .Clickable(new HitResult.ButtonHit(action), _ => PostSignal(new JogFocuserSignal(capturedI, delta)));
 
                 rows.Add(Layout.Builder.HStack(
@@ -282,7 +285,7 @@ namespace TianWen.UI.Abstractions
                             // One field per OTA, created as the rig reports its focusers.
                             Layout.Builder.TextInput(input, BaseFontSize * 0.85f).Stretch(),
                             Layout.Builder.Text("Go", BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
-                                .WFixed(32f).HStar().Bg(jogBg)
+                                .WFixed(32f).HStar().Bg(jogBg).BgHover(GuiTheme.Hover(jogBg))
                                 .Clickable(new HitResult.ButtonHit($"FocGoto{capturedI}"), _ =>
                                 {
                                     if (int.TryParse(input.Text, out var pos))
@@ -366,18 +369,18 @@ namespace TianWen.UI.Abstractions
                 ? GuiTheme.NeutralButtonBg
                 : GuiTheme.GoButtonBg;
             var captureBtnText = polarActive ? DimText : BrightText;
-            rows.Add(Layout.Builder.HStack(
-                    expCtrl.Stretch(),
-                    Layout.Builder.Text("Capture", BaseFontSize * 0.85f, captureBtnText, TextAlign.Center, TextAlign.Center)
-                        .WFixed(72f).HStar().Bg(captureBtnColor)
-                        .Clickable(new HitResult.ButtonHit($"PreviewCapture{otaIndex}"), polarActive ? null : _ =>
-                        {
-                            var exp = otaIndex < state.PreviewExposureSeconds.Length
-                                ? state.PreviewExposureSeconds[otaIndex] : 5.0;
-                            PostSignal(new TakePreviewSignal(otaIndex, exp,
-                                otaIndex < state.PreviewGain.Length ? state.PreviewGain[otaIndex] : null,
-                                otaIndex < state.PreviewBinning.Length ? state.PreviewBinning[otaIndex] : (short)1));
-                        }))
+            var captureBtn = Layout.Builder.Text("Capture", BaseFontSize * 0.85f, captureBtnText, TextAlign.Center, TextAlign.Center)
+                .WFixed(72f).HStar().Bg(captureBtnColor)
+                .Clickable(new HitResult.ButtonHit($"PreviewCapture{otaIndex}"), polarActive ? null : _ =>
+                {
+                    var exp = otaIndex < state.PreviewExposureSeconds.Length
+                        ? state.PreviewExposureSeconds[otaIndex] : 5.0;
+                    PostSignal(new TakePreviewSignal(otaIndex, exp,
+                        otaIndex < state.PreviewGain.Length ? state.PreviewGain[otaIndex] : null,
+                        otaIndex < state.PreviewBinning.Length ? state.PreviewBinning[otaIndex] : (short)1));
+                });
+            if (!polarActive) captureBtn = captureBtn.BgHover(GuiTheme.Hover(captureBtnColor));
+            rows.Add(Layout.Builder.HStack(expCtrl.Stretch(), captureBtn)
                 .WithGap(4f).RowH(BaseRowHeight));
 
             // Gain row: [-] value [+] (only if camera supports gain value or gain mode).
@@ -421,13 +424,15 @@ namespace TianWen.UI.Abstractions
                     ? GuiTheme.NeutralButtonBg
                     : GuiTheme.PrimaryButtonBg;
                 var solveText = solving ? DimText : BrightText;
+                var solveBtn = Layout.Builder.Text(solveLabel, BaseFontSize * 0.85f, solveText, TextAlign.Center, TextAlign.Center)
+                    .WStar().HStar().Bg(solveBg)
+                    .Clickable(new HitResult.ButtonHit($"PreviewSolve{otaIndex}"), solving ? null : _ => PostSignal(new PlateSolvePreviewSignal(otaIndex)));
+                if (!solving) solveBtn = solveBtn.BgHover(GuiTheme.Hover(solveBg));
                 rows.Add(Layout.Builder.HStack(
                         Layout.Builder.Text("Save", BaseFontSize * 0.85f, BrightText, TextAlign.Center, TextAlign.Center)
-                            .WStar().HStar().Bg(GuiTheme.GoButtonBg)
+                            .WStar().HStar().Bg(GuiTheme.GoButtonBg).BgHover(GuiTheme.Hover(GuiTheme.GoButtonBg))
                             .Clickable(new HitResult.ButtonHit($"PreviewSave{otaIndex}"), _ => PostSignal(new SaveSnapshotSignal(otaIndex))),
-                        Layout.Builder.Text(solveLabel, BaseFontSize * 0.85f, solveText, TextAlign.Center, TextAlign.Center)
-                            .WStar().HStar().Bg(solveBg)
-                            .Clickable(new HitResult.ButtonHit($"PreviewSolve{otaIndex}"), solving ? null : _ => PostSignal(new PlateSolvePreviewSignal(otaIndex))))
+                        solveBtn)
                     .WithGap(4f).RowH(BaseRowHeight * 0.9f));
             }
 

@@ -345,7 +345,7 @@ namespace TianWen.UI.Abstractions
             var headerContent = Layout.Builder.HStack(
                     Layout.Builder.Text("Tonight's Best", BaseFontSize, HeaderText).WStar().HStar(),
                     Layout.Builder.Text(filterBtnLabel, BaseFontSize * 0.9f, FilterBtnText, TextAlign.Center, TextAlign.Center)
-                        .WFixed(60f).HStar().Bg(filterBtnBg)
+                        .WFixed(60f).HStar().Bg(filterBtnBg).BgHover(GuiTheme.Hover(filterBtnBg))
                         .Clickable(new HitResult.ButtonHit("CycleFilter"), _ =>
                         {
                             PlannerActions.CycleRatingFilter(state);
@@ -423,12 +423,13 @@ namespace TianWen.UI.Abstractions
                                     state.SelectedTargetIndex = Math.Max(0, state.SelectedTargetIndex - 1);
                                 }
                             }) : null);
+                    if (capturedPinIdx >= 0) pinLeaf = pinLeaf.BgHover(GuiTheme.Hover(RemoveBtnBg));
                 }
                 else
                 {
                     var capturedTarget = scored.Target;
                     pinLeaf = Layout.Builder.Icon(Layout.IconKind.Plus, BaseFontSize * Layout.Content.Icon.TextSizeRatio, PinnedText)
-                        .WFixed(BaseFontSize * 1.5f).HStar().Bg(PinnedBg)
+                        .WFixed(BaseFontSize * 1.5f).HStar().Bg(PinnedBg).BgHover(GuiTheme.Hover(PinnedBg))
                         .Clickable(new HitResult.ButtonHit("AddProposal"), _ =>
                         {
                             // Match the keyboard-pin behaviour: the selection follows the pinned target

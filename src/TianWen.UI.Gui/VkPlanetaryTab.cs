@@ -252,8 +252,9 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
         PushRecenter(controller);
 
         // --- Capture section ---
+        var captureFill = capturing ? StopBg : StartBg;
         var startStop = Layout.Builder.Text(capturing ? "Stop" : "Start", PanelFontSize, ButtonText, TextAlign.Center, TextAlign.Center)
-            .Bg(capturing ? StopBg : StartBg).RowH(BaseRowHeight)
+            .Bg(captureFill).BgHover(GuiTheme.Hover(captureFill)).RowH(BaseRowHeight)
             .Clickable(new HitResult.ButtonHit("PlanetaryCaptureToggle"), _ =>
             {
                 if (capturing)
@@ -395,10 +396,12 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
             .WFixed(BaseRowHeight).HStar().Bg(btnBg)
             .Clickable(enabled ? new HitResult.ButtonHit(idPrefix + "Dec") : null,
                 enabled ? (Action<InputModifier>)(_ => onDec()) : null);
+        if (enabled) dec = dec.BgHover(GuiTheme.Hover(btnBg));
         var inc = Layout.Builder.Icon(Layout.IconKind.Plus, iconSize, enabled ? ButtonText : DimText)
             .WFixed(BaseRowHeight).HStar().Bg(btnBg)
             .Clickable(enabled ? new HitResult.ButtonHit(idPrefix + "Inc") : null,
                 enabled ? (Action<InputModifier>)(_ => onInc()) : null);
+        if (enabled) inc = inc.BgHover(GuiTheme.Hover(btnBg));
         return Layout.Builder.HStack(
                 Layout.Builder.Text(label, PanelFontSize, DimText, TextAlign.Near, TextAlign.Center).WFixed(52f).HStar(),
                 dec,
@@ -409,7 +412,7 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
 
     private Layout.Node JogButton(string glyph, string id, int steps)
         => FormRowLayout.StepMark(glyph, PanelFontSize, ButtonText)
-            .WStar().HStar().Bg(JogBg)
+            .WStar().HStar().Bg(JogBg).BgHover(GuiTheme.Hover(JogBg))
             .Clickable(new HitResult.ButtonHit(id), _ => Bus?.Post(new JogFocuserSignal(PlanetaryOtaIndex, steps)));
 
     // --- ROI selection (4c) -------------------------------------------------------------------------------
@@ -477,8 +480,10 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
 
     private Layout.Node RoiPanButton(string glyph, string id, bool enabled, int dirX, int dirY,
         PlanetaryCaptureController controller, bool capturing)
-        => FormRowLayout.StepMark(glyph, PanelFontSize, enabled ? ButtonText : DimText)
-            .WStar().HStar().Bg(enabled ? JogBg : StepBtnDisabledBg)
+    {
+        var roiPanFill = enabled ? JogBg : StepBtnDisabledBg;
+        var node = FormRowLayout.StepMark(glyph, PanelFontSize, enabled ? ButtonText : DimText)
+            .WStar().HStar().Bg(roiPanFill)
             .Clickable(enabled ? new HitResult.ButtonHit(id) : null,
                 enabled ? (Action<InputModifier>)(_ =>
                 {
@@ -491,6 +496,8 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
                     }
                     PanRoi(dirX, dirY);
                 }) : null);
+        return enabled ? node.BgHover(GuiTheme.Hover(roiPanFill)) : node;
+    }
 
     // Pushes the currently-selected exposure preset to a running capture (no-op while idle; applied on Start).
     private void PushExposure(PlanetaryCaptureController controller, bool capturing)
@@ -509,16 +516,19 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     // A "[x]/[ ] label" checkbox row: green bg when on, neutral when off. The base re-armed the clickable
     // tracker in Render(), so this .Clickable registers after that and survives.
     private Layout.Node CheckRow(string label, bool on, string id, Action onClick)
-        => Layout.Builder.Text((on ? "[x] " : "[ ] ") + label, PanelFontSize * 0.9f,
+    {
+        var checkFill = on ? CheckOnBg : StepBtnBg;
+        return Layout.Builder.Text((on ? "[x] " : "[ ] ") + label, PanelFontSize * 0.9f,
                 on ? HeaderText : DimText, TextAlign.Near, TextAlign.Center)
-            .RowH(BaseRowHeight).Bg(on ? CheckOnBg : StepBtnBg)
+            .RowH(BaseRowHeight).Bg(checkFill).BgHover(GuiTheme.Hover(checkFill))
             .Clickable(new HitResult.ButtonHit(id), _ => onClick());
+    }
 
     // A single-glyph mount-nudge button (manual coarse recenter / framing) -- posts the same JogMountSignal /
     // pulse-guide actuator the COM recenter loop uses for its edge-blocked fallback.
     private Layout.Node MountNudgeButton(string glyph, string id, GuideDirection direction)
         => Layout.Builder.Text(glyph, PanelFontSize, ButtonText, TextAlign.Center, TextAlign.Center)
-            .WStar().HStar().Bg(JogBg)
+            .WStar().HStar().Bg(JogBg).BgHover(GuiTheme.Hover(JogBg))
             .Clickable(new HitResult.ButtonHit(id), _ => Bus?.Post(new JogMountSignal(direction, MountNudgeArcsec)));
 
     // Pushes the current recenter config to the controller (called on every toggle / stepper change). Cheap;

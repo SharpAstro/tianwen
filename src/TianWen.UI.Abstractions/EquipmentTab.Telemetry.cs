@@ -83,6 +83,7 @@ namespace TianWen.UI.Abstractions
             // Safety: tint the Cooler Off button red when the cooler is on, and route the click to the
             // confirmation strip instead of immediate cooler-off (condensation/thermal-shock concern).
             var coolerUnsafe = latest is { } l && l.CoolerOn;
+            var coolerOffFill = coolerUnsafe ? ConfirmDangerBg : EditButtonBg;
 
             rows.Add(Layout.Builder.HStack(
                     Layout.Builder.Text("    Setpoint:", BaseFontSize * 0.85f, DimText).WFixed(80f).HStar(),
@@ -90,7 +91,7 @@ namespace TianWen.UI.Abstractions
                     // per-frame tree, which is why it needs no declaration anywhere.
                     Layout.Builder.TextInput(setpointInput, BaseFontSize * 0.85f).WFixed(70f).HStar(),
                     Layout.Builder.Text("Cool to Setpoint", BaseFontSize * 0.78f, BodyText, TextAlign.Center, TextAlign.Center)
-                        .WFixed(110f).HStar().Bg(CreateButton)
+                        .WFixed(110f).HStar().Bg(CreateButton).BgHover(GuiTheme.Hover(CreateButton))
                         .Clickable(new HitResult.ButtonHit($"CoolTo_{key}"), _ =>
                         {
                             if (double.TryParse(setpointInput.Text, System.Globalization.NumberStyles.Float,
@@ -100,7 +101,7 @@ namespace TianWen.UI.Abstractions
                             }
                         }),
                     Layout.Builder.Text("Cooler Off", BaseFontSize * 0.78f, BodyText, TextAlign.Center, TextAlign.Center)
-                        .WFixed(80f).HStar().Bg(coolerUnsafe ? ConfirmDangerBg : EditButtonBg)
+                        .WFixed(80f).HStar().Bg(coolerOffFill).BgHover(GuiTheme.Hover(coolerOffFill))
                         .Clickable(new HitResult.ButtonHit($"CoolerOff_{key}"), _ =>
                         {
                             if (coolerUnsafe) { State.PendingCoolerOffConfirm = capUri; State.PendingCoolerOffForceConfirm = null; }

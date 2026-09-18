@@ -198,7 +198,7 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.HStack(
                             Layout.Builder.Spacer().WStar(),
                             Layout.Builder.Text("OK", fontSize, BodyText, TextAlign.Center, TextAlign.Center)
-                                .WFixed(100f * dpiScale).HStar().Bg(ConfirmCancelBg)
+                                .WFixed(100f * dpiScale).HStar().Bg(ConfirmCancelBg).BgHover(GuiTheme.Hover(ConfirmCancelBg))
                                 .Clickable(new HitResult.ButtonHit("ProfileSwitchBlockedOk"),
                                     _ => State.ProfileSwitchBlocked = null))
                         .RowH(rowH * 1.3f))
@@ -315,10 +315,13 @@ namespace TianWen.UI.Abstractions
                         input, inputFontSize: BaseFontSize * 0.9f);
 
                 var isMountWins = pd.SiteTieBreaker == SiteTieBreaker.Mount;
-                Layout.Node TieBtn(string label, bool active, SiteTieBreaker tb, string hit) =>
-                    Layout.Builder.Text(label, BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
-                        .WStar().HStar().Bg(active ? SlotActive : CreateButton)
+                Layout.Node TieBtn(string label, bool active, SiteTieBreaker tb, string hit)
+                {
+                    var fill = active ? SlotActive : CreateButton;
+                    return Layout.Builder.Text(label, BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
+                        .WStar().HStar().Bg(fill).BgHover(GuiTheme.Hover(fill))
                         .Clickable(new HitResult.ButtonHit(hit), _ => PostSignal(new UpdateProfileSignal(EquipmentActions.SetSiteTieBreaker(pd, tb))));
+                }
 
                 // Tie-breaker: which side wins on mount connect when both have a site?
                 var tieRow = Layout.Builder.HStack(
@@ -330,7 +333,7 @@ namespace TianWen.UI.Abstractions
 
                 var saveRow = Layout.Builder.HStack(
                         Layout.Builder.Text("Save Site", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
-                            .WFixed(72f).HStar().Bg(CreateButton)
+                            .WFixed(72f).HStar().Bg(CreateButton).BgHover(GuiTheme.Hover(CreateButton))
                             .Clickable(new HitResult.ButtonHit("SaveSite"), _ => State.LatitudeInput.OnCommit?.Invoke(State.LatitudeInput.Text)),
                         Layout.Builder.Spacer().Stretch())
                     .RowH(BaseButtonHeight);
@@ -355,14 +358,14 @@ namespace TianWen.UI.Abstractions
                 return Layout.Builder.HStack(
                         Layout.Builder.Text(siteStr, BaseFontSize * 0.9f, SiteText).Stretch(),
                         Layout.Builder.Text("[>]", BaseFontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center).WFixed(BaseArrowWidth).HStar())
-                    .RowH(BaseItemHeight).Bg(SlotNormal)
+                    .RowH(BaseItemHeight).Bg(SlotNormal).BgHover(GuiTheme.Hover(SlotNormal))
                     .Clickable(new HitResult.ButtonHit("EditSite"), _ => PostSignal(new EditSiteSignal()));
             }
 
             // No site configured -- show "Set Site" button
             return Layout.Builder.HStack(
                     Layout.Builder.Text("Set Site", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
-                        .WFixed(64f).HStar().Bg(CreateButton)
+                        .WFixed(64f).HStar().Bg(CreateButton).BgHover(GuiTheme.Hover(CreateButton))
                         .Clickable(new HitResult.ButtonHit("EditSite"), _ => PostSignal(new EditSiteSignal())),
                     Layout.Builder.Spacer().Stretch())
                 .RowH(BaseButtonHeight);
@@ -396,7 +399,7 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.HStack(
                             Layout.Builder.Text(label, BaseFontSize * 0.85f, DimText).WFixed(labelW).HStar(),
                             Layout.Builder.Text(value, BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
-                                .WStar().HStar().Bg(EditButtonBg)
+                                .WStar().HStar().Bg(EditButtonBg).BgHover(GuiTheme.Hover(EditButtonBg))
                                 .Clickable(new HitResult.ButtonHit(hit), _ => cycle()))
                         .RowH(BaseButtonHeight);
                 static MountLimitResponse NextResponse(MountLimitResponse r) => r switch
@@ -417,11 +420,11 @@ namespace TianWen.UI.Abstractions
                     () => state.LimitEnabledPending = !state.LimitEnabledPending);
                 var saveRow = Layout.Builder.HStack(
                         Layout.Builder.Text("Save Limits", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
-                            .WFixed(88f).HStar().Bg(CreateButton)
+                            .WFixed(88f).HStar().Bg(CreateButton).BgHover(GuiTheme.Hover(CreateButton))
                             .Clickable(new HitResult.ButtonHit("SaveMountLimits"), _ => State.LimitMeridianWarnInput.OnCommit?.Invoke(State.LimitMeridianWarnInput.Text)),
                         Gap(),
                         Layout.Builder.Text("Cancel", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
-                            .WFixed(60f).HStar().Bg(SlotNormal)
+                            .WFixed(60f).HStar().Bg(SlotNormal).BgHover(GuiTheme.Hover(SlotNormal))
                             .Clickable(new HitResult.ButtonHit("CancelMountLimits"), _ => State.LimitMeridianWarnInput.OnCancel?.Invoke()),
                         Layout.Builder.Spacer().Stretch())
                     .RowH(BaseButtonHeight);
@@ -442,7 +445,7 @@ namespace TianWen.UI.Abstractions
             return Layout.Builder.HStack(
                     Layout.Builder.Text("  " + EquipmentActions.DescribeMountLimits(pd.MountLimits), BaseFontSize * 0.9f, SiteText).Stretch(),
                     Layout.Builder.Text("[>]", BaseFontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center).WFixed(BaseArrowWidth).HStar())
-                .RowH(BaseItemHeight).Bg(SlotNormal)
+                .RowH(BaseItemHeight).Bg(SlotNormal).BgHover(GuiTheme.Hover(SlotNormal))
                 .Clickable(new HitResult.ButtonHit("EditMountLimits"), _ => PostSignal(new EditMountLimitsSignal()));
         }
 
@@ -492,9 +495,10 @@ namespace TianWen.UI.Abstractions
             else
             {
                 var armed = State.PendingRemoveOtaIndex == index;
+                var removeFill = armed ? ConfirmDangerBg : RemoveButtonBg;
                 removeLeaf = Layout.Builder.Text(armed ? "Confirm?" : "Remove", BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
                     .WFixed(74f).HStar()
-                    .Bg(armed ? ConfirmDangerBg : RemoveButtonBg)
+                    .Bg(removeFill).BgHover(GuiTheme.Hover(removeFill))
                     .Clickable(new HitResult.ButtonHit($"RemoveOta{index}"), _ =>
                     {
                         if (State.PendingRemoveOtaIndex == capturedI)
@@ -517,7 +521,7 @@ namespace TianWen.UI.Abstractions
             var editLabel = isEditingOta ? "Save" : "Edit";
             var editLeaf = Layout.Builder.Text(editLabel, BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
                 .WFixed(50f).HStar()
-                .Bg(EditButtonBg)
+                .Bg(EditButtonBg).BgHover(GuiTheme.Hover(EditButtonBg))
                 .Clickable(new HitResult.ButtonHit($"EditOta{index}"), _ =>
                 {
                     if (isEditingOta)
@@ -552,7 +556,7 @@ namespace TianWen.UI.Abstractions
         private Layout.Node BuildAddOtaSection() =>
             Layout.Builder.HStack(
                     Layout.Builder.Text("+ Add OTA", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
-                        .WFixed(120f).HStar().Bg(CreateButton)
+                        .WFixed(120f).HStar().Bg(CreateButton).BgHover(GuiTheme.Hover(CreateButton))
                         .Clickable(new HitResult.ButtonHit("AddOta"), _ => PostSignal(new AddOtaSignal())),
                     Layout.Builder.Spacer().Stretch())
                 .RowH(BaseButtonHeight);
@@ -680,7 +684,7 @@ namespace TianWen.UI.Abstractions
             var designBtnW = Renderer.MeasureText(designLabel.AsSpan(), fontPath, BaseFontSize * 0.9f).Width + BasePadding * 4f;
             var designRow = Layout.Builder.HStack(
                     Layout.Builder.Text(designLabel, BaseFontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center)
-                        .WFixed(designBtnW).HStar().Bg(EditButtonBg)
+                        .WFixed(designBtnW).HStar().Bg(EditButtonBg).BgHover(GuiTheme.Hover(EditButtonBg))
                         .Clickable(new HitResult.ButtonHit($"CycleDesign{otaIndex}"), _ =>
                         {
                             if (appState.ActiveProfile is { } prof && prof.Data is { } data)
