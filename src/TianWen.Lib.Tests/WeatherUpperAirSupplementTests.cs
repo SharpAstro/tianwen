@@ -14,8 +14,8 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// An OpenWeatherMap profile has no upper-air wind, so without a supplement the planner's seeing row never
-/// appears for it (the user's own rig, 2026-09-19). <see cref="WeatherDriverExtensions"/> fills the winds from
-/// Open-Meteo. Driven through the REAL drivers, each answering from a fresh file cache, so the wiring is what is
+/// appears for it (the user's own rig, 2026-09-19). <see cref="WeatherDriverExtensions"/> fills the winds, and the
+/// boundary-layer (mixing) height beside them, from Open-Meteo. Driven through the REAL drivers, each answering from a fresh file cache, so the wiring is what is
 /// tested and nothing reaches the network.
 /// </summary>
 public class WeatherUpperAirSupplementTests(ITestOutputHelper output)
@@ -28,10 +28,10 @@ public class WeatherUpperAirSupplementTests(ITestOutputHelper output)
     private static readonly DateTimeOffset Start = new DateTimeOffset(2026, 9, 19, 8, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset End = Start.AddHours(12);
 
-    private static HourlyWeatherForecast Hour(int offsetHours, double cloudCover, double jetMs) =>
+    private static HourlyWeatherForecast Hour(int offsetHours, double cloudCover, double jetMs, double mixingHeight = double.NaN) =>
         new HourlyWeatherForecast(Start.AddHours(offsetHours), CloudCover: cloudCover, Precipitation: 0, Temperature: 10,
             Humidity: 60, DewPoint: 3, WindSpeed: 2, WindGust: 4, WindDirection: 270, Visibility: 20000, WeatherCode: 0,
-            WindSpeed250hPa: jetMs);
+            WindSpeed250hPa: jetMs, BoundaryLayerHeight: mixingHeight);
 
     /// <summary>
     /// Writes a forecast where the driver will look for it, stamped at the fake clock's now so it reads as FRESH:
@@ -57,13 +57,14 @@ public class WeatherUpperAirSupplementTests(ITestOutputHelper output)
         // OpenWeatherMap's night: its own cloud cover, no upper-air wind. Open-Meteo's: a different cloud cover
         // and the jet wind, which is the only thing that may cross.
         WriteFreshCache(external, "owm_", [.. Enumerable.Range(0, 3).Select(h => Hour(h, cloudCover: 20, jetMs: double.NaN))]);
-        WriteFreshCache(external, "", [.. Enumerable.Range(0, 3).Select(h => Hour(h, cloudCover: 90, jetMs: 30 + h))]);
+        WriteFreshCache(external, "", [.. Enumerable.Range(0, 3).Select(h => Hour(h, cloudCover: 90, jetMs: 30 + h, mixingHeight: 300 - 10 * h))]);
 
         using var owm = new OpenWeatherMapDriver(new OpenWeatherMapDevice(), sp, apiKey: "unused");
         var forecast = await owm.GetHourlyForecastWithUpperAirAsync(sp, Latitude, Longitude, Start, End, ct);
 
         forecast.Count.ShouldBe(3);
         forecast.Select(h => h.WindSpeed250hPa).ShouldBe([30.0, 31.0, 32.0]);
+        forecast.Select(h => h.BoundaryLayerHeight).ShouldBe([300.0, 290.0, 280.0], "the mixing height crosses with the winds");
         forecast.ShouldAllBe(h => h.CloudCover == 20, "OpenWeatherMap's own cloud cover stays");
         SeeingForecast.For(forecast[0]).Class.ShouldNotBe(SeeingClass.Unknown, "the seeing row now has an input");
     }

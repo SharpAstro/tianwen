@@ -70,4 +70,6 @@ internal sealed class OpenMeteoHourlyData
     [JsonPropertyName("wind_speed_250hPa")] public List<double?>? WindSpeed250hPa { get; set; }
     [JsonPropertyName("wind_speed_500hPa")] public List<double?>? WindSpeed500hPa { get; set; }
     [JsonPropertyName("wind_speed_850hPa")] public List<double?>? WindSpeed850hPa { get; set; }
+    // Metres above ground (BOM's "mixing height"); nullable for the same reason, since not every model has it.
+    public List<double?>? BoundaryLayerHeight { get; set; }
 }

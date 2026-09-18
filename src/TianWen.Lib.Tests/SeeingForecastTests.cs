@@ -73,6 +73,30 @@ public class SeeingForecastTests
         => AltitudeChartRenderer.BuildWeatherTooltipLines(Hour(NightStart, jetKmh: double.NaN), TimeSpan.FromHours(2))
             .ShouldNotContain(l => l.StartsWith("Seeing", StringComparison.Ordinal));
 
+    // --- the mixing height: shown, not yet scored ---
+
+    [Fact]
+    public void TheTooltipShowsTheMixingHeightWhenTheForecastHasIt()
+    {
+        var withHeight = AltitudeChartRenderer.BuildWeatherTooltipLines(
+            Hour(NightStart, jetKmh: 100) with { BoundaryLayerHeight = 280 }, TimeSpan.FromHours(2));
+        var without = AltitudeChartRenderer.BuildWeatherTooltipLines(Hour(NightStart, jetKmh: 100), TimeSpan.FromHours(2));
+
+        withHeight.ShouldContain("Mixing height: 280 m");
+        without.ShouldNotContain(l => l.StartsWith("Mixing", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Recorded for P2's calibration, deliberately NOT in the class: a shallow calm layer and a deep stirred one
+    /// read the same until measured seeing says how to weigh them.
+    /// </summary>
+    [Theory]
+    [InlineData(110)]
+    [InlineData(2000)]
+    public void TheMixingHeightDoesNotMoveTheSeeingClassYet(double mixingHeight)
+        => SeeingForecast.For(Hour(NightStart, jetKmh: 100) with { BoundaryLayerHeight = mixingHeight })
+            .ShouldBe(SeeingForecast.For(Hour(NightStart, jetKmh: 100)));
+
     // --- the planner's weather band ---
 
     private static PlannerState State(bool withJet) => new PlannerState

@@ -93,7 +93,7 @@ public class WeatherForecastMergeTests
     {
         // The cache holds winds for 12:00; a refetch whose pressure-level array ran out (or a cache/driver
         // from before the winds were requested) brings the hour back without them.
-        var cached = new List<HourlyWeatherForecast> { Hour(12, 90) with { WindSpeed250hPa = 40, WindSpeed500hPa = 20, WindSpeed850hPa = 8 } };
+        var cached = new List<HourlyWeatherForecast> { Hour(12, 90) with { WindSpeed250hPa = 40, WindSpeed500hPa = 20, WindSpeed850hPa = 8, BoundaryLayerHeight = 280 } };
         var fresh = new List<HourlyWeatherForecast> { Hour(12, 81) };
 
         var merged = WeatherForecastMerge.Merge(cached, fresh).ShouldHaveSingleItem();
@@ -102,6 +102,7 @@ public class WeatherForecastMergeTests
         merged.WindSpeed250hPa.ShouldBe(40);
         merged.WindSpeed500hPa.ShouldBe(20);
         merged.WindSpeed850hPa.ShouldBe(8);
+        merged.BoundaryLayerHeight.ShouldBe(280);
     }
 
     [Fact]
@@ -120,30 +121,31 @@ public class WeatherForecastMergeTests
     // --- a provider with no upper-air field gains the winds from one that has them ---
 
     [Fact]
-    public void FillUpperAirWinds_TakesTheWindsAtTheSameInstantAndKeepsEverythingElse()
+    public void FillUpperAir_TakesTheUpperAirAtTheSameInstantAndKeepsEverythingElse()
     {
         // OpenWeatherMap's hours (no upper-air field) against Open-Meteo's for the same instants, whose surface
         // fields disagree on purpose: none of them may cross.
         var primary = new List<HourlyWeatherForecast> { Hour(12, 81), Hour(13, 79) };
         var upperAir = new List<HourlyWeatherForecast>
         {
-            Hour(12, 50) with { CloudCover = 100, WindSpeed250hPa = 40, WindSpeed500hPa = 20, WindSpeed850hPa = 8 },
-            Hour(13, 50) with { CloudCover = 100, WindSpeed250hPa = 42, WindSpeed500hPa = 21, WindSpeed850hPa = 9 },
+            Hour(12, 50) with { CloudCover = 100, WindSpeed250hPa = 40, WindSpeed500hPa = 20, WindSpeed850hPa = 8, BoundaryLayerHeight = 280 },
+            Hour(13, 50) with { CloudCover = 100, WindSpeed250hPa = 42, WindSpeed500hPa = 21, WindSpeed850hPa = 9, BoundaryLayerHeight = 265 },
         };
 
-        var filled = WeatherForecastMerge.FillUpperAirWinds(primary, upperAir);
+        var filled = WeatherForecastMerge.FillUpperAir(primary, upperAir);
 
         filled.Count.ShouldBe(2);
         filled[0].WindSpeed250hPa.ShouldBe(40);
         filled[0].WindSpeed500hPa.ShouldBe(20);
         filled[0].WindSpeed850hPa.ShouldBe(8);
+        filled[0].BoundaryLayerHeight.ShouldBe(280, "the mixing height is upper air too: a surface-only provider has none");
         filled[1].WindSpeed250hPa.ShouldBe(42);
         filled[0].Humidity.ShouldBe(81, "the provider's own surface fields stay its own");
         filled[0].CloudCover.ShouldBe(50);
     }
 
     [Fact]
-    public void FillUpperAirWinds_KeepsTheProvidersOwnWindsAndAddsNoHours()
+    public void FillUpperAir_KeepsTheProvidersOwnWindsAndAddsNoHours()
     {
         var primary = new List<HourlyWeatherForecast> { Hour(12, 81) with { WindSpeed250hPa = 44 }, Hour(13, 79) };
         var upperAir = new List<HourlyWeatherForecast>
@@ -152,7 +154,7 @@ public class WeatherForecastMergeTests
             Hour(12, 50) with { WindSpeed250hPa = 40, WindSpeed500hPa = 20 },
         };
 
-        var filled = WeatherForecastMerge.FillUpperAirWinds(primary, upperAir);
+        var filled = WeatherForecastMerge.FillUpperAir(primary, upperAir);
 
         filled.Select(h => h.Time.Hour).ShouldBe([12, 13], "an hour only the supplement covers is not added");
         filled[0].WindSpeed250hPa.ShouldBe(44, "a number the provider has is never overwritten");

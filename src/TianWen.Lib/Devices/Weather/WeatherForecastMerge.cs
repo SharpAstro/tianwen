@@ -22,8 +22,8 @@ internal static class WeatherForecastMerge
     /// <summary>
     /// Hour-keyed union of <paramref name="cached"/> and <paramref name="fresh"/>. Fresh entries
     /// override cached entries for the same <see cref="HourlyWeatherForecast.Time"/> (an instant, so
-    /// the dedup is timezone-offset agnostic), except for an upper-air wind the fresh entry lacks, which
-    /// keeps the cached number (<see cref="WithUpperAirWindsFrom"/>); cached hours the fresh fetch no longer covers
+    /// the dedup is timezone-offset agnostic), except for an upper-air field the fresh entry lacks, which
+    /// keeps the cached number (<see cref="WithUpperAirFrom"/>); cached hours the fresh fetch no longer covers
     /// are retained. The result is sorted ascending by time.
     /// </summary>
     public static List<HourlyWeatherForecast> Merge(
@@ -47,7 +47,7 @@ internal static class WeatherForecastMerge
         {
             // A cache written before the pressure-level winds were requested, or a refetch whose array ran out
             // before this hour, must not blank a value the seeing forecast already had.
-            byHour[entry.Time] = byHour.TryGetValue(entry.Time, out var earlier) ? WithUpperAirWindsFrom(entry, earlier) : entry;
+            byHour[entry.Time] = byHour.TryGetValue(entry.Time, out var earlier) ? WithUpperAirFrom(entry, earlier) : entry;
         }
 
         var merged = new List<HourlyWeatherForecast>(byHour.Values);
@@ -56,9 +56,9 @@ internal static class WeatherForecastMerge
     }
 
     /// <summary>
-    /// <paramref name="primary"/> with each hour's missing upper-air winds taken from <paramref name="upperAir"/>
+    /// <paramref name="primary"/> with each hour's missing upper-air fields taken from <paramref name="upperAir"/>
     /// at the same instant: a provider with no upper-air field (OpenWeatherMap) keeps every number it has and
-    /// gains the seeing forecast's input from one that does (Open-Meteo). Merging per FIELD, the rule
+    /// gains the seeing forecast's inputs from one that does (Open-Meteo). Merging per FIELD, the rule
     /// docs/plans/seeing-forecast.md states, so a NaN from either side never overwrites a number from the other.
     /// </summary>
     /// <remarks>
@@ -67,7 +67,7 @@ internal static class WeatherForecastMerge
     /// make with provenance attached (docs/plans/night-calendar.md), not this fill's. Both providers stamp their
     /// hours on the UTC hour, so the same instant is the match.
     /// </remarks>
-    public static List<HourlyWeatherForecast> FillUpperAirWinds(
+    public static List<HourlyWeatherForecast> FillUpperAir(
         IReadOnlyList<HourlyWeatherForecast> primary,
         IReadOnlyList<HourlyWeatherForecast> upperAir)
     {
@@ -80,20 +80,23 @@ internal static class WeatherForecastMerge
         var filled = new List<HourlyWeatherForecast>(primary.Count);
         foreach (var entry in primary)
         {
-            filled.Add(byHour.TryGetValue(entry.Time, out var other) ? WithUpperAirWindsFrom(entry, other) : entry);
+            filled.Add(byHour.TryGetValue(entry.Time, out var other) ? WithUpperAirFrom(entry, other) : entry);
         }
         return filled;
     }
 
     /// <summary>
-    /// <paramref name="entry"/>, except that an upper-air wind it lacks (NaN) takes <paramref name="other"/>'s
-    /// number: merging per FIELD, not per entry. The surface fields are left as they were.
+    /// <paramref name="entry"/>, except that an upper-air field it lacks (NaN) takes <paramref name="other"/>'s
+    /// number: merging per FIELD, not per entry. The upper-air fields are the ones a surface-only provider has no
+    /// value for: the three pressure-level winds and the boundary-layer (mixing) height. The surface fields are
+    /// left as they were.
     /// </summary>
-    private static HourlyWeatherForecast WithUpperAirWindsFrom(HourlyWeatherForecast entry, HourlyWeatherForecast other)
+    private static HourlyWeatherForecast WithUpperAirFrom(HourlyWeatherForecast entry, HourlyWeatherForecast other)
         => entry with
         {
             WindSpeed250hPa = double.IsNaN(entry.WindSpeed250hPa) ? other.WindSpeed250hPa : entry.WindSpeed250hPa,
             WindSpeed500hPa = double.IsNaN(entry.WindSpeed500hPa) ? other.WindSpeed500hPa : entry.WindSpeed500hPa,
             WindSpeed850hPa = double.IsNaN(entry.WindSpeed850hPa) ? other.WindSpeed850hPa : entry.WindSpeed850hPa,
+            BoundaryLayerHeight = double.IsNaN(entry.BoundaryLayerHeight) ? other.BoundaryLayerHeight : entry.BoundaryLayerHeight,
         };
 }

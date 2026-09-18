@@ -33,7 +33,8 @@ public class OpenMeteoPressureLevelWindTests
             "weather_code": [0, 1, 2],
             "wind_speed_250hPa": [141.0, 153.0, 156.0],
             "wind_speed_500hPa": [72.0, 64.8, null],
-            "wind_speed_850hPa": [18.0, 21.6, 25.2]
+            "wind_speed_850hPa": [18.0, 21.6, 25.2],
+            "boundary_layer_height": [1680.0, 380.0, null]
           }
         }
         """;
@@ -63,6 +64,20 @@ public class OpenMeteoPressureLevelWindTests
         => double.IsNaN(Parse()[2].WindSpeed500hPa).ShouldBeTrue();
 
     /// <summary>
+    /// The boundary-layer height, BOM's "mixing height", rides the same request: metres as sent, a null as
+    /// no value (not every model carries it). The two values are the site's 16:00 and 18:00 on 2026-09-19.
+    /// </summary>
+    [Fact]
+    public void TheMixingHeightIsReadInMetresAndANullIsNoValue()
+    {
+        var hours = Parse();
+
+        hours[0].BoundaryLayerHeight.ShouldBe(1680.0);
+        hours[1].BoundaryLayerHeight.ShouldBe(380.0);
+        double.IsNaN(hours[2].BoundaryLayerHeight).ShouldBeTrue();
+    }
+
+    /// <summary>
     /// A forecast cache written before the winds were requested has no such fields; it must read back with
     /// them absent (NaN), not as zero wind, which the seeing forecast would read as a perfect night.
     /// </summary>
@@ -82,6 +97,7 @@ public class OpenMeteoPressureLevelWindTests
         double.IsNaN(hour.WindSpeed250hPa).ShouldBeTrue($"read back as {hour.WindSpeed250hPa}");
         double.IsNaN(hour.WindSpeed500hPa).ShouldBeTrue($"read back as {hour.WindSpeed500hPa}");
         double.IsNaN(hour.WindSpeed850hPa).ShouldBeTrue($"read back as {hour.WindSpeed850hPa}");
+        double.IsNaN(hour.BoundaryLayerHeight).ShouldBeTrue($"read back as {hour.BoundaryLayerHeight}");
     }
 
     [Fact]
@@ -93,6 +109,7 @@ public class OpenMeteoPressureLevelWindTests
         var back = JsonSerializer.Deserialize(json, OpenMeteoJsonContext.Default.ListHourlyWeatherForecast).ShouldNotBeNull();
 
         back[0].WindSpeed250hPa.ShouldBe(hours[0].WindSpeed250hPa);
+        back[0].BoundaryLayerHeight.ShouldBe(hours[0].BoundaryLayerHeight);
         double.IsNaN(back[2].WindSpeed500hPa).ShouldBeTrue("NaN is written as a named literal and read back as NaN");
     }
 }

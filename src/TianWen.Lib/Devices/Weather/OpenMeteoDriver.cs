@@ -19,9 +19,9 @@ namespace TianWen.Lib.Devices.Weather;
 internal sealed class OpenMeteoDriver : IWeatherDriver
 {
     private const string BaseUrl = "https://api.open-meteo.com/v1/forecast";
-    // The three pressure-level winds are the seeing forecast's input (docs/plans/seeing-forecast.md); they
-    // cost nothing, riding the same request.
-    private const string HourlyParams = "cloud_cover,precipitation,precipitation_probability,temperature_2m,relative_humidity_2m,dew_point_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m,visibility,weather_code,wind_speed_250hPa,wind_speed_500hPa,wind_speed_850hPa";
+    // The three pressure-level winds are the seeing forecast's input (docs/plans/seeing-forecast.md), and the
+    // boundary-layer (mixing) height its candidate ground-layer term; they cost nothing, riding the same request.
+    private const string HourlyParams = "cloud_cover,precipitation,precipitation_probability,temperature_2m,relative_humidity_2m,dew_point_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m,visibility,weather_code,wind_speed_250hPa,wind_speed_500hPa,wind_speed_850hPa,boundary_layer_height";
     private const string CurrentParams = "temperature_2m,relative_humidity_2m,cloud_cover,surface_pressure,wind_direction_10m,wind_speed_10m,wind_gusts_10m,precipitation";
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(1);
 
@@ -273,7 +273,8 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
                 PrecipitationProbability: GetValue(hourly.PrecipitationProbability, i),
                 WindSpeed250hPa: GetValue(hourly.WindSpeed250hPa, i) / 3.6,
                 WindSpeed500hPa: GetValue(hourly.WindSpeed500hPa, i) / 3.6,
-                WindSpeed850hPa: GetValue(hourly.WindSpeed850hPa, i) / 3.6
+                WindSpeed850hPa: GetValue(hourly.WindSpeed850hPa, i) / 3.6,
+                BoundaryLayerHeight: GetValue(hourly.BoundaryLayerHeight, i)
             ));
         }
 

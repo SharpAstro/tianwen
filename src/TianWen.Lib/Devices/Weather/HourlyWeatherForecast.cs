@@ -24,6 +24,11 @@ namespace TianWen.Lib.Devices.Weather;
 /// (docs/plans/seeing-forecast.md), never a seeing measurement.</param>
 /// <param name="WindSpeed500hPa">Wind speed at 500 hPa (about 5.5 km) in m/s, or NaN.</param>
 /// <param name="WindSpeed850hPa">Wind speed at 850 hPa (about 1.5 km) in m/s, or NaN.</param>
+/// <param name="BoundaryLayerHeight">Depth of the atmospheric boundary layer in metres above ground, what the
+/// Bureau of Meteorology calls MIXING HEIGHT, or NaN. It collapses to a shallow stable layer on a clear calm
+/// night and stays deep when wind keeps the low air stirred, so it is a candidate ground-layer term for the
+/// seeing forecast; recorded, not yet used (docs/plans/seeing-forecast.md, P2). A MODEL quantity: the same
+/// night read 110 m from BOM's ACCESS and about 280 m from Open-Meteo's default model.</param>
 // The forecast CACHE is read through THIS constructor, so a field an older cache lacks takes the parameter's
 // default (NaN, "not known") instead of 0. Without the attribute the JSON source generator builds the struct
 // through its implicit parameterless constructor and passes every init-only member as an argument with no
@@ -46,4 +51,5 @@ public readonly record struct HourlyWeatherForecast(
     double PrecipitationProbability = double.NaN,
     double WindSpeed250hPa = double.NaN,
     double WindSpeed500hPa = double.NaN,
-    double WindSpeed850hPa = double.NaN);
+    double WindSpeed850hPa = double.NaN,
+    double BoundaryLayerHeight = double.NaN);
