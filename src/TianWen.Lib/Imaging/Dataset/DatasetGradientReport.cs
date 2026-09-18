@@ -18,7 +18,9 @@ using TianWen.Lib.Astrometry.Lunar;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Astrometry.VSOP87;
+using TianWen.Lib.Geometry;
 using TianWen.Lib.Imaging.BackgroundExtraction;
+using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib.Sequencing;
 using TianWen.Lib.Stat;
 
@@ -301,7 +303,33 @@ namespace TianWen.Lib.Imaging.Dataset
             var meta = master.ImageMeta;
             var (channels, width, height) = master.Shape;
 
-            var masked = MaskAbsent(master, out var absentFraction);
+            // The band some frames covered and others did not is NOT absent -- it holds real pixels,
+            // at a lower depth and (before the drizzle sky reference) carrying level steps from sky
+            // drift, which is what put the white and black edge bands on Statue of Liberty and Great
+            // Orion. Masking only the exact-zero ring therefore let the noisiest, least representative
+            // strip of the canvas into the fit, and it is a strip the TILES never use:
+            // DatasetTileExporter samples inside the all-frames intersection.
+            //
+            // The coverage sidecar is the exact answer to where that is, and every master a bake
+            // retains now carries one. Without it (a store from before that change) the behaviour is
+            // unchanged rather than guessed at -- an estimate here would be a different fit silently
+            // labelled the same.
+            var coveredRect = PixelRect.Empty;
+            if (IntegrationFitsWriter.TryReadCoverageMap(masterPath, out var coverage))
+            {
+                try
+                {
+                    // The viewer's own threshold for the same question, so the region fitted here and
+                    // the region a person sees cropped are the same region.
+                    coveredRect = master.LargestCoveredRectangle(coverage);
+                }
+                finally
+                {
+                    coverage.Release();
+                }
+            }
+
+            var masked = MaskAbsent(master, coveredRect, out var absentFraction);
             var extractor = new ClassicalBackgroundExtractor();
             var defaults = BackgroundExtractionOptions.Default;
 
@@ -414,10 +442,22 @@ namespace TianWen.Lib.Imaging.Dataset
         /// <summary>
         /// A copy of <paramref name="source"/> with every exact-zero or non-finite pixel set to NaN, which the
         /// extractor treats as absent. The integrator writes 0 where no frame covered the canvas.
+        /// <para>
+        /// <paramref name="covered"/>, when not <see cref="PixelRect.Empty"/>, also masks everything
+        /// OUTSIDE it: the partly covered band is not absent but it is shallower and noisier than the
+        /// interior, and it is a band the exported tiles never sample. Masking rather than cropping
+        /// keeps the frame's geometry, so a gradient angle stays in the master's own coordinates and
+        /// stays comparable with every measurement taken before this.
+        /// </para>
         /// </summary>
-        internal static Image MaskAbsent(Image source, out float absentFraction)
+        internal static Image MaskAbsent(Image source, PixelRect covered, out float absentFraction)
         {
             var (channels, width, height) = source.Shape;
+            var limit = covered.IsEmpty
+                ? new PixelRect(0, 0, width, height)
+                : PixelRect.FromLTRB(
+                    Math.Max(0, covered.Left), Math.Max(0, covered.Top),
+                    Math.Min(width, covered.Right), Math.Min(height, covered.Bottom));
             var n = width * height;
             var data = Image.CreateChannelData(channels, height, width);
             long absent = 0;
@@ -430,7 +470,10 @@ namespace TianWen.Lib.Imaging.Dataset
                 for (var i = 0; i < n; i++)
                 {
                     var v = src[i];
-                    if (v == 0f || !float.IsFinite(v))
+                    var y = i / width;
+                    var x = i - (y * width);
+                    var outside = x < limit.Left || x >= limit.Right || y < limit.Top || y >= limit.Bottom;
+                    if (outside || v == 0f || !float.IsFinite(v))
                     {
                         dst[i] = float.NaN;
                         absent++;
