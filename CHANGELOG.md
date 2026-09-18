@@ -35,7 +35,7 @@ other commit hash from before 2026-04-22 no longer resolves anywhere.
 
 Breaking, so a major. The geometry types in `TianWen.Lib`'s public API are its own now, the
 dependency floor moves two majors, and a filter name the library does not recognise stops comparing
-equal to `Filter.Unknown`. Two further changes alter what a dataset bake produces from the same
+equal to `Filter.Unknown`. Three further changes alter what a dataset bake produces from the same
 archive, which no signature announces.
 
 **`System.Drawing.Rectangle` and `Point` are gone from the public API**, replaced by
@@ -82,6 +82,23 @@ touching its scale, and `SessionRegistrar` hands the median sky of the session's
 and both halves. On Statue of Liberty the worst term went from 8.88 sigma to 0.06 and blue's
 background sigma from 7.1e-4 to 1.8e-4, with the sky level within 7 percent of before. A drizzled
 master baked earlier keeps the pattern until it is re-baked.
+
+**A hot-pixel mask is measured per Bayer position, and a degenerate one is refused.** A CFA dark is
+one channel holding four interleaved populations that need not share a level, and `BadPixelDetection`
+sampled it at stride 8: an EVEN stride lands on (even, even) everywhere, so the noise scale came from
+one photosite colour and was applied to the other three. On the eta Carinae ASI294MC dark the four
+colours sit at R 540, G 520, G 520, B 621 ADU, because a non-neutral in-camera white balance was left
+on and a ZWO applies it as a digital gain that scales the pedestal too. The sample was the red plane,
+its MAD collapsed to the 4.0 ADU fallback, and the sigma-8 threshold landed at 587.4432, below blue's
+own floor: 100.000 percent of the blue photosites were flagged hot, drizzle deposited nothing into
+that plane, and the master was written with an all-NaN blue channel while the session reported
+success. Each Bayer position now gets its own median and MAD (0.278 percent masked for blue on that
+dark, 0.33 to 0.89 across the four), the sampling stride is odd so an undeclared mosaic cannot
+phase-lock either, and the runaway guard that bounded the estimation loop now also covers the chosen
+threshold, which is the step that writes the mask: a count past it masks nothing and logs why.
+`IntegratedMaster.Labelled` refuses a master with a channel holding no finite pixel at all, so any
+other route to an empty plane fails the session instead of writing it. One master of the reference
+archive's 92 was affected; masks change slightly for every CFA dark, so a bake re-run will differ.
 
 **Published under 8.2 after its entry was written, and recorded here (#292).** With normalisation on,
 drizzle normalises each frame per CFA colour, closing a phase-locked colour bias and the column
