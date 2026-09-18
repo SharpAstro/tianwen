@@ -668,7 +668,7 @@ public static class AltitudeChartRenderer
         var bandX = areaX + xMargin;
         var bandW = areaW - xMargin * 2;
         var bandY = areaY + TitleBandHeight(areaH);
-        var bandH = WeatherBandHeight(areaH) + HumidityRowHeight(areaH);
+        var bandH = WeatherBandHeight(areaH) + HumidityRowHeight(areaH) + SeeingRowHeight(state.WeatherForecast, areaH);
         return (bandX, bandY, bandW, bandH);
     }
 
@@ -692,10 +692,33 @@ public static class AltitudeChartRenderer
     /// <summary>Returns the humidity readout row height (drawn just below the icon band), proportional to chart height.</summary>
     private static int HumidityRowHeight(int chartH) => Math.Max(11, chartH / 60);
 
+    /// <summary>
+    /// The seeing-estimate row under the humidity row, or zero when no hour carries an upper-air wind to
+    /// estimate from: a provider with no pressure-level field (OpenWeatherMap) gets no empty row.
+    /// </summary>
+    private static int SeeingRowHeight(IReadOnlyList<HourlyWeatherForecast>? forecast, int chartH)
+        => HasSeeing(forecast) ? HumidityRowHeight(chartH) : 0;
+
+    private static bool HasSeeing(IReadOnlyList<HourlyWeatherForecast>? forecast)
+    {
+        if (forecast is null)
+        {
+            return false;
+        }
+        for (var i = 0; i < forecast.Count; i++)
+        {
+            if (!double.IsNaN(forecast[i].WindSpeed250hPa))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /// <summary>Returns extra top margin pixels when weather data is available, proportional to chart height.</summary>
     private static int WeatherMargin(PlannerState state, int chartH = 800)
-        => state.WeatherForecast is { Count: > 0 }
-            ? WeatherBandHeight(chartH) + HumidityRowHeight(chartH) + Math.Max(16, chartH / 50)
+        => state.WeatherForecast is { Count: > 0 } forecast
+            ? WeatherBandHeight(chartH) + HumidityRowHeight(chartH) + SeeingRowHeight(forecast, chartH) + Math.Max(16, chartH / 50)
             : 0;
 
     /// <summary>Returns the title text height, proportional to chart height.</summary>
@@ -753,6 +776,18 @@ public static class AltitudeChartRenderer
     };
 
     /// <summary>
+    /// A seeing class as a severity, the humidity row's scale reused so the two rows read alike: good is the
+    /// success role, bad the error role, and the middle separates by weight rather than a new hue.
+    /// </summary>
+    private static RGBAColor32 SeeingColor(SeeingClass seeing) => seeing switch
+    {
+        SeeingClass.Excellent or SeeingClass.Good => GuiTheme.Palette.Success,
+        SeeingClass.Average => GuiTheme.Mix(GuiTheme.Palette.ContentBg, GuiTheme.Palette.Warn, 0.7f),
+        SeeingClass.Poor => GuiTheme.Palette.Warn,
+        _ => GuiTheme.Palette.Error,
+    };
+
+    /// <summary>
     /// Draws hourly weather condition icons in a band just above the plot area, plus a
     /// per-hour relative-humidity readout row immediately below the icons.
     /// Icons: rain > fog > overcast > partly cloudy > clear (moon at night, sun in twilight).
@@ -784,6 +819,17 @@ public static class AltitudeChartRenderer
         var rhLabelRect = MakeRect(plotX - 44, humRowY, 40, humRowH);
         renderer.DrawText("RH", fontFamily, humFontSize, GrayColor,
             rhLabelRect, TextAlign.Far, TextAlign.Center);
+
+        // The seeing ESTIMATE row (SeeingForecast): a class 1..5 per hour, best 5, drawn only when some hour
+        // carries a 250 hPa wind (SeeingRowHeight reserves the row on the same condition). The tooltip says
+        // what it is estimated from; it is never a measurement.
+        var seeingRowY = humRowY + humRowH;
+        var showSeeing = HasSeeing(forecast);
+        if (showSeeing)
+        {
+            renderer.DrawText("Seeing", fontFamily, humFontSize, GrayColor,
+                MakeRect(plotX - 44, seeingRowY, 40, humRowH), TextAlign.Far, TextAlign.Center);
+        }
 
         for (var i = 0; i < forecast.Count; i++)
         {
@@ -828,6 +874,13 @@ public static class AltitudeChartRenderer
                 var humRect = MakeRect(x - slotW / 2, humRowY, slotW, humRowH);
                 renderer.DrawText($"{entry.Humidity:F0}%", fontFamily, humFontSize, HumidityColor(entry.Humidity),
                     humRect, TextAlign.Center, TextAlign.Center);
+            }
+
+            if (showSeeing && SeeingForecast.For(entry) is { Class: not SeeingClass.Unknown } seeing)
+            {
+                renderer.DrawText(((int)seeing.Class).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    fontFamily, humFontSize, SeeingColor(seeing.Class),
+                    MakeRect(x - slotW / 2, seeingRowY, slotW, humRowH), TextAlign.Center, TextAlign.Center);
             }
         }
     }
@@ -973,6 +1026,12 @@ public static class AltitudeChartRenderer
             var gust = double.IsNaN(f.WindGust) ? "" : $" (gust {f.WindGust:F0})";
             var dir = double.IsNaN(f.WindDirection) ? "" : $" {CompassPoint(f.WindDirection)}";
             lines.Add($"Wind: {f.WindSpeed:F0} m/s{gust}{dir}");
+        }
+
+        // Says what it is: an estimate from the wind aloft, never a measured seeing.
+        if (SeeingForecast.For(f) is { Class: not SeeingClass.Unknown } seeing)
+        {
+            lines.Add($"Seeing: {seeing.Class} ({(int)seeing.Class}/5), estimated from wind; {f.WindSpeed250hPa:F0} m/s at 250 hPa");
         }
 
         if (!double.IsNaN(f.Visibility) && f.Visibility > 0)
