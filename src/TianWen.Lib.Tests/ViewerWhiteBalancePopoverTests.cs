@@ -6,6 +6,7 @@ using DIR.Lib;
 using Shouldly;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.ColorCalibration;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -289,6 +290,62 @@ namespace TianWen.Lib.Tests
             calibrateRight.ShouldNotBeNull("the calibration button is in the row");
             calibrateRight!.Value.ShouldBeLessThanOrEqualTo(panelRight!.Value,
                 $"at dpi {dpiScale} the calibration button reaches {calibrateRight} and the panel ends at {panelRight}");
+        }
+
+        /// <summary>
+        /// <b>Nothing in the popover is cut short.</b> The G of the channel column was drawn as a lone
+        /// ellipsis, the column being sized to R, and the calibration line was trimmed to the box, which
+        /// lost its white reference (2026-09-18). Every text leaf the popover paints must be at least as
+        /// wide as its own text measures.
+        /// </summary>
+        /// <remarks>
+        /// Measured in the face the viewer ships, DejaVu Sans. The harness default is the platform's
+        /// MONOSPACE face, where G and R are one width, and this test passed against the R-wide column
+        /// there until it was moved onto the proportional face.
+        /// </remarks>
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.5f)]
+        public async Task NoTextInThePopoverIsCutShort(float dpiScale)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer((uint)(WindowW * dpiScale), (uint)(WindowH * dpiScale));
+            var (viewer, state, document, _) = await NewViewerAsync(renderer, ct);
+            document.InheritColorCalibration((0.671f, 1f, 1.605f),
+                new ColorCalibrationSummary("SPCC", 0.671f, 1f, 1.605f, 22, "Average spiral galaxy (SWIRE Sb)"));
+            state.ColorCalibrationEnabled = true;
+            var face = System.IO.Path.Combine(AppContext.BaseDirectory, "TestFonts", "DejaVuSans.ttf");
+            System.IO.File.Exists(face).ShouldBeTrue("the viewer's own face is copied to the test output");
+            viewer.FontPath = face;
+            viewer.DpiScale = dpiScale;
+            viewer.Render(document, state);
+
+            var button = Button(viewer);
+            Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));
+            viewer.Render(document, state);
+
+            var nodes = new List<Layout.ArrangedNode<float>>();
+            viewer.CollectPaintedNodes(nodes);
+            var texts = new List<(string Value, float Measured, float Available)>();
+            foreach (var arranged in nodes)
+            {
+                if (arranged.Node is not Layout.Node.Leaf { Content: Layout.Content.Text text } leaf
+                    || arranged.Bounds.Y < button.Bottom || text.Value.Length == 0)
+                {
+                    continue;
+                }
+
+                var measured = renderer.MeasureText(text.Value, viewer.FontPath, text.FontSize * dpiScale).Width;
+                texts.Add((text.Value, measured, arranged.Bounds.Width - (2f * leaf.Padding * dpiScale)));
+            }
+
+            texts.ShouldContain(t => t.Value == "G", "the channel column is painted");
+            texts.ShouldContain(t => t.Value == "White: Average spiral galaxy (SWIRE Sb)", "the provenance is painted whole");
+            foreach (var (value, measured, available) in texts)
+            {
+                measured.ShouldBeLessThanOrEqualTo(available + 0.5f,
+                    $"'{value}' measures {measured:F1} at dpi {dpiScale} and was given {available:F1}");
+            }
         }
 
         /// <summary>

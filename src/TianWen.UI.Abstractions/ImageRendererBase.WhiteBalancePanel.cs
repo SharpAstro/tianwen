@@ -60,9 +60,13 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private const string SpccWidthSample = "Calibrating...";
 
-        /// <summary>The label column, one channel letter wide, and the value column at its widest
+        /// <summary>The label column, as wide as its widest letter, and the value column at its widest
         /// reading. Stated as samples for the same reason the buttons are.</summary>
-        private const string WbLabelWidthSample = "R";
+        /// <remarks>G, a round capital, is the widest of the three in the faces this ships with. The
+        /// column was sized to R, so the G alone did not fit and was drawn as a lone ellipsis
+        /// (2026-09-18); the engine no longer cuts a single character at all (DIR.Lib's
+        /// <c>TextFit.IsSingleGrapheme</c>), but a column narrower than its label would still overhang.</remarks>
+        private const string WbLabelWidthSample = "G";
         private const string WbValueWidthSample = "0.00";
 
         /// <summary>Inter-row and inter-column gap, design units. The row height is a font line plus
@@ -176,11 +180,13 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         private Layout.Node PanelButton(string label, string hit, bool enabled,
             Action onPress, string? widthSample = null, RGBAColor32? background = null)
-            => Layout.Builder.Text(label, BaseFontSize,
+        {
+            var fill = background ?? ToolbarButtonBg;
+            var button = Layout.Builder.Text(label, BaseFontSize,
                     enabled ? ViewerTheme.Palette.BodyText : ViewerTheme.Palette.DimText,
                     hAlign: TextAlign.Center, widthSample: widthSample)
                 .PadX(WbGap)
-                .Bg(background ?? ToolbarButtonBg)
+                .Bg(fill)
                 .Clickable(new HitResult.ButtonHit(hit),
                     _ =>
                     {
@@ -191,6 +197,11 @@ namespace TianWen.UI.Abstractions
                     },
                     enabled ? CursorKind.Pointer : null);
 
+            // Lit under the pointer only when a press would do something: a dim button that lit up would
+            // promise the action its dimness is refusing.
+            return enabled ? button.BgHover(GuiTheme.Hover(fill)) : button;
+        }
+
         /// <summary>
         /// The whole popover as one tree. Nothing here is positioned and nothing is measured; the
         /// engine is told what the content is and does both.
@@ -199,21 +210,24 @@ namespace TianWen.UI.Abstractions
         {
             var rows = ImmutableArray.CreateBuilder<Layout.Node>();
 
-            // PROVENANCE, not the numbers: the numbers are on the sliders now. Method, survivor
-            // count and white reference are the part a triple cannot carry, and the part that says
-            // whether to trust it -- a 104-star photometric fit and a grey-world guess can both
-            // read "R = 0.46".
+            // PROVENANCE, not the numbers: the numbers are on the sliders. Method, survivor count and
+            // white reference are the part a triple cannot carry, and the part that says whether to trust
+            // it -- a 104-star photometric fit and a grey-world guess can both read "R = 0.46".
             //
-            // An EMPTY width sample, so this line reports no intrinsic width and takes whatever the
-            // box has; the painter then trims the run to the rect the engine resolved for it
-            // (Content.Text.Trim), which is what the hand-written Ellipsize against a pre-computed
-            // panel width was doing. Without the sample a long provenance string would SET the
-            // panel's width, and the box would change size the moment a calibration landed.
+            // Short lines at their own width, never trimmed. This used to be Describe(), which repeats
+            // the triple, on ONE line held to no width at all so the painter cut it to the box: "SPCC
+            // R=0.671 G=1.000 B=1.605 -- 22 ..." dropped the star count's unit and the whole white
+            // reference, which is the half of the line the sliders cannot say (2026-09-18). Each line
+            // now reports its width like any other row, so the box is at least as wide as the widest;
+            // the button row, held at its widest labels, is wider than any of them today, so the box
+            // does not move when a calibration lands.
             if (state.ColorCalibrationEnabled && _document?.ColorCalibrationSummary is { } summary)
             {
-                rows.Add(Layout.Builder.Text(summary.Describe(), BaseFontSize, ViewerTheme.Palette.DimText,
-                        widthSample: string.Empty)
-                    .RowH(TextLineAdvance));
+                foreach (var line in summary.ProvenanceLines())
+                {
+                    rows.Add(Layout.Builder.Text(line, BaseFontSize, ViewerTheme.Palette.DimText)
+                        .RowH(TextLineAdvance));
+                }
             }
 
             // The sliders show the EFFECTIVE multiplier -- the calibration composed with the manual

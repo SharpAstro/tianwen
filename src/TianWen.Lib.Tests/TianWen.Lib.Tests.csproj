@@ -48,6 +48,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The viewer's own proportional face, for the tests that measure text the way a user sees it. Under
+         TestFonts, not Fonts: BundledFonts looks in Fonts, so a copy there would switch every viewer test
+         off the monospace default at once, which is a change of its own. A monospace face makes every
+         letter one width, so a label column sized to R holds a G there and nowhere a user looks. -->
+    <Content Include="..\TianWen.UI.Gui\Fonts\DejaVuSans.ttf" Link="TestFonts\DejaVuSans.ttf"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="Data\CR2\*.CR2" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Data\CR3\*.CR3" CopyToOutputDirectory="PreserveNewest" />
     <!-- The in-house AI models used to be copied here by a rule of this project's own. They now
