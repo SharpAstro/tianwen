@@ -192,8 +192,8 @@ public class StarDetectionWarmPixelTests
         var (image, _) = Render(warm: true);
         var (control, _) = Render(warm: false);
 
-        var detected = await image.FindStarsAsync(0, snrMin: 5f);
-        var withoutWarm = await control.FindStarsAsync(0, snrMin: 5f);
+        var detected = await image.FindStarsAsync(0, snrMin: 5f, cancellationToken: TestContext.Current.CancellationToken);
+        var withoutWarm = await control.FindStarsAsync(0, snrMin: 5f, cancellationToken: TestContext.Current.CancellationToken);
 
         detected.Count.ShouldBe(Stars.Length);
         withoutWarm.Count.ShouldBe(Stars.Length, "the guard must remove nothing from a clean field");
