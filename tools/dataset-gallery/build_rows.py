@@ -73,9 +73,21 @@ def sanitize(session_id):
     return "".join("_" if c in _ILLEGAL else c for c in session_id)
 
 
+# IntegrationFitsWriter.RejectionMapSuffix, mirrored. The sidecar is a .fits in the SAME folder as
+# the master it belongs to, so a bare *.fits listing counts every master twice -- this table said 278
+# masters for a 139-master store, with "flip-side 96" for 48 real ones. The C# side asks
+# IntegrationFitsWriter.IsRejectionMapPath; there is no verb to call from here, so this is the one
+# rule the glue mirrors, and it mirrors it in ONE place.
+REJECTION_SUFFIX = ".rejection.fits"
+
+
+def is_rejection_map(name):
+    return name.lower().endswith(REJECTION_SUFFIX)
+
+
 def rejection_path(master_path):
     """IntegrationFitsWriter.RejectionPathFor: the .fits stem is STRIPPED before the suffix."""
-    return os.path.splitext(master_path)[0] + ".rejection.fits"
+    return os.path.splitext(master_path)[0] + REJECTION_SUFFIX
 
 
 def web_slug(text):
@@ -92,7 +104,8 @@ def main():
         by_train[rec["SessionId"]] = rec.get("OpticalTrain")
 
     rows = []
-    names = sorted(f[:-5] for f in os.listdir(masters_dir) if f.lower().endswith(".fits"))
+    names = sorted(f[:-5] for f in os.listdir(masters_dir)
+                   if f.lower().endswith(".fits") and not is_rejection_map(f))
     for i, name in enumerate(names):
         path = os.path.join(masters_dir, name + ".fits")
         hdr = header_of(path)
