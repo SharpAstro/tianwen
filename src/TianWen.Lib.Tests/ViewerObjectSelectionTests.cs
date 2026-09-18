@@ -234,8 +234,8 @@ namespace TianWen.Lib.Tests
             TapAt(viewer, x, y);
 
             var selection = state.SelectedObject.ShouldNotBeNull();
-            selection.Canonical.ShouldBe("NGC 5194 (M51)");
-            selection.Canonical.ShouldStartWith(obj.Index.ToCanonical());
+            selection.Canonical.ShouldBe("M51 · NGC 5194");
+            selection.LinkToken.ShouldStartWith(obj.Index.ToCanonical());
             selection.RA.ShouldBe(obj.RA, 1e-9);
             selection.Dec.ShouldBe(obj.Dec, 1e-9);
             selection.Name.ShouldNotBeNullOrEmpty("the panel needs something to print");
@@ -362,7 +362,7 @@ namespace TianWen.Lib.Tests
             TapAt(viewer, sx, sy);
 
             var selection = state.SelectedObject.ShouldNotBeNull();
-            selection.Canonical.ShouldBe("NGC 5194 (M51)");
+            selection.Canonical.ShouldBe("M51 · NGC 5194");
         }
 
         /// <summary>
@@ -492,7 +492,7 @@ namespace TianWen.Lib.Tests
             TapAt(viewer, x, y);
 
             var selection = state.SelectedObject.ShouldNotBeNull("a tap on the label selects");
-            selection.Canonical.ShouldBe("NGC 5194 (M51)");
+            selection.Canonical.ShouldBe("M51 · NGC 5194");
         }
 
         /// <summary>
@@ -524,7 +524,7 @@ namespace TianWen.Lib.Tests
 
             var (x, y) = ObjectOnScreen(viewer, state);
             TapAt(viewer, x, y);
-            state.SelectedObject.ShouldNotBeNull().Canonical.ShouldBe("NGC 5194 (M51)");
+            state.SelectedObject.ShouldNotBeNull().Canonical.ShouldBe("M51 · NGC 5194");
 
             viewer.DrawnEllipses.Clear();
             viewer.Render(document, state);
@@ -621,7 +621,7 @@ namespace TianWen.Lib.Tests
 
             var selection = state.SelectedObject.ShouldNotBeNull(
                 $"{obj.Index.ToCanonical()} is {2 * Math.Abs(boundary - obj.Dec) * 3600:F1} arcseconds from the tap");
-            selection.Canonical.ShouldStartWith(obj.Index.ToCanonical());
+            selection.LinkToken.ShouldStartWith(obj.Index.ToCanonical());
         }
 
         /// <summary>
@@ -702,17 +702,17 @@ namespace TianWen.Lib.Tests
             TapAt(viewer, x, y);
 
             var selection = state.SelectedObject.ShouldNotBeNull();
-            selection.Canonical.StartsWith("HH ", StringComparison.Ordinal).ShouldBeFalse(
+            selection.LinkToken.StartsWith("HH ", StringComparison.Ordinal).ShouldBeFalse(
                 "a Herbig-Haro object is drawn nowhere, so a click may not name one");
 
             // Said as the rule rather than as a list of designations, so it holds for any object the
             // rounding happens to pick out of that core.
             db.TryLookupByIndex(
                 CatalogIndex.NGC1976, out _).ShouldBeTrue();
-            (selection.Canonical.StartsWith("NGC", StringComparison.Ordinal)
-                || selection.Canonical.StartsWith("HIP", StringComparison.Ordinal)
-                || selection.Canonical.StartsWith("HD", StringComparison.Ordinal))
-                .ShouldBeTrue($"expected a drawn type, got {selection.Canonical}");
+            (selection.LinkToken.StartsWith("NGC", StringComparison.Ordinal)
+                || selection.LinkToken.StartsWith("HIP", StringComparison.Ordinal)
+                || selection.LinkToken.StartsWith("HD", StringComparison.Ordinal))
+                .ShouldBeTrue($"expected a drawn type, got {selection.LinkToken}");
         }
 
         /// <summary>

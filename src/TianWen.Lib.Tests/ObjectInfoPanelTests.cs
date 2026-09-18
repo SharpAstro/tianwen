@@ -50,7 +50,7 @@ namespace TianWen.Lib.Tests
 
         [Fact]
         public void TheSubtitleJoinsDesignationConstellationAndType()
-            => ObjectInfoPanel.SubtitleLine(Galaxy()).ShouldBe("NGC 5194  CVn  Galaxy");
+            => ObjectInfoPanel.SubtitleLine(Galaxy()).ShouldBe("NGC 5194 · CVn · Galaxy");
 
         /// <summary>
         /// A planet has no catalogue designation but does have a type and a constellation, so an empty
@@ -60,7 +60,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void AnObjectWithNoDesignationStillShowsWhatItHas()
             => ObjectInfoPanel.SubtitleLine(Galaxy() with { Canonical = "" })
-                .ShouldBe("CVn  Galaxy");
+                .ShouldBe("CVn · Galaxy");
 
         /// <summary>Only when all three are missing does the row say so rather than sit blank.</summary>
         [Fact]

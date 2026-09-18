@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Linq;
 using Shouldly;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 using Xunit;
@@ -209,12 +210,18 @@ namespace TianWen.Lib.Tests
 
         // --- the SELECTION's atlas entry ---
 
+        // A CATALOGUED selection, so it carries the index its link token is read from, as every selection
+        // FromCatalogObject builds does; overwriting only the display line described a payload the viewer
+        // never produces.
         private static SkyMapInfoPanelData Selected(string name = "Lagoon Nebula",
             string designation = "NGC 6523", double raHours = 18.06, double dec = -24.38)
-            => SkyMapInfoPanelData.FromPosition(
+        {
+            CatalogUtils.TryGetCleanedUpCatalogName(designation, out var index).ShouldBeTrue(designation);
+            return SkyMapInfoPanelData.FromPosition(
                 name, raHours, dec, double.NaN, double.NaN, DateTimeOffset.UnixEpoch, default)
                 with
-            { Canonical = designation };
+            { Canonical = designation, Index = index };
+        }
 
         /// <summary>
         /// A selection earns its OWN atlas entry, centred on the object rather than on the click.

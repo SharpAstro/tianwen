@@ -98,7 +98,7 @@ namespace TianWen.UI.Abstractions
                 ? SkyAtlasLink.FieldOfViewDeg(_document?.Wcs, i.Width, i.Height)
                 : (double?)null;
             var atlasUrl = SkyAtlasLink.For(selection.RA, selection.Dec, fovDeg, img?.ImageMeta.ExposureStartTime,
-                SkyAtlasLink.TokenFor(selection.Canonical, selection.Name));
+                selection.LinkToken);
 
             var actions = new ObjectInfoPanel.PanelActions(
                 Close: () =>

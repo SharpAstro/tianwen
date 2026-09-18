@@ -275,7 +275,14 @@ namespace TianWen.UI.Abstractions
                - DesignLinkRowHeight;
 
         /// <summary>
-        /// Designation, constellation and type, joined by two spaces -- whichever of the three the
+        /// What separates the pieces of the grey line (the designations, constellation and type). A dot
+        /// rather than the two spaces it was: with a second designation on the line, spacing alone no
+        /// longer showed where one piece ended.
+        /// </summary>
+        public const string Separator = " · ";
+
+        /// <summary>
+        /// Designations, constellation and type, joined by <see cref="Separator"/> -- whichever of them the
         /// object actually has.
         /// </summary>
         /// <remarks>
@@ -292,11 +299,11 @@ namespace TianWen.UI.Abstractions
 
             if (constell.Length > 0)
             {
-                subtitle = subtitle.Length > 0 ? $"{subtitle}  {constell}" : constell;
+                subtitle = subtitle.Length > 0 ? subtitle + Separator + constell : constell;
             }
             if (objType.Length > 0)
             {
-                subtitle = subtitle.Length > 0 ? $"{subtitle}  {objType}" : objType;
+                subtitle = subtitle.Length > 0 ? subtitle + Separator + objType : objType;
             }
 
             return subtitle.Length == 0 ? "(no designation)" : subtitle;
