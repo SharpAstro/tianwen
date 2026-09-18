@@ -73,7 +73,17 @@ internal static class RgbBayerSyntheticFixture
     /// drizzles cannot be built out of eight, and whether a session drizzles is what decides whether
     /// it writes any warped scratch at all.</para>
     /// </summary>
-    public static void WriteSyntheticLights(string lightsDir, int count)
+    public static void WriteSyntheticLights(string lightsDir, int count) => WriteSyntheticLights(lightsDir, count, int.MaxValue);
+
+    /// <summary>
+    /// The same lights, with every frame from <paramref name="flipFrom"/> onward showing the sky
+    /// turned half a turn: a MERIDIAN FLIP, where the tube swings over and the field lies the other
+    /// way up while the sensor, and so the CFA phase, does not move. That is why the rotation is
+    /// applied to the mono star field BEFORE the Bayer mosaic is laid over it -- rotating the mosaic
+    /// instead would re-phase the CFA, which a flip does not do, and would exercise a bug rather than
+    /// a night.
+    /// </summary>
+    public static void WriteSyntheticLights(string lightsDir, int count, int flipFrom)
     {
         for (var i = 0; i < count; i++)
         {
@@ -105,6 +115,10 @@ internal static class RgbBayerSyntheticFixture
                 maxADU: 4096.0,
                 noiseSeed: 1337 + i); // noise varies per frame
 
+            if (i >= flipFrom)
+            {
+                mono = Rotate180(mono);
+            }
             var bayered = BuildBayerMosaic(mono, DarkLevel);
 
             var meta = new ImageMeta
@@ -239,6 +253,23 @@ internal static class RgbBayerSyntheticFixture
     /// something non-uniform to interpolate / project so all three master
     /// channels end up with distinct signal levels.
     /// </summary>
+    /// <summary>The frame's own content turned half a turn, which is what a meridian flip does to
+    /// the sky while leaving the sensor where it is.</summary>
+    public static float[,] Rotate180(float[,] src)
+    {
+        var h = src.GetLength(0);
+        var w = src.GetLength(1);
+        var dst = new float[h, w];
+        for (var y = 0; y < h; y++)
+        {
+            for (var x = 0; x < w; x++)
+            {
+                dst[y, x] = src[h - 1 - y, w - 1 - x];
+            }
+        }
+        return dst;
+    }
+
     public static float[,] BuildBayerMosaic(float[,] mono, float darkPedestal)
     {
         var h = mono.GetLength(0);

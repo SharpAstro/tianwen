@@ -3,6 +3,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using TianWen.Lib.Geometry;
+using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
@@ -486,6 +488,89 @@ namespace TianWen.Lib.Tests
             // A path on no drive at all answers nothing rather than refusing the session: a drive that
             // will not report its free space is not evidence that the session is too big.
             SessionRegistrar.ScratchShortfall("\0not-a-path", subCount: 1, canvasWidth: 1, canvasHeight: 1).ShouldBeNull();
+        }
+
+        /// <summary>
+        /// The flip is read off the registration, not off a PIERSIDE card: a sub's transform onto the
+        /// reference says which way the field was lying, and a fifth of this archive carries no card
+        /// at all. A quarter turn separates the two cases by a wide margin, because a flip is half a
+        /// turn and a night's ordinary field rotation is a fraction of a degree.
+        /// </summary>
+        [Fact]
+        public void TheFieldRotationSplitSeesHalfATurn_AndNothingLess()
+        {
+            static SessionRegistrar.RegisteredSub Sub(float degrees)
+            {
+                var m = Matrix3x2.CreateRotation(degrees * MathF.PI / 180f);
+                return new SessionRegistrar.RegisteredSub(
+                    new FrameInfo("x.fits", 1, 1, 1, BitDepth.Int16, new ImageMeta()), null, m, default);
+            }
+
+            // A night that never flipped: every frame within a degree of the first, however it drifted.
+            var (first, second) = SessionRegistrar.SplitByFieldRotation(
+                [Sub(0f), Sub(0.4f), Sub(-0.6f), Sub(0.2f)]);
+            first.Length.ShouldBe(4);
+            second.ShouldBeEmpty();
+
+            // A night that did: the second half lies half a turn from the first, and the split follows
+            // the FIELD rather than the frame order, so an out-of-order frame lands with its own side.
+            (first, second) = SessionRegistrar.SplitByFieldRotation(
+                [Sub(0f), Sub(0.3f), Sub(179.4f), Sub(-0.2f), Sub(180.5f), Sub(-179.7f)]);
+            first.ShouldBe(new[] { 0, 1, 3 });
+            second.ShouldBe(new[] { 2, 4, 5 });
+
+            // Wrapping is not a flip: 359.5 degrees is half a degree the other way.
+            (first, second) = SessionRegistrar.SplitByFieldRotation([Sub(0f), Sub(359.5f), Sub(-359.6f)]);
+            first.Length.ShouldBe(3);
+            second.ShouldBeEmpty();
+        }
+
+        /// <summary>
+        /// A flipped session emits BOTH the combined master and one per side, and each side's
+        /// all-frames intersection is LARGER than the combined session's: that rectangle is what the
+        /// tiler samples cells from, and mixing two orientations on one canvas is what shrinks it.
+        ///
+        /// <para>The sides are the same sky as the session, which is why their ids carry the flip
+        /// suffix and strip back to it -- <see cref="DatasetSplitWriter"/> hashes the stripped id, so
+        /// a night cannot land in train and test at once.</para>
+        /// </summary>
+        [Fact]
+        public async Task AFlippedSessionAlsoIntegratesEachSideOfTheFlip()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var lightsDir = Path.Combine(_dir, "LIGHT");
+            Directory.CreateDirectory(lightsDir);
+            // Sixteen frames, the last eight showing the sky turned half a turn.
+            RgbBayerSyntheticFixture.WriteSyntheticLights(lightsDir, 16, flipFrom: 8);
+            var calibrator = await BuildDarkCalibratorAsync(ct);
+            var session = new ImagingSession(
+                lightsDir, "synth/rggb-flip", "SynthBayer", "SynthRgb", "", [.. ReadFrames(lightsDir, "light_*.fits")]);
+
+            var registered = await SessionRegistrar.RegisterAsync(
+                session, calibrator, Path.Combine(_dir, "scratch"), minSubs: 4,
+                minSubsForHalfMasters: int.MaxValue, logger: new XunitLogger(output), cancellationToken: ct);
+
+            registered.ShouldNotBeNull();
+            registered.FlipSides.Length.ShouldBe(2, "the session holds two field orientations");
+            var (sideA, sideB) = (registered.FlipSides[0], registered.FlipSides[1]);
+            sideA.Subs.Length.ShouldBeGreaterThanOrEqualTo(4);
+            sideB.Subs.Length.ShouldBeGreaterThanOrEqualTo(4);
+            (sideA.Subs.Length + sideB.Subs.Length).ShouldBe(registered.Subs.Length, "every sub belongs to exactly one side");
+
+            static long Area(PixelRect r) => (long)r.Width * r.Height;
+            Area(sideA.StatsRect).ShouldBeGreaterThan(Area(registered.StatsRect));
+            Area(sideB.StatsRect).ShouldBeGreaterThan(Area(registered.StatsRect));
+
+            sideA.Master.Width.ShouldBe(registered.CanvasWidth);
+            sideA.Master.ChannelCount.ShouldBe(3);
+            sideA.Session.Id.ShouldBe(session.Id + "|flip=" + SessionRegistrar.FlipSideFirst);
+            sideB.Session.Id.ShouldBe(session.Id + "|flip=" + SessionRegistrar.FlipSideSecond);
+            DatasetSplitWriter.GroupIdOf(sideA.Session.Id).ShouldBe(session.Id);
+            DatasetSplitWriter.GroupIdOf(sideB.Session.Id).ShouldBe(session.Id);
+            registered.SelfAndFlipSides().Count().ShouldBe(3);
+            output.WriteLine(
+                $"combined {registered.Subs.Length} subs statsRect {registered.StatsRect}; " +
+                $"sides {sideA.Subs.Length}/{sideB.Subs.Length} statsRects {sideA.StatsRect}/{sideB.StatsRect}");
         }
     }
 }

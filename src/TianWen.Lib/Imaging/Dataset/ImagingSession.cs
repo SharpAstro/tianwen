@@ -55,7 +55,15 @@ public sealed record ImagingSession(
     /// so every train/test assignment made before filters entered the key survives untouched: the
     /// split is a stable per-id hash (<see cref="DatasetSplitWriter"/>), so an id that does not move
     /// cannot change sets.</summary>
-    public string Id => (Target.Length > 0, FilterName.Length > 0) switch
+    public string Id => FlipSide.Length > 0
+        ? FormattableString.Invariant($"{GroupId}|{FlipSideKey}={FlipSide}")
+        : GroupId;
+
+    /// <summary>The id of the session this one is a PART of: itself for an ordinary session, and the
+    /// whole night for one side of a meridian flip. Everything that must not be split across the
+    /// train/test boundary shares it, because a side and its combined master are the same sky
+    /// (<see cref="DatasetSplitWriter"/> hashes this, never <see cref="Id"/>).</summary>
+    public string GroupId => (Target.Length > 0, FilterName.Length > 0) switch
     {
         (true, false) => FormattableString.Invariant($"{RelativeDir}|{Camera}|{Target}"),
         (false, false) => FormattableString.Invariant($"{RelativeDir}|{Camera}"),
@@ -63,4 +71,22 @@ public sealed record ImagingSession(
         // produce "dir|CAM|Ha" and collide with one whose OBJECT happens to be named "Ha".
         _ => FormattableString.Invariant($"{RelativeDir}|{Camera}|{Target}|{FilterName}"),
     };
+
+    /// <summary>The key the flip suffix is written under, shared with
+    /// <see cref="DatasetSplitWriter.GroupIdOf"/> so the two cannot drift.</summary>
+    public const string FlipSideKey = "flip";
+
+    /// <summary>
+    /// Which side of a meridian flip this session is, <c>""</c> for a whole session (the ordinary
+    /// case, and the one whose id is unchanged, so no existing train/test assignment moves).
+    ///
+    /// <para>A session that crossed the meridian holds two field orientations about 180 degrees
+    /// apart. Registration handles that (quad matching is rotation-invariant), but the union canvas
+    /// then spans both and the sky gradient, which is fixed to the HORIZON, reverses in sensor
+    /// coordinates between them, so a combined master averages two opposing gradients into one that
+    /// matches neither. The bake therefore emits the combined master AND one per side: the combined
+    /// one is deeper and is what carries the half-master pair, the sides are what a gradient model
+    /// and the tiler want.</para>
+    /// </summary>
+    public string FlipSide { get; init; } = "";
 }

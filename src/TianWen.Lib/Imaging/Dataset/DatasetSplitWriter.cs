@@ -27,10 +27,27 @@ public static class DatasetSplitWriter
     /// when that bucket is below <c>testFraction * Resolution</c>.</summary>
     private const uint Resolution = 10000;
 
+    /// <summary>
+    /// The id whose bucket decides the set: the session itself, or the whole night for one side of a
+    /// meridian flip (<see cref="ImagingSession.FlipSide"/>).
+    ///
+    /// <para><b>This is what keeps a flipped night out of both sets at once.</b> The combined master
+    /// and its two sides are the same sky at three depths, so hashing their ids separately would put
+    /// some in train and some in test, and the held-out numbers would be measured on sky the model
+    /// had already seen. Stripping the suffix also leaves every id that has no suffix hashing exactly
+    /// as before, so no existing assignment moves.</para>
+    /// </summary>
+    public static string GroupIdOf(string sessionId)
+    {
+        var marker = "|" + ImagingSession.FlipSideKey + "=";
+        var at = sessionId.LastIndexOf(marker, StringComparison.Ordinal);
+        return at < 0 ? sessionId : sessionId[..at];
+    }
+
     /// <summary>True when <paramref name="sessionId"/> is in the held-out TEST set for the given
     /// fraction. Pure + stable: same id + fraction always yields the same answer.</summary>
     public static bool IsTestSession(string sessionId, double testFraction)
-        => StableBucket(sessionId) < (uint)(Math.Clamp(testFraction, 0.0, 1.0) * Resolution);
+        => StableBucket(GroupIdOf(sessionId)) < (uint)(Math.Clamp(testFraction, 0.0, 1.0) * Resolution);
 
     /// <summary>
     /// The same, plus sessions FORCED into the held-out set whatever their bucket says.
@@ -47,7 +64,11 @@ public static class DatasetSplitWriter
     /// no-op.</para>
     /// </remarks>
     public static bool IsTestSession(string sessionId, double testFraction, IReadOnlySet<string>? alwaysHeldOut)
-        => (alwaysHeldOut is not null && alwaysHeldOut.Contains(sessionId))
+        // Holding out a night holds out its flip sides too: naming the night is the natural way to
+        // ask for it, and a side left behind in training would put the held-out sky back in the
+        // training set through the other door.
+        => (alwaysHeldOut is not null
+            && (alwaysHeldOut.Contains(sessionId) || alwaysHeldOut.Contains(GroupIdOf(sessionId))))
            || IsTestSession(sessionId, testFraction);
 
     /// <summary>The held-out TEST session ids among <paramref name="sessionIds"/>, ordinal-sorted
@@ -88,6 +109,10 @@ public static class DatasetSplitWriter
         sb.AppendLine("# Pinned held-out TEST sessions (by session id). Training MUST exclude these.");
         sb.AppendLine("# Assignment is a stable hash bucket of the id -- adding sessions never reshuffles the split.");
         sb.AppendLine("# A line marked FORCED was held out deliberately, not by its bucket.");
+        sb.AppendLine($"# An id ending '|{ImagingSession.FlipSideKey}=<side>' is ONE SIDE of a meridian flip and is the");
+        sb.AppendLine("# SAME SKY as the id without that suffix: it belongs to whichever set that id is in, whether or");
+        sb.AppendLine("# not it is listed here. Ask DatasetSplitWriter.IsTestSession rather than matching this file");
+        sb.AppendLine("# literally, or a side trains on sky the eval is measured over.");
         foreach (var id in test)
         {
             var forced = alwaysHeldOut is not null && alwaysHeldOut.Contains(id);
