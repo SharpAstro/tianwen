@@ -890,11 +890,20 @@ public static class OverlayEngine
                 LabelPriority = ComputeLabelPriority(obj, idx, db),
                 LabelSlotHint = (int)((ulong)idx & 3),
                 StableSortKey = (ulong)idx,
+                HasPicture = HasVerifiedPicture(db, idx),
             });
         }
 
         return result;
     }
+
+    /// <summary>
+    /// Whether the object's verified article carries a picture: the table the imagery bake produced
+    /// (<see cref="ICelestialObjectDB.TryGetArticle"/>), never a guess from a designation. It is what the
+    /// atlas's picture mark after a label asks, so a mark and the panel's picture can never disagree.
+    /// </summary>
+    public static bool HasVerifiedPicture(ICelestialObjectDB db, CatalogIndex index)
+        => db.TryGetArticle(index, out var article) && article.Image is not null;
 
     /// <summary>
     /// Computes the arcmin-to-screen-pixels scale factor for a given viewport height
@@ -1462,6 +1471,7 @@ public static class OverlayEngine
             LabelPriority = priority,
             LabelSlotHint = (int)((ulong)catIdx & 3),
             ScreenSizeFilterArcmin = sizeFilterArcmin,
+            HasPicture = HasVerifiedPicture(db, catIdx),
         });
     }
 
@@ -1564,6 +1574,7 @@ public static class OverlayEngine
                 LabelSlotHint = cand.LabelSlotHint,
                 StableSortKey = (ulong)cand.CatalogIndex,
                 CandidateIndex = candIndex,
+                HasPicture = cand.HasPicture,
             });
         }
     }
@@ -1696,6 +1707,9 @@ public static class OverlayEngine
     /// occupied by something the engine doesn't own, e.g. the live mount-reticle label,
     /// drawn later in a separate pass. Catalog labels treat them as pre-placed and stack
     /// around them, so the mount label is never overlapped by an object name.</param>
+    /// <param name="pictureMarkWidth">What an item with <see cref="OverlayItem.HasPicture"/> reserves after
+    /// its FIRST line for the caller's picture mark (gap included), so the mark is part of the box the
+    /// pass collides. Zero, the default, reserves nothing and leaves every box as it was.</param>
     public static void PlaceLabels(
         IReadOnlyList<OverlayItem> items,
         float labelSize,
@@ -1703,7 +1717,8 @@ public static class OverlayEngine
         Func<string, float, float> measureText,
         Action<PlacedLabel> drawLabelLines,
         int maxLabels = MaxOverlayLabels,
-        IReadOnlyList<(float X, float Y, float W, float H)>? reservedRegions = null)
+        IReadOnlyList<(float X, float Y, float W, float H)>? reservedRegions = null,
+        float pictureMarkWidth = 0f)
     {
         // Iterate in priority order (high -> low) so bright / named / large
         // objects claim their preferred slot first; lower-priority labels drop
@@ -1735,12 +1750,7 @@ public static class OverlayEngine
                 var cx = item.ScreenX;
                 var cy = item.ScreenY;
 
-                var maxLineW = 0f;
-                foreach (var line in item.LabelLines)
-                {
-                    var w = measureText(line, labelSize);
-                    if (w > maxLineW) maxLineW = w;
-                }
+                var (maxLineW, firstLineW) = MeasureLabel(item, labelSize, measureText, pictureMarkWidth);
                 var lineH = labelSize * 1.2f;
                 var totalH = lineH * item.LabelLines.Count;
 
@@ -1773,7 +1783,7 @@ public static class OverlayEngine
 
                     if (!overlaps)
                     {
-                        drawLabelLines(new PlacedLabel(item, lx, ly, maxLineW, totalH));
+                        drawLabelLines(new PlacedLabel(item, lx, ly, maxLineW, totalH) { FirstLineWidth = firstLineW });
                         placedLabels.Add((lx, ly, maxLineW, totalH));
                         labelCount++;
                         break;
@@ -1815,7 +1825,8 @@ public static class OverlayEngine
         Func<string, float, float> measureText,
         Action<PlacedLabel> drawLabelLines,
         int maxLabels = MaxOverlayLabels,
-        IReadOnlyList<(float X, float Y, float W, float H)>? reservedRegions = null)
+        IReadOnlyList<(float X, float Y, float W, float H)>? reservedRegions = null,
+        float pictureMarkWidth = 0f)
     {
         var labelCount = 0;
         var order = LabelOrder.Build(items);
@@ -1828,12 +1839,7 @@ public static class OverlayEngine
                     break;
                 }
 
-                var maxLineW = 0f;
-                foreach (var line in item.LabelLines)
-                {
-                    var w = measureText(line, labelSize);
-                    if (w > maxLineW) maxLineW = w;
-                }
+                var (maxLineW, firstLineW) = MeasureLabel(item, labelSize, measureText, pictureMarkWidth);
                 var lineH = labelSize * 1.2f;
                 var totalH = lineH * item.LabelLines.Count;
 
@@ -1882,7 +1888,7 @@ public static class OverlayEngine
                     }
                 }
 
-                drawLabelLines(new PlacedLabel(item, lx, ly, maxLineW, totalH));
+                drawLabelLines(new PlacedLabel(item, lx, ly, maxLineW, totalH) { FirstLineWidth = firstLineW });
                 labelCount++;
             }
         }
@@ -1890,5 +1896,34 @@ public static class OverlayEngine
         {
             order.Dispose();
         }
+    }
+
+    /// <summary>
+    /// A label block's width, the widest line with the picture mark counted on the FIRST line, and that
+    /// line's own text width, which is where the mark starts. One measure for both placement routines, so
+    /// they cannot disagree about a box.
+    /// </summary>
+    private static (float MaxLineWidth, float FirstLineWidth) MeasureLabel(
+        OverlayItem item, float labelSize, Func<string, float, float> measureText, float pictureMarkWidth)
+    {
+        var maxLineW = 0f;
+        var firstLineW = 0f;
+        for (var i = 0; i < item.LabelLines.Count; i++)
+        {
+            var w = measureText(item.LabelLines[i], labelSize);
+            if (i == 0)
+            {
+                firstLineW = w;
+                if (item.HasPicture)
+                {
+                    w += pictureMarkWidth;
+                }
+            }
+            if (w > maxLineW)
+            {
+                maxLineW = w;
+            }
+        }
+        return (maxLineW, firstLineW);
     }
 }

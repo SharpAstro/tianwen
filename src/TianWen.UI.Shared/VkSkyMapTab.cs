@@ -450,15 +450,16 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // Reserve the mount reticle's label footprint (drawn later, in RenderMountOverlay) so
         // an object name never renders on top of it when the mount sits on a catalogued target.
         var mountLabelReservation = BuildLabelReservations(contentRect, dpiScale, baseFontSize);
+        var pictureMarkWidth = PictureMarkAdvance(placementLabelSize);
         if (_useCollisionPlacement)
         {
             OverlayEngine.PlaceLabels(_overlayItems, placementLabelSize, 4f, measureText, record,
-                reservedRegions: mountLabelReservation);
+                reservedRegions: mountLabelReservation, pictureMarkWidth: pictureMarkWidth);
         }
         else
         {
             OverlayEngine.PlaceLabelsBestEffort(_overlayItems, placementLabelSize, 4f, measureText, record,
-                reservedRegions: mountLabelReservation);
+                reservedRegions: mountLabelReservation, pictureMarkWidth: pictureMarkWidth);
         }
 #if DEBUG
         diagLabelsDone = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -541,6 +542,8 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // live. PlaceLabels (O(N^2) collision scan) only runs on cache miss.
         var labelSize = baseFontSize * dpiScale * 0.85f;
         var lineH = labelSize * 1.2f;
+        var emojiFont = EmojiFontPath;
+        var markAdvance = PictureMarkAdvance(labelSize);
         foreach (var (item, lx, ly) in _overlayPlacedLabels)
         {
             var (r, g, b) = item.IsPinned ? (1f, 0.44f, 0.19f) : item.Color;
@@ -558,6 +561,19 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
                         new PointInt((int)lx, (int)(ly + li * lineH))),
                     TextAlign.Near, TextAlign.Center);
                 var (lineW, _) = Renderer.MeasureText(line.AsSpan(), fontPath, labelSize);
+
+                // The photo mark, in the room the placement reserved after the first line; it is part of
+                // the label's clickable box as well.
+                if (li == 0 && item.HasPicture && markAdvance > 0f && emojiFont is { Length: > 0 })
+                {
+                    var markX = lx + lineW + PictureMarkGap(labelSize);
+                    Renderer.DrawText(PictureMark.AsSpan(), emojiFont, labelSize, color,
+                        new RectInt(
+                            new PointInt((int)(markX + markAdvance), (int)(ly + lineH)),
+                            new PointInt((int)markX, (int)ly)),
+                        TextAlign.Near, TextAlign.Center);
+                    lineW += markAdvance;
+                }
                 if (lineW > maxLineW) maxLineW = lineW;
             }
 

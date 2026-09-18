@@ -13,6 +13,12 @@ namespace TianWen.UI.Abstractions.Overlays;
 /// </remarks>
 public readonly record struct PlacedLabel(OverlayItem Item, float X, float Y, float Width, float Height)
 {
+    /// <summary>
+    /// The first line's measured TEXT width, without any picture mark the box reserves after it: where
+    /// that mark starts, at <c>X + FirstLineWidth</c>. Handed out for the same reason as the box.
+    /// </summary>
+    public float FirstLineWidth { get; init; }
+
     /// <summary>Whether a screen position lands inside the box.</summary>
     public bool Contains(float x, float y) => x >= X && x < X + Width && y >= Y && y < Y + Height;
 }

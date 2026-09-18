@@ -22,6 +22,30 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public partial class SkyMapTab<TSurface>
     {
+        /// <summary>
+        /// The mark after the label of an object whose verified article has a photo
+        /// (<see cref="OverlayItem.HasPicture"/>), so a picture can be found before a click: U+1F5BC FRAME
+        /// WITH PICTURE, drawn from the window's EMOJI face in its own colours and faded with the label,
+        /// every renderer multiplying a colour glyph's alpha by the ink's.
+        /// <para>A colour glyph rather than a baked mask, for two measured reasons. Every colour emoji that
+        /// reads as a photo bakes to a solid block, its detail being colour against colour, which a mask
+        /// discards. And a mask draws as one <c>FillRect</c> per run, about thirty unbatched draws per mark on
+        /// Vulkan, against one bitmap-atlas quad for the glyph.</para>
+        /// </summary>
+        protected const string PictureMark = "\U0001F5BC";
+
+        /// <summary>The gap between a label's first line and its picture mark, in the label's pixels.</summary>
+        protected static float PictureMarkGap(float labelSize) => labelSize * 0.3f;
+
+        /// <summary>
+        /// What a first line gains for its picture mark, gap included, or zero when the window has no emoji
+        /// face: then no mark is drawn and no label reserves room for one.
+        /// </summary>
+        protected float PictureMarkAdvance(float labelSize)
+            => EmojiFontPath is { Length: > 0 } emoji
+                ? PictureMarkGap(labelSize) + Renderer.MeasureText(PictureMark.AsSpan(), emoji, labelSize).Width
+                : 0f;
+
         // Cached candidate list + the key it was gathered for. The gather (Phase A grid walk) is the
         // heavy part; caching on a quantized view/rect/layer/pins key means panning within a cell only
         // re-projects (Phase B, cheap). Synchronous -- single-threaded WASM has no background thread,
@@ -299,6 +323,7 @@ namespace TianWen.UI.Abstractions
             var labelSize = baseFontSize * dpiScale * 0.85f;
             var lineH = labelSize * 1.2f;
             var measureText = (string text, float size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width;
+            var pictureMarkWidth = PictureMarkAdvance(labelSize);
             var labelStart = System.Diagnostics.Stopwatch.GetTimestamp();
             OverlayEngine.PlaceLabelsBestEffort(_primOverlayItems, labelSize, 4f, measureText,
                 label =>
@@ -314,6 +339,14 @@ namespace TianWen.UI.Abstractions
                     {
                         DrawText(item.LabelLines[i].AsSpan(), fontPath,
                             lx, ly + i * lineH, 220f, lineH,
+                            labelSize, col, TextAlign.Near, TextAlign.Near);
+                    }
+
+                    // The photo mark, in the room the placement reserved after the first line.
+                    if (item.HasPicture && pictureMarkWidth > 0f && EmojiFontPath is { Length: > 0 } emoji)
+                    {
+                        DrawText(PictureMark.AsSpan(), emoji,
+                            lx + label.FirstLineWidth + PictureMarkGap(labelSize), ly, pictureMarkWidth, lineH,
                             labelSize, col, TextAlign.Near, TextAlign.Near);
                     }
 
@@ -335,7 +368,7 @@ namespace TianWen.UI.Abstractions
                             _ => PostSignal(new SkyMapClickSelectSignal(objX, objY, InputModifier.None)));
                     }
                 },
-                reservedRegions: HostOccluderReservation);
+                reservedRegions: HostOccluderReservation, pictureMarkWidth: pictureMarkWidth);
             PrimOverlayLabelMs += System.Diagnostics.Stopwatch.GetElapsedTime(labelStart).TotalMilliseconds;
         }
 
