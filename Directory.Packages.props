@@ -59,7 +59,7 @@
     <PackageVersion Include="Pastel" Version="7.0.1" />
     <PackageVersion Include="System.CommandLine" Version="2.0.6" />
 
-    <PackageVersion Include="DIR.Lib" Version="10.0.*" />
+    <PackageVersion Include="DIR.Lib" Version="10.1.*" />
 
     <PackageVersion Include="SharpAstro.Tiff" Version="$(SharpAstroCodecsVersion)" />
     <PackageVersion Include="SharpAstro.Exif" Version="$(SharpAstroCodecsVersion)" />
@@ -83,7 +83,7 @@
          src/, which is the whole point: a version the sweep cannot see is a version that drifts. -->
     <PackageVersion Include="Vortice.ShaderCompiler" Version="1.9.0" />
 
-    <PackageVersion Include="WebGl.Renderer" Version="1.33.*" />
+    <PackageVersion Include="WebGl.Renderer" Version="1.34.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
 
