@@ -221,6 +221,36 @@ public class FitsFolderFrameSourceTests
         });
     }
 
+    /// <summary>
+    /// A frame N.I.N.A. graded out carries a BAD_ prefix, and every consumer of this source -- the
+    /// stacker, the calibration resolver, the dataset bake -- must never see it. It is the one
+    /// judgement made with the sky in view, and the scan used to read only DIRECTORY names, so 21
+    /// BAD_ lights of one session (a roof cutting the aperture for the whole run) baked into a master
+    /// that no rejector could clean: a defect in every frame is the consensus, not an outlier.
+    ///
+    /// <para>The prefix is matched on the file name only. A folder called "BAD LIGHT EXAMPLES" is a
+    /// deliberately kept negative set with its own path exclusion, and a directory that merely
+    /// contains those letters says nothing about the frames under it.</para>
+    /// </summary>
+    [Fact]
+    public async Task AFrameRejectedAtCaptureIsNeverEnumerated()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var dir = CreateTempDir();
+        WriteFits(dir, "light_01.fits", MakeSynthetic(FrameType.Light, 30f));
+        WriteFits(dir, "BAD_light_02.fits", MakeSynthetic(FrameType.Light, 30f));
+        WriteFits(dir, "bad_light_03.fits", MakeSynthetic(FrameType.Light, 30f));
+        WriteFits(dir, "not_BAD_light_04.fits", MakeSynthetic(FrameType.Light, 30f));
+
+        var source = new FitsFolderFrameSource(dir);
+        var frames = await CollectAsync(source.EnumerateAsync(ct), ct);
+
+        frames.Select(f => Path.GetFileName(f.Path)).ShouldBe(
+            new[] { "light_01.fits", "not_BAD_light_04.fits" }, ignoreOrder: true,
+            "the prefix is a prefix: a name that merely contains it was not graded out");
+        source.RejectedAtCapture.ShouldBe(2, "lower case counts too, and the count is what keeps the drop visible");
+    }
+
     private static async Task<System.Collections.Generic.List<FrameInfo>> CollectAsync(System.Collections.Generic.IAsyncEnumerable<FrameInfo> source, CancellationToken ct)
     {
         var list = new System.Collections.Generic.List<FrameInfo>();

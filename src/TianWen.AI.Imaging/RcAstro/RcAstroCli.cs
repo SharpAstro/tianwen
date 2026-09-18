@@ -93,6 +93,13 @@ namespace TianWen.AI.Imaging.RcAstro
             // pass "--engine auto", but RC-Astro renamed that flag to "--device" (v0.9.x), which made the
             // old flag a hard error (exit 109). Omitting it entirely keeps us decoupled from the flag name
             // across CLI versions -- "auto" is the default anyway.
+            //
+            // WHICH device that is stays RC-Astro's own saved setting, and on a machine with two GPUs
+            // its "auto" can pick the weaker one: on the x64 desktop it resolved to the Intel UHD 630
+            // beside a GTX 1070, which is 5m53s against 44.7s on one 30 MP master for byte-identical
+            // output. Choosing here would mean ranking a machine's adapters ourselves, so instead the
+            // setting is documented as a once-per-machine check (`rc-astro --device`,
+            // `--device-default gpuN`): docs/plans/rc-astro-enhancers.md, "WHICH GPU".
             psi.ArgumentList.Add("--overwrite");
             psi.ArgumentList.Add("--json");
             foreach (var arg in extraArgs)

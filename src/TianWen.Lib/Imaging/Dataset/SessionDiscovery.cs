@@ -50,7 +50,14 @@ public static class SessionDiscovery
         int SessionsTooSmall,
         int Sessions,
         int Lights,
-        FrameMetaSidecarStats? Sidecar = null);
+        FrameMetaSidecarStats? Sidecar = null)
+    {
+        /// <summary>Frames the scan dropped because the capture software or the observer had already
+        /// marked them rejected (<see cref="CaptureRejection"/>). An init property rather than a
+        /// constructor parameter: this record is public surface in a packed library, and a defaulted
+        /// positional parameter is a binary break.</summary>
+        public int RejectedAtCapture { get; init; }
+    }
 
     /// <summary>Enumerates all archive roots (header-only reads) and groups into sessions.</summary>
     public static async Task<(ImmutableArray<ImagingSession> Sessions, DiscoveryStats Stats)> DiscoverAsync(
@@ -58,6 +65,7 @@ public static class SessionDiscovery
     {
         var frames = new List<(FrameInfo Frame, string Root)>();
         var sidecar = FrameMetaSidecarStats.Empty;
+        var rejectedAtCapture = 0;
         foreach (var root in options.ArchiveRoots)
         {
             var source = new FitsFolderFrameSource(root, true);
@@ -67,14 +75,21 @@ public static class SessionDiscovery
             }
             // Read after enumerating: the counters accumulate as frames stream past.
             sidecar = sidecar.Add(source.SidecarStats);
+            rejectedAtCapture += source.RejectedAtCapture;
             logger?.LogInformation("Scanned {Root}: {Count} FITS headers so far", root, frames.Count);
         }
         if (sidecar.Malformed > 0)
         {
             logger?.LogWarning("{Count} {FileName} sidecar(s) could not be parsed and were ignored", sidecar.Malformed, FrameMetaSidecarResolver.FileName);
         }
+        if (rejectedAtCapture > 0)
+        {
+            logger?.LogInformation(
+                "{Count} frame(s) skipped: named '{Prefix}...', which is how N.I.N.A. and this archive mark a frame rejected at capture",
+                rejectedAtCapture, CaptureRejection.RejectedPrefix);
+        }
         var (sessions, stats) = GroupSessions(frames, options);
-        return (sessions, stats with { Sidecar = sidecar });
+        return (sessions, stats with { Sidecar = sidecar, RejectedAtCapture = rejectedAtCapture });
     }
 
     /// <summary>Pure grouping core (unit-testable without disk): gate → dedup → session grouping.</summary>
