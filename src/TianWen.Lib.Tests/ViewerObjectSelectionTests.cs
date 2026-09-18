@@ -1288,9 +1288,11 @@ namespace TianWen.Lib.Tests
             viewer.Render(document, state);
 
             var px = area.X + 22f;
-            (viewer.HitTest(px, area.Y + 4f) is HitResult.ButtonHit { Action: "SelectionPanelBackground" })
+            // The probe lands on the title row, which is the article link when the object has one, and
+            // the link answers ahead of the panel's background: either is the panel, starting there.
+            (viewer.HitTest(px, area.Y + 4f) is HitResult.ButtonHit { Action: "SelectionPanelBackground" } or HitResult.LinkHit)
                 .ShouldBeTrue("clamped to the top of the image area, the panel starts there");
-            (viewer.HitTest(px, area.Y - 8f) is HitResult.ButtonHit { Action: "SelectionPanelBackground" })
+            (viewer.HitTest(px, area.Y - 8f) is HitResult.ButtonHit { Action: "SelectionPanelBackground" } or HitResult.LinkHit)
                 .ShouldBeFalse("and it must not reach above the image area into the toolbar");
         }
     }

@@ -88,7 +88,8 @@ namespace TianWen.UI.Abstractions
                 ShowRiseSet: haveSiteRows,
                 TimeZone: capturedAt?.Offset ?? TimeSpan.Zero,
                 Footnote: capturedAt is { } cap ? $"at capture, {cap:yyyy-MM-dd HH:mm}" : null,
-                Picture: ObjectInfoPanel.PictureFor(selection.Index, LoadedCatalog));
+                Picture: ObjectInfoPanel.PictureFor(selection.Index, LoadedCatalog),
+                ArticleUrl: ObjectInfoPanel.ArticleUrlFor(selection.Index, LoadedCatalog));
 
             var actions = new ObjectInfoPanel.PanelActions(
                 Close: () =>
