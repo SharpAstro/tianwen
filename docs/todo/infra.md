@@ -17,7 +17,8 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 ## CI
 
 - [ ] **Set `enableCrossOsArchive: true` on the LFS cache steps** (deferred 2026-08-20; do it once the
-  LFS budget resets in 2026-09). `actions/cache` segregates Windows entries from POSIX ones unless this
+  LFS budget resets in 2026-09). Since 2026-09-18 that is ONE cache step, in
+  `.github/actions/lfs-pull`, which every workflow's LFS pull goes through. `actions/cache` segregates Windows entries from POSIX ones unless this
   is set, so a Windows job can never restore the `lfs-build-` entry the ubuntu `build` job saves -- not
   by key, not by the `restore-keys` prefix -- and cannot bootstrap one of its own, because a cache is
   saved only when the job succeeds. Measured on release run #1311: all six `publish-apps` legs computed

@@ -47,23 +47,20 @@ jobs:
       with:
         submodules: recursive
         lfs: false
-    # Same LFS-object cache pattern as dotnet.yml (key prefix intentionally shared with
+    # Same LFS-object cache as dotnet.yml (key prefix intentionally shared with
     # its build job: caches are repo-scoped, so this usually restores an entry another
     # workflow already populated). This job ran an uncached ~37 MB pull weekly before,
     # a steady drain on the account's metered LFS bandwidth.
-    - name: Compute LFS cache key
-      id: lfs-key
-      run: |
-        HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' | xargs cat | sha256sum | cut -c1-16)
-        echo "key=lfs-build-${HASH}" >> $GITHUB_OUTPUT
-    - uses: actions/cache@v6
-      with:
-        path: .git/lfs
-        key: ${{ steps.lfs-key.outputs.key }}
-        restore-keys: |
-          lfs-build-
+    #
+    # Only the .lz + .bin.gz are needed, but the set includes the .ttf fonts too: its key is
+    # then byte-identical to pages.yml's, so the two share one cache entry, and on a hit the
+    # fonts come out of the restored cache at no LFS cost. (It used to hash the three and pull
+    # two, for the same reason.)
     - name: Fetch catalog LFS objects
-      run: git lfs pull --include="*.lz,*.bin.gz"
+      uses: ./.github/actions/lfs-pull
+      with:
+        include: '*.lz,*.ttf,*.bin.gz'
+        cache-prefix: lfs-build
     - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.0.x

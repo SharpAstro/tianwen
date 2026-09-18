@@ -1079,8 +1079,9 @@ design and every measurement: `docs/plans/ai-enhancement.md`, `docs/plans/rc-ast
 - **In-house N2N denoiser** (`N2nDenoiser`; OSC-only, throws on mono), weights **in this repo** at
   `src/TianWen.AI.Imaging/models/` as an **LFS object under the repo-wide `*.onnx` rule** (a
   `.gitattributes` exemption made them a plain blob 2026-08-19 to 2026-09-06). A clone without git-lfs
-  holds a pointer stub, which `ModelResolver` refuses: a logged skip, never an ORT protobuf error. **A
-  new .onnx must go into `lfs-payload.list` in `dotnet.yml` as well**: the publish matrix never pulls LFS
+  holds a pointer stub, which `ModelResolver` refuses: a logged skip, never an ORT protobuf error. **An
+  LFS file type the apps ship must be in `APP_LFS_INCLUDE` in `dotnet.yml`** (`*.onnx` is; the one list
+  feeds build's pull, the `lfs-payload` artifact and the stub check): the publish matrix never pulls LFS
   and the weights are `Content`, so a missing object ships as a stub inside every release binary
   (`publish-apps`'s `Verify LFS objects materialised` step is the backstop). **The shipped checkpoint is
   `tianwen_denoise_osc_e2wide_s2.onnx`** (since 2026-09-06) and the file NAME carries the checkpoint

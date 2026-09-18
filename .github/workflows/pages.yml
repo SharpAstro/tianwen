@@ -88,25 +88,17 @@ jobs:
       # preprocess fails ("Invalid lzip magic bytes" - the first deploy run's failure) or, worse,
       # pointer text gets embedded/served. Narrow include + object cache mirrors dotnet.yml
       # (skips the ~120 MB of test fixtures a full LFS pull would drag in).
-      - name: Compute LFS cache key
-        id: lfs-key
-        run: |
-          # Same include set AND same key prefix as dotnet.yml's build job, deliberately: caches
-          # are repo-scoped, so this restores the entry dotnet.yml already populated from main
-          # instead of storing a byte-identical duplicate.
-          HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' | xargs cat | sha256sum | cut -c1-16)
-          echo "key=lfs-build-${HASH}" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v6
-        with:
-          path: .git/lfs
-          key: ${{ steps.lfs-key.outputs.key }}
-          # A changed key restores the newest previous object set so the pull fetches
-          # only the delta (see the dotnet.yml cache steps for the 2026-08-17 incident
-          # this guards against).
-          restore-keys: |
-            lfs-build-
+      #
+      # Same key prefix as dotnet.yml's build job, deliberately, so a miss here starts from the
+      # entry build already populated from main (build's set is this one plus the .onnx weights,
+      # so it is not the same KEY: that stopped being true when build's set gained them). Shares
+      # its exact key with simulators.yml's catalogs job. Cache mechanics, including the
+      # 2026-08-17 incident the restore-keys delta guards against: .github/actions/lfs-pull.
       - name: Fetch required LFS objects
-        run: git lfs pull --include="*.lz,*.ttf,*.bin.gz"
+        uses: ./.github/actions/lfs-pull
+        with:
+          include: '*.lz,*.ttf,*.bin.gz'
+          cache-prefix: lfs-build
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6

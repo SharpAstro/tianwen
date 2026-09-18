@@ -32,23 +32,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Same lavapipe software-Vulkan stack (+ lldb) as the unit-test job -- reproduce the exact
-      # environment where the flake occurs.
-      - uses: SharpAstro/cache-apt-pkgs-action@v1
-        with:
-          packages: ghostscript fonts-urw-base35 fontconfig mesa-vulkan-drivers libvulkan1 vulkan-tools vulkan-validationlayers lldb
-          version: 1.4
-      - name: Rebuild fontconfig cache
-        run: fc-cache -f
-      - name: Vulkan ICD summary
-        run: vulkaninfo --summary || true
+      # environment where the flake occurs. It IS the unit-test job's step, not a copy of it.
+      #
+      # Both composites are referenced at main rather than as ./.github/actions/..., because the
+      # workspace holds the code UNDER STRESS: a ref older than the composites has no such
+      # directory, and a local reference would resolve against it.
+      - name: Install unit-test system packages
+        uses: SharpAstro/tianwen/.github/actions/unit-test-deps@main
 
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}     # the code under stress -- decoupled from this workflow file (on main)
           submodules: recursive
           lfs: false
+      # Cached now: this pulled cold on every stress run. Same set as test-functional, so a
+      # stress of main rides that job's entry.
       - name: Fetch required LFS objects
-        run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.fits.gz"
+        uses: SharpAstro/tianwen/.github/actions/lfs-pull@main
+        with:
+          include: '*.lz,*.ttf,*.bin.gz,*.fits.gz'
+          cache-prefix: lfs-tests
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x

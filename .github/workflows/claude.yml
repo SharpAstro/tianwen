@@ -34,42 +34,28 @@ jobs:
       # that only asks a question should not pay for a build, so Claude runs dotnet itself when it
       # needs to (allowed in claude_args below).
       #
-      # Package list AND version must stay identical to test-unit's: `version` is the apt cache
-      # key, so a different list under the same version would restore the wrong package set, and
-      # an identical one shares test-unit's cache. The Vulkan stack is what lets the GPU comp tests
-      # run on lavapipe instead of skipping.
-      - uses: SharpAstro/cache-apt-pkgs-action@v1
-        with:
-          packages: ghostscript fonts-urw-base35 fontconfig mesa-vulkan-drivers libvulkan1 vulkan-tools vulkan-validationlayers lldb
-          version: 1.4
-      - name: Rebuild fontconfig cache
-        run: fc-cache -f
-
       # Depth 1 is enough: the action deepens a PR branch to 20 commits itself. The OpenNGC
-      # submodule is a build input (the catalog preprocess reads it).
+      # submodule is a build input (the catalog preprocess reads it). Checkout comes first
+      # because the two setup steps are composites in this repo.
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
           fetch-depth: 1
           submodules: recursive
           lfs: false
+      # test-unit's own step, so the GPU comp tests run on lavapipe here too and the apt cache is
+      # shared rather than duplicated.
+      - name: Install unit-test system packages
+        uses: ./.github/actions/unit-test-deps
       # LFS is not optional even for a build: the catalog .lz files are PreprocessCatalogs' input,
-      # and a pointer stub in their place fails it. Same glob and same cache key as test-unit, so a
-      # mention normally rides the cache main's CI saved and transfers nothing: the LFS budget ran
-      # dry once already (2026-08-17), and a cold pull per mention would spend it again.
-      - name: Compute LFS cache key
-        id: lfs-key
-        run: |
-          HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.fits.gz' '*.CR2' '*.CR3' '*.cr2' '*.cr3' '*.onnx' | xargs cat | sha256sum | cut -c1-16)
-          echo "key=lfs-tests-${HASH}" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v6
-        with:
-          path: .git/lfs
-          key: ${{ steps.lfs-key.outputs.key }}
-          restore-keys: |
-            lfs-tests-
+      # and a pointer stub in their place fails it. Same set and prefix as test-unit, so a mention
+      # normally rides the entry main's CI saved and transfers nothing: the LFS budget ran dry once
+      # already (2026-08-17), and a cold pull per mention would spend it again.
       - name: Fetch required LFS objects
-        run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.fits.gz,*.CR2,*.CR3,*.cr2,*.cr3,*.onnx"
+        uses: ./.github/actions/lfs-pull
+        with:
+          include: '*.lz,*.ttf,*.bin.gz,*.fits.gz,*.CR2,*.CR3,*.cr2,*.cr3,*.onnx'
+          cache-prefix: lfs-tests
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
