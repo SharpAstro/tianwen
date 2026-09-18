@@ -22,20 +22,6 @@ public class AltitudeChartTitleLayoutTests
     private static readonly DateTimeOffset NightEnd =
         new DateTimeOffset(2026, 6, 22, 4, 0, 0, TimeSpan.FromHours(2));
 
-    /// <summary>Records every DrawText call's text + layout rect, and still draws it.</summary>
-    private sealed class TextCapturingRenderer(uint w, uint h) : RgbaImageRenderer(w, h)
-    {
-        public List<(string Text, RectInt Rect)> Texts { get; } = [];
-
-        public override void DrawText(ReadOnlySpan<char> text, string fontFamily, float fontSize,
-            RGBAColor32 fontColor, in RectInt layout,
-            TextAlign horizAlignment = TextAlign.Center, TextAlign vertAlignment = TextAlign.Near)
-        {
-            Texts.Add((text.ToString(), layout));
-            base.DrawText(text, fontFamily, fontSize, fontColor, layout, horizAlignment, vertAlignment);
-        }
-    }
-
     // A full twilight set, so every zone label row is drawn (Civil / Naut. / Astro on both sides).
     private static PlannerState BuildState() => new PlannerState
     {

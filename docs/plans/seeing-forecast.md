@@ -1,6 +1,6 @@
 # Seeing forecast from upper-air wind (plan)
 
-**Status: NOT STARTED. Written 2026-09-17** from the astrophoto.app field note in
+**Status: PARTIAL (P0 + P1 shipped 2026-09-19; P2 calibration and P3 7Timer open). Written 2026-09-17** from the astrophoto.app field note in
 [inbox.md](../todo/inbox.md) ("`wind_speed_250hPa` is a seeing forecast for free"), after reading that
 site's shipped JavaScript and querying Open-Meteo. Raised by the user for the desktop GUI and the web
 app alike ("not just for web, but having more in the web app is a plus").
@@ -86,6 +86,26 @@ the ground truth it is guessing at:
 Desktop only, as a weather source whose seeing class overrides the P1 heuristic when present, the way
 astrophoto.app layers it. The browser would need a bake or a proxy (no CORS), so it is out of scope
 there unless the web build grows a server.
+
+## As built (2026-09-19)
+
+- **P0.** `HourlyWeatherForecast.WindSpeed250hPa` / `500hPa` / `850hPa`, m/s like the surface wind, NaN where a
+  provider has none (OpenWeatherMap). Open-Meteo's pressure-level arrays are `List<double?>`: an hour past a
+  level's horizon comes back `null`, and a null in a `List<double>` fails the WHOLE response. The cache merge
+  keeps a known upper-air wind per field when a refetch lacks it.
+- **A cache trap found on the way, and fixed for every field**: the JSON source generator built the record
+  through its implicit parameterless constructor and passed every init-only member with no default, so a
+  field an OLDER cache lacks read back as 0, not NaN. For the jet wind that is a dead-calm night, the best
+  class there is. The primary constructor is now `[JsonConstructor]`, so a missing field takes its parameter
+  default (`OpenMeteoPressureLevelWindTests` failed at 0 before it).
+- **P1.** `SeeingForecast.For(hour)` (`TianWen.Lib/Devices/Weather`): the heuristic above, as `SeeingClass`
+  Bad..Excellent. **One deliberate departure: no 250 hPa wind is `Unknown`**, not three times the surface wind,
+  because the class claims to come from the air aloft and an OpenWeatherMap profile would otherwise get a
+  confident estimate built from the surface alone. The planner's weather band grows a "Seeing" row under the
+  humidity row (class 1..5, the humidity row's severity colours), reserved only when some hour has a jet
+  wind, so an OpenWeatherMap profile gets no empty row; the tooltip says "estimated from wind" and gives the
+  250 hPa speed. `AltitudeChartRenderer` is shared, so the GUI, the TUI (sixel) and the web planner all have it.
+  `StarFWHM` is untouched and nothing in the session reads the class.
 
 ## Phasing
 
