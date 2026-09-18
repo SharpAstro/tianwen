@@ -46,12 +46,21 @@ jobs:
       # Depth 1 is enough: the action deepens a PR branch to 20 commits itself. The OpenNGC
       # submodule is a build input (the catalog preprocess reads it). Checkout comes first
       # because the two setup steps are composites in this repo.
+      #
+      # persist-credentials: false, or Claude cannot PUSH (#302). checkout v6+ keeps its token in a
+      # file pulled in through includeIf.gitdir, which claude-code-action's credential cleanup does
+      # not look at (anthropics/claude-code-action#1721), so the workflow's read-only token beat the
+      # app token and the #294 run's push was refused as github-actions[bot]. Nothing persisted,
+      # nothing to beat. It holds because this repo is PUBLIC: the action fetches once before it
+      # configures its own auth, anonymously, which fails on a private repo (#1236); nothing up to
+      # the action needs the token (the submodule comes with the checkout, public LFS is anonymous).
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
           fetch-depth: 1
           submodules: recursive
           lfs: false
+          persist-credentials: false
       # test-unit's own step, so the GPU comp tests run on lavapipe here too and the apt cache is
       # shared rather than duplicated.
       - name: Install unit-test system packages
