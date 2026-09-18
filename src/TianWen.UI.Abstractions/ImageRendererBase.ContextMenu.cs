@@ -575,7 +575,7 @@ namespace TianWen.UI.Abstractions
             {
                 var siteContext = SiteContext.Create(site.LatitudeDeg, site.LongitudeDeg, capturedAt);
                 return SkyMapInfoPanelData.FromCatalogObject(
-                    obj, site.LatitudeDeg, site.LongitudeDeg, capturedAt, in siteContext, shape);
+                    obj, site.LatitudeDeg, site.LongitudeDeg, capturedAt, in siteContext, shape, LoadedCatalog);
             }
 
             // Either half missing is the SAME answer, which is why there is one path out: without both
@@ -583,7 +583,7 @@ namespace TianWen.UI.Abstractions
             // RiseTransitSetHelper each read as "do not answer" -- leaving the NaN altitude the panel
             // gates its site-dependent rows on.
             return SkyMapInfoPanelData.FromCatalogObject(
-                obj, double.NaN, double.NaN, default, default, shape);
+                obj, double.NaN, double.NaN, default, default, shape, LoadedCatalog);
         }
 
         private void CopyToClipboard(ViewerState state, string description, string payload)

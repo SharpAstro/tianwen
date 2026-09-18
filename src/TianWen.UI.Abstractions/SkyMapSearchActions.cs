@@ -500,7 +500,7 @@ public static class SkyMapSearchActions
         SlewTo(skyMap, obj.RA, obj.Dec);
         search.InfoPanel = SkyMapInfoPanelData.FromCatalogObject(
             obj, siteLat, siteLon, viewingUtc, site,
-            ResolveShape(db, catIdx));
+            ResolveShape(db, catIdx), db);
 
         CloseSearch(search, focus);
         return true;
@@ -803,7 +803,7 @@ public static class SkyMapSearchActions
 
         search.InfoPanel = SkyMapInfoPanelData.FromCatalogObject(
             obj, siteLat, siteLon, viewingUtc, site,
-            ResolveShape(db, hit));
+            ResolveShape(db, hit), db);
         return true;
     }
 
