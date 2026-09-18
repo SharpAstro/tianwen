@@ -22,8 +22,9 @@ internal static class WeatherForecastMerge
     /// <summary>
     /// Hour-keyed union of <paramref name="cached"/> and <paramref name="fresh"/>. Fresh entries
     /// override cached entries for the same <see cref="HourlyWeatherForecast.Time"/> (an instant, so
-    /// the dedup is timezone-offset agnostic); cached hours the fresh fetch no longer covers are
-    /// retained. The result is sorted ascending by time.
+    /// the dedup is timezone-offset agnostic), except for an upper-air wind the fresh entry lacks, which
+    /// keeps the cached number (<see cref="KeepKnownWinds"/>); cached hours the fresh fetch no longer covers
+    /// are retained. The result is sorted ascending by time.
     /// </summary>
     public static List<HourlyWeatherForecast> Merge(
         IReadOnlyList<HourlyWeatherForecast>? cached,
@@ -44,11 +45,25 @@ internal static class WeatherForecastMerge
         }
         foreach (var entry in fresh)
         {
-            byHour[entry.Time] = entry;
+            byHour[entry.Time] = byHour.TryGetValue(entry.Time, out var earlier) ? KeepKnownWinds(entry, earlier) : entry;
         }
 
         var merged = new List<HourlyWeatherForecast>(byHour.Values);
         merged.Sort(static (a, b) => a.Time.CompareTo(b.Time));
         return merged;
     }
+
+    /// <summary>
+    /// The fresh entry for an hour, except that an upper-air wind it lacks (NaN) keeps the cached number:
+    /// merging per FIELD, not per entry. A cache written before the pressure-level winds were requested, or a
+    /// refetch whose array ran out before this hour, must not blank a value the seeing forecast already had.
+    /// The surface fields are left as they were: fresh wins outright, as it always has.
+    /// </summary>
+    private static HourlyWeatherForecast KeepKnownWinds(HourlyWeatherForecast fresh, HourlyWeatherForecast cached)
+        => fresh with
+        {
+            WindSpeed250hPa = double.IsNaN(fresh.WindSpeed250hPa) ? cached.WindSpeed250hPa : fresh.WindSpeed250hPa,
+            WindSpeed500hPa = double.IsNaN(fresh.WindSpeed500hPa) ? cached.WindSpeed500hPa : fresh.WindSpeed500hPa,
+            WindSpeed850hPa = double.IsNaN(fresh.WindSpeed850hPa) ? cached.WindSpeed850hPa : fresh.WindSpeed850hPa,
+        };
 }
