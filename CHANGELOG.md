@@ -107,6 +107,29 @@ labelled with its observed peak as `MaxValue`, no `SensorFullScaleAdu`, and the 
 point the normalisation actually left; a master written before claimed `DATAMAX = 1` over pixels up
 to 62.
 
+**`tianwen image sharpen` runs the canonical program, which changes what it produces.**
+`SharpenRequest.Canonical` and `DeblurFirst` are the single source of truth for the enhance step
+order, and the FITS viewer's Enhance button and `tianwen stack --enhance` both take their program
+from there. This verb did not: it assembled its own list starting at `RemoveStarsStep`, so it ran
+neither the whole-frame deblur nor the gradient correction the other two have always run, and the
+same master enhanced in the viewer and on the command line came out visibly different, with an
+uncorrected background and its colour cast intact. It now takes the head of the canonical program:
+`DeblurStep` when a deblurrer is live, then `GradientCorrectionStep`, before the star split; and with
+BlurX live the starless deconvolution is dropped, as `DeblurFirst` drops it, since the whole frame
+has already been deconvolved. An explicit `--deconv-blend` still asks for it and `--no-gradient` opts
+out. A script pinned to the old output will see a different picture, deliberately: measured on the
+10P/Tempel master the background's peak-to-peak per channel goes from 3.43 / 2.77 / 2.77 percent to
+0.25 / 0.19 / 0.18, with the three channel backgrounds landing on one level.
+
+**Additive CLI verbs**: `image autocrop` crops a master to the rectangle its subs covered, calling the
+same `ViewerActions.ScanForCrop` the viewer's auto-crop uses (the drizzle weight plane from the
+`.rejection.fits` sidecar where one exists, the coverage edge walk otherwise) and holding no logic of
+its own; its `--margin` insets every edge by a fraction of the axis for a caller whose crop feeds a
+background model rather than an eye, because the walk REFUSES an edge whose band never settles and a
+refusal keeps the ramp for the model to fit. `image deblur` and `image denoise` expose
+`IImageDeblurrer` and `IDenoiseEnhancer` as verbs of their own, as `remove-stars` and `flatten`
+already did for their roles; both are absent rather than fatal on a host with no backend for the role.
+
 **Additive**: `ImageMeta.DataSection` and `BiasSection`, read and written as `DATASEC` / `BIASSEC`
 (`TRIMSEC` stands in only where `DATASEC` is absent); `ImageMeta.FrameSequence` with its counter
 source (`FRAMESEQ`, `SEQSRC`), counted per connect by the DAL camera driver; the sensor geometry DAL
