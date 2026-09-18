@@ -828,13 +828,6 @@ internal sealed class ImageSubCommand(
             // a fresh copy at unit range. Original `src` is unchanged.
             var normalised = src.ScaleFloatValuesToUnit();
 
-            // Auto-enable SCNR on the stars plate when --dual-stretch is set
-            // and the user didn't explicitly choose a mode. Green stars are
-            // the dominant artefact of stretching faint-star noise where the
-            // G channel slightly outpaces R/B; SCNR neutralises it. Stretched
-            // space is where SCNR has the strongest visible effect, so it
-            // belongs AFTER StretchStarsStep in the order below.
-            var effectiveScnrMode = dualStretch && scnrMode == ScnrMode.None ? ScnrMode.Average : scnrMode;
 
             // Stellar-sharpen is opt-in (default OFF). Stars from a registered/
             // drizzled stack are already round, and the SAS NAFNet over-sharpens
@@ -852,6 +845,20 @@ internal sealed class ImageSubCommand(
                 consoleHost.WriteScrollable(
                     "[sharpen] --stellar-sharpen ignored: BlurX deblurrer live (deblur is whole-frame upstream; re-sharpening extracted stars over-sharpens).");
             }
+
+
+            // SCNR on the stars plate follows whichever canonical program applies, and only an
+            // explicit --scnr overrides it. SharpenRequest.DeblurFirst carries ScnrStarsStep
+            // (Average) and SharpenRequest.Canonical does not, which is the split honoured here:
+            // BlurX tightens every star to near the sampling limit, and the faint ones then carry a
+            // green fringe where the G channel outpaces R and B, so the BlurX-first flow neutralises
+            // it and the SAS-shaped flow has nothing to neutralise. --dual-stretch keeps its own
+            // reason on top: green stars are a stretched-space artefact, so a program that stretches
+            // in-pipeline wants SCNR whichever deblurrer is live.
+            var scnrExplicit = parseResult.GetResult(scnrOpt)?.Tokens.Count > 0;
+            var effectiveScnrMode = scnrExplicit ? scnrMode
+                : deblurLive || dualStretch ? ScnrMode.Average
+                : ScnrMode.None;
 
             // Build the SharpenStep list in canonical order. CLI flags toggle
             // step presence; the pipeline interprets the array in declared
@@ -1666,7 +1673,21 @@ internal sealed class ImageSubCommand(
             var dst = parseResult.GetValue(outputOpt) ?? ReplaceExtension(input, ExtensionFor(format));
             consoleHost.WriteScrollable(
                 $"[render] {input} {src.Width}x{src.Height}x{src.ChannelCount} -> {dst} ({format.ToString().ToLowerInvariant()})");
-            await WriteCompanionAsync(src, dst, format, src.ImageMeta, wcs, "render",
+            // HONOUR THE DECLARED SCALE. Every other verb here unit-scales its input and this one did
+            // not, so a master written on the subs' own ADU scale was stretched as if it were [0, 1]:
+            // red crushed to black and green and blue saturated, which is how a Float16Staged session
+            // master rendered as a flat blue field with a few stars in it. Measured on the Running
+            // Chicken Nebula master (DATAMAX 97723.5, channel medians 738 / 2897 / 1749) against
+            // Centaurus A from the SAME NIGHT and TRAIN (DATAMAX 1.24, medians 0.0069 / 0.0276 /
+            // 0.0162): 30 of one store's 92 masters are on the ADU scale, and they are exactly the
+            // staged ones, because only the drizzle path happens to normalise.
+            //
+            // ScaleFloatValuesToUnit is the right one: it asks whether the samples ARE ADU and leaves
+            // a peak up to 2.0 alone, so a drizzle master at 1.24 is untouched and byte-identical to
+            // before. JXR is excluded because it writes the input floats verbatim by contract -- no
+            // SPCC, no white balance, no stretch -- and scaling them would break that promise.
+            var toRender = format == ImageOutputFormat.Jxr ? src : src.ScaleFloatValuesToUnit();
+            await WriteCompanionAsync(toRender, dst, format, src.ImageMeta, wcs, "render",
                 useStretchedPng: false,
                 peakNits: Math.Clamp(parseResult.GetValue(pngPqPeakNitsOpt), 1f, 10000f),
                 gamutToBt2020: parseResult.GetValue(pngPqGamutOpt) == PngPqGamut.Bt2020,
