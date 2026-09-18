@@ -581,8 +581,11 @@ the router consumes a press on ANY region and opens a `LinkHit` only through `In
 `StandaloneViewerHost` had no subscriber, so every link in `tianwen-fits` took the hand pointer and
 opened nothing while the same panel worked in the GUI. A new host owes that one line
 (`APressOnThePanelsAtlasLinkOpensThePageOnce`). **A layout button lights through `.BgHover(GuiTheme.Hover(fill))`**,
-one rule, only when a press would act; the viewer routes motion around the router, so it asks
-`HoverBackgroundRectAt` itself on every move.
+one rule, only when a press would act, and **a host routes the press, the move AND the release through its
+router**: a slider's press arms its drag there and only the router feeds it the moves, so a host routing
+presses alone left every popover dial click-only (`APopoverDialFollowsADragAcrossItsTrack`). The router
+also decides when a hover needs a frame; `StandaloneViewerHost` makes those frames full-surface, since the
+viewer narrows a move's damage to the pixel readout.
 
 ### Smart Framing (planner co-framing groups)
 

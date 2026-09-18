@@ -67,8 +67,10 @@ public class ViewerE2ETests
 
     /// <summary>
     /// Crossing onto a panel link asks for a frame, so the link lights under the pointer, and moving on
-    /// inside it does not. This viewer routes motion around the router, which is what repaints a hover in
-    /// every other host, so nothing drew the hover until something unrelated forced a frame.
+    /// inside it does not. This host used to route motion around the router, which is what repaints a
+    /// hover, so nothing drew the hover until something unrelated forced a frame; and the router, keyed on
+    /// a node remembered from an earlier frame, then asked for a frame on every move inside a lit control
+    /// (SharpAstro/DIR.Lib#90).
     /// </summary>
     [Theory]
     [MemberData(nameof(Scales))]
@@ -89,7 +91,6 @@ public class ViewerE2ETests
             "both probes are over one picture pixel, so the readout cannot be what asks for the frame");
         e2e.State.NeedsRedraw.ShouldBeTrue("the pointer crossed onto the link");
         e2e.Frame();
-        e2e.Viewer.HoverBackgroundRectAt(link.X + 2f, y).ShouldBe(link, "the lit node is the link itself");
 
         e2e.Host.HandlePointer(new InputEvent.MouseMove(link.X + 3f, y));
         e2e.State.CursorImagePosition.ShouldBe(pixel);
