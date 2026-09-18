@@ -1,6 +1,7 @@
 using Shouldly;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -118,10 +119,22 @@ namespace TianWen.Lib.Tests
             var progress = new Progress<string>(progressLines.Enqueue);
             var result = await DatasetBuildRunner.RunAsync(options, logger: null, progress: progress, cancellationToken: ct);
 
+            var reported = new List<string>();
             while (progressLines.TryDequeue(out var progressLine))
             {
+                reported.Add(progressLine);
                 output.WriteLine(progressLine);
             }
+
+            // Where the session's frames went, on the CONSOLE. SessionRegistrar logs a gate line and
+            // a census per session, but the CLI's console floor is Warning in Release, so an
+            // eleven-hour bake printed 26 warnings and nothing else while 607 of 11,221 lights were
+            // dropped. Asserted on the reported line rather than on a log, because the log was never
+            // the thing that was missing.
+            reported.ShouldContain(
+                l => l.Contains("subs (gate -", StringComparison.Ordinal)
+                     && l.Contains("registration -", StringComparison.Ordinal),
+                "a registered session must report where its frames went, without raising the log floor");
 
             // Both sessions discovered; the good one registered, the broken one fault-isolated
             // (counted, logged, skipped) instead of aborting the run.
