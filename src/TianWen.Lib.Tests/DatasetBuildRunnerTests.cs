@@ -438,7 +438,10 @@ namespace TianWen.Lib.Tests
             first.Registered.ShouldBe(1);
 
             var mastersDir = Path.Combine(outDir, "session-masters");
-            var masters = Directory.GetFiles(mastersDir, "*.fits");
+            // Through the store's own enumerator, never a bare *.fits glob: the coverage sidecar is
+            // a .fits in this same folder, so a glob counts every master twice and reports it as an
+            // extra master rather than as the new file it is.
+            var masters = RetainedMasterStore.EnumerateMasters(outDir).ToArray();
             masters.Length.ShouldBe(1, "one registered session, one retained master");
             // No .partial survives a clean run: the temp name is moved into place, never left behind.
             Directory.GetFiles(mastersDir, "*.partial").ShouldBeEmpty();
@@ -514,7 +517,7 @@ namespace TianWen.Lib.Tests
             first.Registered.ShouldBe(1);
             first.PsfRemeasuredFromMaster.ShouldBe(0, "nothing to re-measure on a first run");
 
-            var masters = Directory.GetFiles(Path.Combine(outDir, "session-masters"), "*.fits");
+            var masters = RetainedMasterStore.EnumerateMasters(outDir).ToArray();
             masters.Length.ShouldBe(1);
             var before = await DatasetPsfStore.ReadAsync(first.PsfStorePath, null, ct);
             before.Count.ShouldBe(1);

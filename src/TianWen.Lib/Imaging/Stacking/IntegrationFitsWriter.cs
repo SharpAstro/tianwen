@@ -316,6 +316,18 @@ public static class IntegrationFitsWriter
         return Image.TryReadFitsFile(path, out coverage);
     }
 
+    /// <summary>
+    /// Whether this path IS a rejection / coverage sidecar rather than a master.
+    /// <para>
+    /// Both are <c>.fits</c> and they sit in the same folder, so <b>anything enumerating masters has
+    /// to ask</b>: a plain <c>*.fits</c> glob started counting every master twice the day a sidecar was
+    /// first written beside one, and reported it as an extra master rather than as a new file. Callers
+    /// that address a master by its session id never meet this; only the ones that walk the folder do.
+    /// </para>
+    /// </summary>
+    public static bool IsRejectionMapPath(string path)
+        => Path.GetFileName(path).EndsWith(RejectionMapSuffix, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Computes the rejection-map sibling path for a given master path.</summary>
     public static string RejectionPathFor(string masterPath)
     {

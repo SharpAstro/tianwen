@@ -2,10 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Linq;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
+using TianWen.Lib.IO;
 
 namespace TianWen.AI.Imaging
 {
@@ -43,6 +45,32 @@ namespace TianWen.AI.Imaging
 
         /// <summary>Whether a retained master is present for this session.</summary>
         public static bool Exists(string outDir, string sessionId) => File.Exists(PathFor(outDir, sessionId));
+
+        /// <summary>
+        /// Every retained master in the store, in a stable order, with the coverage / rejection
+        /// sidecars that sit beside them excluded.
+        /// <para>
+        /// This exists because the folder holds TWO kinds of <c>.fits</c> since a master started
+        /// carrying its coverage plane, and the difference is only in the name
+        /// (<see cref="IntegrationFitsWriter.RejectionMapSuffix"/>). Every consumer that addresses a
+        /// master by session id through <see cref="PathFor"/> is immune; a caller that walks the
+        /// directory is not, and would report twice as many masters as the bake made.
+        /// </para>
+        /// </summary>
+        public static IEnumerable<string> EnumerateMasters(string outDir)
+        {
+            var dir = Path.Combine(outDir, DirectoryName);
+            if (!Directory.Exists(dir))
+            {
+                return [];
+            }
+
+            // Top level only: the store is flat, and a walk that descends would follow a junction
+            // into whatever someone parked under the output root.
+            return FileEnumeration.EnumerateFiles(dir, ".fits", recursive: false)
+                .Where(static p => !IntegrationFitsWriter.IsRejectionMapPath(p))
+                .OrderBy(static p => p, StringComparer.OrdinalIgnoreCase);
+        }
 
         /// <summary>
         /// Writes the master, unless one is already there. Skipping an existing file is what makes a
