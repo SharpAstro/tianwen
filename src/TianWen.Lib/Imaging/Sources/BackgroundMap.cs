@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Sources;
@@ -161,60 +160,53 @@ public sealed class BackgroundMap
         var background = new float[cellsX * cellsY];
         var rms = new float[cellsX * cellsY];
         var valid = new bool[cellsX * cellsY];
-        var cellBuffer = ArrayPool<float>.Shared.Rent(block * block);
-        try
+        using var cellBuffer = ArrayPoolHelper.Rent<float>(block * block);
+        for (var cy = 0; cy < cellsY; cy++)
         {
-            for (var cy = 0; cy < cellsY; cy++)
+            for (var cx = 0; cx < cellsX; cx++)
             {
-                for (var cx = 0; cx < cellsX; cx++)
+                var x0 = cx * block;
+                var y0 = cy * block;
+                var x1 = Math.Min(width, x0 + block);
+                var y1 = Math.Min(height, y0 + block);
+                var n = 0;
+                for (var y = y0; y < y1; y++)
                 {
-                    var x0 = cx * block;
-                    var y0 = cy * block;
-                    var x1 = Math.Min(width, x0 + block);
-                    var y1 = Math.Min(height, y0 + block);
-                    var n = 0;
-                    for (var y = y0; y < y1; y++)
+                    var row = plane.Slice(y * width + x0, x1 - x0);
+                    for (var i = 0; i < row.Length; i++)
                     {
-                        var row = plane.Slice(y * width + x0, x1 - x0);
-                        for (var i = 0; i < row.Length; i++)
+                        if (exclude is { } mask && mask[y, x0 + i])
                         {
-                            if (exclude is { } mask && mask[y, x0 + i])
-                            {
-                                continue;
-                            }
+                            continue;
+                        }
 
-                            var v = row[i];
-                            if (float.IsFinite(v) && !(options.ExcludeExactZero && v == 0f))
-                            {
-                                cellBuffer[n++] = v;
-                            }
+                        var v = row[i];
+                        if (float.IsFinite(v) && !(options.ExcludeExactZero && v == 0f))
+                        {
+                            cellBuffer[n++] = v;
                         }
                     }
-
-                    var cellPixels = (x1 - x0) * (y1 - y0);
-                    var idx = cy * cellsX + cx;
-                    if (n < Math.Max(8, options.MinCellFraction * cellPixels))
-                    {
-                        valid[idx] = false;
-                        continue;
-                    }
-
-                    var (median, sigma, kept) = ClippedMedianAndSigma(cellBuffer.AsSpan(0, n), options.ClipSigma, options.ClipIterations);
-                    if (kept < Math.Max(8, options.MinCellFraction * cellPixels))
-                    {
-                        valid[idx] = false;
-                        continue;
-                    }
-
-                    background[idx] = median;
-                    rms[idx] = sigma;
-                    valid[idx] = true;
                 }
+
+                var cellPixels = (x1 - x0) * (y1 - y0);
+                var idx = cy * cellsX + cx;
+                if (n < Math.Max(8, options.MinCellFraction * cellPixels))
+                {
+                    valid[idx] = false;
+                    continue;
+                }
+
+                var (median, sigma, kept) = ClippedMedianAndSigma(cellBuffer.AsSpan(0, n), options.ClipSigma, options.ClipIterations);
+                if (kept < Math.Max(8, options.MinCellFraction * cellPixels))
+                {
+                    valid[idx] = false;
+                    continue;
+                }
+
+                background[idx] = median;
+                rms[idx] = sigma;
+                valid[idx] = true;
             }
-        }
-        finally
-        {
-            ArrayPool<float>.Shared.Return(cellBuffer);
         }
 
         FillInvalidCells(background, valid, cellsX, cellsY);
@@ -273,16 +265,9 @@ public sealed class BackgroundMap
     /// </summary>
     private static (float Median, float Mad) MedianAndMadPreserving(Span<float> values, int n)
     {
-        var scratch = ArrayPool<float>.Shared.Rent(n);
-        try
-        {
-            values[..n].CopyTo(scratch);
-            return StatisticsHelper.MedianAndMad(scratch.AsSpan(0, n));
-        }
-        finally
-        {
-            ArrayPool<float>.Shared.Return(scratch);
-        }
+        using var scratch = ArrayPoolHelper.Rent<float>(n);
+        values[..n].CopyTo(scratch.AsSpan());
+        return StatisticsHelper.MedianAndMad(scratch.AsSpan(0, n));
     }
 
     /// <summary>Cells without an estimate take the mean of their valid 8-neighbours, repeated until every cell has one.</summary>

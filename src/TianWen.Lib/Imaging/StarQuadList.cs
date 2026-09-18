@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Buffers;
 using System.Collections;
 using System.Collections.Generic;
 using System.Numerics;
@@ -29,19 +28,12 @@ public sealed class StarQuadList : IReadOnlyList<StarQuad>
     /// </remarks>
     public StarQuadList(Span<ImagedStar> stars)
     {
-        var rented = ArrayPool<Vector2>.Shared.Rent(stars.Length);
-        try
+        using var rented = ArrayPoolHelper.Rent<Vector2>(stars.Length);
+        for (var i = 0; i < stars.Length; i++)
         {
-            for (var i = 0; i < stars.Length; i++)
-            {
-                rented[i] = new Vector2(stars[i].XCentroid, stars[i].YCentroid);
-            }
-            _quads = Build(rented.AsSpan(0, stars.Length));
+            rented[i] = new Vector2(stars[i].XCentroid, stars[i].YCentroid);
         }
-        finally
-        {
-            ArrayPool<Vector2>.Shared.Return(rented);
-        }
+        _quads = Build(rented.AsSpan(0, stars.Length));
     }
 
     /// <summary>

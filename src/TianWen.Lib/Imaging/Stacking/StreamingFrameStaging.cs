@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -112,27 +111,20 @@ public static class StreamingFrameStaging
         // Pixel data: for each channel, write footprint.Height contiguous rows
         // of footprint.Width floats. Use a row buffer rather than per-pixel
         // writes to avoid the FileStream per-call overhead.
-        var rowBuffer = ArrayPool<float>.Shared.Rent(footprint.Width);
-        try
+        using var rowBuffer = ArrayPoolHelper.Rent<float>(footprint.Width);
+        var rowSpan = rowBuffer.AsSpan(0, footprint.Width);
+        for (var ch = 0; ch < channels; ch++)
         {
-            var rowSpan = rowBuffer.AsSpan(0, footprint.Width);
-            for (var ch = 0; ch < channels; ch++)
+            var arr = image.GetChannelArray(ch);
+            for (var y = 0; y < footprint.Height; y++)
             {
-                var arr = image.GetChannelArray(ch);
-                for (var y = 0; y < footprint.Height; y++)
+                var srcRow = footprint.Y + y;
+                for (var x = 0; x < footprint.Width; x++)
                 {
-                    var srcRow = footprint.Y + y;
-                    for (var x = 0; x < footprint.Width; x++)
-                    {
-                        rowSpan[x] = arr[srcRow, footprint.X + x];
-                    }
-                    fs.Write(MemoryMarshal.AsBytes(rowSpan));
+                    rowSpan[x] = arr[srcRow, footprint.X + x];
                 }
+                fs.Write(MemoryMarshal.AsBytes(rowSpan));
             }
-        }
-        finally
-        {
-            ArrayPool<float>.Shared.Return(rowBuffer);
         }
     }
 
@@ -179,35 +171,28 @@ public static class StreamingFrameStaging
 
         // Encode each channel one row at a time. The row buffer is reused
         // across rows + channels; one allocation per call.
-        var halfBuffer = ArrayPool<Half>.Shared.Rent(width);
-        try
+        using var halfBuffer = ArrayPoolHelper.Rent<Half>(width);
+        var halfSpan = halfBuffer.AsSpan(0, width);
+        for (var ch = 0; ch < channels; ch++)
         {
-            var halfSpan = halfBuffer.AsSpan(0, width);
-            for (var ch = 0; ch < channels; ch++)
+            var arr = image.GetChannelArray(ch);
+            for (var y = 0; y < height; y++)
             {
-                var arr = image.GetChannelArray(ch);
-                for (var y = 0; y < height; y++)
+                for (var x = 0; x < width; x++)
                 {
-                    for (var x = 0; x < width; x++)
+                    var v = arr[y, x];
+                    if (v > HalfMaxValue)
                     {
-                        var v = arr[y, x];
-                        if (v > HalfMaxValue)
-                        {
-                            v = HalfMaxValue;
-                        }
-                        else if (v < -HalfMaxValue)
-                        {
-                            v = -HalfMaxValue;
-                        }
-                        halfSpan[x] = (Half)v;
+                        v = HalfMaxValue;
                     }
-                    fs.Write(MemoryMarshal.AsBytes(halfSpan));
+                    else if (v < -HalfMaxValue)
+                    {
+                        v = -HalfMaxValue;
+                    }
+                    halfSpan[x] = (Half)v;
                 }
+                fs.Write(MemoryMarshal.AsBytes(halfSpan));
             }
-        }
-        finally
-        {
-            ArrayPool<Half>.Shared.Return(halfBuffer);
         }
     }
 }
@@ -460,38 +445,23 @@ public sealed class StreamingFrameReader : IDisposable
             if (_isHalf)
             {
                 // Read Half samples, unpack to float, scatter into destination.
-                var halfBuf = ArrayPool<Half>.Shared.Rent(sliceFloats);
-                var floatBuf = ArrayPool<float>.Shared.Rent(sliceFloats);
-                try
-                {
-                    var halfSpan = halfBuf.AsSpan(0, sliceFloats);
-                    var floatSpan = floatBuf.AsSpan(0, sliceFloats);
-                    _fs.Seek(byteOffset, SeekOrigin.Begin);
-                    _fs.ReadExactly(MemoryMarshal.AsBytes(halfSpan));
-                    UnpackHalfToFloat(halfSpan, floatSpan);
-                    ScatterRows(floatSpan, destination, overlapStart, overlapRows, rowStart);
-                }
-                finally
-                {
-                    ArrayPool<Half>.Shared.Return(halfBuf);
-                    ArrayPool<float>.Shared.Return(floatBuf);
-                }
+                using var halfBuf = ArrayPoolHelper.Rent<Half>(sliceFloats);
+                using var floatBuf = ArrayPoolHelper.Rent<float>(sliceFloats);
+                var halfSpan = halfBuf.AsSpan(0, sliceFloats);
+                var floatSpan = floatBuf.AsSpan(0, sliceFloats);
+                _fs.Seek(byteOffset, SeekOrigin.Begin);
+                _fs.ReadExactly(MemoryMarshal.AsBytes(halfSpan));
+                UnpackHalfToFloat(halfSpan, floatSpan);
+                ScatterRows(floatSpan, destination, overlapStart, overlapRows, rowStart);
             }
             else if (_hasFootprint)
             {
                 // float32 + footprint: read into scratch then scatter.
-                var floatBuf = ArrayPool<float>.Shared.Rent(sliceFloats);
-                try
-                {
-                    var floatSpan = floatBuf.AsSpan(0, sliceFloats);
-                    _fs.Seek(byteOffset, SeekOrigin.Begin);
-                    _fs.ReadExactly(MemoryMarshal.AsBytes(floatSpan));
-                    ScatterRows(floatSpan, destination, overlapStart, overlapRows, rowStart);
-                }
-                finally
-                {
-                    ArrayPool<float>.Shared.Return(floatBuf);
-                }
+                using var floatBuf = ArrayPoolHelper.Rent<float>(sliceFloats);
+                var floatSpan = floatBuf.AsSpan(0, sliceFloats);
+                _fs.Seek(byteOffset, SeekOrigin.Begin);
+                _fs.ReadExactly(MemoryMarshal.AsBytes(floatSpan));
+                ScatterRows(floatSpan, destination, overlapStart, overlapRows, rowStart);
             }
             else
             {

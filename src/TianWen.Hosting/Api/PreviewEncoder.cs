@@ -1,10 +1,10 @@
 using System;
-using System.Buffers;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using SharpAstro.Color.Icc;
 using SharpAstro.Jpeg;
+using TianWen.Lib;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.Hosting.Api
@@ -64,44 +64,37 @@ namespace TianWen.Hosting.Api
 
             var pixelCount = width * height;
             var rgbaLength = pixelCount * 4;
-            var rgba = ArrayPool<byte>.Shared.Rent(rgbaLength);
-            try
-            {
-                image.RenderStretchedRgba(uniforms, rgba.AsSpan(0, rgbaLength));
+            using var rgba = ArrayPoolHelper.Rent<byte>(rgbaLength);
+            image.RenderStretchedRgba(uniforms, rgba.AsSpan(0, rgbaLength));
 
-                // Anything that is not a genuine downscale factor means "full resolution". Clamping to
-                // [0, 1] instead would turn scale=0 (and any negative) into a 1x1 image rather than the
-                // full frame -- a query-string default of 0 would silently return a single pixel.
-                var validScale = double.IsFinite(scale) && scale > 0.0 && scale < 1.0;
-                var outWidth = validScale ? Math.Max(1, (int)(width * scale)) : width;
-                var outHeight = validScale ? Math.Max(1, (int)(height * scale)) : height;
+            // Anything that is not a genuine downscale factor means "full resolution". Clamping to
+            // [0, 1] instead would turn scale=0 (and any negative) into a 1x1 image rather than the
+            // full frame -- a query-string default of 0 would silently return a single pixel.
+            var validScale = double.IsFinite(scale) && scale > 0.0 && scale < 1.0;
+            var outWidth = validScale ? Math.Max(1, (int)(width * scale)) : width;
+            var outHeight = validScale ? Math.Max(1, (int)(height * scale)) : height;
 
-                var isColor = channelCount >= 3;
-                var bytesPerPixel = isColor ? 3 : 1;
-                var outBytes = new byte[outWidth * outHeight * bytesPerPixel];
+            var isColor = channelCount >= 3;
+            var bytesPerPixel = isColor ? 3 : 1;
+            var outBytes = new byte[outWidth * outHeight * bytesPerPixel];
 
-                Downsample(rgba, width, height, outBytes, outWidth, outHeight, bytesPerPixel);
+            Downsample(rgba.AsSpan(), width, height, outBytes, outWidth, outHeight, bytesPerPixel);
 
-                // In-family baseline encoder, same codec family as the JpegIccInjector below. It is a
-                // faithful port of the stb_image_write JPEG writer and is byte-for-byte identical to it
-                // for the same pixels and quality, and Subsampling.Auto reproduces stbiw's own
-                // quality-derived 4:4:4-vs-4:2:0 choice, so the encoded preview is unchanged.
-                var jpeg = JpegEncoder.Encode(
-                    outBytes,
-                    outWidth,
-                    outHeight,
-                    bytesPerPixel,
-                    new JpegEncodeOptions { Quality = Math.Clamp(quality, 1, 100) });
+            // In-family baseline encoder, same codec family as the JpegIccInjector below. It is a
+            // faithful port of the stb_image_write JPEG writer and is byte-for-byte identical to it
+            // for the same pixels and quality, and Subsampling.Auto reproduces stbiw's own
+            // quality-derived 4:4:4-vs-4:2:0 choice, so the encoded preview is unchanged.
+            var jpeg = JpegEncoder.Encode(
+                outBytes,
+                outWidth,
+                outHeight,
+                bytesPerPixel,
+                new JpegEncodeOptions { Quality = Math.Clamp(quality, 1, 100) });
 
-                // Tag as sRGB v4 so colour-managed clients (Nina, Touch N Stars, a browser) render the
-                // preview with the correct gamma. The injector slips an APP2 segment in after the existing
-                // JFIF APP0, leaving the entropy-coded body untouched.
-                return JpegIccInjector.EmbedIccProfile(jpeg, IccProfiles.SRgbV4);
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(rgba);
-            }
+            // Tag as sRGB v4 so colour-managed clients (Nina, Touch N Stars, a browser) render the
+            // preview with the correct gamma. The injector slips an APP2 segment in after the existing
+            // JFIF APP0, leaving the entropy-coded body untouched.
+            return JpegIccInjector.EmbedIccProfile(jpeg, IccProfiles.SRgbV4);
         }
 
         /// <summary>

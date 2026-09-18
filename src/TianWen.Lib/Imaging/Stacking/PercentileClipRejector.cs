@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Buffers;
 
 namespace TianWen.Lib.Imaging.Stacking;
 
@@ -71,38 +70,28 @@ public sealed record PercentileClipRejector(
         if (totalDrop == 0) return total;
         if (totalDrop >= n) return total; // would reject everything -- caller mistake, keep all
 
-        var floatPool = ArrayPool<float>.Shared;
-        var intPool = ArrayPool<int>.Shared;
-        var valsBuf = floatPool.Rent(n);
-        var idxBuf = intPool.Rent(n);
-        try
+        using var valsBuf = ArrayPoolHelper.Rent<float>(n);
+        using var idxBuf = ArrayPoolHelper.Rent<int>(n);
+        var m = 0;
+        for (var i = 0; i < total; i++)
         {
-            var m = 0;
-            for (var i = 0; i < total; i++)
-            {
-                if (keepMask[i] == 0f) continue;
-                valsBuf[m] = column[i];
-                idxBuf[m] = i;
-                m++;
-            }
-            MemoryExtensions.Sort(valsBuf.AsSpan(0, m), idxBuf.AsSpan(0, m));
+            if (keepMask[i] == 0f) continue;
+            valsBuf[m] = column[i];
+            idxBuf[m] = i;
+            m++;
+        }
+        MemoryExtensions.Sort(valsBuf.AsSpan(0, m), idxBuf.AsSpan(0, m));
 
-            // Reject the lowest lowDrop and highest highDrop entries by
-            // their original index.
-            for (var i = 0; i < lowDrop; i++)
-            {
-                keepMask[idxBuf[i]] = 0f;
-            }
-            for (var i = 0; i < highDrop; i++)
-            {
-                keepMask[idxBuf[m - 1 - i]] = 0f;
-            }
-            return total - totalDrop;
-        }
-        finally
+        // Reject the lowest lowDrop and highest highDrop entries by
+        // their original index.
+        for (var i = 0; i < lowDrop; i++)
         {
-            floatPool.Return(valsBuf);
-            intPool.Return(idxBuf);
+            keepMask[idxBuf[i]] = 0f;
         }
+        for (var i = 0; i < highDrop; i++)
+        {
+            keepMask[idxBuf[m - 1 - i]] = 0f;
+        }
+        return total - totalDrop;
     }
 }

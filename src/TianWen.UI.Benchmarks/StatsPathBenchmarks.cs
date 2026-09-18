@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Collections.Immutable;
 using System.Drawing;
 using System.Runtime.InteropServices;
@@ -205,22 +204,15 @@ public class StatsPathBenchmarks
         Parallel.For(0, c, ch =>
         {
             var channel = image.GetChannelArray(ch);
-            var buf = ArrayPool<float>.Shared.Rent(count);
-            try
+            using var buf = ArrayPoolHelper.Rent<float>(count);
+            var k = 0;
+            for (var y = y0; y < y1; y++)
             {
-                var k = 0;
-                for (var y = y0; y < y1; y++)
-                {
-                    for (var x = x0; x < x1; x++) { buf[k++] = channel[y, x]; }
-                }
-                var span = new ReadOnlySpan<float>(buf, 0, count);
-                mins[ch] = OldMin(span);
-                medians[ch] = OldMedian(span, mins[ch]);
+                for (var x = x0; x < x1; x++) { buf[k++] = channel[y, x]; }
             }
-            finally
-            {
-                ArrayPool<float>.Shared.Return(buf);
-            }
+            var span = buf.AsSpan(0, count);
+            mins[ch] = OldMin(span);
+            medians[ch] = OldMedian(span, mins[ch]);
         });
         return new NormalizationStats(mins, medians);
     }
@@ -239,22 +231,15 @@ public class StatsPathBenchmarks
     private static float OldMedian(ReadOnlySpan<float> span, float fallbackOnEmpty)
     {
         if (span.Length == 0) return fallbackOnEmpty;
-        var buffer = ArrayPool<float>.Shared.Rent(span.Length);
-        try
+        using var buffer = ArrayPoolHelper.Rent<float>(span.Length);
+        var validCount = 0;
+        for (var i = 0; i < span.Length; i++)
         {
-            var validCount = 0;
-            for (var i = 0; i < span.Length; i++)
-            {
-                var v = span[i];
-                if (!float.IsNaN(v)) { buffer[validCount++] = v; }
-            }
-            if (validCount == 0) return fallbackOnEmpty;
-            return StatisticsHelper.MedianFast(buffer.AsSpan(0, validCount));
+            var v = span[i];
+            if (!float.IsNaN(v)) { buffer[validCount++] = v; }
         }
-        finally
-        {
-            ArrayPool<float>.Shared.Return(buffer);
-        }
+        if (validCount == 0) return fallbackOnEmpty;
+        return StatisticsHelper.MedianFast(buffer.AsSpan(0, validCount));
     }
 
     /// <summary>

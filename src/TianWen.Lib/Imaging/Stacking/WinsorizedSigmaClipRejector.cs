@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Buffers;
 using static TianWen.Lib.Stat.StatisticsHelper;
 
 namespace TianWen.Lib.Imaging.Stacking;
@@ -59,88 +58,79 @@ public sealed record WinsorizedSigmaClipRejector(
         var kept = column.Length - absent;
         if (kept < 3) return column.Length;
 
-        var pool = ArrayPool<float>.Shared;
-        var valuesBuf = pool.Rent(column.Length);
-        var madBuf = pool.Rent(column.Length);
-        try
+        using var valuesBuf = ArrayPoolHelper.Rent<float>(column.Length);
+        using var madBuf = ArrayPoolHelper.Rent<float>(column.Length);
+        for (var iter = 0; iter < MaxIterations; iter++)
         {
-            for (var iter = 0; iter < MaxIterations; iter++)
+            // 1. Collect currently-kept values and find the median.
+            var keptCount = 0;
+            for (var i = 0; i < column.Length; i++)
             {
-                // 1. Collect currently-kept values and find the median.
-                var keptCount = 0;
-                for (var i = 0; i < column.Length; i++)
+                if (keepMask[i] != 0f)
                 {
-                    if (keepMask[i] != 0f)
-                    {
-                        valuesBuf[keptCount++] = column[i];
-                    }
+                    valuesBuf[keptCount++] = column[i];
                 }
-                if (keptCount < 3) break;
-
-                var median = MedianFast(valuesBuf.AsSpan(0, keptCount));
-
-                // 2. MAD of kept values (cheap, used to compute the *initial*
-                // winsorization bounds).
-                for (var i = 0; i < keptCount; i++)
-                {
-                    madBuf[i] = MathF.Abs(valuesBuf[i] - median);
-                }
-                var mad = MedianFast(madBuf.AsSpan(0, keptCount));
-                if (mad <= 0f) break;
-
-                var sigmaEst = MAD_TO_SD * mad;
-                var lowBound = median - LowSigma * sigmaEst;
-                var highBound = median + HighSigma * sigmaEst;
-
-                // 3. Build the winsorized distribution: clamp kept values to
-                // [lowBound, highBound]. Recompute median + MAD on the
-                // clamped set so the new threshold isn't biased low by the
-                // outliers we'd otherwise have removed entirely.
-                keptCount = 0;
-                for (var i = 0; i < column.Length; i++)
-                {
-                    if (keepMask[i] == 0f) continue;
-                    var v = column[i];
-                    if (v < lowBound) v = lowBound;
-                    else if (v > highBound) v = highBound;
-                    valuesBuf[keptCount++] = v;
-                }
-                var winMedian = MedianFast(valuesBuf.AsSpan(0, keptCount));
-                for (var i = 0; i < keptCount; i++)
-                {
-                    madBuf[i] = MathF.Abs(valuesBuf[i] - winMedian);
-                }
-                var winMad = MedianFast(madBuf.AsSpan(0, keptCount));
-                if (winMad <= 0f) break;
-
-                var winSigma = MAD_TO_SD * winMad;
-                var winLow = winMedian - LowSigma * winSigma;
-                var winHigh = winMedian + HighSigma * winSigma;
-
-                // 4. Apply rejection to the original (unclamped) values
-                // against the winsorized-derived threshold. This catches
-                // cosmic rays / hot pixels while being less aggressive on
-                // the bright tail than plain sigma clip would be at the
-                // same nominal kappa.
-                var changed = false;
-                for (var i = 0; i < column.Length; i++)
-                {
-                    if (keepMask[i] == 0f) continue;
-                    var v = column[i];
-                    if (v < winLow || v > winHigh)
-                    {
-                        keepMask[i] = 0f;
-                        kept--;
-                        changed = true;
-                    }
-                }
-                if (!changed) break;
             }
-        }
-        finally
-        {
-            pool.Return(valuesBuf);
-            pool.Return(madBuf);
+            if (keptCount < 3) break;
+
+            var median = MedianFast(valuesBuf.AsSpan(0, keptCount));
+
+            // 2. MAD of kept values (cheap, used to compute the *initial*
+            // winsorization bounds).
+            for (var i = 0; i < keptCount; i++)
+            {
+                madBuf[i] = MathF.Abs(valuesBuf[i] - median);
+            }
+            var mad = MedianFast(madBuf.AsSpan(0, keptCount));
+            if (mad <= 0f) break;
+
+            var sigmaEst = MAD_TO_SD * mad;
+            var lowBound = median - LowSigma * sigmaEst;
+            var highBound = median + HighSigma * sigmaEst;
+
+            // 3. Build the winsorized distribution: clamp kept values to
+            // [lowBound, highBound]. Recompute median + MAD on the
+            // clamped set so the new threshold isn't biased low by the
+            // outliers we'd otherwise have removed entirely.
+            keptCount = 0;
+            for (var i = 0; i < column.Length; i++)
+            {
+                if (keepMask[i] == 0f) continue;
+                var v = column[i];
+                if (v < lowBound) v = lowBound;
+                else if (v > highBound) v = highBound;
+                valuesBuf[keptCount++] = v;
+            }
+            var winMedian = MedianFast(valuesBuf.AsSpan(0, keptCount));
+            for (var i = 0; i < keptCount; i++)
+            {
+                madBuf[i] = MathF.Abs(valuesBuf[i] - winMedian);
+            }
+            var winMad = MedianFast(madBuf.AsSpan(0, keptCount));
+            if (winMad <= 0f) break;
+
+            var winSigma = MAD_TO_SD * winMad;
+            var winLow = winMedian - LowSigma * winSigma;
+            var winHigh = winMedian + HighSigma * winSigma;
+
+            // 4. Apply rejection to the original (unclamped) values
+            // against the winsorized-derived threshold. This catches
+            // cosmic rays / hot pixels while being less aggressive on
+            // the bright tail than plain sigma clip would be at the
+            // same nominal kappa.
+            var changed = false;
+            for (var i = 0; i < column.Length; i++)
+            {
+                if (keepMask[i] == 0f) continue;
+                var v = column[i];
+                if (v < winLow || v > winHigh)
+                {
+                    keepMask[i] = 0f;
+                    kept--;
+                    changed = true;
+                }
+            }
+            if (!changed) break;
         }
 
         return kept + absent;

@@ -424,37 +424,30 @@ internal static class SimbadMergeInputHasher
         BinaryPrimitives.WriteUInt32LittleEndian(intBuf, SimbadMergeSnapshot.AlgorithmVersion);
         sha.AppendData(intBuf);
 
-        var rentedBuf = System.Buffers.ArrayPool<byte>.Shared.Rent(64 * 1024);
-        try
+        using var rentedBuf = ArrayPoolHelper.Rent<byte>(64 * 1024);
+        foreach (var inputSuffix in Inputs)
         {
-            foreach (var inputSuffix in Inputs)
+            var nameBytes = Encoding.UTF8.GetBytes(inputSuffix);
+            BinaryPrimitives.WriteUInt32LittleEndian(intBuf, (uint)nameBytes.Length);
+            sha.AppendData(intBuf);
+            sha.AppendData(nameBytes);
+
+            var manifest = FindManifest(manifestNames, inputSuffix)
+                ?? throw new InvalidOperationException($"Embedded resource not found while computing simbad-merge input hash: {inputSuffix}");
+            using var rawStream = assembly.GetManifestResourceStream(manifest)
+                ?? throw new InvalidOperationException($"GetManifestResourceStream returned null for {manifest}");
+
+            // Hash the *decompressed* gzip content so the input hash is invariant to gzip
+            // encoder differences across platforms (Windows local bake vs Linux CI rebake
+            // produce different .gs.gz bytes for the same logical content). All Inputs are
+            // .gs.gz; wrap unconditionally.
+            using var stream = new GZipStream(rawStream, CompressionMode.Decompress);
+
+            int read;
+            while ((read = stream.Read(rentedBuf.AsSpan())) > 0)
             {
-                var nameBytes = Encoding.UTF8.GetBytes(inputSuffix);
-                BinaryPrimitives.WriteUInt32LittleEndian(intBuf, (uint)nameBytes.Length);
-                sha.AppendData(intBuf);
-                sha.AppendData(nameBytes);
-
-                var manifest = FindManifest(manifestNames, inputSuffix)
-                    ?? throw new InvalidOperationException($"Embedded resource not found while computing simbad-merge input hash: {inputSuffix}");
-                using var rawStream = assembly.GetManifestResourceStream(manifest)
-                    ?? throw new InvalidOperationException($"GetManifestResourceStream returned null for {manifest}");
-
-                // Hash the *decompressed* gzip content so the input hash is invariant to gzip
-                // encoder differences across platforms (Windows local bake vs Linux CI rebake
-                // produce different .gs.gz bytes for the same logical content). All Inputs are
-                // .gs.gz; wrap unconditionally.
-                using var stream = new GZipStream(rawStream, CompressionMode.Decompress);
-
-                int read;
-                while ((read = stream.Read(rentedBuf, 0, rentedBuf.Length)) > 0)
-                {
-                    sha.AppendData(rentedBuf, 0, read);
-                }
+                sha.AppendData(rentedBuf.AsSpan(0, read));
             }
-        }
-        finally
-        {
-            System.Buffers.ArrayPool<byte>.Shared.Return(rentedBuf);
         }
 
         return sha.GetHashAndReset();

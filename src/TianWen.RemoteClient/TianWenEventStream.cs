@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.IO;
 using System.Net.WebSockets;
 using System.Text.Json;
@@ -7,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Hosting.Dto;
+using TianWen.Lib;
 using TianWen.Lib.Devices;
 
 namespace TianWen.RemoteClient
@@ -174,38 +174,31 @@ namespace TianWen.RemoteClient
             SetConnected(true);
             _logger.LogDebug("Event stream connected to {Endpoint}", _endpoint);
 
-            var buffer = ArrayPool<byte>.Shared.Rent(ReceiveChunkBytes);
-            try
+            using var buffer = ArrayPoolHelper.Rent<byte>(ReceiveChunkBytes);
+            using var message = new MemoryStream();
+            while (socket.State is WebSocketState.Open && !cancellationToken.IsCancellationRequested)
             {
-                using var message = new MemoryStream();
-                while (socket.State is WebSocketState.Open && !cancellationToken.IsCancellationRequested)
+                var result = await socket.ReceiveAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+                if (result.MessageType is WebSocketMessageType.Close)
                 {
-                    var result = await socket.ReceiveAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
-                    if (result.MessageType is WebSocketMessageType.Close)
-                    {
-                        break;
-                    }
-
-                    if (message.Length + result.Count > MaxMessageBytes)
-                    {
-                        _logger.LogWarning("Event stream {Endpoint} sent an oversized message (> {Max} bytes), reconnecting",
-                            _endpoint, MaxMessageBytes);
-                        return;
-                    }
-
-                    message.Write(buffer, 0, result.Count);
-                    if (!result.EndOfMessage)
-                    {
-                        continue;
-                    }
-
-                    Dispatch(message.GetBuffer().AsSpan(0, (int)message.Length));
-                    message.SetLength(0);
+                    break;
                 }
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
+
+                if (message.Length + result.Count > MaxMessageBytes)
+                {
+                    _logger.LogWarning("Event stream {Endpoint} sent an oversized message (> {Max} bytes), reconnecting",
+                        _endpoint, MaxMessageBytes);
+                    return;
+                }
+
+                message.Write(buffer.AsSpan(0, result.Count));
+                if (!result.EndOfMessage)
+                {
+                    continue;
+                }
+
+                Dispatch(message.GetBuffer().AsSpan(0, (int)message.Length));
+                message.SetLength(0);
             }
         }
 

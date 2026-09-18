@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Drawing;
 using TianWen.Lib.Stat;
 
@@ -319,57 +318,49 @@ namespace TianWen.Lib.Imaging
                 return double.NaN;
             }
 
-            var sigmas = ArrayPool<float>.Shared.Rent(tiles);
-            var diffs = ArrayPool<float>.Shared.Rent(across * (o.TileLength - 1));
-            try
+            using var sigmas = ArrayPoolHelper.Rent<float>(tiles);
+            using var diffs = ArrayPoolHelper.Rent<float>(across * (o.TileLength - 1));
+            var kept = 0;
+            for (var t = 0; t < tiles; t++)
             {
-                var kept = 0;
-                for (var t = 0; t < tiles; t++)
+                var start = t * o.TileLength;
+                var n = 0;
+                for (var a = 0; a < across; a++)
                 {
-                    var start = t * o.TileLength;
-                    var n = 0;
-                    for (var a = 0; a < across; a++)
+                    for (var i = 0; i < o.TileLength - 1; i++)
                     {
-                        for (var i = 0; i < o.TileLength - 1; i++)
+                        int from;
+                        int to;
+                        if (horizontal)
                         {
-                            int from;
-                            int to;
-                            if (horizontal)
-                            {
-                                from = (band.Y + a) * imageWidth + band.X + start + i;
-                                to = from + 1;
-                            }
-                            else
-                            {
-                                from = (band.Y + start + i) * imageWidth + band.X + a;
-                                to = from + imageWidth;
-                            }
-                            var d = plane[to] - plane[from];
-                            if (float.IsFinite(d))
-                            {
-                                diffs[n++] = d;
-                            }
+                            from = (band.Y + a) * imageWidth + band.X + start + i;
+                            to = from + 1;
+                        }
+                        else
+                        {
+                            from = (band.Y + start + i) * imageWidth + band.X + a;
+                            to = from + imageWidth;
+                        }
+                        var d = plane[to] - plane[from];
+                        if (float.IsFinite(d))
+                        {
+                            diffs[n++] = d;
                         }
                     }
-                    if (n < 32)
-                    {
-                        continue;
-                    }
-                    var (_, mad) = StatisticsHelper.MedianAndMad(diffs.AsSpan(0, n));
-                    // The difference of two independent samples carries sqrt(2) their sigma, and 1.4826
-                    // takes a MAD to a Gaussian sigma.
-                    sigmas[kept++] = (float)(1.4826 * mad / Math.Sqrt(2.0));
                 }
+                if (n < 32)
+                {
+                    continue;
+                }
+                var (_, mad) = StatisticsHelper.MedianAndMad(diffs.AsSpan(0, n));
+                // The difference of two independent samples carries sqrt(2) their sigma, and 1.4826
+                // takes a MAD to a Gaussian sigma.
+                sigmas[kept++] = (float)(1.4826 * mad / Math.Sqrt(2.0));
+            }
 
-                return kept < 3
-                    ? double.NaN
-                    : StatisticsHelper.PercentileFast(sigmas.AsSpan(0, kept), o.Percentile / 100.0);
-            }
-            finally
-            {
-                ArrayPool<float>.Shared.Return(diffs);
-                ArrayPool<float>.Shared.Return(sigmas);
-            }
+            return kept < 3
+                ? double.NaN
+                : StatisticsHelper.PercentileFast(sigmas.AsSpan(0, kept), o.Percentile / 100.0);
         }
     }
 }

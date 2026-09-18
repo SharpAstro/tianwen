@@ -1,9 +1,9 @@
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using DIR.Lib;
+using TianWen.Lib;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Weather;
 using TianWen.Lib.Sequencing;
@@ -1287,13 +1287,12 @@ public static class AltitudeChartRenderer
         // One batched DrawPolyline instead of points.Length-1 separate DrawLine calls (each its own GPU
         // draw on the Vk/WebGL backends). The Catmull-Rom-smoothed curve is hundreds of segments; the web
         // planner chart re-renders every frame, so this collapses each altitude curve to a single draw.
-        var buffer = ArrayPool<(float X, float Y)>.Shared.Rent(points.Length);
+        using var buffer = ArrayPoolHelper.Rent<(float X, float Y)>(points.Length);
         for (var i = 0; i < points.Length; i++)
         {
             buffer[i] = ((float)points[i].X, (float)points[i].Y);
         }
         renderer.DrawPolyline(buffer.AsSpan(0, points.Length), color, lineWidth);
-        ArrayPool<(float X, float Y)>.Shared.Return(buffer);
     }
 
 
