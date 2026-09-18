@@ -73,8 +73,8 @@ public readonly record struct SkyMapInfoPanelData(
         }
 
         return new SkyMapInfoPanelData(
-            Name: obj.DisplayName,
-            Canonical: DesignationLine(obj.Index, db),
+            Name: PanelTitle(in obj, db),
+            Canonical: DesignationLine(in obj, db),
             ObjType: obj.ObjectType,
             Constellation: obj.Constellation,
             RA: obj.RA,
@@ -95,47 +95,90 @@ public readonly record struct SkyMapInfoPanelData(
     }
 
     /// <summary>
-    /// The designation the panel shows: the primary one, with the Messier or Caldwell number beside it in
-    /// parentheses when the catalogue lists one among the object's cross-indices, e.g. <c>NGC 6523 (M8)</c>.
+    /// The panel's title: the object's common name, else the number people know it by (Messier, then
+    /// Caldwell), else its primary designation. An unnamed Messier object is "M21", not "NGC 6531".
+    /// </summary>
+    public static string PanelTitle(in CelestialObject obj, ICelestialObjectDB? db)
+        => obj.CommonNames.Count > 0
+            ? obj.DisplayName
+            : (PopularDesignation(obj.Index, db) ?? obj.Index).ToCanonical();
+
+    /// <summary>
+    /// The designations the panel's grey line shows: the popular number (Messier, else Caldwell), then the
+    /// primary designation, each ONCE and never the one already in the title, joined with
+    /// <see cref="ObjectInfoPanel.Separator"/>. Empty when the title says everything (an unnamed NGC entry
+    /// with no popular number).
     /// </summary>
     /// <remarks>
-    /// The primary index is what the catalogue merge chose (NGC first), and a Messier number exists only
-    /// as a cross-index alias of it, so the line used to read "NGC 6523" for the Lagoon while the overlay
-    /// label beside it stacked every alias including M8 (raised 2026-09-18: M8 is what people know). Only
-    /// the popular number is added, never the whole alias list, which the overlay already shows and which
-    /// runs to four designations on the Carina Nebula.
+    /// The primary index is what the catalogue merge chose (NGC first), and a Messier number exists only as a
+    /// cross-index alias of it. The line first read "NGC 6523" for the Lagoon while the overlay label stacked
+    /// M8, then "NGC 6523 (M8)" (2026-09-18), which for an UNNAMED object repeated the title: M21's panel read
+    /// "NGC 6531" over "NGC 6531 (M21)". Only the popular number and the primary are ever listed, never the
+    /// whole alias list, which the overlay already shows and which runs to four on the Carina Nebula.
     /// </remarks>
-    public static string DesignationLine(CatalogIndex index, ICelestialObjectDB? db)
+    public static string DesignationLine(in CelestialObject obj, ICelestialObjectDB? db)
     {
-        var canonical = index.ToCanonical();
-        if (db is null || !db.TryGetCrossIndices(index, out var crossIndices))
+        var title = PanelTitle(in obj, db);
+        var popular = PopularDesignation(obj.Index, db)?.ToCanonical();
+        var primary = obj.Index.ToCanonical();
+
+        var line = popular is { } p && p != title ? p : "";
+        if (primary != title && primary != popular)
         {
-            return canonical;
+            line = line.Length > 0 ? line + ObjectInfoPanel.Separator + primary : primary;
+        }
+        return line;
+    }
+
+    /// <summary>
+    /// The Messier number of the object, else its Caldwell number: the index itself when it is one, or a
+    /// cross-index alias. Null when it has neither, or with no catalogue to consult.
+    /// </summary>
+    private static CatalogIndex? PopularDesignation(CatalogIndex index, ICelestialObjectDB? db)
+    {
+        var own = index.ToCatalog();
+        if (own == Catalog.Messier)
+        {
+            return index;
         }
 
-        CatalogIndex? popular = null;
+        CatalogIndex? caldwell = own == Catalog.Caldwell ? index : null;
+        if (db is null || !db.TryGetCrossIndices(index, out var crossIndices))
+        {
+            return caldwell;
+        }
+
         foreach (var cross in crossIndices)
         {
-            if (cross == index)
-            {
-                continue;
-            }
             var catalog = cross.ToCatalog();
             if (catalog == Catalog.Messier)
             {
-                popular = cross;
-                break;
+                return cross;
             }
-            if (catalog == Catalog.Caldwell && popular is null)
+            if (catalog == Catalog.Caldwell)
             {
-                popular = cross;
+                caldwell ??= cross;
             }
         }
-
-        return popular is { } alias && index.ToCatalog() != alias.ToCatalog()
-            ? $"{canonical} ({alias.ToCanonical()})"
-            : canonical;
+        return caldwell;
     }
+
+    /// <summary>
+    /// The token a link carries so the atlas SELECTS this object (<c>object=</c>): a comet's name (both its
+    /// short and full designation resolve, and the full one is what it calls itself everywhere), a catalogued
+    /// object's PRIMARY designation, which the atlas search resolves unambiguously, else the name.
+    /// </summary>
+    /// <remarks>
+    /// Never the grey line: <see cref="Canonical"/> is display text, and when it grew the Messier number
+    /// ("NGC 6523 (M8)") every link built from it stopped being a designation the atlas could parse, the web
+    /// address bar included. One rule for the viewer's panel, its context menu and the web host.
+    /// </remarks>
+    public string LinkToken
+        => ObjType == ObjectType.Comet && !string.IsNullOrWhiteSpace(Name)
+            ? Name
+            : Index is { } index && !index.IsSolarSystemObject
+                ? index.ToCanonical()
+                : Name;
 
     /// <summary>
     /// Build a panel payload for a position or name with no catalog entry (Position

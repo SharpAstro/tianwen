@@ -2075,10 +2075,9 @@
     // Both resolve on the way back in -- CometSearchKeys.TryResolve accepts either -- so preferring the
     // informative one costs nothing. Everything else keeps the canonical index, which is the stable
     // identifier for a catalogued object (a common name like "Orion Nebula" is not).
-    static string UrlTokenFor(SkyMapInfoPanelData panel)
-        => panel.ObjType == ObjectType.Comet && !string.IsNullOrWhiteSpace(panel.Name)
-            ? panel.Name
-            : (string.IsNullOrWhiteSpace(panel.Canonical) ? panel.Name : panel.Canonical);
+    // The rule is SkyMapInfoPanelData.LinkToken, shared with the desktop viewer; it used to be written out
+    // here reading the panel's display line, which stopped parsing once that line grew the Messier number.
+    static string UrlTokenFor(SkyMapInfoPanelData panel) => panel.LinkToken;
 
     // Through SkyAtlasLink, which is where the link's vocabulary is defined for both ends -- the
     // desktop viewer writes the same "object=" parameter now, and two copies of an escaping rule is

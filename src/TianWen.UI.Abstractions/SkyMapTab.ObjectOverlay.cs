@@ -24,15 +24,17 @@ namespace TianWen.UI.Abstractions
     {
         /// <summary>
         /// The mark after the label of an object whose verified article has a photo
-        /// (<see cref="OverlayItem.HasPicture"/>), so a picture can be found before a click: U+1F5BC FRAME
-        /// WITH PICTURE, drawn from the window's EMOJI face in its own colours and faded with the label,
-        /// every renderer multiplying a colour glyph's alpha by the ink's.
+        /// (<see cref="OverlayItem.HasPicture"/>), so a picture can be found before a click: U+1F4F7 CAMERA,
+        /// drawn from the window's EMOJI face in its own colours and faded with the label, every renderer
+        /// multiplying a colour glyph's alpha by the ink's. A camera rather than U+1F5BC FRAME WITH PICTURE
+        /// (the first cut): a framed painting says "artwork", a camera says "photo". DejaVu carries neither,
+        /// which does not matter here, the mark being drawn from the emoji face.
         /// <para>A colour glyph rather than a baked mask, for two measured reasons. Every colour emoji that
         /// reads as a photo bakes to a solid block, its detail being colour against colour, which a mask
         /// discards. And a mask draws as one <c>FillRect</c> per run, about thirty unbatched draws per mark on
         /// Vulkan, against one bitmap-atlas quad for the glyph.</para>
         /// </summary>
-        protected const string PictureMark = "\U0001F5BC";
+        protected const string PictureMark = "\U0001F4F7";
 
         /// <summary>The gap between a label's first line and its picture mark, in the label's pixels.</summary>
         protected static float PictureMarkGap(float labelSize) => labelSize * 0.3f;

@@ -172,7 +172,7 @@ namespace TianWen.UI.Abstractions
                 // the selected object, since both entries would then do the same thing.
                 if (selection is { } selected)
                 {
-                    var selectedToken = SkyAtlasLink.TokenFor(selected.Canonical, selected.Name);
+                    var selectedToken = selected.LinkToken;
                     if (!string.Equals(selectedToken, token, StringComparison.Ordinal))
                     {
                         builder.Add(new ImageContextMenuItem(
