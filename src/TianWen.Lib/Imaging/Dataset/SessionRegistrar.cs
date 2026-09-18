@@ -127,6 +127,66 @@ public static class SessionRegistrar
         return true;
     }
 
+    /// <summary>Label for the side the session STARTED on, in <see cref="ImagingSession.FlipSide"/>
+    /// and so in the session id. Time order rather than West/East, because the split is measured off
+    /// the field rotation and a rotation does not say which side of the pier the tube was on.</summary>
+    public const string FlipSideFirst = "a";
+
+    /// <summary>Label for the side after the flip. See <see cref="FlipSideFirst"/>.</summary>
+    public const string FlipSideSecond = "b";
+
+    /// <summary>Half a turn, the rotation a meridian flip puts between the two halves of a session.</summary>
+    private const float FlipDegrees = 180f;
+
+    /// <summary>
+    /// Splits registered subs by FIELD ORIENTATION: the ones lying like the first sub, and the ones
+    /// about half a turn from it. Empty second group when the session never flipped, which is the
+    /// ordinary case and the one that must cost nothing.
+    ///
+    /// <para>The angle comes from each sub's own source-to-canvas transform, so it measures what the
+    /// registration actually found rather than trusting a PIERSIDE card (absent from 21 of the 91
+    /// sessions in the 2026-09-17 bake). The threshold is a quarter turn, which is not a tuning knob:
+    /// a flip is 180 degrees and ordinary field rotation over a night is a fraction of a degree, so
+    /// anything in between is a session whose frames do not belong on one canvas at all.</para>
+    /// </summary>
+    internal static (ImmutableArray<int> First, ImmutableArray<int> Second) SplitByFieldRotation(
+        ImmutableArray<RegisteredSub> subs)
+    {
+        if (subs.Length < 2)
+        {
+            return ([], []);
+        }
+        var first = ImmutableArray.CreateBuilder<int>();
+        var second = ImmutableArray.CreateBuilder<int>();
+        var anchor = RotationDegrees(subs[0].TransformToCanvas);
+        for (var i = 0; i < subs.Length; i++)
+        {
+            var delta = MathF.Abs(NormaliseDegrees(RotationDegrees(subs[i].TransformToCanvas) - anchor));
+            (delta <= FlipDegrees / 2f ? first : second).Add(i);
+        }
+        return (first.ToImmutable(), second.ToImmutable());
+    }
+
+    /// <summary>The rotation an affine places its source at, in degrees. A warp's linear part is a
+    /// rotation times a scale, so the first column's angle is the rotation whatever the scale.</summary>
+    private static float RotationDegrees(Matrix3x2 m) => MathF.Atan2(m.M12, m.M11) * (180f / MathF.PI);
+
+    /// <summary>An angle difference folded into (-180, 180], so 359 degrees reads as -1 and not as
+    /// most of a turn.</summary>
+    private static float NormaliseDegrees(float degrees)
+    {
+        var d = degrees % 360f;
+        if (d > 180f)
+        {
+            d -= 360f;
+        }
+        else if (d <= -180f)
+        {
+            d += 360f;
+        }
+        return d;
+    }
+
     /// <summary>What a staged session's warped scratch would need against what the scratch drive has,
     /// when the first does not fit in the second.</summary>
     /// <param name="NeedBytes">Bytes the warped subs would occupy.</param>
@@ -251,6 +311,29 @@ public static class SessionRegistrar
         /// <see cref="RegisteredSub.WarpedPath"/> is null for every drizzled session.
         /// <c>null</c> only on a hand-built session in a test that never asks for one.</summary>
         public WarpedSubSource? WarpedSubs { get; init; }
+
+        /// <summary>
+        /// The same night integrated once per FIELD ORIENTATION when it crossed the meridian, empty
+        /// otherwise. Each is a session in its own right (its own master, stats rect, subs and, where
+        /// it has the frames for one, its own half-master pair) and carries
+        /// <see cref="ImagingSession.FlipSide"/>, so its id is the night's plus the side.
+        ///
+        /// <para><b>These share sky with this session and with each other.</b> Anything that splits
+        /// the dataset must keep them together, which is what <see cref="DatasetSplitWriter.GroupIdOf"/>
+        /// is for; treating them as independent sessions would put the same sky in train and test.</para>
+        /// </summary>
+        public ImmutableArray<RegisteredSession> FlipSides { get; init; } = [];
+
+        /// <summary>This session and every flip side of it, which is what a consumer that writes a
+        /// master, tiles it or measures it should iterate: all of them are outputs of the bake.</summary>
+        public IEnumerable<RegisteredSession> SelfAndFlipSides()
+        {
+            yield return this;
+            foreach (var side in FlipSides)
+            {
+                yield return side;
+            }
+        }
     }
 
     /// <summary>
@@ -790,6 +873,53 @@ public static class SessionRegistrar
                 useDrizzle ? "per-Bayer-position R/B coverage" : "enough frames for a real rejector");
         }
 
+        // 7c. Pier-side masters, when the session crossed the meridian. The flip is read off the
+        //     REGISTRATION, not off a PIERSIDE card: the card is absent from a fifth of this archive
+        //     (older SharpCap wrote none) while the transform onto the reference always says which
+        //     way the field was lying. Registration already handled the rotation, so this costs one
+        //     extra integration per side and no second measure or register pass.
+        //
+        //     Both are emitted because they answer different questions. The COMBINED master is
+        //     deeper and is what carries the half-master pair (a drizzled half needs
+        //     MinSubsForHalfMasters subs, which most single sides cannot reach: 23 of the 40 flipped
+        //     sessions in the 2026-09-17 bake would lose their pair if only the sides were kept). The
+        //     SIDES carry a coherent sky gradient, since a gradient is fixed to the horizon and
+        //     reverses in sensor coordinates across the flip, and each covers its own canvas more
+        //     fully, so its stats rect is larger and the tiler gets more usable cells out of it.
+        var sides = ImmutableArray<RegisteredSession>.Empty;
+        var (sideOne, sideTwo) = SplitByFieldRotation(subsList);
+        if (sideOne.Length >= minSubs && sideTwo.Length >= minSubs)
+        {
+            logger?.LogInformation(
+                "  [{Session}] field rotation splits it {First}/{Second} subs (meridian flip); integrating each side as its own master",
+                session.Id, sideOne.Length, sideTwo.Length);
+            var built = ImmutableArray.CreateBuilder<RegisteredSession>(2);
+            foreach (var (label, pick) in new[] { (FlipSideFirst, sideOne), (FlipSideSecond, sideTwo) })
+            {
+                var (_, sideStats) = CanvasGeometry.ComputeFootprintsAndStatsRect(
+                    [.. pick.Select(i => transforms[i])], canvasShift, refW, refH, canvasW, canvasH);
+                var sideMaster = await IntegrateSubsetAsync(pick, $"_flip_{label}", sideStats);
+                Image? sideHalfA = null;
+                Image? sideHalfB = null;
+                if (pick.Length >= halfMasterFloor)
+                {
+                    sideHalfA = await IntegrateSubsetAsync(
+                        [.. pick.Where((_, k) => k % 2 == 0)], $"_flip_{label}_half_a", sideStats);
+                    sideHalfB = await IntegrateSubsetAsync(
+                        [.. pick.Where((_, k) => k % 2 == 1)], $"_flip_{label}_half_b", sideStats);
+                }
+                built.Add(new RegisteredSession(
+                    session with { FlipSide = label }, sideMaster, [.. pick.Select(i => subsList[i])],
+                    canvasW, canvasH, sideStats, reference.Frame, pick.Length, pick.Length, 0,
+                    useDrizzle ? IntegrationStrategyKind.BayerDrizzle : IntegrationStrategyKind.Float16Staged,
+                    sideHalfA, sideHalfB)
+                {
+                    WarpedSubs = warpedSubs,
+                });
+            }
+            sides = built.MoveToImmutable();
+        }
+
         return new RegisteredSession(
             session, master, subsList, canvasW, canvasH, statsRect,
             reference.Frame, survivors.Length, matched.Count, registerLoop.SkippedTooFewStars + registerLoop.SkippedNoQuadFit,
@@ -797,9 +927,10 @@ public static class SessionRegistrar
             halfA, halfB)
         {
             WarpedSubs = warpedSubs,
+            FlipSides = sides,
         };
 
-        async Task<Image> IntegrateSubsetAsync(ImmutableArray<int> pick, string scratchName)
+        async Task<Image> IntegrateSubsetAsync(ImmutableArray<int> pick, string scratchName, PixelRect? subsetStatsRect = null)
         {
             var scratch = Path.Combine(sessionScratch, scratchName);
             var job = new IntegrationJob(
@@ -810,7 +941,10 @@ public static class SessionRegistrar
                     DrizzleSkyReference = skyReference,
                 },
                 StagingDir: scratch,
-                StatsRect: statsRect,
+                // A pier-side subset covers less canvas than the session but covers it MORE FULLY, so
+                // it gets its own all-frames intersection; passing the session's would take statistics
+                // over canvas this subset never reached.
+                StatsRect: subsetStatsRect ?? statsRect,
                 // Footprints are indexed in registration order, the same order subsList is built
                 // in, so the subset has to be taken in lockstep or every frame's coverage is
                 // attributed to the wrong frame.

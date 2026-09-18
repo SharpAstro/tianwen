@@ -562,6 +562,50 @@ public static class DatasetBuildRunner
                 timings.Record(PsfStage, psfStart, items: 1,
                     pixels: (long)reg.CanvasWidth * reg.CanvasHeight * reg.Master.ChannelCount);
 
+                // A session that crossed the meridian also produced one master per field orientation
+                // (SessionRegistrar.FlipSides). Each is written, tiled and measured exactly like the
+                // session it came from, under an id carrying the side. They add no timing row on
+                // purpose: one measure and one register pass served all three, so their cost is
+                // already inside this session's stages and a separate row would double-count it.
+                //
+                // Best-effort per side: a side is an EXTRA view of a night whose combined master,
+                // tiles and PSF record are already written, so a failure here must not mark the
+                // session failed and must not cost it what it already earned.
+                foreach (var side in reg.FlipSides)
+                {
+                    try
+                    {
+                        if (options.RetainSessionMasters && RetainedMasterStore.Write(
+                            outDir, side.Session.Id, side.Master,
+                            frameCount: side.Subs.Length, strategy: side.MasterStrategy, logger: logger))
+                        {
+                            mastersRetained++;
+                        }
+                        if (!psfOnly)
+                        {
+                            var sideExport = await DatasetTileExporter.ExportAsync(
+                                side, outDir, options.TileSize, options.CellsPerSession, options.SubsPerCell,
+                                logger, cancellationToken);
+                            totalTiles += sideExport.Rows.Length;
+                        }
+                        var sidePsf = await DatasetPsfNoiseReport.MeasureSessionAsync(
+                            side, logger: logger, fallbackSite: options.FallbackSite, cancellationToken: cancellationToken);
+                        if (calibrator?.Provenance is { } sideProvenance)
+                        {
+                            sidePsf = sidePsf with { Calibration = sideProvenance };
+                        }
+                        await DatasetPsfStore.AppendAsync(psfStorePath, sidePsf, cancellationToken);
+                        psfBySession[side.Session.Id] = sidePsf;
+                        sessionIds.Add(side.Session.Id);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        logger?.LogWarning(ex,
+                            "  [{Session}] the combined master stands; this flip side could not be written",
+                            side.Session.Id);
+                    }
+                }
+
                 // Recorded only for a session that got all the way here, so the store holds costs
                 // that are comparable to each other. A session that failed mid-pipeline has a
                 // meaningless total and would drag the roll-up toward whatever stage it died in.
