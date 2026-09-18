@@ -763,11 +763,11 @@ namespace TianWen.UI.Gui
             if (!sessionRunning)
             {
                 var prev = FormRowLayout.StepMark("◀", BaseFontSize * 0.9f, StatusText)
-                    .WFixed(BaseStatusBarHeight).HStar().Bg(arrowBg)
+                    .WFixed(BaseStatusBarHeight).HStar().Bg(arrowBg).BgHover(TianWen.UI.Abstractions.GuiTheme.Hover(arrowBg))
                     .Clickable(new HitResult.ButtonHit("DatePrev"),
                         _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, -1, _skyMapTab.State); });
                 var next = FormRowLayout.StepMark("▶", BaseFontSize * 0.9f, StatusText)
-                    .WFixed(BaseStatusBarHeight).HStar().Bg(arrowBg)
+                    .WFixed(BaseStatusBarHeight).HStar().Bg(arrowBg).BgHover(TianWen.UI.Abstractions.GuiTheme.Hover(arrowBg))
                     .Clickable(new HitResult.ButtonHit("DateNext"),
                         _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, +1, _skyMapTab.State); });
                 dateGroup = Layout.Builder.HStack(prev, dateLabel, next).WAuto().HStar().WithGap(gapDu);
@@ -812,8 +812,9 @@ namespace TianWen.UI.Gui
                     // Only the enabled state registers a click region (mirrors the prior behaviour).
                     if (ca.Enabled)
                     {
-                        caButton = caButton.Clickable(new HitResult.ButtonHit("ConnectAll"),
-                            _ => { PostSignal(new ConnectAllDevicesSignal()); });
+                        caButton = caButton.BgHover(TianWen.UI.Abstractions.GuiTheme.Hover(caBg))
+                            .Clickable(new HitResult.ButtonHit("ConnectAll"),
+                                _ => { PostSignal(new ConnectAllDevicesSignal()); });
                     }
                     connectAll = Layout.Builder.HStack(caButton, Layout.Builder.Spacer().WFixed(gapDu * 2f)).WAuto().HStar();
                 }

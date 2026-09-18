@@ -92,14 +92,14 @@ namespace TianWen.UI.Abstractions
 
                 Layout.Node Btn(string label, string action, RGBAColor32 bg, Action<InputModifier> onClick) =>
                     Layout.Builder.Text(label, BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
-                        .Bg(bg).Clickable(new HitResult.ButtonHit(action), onClick);
+                        .Bg(bg).BgHover(GuiTheme.Hover(bg)).Clickable(new HitResult.ButtonHit(action), onClick);
 
                 // The stepper's dec/inc mark, an Icon rather than a "-"/"+" run in Btn's text (CLAUDE.md's
                 // rule that a mark is an Icon, never a symbol character in a Text run) -- Btn stays
                 // text-based because it also carries an arbitrary VALUE label for the cycle/toggle case.
                 Layout.Node IconBtn(Layout.IconKind icon, string action, RGBAColor32 bg, Action<InputModifier> onClick) =>
                     Layout.Builder.Icon(icon, BaseFontSize * 0.85f * Layout.Content.Icon.TextSizeRatio, BodyText)
-                        .Bg(bg).Clickable(new HitResult.ButtonHit(action), onClick);
+                        .Bg(bg).BgHover(GuiTheme.Hover(bg)).Clickable(new HitResult.ButtonHit(action), onClick);
 
                 Layout.Node control;
                 switch (desc.Kind)
@@ -219,7 +219,7 @@ namespace TianWen.UI.Abstractions
             {
                 Layout.Node ActionBtn(string label, RGBAColor32 bg, RGBAColor32 textColor, string action, Action<InputModifier> onClick) =>
                     Layout.Builder.Text(label, BaseFontSize * 0.85f, textColor, TextAlign.Center, TextAlign.Center)
-                        .WFixed(60f).HStar().Bg(bg).Clickable(new HitResult.ButtonHit(action), onClick);
+                        .WFixed(60f).HStar().Bg(bg).BgHover(GuiTheme.Hover(bg)).Clickable(new HitResult.ButtonHit(action), onClick);
 
                 rows.Add(Layout.Builder.HStack(
                         Layout.Builder.Spacer().Stretch(),

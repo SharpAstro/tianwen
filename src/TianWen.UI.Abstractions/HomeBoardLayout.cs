@@ -457,7 +457,7 @@ namespace TianWen.UI.Abstractions
                 .WFixed(width)
                 .HFixed(ControlHeight)
                 .Radius(4f)
-                .Bg(style.ViewedCardBg)
+                .Bg(style.ViewedCardBg).BgHover(GuiTheme.Hover(style.ViewedCardBg))
                 // Named by the state it currently SHOWS, not the one a click reaches: that is what an
                 // inspector snapshot and a test both want to assert, and it matches the label.
                 .Clickable(new HitResult.ButtonHit($"HomeTheme:{theme}"), onCycleTheme);
@@ -540,8 +540,11 @@ namespace TianWen.UI.Abstractions
                 .Clickable(new HitResult.ButtonHit($"HomeView:{option}"), onSelectView(option));
 
             // Only the selected segment is filled; an unselected one is bare so the row reads as one control
-            // with a current value rather than three separate buttons.
-            return isSelected ? node.Bg(style.ViewedCardBg) : node;
+            // with a current value rather than three separate buttons. It is the UNSELECTED ones that light
+            // under the pointer, over the header they sit on: a press on the current view changes nothing.
+            return isSelected
+                ? node.Bg(style.ViewedCardBg)
+                : node.BgHover(GuiTheme.Hover(style.HeaderBg, style.BodyText));
         }
 
         /// <summary>
@@ -891,12 +894,15 @@ namespace TianWen.UI.Abstractions
             }
 
             var gaps = RowGap * Math.Max(0, rows.Count - 1);
+            var cardFill = card.IsViewed ? style.ViewedCardBg : style.CardBg;
+            var selectHandler = onSelect?.Invoke(card);
             var node = Layout.Builder.VStack([.. rows])
                 .WithGap(RowGap)
                 .Pad(CardPadding)
-                .Bg(card.IsViewed ? style.ViewedCardBg : style.CardBg)
+                .Bg(cardFill)
                 .Radius(CardRadius)
-                .Clickable(new HitResult.ButtonHit($"HomeRig:{card.Title}"), onSelect?.Invoke(card));
+                .Clickable(new HitResult.ButtonHit($"HomeRig:{card.Title}"), selectHandler);
+            if (selectHandler is not null) node = node.BgHover(GuiTheme.Hover(cardFill));
 
             return (node, Math.Max(CardHeight, contentHeight + gaps + CardPadding * 2f));
         }

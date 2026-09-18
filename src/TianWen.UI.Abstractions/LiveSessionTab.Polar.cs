@@ -135,13 +135,18 @@ namespace TianWen.UI.Abstractions
                     ? ("Cancel", AbortBg, AbortText)
                     : ("Cancel", GuiTheme.NeutralButtonBg, DimText);
 
-            var buttonRow = Layout.Builder.HStack(
-                    Layout.Builder.Text(cancelLabel, BaseFontSize * 0.9f, cancelFg, TextAlign.Center, TextAlign.Center)
-                        .WStar().HStar().Bg(cancelBg)
-                        .Clickable(new HitResult.ButtonHit("PolarCancel"), _ => { if (canCancel) PostSignal(new CancelPolarAlignmentSignal()); }),
-                    Layout.Builder.Text("Done", BaseFontSize * 0.9f, canDone ? BrightText : DimText, TextAlign.Center, TextAlign.Center)
-                        .WStar().HStar().Bg(canDone ? GuiTheme.GoButtonBg : GuiTheme.NeutralButtonBg)
-                        .Clickable(new HitResult.ButtonHit("PolarDone"), _ => { if (canDone) PostSignal(new DonePolarAlignmentSignal()); }))
+            var cancelBtn = Layout.Builder.Text(cancelLabel, BaseFontSize * 0.9f, cancelFg, TextAlign.Center, TextAlign.Center)
+                .WStar().HStar().Bg(cancelBg)
+                .Clickable(new HitResult.ButtonHit("PolarCancel"), _ => { if (canCancel) PostSignal(new CancelPolarAlignmentSignal()); });
+            if (canCancel) cancelBtn = cancelBtn.BgHover(GuiTheme.Hover(cancelBg));
+
+            var doneFill = canDone ? GuiTheme.GoButtonBg : GuiTheme.NeutralButtonBg;
+            var doneBtn = Layout.Builder.Text("Done", BaseFontSize * 0.9f, canDone ? BrightText : DimText, TextAlign.Center, TextAlign.Center)
+                .WStar().HStar().Bg(doneFill)
+                .Clickable(new HitResult.ButtonHit("PolarDone"), _ => { if (canDone) PostSignal(new DonePolarAlignmentSignal()); });
+            if (canDone) doneBtn = doneBtn.BgHover(GuiTheme.Hover(doneFill));
+
+            var buttonRow = Layout.Builder.HStack(cancelBtn, doneBtn)
                 .WithGap(BasePadding);
 
             var tree = Layout.Builder.Dock(content, Layout.Builder.Bottom(buttonRow, BaseRowHeight * 1.5f + BasePadding)).Pad(BasePadding);
@@ -185,7 +190,7 @@ namespace TianWen.UI.Abstractions
                 Layout.Builder.HStack(
                         Layout.Builder.Text(label, BaseFontSize * 0.78f, DimText).WStar(0.42f).HStar(),
                         Layout.Builder.Text(valueText, BaseFontSize * 0.78f, BodyText, TextAlign.Center, TextAlign.Center)
-                            .WStar(0.58f).HStar().Bg(bg)
+                            .WStar(0.58f).HStar().Bg(bg).BgHover(GuiTheme.Hover(bg))
                             .Clickable(new HitResult.ButtonHit(action), _ => { onClick(); }))
                     .RowH(BaseRowHeight);
 
@@ -239,9 +244,25 @@ namespace TianWen.UI.Abstractions
                     state.NeedsRedraw = true;
                 }));
 
+            var startFill = canStart ? GuiTheme.GoButtonBg : GuiTheme.NeutralButtonBg;
+            var startBtn = Layout.Builder.Text("Start", BaseFontSize, canStart ? BrightText : DimText, TextAlign.Center, TextAlign.Center)
+                .RowH(BaseRowHeight * 1.6f).Bg(startFill)
+                .Clickable(new HitResult.ButtonHit("PolarSetupStart"), _ =>
+                {
+                    if (!canStart) return;
+                    var miniIdx = PreviewView is not null ? _previewState.SelectedCameraIndex : -1;
+                    var otaIdx = miniIdx >= 0 ? miniIdx : 0;
+                    PostSignal(new StartPolarAlignmentSignal(
+                        OtaIndex: otaIdx,
+                        DeltaRaDeg: state.PolarSetupConfig.RotationDeg,
+                        UseGuider: state.PolarAlignUseGuider,
+                        Configuration: state.PolarSetupConfig));
+                });
+            if (canStart) startBtn = startBtn.BgHover(GuiTheme.Hover(startFill));
+
             var buttons = Layout.Builder.VStack(
                 Layout.Builder.Text("Cancel", BaseFontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center)
-                    .RowH(BaseRowHeight * 1.2f).Bg(GuiTheme.NeutralButtonBg)
+                    .RowH(BaseRowHeight * 1.2f).Bg(GuiTheme.NeutralButtonBg).BgHover(GuiTheme.Hover(GuiTheme.NeutralButtonBg))
                     .Clickable(new HitResult.ButtonHit("PolarSetupBack"), _ =>
                     {
                         state.Mode = LiveSessionMode.Preview;
@@ -249,19 +270,7 @@ namespace TianWen.UI.Abstractions
                         state.NeedsRedraw = true;
                     }),
                 Layout.Builder.Spacer().RowH(BasePadding),
-                Layout.Builder.Text("Start", BaseFontSize, canStart ? BrightText : DimText, TextAlign.Center, TextAlign.Center)
-                    .RowH(BaseRowHeight * 1.6f).Bg(canStart ? GuiTheme.GoButtonBg : GuiTheme.NeutralButtonBg)
-                    .Clickable(new HitResult.ButtonHit("PolarSetupStart"), _ =>
-                    {
-                        if (!canStart) return;
-                        var miniIdx = PreviewView is not null ? _previewState.SelectedCameraIndex : -1;
-                        var otaIdx = miniIdx >= 0 ? miniIdx : 0;
-                        PostSignal(new StartPolarAlignmentSignal(
-                            OtaIndex: otaIdx,
-                            DeltaRaDeg: state.PolarSetupConfig.RotationDeg,
-                            UseGuider: state.PolarAlignUseGuider,
-                            Configuration: state.PolarSetupConfig));
-                    }));
+                startBtn);
 
             var bottomH = BaseRowHeight * 1.2f + BasePadding + BaseRowHeight * 1.6f;
             var tree = Layout.Builder.Dock(content, Layout.Builder.Bottom(buttons, bottomH)).Pad(BasePadding);
@@ -279,20 +288,29 @@ namespace TianWen.UI.Abstractions
             var activeSrcBg = GuiTheme.PrimaryButtonBg;
             var inactiveSrcBg = GuiTheme.NeutralButtonBg;
             var srcFg = canSwitchSource ? BodyText : DimText;
+            var mainFill = state.PolarAlignUseGuider ? inactiveSrcBg : activeSrcBg;
+            var mainBtn = Layout.Builder.Text("Main", BaseFontSize * 0.85f, srcFg, TextAlign.Center, TextAlign.Center)
+                .WStar(0.35f).HStar().Bg(mainFill)
+                .Clickable(new HitResult.ButtonHit("PolarSrcMain"), _ =>
+                {
+                    if (canSwitchSource && state.PolarAlignUseGuider) { state.PolarAlignUseGuider = false; state.NeedsRedraw = true; }
+                });
+            // Lit only where a press switches: the source already in use does nothing when pressed.
+            if (canSwitchSource && state.PolarAlignUseGuider) mainBtn = mainBtn.BgHover(GuiTheme.Hover(mainFill));
+
+            var guiderFill = state.PolarAlignUseGuider ? activeSrcBg : inactiveSrcBg;
+            var guiderBtn = Layout.Builder.Text("Guider", BaseFontSize * 0.85f, srcFg, TextAlign.Center, TextAlign.Center)
+                .WStar(0.35f).HStar().Bg(guiderFill)
+                .Clickable(new HitResult.ButtonHit("PolarSrcGuider"), _ =>
+                {
+                    if (canSwitchSource && !state.PolarAlignUseGuider) { state.PolarAlignUseGuider = true; state.NeedsRedraw = true; }
+                });
+            if (canSwitchSource && !state.PolarAlignUseGuider) guiderBtn = guiderBtn.BgHover(GuiTheme.Hover(guiderFill));
+
             return Layout.Builder.HStack(
                     Layout.Builder.Text("Source", BaseFontSize * 0.8f, DimText).WStar(0.30f).HStar(),
-                    Layout.Builder.Text("Main", BaseFontSize * 0.85f, srcFg, TextAlign.Center, TextAlign.Center)
-                        .WStar(0.35f).HStar().Bg(state.PolarAlignUseGuider ? inactiveSrcBg : activeSrcBg)
-                        .Clickable(new HitResult.ButtonHit("PolarSrcMain"), _ =>
-                        {
-                            if (canSwitchSource && state.PolarAlignUseGuider) { state.PolarAlignUseGuider = false; state.NeedsRedraw = true; }
-                        }),
-                    Layout.Builder.Text("Guider", BaseFontSize * 0.85f, srcFg, TextAlign.Center, TextAlign.Center)
-                        .WStar(0.35f).HStar().Bg(state.PolarAlignUseGuider ? activeSrcBg : inactiveSrcBg)
-                        .Clickable(new HitResult.ButtonHit("PolarSrcGuider"), _ =>
-                        {
-                            if (canSwitchSource && !state.PolarAlignUseGuider) { state.PolarAlignUseGuider = true; state.NeedsRedraw = true; }
-                        }))
+                    mainBtn,
+                    guiderBtn)
                 .WithGap(2f).RowH(BaseRowHeight);
         }
 

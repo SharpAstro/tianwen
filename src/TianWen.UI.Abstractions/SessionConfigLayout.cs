@@ -165,19 +165,23 @@ namespace TianWen.UI.Abstractions
                 {
                     var valueStr = field.FormatValue(config);
                     var isOn = valueStr == "ON";
-                    return Layout.Builder.Text(valueStr, style.FontSize, running ? style.DimText : style.BodyText, TextAlign.Center, TextAlign.Center)
+                    var toggleFill = running ? style.DisabledBg : (isOn ? style.ToggleOnBg : style.ToggleOffBg);
+                    var toggleNode = Layout.Builder.Text(valueStr, style.FontSize, running ? style.DimText : style.BodyText, TextAlign.Center, TextAlign.Center)
                         .WFixed(style.ToggleButtonWidth).HStar()
-                        .Bg(running ? style.DisabledBg : (isOn ? style.ToggleOnBg : style.ToggleOffBg))
+                        .Bg(toggleFill)
                         .Clickable(new HitResult.ButtonHit($"Toggle:{field.Label}"), running ? null : onIncrement?.Invoke(field));
+                    return running ? toggleNode : toggleNode.BgHover(GuiTheme.Hover(toggleFill));
                 }
 
                 case ConfigFieldKind.EnumCycle:
                 {
                     var valueStr = field.FormatValue(config);
-                    return Layout.Builder.Text($"{valueStr} \u25B6", style.FontSize * 0.9f, running ? style.DimText : style.BodyText, TextAlign.Center, TextAlign.Center)
+                    var cycleFill = running ? style.DisabledBg : style.CycleBg;
+                    var cycleNode = Layout.Builder.Text($"{valueStr} \u25B6", style.FontSize * 0.9f, running ? style.DimText : style.BodyText, TextAlign.Center, TextAlign.Center)
                         .WFixed(style.CycleButtonWidth).HStar()
-                        .Bg(running ? style.DisabledBg : style.CycleBg)
+                        .Bg(cycleFill)
                         .Clickable(new HitResult.ButtonHit($"Cycle:{field.Label}"), running ? null : onIncrement?.Invoke(field));
+                    return running ? cycleNode : cycleNode.BgHover(GuiTheme.Hover(cycleFill));
                 }
 
                 default:

@@ -69,7 +69,7 @@ namespace TianWen.UI.Abstractions
                         Layout.Builder.Icon(Layout.IconKind.CaretDown, caretSize, AbortText)
                             .WFixed(caretSize).HFixed(caretSize))
                     .WithGap(caretSize * 0.5f).PadX(caretSize * 0.75f).CrossCenter()
-                    .Bg(modePillColor)
+                    .Bg(modePillColor).BgHover(GuiTheme.Hover(modePillColor))
                     .Clickable(new HitResult.ButtonHit("ModePill"), _ =>
                     {
                         if (dropdown.IsOpen)
@@ -245,7 +245,7 @@ namespace TianWen.UI.Abstractions
             if (state.IsRunning)
             {
                 children.Add(Layout.Builder.Text("ABORT", BaseFontSize, AbortText, TextAlign.Center, TextAlign.Center)
-                    .WFixed(80f).HStar().Bg(AbortBg)
+                    .WFixed(80f).HStar().Bg(AbortBg).BgHover(GuiTheme.Hover(AbortBg))
                     .Clickable(new HitResult.ButtonHit("AbortSession"),
                         _ => { state.ShowAbortConfirm = true; state.NeedsRedraw = true; }));
             }
@@ -336,10 +336,10 @@ namespace TianWen.UI.Abstractions
             var btnY = cardY + cardH - btnH - pad;
             var btnRow = Layout.Builder.HStack(
                     Layout.Builder.Text(prompt.CancelLabel, fontSize, BodyText, TextAlign.Center, TextAlign.Center)
-                        .WStar().HStar().Bg(GuiTheme.NeutralButtonBg)
+                        .WStar().HStar().Bg(GuiTheme.NeutralButtonBg).BgHover(GuiTheme.Hover(GuiTheme.NeutralButtonBg))
                         .Clickable(new HitResult.ButtonHit("SessionPromptCancel"), _ => PostSignal(new RespondSessionPromptSignal(false))),
                     Layout.Builder.Text(prompt.ContinueLabel, fontSize, BrightText, TextAlign.Center, TextAlign.Center)
-                        .WStar().HStar().Bg(continueBg)
+                        .WStar().HStar().Bg(continueBg).BgHover(GuiTheme.Hover(continueBg))
                         .Clickable(new HitResult.ButtonHit("SessionPromptContinue"), _ => PostSignal(new RespondSessionPromptSignal(true))))
                 .WithGap(pad);
             RenderLayout(btnRow, new RectF32(innerX, btnY, innerW, btnH), scale: DesignScale.One);
