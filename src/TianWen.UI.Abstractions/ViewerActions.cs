@@ -915,7 +915,15 @@ public static class ViewerActions
     /// the edge-noise walk did (an estimate).</param>
     /// <param name="Declined">True when at least one edge refused: its noise was still falling at the
     /// bound, so that edge was left alone. Only meaningful for the walk.</param>
-    public readonly record struct CropScan(PixelRect Rect, bool FromCoverage, bool Declined);
+    /// <param name="Trims">The walk's four verdicts, or null where it did not run (the coverage plane
+    /// answered, or the union was empty). A caller that wants to act on a REFUSAL needs to know WHICH
+    /// edge refused, which the aggregate <paramref name="Declined"/> cannot say: keeping a refused
+    /// edge is right for a viewer, and wrong where the crop feeds a background model.</param>
+    public readonly record struct CropScan(
+        PixelRect Rect,
+        bool FromCoverage,
+        bool Declined,
+        CoverageEdgeTrims? Trims = null);
 
     /// <summary>
     /// Finds the area of a stacked master worth showing. Runs off the render thread: reading a coverage
@@ -970,6 +978,6 @@ public static class ViewerActions
         logger?.LogDebug(
             "Auto-crop edge walk: left {L} top {T} right {R} bottom {B} (declined: {Declined})",
             trims.Left.Depth, trims.Top.Depth, trims.Right.Depth, trims.Bottom.Depth, trims.AnyDeclined);
-        return new CropScan(trims.Apply(union), FromCoverage: false, trims.AnyDeclined);
+        return new CropScan(trims.Apply(union), FromCoverage: false, trims.AnyDeclined, trims);
     }
 }

@@ -387,7 +387,10 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             // Full build: scan -> sessions + calibration groups -> pinned split -> per session
             // (resolve calibrator -> register -> export tiles) -> parity gate -> PSF/noise report.
             var progress = new Progress<string>(s => consoleHost.WriteScrollable(s));
-            var result = await DatasetBuildRunner.RunAsync(options, logger, progress, ct);
+            // The solver the rest of the CLI uses, so a retained master carries a WCS and every
+            // consumer downstream can colour-calibrate and identify what is in it without solving the
+            // file again. Null when no solver is configured, which simply retains masters as before.
+            var result = await DatasetBuildRunner.RunAsync(options, logger, progress, plateSolverFactory, ct);
 
             consoleHost.WriteScrollable(
                 $"[dataset] {result.Registered}/{result.Sessions} sessions" +

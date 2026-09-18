@@ -8,6 +8,8 @@ using System.Collections.Frozen;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
@@ -103,6 +105,7 @@ public static class DatasetBuildRunner
         DatasetBuildOptions options,
         ILogger? logger = null,
         IProgress<string>? progress = null,
+        IPlateSolver? plateSolver = null,
         CancellationToken cancellationToken = default)
     {
         if (options.RemeasureSubs && options.ForcePsfRemeasure)
@@ -475,7 +478,10 @@ public static class DatasetBuildRunner
                         // finding nothing and taking the expensive path, which reads as a slow run.
                         if (RetainedMasterStore.Write(
                             outDir, session.Id, reg.Master,
-                            frameCount: reg.Subs.Length, strategy: reg.MasterStrategy, logger: logger))
+                            frameCount: reg.Subs.Length, strategy: reg.MasterStrategy, logger: logger,
+                            wcs: await SolveRetainedMasterAsync(plateSolver, reg, session.Id, logger, cancellationToken),
+                            rejectionMap: reg.RejectionMap,
+                            rejectionMapIsCoverage: reg.RejectionMapIsCoverage))
                         {
                             mastersRetained++;
                             timings.Record(RetainStage, retainStart, items: 1,
@@ -577,7 +583,10 @@ public static class DatasetBuildRunner
                     {
                         if (options.RetainSessionMasters && RetainedMasterStore.Write(
                             outDir, side.Session.Id, side.Master,
-                            frameCount: side.Subs.Length, strategy: side.MasterStrategy, logger: logger))
+                            frameCount: side.Subs.Length, strategy: side.MasterStrategy, logger: logger,
+                            wcs: await SolveRetainedMasterAsync(plateSolver, side, side.Session.Id, logger, cancellationToken),
+                            rejectionMap: side.RejectionMap,
+                            rejectionMapIsCoverage: side.RejectionMapIsCoverage))
                         {
                             mastersRetained++;
                         }
@@ -786,6 +795,73 @@ public static class DatasetBuildRunner
 
     private static int CalCount(IReadOnlyDictionary<FrameType, List<CalibrationResolver.CalGroup>> groups, FrameType type) =>
         groups.TryGetValue(type, out var list) ? list.Count : 0;
+
+    /// <summary>
+    /// Plate-solves a session master so the retained FITS carries a WCS, or returns null when there is
+    /// no solver, no hint, or no solution.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why the bake owes this at all.</b> <c>tianwen stack</c> solves the master it writes;
+    /// the bake did not, so every downstream consumer of a session master had a file with no sky on it.
+    /// The cost is not cosmetic: <c>MasterPreviewRenderer</c> runs SPCC only when a WCS is present, so
+    /// without one a preview falls back to sky-background white balance, which neutralises the
+    /// BACKGROUND and leaves the signal on the raw OSC balance -- Rho Ophiuchi rendered uniformly
+    /// green, Antares included. Anything else wanting to identify what is in a master (a catalogue
+    /// overlay, a cross-night match, a gradient report's Moon geometry) had to solve it again first.</para>
+    /// <para><b>The hint comes from the reference frame's own target, and a missing one means no
+    /// solve.</b> A blind solve over ~90 sessions is minutes of CPU each; the capture software wrote
+    /// where the mount was pointing and that is within a field. Failing to solve is ordinary and never
+    /// fails the session: the master is the job, the WCS is a bonus, and this runs inside the retain
+    /// block whose whole contract is best-effort.</para>
+    /// </remarks>
+    private static async Task<WCS?> SolveRetainedMasterAsync(
+        IPlateSolver? solver,
+        SessionRegistrar.RegisteredSession reg,
+        string sessionId,
+        ILogger? logger,
+        CancellationToken cancellationToken)
+    {
+        if (solver is null)
+        {
+            return null;
+        }
+
+        var meta = reg.Reference.Meta;
+        if (double.IsNaN(meta.TargetRA) || double.IsNaN(meta.TargetDec))
+        {
+            logger?.LogDebug("  [{Session}] no target coordinates on the reference frame; not solving the master", sessionId);
+            return null;
+        }
+
+        try
+        {
+            var hint = new WCS(meta.TargetRA, meta.TargetDec);
+            // A DECLARED scale beats the one derived from FOCALLEN, which is only a hint, and the
+            // declared value already includes binning while the derived one is per unbinned photosite:
+            // handing the solver the wrong convention is a factor of BinX out on the search scale.
+            var scale = !float.IsNaN(meta.DeclaredPixelScale) && meta.DeclaredPixelScale > 0
+                ? meta.DeclaredPixelScale
+                : meta.DerivedPixelScale;
+            var dim = scale > 0 && !double.IsNaN(scale)
+                ? new ImageDim((float)scale, reg.CanvasWidth, reg.CanvasHeight)
+                : null as ImageDim?;
+            var result = await solver.SolveImageAsync(
+                reg.Master, imageDim: dim, searchOrigin: hint, cancellationToken: cancellationToken);
+            if (result.Solution is { } wcs)
+            {
+                logger?.LogInformation(
+                    "  [{Session}] master solved: RA={RA:F4}h Dec={Dec:F4} matched={Matched}/{Detected}",
+                    sessionId, wcs.CenterRA, wcs.CenterDec, result.MatchedStars, result.DetectedStars);
+                return wcs;
+            }
+            logger?.LogInformation("  [{Session}] master did not solve; retaining it without a WCS", sessionId);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger?.LogWarning(ex, "  [{Session}] plate solve of the master failed; retaining it without a WCS", sessionId);
+        }
+        return null;
+    }
 
     /// <summary>
     /// Best-effort scratch hygiene, and it is <b>never allowed to throw</b>. This runs in the
