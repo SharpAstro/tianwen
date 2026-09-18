@@ -410,8 +410,7 @@ public class ViewerControllerTests
         cache.GetOrLoadAsync("a.fits", Arg.Any<DebayerAlgorithm>(), Arg.Any<CancellationToken>())
             .Returns(_ => RingDocumentAsync(ct));
         cache.GetOrLoadAsync("b.fits", Arg.Any<DebayerAlgorithm>(), Arg.Any<CancellationToken>())
-            .Returns(_ => AstroImageDocument.AdoptImageAsync(FlatFrame(), DebayerAlgorithm.None,
-                filePath: "b.fits", cancellationToken: ct));
+            .Returns(_ => FlatDocumentAsync("b.fits", ct));
 
         // Crop file A.
         state.RequestedFilePath = "a.fits";
@@ -483,6 +482,12 @@ public class ViewerControllerTests
     private static async Task<AstroImageDocument?> RingDocumentAsync(CancellationToken cancellationToken)
         => await AstroImageDocument.AdoptImageAsync(FrameWithAZeroRing(), DebayerAlgorithm.None,
             filePath: "ring.fits", cancellationToken: cancellationToken).ConfigureAwait(false);
+
+    /// <summary>A frame with no ring, opened as <paramref name="filePath"/>. Typed as the cache answers, like
+    /// <see cref="RingDocumentAsync"/>, so a stub can hand it straight back.</summary>
+    private static async Task<AstroImageDocument?> FlatDocumentAsync(string filePath, CancellationToken cancellationToken)
+        => await AstroImageDocument.AdoptImageAsync(FlatFrame(), DebayerAlgorithm.None,
+            filePath: filePath, cancellationToken: cancellationToken).ConfigureAwait(false);
 
     /// <summary>A 64 x 64 frame with an 8 px border of exact zero: the canvas ring of a stacked
     /// master, in miniature, so the crop actually lands.</summary>
