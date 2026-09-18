@@ -134,7 +134,7 @@ public class WarpInterpolationTests(ITestOutputHelper output)
     public async Task AnIntegerShiftUnderLanczosReturnsThePixelsExactly()
     {
         var (image, plane) = Render();
-        var warped = await image.WarpToReferenceGridAsync(Matrix3x2.CreateTranslation(3f, -2f), Size, Size, WarpInterpolation.Lanczos3);
+        var warped = await image.WarpToReferenceGridAsync(Matrix3x2.CreateTranslation(3f, -2f), Size, Size, WarpInterpolation.Lanczos3, TestContext.Current.CancellationToken);
         var result = PlaneOf(warped);
         var worst = 0f;
         for (var y = 0; y < Size - 2; y++)
@@ -152,7 +152,7 @@ public class WarpInterpolationTests(ITestOutputHelper output)
     public async Task AConstantPlaneStaysConstantUnderLanczosAtAFractionalShift()
     {
         var (image, _) = Render(constant: true);
-        var warped = await image.WarpToReferenceGridAsync(Matrix3x2.CreateTranslation(0.5f, 0.5f), Size, Size, WarpInterpolation.Lanczos3);
+        var warped = await image.WarpToReferenceGridAsync(Matrix3x2.CreateTranslation(0.5f, 0.5f), Size, Size, WarpInterpolation.Lanczos3, TestContext.Current.CancellationToken);
         var result = PlaneOf(warped);
         for (var y = 4; y < Size - 4; y++)
         {
@@ -174,9 +174,9 @@ public class WarpInterpolationTests(ITestOutputHelper output)
     {
         var (image, plane) = Render();
         var shift = Matrix3x2.CreateTranslation(0.5f, 0.5f);
-        var bilinear = PlaneOf(await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Bilinear));
-        var lanczos = PlaneOf(await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Lanczos3));
-        var clamped = PlaneOf(await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Lanczos3Clamped));
+        var bilinear = PlaneOf(await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Bilinear, TestContext.Current.CancellationToken));
+        var lanczos = PlaneOf(await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Lanczos3, TestContext.Current.CancellationToken));
+        var clamped = PlaneOf(await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Lanczos3Clamped, TestContext.Current.CancellationToken));
 
         static double Median(IEnumerable<double> v)
         {
@@ -193,10 +193,10 @@ public class WarpInterpolationTests(ITestOutputHelper output)
         var lanczosAdd = Added(underLanczos, source);
         var clampedAdd = Added(underClamped, source);
 
-        var detectorSource = (await image.FindStarsAsync(0, snrMin: 20f)).Where(s => s.StarFWHM > 0f).Select(s => (double)s.StarFWHM).ToList();
-        var detectorBilinear = (await (await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Bilinear)).FindStarsAsync(0, snrMin: 20f)).Where(s => s.StarFWHM > 0f).Select(s => (double)s.StarFWHM).ToList();
-        var detectorLanczos = (await (await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Lanczos3)).FindStarsAsync(0, snrMin: 20f)).Where(s => s.StarFWHM > 0f).Select(s => (double)s.StarFWHM).ToList();
-        var detectorClamped = (await (await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Lanczos3Clamped)).FindStarsAsync(0, snrMin: 20f)).Where(s => s.StarFWHM > 0f).Select(s => (double)s.StarFWHM).ToList();
+        var detectorSource = (await image.FindStarsAsync(0, snrMin: 20f, cancellationToken: TestContext.Current.CancellationToken)).Where(s => s.StarFWHM > 0f).Select(s => (double)s.StarFWHM).ToList();
+        var detectorBilinear = (await (await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Bilinear, TestContext.Current.CancellationToken)).FindStarsAsync(0, snrMin: 20f, cancellationToken: TestContext.Current.CancellationToken)).Where(s => s.StarFWHM > 0f).Select(s => (double)s.StarFWHM).ToList();
+        var detectorLanczos = (await (await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Lanczos3, TestContext.Current.CancellationToken)).FindStarsAsync(0, snrMin: 20f, cancellationToken: TestContext.Current.CancellationToken)).Where(s => s.StarFWHM > 0f).Select(s => (double)s.StarFWHM).ToList();
+        var detectorClamped = (await (await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Lanczos3Clamped, TestContext.Current.CancellationToken)).FindStarsAsync(0, snrMin: 20f, cancellationToken: TestContext.Current.CancellationToken)).Where(s => s.StarFWHM > 0f).Select(s => (double)s.StarFWHM).ToList();
         output.WriteLine($"moment FWHM: source {source:F3}, bilinear {underBilinear:F3} (+{bilinearAdd:F2} in quadrature), lanczos3 {underLanczos:F3} (+{lanczosAdd:F2}), lanczos3 clamped {underClamped:F3} (+{clampedAdd:F2})");
 
         // The sinc kernel's negative lobe, as the deepest pixel below the background within 6 px of each
@@ -264,9 +264,9 @@ public class WarpInterpolationTests(ITestOutputHelper output)
         var image = new Image([data], BitDepth.Float32, background + peak, background, 0f, Meta);
         var shift = Matrix3x2.CreateTranslation(0.5f, 0.5f);
 
-        var plain = PlaneOf(await image.WarpToReferenceGridAsync(shift, size, size, WarpInterpolation.Lanczos3));
-        var clamped = PlaneOf(await image.WarpToReferenceGridAsync(shift, size, size, WarpInterpolation.Lanczos3Clamped));
-        var bilinear = PlaneOf(await image.WarpToReferenceGridAsync(shift, size, size, WarpInterpolation.Bilinear));
+        var plain = PlaneOf(await image.WarpToReferenceGridAsync(shift, size, size, WarpInterpolation.Lanczos3, TestContext.Current.CancellationToken));
+        var clamped = PlaneOf(await image.WarpToReferenceGridAsync(shift, size, size, WarpInterpolation.Lanczos3Clamped, TestContext.Current.CancellationToken));
+        var bilinear = PlaneOf(await image.WarpToReferenceGridAsync(shift, size, size, WarpInterpolation.Bilinear, TestContext.Current.CancellationToken));
 
         static (float Min, float Max) Extremes(float[,] p)
         {
@@ -311,9 +311,9 @@ public class WarpInterpolationTests(ITestOutputHelper output)
         var (image, _) = Render();
         var shift = Matrix3x2.CreateTranslation(0.5f, 0.5f);
 
-        var unnamed = PlaneOf(await image.WarpToReferenceGridAsync(shift, Size, Size));
-        var lanczos = PlaneOf(await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Lanczos3Clamped));
-        var bilinear = PlaneOf(await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Bilinear));
+        var unnamed = PlaneOf(await image.WarpToReferenceGridAsync(shift, Size, Size, TestContext.Current.CancellationToken));
+        var lanczos = PlaneOf(await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Lanczos3Clamped, TestContext.Current.CancellationToken));
+        var bilinear = PlaneOf(await image.WarpToReferenceGridAsync(shift, Size, Size, WarpInterpolation.Bilinear, TestContext.Current.CancellationToken));
 
         // float.Equals, not ==: a half-pixel shift leaves the first row and column NaN under every
         // kernel, and NaN != NaN would count those 639 pixels as a difference.
