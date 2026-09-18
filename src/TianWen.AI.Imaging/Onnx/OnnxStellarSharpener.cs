@@ -24,7 +24,7 @@ public sealed class OnnxStellarSharpener(
 {
     internal const string Model = "deep_sharp_stellar_AI4.onnx";
 
-    private readonly object _gate = new();
+    private readonly Lock _gate = new(); // serializes lazy InferenceSession creation and Dispose; session build is a one-time cold path, not a hot-path hand-off
     private InferenceSession? _session;
     private bool _disposed;
 

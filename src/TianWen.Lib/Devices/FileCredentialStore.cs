@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text;
+using System.Threading;
 
 namespace TianWen.Lib.Devices;
 
@@ -12,7 +13,7 @@ namespace TianWen.Lib.Devices;
 /// </summary>
 internal sealed class FileCredentialStore(IExternal external) : ICredentialStore
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new(); // serializes Get/Set against the per-key secret file; Set's write-to-temp-then-rename must not interleave with a concurrent read of the same key
 
     public string? Get(string key)
     {

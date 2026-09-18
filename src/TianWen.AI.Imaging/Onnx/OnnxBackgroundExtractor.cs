@@ -60,7 +60,7 @@ public sealed class OnnxBackgroundExtractor(
     private const int ShrinkSize = ModelInputSize - 2 * Padding;  // 240
     private const float NormScale = 0.04f;
 
-    private readonly object _gate = new();
+    private readonly Lock _gate = new(); // serializes lazy InferenceSession creation and Dispose; session build is a one-time cold path, not a hot-path hand-off
     private InferenceSession? _session;
     private bool _disposed;
 

@@ -41,7 +41,7 @@ public sealed class OnnxStarRemover(
     internal const string MonoModel = "darkstar_mono_AI4.onnx";
     internal const string ColorModel = "darkstar_color_AI4.onnx";
 
-    private readonly object _gate = new();
+    private readonly Lock _gate = new(); // serializes lazy mono/color InferenceSession creation and Dispose; session build is a one-time cold path, not a hot-path hand-off
     private InferenceSession? _monoSession;
     private InferenceSession? _colorSession;
     private bool _disposed;
