@@ -115,7 +115,13 @@ def main():
         # reasonably, as the coverage ring still being there. The raw half is centre-cropped to the
         # same box instead: it keeps its full width, ring included, and gives up a sliver top and
         # bottom, which costs a preview nothing.
-        left, right = scaled(read_rgb(enhanced_path)), scaled(half_rgb if half_rgb is not None else raw_rgb)
+        # Record what the two halves ARE, in pixels, because on screen they are both 512 wide and a
+        # reader cannot tell that anything was cropped. The halves share the crop by design -- the raw
+        # half is the same cropped, solved file, unenhanced, so the only difference between them is the
+        # enhancement -- and the numbers are what makes that design legible instead of confusing.
+        enh_rgb = read_rgb(enhanced_path)
+        r['shownW'], r['shownH'] = int(enh_rgb.shape[1]), int(enh_rgb.shape[0])
+        left, right = scaled(enh_rgb), scaled(half_rgb if half_rgb is not None else raw_rgb)
         height = left.height
         if right.height > height:
             top = (right.height - height) // 2

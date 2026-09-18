@@ -32,8 +32,15 @@ EXE = os.environ.get('TIANWEN_EXE') or os.path.normpath(os.path.join(
     'bin', 'Release', 'net10.0', 'tianwen.exe'))
 
 
-def run(name, store, outdir):
+def run(name, store, outdir, rawhalf_only=False):
     """Crop and enhance ONE master, entirely through tianwen verbs.
+
+    `rawhalf_only` stops after the raw half, keeping the enhanced FITS that is already on disk. The
+    raw half is the one output that depends on the RENDERER rather than on the enhancers, so a fix
+    to `image render` invalidates it alone -- redoing the enhance to pick up a render fix would cost
+    an hour of GPU for a picture that takes seconds. It still re-runs the crop and the solve,
+    because the half has to agree with the enhanced half on framing and on colour, and neither the
+    cropped file nor its WCS is kept.
 
     This used to carry its own coverage crop in Python and call `image sharpen`, which between them
     got two things wrong that the product already had right: the crop rule could not see a drizzle
@@ -87,6 +94,12 @@ def run(name, store, outdir):
             im = PILImage.open(rawpng).convert('RGB')
             im.resize((1024, max(1, round(1024 * im.height / im.width))), PILImage.LANCZOS).save(rawpng)
 
+        if rawhalf_only:
+            return {'name': stem, 'ok': True, 'seconds': round(time.time() - started, 1),
+                    'crop': crop_line.replace('[autocrop] ', '').strip(),
+                    'solved': solved, 'solve': solve_line.replace('[solve] ', '').strip(),
+                    'rawhalf_only': True}
+
         proc = subprocess.run([EXE, 'image', 'sharpen', croppath, '-o', sharppath, '--ai-backend', 'rc'],
                               capture_output=True, text=True, timeout=3600)
         if proc.returncode != 0 or not os.path.exists(sharppath):
@@ -109,22 +122,27 @@ def main():
     store, outdir = sys.argv[1], sys.argv[2]
     jobs = int(sys.argv[sys.argv.index('--jobs') + 1]) if '--jobs' in sys.argv else 1
     limit = int(sys.argv[sys.argv.index('--limit') + 1]) if '--limit' in sys.argv else 0
+    rawhalf_only = '--rawhalf-only' in sys.argv
     os.makedirs(os.path.join(outdir, 'enhanced'), exist_ok=True)
     os.makedirs(os.path.join(outdir, 'rawhalf'), exist_ok=True)
     names = sorted(n for n in os.listdir(os.path.join(store, 'session-masters')) if n.lower().endswith('.fits'))
     if '--names' in sys.argv:
         wanted = set(json.load(open(sys.argv[sys.argv.index('--names') + 1], encoding='utf-8')))
         names = [n for n in names if n in wanted]
-    done = {f[:-5] for f in os.listdir(os.path.join(outdir, 'enhanced'))}
-    names = [n for n in names if n[:-5] not in done]
+    # An enhanced master already on disk is skipped -- except in --rawhalf-only, where its presence is
+    # the whole point: that mode redoes the half BESIDE an enhance that is already good.
+    if not rawhalf_only:
+        done = {f[:-5] for f in os.listdir(os.path.join(outdir, 'enhanced'))}
+        names = [n for n in names if n[:-5] not in done]
     if limit:
         names = names[:limit]
 
-    print(f'{len(names)} masters to enhance, {jobs} at a time', flush=True)
+    print(f'{len(names)} masters to {"re-render the raw half of" if rawhalf_only else "enhance"}, '
+          f'{jobs} at a time', flush=True)
     batch_started = time.time()
     results = []
     with ThreadPoolExecutor(max_workers=jobs) as pool:
-        for r in pool.map(lambda n: run(n, store, outdir), names):
+        for r in pool.map(lambda n: run(n, store, outdir, rawhalf_only), names):
             results.append(r)
             state = (f"{r['seconds']:6.1f}s  {'solved' if r.get('solved') else 'NO SOLVE'}  {r['crop']}" if r['ok']
                      else f"FAILED at {r.get('stage', '?')}: {r.get('error', '')[:110]}")

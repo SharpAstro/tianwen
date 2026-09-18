@@ -21,6 +21,17 @@ tianwen image render <fits> -o <png>          # once per half
 `tools/dataset-gallery/batch_enhance.py` runs the first three per master;
 `tools/dataset-gallery/render_pairs.py` runs the fourth and composes the cards.
 
+**`--rawhalf-only` redoes the cheap half.** The raw half is the one output that depends on the
+RENDERER rather than on the enhancers, so a fix to `image render` invalidates it alone: re-running
+the whole enhance to pick up a render fix costs an hour of GPU for a picture that takes seconds. The
+mode still re-runs the crop and the solve, because the half has to agree with the enhanced half on
+framing and on colour, and neither the cropped file nor its WCS is kept.
+
+**One outdir. Two is how a gallery ends up showing a run nobody meant to publish.** Cards built from
+a stale enhance folder look like a broken crop verb: no margin crop, no plate solve, and no way to
+tell by eye. A file with no `CRPIX` did not come from this pipeline -- check that before measuring
+anything else.
+
 **NOTHING IN THE SCRIPTS DOES IMAGING.** They orchestrate verbs and compose PNGs. Every time a step
 was reimplemented in Python here it was wrong in a way that took a human noticing a picture looked
 off to find, which is the slowest possible feedback loop. If a step you need has no verb, ADD THE
@@ -84,7 +95,10 @@ partial and the gallery reads as mixed until the batch catches up.
 
 - **Channel coverage.** A master with a channel at 0 percent finite is a failed integration, not a dim
   one; `IntegratedMaster.Labelled` refuses it now, but an older store can hold one (the eta Car
-  ASI294MC master did, from a hot-pixel mask that flagged 100 percent of blue).
+  ASI294MC master did, from a hot-pixel mask that flagged 100 percent of blue). **A fix does not
+  rewrite files already baked**, so such a master answers `autocrop` with "the scan left nothing",
+  which is correct -- every pixel is absent when a whole channel is NaN -- and the card has to be
+  built from a re-bake of that session instead, pointing `render_pairs` at the store that holds it.
 - **Measure, do not squint.** Background peak-to-peak per channel says whether the flatten worked;
   sigma-from-median at the frame edge says whether the crop did; channel means say whether the colour
   is calibrated. Every wrong conclusion in this pipeline's history came from judging a JPEG by eye.
