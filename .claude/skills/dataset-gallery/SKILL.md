@@ -70,6 +70,16 @@ bottom of every card, which reads as the coverage ring still being there.
 Publish with the Artifact tool from a folder the tool can read (`.artifact-gallery/` at the repo root,
 git-ignored). Re-publishing the same file path keeps the URL.
 
+## Rolling it out while the batch is still running
+
+`tools/dataset-gallery/sync_gallery.py <store> <enhance outdir> <gallery dir>` renders and stages only
+the cards whose enhanced FITS is newer than their staged image, carries `pairH` back into the page
+(the crop changes it), and prints a `PUBLISH_FILES` map to hand straight to the Artifact tool's
+`files`. Safe to run repeatedly against a batch in flight, which is the point: 92 masters is over an
+hour, and a partial publish lets the owner see the treatment early instead of approving it blind at
+the end. Cards not in the map keep the images they already have, so a partial rollout is genuinely
+partial and the gallery reads as mixed until the batch catches up.
+
 ## What to check before believing a card
 
 - **Channel coverage.** A master with a channel at 0 percent finite is a failed integration, not a dim

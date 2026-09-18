@@ -80,9 +80,16 @@ def main():
         if not os.path.exists(enhanced_path):
             print(f'{i}/{len(rows)} no enhanced master for {r["name"][:50]}', flush=True)
             continue
+        # The raw half is rendered by the BATCH, from the cropped-and-solved file, while that file
+        # still exists: keeping 92 of them as FITS would be 9 GB of scratch, and re-rendering from the
+        # store's master here would lose both the crop and the plate solve, so the halves would
+        # disagree on framing and on colour. Fall back to the store master where no such PNG exists.
+        rawhalf = os.path.join(os.path.dirname(os.path.normpath(enhanced_dir)), 'rawhalf', r['name'] + '.png')
+        half_rgb = np.asarray(PILImage.open(rawhalf).convert('RGB')) if os.path.exists(rawhalf) else None
+        # The 1:1 crop stays on the FULL store master: its job is a noise and Bayer-phase judgement at
+        # the patch the first render chose, and those coordinates are in full-canvas space. Enhanced
+        # pixels have had the noise taken out, so they cannot answer that question at all.
         raw_rgb = read_rgb(raw_path)
-        # The 1:1 crop comes from the RAW master at the patch the first render chose, because that is
-        # what a noise or phase-pattern judgement needs: enhanced pixels have had the noise taken out.
         cy, cx = r['cropY'], r['cropX']
         PILImage.fromarray(raw_rgb[cy:cy + CROP, cx:cx + CROP]).save(
             os.path.join(outdir, f'{r["id"]}c.png'), optimize=True)
@@ -108,7 +115,7 @@ def main():
         # reasonably, as the coverage ring still being there. The raw half is centre-cropped to the
         # same box instead: it keeps its full width, ring included, and gives up a sliver top and
         # bottom, which costs a preview nothing.
-        left, right = scaled(read_rgb(enhanced_path)), scaled(raw_rgb)
+        left, right = scaled(read_rgb(enhanced_path)), scaled(half_rgb if half_rgb is not None else raw_rgb)
         height = left.height
         if right.height > height:
             top = (right.height - height) // 2
