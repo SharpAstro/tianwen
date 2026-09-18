@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading;
 using TianWen.Lib.Astrometry.Catalogs;
 
 namespace TianWen.Lib.Devices.Fake;
@@ -718,7 +719,7 @@ internal static class SyntheticStarFieldRenderer
     // so the source side of the memcpy is cache-resident.
     private const int NoiseTileSize = 1024;
     private const int NoiseTileCount = 2;
-    private static readonly object _noiseTilesLock = new();
+    private static readonly Lock _noiseTilesLock = new(); // serializes rebuilding the single-slot static noise-tile cache when (skyLevel, readNoise) changes; concurrent fake cameras can race the check-then-fill, and there is no result to hand off, only a shared slot to protect
     private static float[][]? _noiseTilesCached;
     private static double _noiseTilesSkyLevel = double.NaN;
     private static double _noiseTilesReadNoise = double.NaN;

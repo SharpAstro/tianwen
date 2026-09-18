@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace TianWen.Lib.Imaging.Stacking;
 
@@ -212,7 +213,7 @@ public sealed class StreamingFrameReader : IDisposable
     /// (constructed via <see cref="InMemoryOnly"/>): every stripe read slices
     /// from <see cref="_cachedImageStrong"/> with no file involved.</summary>
     private readonly FileStream? _fs;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new(); // serializes seeks + reads against the single-cursor FileStream across concurrent ReadStripe callers; there is no result to hand off, only a shared cursor to protect
 
     private readonly byte _flags;
     private readonly bool _hasFootprint;

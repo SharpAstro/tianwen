@@ -38,7 +38,7 @@ public sealed class OnnxDenoiser(
     int overlap = 64)
     : IDenoiseEnhancer, IDisposable
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new(); // serializes lazy per-(channels,variant) InferenceSession creation/Dispose against the shared dictionary; session build is a one-time cold path, not a hot-path hand-off
     private readonly Dictionary<(int Channels, DenoiseVariant Variant), InferenceSession> _sessions = [];
     private bool _disposed;
 
