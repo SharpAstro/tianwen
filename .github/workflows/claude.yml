@@ -12,11 +12,20 @@ on:
 
 jobs:
   claude:
+    # The @claude text is the trigger; the author_association test keeps a stranger's mention on
+    # this PUBLIC repo from starting a run at all. The action's own check is the real gate (it
+    # refuses anyone without write access), but it runs AFTER the setup steps below, so without
+    # this every drive-by mention would restore ~200 MiB of cache and, on a miss, spend LFS
+    # bandwidth before being refused. An association is a relationship, not a permission (a MEMBER
+    # can have read access only), which is why it only PREFILTERS. `assigned` needs no test:
+    # assigning an issue already takes triage access, and the association on that event is the
+    # issue AUTHOR's, not the assigner's, so testing it would block assigning Claude to a
+    # stranger's issue.
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association)) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) && (github.event.action == 'assigned' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)))
     # Bounded like every job in this repo (see dotnet.yml). No measured figure yet: sized for a
     # Release build plus a full TianWen.Lib.Tests run (test-unit's healthy ~6m) with room for the
     # conversation around them, so a run over it is stuck rather than busy.
