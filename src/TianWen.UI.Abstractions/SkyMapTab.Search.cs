@@ -393,7 +393,8 @@ namespace TianWen.UI.Abstractions
                 ShowRiseSet: true,
                 TimeZone: plannerState.SiteTimeZone,
                 Sparkline: hasCurve,
-                Picture: ObjectInfoPanel.PictureFor(info.Index, plannerState.ObjectDb));
+                Picture: ObjectInfoPanel.PictureFor(info.Index, plannerState.ObjectDb),
+                ArticleUrl: ObjectInfoPanel.ArticleUrlFor(info.Index, plannerState.ObjectDb));
 
             // Copied into locals because a click lambda cannot close over an `in` parameter.
             var pinName = info.Name;

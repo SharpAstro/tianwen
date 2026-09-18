@@ -106,9 +106,40 @@ public sealed class ObjectPicturePanelTests
             new ObjectInfoPanel.PanelActions(Goto: () => { })));
 
         // The credit is a link to the Commons file page, and it sits under the picture.
-        var credit = tab.GetRegisteredRegions().Where(r => r.Result is HitResult.LinkHit).ShouldHaveSingleItem();
-        credit.Result.ShouldBeOfType<HitResult.LinkHit>().Url.ShouldBe(picture.FilePageUrl);
+        var credit = tab.GetRegisteredRegions()
+            .Where(r => r.Result is HitResult.LinkHit { Url: var url } && url == picture.FilePageUrl)
+            .ShouldHaveSingleItem();
         credit.Y.ShouldBeGreaterThanOrEqualTo(rect.Y + rect.Height - 1f);
+    }
+
+    [Fact]
+    public async Task TheAtlasPanelsTitleLinksToTheVerifiedArticle()
+    {
+        // Raised 2026-09-18: the panel had the article's picture and credit but no way to the article itself.
+        var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
+        db.TryLookupByIndex("M31", out var andromeda).ShouldBeTrue();
+        db.TryGetArticle(andromeda.Index, out var article).ShouldBeTrue();
+
+        var now = new DateTimeOffset(2026, 9, 18, 22, 0, 0, TimeSpan.Zero);
+        var site = SiteContext.Create(45.0, -75.0, now);
+        var info = SkyMapInfoPanelData.FromCatalogObject(andromeda, 45.0, -75.0, now, site, null);
+
+        using var renderer = new RgbaImageRenderer(900, 900);
+        var (tab, planner, clock, content) = Atlas(db, renderer, info, now);
+        tab.Render(planner, content, clock);
+
+        // Two leaves of one link, the name and the word, both on the title row above every other region of
+        // the panel, and the article is the VERIFIED one, never a designation guess.
+        var links = tab.GetRegisteredRegions()
+            .Where(r => r.Result is HitResult.LinkHit { Url: var url } && url == article.Url)
+            .ToList();
+        links.Count.ShouldBe(2);
+        article.Url.ShouldStartWith("https://en.wikipedia.org/wiki/");
+        var goto_ = tab.GetRegisteredRegions().First(r => r.Result is HitResult.ButtonHit { Action: "ObjectInfoGoto" });
+        foreach (var link in links)
+        {
+            link.Y.ShouldBeLessThan(goto_.Y);
+        }
     }
 
     /// <summary>The atlas with M31 selected and its picture opened large by a press on the thumbnail.</summary>

@@ -79,13 +79,22 @@ namespace TianWen.UI.Abstractions
         /// shown under the rows with its credit. Sized from the aspect ratio the table records, so the panel is
         /// its final height before a single byte of the picture has arrived and does not jump when it does.
         /// </param>
+        /// <param name="ArticleUrl">
+        /// The object's verified Wikipedia article (<see cref="ICelestialObjectDB.TryGetArticle"/>), which the
+        /// title row links to, with a "Wikipedia" word at its right end so the link is visible. Null shows a
+        /// plain title: no link rather than a guessed one.
+        /// </param>
         public readonly record struct PanelDisplayOptions(
             bool ShowAltAz = false,
             bool ShowRiseSet = false,
             TimeSpan TimeZone = default,
             string? Footnote = null,
             bool Sparkline = false,
-            ObjectArticleImage? Picture = null);
+            ObjectArticleImage? Picture = null,
+            string? ArticleUrl = null);
+
+        /// <summary>The word at the right end of a linked title row.</summary>
+        public const string ArticleLinkLabel = "Wikipedia";
 
         /// <summary>The key of the picture slot's <see cref="Layout.Content.Fill"/>, which the host draws into.</summary>
         public const string PictureFillKey = "ObjectInfoPicture";
@@ -122,6 +131,17 @@ namespace TianWen.UI.Abstractions
             => index is { } catalogIndex && db is not null
                && db.TryGetArticle(catalogIndex, out var article) && article.Image is { } image
                 ? image
+                : null;
+
+        /// <summary>
+        /// The article URL a selected object's title links to: its verified article's, or null for an object
+        /// with no article or no catalogue to ask. The link is a <see cref="HitResult.LinkHit"/> on the title
+        /// row, which the browser build renders as a real anchor and the desktop opens through the router's
+        /// <c>OpenUrl</c>, the same way the picture's credit line and the planner's name line open.
+        /// </summary>
+        public static string? ArticleUrlFor(CatalogIndex? index, ICelestialObjectDB? db)
+            => index is { } catalogIndex && db is not null && db.TryGetArticle(catalogIndex, out var article)
+                ? article.Url
                 : null;
 
         /// <summary>The picture section's whole design height: margins, the picture and its credit row.</summary>
@@ -301,9 +321,27 @@ namespace TianWen.UI.Abstractions
 
             var rows = new Layout.Node[RowCount(in options)];
             var next = 0;
-            rows[next++] = Layout.Builder
+            var title = Layout.Builder
                 .Text(info.Name, dFont * 1.1f, palette.Text, TextAlign.Near, TextAlign.Near)
                 .RowH(DesignTitleRowHeight);
+            if (options.ArticleUrl is { Length: > 0 } articleUrl)
+            {
+                // The name and the word are two leaves of one link: the name is what a reader expects to be
+                // clickable, the word is what tells them it is. Both carry the same hit, so the web host draws
+                // one anchor each and the desktop opens the same page from either.
+                var link = new HitResult.LinkHit(articleUrl);
+                title = Layout.Builder.HStack(
+                        Layout.Builder
+                            .Text(info.Name, dFont * 1.1f, palette.Text, TextAlign.Near, TextAlign.Near)
+                            .WStar().HStar()
+                            .Clickable(link, cursor: CursorKind.Pointer),
+                        Layout.Builder
+                            .Text(ArticleLinkLabel, dFont * 0.8f, palette.DimText, TextAlign.Far, TextAlign.Center)
+                            .WFixed(64f).HStar()
+                            .Clickable(link, cursor: CursorKind.Pointer))
+                    .RowH(DesignTitleRowHeight);
+            }
+            rows[next++] = title;
             rows[next++] = Layout.Builder.Text(subtitle, dFont * 0.9f, palette.DimText).RowH(dRow);
             rows[next++] = Layout.Builder.Text(raDec, dFont, palette.Text).RowH(dRow);
             rows[next++] = Layout.Builder.Text(magLine, dFont, palette.Text).RowH(dRow);
