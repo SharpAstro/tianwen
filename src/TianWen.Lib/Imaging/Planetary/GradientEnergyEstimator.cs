@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Drawing;
 
 namespace TianWen.Lib.Imaging.Planetary;
@@ -32,51 +31,44 @@ public sealed class GradientEnergyEstimator(bool normalizeBrightness = true) : I
             return 0f;
         }
 
-        var rented = ArrayPool<float>.Shared.Rent(rw * rh);
-        try
+        using var rented = ArrayPoolHelper.Rent<float>(rw * rh);
+        var luma = rented.AsSpan(0, rw * rh);
+        LumaProxy.Fill(frame, region, luma);
+
+        double sumG2 = 0, sumLuma = 0;
+        long n = 0;
+        for (var y = 1; y < rh - 1; y++)
         {
-            var luma = rented.AsSpan(0, rw * rh);
-            LumaProxy.Fill(frame, region, luma);
-
-            double sumG2 = 0, sumLuma = 0;
-            long n = 0;
-            for (var y = 1; y < rh - 1; y++)
+            var row = y * rw;
+            var up = row - rw;
+            var dn = row + rw;
+            for (var x = 1; x < rw - 1; x++)
             {
-                var row = y * rw;
-                var up = row - rw;
-                var dn = row + rw;
-                for (var x = 1; x < rw - 1; x++)
-                {
-                    // Sobel 3x3.
-                    var tl = luma[up + x - 1]; var tc = luma[up + x]; var tr = luma[up + x + 1];
-                    var ml = luma[row + x - 1]; var mr = luma[row + x + 1];
-                    var bl = luma[dn + x - 1]; var bc = luma[dn + x]; var br = luma[dn + x + 1];
+                // Sobel 3x3.
+                var tl = luma[up + x - 1]; var tc = luma[up + x]; var tr = luma[up + x + 1];
+                var ml = luma[row + x - 1]; var mr = luma[row + x + 1];
+                var bl = luma[dn + x - 1]; var bc = luma[dn + x]; var br = luma[dn + x + 1];
 
-                    var gx = (tr + (2f * mr) + br) - (tl + (2f * ml) + bl);
-                    var gy = (bl + (2f * bc) + br) - (tl + (2f * tc) + tr);
-                    sumG2 += ((double)gx * gx) + ((double)gy * gy);
-                    sumLuma += luma[row + x];
-                    n++;
-                }
+                var gx = (tr + (2f * mr) + br) - (tl + (2f * ml) + bl);
+                var gy = (bl + (2f * bc) + br) - (tl + (2f * tc) + tr);
+                sumG2 += ((double)gx * gx) + ((double)gy * gy);
+                sumLuma += luma[row + x];
+                n++;
             }
-
-            if (n == 0)
-            {
-                return 0f;
-            }
-
-            var energy = sumG2 / n;
-            if (normalizeBrightness)
-            {
-                var meanLuma = sumLuma / n;
-                energy /= (meanLuma * meanLuma) + 1e-6;
-            }
-
-            return (float)energy;
         }
-        finally
+
+        if (n == 0)
         {
-            ArrayPool<float>.Shared.Return(rented);
+            return 0f;
         }
+
+        var energy = sumG2 / n;
+        if (normalizeBrightness)
+        {
+            var meanLuma = sumLuma / n;
+            energy /= (meanLuma * meanLuma) + 1e-6;
+        }
+
+        return (float)energy;
     }
 }

@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Buffers;
 using System.Numerics;
 using static TianWen.Lib.Stat.StatisticsHelper;
 
@@ -50,75 +49,66 @@ public sealed record SigmaClipRejector(
         // Not enough REAL samples for a meaningful sigma: reject nothing.
         if (kept < 3) return column.Length;
 
-        var pool = ArrayPool<float>.Shared;
-        var valuesBuf = pool.Rent(column.Length);
-        var madBuf = pool.Rent(column.Length);
-        try
+        using var valuesBuf = ArrayPoolHelper.Rent<float>(column.Length);
+        using var madBuf = ArrayPoolHelper.Rent<float>(column.Length);
+        for (var iter = 0; iter < MaxIterations; iter++)
         {
-            for (var iter = 0; iter < MaxIterations; iter++)
+            // 1. Collect kept values, find median.
+            var keptCount = 0;
+            for (var i = 0; i < column.Length; i++)
             {
-                // 1. Collect kept values, find median.
-                var keptCount = 0;
-                for (var i = 0; i < column.Length; i++)
+                if (keepMask[i] != 0f)
                 {
-                    if (keepMask[i] != 0f)
-                    {
-                        valuesBuf[keptCount++] = column[i];
-                    }
+                    valuesBuf[keptCount++] = column[i];
                 }
-                if (keptCount < 3) break;
-
-                // MedianFast (quickselect) instead of full sort: this rejector
-                // runs per-pixel across the full integrated frame (3008x3008 on
-                // IMX533, up to 9M columns per group), 5 iterations max, with
-                // 2 median calls per iteration. O(n) per call vs O(n log n)
-                // saves a measurable chunk of the integration step.
-                var values = valuesBuf.AsSpan(0, keptCount);
-                var median = MedianFast(values);
-
-                // 2. Compute MAD = median(|v - median|). We can read valuesBuf
-                // in iteration order regardless of MedianFast's permutation --
-                // the absolute-deviation is value-only, position-agnostic.
-                for (var i = 0; i < keptCount; i++)
-                {
-                    madBuf[i] = MathF.Abs(valuesBuf[i] - median);
-                }
-                var mad = MedianFast(madBuf.AsSpan(0, keptCount));
-                if (mad <= 0f)
-                {
-                    // Degenerate: > half the kept values are exactly equal to
-                    // the median. The distribution has no measurable spread
-                    // around the median, so this iteration can't tell signal
-                    // from noise. Stop -- accepting the current keep set is
-                    // the only sensible response.
-                    break;
-                }
-
-                // 3. Reject anything outside median +/- (sigma) * MAD-scaled-sigma.
-                // 1.4826 is the Gaussian-consistent factor: for normally
-                // distributed data, sigma_true = 1.4826 * MAD.
-                var sigmaEst = 1.4826f * mad;
-                var lowBound = median - LowSigma * sigmaEst;
-                var highBound = median + HighSigma * sigmaEst;
-                var changed = false;
-                for (var i = 0; i < column.Length; i++)
-                {
-                    if (keepMask[i] == 0f) continue;
-                    var v = column[i];
-                    if (v < lowBound || v > highBound)
-                    {
-                        keepMask[i] = 0f;
-                        kept--;
-                        changed = true;
-                    }
-                }
-                if (!changed) break;
             }
-        }
-        finally
-        {
-            pool.Return(valuesBuf);
-            pool.Return(madBuf);
+            if (keptCount < 3) break;
+
+            // MedianFast (quickselect) instead of full sort: this rejector
+            // runs per-pixel across the full integrated frame (3008x3008 on
+            // IMX533, up to 9M columns per group), 5 iterations max, with
+            // 2 median calls per iteration. O(n) per call vs O(n log n)
+            // saves a measurable chunk of the integration step.
+            var values = valuesBuf.AsSpan(0, keptCount);
+            var median = MedianFast(values);
+
+            // 2. Compute MAD = median(|v - median|). We can read valuesBuf
+            // in iteration order regardless of MedianFast's permutation --
+            // the absolute-deviation is value-only, position-agnostic.
+            for (var i = 0; i < keptCount; i++)
+            {
+                madBuf[i] = MathF.Abs(valuesBuf[i] - median);
+            }
+            var mad = MedianFast(madBuf.AsSpan(0, keptCount));
+            if (mad <= 0f)
+            {
+                // Degenerate: > half the kept values are exactly equal to
+                // the median. The distribution has no measurable spread
+                // around the median, so this iteration can't tell signal
+                // from noise. Stop -- accepting the current keep set is
+                // the only sensible response.
+                break;
+            }
+
+            // 3. Reject anything outside median +/- (sigma) * MAD-scaled-sigma.
+            // 1.4826 is the Gaussian-consistent factor: for normally
+            // distributed data, sigma_true = 1.4826 * MAD.
+            var sigmaEst = 1.4826f * mad;
+            var lowBound = median - LowSigma * sigmaEst;
+            var highBound = median + HighSigma * sigmaEst;
+            var changed = false;
+            for (var i = 0; i < column.Length; i++)
+            {
+                if (keepMask[i] == 0f) continue;
+                var v = column[i];
+                if (v < lowBound || v > highBound)
+                {
+                    keepMask[i] = 0f;
+                    kept--;
+                    changed = true;
+                }
+            }
+            if (!changed) break;
         }
 
         return kept + absent;

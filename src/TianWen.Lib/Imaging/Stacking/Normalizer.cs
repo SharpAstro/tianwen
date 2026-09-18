@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Drawing;
 using System.Numerics;
 using System.Runtime.InteropServices;
@@ -76,16 +75,9 @@ public static class Normalizer
             // Rent rather than allocate: a 3008^2 channel is 36 MB, and 244 frames x 3
             // channels is ~26 GB of churn the GC would otherwise have to collect. The pool
             // returns oversize buffers, so slice to the valid count.
-            var buf = ArrayPool<float>.Shared.Rent(span.Length);
-            try
-            {
-                var n = CompactFinite(span, buf, out _);
-                medians[ch] = n == 0 ? floors[ch] : MedianFast(buf.AsSpan(0, n));
-            }
-            finally
-            {
-                ArrayPool<float>.Shared.Return(buf);
-            }
+            using var buf = ArrayPoolHelper.Rent<float>(span.Length);
+            var n = CompactFinite(span, buf.AsSpan(), out _);
+            medians[ch] = n == 0 ? floors[ch] : MedianFast(buf.AsSpan(0, n));
         });
 
         return new NormalizationStats(floors, medians);
@@ -125,23 +117,16 @@ public static class Normalizer
             // Rented from the pool to avoid 3-channel x N-frame GC churn on the stacking hot
             // path. A box row is contiguous, so the compaction runs row by row straight into the
             // scratch with flat indexing instead of channel[y, x].
-            var buf = ArrayPool<float>.Shared.Rent(count);
-            try
+            using var buf = ArrayPoolHelper.Rent<float>(count);
+            var n = 0;
+            for (var y = y0; y < y1; y++)
             {
-                var n = 0;
-                for (var y = y0; y < y1; y++)
-                {
-                    var row = flat.Slice(y * width + x0, x1 - x0);
-                    n += CompactFinite(row, buf.AsSpan(n), out _);
-                }
-                // An all-NaN box has no median; the floor stands in, and the scale then falls back
-                // to identity in ComputeScale.
-                medians[ch] = n == 0 ? floors[ch] : MedianFast(buf.AsSpan(0, n));
+                var row = flat.Slice(y * width + x0, x1 - x0);
+                n += CompactFinite(row, buf.AsSpan(n), out _);
             }
-            finally
-            {
-                ArrayPool<float>.Shared.Return(buf);
-            }
+            // An all-NaN box has no median; the floor stands in, and the scale then falls back
+            // to identity in ComputeScale.
+            medians[ch] = n == 0 ? floors[ch] : MedianFast(buf.AsSpan(0, n));
         });
 
         return new NormalizationStats(floors, medians);
@@ -290,38 +275,31 @@ public static class Normalizer
         // ceil(h/2) x ceil(w/2) photosites. Renting the green-sized bound for every colour keeps
         // this a single ArrayPool call regardless of which colour is being gathered.
         var maxSamples = phaseCount * ((height + 1) / 2) * ((width + 1) / 2);
-        var buf = ArrayPool<float>.Shared.Rent(Math.Max(1, maxSamples));
-        try
+        using var buf = ArrayPoolHelper.Rent<float>(Math.Max(1, maxSamples));
+        var n = 0;
+        for (var phase = 0; phase < phaseCount; phase++)
         {
-            var n = 0;
-            for (var phase = 0; phase < phaseCount; phase++)
+            var (rowStart, colStart) = phaseStarts[phase];
+            for (var h = rowStart; h < height; h += step)
             {
-                var (rowStart, colStart) = phaseStarts[phase];
-                for (var h = rowStart; h < height; h += step)
+                var row = flat.Slice(h * width, width);
+                for (var w = colStart; w < width; w += step)
                 {
-                    var row = flat.Slice(h * width, width);
-                    for (var w = colStart; w < width; w += step)
+                    // NaN only, exactly as ComputeStats' CompactFinite has it, so both paths
+                    // rank the same samples. CompactFinite keeps infinities despite its name, and
+                    // a median ranks one like any bright outlier. NormalizerCfaTests pins the
+                    // agreement, infinities included.
+                    var v = row[w];
+                    if (!float.IsNaN(v))
                     {
-                        // NaN only, exactly as ComputeStats' CompactFinite has it, so both paths
-                        // rank the same samples. CompactFinite keeps infinities despite its name, and
-                        // a median ranks one like any bright outlier. NormalizerCfaTests pins the
-                        // agreement, infinities included.
-                        var v = row[w];
-                        if (!float.IsNaN(v))
-                        {
-                            buf[n++] = v;
-                        }
+                        buf[n++] = v;
                     }
                 }
             }
+        }
 
-            var median = n == 0 ? image.Pedestal : MedianFast(buf.AsSpan(0, n));
-            return new NormalizationStats([image.Pedestal], [median]);
-        }
-        finally
-        {
-            ArrayPool<float>.Shared.Return(buf);
-        }
+        var median = n == 0 ? image.Pedestal : MedianFast(buf.AsSpan(0, n));
+        return new NormalizationStats([image.Pedestal], [median]);
     }
 
     /// <summary>

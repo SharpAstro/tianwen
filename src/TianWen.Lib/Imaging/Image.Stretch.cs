@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -197,62 +196,55 @@ public partial class Image
         balances = new double[channels];
         var newData = CreateChannelData(channels, height, width);
 
-        var scratch = ArrayPool<float>.Shared.Rent(pixelCount);
-        try
+        using var scratch = ArrayPoolHelper.Rent<float>(pixelCount);
+        for (var c = 0; c < channels; c++)
         {
-            for (var c = 0; c < channels; c++)
+            var src = GetChannelSpan(c);
+            var dst = MemoryMarshal.CreateSpan(ref newData[c][0, 0], pixelCount);
+
+            // Pass 1: find min (skip NaN).
+            var min = float.PositiveInfinity;
+            for (var i = 0; i < pixelCount; i++)
             {
-                var src = GetChannelSpan(c);
-                var dst = MemoryMarshal.CreateSpan(ref newData[c][0, 0], pixelCount);
+                var v = src[i];
+                if (!float.IsNaN(v) && v < min) min = v;
+            }
+            if (float.IsPositiveInfinity(min)) min = 0f;
+            origMin[c] = min;
 
-                // Pass 1: find min (skip NaN).
-                var min = float.PositiveInfinity;
-                for (var i = 0; i < pixelCount; i++)
+            // Pass 2: collect non-NaN (src - min) into scratch, then median.
+            var count = 0;
+            for (var i = 0; i < pixelCount; i++)
+            {
+                var v = src[i];
+                if (!float.IsNaN(v)) scratch[count++] = v - min;
+            }
+            var med = count > 0 ? MedianFast(scratch.AsSpan(0, count)) : 0f;
+
+            // Derive β. When the channel is all NaN or the shifted median is 0
+            // (flat plane), β is undefined; fall back to 0.5 which makes MTF
+            // the identity in [0, 1], so the stretch becomes a no-op on this
+            // channel (and Unstretch with 1 - β = 0.5 stays identity too).
+            var beta = med > 0f
+                ? MidtonesBalanceFor(med, targetMedian)
+                : 0.5;
+            balances[c] = beta;
+
+            // Pass 3: subtract min + MTF(β, x), NaN-preserving.
+            for (var i = 0; i < pixelCount; i++)
+            {
+                var v = src[i];
+                if (float.IsNaN(v))
                 {
-                    var v = src[i];
-                    if (!float.IsNaN(v) && v < min) min = v;
+                    dst[i] = float.NaN;
                 }
-                if (float.IsPositiveInfinity(min)) min = 0f;
-                origMin[c] = min;
-
-                // Pass 2: collect non-NaN (src - min) into scratch, then median.
-                var count = 0;
-                for (var i = 0; i < pixelCount; i++)
+                else
                 {
-                    var v = src[i];
-                    if (!float.IsNaN(v)) scratch[count++] = v - min;
-                }
-                var med = count > 0 ? MedianFast(scratch.AsSpan(0, count)) : 0f;
-
-                // Derive β. When the channel is all NaN or the shifted median is 0
-                // (flat plane), β is undefined; fall back to 0.5 which makes MTF
-                // the identity in [0, 1], so the stretch becomes a no-op on this
-                // channel (and Unstretch with 1 - β = 0.5 stays identity too).
-                var beta = med > 0f
-                    ? MidtonesBalanceFor(med, targetMedian)
-                    : 0.5;
-                balances[c] = beta;
-
-                // Pass 3: subtract min + MTF(β, x), NaN-preserving.
-                for (var i = 0; i < pixelCount; i++)
-                {
-                    var v = src[i];
-                    if (float.IsNaN(v))
-                    {
-                        dst[i] = float.NaN;
-                    }
-                    else
-                    {
-                        var shifted = v - min;
-                        if (shifted < 0f) shifted = 0f;  // float wobble guard
-                        dst[i] = (float)MidtonesTransferFunction(beta, shifted);
-                    }
+                    var shifted = v - min;
+                    if (shifted < 0f) shifted = 0f;  // float wobble guard
+                    dst[i] = (float)MidtonesTransferFunction(beta, shifted);
                 }
             }
-        }
-        finally
-        {
-            ArrayPool<float>.Shared.Return(scratch);
         }
 
         return new Image(newData, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
@@ -1400,30 +1392,23 @@ public partial class Image
 
         Span<float> lo = stackalloc float[3];
         Span<float> hi = stackalloc float[3];
-        var scratch = ArrayPool<float>.Shared.Rent(pixelCount);
-        try
+        using var scratch = ArrayPoolHelper.Rent<float>(pixelCount);
+        for (var c = 0; c < statChannels; c++)
         {
-            for (var c = 0; c < statChannels; c++)
+            var src = GetChannelSpan(c);
+            // Collect non-NaN samples, then read both percentiles off the (in-place
+            // permuted) buffer -- the second PercentileFast re-partitions the first's
+            // permutation, which is fine since it does not require sorted input.
+            var count = 0;
+            for (var i = 0; i < pixelCount; i++)
             {
-                var src = GetChannelSpan(c);
-                // Collect non-NaN samples, then read both percentiles off the (in-place
-                // permuted) buffer -- the second PercentileFast re-partitions the first's
-                // permutation, which is fine since it does not require sorted input.
-                var count = 0;
-                for (var i = 0; i < pixelCount; i++)
-                {
-                    var v = src[i];
-                    if (!float.IsNaN(v)) scratch[count++] = v;
-                }
-                if (count == 0) { lo[c] = 0f; hi[c] = 1f; continue; }
-                var buf = scratch.AsSpan(0, count);
-                lo[c] = PercentileFast(buf, blackPercentile);
-                hi[c] = PercentileFast(buf, whitePercentile);
+                var v = src[i];
+                if (!float.IsNaN(v)) scratch[count++] = v;
             }
-        }
-        finally
-        {
-            ArrayPool<float>.Shared.Return(scratch);
+            if (count == 0) { lo[c] = 0f; hi[c] = 1f; continue; }
+            var buf = scratch.AsSpan(0, count);
+            lo[c] = PercentileFast(buf, blackPercentile);
+            hi[c] = PercentileFast(buf, whitePercentile);
         }
 
         // Common scale: the largest per-channel dynamic range maps to [0, 1]; the others

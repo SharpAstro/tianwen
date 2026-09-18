@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
@@ -516,36 +515,26 @@ public static class FitsHeaderEditor
         // threshold, so a sweep of tens of thousands of frames would put tens of gigabytes through
         // the LOH and then collect all of it, for buffers whose whole life is this one comparison.
         // They cannot be spans: a span may not be held across an await, and every read here is one.
-        var pool = ArrayPool<byte>.Shared;
-        var bufA = pool.Rent(CompareChunk);
-        var bufB = pool.Rent(CompareChunk);
-        try
+        // (SharedObject<T> is a plain readonly struct, not a ref struct, so it CAN cross the await.)
+        using var bufA = ArrayPoolHelper.Rent<byte>(CompareChunk);
+        using var bufB = ArrayPoolHelper.Rent<byte>(CompareChunk);
+        long compared = 0;
+        while (compared < expected)
         {
-            long compared = 0;
-            while (compared < expected)
+            // Against the constant, not the array length: Rent may hand back a larger buffer, and
+            // the chunk size should be the one this code chose.
+            var want = (int)Math.Min(CompareChunk, expected - compared);
+            var readA = await a.ReadAtLeastAsync(bufA.AsMemory(0, want), want, throwOnEndOfStream: false, ct);
+            var readB = await b.ReadAtLeastAsync(bufB.AsMemory(0, want), want, throwOnEndOfStream: false, ct);
+            if (readA != want || readB != want)
             {
-                // Against the constant, not the array length: Rent may hand back a larger buffer, and
-                // the chunk size should be the one this code chose.
-                var want = (int)Math.Min(CompareChunk, expected - compared);
-                var readA = await a.ReadAtLeastAsync(bufA.AsMemory(0, want), want, throwOnEndOfStream: false, ct);
-                var readB = await b.ReadAtLeastAsync(bufB.AsMemory(0, want), want, throwOnEndOfStream: false, ct);
-                if (readA != want || readB != want)
-                {
-                    throw new IOException($"Verification failed for {original}: short read at byte {compared}.");
-                }
-                if (!bufA.AsSpan(0, want).SequenceEqual(bufB.AsSpan(0, want)))
-                {
-                    throw new IOException($"Verification failed for {original}: payload differs at byte {compared}.");
-                }
-                compared += want;
+                throw new IOException($"Verification failed for {original}: short read at byte {compared}.");
             }
-        }
-        finally
-        {
-            // No clearOnReturn: this held file bytes the caller already owns, not a secret, and
-            // zeroing a mebibyte per frame would cost more than the rent saved.
-            pool.Return(bufA);
-            pool.Return(bufB);
+            if (!bufA.AsSpan(0, want).SequenceEqual(bufB.AsSpan(0, want)))
+            {
+                throw new IOException($"Verification failed for {original}: payload differs at byte {compared}.");
+            }
+            compared += want;
         }
     }
 

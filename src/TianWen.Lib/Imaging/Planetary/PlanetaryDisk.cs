@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Drawing;
 
 namespace TianWen.Lib.Imaging.Planetary;
@@ -28,59 +27,52 @@ public static class PlanetaryDisk
             return full;
         }
 
-        var rented = ArrayPool<float>.Shared.Rent(n);
-        try
+        using var rented = ArrayPoolHelper.Rent<float>(n);
+        var luma = rented.AsSpan(0, n);
+        LumaProxy.Fill(frame, full, luma);
+
+        double sum = 0, sum2 = 0;
+        for (var i = 0; i < n; i++)
         {
-            var luma = rented.AsSpan(0, n);
-            LumaProxy.Fill(frame, full, luma);
+            double v = luma[i];
+            sum += v;
+            sum2 += v * v;
+        }
 
-            double sum = 0, sum2 = 0;
-            for (var i = 0; i < n; i++)
+        var mean = sum / n;
+        var variance = (sum2 / n) - (mean * mean);
+        var std = Math.Sqrt(Math.Max(variance, 0));
+        var threshold = (float)(mean + (sigmaAboveBackground * std));
+
+        int minX = w, minY = h, maxX = -1, maxY = -1;
+        long bright = 0;
+        for (var y = 0; y < h; y++)
+        {
+            var row = y * w;
+            for (var x = 0; x < w; x++)
             {
-                double v = luma[i];
-                sum += v;
-                sum2 += v * v;
-            }
-
-            var mean = sum / n;
-            var variance = (sum2 / n) - (mean * mean);
-            var std = Math.Sqrt(Math.Max(variance, 0));
-            var threshold = (float)(mean + (sigmaAboveBackground * std));
-
-            int minX = w, minY = h, maxX = -1, maxY = -1;
-            long bright = 0;
-            for (var y = 0; y < h; y++)
-            {
-                var row = y * w;
-                for (var x = 0; x < w; x++)
+                if (luma[row + x] > threshold)
                 {
-                    if (luma[row + x] > threshold)
-                    {
-                        if (x < minX) minX = x;
-                        if (x > maxX) maxX = x;
-                        if (y < minY) minY = y;
-                        if (y > maxY) maxY = y;
-                        bright++;
-                    }
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                    bright++;
                 }
             }
-
-            // Too few bright pixels to be a disk -- score the whole frame rather than a noise speck.
-            if (bright < 16 || maxX < minX || maxY < minY)
-            {
-                return full;
-            }
-
-            minX = Math.Max(0, minX - pad);
-            minY = Math.Max(0, minY - pad);
-            maxX = Math.Min(w - 1, maxX + pad);
-            maxY = Math.Min(h - 1, maxY + pad);
-            return Rectangle.FromLTRB(minX, minY, maxX + 1, maxY + 1);
         }
-        finally
+
+        // Too few bright pixels to be a disk -- score the whole frame rather than a noise speck.
+        if (bright < 16 || maxX < minX || maxY < minY)
         {
-            ArrayPool<float>.Shared.Return(rented);
+            return full;
         }
+
+        minX = Math.Max(0, minX - pad);
+        minY = Math.Max(0, minY - pad);
+        maxX = Math.Min(w - 1, maxX + pad);
+        maxY = Math.Min(h - 1, maxY + pad);
+        return Rectangle.FromLTRB(minX, minY, maxX + 1, maxY + 1);
     }
 
     /// <summary>
@@ -108,42 +100,35 @@ public static class PlanetaryDisk
             return fallback;
         }
 
-        var rented = ArrayPool<float>.Shared.Rent(count);
-        try
+        using var rented = ArrayPoolHelper.Rent<float>(count);
+        var luma = rented.AsSpan(0, count);
+        LumaProxy.Fill(frame, region, luma);
+
+        double sum = 0;
+        for (var i = 0; i < count; i++)
         {
-            var luma = rented.AsSpan(0, count);
-            LumaProxy.Fill(frame, region, luma);
+            sum += luma[i];
+        }
 
-            double sum = 0;
-            for (var i = 0; i < count; i++)
+        var mean = sum / count;
+
+        double sw = 0, sx = 0, sy = 0;
+        for (var yy = 0; yy < rh; yy++)
+        {
+            var rowBase = yy * rw;
+            for (var xx = 0; xx < rw; xx++)
             {
-                sum += luma[i];
-            }
-
-            var mean = sum / count;
-
-            double sw = 0, sx = 0, sy = 0;
-            for (var yy = 0; yy < rh; yy++)
-            {
-                var rowBase = yy * rw;
-                for (var xx = 0; xx < rw; xx++)
+                var v = luma[rowBase + xx] - mean;
+                if (v > 0)
                 {
-                    var v = luma[rowBase + xx] - mean;
-                    if (v > 0)
-                    {
-                        sw += v;
-                        sx += v * (region.Left + xx);
-                        sy += v * (region.Top + yy);
-                    }
+                    sw += v;
+                    sx += v * (region.Left + xx);
+                    sy += v * (region.Top + yy);
                 }
             }
+        }
 
-            return sw > 0 ? (sx / sw, sy / sw) : fallback;
-        }
-        finally
-        {
-            ArrayPool<float>.Shared.Return(rented);
-        }
+        return sw > 0 ? (sx / sw, sy / sw) : fallback;
     }
 
     /// <summary>
@@ -168,54 +153,47 @@ public static class PlanetaryDisk
             return map;
         }
 
-        var rented = ArrayPool<float>.Shared.Rent(n);
-        var sortBuf = ArrayPool<float>.Shared.Rent(n);
-        try
+        using var rented = ArrayPoolHelper.Rent<float>(n);
+        using var sortBuf = ArrayPoolHelper.Rent<float>(n);
+        var luma = rented.AsSpan(0, n);
+        LumaProxy.Fill(reference, new Rectangle(0, 0, w, h), luma);
+
+        // Most of a planetary frame is sky, so a low percentile is the background and a high percentile
+        // is the disk peak -- robust to hot pixels / cosmic hits at the extremes.
+        var sortSpan = sortBuf.AsSpan(0, n);
+        luma.CopyTo(sortSpan);
+        sortSpan.Sort();
+        var bg = sortSpan[(int)Math.Clamp(0.20 * (n - 1), 0, n - 1)];
+        var peak = sortSpan[(int)Math.Clamp(0.995 * (n - 1), 0, n - 1)];
+        var span = peak - bg;
+
+        if (span <= 0f)
         {
-            var luma = rented.AsSpan(0, n);
-            LumaProxy.Fill(reference, new Rectangle(0, 0, w, h), luma);
-
-            // Most of a planetary frame is sky, so a low percentile is the background and a high percentile
-            // is the disk peak -- robust to hot pixels / cosmic hits at the extremes.
-            luma.CopyTo(sortBuf.AsSpan(0, n));
-            Array.Sort(sortBuf, 0, n);
-            var bg = sortBuf[(int)Math.Clamp(0.20 * (n - 1), 0, n - 1)];
-            var peak = sortBuf[(int)Math.Clamp(0.995 * (n - 1), 0, n - 1)];
-            var span = peak - bg;
-
-            if (span <= 0f)
-            {
-                // No contrast: trust every pixel equally (the gate becomes a no-op -> uniform mean).
-                for (var y = 0; y < h; y++)
-                {
-                    for (var x = 0; x < w; x++)
-                    {
-                        map[y, x] = 1f;
-                    }
-                }
-
-                return map;
-            }
-
-            var edge0 = bg + (lowFraction * span);
-            var edge1 = bg + (highFraction * span);
-            var inv = 1f / MathF.Max(edge1 - edge0, 1e-6f);
+            // No contrast: trust every pixel equally (the gate becomes a no-op -> uniform mean).
             for (var y = 0; y < h; y++)
             {
-                var row = y * w;
                 for (var x = 0; x < w; x++)
                 {
-                    var t = Math.Clamp((luma[row + x] - edge0) * inv, 0f, 1f);
-                    map[y, x] = t * t * (3f - (2f * t)); // smoothstep
+                    map[y, x] = 1f;
                 }
             }
 
             return map;
         }
-        finally
+
+        var edge0 = bg + (lowFraction * span);
+        var edge1 = bg + (highFraction * span);
+        var inv = 1f / MathF.Max(edge1 - edge0, 1e-6f);
+        for (var y = 0; y < h; y++)
         {
-            ArrayPool<float>.Shared.Return(rented);
-            ArrayPool<float>.Shared.Return(sortBuf);
+            var row = y * w;
+            for (var x = 0; x < w; x++)
+            {
+                var t = Math.Clamp((luma[row + x] - edge0) * inv, 0f, 1f);
+                map[y, x] = t * t * (3f - (2f * t)); // smoothstep
+            }
         }
+
+        return map;
     }
 }

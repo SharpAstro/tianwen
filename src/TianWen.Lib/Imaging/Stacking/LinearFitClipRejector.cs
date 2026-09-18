@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Buffers;
 using static TianWen.Lib.Stat.StatisticsHelper;
 
 namespace TianWen.Lib.Imaging.Stacking;
@@ -64,96 +63,85 @@ public sealed record LinearFitClipRejector(
         var kept = column.Length - absent;
         if (kept < MinSamples) return column.Length;
 
-        var floatPool = ArrayPool<float>.Shared;
-        var intPool = ArrayPool<int>.Shared;
-        var valsBuf = floatPool.Rent(column.Length);
-        var idxBuf = intPool.Rent(column.Length);
-        var residBuf = floatPool.Rent(column.Length);
-        try
+        using var valsBuf = ArrayPoolHelper.Rent<float>(column.Length);
+        using var idxBuf = ArrayPoolHelper.Rent<int>(column.Length);
+        using var residBuf = ArrayPoolHelper.Rent<float>(column.Length);
+        for (var iter = 0; iter < MaxIterations; iter++)
         {
-            for (var iter = 0; iter < MaxIterations; iter++)
+            // 1. Snapshot kept values + original indices, then sort
+            // ascending. Span<float>.Sort + parallel int span keeps the
+            // index map in lockstep so we can write rejections back to
+            // keepMask via the original index.
+            var keptCount = 0;
+            for (var i = 0; i < column.Length; i++)
             {
-                // 1. Snapshot kept values + original indices, then sort
-                // ascending. Span<float>.Sort + parallel int span keeps the
-                // index map in lockstep so we can write rejections back to
-                // keepMask via the original index.
-                var keptCount = 0;
-                for (var i = 0; i < column.Length; i++)
+                if (keepMask[i] != 0f)
                 {
-                    if (keepMask[i] != 0f)
-                    {
-                        valsBuf[keptCount] = column[i];
-                        idxBuf[keptCount] = i;
-                        keptCount++;
-                    }
+                    valsBuf[keptCount] = column[i];
+                    idxBuf[keptCount] = i;
+                    keptCount++;
                 }
-                if (keptCount < MinSamples) break;
-
-                var vals = valsBuf.AsSpan(0, keptCount);
-                var idxs = idxBuf.AsSpan(0, keptCount);
-                MemoryExtensions.Sort(vals, idxs);
-
-                // 2. LSQ fit value = a*rank + b. Closed-form sums for
-                // SUM(rank), SUM(rank^2) over rank in [0, n-1]:
-                //   SUM(x)  = n*(n-1)/2
-                //   SUM(x2) = n*(n-1)*(2n-1)/6
-                var n = keptCount;
-                double sumY = 0.0, sumXY = 0.0;
-                for (var i = 0; i < n; i++)
-                {
-                    sumY += vals[i];
-                    sumXY += (double)i * vals[i];
-                }
-                var sumX = (double)n * (n - 1) / 2.0;
-                var sumX2 = (double)n * (n - 1) * (2 * n - 1) / 6.0;
-                var denom = n * sumX2 - sumX * sumX;
-                if (denom == 0.0) break;
-                var a = (n * sumXY - sumX * sumY) / denom;
-                var b = (sumY - a * sumX) / n;
-
-                // 3. Residuals = value - (a*rank + b). MAD of |residuals|
-                // gives a robust sigma estimate that ignores the outliers
-                // we're about to reject.
-                for (var i = 0; i < n; i++)
-                {
-                    residBuf[i] = vals[i] - (float)(a * i + b);
-                }
-                // Copy abs(residuals) into the front of valsBuf for the
-                // MedianFast call -- valsBuf is no longer needed at its
-                // sorted-by-value role, and residBuf still holds the signed
-                // residuals we need for the bound check below.
-                for (var i = 0; i < n; i++)
-                {
-                    valsBuf[i] = MathF.Abs(residBuf[i]);
-                }
-                var madRes = MedianFast(valsBuf.AsSpan(0, n));
-                if (madRes <= 0f) break;
-                var sigmaRes = MAD_TO_SD * madRes;
-
-                // 4. Reject by signed residual against asymmetric sigma
-                // bounds. Write back through idxs[i] so the mask uses the
-                // original frame indices, not the sorted ones.
-                var lowBound = -LowSigma * sigmaRes;
-                var highBound = HighSigma * sigmaRes;
-                var changed = false;
-                for (var i = 0; i < n; i++)
-                {
-                    var resid = residBuf[i];
-                    if (resid < lowBound || resid > highBound)
-                    {
-                        keepMask[idxs[i]] = 0f;
-                        kept--;
-                        changed = true;
-                    }
-                }
-                if (!changed) break;
             }
-        }
-        finally
-        {
-            floatPool.Return(valsBuf);
-            intPool.Return(idxBuf);
-            floatPool.Return(residBuf);
+            if (keptCount < MinSamples) break;
+
+            var vals = valsBuf.AsSpan(0, keptCount);
+            var idxs = idxBuf.AsSpan(0, keptCount);
+            MemoryExtensions.Sort(vals, idxs);
+
+            // 2. LSQ fit value = a*rank + b. Closed-form sums for
+            // SUM(rank), SUM(rank^2) over rank in [0, n-1]:
+            //   SUM(x)  = n*(n-1)/2
+            //   SUM(x2) = n*(n-1)*(2n-1)/6
+            var n = keptCount;
+            double sumY = 0.0, sumXY = 0.0;
+            for (var i = 0; i < n; i++)
+            {
+                sumY += vals[i];
+                sumXY += (double)i * vals[i];
+            }
+            var sumX = (double)n * (n - 1) / 2.0;
+            var sumX2 = (double)n * (n - 1) * (2 * n - 1) / 6.0;
+            var denom = n * sumX2 - sumX * sumX;
+            if (denom == 0.0) break;
+            var a = (n * sumXY - sumX * sumY) / denom;
+            var b = (sumY - a * sumX) / n;
+
+            // 3. Residuals = value - (a*rank + b). MAD of |residuals|
+            // gives a robust sigma estimate that ignores the outliers
+            // we're about to reject.
+            for (var i = 0; i < n; i++)
+            {
+                residBuf[i] = vals[i] - (float)(a * i + b);
+            }
+            // Copy abs(residuals) into the front of valsBuf for the
+            // MedianFast call -- valsBuf is no longer needed at its
+            // sorted-by-value role, and residBuf still holds the signed
+            // residuals we need for the bound check below.
+            for (var i = 0; i < n; i++)
+            {
+                valsBuf[i] = MathF.Abs(residBuf[i]);
+            }
+            var madRes = MedianFast(valsBuf.AsSpan(0, n));
+            if (madRes <= 0f) break;
+            var sigmaRes = MAD_TO_SD * madRes;
+
+            // 4. Reject by signed residual against asymmetric sigma
+            // bounds. Write back through idxs[i] so the mask uses the
+            // original frame indices, not the sorted ones.
+            var lowBound = -LowSigma * sigmaRes;
+            var highBound = HighSigma * sigmaRes;
+            var changed = false;
+            for (var i = 0; i < n; i++)
+            {
+                var resid = residBuf[i];
+                if (resid < lowBound || resid > highBound)
+                {
+                    keepMask[idxs[i]] = 0f;
+                    kept--;
+                    changed = true;
+                }
+            }
+            if (!changed) break;
         }
 
         return kept + absent;

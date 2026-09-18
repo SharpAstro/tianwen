@@ -1,7 +1,6 @@
 ﻿using CommunityToolkit.HighPerformance;
 using Microsoft.Extensions.Logging;
 using System;
-using System.Buffers;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -161,24 +160,17 @@ internal abstract class SerialConnectionBase : ISerialConnection
 
     public async ValueTask<string?> TryReadTerminatedAsync(ReadOnlyMemory<byte> terminators, CancellationToken cancellationToken)
     {
-        var buffer = ArrayPool<byte>.Shared.Rent(100);
-        try
+        using var buffer = ArrayPoolHelper.Rent<byte>(100);
+        var bytesRead = await TryReadTerminatedRawAsync(buffer, terminators, cancellationToken);
+        if (bytesRead >= 0)
         {
-            var bytesRead = await TryReadTerminatedRawAsync(buffer, terminators, cancellationToken);
-            if (bytesRead >= 0)
-            {
-                var message = Encoding.GetString(buffer.AsSpan(0, bytesRead));
+            var message = Encoding.GetString(buffer.AsSpan(0, bytesRead));
 
-                return message;
-            }
-            else
-            {
-                return null;
-            }
+            return message;
         }
-        finally
+        else
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            return null;
         }
     }
 
@@ -255,21 +247,14 @@ internal abstract class SerialConnectionBase : ISerialConnection
 
     public async ValueTask<string?> TryReadExactlyAsync(int count, CancellationToken cancellationToken)
     {
-        var buffer = ArrayPool<byte>.Shared.Rent(count);
-        try
+        using var buffer = ArrayPoolHelper.Rent<byte>(count);
+        if (await TryReadExactlyRawAsync(buffer.AsMemory(0, count), cancellationToken))
         {
-            if (await TryReadExactlyRawAsync(buffer.AsMemory(0, count), cancellationToken))
-            {
-                return Encoding.GetString(buffer.AsSpan(0, count));
-            }
-            else
-            {
-                return null;
-            }
+            return Encoding.GetString(buffer.AsSpan(0, count));
         }
-        finally
+        else
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            return null;
         }
     }
 

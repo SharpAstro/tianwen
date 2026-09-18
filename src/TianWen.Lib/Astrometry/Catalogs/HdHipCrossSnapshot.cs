@@ -311,41 +311,34 @@ internal static class HdHipCrossInputHasher
         BinaryPrimitives.WriteUInt32LittleEndian(algoBuf, HdHipCrossSnapshot.AlgorithmVersion);
         sha.AppendData(algoBuf);
 
-        var rentedBuf = System.Buffers.ArrayPool<byte>.Shared.Rent(64 * 1024);
-        try
+        using var rentedBuf = ArrayPoolHelper.Rent<byte>(64 * 1024);
+        foreach (var inputSuffix in Inputs)
         {
-            foreach (var inputSuffix in Inputs)
+            // Mix in the resource name (with a length prefix) so renames affect the hash.
+            var nameBytes = System.Text.Encoding.UTF8.GetBytes(inputSuffix);
+            BinaryPrimitives.WriteUInt32LittleEndian(algoBuf, (uint)nameBytes.Length);
+            sha.AppendData(algoBuf);
+            sha.AppendData(nameBytes);
+
+            using var rawStream = openInput(inputSuffix);
+
+            // Hash the *decompressed* content for .gs.gz so the input hash is invariant to
+            // gzip-encoder output differences across platforms / .NET versions. .lz inputs
+            // stay raw: they ship as LFS-tracked immutable bytes.
+            // The decompressor gets its OWN using variable rather than riding a ternary into
+            // a shared one: assigned through the conditional, CA2000 cannot see that the
+            // branch which allocates is the branch that disposes, and the other branch was
+            // double-disposing rawStream (harmless, but only by luck).
+            using var gzip = inputSuffix.EndsWith(".gs.gz", StringComparison.Ordinal)
+                ? new GZipStream(rawStream, CompressionMode.Decompress)
+                : null;
+            var stream = gzip as Stream ?? rawStream;
+
+            int read;
+            while ((read = stream.Read(rentedBuf.AsSpan())) > 0)
             {
-                // Mix in the resource name (with a length prefix) so renames affect the hash.
-                var nameBytes = System.Text.Encoding.UTF8.GetBytes(inputSuffix);
-                BinaryPrimitives.WriteUInt32LittleEndian(algoBuf, (uint)nameBytes.Length);
-                sha.AppendData(algoBuf);
-                sha.AppendData(nameBytes);
-
-                using var rawStream = openInput(inputSuffix);
-
-                // Hash the *decompressed* content for .gs.gz so the input hash is invariant to
-                // gzip-encoder output differences across platforms / .NET versions. .lz inputs
-                // stay raw: they ship as LFS-tracked immutable bytes.
-                // The decompressor gets its OWN using variable rather than riding a ternary into
-                // a shared one: assigned through the conditional, CA2000 cannot see that the
-                // branch which allocates is the branch that disposes, and the other branch was
-                // double-disposing rawStream (harmless, but only by luck).
-                using var gzip = inputSuffix.EndsWith(".gs.gz", StringComparison.Ordinal)
-                    ? new GZipStream(rawStream, CompressionMode.Decompress)
-                    : null;
-                var stream = gzip as Stream ?? rawStream;
-
-                int read;
-                while ((read = stream.Read(rentedBuf, 0, rentedBuf.Length)) > 0)
-                {
-                    sha.AppendData(rentedBuf, 0, read);
-                }
+                sha.AppendData(rentedBuf.AsSpan(0, read));
             }
-        }
-        finally
-        {
-            System.Buffers.ArrayPool<byte>.Shared.Return(rentedBuf);
         }
 
         return sha.GetHashAndReset();

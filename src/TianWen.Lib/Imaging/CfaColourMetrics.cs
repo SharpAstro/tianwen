@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging
@@ -60,24 +59,17 @@ namespace TianWen.Lib.Imaging
         private static ColourReading MeasureRgb(Image image)
         {
             var n = image.Width * image.Height;
-            var scratch = ArrayPool<float>.Shared.Rent(n);
-            try
-            {
-                var span = scratch.AsSpan(0, n);   // EXACT length: pool arrays over-allocate, and
-                                                   // the slack would otherwise be median input.
-                var levels = (0.0, 0.0, 0.0);
-                image.GetChannelSpan(0).CopyTo(span);
-                levels.Item1 = StatisticsHelper.MedianFast(span);
-                image.GetChannelSpan(1).CopyTo(span);
-                levels.Item2 = StatisticsHelper.MedianFast(span);
-                image.GetChannelSpan(2).CopyTo(span);
-                levels.Item3 = StatisticsHelper.MedianFast(span);
-                return Reading(levels, double.NaN);
-            }
-            finally
-            {
-                ArrayPool<float>.Shared.Return(scratch);
-            }
+            using var scratch = ArrayPoolHelper.Rent<float>(n);
+            var span = scratch.AsSpan(0, n);   // EXACT length: pool arrays over-allocate, and
+                                               // the slack would otherwise be median input.
+            var levels = (0.0, 0.0, 0.0);
+            image.GetChannelSpan(0).CopyTo(span);
+            levels.Item1 = StatisticsHelper.MedianFast(span);
+            image.GetChannelSpan(1).CopyTo(span);
+            levels.Item2 = StatisticsHelper.MedianFast(span);
+            image.GetChannelSpan(2).CopyTo(span);
+            levels.Item3 = StatisticsHelper.MedianFast(span);
+            return Reading(levels, double.NaN);
         }
 
         private static ColourReading MeasureMosaic(Image image)
@@ -89,28 +81,21 @@ namespace TianWen.Lib.Imaging
 
             // One rental, four slices: the medians are taken one at a time, but |G1-G2| needs both
             // greens still intact, so the two green planes cannot share a buffer.
-            var scratch = ArrayPool<float>.Shared.Rent(quarter * 3);
-            try
-            {
-                var r = scratch.AsSpan(0, quarter);
-                var g1 = scratch.AsSpan(quarter, quarter);
-                var g2 = scratch.AsSpan(quarter * 2, quarter);
-                GatherPhotosites(image, r, g1, g2, out var blueMedian);
+            using var scratch = ArrayPoolHelper.Rent<float>(quarter * 3);
+            var r = scratch.AsSpan(0, quarter);
+            var g1 = scratch.AsSpan(quarter, quarter);
+            var g2 = scratch.AsSpan(quarter * 2, quarter);
+            GatherPhotosites(image, r, g1, g2, out var blueMedian);
 
-                // |G1-G2| BEFORE the medians, which partition their inputs in place.
-                for (var i = 0; i < quarter; i++) r[i] = Math.Abs(g1[i] - g2[i]);
-                var greenSplit = StatisticsHelper.MedianFast(r);
+            // |G1-G2| BEFORE the medians, which partition their inputs in place.
+            for (var i = 0; i < quarter; i++) r[i] = Math.Abs(g1[i] - g2[i]);
+            var greenSplit = StatisticsHelper.MedianFast(r);
 
-                var green = (StatisticsHelper.MedianFast(g1) + StatisticsHelper.MedianFast(g2)) / 2.0;
+            var green = (StatisticsHelper.MedianFast(g1) + StatisticsHelper.MedianFast(g2)) / 2.0;
 
-                // r was consumed by the green split, so re-gather just the red plane.
-                GatherPlane(image, r, xOdd: false, yOdd: false);
-                return Reading((StatisticsHelper.MedianFast(r), green, blueMedian), greenSplit);
-            }
-            finally
-            {
-                ArrayPool<float>.Shared.Return(scratch);
-            }
+            // r was consumed by the green split, so re-gather just the red plane.
+            GatherPlane(image, r, xOdd: false, yOdd: false);
+            return Reading((StatisticsHelper.MedianFast(r), green, blueMedian), greenSplit);
         }
 
         /// <summary>
@@ -198,18 +183,11 @@ namespace TianWen.Lib.Imaging
             var boxMean = n > 0 ? sum / n : 0.0;
 
             var total = w * h;
-            var scratch = ArrayPool<float>.Shared.Rent(total);
-            try
-            {
-                var span = scratch.AsSpan(0, total);
-                FillLuma(image, span, w, h);
-                var background = StatisticsHelper.MedianFast(span);
-                return background == 0 ? 0 : (boxMean - background) / background;
-            }
-            finally
-            {
-                ArrayPool<float>.Shared.Return(scratch);
-            }
+            using var scratch = ArrayPoolHelper.Rent<float>(total);
+            var span = scratch.AsSpan(0, total);
+            FillLuma(image, span, w, h);
+            var background = StatisticsHelper.MedianFast(span);
+            return background == 0 ? 0 : (boxMean - background) / background;
         }
 
         /// <summary>
@@ -229,36 +207,29 @@ namespace TianWen.Lib.Imaging
             var box = Math.Max(1, (int)(fracSize * w));
             var step = Math.Max(1, box / 2);
             var total = w * h;
-            var scratch = ArrayPool<float>.Shared.Rent(total);
-            try
-            {
-                var luma = scratch.AsSpan(0, total);
-                FillLuma(image, luma, w, h);
+            using var scratch = ArrayPoolHelper.Rent<float>(total);
+            var luma = scratch.AsSpan(0, total);
+            FillLuma(image, luma, w, h);
 
-                // Row-prefix sums so each candidate box costs its HEIGHT, not its area: the boxes
-                // overlap by half a side in both axes, so the naive form re-reads every pixel ~4x.
-                var best = double.NegativeInfinity;
-                var bestX = 0;
-                var bestY = 0;
-                for (var y = 0; y + box <= h; y += step)
-                {
-                    for (var x = 0; x + box <= w; x += step)
-                    {
-                        var sum = 0.0;
-                        for (var yy = y; yy < y + box; yy++)
-                        {
-                            var row = luma.Slice(yy * w + x, box);
-                            for (var i = 0; i < row.Length; i++) sum += row[i];
-                        }
-                        if (sum > best) { best = sum; bestX = x; bestY = y; }
-                    }
-                }
-                return ((double)bestX / w, (double)bestY / h);
-            }
-            finally
+            // Row-prefix sums so each candidate box costs its HEIGHT, not its area: the boxes
+            // overlap by half a side in both axes, so the naive form re-reads every pixel ~4x.
+            var best = double.NegativeInfinity;
+            var bestX = 0;
+            var bestY = 0;
+            for (var y = 0; y + box <= h; y += step)
             {
-                ArrayPool<float>.Shared.Return(scratch);
+                for (var x = 0; x + box <= w; x += step)
+                {
+                    var sum = 0.0;
+                    for (var yy = y; yy < y + box; yy++)
+                    {
+                        var row = luma.Slice(yy * w + x, box);
+                        for (var i = 0; i < row.Length; i++) sum += row[i];
+                    }
+                    if (sum > best) { best = sum; bestX = x; bestY = y; }
+                }
             }
+            return ((double)bestX / w, (double)bestY / h);
         }
 
         /// <summary>
