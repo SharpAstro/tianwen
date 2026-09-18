@@ -35,6 +35,21 @@
     <Version Condition=" '$(Version)' == '' ">$(VersionPrefix)</Version>
   </PropertyGroup>
 
+  <!--
+    The surrogate hosting this DLL outlives the burst it was started for: issue #294 measured one idle
+    for thirteen hours holding 7,024 MB of private bytes. Giving that back is IdleHeapCollapse's job;
+    the only thing to settle here is how much the runtime RESERVES in the first place.
+
+    Server GC would give a background shell extension a heap and a dedicated collector thread PER CORE,
+    which is the opposite of what it should cost, and retaining VM is literally the knob for "keep the
+    segments rather than hand them back". Both already default this way; they are written down because
+    a csproj copied from an application would arrive with the other answer and nothing would fail.
+  -->
+  <PropertyGroup>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <RetainVMGarbageCollection>false</RetainVMGarbageCollection>
+  </PropertyGroup>
+
   <!-- A thumbnail never opens a catalog. TianWen.Lib's own ILLink.Substitutions.xml drops its 57 MB of
        embedded astrometry data when this switch is false, which takes the DLL from 59.6 MB to 3 MB.
        Trim="true" is what forwards the switch to the trimmer / ILC as a feature setting. -->

@@ -43,8 +43,14 @@ namespace TianWen.Shell.Thumbnails
 
         /// <summary>
         /// Always "no": a NativeAOT library cannot be unloaded (FreeLibrary is unsupported by the runtime).
-        /// Harmless here, because the shell's surrogate process exits on its own idle timer and takes the
-        /// DLL with it, which is how every thumbnail handler leaves memory anyway.
+        /// <para>
+        /// This used to add "harmless, because the surrogate exits on its own idle timer and takes the DLL
+        /// with it". It does not reliably do either: issue #294 measured a surrogate idle for thirteen
+        /// hours holding 7 GB, because answering S_FALSE is precisely what keeps the DLL, and therefore its
+        /// heap, in that process. Giving the heap back is <see cref="IdleHeapCollapse"/>'s job, not this
+        /// method's -- returning S_OK here would have COM call FreeLibrary on a runtime that cannot survive
+        /// it.
+        /// </para>
         /// </summary>
         [UnmanagedCallersOnly(EntryPoint = "DllCanUnloadNow")]
         public static int DllCanUnloadNow() => S_FALSE;
