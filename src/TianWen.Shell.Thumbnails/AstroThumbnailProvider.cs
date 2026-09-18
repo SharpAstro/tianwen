@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Marshalling;
 using System.Runtime.Versioning;
 using TianWen.Lib.Imaging;
@@ -35,8 +36,25 @@ namespace TianWen.Shell.Thumbnails
         /// <summary><c>WTSCF_FAST</c>, the one <c>WTS_CONTEXTFLAGS</c> bit this handler acts on.</summary>
         private const uint WTSCF_FAST = 0x8;
 
+        /// <summary>
+        /// <c>STATFLAG_NONAME</c>: answer without <c>pwcsName</c>. Without it the callee allocates the
+        /// name with <c>CoTaskMemAlloc</c> and the caller owes a <c>CoTaskMemFree</c>; asking for no
+        /// name means there is nothing to free, and the name is not wanted.
+        /// </summary>
+        private const uint STATFLAG_NONAME = 1;
+
+        private readonly IdleHeapCollapse _collapse;
+
         private IStream? _stream;
         private uint _contextFlags;
+
+        /// <summary>The shell's entry point: one instance per request, from the class factory.</summary>
+        public AstroThumbnailProvider()
+            : this(IdleHeapCollapse.Shared)
+        {
+        }
+
+        internal AstroThumbnailProvider(IdleHeapCollapse collapse) => _collapse = collapse;
 
         /// <summary>
         /// Takes the stream and deliberately READS NOTHING, because reading is the expensive and
@@ -78,9 +96,84 @@ namespace TianWen.Shell.Thumbnails
         /// <summary>
         /// Reads the whole file. FITS has no sub-structure a thumbnail could stop early at (the pixels
         /// ARE the file), and the stream is marshalled across a process boundary, where a few large
-        /// reads cost far less than many small ones. 1 MiB chunks: 18 MB in ~20 ms.
+        /// reads cost far less than many small ones.
+        /// <para>
+        /// The size comes from <c>IStream::Stat</c> so the buffer is allocated ONCE at the right size.
+        /// The growable read below is what this replaced, and it is kept only as the fallback for a
+        /// stream that will not answer: a <see cref="MemoryStream"/> doubles its capacity as it fills
+        /// and <c>ToArray</c> then copies the result, so up to three times the file size is live on the
+        /// large object heap at once, for a buffer nothing keeps and (issue #294) nothing collects.
+        /// </para>
         /// </summary>
         private static int TryBuffer(IStream stream, out byte[] bytes)
+        {
+            var length = TryStatLength(stream);
+            return length > 0 ? ReadExact(stream, (int)length, out bytes) : ReadGrowable(stream, out bytes);
+        }
+
+        /// <summary>
+        /// The file's size, or 0 for a stream that cannot or will not say. Not recorded as a failure:
+        /// <c>Stat</c> is optional in practice and the growable read covers every answer it declines.
+        /// </summary>
+        private static long TryStatLength(IStream stream)
+        {
+            STATSTG stat = default;
+            if (stream.Stat(&stat, STATFLAG_NONAME) < 0)
+            {
+                return 0;
+            }
+
+            return stat.cbSize > 0 && stat.cbSize <= (ulong)Array.MaxLength ? (long)stat.cbSize : 0;
+        }
+
+        /// <summary>
+        /// One allocation of exactly the stated size, filled by as few reads as the stream will give.
+        /// A stream that hands over fewer bytes than it declared is the stream's business and not a
+        /// failure, so the short buffer is trimmed and passed on: the decoder is what judges whether
+        /// the bytes are a file.
+        /// </summary>
+        private static int ReadExact(IStream stream, int length, out byte[] bytes)
+        {
+            var buffer = new byte[length];
+            var offset = 0;
+
+            fixed (byte* p = buffer)
+            {
+                while (offset < length)
+                {
+                    uint read = 0;
+                    var hr = stream.Read(p + offset, (uint)(length - offset), &read);
+                    if (hr < 0)
+                    {
+                        // The one step where a cloud-backed file is expected to differ from a local
+                        // one, so it records how far it got: a refusal at offset zero is an access
+                        // decision, one part way through is the stream dying mid-hydration.
+                        ThumbnailDiagnostics.Failure("IStream.Read", hr, $"after {offset} of {length} bytes");
+                        bytes = Array.Empty<byte>();
+                        return hr;
+                    }
+
+                    if (read == 0)
+                    {
+                        break;
+                    }
+
+                    offset += (int)read;
+                    if (hr == S_FALSE)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            bytes = offset == length ? buffer : buffer[..offset];
+            return S_OK;
+        }
+
+        /// <summary>
+        /// The fallback for a stream whose size is unknown, in 1 MiB chunks: 18 MB in ~20 ms.
+        /// </summary>
+        private static int ReadGrowable(IStream stream, out byte[] bytes)
         {
             bytes = Array.Empty<byte>();
 
@@ -144,6 +237,13 @@ namespace TianWen.Shell.Thumbnails
             try
             {
                 var bufferHr = TryBuffer(stream, out bytes);
+
+                // Hand the native stream back the instant its bytes are copied out, rather than at
+                // this object's finalization -- which needs a collection, and an idle surrogate never
+                // runs one, so the shell's end of a cloud placeholder was being held open for as long
+                // as the process lived.
+                ReleaseStream();
+
                 if (bufferHr < 0)
                 {
                     return bufferHr;
@@ -188,6 +288,56 @@ namespace TianWen.Shell.Thumbnails
                 ThumbnailDiagnostics.Failure("GetThumbnail", hr, $"{ex.GetType().Name}: {ex.Message}");
                 return hr;
             }
+            finally
+            {
+                // Whatever the outcome, this request has put several hundred MB of full-resolution
+                // garbage on the heap and nothing else in this process will ever allocate enough to
+                // collect it. Recording it here and not in the WTSCF_FAST branch above is deliberate:
+                // that one returns without reading a byte, so it has nothing to give back.
+                _collapse.RecordRender();
+            }
+        }
+
+        /// <summary>
+        /// Drops the stream and releases the native reference behind it. The wrapper is a
+        /// <see cref="ComObject"/> only when the shell handed the stream across a real COM boundary;
+        /// in-process callers pass a managed implementation and there is nothing to release.
+        /// </summary>
+        private void ReleaseStream()
+        {
+            var stream = _stream;
+            _stream = null;
+
+            // Through object: ComObject is sealed and does not implement IStream, so the compiler
+            // refuses the pattern on the interface even though the runtime cast succeeds -- a COM
+            // wrapper answers for the interface through IDynamicInterfaceCastable, not by declaring it.
+            if ((object?)stream is ComObject com)
+            {
+                com.FinalRelease();
+            }
+        }
+
+        /// <summary>
+        /// <c>STATSTG</c> (objidl.h), declared IN FULL. Only <see cref="cbSize"/> is read, but the
+        /// callee writes every field, so a trimmed declaration would have <c>IStream::Stat</c> write
+        /// past the end of the caller's struct -- a stack corruption that would look like anything but
+        /// its cause. <c>FILETIME</c> is two <c>DWORD</c>s; a <see cref="long"/> gives the same 80-byte
+        /// layout and the same offsets on both x64 and arm64.
+        /// </summary>
+        [StructLayout(LayoutKind.Sequential)]
+        private struct STATSTG
+        {
+            public nint pwcsName;
+            public uint type;
+            public ulong cbSize;
+            public long mtime;
+            public long ctime;
+            public long atime;
+            public uint grfMode;
+            public uint grfLocksSupported;
+            public Guid clsid;
+            public uint grfStateBits;
+            public uint reserved;
         }
     }
 }

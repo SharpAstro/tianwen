@@ -35,19 +35,25 @@ namespace TianWen.Lib.Imaging
     /// already walks to, so it needs no case of its own.
     /// </para>
     /// <para>
-    /// <b>Cost is bounded by the OUTPUT, not the input.</b> The frame is debayered (a CFA mosaic binned
+    /// <b>TIME is bounded by the output; MEMORY is not.</b> The frame is debayered (a CFA mosaic binned
     /// as-is averages the pattern away into grey), then mean-binned with <see cref="Image.Downsample"/> so
     /// its short edge lands at or just above the requested size, and only that small raster is
     /// stat-scanned, stretched and box-resampled. A 3008x3008 RGGB light renders at 256 px in about 110 ms
     /// on an arm64 laptop; a full-frame stretch would spend most of a second on the same file for pixels
-    /// nobody sees.
+    /// nobody sees. <b>Every allocation BEFORE the bin is still at full resolution</b> -- the planes from
+    /// the decode, then a whole new three-plane image from the debayer, about half a GB for a 24 MP OSC
+    /// frame and all of it on the large object heap. That is what issue #294 is about, and why the shell
+    /// handler collapses its heap once a burst of requests goes quiet (<c>IdleHeapCollapse</c>): nothing
+    /// else in that process ever allocates enough to trigger a collection of its own.
     /// </para>
     /// <para>
     /// <b>No cache lives here, by design.</b> Windows keeps its own thumbnail cache per size class and
     /// re-asks the handler only when a file is missing from it or has a newer modified time than the
-    /// cached copy, so a handler-side cache would be a second copy of the same keys in a process the shell
-    /// tears down between requests. A future viewer file-list strip should read the shell's cache
-    /// (<c>IThumbnailCache</c>) rather than build another.
+    /// cached copy, so a handler-side cache would be a second copy of the same keys, in a process with no
+    /// idea when either copy went stale. A future viewer file-list strip should read the shell's cache
+    /// (<c>IThumbnailCache</c>) rather than build another. (This used to say the shell "tears down" that
+    /// process between requests. It does not: issue #294 measured one alive and idle for thirteen hours,
+    /// which is the whole reason its heap needed handling.)
     /// </para>
     /// </summary>
     public static class ThumbnailRenderer

@@ -46,9 +46,11 @@ is AOT-compatible by design and is exactly the shape of Microsoft's own source-g
 sample. Add the surrogate rule above and nothing of ours ever loads into Explorer at all.
 
 Two NativeAOT facts shape the code. Unloading is unsupported, so `DllCanUnloadNow` always answers
-`S_FALSE`; harmless, because the surrogate exits on its own idle timer and takes the DLL with it. And a
-COM vtable method is synchronous, so `GetThumbnail` blocks on the renderer's task: the one blocking wait
-in the product, unavoidable and commented as such.
+`S_FALSE` -- **and that is not harmless, which this file claimed for two weeks**: it is why the surrogate
+keeps the DLL, and with it the heap, for as long as the process lives. Issue #294 measured one at 7,024 MB
+of private bytes, idle, thirteen hours after its last thumbnail. `IdleHeapCollapse` is the answer (below).
+And a COM vtable method is synchronous, so `GetThumbnail` blocks on the renderer's task: the one blocking
+wait in the product, unavoidable and commented as such.
 
 ## Where the pieces live
 
@@ -137,9 +139,10 @@ cache in the library?* Windows.
   cache, or when the file's last-modified time is later than the cached copy's**. It also never scales
   up: asked for a size it does not have, it takes the next larger cached entry and scales down.
 - **So the handler is stateless by construction.** One instance per request, initialised with the
-  stream, asked once, released. It is hosted in a surrogate the shell tears down between bursts, so a
-  handler-side cache would have to be on disk, keyed on the same path + mtime the shell already keys
-  on: a second copy of the shell's own index, kept in step by hand.
+  stream, asked once, released. A handler-side cache would have to be on disk, keyed on the same path +
+  mtime the shell already keys on: a second copy of the shell's own index, kept in step by hand. (This
+  used to add "hosted in a surrogate the shell tears down between bursts", which is false -- see the
+  memory section below. The conclusion survives the correction; the reason given for it did not.)
 - **The fingerprint approach stays where it is.** `MasterCache.ReadFingerprint` keys stacking masters on
   their inputs, a different question (has the *stack* changed?) that the shell cannot answer. It is not
   a thumbnail cache and should not become one.
@@ -165,6 +168,7 @@ cache in the library?* Windows.
 | P6 | Tarball registration in `FileAssociationRegistrar` (+ a `SER` group) | DONE 2026-09-02 |
 | P7 | Verification through the real shell pipeline on this machine: temporary per-user registration of the published DLL, `IShellItemImageFactory::GetImage(THUMBNAILONLY)` on a real light, keys removed afterwards | see the log below |
 | P8 | Verification on a SIGNED MSIX install (sign a copy with `build-msix.ps1 -SignPackage`, install, browse a folder of `.fits`) | OPEN: needs the next dispatch's package |
+| P10 | The surrogate keeps its heap: `IdleHeapCollapse` (collapse once a burst goes quiet), an exactly sized read from `IStream::Stat`, `ComObject.FinalRelease` on the stream, GC policy in the csproj, and the false lifetime claims corrected | DONE, issue #294; the re-measure against a real surrogate is OPEN |
 | P9 | Later, if wanted: `TypeOverlay` / `Treatment` registry hints (photo border instead of drop shadow); a strided FITS read for very large frames (reads 1/N^2 of the pixels from a seekable stream); a viewer file-list strip reading the shell cache | NOT STARTED |
 
 ## Verification log
@@ -180,6 +184,46 @@ cache in the library?* Windows.
   appearing at that instant (so the DLL ran out of process, as the packaged form will). The second ask
   returned in 4 ms from the cache without touching the handler, which is the caching model above
   observed rather than read. The keys were removed afterwards and their absence checked.
+
+## Memory: the surrogate keeps its heap, and nothing else will collect it
+
+Issue #294, measured 2026-09-17: `dllhost.exe` PID 29048, holding `tianwen-thumb.dll`, sat at **6,312 MB
+working set / 7,024 MB private bytes, 0% CPU, for thirteen hours** after the last thumbnail it drew. No
+failure was logged, so every one of those renders SUCCEEDED. The memory is not a cache and not a leak.
+
+Three facts multiply together, and only the third is unusual:
+
+- **A request is expensive in full-resolution allocations even though its OUTPUT is 256 px.** The file's
+  bytes, one float plane per channel from the decode, then a whole new three-plane image from the
+  debayer, before `Downsample` makes anything small. About half a GB for a 24 MP OSC frame, all of it on
+  the large object heap, all of it garbage the moment `GetThumbnail` returns.
+- **The shell extracts a folder in PARALLEL**, so a burst's peak is a multiple of that.
+- **A collection only runs when something allocates, and this process then allocates nothing, ever
+  again.** The LOH is not compacted by default even when one does run, and the GC sizes what it retains
+  from memory pressure, which on a 63.8 GB box at 35% load is none.
+
+**The fix is `IdleHeapCollapse`, and the shape of it is the whole point.** Collecting after each request
+is the obvious answer and is wrong twice over: a blocking compacting gen-2 collection suspends every
+thread, so under parallel extraction each request pays for all the others, and each collection throws
+away exactly the heap the next request is about to ask the OS for again. So a finished render increments
+a counter and arms a one-shot timer; a tick that sees the counter MOVED defers, a tick that sees it
+unchanged since the last tick collapses once, and a tick that has already collapsed at that count does
+nothing and stands the timer down. Idle costs zero wakeups; a burst of any length costs one collection,
+three to six seconds after it ends.
+
+Two smaller allocations went with it. The read is sized from `IStream::Stat` into one exact array (the
+growable `MemoryStream` + `ToArray` it replaced put up to three times the file size live at once, and is
+kept only for a stream that will not answer `Stat` -- declared **in full**, because the callee writes
+every field of `STATSTG` and a trimmed struct is a stack corruption that looks like anything but its
+cause). And the native `IStream` is released with `ComObject.FinalRelease` as soon as its bytes are
+copied out, rather than at a finalization this process never reaches.
+
+**What is still open**: the re-measure. Every number above is from the issue's own process inspection and
+from reading the allocation path; nothing here has yet been re-measured against a real surrogate after
+the fix, which needs a folder of large frames outside OneDrive and a cold thumbnail cache. And the
+**bigger** win is untouched by design -- binning the CFA mosaic per colour BEFORE the debayer, so a 256 px
+answer never allocates a full-resolution three-plane image at all. That changes the picture, so it wants
+the harness first.
 
 ## Traps, for the next person
 
@@ -205,6 +249,8 @@ cache in the library?* Windows.
   finds, silently.
 - **Never `throw` across the COM boundary.** Every method returns an HRESULT; a file the renderer
   cannot decode is `E_FAIL`-class back to the shell, which then draws the generic icon.
-- **`DllCanUnloadNow` is `S_FALSE` forever**, by NativeAOT's rules, and that is fine.
+- **`DllCanUnloadNow` is `S_FALSE` forever**, by NativeAOT's rules, and it is the reason the memory
+  question below exists rather than a detail. The surrogate cannot drop the DLL, so it cannot drop the
+  heap either, and nothing about the pictures it draws ever shows that.
 - **The substitutions trap above.** A consumer-side `ILLink.Substitutions.xml` naming another
   assembly's resources compiles, publishes, and removes nothing.
