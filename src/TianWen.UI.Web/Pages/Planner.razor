@@ -143,6 +143,7 @@
     // DevicePixelRatio is the tab's dpiScale. Input arrives pre-mapped to backing space.
     CanvasMetrics _metrics;
     string _fontPath = "monospace";
+    string? _emojiFontPath;
     string _status = "Loading…";
     (float X, float Y) _mouse;
     bool _ready;
@@ -412,6 +413,28 @@
         {
             var bytes = await Http.GetByteArrayAsync("Fonts/DejaVuSans.ttf");
             await System.IO.File.WriteAllBytesAsync(_fontPath, bytes);
+        }
+
+        // The EMOJI face, cut down to the glyphs the web build draws: today only U+1F4F7 CAMERA, the atlas's
+        // mark after the label of an object with a photo. The full Noto COLRv1 face the desktop bundles is
+        // 4.99 MB for that one glyph; the subset is 2.9 KB with its COLRv1 layers intact. Regenerate with
+        //   python -m fontTools.subset src/TianWen.UI.Gui/Fonts/Noto-COLRv1.ttf --unicodes=U+1F4F7
+        //     --output-file=src/TianWen.UI.Web/wwwroot/Fonts/NotoEmoji-Camera.ttf
+        // adding a codepoint to --unicodes when the web build starts drawing another. Best-effort: a
+        // failed fetch leaves no emoji face, which the mark reads as "draw nothing, reserve nothing".
+        try
+        {
+            var emojiPath = System.IO.Path.Combine(dir, "NotoEmoji-Camera.ttf");
+            if (!System.IO.File.Exists(emojiPath))
+            {
+                var bytes = await Http.GetByteArrayAsync("Fonts/NotoEmoji-Camera.ttf");
+                await System.IO.File.WriteAllBytesAsync(emojiPath, bytes);
+            }
+            _emojiFontPath = emojiPath;
+        }
+        catch (HttpRequestException ex)
+        {
+            Console.WriteLine($"emoji face unavailable, no photo marks: {ex.Message}");
         }
     }
 
@@ -1897,9 +1920,11 @@
                 MaybeFetchVisibleMembers();
                 // DPI + font each have one owner: the widget's DpiScale / FontPath properties (the browser's
                 // devicePixelRatio + resolved font, re-set per frame since the JS resize observer updates
-                // _metrics / _fontPath out of band). The web host has no emoji font.
+                // _metrics / _fontPath out of band). The emoji face is a SUBSET (see LoadFontAsync), so it
+                // only ever draws the glyphs it was cut for.
                 _skyTab.DpiScale = (float)_metrics.DevicePixelRatio;
                 _skyTab.FontPath = _fontPath;
+                _skyTab.EmojiFontPath = _emojiFontPath;
                 _skyTab.Render(_state, content, Time);
                 skyMs = Since(ref phase);
 
