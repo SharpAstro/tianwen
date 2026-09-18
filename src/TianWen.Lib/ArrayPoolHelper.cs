@@ -52,6 +52,9 @@ public static class ArrayPoolHelper
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         public readonly Memory<T> AsMemory(int start = 0) => _value.AsMemory(start, _length - start);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        public readonly Memory<T> AsMemory(int start, int length) => _value.AsMemory(start, length);
+
         public readonly void Dispose() => ArrayPool<T>.Shared.Return(_value);
 
         public static implicit operator Memory<T>(SharedObject<T> sharedObject)
