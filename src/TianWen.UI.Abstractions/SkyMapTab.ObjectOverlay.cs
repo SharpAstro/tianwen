@@ -44,9 +44,19 @@ namespace TianWen.UI.Abstractions
         /// face: then no mark is drawn and no label reserves room for one.
         /// </summary>
         protected float PictureMarkAdvance(float labelSize)
-            => EmojiFontPath is { Length: > 0 } emoji
-                ? PictureMarkGap(labelSize) + Renderer.MeasureText(PictureMark.AsSpan(), emoji, labelSize).Width
+            => EmojiFontPath is { Length: > 0 }
+                ? PictureMarkGap(labelSize) + MeasureLabelRun(PictureMark, labelSize)
                 : 0f;
+
+        /// <summary>
+        /// The one text measure of the object-label pass, on both atlas surfaces: a label line in the window's
+        /// text face, the photo mark in its emoji face. One method rather than a measuring lambda per surface,
+        /// so the placement and both draw paths measure a run exactly as it is drawn; it is also what kept this
+        /// file inside its chrome measure budget when the mark arrived (<c>ChromeMeasuresThroughTheEngineTests</c>).
+        /// </summary>
+        protected float MeasureLabelRun(string text, float size)
+            => Renderer.MeasureText(text.AsSpan(),
+                text == PictureMark && EmojiFontPath is { Length: > 0 } emoji ? emoji : FontPath, size).Width;
 
         // Cached candidate list + the key it was gathered for. The gather (Phase A grid walk) is the
         // heavy part; caching on a quantized view/rect/layer/pins key means panning within a cell only
@@ -324,10 +334,9 @@ namespace TianWen.UI.Abstractions
 
             var labelSize = baseFontSize * dpiScale * 0.85f;
             var lineH = labelSize * 1.2f;
-            var measureText = (string text, float size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width;
             var pictureMarkWidth = PictureMarkAdvance(labelSize);
             var labelStart = System.Diagnostics.Stopwatch.GetTimestamp();
-            OverlayEngine.PlaceLabelsBestEffort(_primOverlayItems, labelSize, 4f, measureText,
+            OverlayEngine.PlaceLabelsBestEffort(_primOverlayItems, labelSize, 4f, MeasureLabelRun,
                 label =>
                 {
                     var (item, lx, ly, maxLineW, labelH) = label;

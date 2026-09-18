@@ -444,7 +444,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             : _overlayItems.Count <= collisionEnter;
 
         var placementLabelSize = baseFontSize * dpiScale * 0.85f;
-        var measureText = (string text, float size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width;
+        Func<string, float, float> measureText = MeasureLabelRun;
         Action<PlacedLabel> record = label => _overlayPlacedLabels.Add((label.Item, label.X, label.Y));
 
         // Reserve the mount reticle's label footprint (drawn later, in RenderMountOverlay) so
@@ -560,7 +560,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
                         new PointInt((int)(lx + 200), (int)(ly + (li + 1) * lineH)),
                         new PointInt((int)lx, (int)(ly + li * lineH))),
                     TextAlign.Near, TextAlign.Center);
-                var (lineW, _) = Renderer.MeasureText(line.AsSpan(), fontPath, labelSize);
+                var lineW = MeasureLabelRun(line, labelSize);
 
                 // The photo mark, in the room the placement reserved after the first line; it is part of
                 // the label's clickable box as well.
