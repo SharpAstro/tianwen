@@ -78,7 +78,8 @@ the ground truth it is guessing at:
 1. For archived sessions, fetch Open-Meteo's historical forecast for the site and night (the same fields,
    `historical-forecast-api`).
 2. Pair each hour with that hour's measured median sub FWHM (arcsec) and `GUIDERMS`.
-3. Fit the class thresholds, and test whether 500 hPa shear or surface wind adds anything, on those
+3. Fit the class thresholds, and test whether 500 hPa shear, surface wind or the mixing height
+   (`BoundaryLayerHeight`, the ground-layer candidate recorded since 2026-09-19) adds anything, on those
    nights. Report the correlation honestly; if it is weak, say so in the planner label.
 
 ### P3 (optional): 7Timer as a second source
@@ -111,11 +112,24 @@ there unless the web build grows a server.
   the upper-air wind OpenWeatherMap lacks. The planner now fetches through
   `IWeatherDriver.GetHourlyForecastWithUpperAirAsync` (`WeatherDriverExtensions`), which for an OpenWeatherMap
   driver also asks keyless Open-Meteo for the same window and fills ONLY the missing upper-air fields at the same
-  instant (`WeatherForecastMerge.FillUpperAirWinds`): OpenWeatherMap's own numbers always win, and no hour only
+  instant (`WeatherForecastMerge.FillUpperAir`): OpenWeatherMap's own numbers always win, and no hour only
   Open-Meteo covers is added. Every other driver passes through, so a fake or hardware driver never reaches the
   network from a test. Open-Meteo's own file cache keeps it to one request an hour. Pinned by
   `WeatherUpperAirSupplementTests`, which drives both real drivers off fresh file caches and fails with the
   fill disabled.
+- **The mixing height is recorded and shown, not scored (2026-09-19).** `HourlyWeatherForecast.BoundaryLayerHeight`
+  (metres above ground, Open-Meteo's `boundary_layer_height`, what the Bureau of Meteorology labels "mixing
+  height") rides the same request, fills across providers with the winds, and reads "Mixing height: 280 m" in
+  the band's tooltip. It is the ground-layer half of the atmosphere the jet wind does not see: a clear calm night
+  collapses it to a shallow stable layer (still low air, but moisture and smoke trapped under it), while a night
+  that stays deep is being stirred by wind. **It is a MODEL quantity and the models disagree most exactly where
+  it matters**: for the user's site on 2026-09-19 BOM's ACCESS gave 1763 / 1561 / 711 m at 16:00 / 17:00 / 18:00
+  and a flat 110 m all night, Open-Meteo's default model 1680 / 1560 / 380 m and 265 to 300 m overnight (a
+  second point at Moorabbin, 13 km nearer the bay, read within 30 m of it, so the gap is the model, not the
+  place). Open-Meteo serves no boundary layer from its `bom_access_global` or `ecmwf_ifs025` models, so BOM's
+  own number is not reachable through it. `SeeingForecast` deliberately ignores it until P2 has weighed it
+  (`TheMixingHeightDoesNotMoveTheSeeingClassYet`); recording it now means every cached night carries it for
+  that calibration.
 
 ## Phasing
 

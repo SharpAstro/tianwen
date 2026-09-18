@@ -10,10 +10,10 @@ public static class WeatherDriverExtensions
     extension(IWeatherDriver driver)
     {
         /// <summary>
-        /// The driver's hourly forecast, with the upper-air winds filled in from Open-Meteo where the provider has
-        /// no upper-air field, so the planner's seeing estimate is there whichever forecast the profile uses
-        /// (docs/plans/seeing-forecast.md). The provider's own numbers always win; only its missing winds are
-        /// filled (<see cref="WeatherForecastMerge.FillUpperAirWinds"/>).
+        /// The driver's hourly forecast, with the upper-air fields (the pressure-level winds and the boundary-layer
+        /// height) filled in from Open-Meteo where the provider has none, so the planner's seeing estimate is there
+        /// whichever forecast the profile uses (docs/plans/seeing-forecast.md). The provider's own numbers always
+        /// win; only its missing fields are filled (<see cref="WeatherForecastMerge.FillUpperAir"/>).
         /// </summary>
         /// <remarks>
         /// OpenWeatherMap is the provider this is for: it has no upper-air field at all, where Open-Meteo is
@@ -36,7 +36,7 @@ public static class WeatherDriverExtensions
 
             using var openMeteo = new OpenMeteoDriver(new OpenMeteoDevice(), serviceProvider);
             var upperAir = await openMeteo.GetHourlyForecastAsync(latitude, longitude, start, end, cancellationToken);
-            return upperAir.Count > 0 ? WeatherForecastMerge.FillUpperAirWinds(forecast, upperAir) : forecast;
+            return upperAir.Count > 0 ? WeatherForecastMerge.FillUpperAir(forecast, upperAir) : forecast;
         }
     }
 }

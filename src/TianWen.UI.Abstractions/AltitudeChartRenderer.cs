@@ -990,7 +990,7 @@ public static class AltitudeChartRenderer
     /// </summary>
     public static List<string> BuildWeatherTooltipLines(HourlyWeatherForecast f, TimeSpan siteTimeZone)
     {
-        var lines = new List<string>(7);
+        var lines = new List<string>(9);
 
         var time = f.Time.ToOffset(siteTimeZone).ToString("HH:mm");
         var condition = DescribeWeatherCode(f.WeatherCode);
@@ -1032,6 +1032,12 @@ public static class AltitudeChartRenderer
         if (SeeingForecast.For(f) is { Class: not SeeingClass.Unknown } seeing)
         {
             lines.Add($"Seeing: {seeing.Class} ({(int)seeing.Class}/5), estimated from wind; {f.WindSpeed250hPa:F0} m/s at 250 hPa");
+        }
+
+        // Shown, not scored: a candidate ground-layer term for the seeing estimate until P2 has weighed it.
+        if (!double.IsNaN(f.BoundaryLayerHeight))
+        {
+            lines.Add($"Mixing height: {f.BoundaryLayerHeight:F0} m");
         }
 
         if (!double.IsNaN(f.Visibility) && f.Visibility > 0)
