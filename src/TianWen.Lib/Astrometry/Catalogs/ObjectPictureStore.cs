@@ -38,6 +38,14 @@ public interface IObjectPictureStore
 /// </summary>
 internal sealed class ObjectPictureStore : IObjectPictureStore
 {
+    // The pool behind SharedHttp, living for the process as the client does. Its pooled connections need a
+    // lifetime: the default is infinite, under which a connection is reused until the server drops it and
+    // DNS is consulted only for a new one, pinning a long session to one Wikimedia edge address. Two
+    // minutes re-resolves and rotates. A field, declared BEFORE the client (static initialisers run in
+    // order), rather than a local handed to the client's constructor, whose ownership CA2000 cannot see.
+    private static readonly SocketsHttpHandler SharedHandler =
+        new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(2) };
+
     // Wikimedia's policy asks a client to name itself. Shared and static, as the comet sources do: the
     // fetches are few and small, and a per-call client would only churn sockets.
     private static readonly HttpClient SharedHttp = CreateHttpClient();
@@ -61,11 +69,7 @@ internal sealed class ObjectPictureStore : IObjectPictureStore
 
     private static HttpClient CreateHttpClient()
     {
-        // Shared for the process, so its pooled connections need a lifetime: the default is infinite, under
-        // which a connection is reused until the server drops it and DNS is consulted only for a new one,
-        // pinning a long session to one Wikimedia edge address. Two minutes re-resolves and rotates.
-        var handler = new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(2) };
-        var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+        var http = new HttpClient(SharedHandler, disposeHandler: false) { Timeout = TimeSpan.FromSeconds(30) };
         http.DefaultRequestHeaders.UserAgent.ParseAdd("TianWen (https://github.com/SharpAstro/tianwen)");
         return http;
     }
