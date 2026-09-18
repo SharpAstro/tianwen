@@ -19,7 +19,9 @@ namespace TianWen.Lib.Devices.Weather;
 internal sealed class OpenMeteoDriver : IWeatherDriver
 {
     private const string BaseUrl = "https://api.open-meteo.com/v1/forecast";
-    private const string HourlyParams = "cloud_cover,precipitation,precipitation_probability,temperature_2m,relative_humidity_2m,dew_point_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m,visibility,weather_code";
+    // The three pressure-level winds are the seeing forecast's input (docs/plans/seeing-forecast.md); they
+    // cost nothing, riding the same request.
+    private const string HourlyParams = "cloud_cover,precipitation,precipitation_probability,temperature_2m,relative_humidity_2m,dew_point_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m,visibility,weather_code,wind_speed_250hPa,wind_speed_500hPa,wind_speed_850hPa";
     private const string CurrentParams = "temperature_2m,relative_humidity_2m,cloud_cover,surface_pressure,wind_direction_10m,wind_speed_10m,wind_gusts_10m,precipitation";
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(1);
 
@@ -234,7 +236,7 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
         _dewPoint = ApproximateDewPoint(_temperature, _humidity);
     }
 
-    private static List<HourlyWeatherForecast> ParseHourlyData(OpenMeteoHourlyData? hourly, DateTimeOffset start, DateTimeOffset end)
+    internal static List<HourlyWeatherForecast> ParseHourlyData(OpenMeteoHourlyData? hourly, DateTimeOffset start, DateTimeOffset end)
     {
         if (hourly?.Time is not { Count: > 0 } times)
         {
@@ -268,7 +270,10 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
                 WindDirection: GetValue(hourly.WindDirection10m, i),
                 Visibility: GetValue(hourly.Visibility, i),
                 WeatherCode: GetIntValue(hourly.WeatherCode, i),
-                PrecipitationProbability: GetValue(hourly.PrecipitationProbability, i)
+                PrecipitationProbability: GetValue(hourly.PrecipitationProbability, i),
+                WindSpeed250hPa: GetValue(hourly.WindSpeed250hPa, i) / 3.6,
+                WindSpeed500hPa: GetValue(hourly.WindSpeed500hPa, i) / 3.6,
+                WindSpeed850hPa: GetValue(hourly.WindSpeed850hPa, i) / 3.6
             ));
         }
 
@@ -277,6 +282,10 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
 
     private static double GetValue(List<double>? list, int index)
         => list is not null && index < list.Count ? list[index] : double.NaN;
+
+    // A pressure-level array may hold nulls (an hour past that level's horizon); a null is "no value".
+    private static double GetValue(List<double?>? list, int index)
+        => list is not null && index < list.Count && list[index] is { } value ? value : double.NaN;
 
     private static int GetIntValue(List<int>? list, int index)
         => list is not null && index < list.Count ? list[index] : 0;

@@ -65,4 +65,9 @@ internal sealed class OpenMeteoHourlyData
     [JsonPropertyName("wind_direction_10m")] public List<double>? WindDirection10m { get; set; }
     public List<double>? Visibility { get; set; }
     public List<int>? WeatherCode { get; set; }
+    // Pressure-level winds, km/h. Nullable elements, because an hour past a level's forecast horizon comes
+    // back null, and a null in a List<double> fails the WHOLE response rather than that one value.
+    [JsonPropertyName("wind_speed_250hPa")] public List<double?>? WindSpeed250hPa { get; set; }
+    [JsonPropertyName("wind_speed_500hPa")] public List<double?>? WindSpeed500hPa { get; set; }
+    [JsonPropertyName("wind_speed_850hPa")] public List<double?>? WindSpeed850hPa { get; set; }
 }

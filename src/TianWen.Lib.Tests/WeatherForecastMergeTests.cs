@@ -84,4 +84,35 @@ public class WeatherForecastMergeTests
         merged.Count.ShouldBe(1);
         merged[0].Humidity.ShouldBe(81);
     }
+
+    // --- the upper-air winds merge per FIELD (the seeing forecast's input) ---
+
+    [Fact]
+    public void Merge_FreshWithoutUpperAirWinds_KeepsTheCachedWinds()
+    {
+        // The cache holds winds for 12:00; a refetch whose pressure-level array ran out (or a cache/driver
+        // from before the winds were requested) brings the hour back without them.
+        var cached = new List<HourlyWeatherForecast> { Hour(12, 90) with { WindSpeed250hPa = 40, WindSpeed500hPa = 20, WindSpeed850hPa = 8 } };
+        var fresh = new List<HourlyWeatherForecast> { Hour(12, 81) };
+
+        var merged = WeatherForecastMerge.Merge(cached, fresh).ShouldHaveSingleItem();
+
+        merged.Humidity.ShouldBe(81, "the surface fields still take the fresh value");
+        merged.WindSpeed250hPa.ShouldBe(40);
+        merged.WindSpeed500hPa.ShouldBe(20);
+        merged.WindSpeed850hPa.ShouldBe(8);
+    }
+
+    [Fact]
+    public void Merge_FreshUpperAirWindsStillWin()
+    {
+        var cached = new List<HourlyWeatherForecast> { Hour(12, 90) with { WindSpeed250hPa = 40, WindSpeed500hPa = 20, WindSpeed850hPa = 8 } };
+        var fresh = new List<HourlyWeatherForecast> { Hour(12, 81) with { WindSpeed250hPa = 44, WindSpeed500hPa = double.NaN, WindSpeed850hPa = 9 } };
+
+        var merged = WeatherForecastMerge.Merge(cached, fresh).ShouldHaveSingleItem();
+
+        merged.WindSpeed250hPa.ShouldBe(44);
+        merged.WindSpeed500hPa.ShouldBe(20, "only the MISSING field falls back to the cache");
+        merged.WindSpeed850hPa.ShouldBe(9);
+    }
 }
