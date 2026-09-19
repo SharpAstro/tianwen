@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using DIR.Lib;
 using Shouldly;
@@ -173,6 +174,87 @@ public class ViewerE2ETests
 
         e2e.ExitRequests.ShouldBe(0, "an open menu takes Escape, so it never reaches the exit binding");
     }
+
+    /// <summary>
+    /// An open toolbar menu hangs from its button while the window changes size. The anchor was taken once,
+    /// at the press, so a "?" menu opened in a small window stayed where that window's right edge had been
+    /// after it was maximised, and one opened in a large window hung past the edge of a smaller one
+    /// (2026-09-19). The "?" button is pinned to the right edge; Zoom's moves down a row when the bar wraps.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Scales))]
+    public async Task AnOpenToolbarMenuFollowsItsButtonWhenTheWindowResizes(float dpiScale)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var e2e = ViewerE2E.Start(dpiScale);
+        await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
+
+        // Narrower, then wider, than the window the menu opened in. Scaled with the DPI so the "?" menu (as
+        // wide as its version and install-path lines) still fits: a window narrower than the menu itself is
+        // a different question from where the menu hangs.
+        var sizes = new[] { ((uint)(1100 * dpiScale), 700u), ((uint)(1800 * dpiScale), 1000u) };
+        foreach (var action in new[] { ToolbarAction.Shortcuts, ToolbarAction.Zoom })
+        {
+            e2e.Click(action);
+            foreach (var (width, height) in sizes)
+            {
+                e2e.Resize(width, height);
+                e2e.State.ToolbarDropdown.IsOpen.ShouldBeTrue($"{action}'s menu stays open across a resize");
+
+                var button = e2e.ToolbarButton(action);
+                var row = DropdownRows.First(e2e.Viewer);
+                row.Y.ShouldBe(button.Y + button.Height, 0.5f,
+                    $"{action}'s menu hangs from where its button is at {width}x{height}, dpi {dpiScale}");
+                // Staying on screen is not enough, and was never what went wrong: the stale menu stayed on
+                // screen, under where the button HAD been, so it must span the button it hangs from.
+                (row.X <= button.X + button.Width && row.X + row.Width >= button.X).ShouldBeTrue(
+                    $"{action}'s menu [{row.X:F0}, {row.X + row.Width:F0}] spans its button "
+                    + $"[{button.X:F0}, {button.X + button.Width:F0}] at {width}x{height}, dpi {dpiScale}");
+                row.X.ShouldBeGreaterThanOrEqualTo(-0.5f, $"{action}'s menu starts inside the window at {width}x{height}");
+                (row.X + row.Width).ShouldBeLessThanOrEqualTo(width + 0.5f,
+                    $"{action}'s menu ends inside the window at {width}x{height}, dpi {dpiScale}");
+            }
+
+            e2e.Key(InputKey.Escape);
+        }
+    }
+
+    /// <summary>
+    /// The wheel over a menu too long for the window scrolls the menu, not the picture under it. DIR.Lib
+    /// 10.2 made a declared dropdown a scroll container the router hands the wheel to, and this host sent
+    /// the wheel straight to the viewer, around the router, so it zoomed the image beneath the open "?"
+    /// menu instead (2026-09-19, live, on the keyboard-shortcuts page).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Scales))]
+    public async Task TheWheelOverALongMenuScrollsTheMenuNotThePicture(float dpiScale)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var e2e = ViewerE2E.Start(dpiScale, width: 1600, height: 500);
+        await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
+        e2e.Click(ToolbarAction.Shortcuts);
+
+        // The root page's "Keyboard shortcuts" row; a page change reopens the menu on the next frame.
+        e2e.Click(e2e.Region(h => h is HitResult.ListItemHit { ListId: DropdownMenuState<string>.ListId, Index: 3 },
+            "the root page's keyboard-shortcuts row"));
+        e2e.Frame();
+        MenuRowIndices(e2e).Min().ShouldBe(0, "the shortcuts page opens at its top");
+        var zoom = (e2e.State.Zoom, e2e.State.ZoomToFit);
+
+        var first = DropdownRows.First(e2e.Viewer);
+        e2e.Host.HandlePointer(new InputEvent.Scroll(-3f, first.X + (first.Width / 2f), first.Y + (first.Height * 4f)));
+        e2e.Frame();
+
+        MenuRowIndices(e2e).Min().ShouldBeGreaterThan(0, $"the wheel scrolled the menu at dpi {dpiScale}");
+        (e2e.State.Zoom, e2e.State.ZoomToFit).ShouldBe(zoom, "the picture under the menu did not zoom");
+    }
+
+    private static int[] MenuRowIndices(ViewerE2E e2e)
+        => [.. e2e.Viewer.GetRegisteredRegions()
+            .Select(r => r.Result)
+            .OfType<HitResult.ListItemHit>()
+            .Where(h => h.ListId == DropdownMenuState<string>.ListId)
+            .Select(h => h.Index)];
 
     [Theory]
     [MemberData(nameof(Scales))]
