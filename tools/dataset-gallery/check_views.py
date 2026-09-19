@@ -291,12 +291,13 @@ def main():
         why = ""
         if m and r["file"].endswith("_crop.png"):
             # The 1:1 patch is cut from the RAW view, so no note about the enhance can apply to it.
-            # And it is not the renderer's background either: build_rows picks the quietest window by
-            # its own rule, the render neutralises the region ScanBackgroundRegion finds, and in a
-            # field full of nebulosity those are different places (Oph Mol Cloud: the patch sits in
-            # blue reflection nebulosity at R/G 0.61 while the render's own sky is neutral to 3%).
-            # A cast here is a fact about where the patch was cut, not about the picture.
-            why = "   [sky patch: cut from the RAW view at build_rows' own pick, not the render's background region; #64]"
+            # Its centre 32 px is the very square the render neutralised (tianwen dataset masters
+            # asks Image.FindBackgroundRegion on the cropped frame and centres the patch on it), so
+            # the CENTRE is neutral by construction and a cast over the whole patch is the 144 px of
+            # context either side: nebulosity or a star next to the darkest sky. It used to be the
+            # script's own "quietest window", which on Oph Mol Cloud sat in blue reflection
+            # nebulosity at R/G 0.61 while the render's own sky was neutral to 3 percent.
+            why = "   [sky patch: the render's own background square at the centre; a cast is its 320 px surround]"
         elif m:
             filt = (m.get("filter") or "").lower()
             raw_p = os.path.join(img_dir, "%s_raw.png" % rid)
