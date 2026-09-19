@@ -14,6 +14,7 @@ to look, never what the pixels are.
 """
 import json
 import os
+import re
 import sys
 
 import numpy as np
@@ -95,6 +96,32 @@ def web_slug(text):
     return "".join(c if c.isalnum() or c in "-_" else "-" for c in text)
 
 
+# A FLIPPED session yields THREE masters, and there are only two sides of a meridian: the
+# combined one over the whole night, plus one per pier side (#45). The suffix is what the split
+# writes, and the combined master is simply the same name without it -- so "there is a sibling
+# called <me>_flip=a" is what identifies it, and nothing has to parse a session id to find out.
+# Until now the table only said flip=true/false, so the three read as three duplicates on the
+# page: same target, same night, same train, three cards (#60). They are not duplicates, and the
+# sub counts prove it -- the Lobster Nebula night is 100 subs combined, 32 on one side and 68 on
+# the other.
+FLIP_SUFFIX = re.compile(r"_flip=([ab])$")
+
+
+def flip_sides(names):
+    """name -> 'a' | 'b' | 'both' | None, over the whole listing at once."""
+    stems, out = set(names), {}
+    for n in names:
+        m = FLIP_SUFFIX.search(n)
+        out[n] = m.group(1) if m else ("both" if n + "_flip=a" in stems else None)
+    return out
+
+
+def flip_group(name):
+    """The night a split master belongs to: its own name with the side suffix removed. Shared by
+    all three cards of a flipped session, so the page can say which of the set it is looking at."""
+    return FLIP_SUFFIX.sub("", name)
+
+
 def main():
     store, out_path = sys.argv[1], sys.argv[2]
     masters_dir = os.path.join(store, "session-masters")
@@ -106,6 +133,7 @@ def main():
     rows = []
     names = sorted(f[:-5] for f in os.listdir(masters_dir)
                    if f.lower().endswith(".fits") and not is_rejection_map(f))
+    sides = flip_sides(names)
     for i, name in enumerate(names):
         path = os.path.join(masters_dir, name + ".fits")
         hdr = header_of(path)
@@ -141,14 +169,20 @@ def main():
             # came out of the oven solved, rather than the gallery solving it again to find out.
             "solved": "CRPIX1" in hdr,
             "coverage": os.path.exists(rejection_path(path)),
-            "flip": "flip=" in name,
+            # 'a' / 'b' = one pier side; 'both' = the combined master of a night that WAS split;
+            # null = a night that never flipped. flipGroup ties the three together.
+            "flip": sides[name],
+            "flipGroup": web_slug(flip_group(name))[:110] if sides[name] else None,
             "id": i,
         })
     json.dump(rows, open(out_path, "w", encoding="utf-8"), separators=(",", ":"))
     solved = sum(1 for r in rows if r["solved"])
     cov = sum(1 for r in rows if r["coverage"])
-    print("%d masters -> %s   solved %d   with a coverage plane %d   flip-side %d"
-          % (len(rows), out_path, solved, cov, sum(1 for r in rows if r["flip"])))
+    split = sum(1 for r in rows if r["flip"] in ("a", "b"))
+    both = sum(1 for r in rows if r["flip"] == "both")
+    print("%d masters -> %s   solved %d   with a coverage plane %d   "
+          "%d pier-side masters over %d flipped nights (+%d combined)"
+          % (len(rows), out_path, solved, cov, split, split // 2, both))
 
 
 if __name__ == "__main__":

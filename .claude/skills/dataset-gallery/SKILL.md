@@ -12,19 +12,37 @@ same crop before enhancement, and a 1:1 patch of its sky, published as an Artifa
 ## The whole run, in order
 
 ```
-python tools/dataset-gallery/build_rows.py   <store> rows.json
-python tools/dataset-gallery/batch_enhance.py <store> <outdir> [--jobs N] [--rawhalf-only]
-python tools/dataset-gallery/render_views.py rows.json <store> <outdir>/enhanced .artifact-gallery/img
+python tools/dataset-gallery/build_rows.py  <store> rows.json
+python tools/dataset-gallery/build_views.py <store> rows.json .artifact-gallery/img [--jobs N]
+python tools/dataset-gallery/check_views.py .artifact-gallery/img --json qc.json
+python tools/dataset-gallery/inject_rows.py rows.json .artifact-gallery/bake-masters.html
 ```
 
-and the enhance step is four tianwen verbs per master, in this order, which is the heart of the skill:
+**Four scripts, four jobs, no overlap: the table, the pictures, the measurement, the page.** There
+used to be seven, and the two that mattered split one job down the middle -- `batch_enhance` rendered
+the raw view and `render_views` the enhanced one, hours apart -- which is what let the pair disagree
+about colour. `render_pairs` (the superseded side-by-side sheet) and `sync_gallery` (a second,
+hand-rolled copy of the row parsing and the rendering) are gone with them.
+
+`build_views` is five tianwen verbs per master, in this order, which is the heart of the skill:
 
 ```
 tianwen image autocrop <master> -o crop.fits --margin 0.02
-tianwen solve crop.fits --update-fits
+tianwen solve crop.fits --update-fits                      # only if it arrives unsolved
+tianwen image render crop.fits -o raw.png                  # prints the white balance it solved
 tianwen image sharpen crop.fits -o sharp.fits --ai-backend rc
-tianwen image render <fits> -o <png>          # once per view
+tianwen image render sharp.fits -o enh.png --white-balance <the triple raw.png printed>
 ```
+
+**THE ORDER IS LOAD-BEARING: the raw view is rendered FIRST because its white balance is what the
+enhanced view inherits.** They are not two askings of one question. The enhance has already flattened
+the background and pulled the noise down, so a second SPCC solve reads a frame the first never saw,
+and its answer lands on top of a calibration the pixels already carry. That double correction is what
+put an olive wash over cards whose raw half was fine. `image render` prints
+`[render] white-balance R,G,B (SPCC)` and `--white-balance` takes exactly that back, which is the
+same sharing `MasterPostProcessor` has always done across the split-plate TIFFs. Fed its own printed
+triple, the render reproduces itself to 1 part in 65535 on 0.02 percent of pixels -- the rounding of
+the six printed decimals and nothing else.
 
 **Since the bake retains a coverage plane and a WCS, the first two are cheaper and better**: `autocrop`
 reaches its exact tier from the `.rejection.fits` sidecar instead of estimating from the noise, and a
@@ -37,11 +55,10 @@ of ninety masters take three calls rather than a sprite. The sprite this replace
 into one box at one width, which made the crop invisible: every card read as "before and after are the
 same size" while the crop had taken 15 percent of the canvas.
 
-**`--rawhalf-only` redoes the cheap half.** The raw half is the one output that depends on the
-RENDERER rather than on the enhancers, so a fix to `image render` invalidates it alone: re-running
-the whole enhance to pick up a render fix costs an hour of GPU for a picture that takes seconds. The
-mode still re-runs the crop and the solve, because the half has to agree with the enhanced half on
-framing and on colour, and neither the cropped file nor its WCS is kept.
+**A row whose three PNGs all exist is skipped; `--force` redoes it.** The enhance is the expensive
+stage, so re-running the script over a finished gallery costs nothing and a half-finished one costs
+only what is missing. There is no longer a mode that redoes one half on its own: the halves have to
+share a solve, so they are made together or not at all.
 
 **One outdir. Two is how a gallery ends up showing a run nobody meant to publish.** Cards built from
 a stale enhance folder look like a broken crop verb: no margin crop, no plate solve, and no way to
@@ -75,8 +92,9 @@ included. After a solve the channel means land at 55.96 / 55.08 / 55.99 and the 
 plane and adds each plane's own median back, deliberately preserving the levels. Gradient, background
 neutralisation and white balance are three different things and only a solve buys the third.
 
-**One solve is enough**: `image sharpen` carries the WCS through to its output, so the cropped file is
-solved once and both halves render calibrated.
+**One solve is enough, and now one WHITE BALANCE too**: `image sharpen` carries the WCS through to
+its output, so the cropped file is solved once; the raw view's balance is then handed to the enhanced
+view rather than re-fitted. The skill claimed the first half of this long before the second was true.
 
 **render through the verb, never a private stretch.** This script used to carry its own numpy curve
 (median - 2.8 MAD to black, midtones to 0.25). It washed backgrounds to light grey, blew the Orion
@@ -110,7 +128,20 @@ ones they have, so the gallery reads as mixed until the batch catches up.
   ASI294MC master did, from a hot-pixel mask that flagged 100 percent of blue). **A fix does not
   rewrite files already baked**, so such a master answers `autocrop` with "the scan left nothing",
   which is correct -- every pixel is absent when a whole channel is NaN -- and the card has to be
-  built from a re-bake of that session instead, pointing `render_pairs` at the store that holds it.
+  built from a re-bake of that session instead, pointing `build_views` at the store that holds it.
+- **A flipped night is THREE masters and there are only TWO sides of a meridian.** The split (#45)
+  writes the combined master over the whole night plus one per pier side, so the three cards share a
+  target, a date and a train and look like duplicates. They are not, and the sub counts prove it: the
+  Lobster Nebula night is 100 subs combined, 32 on one side and 68 on the other. `build_rows` reports
+  the side as `flip` (`a` / `b` / `both` / null) and groups the set with `flipGroup`; the page badges
+  every such card and offers a "whole nights" filter that hides the two halves.
+- **A dual-narrowband master renders teal and that is the DATA, not the render (#51).** Under an
+  L-Ultimate or L-eNhance the OSC frame carries Ha in red and OIII in BOTH green and blue, so the
+  colour space is rank-deficient -- two real channels in three slots -- and SPCC, which is
+  broadband-only, has no honest curve to fit. The cast is easy to misread as a render bug because it
+  APPEARS at the enhance: unenhanced, the sky gradient and the noise floor cover the G-equals-B
+  degeneracy, and flattening plus denoise takes away exactly the things that were hiding it. Check the
+  row's `filter` before chasing it, and do not "fix" it in the renderer.
 - **Measure, do not squint.** Background peak-to-peak per channel says whether the flatten worked;
   sigma-from-median at the frame edge says whether the crop did; channel means say whether the colour
   is calibrated. Every wrong conclusion in this pipeline's history came from judging a JPEG by eye.
