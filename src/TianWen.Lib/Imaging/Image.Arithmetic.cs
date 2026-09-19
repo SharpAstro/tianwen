@@ -14,15 +14,17 @@ public partial class Image
     /// sample is already finite, so the clean-input path is bit-identical.
     /// </summary>
     /// <remarks>
-    /// BayerDrizzle (and any partial-coverage) masters carry non-finite
-    /// coverage holes. The AI enhancers -- the SETI Astro ONNX models and the
-    /// RC-Astro CLI alike -- compute non-NaN-aware global normalisation
-    /// (median / MAD / min-max), so a single NaN poisons the entire output to
-    /// NaN. <see cref="Enhancement.SharpenPipeline"/> calls this at its input
-    /// boundary so every downstream enhancer (and the noise baseline) sees
-    /// finite data. The filled samples sit in the sparse-coverage border that
-    /// autocrop discards, so the exact fill value is not critical -- the
-    /// per-channel mean is a cheap, smooth, range-safe choice.
+    /// <para>The AI enhancers -- the SETI Astro ONNX models and the RC-Astro CLI alike -- compute
+    /// non-NaN-aware global normalisation (median / MAD / min-max), so a single NaN poisons the
+    /// entire output to NaN. <see cref="Enhancement.SharpenPipeline"/> calls this at its input
+    /// boundary, AFTER <see cref="WithInteriorHolesFilled"/>, so what reaches it is only the
+    /// border-connected ring a crop would have removed; there the exact value is not critical and
+    /// the per-channel mean is a cheap, smooth, range-safe choice.</para>
+    /// <para><b>It is not a hole fill, and it used to be used as one.</b> A drizzle master's
+    /// rejection voids sit on the brightest part of the picture, different pixels per channel, and
+    /// a frame mean written into one channel beside a real value in another is an impossible
+    /// colour (the Great Orion speck, 2026-09-19). Interior holes take their neighbours' value;
+    /// this takes the remainder.</para>
     /// </remarks>
     public Image ReplaceNonFiniteWithChannelMean()
     {

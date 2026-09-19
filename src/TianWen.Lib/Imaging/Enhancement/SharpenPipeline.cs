@@ -94,6 +94,49 @@ public sealed class SharpenPipeline(
     /// </summary>
     public bool SupportsDeblur => deblurrer is not null;
 
+    /// <summary>
+    /// The finite-input boundary every enhancer stands behind: interior holes are interpolated from
+    /// their neighbours, and only what is left after that (a border ring no crop removed) falls back
+    /// to the per-channel mean. The same instance comes back when there is nothing to fill.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The enhancers -- SAS ONNX and RC-Astro alike -- compute non-NaN-aware global
+    /// normalisation, so a single NaN poisons the whole output to NaN.</b> That much was always
+    /// handled here. What was not is WHICH value goes into a hole, and it was the per-channel MEAN
+    /// on the reasoning that non-finite samples "sit in the sparse-coverage border that autocrop
+    /// discards, so the exact fill value is not critical". A drizzle master's holes are not on the
+    /// border: rejection takes every sample of a saturated core, and the void is dead centre on the
+    /// brightest part of the picture. The Great Orion master carries 1,240 / 493 / 769 NaN at the
+    /// Trapezium, different pixels per channel, so a pixel where red is NaN and green is not got
+    /// red's frame mean (0.002, the sky) beside green's real value (0.27): an impossible colour the
+    /// render then faithfully drew as a cyan-and-magenta speck, and the ONLY view of that card it
+    /// appeared on was the enhanced one, because the display render fills its own holes from the
+    /// neighbours and this path did not. That is the third implementation of the hole fill, and the
+    /// wrong one; <see cref="Image.WithInteriorHolesFilled"/> is the rule the viewer's document open
+    /// and the headless render already share, and now this shares it too.</para>
+    /// <para>The mean fallback stays for what the interior fill deliberately leaves: a NaN
+    /// connected to the border is the canvas ring, which is evidence for the crop and is never
+    /// interpolated. An enhance on an uncropped master still has to be finite there, and the mean is
+    /// as good as anything for a band the crop discards -- which is the case the old reasoning was
+    /// actually right about.</para>
+    /// </remarks>
+    internal static Image SanitiseForEnhance(Image source, ILogger? logger)
+    {
+        var filled = source.WithInteriorHolesFilled();
+        if (!ReferenceEquals(filled, source))
+        {
+            logger?.LogInformation("SharpenPipeline: interior holes (rejection voids) interpolated from their neighbours before enhancement.");
+        }
+
+        var finite = filled.ReplaceNonFiniteWithChannelMean();
+        if (!ReferenceEquals(finite, filled))
+        {
+            logger?.LogWarning("SharpenPipeline: source has non-finite samples on its border ring; filled with the per-channel mean. Crop before enhancing so the ring is not fed to the models.");
+        }
+
+        return finite;
+    }
+
     /// <summary>Auto-backend, no-tuning convenience overload (pre-Phase-3 behaviour).</summary>
     public Task<SharpenResult> ProcessAsync(SharpenRequest request, CancellationToken cancellationToken = default)
         => ProcessAsync(request, EnhanceOptions.Default, null, cancellationToken);
@@ -113,17 +156,10 @@ public sealed class SharpenPipeline(
         ArgumentNullException.ThrowIfNull(options);
         ValidateRequest(request);
 
-        // BayerDrizzle (and any partial-coverage) masters carry non-finite
-        // coverage holes. The enhancers -- SAS ONNX and RC-Astro alike --
-        // compute non-NaN-aware global normalisation, so a single NaN poisons
-        // the whole output to NaN. Sanitise once at the boundary so every
-        // downstream enhancer (and the EstimateNoiseProfile baseline below)
-        // sees finite input. No-op + same instance when already clean.
-        var source = request.Source.ReplaceNonFiniteWithChannelMean();
-        if (!ReferenceEquals(source, request.Source))
-        {
-            logger?.LogWarning("SharpenPipeline: source had non-finite samples (e.g. drizzle coverage holes); filled with per-channel mean before enhancement.");
-        }
+        // Every enhancer needs finite input, and WHICH finite value goes into a hole decides the
+        // colour of the picture that comes out. See SanitiseForEnhance for the rule and the card
+        // that found it. No-op + same instance when already clean.
+        var source = SanitiseForEnhance(request.Source, logger);
 
         // A raw CFA mosaic is debayered ONCE, here, before any step sees it -- every enhancer in
         // the program applies a SPATIAL kernel, and a kernel over an interleaved mosaic blends
