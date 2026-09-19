@@ -1,3 +1,7 @@
+using System;
+using System.IO;
+using Microsoft.Extensions.Logging.Abstractions;
+using TianWen.Lib.Imaging.Stacking;
 using System.Threading.Tasks;
 using TianWen.UI.Abstractions;
 using Shouldly;
@@ -300,6 +304,99 @@ namespace TianWen.Lib.Tests
             var empty = default(FilterCurve);
             empty.PassbandWidthNm().ShouldBe(0d);
             FilterCurveDatabase.IsLineSelective(empty, empty, empty).ShouldBeFalse();
+        }
+
+        /// <summary>
+        /// The HEADLESS half of the same rule, which every test above missed because every one of them
+        /// went through the viewer. <c>MasterPreviewRenderer</c> is what the dataset bake and
+        /// <c>tianwen image render</c> draw with, and it hardcoded <see cref="StretchMode.Linked"/> and
+        /// never called <c>ResolveAuto</c>, so a rule that was measured, documented and pinned applied to
+        /// exactly one of the two renderers.
+        /// </summary>
+        /// <remarks>
+        /// Found 2026-09-19 chasing teal dual-narrowband gallery cards. <c>tianwen image render</c> on a
+        /// real 3 nm Optolong L-Ultimate master printed <c>white-balance 1.135512,1.000000,1.860489
+        /// (SPCC)</c>: a photometric fit against a continuum that never reached the sensor, pushing blue up
+        /// 86 percent. Rendered Linked, the ONE shared shadow point comes off the mean of three unequal
+        /// medians, and red -- the weakest channel after that triple -- fell under it and clipped to zero
+        /// once the enhance had shrunk the MAD. The white balance is left exactly as it was; what changes
+        /// is that it is no longer ASSERTED as colour.
+        /// <para>Asserted on the per-channel curve rather than on <see cref="StretchUniforms.Mode"/>, so a
+        /// renderer that set the flag and went on sharing one curve would still fail: Linked writes one
+        /// answer into all three slots by construction, Unlinked solves each channel from its own
+        /// pixels.</para>
+        /// </remarks>
+        [Theory]
+        [InlineData("Optolong L-Ultimate 3nm", StretchMode.Unlinked)]
+        [InlineData("Optolong L-Quad Enhance", StretchMode.Linked)]
+        public async Task TheHeadlessRendererHonoursTheSameLineSelectiveVeto(string filterName, StretchMode expected)
+        {
+            await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+
+            var master = OscFrame(filterName);
+            var renderer = new MasterPreviewRenderer(catalogDb: null, NullLogger.Instance);
+            var png = Path.Combine(Path.GetTempPath(), $"tw-{Guid.NewGuid():N}.png");
+            try
+            {
+                // A supplied triple is the gallery's own path (the enhanced render inherits the master's
+                // balance) AND the only way to make a calibration active with no catalog in the test, which
+                // matters: with none active ResolveAuto answers Unlinked for BOTH rows and the control
+                // below would pass against a renderer that had simply stopped picking Linked.
+                var render = await renderer.RenderAsync(
+                    master, master.ImageMeta, wcs: null, statsSource: null, png,
+                    whiteBalanceOverride: (1.136f, 1f, 1.860f),
+                    ct: TestContext.Current.CancellationToken);
+
+                render.Uniforms.Mode.ShouldBe(expected, filterName);
+
+                var shadows = render.Uniforms.Shadows;
+                var oneCurveForEveryChannel = shadows.R == shadows.G && shadows.G == shadows.B;
+                oneCurveForEveryChannel.ShouldBe(expected is StretchMode.Linked,
+                    $"{filterName} rendered {render.Uniforms.Mode} with shadows {shadows}");
+            }
+            finally
+            {
+                if (File.Exists(png)) File.Delete(png);
+            }
+        }
+
+        /// <summary>
+        /// A debayered OSC master through a named filter, with the three channels at deliberately
+        /// different levels so the two modes cannot coincide. <see cref="SensorType.Color"/> is what
+        /// brings the CFA curves into <c>BuildChannelThroughputs</c>, and the filter is carried as the
+        /// RAW manufacturer name, which is what a real header holds and what the matcher reads.
+        /// </summary>
+        private static Image OscFrame(string filterName)
+        {
+            const int W = 64, H = 64;
+            var planes = new float[3][,];
+            var level = new[] { 0.040f, 0.120f, 0.066f };
+            for (var c = 0; c < 3; c++)
+            {
+                var plane = new float[H, W];
+                for (var y = 0; y < H; y++)
+                {
+                    for (var x = 0; x < W; x++)
+                    {
+                        plane[y, x] = level[c] + (0.004f * ((x + y + c) % 7));
+                    }
+                }
+
+                planes[c] = plane;
+            }
+
+            return new Image([planes[0], planes[1], planes[2]], BitDepth.Float32,
+                maxValue: 1f, minValue: 0f, pedestal: 0f,
+                imageMeta: new ImageMeta
+                {
+                    Instrument = "SVBONY SV605CC",
+                    SensorType = SensorType.Color,
+                    // Through Filter.FromName, which is the production path: none of these descriptive
+                    // header strings match an anchored pattern, so each canonicalises to Unknown and keeps
+                    // its text as RawName. That is also what makes it reach BuildChannelThroughputs at all
+                    // -- the optical filter is skipped when FilterNameForFits equals the DisplayName.
+                    Filter = Filter.FromName(filterName),
+                });
         }
     }
 }

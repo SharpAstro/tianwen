@@ -68,3 +68,4 @@ training/**/*.onnx
 # JPEG/PNG). Derived from a dataset store and re-renderable from it; here rather than in the
 # scratchpad only because a publish reads its supporting files from the working tree.
 .artifact-gallery/
+rows.json
