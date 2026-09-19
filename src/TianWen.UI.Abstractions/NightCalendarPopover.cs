@@ -39,12 +39,17 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
     private const float FontSize = 13f;
     private const float SmallFontSize = 11f;
     private const float MoonSize = 12f;
+    private const float PinStripH = 4f;
+    private const int MaxPinLines = 3;
     private const string MoonKeyPrefix = "moon:";
+    private const string PinsKeyPrefix = "pins:";
     private const string NightActionPrefix = "Night:";
 
     private readonly List<(DateOnly Night, RectF32 Rect)> _cells = new List<(DateOnly, RectF32)>(NightCalendarActions.GridDays);
     private NightCalendarData _painted = NightCalendarData.Empty;
     private bool _southern;
+    private bool _pinsCurrent;
+    private (NightPinsKey Key, long Generation, DateOnly Month)? _pinsRequested;
 
     /// <summary>
     /// Paints the calendar under <paramref name="anchor"/> (the date label's painted rect) when it is open, over
@@ -70,6 +75,17 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
 
         _painted = calendar.Data;
         _southern = state.SiteLatitude < 0;
+
+        // The pins half is computed only while the calendar is open, so this is where it is asked for: once per pin
+        // set, forecast and month, off the render thread through the same signal paging posts.
+        var pinsKey = NightCalendarActions.PinsKey(state);
+        _pinsCurrent = _painted.PinsKey == pinsKey;
+        if (!NightCalendarActions.HasPins(_painted, pinsKey, calendar.Month)
+            && _pinsRequested != (pinsKey, _painted.Generation, calendar.Month))
+        {
+            _pinsRequested = (pinsKey, _painted.Generation, calendar.Month);
+            bus?.Post(new NightCalendarMonthSignal(calendar.Month));
+        }
         var planned = NightCalendarActions.PlanningEveningDate(state, timeProvider);
         var tonight = NightCalendarActions.TonightEveningDate(state, timeProvider);
 
@@ -210,7 +226,13 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
                 TextAlign.Near, TextAlign.Center)
             : Layout.Builder.Text(string.Empty, SmallFontSize, palette.DimText);
 
-        var inner = Layout.Builder.VStack(top, word.RowH(SmallFontSize + 4f))
+        // The pinned pointings' strip, dusk to dawn: drawn by DrawFill, and a plain spacer with nothing pinned so
+        // every cell keeps one height.
+        var strip = _pinsCurrent && _painted.Pins.TryGetValue(night, out var pins) && !pins.Pointings.IsEmpty
+            ? Layout.Builder.Fill(0f, PinStripH, PinsKeyPrefix + night.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
+            : Layout.Builder.Spacer();
+
+        var inner = Layout.Builder.VStack(top, word.RowH(SmallFontSize + 4f), strip.RowH(PinStripH))
             .Pad(4f, 2f)
             .WStar().HStar()
             .Bg(fill)
@@ -243,7 +265,7 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
     private Layout.Node BuildDetail(PlannerState state, DateOnly night)
     {
         var palette = GuiTheme.Palette;
-        var lines = DetailLines(state, night, _painted);
+        var lines = DetailLines(state, night, _painted, _pinsCurrent);
         var nodes = new Layout.Node[lines.Count];
         for (var i = 0; i < lines.Count; i++)
         {
@@ -257,7 +279,8 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
     /// The detail for one night: the verdict, the dark window and the Moon, then the forecast or why there is
     /// none. Pure, so the wording is tested without a surface.
     /// </summary>
-    internal static List<string> DetailLines(PlannerState state, DateOnly night, NightCalendarData data)
+    internal static List<string> DetailLines(PlannerState state, DateOnly night, NightCalendarData data,
+        bool pinsCurrent = false)
     {
         var lines = new List<string>(3);
         var date = night.ToString("ddd d MMM", CultureInfo.CurrentCulture);
@@ -302,11 +325,52 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
             lines.Add("Beyond the forecast: the Moon alone");
         }
 
+        if (pinsCurrent && data.PinsKey is { } key && data.Pins.TryGetValue(night, out var pins))
+        {
+            AddPinLines(lines, pins, key.MinAltitude, tz);
+        }
+
         return lines;
+    }
+
+    /// <summary>One line per pinned pointing, <see cref="MaxPinLines"/> at most and then how many more.</summary>
+    private static void AddPinLines(List<string> lines, NightPins pins, byte minAltitude, TimeSpan tz)
+    {
+        var shown = Math.Min(pins.Pointings.Length, MaxPinLines);
+        for (var i = 0; i < shown; i++)
+        {
+            var p = pins.Pointings[i];
+            if (!p.Located)
+            {
+                lines.Add($"{p.Name}: no position for this night");
+            }
+            else if (p.From is not { } from || p.To is not { } to)
+            {
+                lines.Add($"{p.Name}: never above {minAltitude}° in the dark");
+            }
+            else
+            {
+                var clear = p.Forecast > TimeSpan.Zero ? $" ({p.Clear.TotalHours:0.0} h clear)" : "";
+                var moon = double.IsNaN(p.MinMoonSeparationDeg) ? "" : $", Moon {p.MinMoonSeparationDeg:0}°";
+                lines.Add($"{p.Name}  {from.ToOffset(tz):HH:mm} to {to.ToOffset(tz):HH:mm}, "
+                    + $"{p.Up.TotalHours:0.0} h{clear}{moon}");
+            }
+        }
+
+        if (pins.Pointings.Length > shown)
+        {
+            lines.Add($"+{pins.Pointings.Length - shown} more pinned");
+        }
     }
 
     private void DrawFill(Layout.Content.Fill fill, RectF32 rect)
     {
+        if (fill.Key is { } pinsKey && pinsKey.StartsWith(PinsKeyPrefix, StringComparison.Ordinal))
+        {
+            DrawPinStrip(pinsKey, rect);
+            return;
+        }
+
         if (fill.Key is not { } key || !key.StartsWith(MoonKeyPrefix, StringComparison.Ordinal)
             || !DateOnly.TryParseExact(key.AsSpan(MoonKeyPrefix.Length), "yyyy-MM-dd", CultureInfo.InvariantCulture,
                 DateTimeStyles.None, out var night)
@@ -318,6 +382,39 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
         var palette = GuiTheme.Palette;
         DrawMoonPhase(rect, summary.MoonIllumination, litOnRight: _southern ? !summary.MoonWaxing : summary.MoonWaxing,
             lit: palette.BodyText, dark: GuiTheme.Mix(palette.PanelBg, palette.BodyText, 0.18f));
+    }
+
+    /// <summary>
+    /// The pinned pointings' night, dusk to dawn: a faint track the width of the dark window, and over it every slice
+    /// at least one pointing can use, in the accent where it is clear or past the forecast and dimmed where the
+    /// forecast says cloud.
+    /// </summary>
+    private void DrawPinStrip(string key, RectF32 rect)
+    {
+        if (!DateOnly.TryParseExact(key.AsSpan(PinsKeyPrefix.Length), "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out var night)
+            || !_painted.Pins.TryGetValue(night, out var pins)
+            || pins.End <= pins.Start)
+        {
+            return;
+        }
+
+        var palette = GuiTheme.Palette;
+        FillRect(rect.X, rect.Y, rect.Width, rect.Height, GuiTheme.Mix(palette.PanelBg, palette.BodyText, 0.15f));
+
+        var span = (pins.End - pins.Start).TotalSeconds;
+        var cloudy = GuiTheme.Mix(palette.PanelBg, palette.DimText, 0.6f);
+        for (var i = 0; i < pins.Timeline.Length; i++)
+        {
+            if (pins.Timeline[i] is PinCoverage.None)
+            {
+                continue;
+            }
+
+            var x0 = rect.X + (float)(rect.Width * (NightPins.SampleStep * i).TotalSeconds / span);
+            var w = (float)(rect.Width * pins.SliceAt(i).TotalSeconds / span);
+            FillRect(x0, rect.Y, w, rect.Height, pins.Timeline[i] is PinCoverage.Cloudy ? cloudy : palette.Accent);
+        }
     }
 
     /// <summary>

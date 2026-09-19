@@ -176,8 +176,8 @@ public static class NightCalendarActions
     }
 
     /// <summary>
-    /// Summarises <paramref name="month"/>'s grid against the published forecast, if it is not summarised already.
-    /// The calendar's paging calls this; cells fill in when it lands.
+    /// Summarises <paramref name="month"/>'s grid against the published forecast, and the pinned pointings on each of
+    /// its nights, whichever is not done already. The open calendar asks for this; cells fill in when it lands.
     /// </summary>
     public static void EnsureMonth(PlannerState state, Profile? profile, ITimeProvider timeProvider, DateOnly month)
     {
@@ -186,8 +186,75 @@ public static class NightCalendarActions
             return;
         }
 
-        SummariseMonth(state.Calendar, transform, month, state.Calendar.Data.Generation);
+        var generation = state.Calendar.Data.Generation;
+        SummariseMonth(state.Calendar, transform, month, generation);
+        SummarisePins(state, transform, month, PinsKey(state), generation);
         state.NeedsRedraw = true;
+    }
+
+    /// <summary>The pin set the pins half is computed for, read off the planner as it is now.</summary>
+    public static NightPinsKey PinsKey(PlannerState state)
+        => new NightPinsKey(state.Proposals, state.FramingGroups, state.MinHeightAboveHorizon);
+
+    /// <summary>
+    /// Whether <paramref name="month"/>'s grid has its pins for <paramref name="key"/>'s pin set. Nothing pinned has
+    /// nothing to compute, so it needs no request at all.
+    /// </summary>
+    public static bool HasPins(NightCalendarData data, NightPinsKey key, DateOnly month)
+    {
+        if (key.Proposals.IsDefaultOrEmpty)
+        {
+            return true;
+        }
+
+        if (data.PinsKey != key)
+        {
+            return false;
+        }
+
+        foreach (var night in MonthGrid(month, FirstDayOfWeek))
+        {
+            if (data.Nights.ContainsKey(night) && !data.Pins.ContainsKey(night))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// The pinned pointings on every summarised night of <paramref name="month"/>'s grid, collapsed as the scheduler
+    /// collapses them. With nothing pinned it records the empty set, so the calendar stops asking.
+    /// </summary>
+    internal static void SummarisePins(PlannerState state, Transform transform, DateOnly month, NightPinsKey key,
+        long generation)
+    {
+        var calendar = state.Calendar;
+        var data = calendar.Data;
+        var built = new List<KeyValuePair<DateOnly, NightPins>>(GridDays);
+        if (!key.Proposals.IsDefaultOrEmpty)
+        {
+            var collapsed = FramingPlanner.CollapseForSchedule(key.Proposals.AsSpan(), key.Groups);
+            var pointings = new Target[collapsed.Length];
+            for (var i = 0; i < collapsed.Length; i++)
+            {
+                pointings[i] = collapsed[i].Target;
+            }
+
+            var hours = data.Forecast?.Hours;
+            var fresh = data.PinsKey != key;
+            foreach (var night in MonthGrid(month, FirstDayOfWeek))
+            {
+                if (data.Nights.TryGetValue(night, out var summary) && (fresh || !data.Pins.ContainsKey(night)))
+                {
+                    built.Add(new KeyValuePair<DateOnly, NightPins>(night, NightPins.Compute(transform.SiteLatitude,
+                        transform.SiteLongitude, transform.SiteElevation, summary, pointings, key.MinAltitude, hours,
+                        state.Comets)));
+                }
+            }
+        }
+
+        calendar.TryAddPins(generation, key, built);
     }
 
     /// <summary>Summarises every night of <paramref name="month"/>'s grid not already published.</summary>

@@ -655,6 +655,9 @@ The GUI status-bar date opens a month of NIGHTS (`NightCalendarPopover`, `NightC
 - **A night is its EVENING date** (`NightCalendarActions.PlanningEveningDate`: the pinned `PlanningDate.Date`,
   else `AstronomicalEveningDate`).
 - **The Moon mark is DRAWN from the palette, never an emoji glyph**, which Night mode cannot tint.
+- **The pinned targets are a SECOND half (`NightPins`), never part of the verdict.** They are computed only while
+  the calendar is open, keyed on the pin set (`NightPinsKey`), and unioned across pointings (one mount), never
+  summed. A planet or comet is placed per night by its catalogue index, never from the pin's stored RA/Dec.
 
 ### Session
 

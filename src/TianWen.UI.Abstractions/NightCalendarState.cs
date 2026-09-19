@@ -67,6 +67,31 @@ public sealed class NightCalendarState
             }
         }
     }
+
+    /// <summary>
+    /// Adds the pinned pointings' <paramref name="pins"/> for <paramref name="key"/>'s pin set, if the snapshot is
+    /// still <paramref name="generation"/>. A different pin set REPLACES the pins half (every night's pins changed);
+    /// the same one merges.
+    /// </summary>
+    /// <returns>Whether they were added.</returns>
+    internal bool TryAddPins(long generation, NightPinsKey key, IEnumerable<KeyValuePair<DateOnly, NightPins>> pins)
+    {
+        while (true)
+        {
+            var current = Data;
+            if (current.Generation != generation)
+            {
+                return false;
+            }
+
+            var basis = current.PinsKey == key ? current.Pins : ImmutableDictionary<DateOnly, NightPins>.Empty;
+            var next = current with { PinsKey = key, Pins = basis.SetItems(pins) };
+            if (ReferenceEquals(Interlocked.CompareExchange(ref _data, next, current), current))
+            {
+                return true;
+            }
+        }
+    }
 }
 
 /// <summary>
@@ -92,7 +117,25 @@ public sealed record NightCalendarData(
     /// <summary>Nothing built yet.</summary>
     public static readonly NightCalendarData Empty = new NightCalendarData(0, null, default, default, null,
         ImmutableDictionary<DateOnly, NightSummary>.Empty);
+
+    /// <summary>The pin set <see cref="Pins"/> was computed for, or null before any was.</summary>
+    public NightPinsKey? PinsKey { get; init; }
+
+    /// <summary>
+    /// The pinned pointings on each night computed so far (P3). A half of its own: computed only while the calendar
+    /// is open, replaced when the pins change, and dropped with everything else when the forecast does.
+    /// </summary>
+    public ImmutableDictionary<DateOnly, NightPins> Pins { get; init; } = ImmutableDictionary<DateOnly, NightPins>.Empty;
 }
 
 /// <summary>What a calendar's contents depend on besides the date: the site, and the weather device asked.</summary>
 public readonly record struct NightCalendarKey(double Latitude, double Longitude, double Elevation, Uri? Weather);
+
+/// <summary>
+/// What the pins half depends on: the pinned proposals, the framing groups that collapse them into pointings, and
+/// the minimum altitude. The planner REPLACES both arrays on every change, so the arrays' identity is the change.
+/// </summary>
+public readonly record struct NightPinsKey(
+    ImmutableArray<ProposedObservation> Proposals,
+    ImmutableArray<FramingGroup> Groups,
+    byte MinAltitude);

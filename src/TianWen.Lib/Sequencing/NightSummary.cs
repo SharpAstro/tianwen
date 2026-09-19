@@ -74,7 +74,7 @@ public readonly record struct NightSummary(
         var mid = start + ((end - start) / 2);
         var (illumination, waxing) = MeeusMoon.GetPhase(mid.ToJulian());
 
-        var byHour = IndexByHour(forecast, start, end);
+        var byHour = HourlyForecastIndex.For(forecast, start, end);
 
         var moonFree = TimeSpan.Zero;
         var covered = TimeSpan.Zero;
@@ -97,17 +97,16 @@ public readonly record struct NightSummary(
                 moonFree += slice;
             }
 
-            if (byHour is null || !byHour.TryGetValue(HourKey(sample), out var hour) || !double.IsFinite(hour.CloudCover))
+            if (byHour is null || !byHour.TryGetKnown(sample, out var hour))
             {
                 continue;
             }
 
             covered += slice;
             cloudWeighted += hour.CloudCover * slice.TotalHours;
-            var rain = double.IsFinite(hour.Precipitation) ? hour.Precipitation : 0.0;
-            precipitation += rain * slice.TotalHours;
+            precipitation += HourlyForecastIndex.Rain(hour) * slice.TotalHours;
 
-            if (hour.CloudCover < ClearCloudCoverPercent && rain < NoPrecipitationMmPerHour)
+            if (HourlyForecastIndex.IsClear(hour))
             {
                 clear += slice;
                 if (moonDown)
@@ -129,34 +128,6 @@ public readonly record struct NightSummary(
 
         return new NightSummary(eveningDate, start, end, window.EveningBoundary, illumination, waxing, moonFree,
             nightForecast);
-    }
-
-    /// <summary>The entries that can matter to this window, by their UTC hour. Null when there are none.</summary>
-    private static Dictionary<long, HourlyWeatherForecast>? IndexByHour(IReadOnlyList<HourlyWeatherForecast>? forecast,
-        DateTimeOffset start, DateTimeOffset end)
-    {
-        if (forecast is not { Count: > 0 })
-        {
-            return null;
-        }
-
-        var from = start.AddHours(-1);
-        Dictionary<long, HourlyWeatherForecast>? byHour = null;
-        foreach (var entry in forecast)
-        {
-            if (entry.Time >= from && entry.Time < end)
-            {
-                (byHour ??= [])[HourKey(entry.Time)] = entry;
-            }
-        }
-        return byHour;
-    }
-
-    /// <summary>The UTC hour an instant falls in, as ticks: the key a forecast entry is stated on.</summary>
-    private static long HourKey(DateTimeOffset instant)
-    {
-        var ticks = instant.UtcTicks;
-        return ticks - (ticks % TimeSpan.TicksPerHour);
     }
 
     /// <summary>The median class of the known samples (the lower middle on an even count), or Unknown.</summary>

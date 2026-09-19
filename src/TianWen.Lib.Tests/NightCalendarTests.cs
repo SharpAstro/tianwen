@@ -375,4 +375,70 @@ public class NightCalendarTests(ITestOutputHelper output)
         var centroid = (double)litX / litCount;
         (litOnRight ? centroid > 110 : centroid < 110).ShouldBeTrue($"lit centroid {centroid:F1} on the {(litOnRight ? "right" : "left")}");
     }
+
+    private static readonly Target South = new Target(1.0, -80.0, "South", null);
+    private static readonly Target North = new Target(12.0, 60.0, "North", null);
+
+    [Fact]
+    public async Task TheOpenCalendarAsksForItsPinsOnceAndGetsEachNightsPointings()
+    {
+        var state = Planner();
+        state.Proposals = [new ProposedObservation(South)];
+        var (popover, renderer, _, clock) = await OpenCalendarAsync(output, state);
+        using var surface = renderer;
+        var bus = new SignalBus();
+        var asked = new List<DateOnly>();
+        bus.Subscribe<NightCalendarMonthSignal>(s => asked.Add(s.Month));
+
+        popover.Render(state, DateLabel, Window, clock, bus);
+        popover.Render(state, DateLabel, Window, clock, bus);
+        bus.ProcessPending();
+        asked.ShouldBe([new DateOnly(2026, 9, 1)], "asked for once, not every frame");
+
+        NightCalendarActions.EnsureMonth(state, SiteProfile(weather: null), clock, asked[0]);
+
+        var data = state.Calendar.Data;
+        data.PinsKey.ShouldBe(NightCalendarActions.PinsKey(state));
+        NightCalendarActions.HasPins(data, NightCalendarActions.PinsKey(state), asked[0]).ShouldBeTrue();
+        data.Pins[Tonight].Pointings.ShouldHaveSingleItem().Name.ShouldBe("South");
+        NightCalendarPopover<RgbaImage>.DetailLines(state, Tonight, data, pinsCurrent: true)[^1]
+            .ShouldStartWith("South  ", Case.Sensitive, "a line per pinned pointing under the night's own");
+    }
+
+    [Fact]
+    public async Task ChangingThePinsReplacesThePinsHalfAndKeepsTheNights()
+    {
+        var state = Planner();
+        state.Proposals = [new ProposedObservation(South)];
+        var (_, renderer, _, clock) = await OpenCalendarAsync(output, state);
+        using var surface = renderer;
+        var month = new DateOnly(2026, 9, 1);
+        NightCalendarActions.EnsureMonth(state, SiteProfile(weather: null), clock, month);
+        var nights = state.Calendar.Data.Nights;
+
+        state.Proposals = [new ProposedObservation(North)];
+        NightCalendarActions.HasPins(state.Calendar.Data, NightCalendarActions.PinsKey(state), month)
+            .ShouldBeFalse("a new pin set is a new key");
+        NightCalendarActions.EnsureMonth(state, SiteProfile(weather: null), clock, month);
+
+        state.Calendar.Data.Pins[Tonight].Pointings.ShouldHaveSingleItem().Name.ShouldBe("North");
+        state.Calendar.Data.Nights.ShouldBeSameAs(nights, "the sky half did not move");
+        NightCalendarPopover<RgbaImage>.DetailLines(state, Tonight, state.Calendar.Data, pinsCurrent: true)[^1]
+            .ShouldStartWith("North: never above 20");
+    }
+
+    [Fact]
+    public async Task WithNothingPinnedTheCalendarStopsAskingAndShowsNoPins()
+    {
+        var (popover, renderer, state, clock) = await OpenCalendarAsync(output);
+        using var surface = renderer;
+        var month = new DateOnly(2026, 9, 1);
+
+        NightCalendarActions.EnsureMonth(state, SiteProfile(weather: null), clock, month);
+
+        var data = state.Calendar.Data;
+        NightCalendarActions.HasPins(data, NightCalendarActions.PinsKey(state), month).ShouldBeTrue("the empty set is recorded");
+        data.Pins.ShouldBeEmpty();
+        NightCalendarPopover<RgbaImage>.DetailLines(state, Tonight, data, pinsCurrent: true).Count.ShouldBe(3);
+    }
 }
