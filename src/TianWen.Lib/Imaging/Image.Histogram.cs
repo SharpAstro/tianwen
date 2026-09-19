@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using TianWen.Lib.Geometry;
 using static TianWen.Lib.Stat.StatisticsHelper;
 namespace TianWen.Lib.Imaging;
 
@@ -604,8 +605,25 @@ public partial class Image
     /// <returns>Per-channel background values and luminance background, both pedestal-subtracted.</returns>
     public (float[] PerChannel, float Luma) ScanBackgroundRegion(ReadOnlySpan<float> pedestals, int squareSize = 32, BitMatrix? starMask = null)
     {
+        var region = FindBackgroundRegion(squareSize, starMask);
+        return MeasureBackgroundRegion(pedestals, squareSize, region.X, region.Y, starMask);
+    }
+
+    /// <summary>
+    /// WHERE the sky is: the darkest <paramref name="squareSize"/> square inside the frame's inner
+    /// 90 percent, found on a coarse grid four squares apart. The first half of
+    /// <see cref="ScanBackgroundRegion"/>, exposed on its own so a consumer that only needs the place
+    /// (the dataset gallery's 1:1 sky patch) asks the same question the neutralisation does and lands
+    /// on the same pixels; a patch chosen by any other rule can sit inside nebulosity the render has
+    /// correctly declined to call sky, and then reads as a colour cast that is nobody's fault.
+    /// </summary>
+    /// <param name="squareSize">Side of the sampling square, in pixels.</param>
+    /// <param name="starMask">Pixels to leave out of the luma, when a detection has run.</param>
+    /// <returns>The square, in image pixels; the top-left corner of the inner margin when nothing
+    /// passed the luma floor.</returns>
+    public PixelRect FindBackgroundRegion(int squareSize = 32, BitMatrix? starMask = null)
+    {
         var step = squareSize * 4;
-        var channelCount = ChannelCount;
 
         // Skip a 5% border on each side to avoid stacking artifacts (black edges, vignetting)
         var marginX = (int)(Width * 0.05f);
@@ -664,6 +682,20 @@ public partial class Image
                 bgY = strips[i].Y;
             }
         }
+
+        return new PixelRect(bgX, bgY, squareSize, squareSize);
+    }
+
+    /// <summary>
+    /// The per-channel levels of the region <see cref="FindBackgroundRegion"/> chose: the second half
+    /// of the scan, kept beside the first so a consumer that wants only WHERE the sky is (the dataset
+    /// gallery's 1:1 patch) and one that wants its LEVEL (background neutralisation) look in the same
+    /// place by construction. The gallery used to pick its patch with a rule of its own and landed
+    /// inside nebulosity the render had correctly not called sky.
+    /// </summary>
+    private (float[] PerChannel, float Luma) MeasureBackgroundRegion(ReadOnlySpan<float> pedestals, int squareSize, int bgX, int bgY, BitMatrix? starMask)
+    {
+        var channelCount = ChannelCount;
 
         // Compute per-channel background, pedestal-subtracted.
         // For 1-channel Bayer images, the channel-0 median pools all four Bayer

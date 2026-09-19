@@ -12,13 +12,34 @@ same crop before enhancement, and a 1:1 patch of its sky, published as an Artifa
 ## The whole run, in order
 
 ```
-python tools/dataset-gallery/build_rows.py  <store> rows.json
+python tools/dataset-gallery/build_rows.py  <store> rows.json          # runs: tianwen dataset masters
 python tools/dataset-gallery/build_views.py <store> rows.json .artifact-gallery/img [--jobs N]
-python tools/dataset-gallery/check_views.py .artifact-gallery/img --json qc.json
+python tools/dataset-gallery/check_views.py .artifact-gallery/img --rows rows.json --json qc.json
+python tools/dataset-gallery/pack_views.py  .artifact-gallery/img .artifact-gallery/pack
 python tools/dataset-gallery/inject_rows.py rows.json .artifact-gallery/bake-masters.html
+msedge --headless=new --disable-gpu --enable-logging=stderr --v=0 --dump-dom \
+    file:///<repo>/.artifact-gallery/bake-masters.html 2>edge.log | grep -c 'class="card"'   # then grep CONSOLE edge.log
 ```
 
-**Four scripts, four jobs, no overlap: the table, the pictures, the measurement, the page.** There
+**The table is the product's, not the script's.** `build_rows.py` is a shape change over
+`tianwen dataset masters --store <store>`, which lists every retained master by the rules that made
+the files: which `.fits` is a coverage sidecar, which suffix is a pier side and which master is the
+combined one, how a stats record maps to a file, whether the header carries a real solution, and
+WHERE THE SKY IS (`Image.FindBackgroundRegion`, the square background neutralisation measures, so
+the 1:1 patch and the render's own sky are the same pixels). The script used to answer all five
+itself and each answer had been wrong once. It needs a CLI that has the verb: the Release build, or
+`TIANWEN_EXE` pointing at one.
+
+**RENDER THE PAGE HEADLESSLY BEFORE PUBLISHING, and read the console.** The last line above is the
+whole check: the number of cards the browser built, and whether the script threw. It exists because
+the page shipped with an apostrophe inside a single-quoted JavaScript string (`the sensor's own
+balance`, in a tooltip), which is a `SyntaxError` at parse time: header, bar and legend drew, not one
+card did, and it stayed that way across every publish from the commit that added the tag until the
+owner sent a screenshot, because every check here measured the pictures and none rendered the page.
+The page also counts pictures that fail to load and prints the first resolved URL, so a blank card
+is a number and a place. Headless Edge is on every Windows box; nothing else is installed for it.
+
+**Five scripts, five jobs, no overlap: the table, the pictures, the measurement, the packing, the page.** There
 used to be seven, and the two that mattered split one job down the middle -- `batch_enhance` rendered
 the raw view and `render_views` the enhanced one, hours apart -- which is what let the pair disagree
 about colour. `render_pairs` (the superseded side-by-side sheet) and `sync_gallery` (a second,
@@ -55,15 +76,23 @@ of ninety masters take three calls rather than a sprite. The sprite this replace
 into one box at one width, which made the crop invisible: every card read as "before and after are the
 same size" while the crop had taken 15 percent of the canvas.
 
-**A row whose three PNGs all exist is skipped; `--force` redoes it.** The enhance is the expensive
-stage, so re-running the script over a finished gallery costs nothing and a half-finished one costs
-only what is missing. There is no longer a mode that redoes one half on its own: the halves have to
-share a solve, so they are made together or not at all.
+**A row whose three PNGs all exist AND whose geometry is stamped is skipped; `--force` redoes it.**
+The enhance is the expensive stage, so re-running the script over a finished gallery costs nothing
+and a half-finished one costs only what is missing; `rows.json` is stamped after every card, so a
+batch killed mid-way loses nothing. There is no mode that redoes one HALF on its own: the halves
+have to share a solve, so they are made together or not at all. `--patch-only` is the one exception
+and is not a half: it remakes the raw view and the 1:1 patch (seconds of CPU) and leaves the enhanced
+view alone, for when the patch COORDINATES changed (the product moved where "the sky" is) and the
+pictures did not.
 
 **One outdir. Two is how a gallery ends up showing a run nobody meant to publish.** Cards built from
 a stale enhance folder look like a broken crop verb: no margin crop, no plate solve, and no way to
 tell by eye. A file with no `CRPIX` did not come from this pipeline -- check that before measuring
-anything else.
+anything else. **And `img/` holds PNG only; `pack/` holds the JPEGs the page references.** A pack
+that once targeted `img/` left 278 pre-fix JPEGs beside the fixed PNGs, and a headless render of the
+page from the repo showed the OLD pictures (five teal cards included) while the published artifact,
+fed from `pack/`, was right. Compare a card's sha against the artifact's `read_file` before believing
+either one.
 
 **NOTHING IN THE SCRIPTS DOES IMAGING.** They orchestrate verbs and compose PNGs. Every time a step
 was reimplemented in Python here it was wrong in a way that took a human noticing a picture looked
