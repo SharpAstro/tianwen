@@ -230,8 +230,21 @@ public sealed class OnnxBackgroundExtractor(
         // The background plate is returned alongside the corrected output so callers that asked for
         // diagnostic visibility (e.g. CLI flatten --save-gradient) can render it; callers that didn't
         // (the bare EnhanceAsync entry point) release it via the wrapper.
+        // AND THE PEDESTAL FIELD IS LEFT ALONE, exactly as ClassicalBackgroundExtractor leaves it.
+        // `Image.Subtract` accumulates its added pedestal onto that field, which is right for
+        // calibration (where the offset really is a pedestal) and wrong here: the level added back is
+        // the sky the frame already had, not a new floor under it. Worse, the field is ONE float and
+        // the add-backs are now per channel, so it can only carry their mean -- a number above the
+        // whole of the red plane on a narrowband frame.
+        //
+        // That is not theoretical. A display stretch takes its shadow point from the
+        // pedestal-SUBTRACTED median, so on the SH 2-28 L-Ultimate master (red median 0.000419,
+        // mean add-back 0.000675) red went negative, clipped to black, and the card rendered solid
+        // teal while its unenhanced half was neutral -- the two halves are the same pixels, so the
+        // data cannot be the explanation. Leaving the field alone is what `WithZeroPedestal` exists
+        // to paper over, and papering is worse than not breaking it.
         var channelBg = ChannelMeans(background);
-        var corrected = input.Subtract(background, channelBg);
+        var corrected = input.Subtract(background, channelBg).WithPedestal(input.Pedestal);
         var stitchMs = stitchSw.ElapsedMilliseconds;
 
         logger?.LogInformation(

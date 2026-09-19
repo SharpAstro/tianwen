@@ -486,6 +486,40 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// per render. The result is a view for measuring and displaying, not a second owner: do not
     /// release both it and the original.</para>
     /// </remarks>
+    /// <summary>
+    /// This image rewrapped carrying <paramref name="newPedestal"/> instead of its own, sharing the
+    /// same plane arrays. For an operation that does not change what the floor MEANS.
+    /// </summary>
+    /// <remarks>
+    /// Background extraction is the case: it subtracts a model and adds each plane's own level back,
+    /// so the frame ends up where it started and the pedestal field should say what it said before.
+    /// <see cref="Subtract(Image, ReadOnlySpan{float})"/> accumulates its offset onto that field --
+    /// correct for calibration, where the offset really is a new floor -- and the field is a single
+    /// float, so with per-channel add-backs it can only carry their mean. On a narrowband frame that
+    /// mean sits above the whole red plane, and a display stretch, which takes its shadow point from
+    /// the pedestal-subtracted median, then clips red to black.
+    /// <para>A view, not a second owner: do not release both it and the original.</para>
+    /// </remarks>
+    public Image WithPedestal(float newPedestal)
+    {
+        if (pedestal.Equals(newPedestal))
+        {
+            return this;
+        }
+
+        // GetChannelArray hands back the backing float[,] itself, so this shares every plane with the
+        // original and allocates only the jagged wrapper. SamplesAreUnitReferred is carried through
+        // explicitly, as WithZeroPedestal does: it is a statement about the SAMPLES, which a pedestal
+        // relabel does not touch, and letting it fall to a constructor default would silently change
+        // how MaxValue is interpreted downstream.
+        var data = new float[ChannelCount][,];
+        for (var c = 0; c < ChannelCount; c++)
+        {
+            data[c] = GetChannelArray(c);
+        }
+        return new Image(data, BitDepth, MaxValue, MinValue, newPedestal, imageMeta, SamplesAreUnitReferred);
+    }
+
     public Image WithZeroPedestal()
     {
         if (MinValue is 0f or float.NaN && Pedestal is 0f or float.NaN)
