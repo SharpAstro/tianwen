@@ -1666,7 +1666,14 @@ same as coping with one, so `Image.FillInteriorHolesInPlace` (called from `Adopt
 the statistics) interpolates each interior NaN from its measured neighbours and **never touches the
 ring** -- filling that would erase the only evidence the crop works from. `AstroImageDocument.InteriorHolesFilled`
 reports the count, because a viewer that silently invents pixels is one you cannot trust a
-measurement from. **The absence planes are `BitMatrix` and the flood runs 64 columns at a time**
+measurement from. **The same fill has THREE callers and no fourth implementation**: the viewer's
+document open, the headless render (`Image.WithInteriorHolesFilled`, the non-owning copy
+`MasterPreviewRenderer` takes so the master it is about to write stays as it was) and the enhance
+boundary (`SharpenPipeline.SanitiseForEnhance`, then the per-channel mean for the ring only). The
+enhance used to fill every hole with the channel's frame MEAN on the reasoning that holes sit in the
+border a crop removes; a drizzle master's rejection voids sit on its saturated core, different pixels
+per channel, so red got the sky beside green's real value and the enhanced half of the Great Orion
+card carried a cyan-and-magenta speck the raw half did not. **The absence planes are `BitMatrix` and the flood runs 64 columns at a time**
 (vertical propagation is a word AND plus a word OR; horizontal is a Kogge-Stone occluded fill, six
 shifts per word, with one carry bit crossing each word boundary), which took it from 29 ms to 6.3 ms
 on a 3024 x 3025 x 3 frame. It is pinned against a per-pixel reference at widths 63/64/65/127/128/129
@@ -1907,7 +1914,11 @@ the measurements: `docs/architecture/stretch-pipeline.md`**
   shrunk the MAD. Five of 139 gallery cards, every one of them that filter. The white balance is not
   refused and not changed; what Unlinked stops is ASSERTING a fit of nothing as colour. Pinned by
   `NarrowbandStretchModeTests.TheHeadlessRendererHonoursTheSameLineSelectiveVeto`, whose broadband row
-  is the control.
+  is the control. **And it passes all FOUR inputs**: the fourth, whether the frame's backgrounds are
+  already level, is `StretchSolver.ChannelsAgree` (the 0.15 percent rule), which the viewer's
+  `ChannelsAlreadyAgree` delegates to; it lived on the document alone. Through `RenderAsync` it rarely
+  decides, because with no catalog that path still solves a sky-background white balance and a
+  calibration is then active, so the pin is on the predicate; passing it is parity.
 - **Background neutralisation is solved POST-WB, so anything caching its gains owes the WB in its
   cache key** (they print at F4).
 - **The SPCC / Calibrate toggle gates the RENDER, not the measurement** (`applyColorCalibration`); an

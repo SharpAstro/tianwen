@@ -143,6 +143,58 @@ own, where it was a fixed 50 seconds nothing could stop; a QHY cooler with nothi
 setpoint as `NaN` rather than a plausible -100; the QHY DDR frame buffer is enabled on every connect,
 since it reads off on each freshly opened handle.
 
+**Every headless render now obeys four rules the viewer already had, and the pictures change.**
+`MasterPreviewRenderer` (the `master_*.png` companion of `tianwen stack`, `image render`, the dataset
+gallery) resolved its stretch mode from a literal `StretchMode.Linked` where the viewer resolves through
+`StretchModeExtensions.ResolveAuto`, so the line-selective veto measured over all 183 shipped filter
+curves applied on screen and nowhere else: a 3 nm L-Ultimate master's SPCC triple (a fit against a
+continuum that never reached the sensor, `1.136 / 1.000 / 1.860` on one) was asserted as colour through
+one shared shadow point, and red clipped to zero once the enhance had shrunk the noise. Five of 139
+gallery cards, every one that filter, rendered teal; each such master renders Unlinked now, with the
+triple still printed. The coverage-plane crop tier lacked the border-reachability rule the pixel tier
+gained in 8.0, so a saturated core whose samples rejection had dropped (the Trapezium, 35 blocks of
+35,910) read as an uncovered edge and cut the Great Orion master to 51.8 percent of a canvas whose
+blocks pass at 97.3; `FloodFromBorder` is the one method both tiers call, and that crop is 96.8
+percent. Interior NaN (a drizzle master's rejection voids) reached the PNG as a blue-and-yellow speck
+on the brightest part of the picture; the display render fills them from their neighbours as the
+viewer's document open does (`Image.WithInteriorHolesFilled`, a copy, the linear master untouched).
+And `SharpenPipeline` filled the same voids with each channel's frame MEAN before enhancing, a third
+implementation of the fill and the wrong one: red's hole got the sky beside green's real value, and
+the enhanced view of that card carried the speck after the render fix had cleared the raw one. The
+enhance boundary takes the neighbours now and keeps the mean for the border ring alone. Also passed
+through: the fourth resolver input, whether a frame's backgrounds are already level, measured by
+`StretchSolver.ChannelsAgree` for both renderers instead of by the viewer alone.
+
+**The GraXpert gradient corrector preserves each plane's own level, and both correctors restore the
+model's median.** `OnnxBackgroundExtractor` added back one mean over all three channels, which lands
+every channel on that value: background neutralisation, not level preservation, and it silently
+equalised the colour of every OSC master that went through an enhance with GraXpert installed. On
+the SV605CC Small Magellanic Cloud master (channel medians genuinely `R/G 0.332`, `B/G 0.552`) the
+output read `1.004 / 1.003`; it reads `0.331 / 0.553` now. The level restored is each plane's MEDIAN
+of the model, the statistic `ClassicalBackgroundExtractor` has always restored, so which corrector a
+machine has installed no longer decides where its sky lands. Every enhance output through GraXpert
+changes; the bake's retained linear masters, tiles and training corpus never ran the enhance and are
+untouched.
+
+**The linear enhance step order has one declaration.** `LinearEnhanceProgram.For(supportsDeblur)` is
+the program `SharpenRequest.Canonical`, `SharpenRequest.DeblurFirst`, `tianwen stack --enhance`, the
+hosted enhance endpoint and `tianwen image sharpen` all read; callers vary which steps are present and
+at what blend, never their sequence. The `image sharpen` correction above was the symptom of four
+hand-written copies drifting.
+
+**Additive**: `tianwen image render --white-balance R,G,B` renders on a given triple instead of
+solving one, and the verb prints the triple it used in the same form, so a render of an enhanced
+master can inherit the balance solved on the unenhanced one rather than re-fitting against a
+background the enhance has flattened (`MasterPreviewRenderer` always took the override;
+`MasterPostProcessor` has always shared one solve across the split-plate TIFFs this way);
+`tianwen dataset masters --store <bake> --out <json>` lists a bake's retained masters by the rules
+that made the files (sidecar, pier side, the stats join, a real plate solution, and where the sky is
+through `Image.FindBackgroundRegion`); the bake prints where each session's frames went on the
+console and records every dropped sub with the stage that dropped it (`SessionPsf.DroppedSubs`);
+`Image.Clone`, `Image.WithPedestal`, a per-channel `Image.Subtract`, and `StretchSolver.ChannelsAgree`.
+The dataset gallery tooling under `tools/dataset-gallery/` is not shipped and is documented in its
+skill.
+
 ## 8.2
 
 The sibling pins move as a family, and a flat pixel with no throughput stops being multiplied by a
