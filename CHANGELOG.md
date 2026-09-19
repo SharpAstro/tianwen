@@ -34,9 +34,10 @@ other commit hash from before 2026-04-22 no longer resolves anywhere.
 ## 9.0
 
 Breaking, so a major. The geometry types in `TianWen.Lib`'s public API are its own now, the
-dependency floor moves two majors, and a filter name the library does not recognise stops comparing
-equal to `Filter.Unknown`. Three further changes alter what a dataset bake produces from the same
-archive, which no signature announces.
+dependency floor moves two majors, a filter name the library does not recognise stops comparing
+equal to `Filter.Unknown`, and the hourly forecast record carries the seeing estimate's four inputs.
+Three further changes alter what a dataset bake produces from the same archive, which no signature
+announces.
 
 **`System.Drawing.Rectangle` and `Point` are gone from the public API**, replaced by
 `TianWen.Lib.Geometry.PixelRect` and `PixelPoint` in 24 public signatures, among them `Image.Crop`,
@@ -61,6 +62,15 @@ showed "Filter: Unknown" over every L-eNhance and LPS-D3 frame, and a manual whe
 by hand. It now returns an unknown filter carrying the text as `RawName`, which is also its
 `IdentityKey`. A test of `filter == Filter.Unknown` no longer
 catches it: ask `filter.IsUnknown`. A blank or whitespace name still returns `Filter.Unknown` itself.
+
+**`HourlyWeatherForecast` gained four fields, so its constructor changed.** The seeing estimate reads
+the wind at 250, 500 and 850 hPa (#305, published under 8.2 after its entry was written) and records
+the boundary-layer "mixing height" beside them; all four are trailing optional parameters of the public
+positional record, NaN where a provider has none. A caller that names or omits them compiles
+unchanged, but one compiled against 8.2 binds a constructor that no longer exists, and the record's
+positional deconstruction takes four more out-parameters. A forecast cache written before them reads
+them back as NaN, not zero: the primary constructor is now `[JsonConstructor]`, since zero jet wind is
+the best seeing class there is.
 
 **A flat whose headers cannot prove the optical train is used only within 14 days of the lights.**
 `CalibrationResolver` read a missing `TELESCOP` or `FOCALLEN` as a wildcard, and SharpCap writes
@@ -137,6 +147,12 @@ source (`FRAMESEQ`, `SEQSRC`), counted per connect by the DAL camera driver; the
 the `dataset tag-frame-type` and `relabel-frame-type` verbs; `CalibrationProvenance` on the PSF
 store's session record; `--hold-out-session` and a `dataset-parameters.json` for standing bake
 decisions.
+
+**Additive, planner**: a "Seeing" row in the weather band, a class from 1 to 5 estimated from the
+jet-stream wind (a forecast, never written to `StarFWHM` and never read by the session), and the
+mixing height in the band's tooltip. An OpenWeatherMap profile, which has no upper-air field, gets
+both from keyless Open-Meteo through `IWeatherDriver.GetHourlyForecastWithUpperAirAsync`, which fills
+only the fields the provider lacks.
 
 **Device behaviour**: a QHY guide pulse now runs for the duration asked where the device can time its
 own, where it was a fixed 50 seconds nothing could stop; a QHY cooler with nothing engaged reports its
