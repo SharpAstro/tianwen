@@ -42,6 +42,17 @@ public sealed record IntegrationOptions(
     /// scale, and its drizzled masters measured a median 0.28 sigma of it, 8.9 at worst. A shift keeps
     /// that scale and every star's flux; a rescale would not. Set ONE reference for a master and the
     /// halves built beside it, or the halves land on different sky levels.</para>
+    ///
+    /// <para><b>LEAVING THIS NULL WITH <see cref="ApplyNormalization"/> OFF REPRODUCES #292.</b> That
+    /// combination deposits every frame at its own sky, which is exactly the state the Bayer-phase
+    /// level pattern was found in, and it is silent: the master is written, looks plausible, and
+    /// carries a fixed 2x2 pattern that only a phase measurement finds. It is unreachable today
+    /// because the one caller that integrates unnormalised -- the dataset bake, via
+    /// <c>SessionRegistrar</c> -- always sets a reference, so the null arm is reached only by a
+    /// caller yet to be written. It is deliberately NOT guarded: normalisation-on legitimately
+    /// leaves this null, and there is no way to tell "unnormalised on purpose, no reference needed"
+    /// from "forgot" at this level. A new unnormalised drizzle caller owes a reference, and owes a
+    /// phase measurement of its first master to prove it.</para>
     /// </summary>
     public Normalizer.CfaNormalizationStats? DrizzleSkyReference { get; init; }
 }
