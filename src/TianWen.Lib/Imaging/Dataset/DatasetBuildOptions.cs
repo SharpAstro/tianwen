@@ -335,4 +335,17 @@ public sealed record DatasetBuildOptions
     /// normal run reports them; report-only cannot fix that, because measuring needs the master.</para>
     /// </summary>
     public bool ReportOnly { get; init; }
+
+    /// <summary>
+    /// The options that shape what a session's OUTPUTS are, as one string, for the session ledger's
+    /// fingerprint (<see cref="DatasetSessionLedger.FingerprintOf"/>). Membership options (exposure
+    /// bounds, exclusions, the minimum sub count as a discovery filter) are left out on purpose: a
+    /// change there changes WHICH lights a session has, and the lights are fingerprinted themselves.
+    /// Run-mode switches (resume, regen, remeasure, report-only, scratch root) describe the run, not
+    /// the outputs, and are left out for the same reason. <b>A new option that changes what a session
+    /// produces for the same lights is added here</b>, or a resume will keep the old outputs.
+    /// </summary>
+    public string RecipeKey() => string.Create(
+        System.Globalization.CultureInfo.InvariantCulture,
+        $"gate:{QualityRejectSigma}/{QualityMaxRejectFraction}|hot:{HotPixelSigma}|warp:{WarpInterpolation}|tiles:{TileSize}/{CellsPerSession}/{SubsPerCell}|cal:{RequireDarkCalibration}/{RequireGainMatch}/{MaxDarkTemperatureDelta?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "-"}|retain:{RetainSessionMasters}");
 }

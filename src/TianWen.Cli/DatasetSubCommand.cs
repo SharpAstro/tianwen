@@ -221,10 +221,14 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
         };
         var resumeOpt = new Option<bool>("--resume")
         {
-            Description = "Continue a stopped run: keep the existing manifest as the checkpoint and " +
-                          "skip every session already fully exported to it whose tiles are still on " +
-                          "disk (the interrupted session re-runs cleanly). Use the SAME roots and " +
-                          "gates as the stopped run.",
+            Description = "Continue a stopped run, or bring a finished one up to date: a session is skipped " +
+                          "when its tiles are still on disk AND the session ledger (stats/sessions.jsonl) says it " +
+                          "was built from the same inputs and recipe -- every light's path, size and mtime, the " +
+                          "calibration library, the output-shaping options, the recipe version -- and its retained " +
+                          "master carries the plane the recipe now writes. A session whose fingerprint moved is " +
+                          "re-done from nothing (tiles, manifest rows, master and sidecars replaced); one the " +
+                          "ledger has never seen is trusted as it stands. Use the SAME roots and gates as the run " +
+                          "being continued.",
         };
         var scratchRootOpt = new Option<string>("--scratch-root")
         {
