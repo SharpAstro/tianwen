@@ -302,8 +302,11 @@ window.MASTERS = [];  /* ROWS GO HERE -- inject_rows.py replaces this whole line
           <figure style="margin:0">
             <img class="view" src="img/${r.id}_enhanced.png" alt="${r.object || r.name}, enhanced"
               style="aspect-ratio:${r.viewW || 1200}/${r.viewH || 1200};border-radius:6px">
-            <figcaption class="note">After: gradient correction, whole-frame deblur, star removal,
-              deconvolution and denoise. This is what the card shows.</figcaption>
+            <figcaption class="note">After: whole-frame deblur, gradient correction, star removal,
+              denoise on the starless plate, SCNR on the stars, recombine &mdash; the BlurX-first
+              order, which is what runs when RC-Astro is present. There is deliberately no stellar
+              sharpen and no starless deconvolution: the deblur already did both, whole-frame. This
+              is what the card shows.</figcaption>
           </figure>
           <figure style="margin:16px 0 0">
             <img class="view" src="img/${r.id}_raw.png" alt="${r.object || r.name}, before enhancement"
@@ -311,8 +314,10 @@ window.MASTERS = [];  /* ROWS GO HERE -- inject_rows.py replaces this whole line
             <figcaption class="note">Before: the same pixels, unenhanced. Both views are the
               <em>same crop</em> of the master${r.shownW ? ` (${r.w}&times;${r.h} canvas &rarr; ${r.shownW}&times;${r.shownH} shown,
               ${Math.round(100 * r.shownW * r.shownH / (r.w * r.h))}% of it)` : ''}, plate-solved
-              once so both are colour-calibrated. Only the enhancement differs, which is the whole
-              point of showing them together.</figcaption>
+              once, and rendered on ONE white balance${r.wb ? ` (${r.wb}${r.wbSource ? ', ' + r.wbSource : ''})` : ''}
+              &mdash; the enhanced view inherits the balance solved on this one rather than re-fitting
+              its own against a background the enhance has already flattened. Only the enhancement
+              differs, which is the whole point of showing them together.</figcaption>
           </figure>
           <div class="crops" style="margin-top:16px">
             <figure class="crop" style="margin:0">
