@@ -123,7 +123,7 @@ def save_scaled(rgb, dst, width=VIEW_W):
     return img.width, img.height
 
 
-def run(row, store, outdir, scratch):
+def run(row, store, outdir, scratch, patch_only=False):
     """Crop, solve, render, enhance, render again -- one master, entirely through tianwen verbs."""
     name = row['name'] + '.fits'
     src = os.path.join(store, 'session-masters', name)
@@ -179,6 +179,15 @@ def run(row, store, outdir, scratch):
             os.path.join(outdir, f'{row["id"]}_crop.png'), optimize=True)
         del raw
 
+        if patch_only:
+            # The patch and the raw view are seconds of CPU; the enhance is a minute of GPU. When only
+            # the patch coordinates changed (the product now says where the sky is), the enhanced
+            # view is untouched and is not remade.
+            return {**row, 'ok': True, 'seconds': round(time.time() - started, 1),
+                    'crop': crop_line, 'solved': solved, 'solve': solve_line,
+                    'shownW': shown_w, 'shownH': shown_h, 'viewW': view_w, 'viewH': view_h,
+                    'wb': wb, 'wbSource': wb_source}
+
         code, out, err = tw('image', 'sharpen', croppath, '-o', sharppath, '--ai-backend', 'rc')
         if code != 0 or not os.path.exists(sharppath):
             return {**row, 'ok': False, 'stage': 'sharpen', 'error': (err or out)[-300:],
@@ -218,6 +227,10 @@ def main():
     jobs = int(sys.argv[sys.argv.index('--jobs') + 1]) if '--jobs' in sys.argv else 1
     limit = int(sys.argv[sys.argv.index('--limit') + 1]) if '--limit' in sys.argv else 0
     force = '--force' in sys.argv
+    # Remake only the raw view and the 1:1 patch, never the enhanced view: implies --force, since
+    # the point is that the pictures exist and one of them must change.
+    patch_only = '--patch-only' in sys.argv
+    force = force or patch_only
     scratch = (sys.argv[sys.argv.index('--scratch') + 1] if '--scratch' in sys.argv
                else os.path.join(tempfile.gettempdir(), 'tw-gallery'))
     os.makedirs(outdir, exist_ok=True)
@@ -248,7 +261,7 @@ def main():
     by_id = {r['id']: r for r in rows}
     batch_started, results = time.time(), []
     with ThreadPoolExecutor(max_workers=jobs) as pool:
-        for r in pool.map(lambda row: run(row, store, outdir, scratch), todo):
+        for r in pool.map(lambda row: run(row, store, outdir, scratch, patch_only), todo):
             results.append(r)
             by_id[r['id']] = {k: v for k, v in r.items()
                               if k not in ('ok', 'stage', 'error', 'seconds', 'solve', 'crop')}

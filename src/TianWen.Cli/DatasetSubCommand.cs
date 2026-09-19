@@ -418,8 +418,75 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
 
         return new Command("dataset", "Training-dataset tooling (see docs/plans/ai-denoise-deconv.md).")
         {
-            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildGradientReportCommand(), BuildDegradeCommand(), BuildPairCommand(), BuildCoverageCommand(consoleHost), BuildTagFilterCommand(), BuildTagObjectCommand(), BuildTagSiteElevationCommand(), BuildTagFrameTypeCommand(), BuildRelabelFrameTypeCommand() },
+            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildGradientReportCommand(), BuildDegradeCommand(), BuildPairCommand(), BuildCoverageCommand(consoleHost), BuildMastersCommand(consoleHost), BuildTagFilterCommand(), BuildTagObjectCommand(), BuildTagSiteElevationCommand(), BuildTagFrameTypeCommand(), BuildRelabelFrameTypeCommand() },
         };
+    }
+
+    /// <summary>
+    /// <c>tianwen dataset masters</c>: every retained master of a bake as one JSON array, answered by
+    /// the product's own rules (which <c>.fits</c> is a coverage sidecar, which suffix is a pier
+    /// side, how a stats record maps to a file, where the sky is) so that nothing downstream has to
+    /// restate them. The dataset gallery's row builder used to list the folder itself and mirrored
+    /// three of those rules; each had already produced a wrong number once.
+    /// </summary>
+    private Command BuildMastersCommand(IConsoleHost consoleHost)
+    {
+        var storeOpt = new Option<string>("--store", "-s")
+        {
+            Description = "Bake output root, the directory holding session-masters/ and stats/.",
+            Required = true,
+        };
+        // A file, never standard output: the console logger writes there too (every `dbug:` line in
+        // a Debug build, any warning in Release), and a JSON array with a log line in front of it is
+        // not a JSON array. The coverage and report verbs write files for the same reason.
+        var outOpt = new Option<string>("--out", "-o")
+        {
+            Description = "Path the JSON array is written to (atomically: written beside it and renamed).",
+            Required = true,
+        };
+        var skyPatchOpt = new Option<int>("--sky-patch")
+        {
+            Description = "Side, in pixels, of the darkest square to locate on each master (the same square " +
+                          "background neutralisation measures), reported as skyPatchX / skyPatchY. 0 reads no " +
+                          "pixels and reports null. Default 320.",
+            DefaultValueFactory = _ => 320,
+        };
+
+        var command = new Command("masters",
+            "List a bake's retained session masters as JSON: name, path, pier side, sidecar, plate solution, " +
+            "header identity, stacked and measured sub counts, optical train, master FWHM and the sky patch.")
+        {
+            Options = { storeOpt, outOpt, skyPatchOpt },
+        };
+
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var store = Path.GetFullPath(parseResult.Required(storeOpt));
+            if (!Directory.Exists(Path.Combine(store, RetainedMasterStore.DirectoryName)))
+            {
+                consoleHost.WriteError($"No {RetainedMasterStore.DirectoryName}/ under {store}: not a bake output root.");
+                return 1;
+            }
+            var skyPatch = parseResult.GetValue(skyPatchOpt);
+            var outPath = Path.GetFullPath(parseResult.Required(outOpt));
+
+            var entries = await DatasetMasterInventory.ListAsync(
+                store, skyPatch > 0 ? skyPatch : null, logger,
+                progress: new Progress<string>(line => consoleHost.WriteScrollable(line)),
+                cancellationToken: ct);
+
+            // Atomic: written beside the target and renamed, so a reader never sees half a table.
+            var tmp = outPath + ".partial";
+            await using (var file = File.Create(tmp))
+            {
+                await DatasetMasterInventory.WriteJsonAsync(entries, file, ct);
+            }
+            File.Move(tmp, outPath, overwrite: true);
+            consoleHost.WriteScrollable($"[masters] {entries.Length} master(s) -> {outPath}");
+            return 0;
+        });
+
+        return command;
     }
 
     /// <summary>
