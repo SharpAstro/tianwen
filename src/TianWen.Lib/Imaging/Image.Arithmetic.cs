@@ -89,15 +89,54 @@ public partial class Image
     public Image Subtract(Image other, float addedPedestal = 0f)
     {
         ValidateSameShape(other);
+        Span<float> perChannel = stackalloc float[ChannelCount];
+        perChannel.Fill(addedPedestal);
+        return Subtract(other, perChannel);
+    }
+
+    /// <summary>
+    /// As <see cref="Subtract(Image, float)"/>, but each channel gets its OWN added pedestal.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>A LEVEL IS A PER-PLANE FACT, and one scalar over three channels describes none of
+    /// them.</b> This is the same rule the CFA code learned the hard way -- a whole-frame statistic
+    /// over a mosaic describes none of its four photosite populations -- one level up, and it bites
+    /// the same way. Background extraction subtracts a model that tracks each channel's own sky; add
+    /// back a SHARED constant and every channel lands on that constant, which is not "the level was
+    /// preserved" but background neutralisation, a different operation that belongs to a different
+    /// step. Measured on an SV605CC narrowband master, whose channel medians are genuinely
+    /// R/G 0.332 and B/G 0.552: a shared add-back returned them as 1.004 and 1.003, so a white
+    /// balance solved on the input became a gross over-correction on the output and rendered the
+    /// frame flat red.</para>
+    /// <para>The image's own scalar <see cref="Pedestal"/> accumulates the MEAN of the per-channel
+    /// offsets, which is exactly the old value whenever they are all equal, so a mono frame and every
+    /// existing caller are bit-identical.</para>
+    /// </remarks>
+    /// <param name="other">Right-hand operand. Must match this image's shape.</param>
+    /// <param name="addedPedestals">One constant per channel, added per pixel after subtraction.</param>
+    /// <exception cref="ArgumentException">Shapes mismatch, or the wrong number of pedestals.</exception>
+    public Image Subtract(Image other, ReadOnlySpan<float> addedPedestals)
+    {
+        ValidateSameShape(other);
+        if (addedPedestals.Length != ChannelCount)
+        {
+            throw new ArgumentException(
+                $"Expected {ChannelCount} pedestals, one per channel, but got {addedPedestals.Length}.",
+                nameof(addedPedestals));
+        }
+
         var dst = CreateChannelData(ChannelCount, Height, Width);
+        var pedestalSum = 0f;
         for (var c = 0; c < ChannelCount; c++)
         {
             var lhs = GetChannelSpan(c);
             var rhs = other.GetChannelSpan(c);
             var output = MemoryMarshal.CreateSpan(ref dst[c][0, 0], dst[c].Length);
-            SubtractClampVec(lhs, rhs, addedPedestal, output);
+            SubtractClampVec(lhs, rhs, addedPedestals[c], output);
+            pedestalSum += addedPedestals[c];
         }
-        return new Image(dst, BitDepth.Float32, MaxValue, 0f, pedestal + addedPedestal, imageMeta);
+        return new Image(dst, BitDepth.Float32, MaxValue, 0f,
+            pedestal + pedestalSum / ChannelCount, imageMeta);
     }
 
     /// <summary>
