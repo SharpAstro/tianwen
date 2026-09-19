@@ -119,15 +119,70 @@ def measure(path):
     }
 
 
+def channel_ratios(path):
+    """(R/G, B/G) over the SIGNAL, as a pair of numbers with no threshold attached.
+
+    Taken at the 99th percentile rather than the median because the median is background, and the
+    background is deliberately neutralised per document (`BackgroundNeutralization` is re-solved on
+    each image by design, so the two halves of a card are SUPPOSED to differ there). What must agree
+    is the colour of the signal, because that is what a shared white balance fixes.
+    """
+    im = Image.open(path).convert("RGB")
+    im.thumbnail((WORK_EDGE, WORK_EDGE), Image.LANCZOS)
+    a = np.asarray(im).astype(np.float32)
+    hi = [float(np.percentile(a[..., i], 99)) for i in range(3)]
+    g = max(hi[1], 1e-6)
+    return hi[0] / g, hi[2] / g
+
+
+def pair_drift(img_dir, ids):
+    """How far each card's enhanced view has drifted from its raw view in colour.
+
+    This is the measurement for #59. The two halves are the same pixels and now share one white
+    balance, so their signal ratios should agree; when each half solved its own SPCC they did not,
+    and that is what the olive wash was. It reports the distribution rather than a verdict -- any
+    threshold worth having comes off these numbers over a whole store, not out of the air.
+    """
+    out = []
+    for i in ids:
+        raw = os.path.join(img_dir, "%d_raw.png" % i)
+        enh = os.path.join(img_dir, "%d_enhanced.png" % i)
+        if not (os.path.exists(raw) and os.path.exists(enh)):
+            continue
+        (rr, rb), (er, eb) = channel_ratios(raw), channel_ratios(enh)
+        out.append({"id": i, "dRG": round(er - rr, 4), "dBG": round(eb - rb, 4),
+                    "raw": [round(rr, 3), round(rb, 3)], "enhanced": [round(er, 3), round(eb, 3)]})
+    return out
+
+
 def main():
     img_dir = sys.argv[1]
     out = sys.argv[sys.argv.index("--json") + 1] if "--json" in sys.argv else None
+    rows_path = sys.argv[sys.argv.index("--rows") + 1] if "--rows" in sys.argv else None
+    meta = {}
+    if rows_path:
+        for r in json.load(open(rows_path, encoding="utf-8")):
+            meta[r["id"]] = r
+
     rows = [measure(os.path.join(img_dir, f))
             for f in sorted(os.listdir(img_dir)) if f.lower().endswith(".png")]
 
     bad = [r for r in rows if r["flags"]]
     for r in bad:
-        print("%-58s %s" % (r["file"][:58], "  ".join(r["flags"])))
+        # A cast on a NARROWBAND card is the data, not the render (#51): under a dual-band filter
+        # OIII lands on both the green and the blue photosites, so G and B carry the same signal and
+        # the colour space is rank-deficient. Saying so beside the flag is the difference between a
+        # report that gets read and one that gets ignored.
+        rid = r["file"].split("_")[0]
+        m = meta.get(int(rid)) if rid.isdigit() else None
+        why = ""
+        if m:
+            filt = (m.get("filter") or "").lower()
+            if any(t in filt for t in ("ultimate", "quad", "enhance", "sii", "oiii", "ha")):
+                why = "   [narrowband %s: a cast here is #51, not a render fault]" % m["filter"]
+            elif not m.get("solved"):
+                why = "   [unsolved: no SPCC, so the render is on sky-background balance, #55]"
+        print("%-58s %s%s" % (r["file"][:58], "  ".join(r["flags"]), why))
     print("\n%d views, %d flagged" % (len(rows), len(bad)))
     kinds = {}
     for r in bad:
@@ -135,8 +190,25 @@ def main():
             kinds[f.split("(")[0].split(":")[0]] = kinds.get(f.split("(")[0].split(":")[0], 0) + 1
     if kinds:
         print("by kind: " + ", ".join("%s %d" % kv for kv in sorted(kinds.items())))
+
+    drift = []
+    if meta:
+        drift = pair_drift(img_dir, sorted(meta))
+        if drift:
+            worst = sorted(drift, key=lambda d: -max(abs(d["dRG"]), abs(d["dBG"])))
+            print("")
+            print("PAIR COLOUR DRIFT (enhanced minus raw, signal ratios; #59)")
+            for d in worst[:8]:
+                m = meta.get(d["id"], {})
+                print("  id %-4d dR/G %+.3f  dB/G %+.3f   %s" % (
+                    d["id"], d["dRG"], d["dBG"], (m.get("object") or "")[:40]))
+            spread = sorted(max(abs(d["dRG"]), abs(d["dBG"])) for d in drift)
+            print("  over %d pairs: median %.3f  p90 %.3f  max %.3f"
+                  % (len(spread), spread[len(spread) // 2],
+                     spread[int(len(spread) * 0.9)], spread[-1]))
+
     if out:
-        json.dump(rows, open(out, "w", encoding="utf-8"), indent=1)
+        json.dump({"views": rows, "pairDrift": drift}, open(out, "w", encoding="utf-8"), indent=1)
         print("wrote " + out)
 
 

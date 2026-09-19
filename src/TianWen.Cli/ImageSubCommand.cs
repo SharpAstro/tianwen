@@ -514,22 +514,9 @@ internal sealed class ImageSubCommand(
         {
             Description = "Don't recombine the processed plates. Each plate is written as a separate file (see --output).",
         };
-        var formatOpt = new Option<ImageOutputFormat>("--output-format")
-        {
-            Description = "2D-viewer companion file alongside each output FITS. 'none' (default) = FITS only. 'png' = 16-bit RGBA + cICP sRGB (SDR display-referred). 'png-pq' = 16-bit RGBA + cICP HDR10 (BT.2020 + PQ); Affinity Photo honours the cICP HDR signal and shows it correctly, but Windows 11 Photos ignores cICP and displays the PQ samples as sRGB (looks muted). 'jxr' = JPEG XR with float-true HDR pixels (BD32F mono / BD16F RGB); writes the post-pipeline plate verbatim, skips Reinhard highlight knee so >1.0 overshoots survive. Per-plate dual-stretch float TIFFs are unaffected.",
-            DefaultValueFactory = _ => ImageOutputFormat.None,
-            CustomParser = ParseOutputFormat,
-        };
-        var pngPqPeakNitsOpt = new Option<float>("--png-pq-peak-nits")
-        {
-            Description = "Peak display luminance assigned to stretched value 1.0 in HDR10 PQ output (--output-format png-pq). Cinema HDR10 typically grades at 1000; ITU-R BT.2408 reference white is 203; premium HDR targets 4000. Range (0, 10000]. Default 1000.",
-            DefaultValueFactory = _ => 1000f,
-        };
-        var pngPqGamutOpt = new Option<PngPqGamut>("--png-pq-gamut")
-        {
-            Description = "Colour primaries for PNG-PQ output. 'srgb' (default) skips the BT.2020 gamut matrix; cICP {1, 16, 0, 1} tells viewers 'sRGB primaries, PQ transfer' so colours stay at sRGB saturation regardless of whether the viewer correctly inverts BT.2020-to-display. 'bt2020' performs the canonical sRGB-to-BT.2020 matrix conversion and tags cICP {9, 16, 0, 1} (HDR10 canonical) - correct per spec but consumer viewers that skip the inverse gamut tonemap render this muted.",
-            DefaultValueFactory = _ => PngPqGamut.Srgb,
-        };
+        var formatOpt = OutputFormatOption(
+            "2D-viewer companion file alongside each output FITS. 'none' (default) = FITS only. 'png' = 16-bit RGBA + cICP sRGB (SDR display-referred). 'png-pq' = 16-bit RGBA + cICP HDR10 (BT.2020 + PQ); Affinity Photo honours the cICP HDR signal and shows it correctly, but Windows 11 Photos ignores cICP and displays the PQ samples as sRGB (looks muted). 'jxr' = JPEG XR with float-true HDR pixels (BD32F mono / BD16F RGB); writes the post-pipeline plate verbatim, skips Reinhard highlight knee so >1.0 overshoots survive. Per-plate dual-stretch float TIFFs are unaffected.");
+        var (pngPqPeakNitsOpt, pngPqGamutOpt) = HdrCompanionOptions();
         var stellarBlendOpt = new Option<float>("--stellar-blend")
         {
             Description = "AI strength for the stellar sharpening pass in [0, 1], applied only when --stellar-sharpen is set. 0 = stars untouched; 1 = full AI output; ~0.5 is a typical good value for tight star fields where AI4 over-sharpens.",
@@ -1254,22 +1241,9 @@ internal sealed class ImageSubCommand(
             Description = "Output FITS path. Default: <input>_starless.fits.",
         };
 
-        var formatOpt = new Option<ImageOutputFormat>("--output-format")
-        {
-            Description = "2D-viewer companion file alongside the FITS output. 'none' (default) = no companion. 'png' = 16-bit RGBA + cICP sRGB (SDR). 'png-pq' = 16-bit RGBA + cICP HDR10 PQ (HDR display). 'jxr' = JPEG XR with float-true HDR pixels.",
-            DefaultValueFactory = _ => ImageOutputFormat.None,
-            CustomParser = ParseOutputFormat,
-        };
-        var pngPqPeakNitsOpt = new Option<float>("--png-pq-peak-nits")
-        {
-            Description = "Peak luminance for HDR PQ output (--output-format png-pq). Range (0, 10000]. Default 1000.",
-            DefaultValueFactory = _ => 1000f,
-        };
-        var pngPqGamutOpt = new Option<PngPqGamut>("--png-pq-gamut")
-        {
-            Description = "Colour primaries for HDR PQ output (--output-format png-pq). 'srgb' (default) keeps sRGB primaries, cICP {1, 16, 0, 1}. 'bt2020' applies sRGB-to-BT.2020 matrix, cICP {9, 16, 0, 1} = canonical HDR10.",
-            DefaultValueFactory = _ => PngPqGamut.Srgb,
-        };
+        var formatOpt = OutputFormatOption(
+            "2D-viewer companion file alongside the FITS output. 'none' (default) = no companion. 'png' = 16-bit RGBA + cICP sRGB (SDR). 'png-pq' = 16-bit RGBA + cICP HDR10 PQ (HDR display). 'jxr' = JPEG XR with float-true HDR pixels.");
+        var (pngPqPeakNitsOpt, pngPqGamutOpt) = HdrCompanionOptions();
 
         var cmd = new Command("remove-stars", "AI4 NAFNet star removal only. Produces a starless export.")
         {
@@ -1333,22 +1307,9 @@ internal sealed class ImageSubCommand(
         {
             Description = "Output FITS path. Default: <input>_flattened.fits.",
         };
-        var formatOpt = new Option<ImageOutputFormat>("--output-format")
-        {
-            Description = "2D-viewer companion file alongside the FITS output. 'none' (default) = no companion. 'png' = 16-bit cICP sRGB (SDR). 'png-pq' = 16-bit cICP HDR10 PQ. 'jxr' = float-true HDR. The --save-gradient surface PNG is unaffected - it stays PNG (min-max contrast visualisation, not banding-sensitive).",
-            DefaultValueFactory = _ => ImageOutputFormat.None,
-            CustomParser = ParseOutputFormat,
-        };
-        var pngPqPeakNitsOpt = new Option<float>("--png-pq-peak-nits")
-        {
-            Description = "Peak luminance for HDR PQ output (--output-format png-pq). Range (0, 10000]. Default 1000.",
-            DefaultValueFactory = _ => 1000f,
-        };
-        var pngPqGamutOpt = new Option<PngPqGamut>("--png-pq-gamut")
-        {
-            Description = "Colour primaries for HDR PQ output. 'srgb' (default) keeps sRGB primaries; 'bt2020' applies sRGB-to-BT.2020 matrix = canonical HDR10.",
-            DefaultValueFactory = _ => PngPqGamut.Srgb,
-        };
+        var formatOpt = OutputFormatOption(
+            "2D-viewer companion file alongside the FITS output. 'none' (default) = no companion. 'png' = 16-bit cICP sRGB (SDR). 'png-pq' = 16-bit cICP HDR10 PQ. 'jxr' = float-true HDR. The --save-gradient surface PNG is unaffected - it stays PNG (min-max contrast visualisation, not banding-sensitive).");
+        var (pngPqPeakNitsOpt, pngPqGamutOpt) = HdrCompanionOptions();
         var saveGradientOpt = new Option<bool>("--save-gradient")
         {
             Description = "Also write the estimated background surface as <output>_gradient.fits (+ .png if --png is set). Useful for sanity-checking the gradient model - you can see whether it picked up light pollution vs vignette vs sky-glow asymmetry. Skipped by default to avoid leaking a 120 MB plate per call on large drizzles.",
@@ -1657,22 +1618,9 @@ internal sealed class ImageSubCommand(
         {
             Description = "Output path. Default: <input>.png (or <input>.jxr when --output-format=jxr).",
         };
-        var formatOpt = new Option<ImageOutputFormat>("--output-format")
-        {
-            Description = "Output container. 'png' (default) = 16-bit RGBA + cICP sRGB via MasterPreviewRenderer (SPCC + sky-bg WB + bg-neut + stretch). 'png-pq' = 16-bit RGBA + cICP HDR10 PQ (BT.2020 + SMPTE 2084); modern browsers / HDR displays render as actual HDR at --png-pq-peak-nits peak. 'jxr' = JPEG XR with float-true HDR pixels (BD32F mono / BD16F RGB); writes the input verbatim, NO SPCC / WB / stretch.",
-            DefaultValueFactory = _ => ImageOutputFormat.Png,
-            CustomParser = ParseOutputFormat,
-        };
-        var pngPqPeakNitsOpt = new Option<float>("--png-pq-peak-nits")
-        {
-            Description = "Peak luminance for HDR PQ output (--output-format png-pq). Range (0, 10000]. Default 1000.",
-            DefaultValueFactory = _ => 1000f,
-        };
-        var pngPqGamutOpt = new Option<PngPqGamut>("--png-pq-gamut")
-        {
-            Description = "Colour primaries for HDR PQ output. 'srgb' (default) = cICP {1, 16, 0, 1}; 'bt2020' = canonical HDR10 cICP {9, 16, 0, 1}.",
-            DefaultValueFactory = _ => PngPqGamut.Srgb,
-        };
+        var formatOpt = OutputFormatOption(
+            "Output container. 'png' (default) = 16-bit RGBA + cICP sRGB via MasterPreviewRenderer (SPCC + sky-bg WB + bg-neut + stretch). 'png-pq' = 16-bit RGBA + cICP HDR10 PQ (BT.2020 + SMPTE 2084); modern browsers / HDR displays render as actual HDR at --png-pq-peak-nits peak. 'jxr' = JPEG XR with float-true HDR pixels (BD32F mono / BD16F RGB); writes the input verbatim, NO SPCC / WB / stretch.", ImageOutputFormat.Png);
+        var (pngPqPeakNitsOpt, pngPqGamutOpt) = HdrCompanionOptions();
         // Masked finishing boost (Image.MaskedBoost) -- mirrors `stack --saturation` /
         // `--contrast-boost` so the preview look can be iterated against an existing
         // master FITS without re-stacking.
@@ -2295,6 +2243,44 @@ internal sealed class ImageSubCommand(
 
         static ushort ToUShort(float v) => (ushort)Math.Clamp(v * 65535f + 0.5f, 0f, 65535f);
     }
+
+    /// <summary>
+    /// <c>--output-format</c> for one verb. The DESCRIPTION is the verb's own, because what the
+    /// companion file is FOR differs between them (<c>render</c> emits the picture itself and
+    /// defaults to PNG; the others emit it beside a FITS and default to none). Everything else --
+    /// the name, the parser, the shape -- is the same everywhere and is written once here.
+    /// </summary>
+    private static Option<ImageOutputFormat> OutputFormatOption(
+        string description, ImageOutputFormat defaultValue = ImageOutputFormat.None)
+        => new("--output-format")
+        {
+            Description = description,
+            DefaultValueFactory = _ => defaultValue,
+            CustomParser = ParseOutputFormat,
+        };
+
+    /// <summary>
+    /// The two HDR PQ companion options, which mean exactly the same thing for every verb that can
+    /// emit a picture -- so unlike the format option above they carry no per-verb wording.
+    /// <para>
+    /// They were declared inline at four call sites, and the four had drifted into four different
+    /// descriptions of one flag: <c>--png-pq-gamut</c> was documented as "skips the BT.2020 gamut
+    /// matrix ... consumer viewers render this muted" on one verb and as "'srgb' (default) = cICP
+    /// {1, 16, 0, 1}" on another. Nothing kept them in step and nothing ever would have, which is
+    /// the whole argument for declaring a flag once.
+    /// </para>
+    /// </summary>
+    private static (Option<float> PeakNits, Option<PngPqGamut> Gamut) HdrCompanionOptions()
+        => (new Option<float>("--png-pq-peak-nits")
+            {
+                Description = "Peak display luminance assigned to stretched value 1.0 in HDR10 PQ output (--output-format png-pq). Cinema HDR10 typically grades at 1000; ITU-R BT.2408 reference white is 203; premium HDR targets 4000. Range (0, 10000]. Default 1000.",
+                DefaultValueFactory = _ => 1000f,
+            },
+            new Option<PngPqGamut>("--png-pq-gamut")
+            {
+                Description = "Colour primaries for PNG-PQ output. 'srgb' (default) skips the BT.2020 gamut matrix; cICP {1, 16, 0, 1} tells viewers 'sRGB primaries, PQ transfer' so colours stay at sRGB saturation regardless of whether the viewer correctly inverts BT.2020-to-display. 'bt2020' performs the canonical sRGB-to-BT.2020 matrix conversion and tags cICP {9, 16, 0, 1} (HDR10 canonical) - correct per spec but consumer viewers that skip the inverse gamut tonemap render this muted.",
+                DefaultValueFactory = _ => PngPqGamut.Srgb,
+            });
 
     /// <summary>Parser for <c>--output-format</c>. Accepts the hyphenated CLI
     /// form (e.g. <c>png-pq</c>) in addition to the bare enum-identifier form
