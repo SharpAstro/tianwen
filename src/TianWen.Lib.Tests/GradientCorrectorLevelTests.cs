@@ -92,6 +92,43 @@ public class GradientCorrectorLevelTests
         corrected.Release();
     }
 
+    /// <summary>
+    /// The level the ONNX corrector restores is the MEDIAN of its model per plane, the statistic the
+    /// classical corrector restores, not the mean. On a smooth model the two are close and the level
+    /// test above cannot tell them apart; on a skewed one (a bright nebula the model partly absorbed)
+    /// they are not, and which corrector a machine has installed would then decide where the sky
+    /// lands. Pinned on the helper directly, since the GraXpert weights are not on every machine.
+    /// </summary>
+    [Fact]
+    public void TheOnnxAddBackIsTheModelsMedianPerPlane()
+    {
+        // 90 percent of the plane at the sky, 10 percent absorbed nebula at a hundred times it, per
+        // channel at different skies: median is the sky, mean is a tenth of the way to the nebula.
+        var planes = new float[3][,];
+        var sky = new[] { 0.010f, 0.020f, 0.015f };
+        for (var c = 0; c < 3; c++)
+        {
+            var plane = new float[Size, Size];
+            for (var y = 0; y < Size; y++)
+            {
+                for (var x = 0; x < Size; x++)
+                {
+                    plane[y, x] = x < Size / 10 ? 100f * sky[c] : sky[c];
+                }
+            }
+            planes[c] = plane;
+        }
+        var model = new Image(planes, BitDepth.Float32, 1.0f, 0f, 0f, new ImageMeta());
+
+        var restored = OnnxBackgroundExtractor.ChannelMedians(model);
+
+        for (var c = 0; c < 3; c++)
+        {
+            restored[c].ShouldBe(sky[c], tolerance: 1e-6f,
+                $"channel {c}: the median is the sky ({sky[c]}); the mean would be {sky[c] * (0.9f + 10f):F4}");
+        }
+    }
+
     /// <summary>Three channels at genuinely different levels, each carrying the same smooth
     /// horizontal gradient, which is what the corrector is supposed to take out.</summary>
     private static Image ColouredPlateWithGradient()

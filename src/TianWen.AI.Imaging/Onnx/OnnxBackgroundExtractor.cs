@@ -12,6 +12,7 @@ using Microsoft.ML.OnnxRuntime.Tensors;
 using TianWen.AI.Inference;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
+using TianWen.Lib.Stat;
 
 namespace TianWen.AI.Imaging.Onnx;
 
@@ -210,7 +211,7 @@ public sealed class OnnxBackgroundExtractor(
         var background = smoothed.BilinearResize(srcW, srcH);
         smoothed.Release();
 
-        // 11) Subtract background, add back EACH CHANNEL'S OWN mean background, so the gradient
+        // 11) Subtract background, add back EACH CHANNEL'S OWN median background, so the gradient
         // SHAPE is removed and every plane keeps the absolute level it came in with.
         //
         // This used to add back one scalar averaged over all three channels, which does not preserve
@@ -224,8 +225,12 @@ public sealed class OnnxBackgroundExtractor(
         // both do) then became a threefold red over-correction and rendered the frame flat red.
         //
         // ClassicalBackgroundExtractor, the other implementation of this same IGradientCorrector
-        // role, has always added each plane's own level back. Two implementations of one role must
-        // not disagree about what the role DOES.
+        // role, has always added each plane's own level back, and the level it adds is the MEDIAN of
+        // the model. For a day this one added the MEAN: per plane, so the colour survived, but a
+        // different statistic of the same surface, which on a smooth model is close and on a skewed
+        // one (a bright nebula the model partly absorbed, a corner the model chased) is not, and the
+        // level test's tolerance could not see the difference. One role, one statistic: the median,
+        // which is what "the sky sits where it was" means when the model is not flat.
         //
         // The background plate is returned alongside the corrected output so callers that asked for
         // diagnostic visibility (e.g. CLI flatten --save-gradient) can render it; callers that didn't
@@ -243,7 +248,7 @@ public sealed class OnnxBackgroundExtractor(
         // teal while its unenhanced half was neutral -- the two halves are the same pixels, so the
         // data cannot be the explanation. Leaving the field alone is what `WithZeroPedestal` exists
         // to paper over, and papering is worse than not breaking it.
-        var channelBg = ChannelMeans(background);
+        var channelBg = ChannelMedians(background);
         var corrected = input.Subtract(background, channelBg).WithPedestal(input.Pedestal);
         var stitchMs = stitchSw.ElapsedMilliseconds;
 
@@ -559,33 +564,33 @@ public sealed class OnnxBackgroundExtractor(
         return new Image(newData, src.BitDepth, globalMax, globalMin, src.Pedestal, src.ImageMeta);
     }
 
-    /// <summary>Mean of all non-NaN pixels across all channels. Used as the
-    /// brightness offset added back after gradient subtraction.</summary>
     /// <summary>
-    /// Per-channel mean of the finite pixels, which is what gets added back after the background is
-    /// subtracted. One value PER PLANE, never a single scalar over all of them -- see the comment at
-    /// the call site for what a shared one does to colour.
+    /// Per-channel MEDIAN of the finite pixels of the background model, which is what gets added back
+    /// after the model is subtracted. One value PER PLANE, never a single scalar over all of them (see
+    /// the call site for what a shared one does to colour), and the median rather than the mean because
+    /// that is the statistic <see cref="ClassicalBackgroundExtractor"/> restores for the same role: the
+    /// two must agree about what "the level" is, or which corrector a machine happens to have installed
+    /// decides where its sky lands.
     /// </summary>
-    private static float[] ChannelMeans(Image src)
+    internal static float[] ChannelMedians(Image src)
     {
-        var (channels, _, _) = src.Shape;
-        var means = new float[channels];
+        var (channels, width, height) = src.Shape;
+        var medians = new float[channels];
+        var scratch = new float[width * height];
         for (var c = 0; c < channels; c++)
         {
             var ch = src.GetChannelSpan(c);
-            var total = 0.0;
-            var count = 0L;
+            var n = 0;
             for (var i = 0; i < ch.Length; i++)
             {
                 var v = ch[i];
-                if (!float.IsNaN(v))
+                if (float.IsFinite(v))
                 {
-                    total += v;
-                    count++;
+                    scratch[n++] = v;
                 }
             }
-            means[c] = count > 0 ? (float)(total / count) : 0f;
+            medians[c] = n > 0 ? StatisticsHelper.MedianFast(scratch.AsSpan(0, n)) : 0f;
         }
-        return means;
+        return medians;
     }
 }
