@@ -556,6 +556,29 @@ namespace TianWen.Lib.Tests
             afterStrip.Resumed.ShouldBe(1);
             IntegrationFitsWriter.TryReadCoverageMap(m42Master, out var coverage).ShouldBeTrue("the redone master carries its plane again");
             coverage?.Release();
+
+            // A store older than the ledger: no entries at all. A session is adopted only when its PSF
+            // record PROVES the lights are today's (registered plus dropped, path for path); these
+            // records do, so nothing is redone and the ledger is rebuilt from them.
+            File.Delete(ledgerPath);
+            var adopted = await DatasetBuildRunner.RunAsync(options with { Resume = true }, cancellationToken: ct);
+            adopted.Redone.ShouldBe(0);
+            adopted.Resumed.ShouldBe(2);
+            (await DatasetSessionLedger.ReadAsync(ledgerPath, cancellationToken: ct)).Count.ShouldBe(2, "adopted sessions are written to the ledger");
+
+            // A record that cannot prove it (one from before the dropped-sub column) reads as stale:
+            // missing an edge case is tolerable, skipping a session that should be processed is not.
+            File.Delete(ledgerPath);
+            var psfPath = Path.Combine(outDir, "stats", DatasetPsfStore.FileName);
+            var records = await DatasetPsfStore.ReadAsync(psfPath, cancellationToken: ct);
+            File.Delete(psfPath);
+            foreach (var record in records.Values)
+            {
+                await DatasetPsfStore.AppendAsync(psfPath, record with { DroppedSubs = null }, ct);
+            }
+            var unprovable = await DatasetBuildRunner.RunAsync(options with { Resume = true }, cancellationToken: ct);
+            unprovable.Redone.ShouldBe(2, "an unprovable session is re-done, never trusted");
+            unprovable.TotalTiles.ShouldBe(first.TotalTiles);
         }
 
         /// <summary>

@@ -119,11 +119,14 @@ fingerprint differs, whose recipe version is behind, or whose retained master ex
 coverage plane the recipe now writes; the redo removes the tiles, prunes the session's manifest
 rows (`DatasetTileExporter.RemoveSessionRowsAsync`, a rewrite through a temp file with the old
 manifest rotated) and the master with its sidecars, then builds it fresh. `RunResult.Redone` counts
-them. Two deliberate limits: a session the ledger has never seen is trusted as it stands, so the
-first resume on a store older than the ledger re-does exactly the masters that are incomplete (the
-37 staged ones of the 2026-09-19 store) and nothing else; and a MISSING retained master is not
-staleness, since retention is best-effort and `--force-psf` recovers one without touching the
-tiles. The calibration library is hashed whole rather than resolved per session, so a new dark
+them. Two rules at the edges, both on the side of doing the work: a session the ledger has never
+seen is stale UNLESS its PSF record proves the lights are today's (registered plus dropped subs,
+path for path, which only a record with the dropped-sub column can), in which case the ledger
+adopts it; the 2026-09-19 store's records predate that column, so its first resume re-bakes all of
+it, and that is the price of never skipping a session whose inputs may have moved. And a MISSING
+retained master is not staleness (the tiles are right) but is work left undone, so the resume takes
+the re-register-and-retain path for it automatically, tiles untouched, the same path `--force-psf`
+uses. The calibration library is hashed whole rather than resolved per session, so a new dark
 invalidates every session: conservative, rare, and what makes the decision cost one stat per light.
 `DatasetSessionLedger.RecipeVersion` is bumped by hand when a bake's outputs change for identical
 inputs, the `SimbadMergeSnapshot.AlgorithmVersion` precedent; a new option that changes what a

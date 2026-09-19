@@ -257,8 +257,10 @@ read); a resume recomputes it and re-does a session whose fingerprint differs, w
 is behind, or whose retained master exists without the coverage plane the recipe now writes. The
 redo removes the tiles, prunes the session's manifest rows and the retained master with its
 sidecars, then builds it fresh; `RunResult.Redone` counts them. A session the ledger has never seen
-is trusted as it stands, so the first resume on an older store re-does exactly the masters that are
-incomplete and nothing else.
+is re-done unless its PSF record proves the lights are today's (registered plus dropped subs, path
+for path), in which case the ledger adopts it; a store whose records predate the dropped-sub column
+is therefore re-baked whole on its first resume, on purpose. A missing retained master is recovered
+through the re-register path with the tiles untouched, rather than left missing.
 
 ## 8.2
 
