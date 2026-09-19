@@ -1468,6 +1468,129 @@ public enum SharpenIntermediates
 }
 
 /// <summary>
+/// The canonical LINEAR enhance program: linear in, linear out, no baked stretch.
+/// <para>
+/// This is the ONE place the step ORDER is written. Every caller that runs a linear
+/// enhance -- <see cref="SharpenRequest.Canonical"/> and <see cref="SharpenRequest.DeblurFirst"/>,
+/// the stacking pipeline's <c>--enhance</c>, the hosted enhance endpoint, and the CLI's
+/// <c>image sharpen</c> -- asks for it here and varies only WHICH steps are present and at
+/// what blend, never their sequence. The three used to carry three hand-written copies of
+/// the order, and they had already drifted: <c>image sharpen</c>'s list began at
+/// <see cref="RemoveStarsStep"/>, so the command line ran neither the whole-frame deblur nor
+/// the gradient correction the other two always ran, and the same master enhanced in the
+/// viewer and on the command line came out visibly different with nothing to say so.
+/// </para>
+/// <para>
+/// A caller that ALSO stretches (the CLI's <c>--dual-stretch</c>) reads
+/// <see cref="PlateSteps"/> and <see cref="CompositeSteps"/> separately and puts its own
+/// per-plate stretch between them. That keeps the placement decision -- "SCNR after the
+/// stretch, PixInsight convention" -- at the caller, while the order of everything around
+/// it still comes from here.
+/// </para>
+/// </summary>
+public sealed record LinearEnhanceProgram
+{
+    /// <summary>Whole-frame deblur (BlurXTerminator) ahead of star extraction.
+    /// Requires an <see cref="IImageDeblurrer"/>; see <see cref="SharpenPipeline.SupportsDeblur"/>.</summary>
+    public bool Deblur { get; init; }
+
+    /// <inheritdoc cref="DeblurStep.Blend"/>
+    public float DeblurBlend { get; init; } = 1.0f;
+
+    /// <summary>Flatten the background before the stars come out. On by default:
+    /// every canonical program has always included it.</summary>
+    public bool GradientCorrection { get; init; } = true;
+
+    /// <inheritdoc cref="RemoveStarsStep.SplitMode"/>
+    public RecombineMode SplitMode { get; init; } = RecombineMode.Additive;
+
+    /// <summary>Sharpen the extracted stars plate. Meaningless with <see cref="Deblur"/>
+    /// live -- BlurX has already tightened every star, so re-sharpening double-dips.</summary>
+    public bool StellarSharpen { get; init; }
+
+    /// <inheritdoc cref="SharpenStarsStep.Blend"/>
+    public float StellarBlend { get; init; } = 1.0f;
+
+    /// <summary>Deconvolve the starless plate. Omitted with <see cref="Deblur"/> live for
+    /// the same reason: the whole frame has already been deconvolved.</summary>
+    public bool DeconvolveStarless { get; init; }
+
+    /// <inheritdoc cref="DeconvolveStarlessStep.Blend"/>
+    public float DeconvolveBlend { get; init; } = 1.0f;
+
+    /// <summary>Denoise the starless plate. On in every canonical program.</summary>
+    public bool Denoise { get; init; } = true;
+
+    /// <inheritdoc cref="DenoiseStarlessStep.Blend"/>
+    public float DenoiseBlend { get; init; } = 1.0f;
+
+    /// <inheritdoc cref="DenoiseStarlessStep.Variant"/>
+    public DenoiseVariant DenoiseVariant { get; init; } = DenoiseVariant.Default;
+
+    /// <summary>Green-channel neutralisation on the stars plate.
+    /// <see cref="ScnrMode.None"/> omits the step.</summary>
+    public ScnrMode Scnr { get; init; } = ScnrMode.None;
+
+    /// <inheritdoc cref="ScnrStarsStep.Amount"/>
+    public float ScnrAmount { get; init; } = 1.0f;
+
+    /// <summary>Reassemble the plates. A caller writing each plate out separately
+    /// (the CLI's <c>--no-recombine</c>) clears this.</summary>
+    public bool Recombine { get; init; } = true;
+
+    /// <inheritdoc cref="RecombineStep.Mode"/>
+    public RecombineMode RecombineMode { get; init; } = RecombineMode.Additive;
+
+    /// <summary>
+    /// The canonical program for a pipeline with or without a deblurrer, which is the only
+    /// thing that changes its SHAPE. With one (RC-Astro): whole-frame deblur, then no stellar
+    /// sharpen and no starless deconvolution -- both are already done -- and SCNR on the stars,
+    /// which BlurX's tightened faint stars need. Without one (SAS-shaped): no deblur, and the
+    /// stars plate is sharpened and the starless plate deconvolved instead, with nothing for
+    /// SCNR to neutralise.
+    /// </summary>
+    public static LinearEnhanceProgram For(bool supportsDeblur) => new()
+    {
+        Deblur = supportsDeblur,
+        StellarSharpen = !supportsDeblur,
+        DeconvolveStarless = !supportsDeblur,
+        Scnr = supportsDeblur ? ScnrMode.Average : ScnrMode.None,
+    };
+
+    /// <summary>Every step that acts on the plates, in order, up to but not including the
+    /// composite. A caller inserting its own per-plate stretch inserts it after these.</summary>
+    public ImmutableArray<SharpenStep> PlateSteps
+    {
+        get
+        {
+            var steps = ImmutableArray.CreateBuilder<SharpenStep>(6);
+            if (Deblur) steps.Add(new DeblurStep(Blend: DeblurBlend));
+            if (GradientCorrection) steps.Add(new GradientCorrectionStep());
+            steps.Add(new RemoveStarsStep(SplitMode: SplitMode));
+            if (StellarSharpen) steps.Add(new SharpenStarsStep(Blend: StellarBlend));
+            if (DeconvolveStarless) steps.Add(new DeconvolveStarlessStep(Blend: DeconvolveBlend));
+            if (Denoise) steps.Add(new DenoiseStarlessStep(Blend: DenoiseBlend, Variant: DenoiseVariant));
+            return steps.ToImmutable();
+        }
+    }
+
+    /// <summary>SCNR on the stars plate and the recombine that ends the program.</summary>
+    public ImmutableArray<SharpenStep> CompositeSteps
+    {
+        get
+        {
+            var steps = ImmutableArray.CreateBuilder<SharpenStep>(2);
+            if (Scnr != ScnrMode.None) steps.Add(new ScnrStarsStep(Mode: Scnr, Amount: ScnrAmount));
+            if (Recombine) steps.Add(new RecombineStep(Mode: RecombineMode));
+            return steps.ToImmutable();
+        }
+    }
+
+    /// <summary>The whole program, plates then composite.</summary>
+    public ImmutableArray<SharpenStep> ToSteps() => [.. PlateSteps, .. CompositeSteps];
+}
+
+/// <summary>
 /// Inputs to <see cref="SharpenPipeline.ProcessAsync"/>. The pipeline runs
 /// <paramref name="Steps"/> in declared order, so the request <i>is</i> the
 /// program: callers compose the workflow they want by choosing which
@@ -1491,15 +1614,8 @@ public sealed record SharpenRequest(Image Source, ImmutableArray<SharpenStep> St
     /// workflow per Frank Sackenheim: gradient correction, remove stars,
     /// sharpen stars, deconvolve starless, denoise starless, recombine.
     /// All steps at default blend strength.</summary>
-    public static SharpenRequest Canonical(Image source) => new(source,
-    [
-        new GradientCorrectionStep(),
-        new RemoveStarsStep(),
-        new SharpenStarsStep(),
-        new DeconvolveStarlessStep(),
-        new DenoiseStarlessStep(),
-        new RecombineStep(),
-    ]);
+    public static SharpenRequest Canonical(Image source)
+        => new(source, LinearEnhanceProgram.For(supportsDeblur: false).ToSteps());
 
     /// <summary>
     /// BlurX-first canonical for the RC-Astro / PixInsight OSC flow: full-image
@@ -1511,15 +1627,8 @@ public sealed record SharpenRequest(Image Source, ImmutableArray<SharpenStep> St
     /// (RC-Astro); choose this over <see cref="Canonical"/> when
     /// <see cref="SharpenPipeline.SupportsDeblur"/> is true.
     /// </summary>
-    public static SharpenRequest DeblurFirst(Image source) => new(source,
-    [
-        new DeblurStep(),
-        new GradientCorrectionStep(),
-        new RemoveStarsStep(),
-        new DenoiseStarlessStep(),
-        new ScnrStarsStep(ScnrMode.Average),
-        new RecombineStep(),
-    ]);
+    public static SharpenRequest DeblurFirst(Image source)
+        => new(source, LinearEnhanceProgram.For(supportsDeblur: true).ToSteps());
 }
 
 /// <summary>
