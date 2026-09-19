@@ -449,6 +449,26 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         // / sky-bg sampling runs on `stats`, not `renderImage`, so the
         // gains are anchored to the well-covered region.
         // ------------------------------------------------------------
+        // The system throughput (sensor QE x filter) answers TWO questions and is therefore computed
+        // once, here, rather than inside the SPCC block below: it is what SPCC integrates its SEDs
+        // against, AND it is what says whether the light was line-selective. The second answer is a
+        // property of the FRAME, not of which white-balance path ran, and the shared-triple path
+        // skips the SPCC block entirely while still needing it for the stretch mode.
+        (FilterCurve R, FilterCurve G, FilterCurve B)? throughputs = null;
+        var colourIsNotPhotometric = false;
+        if (stats.ChannelCount >= 3)
+        {
+            if (!FilterCurveDatabase.IsLoaded)
+            {
+                await FilterCurveDatabase.LoadAsync(ct);
+            }
+            throughputs = FilterCurveDatabase.BuildChannelThroughputs(sensorMeta);
+            if (throughputs is { } tsys)
+            {
+                colourIsNotPhotometric = FilterCurveDatabase.IsLineSelective(tsys.R, tsys.G, tsys.B);
+            }
+        }
+
         (float R, float G, float B)? wbGains = wbOverride;
         if (wbGains is { } shared)
         {
@@ -503,7 +523,6 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
                     // like a hard field rather than an uninitialised database. InitDBAsync is
                     // idempotent, so a caller that already loaded it pays nothing.
                     await db.InitDBAsync(waitForTycho2BulkLoad: true, ct);
-                    var throughputs = FilterCurveDatabase.BuildChannelThroughputs(sensorMeta);
                     if (throughputs is { } t)
                     {
                         var spcc = Tycho2ColorCalibration.ComputeSpectrophotometricWhiteBalance(
@@ -591,19 +610,41 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
             var adjMad = s.Mad * MathF.Abs(bn);
             perChannelStats[c] = new ChannelStretchStats(s.Pedestal, adjMed, adjMad);
         }
-        // LINKED, so the white balance this method just went to the trouble of measuring actually
-        // reaches the PNG. Unlinked auto-normalises each channel against its own stats and therefore
-        // absorbs any per-channel gain: three very different SPCC triples (1.003/1/0.999,
-        // 0.341/1/0.850, 0.536/1/1.186) rendered to within noise of each other here -- mean channel
-        // values identical to 0.02 of a byte -- so SPCC's colour never reached this output at all,
-        // and anything judging a WB change from one of these PNGs was measuring nothing.
+        // LINKED for a photometric white balance, so the balance this method just went to the
+        // trouble of measuring actually reaches the PNG. Unlinked auto-normalises each channel
+        // against its own stats and therefore absorbs any per-channel gain: three very different
+        // SPCC triples (1.003/1/0.999, 0.341/1/0.850, 0.536/1/1.186) rendered to within noise of
+        // each other here -- mean channel values identical to 0.02 of a byte -- so SPCC's colour
+        // never reached this output at all, and anything judging a WB change from one of these PNGs
+        // was measuring nothing.
         //
         // Linked shares ONE curve across the channels (see StretchSolver), which is PixInsight's
         // linked STF and the order the rest of the pipeline already assumes: background
         // neutralisation flattens the sky (applied below, and pre-folded into the stats above), then
         // the shared curve lets the calibrated channels keep their relative levels.
+        //
+        // THE CHOICE IS StretchModeExtensions.ResolveAuto's, NOT A LITERAL HERE. The rule that a
+        // line-selective frame must not be rendered Linked already existed and was already measured
+        // (FilterCurveDatabase.IsLineSelective, a 38 nm threshold taken over all 183 shipped
+        // curves), but its only caller was AstroImageDocument -- the VIEWER -- so every headless
+        // render asserted a fit of nothing as colour. That is not a cosmetic difference: Linked
+        // takes ONE shadow point from the mean of three medians, and on a 3 nm L-Ultimate master
+        // whose SPCC triple came out (1.136, 1.000, 1.860) the red channel sat below it and CLIPPED
+        // TO ZERO once the enhance had shrunk the MAD, which is the teal dual-narrowband card.
+        // Broadband masters are unaffected by construction: colourIsNotPhotometric is false there,
+        // a calibration is active, and ResolveAuto still answers Linked.
+        var stretchMode = StretchMode.Auto.ResolveAuto(
+            isColour: stats.ChannelCount >= 3,
+            calibrationActive: wbGains is not null,
+            colourIsNotPhotometric: colourIsNotPhotometric);
+        if (colourIsNotPhotometric)
+        {
+            logger.LogInformation(
+                "  [stretch] line-selective filter: SPCC has no continuum to fit, rendering {Mode} so a fit of nothing is not asserted as colour",
+                stretchMode);
+        }
         var uniforms = StretchSolver.ComputeStretchUniforms(
-            StretchMode.Linked,
+            stretchMode,
             StretchParameters.Default,
             perChannelStats,
             lumaStats: null,
