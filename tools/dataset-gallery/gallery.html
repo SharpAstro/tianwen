@@ -149,11 +149,13 @@
 <div class="wrap">
   <header>
     <div>
-      <h1>Skyref Bake Masters</h1>
+      <h1>Archive Bake Masters</h1>
       <p class="sub">
-        Every session master in <code>D:/Astro-Dataset/2026-09-17-skyref</code>, the first bake with the
-        drizzle sky reference. Cards show each master cropped to full coverage and enhanced; open one
-        for the same crop before enhancement and a 1:1 patch of sky taken from the uncropped master.
+        Every session master in <code>D:/Astro-Dataset/2026-09-19-full</code>, the full-archive bake.
+        Cards show each master cropped to its covered rectangle and enhanced; open one for the same
+        crop before enhancement, on the <em>same</em> white balance, and a 1:1 patch of sky from the
+        uncropped master. A night the mount flipped through appears three times &mdash; both sides
+        together, then each side &mdash; which the badges tell apart.
       </p>
     </div>
     <div class="totals" id="totals"></div>
@@ -180,11 +182,13 @@
   <div class="grid" id="grid"></div>
 
   <p class="legend">
-    <b>Phase</b> is the period-2 level step between adjacent columns or rows, in units of the master's own
-    per-pixel noise, with the share of pairs that step the same way beside it. Noise sits near 0 with
-    50% agreement; the Bayer-phase pattern this bake set out to remove read up to 8.9 sigma at 100%.
-    <b>Sky</b> is the background sigma of the central 1536 px square, green channel, as a fraction of
-    full scale.
+    <b>Both views of a card share one colour calibration.</b> The unenhanced view is rendered first and
+    its white balance is handed to the enhanced one, rather than each solving its own SPCC against a
+    background the enhance has already flattened. A card tagged <b>mono</b> has one channel and so no
+    colour to calibrate; one tagged <b>uncalibrated colour</b> could not be plate-solved, so the sky
+    was neutralised instead and the signal keeps the sensor's own balance. A <b>dual-narrowband</b>
+    master (L-Ultimate, L-Quad) reads teal on purpose: OIII lands on both the green and the blue
+    photosites, so those two channels carry the same signal and there is no honest curve to fit.
   </p>
 </div>
 
@@ -264,7 +268,7 @@ window.MASTERS = [];  /* ROWS GO HERE -- inject_rows.py replaces this whole line
     el.type = 'button';
     const st = state(r);
     el.innerHTML = `
-      <figure><img class="view" loading="lazy" src="img/${r.id}_enhanced.png"
+      <figure><img class="view" loading="lazy" src="img/${r.id}_enhanced.jpg"
         alt="${r.object || r.name}, enhanced"
         style="aspect-ratio:${r.viewW || 1200}/${r.viewH || 1200}"></figure>
       <div class="meta">
@@ -311,7 +315,7 @@ window.MASTERS = [];  /* ROWS GO HERE -- inject_rows.py replaces this whole line
         </header>
         <div>
           <figure style="margin:0">
-            <img class="view" src="img/${r.id}_enhanced.png" alt="${r.object || r.name}, enhanced"
+            <img class="view" src="img/${r.id}_enhanced.jpg" alt="${r.object || r.name}, enhanced"
               style="aspect-ratio:${r.viewW || 1200}/${r.viewH || 1200};border-radius:6px">
             <figcaption class="note">After: whole-frame deblur, gradient correction, star removal,
               denoise on the starless plate, SCNR on the stars, recombine &mdash; the BlurX-first
@@ -320,7 +324,7 @@ window.MASTERS = [];  /* ROWS GO HERE -- inject_rows.py replaces this whole line
               is what the card shows.</figcaption>
           </figure>
           <figure style="margin:16px 0 0">
-            <img class="view" src="img/${r.id}_raw.png" alt="${r.object || r.name}, before enhancement"
+            <img class="view" src="img/${r.id}_raw.jpg" alt="${r.object || r.name}, before enhancement"
               style="aspect-ratio:${r.viewW || 1200}/${r.viewH || 1200};border-radius:6px">
             <figcaption class="note">Before: the same pixels, unenhanced. Both views are the
               <em>same crop</em> of the master${r.shownW ? ` (${r.w}&times;${r.h} canvas &rarr; ${r.shownW}&times;${r.shownH} shown,

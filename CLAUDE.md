@@ -1031,6 +1031,13 @@ absorption from emission over 3 nm). **Narrowband SPCC is BLOCKED on data, not m
 DR3 `xp_sampled` spectra, ADR-3). **Naive HOO is rank-deficient** (`G = B = OIII` renders uniformly
 teal by construction). Algorithms + thirteen ADRs: `docs/plans/narrowband-colour.md`.
 
+**"Broadband-only" is a statement about the MODEL, not a gate, and nothing refuses to run SPCC on a
+narrowband master.** It fits, it returns a triple, and the triple is shown, because the user asked for
+it and the manual sliders sit on top of it. The gate is downstream and is about the STRETCH: the fit
+is not asserted as colour (see `ResolveAuto` under the stretch pipeline). Reading the sentence above
+as "it will not happen" is how a 3 nm master came to render with blue up 86 percent in every headless
+output for as long as that path existed.
+
 **The filter-curve matcher must never answer with a brand, nor a MORE SPECIFIC product.**
 `FilterCurveDatabase` matches by token overlap over 183 curves; three gates -- a two-token
 (BRAND+CHANNEL) key must be covered in FULL, an unmatched token absent from every other filter name
@@ -1688,6 +1695,20 @@ shifts per word, with one carry bit crossing each word boundary), which took it 
 on a 3024 x 3025 x 3 frame. It is pinned against a per-pixel reference at widths 63/64/65/127/128/129
 (`CoverageFloodEquivalenceTests`) because a frame wider than that passes with either carry deleted.
 
+**And the rule is `FloodFromBorder`, which BOTH tiers call, because the coverage tier had it wrong in
+exactly the way the pixel tier had been fixed.** The coverage-plane overload WINS wherever a sidecar
+exists, and it compared each block against the threshold and handed the result straight to the
+rectangle search, so any deficit anywhere read as absence. **A weight deficit in the MIDDLE of a frame
+is not an edge, and a crop exists to trim the under-exposed RIM**: on the Great Orion Nebula master
+the Trapezium saturates in the SUBS, rejection drops those samples, and the plane honestly records
+weight at 0.79 / 0.93 / 0.81 of the surroundings with pixels at zero (worst in red, where an
+Ha-dominant 3 nm passband saturates first). That is 35 blocks of 35,910, one 96 x 112 island dead
+centre, and it took the crop to 1600 x 2960, **51.8% of a canvas whose blocks pass at 97.3%** -- the
+left half of the picture with the nebula sliced off. Border-reachability alone takes the same plane to
+96.8%. The master is NOT clipped there (peak 0.98 against the frame's own 1.0296); it is 145x the sky
+in red. `LargestCoveredRectangleTests.ASaturatedCoreIsNotAnUncoveredEdge`, with a border-connected
+notch as the control so the rule cannot widen into "nothing is ever absence".
+
 **`BitMatrix` is word-addressable, and which granularity you use is the whole of its performance.**
 `RowWords` / `AllWords` / `PopCount` / `NextSetBit` make bulk work three orders of magnitude cheaper
 than the indexer (9.1M bits: 16.5 ms per bit, under 0.05 ms per word), so anything touching more than
@@ -1895,10 +1916,21 @@ the measurements: `docs/architecture/stretch-pipeline.md`**
   slots so a white balance survives as colour; Unlinked writes each channel's own curve and
   neutralises the background. **Never re-derive a per-channel curve in the Linked branch.**
 - **`StretchMode.Auto` is a UI intent, resolved before any `StretchUniforms` is built, never a shader
-  mode**: `mode.ResolveAuto(isColour, calibrationActive)` (`StretchModeExtensions`, TianWen.Lib, shared
-  with `ThumbnailRenderer`) is the one resolver; `ViewerActions.DefaultStretchMode` is the VIEWER
-  default (= Auto), `MasterPreviewRenderer` / `PreviewEncoder` render Linked explicitly; a fixed-curve
-  test passes an explicit mode.
+  mode**: `mode.ResolveAuto(isColour, calibrationActive, colourIsNotPhotometric, channelsAlreadyAgree)`
+  (`StretchModeExtensions`, TianWen.Lib, shared with `ThumbnailRenderer`) is the one resolver;
+  `ViewerActions.DefaultStretchMode` is the VIEWER default (= Auto); a fixed-curve test passes an
+  explicit mode.
+- **EVERY renderer resolves through it, headless included, and a literal `StretchMode.Linked` in a
+  renderer is the regression.** `MasterPreviewRenderer` (the dataset bake and `tianwen image render`)
+  carried one, so the line-selective veto -- `FilterCurveDatabase.IsLineSelective`, a 38 nm cut
+  measured over all 183 shipped curves -- applied to the viewer alone and to nothing the bake drew. A
+  3 nm L-Ultimate master's SPCC prints `1.136, 1.000, 1.860`: a fit against a continuum that never
+  reached the sensor. Rendered Linked, the ONE shared shadow point comes off the mean of three unequal
+  medians, and red (weakest after that triple) fell under it and clipped to zero once the enhance had
+  shrunk the MAD. Five of 139 gallery cards, every one of them that filter. The white balance is not
+  refused and not changed; what Unlinked stops is ASSERTING a fit of nothing as colour. Pinned by
+  `NarrowbandStretchModeTests.TheHeadlessRendererHonoursTheSameLineSelectiveVeto`, whose broadband row
+  is the control.
 - **Background neutralisation is solved POST-WB, so anything caching its gains owes the WB in its
   cache key** (they print at F4).
 - **The SPCC / Calibrate toggle gates the RENDER, not the measurement** (`applyColorCalibration`); an
