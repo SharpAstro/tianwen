@@ -44,7 +44,7 @@ Available in `.claude/skills/<name>/SKILL.md`: auto-invocable when the request m
 | `sibling-status` | Git status + version across all SharpAstro repos |
 | `check-ci` | GitHub Actions CI status across all repos |
 | `bump-version` | Bump TianWen's version: the one `<VersionMajorMinor>` in `src/Directory.Build.props` |
-| `run-gui` / `run-tui` / `run-fits` | Build and launch the GUI / CLI TUI / FITS viewer with stderr redirect |
+| `run-gui` / `run-tui` / `run-fits` | Build and launch the GUI / CLI TUI / FITS viewer DETACHED via `tools/start-app.ps1` (pid + redirected stdout/stderr paths; survives a reaped background shell) |
 | `test-run` | Run a suite so a failure is always identifiable (TRX + no truncation), and hunt flakes |
 | `test-filter` | Run tests matching a name pattern |
 | `test-image-diff` | Diff test-output PNGs across run folders to flag visual regressions |
