@@ -340,6 +340,48 @@ public static class StretchSolver
     }
 
     /// <summary>
+    /// How close three channel medians must sit, as a fraction of the smallest, for the frame's
+    /// backgrounds to count as ALREADY LEVEL: 0.15 percent, measured rather than chosen. The enhanced
+    /// 10P drizzle master that prompted the rule had its medians within 0.15 percent of each other and
+    /// an Astro Pixel Processor HOO composite sits at 0.1 percent; an uncalibrated OSC sky is percents
+    /// apart, which is what an SPCC triple of 1.44 / 1.00 / 1.23 describes.
+    /// </summary>
+    public const float ChannelAgreementTolerance = 0.0015f;
+
+    /// <summary>
+    /// Whether a frame's per-channel backgrounds are already level, so nothing downstream should
+    /// neutralise them a second time. The fourth input to <see cref="StretchModeExtensions.ResolveAuto"/>,
+    /// and the one that used to have a single home.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Measured, never declared</b>, from the per-channel medians the stretch already has in
+    /// hand; a provenance flag could only ever be right about our own enhance output, while the frames
+    /// that most need the answer were flattened in another tool. It lived on the viewer's document
+    /// alone, so the headless render resolved its stretch mode from three inputs where the viewer used
+    /// four, and a levelled colour master with no calibration to show rendered Linked on screen and
+    /// Unlinked from the command line. Here, beside <see cref="CollectPerChannelStats"/>, both read it.</para>
+    /// <para>Fewer than three entries, or a non-positive median (an empty or fully clipped plane),
+    /// is not the regime the question is about and answers false rather than dividing.</para>
+    /// </remarks>
+    public static bool ChannelsAgree(ReadOnlySpan<ChannelStretchStats> stats)
+    {
+        if (stats.Length < 3)
+        {
+            return false;
+        }
+
+        float min = float.MaxValue, max = float.MinValue;
+        for (var c = 0; c < 3; c++)
+        {
+            var m = stats[c].Median;
+            if (m < min) { min = m; }
+            if (m > max) { max = m; }
+        }
+
+        return min > 0f && max / min - 1f <= ChannelAgreementTolerance;
+    }
+
+    /// <summary>
     /// Collects the per-channel (pedestal, median, MAD) stretch stats for <paramref name="channelCount"/>
     /// channels of <paramref name="image"/> via <see cref="Image.GetPedestralMedianAndMADScaledToUnit"/>.
     /// The plain stat-scan loop shared by the viewer document and the in-pipeline preview renderer

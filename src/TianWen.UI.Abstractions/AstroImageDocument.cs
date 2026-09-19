@@ -267,33 +267,11 @@ public sealed class AstroImageDocument : IPreviewSource
     /// three floats already in hand. (A fresh star-masked scan, for reference, is 8.4 ms on a 9.5 MP
     /// three-channel frame.) The medians here are unmasked, which is fine for the question -- the sky
     /// dominates the median -- and star detection later refines the same numbers.</para>
+    /// <para>The rule and its tolerance are <see cref="StretchSolver.ChannelsAgree"/>, beside the stats
+    /// collector both renderers share: this property was the rule's only home, so the headless render
+    /// resolved from three inputs where the viewer used four.</para>
     /// </remarks>
-    public bool ChannelsAlreadyAgree
-    {
-        get
-        {
-            var stats = Basis.PerChannelStats;
-            if (stats.Length < 3)
-            {
-                return false;
-            }
-
-            float min = float.MaxValue, max = float.MinValue;
-            for (var c = 0; c < 3; c++)
-            {
-                var m = stats[c].Median;
-                if (m < min) { min = m; }
-                if (m > max) { max = m; }
-            }
-
-            // A non-positive median says the frame is not in the regime this question is about
-            // (an empty or fully clipped plane), so decline rather than divide.
-            return min > 0f && max / min - 1f <= ChannelAgreementTolerance;
-        }
-    }
-
-    /// <summary>See <see cref="ChannelsAlreadyAgree"/>: 0.15 percent, measured rather than chosen.</summary>
-    private const float ChannelAgreementTolerance = 0.0015f;
+    public bool ChannelsAlreadyAgree => StretchSolver.ChannelsAgree(Basis.PerChannelStats);
 
     private readonly bool _hasDuplicateChannels;
 

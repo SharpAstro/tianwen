@@ -646,10 +646,19 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         // TO ZERO once the enhance had shrunk the MAD, which is the teal dual-narrowband card.
         // Broadband masters are unaffected by construction: colourIsNotPhotometric is false there,
         // a calibration is active, and ResolveAuto still answers Linked.
+        //
+        // ALL FOUR INPUTS, the same four the viewer resolves from. The fourth is whether the frame's
+        // own backgrounds are already level (StretchSolver.ChannelsAgree over the UNADJUSTED medians,
+        // before this method's own neutralisation is folded in), which makes a levelled colour master
+        // with no calibration to show render Linked rather than have three curves fitted to the noise
+        // between channels that already agree. It was measured on the viewer's document alone until
+        // the headless render was found resolving from three inputs where the viewer used four.
+        var channelsAlreadyAgree = StretchSolver.ChannelsAgree(baseStats);
         var stretchMode = StretchMode.Auto.ResolveAuto(
             isColour: stats.ChannelCount >= 3,
             calibrationActive: wbGains is not null,
-            colourIsNotPhotometric: colourIsNotPhotometric);
+            colourIsNotPhotometric: colourIsNotPhotometric,
+            channelsAlreadyAgree: channelsAlreadyAgree);
         if (colourIsNotPhotometric)
         {
             logger.LogInformation(

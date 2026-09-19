@@ -361,6 +361,27 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// The predicate behind the FOURTH resolver input, at the measured tolerance and its two
+        /// refusals. It is the one rule both renderers read now (the viewer's <c>ChannelsAlreadyAgree</c>
+        /// delegates here), so this is where it is pinned. It is deliberately NOT pinned through
+        /// <c>MasterPreviewRenderer.RenderAsync</c>: with no catalog that path still solves a
+        /// sky-background white balance (a gray-world triple such as (2, 1, 1.68) on a coloured frame),
+        /// so a calibration is active on practically every headless colour render and the fourth input
+        /// never gets to decide there. Passing it is parity, and honest about it.
+        /// </summary>
+        [Fact]
+        public void ChannelsAgreeIsTheMeasuredTolerance()
+        {
+            static ChannelStretchStats At(float median) => new(0f, median, 0.001f);
+
+            StretchSolver.ChannelsAgree([At(0.1000f), At(0.10010f), At(0.10005f)]).ShouldBeTrue("0.1 percent apart is a levelled frame");
+            StretchSolver.ChannelsAgree([At(0.1000f), At(0.1001f), At(0.0999f)]).ShouldBeFalse("0.2 percent apart is outside the measured 0.15");
+            StretchSolver.ChannelsAgree([At(0.1000f), At(0.1020f), At(0.1000f)]).ShouldBeFalse("2 percent apart is an uncalibrated sky");
+            StretchSolver.ChannelsAgree([At(0.1f), At(0.1f)]).ShouldBeFalse("two channels is not a colour frame");
+            StretchSolver.ChannelsAgree([At(0f), At(0f), At(0f)]).ShouldBeFalse("a clipped plane is not the regime");
+        }
+
+        /// <summary>
         /// A debayered OSC master through a named filter, with the three channels at deliberately
         /// different levels so the two modes cannot coincide. <see cref="SensorType.Color"/> is what
         /// brings the CFA curves into <c>BuildChannelThroughputs</c>, and the filter is carried as the
