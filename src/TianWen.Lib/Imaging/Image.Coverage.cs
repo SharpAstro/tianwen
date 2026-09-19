@@ -435,6 +435,38 @@ public partial class Image
     /// anything on the instance: the pixels it writes lie between their own neighbours, so every
     /// statistic the image carries stays as true as it was.</para>
     /// </remarks>
+    /// <summary>
+    /// This image with its interior holes filled, for a caller that does not OWN the pixels: the same
+    /// instance when there is nothing to fill, a filled copy otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The non-owning half of <see cref="FillInteriorHolesInPlace"/>, added so the headless
+    /// render path can obey the rule the viewer already did.</b> `AdoptImageAsync` fills in place
+    /// because it is an ownership-transfer factory and says so in its name; `MasterPreviewRenderer`
+    /// documents that it does NOT mutate the master it is handed, and the master it renders is often
+    /// the very object the FITS writer is about to write. So it needs the answer without the
+    /// mutation, and what it must not do is grow a second fill of its own.</para>
+    /// <para><b>A frame with no hole pays one classify pass and no copy</b>, which is the common case:
+    /// <see cref="ScanAbsence"/> gives up as soon as it has seen no NaN, before the flood. A frame
+    /// that HAS holes pays that pass twice, once here and once inside the fill, and that is accepted
+    /// rather than plumbed around -- it is a display render, not the stacking hot path.</para>
+    /// <para>What it was for: a Great Orion Nebula master carries 1,853 NaN in a 64 x 68 box at the
+    /// Trapezium, where the core saturates in the subs and rejection took every sample. Rendered
+    /// unfilled they reach the PNG as a blue-and-yellow speck sitting on the brightest part of the
+    /// picture. Nobody saw it until the crop stopped cutting that half of the frame away.</para>
+    /// </remarks>
+    public Image WithInteriorHolesFilled(int maxPasses = 32)
+    {
+        if (Width <= 0 || Height <= 0 || ChannelCount <= 0 || !ScanAbsence(trackNaN: true).AnyNaN)
+        {
+            return this;
+        }
+
+        var copy = Crop(new PixelRect(0, 0, Width, Height));
+        copy.FillInteriorHolesInPlace(maxPasses);
+        return copy;
+    }
+
     /// <param name="maxPasses">How far a fill may reach into a hole, in pixels.</param>
     public int FillInteriorHolesInPlace(int maxPasses = 32)
     {

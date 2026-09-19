@@ -430,6 +430,28 @@ namespace TianWen.Lib.Tests
                 $"the rectangle {rect} must avoid the border-connected notch");
         }
 
+        /// <summary>
+        /// The non-owning fill: same instance when there is nothing to fill, a filled COPY otherwise,
+        /// and the caller's pixels are never touched. `MasterPreviewRenderer` documents that it does not
+        /// mutate the master it renders, and that master is often the object the FITS writer is about to
+        /// write, so it needs the fill without the mutation.
+        /// </summary>
+        [Fact]
+        public void TheNonOwningFillCopiesRatherThanMutating()
+        {
+            var clean = Flat(64, 64, channels: 1);
+            clean.WithInteriorHolesFilled().ShouldBeSameAs(clean, "no hole means no copy");
+
+            var holed = Flat(64, 64, channels: 1);
+            holed.GetChannelArray(0)[32, 32] = float.NaN;
+
+            var filled = holed.WithInteriorHolesFilled();
+
+            filled.ShouldNotBeSameAs(holed);
+            float.IsNaN(filled[0, 32, 32]).ShouldBeFalse("the hole is interpolated from its neighbours");
+            float.IsNaN(holed[0, 32, 32]).ShouldBeTrue("the caller's own image is untouched");
+        }
+
         [Fact]
         public void ACoveragePlaneOfTheWrongShapeIsRefused()
         {
