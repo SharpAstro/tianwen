@@ -1000,9 +1000,25 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            menu.AnchorX = PlaceBesideAnchor(bounds, menu.AnchorWidth, 1f).X;
+            var width = FitDropdownWidth(_toolbarDropdownNaturalWidth);
+            menu.AnchorWidth = width;
+            menu.AnchorX = PlaceBesideAnchor(bounds, width, 1f).X;
             menu.AnchorY = bounds.Bottom;
         }
+
+        /// <summary>
+        /// The width the open menu's labels asked for when it was opened, before <see cref="FitDropdownWidth"/>,
+        /// so a window that grows back gives the menu its full width again.
+        /// </summary>
+        private float _toolbarDropdownNaturalWidth;
+
+        /// <summary>
+        /// A menu is never wider than the window. Wider, and no placement could keep it beside its button: the
+        /// "?" menu, pinned to the right edge, was pushed to x = 0 and ran off the far side instead, its rows
+        /// out of reach past the edge. Capped, it hangs from its button like any other and a row too long for
+        /// it ends in an ellipsis, which a layout text run does by itself (<see cref="TextTrim.End"/>).
+        /// </summary>
+        private float FitDropdownWidth(float natural) => MathF.Min(natural, Width);
 
         private void OpenDropdown(ViewerState state, RectF32 bounds, ImmutableArray<string> labels, Action<int, string> onSelect, int selectedIndex = -1)
         {
@@ -1027,6 +1043,8 @@ namespace TianWen.UI.Abstractions
             // wider than the button, so anchoring on bounds.X alone put most of every line past the
             // window. Only x is taken from the placement: the menu scrolls itself when it is too tall,
             // so clamping y would fight that -- which is why the probe box is one unit tall.
+            _toolbarDropdownNaturalWidth = width;
+            width = FitDropdownWidth(width);
             var x = PlaceBesideAnchor(bounds, width, 1f).X;
 
             state.ToolbarDropdown.Open(

@@ -189,10 +189,15 @@ public class ViewerE2ETests
         using var e2e = ViewerE2E.Start(dpiScale);
         await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
 
-        // Narrower, then wider, than the window the menu opened in. Scaled with the DPI so the "?" menu (as
-        // wide as its version and install-path lines) still fits: a window narrower than the menu itself is
-        // a different question from where the menu hangs.
-        var sizes = new[] { ((uint)(1100 * dpiScale), 700u), ((uint)(1800 * dpiScale), 1000u) };
+        // Narrower than the window the menu opened in, then narrower than the "?" menu ITSELF (as wide as its
+        // install-path line, about 1000 design units: it was pushed to x = 0 and ran off the far side, away
+        // from its right-edge button), then wider. Scaled with the DPI so each case is the same case at both.
+        var sizes = new[]
+        {
+            ((uint)(1100 * dpiScale), 700u),
+            ((uint)(700 * dpiScale), 700u),
+            ((uint)(1800 * dpiScale), 1000u),
+        };
         foreach (var action in new[] { ToolbarAction.Shortcuts, ToolbarAction.Zoom })
         {
             e2e.Click(action);
