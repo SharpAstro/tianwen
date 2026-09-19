@@ -43,6 +43,10 @@
 .PARAMETER AllowSecondInstance
     Start although one is running. Its logs carry a timestamp, so the two never share a file.
 
+.PARAMETER NoColor
+    Start the app with NO_COLOR=1, to see the TUI as a colourless terminal shows it (the selection is reverse
+    video there). Without it the launcher CLEARS NO_COLOR, which the calling shell may carry.
+
 .EXAMPLE
     pwsh -NoProfile -File tools/start-app.ps1 gui
 
@@ -60,7 +64,8 @@ param(
     [switch] $Validation,
     [switch] $SyncValidation,
     [switch] $NoBuild,
-    [switch] $AllowSecondInstance
+    [switch] $AllowSecondInstance,
+    [switch] $NoColor
 )
 
 $ErrorActionPreference = 'Stop'
@@ -141,7 +146,7 @@ $savedSyncValidation = $env:SDLVK_SYNC_VALIDATION
 # to keep its own output plain, and the TUI inherited it and drew with no colour at all -- no selection bar, no
 # pinned tint, no tab highlight, so a click looked as if it selected nothing (2026-09-19).
 $savedNoColor = $env:NO_COLOR
-$env:NO_COLOR = $null
+$env:NO_COLOR = if ($NoColor) { '1' } else { $null }
 if ($SyncValidation) { $Validation = [switch]$true; $env:SDLVK_SYNC_VALIDATION = '1' }
 if ($Validation) {
     $env:SDLVK_VALIDATION = '1'
