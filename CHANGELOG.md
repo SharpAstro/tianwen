@@ -230,6 +230,17 @@ console and records every dropped sub with the stage that dropped it (`SessionPs
 The dataset gallery tooling under `tools/dataset-gallery/` is not shipped and is documented in its
 skill.
 
+**A staged master carries a coverage plane too, so its crop is exact.** Only drizzle wrote one (its
+weight, in the `.rejection.fits` slot); every other strategy's sidecar was a rejection fraction, which
+nothing reads and the exact crop tier cannot use, so every consumer of a staged master fell to the
+edge walk, which estimates the border and refuses an edge whose band never settles. On the V1045 Ori
+master a dither strip 350 px wide at 2.7x the noise ran down the left, the walk declined it, the
+fallback trimmed 264 px and the strip stayed. `IntegrationResult.Coverage` (frames with a finite
+sample per pixel, counted where the streaming integrator already reads every sample) is written as
+`<stem>.coverage.fits` with `MAPKIND=COVERAGE` beside the fraction, `IntegrationFitsWriter.TryReadCoverageMap`
+takes whichever sidecar says coverage, and master listings and the ingest skip exclude the new
+suffix. A master baked before this keeps the estimated crop until it is re-baked.
+
 ## 8.2
 
 The sibling pins move as a family, and a flat pixel with no throughput stops being multiplied by a

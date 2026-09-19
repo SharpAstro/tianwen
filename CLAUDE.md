@@ -1663,9 +1663,14 @@ SDLVK_SYNC_VALIDATION=1` and read `validation_report`** whenever this area is to
 **The auto-crop asks in two tiers, and the noise walk is the one that can be blind.**
 `Image.LargestCoveredRectangle()` finds where NO sub reached (the UNION), so `ViewerActions.ScanForCrop`
 prefers the master's own coverage plane (`Image.LargestCoveredRectangle(coverage, ...)`, from a
-`MAPKIND=COVERAGE` `.rejection.fits` sidecar -- drizzle writes WEIGHT where every other strategy writes
-a rejection FRACTION, so the card is what tells them apart and its absence is never read as either)
-and falls back to `CoverageEdgeWalk`. **Three rules that bite:** the walk's reference is the edge's
+`MAPKIND=COVERAGE` sidecar -- drizzle writes WEIGHT into `.rejection.fits` where every other strategy
+writes a rejection FRACTION there and its coverage COUNT into `.coverage.fits` beside it, so the card
+is what tells the maps apart, its absence is never read as either, and
+`IntegrationFitsWriter.TryReadCoverageMap` takes whichever sidecar says coverage) and falls back to
+`CoverageEdgeWalk`. **A master with no coverage plane is a master the walk can decline**: it did on
+V1045 Ori, a `Float16Staged` master whose 350 px dither strip at 2.7x the noise never settled inside
+the 5 percent it looks at, and the fallback's 264 px left the strip on the gallery card; until then
+every staged master's only sidecar was the fraction, which nothing reads. **Three rules that bite:** the walk's reference is the edge's
 OWN level just inside, never the frame interior (a drizzle canvas edge reads 1.8-2.5x the centre at
 FULL coverage, decaying over ~460 px); **a band whose end is not visible inside 5% of the span is
 refused, not trimmed to the bound**; the coverage comparison is per 16x16 BLOCK (per-pixel drizzle

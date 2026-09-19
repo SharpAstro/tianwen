@@ -380,6 +380,12 @@ public static class SessionRegistrar
         /// covered) rather than a rejection fraction (high is heavily rejected).</summary>
         public bool RejectionMapIsCoverage { get; init; }
 
+        /// <summary>The per-pixel count of frames with a finite sample, for a strategy whose
+        /// <see cref="RejectionMap"/> is a fraction (<see cref="IntegrationResult.Coverage"/>); null
+        /// where the rejection map already is coverage. Retained as <c>.coverage.fits</c> beside the
+        /// master, so the exact crop tier answers for a staged master as it does for a drizzled one.</summary>
+        public Image? Coverage { get; init; }
+
         /// <summary>
         /// The same night integrated once per FIELD ORIENTATION when it crossed the meridian, empty
         /// otherwise. Each is a session in its own right (its own master, stats rect, subs and, where
@@ -1000,6 +1006,7 @@ public static class SessionRegistrar
                     WarpedSubs = warpedSubs,
                     RejectionMap = sideIntegration.TotalRejections > 0 ? sideIntegration.RejectionMap : null,
                     RejectionMapIsCoverage = sideIntegration.RejectionMapIsCoverage,
+                    Coverage = sideIntegration.Coverage,
                 });
             }
             sides = built.MoveToImmutable();
@@ -1015,6 +1022,7 @@ public static class SessionRegistrar
             FlipSides = sides,
             RejectionMap = integration.TotalRejections > 0 ? integration.RejectionMap : null,
             RejectionMapIsCoverage = integration.RejectionMapIsCoverage,
+            Coverage = integration.Coverage,
             // On the COMBINED master only. A flip side is a subset of the same night's registered
             // subs, so attaching the session's drops to each side would count every one of them
             // twice and invite a reader to sum the sides.
