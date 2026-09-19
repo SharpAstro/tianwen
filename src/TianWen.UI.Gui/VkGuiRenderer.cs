@@ -33,6 +33,7 @@ namespace TianWen.UI.Gui
         private readonly VkImageRenderer _guiderViewer;
         private readonly VkImageRenderer _previewViewer;
         private readonly VkPlanetaryTab _planetaryTab;
+        private readonly NightCalendarPopover<VulkanContext> _nightCalendar;
 
         private ScheduledObservationTree? _cachedSchedule;
         private Target? _cachedActiveTarget;
@@ -445,6 +446,8 @@ namespace TianWen.UI.Gui
             _planetaryTab = new VkPlanetaryTab(renderer, width, height) { Bus = bus };
             // The planetary tab IS also the Live Session planetary-mode view (one instance, one ViewerState).
             _liveSessionTab.PlanetaryView = _planetaryTab;
+            // The night calendar under the status-bar date; painted last, over every tab.
+            _nightCalendar = new NightCalendarPopover<VulkanContext>(renderer) { Bus = bus };
             // One assignment, after every child exists and before the first per-window value is resolved
             // below: from here on they READ this chrome's settings instead of holding copies, so DPI, font,
             // emoji face and fallback chain all reach them without being pushed -- and so will anything
@@ -464,7 +467,7 @@ namespace TianWen.UI.Gui
             };
             ShareUiContext(_plannerTab, _equipmentTab, _sessionTab, _skyMapTab,
                            _liveSessionTab, _guiderTab, _notificationsTab, _homeTab,
-                           _guiderViewer, _previewViewer, _planetaryTab, _sidebar);
+                           _guiderViewer, _previewViewer, _planetaryTab, _sidebar, _nightCalendar);
             ResolveFontPath();
         }
 
@@ -547,17 +550,47 @@ namespace TianWen.UI.Gui
             // Paint sidebar and status bar on top: these register clickable regions
             RenderSidebar(appState);
             RenderStatusBar(appState, plannerState, timeProvider);
+            RenderNightCalendar(plannerState, timeProvider);
 
             // Declare the composition in the order it was just painted, back to front. Stated HERE, next
             // to the painting, because that is the only place the order is actually decided -- a list
-            // built anywhere else is a second opinion about it.
+            // built anywhere else is a second opinion about it. The calendar is listed every frame, open or
+            // not, so the pointer reaches it before it opens; closed, it has no regions to answer with.
             _children.Clear();
             if (_activeTab is { } painted)
             {
                 _children.Add(painted);
             }
             _children.Add(_sidebar);
+            _children.Add(_nightCalendar);
         }
+
+        /// <summary>
+        /// The night calendar, hung from the date label the status bar just painted. Closed while a session runs,
+        /// like the arrows beside the date, and whenever the label is not on the bar to hang from.
+        /// </summary>
+        private void RenderNightCalendar(PlannerState plannerState, ITimeProvider timeProvider)
+        {
+            RectF32? anchor = null;
+            foreach (var region in RegisteredRegions)
+            {
+                if (region.Result is HitResult.ButtonHit { Action: DateCalendarAction })
+                {
+                    anchor = new RectF32(region.X, region.Y, region.Width, region.Height);
+                }
+            }
+
+            if (anchor is null)
+            {
+                plannerState.Calendar.Popover.Close();
+            }
+
+            _nightCalendar.Render(plannerState, anchor ?? default, new RectF32(0f, 0f, _width, _height),
+                timeProvider, Bus, _skyMapTab.State);
+        }
+
+        /// <summary>The status-bar date label's action: it opens the night calendar.</summary>
+        private const string DateCalendarAction = "DateCalendar";
 
         /// <summary>
         /// Returns the content area rectangle in pixels (excluding sidebar and status bar).
@@ -751,13 +784,42 @@ namespace TianWen.UI.Gui
             }
             var leftZone = Layout.Builder.HStack(statusNode).WStar().HStar();
 
-            // CENTRE: [<] date [>], centred via flanking star spacers. Arrows hidden during a session.
+            // CENTRE: [<] date [>] verdict, centred via flanking star spacers. Arrows hidden during a session.
+            // The label opens the night calendar (whose Tonight button is what the label's old reset-on-click
+            // became); the verdict is the planned night's, from the same summary the calendar cell reads.
             var dateLabel = Layout.Builder.Text(dateStr, BaseFontSize, dateColor, TextAlign.Center, TextAlign.Center)
                 .WAuto().HStar();
-            if (plannerState.PlanningDate.HasValue && !sessionRunning)
+            if (!sessionRunning)
             {
-                dateLabel = dateLabel.Clickable(new HitResult.ButtonHit("DateTonight"),
-                    _ => { PlannerActions.ResetPlanningDate(plannerState); });
+                var calendar = plannerState.Calendar;
+                dateLabel = dateLabel.PadX(gapDu)
+                    .BgHover(TianWen.UI.Abstractions.GuiTheme.Hover(StatusBarBg))
+                    .Opens(calendar.Popover)
+                    // Runs before the toggle: an opening calendar starts on the planned night's month.
+                    .Clickable(new HitResult.ButtonHit(DateCalendarAction),
+                        _ => { if (!calendar.Popover.IsOpen) calendar.Month = default; });
+            }
+            else
+            {
+                plannerState.Calendar.Popover.Close();
+            }
+
+            Layout.Node verdictNode = Layout.Builder.Spacer().WFixed(0f);
+            var plannedNight = NightCalendarActions.PlanningEveningDate(plannerState, timeProvider);
+            if (plannerState.Calendar.Data.Nights.TryGetValue(plannedNight, out var plannedSummary))
+            {
+                var verdict = NightVerdict.For(plannedSummary);
+                var verdictColor = verdict.Outlook switch
+                {
+                    NightOutlook.Go => Palette.Success,
+                    NightOutlook.Marginal => Palette.Warn,
+                    NightOutlook.NoGo => Palette.Error,
+                    NightOutlook.Dark => StatusText,
+                    _ => Palette.DimText,
+                };
+                verdictNode = Layout.Builder.Text(verdict.Label, BaseFontSize * 0.9f, verdictColor,
+                        TextAlign.Center, TextAlign.Center)
+                    .WAuto().HStar();
             }
             Layout.Node dateGroup;
             if (!sessionRunning)
@@ -770,11 +832,11 @@ namespace TianWen.UI.Gui
                     .WFixed(BaseStatusBarHeight).HStar().Bg(arrowBg).BgHover(TianWen.UI.Abstractions.GuiTheme.Hover(arrowBg))
                     .Clickable(new HitResult.ButtonHit("DateNext"),
                         _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, +1, _skyMapTab.State); });
-                dateGroup = Layout.Builder.HStack(prev, dateLabel, next).WAuto().HStar().WithGap(gapDu);
+                dateGroup = Layout.Builder.HStack(prev, dateLabel, next, verdictNode).WAuto().HStar().WithGap(gapDu);
             }
             else
             {
-                dateGroup = dateLabel;
+                dateGroup = Layout.Builder.HStack(dateLabel, verdictNode).WAuto().HStar().WithGap(gapDu);
             }
             var centreZone = Layout.Builder.HStack(Layout.Builder.Spacer().WStar(), dateGroup, Layout.Builder.Spacer().WStar())
                 .WStar().HStar();

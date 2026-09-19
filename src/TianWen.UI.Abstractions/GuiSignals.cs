@@ -63,6 +63,12 @@ public readonly record struct SetHomeBoardViewSignal(HomeBoardView View);
 /// <summary>Assign a discovered device to the active slot.</summary>
 public readonly record struct AssignDeviceSignal(int DeviceIndex);
 
+/// <summary>
+/// The night calendar moved to <paramref name="Month"/> (its first day): summarise that month's nights, off the
+/// render thread, if they are not already (<see cref="NightCalendarActions.EnsureMonth"/>).
+/// </summary>
+public readonly record struct NightCalendarMonthSignal(System.DateOnly Month);
+
 /// <summary>Connect a device via the device hub (out-of-session).</summary>
 public readonly record struct ConnectDeviceSignal(System.Uri DeviceUri);
 

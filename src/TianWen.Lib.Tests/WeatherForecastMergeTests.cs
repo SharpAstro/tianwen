@@ -161,4 +161,62 @@ public class WeatherForecastMergeTests
         filled[0].WindSpeed500hPa.ShouldBe(20, "only the MISSING field is filled");
         double.IsNaN(filled[1].WindSpeed250hPa).ShouldBeTrue("an hour the supplement lacks stays unknown");
     }
+
+    private static HourlyWeatherForecast At(DateTimeOffset start, int hour, double cloud, double jet)
+        => new HourlyWeatherForecast(start.AddHours(hour), CloudCover: cloud, Precipitation: 0, Temperature: 10,
+            Humidity: 60, DewPoint: 5, WindSpeed: 2, WindGust: 4, WindDirection: 180, Visibility: 10000,
+            WeatherCode: 2, WindSpeed250hPa: jet);
+
+    [Fact]
+    public void ExtendKeepsEveryPrimaryHourAndAddsOnlyTheHoursAfterIt()
+    {
+        var start = new DateTimeOffset(2026, 9, 18, 0, 0, 0, TimeSpan.Zero);
+        var primary = Enumerable.Range(0, 48).Select(h => At(start, h, cloud: 20, jet: double.NaN)).ToList();
+        var supplement = Enumerable.Range(0, 408).Select(h => At(start, h, cloud: 90, jet: 30)).ToList();
+
+        var extended = WeatherForecastMerge.Extend(primary, supplement, out var supplementFrom);
+
+        extended.Count.ShouldBe(408);
+        extended.Take(48).ShouldAllBe(h => h.CloudCover == 20, "the primary's own hours are never replaced");
+        extended.Take(48).ShouldAllBe(h => h.WindSpeed250hPa == 30, "though they gain its missing upper air");
+        extended.Skip(48).ShouldAllBe(h => h.CloudCover == 90, "after it, the supplement's hours");
+        supplementFrom.ShouldBe(start.AddHours(48));
+        extended.Select(h => h.Time).ShouldBe(extended.Select(h => h.Time).Order(), "ascending");
+    }
+
+    [Fact]
+    public void ExtendWithAnEmptyPrimaryIsTheSupplementAlone()
+    {
+        var start = new DateTimeOffset(2026, 9, 18, 0, 0, 0, TimeSpan.Zero);
+        var supplement = new List<HourlyWeatherForecast> { At(start, 1, 90, 30), At(start, 0, 80, 30) };
+
+        var extended = WeatherForecastMerge.Extend([], supplement, out var supplementFrom);
+
+        extended.Select(h => h.CloudCover).ShouldBe([80.0, 90.0]);
+        supplementFrom.ShouldBeNull("nothing was split: there is one provider");
+    }
+
+    [Fact]
+    public void TheCalendarAsksFromYesterdayToTheLastDayOpenMeteoAnswers()
+    {
+        // 22:00 in Melbourne, so the site's date is already a day past the UTC one's evening.
+        var (start, end) = ExtendedForecast.RangeFor(new DateTimeOffset(2026, 9, 19, 22, 0, 0, TimeSpan.FromHours(10)));
+
+        start.ShouldBe(new DateTimeOffset(2026, 9, 18, 0, 0, 0, TimeSpan.Zero));
+        end.ShouldBe(new DateTimeOffset(2026, 10, 4, 23, 0, 0, TimeSpan.Zero),
+            "2026-10-04 is the last end_date Open-Meteo accepted on 2026-09-19 UTC; one day more is a 400");
+        start.Offset.ShouldBe(TimeSpan.Zero, "the drivers write the request's dates from the offset they are given");
+    }
+
+    [Fact]
+    public void AMixedForecastNamesWhoStatedWhichHours()
+    {
+        var split = new DateTimeOffset(2026, 9, 21, 0, 0, 0, TimeSpan.Zero);
+        var forecast = new ExtendedForecast([], "OpenWeatherMap", split, "Open-Meteo");
+
+        forecast.SourceFor(split.AddHours(-10), split.AddHours(-2)).ShouldBe("OpenWeatherMap");
+        forecast.SourceFor(split.AddHours(2), split.AddHours(10)).ShouldBe("Open-Meteo");
+        forecast.SourceFor(split.AddHours(-4), split.AddHours(4)).ShouldBe("OpenWeatherMap, then Open-Meteo");
+        new ExtendedForecast([], "Open-Meteo", null, null).SourceFor(split, split.AddHours(4)).ShouldBe("Open-Meteo");
+    }
 }

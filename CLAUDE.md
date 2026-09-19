@@ -637,6 +637,25 @@ misses into MISPLACED (a different object beyond the row's extent), SUSPECT (ins
 hid) and CENTRE (the same designation, not an error). Run it after every `Copy-OpenNGC.ps1`, and send
 what it finds upstream with the SIMBAD link as the evidence.
 
+### Night Calendar (one forecast, one verdict)
+
+The GUI status-bar date opens a month of NIGHTS (`NightCalendarPopover`, `NightCalendarActions`; pure
+`NightSummary` + `NightVerdict` in `TianWen.Lib.Sequencing`). Design, thresholds and what is still open:
+`docs/plans/night-calendar.md`. The rules:
+
+- **One multi-day forecast serves the planner's weather band AND the calendar** (`NightCalendarActions.RefreshAsync`).
+  The band is a SLICE of it, reused in memory for the drivers' one-hour cache life. Never add a per-night
+  request back:
+  - only a night BEFORE `ExtendedForecast.RangeFor` fetches on its own;
+  - a night past the horizon fetches nothing, since Open-Meteo answers today (UTC) + 16 with a 400.
+- **The status bar and the calendar cell read the same `NightSummary` through `NightVerdict.For`**; a verdict
+  derived anywhere else is a second answer that will drift.
+- **Every Open-Meteo hourly array is nullable per element.** The far end of a 16-day range is null, and one null
+  in a `List<double>` fails the whole response.
+- **A night is its EVENING date** (`NightCalendarActions.PlanningEveningDate`: the pinned `PlanningDate.Date`,
+  else `AstronomicalEveningDate`).
+- **The Moon mark is DRAWN from the palette, never an emoji glyph**, which Night mode cannot tint.
+
 ### Session
 
 `Session` (`TianWen.Lib/Sequencing/Session.cs`) is the central orchestrator. **Single-mount /

@@ -1,6 +1,6 @@
 # Night calendar and a verdict per night (plan)
 
-**Status: NOT STARTED. Written 2026-09-19**, raised by the user while looking at the planner under a
+**Status: PARTIAL. P0 to P2 DONE 2026-09-19 (#311); P3 and P4 open. Written 2026-09-19**, raised by the user while looking at the planner under a
 Melbourne sky ("a calendar view would be great too, for places like this that see a clear sky once a full
 moon"; "making the date in the top clickable, and showing a calendar which shows score/weather etc/moon and
 can be clicked (and set the date)"; "maybe we also show a verdict of the day somewhere").
@@ -86,11 +86,61 @@ tonight worth it" is readable from every tab without opening anything.
 
 | Phase | Scope | Hosts |
 |---|---|---|
-| P0 | Open-Meteo side-fetch for OpenWeatherMap profiles, merged per field: the upper-air wind DONE 2026-09-19; the 16-day range open | all (driver code is shared) |
-| P1 | `NightSummary` + `NightVerdict` (pure, tested), the verdict beside the status-bar date | GUI |
-| P2 | The calendar popover off the date label, click to plan a night | GUI |
+| P0 | Open-Meteo side-fetch for OpenWeatherMap profiles, merged per field: the upper-air wind DONE 2026-09-19; the 16-day range DONE 2026-09-19 | all (driver code is shared) |
+| P1 | `NightSummary` + `NightVerdict` (pure, tested), the verdict beside the status-bar date. DONE 2026-09-19 | GUI |
+| P2 | The calendar popover off the date label, click to plan a night. DONE 2026-09-19 | GUI |
 | P3 | Per-night score for the PINNED targets (their usable hours that night), shown in the cell | GUI |
 | P4 | The web planner and the TUI | web, TUI |
+
+## What shipped (2026-09-19, #311)
+
+P0 to P2 as designed above, with these decisions and departures:
+
+- **One forecast, not two.** The design had the calendar fetch its own multi-day forecast beside the
+  planner's per-night one. That doubles the requests. In the build, the planner's band is a SLICE of the
+  calendar's forecast (`NightCalendarActions.RefreshAsync`, called where the planner used to fetch its one
+  night). Stepping the date through the next two weeks now asks nothing, where every step used to be a new
+  request under a new cache file. The forecast is reused in memory for an hour, the drivers' own cache
+  lifetime, so a recompute does not even read the cache file. The request is
+  `ExtendedForecast.RangeFor`: from yesterday (UTC) to the last day Open-Meteo accepts, today (UTC) plus 15,
+  measured the same day; one day more is a 400. Only a night BEFORE that range still makes its own
+  single-night request, and a night after it makes none.
+- **The provider split is per hour, at one instant.** `WeatherForecastMerge.Extend` keeps every hour the
+  profile's provider covers (upper air filled, as before), and adds Open-Meteo's hours after its last one.
+  A night on either side of the split has one provider's cloud, and a night across it has both.
+  `ExtendedForecast.SourceFor` names which: the calendar's detail strip always, the band's tooltip only
+  for a mixed band (`Forecast:` line).
+- **The verdict** (`NightVerdict.For`) runs on useful dark time: clear time, which is cloud under 30
+  percent and no precipitation, sampled every 10 minutes. A moonlit hour counts at the unlit fraction of the
+  Moon, but never below a quarter, so a clear full-Moon night is Marginal, not No-go (narrowband still
+  works). The grades:
+  - **Go:** 3 useful hours, or 60 percent of the dark window, so a short high-latitude night can still
+    be a Go. A Bad seeing class takes a Go to Marginal.
+  - **Marginal:** 1 hour, or 25 percent.
+  - **A weather verdict at all** needs a forecast for 75 percent of the dark window. Short of that, the
+    night is Dark or Moonlit (60 percent moon-weighted dark), which is what the horizon's edge and every
+    night past it get.
+
+  All of these are round numbers, not a fit.
+- **The Moon is drawn, not a glyph**:
+  - How: a dark disc, its lit half clipped to one side, and a terminator ellipse |1 - 2k| of the diameter
+    wide, which makes the lit area k exactly. It is lit on the left for a waxing Moon in the south, like
+    `MeeusMoon.GetPhaseEmoji`.
+  - Why not a glyph: a colour emoji cannot take the palette, so in Night mode it would be the brightest
+    thing on screen.
+  - Consequence: this is why the calendar is its own widget (`NightCalendarPopover`). The clip and ellipse
+    helpers it uses belong to the widget base.
+- **Hover detail is a strip, not a tooltip.** The GUI paints no node tooltip (only the sidebar draws its own),
+  so the calendar's bottom strip details the night under the pointer, or the planned one: the dark window
+  and its twilight, the Moon, clear hours, cloud, rain, seeing and the source.
+- **The label always opens the calendar.** Its old reset-on-click is the calendar's Tonight button, and
+  picking tonight un-pins the date rather than pinning today. Picking another night keeps the time of day the
+  planner was looking at and clears a sky-map scrub.
+- **Found on the first live run:** Open-Meteo's surface arrays were `List<double>`, and the far end of a 16-day
+  request is null (`cloud_cover[403]`), so the first request lost all 408 hours to one null. Every hourly array
+  is now nullable per element, and the band no longer draws a no-cloud-value hour as clear.
+- **Cost:** about 20 ms a night in a Debug test run, so a month is under a second, off the render thread, and
+  only nights not already summarised are computed.
 
 ## What bites
 

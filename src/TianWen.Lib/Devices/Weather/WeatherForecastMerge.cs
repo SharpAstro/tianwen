@@ -86,6 +86,59 @@ internal static class WeatherForecastMerge
     }
 
     /// <summary>
+    /// <paramref name="primary"/> (upper-air filled from <paramref name="supplement"/>, as <see cref="FillUpperAir"/>),
+    /// then every <paramref name="supplement"/> hour AFTER the primary's last: a longer forecast from a second
+    /// provider for the hours the first does not reach, never mixed into the hours it does.
+    /// </summary>
+    /// <remarks>
+    /// This is the night calendar's merge (docs/plans/night-calendar.md): OpenWeatherMap stops at 48 hours and
+    /// Open-Meteo runs to 16 days. The split is one instant, so a night on either side of it has one provider's
+    /// cloud cover and a night straddling it has two, which <paramref name="supplementFrom"/> lets a caller say.
+    /// Hours BEFORE the primary's first are not taken: a provider that has dropped the early evening is still the
+    /// provider for the night, and the drivers' own cache merge already keeps those hours.
+    /// </remarks>
+    /// <param name="supplementFrom">The first instant the result takes from the supplement, or null when the
+    /// primary is empty (the result is then the supplement alone) or the supplement adds nothing.</param>
+    public static List<HourlyWeatherForecast> Extend(
+        IReadOnlyList<HourlyWeatherForecast> primary,
+        IReadOnlyList<HourlyWeatherForecast> supplement,
+        out DateTimeOffset? supplementFrom)
+    {
+        supplementFrom = null;
+        if (primary.Count == 0)
+        {
+            var only = new List<HourlyWeatherForecast>(supplement);
+            only.Sort(static (a, b) => a.Time.CompareTo(b.Time));
+            return only;
+        }
+
+        var extended = FillUpperAir(primary, supplement);
+        var last = extended[0].Time;
+        foreach (var entry in extended)
+        {
+            if (entry.Time > last)
+            {
+                last = entry.Time;
+            }
+        }
+
+        foreach (var entry in supplement)
+        {
+            if (entry.Time > last)
+            {
+                extended.Add(entry);
+                if (supplementFrom is not { } from || entry.Time < from)
+                {
+                    supplementFrom = entry.Time;
+                }
+            }
+        }
+
+        extended.Sort(static (a, b) => a.Time.CompareTo(b.Time));
+        return extended;
+    }
+
+    /// <summary>
     /// <paramref name="entry"/>, except that an upper-air field it lacks (NaN) takes <paramref name="other"/>'s
     /// number: merging per FIELD, not per entry. The upper-air fields are the ones a surface-only provider has no
     /// value for: the three pressure-level winds and the boundary-layer (mixing) height. The surface fields are
