@@ -99,6 +99,8 @@
      one that needs saying out loud. */
   .tag.pier { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--rule)); }
   .tag.pier.both { color: var(--dim); border-color: var(--rule); }
+  /* Not an error, just a caveat: read it before judging the colour. */
+  .tag.nocal { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--rule)); }
   .nums {
     display: flex; gap: 14px; font-family: var(--mono); font-size: 12px;
     font-variant-numeric: tabular-nums; color: var(--dim); margin-top: 1px;
@@ -204,6 +206,14 @@ window.MASTERS = [];  /* ROWS GO HERE -- inject_rows.py replaces this whole line
   // the proof -- the Lobster Nebula night is 100 combined, 32 on one side and 68 on the other.
   const PIER = { a: 'pier A', b: 'pier B', both: 'both sides' };
   const pierTag = (r) => (r.flip ? `<span class="tag pier${r.flip === 'both' ? ' both' : ''}">${PIER[r.flip]}</span>` : '');
+  // HOW THE COLOUR WAS FIXED, but only when it was not the normal way -- a default state needs no
+  // label, so an SPCC card says nothing. A mono master has ONE channel and nothing to calibrate; an
+  // unsolved one has no WCS, so SPCC cannot run and the render falls back to neutralising the sky
+  // background, which leaves the signal on the sensor's own balance. Both are worth knowing before
+  // judging a card's colour, and neither is a fault in the render.
+  const colourTag = (r) => (r.wbSource === 'SPCC' ? ''
+    : !r.wb ? '<span class="tag nocal" title="A mono master has one channel: there is no colour to calibrate">mono</span>'
+    : '<span class="tag nocal" title="No plate solution, so SPCC could not run; the sky background was neutralised instead and the signal keeps the sensor's own balance">uncalibrated colour</span>');
   // Say it once in full on the detail, where there is room: which of the three this is, how many
   // subs each of its siblings kept, and that the mount crossed the meridian mid-session.
   function pierNote(r) {
@@ -265,6 +275,7 @@ window.MASTERS = [];  /* ROWS GO HERE -- inject_rows.py replaces this whole line
           ${r.filter && r.filter !== 'None' ? `<span class="tag">${r.filter}</span>` : ''}
           <span class="tag${r.strategy === 'BayerDrizzle' ? ' driz' : ''}">${r.strategy === 'BayerDrizzle' ? 'drizzle' : 'staged'}</span>
           ${pierTag(r)}
+          ${colourTag(r)}
         </span>
         <span class="nums">
           <span>${r.subs} subs</span>

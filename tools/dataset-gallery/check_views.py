@@ -49,6 +49,22 @@ CAST_RATIO = 0.45
 # interior's, in units of the interior's own standard deviation.
 EDGE_BAND = 0.03
 EDGE_SIGMA = 1.5
+# Interior-step (mosaic seam) detection. The window is a fraction of the axis; a step is flagged when
+# it stands this many times above the typical step of the same size AND clears an absolute floor in
+# display levels, so a quiet frame cannot make one out of its own noise.
+#
+# BOTH NUMBERS ARE MEASURED OVER THE 139-CARD STORE, not chosen. The one real mosaic in it (the
+# ASI585 SMC, whose panels differ enough that the union canvas is a bright strip beside a dim one)
+# sits at 130x and 87 levels. The next fourteen cards land between 7x and 16x at 7 to 17 levels, and
+# every one of them is a BRIGHT CORE rather than a seam -- Orion, the Lagoon, eta Car -- where the
+# column median climbs steeply over a few columns. So the gap is 130x against 16x and 87 levels
+# against 17, and the thresholds sit in it with a factor of four to spare either way.
+#
+# Calibrated against ONE positive, which is weak, and that is worth knowing: if a second mosaic ever
+# lands in a store, re-measure rather than assume these still separate.
+BAND_WINDOW = 0.02
+BAND_STEP_RATIO = 30.0
+BAND_MIN_LEVELS = 30.0
 
 # Judged on a downscaled copy: the failures are all whole-frame properties, and a 4000 px card costs
 # a second a channel to no purpose.
@@ -109,6 +125,27 @@ def measure(path):
                 off = (float(np.median(band)) - float(np.median(inside))) / spread
                 if abs(off) > EDGE_SIGMA:
                     flags.append(f"edge:{name}{off:+.1f}sd")
+
+    # A STEP across the frame's interior, which is what a mosaic panel seam looks like and what the
+    # edge check cannot see (it only inspects the four borders). Added after a 54-sub SMC card came
+    # out with three obvious vertical zones -- a mosaic whose panels have very different depth, so
+    # the union canvas is a bright strip beside a dim one -- and every existing check passed it: the
+    # colour cast sat at 0.33 against a 0.45 threshold and the seams are nowhere near a border.
+    #
+    # A seam is a STEP and a sky gradient is a RAMP, which is the whole discrimination: the column
+    # medians are differenced over a window, so a smooth gradient spreads its change across every
+    # window and a panel edge puts it all in one.
+    for axis, profile in (("cols", np.median(luma, axis=0)), ("rows", np.median(luma, axis=1))):
+        if profile.size < 8 * BAND_WINDOW:
+            continue
+        w = max(2, int(round(profile.size * BAND_WINDOW)))
+        # Ignore the outermost window: that is the border, which `edge` already owns.
+        steps = np.abs(profile[w:] - profile[:-w])[w:-w] if profile.size > 3 * w else np.array([])
+        if steps.size:
+            typical = max(1e-6, float(np.median(steps)))
+            worst = float(steps.max())
+            if worst > BAND_STEP_RATIO * typical and worst > BAND_MIN_LEVELS:
+                flags.append(f"band:{axis}({worst:.0f} levels, {worst / typical:.0f}x typical)")
 
     return {
         "file": os.path.basename(path),
