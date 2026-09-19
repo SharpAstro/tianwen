@@ -289,7 +289,15 @@ def main():
         rid = r["file"].split("_")[0]
         m = meta.get(int(rid)) if rid.isdigit() else None
         why = ""
-        if m:
+        if m and r["file"].endswith("_crop.png"):
+            # The 1:1 patch is cut from the RAW view, so no note about the enhance can apply to it.
+            # And it is not the renderer's background either: build_rows picks the quietest window by
+            # its own rule, the render neutralises the region ScanBackgroundRegion finds, and in a
+            # field full of nebulosity those are different places (Oph Mol Cloud: the patch sits in
+            # blue reflection nebulosity at R/G 0.61 while the render's own sky is neutral to 3%).
+            # A cast here is a fact about where the patch was cut, not about the picture.
+            why = "   [sky patch: cut from the RAW view at build_rows' own pick, not the render's background region; #64]"
+        elif m:
             filt = (m.get("filter") or "").lower()
             raw_p = os.path.join(img_dir, "%s_raw.png" % rid)
             raw_cast = None
@@ -299,7 +307,7 @@ def main():
             if any(t in filt for t in ("ultimate", "extreme", "enhance", "nbz", "sii", "oiii", "ha")):
                 if raw_cast:
                     why = "   [narrowband %s and the RAW half is cast the same way: #51]" % m["filter"]
-                elif raw_cast is False:
+                elif raw_cast is False and r["file"].endswith("_enhanced.png"):
                     why = ("   [narrowband %s BUT the raw half is neutral: the ENHANCE did this, "
                            "not the filter]" % m["filter"])
             elif not m.get("solved"):
