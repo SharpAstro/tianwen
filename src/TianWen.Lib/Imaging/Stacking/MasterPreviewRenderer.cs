@@ -128,6 +128,22 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
+
+        // INTERIOR HOLES ARE FILLED BEFORE ANYTHING READS A PIXEL, stats included, which is the rule
+        // `AstroImageDocument.AdoptImageAsync` has had since 8.0 and which no headless render obeyed.
+        // A NaN is honest in the linear master and unrenderable in a picture: the Great Orion master
+        // carries 1,853 of them in a 64 x 68 box at the Trapezium, where the core saturates in the subs
+        // and rejection took every sample, and they reached the PNG as a blue-and-yellow speck on the
+        // brightest part of the frame. They also poison the statistics the stretch is solved from.
+        // Nothing is mutated: a frame with no hole is returned unchanged and never copied.
+        var filledMaster = master.WithInteriorHolesFilled();
+        if (!ReferenceEquals(filledMaster, master))
+        {
+            logger.LogInformation("  [holes] interior NaN filled for the display render (the linear master keeps them)");
+        }
+        master = filledMaster;
+        statsSource = statsSource?.WithInteriorHolesFilled();
+
         var stats = statsSource ?? master;
         // When stats is just master, statsWcs naturally collapses to wcs.
         // When the caller passes an autocrop as stats, they should pass
