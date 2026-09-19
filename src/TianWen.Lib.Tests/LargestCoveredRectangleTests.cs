@@ -381,6 +381,55 @@ namespace TianWen.Lib.Tests
                 .ShouldBe(new PixelRect(32, 0, 224, 128));
         }
 
+        /// <summary>
+        /// A weight deficit in the MIDDLE of the frame is not absence, and the coverage tier must not
+        /// route a largest rectangle around one. The pixel tier has had this rule since issue #250; this
+        /// tier never got it, so the two disagreed about the same question.
+        /// </summary>
+        /// <remarks>
+        /// Measured on the Great Orion Nebula master (3024 x 3025, 77 frames, RGGB drizzle): the
+        /// Trapezium saturates in the subs, rejection drops those samples, and the weight plane honestly
+        /// records it. Accumulated weight at the core falls to 0.79 / 0.93 / 0.81 of the surrounding
+        /// level with individual pixels at zero, worst in red, where an Ha-dominant 3 nm passband
+        /// saturates first. That is 35 blocks of 35,910 in one 96 x 112 island dead centre, and it took
+        /// the crop to 1600 x 2960, 51.8% of a canvas whose blocks pass at 97.3%: the left half of the
+        /// picture, with the nebula sliced off. Border-reachability alone takes the same plane to 96.8%.
+        /// The master is not clipped there (peak 0.98 against the frame's 1.0296); it is simply 145x the
+        /// sky in red.
+        /// </remarks>
+        [Fact]
+        public void ASaturatedCoreIsNotAnUncoveredEdge()
+        {
+            var image = Flat(256, 128, channels: 1);
+            // A genuine rim on the left, plus an interior island of the same depth. Only the rim is
+            // absence; keeping the island is what leaves a picture with its subject in it.
+            var coverage = Synthetic(256, 128, 1,
+                static (_, x, y) => x < 32 ? 10f : (x >= 112 && x < 144 && y >= 48 && y < 80) ? 10f : 40f);
+
+            image.LargestCoveredRectangle(coverage, minFraction: 0.95, blockSize: 16)
+                .ShouldBe(new PixelRect(32, 0, 224, 128));
+        }
+
+        /// <summary>
+        /// The control that keeps the rule narrow: an under-covered region that REACHES the border is
+        /// still absence and is still cropped away, however far into the frame it reaches. Without this
+        /// the fix could be "nothing is ever absence" and the test above would still pass.
+        /// </summary>
+        [Fact]
+        public void AnUnderCoveredNotchThatTouchesTheBorderIsStillCropped()
+        {
+            var image = Flat(256, 128, channels: 1);
+            // The same island as above, but now joined to the top edge, so it is a notch in the rim.
+            var coverage = Synthetic(256, 128, 1,
+                static (_, x, y) => x < 32 ? 10f : (x >= 112 && x < 144 && y < 80) ? 10f : 40f);
+
+            var rect = image.LargestCoveredRectangle(coverage, minFraction: 0.95, blockSize: 16);
+
+            rect.ShouldNotBe(new PixelRect(32, 0, 224, 128), "the notch reaches the border, so it is absence");
+            (rect.Y >= 80 || rect.X + rect.Width <= 112 || rect.X >= 144).ShouldBeTrue(
+                $"the rectangle {rect} must avoid the border-connected notch");
+        }
+
         [Fact]
         public void ACoveragePlaneOfTheWrongShapeIsRefused()
         {

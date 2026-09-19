@@ -214,6 +214,40 @@ public partial class Image
         // becomes absent because its neighbour did -- and that is what KoggeStone below turns into six
         // shifts per word instead of sixty-four dependent steps, with a single carry bit crossing each
         // word boundary.
+        FloodFromBorder(candidate, absent, width, height);
+
+        return new AbsenceScan(absent, trackNaN ? nan : null, sawNaN);
+    }
+
+    /// <summary>
+    /// Marks in <paramref name="absent"/> every bit of <paramref name="candidate"/> that is CONNECTED
+    /// TO THE BORDER, four-way, leaving interior islands clear.
+    /// </summary>
+    /// <remarks>
+    /// <para>The rule both coverage tiers answer to, which is why it is a method and not a passage
+    /// inside one of them. A canvas ring reaches the border by construction, so only a region connected
+    /// to the border is absence; an island inside the frame is something else entirely, and treating one
+    /// as absence is catastrophic rather than merely wrong, because the consumer is a largest
+    /// RECTANGLE. Measured three times on the files that reported it: 6230 scattered zeros (0.0102% of
+    /// the pixels) on a 9576 x 6388 calibrated sub took the answer to 2922 x 949, or 4.5% of the frame;
+    /// 1,856 NaN in 20 components on a 3024 x 3025 Bayer-drizzle master took it to 0.528 of the canvas
+    /// (issue #250); and on the Great Orion Nebula master ONE 96 x 112 cluster of under-weighted blocks
+    /// at the Trapezium, 35 blocks of 35,910, took the coverage tier to 51.8% of a canvas whose blocks
+    /// pass at 97.3%.</para>
+    /// <para><b>Alternating sweeps, 64 columns at a time.</b> A queue of pixel indices is unbounded
+    /// (244 MB in the worst case at this frame size) where a sweep needs no extra memory at all; a ring
+    /// settles in two, the cap only binds on a shape that spirals, and stopping early UNDER-marks
+    /// absence, which keeps more of the frame rather than cropping more of it.</para>
+    /// <para>Each sweep is two word operations rather than a walk of pixels. Propagation ACROSS rows is
+    /// exactly <c>absent |= candidate &amp; absentOfTheRowBefore</c>, which is a word AND and a word OR
+    /// and nothing else. Propagation ALONG a row is the one part that is genuinely sequential (a bit
+    /// becomes absent because its neighbour did), and that is what <see cref="KoggeStoneFillUp"/> turns
+    /// into six shifts per word instead of sixty-four dependent steps, with a single carry bit crossing
+    /// each word boundary.</para>
+    /// </remarks>
+    private static void FloodFromBorder(BitMatrix candidate, BitMatrix absent, int width, int height)
+    {
+        var wordsPerRow = candidate.WordsPerRow;
         var lastWord = wordsPerRow - 1;
         var lastColumnBit = 1ul << ((width - 1) & 63);
 
@@ -315,8 +349,6 @@ public partial class Image
                 break;
             }
         }
-
-        return new AbsenceScan(absent, trackNaN ? nan : null, sawNaN);
     }
 
     /// <summary>
@@ -586,22 +618,46 @@ public partial class Image
             thresholds[c] = (float)(minFraction * CentralMedian(grids[c], gridWidth, gridHeight));
         }
 
-        return LargestRectangle(width, height, (int y, Span<bool> covered) =>
+        // UNDER-COVERAGE IS ONLY ABSENCE WHERE IT REACHES THE BORDER, the same rule the pixel tier has
+        // had since issue #250 and the reason FloodFromBorder is a method. A crop exists to trim the
+        // under-exposed RIM; a deficit in the MIDDLE of the frame is a different fact about a real
+        // subject, and routing a largest RECTANGLE around one throws the subject away to avoid it.
+        //
+        // The case that found it: the Great Orion Nebula master (3024 x 3025, 77 frames, RGGB drizzle).
+        // The Trapezium saturates in the subs, rejection drops those samples, and the weight plane
+        // honestly records the deficit -- accumulated weight falls to 0.79 / 0.93 / 0.81 of the
+        // surrounding level with individual pixels at zero, worst in red, which is where an Ha-dominant
+        // passband saturates first. That is 35 blocks of 35,910, one 96 x 112 island dead centre, and it
+        // took the answer to 1600 x 2960, 51.8% of a canvas whose blocks pass at 97.3%: the left half of
+        // the picture, with the nebula sliced off. The master there is not clipped (peak 0.98 against
+        // the frame's 1.0296); it is simply 145x the sky in red.
+        var underCovered = new BitMatrix(gridHeight, gridWidth);
+        for (var gy = 0; gy < gridHeight; gy++)
         {
-            covered.Fill(true);
-            var gridRow = (y / block) * gridWidth;
-            for (var c = 0; c < planes; c++)
+            var row = underCovered.RowWords(gy);
+            for (var gx = 0; gx < gridWidth; gx++)
             {
-                var threshold = thresholds[c];
-                var grid = grids[c];
-                for (var x = 0; x < width; x++)
+                for (var c = 0; c < planes; c++)
                 {
                     // Negated >= so a NaN block counts as uncovered rather than passing.
-                    if (!(grid[gridRow + x / block] >= threshold))
+                    if (!(grids[c][(gy * gridWidth) + gx] >= thresholds[c]))
                     {
-                        covered[x] = false;
+                        row[gx >> 6] |= 1ul << (gx & 63);
+                        break;
                     }
                 }
+            }
+        }
+
+        var absentBlocks = new BitMatrix(gridHeight, gridWidth);
+        FloodFromBorder(underCovered, absentBlocks, gridWidth, gridHeight);
+
+        return LargestRectangle(width, height, (int y, Span<bool> covered) =>
+        {
+            var gridRow = y / block;
+            for (var x = 0; x < width; x++)
+            {
+                covered[x] = !absentBlocks[gridRow, x / block];
             }
         });
     }
