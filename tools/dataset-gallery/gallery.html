@@ -186,9 +186,13 @@
     its white balance is handed to the enhanced one, rather than each solving its own SPCC against a
     background the enhance has already flattened. A card tagged <b>mono</b> has one channel and so no
     colour to calibrate; one tagged <b>uncalibrated colour</b> could not be plate-solved, so the sky
-    was neutralised instead and the signal keeps the sensor's own balance. A <b>dual-narrowband</b>
-    master (L-Ultimate, L-Quad) reads teal on purpose: OIII lands on both the green and the blue
-    photosites, so those two channels carry the same signal and there is no honest curve to fit.
+    was neutralised instead and the signal keeps the sensor's own balance. A <b>line-filter</b>
+    master (L-Ultimate, 3 nm) is stretched with each channel on its own curve: a photometric white
+    balance assumes a stellar continuum through a broad passband, and through a line filter there
+    is none, so the fitted triple is printed for the record but not asserted as colour. The two
+    halves of such a card still share one white balance; what they no longer share is a single
+    shadow point that let the weakest channel clip to black. (Earlier versions of this page said the
+    teal was "on purpose". It was a render defect, and five cards carried it.)
   </p>
 </div>
 
