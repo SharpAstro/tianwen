@@ -35,6 +35,13 @@ THE CHECKS, each with the incident behind it:
 * **edge**      A border band darker or brighter than the interior. The partial-coverage ramp that
                  the crop is supposed to remove: the edge walk REFUSES an edge whose band never
                  settles, and a refusal keeps the ramp, which a background model then fits.
+* **speck**      Pixels with one channel pinned high beside one near black, counted at FULL
+                 resolution. An interior NaN in the master renders as a blue-and-yellow blob; 1,853
+                 of them sat on the Trapezium of the Great Orion master and the USER found it, not
+                 this file. Nothing else here could: it is 0.02 percent of the frame, so `blown`
+                 (a whole-frame fraction) and `cast` (a whole-frame mean) are both blind to it,
+                 `edge` only inspects the four borders, and the shared thumbnail the other checks
+                 work from averages the speck into the bright core it sits on.
 
 The thresholds are deliberately loose. This is a net for gross failures that should never ship, not
 a judgement of whether a picture is good -- a card that trips nothing can still be dull, and a card
@@ -74,8 +81,14 @@ BAND_WINDOW = 0.02
 BAND_STEP_RATIO = 30.0
 BAND_MIN_LEVELS = 30.0
 
-# Judged on a downscaled copy: the failures are all whole-frame properties, and a 4000 px card costs
-# a second a channel to no purpose.
+# Impossible-colour ("speck") bounds: one channel pinned above SPECK_HIGH beside one below SPECK_LOW.
+# See impossible_colour_pixels for why these separate, and for the 278-view measurement behind the 50.
+SPECK_HIGH = 200
+SPECK_LOW = 55
+SPECK_MIN_PIXELS = 50
+
+# Judged on a downscaled copy: MOST failures are whole-frame properties, and a 4000 px card costs a
+# second a channel to no purpose. The speck check is the exception and reads full resolution.
 WORK_EDGE = 900
 
 
@@ -180,6 +193,32 @@ def channel_ratios(path):
     return hi[0] / g, hi[2] / g
 
 
+def impossible_colour_pixels(path):
+    """Pixels with one channel pinned high and another near black, counted at FULL resolution.
+
+    THE SPECK CHECK, and the one failure in this file that a human eye found first: an interior NaN
+    in the master reaches the PNG as a blue-and-yellow blob. 1,853 of them sat on the Trapezium of
+    the Great Orion master and no other check here could see it -- `blown` is a whole-frame fraction
+    and that speck is 0.02 percent of the pixels, `cast` is a whole-frame mean, and `edge` only ever
+    inspects the four borders.
+
+    The discrimination is that the combination has no physical source. A saturated star core goes
+    WHITE, every channel high together; a nebula is smooth. One channel at 255 beside one under 55
+    is a pixel no exposure produced.
+
+    MEASURED OVER THE 278 PUBLISHED VIEWS, not chosen: 276 of them hold exactly ZERO such pixels and
+    the two that hold any hold 4 and 1, which is JPEG ringing. An unfilled speck reads 1,629. So the
+    floor sits at 50, three orders of magnitude below the positive and an order above the noise.
+
+    NOT measured on the thumbnail the other checks share. A speck is small and local, and a Lanczos
+    downscale averages it into the bright core it sits on, which is exactly how it survived.
+    """
+    a = np.asarray(Image.open(path).convert("RGB")).astype(np.int16)
+    mx = a.max(-1)
+    mn = a.min(-1)
+    return int(((mx > SPECK_HIGH) & (mn < SPECK_LOW)).sum())
+
+
 def crushed_channels(raw_path, enh_path):
     """Channels the ENHANCE drove to black that the raw view still carries.
 
@@ -274,6 +313,24 @@ def main():
     if kinds:
         print("by kind: " + ", ".join("%s %d" % kv for kv in sorted(kinds.items())))
 
+    # Full-resolution pass, deliberately separate from `measure`'s shared thumbnail (see
+    # impossible_colour_pixels: a downscale is what hid this one).
+    specks = []
+    for f in sorted(os.listdir(img_dir)):
+        if f.lower().endswith(".png"):
+            n = impossible_colour_pixels(os.path.join(img_dir, f))
+            if n >= SPECK_MIN_PIXELS:
+                specks.append((f, n))
+    print("")
+    if specks:
+        print("SPECKS (impossible colour: one channel pinned high beside one near black)")
+        for f, n in sorted(specks, key=lambda t: -t[1]):
+            print("  %-58s %d px" % (f[:58], n))
+        print("  %d view(s). An interior NaN in the master renders like this; the display render"
+              " is supposed to fill them." % len(specks))
+    else:
+        print("SPECKS: none. No view carries an impossible-colour cluster.")
+
     # THE HARD FAILURE, reported before the distributions because it is not a matter of degree: a
     # channel the enhance drove to black is a broken card, and no filter name excuses one.
     crushed = []
@@ -314,7 +371,7 @@ def main():
                      spread[int(len(spread) * 0.9)], spread[-1]))
 
     if out:
-        json.dump({"views": rows, "pairDrift": drift, "crushed": crushed},
+        json.dump({"views": rows, "pairDrift": drift, "crushed": crushed, "specks": specks},
                   open(out, "w", encoding="utf-8"), indent=1)
         print("wrote " + out)
 
