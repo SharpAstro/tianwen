@@ -109,6 +109,25 @@ protections landed with it: a resume checkpoint is honoured only if the tiles ar
 disk (the manifest is a claim about the past, and a session whose tiles were deleted was being
 skipped as "already exported" while the run reported success over missing files), and a fresh
 non-resume run rotates an existing manifest to `.bak-N` instead of deleting it.
+
+**Since 2026-09-20 a resume also asks whether the outputs are still RIGHT, not only present.**
+`stats/sessions.jsonl` (`DatasetSessionLedger`) records, per completed session, a fingerprint over
+the recipe version, the output-shaping options (`DatasetBuildOptions.RecipeKey`), a digest of the
+calibration library and every light's path, size and mtime: one `stat` per light and never a read,
+the archive digest store's own "unchanged" rule. A resume recomputes it and re-does a session whose
+fingerprint differs, whose recipe version is behind, or whose retained master exists without the
+coverage plane the recipe now writes; the redo removes the tiles, prunes the session's manifest
+rows (`DatasetTileExporter.RemoveSessionRowsAsync`, a rewrite through a temp file with the old
+manifest rotated) and the master with its sidecars, then builds it fresh. `RunResult.Redone` counts
+them. Two deliberate limits: a session the ledger has never seen is trusted as it stands, so the
+first resume on a store older than the ledger re-does exactly the masters that are incomplete (the
+37 staged ones of the 2026-09-19 store) and nothing else; and a MISSING retained master is not
+staleness, since retention is best-effort and `--force-psf` recovers one without touching the
+tiles. The calibration library is hashed whole rather than resolved per session, so a new dark
+invalidates every session: conservative, rare, and what makes the decision cost one stat per light.
+`DatasetSessionLedger.RecipeVersion` is bumped by hand when a bake's outputs change for identical
+inputs, the `SimbadMergeSnapshot.AlgorithmVersion` precedent; a new option that changes what a
+session produces is added to `RecipeKey`, or a resume keeps the old outputs.
 Goal: train our own CNN denoiser (`IDenoiseEnhancer`) and non-stellar deconvolver
 (`INonStellarDeconvolver`) on the user's own image archive, shipped as versioned ONNX models through
 the existing `TianWen.AI` / `TianWen.AI.Imaging` stack; a third backend tier alongside RC-Astro

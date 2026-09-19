@@ -241,6 +241,19 @@ sample per pixel, counted where the streaming integrator already reads every sam
 takes whichever sidecar says coverage, and master listings and the ingest skip exclude the new
 suffix. A master baked before this keeps the estimated crop until it is re-baked.
 
+**A resumed bake re-does a session whose inputs or recipe moved, and only that one.** `--resume`
+counted a session done when its tiles were still on disk and its PSF record existed, which says
+nothing about whether the lights still match, the calibration library is the one it was built
+against, or the strategy still produces the same files. `stats/sessions.jsonl` now records, per
+completed session, a fingerprint over the recipe version, the output-shaping options, a digest of
+the calibration library and every light's path, size and mtime (one `stat` per light, never a
+read); a resume recomputes it and re-does a session whose fingerprint differs, whose recipe version
+is behind, or whose retained master exists without the coverage plane the recipe now writes. The
+redo removes the tiles, prunes the session's manifest rows and the retained master with its
+sidecars, then builds it fresh; `RunResult.Redone` counts them. A session the ledger has never seen
+is trusted as it stands, so the first resume on an older store re-does exactly the masters that are
+incomplete and nothing else.
+
 ## 8.2
 
 The sibling pins move as a family, and a flat pixel with no throughput stops being multiplied by a

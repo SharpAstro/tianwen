@@ -47,6 +47,42 @@ namespace TianWen.AI.Imaging
         public static bool Exists(string outDir, string sessionId) => File.Exists(PathFor(outDir, sessionId));
 
         /// <summary>
+        /// Whether a retained master is present AND carries what the recipe now writes beside it: a
+        /// coverage plane the exact crop tier can read (drizzle's in the rejection slot, every other
+        /// strategy's in <c>.coverage.fits</c>). This is how a master baked before a strategy learned
+        /// to write coverage reads as stale to a resume, by the files and not by a version number.
+        /// </summary>
+        public static bool IsComplete(string outDir, string sessionId)
+        {
+            var path = PathFor(outDir, sessionId);
+            if (!File.Exists(path))
+            {
+                return false;
+            }
+            var hasCoverage = IntegrationFitsWriter.TryReadCoverageMap(path, out var coverage);
+            coverage?.Release();
+            return hasCoverage;
+        }
+
+        /// <summary>
+        /// Removes a session's retained master and every sidecar beside it, for a resume that has
+        /// decided to re-do the session. Nothing else here overwrites: <see cref="Write"/> declines an
+        /// existing master, so a stale one is removed first and written fresh, and a sidecar the new
+        /// recipe no longer writes cannot survive beside the new master to mislead a reader.
+        /// </summary>
+        public static void Remove(string outDir, string sessionId)
+        {
+            var path = PathFor(outDir, sessionId);
+            foreach (var file in new[] { path, IntegrationFitsWriter.RejectionPathFor(path), IntegrationFitsWriter.CoveragePathFor(path), path + PartialSuffix })
+            {
+                if (File.Exists(file))
+                {
+                    File.Delete(file);
+                }
+            }
+        }
+
+        /// <summary>
         /// Every retained master in the store, in a stable order, with the coverage / rejection
         /// sidecars that sit beside them excluded.
         /// <para>

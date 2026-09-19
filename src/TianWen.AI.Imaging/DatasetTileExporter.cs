@@ -733,6 +733,60 @@ public static class DatasetTileExporter
     }
 
     /// <summary>
+    /// Drops one session's rows from the manifest, for a resume that has decided to re-do the session:
+    /// its tiles are about to be written again under the same deterministic names, and appending a
+    /// second block of rows beside the first would count every tile twice. The manifest is rewritten
+    /// through a temp file and a rename, the old one rotated aside like a fresh run's, so a kill in
+    /// the middle leaves either the old manifest or the new one and never half of each.
+    /// </summary>
+    /// <returns>How many rows were dropped.</returns>
+    internal static async Task<int> RemoveSessionRowsAsync(string manifestPath, string sessionId, CancellationToken ct)
+    {
+        if (!File.Exists(manifestPath))
+        {
+            return 0;
+        }
+
+        var kept = new System.Text.StringBuilder();
+        var dropped = 0;
+        await foreach (var line in File.ReadLinesAsync(manifestPath, ct))
+        {
+            if (line.Trim().Length == 0)
+            {
+                continue;
+            }
+            TileManifestRow? row = null;
+            try
+            {
+                row = JsonSerializer.Deserialize(line, DatasetManifestJsonContext.Default.TileManifestRow);
+            }
+            catch (JsonException)
+            {
+                // A torn tail from a killed run: dropped here as the append path would drop it.
+                continue;
+            }
+            if (row is not null && string.Equals(row.SessionId, sessionId, StringComparison.Ordinal))
+            {
+                dropped++;
+                continue;
+            }
+            kept.Append(line).Append('\n');
+        }
+
+        if (dropped == 0)
+        {
+            return 0;
+        }
+
+        var rotated = JsonLinesFile.NextFreeBackupPath(manifestPath);
+        var tmp = manifestPath + ".partial";
+        await File.WriteAllTextAsync(tmp, kept.ToString(), ct);
+        File.Move(manifestPath, rotated);
+        File.Move(tmp, manifestPath);
+        return dropped;
+    }
+
+    /// <summary>
     /// Normalises a native-ADU frame into the <c>[0, 1]</c> linear convention the NAFNet input path
     /// assumes (the same convention <c>Image.ScaleFloatValuesToUnit</c> produces), through Image's
     /// public API: the exporter must NOT reach into Lib internals, and must NOT mutate the caller's

@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using TianWen.AI.Imaging;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Dataset;
+using TianWen.Lib.Imaging.Stacking;
 using Xunit;
 
 namespace TianWen.Lib.Tests
@@ -485,6 +486,76 @@ namespace TianWen.Lib.Tests
                 options with { OutputDir = optOutDir, RetainSessionMasters = false }, cancellationToken: ct);
             third.Registered.ShouldBe(1);
             Directory.Exists(Path.Combine(optOutDir, "session-masters")).ShouldBeFalse();
+        }
+
+        /// <summary>
+        /// A resume re-does a session whose INPUTS changed or whose retained master lacks what the
+        /// recipe now writes beside it, and leaves the rest alone. "Are the files there" answered
+        /// neither: on the 2026-09-19 store, 37 staged masters lacked the coverage plane every staged
+        /// master now carries, and nothing short of deleting their files by hand could make a re-bake
+        /// touch only them.
+        /// </summary>
+        [Fact]
+        public async Task Run_Resume_RedoesASessionWhoseInputsMovedOrWhoseMasterIsIncomplete_AndOnlyThat()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var root = Path.Combine(_dir, "archive");
+            var m42 = Path.Combine(root, "M42", "LIGHT");
+            Directory.CreateDirectory(m42);
+            Directory.CreateDirectory(Path.Combine(root, "DARK"));
+            RgbBayerSyntheticFixture.WriteSyntheticLights(m42);
+            RgbBayerSyntheticFixture.WriteSyntheticDarks(Path.Combine(root, "DARK"));
+            var n43 = Path.Combine(root, "N43", "LIGHT");
+            WriteShiftedCopies(m42, n43);
+
+            var outDir = Path.Combine(_dir, "out");
+            var options = new DatasetBuildOptions
+            {
+                ArchiveRoots = [root],
+                OutputDir = outDir,
+                MinExposure = TimeSpan.FromSeconds(0.5),
+                MaxExposure = TimeSpan.FromMinutes(5),
+                MinSubsPerSession = 4,
+                TileSize = 64,
+                CellsPerSession = 20,
+                SubsPerCell = 3,
+            };
+
+            var first = await DatasetBuildRunner.RunAsync(options, cancellationToken: ct);
+            first.Registered.ShouldBe(2);
+            var ledgerPath = Path.Combine(outDir, "stats", DatasetSessionLedger.FileName);
+            (await DatasetSessionLedger.ReadAsync(ledgerPath, cancellationToken: ct)).Count
+                .ShouldBe(2, "every completed session is in the ledger");
+
+            // Nothing moved: everything resumes, nothing is redone, the manifest is byte-identical.
+            var manifestBytes = File.ReadAllBytes(first.ManifestPath);
+            var quiet = await DatasetBuildRunner.RunAsync(options with { Resume = true }, cancellationToken: ct);
+            quiet.Resumed.ShouldBe(2);
+            quiet.Redone.ShouldBe(0);
+            File.ReadAllBytes(first.ManifestPath).ShouldBe(manifestBytes);
+
+            // One light of N43 re-written: that session's inputs moved, M42's did not.
+            var touched = Directory.GetFiles(n43, "*.fits")[0];
+            File.SetLastWriteTimeUtc(touched, File.GetLastWriteTimeUtc(touched).AddMinutes(7));
+            var afterTouch = await DatasetBuildRunner.RunAsync(options with { Resume = true }, cancellationToken: ct);
+            afterTouch.Redone.ShouldBe(1);
+            afterTouch.Registered.ShouldBe(1);
+            afterTouch.Resumed.ShouldBe(1);
+            afterTouch.TotalTiles.ShouldBe(first.TotalTiles, "the redone session's tiles replace the old rows, never join them");
+            var counts = await DatasetTileExporter.ReadManifestCheckpointsAsync(first.ManifestPath, ct);
+            counts.Values.Sum(c => c.TileCount).ShouldBe(first.TotalTiles);
+
+            // A retained master stripped of its coverage plane is incomplete, and that alone re-does
+            // the session: the case of every staged master baked before the plane existed.
+            var m42Master = RetainedMasterStore.EnumerateMasters(outDir)
+                .Single(p => Path.GetFileName(p).StartsWith("M42", StringComparison.Ordinal));
+            File.Delete(IntegrationFitsWriter.RejectionPathFor(m42Master));
+            File.Delete(IntegrationFitsWriter.CoveragePathFor(m42Master));
+            var afterStrip = await DatasetBuildRunner.RunAsync(options with { Resume = true }, cancellationToken: ct);
+            afterStrip.Redone.ShouldBe(1);
+            afterStrip.Resumed.ShouldBe(1);
+            IntegrationFitsWriter.TryReadCoverageMap(m42Master, out var coverage).ShouldBeTrue("the redone master carries its plane again");
+            coverage?.Release();
         }
 
         /// <summary>

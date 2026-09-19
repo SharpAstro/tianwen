@@ -76,7 +76,8 @@ public static class DatasetBuildRunner
         int PsfMissing,
         int PsfRemeasured,
         int PsfRemeasuredFromMaster = 0,
-        int PsfSubsRemeasured = 0);
+        int PsfSubsRemeasured = 0,
+        int Redone = 0);
 
     /// <summary>Rendered PSF/noise report, written beside the store under <c>&lt;outDir&gt;/stats</c>.</summary>
     public const string ReportFileName = "psf-noise-report.md";
@@ -147,6 +148,12 @@ public static class DatasetBuildRunner
         }
         var (sessions, stats) = SessionDiscovery.GroupSessions(frames, options);
         var calGroups = CalibrationResolver.GroupCalibration(frames.Select(f => f.Frame));
+        // One digest of the whole calibration library, folded into every session's fingerprint: the
+        // resolver's choice for a session is a function of the lights and this library, so hashing
+        // the library is what lets a resume decide a session's fate without resolving its calibration.
+        var calibrationLibraryDigest = DatasetSessionLedger.CalibrationLibraryDigest(
+            calGroups.Values.SelectMany(static groups => groups).SelectMany(static g => g.Frames));
+        var recipeKey = options.RecipeKey();
         progress?.Report(
             $"[dataset] {stats.Sessions} sessions / {stats.Lights} lights; " +
             $"cal groups: {CalCount(calGroups, FrameType.Dark)} dark, {CalCount(calGroups, FrameType.Flat)} flat, {CalCount(calGroups, FrameType.Bias)} bias");
@@ -201,6 +208,11 @@ public static class DatasetBuildRunner
         var psfStorePath = Path.Combine(statsDir, DatasetPsfStore.FileName);
         var psfBySession = await DatasetPsfStore.ReadAsync(psfStorePath, logger, cancellationToken);
 
+        // What each session was built FROM, so a resume asks "would the same inputs and the same
+        // recipe make the same outputs" instead of "are the files there". See DatasetSessionLedger.
+        var ledgerPath = Path.Combine(statsDir, DatasetSessionLedger.FileName);
+        var ledger = await DatasetSessionLedger.ReadAsync(ledgerPath, logger, cancellationToken);
+
         // The sessions that FAIL are kept in the source set on purpose, never excluded by path or
         // object, because a change in which ones fail (or in their numbers) is how a detection or
         // registration regression announces itself. That only works if a skip leaves something
@@ -235,6 +247,9 @@ public static class DatasetBuildRunner
         var failed = 0;
         var skippedNoDark = 0;
         var resumed = 0;
+        // Sessions a resume found STALE (inputs, recipe or an incomplete master) and re-did from
+        // nothing; they count into registered as well, since they were.
+        var redone = 0;
         var psfMissing = 0;
         var psfRemeasured = 0;
         // Of those, how many avoided re-registration by reading a retained master. Reported separately
@@ -266,6 +281,55 @@ public static class DatasetBuildRunner
             var resumeStart = StageTimings.Start();
             var checkpoint = priorTiles.GetValueOrDefault(session.Id);
             var tilesReusable = checkpoint is not null && TilesStillPresent(outDir, checkpoint, logger);
+            var fingerprint = DatasetSessionLedger.FingerprintOf(session, calibrationLibraryDigest, recipeKey);
+            // STALE is decided by the ledger and the files, never by their presence alone: the inputs
+            // moved (a light added, removed or re-typed; the calibration library changed), the recipe
+            // moved, or the retained master lacks what the recipe now writes beside it (a coverage
+            // plane the exact crop tier can read). A session the ledger has never seen is trusted as it
+            // stands, or the first resume on a store older than the ledger would re-bake all of it;
+            // its entry is written the first time it is built fresh.
+            string? staleBecause = null;
+            if (options.Resume && tilesReusable)
+            {
+                var entry = ledger.GetValueOrDefault(session.Id);
+                if (entry is not null && entry.RecipeVersion != DatasetSessionLedger.RecipeVersion)
+                {
+                    staleBecause = $"recipe {entry.RecipeVersion} -> {DatasetSessionLedger.RecipeVersion}";
+                }
+                else if (entry is not null && !string.Equals(entry.Fingerprint, fingerprint, StringComparison.Ordinal))
+                {
+                    staleBecause = "inputs changed";
+                }
+                // Present AND incomplete. A MISSING master is not a changed input: retention is
+                // best-effort, a store built with it off has none, and the forced re-measure path
+                // recovers one without touching the tiles. A master that exists without the plane
+                // the recipe now writes beside it is the 37-staged-masters case, and is stale.
+                else if (options.RetainSessionMasters
+                    && RetainedMasterStore.Exists(outDir, session.Id)
+                    && !RetainedMasterStore.IsComplete(outDir, session.Id))
+                {
+                    staleBecause = "retained master incomplete";
+                }
+            }
+            if (staleBecause is not null && checkpoint is not null)
+            {
+                // Re-do from nothing: the tiles under their deterministic names, the manifest rows that
+                // counted them, the retained master and every sidecar. Leaving any of it is how a
+                // re-bake keeps the very file it was run to replace.
+                redone++;
+                progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} STALE ({staleBecause}) -- re-doing");
+                logger?.LogInformation("  [{Session}] stale on resume ({Why}); tiles, manifest rows and retained master removed", session.Id, staleBecause);
+                var tileDir = Path.Combine(outDir, checkpoint.TileDirRelative.Replace('/', Path.DirectorySeparatorChar));
+                if (checkpoint.TileDirRelative.Length > 0 && Directory.Exists(tileDir))
+                {
+                    Directory.Delete(tileDir, recursive: true);
+                }
+                await DatasetTileExporter.RemoveSessionRowsAsync(manifestPath, session.Id, cancellationToken);
+                RetainedMasterStore.Remove(outDir, session.Id);
+                priorTiles.Remove(session.Id);
+                checkpoint = null;
+                tilesReusable = false;
+            }
             // Charged per session CONSIDERED, so the per-item figure is the cost of deciding one
             // session's fate. It is not free: TilesStillPresent stats a sample of that session's tiles
             // on the output disk, which measured ~1.4 s per session on a spindle.
@@ -518,6 +582,8 @@ public static class DatasetBuildRunner
                 }
                 registered++;
 
+                var exportedTiles = 0;
+                var exportedDir = string.Empty;
                 if (psfOnly)
                 {
                     psfRemeasured++; // tile count already banked before the try
@@ -527,6 +593,13 @@ public static class DatasetBuildRunner
                     var exportStart = StageTimings.Start();
                     var export = await DatasetTileExporter.ExportAsync(
                         reg, outDir, options.TileSize, options.CellsPerSession, options.SubsPerCell, logger, cancellationToken);
+                    exportedTiles = export.Rows.Length;
+                    if (export.Rows.Length > 0)
+                    {
+                        var tile = export.Rows[0].Tile;
+                        var slash = tile.LastIndexOf('/');
+                        exportedDir = slash > 0 ? tile[..slash] : string.Empty;
+                    }
                     // Items are TILES and pixels are TILE pixels, because that is what this stage
                     // repeats over and writes. Normalising it per input frame is what made it look
                     // like a compute stage: it fans a cell out to eleven tiles by default, and its
@@ -583,6 +656,19 @@ public static class DatasetBuildRunner
                 }
                 timings.Record(PsfStage, psfStart, items: 1,
                     pixels: (long)reg.CanvasWidth * reg.CanvasHeight * reg.Master.ChannelCount);
+
+                // The session is complete: what it was built from goes into the ledger LAST, so an
+                // entry never describes a session whose tiles or record are still in flight. Best
+                // effort like the other stores; a missing entry only costs a future resume its
+                // shortcut, never the session.
+                if (!psfOnly)
+                {
+                    var entry = new DatasetSessionLedger.SessionLedgerEntry(
+                        session.Id, fingerprint, DatasetSessionLedger.RecipeVersion, DateTimeOffset.UtcNow,
+                        exportedTiles, exportedDir);
+                    await DatasetSessionLedger.RecordBestEffortAsync(ledgerPath, entry, logger, cancellationToken);
+                    ledger[session.Id] = entry;
+                }
 
                 // A session that crossed the meridian also produced one master per field orientation
                 // (SessionRegistrar.FlipSides). Each is written, tiled and measured exactly like the
@@ -702,7 +788,7 @@ public static class DatasetBuildRunner
         return new RunResult(
             sessions.Length, registered, failed, skippedNoDark, resumed, totalTiles, testSessions.Length,
             parityChecked, parityMaxDiff, manifestPath, splitPath, reportPath, psfStorePath, psfMissing, psfRemeasured,
-            psfRemeasuredFromMaster, psfSubsRemeasured);
+            psfRemeasuredFromMaster, psfSubsRemeasured, Redone: redone);
     }
 
     /// <summary>
