@@ -486,6 +486,21 @@ polygons, determinism, DI) and by the fallback tests in `OnnxBackgroundExtractor
    is per plane, so a colour gradient's removal never doubles as a background neutralisation, and the
    image's pedestal field is left alone: the ONNX path accumulates its level onto the pedestal, which
    is what forced `MasterPreviewRenderer.WithZeroPedestal` on GraXpert-flattened masters.
+
+   **The ONNX path did NOT follow the per-plane rule until 2026-09-19, and the two implementations of
+   one role disagreeing is the whole reason it matters.** `OnnxBackgroundExtractor` added back
+   `MeanScalar(background)`, a single mean over ALL channels, so every plane landed on that one
+   value. The model tracks each channel's own sky, which makes that background NEUTRALISATION, not
+   level preservation, and it silently rewrote the colour of every OSC master that went through the
+   enhance. Measured on the SV605CC Small Magellanic Cloud master, whose channel medians are
+   genuinely `R/G 0.332` and `B/G 0.552`: out came `1.004` and `1.003`; after the fix, `0.331` and
+   `0.553`. Nothing downstream could see it because nothing re-reads the level -- it surfaced only
+   when something tried to SHARE a white balance between the corrector's input and its output, which
+   is what `InheritColorCalibration` and the dataset gallery both do. A re-fitted SPCC then gave an
+   olive wash and an inherited balance gave a threefold red over-correction: one root, two
+   directions, which is why neither read as a single bug. Pinned by `GradientCorrectorLevelTests`
+   for BOTH implementations, against a deliberately coloured plate -- a grey test frame cannot fail
+   it, which is why the existing smoke tests never did.
 6. **Diagnostics per plane** (`ChannelFitDiagnostics`): iterations, converged, kept fraction (of the
    valid pixels), excluded fraction (polygons plus no-data blocks, of all pixels), residual sigma and
    RMS in image units, the level. Nothing in the fit is random, so a run is deterministic by
