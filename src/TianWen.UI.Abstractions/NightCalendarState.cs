@@ -36,6 +36,12 @@ public sealed class NightCalendarState
     /// opens, then moved by the paging buttons.</summary>
     public DateOnly Month { get; set; }
 
+    /// <summary>
+    /// The night the keyboard is on, or null until an arrow key moves it (it starts on the planned night). A
+    /// terminal has no hover, so this is how the TUI reaches a night's detail at all.
+    /// </summary>
+    public DateOnly? Cursor { get; set; }
+
     /// <summary>The latest published forecast and summaries. Read it once per frame into a local.</summary>
     public NightCalendarData Data => Volatile.Read(ref _data);
 

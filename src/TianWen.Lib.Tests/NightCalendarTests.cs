@@ -441,4 +441,72 @@ public class NightCalendarTests(ITestOutputHelper output)
         data.Pins.ShouldBeEmpty();
         NightCalendarPopover<RgbaImage>.DetailLines(state, Tonight, data, pinsCurrent: true).Count.ShouldBe(3);
     }
+
+    [Fact]
+    public void TheArrowsMoveACursorFromThePlannedNightAndEnterPlansIt()
+    {
+        var clock = new FakeTimeProviderWrapper(Now);
+        var state = new PlannerState { SiteTimeZone = Aest };
+        state.Calendar.Popover.Open();
+        state.Calendar.Month = new DateOnly(2026, 9, 1);
+        var bus = new SignalBus();
+        var asked = new List<DateOnly>();
+        bus.Subscribe<NightCalendarMonthSignal>(s => asked.Add(s.Month));
+
+        NightCalendarActions.HandleKey(state, InputKey.Right, clock, bus).ShouldBeTrue();
+        state.Calendar.Cursor.ShouldBe(Tonight.AddDays(1), "from the planned night, tonight");
+        NightCalendarActions.HandleKey(state, InputKey.Down, clock, bus).ShouldBeTrue();
+        state.Calendar.Cursor.ShouldBe(Tonight.AddDays(8));
+        state.Calendar.Month.ShouldBe(new DateOnly(2026, 9, 1), "the 27th is still on September's grid");
+
+        // Three more weeks: 18 October is past September's six-week grid whichever day the week starts on.
+        for (var i = 0; i < 3; i++)
+        {
+            NightCalendarActions.HandleKey(state, InputKey.Down, clock, bus).ShouldBeTrue();
+        }
+        state.Calendar.Cursor.ShouldBe(new DateOnly(2026, 10, 18));
+        state.Calendar.Month.ShouldBe(new DateOnly(2026, 10, 1), "a cursor off the grid takes the month with it");
+        bus.ProcessPending();
+        asked.ShouldBe([new DateOnly(2026, 10, 1)], "and asks for that month's nights, once");
+
+        NightCalendarActions.HandleKey(state, InputKey.Enter, clock, bus).ShouldBeTrue();
+        state.PlanningDate.ShouldNotBeNull().Date.ShouldBe(new DateTime(2026, 10, 18));
+        state.Calendar.Popover.IsOpen.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void PagingMovesTheCursorAMonthAndTPlansTonight()
+    {
+        var clock = new FakeTimeProviderWrapper(Now);
+        var state = new PlannerState { SiteTimeZone = Aest, PlanningDate = new DateTimeOffset(2026, 9, 25, 20, 0, 0, Aest) };
+        state.Calendar.Popover.Open();
+        state.Calendar.Month = new DateOnly(2026, 9, 1);
+
+        NightCalendarActions.HandleKey(state, InputKey.PageDown, clock).ShouldBeTrue();
+        state.Calendar.Cursor.ShouldBe(new DateOnly(2026, 10, 25));
+        state.Calendar.Month.ShouldBe(new DateOnly(2026, 10, 1));
+        NightCalendarActions.HandleKey(state, InputKey.PageUp, clock).ShouldBeTrue();
+        state.Calendar.Month.ShouldBe(new DateOnly(2026, 9, 1));
+
+        NightCalendarActions.HandleKey(state, InputKey.Q, clock).ShouldBeFalse("not the calendar's key");
+        NightCalendarActions.HandleKey(state, InputKey.T, clock).ShouldBeTrue();
+        state.PlanningDate.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task AnOpenCalendarTakesItsKeysThroughThePopover()
+    {
+        var (popover, renderer, state, clock) = await OpenCalendarAsync(output);
+        using var surface = renderer;
+
+        popover.Render(state, DateLabel, Window, clock);
+        UiRouting.RouteKey(popover, InputKey.Left);
+
+        state.Calendar.Cursor.ShouldBe(Tonight.AddDays(-1), "the router hands the popover's content its keys");
+        state.Calendar.Popover.IsOpen.ShouldBeTrue();
+
+        NightCalendarActions.PrepareToOpen(state.Calendar);
+        state.Calendar.Cursor.ShouldBeNull("a reopened calendar starts on the planned night again");
+        state.Calendar.Month.ShouldBe(default);
+    }
 }

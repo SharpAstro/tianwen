@@ -1,7 +1,9 @@
 ﻿using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using Console.Lib;
 using DIR.Lib;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using TianWen.Cli.Plan;
 
@@ -11,12 +13,25 @@ namespace TianWen.Cli.Tui;
 /// TUI planner tab. Extracted from <see cref="PlanSubCommand.RunInteractiveLoopAsync"/>.
 /// Shows tonight's best targets with altitude chart, target list, and details panel.
 /// </summary>
+/// <remarks>
+/// The night calendar (docs/plans/night-calendar.md, P4) is the GUI's own widget,
+/// <see cref="NightCalendarPopover{TSurface}"/>, painted over the chart on the same Sixel canvas: the drawn Moon,
+/// the verdict tints and the pins strip need pixels, and a second, text-cell calendar would be a second answer
+/// to what a night looks like. A terminal has no hover, so the calendar is driven by its own keys (a cursor the
+/// detail follows), and a click reaches it through a router over the widget, in canvas pixels.
+/// </remarks>
 internal sealed class TuiPlannerTab(
     GuiAppState appState,
     PlannerState plannerState,
     string fontPath,
-    ITimeProvider timeProvider) : TuiTabBase
+    ITimeProvider timeProvider,
+    SignalBus bus) : TuiTabBase
 {
+    // The calendar's design size in design units (NightCalendarPopover's box with pins lines): the canvas is fitted
+    // to it, so the calendar scales with the terminal instead of overflowing a small one.
+    private const float CalendarDesignWidth = 480f;
+    private const float CalendarDesignHeight = 480f;
+
     private TextBar? _topBar;
     private TextBar? _statusBar;
     private ScrollableList<TargetListItem>? _targetList;
@@ -29,6 +44,11 @@ internal sealed class TuiPlannerTab(
     private Canvas? _canvas;
     private SixelRgbaImageRenderer? _canvasRenderer;
     private int _lastEnsuredIndex = -1;
+
+    // Rebuilt with the canvas renderer, which a resize replaces.
+    private NightCalendarPopover<RgbaImage>? _calendar;
+    private InputRouter? _calendarRouter;
+    private readonly BackgroundTaskTracker _calendarTracker = new BackgroundTaskTracker();
 
     /// <summary>
     /// Readiness covers only what <see cref="CreateWidgets"/> builds. The chart canvas is deliberately
@@ -109,11 +129,18 @@ internal sealed class TuiPlannerTab(
                     _canvasRenderer?.Dispose();
                     _canvasRenderer = new SixelRgbaImageRenderer((uint)pixelWidth, (uint)pixelHeight);
                     _canvas = new Canvas(viewport, _canvasRenderer);
+                    var calendar = new NightCalendarPopover<RgbaImage>(_canvasRenderer) { FontPath = fontPath };
+                    _calendar = calendar;
+                    _calendarRouter = new InputRouter(calendar.Ui, _calendarTracker, () => NeedsRedraw = true)
+                    {
+                        Widgets = () => [calendar],
+                    };
                 }
 
                 if (_canvas is { } canvas && _canvasRenderer is { } canvasRenderer)
                 {
                     RenderAltitudeChart(canvas, canvasRenderer);
+                    RenderCalendar(canvasRenderer);
                     canvas.Render();
                 }
                 break;
@@ -139,6 +166,25 @@ internal sealed class TuiPlannerTab(
             currentTime: chartCurrentTime);
     }
 
+    /// <summary>
+    /// The night calendar over the chart, fitted to the canvas and hung from its top edge. Painted every frame,
+    /// open or not: a closed calendar only begins its frame, which is what retires its regions.
+    /// </summary>
+    private void RenderCalendar(SixelRgbaImageRenderer renderer)
+    {
+        if (_calendar is not { } calendar)
+        {
+            return;
+        }
+
+        var width = (float)renderer.Width;
+        var height = (float)renderer.Height;
+        calendar.DpiScale = Math.Clamp(Math.Min(width / CalendarDesignWidth, height / CalendarDesignHeight), 0.5f, 1.5f);
+        var calendarWidth = CalendarDesignWidth * calendar.DpiScale;
+        calendar.Render(plannerState, new RectF32((width - calendarWidth) / 2f, 0f, calendarWidth, 0f),
+            new RectF32(0f, 0f, width, height), timeProvider, bus);
+    }
+
     protected override void RenderContent()
     {
         if (!IsReady) return;
@@ -156,7 +202,14 @@ internal sealed class TuiPlannerTab(
 
         var darkLocal = plannerState.AstroDark.ToOffset(plannerState.SiteTimeZone);
         var twLocal = plannerState.AstroTwilight.ToOffset(plannerState.SiteTimeZone);
-        _topBar.Text($" {siteLabel} | Dark: {darkLocal:HH:mm}-{twLocal:HH:mm} | Proposals: {plannerState.Proposals.Length}");
+
+        // The planned night and its verdict, from the same summary the calendar cell and the GUI's status bar read.
+        var night = NightCalendarActions.PlanningEveningDate(plannerState, timeProvider);
+        var dateLabel = plannerState.PlanningDate is null ? "Tonight" : night.ToString("ddd d MMM", CultureInfo.CurrentCulture);
+        var verdict = plannerState.Calendar.Data.Nights.TryGetValue(night, out var summary)
+            ? $" {NightVerdict.For(summary).Label}"
+            : "";
+        _topBar.Text($" {siteLabel} | {dateLabel} {darkLocal:HH:mm}-{twLocal:HH:mm}{verdict} | Proposals: {plannerState.Proposals.Length}");
         _topBar.RightText($"{plannerState.ActiveProfile?.DisplayName ?? "No profile"} ");
 
         // Target list
@@ -190,9 +243,10 @@ internal sealed class TuiPlannerTab(
         // The altitude chart is drawn from PaintHost, not here -- it needs the arranged pixel size.
 
         // Status bar
-        var statusText = plannerState.StatusMessage is { } msg
-            ? $" {msg}"
-            : " \u2191\u2193:nav Enter:toggle P:priority S:schedule Q:quit";
+        var statusText = plannerState.StatusMessage is { } msg ? $" {msg}"
+            : plannerState.Calendar.Popover.IsOpen
+                ? " \u2190\u2192\u2191\u2193:night Enter:plan PgUp/PgDn:month T:tonight Esc:close"
+                : " \u2191\u2193:nav Enter:toggle P:priority PgUp/PgDn:night C:calendar Q:quit";
         _statusBar.Text(statusText);
         _statusBar.RightText(appState.StatusMessage ?? "");
     }
@@ -326,7 +380,50 @@ internal sealed class TuiPlannerTab(
         return false;
     }
 
+    /// <summary>
+    /// Input while the calendar is open: keys through its router (Escape closes, the rest are its own), a click
+    /// on the canvas through the router in canvas pixels, and a click anywhere else closes it before doing what
+    /// it would have done, as the GUI's backdrop does.
+    /// </summary>
+    /// <returns>Whether the calendar took the event.</returns>
+    private bool HandleCalendarInput(InputEvent evt)
+    {
+        if (!plannerState.Calendar.Popover.IsOpen || _calendarRouter is not { } router)
+        {
+            return false;
+        }
+
+        switch (evt)
+        {
+            case InputEvent.KeyDown when router.Handle(evt):
+                NeedsRedraw = true;
+                return true;
+
+            case InputEvent.MouseUp(var x, var y, MouseButton.Left):
+                if (ChartCanvasGeometry() is { Rect: var canvas } && canvas.Contains(x, y))
+                {
+                    var (cx, cy) = (x - canvas.X, y - canvas.Y);
+                    router.Handle(new InputEvent.MouseDown(cx, cy, MouseButton.Left));
+                    router.Handle(new InputEvent.MouseUp(cx, cy, MouseButton.Left));
+                    NeedsRedraw = true;
+                    return true;
+                }
+
+                plannerState.Calendar.Popover.Close();
+                NeedsRedraw = true;
+                return false;
+
+            default:
+                return false;
+        }
+    }
+
     protected override void HandleTabInput(InputEvent evt){
+        if (HandleCalendarInput(evt))
+        {
+            return;
+        }
+
         switch (evt)
         {
             case InputEvent.MouseUp(var x, var y, MouseButton.Left):
@@ -405,6 +502,25 @@ internal sealed class TuiPlannerTab(
                             PlannerActions.ToggleProposal(plannerState, filtered[plannerState.SelectedTargetIndex].Target, followPinnedSelection: true);
                             NeedsRedraw = true;
                         }
+                        return;
+
+                    // The night being planned, as the GUI planner keys it: PageUp the next night, PageDown the
+                    // previous, T back to tonight, C the calendar.
+                    case InputKey.PageUp:
+                    case InputKey.PageDown:
+                        PlannerActions.ShiftPlanningDate(plannerState, timeProvider, key == InputKey.PageUp ? 1 : -1);
+                        NeedsRedraw = true;
+                        return;
+
+                    case InputKey.T:
+                        PlannerActions.ResetPlanningDate(plannerState);
+                        NeedsRedraw = true;
+                        return;
+
+                    case InputKey.C:
+                        NightCalendarActions.PrepareToOpen(plannerState.Calendar);
+                        plannerState.Calendar.Popover.Open();
+                        NeedsRedraw = true;
                         return;
 
                     case InputKey.P:

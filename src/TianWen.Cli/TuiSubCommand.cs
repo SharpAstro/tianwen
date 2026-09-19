@@ -151,7 +151,7 @@ internal class TuiSubCommand(
             // for the terminal.
             [GuiTab.Home] = new TuiHomeTab(appState, contexts, signalHandler.Rigs, consoleHost.TimeProvider, bus),
             [GuiTab.Equipment] = new TuiEquipmentTab(appState, eqState, contexts, equipmentContent, consoleHost, bus),
-            [GuiTab.Planner] = new TuiPlannerTab(appState, plannerState, fontPath, consoleHost.TimeProvider),
+            [GuiTab.Planner] = new TuiPlannerTab(appState, plannerState, fontPath, consoleHost.TimeProvider, bus),
             [GuiTab.Session] = new TuiSessionTab(appState, sessionState, plannerState, bus),
             [GuiTab.LiveSession] = new TuiLiveSessionTab(appState, contexts, terminal, consoleHost.TimeProvider, bus),
             [GuiTab.Guider] = new TuiGuiderTab(appState, contexts, terminal, fontPath, consoleHost.TimeProvider),

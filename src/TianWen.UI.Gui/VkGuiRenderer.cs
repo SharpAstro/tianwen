@@ -797,7 +797,7 @@ namespace TianWen.UI.Gui
                     .Opens(calendar.Popover)
                     // Runs before the toggle: an opening calendar starts on the planned night's month.
                     .Clickable(new HitResult.ButtonHit(DateCalendarAction),
-                        _ => { if (!calendar.Popover.IsOpen) calendar.Month = default; });
+                        _ => { if (!calendar.Popover.IsOpen) NightCalendarActions.PrepareToOpen(calendar); });
             }
             else
             {
