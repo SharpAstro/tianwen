@@ -1100,6 +1100,8 @@ namespace TianWen.UI.Abstractions
             // with the chrome, because it is toolbar-driven.
             if (!state.HideChrome && !string.IsNullOrEmpty(FontPath) && state.ToolbarDropdown.IsOpen)
             {
+                // The toolbar was painted above, so its button rects are this frame's.
+                ReanchorToolbarDropdown(state);
                 var viewport = new RectF32(0f, 0f, Width, Height);
                 var menu = state.ToolbarDropdown;
                 RenderLayout(

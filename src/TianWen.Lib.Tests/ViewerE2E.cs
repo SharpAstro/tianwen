@@ -158,6 +158,17 @@ internal sealed class ViewerE2E : IDisposable
         throw new TimeoutException($"gave up waiting for {what}; status: '{State.StatusMessage}'");
     }
 
+    /// <summary>
+    /// The window resized, as <c>Program.cs</c>'s resize callback does it (the surface, then the viewer's
+    /// layout size), then a frame.
+    /// </summary>
+    internal void Resize(uint width, uint height)
+    {
+        _renderer.Resize(width, height);
+        Viewer.Resize(width, height);
+        Frame();
+    }
+
     /// <summary>A left click: press and release through the host, then a frame.</summary>
     internal void Click(float x, float y, MouseButton button = MouseButton.Left)
     {

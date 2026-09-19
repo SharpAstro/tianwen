@@ -764,6 +764,10 @@ namespace TianWen.UI.Abstractions
                 return false;
             }
 
+            // The button the menu hangs from, so every frame can re-anchor it there
+            // (ReanchorToolbarDropdown). Harmless for the two popover arms below, which open no menu.
+            _toolbarDropdownOwner = action;
+
             switch (action)
             {
                 // Not a dropdown but the same kind of thing: a press opens (or closes) the popover
@@ -971,6 +975,33 @@ namespace TianWen.UI.Abstractions
             // the placed box is its child, which pre-order puts next.
             var placed = arranged[1].Bounds;
             return new RectF32(placed.X, placed.Y, placed.Width, placed.Height);
+        }
+
+        /// <summary>
+        /// The toolbar button the open <see cref="ViewerState.ToolbarDropdown"/> was opened from, or null for a
+        /// menu with no button (the picture's context menu, which hangs from the point that was pressed).
+        /// </summary>
+        private ToolbarAction? _toolbarDropdownOwner;
+
+        /// <summary>
+        /// Hangs an open toolbar menu from where its button is NOW. The anchor used to be taken once, at the
+        /// press, and a button moves whenever the window changes size (the "?" button is pinned to the right
+        /// edge; the bar wraps into two rows when narrow), so a menu opened in a small window stayed where
+        /// that window's edge had been after it was maximised, and one opened in a large window hung past the
+        /// edge of a smaller one (2026-09-19). The placement is <see cref="OpenDropdown"/>'s own, so a menu
+        /// that is re-anchored lands exactly where opening it now would put it. It also covers the "?" menu's
+        /// page changes, which reopen from the rect remembered at the press.
+        /// </summary>
+        private void ReanchorToolbarDropdown(ViewerState state)
+        {
+            var menu = state.ToolbarDropdown;
+            if (!menu.IsOpen || _toolbarDropdownOwner is not { } owner || !TryGetPaintedToolbarRect(owner, out var bounds))
+            {
+                return;
+            }
+
+            menu.AnchorX = PlaceBesideAnchor(bounds, menu.AnchorWidth, 1f).X;
+            menu.AnchorY = bounds.Bottom;
         }
 
         private void OpenDropdown(ViewerState state, RectF32 bounds, ImmutableArray<string> labels, Action<int, string> onSelect, int selectedIndex = -1)

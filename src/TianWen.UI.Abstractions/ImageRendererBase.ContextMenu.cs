@@ -68,7 +68,8 @@ namespace TianWen.UI.Abstractions
 
             // A zero-size anchor at the cursor: OpenDropdown places the menu at bounds.Y + Height and
             // widens it to the longest label, so its top-left lands under the pointer while ClampX
-            // keeps it on screen near the right edge.
+            // keeps it on screen near the right edge. No toolbar button owns it, so nothing re-anchors it.
+            _toolbarDropdownOwner = null;
             OpenDropdown(
                 state,
                 new RectF32(new Vector2(px, py), Vector2.Zero),

@@ -119,9 +119,8 @@ public sealed class StandaloneViewerHost<TSurface>
     public InputRouter Router { get; }
 
     /// <summary>
-    /// One pointer event from the platform. A press, a move and a release all go through the router, and
-    /// whatever it does not claim reaches the viewer's own input path exactly as before; the wheel goes
-    /// straight to the viewer.
+    /// One pointer event from the platform. A press, a move, a release and the wheel all go through the
+    /// router, and whatever it does not claim reaches the viewer's own input path exactly as before.
     /// </summary>
     /// <remarks>
     /// The move and the release have to reach the router because a press ARMS gestures there: a
@@ -131,11 +130,18 @@ public sealed class StandaloneViewerHost<TSurface>
     /// Boost), while the popover tests passed through a copy of the routing that sent every event to a
     /// router. With no capture held the router passes a move or release to <c>Unhandled</c>, which is the
     /// viewer, so the pan, the readout and the file-list gestures see what they always saw.
+    /// <para>
+    /// The wheel reaches the router for the same kind of reason: since DIR.Lib 10.2 a declared dropdown is a
+    /// scroll container, and the router is what hands the wheel to the one under the pointer. This host sent
+    /// the wheel straight to the viewer, so over the "?" menu's long keyboard page it zoomed the picture
+    /// beneath the menu and the menu never moved (2026-09-19). Where no container claims it, the router's
+    /// <c>Unhandled</c> passes it to the viewer, so the zoom and the file list's wheel are unchanged.
+    /// </para>
     /// </remarks>
     public bool HandlePointer(InputEvent evt) => evt switch
     {
         InputEvent.MouseDown down => RoutePress(down),
-        InputEvent.MouseMove or InputEvent.MouseUp => Router.Handle(evt),
+        InputEvent.MouseMove or InputEvent.MouseUp or InputEvent.Scroll => Router.Handle(evt),
         _ => _viewer.HandleInput(evt),
     };
 
