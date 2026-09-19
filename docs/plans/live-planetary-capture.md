@@ -413,7 +413,7 @@ concrete upgrades over the interim top-strip steppers:
 - **ROI is a constrained free rect QUERIED FROM THE CAMERA, not a hardcoded list.** The interim
   `VkPlanetaryTab.RoiPresets` static array is WRONG -- ROI is *free choice within hardware constraints*, and
   the presets SharpCap shows are just snapped-to-constraint convenience shortcuts. **Verified the constraint
-  source:** the ZWO rule is documented ONLY in the raw SDK header (`zwo-sdk-nuget/include/ASICamera2.h:438-439`:
+  source:** the ZWO rule is documented ONLY in the raw SDK header (`ZWOptical.SDK/include/ASICamera2.h:438-439`:
   `iWidth%8 == 0`, `iHeight%2 == 0`; `ASISetStartPos` centres by default + moves the ROI during streaming).
   The DAL `ICMOSNativeInterface` already has the primitives (`SetROIFormat(w,h,bin,fmt)`,
   `Set/GetStartPosition`) but **no constraint metadata**; `ICameraDriver` (`NumX/NumY/StartX/StartY/Bin*`)

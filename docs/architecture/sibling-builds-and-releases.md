@@ -156,7 +156,7 @@ every sibling uses `src/<Lib>/<Lib>.csproj`.
 | `Console.Lib` | `../Console.Lib` | `src/Console.Lib/Console.Lib.csproj` | ✅ |
 | `FITS.Lib` | `../FITS.Lib` | `CSharpFITS/CSharpFITS.csproj` (package name is `FITS.Lib`) | ✅ |
 | `FC.SDK` | `../FC.SDK` | `src/FC.SDK/FC.SDK.csproj` | ❌ |
-| `ZWOptical.SDK` | `../zwo-sdk-nuget` | `ZWOptical.SDK.csproj` (repo root) | ❌ |
+| `ZWOptical.SDK` | `../ZWOptical.SDK` | `ZWOptical.SDK.csproj` (repo root) | ✅ |
 | `QHYCCD.SDK` | `../QHYCCD.SDK` | `QHYCCD.SDK.csproj` (repo root) | ✅ |
 | `SharpAstro.Fonts` | `../Fonts.Lib` | `src/SharpAstro.Fonts/SharpAstro.Fonts.csproj` | transitive |
 | `SER.Lib` | `../SER.Lib` | `src/SER.Lib/SER.Lib.csproj` | ✅ |
@@ -164,4 +164,4 @@ every sibling uses `src/<Lib>/<Lib>.csproj`.
 | `LAN.Lib` | `../LAN.Lib` | `src/LAN.Lib/LAN.Lib.csproj` | ✅ |
 | `WebGl.Renderer` | `../WebGl.Renderer` | `src/WebGl.Renderer/WebGl.Renderer.csproj` | ✅ |
 | `SharpAstro.AppShell` | `../AppShell` | `src/SharpAstro.AppShell/SharpAstro.AppShell.csproj` | ✅ |
-| `TianWen.DAL` | `../TianWen.DAL` | - | ❌ |
+| `TianWen.DAL` | `../TianWen.DAL` | `TianWen.DAL.csproj` (repo root) | ✅ |
