@@ -11,7 +11,7 @@ Use `gh run list` to show the latest CI run status for each repo:
 - `SharpAstro/Fonts.Lib`
 - `SharpAstro/FITS.Lib`
 - `SharpAstro/FC.SDK`
-- `SharpAstro/zwo-sdk-nuget` (publishes `ZWOptical.SDK`)
+- `SharpAstro/ZWOptical.SDK`
 - `SharpAstro/QHYCCD.SDK`
 - `SharpAstro/TianWen.DAL`
 - `SharpAstro/tianwen`

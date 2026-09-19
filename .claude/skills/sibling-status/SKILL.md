@@ -20,7 +20,7 @@ For each repo, show:
    csproj path varies by repo:
    - `src/<repo>/<repo>.csproj`: DIR.Lib, Console.Lib, SdlVulkan.Renderer, FC.SDK, Fonts.Lib (as SharpAstro.Fonts)
    - `CSharpFITS/CSharpFITS.csproj`: FITS.Lib (package name differs from csproj name)
-   - `<repo-root>/<Name>.csproj`, ZWOptical.SDK (in `zwo-sdk-nuget/`), QHYCCD.SDK
+   - `<repo-root>/<Name>.csproj`, ZWOptical.SDK, QHYCCD.SDK
    If none of the above patterns match, skip silently, don't guess.
 
 Format as a compact table with repo names in a stable order (alphabetical is fine, with tianwen

@@ -18,12 +18,13 @@ Note csproj paths vary, not every repo uses `src/<Lib>/<Lib>.csproj`:
 | SharpAstro.AppShell | `SharpAstro.AppShell` | `../../sharpastro/AppShell` | `src/SharpAstro.AppShell/SharpAstro.AppShell.csproj` | `.github/workflows/dotnet.yml` |
 | FITS.Lib | `FITS.Lib` | `../../sharpastro/FITS.Lib` | `CSharpFITS/CSharpFITS.csproj` | `.github/workflows/dotnet.yml` |
 | FC.SDK | `FC.SDK` | `../../sharpastro/FC.SDK` | `src/FC.SDK/FC.SDK.csproj` | `.github/workflows/dotnet.yml` |
-| ZWOptical.SDK | `ZWOptical.SDK` | `../../sharpastro/zwo-sdk-nuget` | `ZWOptical.SDK.csproj` (repo root) | `.github/workflows/dotnet.yml` |
+| ZWOptical.SDK | `ZWOptical.SDK` | `../../sharpastro/ZWOptical.SDK` | `ZWOptical.SDK.csproj` (repo root) | `.github/workflows/dotnet.yml` |
 | QHYCCD.SDK | `QHYCCD.SDK` | `../../sharpastro/QHYCCD.SDK` | `QHYCCD.SDK.csproj` (repo root) | `.github/workflows/dotnet.yml` |
 
-`FITS.Lib`, `FC.SDK`, `ZWOptical.SDK`, and `QHYCCD.SDK` are not yet wired for sibling auto-detection
-(consumed as PackageReference only). Their release flow is the same as the others, but
-local in-tree iteration requires a local nupkg feed rather than switching to ProjectReference.
+`FC.SDK` is the one sibling not wired for auto-detection (consumed as PackageReference only). Its
+release flow is the same as the others, but local in-tree iteration requires a local nupkg feed rather
+than switching to ProjectReference. `FITS.Lib`, `ZWOptical.SDK`, `QHYCCD.SDK` and `TianWen.DAL` are in
+`UseLocalSiblings` now, whose check is a folder PATH: each clone must carry its repo's current name.
 
 ## Steps for a single library release
 
