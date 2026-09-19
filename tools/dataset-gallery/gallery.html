@@ -1,0 +1,372 @@
+<title>Archive Bake Masters</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  /* One deliberate dark ground: these are stretched linear masters, and a light UI around a faint
+     sky patch destroys the very judgement the page exists for. */
+  :root {
+    --ground: #0a0c0f;
+    --panel: #141920;
+    --panel-hi: #1b222b;
+    --rule: #232b35;
+    --text: #e7ebf0;
+    --dim: #93a0b0;
+    --accent: #f0b357;
+    --good: #74c69d;
+    --warn: #e9c46a;
+    --bad: #e76f51;
+    --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1400px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; }
+
+  header { display: flex; flex-wrap: wrap; gap: 20px 32px; align-items: flex-end; justify-content: space-between; }
+  h1 {
+    font-size: clamp(26px, 4vw, 38px);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .sub { color: var(--dim); margin: 6px 0 0; max-width: 62ch; }
+  .sub code { font-family: var(--mono); color: var(--accent); font-size: 0.92em; }
+
+  .totals { display: flex; flex-wrap: wrap; gap: 8px 28px; }
+  .total { display: flex; flex-direction: column; gap: 2px; }
+  .total b { font-family: var(--mono); font-size: 21px; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .total span { font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--dim); }
+
+  .bar {
+    display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center;
+    margin-top: 28px; padding-block: 14px; border-block: 1px solid var(--rule);
+  }
+  input[type="search"], select {
+    font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--rule); border-radius: 6px; padding: 7px 10px;
+  }
+  input[type="search"] { min-width: 210px; flex: 1 1 210px; }
+  input[type="search"]::placeholder { color: var(--dim); }
+  select { font-family: var(--mono); font-size: 13px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    font: 500 12px/1 var(--mono); letter-spacing: 0.04em;
+    color: var(--dim); background: none; border: 1px solid var(--rule);
+    border-radius: 999px; padding: 7px 12px; cursor: pointer;
+  }
+  .chip[aria-pressed="true"] { color: var(--ground); background: var(--accent); border-color: var(--accent); }
+  .count { font-family: var(--mono); font-size: 13px; color: var(--dim); margin-left: auto; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .grid {
+    display: grid; gap: 18px; margin-top: 22px;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  }
+  .card {
+    display: flex; flex-direction: column; text-align: left;
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 8px;
+    padding: 0; overflow: hidden; cursor: zoom-in; color: inherit; font: inherit;
+  }
+  .card:hover, .card:focus-visible { border-color: var(--accent); }
+  /* One file per view, so an <img> is just an <img>. This used to be a two-view sprite addressed as
+     a 50 percent slice, which forced both views into one box and made the crop invisible: every card
+     read as "before and after are the same size". The publish cap that forced it is per publish, and
+     files left out of one are kept, so three views of ninety masters simply take three calls. */
+  .card figure { margin: 0; background: #05070a; overflow: hidden; }
+  .view { width: 100%; display: block; background: #05070a; }
+  .card .meta { padding: 11px 13px 13px; display: flex; flex-direction: column; gap: 7px; }
+  .card h2 { font-size: 15px; font-weight: 600; margin: 0; }
+  .card .when { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  .tags { display: flex; flex-wrap: wrap; gap: 5px; }
+  .tag {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em;
+    color: var(--dim); border: 1px solid var(--rule); border-radius: 4px; padding: 2px 6px;
+  }
+  .tag.driz { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--rule)); }
+  /* A flipped night is THREE masters and only TWO pier sides: the combined one plus one per
+     side. Unbadged they read as three duplicates of the same card, which is what they looked
+     like. 'both' is the whole night, so it gets the quieter treatment; a single side is the
+     one that needs saying out loud. */
+  .tag.pier { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--rule)); }
+  .tag.pier.both { color: var(--dim); border-color: var(--rule); }
+  .nums {
+    display: flex; gap: 14px; font-family: var(--mono); font-size: 12px;
+    font-variant-numeric: tabular-nums; color: var(--dim); margin-top: 1px;
+  }
+  .nums b { color: var(--text); font-weight: 500; }
+  .state { display: inline-flex; align-items: center; gap: 5px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
+  .state.watch .dot { background: var(--warn); }
+  .state.flag .dot { background: var(--bad); }
+
+  dialog {
+    width: min(1180px, 94vw); max-height: 92vh; padding: 0; border: 1px solid var(--rule);
+    border-radius: 10px; background: var(--panel); color: var(--text); overflow: auto;
+  }
+  dialog::backdrop { background: rgba(3, 5, 8, 0.82); }
+  .detail { display: grid; gap: 22px; padding: 22px; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+  .detail > header { display: block; grid-column: 1 / -1; }
+  .detail h2 { margin: 0; font-size: 22px; font-weight: 600; }
+  .detail .when { font-family: var(--mono); font-size: 13px; color: var(--dim); }
+  .detail img.full { width: 100%; border-radius: 6px; display: block; background: #05070a; }
+  .crops { display: flex; flex-wrap: wrap; gap: 16px; }
+  .crop figcaption {
+    font-family: var(--mono); font-size: 11px; color: var(--dim);
+    margin-top: 6px; letter-spacing: 0.03em;
+  }
+  .crop img {
+    width: 256px; height: 256px; image-rendering: pixelated; display: block;
+    border-radius: 4px; border: 1px solid var(--rule); background: #05070a;
+  }
+  table { border-collapse: collapse; width: 100%; font-family: var(--mono); font-size: 12.5px; }
+  th, td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--rule); }
+  th { font-weight: 400; color: var(--dim); }
+  td { font-variant-numeric: tabular-nums; }
+  .closer {
+    position: sticky; top: 0; float: right; margin: 10px 10px 0 0;
+    font: 500 12px var(--mono); color: var(--dim); background: var(--panel-hi);
+    border: 1px solid var(--rule); border-radius: 6px; padding: 6px 10px; cursor: pointer;
+  }
+  .note { color: var(--dim); font-size: 12px; margin: 10px 0 0; max-width: 60ch; }
+  .legend { color: var(--dim); font-size: 13px; margin: 26px 0 0; max-width: 72ch; }
+  .legend b { color: var(--text); font-weight: 500; }
+  @media (max-width: 860px) { .detail { grid-template-columns: 1fr; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Skyref Bake Masters</h1>
+      <p class="sub">
+        Every session master in <code>D:/Astro-Dataset/2026-09-17-skyref</code>, the first bake with the
+        drizzle sky reference. Cards show each master cropped to full coverage and enhanced; open one
+        for the same crop before enhancement and a 1:1 patch of sky taken from the uncropped master.
+      </p>
+    </div>
+    <div class="totals" id="totals"></div>
+  </header>
+
+  <div class="bar">
+    <input type="search" id="q" placeholder="object, camera, filter" aria-label="Filter masters">
+    <div class="chips" role="group" aria-label="Integration strategy">
+      <button class="chip" id="f-all" data-filter="all" aria-pressed="true">all</button>
+      <button class="chip" id="f-driz" data-filter="drizzle" aria-pressed="false">drizzle</button>
+      <button class="chip" id="f-staged" data-filter="staged" aria-pressed="false">staged</button>
+      <button class="chip" id="f-nights" data-filter="nights" aria-pressed="false" title="Hide the per-pier-side masters of a flipped night, keeping the combined one">whole nights</button>
+    </div>
+    <select id="sort" aria-label="Sort by">
+      <option value="date">newest night first</option>
+      <option value="amp">phase amplitude, worst first</option>
+      <option value="bg">background sigma, noisiest first</option>
+      <option value="subs">most subs first</option>
+      <option value="name">name</option>
+    </select>
+    <span class="count" id="count"></span>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <p class="legend">
+    <b>Phase</b> is the period-2 level step between adjacent columns or rows, in units of the master's own
+    per-pixel noise, with the share of pairs that step the same way beside it. Noise sits near 0 with
+    50% agreement; the Bayer-phase pattern this bake set out to remove read up to 8.9 sigma at 100%.
+    <b>Sky</b> is the background sigma of the central 1536 px square, green channel, as a fraction of
+    full scale.
+  </p>
+</div>
+
+<dialog id="detail" aria-label="Master detail"></dialog>
+
+<script>
+window.MASTERS = [];  /* ROWS GO HERE -- inject_rows.py replaces this whole line */
+</script>
+<script>
+  const rows = window.MASTERS || [];
+  const grid = document.getElementById('grid');
+  const dlg = document.getElementById('detail');
+  const fmt = (v, d = 3) => (v === undefined || v === null || Number.isNaN(v) ? '--' : Number(v).toFixed(d));
+  const exp = (v) => (v === undefined || v === null ? '--' : Number(v).toExponential(2));
+  const state = (r) => (r.amp === undefined ? '' : r.amp >= 0.3 && r.agree >= 55 ? 'flag' : r.amp >= 0.12 ? 'watch' : '');
+  const green = (r, key) => (r[key] ? (r[key].G ?? r[key].M ?? r[key].R) : undefined);
+  // There are two sides of a meridian, so a flipped session is three masters and not three
+  // duplicates: the combined one over the whole night, plus one per pier side. The sub counts are
+  // the proof -- the Lobster Nebula night is 100 combined, 32 on one side and 68 on the other.
+  const PIER = { a: 'pier A', b: 'pier B', both: 'both sides' };
+  const pierTag = (r) => (r.flip ? `<span class="tag pier${r.flip === 'both' ? ' both' : ''}">${PIER[r.flip]}</span>` : '');
+  // Say it once in full on the detail, where there is room: which of the three this is, how many
+  // subs each of its siblings kept, and that the mount crossed the meridian mid-session.
+  function pierNote(r) {
+    if (!r.flip) return '';
+    const set = rows.filter((x) => x.flipGroup === r.flipGroup);
+    const part = (side) => { const m = set.find((x) => x.flip === side); return m ? m.subs : '--'; };
+    const mine = r.flip === 'both'
+      ? `This is the whole night, both pier sides stacked together.`
+      : `This is ${PIER[r.flip]} alone.`;
+    return `<span class="note" style="display:block;margin-top:8px">${mine} The mount crossed the
+      meridian during this session, so the bake wrote three masters for it and not three copies:
+      <b>${part('both')}</b> subs combined, <b>${part('a')}</b> on pier A and <b>${part('b')}</b> on
+      pier B. A German mount images the second half of such a night upside down relative to the
+      first, so the sides are kept separately as well as together.</span>`;
+  }
+
+  let filter = 'all';
+  let sort = 'date';
+  let query = '';
+
+  function visible() {
+    const q = query.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (filter === 'drizzle' && r.strategy !== 'BayerDrizzle') return false;
+      if (filter === 'staged' && r.strategy === 'BayerDrizzle') return false;
+      // One card per night: drop the two pier-side masters of a flipped session and keep the
+      // combined one, which covers the same subs. This is the view that answers "why are there
+      // three of these?" by simply not showing the halves.
+      if (filter === 'nights' && (r.flip === 'a' || r.flip === 'b')) return false;
+      if (!q) return true;
+      // The optical train belongs in here: a scope is what you remember a night by, and the
+      // card already carries it ("QHY294PROC / SWQ8 @ 600mm"). Searching SWQ8 found nothing
+      // while three cards were sitting there under their target names.
+      return [r.object, r.camera, r.filter, r.date, r.name, r.train, r.strategy]
+        .filter(Boolean).join(' ').toLowerCase().includes(q);
+    }).sort((a, b) => {
+      if (sort === 'amp') return (b.amp ?? -1) - (a.amp ?? -1);
+      if (sort === 'bg') return (green(b, 'bg') ?? -1) - (green(a, 'bg') ?? -1);
+      if (sort === 'subs') return (b.subs ?? 0) - (a.subs ?? 0);
+      if (sort === 'name') return a.name.localeCompare(b.name);
+      return (b.date || '').localeCompare(a.date || '');
+    });
+  }
+
+  function card(r) {
+    const el = document.createElement('button');
+    el.className = 'card';
+    el.type = 'button';
+    const st = state(r);
+    el.innerHTML = `
+      <figure><img class="view" loading="lazy" src="img/${r.id}_enhanced.png"
+        alt="${r.object || r.name}, enhanced"
+        style="aspect-ratio:${r.viewW || 1200}/${r.viewH || 1200}"></figure>
+      <div class="meta">
+        <h2>${r.object || r.name}</h2>
+        <span class="when">${r.date}${r.exposure ? ' &middot; ' + Math.round(r.exposure) + 's subs' : ''}</span>
+        <span class="tags">
+          <span class="tag">${r.camera || 'unknown camera'}</span>
+          ${r.filter && r.filter !== 'None' ? `<span class="tag">${r.filter}</span>` : ''}
+          <span class="tag${r.strategy === 'BayerDrizzle' ? ' driz' : ''}">${r.strategy === 'BayerDrizzle' ? 'drizzle' : 'staged'}</span>
+          ${pierTag(r)}
+        </span>
+        <span class="nums">
+          <span>${r.subs} subs</span>
+          ${green(r, 'bg') !== undefined ? `<span>sky <b>${exp(green(r, 'bg'))}</b></span>` : ''}
+          ${r.amp !== undefined
+            ? `<span class="state ${st}"><i class="dot"></i>phase <b>${fmt(r.amp)}</b></span>`
+            : '<span>no phase test</span>'}
+        </span>
+      </div>`;
+    el.addEventListener('click', () => open(r));
+    return el;
+  }
+
+  function render() {
+    const list = visible();
+    grid.replaceChildren(...list.map(card));
+    document.getElementById('count').textContent = `${list.length} of ${rows.length} masters`;
+  }
+
+  function open(r) {
+    const st = state(r);
+    const bg = r.bg || {};
+    const lvl = r.lvl || {};
+    const chans = Object.keys(bg);
+    dlg.innerHTML = `
+      <button class="closer" id="close">close &times;</button>
+      <div class="detail">
+        <header>
+          <h2>${r.object || r.name}</h2>
+          <span class="when">${r.date} &middot; ${r.train || r.camera}${r.filter && r.filter !== 'None' ? ' &middot; ' + r.filter : ''}
+            &middot; ${r.subs} of ${r.lights} subs kept &middot; ${r.w}&times;${r.h} canvas</span>
+          ${pierNote(r)}
+        </header>
+        <div>
+          <figure style="margin:0">
+            <img class="view" src="img/${r.id}_enhanced.png" alt="${r.object || r.name}, enhanced"
+              style="aspect-ratio:${r.viewW || 1200}/${r.viewH || 1200};border-radius:6px">
+            <figcaption class="note">After: gradient correction, whole-frame deblur, star removal,
+              deconvolution and denoise. This is what the card shows.</figcaption>
+          </figure>
+          <figure style="margin:16px 0 0">
+            <img class="view" src="img/${r.id}_raw.png" alt="${r.object || r.name}, before enhancement"
+              style="aspect-ratio:${r.viewW || 1200}/${r.viewH || 1200};border-radius:6px">
+            <figcaption class="note">Before: the same pixels, unenhanced. Both views are the
+              <em>same crop</em> of the master${r.shownW ? ` (${r.w}&times;${r.h} canvas &rarr; ${r.shownW}&times;${r.shownH} shown,
+              ${Math.round(100 * r.shownW * r.shownH / (r.w * r.h))}% of it)` : ''}, plate-solved
+              once so both are colour-calibrated. Only the enhancement differs, which is the whole
+              point of showing them together.</figcaption>
+          </figure>
+          <div class="crops" style="margin-top:16px">
+            <figure class="crop" style="margin:0">
+              <img src="img/${r.id}_crop.png" alt="1:1 sky crop">
+              <figcaption>1:1, uncropped master at (${r.cropX}, ${r.cropY})</figcaption>
+            </figure>
+          </div>
+        </div>
+        <div>
+          <table>
+            <tbody>
+              <tr><th>optical train</th><td>${r.train || 'not recorded'}</td></tr>
+              <tr><th>strategy</th><td>${r.strategy}</td></tr>
+              ${r.amp !== undefined
+                ? `<tr><th>phase amplitude</th><td class="state ${st}"><i class="dot"></i> ${fmt(r.amp)} sigma at ${r.agree}% agreement</td></tr>`
+                : '<tr><th>phase amplitude</th><td>not measured: the phase test is for drizzled masters, where the pattern lives</td></tr>'}
+              ${chans.map((c) => `<tr><th>${c} sky / level</th><td>${exp(bg[c])} / ${fmt(lvl[c], 5)}</td></tr>`).join('')}
+              <tr><th>median sub FWHM</th><td>${r.fwhm ? r.fwhm + ' px' : '--'}</td></tr>
+              <tr><th>sub exposure</th><td>${r.exposure ? Math.round(r.exposure) + ' s' : '--'}</td></tr>
+              <tr><th>bake wall time</th><td>${r.wall ? r.wall + ' s' : '--'}</td></tr>
+              <tr><th>master file</th><td style="word-break:break-all">${r.name}.fits</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+    dlg.querySelector('#close').addEventListener('click', () => dlg.close());
+    if (!dlg.open) dlg.showModal();
+  }
+
+  document.getElementById('q').addEventListener('input', (e) => { query = e.target.value; render(); });
+  document.getElementById('sort').addEventListener('change', (e) => { sort = e.target.value; render(); });
+  for (const chip of document.querySelectorAll('.chip')) {
+    chip.addEventListener('click', () => {
+      filter = chip.dataset.filter;
+      for (const c of document.querySelectorAll('.chip')) c.setAttribute('aria-pressed', String(c === chip));
+      render();
+    });
+  }
+  dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+
+  (function totals() {
+    const driz = rows.filter((r) => r.strategy === 'BayerDrizzle');
+    const amps = driz.map((r) => r.amp).filter((v) => v !== undefined);
+    const subs = rows.reduce((a, r) => a + (r.subs || 0), 0);
+    const cells = [
+      [rows.length, 'masters'],
+      [driz.length, 'drizzled'],
+      [subs.toLocaleString(), 'subs stacked'],
+      [amps.length ? fmt(Math.max(...amps), 2) : '--', 'worst Bayer phase'],
+      [rows.filter((r) => r.solved).length, 'solved in the bake'],
+    ];
+    document.getElementById('totals').innerHTML = cells
+      .map(([v, k]) => `<div class="total"><b>${v}</b><span>${k}</span></div>`).join('');
+  })();
+
+  render();
+</script>
