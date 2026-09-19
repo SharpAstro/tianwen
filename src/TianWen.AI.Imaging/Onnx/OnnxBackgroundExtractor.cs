@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,8 +22,12 @@ namespace TianWen.AI.Imaging.Onnx;
 /// edge-pads to 256x256, normalises per-channel via median + MAD, runs a
 /// single-pass NHWC inference, denormalises, smooths, and upsamples the
 /// estimated background back to source dimensions. The corrected image is
-/// <c>source - background + mean(background)</c> -- gradient SHAPE removed,
-/// absolute sky level preserved.
+/// <c>source - background + mean(background) PER CHANNEL</c> -- gradient SHAPE removed, each
+/// plane's absolute sky level preserved. The per-channel part is load-bearing and was wrong until
+/// 2026-09-19: one shared scalar lands every channel on the same level, which is background
+/// neutralisation rather than level preservation, and it silently equalised the colour of every OSC
+/// master that passed through. <see cref="Image.Subtract(Image, ReadOnlySpan{float})"/> carries the
+/// measurement.
 /// </summary>
 /// <remarks>
 /// <para>Domain semantics: linear-units in / linear-units out. The
@@ -204,19 +210,34 @@ public sealed class OnnxBackgroundExtractor(
         var background = smoothed.BilinearResize(srcW, srcH);
         smoothed.Release();
 
-        // 11) Subtract background, add back mean(background) to preserve the
-        // overall sky level (gradient SHAPE removed, absolute level kept).
-        // The background plate is returned alongside the corrected output so
-        // callers that asked for diagnostic visibility (e.g. CLI flatten
-        // --save-gradient) can render it; callers that didn't (the bare
-        // EnhanceAsync entry point) release it via the wrapper.
-        var meanBg = MeanScalar(background);
-        var corrected = input.Subtract(background, addedPedestal: meanBg);
+        // 11) Subtract background, add back EACH CHANNEL'S OWN mean background, so the gradient
+        // SHAPE is removed and every plane keeps the absolute level it came in with.
+        //
+        // This used to add back one scalar averaged over all three channels, which does not preserve
+        // the level so much as destroy it: the model tracks each channel's own sky, so subtracting it
+        // and adding a SHARED constant lands every channel on that constant. That is background
+        // NEUTRALISATION, a different operation belonging to a different step, and it silently
+        // equalised the colour of every OSC master that went through here. Measured on the SV605CC
+        // Small Magellanic Cloud master, whose channel medians are genuinely R/G 0.332 and B/G 0.552:
+        // out came 1.004 and 1.003. Nothing downstream could tell, and a white balance solved on the
+        // input (which is what the viewer's InheritColorCalibration and the gallery's shared solve
+        // both do) then became a threefold red over-correction and rendered the frame flat red.
+        //
+        // ClassicalBackgroundExtractor, the other implementation of this same IGradientCorrector
+        // role, has always added each plane's own level back. Two implementations of one role must
+        // not disagree about what the role DOES.
+        //
+        // The background plate is returned alongside the corrected output so callers that asked for
+        // diagnostic visibility (e.g. CLI flatten --save-gradient) can render it; callers that didn't
+        // (the bare EnhanceAsync entry point) release it via the wrapper.
+        var channelBg = ChannelMeans(background);
+        var corrected = input.Subtract(background, channelBg);
         var stitchMs = stitchSw.ElapsedMilliseconds;
 
         logger?.LogInformation(
-            "OnnxBackgroundExtractor.EnhanceAsync: {Model} {W}x{H}x{C} prep={Prep}ms infer={Infer}ms stitch={Stitch}ms total={Total}ms mean_bg={MeanBg:F5}",
-            ModelName, srcW, srcH, channels, prepMs, inferMs, stitchMs, totalSw.ElapsedMilliseconds, meanBg);
+            "OnnxBackgroundExtractor.EnhanceAsync: {Model} {W}x{H}x{C} prep={Prep}ms infer={Infer}ms stitch={Stitch}ms total={Total}ms bg_per_channel=[{ChannelBg}]",
+            ModelName, srcW, srcH, channels, prepMs, inferMs, stitchMs, totalSw.ElapsedMilliseconds,
+            string.Join("/", channelBg.Select(static v => v.ToString("F5", CultureInfo.InvariantCulture))));
 
         return (corrected, background);
     }
@@ -527,14 +548,20 @@ public sealed class OnnxBackgroundExtractor(
 
     /// <summary>Mean of all non-NaN pixels across all channels. Used as the
     /// brightness offset added back after gradient subtraction.</summary>
-    private static float MeanScalar(Image src)
+    /// <summary>
+    /// Per-channel mean of the finite pixels, which is what gets added back after the background is
+    /// subtracted. One value PER PLANE, never a single scalar over all of them -- see the comment at
+    /// the call site for what a shared one does to colour.
+    /// </summary>
+    private static float[] ChannelMeans(Image src)
     {
         var (channels, _, _) = src.Shape;
-        var total = 0.0;
-        var count = 0L;
+        var means = new float[channels];
         for (var c = 0; c < channels; c++)
         {
             var ch = src.GetChannelSpan(c);
+            var total = 0.0;
+            var count = 0L;
             for (var i = 0; i < ch.Length; i++)
             {
                 var v = ch[i];
@@ -544,7 +571,8 @@ public sealed class OnnxBackgroundExtractor(
                     count++;
                 }
             }
+            means[c] = count > 0 ? (float)(total / count) : 0f;
         }
-        return count > 0 ? (float)(total / count) : 0f;
+        return means;
     }
 }
