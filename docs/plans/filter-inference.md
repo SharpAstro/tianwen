@@ -148,9 +148,9 @@ carry their own flats, and both land between the two populations this plan estab
 | `ASI533mc -10deg 240s` (UNKNOWN) | 0.1999 | **0.7184** |
 | `Rosette Dec 24` (UNKNOWN) | 0.5934 | **0.8515** |
 | `Optolong-L-Quad-Enhance` 2026-04-22 (known) | 0.4405 | **1.0024** |
-| `IDAS-LPS-D3` 2024-06-06 Rim Nebula (named by its folders, group N) | 0.2281 | **0.9528** |
+| `IDAS-LPS-D3` 2024-06-06 Rim Nebula (named by its capture folder, group N) | 0.2281 | **0.9528** |
 
-**The LPS D3 row (added 2026-09-20) is an ANCHOR, not a verdict from the pixels.** It is named by its capture folder (`LPS`) and its dark folder (`Cal June LPS`), the owner's LPS being the D3 that named group D; the flat's 0.953 lands in none of the four ASI533 populations above, so nothing here could have named it and nothing contradicts the folders. It is the first IDAS LPS D3 measurement on the ASI533, so the next unfiled ASI533 session with a flat near 0.95 has a band to be tested against.
+**The LPS D3 row (added 2026-09-20) is an ANCHOR, not a verdict from the pixels.** It is named by its capture folder (`LPS`) alone, the owner's LPS being the D3 that named group D; the header has no hint and the dark folder beside it is not evidence (its frames are named for a July L-Ultimate session, and a dark is filter-blind). The pixels EXCLUDE the two ASI533 filters with known bands (3 nm: sky 0.56, flat 0.567; L-Quad: sky 1.01 to 1.08, flat 1.002; this session: sky 0.76, flat 0.953) and name nothing. It is the first IDAS LPS D3 measurement on the ASI533, so the next unfiled ASI533 session with a flat near 0.95 has a band to be tested against.
 
 **They do not match each other either.** 0.8515 against 0.7184 is 0.13 apart where section 2a's
 within-population agreement is 0.021 or better, so this is not one new population but potentially
