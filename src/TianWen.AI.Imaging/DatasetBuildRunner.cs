@@ -285,18 +285,38 @@ public static class DatasetBuildRunner
             // STALE is decided by the ledger and the files, never by their presence alone: the inputs
             // moved (a light added, removed or re-typed; the calibration library changed), the recipe
             // moved, or the retained master lacks what the recipe now writes beside it (a coverage
-            // plane the exact crop tier can read). A session the ledger has never seen is trusted as it
-            // stands, or the first resume on a store older than the ledger would re-bake all of it;
-            // its entry is written the first time it is built fresh.
+            // plane the exact crop tier can read).
+            //
+            // A session the ledger has never seen is stale UNLESS its PSF record proves the lights are
+            // the same set (registered plus dropped, path for path); then the ledger adopts it. The
+            // first cut trusted such a session as it stood, to spare a store older than the ledger a
+            // full re-bake, and that is a skip of processing that should have happened whenever the
+            // inputs had moved in the meantime. Missing an edge case is tolerable; skipping is not.
             string? staleBecause = null;
             if (options.Resume && tilesReusable)
             {
                 var entry = ledger.GetValueOrDefault(session.Id);
-                if (entry is not null && entry.RecipeVersion != DatasetSessionLedger.RecipeVersion)
+                if (entry is null)
+                {
+                    if (psfBySession.TryGetValue(session.Id, out var record) && LightsMatchRecord(session, record))
+                    {
+                        entry = new DatasetSessionLedger.SessionLedgerEntry(
+                            session.Id, fingerprint, DatasetSessionLedger.RecipeVersion, DateTimeOffset.UtcNow,
+                            checkpoint?.TileCount ?? 0, checkpoint?.TileDirRelative ?? string.Empty);
+                        await DatasetSessionLedger.RecordBestEffortAsync(ledgerPath, entry, logger, cancellationToken);
+                        ledger[session.Id] = entry;
+                        logger?.LogInformation("  [{Session}] adopted into the ledger: its PSF record lists exactly today's lights", session.Id);
+                    }
+                    else
+                    {
+                        staleBecause = "not in the ledger and its record cannot prove the lights";
+                    }
+                }
+                if (staleBecause is null && entry is not null && entry.RecipeVersion != DatasetSessionLedger.RecipeVersion)
                 {
                     staleBecause = $"recipe {entry.RecipeVersion} -> {DatasetSessionLedger.RecipeVersion}";
                 }
-                else if (entry is not null && !string.Equals(entry.Fingerprint, fingerprint, StringComparison.Ordinal))
+                else if (staleBecause is null && entry is not null && !string.Equals(entry.Fingerprint, fingerprint, StringComparison.Ordinal))
                 {
                     staleBecause = "inputs changed";
                 }
@@ -345,7 +365,13 @@ public static class DatasetBuildRunner
                 // exactly the one whose record is now wrong. It costs a full re-registration of
                 // EVERY exported session, so it is never implied.
                 var hasRecord = psfBySession.ContainsKey(session.Id);
+                // A retained master that is MISSING is not staleness (the tiles are right) but it is
+                // work left undone: the store has no master for the session, and everything that reads
+                // a master (the gallery, a forced re-measure, the gradient report) would silently skip
+                // it. The re-register path below recovers it, tiles untouched.
+                var masterMissing = options.RetainSessionMasters && !RetainedMasterStore.Exists(outDir, session.Id);
                 var measure = options.ForcePsfRemeasure
+                    || masterMissing
                     || (hasRecord && options.RemeasureSubs)
                     || (!hasRecord && options.RegenPsfForExportedSessions);
                 if (!measure)
@@ -871,6 +897,41 @@ public static class DatasetBuildRunner
     /// exported" and the run reports success over files that are not there. Costs one directory
     /// enumeration per resumed session.
     /// </summary>
+    /// <summary>
+    /// Whether a PSF record lists exactly the session's lights of today: every registered sub plus
+    /// every dropped one, path for path, and nothing else. Only a record that carries the dropped
+    /// subs can prove it; an older record cannot say whether a light it does not list was dropped or
+    /// added since, and "cannot prove" reads as stale.
+    /// </summary>
+    private static bool LightsMatchRecord(ImagingSession session, DatasetPsfNoiseReport.SessionPsf record)
+    {
+        if (record.SubFile is null || record.DroppedSubs is null)
+        {
+            return false;
+        }
+        var recorded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in record.SubFile)
+        {
+            recorded.Add(Path.GetFullPath(file));
+        }
+        foreach (var dropped in record.DroppedSubs)
+        {
+            recorded.Add(Path.GetFullPath(dropped.File));
+        }
+        if (recorded.Count != session.Lights.Length)
+        {
+            return false;
+        }
+        foreach (var light in session.Lights)
+        {
+            if (!recorded.Contains(Path.GetFullPath(light.Path)))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static bool TilesStillPresent(string outDir, DatasetTileExporter.ManifestCheckpoint checkpoint, ILogger? logger)
     {
         if (checkpoint.TileDirRelative.Length == 0)
