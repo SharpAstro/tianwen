@@ -462,7 +462,10 @@ public partial class Image
             return this;
         }
 
-        var copy = Crop(new PixelRect(0, 0, Width, Height));
+        // Clone, not Crop over the full rectangle: Crop copies through the per-sample indexer and
+        // narrows the labels to Float32 with no unit-referral, and this runs on every drizzle master
+        // with a hole in it, which is most of them.
+        var copy = Clone();
         copy.FillInteriorHolesInPlace(maxPasses);
         return copy;
     }

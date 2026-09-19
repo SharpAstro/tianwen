@@ -520,6 +520,29 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
         return new Image(data, BitDepth, MaxValue, MinValue, newPedestal, imageMeta, SamplesAreUnitReferred);
     }
 
+    /// <summary>
+    /// A deep copy: every plane duplicated, every label (bit depth, min, max, pedestal, metadata,
+    /// unit-referral) carried across unchanged. The one way to get pixels you may mutate without
+    /// touching the caller's.
+    /// </summary>
+    /// <remarks>
+    /// <para>Planes are copied with <see cref="Array.Clone"/>, a memberwise block copy, never through
+    /// the indexer: a per-sample <c>this[c, y, x]</c> copy resolves plane residency and pays two bounds
+    /// checks on every one of tens of millions of samples, which is what <see cref="Crop"/> over the
+    /// full rectangle used to cost the display render on every drizzle master with a hole in it.</para>
+    /// <para>A new owner of unpooled arrays and nothing else: it carries no <see cref="Channel.Buffer"/>,
+    /// so releasing it returns nothing anywhere, and the original is untouched.</para>
+    /// </remarks>
+    public Image Clone()
+    {
+        var data = new float[ChannelCount][,];
+        for (var c = 0; c < ChannelCount; c++)
+        {
+            data[c] = (float[,])GetChannelArray(c).Clone();
+        }
+        return new Image(data, BitDepth, MaxValue, MinValue, Pedestal, imageMeta, SamplesAreUnitReferred);
+    }
+
     public Image WithZeroPedestal()
     {
         if (MinValue is 0f or float.NaN && Pedestal is 0f or float.NaN)

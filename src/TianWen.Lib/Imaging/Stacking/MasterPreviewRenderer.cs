@@ -527,11 +527,8 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
                 var spccSw = Stopwatch.StartNew();
                 try
                 {
-                    if (!FilterCurveDatabase.IsLoaded)
-                    {
-                        await FilterCurveDatabase.LoadAsync(ct);
-                    }
-
+                    // The filter curves are already loaded: the throughput block above runs for every
+                    // colour frame, and this block only runs for one.
                     // Tycho-2 is what SPCC matches against, and nothing upstream of a bare
                     // `image render` loads it -- the same reason CatalogPlateSolver self-inits at
                     // the top of SolveImageAsync. Without this the matcher finds no catalog star

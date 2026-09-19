@@ -127,7 +127,10 @@ def run(row, store, outdir, scratch):
     """Crop, solve, render, enhance, render again -- one master, entirely through tianwen verbs."""
     name = row['name'] + '.fits'
     src = os.path.join(store, 'session-masters', name)
-    tag = str(abs(hash(row['name'])) % 10 ** 8)
+    # The row id, which inject_rows.py requires to be unique and dense. It used to be a truncated
+    # hash of the name, which is randomised per process and could put two jobs in flight on the
+    # same scratch files, one overwriting the other's cropped FITS with no error anywhere.
+    tag = str(row['id'])
     croppath = os.path.join(scratch, f'tmp_{tag}_crop.fits')
     sharppath = os.path.join(scratch, f'tmp_{tag}_sharp.fits')
     rawfull = os.path.join(scratch, f'tmp_{tag}_raw.png')
@@ -201,6 +204,15 @@ def run(row, store, outdir, scratch):
                     pass
 
 
+def save_rows(rows_path, rows):
+    """Replace the row table atomically. Written once per finished card, so a reader (or a resume)
+    must never see a half-written file; a rename is the one write that is all or nothing."""
+    tmp = rows_path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(rows, f, separators=(',', ':'))
+    os.replace(tmp, rows_path)
+
+
 def main():
     store, rows_path, outdir = sys.argv[1], sys.argv[2], sys.argv[3]
     jobs = int(sys.argv[sys.argv.index('--jobs') + 1]) if '--jobs' in sys.argv else 1
@@ -217,11 +229,15 @@ def main():
         wanted = set(json.load(open(sys.argv[sys.argv.index('--names') + 1], encoding='utf-8')))
         todo = [r for r in todo if r['name'] in wanted or r['name'] + '.fits' in wanted]
     if not force:
-        # A row whose three pictures are all present is done. The enhance is the expensive stage
-        # and re-running it over a finished card is an hour of GPU for the same bytes.
+        # A row whose three pictures are all present AND whose geometry is stamped is done. The
+        # enhance is the expensive stage and re-running it over a finished card is an hour of GPU
+        # for the same bytes; but the pictures alone are not the deliverable, the row's viewW / wb
+        # stamps are what the page renders the card from, and a batch killed before it wrote them
+        # used to leave such a card skipped forever with its pictures orphaned.
         todo = [r for r in todo
-                if not all(os.path.exists(os.path.join(outdir, f'{r["id"]}_{k}.png'))
-                           for k in ('raw', 'enhanced', 'crop'))]
+                if not (r.get('viewW')
+                        and all(os.path.exists(os.path.join(outdir, f'{r["id"]}_{k}.png'))
+                                for k in ('raw', 'enhanced', 'crop')))]
     if limit:
         todo = todo[:limit]
 
@@ -236,6 +252,9 @@ def main():
             results.append(r)
             by_id[r['id']] = {k: v for k, v in r.items()
                               if k not in ('ok', 'stage', 'error', 'seconds', 'solve', 'crop')}
+            # Stamped as each card lands, not once at the end: a batch that dies an hour in has
+            # every finished card's geometry and balance on disk, and the resume above sees them.
+            save_rows(rows_path, [by_id[x['id']] for x in rows])
             state = (f"{r['seconds']:6.1f}s  {'solved' if r.get('solved') else 'NO SOLVE'}  "
                      f"wb {r.get('wb') or '--'} ({r.get('wbSource') or 'none'})" if r['ok']
                      else f"FAILED at {r.get('stage', '?')}: {r.get('error', '')[:110]}")
@@ -243,8 +262,6 @@ def main():
 
     wall = time.time() - batch_started
     ok = [r for r in results if r['ok']]
-    json.dump([by_id[r['id']] for r in rows], open(rows_path, 'w', encoding='utf-8'),
-              separators=(',', ':'))
     json.dump(results, open(os.path.join(outdir, 'build-log.json'), 'w'), indent=1, default=str)
     print(f"{len(ok)}/{len(results)} built in {wall / 60:.1f} min "
           f"({wall / max(1, len(ok)):.1f} s per master at {jobs} job(s)); rows -> {rows_path}")
