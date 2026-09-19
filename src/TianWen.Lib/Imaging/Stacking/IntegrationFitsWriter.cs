@@ -58,6 +58,11 @@ public static class IntegrationFitsWriter
     /// <summary>Per-pixel rejected/total: high means heavily rejected. What kappa-sigma emits.</summary>
     public const string RejectionMapKind = "REJECTION";
 
+    /// <summary>Suffix of the coverage sidecar a non-drizzle master carries BESIDE its rejection map,
+    /// on the master's stem like <see cref="RejectionMapSuffix"/>. A second <c>.fits</c> in the same
+    /// folder, so anything enumerating masters asks <see cref="IsRejectionMapPath"/> about it too.</summary>
+    public const string CoverageMapSuffix = ".coverage.fits";
+
     /// <summary>
     /// Writes <paramref name="result"/> to <paramref name="masterPath"/>
     /// (the master master image) plus a sibling <c>.rejection.fits</c> file
@@ -149,6 +154,38 @@ public static class IntegrationFitsWriter
             WriteRejectionMap(masterPath, result.RejectionMap, result.FrameCount, result.MeanRejectionRate,
                 result.RejectionMapIsCoverage, strategy);
         }
+        if (!result.RejectionMapIsCoverage && result.Coverage is { } coverage)
+        {
+            WriteCoverageMap(masterPath, coverage, result.FrameCount, strategy);
+        }
+    }
+
+    /// <summary>
+    /// Writes the per-pixel coverage plane beside a master whose first sidecar is a rejection
+    /// fraction, at the master's path plus <see cref="CoverageMapSuffix"/>.
+    /// </summary>
+    /// <remarks>
+    /// A second file rather than a change of meaning for the first: the drizzle strategies put their
+    /// weight in the <c>.rejection.fits</c> slot and say so with <c>MAPKIND</c>, and every other
+    /// strategy's rejection fraction stays where its readers and tests expect it. What those masters
+    /// lacked was a plane the exact crop tier could use at all; without one every consumer fell to
+    /// <see cref="CoverageEdgeWalk"/>, which declines an edge whose band never settles, and a 350 px
+    /// dither strip of 2.7x noise reached the gallery on the V1045 Ori master with 264 px trimmed.
+    /// </remarks>
+    public static void WriteCoverageMap(string masterPath, Image coverage, int frameCount, IntegrationStrategyKind? strategy = null)
+    {
+        var extras = new Dictionary<string, (object Value, string Comment)>
+        {
+            ["STACK_N"] = (frameCount, "Frames the coverage was counted over"),
+            ["SWCREATE"] = (SoftwareCreator, "Software that created this coverage map"),
+            ["IMAGETYP"] = ("COVERAGE", "Per-pixel count of frames with a finite sample"),
+            [MapKindCard] = (CoverageMapKind, "Frames with a finite sample per pixel; high is well covered"),
+        };
+        if (strategy is { } s)
+        {
+            extras["STRATEGY"] = (s.ToString(), "Integration strategy used (IntegrationStrategyKind)");
+        }
+        coverage.WriteToFitsFile(CoveragePathFor(masterPath), wcs: null, extras);
     }
 
     /// <summary>
@@ -292,28 +329,32 @@ public static class IntegrationFitsWriter
             return false;
         }
 
-        var path = RejectionPathFor(masterPath);
-        if (!File.Exists(path))
+        // Either sidecar, whichever says it is coverage: the drizzle strategies put their weight in
+        // the rejection slot, every other strategy writes the count beside its fraction.
+        foreach (var path in new[] { RejectionPathFor(masterPath), CoveragePathFor(masterPath) })
         {
-            return false;
+            if (File.Exists(path) && SaysCoverage(path))
+            {
+                return Image.TryReadFitsFile(path, out coverage);
+            }
         }
 
+        return false;
+    }
+
+    private static bool SaysCoverage(string path)
+    {
         try
         {
             using var bufferedReader = new BufferedFile(path, FileAccess.Read, FileShare.Read, 4 * 2880);
             using var fitsFile = new Fits(bufferedReader, path.EndsWith(".gz", StringComparison.OrdinalIgnoreCase));
             var kind = fitsFile.ReadFirstImageHduHeaderOnly()?.Header?.GetStringValue(MapKindCard);
-            if (!string.Equals(kind?.Trim(), CoverageMapKind, StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
+            return string.Equals(kind?.Trim(), CoverageMapKind, StringComparison.OrdinalIgnoreCase);
         }
         catch
         {
             return false;
         }
-
-        return Image.TryReadFitsFile(path, out coverage);
     }
 
     /// <summary>
@@ -326,16 +367,27 @@ public static class IntegrationFitsWriter
     /// </para>
     /// </summary>
     public static bool IsRejectionMapPath(string path)
-        => Path.GetFileName(path).EndsWith(RejectionMapSuffix, StringComparison.OrdinalIgnoreCase);
+    {
+        var name = Path.GetFileName(path);
+        return name.EndsWith(RejectionMapSuffix, StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith(CoverageMapSuffix, StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>Computes the rejection-map sibling path for a given master path.</summary>
-    public static string RejectionPathFor(string masterPath)
+    public static string RejectionPathFor(string masterPath) => SiblingPath(masterPath, RejectionMapSuffix);
+
+    /// <summary>The coverage sibling of a master whose rejection sidecar is a fraction: the stem plus
+    /// <see cref="CoverageMapSuffix"/>. The drizzle strategies never write it; their coverage is the
+    /// rejection sidecar itself.</summary>
+    public static string CoveragePathFor(string masterPath) => SiblingPath(masterPath, CoverageMapSuffix);
+
+    private static string SiblingPath(string masterPath, string suffix)
     {
-        // strip trailing .fits / .fit (case-insensitive), then append .rejection.fits
+        // strip trailing .fits / .fit (case-insensitive), then append the suffix
         var dir = Path.GetDirectoryName(masterPath);
         var stem = Path.GetFileNameWithoutExtension(masterPath);
         var combined = string.IsNullOrEmpty(dir) ? stem : Path.Combine(dir, stem);
-        return combined + RejectionMapSuffix;
+        return combined + suffix;
     }
 }
 

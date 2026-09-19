@@ -125,6 +125,45 @@ namespace TianWen.Lib.Tests
             IntegrationFitsWriter.IsRejectionMapPath(IntegrationFitsWriter.RejectionPathFor(masters[0])).ShouldBeTrue();
         }
 
+        /// <summary>
+        /// A staged master's first sidecar is a rejection fraction, which the exact crop tier cannot use;
+        /// its coverage COUNT goes beside it under its own suffix, and the reader that wants coverage
+        /// takes whichever sidecar says so. Without this every staged master fell to the edge walk,
+        /// which declined V1045 Ori's 350 px dither strip and left it on the card.
+        /// </summary>
+        [Fact]
+        public void AStagedMasterRetainsItsCoverageCountBesideTheRejectionFraction()
+        {
+            RetainedMasterStore.Write(_root, SessionId, Frame(1000f), frameCount: 24,
+                strategy: IntegrationStrategyKind.Float16Staged,
+                rejectionMap: Frame(0.01f), rejectionMapIsCoverage: false, meanRejectionRate: 0.01,
+                coverage: Frame(24f))
+                .ShouldBeTrue();
+
+            var masterPath = RetainedMasterStore.PathFor(_root, SessionId);
+            var coveragePath = IntegrationFitsWriter.CoveragePathFor(masterPath);
+            File.Exists(IntegrationFitsWriter.RejectionPathFor(masterPath)).ShouldBeTrue("the fraction is still written");
+            File.Exists(coveragePath).ShouldBeTrue("and the count beside it");
+
+            IntegrationFitsWriter.TryReadCoverageMap(masterPath, out var coverage).ShouldBeTrue();
+            coverage.ShouldNotBeNull();
+            // The count, not the fraction: Frame(24f) puts 24 + channel + 0.01x in every pixel.
+            coverage[0, 0, 0].ShouldBe(24f, tolerance: 0.5f);
+
+            // Three .fits in the folder and one master: the second sidecar is excluded like the first.
+            Directory.GetFiles(Path.Combine(_root, RetainedMasterStore.DirectoryName), "*.fits").Length.ShouldBe(3);
+            RetainedMasterStore.EnumerateMasters(_root).ToArray().Length.ShouldBe(1);
+            IntegrationFitsWriter.IsRejectionMapPath(coveragePath).ShouldBeTrue();
+
+            // A drizzle master's rejection sidecar IS its coverage, so a count handed over is not written.
+            const string Drizzled = "TestCam/None/Other/2026-01-03|TestCam|Other|None";
+            RetainedMasterStore.Write(_root, Drizzled, Frame(900f), frameCount: 8,
+                strategy: IntegrationStrategyKind.BayerDrizzle,
+                rejectionMap: Frame(8f), rejectionMapIsCoverage: true, coverage: Frame(8f)).ShouldBeTrue();
+            File.Exists(IntegrationFitsWriter.CoveragePathFor(RetainedMasterStore.PathFor(_root, Drizzled)))
+                .ShouldBeFalse("drizzle's coverage is its rejection sidecar; a second file would say the same thing twice");
+        }
+
         [Fact]
         public void AMasterRetainedWithASolutionCarriesItAndOneWithoutIsStillWritten()
         {

@@ -144,6 +144,10 @@ public static class StreamingIntegrator
         ValidateSinkShape(rejectSink, 1, width, height, nameof(rejectSink));
         using IIntegrationSink masterSinkInUse = masterSink ?? new ArraySink(channelCount, width, height);
         using IIntegrationSink rejectSinkInUse = rejectSink ?? new ArraySink(1, width, height);
+        // Coverage: how many frames put a finite sample on each pixel. Counted here, in the one loop
+        // that already reads every sample, because the rejection fraction beside it is what every
+        // non-drizzle master carried as its only sidecar and the exact crop tier cannot use it.
+        using IIntegrationSink coverageSink = new ArraySink(1, width, height);
 
         long totalRejections = 0;
 
@@ -203,18 +207,25 @@ public static class StreamingIntegrator
                         var rowBase = stripeRow * width;
                         var masterRow = masterSinkInUse.GetRow(channelIdx, globalRow);
                         var rejectRow = rejectSinkInUse.GetRow(0, globalRow);
+                        var coverageRow = coverageSink.GetRow(0, globalRow);
 
                         for (var col = 0; col < width; col++)
                         {
+                            var finite = 0;
                             for (var f = 0; f < n; f++)
                             {
                                 var v = stripeBuffer[f * rowFloats + rowBase + col];
-                                if (!float.IsNaN(v) && minForCh is not null)
+                                if (!float.IsNaN(v))
                                 {
-                                    v = (v - minForCh[f]) * scaleForCh![f];
+                                    finite++;
+                                    if (minForCh is not null)
+                                    {
+                                        v = (v - minForCh[f]) * scaleForCh![f];
+                                    }
                                 }
                                 column[f] = v;
                             }
+                            coverageRow[col] += finite;
 
                             int kept;
                             if (rejector is not null)
@@ -246,15 +257,20 @@ public static class StreamingIntegrator
             }
         }
 
-        if (rejector is not null && channelCount > 1)
+        if (channelCount > 1)
         {
             var inv = 1f / channelCount;
             for (var y = 0; y < height; y++)
             {
                 var rejectRow = rejectSinkInUse.GetRow(0, y);
+                var coverageRow = coverageSink.GetRow(0, y);
                 for (var x = 0; x < width; x++)
                 {
-                    rejectRow[x] *= inv;
+                    if (rejector is not null)
+                    {
+                        rejectRow[x] *= inv;
+                    }
+                    coverageRow[x] *= inv;
                 }
             }
         }
@@ -276,8 +292,17 @@ public static class StreamingIntegrator
             minValue: 0f,
             pedestal: 0f,
             meta: firstFrame.Meta);
+        var coverageImage = coverageSink.FinaliseAsImage(
+            BitDepth.Float32,
+            maxValue: n,
+            minValue: 0f,
+            pedestal: 0f,
+            meta: firstFrame.Meta);
 
-        return new IntegrationResult(masterImage, rejectMapImage, n, totalRejections, meanRate);
+        return new IntegrationResult(masterImage, rejectMapImage, n, totalRejections, meanRate)
+        {
+            Coverage = coverageImage,
+        };
     }
 
     private struct RowState

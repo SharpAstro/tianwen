@@ -293,7 +293,9 @@ public sealed class StackingPipeline(
             // canonical IntegrationFitsWriter marker; check both bare and
             // .gz variants since FitsFolderFrameSource accepts both.
             if (frame.Path.EndsWith(IntegrationFitsWriter.RejectionMapSuffix, StringComparison.OrdinalIgnoreCase) ||
-                frame.Path.EndsWith(IntegrationFitsWriter.RejectionMapSuffix + ".gz", StringComparison.OrdinalIgnoreCase))
+                frame.Path.EndsWith(IntegrationFitsWriter.RejectionMapSuffix + ".gz", StringComparison.OrdinalIgnoreCase) ||
+                frame.Path.EndsWith(IntegrationFitsWriter.CoverageMapSuffix, StringComparison.OrdinalIgnoreCase) ||
+                frame.Path.EndsWith(IntegrationFitsWriter.CoverageMapSuffix + ".gz", StringComparison.OrdinalIgnoreCase))
             {
                 rejectionMapSkipped++;
                 continue;

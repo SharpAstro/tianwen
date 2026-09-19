@@ -496,7 +496,8 @@ public static class DatasetBuildRunner
                             frameCount: reg.Subs.Length, strategy: reg.MasterStrategy, logger: logger,
                             wcs: await SolveRetainedMasterAsync(plateSolver, reg, session.Id, logger, cancellationToken),
                             rejectionMap: reg.RejectionMap,
-                            rejectionMapIsCoverage: reg.RejectionMapIsCoverage))
+                            rejectionMapIsCoverage: reg.RejectionMapIsCoverage,
+                            coverage: reg.Coverage))
                         {
                             mastersRetained++;
                             timings.Record(RetainStage, retainStart, items: 1,
@@ -601,7 +602,8 @@ public static class DatasetBuildRunner
                             frameCount: side.Subs.Length, strategy: side.MasterStrategy, logger: logger,
                             wcs: await SolveRetainedMasterAsync(plateSolver, side, side.Session.Id, logger, cancellationToken),
                             rejectionMap: side.RejectionMap,
-                            rejectionMapIsCoverage: side.RejectionMapIsCoverage))
+                            rejectionMapIsCoverage: side.RejectionMapIsCoverage,
+                            coverage: side.Coverage))
                         {
                             mastersRetained++;
                         }

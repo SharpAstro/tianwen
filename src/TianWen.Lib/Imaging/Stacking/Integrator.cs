@@ -78,7 +78,25 @@ public sealed record IntegrationResult(
     int FrameCount,
     long TotalRejections,
     double MeanRejectionRate,
-    bool RejectionMapIsCoverage = false);
+    bool RejectionMapIsCoverage = false)
+{
+    /// <summary>
+    /// How many frames put a FINITE sample on each output pixel, averaged over the channels, for a
+    /// strategy whose <see cref="RejectionMap"/> is a rejection fraction. Null where the rejection map
+    /// already IS coverage (drizzle) and on a result built before this existed.
+    /// </summary>
+    /// <remarks>
+    /// <para>The exact crop tier (<see cref="Image.LargestCoveredRectangle(Image, double, int)"/>)
+    /// needs coverage, and for every strategy but drizzle it had none: the one sidecar carried the
+    /// rejection fraction, which nothing reads, and every consumer of a staged master fell to
+    /// <see cref="CoverageEdgeWalk"/>, which ESTIMATES the border and REFUSES an edge whose band never
+    /// settles. On the V1045 Ori master a dither strip 350 px wide and 2.7x the noise ran down the
+    /// left; the walk declined, the fallback trimmed 264 px, and the strip reached the gallery.</para>
+    /// <para>An init property, not a positional parameter: a defaulted positional parameter on this
+    /// record is a binary break for anything compiled against the old shape.</para>
+    /// </remarks>
+    public Image? Coverage { get; init; }
+}
 
 /// <summary>
 /// Stack integrator. Combines N pre-aligned light frames into a single master

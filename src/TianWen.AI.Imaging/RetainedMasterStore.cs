@@ -89,7 +89,8 @@ namespace TianWen.AI.Imaging
             WCS? wcs = null,
             Image? rejectionMap = null,
             bool rejectionMapIsCoverage = false,
-            double meanRejectionRate = 0.0)
+            double meanRejectionRate = 0.0,
+            Image? coverage = null)
         {
             var path = PathFor(outDir, sessionId);
             if (File.Exists(path))
@@ -153,8 +154,24 @@ namespace TianWen.AI.Imaging
                 }
             }
 
+            // A staged master's first sidecar is a rejection fraction, which the exact crop tier cannot
+            // use; its coverage COUNT goes beside it under its own suffix. Drizzle masters pass null
+            // here, since their rejection sidecar already is the coverage.
+            if (coverage is not null && !rejectionMapIsCoverage)
+            {
+                try
+                {
+                    IntegrationFitsWriter.WriteCoverageMap(path, coverage, frameCount, strategy);
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogWarning(ex, "  [{Session}] could not retain the coverage count; the master stands", sessionId);
+                }
+            }
+
             logger?.LogDebug("  [{Session}] session master retained{Wcs}{Map}", sessionId,
-                wcs is not null ? " with a WCS" : "", rejectionMap is not null ? " and its coverage map" : "");
+                wcs is not null ? " with a WCS" : "",
+                rejectionMapIsCoverage || coverage is not null ? " and its coverage map" : rejectionMap is not null ? " and its rejection map" : "");
             return true;
         }
 
