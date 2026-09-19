@@ -21,9 +21,17 @@ THE CHECKS, each with the incident behind it:
 * **cast**       One channel far from the other two. Two different causes, both real: no WCS means
                  no SPCC, so the render falls back to sky-background white balance and leaves the
                  signal on the raw OSC balance (Rho Ophiuchi came out uniformly green); and a
-                 dual-narrowband master renders teal by construction, because G and B both carry
-                 OIII and SPCC has no honest curve for it (#51). The check cannot tell these apart
-                 -- it says WHICH channel and by how much, and the row's own filter says which story.
+                 dual-narrowband master is rank-deficient, because G and B both carry OIII and SPCC
+                 has no honest curve for it (#51). The check cannot tell these apart on ONE view --
+                 it says WHICH channel and by how much. **The row's filter does NOT settle it**, and
+                 believing it did is the mistake documented under `crushed` below.
+* **crushed**    A channel black in the ENHANCED half that the RAW half still carries. The one check
+                 here that is a hard failure rather than a matter of degree, and the last one added,
+                 because for two passes a filter name talked this script out of looking: flagged
+                 cards were annotated "narrowband, #51, not a render fault" on the strength of the
+                 header alone while the raw half of every one of them was neutral. Rank-deficiency
+                 is a property of the DATA and appears in BOTH halves of a card. Five of 139 cards
+                 were losing red entirely to a Linked stretch over a narrowband SPCC triple.
 * **edge**      A border band darker or brighter than the interior. The partial-coverage ramp that
                  the crop is supposed to remove: the edge walk REFUSES an edge whose band never
                  settles, and a refusal keeps the ramp, which a background model then fits.
@@ -172,6 +180,33 @@ def channel_ratios(path):
     return hi[0] / g, hi[2] / g
 
 
+def crushed_channels(raw_path, enh_path):
+    """Channels the ENHANCE drove to black that the raw view still carries.
+
+    THE CHECK THAT SHOULD HAVE EXISTED FIRST, and the one a filter name talked this script out of
+    for two passes. A rank-deficient palette is a property of the DATA, so it is present in both
+    halves of a card; a channel that is fine in the raw view and gone in the enhanced one is a
+    RENDER fault whatever the filter says. That is exactly what the five teal cards were: the
+    headless renderer asserted a narrowband SPCC triple as colour through a Linked stretch, one
+    shared shadow point came off the mean of three unequal medians, and red clipped to zero.
+
+    Near-black rather than exactly zero because these views are JPEG by the time anyone looks.
+    Returns [(channel, raw%, enhanced%)] for each channel that crossed.
+    """
+    out = []
+    a = np.asarray(Image.open(raw_path).convert("RGB")).astype(np.float32).reshape(-1, 3)
+    b = np.asarray(Image.open(enh_path).convert("RGB")).astype(np.float32).reshape(-1, 3)
+    for c in range(3):
+        zr = float((a[:, c] <= 1).mean() * 100)
+        ze = float((b[:, c] <= 1).mean() * 100)
+        # Measured over the 139-card store: the five broken cards ran 15.1 to 76.5 percent black in
+        # red against 0.0 in their raw halves, and no healthy card came near. The bound is a
+        # multiple AND a floor so a card that is legitimately dark in one channel cannot trip it.
+        if ze > 5.0 and ze > zr * 3 + 2:
+            out.append(("RGB"[c], round(zr, 2), round(ze, 2)))
+    return out
+
+
 def pair_drift(img_dir, ids):
     """How far each card's enhanced view has drifted from its raw view in colour.
 
@@ -206,17 +241,28 @@ def main():
 
     bad = [r for r in rows if r["flags"]]
     for r in bad:
-        # A cast on a NARROWBAND card is the data, not the render (#51): under a dual-band filter
-        # OIII lands on both the green and the blue photosites, so G and B carry the same signal and
-        # the colour space is rank-deficient. Saying so beside the flag is the difference between a
-        # report that gets read and one that gets ignored.
+        # A NOTE, NEVER AN EXCUSE, and the difference is measured rather than read off the filter
+        # name. This used to annotate any flagged card whose filter looked narrowband with "#51, not
+        # a render fault" and that annotation is how five genuinely broken cards were waved through
+        # twice. Rank-deficiency is a property of the DATA and shows in BOTH halves of a card, so the
+        # note is only earned when the RAW half is cast the same way; when the raw half is neutral
+        # the enhance did it, whatever the filter says.
         rid = r["file"].split("_")[0]
         m = meta.get(int(rid)) if rid.isdigit() else None
         why = ""
         if m:
             filt = (m.get("filter") or "").lower()
-            if any(t in filt for t in ("ultimate", "quad", "enhance", "sii", "oiii", "ha")):
-                why = "   [narrowband %s: a cast here is #51, not a render fault]" % m["filter"]
+            raw_p = os.path.join(img_dir, "%s_raw.png" % rid)
+            raw_cast = None
+            if os.path.exists(raw_p):
+                rr, rb = channel_ratios(raw_p)
+                raw_cast = max(abs(rr - 1.0), abs(rb - 1.0)) > 0.25
+            if any(t in filt for t in ("ultimate", "extreme", "enhance", "nbz", "sii", "oiii", "ha")):
+                if raw_cast:
+                    why = "   [narrowband %s and the RAW half is cast the same way: #51]" % m["filter"]
+                elif raw_cast is False:
+                    why = ("   [narrowband %s BUT the raw half is neutral: the ENHANCE did this, "
+                           "not the filter]" % m["filter"])
             elif not m.get("solved"):
                 why = "   [unsolved: no SPCC, so the render is on sky-background balance, #55]"
         print("%-58s %s%s" % (r["file"][:58], "  ".join(r["flags"]), why))
@@ -227,6 +273,29 @@ def main():
             kinds[f.split("(")[0].split(":")[0]] = kinds.get(f.split("(")[0].split(":")[0], 0) + 1
     if kinds:
         print("by kind: " + ", ".join("%s %d" % kv for kv in sorted(kinds.items())))
+
+    # THE HARD FAILURE, reported before the distributions because it is not a matter of degree: a
+    # channel the enhance drove to black is a broken card, and no filter name excuses one.
+    crushed = []
+    if meta:
+        for i in sorted(meta):
+            raw = os.path.join(img_dir, "%d_raw.png" % i)
+            enh = os.path.join(img_dir, "%d_enhanced.png" % i)
+            if os.path.exists(raw) and os.path.exists(enh):
+                hit = crushed_channels(raw, enh)
+                if hit:
+                    crushed.append({"id": i, "channels": hit})
+    print("")
+    if crushed:
+        print("CRUSHED CHANNELS (black in the enhanced half, present in the raw half)")
+        for c in crushed:
+            m = meta.get(c["id"], {})
+            detail = ", ".join("%s raw %.1f%% -> enh %.1f%%" % t for t in c["channels"])
+            print("  id %-4d %-52s %s" % (c["id"], (m.get("filter") or "")[:52], detail))
+        print("  %d card(s). This is a RENDER fault, not the data: the raw half still has the"
+              " channel." % len(crushed))
+    else:
+        print("CRUSHED CHANNELS: none. No card lost a channel to the enhance.")
 
     drift = []
     if meta:
@@ -245,7 +314,8 @@ def main():
                      spread[int(len(spread) * 0.9)], spread[-1]))
 
     if out:
-        json.dump({"views": rows, "pairDrift": drift}, open(out, "w", encoding="utf-8"), indent=1)
+        json.dump({"views": rows, "pairDrift": drift, "crushed": crushed},
+                  open(out, "w", encoding="utf-8"), indent=1)
         print("wrote " + out)
 
 

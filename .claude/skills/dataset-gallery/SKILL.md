@@ -135,13 +135,22 @@ ones they have, so the gallery reads as mixed until the batch catches up.
   Lobster Nebula night is 100 subs combined, 32 on one side and 68 on the other. `build_rows` reports
   the side as `flip` (`a` / `b` / `both` / null) and groups the set with `flipGroup`; the page badges
   every such card and offers a "whole nights" filter that hides the two halves.
-- **A dual-narrowband master renders teal and that is the DATA, not the render (#51).** Under an
-  L-Ultimate or L-eNhance the OSC frame carries Ha in red and OIII in BOTH green and blue, so the
-  colour space is rank-deficient -- two real channels in three slots -- and SPCC, which is
-  broadband-only, has no honest curve to fit. The cast is easy to misread as a render bug because it
-  APPEARS at the enhance: unenhanced, the sky gradient and the noise floor cover the G-equals-B
-  degeneracy, and flattening plus denoise takes away exactly the things that were hiding it. Check the
-  row's `filter` before chasing it, and do not "fix" it in the renderer.
+- **A dual-narrowband master is rank-deficient, and that does NOT license an unbalanced enhance. This
+  entry used to say the teal was "the DATA, not the render" and it was wrong.** The physics half is
+  real: under an L-Ultimate or L-eNhance the OSC frame carries Ha in red and OIII in BOTH green and
+  blue, two real channels in three slots, and SPCC has no honest curve to fit. What did NOT follow is
+  that a red channel at ZERO is that physics showing through. It was a render bug, fixed 2026-09-19 in
+  `MasterPreviewRenderer`: it hardcoded `StretchMode.Linked` and never called `ResolveAuto`, so the
+  line-selective veto the viewer has had since 2026-09-06 never reached anything headless. Linked
+  takes one shared shadow point off the mean of three unequal medians; after a 3 nm master's SPCC
+  triple (`1.136, 1.000, 1.860`) red is the weakest channel, and the enhance's MAD shrink lifts that
+  shadow point over red's median. Five of 139 cards, sky `R 0.5 G 74.8 B 74.7` before and
+  `R 38.4 G 46.3 B 35.4` after.
+- **The lesson worth keeping: a filter NAME is not a diagnosis.** Twice in one session a real defect
+  was waved off by reading the row's `filter`, annotating "narrowband, #51, not a render fault", and
+  not looking further. The check that would have caught it both times costs nothing and is now in
+  `check_views.py`: **compare the card's two halves.** The RAW half of every one of those masters was
+  neutral. A degeneracy in the data is present in both halves or it is not the explanation.
 - **Measure, do not squint.** Background peak-to-peak per channel says whether the flatten worked;
   sigma-from-median at the frame edge says whether the crop did; channel means say whether the colour
   is calibrated. Every wrong conclusion in this pipeline's history came from judging a JPEG by eye.
