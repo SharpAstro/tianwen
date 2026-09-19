@@ -43,7 +43,6 @@ internal sealed class TuiPlannerTab(
     private ITerminalViewport? _canvasViewport;
     private Canvas? _canvas;
     private SixelRgbaImageRenderer? _canvasRenderer;
-    private int _lastEnsuredIndex = -1;
 
     // Rebuilt with the canvas renderer, which a resize replaces.
     private NightCalendarPopover<RgbaImage>? _calendar;
@@ -221,10 +220,15 @@ internal sealed class TuiPlannerTab(
             items[i] = new TargetListItem(targetRows[i]);
         }
         _targetList.Items(items).Header("Tonight's Best");
-        if (plannerState.SelectedTargetIndex != _lastEnsuredIndex)
+
+        // The list's cursor IS the planner's selection. The rows colour themselves from PlannerState, so with
+        // colour the cursor was never looked at; without it, the list marks its cursor row in reverse video
+        // (Console.Lib 5.2), and a cursor left behind would mark a row nobody selected. Moving it only on a
+        // CHANGE is also what brings a new selection into view (MoveTo raises the scroll) while leaving a
+        // wheel-scrolled list where the wheel put it.
+        if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < items.Length)
         {
-            _targetList.EnsureVisible(plannerState.SelectedTargetIndex);
-            _lastEnsuredIndex = plannerState.SelectedTargetIndex;
+            _targetList.MoveTo(plannerState.SelectedTargetIndex);
         }
 
         // Detail panel
