@@ -134,7 +134,10 @@ so the sky LEVEL is preserved and only the gradient's SHAPE is removed.** This s
 Pro; it is wrong on both counts. All four references read on 2026-09-02 restore the level
 (SAS Pro and AutoBGE re-add the original median, AutoGradientRemoval the background median,
 GraXpert the background mean), and so does our `OnnxBackgroundExtractor`, which is what keeps the
-classical and the AI gradient paths interchangeable. The one wrinkle is SAS Pro's clip-free
+classical and the AI gradient paths interchangeable. Ours restores the background MEDIAN per plane
+on both paths (the statistic `ClassicalBackgroundExtractor` has always used), not GraXpert's mean:
+the two correctors implement one role and are chosen by which weights a machine has, so they must
+agree on what "the level" is, and on a skewed model mean and median do not. The one wrinkle is SAS Pro's clip-free
 finisher: after restoring the median it lifts the whole frame so the minimum is zero if anything
 went negative, and compresses the ceiling about the median if anything exceeds 1.0, so its level is
 "the original median unless negatives forced a lift". Never re-baseline to the fit minimum. The
@@ -501,6 +504,13 @@ polygons, determinism, DI) and by the fallback tests in `OnnxBackgroundExtractor
    directions, which is why neither read as a single bug. Pinned by `GradientCorrectorLevelTests`
    for BOTH implementations, against a deliberately coloured plate -- a grey test frame cannot fail
    it, which is why the existing smoke tests never did.
+
+   **And the statistic followed the same day.** The per-plane fix restored each channel's MEAN of
+   the model where the classical corrector restores its MEDIAN: per plane, so the colour survived,
+   but two statistics of one surface, close on a smooth model and apart on a skewed one (a bright
+   nebula the model partly absorbed), and the level test's tolerance could not see it. Both restore
+   the median now; `TheOnnxAddBackIsTheModelsMedianPerPlane` pins the helper on a plane where the
+   two differ tenfold.
 6. **Diagnostics per plane** (`ChannelFitDiagnostics`): iterations, converged, kept fraction (of the
    valid pixels), excluded fraction (polygons plus no-data blocks, of all pixels), residual sigma and
    RMS in image units, the level. Nothing in the fit is random, so a run is deterministic by
