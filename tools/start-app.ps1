@@ -136,6 +136,12 @@ $quotedArgs = ($AppArgs | ForEach-Object { Format-Argument $_ }) -join ' '
 # Set for the app to inherit, and put back afterwards in case this script was run inside a session.
 $savedValidation = $env:SDLVK_VALIDATION
 $savedSyncValidation = $env:SDLVK_SYNC_VALIDATION
+
+# The app is for a person at a real terminal, not for the tool that launched it: an agent's shell sets NO_COLOR
+# to keep its own output plain, and the TUI inherited it and drew with no colour at all -- no selection bar, no
+# pinned tint, no tab highlight, so a click looked as if it selected nothing (2026-09-19).
+$savedNoColor = $env:NO_COLOR
+$env:NO_COLOR = $null
 if ($SyncValidation) { $Validation = [switch]$true; $env:SDLVK_SYNC_VALIDATION = '1' }
 if ($Validation) {
     $env:SDLVK_VALIDATION = '1'
@@ -180,6 +186,7 @@ try {
 finally {
     $env:SDLVK_VALIDATION = $savedValidation
     $env:SDLVK_SYNC_VALIDATION = $savedSyncValidation
+    $env:NO_COLOR = $savedNoColor
 }
 
 # Catch a launch that cannot even start (a missing native library, a bad argument): it is the one crash a caller

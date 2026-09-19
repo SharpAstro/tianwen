@@ -370,9 +370,32 @@ internal sealed class TuiPlannerTab(
             cell.Width);
     }
 
+    /// <summary>SGR mouse buttons for a wheel notch; a touchpad's two-finger scroll arrives as the same two.</summary>
+    private const int WheelUp = 64;
+    private const int WheelDown = 65;
+
     public override bool HandleRawMouse(MouseEvent mouse)
     {
-        if (_targetList is { } list && list.HandleMouse(mouse))
+        if (_targetList is not { } list)
+        {
+            return false;
+        }
+
+        // The wheel (and a touchpad, which a terminal reports as the same buttons) SCROLLS the list under the
+        // pointer and moves nothing else. It used to fall through to HandleTabInput, which stepped the SELECTION
+        // three rows per notch, so scrolling to look further down the list also changed the chart, the details
+        // and what Enter would pin. Anywhere else the wheel means nothing on this tab, and is consumed as such.
+        if (mouse.Button is WheelUp or WheelDown)
+        {
+            if (list.HitTest(mouse.X, mouse.Y) is not null
+                && list.HandleWheel(mouse.Button == WheelUp ? list.WheelStep : -list.WheelStep))
+            {
+                NeedsRedraw = true;
+            }
+            return true;
+        }
+
+        if (list.HandleMouse(mouse))
         {
             NeedsRedraw = true;
             return true;
@@ -463,14 +486,6 @@ internal sealed class TuiPlannerTab(
                 }
                 return;
             }
-
-            case InputEvent.Scroll(var delta, _, _, _):
-                var scrollTargets = PlannerActions.GetFilteredTargets(plannerState);
-                var scrollStep = delta > 0 ? -3 : 3;
-                plannerState.SelectedTargetIndex = Math.Clamp(
-                    plannerState.SelectedTargetIndex + scrollStep, 0, scrollTargets.Count - 1);
-                NeedsRedraw = true;
-                return;
 
             case InputEvent.KeyDown(var key, var modifiers):
                 if (plannerState.StatusMessage is not null)
