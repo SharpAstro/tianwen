@@ -1,6 +1,7 @@
 # Night calendar and a verdict per night (plan)
 
-**Status: PARTIAL. P0 to P3 DONE 2026-09-19 (#311, then P3 on its own branch); P4 open. Written 2026-09-19**, raised by the user while looking at the planner under a
+**Status: DONE 2026-09-19. P0 to P2 in #311, P3 and P4 on their own branches; what stays open is calibrating the
+verdict's thresholds. Written 2026-09-19**, raised by the user while looking at the planner under a
 Melbourne sky ("a calendar view would be great too, for places like this that see a clear sky once a full
 moon"; "making the date in the top clickable, and showing a calendar which shows score/weather etc/moon and
 can be clicked (and set the date)"; "maybe we also show a verdict of the day somewhere").
@@ -128,7 +129,7 @@ NaN.
 | P1 | `NightSummary` + `NightVerdict` (pure, tested), the verdict beside the status-bar date. DONE 2026-09-19 | GUI |
 | P2 | The calendar popover off the date label, click to plan a night. DONE 2026-09-19 | GUI |
 | P3 | Per-night score for the PINNED targets (their usable hours that night), shown in the cell. DONE 2026-09-19: `NightPins`, the cell strip, a detail line per pointing | GUI |
-| P4 | The web planner and the TUI | web, TUI |
+| P4 | The web planner and the TUI. DONE 2026-09-19 | web, TUI |
 
 ## What shipped (2026-09-19, #311)
 
@@ -179,6 +180,49 @@ P0 to P2 as designed above, with these decisions and departures:
   is now nullable per element, and the band no longer draws a no-cloud-value hour as clear.
 - **Cost:** about 20 ms a night in a Debug test run, so a month is under a second, off the render thread, and
   only nights not already summarised are computed.
+
+## P4 as shipped: the TUI and the web
+
+**One widget on three hosts.** Neither host got a copy of the calendar:
+- the TUI paints `NightCalendarPopover` over its planner chart on the same Sixel canvas;
+- the web paints it over whichever view is on the WebGL canvas.
+
+A text-cell calendar in the terminal would have been a second answer to what a night looks like, and it could not
+draw the Moon, the tints or the pins strip.
+
+**Keys, because a terminal has no hover.** The popover's content-key hook (`PopoverState.ContentKeys`) gives the
+calendar its own keys, and the GUI got them too:
+- the arrows move a cursor a night or a week, taking the month along when it leaves the grid;
+- PageUp and PageDown move it a month;
+- Enter or Space plans the night under it, T plans tonight;
+- Escape stays the popover's.
+
+The cursor is ringed in the body text (the planned night keeps the accent ring). The detail strip follows the
+pointer, else the cursor, else the planned night. Every trigger opens through `PrepareToOpen`, so a reopened
+calendar starts on the planned night.
+
+**The TUI:**
+- the top bar carries the planned night and its verdict;
+- PageUp and PageDown step the night as the GUI planner's keys do, T returns to tonight, and C opens the calendar;
+- a click reaches the widget through a router over it, in canvas pixels.
+
+The TUI already ran the shared `AppSignalHandler`, so its calendar data was being filled all along and simply never
+shown.
+
+**The web:**
+- **No profile:** `RefreshAsync` and `EnsureMonth` gained overloads taking the site as a `Transform` and a weather
+  URI, and the page hands them keyless Open-Meteo. It answers a browser origin with
+  `access-control-allow-origin: *` (checked 2026-09-19), so there is no bake and no proxy, unlike JPL.
+- **The weather band arrives too:** the planner chart on the web gains the band it never had.
+- **Refresh off the critical path:** it runs after every compute, in the background, so the plan paints before the
+  forecast lands.
+- **The date control is DOM:** the toolbar has [<] date [>] and the verdict, coloured by the shared
+  `NightCalendarActions.VerdictColour`. The label toggles the canvas calendar, and the calendar joins the router's
+  widgets while open.
+- **The bus is pumped again after the calendar paints:** it asks for its pins as it paints, and this host has no
+  next frame coming to deliver the request.
+- **Pinned by** `TianWen.UI.Web.E2E/NightCalendarTests` (label, verdict, keys, and a capture for a person to look
+  at).
 
 ## What bites
 

@@ -13,6 +13,8 @@
 @using TianWen.Lib.Astrometry.Comets
 @using TianWen.Lib.Astrometry.SOFA
 @using TianWen.Lib.Devices
+@using TianWen.Lib.Devices.Weather
+@using TianWen.Lib.Sequencing
 @using TianWen.UI.Abstractions
 @using TianWen.UI.Web.SkyMap
 @using WebGl.Renderer
@@ -23,6 +25,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 @inject ILogger<Planner> Logger
+@inject IServiceProvider Services
 
 @* The favicon is already the 🔭 emoji (inline SVG data URI in index.html) - keep the tab
    title text-only or the emoji shows twice next to the tab label. Web titles follow
@@ -83,6 +86,18 @@
         <button @onclick="() => RecomputeAsync()" disabled="@_busy">Recompute</button>
         <button @onclick="RelocateAsync" disabled="@_busy" title="Plan for my current location">📍 Locate</button>
         <button @onclick="ToggleFullscreenAsync" title="Fullscreen (Esc to exit)">⛶</button>
+        @* The night being planned, and its verdict: the desktop status bar's date control. The label opens the
+           night calendar, which is drawn on the canvas under it (docs/plans/night-calendar.md, P4). *@
+        <span class="night">
+            <button class="night-step" @onclick="() => ShiftNight(-1)" title="The night before (PageDown)">◀</button>
+            <button class="night-label" data-night @onclick="ToggleCalendar"
+                    title="Choose a night: a month of nights, each with its Moon and its forecast">@NightLabel</button>
+            <button class="night-step" @onclick="() => ShiftNight(1)" title="The night after (PageUp)">▶</button>
+            @if (PlannedVerdict is { } verdict)
+            {
+                <span class="night-verdict" data-verdict="@verdict.Outlook" style="color: @Css(NightCalendarActions.VerdictColour(verdict.Outlook))">@verdict.Label</span>
+            }
+        </span>
     </div>
 
     <div class="canvas-host">
@@ -128,6 +143,13 @@
     WebGlCanvas? _canvas;
     PlannerTab<WebGlContext>? _tab;
     WebSkyMapTab? _skyTab;
+    // The night calendar, painted over whichever view is on screen while it is open.
+    NightCalendarPopover<WebGlContext>? _calendar;
+    // The calendar's design width in design units, to centre it under the toolbar's date control.
+    const float CalendarDesignWidth = 480f;
+    // Keyless, and it answers a browser origin (access-control-allow-origin: *, checked 2026-09-19), so the web
+    // build has the calendar's forecast and the planner's weather band with no profile and no proxy.
+    static readonly Uri OpenMeteoUri = new OpenMeteoDevice().DeviceUri;
     View _view = View.Planner;
     // The state's IsDirty setter auto-posts SavePlannerSessionSignal on this bus (same wiring as
     // the desktop host); the subscriber below persists to localStorage. Pumped in RenderFrame.
@@ -286,6 +308,14 @@
             await SavePlannerSessionAsync();
         });
 
+        // The calendar paged (or asked for its pins): summarise that month, as the desktop handler does.
+        _bus.Subscribe<NightCalendarMonthSignal>(sig => _tracker.Run(() =>
+        {
+            NightCalendarActions.EnsureMonth(_state, CreateSiteTransform(), sig.Month);
+            RequestRenderCoalesced();
+            return Task.CompletedTask;
+        }, "Summarise a calendar month"));
+
         // The canvas is laid out + measured once WebGlCanvas reports (canvas-in-DOM gate).
         _metrics = await _firstMetrics.Task;
 
@@ -303,6 +333,8 @@
             // the router resolves focus against. The platform binding goes on afterwards, so it is bound
             // to the owner that will actually be used.
             _skyTab.ShareWindowWith(_tab);
+            _calendar = new NightCalendarPopover<WebGlContext>(_webGl) { Bus = _bus };
+            _skyTab.ShareWindowWith(_calendar);
             _focus = _skyTab.Ui.Focus;
             BindTextInputFocus();
             _router = BuildRouter();
@@ -577,8 +609,64 @@
         // (saved pins get site-invalidated), and the geolocation recompute then restores them.
         await TryRestorePlannerSessionAsync();
 
+        // The night calendar and the chart's weather band, from one keyless Open-Meteo forecast. Off the compute's
+        // critical path: the plan paints now, and the band and the verdicts land when the forecast does.
+        _tracker.Run(RefreshNightCalendarAsync, "Refresh the night calendar");
+
         // Remember the site this plan was computed for, so the next reload starts from it.
         await SaveSiteAsync();
+    }
+
+    // --- The night calendar (docs/plans/night-calendar.md, P4) ---------------------------------------
+
+    async Task RefreshNightCalendarAsync()
+    {
+        await NightCalendarActions.RefreshAsync(_state, CreateSiteTransform(), OpenMeteoUri, Services, Time, Logger,
+            CancellationToken.None);
+        RequestRenderCoalesced();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // The toolbar's date label, as the desktop status bar writes it.
+    string NightLabel
+    {
+        get
+        {
+            var tz = _state.SiteTimeZone;
+            var night = _state.PlanningDate is null
+                ? "Tonight"
+                : NightCalendarActions.PlanningEveningDate(_state, Time).ToString("ddd d MMM", CultureInfo.CurrentCulture);
+            return _state.AstroDark == default
+                ? night
+                : $"{night} {_state.AstroDark.ToOffset(tz):HH:mm}-{_state.AstroTwilight.ToOffset(tz):HH:mm}";
+        }
+    }
+
+    // The planned night's verdict, from the summary the calendar cell reads, or null until it is summarised.
+    NightVerdict? PlannedVerdict
+        => _state.Calendar.Data.Nights.TryGetValue(NightCalendarActions.PlanningEveningDate(_state, Time), out var night)
+            ? NightVerdict.For(night)
+            : null;
+
+    static string Css(RGBAColor32 colour) => $"#{colour.Red:x2}{colour.Green:x2}{colour.Blue:x2}";
+
+    void ToggleCalendar()
+    {
+        var calendar = _state.Calendar;
+        if (!calendar.Popover.IsOpen)
+        {
+            NightCalendarActions.PrepareToOpen(calendar);
+        }
+        calendar.Popover.Toggle();
+        // The calendar's keys ride the canvas's focus, which the toolbar button just took.
+        RestoreCanvasFocus();
+        RenderFrame();
+    }
+
+    void ShiftNight(int days)
+    {
+        PlannerActions.ShiftPlanningDate(_state, Time, days, _skyTab?.State);
+        RenderFrame();
     }
 
     // --- Planner session persistence: pins + sliders survive F5 via localStorage --------------
@@ -838,7 +926,10 @@
         var router = new InputRouter(_skyTab!.Ui, _tracker, RequestRenderCoalesced)
         {
             // One widget: the page paints the active view alone, and the other has nothing on screen.
-            Widgets = () => ActiveTab is { } tab ? [tab] : [],
+            // The calendar joins while it is open, over the view: the router asks the last widget first.
+            Widgets = () => ActiveTab is { } tab
+                ? (_calendar is { } calendar && _state.Calendar.Popover.IsOpen ? [tab, calendar] : [tab])
+                : [],
             Unhandled = evt =>
             {
                 // A press that reached no region at all deselects the divider, the one case of the three
@@ -1944,6 +2035,19 @@
                 _tab.FontPath = _fontPath;
                 _tab.Render(_state, content, Time, _mouse);
                 skyMs = Since(ref phase);
+            }
+
+            // The night calendar over whichever view is on screen, centred under the toolbar's date control.
+            // Painted every frame, open or not: closed, it only begins its frame, which retires its regions.
+            // The bus is pumped again after it, since an open calendar asks for its pins AS it paints and this
+            // host has no next frame coming to deliver that.
+            if (_calendar is { } calendar)
+            {
+                calendar.Pointer = _mouse;
+                var calendarWidth = CalendarDesignWidth * (float)_metrics.DevicePixelRatio;
+                calendar.Render(_state, new RectF32((content.Width - calendarWidth) / 2f, 0f, calendarWidth, 0f),
+                    content, Time, _bus, _skyTab?.State);
+                _bus.ProcessPending(_tracker);
             }
             _webGl.Present();
             presentMs = Since(ref phase);
