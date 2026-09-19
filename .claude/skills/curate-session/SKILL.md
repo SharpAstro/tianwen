@@ -284,6 +284,15 @@ too many; the fix is in `organizeN.py`'s `set_temp`.
 
 **One night can hold several targets.** Split the lights on `OBJECT`, not on the folder. Normalise a
 truncated card (`ome Cen Cluster`) in the path and keep the original in the manifest.
+**And check the tree, not only new sessions: ten night folders filed before this rule held 1,211 frames
+of a second or third target** (a N.I.N.A. sequence that moved on mid-night: `Pleiades` then `Triangulum
+Galaxy`; the Vela mosaic panels `HD 71272` / `Vela SNR` / `RCW 27` in one night), found 2026-09-20 by
+comparing every frame's `OBJECT` with its folder and moved by `_provenance/refile-by-object.py`. The
+bake was never confused (it partitions on `OBJECT`); the `targets/` view and the calibration map's
+light counts were. Verify a split by POINTING before moving it (`OBJCTRA`/`OBJCTDEC` per group: each
+was a distinct field, 1.2 to 57 degrees apart), and file a same-pointing pair under two names
+(`HD 77566` / `HD 77850`) as two folders, since the card is what the bake groups on; unifying them is
+`tag-object`'s job, recorded like any correction.
 
 ## Step 4b: what may be BORROWED from another session, and what may not
 
