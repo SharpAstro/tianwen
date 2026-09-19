@@ -51,6 +51,13 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
     private bool _pinsCurrent;
     private (NightPinsKey Key, long Generation, DateOnly Month)? _pinsRequested;
 
+    // What the calendar's keys act on, refreshed every paint: the popover asks its content for a key through one
+    // delegate bound once (ContentKeys), so it reads these rather than capturing a frame's arguments.
+    private PlannerState? _keyState;
+    private ITimeProvider? _keyTimeProvider;
+    private SignalBus? _keyBus;
+    private SkyMapState? _keySkyMap;
+
     /// <summary>
     /// Paints the calendar under <paramref name="anchor"/> (the date label's painted rect) when it is open, over
     /// <paramref name="window"/>. Closed, it only begins the frame.
@@ -73,6 +80,12 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
             calendar.Month = NightCalendarActions.FirstOfMonth(NightCalendarActions.PlanningEveningDate(state, timeProvider));
         }
 
+        _keyState = state;
+        _keyTimeProvider = timeProvider;
+        _keyBus = bus;
+        _keySkyMap = skyMap;
+        calendar.Popover.ContentKeys ??= HandleContentKey;
+
         _painted = calendar.Data;
         _southern = state.SiteLatitude < 0;
 
@@ -89,12 +102,18 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
         var planned = NightCalendarActions.PlanningEveningDate(state, timeProvider);
         var tonight = NightCalendarActions.TonightEveningDate(state, timeProvider);
 
-        var content = BuildContent(state, calendar.Month, planned, tonight, hovered ?? planned, timeProvider, bus, skyMap);
+        var content = BuildContent(state, calendar.Month, planned, tonight, hovered ?? calendar.Cursor ?? planned,
+            timeProvider, bus, skyMap);
         var tree = Layout.Builder.Popover(anchor, content, calendar.Popover);
         var arranged = ArrangeLayout(tree, window);
         CollectCells(arranged);
         PaintLayout(arranged, drawFill: DrawFill);
     }
+
+    /// <summary>The calendar's keys, through the popover (<see cref="NightCalendarActions.HandleKey"/>).</summary>
+    private bool HandleContentKey(InputKey key)
+        => _keyState is { } state && _keyTimeProvider is { } timeProvider
+            && NightCalendarActions.HandleKey(state, key, timeProvider, _keyBus, _keySkyMap);
 
     /// <summary>The night whose cell the pointer is over, from the cells the previous frame arranged.</summary>
     private DateOnly? HoveredNight()
@@ -239,10 +258,14 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
             .BgHover(GuiTheme.Hover(fill));
 
         // The planned night is ringed in the accent: a two-unit frame of it around the cell, so the tint inside
-        // still says the verdict.
+        // still says the verdict. The keyboard cursor, once an arrow has moved it, is ringed in the body text and
+        // wins where the two meet, since it is the one being moved.
+        var ring = night == state.Calendar.Cursor ? palette.BodyText
+            : night == planned ? palette.Accent
+            : (RGBAColor32?)null;
         return Layout.Builder.VStack(inner)
-            .Pad(night == planned ? 2f : 0f)
-            .Bg(night == planned ? palette.Accent : fill)
+            .Pad(ring is null ? 0f : 2f)
+            .Bg(ring ?? fill)
             .WFixed(CellW).HStar()
             .Clickable(new HitResult.ButtonHit(NightActionPrefix + night.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
                 _ => NightCalendarActions.PickNight(state, night, timeProvider, skyMap));

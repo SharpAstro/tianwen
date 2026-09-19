@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using DIR.Lib;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.SOFA;
@@ -100,6 +101,72 @@ public static class NightCalendarActions
     /// <summary>Moves the calendar by <paramref name="months"/>.</summary>
     public static void ShiftMonth(NightCalendarState calendar, int months)
         => calendar.Month = FirstOfMonth(calendar.Month).AddMonths(months);
+
+    /// <summary>
+    /// Readies the calendar to open on the planned night: its month is chosen at the first paint and the keyboard
+    /// cursor starts there. Every trigger calls this before opening it, so a reopened calendar never shows where
+    /// the last one was left.
+    /// </summary>
+    public static void PrepareToOpen(NightCalendarState calendar)
+    {
+        calendar.Month = default;
+        calendar.Cursor = null;
+    }
+
+    /// <summary>
+    /// The calendar's keys while it is open (<c>PopoverState.ContentKeys</c>; Escape stays the popover's):
+    /// <list type="bullet">
+    /// <item><description>Left and Right move the cursor a night, Up and Down a week.</description></item>
+    /// <item><description>PageUp and PageDown move it a month.</description></item>
+    /// <item><description>Enter or Space plans the night under it.</description></item>
+    /// <item><description>T plans tonight.</description></item>
+    /// </list>
+    /// A cursor that leaves the month on screen takes the month with it and asks for that month's nights.
+    /// </summary>
+    /// <returns>Whether the key was the calendar's.</returns>
+    public static bool HandleKey(PlannerState state, InputKey key, ITimeProvider timeProvider, SignalBus? bus = null,
+        SkyMapState? skyMap = null)
+    {
+        var calendar = state.Calendar;
+        var cursor = calendar.Cursor ?? PlanningEveningDate(state, timeProvider);
+        DateOnly? moved = key switch
+        {
+            InputKey.Left => cursor.AddDays(-1),
+            InputKey.Right => cursor.AddDays(1),
+            InputKey.Up => cursor.AddDays(-7),
+            InputKey.Down => cursor.AddDays(7),
+            InputKey.PageUp => cursor.AddMonths(-1),
+            InputKey.PageDown => cursor.AddMonths(1),
+            _ => null,
+        };
+
+        if (moved is { } night)
+        {
+            calendar.Cursor = night;
+            var shown = FirstOfMonth(calendar.Month == default ? cursor : calendar.Month);
+            if (!MonthGrid(shown, FirstDayOfWeek).Contains(night) || key is InputKey.PageUp or InputKey.PageDown)
+            {
+                calendar.Month = FirstOfMonth(night);
+                bus?.Post(new NightCalendarMonthSignal(calendar.Month));
+            }
+            state.NeedsRedraw = true;
+            return true;
+        }
+
+        switch (key)
+        {
+            case InputKey.Enter or InputKey.Space:
+                PickNight(state, cursor, timeProvider, skyMap);
+                return true;
+
+            case InputKey.T:
+                PickNight(state, TonightEveningDate(state, timeProvider), timeProvider, skyMap);
+                return true;
+
+            default:
+                return false;
+        }
+    }
 
     /// <summary>
     /// Refreshes the forecast behind the planner and the calendar, sets the planned night's weather band from it,
