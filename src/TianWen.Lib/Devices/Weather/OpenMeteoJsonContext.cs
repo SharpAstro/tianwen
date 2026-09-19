@@ -50,26 +50,29 @@ internal sealed class OpenMeteoCurrentData
 /// </summary>
 internal sealed class OpenMeteoHourlyData
 {
+    // EVERY array's elements are nullable, not only the upper-air ones: a null in a List<double> fails the WHOLE
+    // response, not that one value. The pressure levels showed it first; the surface fields show it at the far
+    // end of the 16-day range, where the last few hours come back null (cloud_cover[403] on 2026-09-19), which
+    // turned the night calendar's one request into no forecast at all. A null reads back as NaN, "not known".
     public List<string>? Time { get; set; }
-    public List<double>? CloudCover { get; set; }
-    public List<double>? Precipitation { get; set; }
-    public List<double>? PrecipitationProbability { get; set; }
+    public List<double?>? CloudCover { get; set; }
+    public List<double?>? Precipitation { get; set; }
+    public List<double?>? PrecipitationProbability { get; set; }
     // "_2m"/"_10m" fields need explicit names -- SnakeCaseLower yields "temperature2m" (no
     // underscore before the digit), which doesn't match Open-Meteo's "temperature_2m", so the
     // arrays bound to nothing and every value read back NaN. (See OpenMeteoCurrentData.)
-    [JsonPropertyName("temperature_2m")] public List<double>? Temperature2m { get; set; }
-    [JsonPropertyName("relative_humidity_2m")] public List<double>? RelativeHumidity2m { get; set; }
-    [JsonPropertyName("dew_point_2m")] public List<double>? DewPoint2m { get; set; }
-    [JsonPropertyName("wind_speed_10m")] public List<double>? WindSpeed10m { get; set; }
-    [JsonPropertyName("wind_gusts_10m")] public List<double>? WindGusts10m { get; set; }
-    [JsonPropertyName("wind_direction_10m")] public List<double>? WindDirection10m { get; set; }
-    public List<double>? Visibility { get; set; }
-    public List<int>? WeatherCode { get; set; }
-    // Pressure-level winds, km/h. Nullable elements, because an hour past a level's forecast horizon comes
-    // back null, and a null in a List<double> fails the WHOLE response rather than that one value.
+    [JsonPropertyName("temperature_2m")] public List<double?>? Temperature2m { get; set; }
+    [JsonPropertyName("relative_humidity_2m")] public List<double?>? RelativeHumidity2m { get; set; }
+    [JsonPropertyName("dew_point_2m")] public List<double?>? DewPoint2m { get; set; }
+    [JsonPropertyName("wind_speed_10m")] public List<double?>? WindSpeed10m { get; set; }
+    [JsonPropertyName("wind_gusts_10m")] public List<double?>? WindGusts10m { get; set; }
+    [JsonPropertyName("wind_direction_10m")] public List<double?>? WindDirection10m { get; set; }
+    public List<double?>? Visibility { get; set; }
+    public List<int?>? WeatherCode { get; set; }
+    // Pressure-level winds, km/h. An hour past a level's forecast horizon comes back null.
     [JsonPropertyName("wind_speed_250hPa")] public List<double?>? WindSpeed250hPa { get; set; }
     [JsonPropertyName("wind_speed_500hPa")] public List<double?>? WindSpeed500hPa { get; set; }
     [JsonPropertyName("wind_speed_850hPa")] public List<double?>? WindSpeed850hPa { get; set; }
-    // Metres above ground (BOM's "mixing height"); nullable for the same reason, since not every model has it.
+    // Metres above ground (BOM's "mixing height"); not every model has it.
     public List<double?>? BoundaryLayerHeight { get; set; }
 }

@@ -64,6 +64,30 @@ public class OpenMeteoPressureLevelWindTests
         => double.IsNaN(Parse()[2].WindSpeed500hPa).ShouldBeTrue();
 
     /// <summary>
+    /// The far end of a 16-day request comes back null in the SURFACE arrays too: the night calendar's first
+    /// live request failed on <c>cloud_cover[403]</c> (2026-09-19) and lost all 408 hours to one null. Each
+    /// null is that hour's value unknown, and the rest of the response stands.
+    /// </summary>
+    [Fact]
+    public void ANullAtTheEndOfTheRangeInASurfaceArrayIsNoValueNotAFailedResponse()
+    {
+        var tail = Response
+            .Replace("\"cloud_cover\": [10, 20, 30]", "\"cloud_cover\": [10, 20, null]")
+            .Replace("\"temperature_2m\": [15.0, 14.0, 13.0]", "\"temperature_2m\": [15.0, 14.0, null]")
+            .Replace("\"weather_code\": [0, 1, 2]", "\"weather_code\": [0, 1, null]");
+        var response = JsonSerializer.Deserialize(tail, OpenMeteoJsonContext.Default.OpenMeteoResponse).ShouldNotBeNull();
+
+        var hours = OpenMeteoDriver.ParseHourlyData(response.Hourly,
+            new DateTimeOffset(2026, 9, 17, 0, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 9, 18, 0, 0, 0, TimeSpan.Zero));
+
+        hours.Count.ShouldBe(3);
+        hours[1].CloudCover.ShouldBe(20);
+        double.IsNaN(hours[2].CloudCover).ShouldBeTrue();
+        double.IsNaN(hours[2].Temperature).ShouldBeTrue();
+        hours[2].WindSpeed250hPa.ShouldBe(156.0 / 3.6, 1e-9, "a field the hour does have is kept");
+    }
+
+    /// <summary>
     /// The boundary-layer height, BOM's "mixing height", rides the same request: metres as sent, a null as
     /// no value (not every model carries it). The two values are the site's 16:00 and 18:00 on 2026-09-19.
     /// </summary>
