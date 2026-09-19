@@ -910,29 +910,49 @@ internal sealed class ImageSubCommand(
                 : deblurLive || dualStretch ? ScnrMode.Average
                 : ScnrMode.None;
 
-            // Build the SharpenStep list in canonical order. CLI flags toggle
-            // step presence; the pipeline interprets the array in declared
-            // order so this is also the execution order.
-            // THE HEAD OF THE CANONICAL PROGRAM, which this verb used to omit. SharpenRequest.
-            // Canonical / DeblurFirst are the single source of truth for the step order, and the
-            // viewer's Enhance button and MasterPostProcessor both take their program from there;
-            // this list was assembled by hand and started at RemoveStarsStep, so `tianwen image
-            // sharpen` ran neither the whole-frame deblur nor the gradient correction that the two
-            // other callers have always run. The same master enhanced in the viewer and on the
-            // command line came out visibly different -- an uncorrected background with its colour
-            // cast intact -- and nothing said so.
-            var steps = new List<SharpenStep>();
-            // Blend left at the step default, as SharpenRequest.DeblurFirst has it; --deblur-sharpen
-            // tunes RC-Astro's own sharpening through EnhanceOptions and is a different dial.
-            if (deblurLive) steps.Add(new DeblurStep());
-            if (!noGradient) steps.Add(new GradientCorrectionStep());
-            steps.Add(new RemoveStarsStep(SplitMode: mode));
-            if (doStellar) steps.Add(new SharpenStarsStep(Blend: stellarBlend));
-            // With BlurX live the whole frame has already been deconvolved, so the starless
-            // deconvolution is a second pass over the same detail: DeblurFirst omits it for that
-            // reason and so does this, unless the caller asks for it outright.
-            if (!noDeconv && (!deblurLive || deconvExplicit)) steps.Add(new DeconvolveStarlessStep(Blend: deconvBlend));
-            if (!noDenoise) steps.Add(new DenoiseStarlessStep(Blend: denoiseBlend, Variant: denoiseVariant));
+            // THE STEP ORDER IS NOT WRITTEN HERE. LinearEnhanceProgram.For is the one place it
+            // lives, and the viewer's Enhance button, the hosted endpoint and MasterPostProcessor
+            // all read it from there too; this verb only says which steps its flags keep and at
+            // what blend. It used to carry a hand-assembled list that began at RemoveStarsStep, so
+            // `tianwen image sharpen` ran neither the whole-frame deblur nor the gradient
+            // correction the other callers have always run: the same master enhanced in the viewer
+            // and on the command line came out visibly different, an uncorrected background with
+            // its colour cast intact, and nothing said so.
+            //
+            // Deviations from the canonical defaults, each with its own reason:
+            //  - StellarSharpen is opt-in here and canonical off the command line, because the SAS
+            //    NAFNet over-sharpens bright cores into square white blocks (~89k clipped px
+            //    measured on a dense field, 0 with it off).
+            //  - DeconvolveStarless survives a live deblurrer only if asked for outright.
+            //  - Scnr follows whichever canonical program applies unless --scnr overrides it, and
+            //    --dual-stretch wants it either way (green stars are a stretched-space artefact).
+            //  - Recombine is cleared by --no-recombine, which writes each plate separately.
+            var program = LinearEnhanceProgram.For(deblurLive) with
+            {
+                // Blend left at the step default, as the canonical program has it; --deblur-sharpen
+                // tunes RC-Astro's own sharpening through EnhanceOptions and is a different dial.
+                GradientCorrection = !noGradient,
+                SplitMode = mode,
+                StellarSharpen = doStellar,
+                StellarBlend = stellarBlend,
+                DeconvolveStarless = !noDeconv && (!deblurLive || deconvExplicit),
+                DeconvolveBlend = deconvBlend,
+                Denoise = !noDenoise,
+                DenoiseBlend = denoiseBlend,
+                DenoiseVariant = denoiseVariant,
+                Scnr = effectiveScnrMode,
+                ScnrAmount = scnrAmount,
+                Recombine = !noRecombine,
+                // Dual-stretch produces plates already in [0, 1] stretched space. Additive sum
+                // saturates at 1.0; screen is the natural bounded composite:
+                // Final = 1 - (1-bg)(1-fg). Split stays in linear (mode controls that).
+                RecombineMode = dualStretch ? RecombineMode.Screen : mode,
+            };
+
+            // The plate steps, then this verb's own per-plate stretch, then the composite. The
+            // stretch's PLACEMENT is the CLI's call (SCNR after it, PixInsight convention); the
+            // order of everything around it comes from the program above.
+            var steps = new List<SharpenStep>(program.PlateSteps);
             // Per-plate stretch (linear -> stretched) AFTER all AI ops.
             if (dualStretch)
             {
@@ -1061,16 +1081,13 @@ internal sealed class ImageSubCommand(
             // SCNR AFTER the stretch -- PixInsight convention. Green stars
             // are a stretched-space artefact (faint noise floor amplified
             // where the G channel slightly outpaces R/B), so neutralising
-            // in stretched space has the highest visible benefit.
-            if (effectiveScnrMode != ScnrMode.None) steps.Add(new ScnrStarsStep(Mode: effectiveScnrMode, Amount: scnrAmount));
-            // Dual-stretch produces plates already in [0, 1] stretched space.
-            // Additive sum saturates at 1.0; screen is the natural bounded
-            // composite: Final = 1 - (1-bg)(1-fg). Split stays in linear
-            // (mode controls that).
-            var recombineMode = dualStretch ? RecombineMode.Screen : mode;
+            // in stretched space has the highest visible benefit. That is why
+            // the composite half of the program is appended HERE and not with
+            // the plate steps above.
+            steps.AddRange(program.CompositeSteps);
+            var recombineMode = program.RecombineMode;
             if (!noRecombine)
             {
-                steps.Add(new RecombineStep(Mode: recombineMode));
                 // --stretch-mode operates on the recombined `final` plate.
                 // Honoured only when no dual-stretch (per the validation above);
                 // adds either MtfStretchFinalStep or GhsStretchFinalStep after
@@ -1669,11 +1686,19 @@ internal sealed class ImageSubCommand(
             Description = "Masked S-curve contrast boost baked into the stretched PNG output (same protective luminance mask as --saturation). 0 = off (default); typical 0.25-1.5. PNG / PNG-PQ only; ignored for --output-format jxr.",
             DefaultValueFactory = _ => 0f,
         };
+        // INHERIT a colour calibration instead of re-fitting one. The renderer has always had the
+        // parameter (MasterPostProcessor shares the master's one solve across the split-plate
+        // TIFFs with it); this is the same thing reachable from the command line, so a caller
+        // rendering a master and its enhanced twin can give the second the first's balance.
+        var whiteBalanceOpt = new Option<string?>("--white-balance")
+        {
+            Description = "Use this exact white balance instead of solving one, as 'R,G,B' (e.g. 1.443,1,1.228) -- the triple the render line prints. Skips SPCC and the sky-background fallback. Use it to give an enhanced master the balance solved on the unenhanced one, rather than re-fitting against a background the enhance has already flattened. PNG / PNG-PQ only.",
+        };
 
         var cmd = new Command("render", "Render a FITS file to a stretched PNG (default), HDR PQ PNG (--output-format png-pq), or float-true HDR JPEG XR (--output-format jxr).")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, saturationOpt, contrastBoostOpt },
+            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, saturationOpt, contrastBoostOpt, whiteBalanceOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -1716,6 +1741,23 @@ internal sealed class ImageSubCommand(
                 consoleHost.WriteScrollable("[render] warning: --saturation/--contrast-boost only affect the stretched PNG paths; ignored with --output-format=jxr");
                 maskedBoost = null;
             }
+            (float R, float G, float B)? whiteBalance = null;
+            if (parseResult.GetValue(whiteBalanceOpt) is { Length: > 0 } wbText)
+            {
+                if (!TryParseWhiteBalance(wbText, out var parsedWb))
+                {
+                    consoleHost.WriteError($"--white-balance must be three positive finite numbers 'R,G,B'; got '{wbText}'.");
+                    return 1;
+                }
+                if (format == ImageOutputFormat.Jxr)
+                {
+                    consoleHost.WriteScrollable("[render] warning: --white-balance only affects the stretched PNG paths; ignored with --output-format=jxr (verbatim floats)");
+                }
+                else
+                {
+                    whiteBalance = parsedWb;
+                }
+            }
             // `render` writes the chosen format AS the primary output; passing
             // primaryPath = dst means ReplaceExtension is a no-op when the
             // extension already matches. ImageOutputFormat.None was rejected
@@ -1742,6 +1784,7 @@ internal sealed class ImageSubCommand(
                 peakNits: Math.Clamp(parseResult.GetValue(pngPqPeakNitsOpt), 1f, 10000f),
                 gamutToBt2020: parseResult.GetValue(pngPqGamutOpt) == PngPqGamut.Bt2020,
                 maskedBoost: maskedBoost,
+                whiteBalanceOverride: whiteBalance,
                 ct: ct);
             return 0;
         });
@@ -1960,6 +2003,7 @@ internal sealed class ImageSubCommand(
         float peakNits,
         bool gamutToBt2020,
         MaskedBoostOptions? maskedBoost = null,
+        (float R, float G, float B)? whiteBalanceOverride = null,
         CancellationToken ct = default)
     {
         if (format == ImageOutputFormat.None) return;
@@ -1985,10 +2029,10 @@ internal sealed class ImageSubCommand(
                 await WriteStretchedPngAsync(image, path, hdr10Pq: true, peakNits, gamutToBt2020, ct);
                 break;
             case ImageOutputFormat.Png:
-                await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: false, peakNits, gamutToBt2020, maskedBoost, ct);
+                await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: false, peakNits, gamutToBt2020, maskedBoost, whiteBalanceOverride, ct);
                 break;
             case ImageOutputFormat.PngPq:
-                await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: true, peakNits, gamutToBt2020, maskedBoost, ct);
+                await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: true, peakNits, gamutToBt2020, maskedBoost, whiteBalanceOverride, ct);
                 break;
             case ImageOutputFormat.UltraHdr:
                 await RenderUltraHdrAsync(image, sensorMeta, wcs, path, peakNits, maskedBoost, ct);
@@ -2007,17 +2051,57 @@ internal sealed class ImageSubCommand(
     /// <paramref name="img"/>. SPCC is computed at render time and only
     /// baked into the PNG; the source FITS stays untouched.
     /// </summary>
-    private async Task RenderPngAsync(Image img, ImageMeta sensorMeta, WCS? wcs, string pngPath, bool hdr10Pq, float peakNits, bool gamutToBt2020, MaskedBoostOptions? maskedBoost, CancellationToken ct)
+    /// <summary>
+    /// Parse a <c>--white-balance</c> triple. Accepts exactly what the render line prints,
+    /// <c>R,G,B</c>, and refuses anything that is not three positive finite numbers -- a zero or
+    /// negative gain would black out or invert a channel, and a silently-dropped override would
+    /// look like the inheritance had worked.
+    /// </summary>
+    internal static bool TryParseWhiteBalance(string text, out (float R, float G, float B) wb)
+    {
+        wb = default;
+        var parts = text.Split(',', StringSplitOptions.TrimEntries);
+        if (parts.Length != 3) return false;
+        Span<float> gains = stackalloc float[3];
+        for (var i = 0; i < 3; i++)
+        {
+            if (!float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out var g)
+                || !float.IsFinite(g) || g <= 0f)
+            {
+                return false;
+            }
+            gains[i] = g;
+        }
+        wb = (gains[0], gains[1], gains[2]);
+        return true;
+    }
+
+    private async Task RenderPngAsync(Image img, ImageMeta sensorMeta, WCS? wcs, string pngPath, bool hdr10Pq, float peakNits, bool gamutToBt2020, MaskedBoostOptions? maskedBoost, (float R, float G, float B)? whiteBalanceOverride, CancellationToken ct)
     {
         try
         {
-            await previewRenderer.RenderAsync(img, sensorMeta, wcs, statsSource: null, pngPath,
+            var render = await previewRenderer.RenderAsync(img, sensorMeta, wcs, statsSource: null, pngPath,
                 hdr10Pq: hdr10Pq, peakNits: peakNits, gamutToBt2020: gamutToBt2020,
-                maskedBoost: maskedBoost, ct: ct);
+                maskedBoost: maskedBoost, whiteBalanceOverride: whiteBalanceOverride, ct: ct);
             var suffix = hdr10Pq
                 ? $" (HDR PQ, {peakNits:F0} nits, {(gamutToBt2020 ? "BT.2020" : "sRGB")} primaries)"
                 : "";
             consoleHost.WriteScrollable($"[render] wrote {pngPath}{suffix}");
+            // SAY WHICH WHITE BALANCE WAS USED, in the form --white-balance takes back. The
+            // renderer has always returned it and this verb has always discarded it, so a caller
+            // rendering a master and then its enhanced twin had no way to give the second the
+            // first's colour calibration and each re-fitted its own -- which is not a re-fit of
+            // the same question, because the enhance has already flattened the background the
+            // second solve reads. Printing it is what lets one render inherit another's, the way
+            // MasterPostProcessor already shares one solve across the split-plate TIFFs.
+            if (render.WhiteBalance is { } wb)
+            {
+                var source = whiteBalanceOverride is not null ? "inherited"
+                    : render.Spcc is not null ? "SPCC"
+                    : "sky background";
+                consoleHost.WriteScrollable(
+                    $"[render] white-balance {wb.R:F6},{wb.G:F6},{wb.B:F6} ({source})");
+            }
         }
         catch (Exception ex)
         {

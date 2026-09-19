@@ -491,28 +491,17 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             // --enhance-blend. GhsStretch / dual-stretch are deliberately NOT
             // included -- a stacked master stays in linear photon-space so
             // downstream PixInsight / Affinity / tianwen-render workflows apply
-            // their own stretch. Two shapes:
-            //  - BlurX-first (RC-Astro present): full-image deblur tightens stars
-            //    AND nebula, so NO stellar-sharpen step; stars get SCNR, the
-            //    starless plate gets denoise. Matches the PixInsight OSC flow.
-            //  - SAS-shaped (no RC deblurrer): remove stars, sharpen the stars
-            //    plate, deconvolve + denoise the starless plate.
+            // their own stretch. The two shapes (BlurX-first when RC-Astro is
+            // present, SAS-shaped otherwise) are LinearEnhanceProgram.For's whole
+            // job, so the order is read from there rather than restated here.
             var blend = Math.Clamp(enhanceBlend, 0f, 1f);
-            var steps = sharpenPipeline.SupportsDeblur
-                ? ImmutableArray.Create<SharpenStep>(
-                    new DeblurStep(Blend: blend),
-                    new GradientCorrectionStep(),
-                    new RemoveStarsStep(),
-                    new DenoiseStarlessStep(Blend: blend),
-                    new ScnrStarsStep(ScnrMode.Average),
-                    new RecombineStep())
-                : ImmutableArray.Create<SharpenStep>(
-                    new GradientCorrectionStep(),
-                    new RemoveStarsStep(),
-                    new SharpenStarsStep(Blend: blend),
-                    new DeconvolveStarlessStep(Blend: blend),
-                    new DenoiseStarlessStep(Blend: blend),
-                    new RecombineStep());
+            var steps = (LinearEnhanceProgram.For(sharpenPipeline.SupportsDeblur) with
+            {
+                DeblurBlend = blend,
+                StellarBlend = blend,
+                DeconvolveBlend = blend,
+                DenoiseBlend = blend,
+            }).ToSteps();
             // --split-plates keeps the stars / starless lineage so the SAME pass
             // feeds the per-plate TIFF export; otherwise discard intermediates.
             var request = new SharpenRequest(master.Master, steps,
