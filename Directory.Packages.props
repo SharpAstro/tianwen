@@ -76,7 +76,7 @@
 
     <PackageVersion Include="SharpAstro.Codecs" Version="$(SharpAstroCodecsVersion)" />
 
-    <PackageVersion Include="Console.Lib" Version="5.1.*" />
+    <PackageVersion Include="Console.Lib" Version="5.2.*" />
 
     <PackageVersion Include="SdlVulkan.Renderer" Version="7.44.*" />
     <!-- tools/BakeShaders only. Here rather than inline because this file now covers tools/ as well as
