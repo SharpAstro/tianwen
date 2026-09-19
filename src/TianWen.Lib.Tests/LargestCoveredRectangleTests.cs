@@ -442,14 +442,34 @@ namespace TianWen.Lib.Tests
             var clean = Flat(64, 64, channels: 1);
             clean.WithInteriorHolesFilled().ShouldBeSameAs(clean, "no hole means no copy");
 
-            var holed = Flat(64, 64, channels: 1);
-            holed.GetChannelArray(0)[32, 32] = float.NaN;
+            // Labels a master actually carries, so the copy is checked for keeping them: a full-frame
+            // Crop narrowed every copy to Float32 with no unit-referral, and the renderer reads
+            // MaxValue through exactly that flag.
+            var holed = new Image(
+                [new float[64, 64]], BitDepth.Int16, maxValue: 61.7f, minValue: 0.3f, pedestal: 0.5f,
+                new ImageMeta { Instrument = "synth", SensorType = SensorType.Monochrome },
+                samplesAreUnitReferred: true);
+            var plane = holed.GetChannelArray(0);
+            for (var y = 0; y < 64; y++)
+            {
+                for (var x = 0; x < 64; x++)
+                {
+                    plane[y, x] = 0.25f;
+                }
+            }
+            plane[32, 32] = float.NaN;
 
             var filled = holed.WithInteriorHolesFilled();
 
             filled.ShouldNotBeSameAs(holed);
             float.IsNaN(filled[0, 32, 32]).ShouldBeFalse("the hole is interpolated from its neighbours");
             float.IsNaN(holed[0, 32, 32]).ShouldBeTrue("the caller's own image is untouched");
+            filled.BitDepth.ShouldBe(holed.BitDepth);
+            filled.MaxValue.ShouldBe(holed.MaxValue);
+            filled.MinValue.ShouldBe(holed.MinValue);
+            filled.Pedestal.ShouldBe(holed.Pedestal);
+            filled.SamplesAreUnitReferred.ShouldBe(holed.SamplesAreUnitReferred,
+                "the copy describes the same exposure as the original");
         }
 
         [Fact]
