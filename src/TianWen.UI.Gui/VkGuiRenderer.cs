@@ -809,15 +809,8 @@ namespace TianWen.UI.Gui
             if (plannerState.Calendar.Data.Nights.TryGetValue(plannedNight, out var plannedSummary))
             {
                 var verdict = NightVerdict.For(plannedSummary);
-                var verdictColor = verdict.Outlook switch
-                {
-                    NightOutlook.Go => Palette.Success,
-                    NightOutlook.Marginal => Palette.Warn,
-                    NightOutlook.NoGo => Palette.Error,
-                    NightOutlook.Dark => StatusText,
-                    _ => Palette.DimText,
-                };
-                verdictNode = Layout.Builder.Text(verdict.Label, BaseFontSize * 0.9f, verdictColor,
+                verdictNode = Layout.Builder.Text(verdict.Label, BaseFontSize * 0.9f,
+                        NightCalendarActions.VerdictColour(verdict.Outlook),
                         TextAlign.Center, TextAlign.Center)
                     .WAuto().HStar();
             }

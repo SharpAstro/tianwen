@@ -144,6 +144,13 @@ html, body {
 .toolbar button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .toolbar button:disabled { opacity: 0.5; cursor: default; }
 
+/* The night being planned: [<] date [>] verdict, the desktop status bar's date control. The label opens the
+   night calendar drawn on the canvas; the verdict's colour comes from the shared palette, inline. */
+.toolbar .night { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.toolbar .night .night-step { padding: 4px 8px; }
+.toolbar .night .night-label { font-variant-numeric: tabular-nums; }
+.toolbar .night .night-verdict { font-size: 0.85rem; font-weight: 600; }
+
 /* View-switcher chips in the titlebar (Planner / Sky Map). */
 button.chip {
     background: transparent;

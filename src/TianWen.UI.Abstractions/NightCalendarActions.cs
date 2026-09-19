@@ -47,6 +47,19 @@ public static class NightCalendarActions
     public static DateOnly TonightEveningDate(PlannerState state, ITimeProvider timeProvider)
         => DateOnly.FromDateTime(CoordinateUtils.AstronomicalEveningDate(timeProvider.GetUtcNow().ToOffset(state.SiteTimeZone)));
 
+    /// <summary>
+    /// The colour a verdict's WORD is written in, wherever a host writes it beside the date: the palette's success,
+    /// warning and error for a forecast, body text for a dark night and dimmed for a moonlit one.
+    /// </summary>
+    public static RGBAColor32 VerdictColour(NightOutlook outlook) => outlook switch
+    {
+        NightOutlook.Go => GuiTheme.Palette.Success,
+        NightOutlook.Marginal => GuiTheme.Palette.Warn,
+        NightOutlook.NoGo => GuiTheme.Palette.Error,
+        NightOutlook.Dark => GuiTheme.Palette.BodyText,
+        _ => GuiTheme.Palette.DimText,
+    };
+
     /// <summary>The first day of <paramref name="date"/>'s month.</summary>
     public static DateOnly FirstOfMonth(DateOnly date) => new DateOnly(date.Year, date.Month, 1);
 
@@ -177,10 +190,22 @@ public static class NightCalendarActions
     /// device the calendar still fills in, from the Moon alone. Non-fatal throughout: a failed fetch leaves the
     /// band empty and the calendar moon-only, and says so in the log.
     /// </remarks>
-    public static async Task RefreshAsync(PlannerState state, Profile? profile, IServiceProvider sp,
+    public static Task RefreshAsync(PlannerState state, Profile? profile, IServiceProvider sp,
+        ITimeProvider timeProvider, ILogger logger, CancellationToken cancellationToken)
+        => RefreshAsync(state, SiteOf(profile, timeProvider), WeatherOf(profile), sp, timeProvider, logger,
+            cancellationToken);
+
+    /// <summary>
+    /// <see cref="RefreshAsync(PlannerState, Profile?, IServiceProvider, ITimeProvider, ILogger, CancellationToken)"/>
+    /// for a host with no profile (the browser): the site as a transform, and the weather device to ask.
+    /// </summary>
+    /// <param name="site">The site, or null when there is none to plan for. Moved by the night-window calls, so
+    /// hand in one nothing else is using.</param>
+    /// <param name="weatherUri">The weather device, or null to summarise from the Moon alone.</param>
+    public static async Task RefreshAsync(PlannerState state, Transform? site, Uri? weatherUri, IServiceProvider sp,
         ITimeProvider timeProvider, ILogger logger, CancellationToken cancellationToken)
     {
-        if (profile?.Data is not { } data || TransformFactory.FromProfile(profile, timeProvider, out _) is not { } transform)
+        if (site is not { } transform)
         {
             state.WeatherForecast = null;
             state.WeatherForecastOrigin = null;
@@ -188,7 +213,6 @@ public static class NightCalendarActions
         }
 
         var now = timeProvider.GetUtcNow();
-        var weatherUri = data.Weather is { } w && w != NoneDevice.Instance.DeviceUri ? w : null;
         var key = new NightCalendarKey(transform.SiteLatitude, transform.SiteLongitude, transform.SiteElevation, weatherUri);
         var (rangeStart, rangeEnd) = ExtendedForecast.RangeFor(now);
 
@@ -247,8 +271,15 @@ public static class NightCalendarActions
     /// its nights, whichever is not done already. The open calendar asks for this; cells fill in when it lands.
     /// </summary>
     public static void EnsureMonth(PlannerState state, Profile? profile, ITimeProvider timeProvider, DateOnly month)
+        => EnsureMonth(state, SiteOf(profile, timeProvider), month);
+
+    /// <summary>
+    /// <see cref="EnsureMonth(PlannerState, Profile?, ITimeProvider, DateOnly)"/> for a host with no profile: the
+    /// site as a transform nothing else is using.
+    /// </summary>
+    public static void EnsureMonth(PlannerState state, Transform? site, DateOnly month)
     {
-        if (profile is null || TransformFactory.FromProfile(profile, timeProvider, out _) is not { } transform)
+        if (site is not { } transform)
         {
             return;
         }
@@ -258,6 +289,14 @@ public static class NightCalendarActions
         SummarisePins(state, transform, month, PinsKey(state), generation);
         state.NeedsRedraw = true;
     }
+
+    /// <summary>The profile's site, or null without one (or without a mount, as the planner itself requires).</summary>
+    private static Transform? SiteOf(Profile? profile, ITimeProvider timeProvider)
+        => profile is null ? null : TransformFactory.FromProfile(profile, timeProvider, out _);
+
+    /// <summary>The profile's weather device, or null for none.</summary>
+    private static Uri? WeatherOf(Profile? profile)
+        => profile?.Data is { Weather: { } weather } && weather != NoneDevice.Instance.DeviceUri ? weather : null;
 
     /// <summary>The pin set the pins half is computed for, read off the planner as it is now.</summary>
     public static NightPinsKey PinsKey(PlannerState state)

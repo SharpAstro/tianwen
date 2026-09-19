@@ -179,6 +179,14 @@ own rule, and the detail strip adds a line per pointing: its window, its hours u
 Moon's closest approach. The verdict stays about the sky and does not read the pins. The computation
 is public: `NightPins.Compute`, with a planet or comet placed on each night by its catalogue index.
 
+**Additive: the night calendar in the TUI and in the browser.** The same widget, not a copy: the TUI
+draws it over the planner chart on its Sixel canvas, with the planned night and its verdict on the
+top bar. The web draws it on the canvas under a new date control in the toolbar. Every calendar now
+takes keys: the arrows move a cursor, PageUp and PageDown a month, Enter plans the night and T plans
+tonight. The web build gains weather for the first time, from keyless Open-Meteo, so its planner chart
+now has the weather band. `NightCalendarActions.RefreshAsync` and `EnsureMonth` take a site
+`Transform` and a weather URI for a host with no profile.
+
 **Device behaviour**: a QHY guide pulse now runs for the duration asked where the device can time its
 own, where it was a fixed 50 seconds nothing could stop; a QHY cooler with nothing engaged reports its
 setpoint as `NaN` rather than a plausible -100; the QHY DDR frame buffer is enabled on every connect,
