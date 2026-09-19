@@ -276,6 +276,12 @@ calibration/<camera>/BIAS|DARK/<date>-g<gain>-o<offset>-t<temp>[-e<exp>s]/
 A flat set is filed under **its own** date, never the session's: a shared set can only live in one
 folder, and filing by session date left 10 of 18 sessions with no flats folder at all.
 
+**A calibration folder's `-t<temp>` is the SET's median sensor temperature, rounded once, never each
+frame's own.** An uncooled or still-settling sensor drifts across a rounding boundary mid-run, and a
+per-frame round split group N's 60 darks (8.4 to 8.7 C) into a `t+8` and a `t+9` half-library that
+`CalibrationResolver` would have scored as two sets of 30. The dry run shows it as one destination
+too many; the fix is in `organizeN.py`'s `set_temp`.
+
 **One night can hold several targets.** Split the lights on `OBJECT`, not on the folder. Normalise a
 truncated card (`ome Cen Cluster`) in the path and keep the original in the manifest.
 
