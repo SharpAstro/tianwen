@@ -64,6 +64,10 @@ CAST_RATIO = 0.45
 # interior's, in units of the interior's own standard deviation.
 EDGE_BAND = 0.03
 EDGE_SIGMA = 1.5
+# Band noise over the noise of the strip just inside it. MEASURED over the 139-card store's 556 raw
+# edges: median 1.00, p90 1.11, p99 1.25, max 1.44. The strip a human saw (V1045 Ori, left) reads
+# 1.38; the floor sits at the p99, and everything it admits gets looked at.
+EDGE_NOISE_RATIO = 1.25
 # Interior-step (mosaic seam) detection. The window is a fraction of the axis; a step is flagged when
 # it stands this many times above the typical step of the same size AND clears an absolute floor in
 # display levels, so a quiet frame cannot make one out of its own noise.
@@ -146,6 +150,17 @@ def measure(path):
                 off = (float(np.median(band)) - float(np.median(inside))) / spread
                 if abs(off) > EDGE_SIGMA:
                     flags.append(f"edge:{name}{off:+.1f}sd")
+                # A band that is NOISIER than the strip beside it at the same level. The median check
+                # above cannot see this: an under-covered dither strip (a few subs deep where the
+                # frame is fifty) has the sky's median and several times its noise, and the OWNER
+                # found one running down the left of V1045 Ori that the crop had declined and the QC
+                # had passed. Spread against spread, same strips as the level check.
+                ratio = (1.4826 * float(np.median(np.abs(band - np.median(band))))
+                         / max(1e-6, 1.4826 * float(np.median(np.abs(inside - np.median(inside))))))
+                # Whole views only: on a 320 px patch the band is ten pixels wide and a star in it
+                # is the whole statistic.
+                if ratio > EDGE_NOISE_RATIO and not path.endswith("_crop.png"):
+                    flags.append(f"edge-noise:{name}({ratio:.2f}x)")
 
     # A STEP across the frame's interior, which is what a mosaic panel seam looks like and what the
     # edge check cannot see (it only inspects the four borders). Added after a 54-sub SMC card came
@@ -298,7 +313,9 @@ def main():
             # script's own "quietest window", which on Oph Mol Cloud sat in blue reflection
             # nebulosity at R/G 0.61 while the render's own sky was neutral to 3 percent.
             why = "   [sky patch: the render's own background square at the centre; a cast is its 320 px surround]"
-        elif m:
+        elif m and any(f.startswith("cast") for f in r["flags"]):
+            # The filter note is about COLOUR, so it is earned by a cast flag and nothing else; an
+            # edge or a band on a narrowband card has nothing to do with its filter.
             filt = (m.get("filter") or "").lower()
             raw_p = os.path.join(img_dir, "%s_raw.png" % rid)
             raw_cast = None
