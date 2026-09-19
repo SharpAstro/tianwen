@@ -80,6 +80,10 @@ Auto crop used to treat the small holes a drizzle stack leaves inside the frame 
 
 Faster where it counts
 Saving a frame demosaiced with MHC, the default for planetary video and one of the choices under D, is about ten times faster; what you see on screen was already the GPU's work. The luminance statistic taken when a colour frame opens is twice as fast.
+
+Also in this release
+- Menus stay under their toolbar button when you resize or maximise the window, and never run off a narrow one.
+- The mouse wheel over a long menu scrolls the menu, not the picture behind it.
 ----- END WHAT'S NEW -----
 
 Which way to cut if it goes over: the headed sections are the release and the
@@ -139,6 +143,19 @@ loops stop reading it as [y, x]", PR #263)
   through stacking and gradient removal, so they are not in the block either. All
   numbers and their caveats: docs/architecture/image-pipeline.md, "How a plane is
   READ".
+
+Toolbar menus and the window (PR #310; "fix(viewer): a toolbar menu follows its
+button on resize, and the wheel scrolls a long one" and "fix(viewer): a menu is
+never wider than the window, so it hangs from its button")
+  Three defects in one place, all found testing the DIR.Lib 10.2 build on
+  2026-09-19. An open menu was placed once, at open, so a resize or maximise left
+  it where the button USED to be; it is now re-anchored every frame from the
+  button painted that frame. The standalone host routed only presses through its
+  router, so the wheel over a long menu (the ? shortcuts page) zoomed the picture
+  instead of scrolling the list; moves, releases and the wheel now go through it
+  too. And a menu wider than the window was clamped on screen by shifting it
+  sideways off its button; its width is now capped at the window's, so it always
+  hangs from the button. ViewerE2ETests pins all three at DPI 1 and 1.5.
 
 
 KNOWN ISSUES IN THIS BUILD
