@@ -281,15 +281,12 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
         return result;
     }
 
-    private static double GetValue(List<double>? list, int index)
-        => list is not null && index < list.Count ? list[index] : double.NaN;
-
-    // A pressure-level array may hold nulls (an hour past that level's horizon); a null is "no value".
+    // Any array may hold nulls (an hour past its horizon); a null is "no value".
     private static double GetValue(List<double?>? list, int index)
         => list is not null && index < list.Count && list[index] is { } value ? value : double.NaN;
 
-    private static int GetIntValue(List<int>? list, int index)
-        => list is not null && index < list.Count ? list[index] : 0;
+    private static int GetIntValue(List<int?>? list, int index)
+        => list is not null && index < list.Count && list[index] is { } value ? value : 0;
 
     /// <summary>
     /// Approximates dew point using the Magnus formula.
