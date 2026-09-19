@@ -78,8 +78,38 @@ internal static class ObservationScheduler
         return (dark, twilight);
     }
 
-    private static (DateTimeOffset AstroDark, DateTimeOffset AstroTwilight) CalculateNightWindowForDay(Transform transform, DateTimeOffset localDayStart)
+    /// <summary>
+    /// The night that begins on the evening of <paramref name="eveningDate"/> at the transform's site, and the
+    /// twilight its evening boundary was found at, for a caller that names a night rather than an instant (the
+    /// night calendar). The window is <see cref="CalculateNightWindow"/>'s for that date, fallback chain and all.
+    /// </summary>
+    /// <remarks>
+    /// Moves <see cref="Transform.DateTimeOffset"/>, like every night-window call. The site's UTC offset is read
+    /// at that date's local noon, so a daylight-saving change between nights is honoured.
+    /// </remarks>
+    internal static NightWindow CalculateNightWindowForEvening(Transform transform, DateOnly eveningDate)
     {
+        transform.DateTimeOffset = new DateTimeOffset(eveningDate.ToDateTime(new TimeOnly(12, 0)), transform.SiteTimeZone);
+        var localDayStart = new DateTimeOffset(eveningDate.ToDateTime(TimeOnly.MinValue), transform.SiteTimeZone);
+        var (dark, twilight) = CalculateNightWindowForDay(transform, localDayStart, out var boundary);
+        return new NightWindow(dark, twilight, boundary);
+    }
+
+    /// <summary>A night's dark window, and the twilight its evening edge was found at.</summary>
+    /// <param name="Dark">When it gets dark enough to image.</param>
+    /// <param name="Twilight">When it stops being dark enough.</param>
+    /// <param name="EveningBoundary">The twilight the evening edge came from, or null when none was reached: the
+    /// sun never rose (polar night, a whole-day window) or never got low enough (the window starts at midnight).</param>
+    internal readonly record struct NightWindow(DateTimeOffset Dark, DateTimeOffset Twilight, EventType? EveningBoundary);
+
+    private static (DateTimeOffset AstroDark, DateTimeOffset AstroTwilight) CalculateNightWindowForDay(Transform transform, DateTimeOffset localDayStart)
+        => CalculateNightWindowForDay(transform, localDayStart, out _);
+
+    private static (DateTimeOffset AstroDark, DateTimeOffset AstroTwilight) CalculateNightWindowForDay(
+        Transform transform, DateTimeOffset localDayStart, out EventType? eveningBoundary)
+    {
+        eveningBoundary = null;
+
         // Check for polar night: if the sun never rises, the entire day is available for observation.
         transform.DateTimeOffset = localDayStart;
         var (_, sunRise, _) = transform.EventTimes(EventType.SunRiseSunset);
@@ -89,7 +119,7 @@ internal static class ObservationScheduler
         }
 
         // Evening: find when it gets dark enough (try deepest twilight first)
-        var astroDark = TryGetFirstEvent(transform, localDayStart, EveningFallbackChain, set: true)
+        var astroDark = TryGetFirstEvent(transform, localDayStart, EveningFallbackChain, set: true, out eveningBoundary)
             ?? localDayStart; // Fallback: midnight
 
         // Morning: find when it gets too light AFTER the evening dark time.
@@ -99,7 +129,7 @@ internal static class ObservationScheduler
             ? localDayStart.AddDays(1)
             : new DateTimeOffset(astroDark.Date, astroDark.Offset);
 
-        var astroTwilight = TryGetFirstEvent(transform, morningSearchDay, MorningFallbackChain, set: false);
+        var astroTwilight = TryGetFirstEvent(transform, morningSearchDay, MorningFallbackChain, set: false, out _);
 
         // Validate: twilight must be after dark
         if (astroTwilight is null || astroTwilight.Value <= astroDark)
@@ -110,7 +140,8 @@ internal static class ObservationScheduler
         return (astroDark, astroTwilight.Value);
     }
 
-    private static DateTimeOffset? TryGetFirstEvent(Transform transform, DateTimeOffset localDayStart, ReadOnlySpan<EventType> fallbackChain, bool set)
+    private static DateTimeOffset? TryGetFirstEvent(Transform transform, DateTimeOffset localDayStart,
+        ReadOnlySpan<EventType> fallbackChain, bool set, out EventType? found)
     {
         foreach (var eventType in fallbackChain)
         {
@@ -119,10 +150,12 @@ internal static class ObservationScheduler
             var events = set ? setEvents : rise;
             if (events is { Count: >= 1 })
             {
+                found = eventType;
                 return localDayStart + events[0];
             }
         }
 
+        found = null;
         return null;
     }
 

@@ -203,6 +203,16 @@ public class PlannerState : PersistableState<SavePlannerSessionSignal>
     /// <summary>Hourly weather forecast for the planning night, or null if no weather device is assigned.</summary>
     public IReadOnlyList<HourlyWeatherForecast>? WeatherForecast { get; set; }
 
+    /// <summary>
+    /// Where <see cref="WeatherForecast"/>'s hours came from: usually the calendar's multi-day forecast it was
+    /// sliced from, whose split says which provider stated which hour (an OpenWeatherMap profile's band runs on
+    /// into Open-Meteo past 48 hours). Null with no forecast.
+    /// </summary>
+    public ExtendedForecast? WeatherForecastOrigin { get; set; }
+
+    /// <summary>The night calendar off the status-bar date, and the per-night summaries behind it.</summary>
+    public NightCalendarState Calendar { get; } = new NightCalendarState();
+
     /// <summary>Moon altitude profile for the planning night.</summary>
     public List<(DateTimeOffset Time, double Alt)>? MoonAltitudeProfile { get; set; }
 

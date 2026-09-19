@@ -836,8 +836,10 @@ public static class AltitudeChartRenderer
             var entry = forecast[i];
             var x = timeToX(entry.Time);
 
-            // Skip if outside visible range
-            if (x < plotX - slotW / 2 || x > plotX + plotW + slotW / 2)
+            // Skip if outside visible range, or if the hour has no cloud cover at all: an hour past the model's
+            // horizon comes back null (NaN here), and every threshold below is false for NaN, so it would be
+            // drawn as a clear sky.
+            if (x < plotX - slotW / 2 || x > plotX + plotW + slotW / 2 || double.IsNaN(entry.CloudCover))
             {
                 continue;
             }
@@ -988,9 +990,13 @@ public static class AltitudeChartRenderer
     /// Time is rendered in the site timezone (never the machine TZ); fields the source did not
     /// provide (NaN) are skipped. Pure + backend-agnostic so the GUI can measure and draw it.
     /// </summary>
-    public static List<string> BuildWeatherTooltipLines(HourlyWeatherForecast f, TimeSpan siteTimeZone)
+    /// <param name="origin">Where the band came from. Named on the last line only when the band mixes two
+    /// providers (an OpenWeatherMap night running on into Open-Meteo), so a mixed forecast never passes for one
+    /// provider's; a band from one provider says nothing, as before.</param>
+    public static List<string> BuildWeatherTooltipLines(HourlyWeatherForecast f, TimeSpan siteTimeZone,
+        ExtendedForecast? origin = null)
     {
-        var lines = new List<string>(9);
+        var lines = new List<string>(10);
 
         var time = f.Time.ToOffset(siteTimeZone).ToString("HH:mm");
         var condition = DescribeWeatherCode(f.WeatherCode);
@@ -1045,6 +1051,11 @@ public static class AltitudeChartRenderer
             lines.Add(f.Visibility >= 1000
                 ? $"Visibility: {f.Visibility / 1000.0:F0} km"
                 : $"Visibility: {f.Visibility:F0} m");
+        }
+
+        if (origin is { SupplementedFrom: not null })
+        {
+            lines.Add($"Forecast: {origin.SourceFor(f.Time, f.Time.AddHours(1))}");
         }
 
         return lines;

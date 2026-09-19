@@ -83,4 +83,65 @@ public class WeatherUpperAirSupplementTests(ITestOutputHelper output)
         forecast.Select(h => h.WindSpeed250hPa).ShouldBe([30.0, 31.0, 32.0]);
         forecast.ShouldAllBe(h => h.CloudCover == 90);
     }
+
+    /// <summary>The night calendar's request: the whole range at once, cached under the range's own dates.</summary>
+    private static void WriteFreshRangeCache(IExternal external, string prefix, IEnumerable<HourlyWeatherForecast> hours)
+    {
+        var (start, end) = ExtendedForecast.RangeFor(Now);
+        var dir = external.CreateSubDirectoryInAppDataFolder("Weather");
+        var startDate = start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var endDate = end.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var path = Path.Combine(dir.FullName, $"{prefix}{Latitude:F2}_{Longitude:F2}_{startDate}_{endDate}.json");
+        File.WriteAllText(path, JsonSerializer.Serialize(hours.ToList(), OpenMeteoJsonContext.Default.ListHourlyWeatherForecast));
+        File.SetLastWriteTimeUtc(path, Now.UtcDateTime);
+    }
+
+    [Fact]
+    public async Task AnOpenWeatherMapCalendarRunsOnIntoOpenMeteoPastItsFortyEightHours()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output, now: Now);
+        var sp = external.BuildServiceProvider();
+        var (start, end) = ExtendedForecast.RangeFor(Now);
+        var hours = (int)(end - start).TotalHours + 1;
+
+        HourlyWeatherForecast At(int h, double cloud, double jet) =>
+            new HourlyWeatherForecast(start.AddHours(h), CloudCover: cloud, Precipitation: 0, Temperature: 10,
+                Humidity: 60, DewPoint: 3, WindSpeed: 2, WindGust: 4, WindDirection: 270, Visibility: 20000,
+                WeatherCode: 0, WindSpeed250hPa: jet);
+
+        // OpenWeatherMap: two days from now, its own cloud, no jet. Open-Meteo: the whole range.
+        var owmFirst = (int)(Now - start).TotalHours;
+        WriteFreshRangeCache(external, "owm_", Enumerable.Range(owmFirst, 48).Select(h => At(h, cloud: 20, jet: double.NaN)));
+        WriteFreshRangeCache(external, "", Enumerable.Range(0, hours).Select(h => At(h, cloud: 90, jet: 30)));
+
+        using var owm = new OpenWeatherMapDriver(new OpenWeatherMapDevice(), sp, apiKey: "unused");
+        var forecast = await owm.GetExtendedHourlyForecastAsync(sp, Latitude, Longitude, start, end, ct);
+
+        forecast.Provider.ShouldBe("OpenWeatherMap");
+        forecast.SupplementProvider.ShouldBe("Open-Meteo");
+        forecast.SupplementedFrom.ShouldBe(start.AddHours(owmFirst + 48), "Open-Meteo takes over after OpenWeatherMap's last hour");
+        forecast.Hours.Where(h => h.Time < forecast.SupplementedFrom).ShouldAllBe(h => h.CloudCover == 20 && h.WindSpeed250hPa == 30);
+        forecast.Hours.Where(h => h.Time >= forecast.SupplementedFrom).ShouldAllBe(h => h.CloudCover == 90);
+        forecast.Hours[^1].Time.ShouldBe(end, "to the last hour Open-Meteo answers");
+        forecast.Hours.ShouldNotContain(h => h.Time < start.AddHours(owmFirst),
+            "an hour before OpenWeatherMap's first is its to have dropped, not Open-Meteo's to fill");
+    }
+
+    [Fact]
+    public async Task AnOpenMeteoCalendarIsOneProvider()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output, now: Now);
+        var sp = external.BuildServiceProvider();
+        var (start, end) = ExtendedForecast.RangeFor(Now);
+        WriteFreshRangeCache(external, "", Enumerable.Range(0, 24).Select(h => Hour(h, cloudCover: 50, jetMs: 30)));
+
+        using var openMeteo = new OpenMeteoDriver(new OpenMeteoDevice(), sp);
+        var forecast = await openMeteo.GetExtendedHourlyForecastAsync(sp, Latitude, Longitude, start, end, ct);
+
+        forecast.Provider.ShouldBe("Open-Meteo");
+        forecast.SupplementedFrom.ShouldBeNull();
+        forecast.Hours.Count.ShouldBe(24);
+    }
 }

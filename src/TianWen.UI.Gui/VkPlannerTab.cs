@@ -298,7 +298,7 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
             new RectInt(new PointInt((int)(bestX + slotW / 2), bandY + bandH), new PointInt((int)(bestX - slotW / 2), bandY)),
             TianWen.UI.Abstractions.GuiTheme.SkyInk(30));
 
-        var lines = AltitudeChartRenderer.BuildWeatherTooltipLines(f, state.SiteTimeZone);
+        var lines = AltitudeChartRenderer.BuildWeatherTooltipLines(f, state.SiteTimeZone, state.WeatherForecastOrigin);
         if (lines.Count == 0)
         {
             return;

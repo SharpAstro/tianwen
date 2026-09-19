@@ -57,6 +57,18 @@ namespace TianWen.UI.Abstractions
                 requestRedraw: () => appState.NeedsRedraw = true);
         }
 
+        /// <summary>The night calendar paged to a month: summarise its nights off the render thread.</summary>
+        private void SubscribeNightCalendar(SignalBus bus)
+        {
+            bus.Subscribe<NightCalendarMonthSignal>(sig =>
+                _tracker.Run(() =>
+                {
+                    NightCalendarActions.EnsureMonth(_plannerState, _appState.ActiveProfile, _timeProvider, sig.Month);
+                    _appState.NeedsRedraw = true;
+                    return Task.CompletedTask;
+                }, "Summarise calendar month"));
+        }
+
         /// <summary>Wires schedule building (shared between planner preview and session start).</summary>
         private void SubscribeScheduleBuilding(SignalBus bus)
         {

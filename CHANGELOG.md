@@ -157,6 +157,22 @@ mixing height in the band's tooltip. An OpenWeatherMap profile, which has no upp
 both from keyless Open-Meteo through `IWeatherDriver.GetHourlyForecastWithUpperAirAsync`, which fills
 only the fields the provider lacks.
 
+**Additive, planner: the night calendar.** The GUI's status-bar date opens a month of nights, each
+with its Moon, its forecast where there is one, and one verdict: Go, Marginal or No-go from the clear
+dark hours inside the forecast horizon, Dark or Moonlit from the Moon alone past it. A click plans that
+night, and the planned night's verdict sits beside the date. The pure halves are public API:
+`NightSummary.Compute`, `NightVerdict.For`, and `IWeatherDriver.GetExtendedHourlyForecastAsync`, whose
+`ExtendedForecast` is the profile's own provider for every hour it covers and Open-Meteo after it, with
+the split named. The planner's weather band is now a slice of that one multi-day forecast, so stepping
+the date through the next two weeks asks the network nothing, and a night past Open-Meteo's horizon
+asks for nothing where it used to fail with a 400.
+
+**Open-Meteo reads a null in any hourly array as that hour unknown.** Only the upper-air arrays were
+nullable, so a null anywhere else failed the whole response. A single night never met one; a 16-day
+request always does, at its far end (`cloud_cover[403]` on the calendar's first live request, which
+lost all 408 hours to it). The weather band also stops drawing an hour with no cloud value as a clear
+sky.
+
 **Device behaviour**: a QHY guide pulse now runs for the duration asked where the device can time its
 own, where it was a fixed 50 seconds nothing could stop; a QHY cooler with nothing engaged reports its
 setpoint as `NaN` rather than a plausible -100; the QHY DDR frame buffer is enabled on every connect,

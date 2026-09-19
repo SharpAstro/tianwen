@@ -806,49 +806,14 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Fetches weather forecast for the current night window if a weather device is assigned in the profile.
-        /// Non-fatal: silently logs and clears forecast on failure.
+        /// Refreshes the planning night's weather band and the night calendar behind the status-bar date, from one
+        /// multi-day forecast (<see cref="NightCalendarActions.RefreshAsync"/>). Non-fatal.
         /// </summary>
         private async Task FetchWeatherForecastAsync(CancellationToken ct)
         {
-            if (_appState.ActiveProfile?.Data is not { Weather: { } weatherUri } data
-                || weatherUri == NoneDevice.Instance.DeviceUri)
-            {
-                _plannerState.WeatherForecast = null;
-                return;
-            }
-
-            if (double.IsNaN(_plannerState.SiteLatitude) || double.IsNaN(_plannerState.SiteLongitude))
-            {
-                _plannerState.WeatherForecast = null;
-                return;
-            }
-
-            try
-            {
-                var device = EquipmentActions.TryDeviceFromUri(weatherUri);
-                if (device is null || !device.TryInstantiateDriver<IWeatherDriver>(_sp, out var weatherDriver))
-                {
-                    _plannerState.WeatherForecast = null;
-                    return;
-                }
-
-                using (weatherDriver)
-                {
-                    var tStart = _plannerState.CivilSet ?? _plannerState.AstroDark - TimeSpan.FromHours(1);
-                    var tEnd = _plannerState.CivilRise ?? _plannerState.AstroTwilight + TimeSpan.FromHours(1);
-                    _plannerState.WeatherForecast = await weatherDriver.GetHourlyForecastWithUpperAirAsync(
-                        _sp, _plannerState.SiteLatitude, _plannerState.SiteLongitude,
-                        tStart, tEnd, ct);
-                    _plannerState.NeedsRedraw = true;
-                    _appState.NeedsRedraw = true;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Weather forecast fetch failed");
-                _plannerState.WeatherForecast = null;
-            }
+            await NightCalendarActions.RefreshAsync(_plannerState, _appState.ActiveProfile, _sp, _timeProvider,
+                _logger, ct);
+            _appState.NeedsRedraw = true;
         }
 
         /// <summary>
@@ -901,6 +866,7 @@ namespace TianWen.UI.Abstractions
             // .SkyMap.cs / .Equipment.cs / .LiveSession.cs / .Polar.cs / .Flats.cs). Order is
             // load-bearing: SignalBus invokes subscribers in registration order.
             SubscribePlannerSearch(bus);
+            SubscribeNightCalendar(bus);
             SubscribeSkyMap(bus);
             SubscribeEquipmentTextInputs(bus);
             SubscribeEquipmentActions(bus);
