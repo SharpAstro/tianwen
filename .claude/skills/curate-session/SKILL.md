@@ -41,6 +41,17 @@ root (a link) **or** its `(name, size)` does (a copy). Inode alone under-reports
 alone is weak on its own, because master names collide across tools (three different
 `masterBias_BIN-1_3008x3008.xisf` sizes exist on D:).
 
+**And (name, size) is BLIND to SharpCap frames: every `frame_00001.fits` of one camera has the same
+size, so a frame reads as filed whenever any run of that camera is.** Found 2026-09-20: three ASI585
+sessions read as filed on that test with 16, 76 and 153 frames not in the tree. Test reachability by
+CONTENT instead: `tools/archive-curation/astro-digest-store.py` keeps a data-section xxh128 per inode
+for all three tiers in `D:/Astro-Reports/digests.jsonl` (refresh it first, it is resumable), and a
+source frame is filed iff its digest appears under `D:/Astro-Organized`. **`D:/Astro-Unsorted` holds
+TRUNCATED copies of some runs** (Tarantula 2024-10-02: 120 of 136; Eta Car 2025-01-14: 49 of 125; the
+sweep caught them mid-capture), and groups G and H were filed from it; Astro-Pics holds the whole runs,
+so compare run LENGTHS against Astro-Pics before calling a session filed, and file a tail with
+`organize-group.py`'s `skip_filed` under the same run prefix (group O).
+
 This also means **Unsorted costs almost no disk** and a "copy" into it is a link, so the usual
 size arithmetic does not apply there.
 

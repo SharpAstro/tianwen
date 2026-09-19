@@ -118,6 +118,11 @@ public class SpccReachabilityProbe(ITestOutputHelper output)
             // suppressed, consistent with a light-pollution filter and NOT proven to be one: the
             // ratios that could name it are IMX533-derived and do not transfer to this IMX585.
             "Unidentified-Broadband-BlueCut",
+            // A NARROWBAND session nobody can name (PlayerOne Uranus-C, 2023-08-09, "M8 M20 OIII HA"):
+            // sky 3 ADU/s at gain 220 against 75 to 230 on the broadband nights of that body, so a
+            // dual-band by measurement, and the owner's 2023 dual-band was the L-eNhance, but no
+            // IMX585 reference band names it. Must resolve to NO MATCH for the same reason as above.
+            "Unidentified-HaOIII",
             // A UV/IR cut on the ZWO ASI294MC (2024-02-03, 135 mm, Eta Carinae), by the owner's
             // recollection. Measured broadband: flat B/G 0.81 against 0.53 for the IDAS LPS-D3 on the
             // same IMX294 sensor. A generic cut must not resolve to a SPECIFIC brand's curve.

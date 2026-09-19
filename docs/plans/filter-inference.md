@@ -149,8 +149,23 @@ carry their own flats, and both land between the two populations this plan estab
 | `Rosette Dec 24` (UNKNOWN) | 0.5934 | **0.8515** |
 | `Optolong-L-Quad-Enhance` 2026-04-22 (known) | 0.4405 | **1.0024** |
 | `IDAS-LPS-D3` 2024-06-06 Rim Nebula (named by its capture folder, group N) | 0.2281 | **0.9528** |
+| `IDAS-LPS-D3` 2023-09-15 LMC, Samyang 135 mm (by population, group Q) | 0.2254 | **0.9620** |
 
 **The LPS D3 row (added 2026-09-20) is an ANCHOR, not a verdict from the pixels.** It is named by its capture folder (`LPS`) alone, the owner's LPS being the D3 that named group D; the header has no hint and the dark folder beside it is not evidence (its frames are named for a July L-Ultimate session, and a dark is filter-blind). The pixels EXCLUDE the two ASI533 filters with known bands (3 nm: sky 0.56, flat 0.567; L-Quad: sky 1.01 to 1.08, flat 1.002; this session: sky 0.76, flat 0.953) and name nothing. It is the first IDAS LPS D3 measurement on the ASI533, so the next unfiled ASI533 session with a flat near 0.95 has a band to be tested against.
+
+**The LMC row is the anchor's first use.** No tag names it (its folder says `RGB`, a processing mode),
+and it agrees with the anchor on BOTH axes within 2 percent: flat B/G 0.962 against 0.953 and sky B/G
+0.73 to 0.76 against 0.757 to 0.779, where L-Quad sits at 1.00 (flat) and above 1.0 (sky) and the 3 nm at
+0.567 / 0.56. Filed as `IDAS-LPS-D3` on that basis; the population now has two members and a flat-side
+width of 0.009, which is the number the next ASI533 session gets tested against.
+
+**The PlayerOne Uranus-C is an IMX585 like the ASI585, and its 2023 nights land where the ASI585's
+BlueCut population does, not proven across bodies.** Its own flat (SMC, 2023-07-29) reads R/G 0.806,
+B/G 0.592 and its bias-corrected sky R/G 0.63, B/G 0.50 at 74 to 108 ADU/s (gain 200), against the
+ASI585 BlueCut population's flat B/G 0.49 to 0.50 and sky B/G 0.53 to 0.55; the same body's
+`M8 M20 OIII HA` night reads 3 ADU/s at gain 220, a dual-band by rate, unnamed (`Unidentified-HaOIII`).
+Group Q files the three broadband nights under the BlueCut provisional slug by sensor-family similarity
+and says so; a Uranus-C flat through a known filter would settle it.
 
 **They do not match each other either.** 0.8515 against 0.7184 is 0.13 apart where section 2a's
 within-population agreement is 0.021 or better, so this is not one new population but potentially
