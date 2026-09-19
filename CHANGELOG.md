@@ -52,7 +52,10 @@ else. A caller swaps the type and changes nothing else.
 `PartialFitsReader.ReadRegion` takes four edges instead of a drawing rectangle, which is what let the
 namespace go), with TianWen.DAL 2.1, QHYCCD.SDK 1.1 and ZWOptical.SDK 4.3. The DIR.Lib move landed on
 `main` after 8.2's entry was written and so was published under 8.2 packages; Console.Lib 5.0,
-SdlVulkan.Renderer 7.43 and WebGl.Renderer 1.33 moved with it.
+SdlVulkan.Renderer 7.43 and WebGl.Renderer 1.33 moved with it. Within 9.0 the toolkit then moved
+again, additively, to DIR.Lib 10.2 (popover triggers and groups, tab item presses, layout scroll
+containers, and a router that no longer blurs a field the same press's handler focused), with
+Console.Lib 5.1, SdlVulkan.Renderer 7.44 and WebGl.Renderer 1.35 rebuilt against it.
 
 **`Filter.FromName` keeps a name it does not recognise.** It returned `Filter.Unknown` and dropped the
 text, and an unknown filter's identity IS that text, so every such filter built from a name (the
