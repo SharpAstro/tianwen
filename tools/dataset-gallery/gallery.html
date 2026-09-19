@@ -221,7 +221,12 @@ window.MASTERS = [];  /* ROWS GO HERE -- inject_rows.py replaces this whole line
   // judging a card's colour, and neither is a fault in the render.
   const colourTag = (r) => (r.wbSource === 'SPCC' ? ''
     : !r.wb ? '<span class="tag nocal" title="A mono master has one channel: there is no colour to calibrate">mono</span>'
-    : '<span class="tag nocal" title="No plate solution, so SPCC could not run; the sky background was neutralised instead and the signal keeps the sensor's own balance">uncalibrated colour</span>');
+    // A template literal, not a single-quoted string: the tooltip says "the sensor's own balance",
+    // and that apostrophe closed the string, threw a SyntaxError at parse time and took the whole
+    // script with it. The page rendered its header, its bar and its legend and not one card, and
+    // it did so from the commit that added this tag until a screenshot said so. Nothing checks a
+    // string literal for a quote by reading it; the headless render in the skill does.
+    : `<span class="tag nocal" title="No plate solution, so SPCC could not run; the sky background was neutralised instead and the signal keeps the sensor's own balance">uncalibrated colour</span>`);
   // Say it once in full on the detail, where there is room: which of the three this is, how many
   // subs each of its siblings kept, and that the mount crossed the meridian mid-session.
   function pierNote(r) {
@@ -297,9 +302,32 @@ window.MASTERS = [];  /* ROWS GO HERE -- inject_rows.py replaces this whole line
     return el;
   }
 
+  // A picture that fails to load is a dark box on a dark card, which reads as "no images" and
+  // says nothing about WHY. Count the failures and show the first resolved URL, so the report is
+  // "N of M failed, at <where the host looked>" and not a shrug.
+  const loadStats = { failed: 0, first: '' };
+  function watchImages(scope) {
+    for (const img of scope.querySelectorAll('img')) {
+      img.addEventListener('error', () => {
+        loadStats.failed += 1;
+        if (!loadStats.first) loadStats.first = img.src;
+        let bar = document.getElementById('loadbar');
+        if (!bar) {
+          bar = document.createElement('p');
+          bar.id = 'loadbar';
+          bar.className = 'note';
+          bar.style.cssText = 'color:var(--bad);margin:10px 0 0';
+          document.querySelector('.bar').after(bar);
+        }
+        bar.textContent = `${loadStats.failed} picture(s) failed to load; the first was requested as ${loadStats.first}`;
+      }, { once: true });
+    }
+  }
+
   function render() {
     const list = visible();
     grid.replaceChildren(...list.map(card));
+    watchImages(grid);
     document.getElementById('count').textContent = `${list.length} of ${rows.length} masters`;
   }
 
