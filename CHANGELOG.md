@@ -173,6 +173,12 @@ request always does, at its far end (`cloud_cover[403]` on the calendar's first 
 lost all 408 hours to it). The weather band also stops drawing an hour with no cloud value as a clear
 sky.
 
+**Additive, planner: the pinned targets on each night.** A strip along the foot of each calendar
+cell shows when the pinned pointings are up that night, dusk to dawn, clear or cloudy by the verdict's
+own rule, and the detail strip adds a line per pointing: its window, its hours up and clear, and the
+Moon's closest approach. The verdict stays about the sky and does not read the pins. The computation
+is public: `NightPins.Compute`, with a planet or comet placed on each night by its catalogue index.
+
 **Device behaviour**: a QHY guide pulse now runs for the duration asked where the device can time its
 own, where it was a fixed 50 seconds nothing could stop; a QHY cooler with nothing engaged reports its
 setpoint as `NaN` rather than a plausible -100; the QHY DDR frame buffer is enabled on every connect,

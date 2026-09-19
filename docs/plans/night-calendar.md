@@ -1,6 +1,6 @@
 # Night calendar and a verdict per night (plan)
 
-**Status: PARTIAL. P0 to P2 DONE 2026-09-19 (#311); P3 and P4 open. Written 2026-09-19**, raised by the user while looking at the planner under a
+**Status: PARTIAL. P0 to P3 DONE 2026-09-19 (#311, then P3 on its own branch); P4 open. Written 2026-09-19**, raised by the user while looking at the planner under a
 Melbourne sky ("a calendar view would be great too, for places like this that see a clear sky once a full
 moon"; "making the date in the top clickable, and showing a calendar which shows score/weather etc/moon and
 can be clicked (and set the date)"; "maybe we also show a verdict of the day somewhere").
@@ -82,6 +82,44 @@ two can never disagree:
 The verdict of the planning night sits beside the date (a coloured word, the same `NightVerdict`), so "is
 tonight worth it" is readable from every tab without opening anything.
 
+### The pinned targets on each night (P3)
+
+**The verdict stays about the SKY.** It compares nights with each other and must not move when a target is
+pinned or unpinned; a Go that meant "clear" on one night and "clear and your targets are up" on the next would
+mean nothing. The pins are a SECOND mark beside it, and a night with no pins shows no mark at all.
+
+**What is computed, per night and per pinned POINTING.** The pins go through
+`FramingPlanner.CollapseForSchedule` first, exactly as the scheduler takes them, so a mosaic or a co-framed pair
+("M8 + M20") counts once. Each pointing is sampled on the scheduler's own 15-minute grid over the night's dark
+window:
+- **up**: above the profile's minimum altitude;
+- **clear**: that and a clear forecast hour (the verdict's rule);
+- **the Moon**: its closest approach while above the horizon, as the scheduler's Moon-avoidance grid measures
+  it.
+
+Then two numbers:
+- **per pointing**: its first and last usable instant, hours up, hours clear, and the Moon's closest approach;
+- **per night**: the UNION of the pointings' usable samples, never the sum. There is one mount, so the union is
+  how much of the night the pins can keep it busy.
+
+**A planet or a comet is placed per NIGHT**, by its catalogue index at the night's middle (VSOP87 for a planet,
+`ICometRepository.TryGetPosition` for a comet), never from the pinned `Target`'s stored RA/Dec. That position
+was resolved on a different night (the planner's pin-identity rule), and a planet sits in the object database at
+NaN.
+
+**Where it shows:**
+- **in the cell**: a thin strip along the bottom, dusk to dawn left to right, filled where at least one pointing
+  is usable. It is the accent colour where the hour is clear or past the forecast, and dimmed where the forecast
+  says cloud.
+- **in the detail strip**: one line per pointing, three at most and then "+N more": its window, its hours (and
+  clear hours inside the forecast), the Moon's closest approach, or that it never rises above the minimum.
+
+**Computed only while the calendar is open**, and kept apart from `NightSummary`:
+- the key is the pin set, the framing groups and the minimum altitude;
+- pinning or unpinning recomputes only the pins' half;
+- a new forecast drops both halves, since the clear hours changed;
+- the status bar never needs it.
+
 ## Phasing
 
 | Phase | Scope | Hosts |
@@ -89,7 +127,7 @@ tonight worth it" is readable from every tab without opening anything.
 | P0 | Open-Meteo side-fetch for OpenWeatherMap profiles, merged per field: the upper-air wind DONE 2026-09-19; the 16-day range DONE 2026-09-19 | all (driver code is shared) |
 | P1 | `NightSummary` + `NightVerdict` (pure, tested), the verdict beside the status-bar date. DONE 2026-09-19 | GUI |
 | P2 | The calendar popover off the date label, click to plan a night. DONE 2026-09-19 | GUI |
-| P3 | Per-night score for the PINNED targets (their usable hours that night), shown in the cell | GUI |
+| P3 | Per-night score for the PINNED targets (their usable hours that night), shown in the cell. DONE 2026-09-19: `NightPins`, the cell strip, a detail line per pointing | GUI |
 | P4 | The web planner and the TUI | web, TUI |
 
 ## What shipped (2026-09-19, #311)
