@@ -406,7 +406,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         /// <remarks>
         /// <b>Without the key hints.</b> The palette doubles as the map's legend in a tab host, where
-        /// those ten letters are the only way to reach the layers; here every one of them already
+        /// those letters are the only way to reach the layers; here every one of them already
         /// means something else (<c>S</c> detects stars, <c>C</c> cycles the channel, <c>D</c> the
         /// demosaic), so printing them would be a row teaching a shortcut that does something quite
         /// different. Clicking the rows is the whole interface, which is what the palette was built to

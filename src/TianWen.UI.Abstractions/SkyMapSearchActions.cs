@@ -555,7 +555,7 @@ public static class SkyMapSearchActions
     /// a catalogue entry is looked up, a planet and a comet are ephemeris positions at the
     /// viewing instant and carry their own coordinates.
     /// </summary>
-    public enum SkyMapHitKind
+    internal enum SkyMapHitKind
     {
         Catalog,
         Planet,
@@ -573,7 +573,7 @@ public static class SkyMapSearchActions
     /// same way, which is the failure the hover highlight would otherwise introduce: a wash over one
     /// object and a panel about another is worse than no wash at all.
     /// </remarks>
-    public readonly record struct ResolvedHit(
+    internal readonly record struct ResolvedHit(
         SkyMapHitKind Kind, CatalogIndex Index, double RA, double Dec, float HitRadiusPx, double VMag);
 
     /// <summary>
@@ -648,12 +648,17 @@ public static class SkyMapSearchActions
     /// user is holding Ctrl to pick a star out of a nebula -- the one case where knowing what the
     /// click will take matters most. The plain answer is the honest one to show.
     /// </remarks>
+    /// <param name="pinnedCatalogIndices">The caller's CACHED pinned set. Taken rather than derived
+    /// because this runs once per painted frame while the pointer moves, and
+    /// <see cref="PlannerActions.GetPinnedCatalogIndices"/> builds a fresh set every call: the click
+    /// path paid that once per press, and hover would have paid it 60 times a second.
+    /// <c>SkyMapTab.PinnedCatalogIndices</c> already caches on the proposals array's identity.</param>
     public static SkyMapHoverTarget? ResolveHoverAtScreenPoint(
         SkyMapState skyMap,
         ICelestialObjectDB db,
         DateTimeOffset viewingUtc,
         float screenX, float screenY,
-        ImmutableArray<ProposedObservation> proposals,
+        IReadOnlySet<CatalogIndex>? pinnedCatalogIndices,
         ICometRepository? comets = null)
     {
         var rect = skyMap.LastContentRect;
@@ -669,8 +674,7 @@ public static class SkyMapSearchActions
         var cy = rect.Y + rect.Height * 0.5f;
 
         if (!TryResolveHit(skyMap, db, viewingUtc, screenX, screenY, skyMap.CurrentViewMatrix,
-                ppr, cx, cy, preferPointSource: false,
-                PlannerActions.GetPinnedCatalogIndices(proposals), comets, out var hit))
+                ppr, cx, cy, preferPointSource: false, pinnedCatalogIndices, comets, out var hit))
         {
             return null;
         }
@@ -877,9 +881,15 @@ public static class SkyMapSearchActions
 
         // Comets (also ephemeris-computed, not in the spatial grids); same hit-test as planets, over the
         // live comet marker cache filtered to the same zoom-aware magnitude limit the renderer draws with.
+        //
+        // Gated on the [E] LAYER, which it was not: SkyMapTab draws comets only when ShowComets is on,
+        // so without this an undrawn comet stayed selectable through apparently-empty sky -- the exact
+        // sentence IsDsoLayerClickable's doc states, left unapplied one paragraph down. It mattered
+        // little while the only consequence was a click; the hover highlight paints a wash there, so a
+        // switched-off comet would light up empty sky.
         var bestCometDistSq = double.MaxValue;
         SkyMapState.CometMarker? bestComet = null;
-        if (comets is not null)
+        if (comets is not null && skyMap.ShowComets)
         {
             var cometLimit = Math.Max(SkyMapState.CometBaseMagnitudeLimit, skyMap.EffectiveMagnitudeLimit);
             foreach (var m in skyMap.GetCometPositionsCached(comets, viewingUtc))

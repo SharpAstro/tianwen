@@ -4,7 +4,7 @@ Second-opinion lookups for the OpenNGC audit: NED, HyperLeda and Stellarium.
 WHY THIS EXISTS
 ---------------
 The audit resolved every name and identifier through SIMBAD alone, and the first upstream PR it
-produced (mattiaverga/OpenNGC#53, 18 findings) came back with **10 rejected**, nearly all on one
+produced (mattiaverga/OpenNGC#53, 18 findings) came back with **11 rejected** -- 10 of them on one
 sentence: *SIMBAD is wrong, NED and LEDA agree with each other.* A single source cannot tell a
 catalogue error from a disagreement between catalogues, and this audit was reporting the second as
 if it were the first.
@@ -192,7 +192,10 @@ def load_stellarium_names(cache_path=None):
                 continue
             line = stripped
             withdrawn = True
-        if '_("' not in line or len(line) < 21:
+        # No length test: the comment on _STELLARIUM_LINE explains why a column count is the wrong
+        # question here, and a leftover minimum is the same mistake in miniature. The delimiter is
+        # the only thing that decides whether this is a data line.
+        if '_("' not in line:
             continue
         m = _STELLARIUM_LINE.match(line)
         if not m:
@@ -207,12 +210,29 @@ def load_stellarium_names(cache_path=None):
     return names
 
 
+def source_keys(entry):
+    """The provenance keys on one names.dat entry, as a set. Empty when the row cites none."""
+    return {k.strip() for k in (entry.get('sources') or '').split(',') if k.strip()}
+
+
 def normalise_name(s):
     return re.sub(r'\s+', ' ', s).strip().casefold()
 
 
 def normalise_designation(s):
-    """'NGC  4490', 'NGC4490' and 'NGC 4490' are one designation; leading zeros too."""
+    """'NGC  4490', 'NGC4490' and 'NGC 4490' are one designation; leading zeros too.
+
+    KNOWN LIMITATION, and it biases toward CONFIRMED. Only NGC and IC are understood, so a
+    cross-catalogue alias compares as a DIFFERENT object: if Stellarium carries a name under
+    ``PGC 5678`` or ``M 8`` while OpenNGC carries it on the NGC/IC row for the same object, this
+    scores the two as disagreeing and the verdict comes out CONFIRMED on what is actually agreement.
+    About 40 percent of the live file's entries are non-NGC/IC designations (PGC 154, SH2 43, UGC 40,
+    ACO 35, B 32, ESO 27 and so on), so the exposure is real rather than theoretical.
+
+    Closing it needs a cross-identity table, which is the thing the audit is checking rather than
+    something it can assume; until then a CONFIRMED whose Stellarium designation is not NGC/IC is
+    worth a human glance, and the designation is printed in the detail column for exactly that.
+    """
     s = re.sub(r'\s+', '', s or '').upper()
     m = re.match(r'^(NGC|IC)0*(\d+)([A-Z]*)$', s)
     return f"{m.group(1)}{m.group(2)}{m.group(3)}" if m else s
@@ -278,8 +298,26 @@ def corroborate_common_name(name, openngc_row, stellarium):
     live = [e for e in entries if not e['withdrawn']]
     withdrawn_here = [e for e in entries if e['withdrawn'] and normalise_designation(e['designation']) == row]
 
-    if any(normalise_designation(e['designation']) == row for e in live):
+    agreeing = [e for e in live if normalise_designation(e['designation']) == row]
+    if agreeing:
+        # A DISPUTED backed only by OpenNGC's own lineage is not a second opinion. RNGCIC is the
+        # Revised NGC/IC, the catalogue OpenNGC derives from, so Stellarium agreeing with the row
+        # through it is the row agreeing with itself. 11 live entries are RNGCIC-only.
+        if all(source_keys(e) <= {'RNGCIC'} and source_keys(e) for e in agreeing):
+            return SIMBAD_ONLY, (
+                "Stellarium agrees with the row, but only on RNGCIC -- OpenNGC's own lineage, so not "
+                "an independent opinion")
         return DISPUTED, f"Stellarium also puts it on {openngc_row}"
+
+    # THE independence check, and the one the module's whole argument rests on: a CONFIRMED whose
+    # only Stellarium backing is the SIMBAD key is SIMBAD agreeing with SIMBAD, which is the exact
+    # circularity this file exists to remove. 157 of the live file's 1,400 entries are SIMBAD-only,
+    # so this is not a corner. The keys were already printed for a human to catch it; the BUCKET has
+    # to catch it too, or the report says "independently confirmed" about a single source.
+    if live and all(source_keys(e) == {'SIMBAD'} for e in live):
+        return SIMBAD_ONLY, (
+            "Stellarium places it elsewhere but cites SIMBAD as its only source, so this is SIMBAD "
+            "agreeing with itself rather than a second opinion")
 
     detail = "; ".join(
         f"Stellarium: {e['designation']}" + (f" [{e['sources']}]" if e['sources'] else "")
