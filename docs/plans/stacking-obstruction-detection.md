@@ -299,6 +299,35 @@ This is the sharpest argument in the plan for a detector that reads the FRAME ra
 session, and it also says where the cheap win is: **an ABSOLUTE floor costs nothing and catches the
 zero-star frames that a relative test cannot.** Registration's own quad match is the only thing
 standing between those frames and the integration today.
+
+### Before any of that: the two paths already disagree, and nothing says so
+
+Fix this first, because it is a live divergence rather than a missing feature. **`tianwen stack` and
+the dataset bake answer "is this frame fit to integrate" differently in four ways**, and the same
+session stacked both ways produces two different masters with nothing in either output saying which
+rule built it:
+
+| | `tianwen stack` | dataset bake |
+|---|---|---|
+| does the gate run | **no**, `StackingOptions.QualityRejectSigma` is null | yes, `DatasetBuildOptions.QualityRejectSigma` 3 |
+| reject cap | `FrameQualityFilter.DefaultMaxRejectFraction`, 0.20 | `QualityMaxRejectFraction`, 0.5 |
+| a frame with ZERO detected stars | **no check anywhere on this path** | `SessionFrameAnalyzer` drops it before the filter |
+
+The powerline session is the case in hand: six frames integrated by `stack`, all six dropped by the
+bake. The zero-star row is the sharpest, because it is not a threshold disagreement at all. A frame
+the detector found no stars in is unconditionally dropped on one path and unconditionally kept on
+the other.
+
+**None of this was decided.** The option's own doc says the null default "preserves the
+pre-this-feature behaviour", a compatibility default from the omnibus that introduced
+`FrameQualityFilter` ("stacking: Kabsch refinement + drizzle + SPCC + diagnostics omnibus", #8),
+never revisited. It is the divergence class CLAUDE.md warns about under one job, one tool: a seam
+with no file to review, where the two halves drift without anything failing.
+
+So the frame-admission rule wants ONE definition that both paths read, with the absolute floor in
+it, and a per-path override only where a real difference is intended and stated (the bake genuinely
+prefers purity over yield, which is what its 0.5 cap says). Doing that first also gives this plan's
+detector one place to land instead of two.
 - **`BAD_` is a reliable POSITIVE and nothing else.** It does not say why (the corpus holds dawn and
   saturation under the same prefix as roof), and absence of it does not mean clean: the 2022
   powerline frames carry no prefix at all, because the capture software of the day had no grading
