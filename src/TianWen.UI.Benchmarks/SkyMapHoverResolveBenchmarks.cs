@@ -36,13 +36,17 @@ namespace TianWen.UI.Benchmarks;
 /// was first measured, 16x since.</para>
 ///
 /// <para><b>What moved the star-field row from 389 us / 225 KB to 166 us / 27.6 KB</b> (1 degree,
-/// Release, win-arm64, 2026-09-20). Not the cell scan, which reads only 6x what it keeps: the star
+/// Release, win-arm64, 2026-09-20), and then to 157 us / 0 B (2026-09-21). Not the cell scan, which reads only 6x what it keeps: the star
 /// pass built a <see cref="TianWen.Lib.Astrometry.Catalogs.CelestialObject"/> for every one of ~1,100
 /// candidates, and each one named its constellation by precessing the star to B1875 through three
 /// heap arrays and decoded its base91 index through a string and a byte array -- for a hit test that
 /// reads RA, Dec and magnitude. The pass now reads a Tycho-2 candidate as the 17-byte entry it is
 /// (<c>TryGetTycho2Star</c>) and looks up only the winner in full; the precession and the decode are
-/// allocation-free for every caller. The 27.6 KB left is the nine cell lookups' lists.</para>
+/// allocation-free for every caller. The 27.6 KB left was the nine cell lookups' lists, plus a
+/// wrapper and an iterator per cell, and the 288 B on every other row was a boxed array enumerator
+/// per deep-sky cell: both passes now walk their cells through <c>IRaDecIndex.EnumerateCell</c>, a
+/// struct that scans the Tycho-2 regions as the caller advances, and the Allocated column reads
+/// "-" on every row. Time moved about 5 percent; the bytes were the point.</para>
 ///
 /// <para><b>What this benchmark cannot tell you</b>, and got written down wrong once: the ladder was
 /// first attributed to <see cref="SkyMapState.EffectiveMagnitudeLimit"/> widening as you zoom in.

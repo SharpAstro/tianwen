@@ -54,6 +54,19 @@ public sealed class RaDecIndex : IRaDecIndex
         }
     }
 
+    public RaDecCell EnumerateCell(double ra, double dec) => new RaDecCell(Cell(ra, dec));
+
+    /// <summary>
+    /// The merged per-cell array behind the indexer, or null for an empty cell or a NaN position.
+    /// The composite grid puts it in front of its Tycho-2 scan so one <see cref="RaDecCell"/> walks
+    /// both halves.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal CatalogIndex[]? Cell(double ra, double dec)
+    {
+        return TryGetIndex(ra, dec, out var raIdx, out var decIdx) ? (_merged ?? BuildMerged())[raIdx, decIdx] : null;
+    }
+
     /// <summary>
     /// Materialises <see cref="_merged"/> for every populated cell. Racing callers may each build
     /// one; the results are identical by construction and publication is a single reference write,

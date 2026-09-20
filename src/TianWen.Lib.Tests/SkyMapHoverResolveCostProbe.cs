@@ -56,7 +56,8 @@ namespace TianWen.Lib.Tests;
 /// each), five sixths of the time and seven eighths of the bytes; the nine composite cell lookups
 /// that fed it are 53 us and ~28 KB; the magnitude gate, projection and hit test are the ~16 us left
 /// (~45 at 1 degree, which is the whole of the magnitude term). Within the cell lookups,
-/// <c>Tycho2RaDecIndex.GetStarsInCell</c> reads only 6x what it keeps (6572 entries over 16 GSC
+/// the Tycho-2 cell scan (then <c>GetStarsInCell</c>, a list per cell; since 2026-09-21 the struct
+/// <c>RaDecCell.Enumerator</c>) reads only 6x what it keeps (6572 entries over 16 GSC
 /// regions for 1072 stars) and <c>Tyc2CatalogIndex</c> is 20 us of it. The over-scan and the index
 /// packing were both guessed at as the cause before this was measured, and both guesses were
 /// wrong -- which is the whole reason the splits below are printed separately.</item>
@@ -167,14 +168,14 @@ public class SkyMapHoverResolveCostProbe(ITestOutputHelper output)
         {
             foreach (var (probeRa, probeDec) in Probes())
             {
-                foreach (var _ in starGrid[probeRa, probeDec])
+                foreach (var _ in starGrid.EnumerateCell(probeRa, probeDec))
                 {
                 }
             }
         }
 
         output.WriteLine($"9 deep-sky lookups alone:  {TimeLookups(db, deepSky: true),8:F1} us");
-        output.WriteLine($"9 composite lookups alone: {TimeLookups(db, deepSky: false),8:F1} us   <- Tycho2RaDecIndex.GetStarsInCell");
+        output.WriteLine($"9 composite lookups alone: {TimeLookups(db, deepSky: false),8:F1} us   <- RaDecCell.Enumerator over the Tycho-2 regions");
         output.WriteLine("");
 
         // INSIDE that lookup: the cell box keeps a fraction of what the region scan reads, and the
@@ -196,13 +197,15 @@ public class SkyMapHoverResolveCostProbe(ITestOutputHelper output)
                 $"inside the 9 composite lookups: {regions} GSC regions, {scanned} entries READ, " +
                 $"{yielded} kept ({(scanned > 0 ? (double)scanned / Math.Max(yielded, 1) : 0):F0}x over-scan)");
 
-            // And how much of the composite's cost IS that scan: call the Tycho-2 cell lookup
-            // directly, with no CompositeRaDecIndex, no deep-sky half and no boxed enumerator.
+            // And how much of the composite's cost IS that scan: walk the Tycho-2 cell directly,
+            // with no CompositeRaDecIndex and no deep-sky half.
             for (var warm = 0; warm < 20; warm++)
             {
                 foreach (var (probeRa, probeDec) in Probes())
                 {
-                    tycho2.GetStarsInCell(probeRa, probeDec);
+                    foreach (var _ in tycho2.EnumerateCell(null, probeRa, probeDec))
+                    {
+                    }
                 }
             }
 
@@ -212,14 +215,16 @@ public class SkyMapHoverResolveCostProbe(ITestOutputHelper output)
             {
                 foreach (var (probeRa, probeDec) in Probes())
                 {
-                    tycho2.GetStarsInCell(probeRa, probeDec);
+                    foreach (var _ in tycho2.EnumerateCell(null, probeRa, probeDec))
+                    {
+                    }
                 }
             }
 
             swRaw.Stop();
             var rawUs = swRaw.Elapsed.TotalMicroseconds / M;
             output.WriteLine(
-                $"  of which GetStarsInCell x9 direct: {rawUs,8:F1} us " +
+                $"  of which the Tycho-2 cell scan x9 direct: {rawUs,8:F1} us " +
                 $"({rawUs * 1000.0 / Math.Max(scanned, 1),5:F1} ns per entry read)");
 
             // And of THAT, how much is building the CatalogIndex for each KEPT star. Tyc2CatalogIndex
@@ -439,7 +444,8 @@ public class SkyMapHoverResolveCostProbe(ITestOutputHelper output)
             var grid = deepSky ? db.DeepSkyCoordinateGrid : db.CoordinateGrid;
             foreach (var (probeRa, probeDec) in Probes())
             {
-                foreach (var _ in grid[probeRa, probeDec])
+                // EnumerateCell, as the resolver walks it since the cell lists went.
+                foreach (var _ in grid.EnumerateCell(probeRa, probeDec))
                 {
                 }
             }

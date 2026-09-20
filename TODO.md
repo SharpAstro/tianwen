@@ -164,12 +164,12 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     (`SkyMapHoverResolveBenchmarks`, Release, win-arm64). The first figures here came from a
     throwaway Debug probe and were wrong in two ways at once, which is why the benchmark exists.
     Before and after the fixes below:
-    | FOV | over an object | over bare star field, before | after |
-    |---|---|---|---|
-    | 1 deg | ~10 us, 288 B | **389 us, 225 KB** | **166 us, 27.6 KB** |
-    | 10 deg | ~10 us, 288 B | **357 us, 225 KB** | **139 us, 27.6 KB** |
-    | 60 deg | ~10 us, 288 B | 1.7 us, 288 B | 1.8 us, 288 B |
-    | 170 deg | ~10 us, 288 B | 1.6 us, 288 B | 1.7 us, 288 B |
+    | FOV | over an object | over bare star field, before | after 2026-09-20 | after 2026-09-21 |
+    |---|---|---|---|---|
+    | 1 deg | ~10 us, 288 B -> 9 us, 0 B | **389 us, 225 KB** | **166 us, 27.6 KB** | **157 us, 0 B** |
+    | 10 deg | ~10 us, 288 B -> 9 us, 0 B | **357 us, 225 KB** | **139 us, 27.6 KB** | **134 us, 0 B** |
+    | 60 deg | ~10 us, 288 B -> 9 us, 0 B | 1.7 us, 288 B | 1.8 us, 288 B | 1.7 us, 0 B |
+    | 170 deg | ~10 us, 288 B -> 9 us, 0 B | 1.6 us, 288 B | 1.7 us, 288 B | 1.6 us, 0 B |
     **The two paths differ by 16x** (44x before), because the DSO pass runs first and the star pass
     NEVER RUNS when it matches -- so resting on a catalogued object is cheap at any zoom and only
     bare sky pays. The old single number blended them.
@@ -209,9 +209,26 @@ Checks that only a real device or a real night can answer live in ONE place, ind
       `TryGetTycho2Star` (the 17-byte entry as a struct, 76 ns / 0 B) and looks up only the WINNER
       in full, which takes the constellation out of the resolve altogether.
       `Tycho2LiteLookupParityTests` walks every cell of the composite grid to pin that the two
-      lookups read the same star (type, position, magnitude at Half width). What remains of the
-      27.6 KB is the nine cell lookups' `List` per cell and the composite's iterator; it is 1.7 MB/s
-      at 60 fps and not worth a pooled buffer yet.
+      lookups read the same star (type, position, magnitude at Half width).
+    - **Fixed 2026-09-21, the last 27.6 KB and the 288 B:** the nine cell lookups built a `List` of
+      each cell's Tycho-2 stars (grown by doubling), a wrapper, a compiler iterator and a boxed array
+      enumerator per cell. `IRaDecIndex.EnumerateCell` returns `RaDecCell`, a struct whose enumerator
+      scans the same GSC regions with the same cell-box test as the caller advances; both resolver
+      passes, the plate solver's region sweep and `CatalogStarCounter` walk cells through it, the
+      indexer's own composite collection runs the same scan (its `CopyTo` used to throw, so
+      `[.. grid[ra, dec]]` was a runtime error), and `CelestialObjectDB.CoordinateGrid` is cached
+      instead of built per read. Time moved 5 percent (166 to 157 us at 1 degree); the point is the
+      bytes, 1.7 MB/s of Gen0 at 60 fps to none, and one thing less to reason about on a per-frame
+      path. `RaDecIndexBenchmarks` over 1000 random cells: composite enumerate 3,505 us / 208 KB to
+      3,279 us / 0 B, deep-sky-only 21.3 us / 32 KB to 11.1 us / 0 B (the boxed enumerator was half
+      of that one). `RaDecCellEnumerationTests` holds struct and indexer equal for every cell of the
+      sky against every catalogue star bucketed into its box independently, asserts the nine-cell
+      walk at 0 B after showing the indexer's walk allocates, and found two facts about the blob
+      nothing had pinned: 254 identifiers in it twice (Supplement 1 re-listing main-catalogue stars)
+      and one unaddressable star (component 4 in a two-bit field), both in
+      `docs/known-limitations.md` and `docs/todo/astrometry.md`, both pinned at their exact counts
+      so a re-bake moves them on purpose. The parity test had skipped them with a silent `continue`;
+      it now counts and pins its skips too.
     - **Two earlier versions of this entry were wrong.** The first named `GetStarsInCell` as the
       cost and the allocation (it stopped measuring one level too early). The second put
       `TryLookupByIndex` at "~905 ns, three to four times the cell lookups" and explained the
