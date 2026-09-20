@@ -190,6 +190,37 @@ internal sealed class Tycho2RaDecIndex
         }
     }
 
+    /// <summary>
+    /// How much work <see cref="GetStarsInCell"/> does for one cell, for a diagnostic probe: the
+    /// overlapping regions, the entries their linear scan READS, and the stars the cell box keeps.
+    /// The ratio between the last two is the whole question about this method, and a caller cannot
+    /// see it -- the scan is inside, and only the kept list comes out.
+    /// </summary>
+    internal (int Regions, int EntriesScanned, int Yielded) DescribeCellScan(double ra, double dec)
+    {
+        var regions = GetOverlappingRegions(ra, dec);
+        if (regions is null)
+        {
+            return (0, 0, 0);
+        }
+
+        const int entrySize = 17;
+        var scanned = 0;
+        foreach (var tyc1 in regions)
+        {
+            var gscIdx = tyc1 - 1;
+            if (gscIdx < 0 || gscIdx >= _streamCount)
+            {
+                continue;
+            }
+
+            GetRegionOffsets(gscIdx, out var startOffset, out var endOffset);
+            scanned += (endOffset - startOffset) / entrySize;
+        }
+
+        return (regions.Count, scanned, GetStarsInCell(ra, dec).Count);
+    }
+
     internal List<CatalogIndex> GetStarsInCell(double ra, double dec)
     {
         var result = new List<CatalogIndex>();
