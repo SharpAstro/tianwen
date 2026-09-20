@@ -898,21 +898,26 @@ public static class SkyMapSearchActions
         }
 
         // Comets (also ephemeris-computed, not in the spatial grids); same hit-test as planets, over the
-        // live comet marker cache filtered to the same zoom-aware magnitude limit the renderer draws with.
+        // live comet marker cache, admitting exactly the markers the renderer DRAWS.
         //
-        // Gated on the [E] LAYER, which it was not: SkyMapTab draws comets only when ShowComets is on,
-        // so without this an undrawn comet stayed selectable through apparently-empty sky -- the exact
-        // sentence IsDsoLayerClickable's doc states, left unapplied one paragraph down. It mattered
-        // little while the only consequence was a click; the hover highlight paints a wash there, so a
-        // switched-off comet would light up empty sky.
+        // That is SkyMapState.ShouldDrawCometMarker -- the [E] layer and the zoom-aware magnitude
+        // limit, both bypassed by a pin -- asked here as the one rule rather than restated. This pass
+        // has been wrong both ways: first gated on nothing, so a switched-off comet stayed selectable
+        // through apparently-empty sky (the sentence IsDsoLayerClickable's doc states, left unapplied
+        // one paragraph down), which the hover wash would have lit up; then gated on the layer and the
+        // limit with no pinned exception, so a pinned comet drawn as a landmark with [E] off, or fainter
+        // than the limit, answered nothing to a click and took no wash. A rule the draw and the resolve
+        // each write out is how the two come to disagree; pinned by
+        // APinnedCometResolvesWhereAnUnpinnedOneIsNotDrawn.
         var bestCometDistSq = double.MaxValue;
         SkyMapState.CometMarker? bestComet = null;
-        if (comets is not null && skyMap.ShowComets)
+        if (comets is not null)
         {
             var cometLimit = Math.Max(SkyMapState.CometBaseMagnitudeLimit, skyMap.EffectiveMagnitudeLimit);
             foreach (var m in skyMap.GetCometPositionsCached(comets, viewingUtc))
             {
-                if (m.VMag > cometLimit) continue;
+                var isPinned = pinnedCatalogIndices is not null && pinnedCatalogIndices.Contains(m.Index);
+                if (!SkyMapState.ShouldDrawCometMarker(skyMap.ShowComets, isPinned, m.VMag, cometLimit)) continue;
                 if (!SkyMapProjection.ProjectWithMatrix(m.RA, m.Dec, viewMatrix, pixelsPerRadian, centerX, centerY,
                         out var sx, out var sy))
                 {

@@ -493,6 +493,51 @@ public class SkyMapHoverAndPictureTests
     }
 
     // Two objects in one cell, one of which may carry a verified article with a picture.
+    // A pinned comet is DRAWN with its layer off and below the magnitude limit
+    // (SkyMapState.ShouldDrawCometMarker: a planned target is a landmark, and a comet's predicted
+    // magnitude is the least reliable number on the map). The resolver has to answer the same rule, or
+    // the landmark on screen answers nothing to a click and lights no wash -- which is what the comet
+    // pass did once it was gated on the layer and the limit with no pinned exception. The unpinned
+    // half is the gate itself: an undrawn comet must not be selectable through apparently-empty sky.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void APinnedCometResolvesWhereAnUnpinnedOneIsNotDrawn(bool layerOn)
+    {
+        // The stub's placeholder orbit sits years past a 2023 perihelion, so at this instant the comet
+        // is far out and FAINT: with the layer ON the only thing hiding it is the magnitude gate, and
+        // with it OFF the layer gate. It must still be a CANDIDATE (SkyMapState's candidacy filter is
+        // on peak brightness, M1 + K1 log q, not on the current magnitude), so M1 stays modest.
+        var faint = StubCometRepository.Comet("10P", "Tempel") with { AbsoluteMagnitudeM1 = 12.0 };
+        var comets = new StubCometRepository(faint);
+        var db = new ArticleDb(Nebula, Star, NebulaShape);
+        var viewingUtc = new DateTimeOffset(2026, 6, 21, 22, 0, 0, TimeSpan.Zero);
+
+        var state = NewState();
+        state.ShowComets = layerOn;
+        var markers = state.GetCometPositionsCached(comets, viewingUtc);
+        markers.Length.ShouldBe(1);
+        var comet = markers[0];
+        // The premise, asserted rather than assumed: the comet IS fainter than the limit in force.
+        var limit = Math.Max(SkyMapState.CometBaseMagnitudeLimit, state.EffectiveMagnitudeLimit);
+        comet.VMag.ShouldBeGreaterThan(limit);
+
+        // Centre the view on the comet so its marker sits at the middle of the surface.
+        state.CenterRA = comet.RA;
+        state.CenterDec = comet.Dec;
+        state.CurrentViewMatrix = state.ComputeViewMatrix();
+        var (x, y) = Project(state, comet.RA, comet.Dec);
+
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, viewingUtc, x, y, pinnedCatalogIndices: null, comets)
+            .ShouldBeNull();
+
+        var pinned = new HashSet<CatalogIndex> { comet.Index };
+        var hit = SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, viewingUtc, x, y, pinned, comets)
+            .ShouldNotBeNull();
+        hit.Index.ShouldBe(comet.Index);
+        hit.IsEphemeris.ShouldBeTrue();
+    }
+
     private sealed class ArticleDb(
         CelestialObject nebula, CelestialObject star, CelestialObjectShape nebulaShape,
         CatalogIndex withPicture = default) : ICelestialObjectDB

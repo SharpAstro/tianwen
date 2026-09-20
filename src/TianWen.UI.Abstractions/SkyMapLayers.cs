@@ -87,8 +87,9 @@ namespace TianWen.UI.Abstractions
             new SkyMapLayer("Objects", "O", InputKey.O,
                 static s => s.ShowObjectOverlay, static (s, v) => s.ShowObjectOverlay = v),
             // A sub-setting of the row above, not a layer: it draws nothing, it only narrows what
-            // [O] and [D] already admit, so it is unavailable (drawn dimmed, and its key stays
-            // unhandled) while the object overlay is off, where there would be nothing to narrow.
+            // [O] admits (not [D], which is its own layer -- OverlayEngine.PassesLayerFilter says
+            // why), so it is unavailable (drawn dimmed, and its key stays unhandled) while the
+            // object overlay is off, where there would be nothing to narrow.
             // The indent is two spaces in the LABEL because DIR.Lib's PaletteItem has no nesting and
             // adding one would be a sibling release for a visual hint; revisit if a second
             // sub-setting ever appears.
