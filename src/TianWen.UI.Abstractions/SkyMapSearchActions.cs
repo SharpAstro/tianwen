@@ -9,6 +9,7 @@ using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Sequencing;
+using TianWen.UI.Abstractions.Overlays;
 
 namespace TianWen.UI.Abstractions;
 
@@ -550,6 +551,32 @@ public static class SkyMapSearchActions
     }
 
     /// <summary>
+    /// What kind of thing a resolved sky-map hit is, which decides how the info panel is built:
+    /// a catalogue entry is looked up, a planet and a comet are ephemeris positions at the
+    /// viewing instant and carry their own coordinates.
+    /// </summary>
+    public enum SkyMapHitKind
+    {
+        Catalog,
+        Planet,
+        Comet,
+    }
+
+    /// <summary>
+    /// One resolved hit: which object the pointer is over, where it is, and the screen radius that
+    /// claimed it. The intermediate form <see cref="SelectObjectByClick"/> turns into an info panel
+    /// and <see cref="ResolveHoverAtScreenPoint"/> turns into a highlight.
+    /// </summary>
+    /// <remarks>
+    /// It exists so the highlight and the click cannot disagree about what is under the cursor.
+    /// They are two consumers of one search rather than two hit tests that happen to be written the
+    /// same way, which is the failure the hover highlight would otherwise introduce: a wash over one
+    /// object and a panel about another is worse than no wash at all.
+    /// </remarks>
+    public readonly record struct ResolvedHit(
+        SkyMapHitKind Kind, CatalogIndex Index, double RA, double Dec, float HitRadiusPx, double VMag);
+
+    /// <summary>
     /// Click on the sky map: project the click back to RA/Dec, find the nearest
     /// catalog object within <see cref="ClickToleranceScreenPx"/>, populate the
     /// info panel. Returns true when an object was matched. DSOs are preferred
@@ -576,6 +603,96 @@ public static class SkyMapSearchActions
         IReadOnlySet<CatalogIndex>? pinnedCatalogIndices = null,
         ICometRepository? comets = null)
     {
+        if (!TryResolveHit(skyMap, db, viewingUtc, clickScreenX, clickScreenY, viewMatrix,
+                pixelsPerRadian, centerX, centerY, preferPointSource, pinnedCatalogIndices, comets,
+                out var resolved))
+        {
+            return false;
+        }
+
+        switch (resolved.Kind)
+        {
+            case SkyMapHitKind.Comet when comets is not null:
+                search.InfoPanel = CometInfoPanel(
+                    comets, resolved.Index, resolved.RA, resolved.Dec, (float)resolved.VMag,
+                    siteLat, siteLon, viewingUtc, site);
+                return true;
+
+            case SkyMapHitKind.Planet:
+                search.InfoPanel = PlanetInfoPanel(
+                    db, resolved.Index, resolved.RA, resolved.Dec, siteLat, siteLon, viewingUtc, site);
+                return true;
+
+            default:
+                if (!db.TryLookupByIndex(resolved.Index, out var obj))
+                {
+                    return false;
+                }
+
+                search.InfoPanel = SkyMapInfoPanelData.FromCatalogObject(
+                    obj, siteLat, siteLon, viewingUtc, site,
+                    ResolveShape(db, resolved.Index), db);
+                return true;
+        }
+    }
+
+    /// <summary>
+    /// What a click at <paramref name="screenX"/> / <paramref name="screenY"/> would select, or null
+    /// over empty sky. The hover highlight's whole implementation: it runs
+    /// <see cref="TryResolveHit"/> -- the identical search a click runs -- and keeps the geometry
+    /// rather than opening a panel.
+    /// </summary>
+    /// <remarks>
+    /// Ctrl is deliberately NOT honoured here. The modifier is read at the moment of the click and a
+    /// hover carries no press, so a highlight that guessed at it would be wrong exactly when the
+    /// user is holding Ctrl to pick a star out of a nebula -- the one case where knowing what the
+    /// click will take matters most. The plain answer is the honest one to show.
+    /// </remarks>
+    public static SkyMapHoverTarget? ResolveHoverAtScreenPoint(
+        SkyMapState skyMap,
+        ICelestialObjectDB db,
+        DateTimeOffset viewingUtc,
+        float screenX, float screenY,
+        ImmutableArray<ProposedObservation> proposals,
+        ICometRepository? comets = null)
+    {
+        var rect = skyMap.LastContentRect;
+        if (rect.Width <= 0 || rect.Height <= 0
+            || screenX < rect.X || screenX >= rect.X + rect.Width
+            || screenY < rect.Y || screenY >= rect.Y + rect.Height)
+        {
+            return null;
+        }
+
+        var ppr = SkyMapProjection.PixelsPerRadian(rect.Height, skyMap.FieldOfViewDeg);
+        var cx = rect.X + rect.Width * 0.5f;
+        var cy = rect.Y + rect.Height * 0.5f;
+
+        if (!TryResolveHit(skyMap, db, viewingUtc, screenX, screenY, skyMap.CurrentViewMatrix,
+                ppr, cx, cy, preferPointSource: false,
+                PlannerActions.GetPinnedCatalogIndices(proposals), comets, out var hit))
+        {
+            return null;
+        }
+
+        return new SkyMapHoverTarget(
+            hit.Index, hit.RA, hit.Dec, hit.HitRadiusPx, hit.Kind != SkyMapHitKind.Catalog);
+    }
+
+    /// <inheritdoc cref="SelectObjectByClick"/>
+    private static bool TryResolveHit(
+        SkyMapState skyMap,
+        ICelestialObjectDB db,
+        DateTimeOffset viewingUtc,
+        float clickScreenX, float clickScreenY,
+        in Matrix4x4 viewMatrix,
+        double pixelsPerRadian, float centerX, float centerY,
+        bool preferPointSource,
+        IReadOnlySet<CatalogIndex>? pinnedCatalogIndices,
+        ICometRepository? comets,
+        out ResolvedHit resolved)
+    {
+        resolved = default;
         var (clickRa, clickDec) = SkyMapProjection.UnprojectWithMatrix(
             clickScreenX, clickScreenY, viewMatrix, pixelsPerRadian, centerX, centerY);
 
@@ -605,6 +722,9 @@ public static class SkyMapSearchActions
         // over the surrounding extended shape.
         CatalogIndex? bestDsoIdx = null;
         var bestDsoDistSq = double.MaxValue;
+        // The radius that CLAIMED the winner, carried out with it so the hover wash can be drawn at
+        // the size of the region that actually resolves to this object rather than at a constant.
+        var bestRadiusPx = (float)ClickToleranceScreenPx;
         var seenDso = new HashSet<CatalogIndex>();
         foreach (var (probeRa, probeDec) in probes)
         {
@@ -619,7 +739,7 @@ public static class SkyMapSearchActions
                 // layer, all other catalog objects follow the [O] layer, and pinned planner
                 // targets stay clickable as landmarks regardless of layer state. Without this a
                 // hidden object stays selectable by a click on apparently-empty sky.
-                if (!IsDsoLayerClickable(o.ObjectType, o.Index, idx, skyMap, pinnedCatalogIndices))
+                if (!IsDsoLayerClickable(o.ObjectType, o.Index, idx, skyMap, db, pinnedCatalogIndices))
                 {
                     continue;
                 }
@@ -656,6 +776,7 @@ public static class SkyMapSearchActions
                 {
                     bestDsoDistSq = distSq;
                     bestDsoIdx = idx;
+                    bestRadiusPx = (float)hitRadiusPx;
                 }
             }
         }
@@ -696,7 +817,7 @@ public static class SkyMapSearchActions
                     {
                         if (!float.IsNaN(vMag) && vMag > magLimit) continue;
                     }
-                    else if (!IsDsoLayerClickable(o.ObjectType, o.Index, idx, skyMap, pinnedCatalogIndices))
+                    else if (!IsDsoLayerClickable(o.ObjectType, o.Index, idx, skyMap, db, pinnedCatalogIndices))
                     {
                         continue;
                     }
@@ -718,6 +839,7 @@ public static class SkyMapSearchActions
                     {
                         bestDistSq = distSq;
                         bestIdx = idx;
+                        bestRadiusPx = hitRadius;
                     }
                 }
             }
@@ -786,47 +908,54 @@ public static class SkyMapSearchActions
 
         if (bestComet is { } cm && bestCometDistSq <= catalogDistSq && bestCometDistSq <= bestPlanetDistSq && comets is not null)
         {
-            search.InfoPanel = CometInfoPanel(comets, cm.Index, cm.RA, cm.Dec, cm.VMag, siteLat, siteLon, viewingUtc, site);
+            resolved = new ResolvedHit(
+                SkyMapHitKind.Comet, cm.Index, cm.RA, cm.Dec, ClickToleranceScreenPx, cm.VMag);
             return true;
         }
 
         if (bestPlanetIdx is { } pIdx && bestPlanetDistSq <= catalogDistSq)
         {
-            search.InfoPanel = PlanetInfoPanel(db, pIdx, bestPlanetRa, bestPlanetDec, siteLat, siteLon, viewingUtc, site);
+            resolved = new ResolvedHit(
+                SkyMapHitKind.Planet, pIdx, bestPlanetRa, bestPlanetDec, ClickToleranceScreenPx, double.NaN);
             return true;
         }
 
-        if (bestIdx is not { } hit || !db.TryLookupByIndex(hit, out var obj))
+        if (bestIdx is not { } hit || !db.TryLookupByIndex(hit, out var hitObj))
         {
             return false;
         }
 
-        search.InfoPanel = SkyMapInfoPanelData.FromCatalogObject(
-            obj, siteLat, siteLon, viewingUtc, site,
-            ResolveShape(db, hit), db);
+        resolved = new ResolvedHit(
+            SkyMapHitKind.Catalog, hit, hitObj.RA, hitObj.Dec, bestRadiusPx, (double)hitObj.V_Mag);
         return true;
     }
 
     /// <summary>
-    /// Whether a deep-sky object is currently selectable by a sky-map click, given the
-    /// per-layer visibility toggles. Mirrors the render-side filter in
-    /// <c>OverlayEngine.GatherSkyMapOverlayCandidates</c>: dark nebulae follow the [D] layer
-    /// (<see cref="SkyMapState.ShowDarkNebulae"/>), every other catalog object follows the [O]
-    /// layer (<see cref="SkyMapState.ShowObjectOverlay"/>), and pinned planner targets are
-    /// always clickable (they render as landmarks even when the layer is off).
+    /// Whether a deep-sky object is currently selectable by a sky-map click, given the per-layer
+    /// visibility toggles. It asks <see cref="OverlayEngine.PassesLayerFilter"/> -- the same
+    /// predicate the render-side gather applies -- so a hidden object can never stay selectable
+    /// through apparently-empty sky, and a filter added to one side cannot be forgotten on the
+    /// other. All this adds is resolving the two inputs the predicate cannot see from here: whether
+    /// the object is pinned (under its own index, the grid key we entered on, or a cross-index) and
+    /// whether the bake verified a picture for it.
     /// </summary>
     private static bool IsDsoLayerClickable(
         ObjectType objectType, CatalogIndex objIndex, CatalogIndex gridIndex,
-        SkyMapState skyMap, IReadOnlySet<CatalogIndex>? pinnedCatalogIndices)
+        SkyMapState skyMap, ICelestialObjectDB db, IReadOnlySet<CatalogIndex>? pinnedCatalogIndices)
     {
-        if (pinnedCatalogIndices is not null
+        var isPinned = pinnedCatalogIndices is not null
             && ((objIndex != default && pinnedCatalogIndices.Contains(objIndex))
-                || pinnedCatalogIndices.Contains(gridIndex)))
-        {
-            return true;
-        }
+                || pinnedCatalogIndices.Contains(gridIndex));
 
-        return objectType == ObjectType.DarkNeb ? skyMap.ShowDarkNebulae : skyMap.ShowObjectOverlay;
+        // Asked only when it can change the answer: the picture table is a dictionary lookup, but
+        // this runs for every object in a 3x3 cell window on every pointer move once hover is live.
+        var hasPicture = !isPinned && skyMap.ShowOnlyObjectsWithPicture
+            && (OverlayEngine.HasVerifiedPicture(db, gridIndex)
+                || (objIndex != default && OverlayEngine.HasVerifiedPicture(db, objIndex)));
+
+        return OverlayEngine.PassesLayerFilter(
+            objectType, isPinned, hasPicture,
+            skyMap.ShowObjectOverlay, skyMap.ShowDarkNebulae, skyMap.ShowOnlyObjectsWithPicture);
     }
 
     /// <summary>

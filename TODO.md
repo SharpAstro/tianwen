@@ -139,6 +139,50 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   [docs/plans/in-app-sky-atlas.md](docs/plans/in-app-sky-atlas.md), "Deferred from the 2026-09-10
   sitting".
 
+- [x] **The sky atlas says what a click would take, and can narrow itself to objects it has a photo
+  of** (raised and SHIPPED 2026-09-20). Two halves of one complaint, from the user's notes 2026-09-19
+  plus the long-unmatched 2026-06-08 self-note *"sky atlas bug: obj selection"* -- which this turns
+  out to be, the user's own reading being *"probably fixed by supporting mouse-over highlighting"*.
+  **It does NOT reopen the click-over-hover choice above**: that settled which gesture SELECTS, and
+  the click still does; this is the question it left open, that on a field of overlapping markers
+  nothing told you which object the press would land on, so finding out meant clicking and reading
+  the panel.
+  - **Hover draws a translucent wash under that object** (`SkyMapState.HoverTarget`,
+    `SkyMapTab.Hover.cs`), and the load-bearing property is that the wash and the click come from
+    **ONE resolver**: `SelectObjectByClick` was split into `TryResolveHit` plus a panel build, and
+    `ResolveHoverAtScreenPoint` is the second consumer. Two hit tests written the same way is exactly
+    how a wash over one object and a panel about another happens, which is worse than no wash. Ctrl
+    is deliberately not honoured by the hover -- the modifier is read at the press and a hover has
+    none, so guessing would be wrong precisely when the user is holding Ctrl to pick a star out of a
+    nebula.
+  - **One `FillEllipse` and nothing else.** All three renderers implement it natively (Vulkan and
+    WebGL as one distance-field quad), so no instance stream, no cache key, no shader, no sibling
+    release. Drawn FIRST of the annotation layers, which is what makes a pointer resting over the
+    search modal or the layer palette harmless without any of them claiming the pointer: the sky
+    behind resolves, and the wash is painted under the panel covering it.
+  - **At most one resolve per painted frame, and that bound was measured rather than assumed.**
+    Against the real catalogue at a Sagittarius pointing, 400 resolves per sample: **2.048 ms at 1
+    degree FOV, 0.889 at 10, 0.018 at 60, 0.012 at 170.** The cost is the STAR pass -- zoomed in,
+    `EffectiveMagnitudeLimit` admits most of Tycho-2 in the 3x3 cell window -- so it is worst exactly
+    where a user sits picking a target out of a crowded field. Per MOVE that is a quarter of a core
+    at 1 degree; per frame it is 12% of a 60 fps budget there and nothing past 60 degrees. The click
+    has always paid the same 2 ms, once per press, where nobody can see it. Every resolve asks for
+    the frame, even one that landed on the same object: the budget is released by a PAINT, so a
+    resolve that scheduled none would be the last one until something else repainted.
+  - **"Only with photo" is a SUB-SETTING of [O], not a layer** (key `I`, indented under "Objects" in
+    the palette, unavailable while [O] is off): it draws nothing, it only narrows. It goes through
+    **one predicate asked by three callers** -- `OverlayEngine.PassesLayerFilter`, for the desktop's
+    background gather, the browser / offline primitive path AND the click gate, the last of which
+    must agree or a filtered-out object stays selectable through apparently-empty sky. The first two
+    were already two hand-maintained copies of the [O]/[D] rule. It narrows the dark-nebula layer
+    too, deliberately, and a pinned target survives it as it survives every other filter there.
+  - **It is in BOTH gather cache keys** (`PrimOverlayKey`, `OverlayGatherKey`), because it strips the
+    CACHED candidate list: without that, switching it on keeps serving the list gathered before it
+    and switching it off never brings the objects back.
+  - Pinned by `SkyMapHoverAndPictureTests` (17), including a CPU-surface render test that the wash
+    reaches the pixels, and four of them were seen to FAIL with each rule removed in turn.
+    [docs/todo/ui.md](docs/todo/ui.md) § Sky Map.
+
 - [x] **Declutter the docked info strip** (SHIPPED 2026-09-11). Statistics roll up to their heading by
   default and, open, are a five-row TABLE at measured column stops instead of thirteen space-padded
   lines that a proportional face could not align; the white balance is gone from the strip and lives

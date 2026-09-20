@@ -56,6 +56,11 @@ namespace TianWen.UI.Abstractions
         // GetTimestamp() is a cheap stopwatch read; GetUtcNow() is a heavier system call.
         private DateTimeOffset _cachedLiveTime;
         private long _liveTimeRefreshTicks;
+
+        // The instant the last frame DREW. Input arrives between frames, so this is the instant the
+        // hover resolver has to hit-test against: a planet's marker is where the last frame put it,
+        // and re-deriving the instant in the input path would test against a different one.
+        private DateTimeOffset _lastViewingTime;
         private float _contentHeight;
         private float _contentX;
         private float _contentY;
@@ -226,6 +231,7 @@ namespace TianWen.UI.Abstractions
             // here never recomputes the planner.
             var baseTime = plannerState.PlanningDate?.ToUniversalTime() ?? liveTime;
             var viewingTime = baseTime + State.TimeOffset;
+            _lastViewingTime = viewingTime;
 
             // Initialize view to zenith on first valid site, or re-center on profile switch
             var site = SiteContext.Create(siteLat, siteLon, viewingTime);
@@ -297,6 +303,12 @@ namespace TianWen.UI.Abstractions
                 DrawConstellationNames(contentRect, fontSize * 0.85f, ppr, cx, cy, site, dimBelowHorizon);
                 ConstellationNameMs += LayerElapsed(ref layerMark);
             }
+
+            // The hover wash goes FIRST of the point annotations, so every marker and label it names
+            // draws on top of it -- and so does the chrome, which is what makes a pointer resting on
+            // the search modal or the layer palette harmless: the sky behind them still resolves, and
+            // the wash is then painted under the panel that covers it. See SkyMapTab.Hover.cs.
+            DrawHoverSpot(contentRect, ppr, cx, cy);
 
             DrawPlanetLabels(db, viewingTime, siteLat, siteLon, contentRect, fontSize, ppr, cx, cy, site, dimBelowHorizon);
             PlanetLabelMs += LayerElapsed(ref layerMark);
@@ -1391,10 +1403,28 @@ namespace TianWen.UI.Abstractions
         /// registered region never reaches the tab's own mouse-down path at all.
         /// </summary>
         private bool HandleMouseMove(float x, float y)
+        {
             // While the grip has the pointer the move belongs to the palette, and the map never sees
             // it -- so a palette drag cannot also pan the sky underneath it.
-            => TrackPalettePointer(x, y)
-               || (State.IsDragging && !State.IsPinching && HandleDrag(x, y));
+            if (TrackPalettePointer(x, y))
+            {
+                ClearHoverTarget();
+                return true;
+            }
+
+            // A drag is moving the sky, not inspecting it: the object under the cursor changes with
+            // every frame of it and the answer would be stale before it was drawn.
+            if (State.IsDragging && !State.IsPinching)
+            {
+                ClearHoverTarget();
+                return HandleDrag(x, y);
+            }
+
+            // Hover NEVER consumes the move -- it is something the map notices on the way past, so a
+            // host with its own use for the position still gets it.
+            TrackHoverPointer(x, y);
+            return false;
+        }
 
         /// <summary>
         /// Records where the pointer is for the palette and advances a grip drag if one is running.
@@ -1676,14 +1706,14 @@ namespace TianWen.UI.Abstractions
                     CollapsePicture();
                     return true;
 
-                // Every layer toggle (G / A / H / C / B / S / O / D / E / M) resolves through the one
+                // Every layer toggle (G / A / H / C / B / S / O / I / D / E / M) resolves through the one
                 // table the palette also renders, so a layer cannot reach the keyboard and not the
                 // panel. TryToggleByKey answers false for a key no layer claims AND for one whose
                 // layer is unavailable, which is what preserves the old `case InputKey.S when
                 // State.MilkyWayAvailable` behaviour: with no texture the press stays unhandled and
                 // goes on to whatever else wants it, rather than being silently swallowed here.
                 case InputKey.G or InputKey.A or InputKey.H or InputKey.C or InputKey.B
-                    or InputKey.S or InputKey.O or InputKey.D or InputKey.E or InputKey.M
+                    or InputKey.S or InputKey.O or InputKey.I or InputKey.D or InputKey.E or InputKey.M
                     when SkyMapLayers.TryToggleByKey(State, key):
                     return true;
 

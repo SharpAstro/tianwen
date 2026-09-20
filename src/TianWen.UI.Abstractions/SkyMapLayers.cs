@@ -8,7 +8,7 @@ namespace TianWen.UI.Abstractions
     /// One toggleable layer of the sky map: what it is called, the key that flips it, and how to
     /// read and write it on <see cref="SkyMapState"/>.
     /// </summary>
-    /// <param name="Label">Palette text. Short, because ten of them stack into a narrow panel.</param>
+    /// <param name="Label">Palette text. Short, because eleven of them stack into a narrow panel.</param>
     /// <param name="KeyLabel">The key as the palette prints it, so the panel doubles as the legend.</param>
     /// <param name="Key">The key that toggles it.</param>
     /// <param name="IsOn">Reads the layer's flag.</param>
@@ -86,6 +86,15 @@ namespace TianWen.UI.Abstractions
                 static s => s.MilkyWayAvailable),
             new SkyMapLayer("Objects", "O", InputKey.O,
                 static s => s.ShowObjectOverlay, static (s, v) => s.ShowObjectOverlay = v),
+            // A sub-setting of the row above, not a layer: it draws nothing, it only narrows what
+            // [O] and [D] already admit, so it is unavailable (drawn dimmed, and its key stays
+            // unhandled) while the object overlay is off, where there would be nothing to narrow.
+            // The indent is two spaces in the LABEL because DIR.Lib's PaletteItem has no nesting and
+            // adding one would be a sibling release for a visual hint; revisit if a second
+            // sub-setting ever appears.
+            new SkyMapLayer("  Only with photo", "I", InputKey.I,
+                static s => s.ShowOnlyObjectsWithPicture, static (s, v) => s.ShowOnlyObjectsWithPicture = v,
+                static s => s.ShowObjectOverlay),
             new SkyMapLayer("Dark nebulae", "D", InputKey.D,
                 static s => s.ShowDarkNebulae, static (s, v) => s.ShowDarkNebulae = v),
             new SkyMapLayer("Comets", "E", InputKey.E,

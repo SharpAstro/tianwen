@@ -362,6 +362,36 @@ public static class OverlayEngine
     public const float PinnedHaloStrokePx = 3f;
 
     /// <summary>
+    /// The HOVER spot's radius bounds, in screen pixels before the dpi scale. The spot is drawn at
+    /// the hit radius the resolver actually used, clamped between these two: below the floor a
+    /// point source's own radius is smaller than the cursor and the spot would be invisible under
+    /// it, above the ceiling a frame-filling nebula's hit radius would wash the whole view.
+    /// </summary>
+    /// <remarks>
+    /// Clamping means the spot stops being a literal picture of the hit region for the largest and
+    /// smallest objects, which is the right trade: it is there to say WHICH object a click would
+    /// take, and the answer is the same whatever size the wash is drawn at. What it must never do
+    /// is disagree with the click about the object itself, which is why both come from one resolver
+    /// (<c>SkyMapSearchActions.TryResolveHit</c>) rather than from two hit tests.
+    /// </remarks>
+    public const float HoverSpotMinRadiusPx = 9f;
+
+    /// <inheritdoc cref="HoverSpotMinRadiusPx"/>
+    public const float HoverSpotMaxRadiusPx = 36f;
+
+    /// <summary>
+    /// The hover spot's colour: the map's own selection yellow at a low alpha, so the wash reads as
+    /// the same family as the selection reticle that a click turns it into, and is distinguishable
+    /// from the orange pinned halo it can sit under.
+    /// </summary>
+    /// <remarks>
+    /// A WASH rather than a ring, deliberately. A ring is what selection already is, and a second
+    /// ring a few pixels out reads as a second object; a fill is a different visual channel and
+    /// survives Night mode, where blue is zero and a hue shift is not available to separate the two.
+    /// </remarks>
+    public static readonly RGBAColor32 HoverSpotColor = new(0xFF, 0xEE, 0x60, 0x30);
+
+    /// <summary>
     /// A SELECTION marker's sizing, shared by the sky atlas's crosshair ellipse
     /// (<c>SkyMapTab.TryDrawShapeMarker</c>) and the FITS viewer's selection ring
     /// (<c>ImageRendererBase.TryDrawSelectionShape</c>), for the same reason the halo geometry above
@@ -904,6 +934,56 @@ public static class OverlayEngine
     /// </summary>
     public static bool HasVerifiedPicture(ICelestialObjectDB db, CatalogIndex index)
         => db.TryGetArticle(index, out var article) && article.Image is not null;
+
+    /// <summary>
+    /// Whether a gathered candidate survives the per-layer visibility gates: dark nebulae follow the
+    /// [D] layer, every other catalog object follows [O], and <paramref name="onlyWithPicture"/>
+    /// narrows whatever those admit to the objects the imagery bake verified a picture for. A pinned
+    /// planner target passes all three -- it is a landmark, and the user asked for it by name.
+    /// </summary>
+    /// <remarks>
+    /// One predicate, three callers: the desktop's background gather, the browser / offline
+    /// primitive path, and the CLICK resolver (<c>SkyMapSearchActions</c>), which has to answer the
+    /// same question or a hidden object stays selectable through apparently-empty sky. The first two
+    /// had already been written out twice and had to agree by hand; the picture filter would have
+    /// made that three copies of a four-term rule.
+    /// <para>The picture filter applies to the dark-nebula layer too. It reads as harsh -- almost no
+    /// dust lane has a verified article -- but "only with photo" is a statement about the whole
+    /// overlay, and a layer that quietly opted out of it would be the surprise.</para>
+    /// </remarks>
+    public static bool PassesLayerFilter(
+        ObjectType objectType, bool isPinned, bool hasPicture,
+        bool showObjects, bool showDarkNebulae, bool onlyWithPicture)
+    {
+        if (isPinned)
+        {
+            return true;
+        }
+
+        if (!(objectType == ObjectType.DarkNeb ? showDarkNebulae : showObjects))
+        {
+            return false;
+        }
+
+        return !onlyWithPicture || hasPicture;
+    }
+
+    /// <summary>
+    /// Drops every candidate <see cref="PassesLayerFilter"/> rejects, in place. A no-op when all
+    /// three layers are wide open, which is the common case and worth not walking the list for.
+    /// </summary>
+    public static void ApplyLayerFilter(
+        List<OverlayCandidate> candidates,
+        bool showObjects, bool showDarkNebulae, bool onlyWithPicture)
+    {
+        if (showObjects && showDarkNebulae && !onlyWithPicture)
+        {
+            return;
+        }
+
+        candidates.RemoveAll(c => !PassesLayerFilter(
+            c.ObjectType, c.IsPinned, c.HasPicture, showObjects, showDarkNebulae, onlyWithPicture));
+    }
 
     /// <summary>
     /// Computes the arcmin-to-screen-pixels scale factor for a given viewport height

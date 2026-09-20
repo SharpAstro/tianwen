@@ -207,6 +207,37 @@ namespace TianWen.UI.Abstractions
         public bool ShowDarkNebulae { get; set; }
 
         /// <summary>
+        /// Narrow the object overlay to the objects the imagery bake verified a picture for
+        /// (<see cref="Overlays.OverlayEngine.HasVerifiedPicture"/>), toggled with <c>[I]</c>. A
+        /// sub-setting of <see cref="ShowObjectOverlay"/> rather than a layer of its own: it draws
+        /// nothing, it only takes things away, and with [O] off there is nothing to take.
+        /// </summary>
+        /// <remarks>
+        /// The per-object camera mark after a label has said "there is a photo of this" since the
+        /// imagery bake shipped; this is the other half, for the night you want to plan AROUND what
+        /// you can look up. It filters the dark-nebula layer as well -- see
+        /// <see cref="Overlays.OverlayEngine.PassesLayerFilter"/> for why. Off by default.
+        /// </remarks>
+        public bool ShowOnlyObjectsWithPicture { get; set; }
+
+        /// <summary>
+        /// What a click at the pointer's current position WOULD select, or null when the pointer is
+        /// over empty sky, off the map, or has not moved since the view last changed. Resolved on a
+        /// pointer move through the same resolver the click uses, and drawn as a translucent wash
+        /// under the object it names (<c>SkyMapTab.DrawHoverSpot</c>).
+        /// </summary>
+        /// <remarks>
+        /// Cleared by every view change (zoom, pan, time scrub, mode flip) rather than re-resolved:
+        /// the pointer has not been re-tested against the new view, and a highlight that keeps
+        /// naming an object the sky has moved out from under is worse than none. The next move
+        /// brings it back.
+        /// <para>This is a hover HIGHLIGHT, not hover selection -- clicking is still what selects
+        /// (the choice recorded in <c>docs/plans/in-app-sky-atlas.md</c>, 2026-09-10). The two are
+        /// compatible: one says what a click would do, the other does it.</para>
+        /// </remarks>
+        public SkyMapHoverTarget? HoverTarget { get; set; }
+
+        /// <summary>
         /// Current mount pointing for the reticle overlay. Null when no mount is connected
         /// or its coordinates can't be read. Populated by the event loop from the single
         /// canonical <c>LiveSessionState.MountState</c> (fed by the preview poll while idle,

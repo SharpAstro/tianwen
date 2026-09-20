@@ -201,7 +201,7 @@ namespace TianWen.UI.Abstractions
 
         private readonly record struct PrimOverlayKey(
             double QuantRa, double QuantDec, double QuantFov,
-            int RectW, int RectH, bool ShowAll, bool ShowDark, int PinHash);
+            int RectW, int RectH, bool ShowAll, bool ShowDark, bool OnlyWithPicture, int PinHash);
 
         // Wide FOV: the gather sweeps the whole sphere, so the view centre (and now the FOV) drops
         // out of the cache key. Forwards to the engine's constant so this and VkSkyMapTab's copy
@@ -272,13 +272,13 @@ namespace TianWen.UI.Abstractions
                     pinnedOnly);
                 PrimOverlayGatherMs += System.Diagnostics.Stopwatch.GetElapsedTime(gatherStart).TotalMilliseconds;
 
-                // Per-layer visibility (same rule as VkSkyMapTab): dark nebulae follow [D], every other
-                // catalog object follows [O]; pinned targets bypass both so they stay visible. The
-                // pinned-only gather already returns exactly that set, so there is nothing to remove.
-                if (!pinnedOnly && (!showAllOverlays || !showDark))
+                // Per-layer visibility, through the one predicate VkSkyMapTab's background gather and
+                // the click resolver also ask. The pinned-only gather already returns exactly the set
+                // that survives it, so there is nothing to remove.
+                if (!pinnedOnly)
                 {
-                    _primOverlayCandidates.RemoveAll(c => !c.IsPinned
-                        && (c.ObjectType == ObjectType.DarkNeb ? !showDark : !showAllOverlays));
+                    OverlayEngine.ApplyLayerFilter(
+                        _primOverlayCandidates, showAllOverlays, showDark, State.ShowOnlyObjectsWithPicture);
                 }
 
                 _primOverlayKey = key;
@@ -534,10 +534,13 @@ namespace TianWen.UI.Abstractions
                 pinHash = pinHash * 31 + p.Target.GetHashCode();
             }
 
+            // The picture filter is applied to the CACHED list (it is a RemoveAll over the gather's
+            // output, like the layer gates beside it), so it has to be in the key for the same reason
+            // they are: toggling it must re-gather rather than keep serving a list it already stripped.
             return new PrimOverlayKey(
                 quantRa, quantDec, quantFov,
                 (int)contentRect.Width, (int)contentRect.Height,
-                showAllOverlays, showDark, pinHash);
+                showAllOverlays, showDark, State.ShowOnlyObjectsWithPicture, pinHash);
         }
 
         // Trace a rotated ellipse for an extended catalog object, oriented by the object's true sky

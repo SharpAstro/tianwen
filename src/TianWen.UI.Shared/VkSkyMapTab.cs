@@ -75,7 +75,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         ImmutableArray<ProposedObservation> Proposals,
         double Ra, double Dec, double Fov,
         int RectW, int RectH, float Dpi,
-        bool ShowAll, bool ShowDark);
+        bool ShowAll, bool ShowDark, bool OnlyWithPicture);
 
     // Result handed back from the background walk: a freshly-built candidate list plus the
     // key it was computed for (so the render thread knows what view it corresponds to).
@@ -399,7 +399,11 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             db, proposals,
             wideFov ? 0.0 : (centreValid ? quantRa : double.NaN),
             wideFov ? 0.0 : (centreValid ? quantDec : double.NaN),
-            quantFov, rectW, rectH, dpiScale, showAllOverlays, showDarkNebulae);
+            quantFov, rectW, rectH, dpiScale, showAllOverlays, showDarkNebulae,
+            // The picture filter strips the CACHED list, so it belongs in the key beside the two
+            // layer gates for the same reason: without it, switching it on keeps serving the list
+            // gathered before it and switching it off never brings the objects back.
+            State.ShowOnlyObjectsWithPicture);
 
         // 1. Install a completed background gather (swaps _overlayCandidates, records its key).
         TryApplyPendingOverlayGather();
@@ -683,6 +687,10 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // would race the render thread's Clear/AddRange/iteration of that list).
         var snapViewMatrix = State.CurrentViewMatrix;
         var snapFov = State.FieldOfViewDeg;
+        // Read off the KEY, not off State: the key was built on the render thread from the same
+        // flag, so taking it from there is the snapshot -- and it makes the filter the task applies
+        // and the key the result is stamped with the same value by construction.
+        var onlyWithPicture = key.OnlyWithPicture;
         var seedCapacity = _overlayCandidates.Count > 0 ? _overlayCandidates.Count : 256;
 #if DEBUG
         var gatherStart = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -693,20 +701,13 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             OverlayEngine.GatherSkyMapOverlayCandidates(
                 snapViewMatrix, snapFov, contentRect, dpiScale, db, pinnedIndices, list, pinnedOnly);
 
-            // Per-layer visibility: dark nebulae follow [D], every other catalog object
-            // follows [O]. Pinned planner targets survive both gates so they stay visible
-            // as landmarks regardless of layer state. The pinned-only gather already returns
-            // exactly that set, so there is nothing to remove.
-            if (!pinnedOnly && (!showAllOverlays || !showDarkNebulae))
+            // Per-layer visibility, through the one predicate the primitive path and the click
+            // resolver also ask (dark nebulae follow [D], everything else [O], "only with photo"
+            // narrows both, a pinned landmark survives all three). The pinned-only gather already
+            // returns exactly that set, so there is nothing to remove.
+            if (!pinnedOnly)
             {
-                list.RemoveAll(c =>
-                {
-                    if (c.IsPinned)
-                    {
-                        return false;
-                    }
-                    return c.ObjectType == ObjectType.DarkNeb ? !showDarkNebulae : !showAllOverlays;
-                });
+                OverlayEngine.ApplyLayerFilter(list, showAllOverlays, showDarkNebulae, onlyWithPicture);
             }
 #if DEBUG
             var gatherMs = System.Diagnostics.Stopwatch.GetElapsedTime(gatherStart).TotalMilliseconds;
