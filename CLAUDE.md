@@ -552,14 +552,19 @@ HIGHLIGHT, not hover selection: the click still selects (`docs/plans/in-app-sky-
   what makes a pointer resting over the search modal or the layer palette harmless with none of them
   claiming the pointer: the sky behind resolves, the wash paints under the panel covering it.
 - **At most ONE resolve per painted frame, and every resolve asks for a frame.** Measured by
-  `SkyMapHoverResolveBenchmarks` (Release, win-arm64): over an OBJECT 11-14 us at any zoom, over bare
-  STAR FIELD 419 us at 1 degree and 394 at 10, falling to ~2 us by 60. **The two paths differ by 38x
-  because the DSO pass runs first and the star pass never runs when it matches**, and the star pass
-  falls off a cliff between 10 and 60 degrees as `EffectiveMagnitudeLimit` tightens. The louder cost
-  is ALLOCATION: 360 KB per resolve on bare sky zoomed in (~22 MB/s at 60 fps, ~45 at a 125 Hz mouse).
-  Resolve -> frame -> clear is self-limiting; "resolve only when the answer changed" is not, because
-  the budget is released by a PAINT. **A timing quoted from a Debug test run was ~5x pessimistic and
-  blended the two paths into one number; quote the benchmark, and name the box.**
+  `SkyMapHoverResolveBenchmarks` (Release, win-arm64): over an OBJECT 9-10 us / 288 B at any zoom,
+  over bare STAR FIELD 389 us / 225 KB at 1 degree and 357 at 10, falling to ~1.7 us / 288 B by 60.
+  **The 44x is entirely WHETHER THE STAR PASS RUNS, not a per-star cost that varies with zoom** --
+  the nine index cells come from the unprojected pointer and are identical at every zoom, and the
+  cost in them is `Tycho2RaDecIndex.GetStarsInCell` (~320 us of the 389, before one star is tested).
+  **The DSO pass short-circuits it and floors its hit test at a FIXED 20 SCREEN PX**, whose sky
+  footprint runs 0.020 deg at 1 degree FOV to 4.200 at 170, so it reaches something catalogued only
+  when zoomed out. `EffectiveMagnitudeLimit` is the minor term and runs the OTHER way (1 degree is
+  dearer than 10 over the same cells). Resolve -> frame -> clear is self-limiting; "resolve only when
+  the answer changed" is not, because the budget is released by a PAINT. **Two corrections worth
+  keeping: a timing from a Debug test run was ~5x pessimistic and blended the two paths, and the
+  cliff was then attributed to the magnitude limit by reading the code rather than measuring.
+  `SkyMapHoverResolveCostProbe` (`TIANWEN_HOVER_PROBE=1`) is what attributes it.**
 - **The target is dropped when the view moved**, compared at DRAW time against the view it was
   resolved for, never cleared at each of the five call sites that move the view.
 - **`ShowOnlyObjectsWithPicture` ([O]'s `I` sub-setting) goes through `OverlayEngine.PassesLayerFilter`,

@@ -48,20 +48,26 @@ namespace TianWen.UI.Abstractions
         // quoted here came from a Debug test run and was about 5x pessimistic):
         //
         //              over an object      over bare star field
-        //   1 deg        10.9 us              419 us,  360 KB
-        //   10 deg       14.2 us              394 us,  360 KB
-        //   60 deg       11.3 us              2.0 us,  1.8 KB
-        //   170 deg      12.1 us              2.4 us,  1.8 KB
+        //   1 deg        8.8 us, 288 B        389 us, 225 KB
+        //   10 deg       9.7 us, 288 B        357 us, 225 KB
+        //   60 deg       9.4 us, 288 B        1.7 us,  288 B
+        //   170 deg      9.6 us, 288 B        1.6 us,  288 B
         //
-        // TWO facts the old single number hid. The paths differ by 38x, because the DSO pass runs
-        // first and the star pass NEVER RUNS when it matches -- so resting on a catalogued object is
-        // cheap at any zoom, and only bare sky pays. And the star pass falls off a cliff between 10
-        // and 60 degrees (394 us to 2 us) as EffectiveMagnitudeLimit tightens, so the expense is
-        // exactly where a user sits picking a target out of a crowded field.
+        // The paths differ by 44x, which the old single number hid, and the whole of that difference
+        // is WHETHER THE STAR PASS RUNS. It is not a per-star cost that varies with zoom: the nine
+        // index cells are derived from the unprojected pointer and are IDENTICAL at every zoom. Nine
+        // deep-sky lookups over them cost 1 us; nine composite lookups cost ~320, before one star has
+        // been tested, and that is Tycho2RaDecIndex.GetStarsInCell materialising a List per cell and
+        // scanning whole GSC regions for the 1094 entries it yields.
         //
-        // The ALLOCATION is now the louder half: 360 KB per resolve on bare sky at a deep zoom, from
-        // the seen-sets the two passes grow. Per frame that is ~22 MB/s at 60 fps; per MOVE, at a
-        // 125 Hz mouse, it would be ~45 MB/s of Gen0 churn on the input thread.
+        // What decides whether that is paid is the DSO pass, which short-circuits the star pass on a
+        // match and floors its hit test at a FIXED 20 SCREEN PIXELS. That floor's footprint in SKY
+        // runs 0.020 deg at 1 degree FOV to 4.200 at 170, so wide open it sweeps up something
+        // catalogued and zoomed in it reaches nothing. At this pointing the nearest deep-sky entry is
+        // HD 183919 at 0.409 deg, which is why the cliff lands between 10 and 60. The magnitude limit
+        // is the minor term and runs the OTHER way: 1 degree is DEARER than 10 over identical cells,
+        // because zoomed in it admits more stars to the projection. (That the cliff was the magnitude
+        // limit is what this comment used to say; SkyMapHoverResolveCostProbe is what disproved it.)
         //
         // The throttle cannot be replaced by making the hover search cheaper than the click's,
         // because the highlight agreeing with the click is the entire point of the feature. The

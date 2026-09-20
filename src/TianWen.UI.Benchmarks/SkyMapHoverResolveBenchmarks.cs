@@ -27,10 +27,19 @@ namespace TianWen.UI.Benchmarks;
 /// sky with no DSO under it pays the full star walk. Only the second bounds the per-frame budget,
 /// and only the second is worth quoting as a worst case.</para>
 ///
-/// <para><b>Why the FOV ladder is the axis.</b> Not geometry: the cell window is 3x3 at every zoom.
-/// It is <see cref="SkyMapState.EffectiveMagnitudeLimit"/>, which widens as you zoom in, so the star
-/// pass admits a larger share of Tycho-2 from the same cells. That is why the cost runs the opposite
-/// way to intuition, being worst zoomed IN.</para>
+/// <para><b>Why the FOV ladder is the axis.</b> Not geometry, and not the star count: the cell
+/// window is 3x3 at every zoom and holds the same entries, because the probes derive from the
+/// unprojected pointer. What moves with the FOV is the DSO pass's REACH -- its hit test floors at a
+/// fixed 20 screen pixels, which is 0.020 deg of sky at 1 degree FOV and 4.200 deg at 170 -- so
+/// zoomed out it sweeps up something catalogued and short-circuits the star pass entirely, and
+/// zoomed in it reaches nothing and the star pass runs. That is the whole of the 44x.</para>
+///
+/// <para><b>What this benchmark cannot tell you</b>, and got written down wrong once: the ladder was
+/// first attributed to <see cref="SkyMapState.EffectiveMagnitudeLimit"/> widening as you zoom in.
+/// That term is real but minor and runs the other way -- 1 degree is dearer than 10 over identical
+/// cells. The attribution belongs to <c>SkyMapHoverResolveCostProbe</c>
+/// (<c>TIANWEN_HOVER_PROBE=1</c>), which decomposes a resolve into its lookups and its hit tests;
+/// a benchmark measures, it does not explain.</para>
 ///
 /// <para>Run with:
 /// <c>dotnet run -c Release --project TianWen.UI.Benchmarks -- --filter *HoverResolve*</c>.

@@ -589,12 +589,17 @@ Three items from one note, root-caused against the code rather than left as a ba
     shader -- and drawing it FIRST of the annotation layers is what makes a pointer resting over the
     search modal or the layer palette harmless without any of them claiming the pointer.
   - **At most one resolve per painted frame**, bounded by a checked-in benchmark
-    (`SkyMapHoverResolveBenchmarks`, Release, win-arm64): over an OBJECT 11-14 us at any zoom, over
-    bare STAR FIELD 419 us at 1 degree, 394 at 10, and ~2 us by 60 as `EffectiveMagnitudeLimit`
-    tightens. **The two paths differ by 38x** -- the DSO pass runs first and the star pass never runs
-    when it matches -- which the original single number hid, and the ALLOCATION is the louder half at
-    360 KB per resolve on bare sky zoomed in (~22 MB/s at 60 fps). The figures first published here
-    came from a Debug test run and were about 5x pessimistic as well as blended; that is what the
+    (`SkyMapHoverResolveBenchmarks`, Release, win-arm64): over an OBJECT 9-10 us / 288 B at any zoom,
+    over bare STAR FIELD 389 us / 225 KB at 1 degree, 357 at 10, and ~1.7 us / 288 B by 60. **The two
+    paths differ by 44x** -- the DSO pass runs first and the star pass never runs when it matches --
+    which the original single number hid. **The 44x is that short-circuit and NOTHING else**: the
+    nine index cells derive from the unprojected pointer and are identical at every zoom, the cost in
+    them is `Tycho2RaDecIndex.GetStarsInCell` (~320 us of the 389, and all 225 KB, before one star is
+    tested), and what decides whether it is paid is the DSO pass's hit test floored at a fixed 20
+    SCREEN px -- 0.020 deg of sky at 1 degree FOV against 4.200 at 170. This entry used to credit
+    `EffectiveMagnitudeLimit`, which is the minor term and runs the other way; the attribution is
+    `SkyMapHoverResolveCostProbe` (`TIANWEN_HOVER_PROBE=1`). The figures first published here came
+    from a Debug test run and were about 5x pessimistic as well as blended; that is what the
     benchmark replaced.
   - **The hover target is dropped when the view moves**, compared at draw time against the view it was
     resolved for rather than cleared at each of the five call sites that move it.
