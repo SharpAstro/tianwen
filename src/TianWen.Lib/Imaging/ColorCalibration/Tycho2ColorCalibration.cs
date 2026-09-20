@@ -1133,9 +1133,9 @@ public static class Tycho2ColorCalibration
         {
             // Sample too small for kappa-sigma to be statistically meaningful;
             // fall back to plain median. Tests with n=1 / n=5 hit this path.
-            var rSorted = rRatios.ToArray(); Array.Sort(rSorted);
-            var bSorted = bRatios.ToArray(); Array.Sort(bSorted);
-            return (rSorted[n / 2], bSorted[n / 2], n, 0);
+            var rRanks = rRatios.ToArray();
+            var bRanks = bRatios.ToArray();
+            return (StatisticsHelper.NthSmallest(rRanks, n / 2), StatisticsHelper.NthSmallest(bRanks, n / 2), n, 0);
         }
 
         // Track survival via a parallel alive[] flag so we don't need to

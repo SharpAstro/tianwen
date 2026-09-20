@@ -275,9 +275,11 @@ public static class StretchSolver
         // Collect RGB values of darkest k pixels and median-filter
         var darkR = new float[k]; var darkG = new float[k]; var darkB = new float[k];
         for (var i = 0; i < k; i++) { darkR[i] = sr[idx[i]]; darkG[i] = sg[idx[i]]; darkB[i] = sb[idx[i]]; }
-        Array.Sort(darkR); Array.Sort(darkG); Array.Sort(darkB);
-
-        var medR = darkR[k / 2]; var medG = darkG[k / 2]; var medB = darkB[k / 2];
+        // sorted[k / 2] by selection: bit-identical to the sort this replaced, and these buffers
+        // are built here and read only for the median.
+        var medR = StatisticsHelper.NthSmallest(darkR, k / 2);
+        var medG = StatisticsHelper.NthSmallest(darkG, k / 2);
+        var medB = StatisticsHelper.NthSmallest(darkB, k / 2);
         if (medG <= 1e-7f) return null;
 
         return (Math.Clamp(medG / medR, 0.5f, 2f), 1f, Math.Clamp(medG / medB, 0.5f, 2f));

@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Astrometry.Catalogs;
 
@@ -181,9 +182,8 @@ public static class MilkyWayTextureBaker
         if (inputs.Radiance is not null)
         {
             var radiance = inputs.Radiance;
-            var radianceSorted = (float[])radiance.Clone();
-            Array.Sort(radianceSorted);
-            var rFloor = MathF.Max(radianceSorted[(int)(radianceSorted.Length * 0.01f)], 1e-12f);
+            var radianceRanks = radiance.AsSpan().ToArray();
+            var rFloor = MathF.Max(StatisticsHelper.NthSmallest(radianceRanks, (int)(radianceRanks.Length * 0.01f)), 1e-12f);
             var radianceLog = new float[radiance.Length];
             for (var i = 0; i < radiance.Length; i++)
             {
@@ -291,9 +291,8 @@ public static class MilkyWayTextureBaker
                 flux[i] *= MathF.Exp(-opts.ExtinctionK * dust[i]);
             }
 
-            var dustSorted = (float[])dust.Clone();
-            Array.Sort(dustSorted);
-            var dust99 = dustSorted[(int)(dustSorted.Length * 0.99f)];
+            var dustRanks = dust.AsSpan().ToArray();
+            var dust99 = StatisticsHelper.NthSmallest(dustRanks, (int)(dustRanks.Length * 0.99f));
             dustNormalised = new float[dust.Length];
             if (dust99 > 0)
             {
@@ -309,10 +308,11 @@ public static class MilkyWayTextureBaker
         // Normalise flux to a display range. Clip at p25 so three-quarters
         // of the sky goes pitch black, cap at p99.5 so the bulge doesn't blow out.
         // -------------------------------------------------------------------
-        var sorted = (float[])flux.Clone();
-        Array.Sort(sorted);
-        var lowVal = sorted[(int)(sorted.Length * 0.25f)];
-        var highVal = sorted[(int)(sorted.Length * 0.995f)];
+        // Two selections on ONE buffer: a selection permutes it but loses no values, so the second
+        // sees the same multiset and both answers equal their sorted[k] counterparts exactly.
+        var ranks = flux.AsSpan().ToArray();
+        var lowVal = StatisticsHelper.NthSmallest(ranks, (int)(ranks.Length * 0.25f));
+        var highVal = StatisticsHelper.NthSmallest(ranks, (int)(ranks.Length * 0.995f));
         var range = highVal - lowVal;
         if (range <= 0) range = 1;
 

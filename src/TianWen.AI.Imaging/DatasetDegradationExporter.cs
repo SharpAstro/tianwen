@@ -16,6 +16,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Dataset;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Degradation;
+using TianWen.Lib.Stat;
 
 namespace TianWen.AI.Imaging
 {
@@ -1049,12 +1050,9 @@ namespace TianWen.AI.Imaging
             var b0 = bands.Select(static b => b[0]).ToArray();
             var b1 = bands.Select(static b => b[1]).ToArray();
             var b2 = bands.Select(static b => b[2]).ToArray();
-            Array.Sort(b0);
-            Array.Sort(b1);
-            Array.Sort(b2);
-            var m0 = b0[b0.Length / 2];
-            var m1 = b1[b1.Length / 2];
-            var m2 = b2[b2.Length / 2];
+            var m0 = StatisticsHelper.NthSmallest(b0, b0.Length / 2);
+            var m1 = StatisticsHelper.NthSmallest(b1, b1.Length / 2);
+            var m2 = StatisticsHelper.NthSmallest(b2, b2.Length / 2);
             return new ShapeMeasurement(label, bands.Count, m0, m1, m2, m0 > 0 ? m1 / m0 : double.NaN);
         }
 
@@ -1113,11 +1111,9 @@ namespace TianWen.AI.Imaging
 
         private static double MedianOf(List<double> values)
         {
-            var copy = values.ToArray();
-            Array.Sort(copy);
-            return copy.Length % 2 == 1
-                ? copy[copy.Length / 2]
-                : 0.5 * (copy[(copy.Length / 2) - 1] + copy[copy.Length / 2]);
+            // MedianFast averages the two middle values on an even count, which is exactly the
+            // convention written out here.
+            return StatisticsHelper.MedianFast(values.ToArray());
         }
 
         private static async Task<Dictionary<string, List<CellSpec>>> ReadCellsAsync(string manifestPath, CancellationToken cancellationToken)

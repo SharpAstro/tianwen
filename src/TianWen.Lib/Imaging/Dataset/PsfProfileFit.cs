@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Dataset
 {
@@ -616,15 +617,13 @@ namespace TianWen.Lib.Imaging.Dataset
         private static float Median(List<float> values)
         {
             var copy = values.ToArray();
-            Array.Sort(copy);
-            return copy[copy.Length / 2];
+            return StatisticsHelper.NthSmallest(copy, copy.Length / 2);
         }
 
         private static float Percentile(float[] values, double p)
         {
-            var copy = (float[])values.Clone();
-            Array.Sort(copy);
-            return copy[Math.Clamp((int)(copy.Length * p), 0, copy.Length - 1)];
+            var copy = values.AsSpan().ToArray();
+            return StatisticsHelper.NthSmallest(copy, Math.Clamp((int)(copy.Length * p), 0, copy.Length - 1));
         }
 
         /// <summary>Frame median and background MAD from every seventh finite pixel, which stars are

@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Imaging.Enhancement;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Stacking;
 
@@ -817,8 +818,7 @@ internal sealed class CometModel
                     {
                         var devs = new float[list.Count];
                         for (var k = 0; k < list.Count; k++) { devs[k] = MathF.Abs(list[k] - m); }
-                        Array.Sort(devs);
-                        mad = devs[devs.Length / 2] * 1.4826f;
+                        mad = StatisticsHelper.NthSmallest(devs, devs.Length / 2) * 1.4826f;
                     }
                     var hiCut = m + 2f * MathF.Max(mad, 1e-9f);
                     var sum = 0.0;
@@ -1222,9 +1222,9 @@ internal sealed class CometModel
                 // survivor tilts the gain.
                 var res = new float[xs.Count];
                 for (var i = 0; i < xs.Count; i++) { res[i] = MathF.Abs(ys[i] - (first.Gain * xs[i] + first.Offset)); }
-                var sorted = (float[])res.Clone();
-                Array.Sort(sorted);
-                var sigma = sorted[sorted.Length / 2] * 1.4826f;
+                // `res` is built here and used for nothing else, so it can be permuted in place:
+                // no copy, no sort. NthSmallest keeps the sorted[n / 2] convention exactly.
+                var sigma = StatisticsHelper.NthSmallest(res, res.Length / 2) * 1.4826f;
                 if (sigma > 0f)
                 {
                     fit = FitLine(xs, ys, (first, 3f * sigma, res));

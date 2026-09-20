@@ -93,7 +93,9 @@ public class NthSmallestTests
     [Fact]
     public void AnEmptySpanIsNotANumberAndTheIndexIsClamped()
     {
-        StatisticsHelper.NthSmallest([], 0).ShouldBe(float.NaN);
+        // Explicitly float: a bare collection expression became ambiguous when the double overload
+        // was added for callers reading one rank off a double[].
+        StatisticsHelper.NthSmallest(Span<float>.Empty, 0).ShouldBe(float.NaN);
         StatisticsHelper.NthSmallest([5f, 1f, 3f], -4).ShouldBe(1f);
         StatisticsHelper.NthSmallest([5f, 1f, 3f], 99).ShouldBe(5f);
     }
