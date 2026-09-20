@@ -568,10 +568,6 @@ public sealed class ViewerState
     /// </summary>
     public float? SplitFraction { get; set; }
 
-    /// <summary>True while the user is dragging the split divider. Mirrors
-    /// <see cref="IsResizingFileList"/>.</summary>
-    public bool IsDraggingSplit { get; set; }
-
     /// <summary>What the split's left half shows.</summary>
     public SplitCompare SplitCompare { get; set; } = SplitCompare.PinnedSettings;
 
