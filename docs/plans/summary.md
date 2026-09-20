@@ -220,7 +220,7 @@ multi-member lzip already optimal; gzip would lose parallelism, see plan doc).
 
 | Build | First `InitDBAsync` |
 |---|---|
-| Release + warm runtime (test bench) | **716–906 ms** (run-to-run variance) |
+| Release + warm runtime (test bench) | **716 to 906 ms** (run-to-run variance) |
 | Debug + cold disk + cold JIT (GUI cold launch) | **2,411 ms** |
 
 The hot phases are now dict-mutation work, not parse work; what Phase 2 is for.
