@@ -1990,12 +1990,22 @@ namespace TianWen.UI.Abstractions
             return lines.ToImmutable();
         }
 
+        /// <summary>
+        /// The shortcut page, GENERATED from <see cref="ViewerShortcuts.All"/>.
+        ///
+        /// <para>It used to print a prose array maintained beside this method, which is how a panel
+        /// titled "All keyboard shortcuts" came to be missing fifteen of them (T, S, C, D, A,
+        /// Shift+A, P, E, F, R, F1, the plain +/- preset pair, Ctrl+0, Ctrl+1 and Tab). A binding
+        /// and its documentation are one fact; keeping them in two places meant they agreed only
+        /// while somebody remembered.</para>
+        /// </summary>
         private ImmutableArray<string> BuildShortcutPage()
         {
-            var lines = ImmutableArray.CreateBuilder<string>(ShortcutLines.Length + 2);
+            var rows = ViewerShortcuts.HelpLines();
+            var lines = ImmutableArray.CreateBuilder<string>(rows.Length + 2);
             lines.Add(BackRow);
             lines.Add("");
-            lines.AddRange(ShortcutLines);
+            lines.AddRange(rows);
             return lines.ToImmutable();
         }
 
@@ -2138,49 +2148,6 @@ namespace TianWen.UI.Abstractions
         private string Ellipsize(string line, float budget, float fontSize)
             => TextFit.ForWidth(Renderer, line, FontPath, FontFallback, fontSize, budget, TextTrim.Middle).Text;
 
-        private static readonly ImmutableArray<string> ShortcutLines =
-        [
-            "Ctrl+O               Open a file",
-            "Ctrl+S               Save the image as displayed (clean, 16-bit PNG)",
-            "Ctrl+Shift+S         Save menu: with overlays, PNG depth",
-            "Wheel / Ctrl+Wheel   Zoom",
-            "Ctrl + / -           Zoom in / out",
-            "Ctrl+2 .. Ctrl+9     Zoom 1:N",
-            "Z                    Zoom menu (fit / 1:1 / 1:N)",
-            // The one key here whose states are not obvious from pressing it once.
-            "O / Shift+O          Annotate: WCS grid, then the catalog objects",
-            "G                    WCS grid on its own",
-            // Named here as well as on its own toolbar button, because it is the one viewer feature
-            // that does something to the WHOLE PANE rather than to the picture, and a reader who has
-            // not pressed it has no way to know the viewer can do it at all.
-            "Y                    The sky this frame was taken from, drawn behind it",
-            "H / Shift+H          Histogram / log scale",
-            // B earns a row for the reason its button was folded into Tone: the boost and the highlight
-            // soft clip are one panel now, and the soft clip has no key of its own any more (H was it
-            // until 2026-09-24), so the Tone button, and the wheel over it, is where to find it.
-            "B / Shift+B          Curves boost / curve mode (Tone; the soft clip is on its panel)",
-            // W earns a row now that it opens a PANEL rather than toggling one flag: the sliders, the
-            // photometric calibration and its provenance line all live behind it, and none of them is
-            // reachable by guessing. N stays beside it because the two are the colour pair.
-            "W                    White balance: sliders, photometric calibration, reset",
-            "N                    Neutralise the background",
-            "I                    Info panel",
-            "L                    File list",
-            "K                    Raw / stacked view (sequence)",
-            "Space                Play / pause (sequence), else blink the file list",
-            "Shift+Space          Blink backward",
-            "Ctrl+Space           Back to the frame the display is held to",
-            "Ctrl+H               Hold / release the display across frames",
-            "Shift+C              Crop to the area every sub covered / show all",
-            "Left / Right         Step one frame",
-            "Home / End           First / last frame",
-            "Up / Down            Previous / next file",
-            "Click                Select the catalogued object under the pointer",
-            "F11                  Fullscreen",
-            // Esc does BOTH, in that order, which is worth one row rather than two: a reader who has
-            // just selected something needs to know the key is not going to close the viewer.
-            "Esc                  Clear the selection, else quit",
-        ];
 
         // What Auto resolved to for the frame on screen, named for the StretchLink button. Mirrors the
         // producer's inputs: colour vs mono, and whether a calibration is actually being applied.
