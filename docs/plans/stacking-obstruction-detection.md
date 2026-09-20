@@ -1,9 +1,12 @@
 # Plan: detect an obstruction from the frames themselves, in stacking
 
-Status: **RESEARCHED, NOT STARTED.** Backlog `#48` (issue #307). The gap and the design below are
-established against the code; **every threshold is deliberately unset**, because the machine that
-did this research has no archive attached (`D:` lives on the desktop). The measurement pass is the
-first task, not a formality, and it is written out in full so the next session can start cold.
+Status: **RESEARCHED, MEASURED ON ONE REAL OBSTRUCTION, NOT STARTED.** Backlog `#48` (issue #307).
+The gap and the design below are established against the code. The thresholds were deliberately
+unset, because the machine that did the research has no archive attached (`D:` lives on the
+desktop); the desktop has since measured the first of them against a session with a KNOWN
+obstruction, and the numbers are in "What one real obstruction measures" below. They changed the
+remedy, so read that section before the design. The cloud control is still outstanding, and until
+it is taken the sign rule is corroborated on one side only.
 
 Sibling of, and deliberately separate from,
 [`fov-obstruction-detection.md`](fov-obstruction-detection.md) and
@@ -52,7 +55,7 @@ symptom:
 
 | | stars in the region | background in the region |
 |---|---|---|
-| **Obstruction** (roof, tree, dome slit) | collapse, sharply bounded | **DARKER** -- it blocks skyglow |
+| **Obstruction** (roof, tree, dome slit, powerline) | fall, bounded | **DARKER** -- it blocks skyglow |
 | **Cloud / haze** | fall, frame-wide and soft-edged | **BRIGHTER** -- it scatters light back |
 | **Dew / frost** | fall, frame-wide, worst at the edges | brighter, and HFD widens with it |
 
@@ -61,24 +64,62 @@ this frame". A tree is darker AND fractal-edged; a roofline is darker AND straig
 the inverse geometry (a bright stripe of sky inside a dark surround), which the same two numbers
 describe with the signs swapped.
 
+**An obstruction comes in two regimes and only one of them is opaque.** This table first said the
+stars "collapse"; the measurement below says that word is right for one regime and would miss the
+other outright.
+
+- **Occluding**: a roofline, a trunk, a dome slit edge. Far enough away to be near focus, opaque, so
+  the region goes to the dark floor and the stars in it are gone.
+- **Attenuating**: a powerline, a thin branch, anything close enough to be far outside focus. It is
+  a partial shade, not a shutter. The archive's one known case takes the background down **15%** and
+  the star count down to **0.5 to 0.75** of the same frame's clear cells -- both real, neither a
+  collapse. A threshold written for the first regime is silent on the second.
+
+So a threshold on EITHER number must sit at the attenuating depths, and the AND is what keeps that
+low bar from firing on noise.
+
 **Bounded by construction, and that is the point**: the comparison is within ONE frame, so
 transparency, moon, gradient and exposure all cancel. A frame-wide drop moves every cell and is
 therefore not an obstruction, which is exactly the discrimination `FrameQualityFilter` cannot make.
 
-### 3. The remedy is a MASK, not a drop
+### 3. The remedy is a DROP by default; the cauterise is the exception
 
-`PixelRejection.MarkAbsent` and the coverage machinery already exist (`#67`, merged in #315:
-`IntegrationResult.Coverage`, the `<stem>.coverage.fits` sidecar, `TryReadCoverageMap`). An
-obstructed sub should contribute the four fifths of itself that are sky, with the obstructed cells
-marked absent, rather than being dropped whole. Dropping is the fallback for a frame that is mostly
-obstructed.
+**There is no edge to cut at.** This section first said the opposite -- mask the obstructed cells,
+keep the rest, drop only a mostly-obstructed frame -- and the measurement below refutes it for the
+one obstruction the archive can show. **An obstruction does not end where its shadow is darkest; it
+ends where the light bending around it stops mattering, and those are hundreds of pixels apart.**
+Measured perpendicular to the band, the deficit runs 16.2% at the core to 10% at 90 px, 4% at 150 px
+and back inside 1% only past 195 px, a smooth ramp with no step anywhere along it. A near-field
+body is far outside focus, so almost all of what it casts is penumbra rather than shadow, with
+diffraction at the boundary underneath that; the geometric edge is the one place in the profile
+nothing marks.
 
-Two consequences that follow and must not be missed:
+So a mask drawn where the cells look dark keeps the whole ramp. That is worse than keeping nothing,
+because what it keeps is a smooth GRADIENT: background extraction fits it, the normaliser's level
+sees it, and the flat cannot know about it. A gradient that only some frames carry is exactly the
+input those three stages have no defence against.
 
-- The coverage map already carries "no frame covered this pixel", so a masked region lands in the
-  SAME field the canvas ring uses, and every downstream consumer (the auto-crop's coverage tier, the
-  gradient report's mask, `IntegratedMaster.Labelled`'s all-NaN guard) understands it already.
-- **A mask is a weight change, so the normaliser must see it.** A frame whose cells are partly
+**Therefore: an obstructed frame is REJECTED, whole, by default.** It is the cheap answer and
+usually the free one -- the ground-truth session loses 6 subs of 46, which costs 7% in noise on the
+master, against a wedge of unflattenable gradient in every pixel of it. Say it in the census
+(`#58`) so the count is visible rather than silent.
+
+**The cauterise is the opt-in, for when the frames are not plentiful.** Excise the shadow AND the
+whole ramp -- not the dark cells, the dark cells plus a measured margin past the point where the
+profile has recovered -- and mark it absent through `PixelRejection.MarkAbsent` and the coverage
+machinery that already exists (`#67`, merged in #315: `IntegrationResult.Coverage`, the
+`<stem>.coverage.fits` sidecar, `TryReadCoverageMap`). On the ground-truth session that costs 13.2%
+of the frame for the shadow alone and 23.3% with a 150 px margin, which is the honest price and is
+why it is not the default.
+
+Three consequences that follow and must not be missed:
+
+- **The margin is the whole point of the cauterise, and it is a MEASURED distance, not a cell.** Cut
+  to the cell boundary and the ramp's tail is still inside the kept region.
+- The coverage map already carries "no frame covered this pixel", so a cauterised region lands in
+  the SAME field the canvas ring uses, and every downstream consumer (the auto-crop's coverage tier,
+  the gradient report's mask, `IntegratedMaster.Labelled`'s all-NaN guard) understands it already.
+- **A cauterise is a weight change, so the normaliser must see it.** A frame whose cells are partly
   absent must not be normalised on a statistic taken over the absent region.
 
 ### 4. Where it goes
@@ -87,43 +128,101 @@ A pure classifier beside the existing gate, not inside it:
 
 - `src/TianWen.Lib/Imaging/Stacking/FrameObstructionDetector.cs` -- new, pure: takes the star list,
   the frame, the grid size, returns per-cell verdicts plus a frame-level classification.
-- `FrameQualityFilter` / `FrameRejectReason` -- one new flag for a frame rejected as
-  mostly-obstructed. Flags already, so it composes.
-- `StackingPipeline` / the register loop -- carry the mask into integration.
+- `FrameQualityFilter` / `FrameRejectReason` -- one new flag for an obstructed frame, which by
+  default drops it. Flags already, so it composes.
+- `StackingPipeline` / the register loop -- carry a cauterise mask into integration when the option
+  asks for one; by default there is no mask, because there is no kept frame.
+- The cauterise is an OPTION on the stacking options, off by default, and it is the only thing in
+  this feature with a margin to configure. Nothing else acquires a knob.
 - `RegistrationCensus` -- report obstructed cells per frame, so the census says it the way it says
   every other drop cause since `#58`.
 
+## What one real obstruction measures
+
+**The ground truth is a powerline, and the owner knew where it was.** Step 1 below proposes finding
+obstructed sessions from the census; asking was faster and is the reason this section exists at all.
+
+The session is `E:/Astro/SharpCap Captures/Helix Nebula RGB 120s -4deg 121g 11o`: 2022-08-31,
+ASI533MC Pro at 135 mm (5.74 arcsec/px), 46 x 120 s, SharpCap 4.0, RGGB. **It is on `E:` only**, not
+in `D:/Astro-Pics`, which also makes it the first real hit for the E: reconciliation (`#35`).
+Statistics below are over ONE photosite population of the mosaic (the G on the top row), never the
+mosaic as a whole, per the CFA trap at the end of this plan.
+
+**Six frames of 46, then nothing.** 24x24 grid, each cell against its own frame's cell median:
+
+| frame | time (UTC) | cells below 0.95 | background in band | stars/cell, band / clear |
+|---|---|---|---|---|
+| 1 | 12:19:55 | 53 | 0.883 | 0.60 |
+| 2 | 12:21:56 | 53 | 0.886 | 0.75 |
+| 3 | 12:23:56 | 54 | 0.883 | 0.64 |
+| 4 | 12:25:57 | 45 | 0.883 | 0.50 |
+| 5 | 12:27:57 | 26 | 0.886 | 0.50 |
+| 6 | 12:29:58 | 8 | 0.894 | 0.59 |
+| 7 to 46 | 12:31 onward | **0** | -- | -- |
+
+What it establishes, and what it costs:
+
+- **The sign rule holds and the within-frame comparison does what it claims.** The band is DARKER,
+  never brighter. Meanwhile the frame's own median falls 3508 to 3154 ADU across the night as the
+  sky darkens, roughly ten times the band's depth, and cancels completely because every comparison
+  is inside one frame.
+- **The geometry is what the design predicts**: a straight band at +9.8 degrees, bounded, sweeping
+  monotonically off the frame as the mount tracks. Cloud has neither the straightness nor the
+  monotone exit.
+- **Neither number collapses** (see regimes above): 15% on the background, 0.5 to 0.75 on the stars.
+- **The profile has no edge.** Perpendicular to the band: -16.2% at the core, -10.4% at 85 px,
+  -4.3% at 145 px, under 1% only past 195 px and clear by 225, symmetric, with no step and no
+  overshoot resolvable at 10 px bins (the data quantises in 4 ADU steps, so a fringe below that is
+  invisible here; at 5.74 arcsec/px on a body metres away it would be anyway). Penumbra dominates;
+  the geometric edge is unmarked.
+- **Cutting it is not cheap.** Shadow alone 13.2% of the frame, plus a 50 px margin 16.5%, plus
+  100 px 19.9%, plus 150 px 23.3%, plus 250 px 30.0%. Dropping the six frames instead costs 7% in
+  master noise.
+
+The three scripts that took these numbers are
+[`tools/obstruction-cell-stats/`](../../tools/obstruction-cell-stats/), in the pattern
+`tools/coverage-edge-walk/` sets: point them at any folder of subs and they re-derive the table
+above, which is what makes the cloud control a command rather than a rewrite.
+
+**One method trap, found the hard way.** The first star-count pass thresholded each cell against its
+OWN median and MAD, and reported a perfectly flat star count across the band, which reads as "the
+star half of the rule never fires". It was the proxy defeating itself: inside the band the median
+and the MAD are both lower, so the detection threshold follows the obstruction down. Threshold ONCE
+per frame, off the clear cells, and the 0.50 to 0.75 above appears. Any per-cell statistic used to
+test a per-cell defect owes the same check.
+
 ## The measurement pass: do this FIRST, on the desktop
 
-**None of the thresholds above are written down, on purpose.** Grid size, "collapse", "darker" and
+**None of the thresholds above were written down, on purpose.** Grid size, "collapse", "darker" and
 "mostly obstructed" are all numbers that need a real distribution behind them, and this repo's rule
 is that a threshold without a measurement is a guess that ships. The archive is on the desktop
-(`D:\Astro-Organized`, `D:\Astro-Pics`, `D:\Astro-Unsorted`); this research was done on the laptop,
-which has only `C:` and a Google Drive mount, so the measurement could not be run.
+(`D:\Astro-Organized`, `D:\Astro-Pics`, `D:\Astro-Unsorted`, plus `E:` for the SharpCap captures);
+the research was done on the laptop, which has only `C:` and a Google Drive mount.
 
-What the next session needs to do, in order:
+Steps 1 to 3 are DONE for the obstruction side, on the Helix powerline session above. What remains:
 
-1. **Find the obstructed sessions.** The bake's per-sub census (`#58`) records the stage that
-   dropped every sub with its HFD, ellipticity, star count and epoch; the ledger is
-   `stats/sessions.jsonl` (`#53`). Look for sessions with a RUN of `StarCountTooLow` drops
-   concentrated at one end of the night -- an obstruction is monotonic in time (the target sets
-   behind the roof and stays there), where cloud is intermittent. Candidate sessions are also worth
-   asking the owner for directly: he knows which targets his roofline eats.
-2. **Confirm by eye on one session, at 1:1.** Render the subs either side of the transition. An
-   obstruction has an EDGE; confirm which kind (straight roofline, fractal tree, slit) before
-   fitting anything to it. Judge at 1:1, never by a band median -- the deconvolver work records why.
-3. **Measure the cell statistics across that transition**, in a throwaway script under
-   `tools/` (the pattern `tools/coverage-edge-walk/` and `tools/openngc-audit/` set). For each sub,
-   the 8x8 grid of (star count, background median), and the same for a clean session as the control.
-   The numbers that come out of this ARE the thresholds:
-   - how far a cell's star count falls, as a fraction of that frame's own cell median;
-   - how far its background falls, in the same relative terms and in noise units;
-   - how many contiguous cells an obstruction occupies at its smallest worth catching;
-   - and the separation between those and the cloud/haze control, which is what says the
-     discriminator works at all. **If the two distributions overlap, the sign rule is wrong and the
-     design above needs revisiting before any of it is built.**
+1. ~~**Find the obstructed sessions.**~~ Done by asking the owner, which beat the census. The census
+   route still stands for finding the rest: the bake's per-sub record (`#58`) carries the stage that
+   dropped every sub with its HFD, ellipticity, star count and epoch. Look for a RUN of
+   `StarCountTooLow` drops at one end of a night -- an obstruction is monotonic in time, where cloud
+   is intermittent. **On the evidence above that search will under-report**: a 15% attenuation never
+   pushed a whole frame under any session-relative star threshold, so this session's six frames were
+   never dropped by anything and would not appear in such a search at all.
+2. ~~**Confirm by eye, at 1:1.**~~ Confirmed by profile instead, which answers the same question
+   with a number: straight, +9.8 degrees, bounded, no edge. The 1:1 look is still worth taking
+   before fitting an edge model to a TREE, whose boundary is the one this cannot stand in for.
+3. ~~**Measure the cell statistics across the transition.**~~ Done for the obstruction; see above.
+   **The CLOUD CONTROL IS STILL OUTSTANDING and is the half that can still refute the design.**
+   Take the same grid over a session with thin cloud and confirm the separation:
+   - that the cloud cells are BRIGHTER, which is the whole discriminator;
+   - that they are frame-wide and soft-edged where the obstruction is bounded and straight;
+   - and that the depths do not overlap. **If they do, the sign rule is wrong and the design above
+     needs revisiting before any of it is built.**
 4. **Only then** write the detector, with the measured numbers as the defaults and the measurement
    quoted at the constant, the way `BadPixelDetection` and `OverlayEngine`'s thresholds are.
+5. **Re-measure the margin on a SECOND obstruction before shipping the cauterise.** 210 px is one
+   body at one distance on one train; the ramp width scales with how far outside focus the body is,
+   so it is a property of the obstruction, not a constant of the feature.
 
 ### Two traps this area already knows about
 
