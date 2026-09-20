@@ -165,20 +165,37 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     throwaway Debug probe and were wrong in two ways at once, which is why the benchmark exists:
     | FOV | over an object | over bare star field |
     |---|---|---|
-    | 1 deg | 10.9 us | **419 us, 360 KB** |
-    | 10 deg | 14.2 us | **394 us, 360 KB** |
-    | 60 deg | 11.3 us | 2.0 us, 1.8 KB |
-    | 170 deg | 12.1 us | 2.4 us, 1.8 KB |
-    **The two paths differ by 38x**, because the DSO pass runs first and the star pass NEVER RUNS
+    | 1 deg | 8.8 us, 288 B | **389 us, 225 KB** |
+    | 10 deg | 9.7 us, 288 B | **357 us, 225 KB** |
+    | 60 deg | 9.4 us, 288 B | 1.7 us, 288 B |
+    | 170 deg | 9.6 us, 288 B | 1.6 us, 288 B |
+    **The two paths differ by 44x**, because the DSO pass runs first and the star pass NEVER RUNS
     when it matches -- so resting on a catalogued object is cheap at any zoom and only bare sky pays.
-    The old single number blended them. And the star pass falls off a cliff between 10 and 60 degrees
-    as `EffectiveMagnitudeLimit` tightens, so the expense is exactly where a user sits picking a
-    target out of a crowded field. The Debug figure (2.048 ms at 1 degree) was also about 5x
-    pessimistic. **The louder cost turns out to be ALLOCATION**: 360 KB per resolve on bare sky
-    zoomed in, roughly 22 MB/s at 60 fps and 45 MB/s if it ran per MOVE at a 125 Hz mouse. The click
-    has always paid the same, once per press, where nobody can see it. Every resolve asks for the
-    frame, even one that landed on the same object: the budget is released by a PAINT, so a resolve
-    that scheduled none would be the last one until something else repainted.
+    The old single number blended them.
+    **The 44x is that short-circuit and nothing else**, which took a second correction to establish.
+    This entry used to say the star pass "falls off a cliff as `EffectiveMagnitudeLimit` tightens",
+    which was read off the code rather than measured, and is wrong twice over.
+    `SkyMapHoverResolveCostProbe` (`TIANWEN_HOVER_PROBE=1`) attributes it:
+    - The nine index cells derive from the unprojected pointer, so they are **identical at every
+      zoom** -- 22 deep-sky entries against 1094 composite ones, whatever the FOV.
+    - Nine deep-sky lookups over them cost **1 us**; nine composite lookups cost **~320 us**, before
+      one star has been hit-tested. That is `Tycho2RaDecIndex.GetStarsInCell`, a `List` per cell plus
+      a linear scan of every star in each overlapping GSC region. It IS the number.
+    - What decides whether it is paid is the DSO pass's hit test, floored at a **fixed 20 SCREEN
+      pixels**, whose footprint in sky runs 0.020 deg at 1 degree FOV to 4.200 deg at 170. The
+      nearest deep-sky-grid entry to the benchmark's Aquila pointing is HD 183919 at 0.409 deg, so
+      the pass misses at 1 and 10 and matches at 60 and 170 -- which is exactly where the cliff is.
+    - The magnitude limit is the minor term and runs the **opposite** way: 1 degree (389 us) is
+      dearer than 10 (357 us) over identical cells and identical lookups, because zoomed IN the
+      limit admits MORE stars to the projection.
+
+    The Debug figure (2.048 ms at 1 degree) was also about 5x pessimistic. **The louder cost turns
+    out to be ALLOCATION**: 225 KB per resolve on bare sky zoomed in, roughly 13 MB/s at 60 fps and
+    28 MB/s if it ran per MOVE at a 125 Hz mouse -- all of it `GetStarsInCell` too, so the one fix
+    would close both halves. The click has always paid the same, once per press, where nobody can
+    see it. Every resolve asks for the frame, even one that landed on the same object: the budget is
+    released by a PAINT, so a resolve that scheduled none would be the last one until something else
+    repainted.
   - **"Only with photo" is a SUB-SETTING of [O], not a layer** (key `I`, indented under "Objects" in
     the palette, unavailable while [O] is off): it draws nothing, it only narrows. It goes through
     **one predicate asked by three callers** -- `OverlayEngine.PassesLayerFilter`, for the desktop's
