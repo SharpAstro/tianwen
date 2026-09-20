@@ -139,39 +139,64 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// The second protection: a band whose END is not inside the bound is refused outright rather
-        /// than trimmed as far as the bound allows. Trimming to the bound would be the worst of both --
-        /// a frame smaller by 5% of every edge that still shows the band it was cropped to remove.
+        /// The second protection: a band whose end lies past the LOSS CAP is still not trimmed, because
+        /// trimming to the cap is the worst of both -- a frame smaller by 5% of every edge that still
+        /// shows the band it was cropped to remove.
+        ///
+        /// <para>What changed is that the walk now SAYS SO. It reports
+        /// <see cref="CoverageEdgeOutcome.BeyondCap"/> with the depth it found, which is a different
+        /// fact from "the noise never settles at all" and is actionable: raise the cap past
+        /// <c>SettleDepth</c> and the band comes off. Both used to arrive as one bare
+        /// <c>Settled: false</c>.</para>
+        ///
+        /// <para>Note what the roomier case no longer has to do. It used to raise
+        /// <c>ReferenceFraction</c> to 0.40 BY HAND alongside the cap, because the reference was fixed
+        /// while the cap moved and the guard would otherwise fire. The reference now follows the search
+        /// window on its own.</para>
         /// </summary>
         [Fact]
-        public void ABandDeeperThanTheBoundIsRefusedRatherThanTrimmedToTheBound()
+        public void ABandDeeperThanTheLossCapIsReportedRatherThanTrimmedOrRefused()
         {
-            // 60 px of band against a 48 px bound (5% of 1024, rounded to the step).
+            // 60 px of band against a 48 px cap (5% of 1024, rounded to the step).
             var image = NoiseFrame(1024, 1024, static (_, y) => y < 60 ? 3.0 : 1.0);
 
             var trims = CoverageEdgeWalk.Measure(image, Whole(image));
 
-            trims.Top.Settled.ShouldBeFalse();
+            trims.Top.Outcome.ShouldBe(CoverageEdgeOutcome.BeyondCap);
             trims.Top.Depth.ShouldBe(0);
+            trims.Top.SettleDepth.ShouldBeInRange(56, 72);   // it knows where the band ends
+            trims.Top.Settled.ShouldBeTrue();                // it DID settle, just past the cap
             trims.Apply(Whole(image)).ShouldBe(Whole(image));
 
-            // The same frame with room to see the end of the band: now it answers, and takes the band.
+            // Raise only the cap. The reference used to need raising with it; it does not now.
             var roomier = CoverageEdgeWalk.Measure(
-                image, Whole(image), new CoverageEdgeWalkOptions { MaxTrimFraction = 0.15, ReferenceFraction = 0.40 });
-            roomier.Top.Settled.ShouldBeTrue();
+                image, Whole(image), new CoverageEdgeWalkOptions { MaxTrimFraction = 0.15 });
+            roomier.Top.Outcome.ShouldBe(CoverageEdgeOutcome.Trimmed);
             roomier.Top.Depth.ShouldBeInRange(56, 72);
         }
 
-        /// <summary>A frame too small for three tiles across a band answers "nothing", not a crash.</summary>
+        /// <summary>
+        /// A frame too small for three tiles across a band says it COULD NOT MEASURE, not "nothing to
+        /// trim", and does not crash.
+        ///
+        /// <para>It used to answer the latter: the internal <c>Nothing</c> carried
+        /// <c>Settled: true, EdgeRatio: 1.0</c>, so "I could not look" and "I looked and the edge is
+        /// clean" were the same value. That conflation is what let a mis-set option silently disable
+        /// the whole feature on every edge of every master with nothing reporting it.</para>
+        /// </summary>
         [Fact]
-        public void AFrameTooSmallToMeasureAnswersNothing()
+        public void AFrameTooSmallToMeasureSaysSoRatherThanClaimingItIsClean()
         {
             var image = NoiseFrame(96, 96, static (_, y) => y < 8 ? 4.0 : 1.0);
 
             var trims = CoverageEdgeWalk.Measure(image, Whole(image));
 
             trims.TotalDepth.ShouldBe(0);
-            trims.AnyDeclined.ShouldBeFalse();
+            trims.Left.Outcome.ShouldBe(CoverageEdgeOutcome.NotMeasurable);
+            trims.Top.Outcome.ShouldBe(CoverageEdgeOutcome.NotMeasurable);
+            trims.Right.Outcome.ShouldBe(CoverageEdgeOutcome.NotMeasurable);
+            trims.Bottom.Outcome.ShouldBe(CoverageEdgeOutcome.NotMeasurable);
+            trims.AnyDeclined.ShouldBeTrue();   // it refused to answer, and that is reportable
         }
 
         [Fact]
@@ -179,10 +204,10 @@ namespace TianWen.Lib.Tests
         {
             var rect = new PixelRect(10, 20, 40, 30);
             var trims = new CoverageEdgeTrims(
-                new CoverageEdgeTrim(30, true, 2.0),
-                new CoverageEdgeTrim(20, true, 2.0),
-                new CoverageEdgeTrim(30, true, 2.0),
-                new CoverageEdgeTrim(20, true, 2.0));
+                new CoverageEdgeTrim(30, CoverageEdgeOutcome.Trimmed, 2.0, 30),
+                new CoverageEdgeTrim(20, CoverageEdgeOutcome.Trimmed, 2.0, 20),
+                new CoverageEdgeTrim(30, CoverageEdgeOutcome.Trimmed, 2.0, 30),
+                new CoverageEdgeTrim(20, CoverageEdgeOutcome.Trimmed, 2.0, 20));
 
             trims.Apply(rect).ShouldBe(rect);
         }

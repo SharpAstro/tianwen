@@ -39,13 +39,32 @@ namespace TianWen.Lib.Imaging
 
         /// <summary>How far in the settled reference is taken from, as a fraction of the perpendicular
         /// span. Samples between half this and this are pooled, so the reference is "just inside" --
-        /// the same rows or columns as the band, which is what cancels a frame-wide noise gradient.</summary>
+        /// the same rows or columns as the band, which is what cancels a frame-wide noise gradient.
+        ///
+        /// <para>A FLOOR, not a fixed depth: the reference pool must begin outside the search window or
+        /// it would be measured inside the very band being profiled, so the walk pushes it deeper when
+        /// <see cref="SettleSearchFraction"/> asks for it. See <c>MeasureEdge</c>.</para></summary>
         public double ReferenceFraction { get; init; } = 0.15;
 
-        /// <summary>The most one edge may lose, as a fraction of the perpendicular span. Also the depth
-        /// by which the profile has to have settled, so a frame whose noise keeps falling past here is
-        /// declined rather than trimmed (see the class remarks).</summary>
+        /// <summary>The most one edge may lose, as a fraction of the perpendicular span.
+        ///
+        /// <para><b>This is the loss cap and nothing else.</b> It used to double as the depth by which
+        /// the profile had to settle, which made the two inseparable: a dither strip deeper than the cap
+        /// was not trimmed TO the cap, it was declined outright. Worse, turning the knob up to reach
+        /// such a strip walked into the reference guard and switched the walk off silently, every edge
+        /// of every master returning "nothing to trim" from 0.08 up. How far the walk LOOKS is now
+        /// <see cref="SettleSearchFraction"/>.</para></summary>
         public double MaxTrimFraction { get; init; } = 0.05;
+
+        /// <summary>How far in the walk probes for the profile to settle, as a fraction of the
+        /// perpendicular span. Independent of <see cref="MaxTrimFraction"/>: a profile that settles
+        /// between the cap and here is a real edge the caller is not willing to pay for, which is a
+        /// different answer from a profile that never settles at all, and
+        /// <see cref="CoverageEdgeTrim.SettleDepth"/> reports which.
+        ///
+        /// <para>Defaults to twice the loss cap, so the walk can always see far enough to tell those two
+        /// apart, and raising the cap widens the search with it rather than against it.</para></summary>
+        public double SettleSearchFraction { get; init; } = 0.10;
 
         /// <summary>How close to the settled level counts as settled.</summary>
         public double SettleMargin { get; init; } = 1.15;
@@ -61,15 +80,47 @@ namespace TianWen.Lib.Imaging
         public int Percentile { get; init; } = 10;
     }
 
+    /// <summary>Why an edge ended up with the depth it did. The outcome a caller reports, and the one
+    /// thing a bare depth of zero could never say.</summary>
+    public enum CoverageEdgeOutcome
+    {
+        /// <summary>The profile was flat from the outermost band in: there was no border to remove.</summary>
+        Clean,
+
+        /// <summary>The profile settled inside the loss cap, and <c>Depth</c> is where.</summary>
+        Trimmed,
+
+        /// <summary>The profile settled, but DEEPER than the loss cap allows. The edge is real and its
+        /// extent is known (<c>SettleDepth</c>); the caller is simply not willing to pay for it, so
+        /// <c>Depth</c> is zero. Raising <see cref="CoverageEdgeWalkOptions.MaxTrimFraction"/> past
+        /// <c>SettleDepth</c> would trim it.</summary>
+        BeyondCap,
+
+        /// <summary>The profile never settled inside the search window: the noise is still falling that
+        /// far in, which is a property of the frame and not a border.</summary>
+        NeverSettles,
+
+        /// <summary>The walk could not measure this edge at all -- too few tiles along it, or no room
+        /// for a reference pool outside the search window. NOT the same as <see cref="Clean"/>, and
+        /// conflating the two is what let a mis-set option silently disable the whole feature.</summary>
+        NotMeasurable,
+    }
+
     /// <summary>What the walk found on one edge.</summary>
-    /// <param name="Depth">Px to discard from that edge. Zero both when there was nothing to trim and
-    /// when the walk declined -- <paramref name="Settled"/> is what separates those.</param>
-    /// <param name="Settled">Whether the profile reached the settled level inside
-    /// <see cref="CoverageEdgeWalkOptions.MaxTrimFraction"/>. False is a REFUSAL: the noise is still
-    /// falling that far in, which is a property of the frame and not a border.</param>
+    /// <param name="Depth">Px to discard from that edge. Zero for every outcome but
+    /// <see cref="CoverageEdgeOutcome.Trimmed"/>, so read <paramref name="Outcome"/> to know why.</param>
+    /// <param name="Outcome">Why this edge got that depth.</param>
     /// <param name="EdgeRatio">The outermost band's noise over the settled level, so a caller can say
-    /// how bad the edge was, or that it was fine.</param>
-    public readonly record struct CoverageEdgeTrim(int Depth, bool Settled, double EdgeRatio);
+    /// how bad the edge was, or that it was fine. NaN when nothing could be measured.</param>
+    /// <param name="SettleDepth">Where the profile settled, in px, whether or not the loss cap allowed
+    /// trimming there. -1 when it never settled or could not be measured. This is what makes
+    /// <see cref="CoverageEdgeOutcome.BeyondCap"/> actionable rather than a shrug.</param>
+    public readonly record struct CoverageEdgeTrim(int Depth, CoverageEdgeOutcome Outcome, double EdgeRatio, int SettleDepth)
+    {
+        /// <summary>Whether the profile reached the settled level at all, at any depth. Kept because it
+        /// is what most callers want to branch on; the outcome carries the detail.</summary>
+        public bool Settled => Outcome is CoverageEdgeOutcome.Clean or CoverageEdgeOutcome.Trimmed or CoverageEdgeOutcome.BeyondCap;
+    }
 
     /// <summary>The four edges' verdicts, and the rectangle they leave.</summary>
     public readonly record struct CoverageEdgeTrims(
@@ -147,7 +198,7 @@ namespace TianWen.Lib.Imaging
             var rect = PixelRect.Intersect(start, new PixelRect(0, 0, image.Width, image.Height));
             if (rect.Width <= 0 || rect.Height <= 0)
             {
-                return new CoverageEdgeTrims(Nothing, Nothing, Nothing, Nothing);
+                return new CoverageEdgeTrims(NotMeasurable, NotMeasurable, NotMeasurable, NotMeasurable);
             }
 
             return new CoverageEdgeTrims(
@@ -157,27 +208,38 @@ namespace TianWen.Lib.Imaging
                 MeasureEdge(image, rect, CoverageEdge.Bottom, o));
         }
 
-        private static CoverageEdgeTrim Nothing => new CoverageEdgeTrim(0, Settled: true, EdgeRatio: 1.0);
+        private static CoverageEdgeTrim NotMeasurable
+            => new CoverageEdgeTrim(0, CoverageEdgeOutcome.NotMeasurable, EdgeRatio: double.NaN, SettleDepth: -1);
 
-        /// <summary>One edge, internal so the tests can pin the refusal and the trim separately.</summary>
+        /// <summary>One edge, internal so the tests can pin each outcome separately.</summary>
         internal static CoverageEdgeTrim MeasureEdge(Image image, PixelRect rect, CoverageEdge edge, CoverageEdgeWalkOptions o)
         {
             var horizontal = edge is CoverageEdge.Top or CoverageEdge.Bottom;
             var span = horizontal ? rect.Height : rect.Width;
             var along = horizontal ? rect.Width : rect.Height;
 
-            var reference = (int)(o.ReferenceFraction * span);
+            // How far the walk LOOKS, and the most it may take. The search is at least the cap, because
+            // looking less far than you are willing to trim can only manufacture refusals.
+            var search = (int)(Math.Max(o.SettleSearchFraction, o.MaxTrimFraction) * span) / o.Step * o.Step;
             var maxTrim = (int)(o.MaxTrimFraction * span) / o.Step * o.Step;
 
+            // The reference pool runs from half its depth to its depth, so it has to BEGIN outside the
+            // search window or it would be measured inside the band being profiled. Derive it from the
+            // search rather than fixing it: with a constant ReferenceFraction, widening the window past
+            // half of it made this guard fire, and the walk returned "nothing to trim" for every edge of
+            // every master from about 0.075 up. A knob whose useful range ends without saying so is
+            // worse than one that is merely too small.
+            var reference = Math.Max((int)(o.ReferenceFraction * span), 2 * search + o.BandThickness);
+
             // Too small to say anything: a band needs three tiles before it has a percentile at all, and
-            // the reference has to sit beyond the trim window or it would be measured inside the band.
-            if (along < 3 * o.TileLength || maxTrim < 2 * o.Step || reference < 2 * maxTrim + o.BandThickness
+            // the reference plus its band has to fit inside the span.
+            if (along < 3 * o.TileLength || maxTrim < 2 * o.Step || search < 2 * o.Step
                 || reference + o.BandThickness >= span)
             {
-                return Nothing;
+                return NotMeasurable;
             }
 
-            var count = maxTrim / o.Step + 1;
+            var count = search / o.Step + 1;
             var profile = new double[count];
             for (var i = 0; i < count; i++)
             {
@@ -188,7 +250,7 @@ namespace TianWen.Lib.Imaging
             var settled = SettledLevel(image, rect, edge, reference, o);
             if (!double.IsFinite(settled) || settled <= 0 || !double.IsFinite(profile[0]))
             {
-                return Nothing;
+                return NotMeasurable;
             }
 
             var edgeRatio = profile[0] / settled;
@@ -196,13 +258,14 @@ namespace TianWen.Lib.Imaging
             {
                 // The outermost band is already as quiet as just inside. Nothing to remove -- and saying
                 // so is not the same as declining, because the walk did answer.
-                return new CoverageEdgeTrim(0, Settled: true, edgeRatio);
+                return new CoverageEdgeTrim(0, CoverageEdgeOutcome.Clean, edgeRatio, SettleDepth: 0);
             }
 
-            // Outside-in: the trim is the shallowest depth from which everything out to maxTrim is
-            // settled. Read this way round because the profile is not monotone -- at very low coverage a
-            // drizzle cell is fed by few drops, so its neighbours correlate and the sigma dips, which
-            // puts a false floor in the middle of the ramp for a first-crossing rule to stop at.
+            // Outside-in: the settle depth is the shallowest one from which everything out to the SEARCH
+            // window is settled. Read this way round because the profile is not monotone -- at very low
+            // coverage a drizzle cell is fed by few drops, so its neighbours correlate and the sigma
+            // dips, which puts a false floor in the middle of the ramp for a first-crossing rule to stop
+            // at.
             var first = -1;
             for (var i = count - 1; i >= 0; i--)
             {
@@ -213,14 +276,21 @@ namespace TianWen.Lib.Imaging
                 first = i;
             }
 
-            // first < 0: nothing settled by maxTrim, so the noise is still coming down that far in. That
-            // is the frame's own structure, not a border; refuse rather than eat MaxTrimFraction of it.
-            return first switch
+            if (first < 0)
             {
-                < 0 => new CoverageEdgeTrim(0, Settled: false, edgeRatio),
-                0 => new CoverageEdgeTrim(0, Settled: true, edgeRatio),
-                _ => new CoverageEdgeTrim(first * o.Step, Settled: true, edgeRatio),
-            };
+                // Nothing settled anywhere in the search window: the noise is still coming down that far
+                // in. That is the frame's own structure, not a border, so refuse rather than eat the cap.
+                return new CoverageEdgeTrim(0, CoverageEdgeOutcome.NeverSettles, edgeRatio, SettleDepth: -1);
+            }
+
+            var settleDepth = first * o.Step;
+
+            // Settled, but past what the caller will pay. Report WHERE, so the answer is actionable: it
+            // used to be indistinguishable from "still falling", which is the difference between an edge
+            // you could remove for a known price and one nobody can measure at all.
+            return settleDepth > maxTrim
+                ? new CoverageEdgeTrim(0, CoverageEdgeOutcome.BeyondCap, edgeRatio, settleDepth)
+                : new CoverageEdgeTrim(settleDepth, settleDepth == 0 ? CoverageEdgeOutcome.Clean : CoverageEdgeOutcome.Trimmed, edgeRatio, settleDepth);
         }
 
         /// <summary>
