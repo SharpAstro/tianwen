@@ -873,6 +873,37 @@ refusals fell from nine entries to one, though the row count only fell 30 to 25,
 shape refusal on the Eta Car 24 mm frame sits a star budget (the brightness band holds 38 / 10 / 2 / 0
 stars at 1 / 2 / 3 / 4 px of injected blur), which no fit cures.
 
+### A narrowband filter on an OSC sensor is effectively MONO, and the bake still builds it as colour
+
+`FilterCurveDatabase.IsLineSelective` protects the RENDER and nothing upstream of it. It is read by
+`MasterPreviewRenderer` (which picks `StretchMode.Unlinked`, so a fit of nothing is never asserted as
+colour) and by `AstroImageDocument`, and by NOTHING in the debayer or the integration-strategy
+choice: `StackingPipeline` picks Bayer drizzle purely on the CFA pattern plus
+`DrizzleStrategy.AutoSelectMinFrameCount`, and otherwise demosaics with AHD. So a narrowband session
+shot on a colour sensor is integrated into a three-plane master in which one plane holds the signal
+and the other two hold out-of-band leak and noise.
+
+**Measured on the archive's one such session** (`Rim Nebula 120s SII 4deg`, 2024-07-06, ASI533MC Pro
+RGGB, 54 x 120 s, filed by group R under `SII`): through that filter the photosites respond
+R 4.52 : G 1.00 : B 0.42 (its own flat, white balance divided out), so red carries about 76 percent
+of the flux, green 17 and blue 7. The sky agrees, at R/G 5.25 to 5.63 and B/G 0.50 to 0.625 over a
+sky of 0.1 to 0.2 ADU/s. SII sits at 672 nm, where a green or blue photosite has no business seeing
+anything: what those two planes hold is filter out-of-band transmission and CFA crosstalk, not the
+line.
+
+**The right treatment is to extract the matching photosites and carry the result as MONO** -- red for
+SII and Ha, green (with blue as a partner) for OIII -- at half resolution, rather than demosaicing
+into three planes. Two thirds of the current master is not colour information and cannot become any;
+it dilutes every whole-frame statistic taken over the master, and the only thing standing between it
+and a rendered colour cast is the stretch-side veto.
+
+**Not urgent, and deliberately not fixed yet**: one session in the archive is affected, its render is
+already protected, and the linear master keeps the red plane intact, so nothing is lost that a later
+extraction cannot recover. The note exists so the next person to read a three-plane SII master knows
+it is expected rather than a defect, and so the fix is specified when it is wanted: gate the strategy
+on the filter's line-selectivity the way the renderer already gates the stretch, and give the mono
+result the same `FilterIdentity` so session grouping is unchanged.
+
 ## GPU / rendering
 
 ### Dangling stack pointer via single-argument Vortice ctors

@@ -249,6 +249,14 @@ restates the card, so the sky is the only independent arbiter. **Do not conclude
 from a `TELESCOP` or `FOCALLEN` card alone**, because a stale capture profile writes a scope that was
 swapped out. A blind solve costs seconds and settles it; this one reversed the conclusion.
 
+**A narrowband filter on an OSC body is effectively MONO, and that is worth a line in the record.**
+The CFA is what identifies such a session (the ASI533 `SII` night reads R 4.52 : G 1.00 : B 0.42
+through its own flat), but once identified, only the matching photosites hold the line: red for SII
+and Ha, green with blue for OIII. The other planes carry out-of-band leak and CFA crosstalk. File it
+normally -- the slug and the path do not change -- and note it in the calibration map's verdict, but
+do not read the green or blue plane of the resulting master as colour. The bake still builds three
+planes; `docs/known-limitations.md` has the measurement and what the fix would be.
+
 ## Step 3: is the calibration actually safe?
 
 `CalibrationResolver` scores metadata only (gain, offset, exposure, temperature, instrument, date
