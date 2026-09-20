@@ -740,13 +740,15 @@ public static class SkyMapSearchActions
         // The set it replaces cost 360 KB per resolve on a dense field at a deep zoom -- about 22
         // MB/s at 60 fps -- to deduplicate a handful of objects in the rare collapsed-cell case.
         // Measured by SkyMapHoverResolveBenchmarks; the click has always paid this too.
-        // Hoisted because CoordinateGrid below used to be a PROPERTY returning
-        // `new CompositeRaDecIndex(...)` on every read, so reading it inside the probe loop built one
-        // per cell. Measured at no significant change at the time (293.5 KB against 293.9), because
-        // one small wrapper object was nothing against the per-candidate lookups the star pass paid
-        // 1094 times. Since 2026-09-21 the database caches the composite and both passes walk their
-        // cells through EnumerateCell, and a resolve allocates nothing at all (the benchmark's
-        // Allocated column reads "-" on every row). SkyMapHoverResolveCostProbe has the split.
+        //
+        // Both grids are hoisted out of the probe loop. The composite one (the star pass below) used
+        // to be a PROPERTY returning `new CompositeRaDecIndex(...)` on every read, so reading it per
+        // probe built one per cell; measured at no significant change at the time (293.5 KB against
+        // 293.9), because one small wrapper was nothing against the per-candidate lookups the star
+        // pass paid 1094 times. Since 2026-09-21 the database caches the composite and both passes
+        // walk their cells through EnumerateCell, and a resolve allocates nothing at all (the
+        // benchmark's Allocated column reads "-" on every row). SkyMapHoverResolveCostProbe has the
+        // split.
         var dsoGrid = db.DeepSkyCoordinateGrid;
         foreach (var (probeRa, probeDec) in probes)
         {
@@ -823,10 +825,11 @@ public static class SkyMapSearchActions
             // No dedupe set here either, for the reason given at the DSO pass above -- and this is
             // the one that cost: the composite grid is where Tycho-2 lives, so this set was the 360 KB.
             // One composite index for the whole pass, not one per probe (the property used to
-            // allocate; it is cached now). And EnumerateCell rather than the indexer: the indexer built a List of the cell's
-            // Tycho-2 stars, a wrapper and an iterator per cell, the 27.6 KB that was left of this
-            // resolve's allocation once the per-candidate lookups went. The struct scans the same
-            // regions with the same cell-box test as the caller advances, and allocates nothing.
+            // allocate; it is cached now). And EnumerateCell rather than the indexer: the indexer
+            // built a List of the cell's Tycho-2 stars, a wrapper and an iterator per cell, the
+            // 27.6 KB that was left of this resolve's allocation once the per-candidate lookups
+            // went. The struct scans the same regions with the same cell-box test as the caller
+            // advances, and allocates nothing.
             var starGrid = db.CoordinateGrid;
             foreach (var (probeRa, probeDec) in probes)
             {

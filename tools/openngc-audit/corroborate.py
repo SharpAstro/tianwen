@@ -160,7 +160,12 @@ _STELLARIUM_LINE = re.compile(
 
 def load_stellarium_names(cache_path=None):
     """
-    Stellarium's curated common names: ``{normalised name: [(designation, sources), ...]}``.
+    Stellarium's curated common names: ``{normalised name: [(designation, sources), ...]}``, or
+    ``None`` when the file could not be fetched and no cache exists.
+
+    ``None``, not an empty dict, and the caller must keep the two apart: with an empty dict every
+    common name would be bucketed SIMBAD ONLY with the detail "names.dat does not carry this name",
+    which is a statement about the file made without the file. A download failure is NOT CHECKED.
 
     Commented-out lines are read too, and they are the most useful rows in the file: a name
     Stellarium DELETED is a placement someone already reviewed and rejected, and the trailing
@@ -176,7 +181,7 @@ def load_stellarium_names(cache_path=None):
         try:
             text = _get(STELLARIUM_NAMES_URL).decode('utf-8', errors='replace')
         except Exception:
-            return {}
+            return None
         if cache_path:
             with open(cache_path, 'w', encoding='utf-8') as f:
                 f.write(text)
@@ -302,7 +307,8 @@ def corroborate_common_name(name, openngc_row, stellarium):
     if agreeing:
         # A DISPUTED backed only by OpenNGC's own lineage is not a second opinion. RNGCIC is the
         # Revised NGC/IC, the catalogue OpenNGC derives from, so Stellarium agreeing with the row
-        # through it is the row agreeing with itself. 11 live entries are RNGCIC-only.
+        # through it is the row agreeing with itself. 10 of the live file's 1,389 entries were
+        # RNGCIC-only on 2026-09-21 (the file moves; the count is a size, not a pin).
         if all(source_keys(e) <= {'RNGCIC'} and source_keys(e) for e in agreeing):
             return SIMBAD_ONLY, (
                 "Stellarium agrees with the row, but only on RNGCIC -- OpenNGC's own lineage, so not "
@@ -311,9 +317,10 @@ def corroborate_common_name(name, openngc_row, stellarium):
 
     # THE independence check, and the one the module's whole argument rests on: a CONFIRMED whose
     # only Stellarium backing is the SIMBAD key is SIMBAD agreeing with SIMBAD, which is the exact
-    # circularity this file exists to remove. 157 of the live file's 1,400 entries are SIMBAD-only,
-    # so this is not a corner. The keys were already printed for a human to catch it; the BUCKET has
-    # to catch it too, or the report says "independently confirmed" about a single source.
+    # circularity this file exists to remove. 155 of the live file's 1,389 entries were SIMBAD-only
+    # on 2026-09-21, so this is not a corner. The keys were already printed for a human to catch it;
+    # the BUCKET has to catch it too, or the report says "independently confirmed" about a single
+    # source.
     if live and all(source_keys(e) == {'SIMBAD'} for e in live):
         return SIMBAD_ONLY, (
             "Stellarium places it elsewhere but cites SIMBAD as its only source, so this is SIMBAD "

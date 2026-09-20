@@ -441,11 +441,19 @@ def main():
         to_check = [m for m in misses if m['class'] != 'CENTRE']
         log(f"Corroborating {len(to_check)} non-CENTRE misses against NED / HyperLeda / Stellarium...")
         stellarium = corroborate.load_stellarium_names(os.path.join(OUT_DIR, 'stellarium-names.dat'))
-        log(f"  Stellarium names.dat: {len(stellarium)} names")
+        if stellarium is None:
+            log("  Stellarium names.dat: UNAVAILABLE (download failed, no cache); common names stay NOT CHECKED")
+        else:
+            log(f"  Stellarium names.dat: {len(stellarium)} names")
         for n, m in enumerate(to_check, 1):
             if m['kind'] == 'common name':
-                verdict, detail = corroborate.corroborate_common_name(
-                    m['value'], m['openngc_name'], stellarium)
+                if stellarium is None:
+                    # Not a verdict: the second source could not be consulted, and saying SIMBAD ONLY
+                    # here would report a network failure as "nobody else knows the name".
+                    verdict, detail = 'NOT CHECKED', "Stellarium's names.dat could not be fetched"
+                else:
+                    verdict, detail = corroborate.corroborate_common_name(
+                        m['value'], m['openngc_name'], stellarium)
             else:
                 verdict, detail = corroborate.corroborate_identifier(m['value'], m['openngc_name'])
             m['corroboration'] = verdict
@@ -555,8 +563,8 @@ def main():
                 f"source catalogue BEFORE filing.\n")
         f.write(f"- **SIMBAD ONLY** ({len(by_corr['SIMBAD ONLY'])}): every second source is "
                 f"silent. File, saying so.\n")
-        f.write(f"- NOT CHECKED ({len(by_corr['NOT CHECKED'])}): CENTRE-class, or the run used "
-                f"`--no-corroborate`.\n\n")
+        f.write(f"- NOT CHECKED ({len(by_corr['NOT CHECKED'])}): CENTRE-class, the run used "
+                f"`--no-corroborate`, or a common name whose names.dat could not be fetched.\n\n")
 
         for verdict, blurb in (
             ('CONFIRMED', 'no second source backs the row: this is the list to send upstream'),
