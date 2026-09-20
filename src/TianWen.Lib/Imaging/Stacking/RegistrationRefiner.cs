@@ -1,5 +1,6 @@
 using System;
 using System.Numerics;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Stacking;
 
@@ -172,10 +173,10 @@ internal static class RegistrationRefiner
             residualsY[k] = pairs.RefY[k] - pairs.PredY[k];
         }
 
-        Array.Sort(residualsX);
-        Array.Sort(residualsY);
-        var medianDx = residualsX[pairs.Matched / 2];
-        var medianDy = residualsY[pairs.Matched / 2];
+        // Selection rather than a sort: this runs per frame over every matched pair (5,000 on a
+        // dense field), and only the middle rank is ever read.
+        var medianDx = StatisticsHelper.NthSmallest(residualsX, pairs.Matched / 2);
+        var medianDy = StatisticsHelper.NthSmallest(residualsY, pairs.Matched / 2);
 
         // Matrix3x2 is a mutable struct -- copy then adjust translation
         // fields. M31/M32 are the affine's translation in source-to-

@@ -8,6 +8,7 @@ using Microsoft.ML.OnnxRuntime.Tensors;
 using TianWen.AI.Inference;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
+using TianWen.Lib.Stat;
 
 namespace TianWen.AI.Imaging.Onnx;
 
@@ -115,11 +116,13 @@ public sealed class OnnxNonStellarDeconvolver(
             }
         }
 
-        var sorted = (float[])values.Clone();
-        Array.Sort(sorted);
+        var ranks = values.AsSpan().ToArray();
+        var lo = StatisticsHelper.NthSmallest(ranks, 0);
+        var mid = StatisticsHelper.NthSmallest(ranks, ranks.Length / 2);
+        var hi = StatisticsHelper.NthSmallest(ranks, ranks.Length - 1);
         logger?.LogInformation(
             "OnnxNonStellarDeconvolver: per-chunk psf01 over {Chunks} tiles: min {Min:F3} p50 {P50:F3} max {Max:F3} (whole image {Whole:F3}; {FellBack} tiles at the whole-image value)",
-            values.Length, sorted[0], sorted[sorted.Length / 2], sorted[^1], wholeImagePsf01, fellBack);
+            values.Length, lo, mid, hi, wholeImagePsf01, fellBack);
         return values;
     }
 

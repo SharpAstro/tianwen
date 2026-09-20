@@ -169,6 +169,27 @@ public static class StatisticsHelper
         return (median, NthSmallest(values, k));
     }
 
+    /// <summary>
+    /// Double-precision counterpart to <see cref="NthSmallest(Span{float}, int)"/>: the
+    /// <paramref name="k"/>-th smallest value (0-based), bit-identical to <c>sorted[k]</c>.
+    /// <para>Exists for the same reason the float overload does. A caller that reads ONE rank off a
+    /// <c>double[]</c> otherwise has only <see cref="MedianFast(Span{double})"/>, which averages
+    /// the two middle values on an even count, so it cannot preserve an existing
+    /// <c>sorted[n / 2]</c> convention.</para>
+    /// <para>The span is permuted in place but not sorted.</para>
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static double NthSmallest(Span<double> values, int k)
+    {
+        var n = values.Length;
+        if (n == 0) return double.NaN;
+        if (n == 1) return values[0];
+
+        k = Math.Clamp(k, 0, n - 1);
+        QuickSelect(values, k);
+        return values[k];
+    }
+
     /// <summary>Double-precision counterpart to <see cref="MedianAndMad(Span{float})"/>.</summary>
     public static (double Median, double Mad) MedianAndMad(Span<double> values)
     {

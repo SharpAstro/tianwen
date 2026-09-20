@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Enhancement;
 
@@ -185,8 +186,7 @@ public sealed class HfdPsfEstimator(
             return new Measurement(DefaultRadiusPx, 0);
         }
 
-        Array.Sort(fwhms);
-        var medianFwhm = fwhms[fwhms.Length / 2];
+        var medianFwhm = StatisticsHelper.NthSmallest(fwhms, fwhms.Length / 2);
         return new Measurement(medianFwhm * 0.5f, fwhms.Length);
     }
 

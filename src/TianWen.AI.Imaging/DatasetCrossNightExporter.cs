@@ -18,6 +18,7 @@ using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Dataset;
 using TianWen.Lib.Imaging.Degradation;
 using TianWen.Lib.Imaging.Stacking;
+using TianWen.Lib.Stat;
 
 namespace TianWen.AI.Imaging
 {
@@ -1573,10 +1574,10 @@ namespace TianWen.AI.Imaging
             {
                 return double.NaN;
             }
-            var copy = (float[])values.Clone();
-            Array.Sort(copy);
-            var mid = copy.Length / 2;
-            return copy.Length % 2 == 1 ? copy[mid] : 0.5 * (copy[mid - 1] + copy[mid]);
+            // Copy because the caller's array must survive; select rather than sort, because one
+            // order statistic does not need the other n - 1 put in order. MedianFast averages the
+            // two middle values on an even count, which is the convention this method already had.
+            return StatisticsHelper.MedianFast(values.AsSpan().ToArray());
         }
 
         private static float Mad(float[] values)
@@ -1592,10 +1593,12 @@ namespace TianWen.AI.Imaging
 
         private static float Percentile(float[] values, double fraction)
         {
-            var copy = (float[])values.Clone();
-            Array.Sort(copy);
+            // NthSmallest is bit-identical to sorted[k], so the ROUNDED rank this method has always
+            // used is preserved exactly. StatisticsHelper.PercentileFast is deliberately not used
+            // here: it truncates the rank instead of rounding it, which would move the answer.
+            var copy = values.AsSpan().ToArray();
             var index = (int)Math.Clamp(Math.Round(fraction * (copy.Length - 1)), 0, copy.Length - 1);
-            return copy[index];
+            return StatisticsHelper.NthSmallest(copy, index);
         }
     }
 
