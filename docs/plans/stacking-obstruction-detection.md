@@ -82,6 +82,33 @@ low bar from firing on noise.
 transparency, moon, gradient and exposure all cancel. A frame-wide drop moves every cell and is
 therefore not an obstruction, which is exactly the discrimination `FrameQualityFilter` cannot make.
 
+**But the SCENE does not cancel, and on a bright target it dominates.** This paragraph used to end
+at the line above, and it is incomplete in a way that matters: a within-frame comparison removes
+everything that is uniform across the frame, which is not the same as removing everything that is
+not a defect. An extended target has structure of its own, brighter on nebulosity and **darker in
+its dust lanes**, and a dark lane is bounded and darker, which is the entire obstruction signature.
+
+Measured on `eta-Car-Nebula/2025-01-14` (ASI585, L-eNhance, 125 subs): **every frame flags 150 to
+250 cells of 576** below 0.95, with cells up to 1.58 above, which is the Carina nebula and the
+Keyhole, not an obstruction. Against the two real obstructions that is a quarter to a half of the
+frame flagged on every sub of the session.
+
+**Frame-to-frame correlation of the cell map separates a MOVING obstruction and nothing else:**
+
+| session | corr between frames | what it means |
+|---|---|---|
+| Helix powerline 2022-08-31 | **-0.15** | moves across the field, so the map does not repeat |
+| eta Car 2025-01-14 | +0.89 | the scene, fixed on the sky |
+| Helix roof 2026-08-01 | **+0.998** | fixed on the sensor, and indistinguishable from a scene by this test |
+
+So the discriminator that remains is the one the pipeline already computes and this plan had not
+reached for: **the scene is fixed in SKY coordinates and an obstruction is fixed in SENSOR
+coordinates.** Registration is exactly that mapping, it runs anyway, and under it a dust lane lands
+on the same sky cell in every sub while a roof does not. Any per-cell test therefore belongs on the
+residual against the session's own registered cell map, never on a single frame's cell median
+alone. Without that, a nebula field is a permanent false positive and the detector would have
+masked or dropped every sub of eta Carinae.
+
 ### 3. The remedy is a DROP by default; the cauterise is the exception
 
 **There is no edge to cut at.** This section first said the opposite -- mask the obstructed cells,
