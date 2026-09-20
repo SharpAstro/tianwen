@@ -423,6 +423,53 @@ public class SkyMapHoverAndPictureTests
         changed.ShouldBeLessThan(size * size / 8);
     }
 
+    // One press retires the wash, which is how three cases with no signal of their own are covered:
+    // a DIR.Lib DragCapture (it begins with a press and then takes every move itself, so the tab
+    // stops being told where the pointer is), a tab switch (which IS a press, on the tab button),
+    // and a press on the sky, where the user has stopped asking what a click would take.
+    [Fact]
+    public void APressRetiresTheHoverWash()
+    {
+        using var renderer = new RgbaImageRenderer(200, 200);
+        var tab = new HoverTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+        var db = new ArticleDb(Nebula, Star, NebulaShape);
+        var plannerState = new PlannerState { ObjectDb = db };
+        var time = new FakeTimeProviderWrapper(DateTimeOffset.UtcNow);
+        var rect = new RectF32(0, 0, 200, 200);
+
+        tab.State.ShowObjectOverlay = true;
+        tab.State.CenterRA = Nebula.RA;
+        tab.State.CenterDec = Nebula.Dec;
+        tab.State.FieldOfViewDeg = 2.0;
+        tab.Render(plannerState, rect, time);
+
+        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
+        tab.State.HoverTarget.ShouldNotBeNull();
+
+        tab.HandleInput(new InputEvent.MouseDown(100f, 100f));
+        tab.State.HoverTarget.ShouldBeNull();
+    }
+
+    // Leaving the map needs no clearing code of its own: the resolver already answers null outside
+    // the content rect, and the move that leaves writes that null through. Pinned so a later
+    // "optimisation" that skips resolving off-rect does not quietly strand the wash on screen.
+    [Fact]
+    public void AMoveOffTheMapRetiresTheWashWithNoCodeOfItsOwn()
+    {
+        var db = new ArticleDb(Nebula, Star, NebulaShape);
+        var state = NewState();
+        state.CurrentViewMatrix = state.ComputeViewMatrix();
+        var (nebX, nebY) = Project(state, Nebula.RA, Nebula.Dec);
+
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(
+            state, db, DateTimeOffset.UtcNow, nebX, nebY, pinnedCatalogIndices: null).ShouldNotBeNull();
+
+        // Same object, pointer now outside the rect the map was given.
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(
+            state, db, DateTimeOffset.UtcNow, SurfaceSize + 10f, nebY, pinnedCatalogIndices: null)
+            .ShouldBeNull();
+    }
+
     // A SkyMapTab over the CPU surface, matching the browser's wiring: the object overlay goes through
     // the shared primitive path and the view matrix is published each frame the way the GPU pipelines
     // do, so hit-testing and drawing agree on where things are.
