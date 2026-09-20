@@ -556,10 +556,15 @@ HIGHLIGHT, not hover selection: the click still selects (`docs/plans/in-app-sky-
   over bare STAR FIELD 389 us / 225 KB at 1 degree and 357 at 10, falling to ~1.7 us / 288 B by 60.
   **The 44x is entirely WHETHER THE STAR PASS RUNS, not a per-star cost that varies with zoom** --
   the nine index cells come from the unprojected pointer and are identical at every zoom, holding
-  1094 candidates whatever the FOV. What the pass spends on them, RANKED (the probe's absolute
-  microseconds run ~3x the benchmark's, so it ranks terms and does not price them): `TryLookupByIndex`
-  at ~905 ns x 1094 dominates, three to four times the nine cell lookups that fed it, and is the
-  likely 225 KB too; `Tycho2RaDecIndex.GetStarsInCell` reads only 6x what it keeps.
+  1094 candidates whatever the FOV. What the pass spends on them: `TryLookupByIndex` x1094 is
+  320 of the 389 us and 197 of the 225 KB, six times the nine cell lookups (53 us) that fed it, and
+  more than half of THAT is `ConstellationBoundary.TryFindConstellation` precessing every candidate
+  to B1875 through heap-allocated vectors to fill a field the hit test never reads; the rest is
+  `CatalogIndex.ToCatalogAndValue` decoding base91 through a string and a byte array (71 B each).
+  `Tycho2RaDecIndex.GetStarsInCell` reads only 6x what it keeps. **Measure with
+  `DOTNET_TieredCompilation=0`**: with tiering on, a test host ranks terms by the order they were
+  timed in (the same loop read 992 us first and 290 us last), which is what a "905 ns per lookup"
+  once written here was.
   **The DSO pass short-circuits it and floors its hit test at a FIXED 20 SCREEN PX**, whose sky
   footprint runs 0.020 deg at 1 degree FOV to 4.200 at 170, so it reaches something catalogued only
   when zoomed out. `EffectiveMagnitudeLimit` is the minor term and runs the OTHER way (1 degree is

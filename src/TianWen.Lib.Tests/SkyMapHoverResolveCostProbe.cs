@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using DIR.Lib;
@@ -10,10 +11,10 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// <c>SkyMapHoverResolveBenchmarks</c> measures that the hover resolve costs ~9 us over a catalogued
-/// object and ~360 us over bare star field at a deep zoom, collapsing to ~1.7 us past 60 degrees. It
-/// cannot say WHY, and the first written explanation was wrong: the cliff was attributed to
-/// <c>EffectiveMagnitudeLimit</c> tightening as you zoom out. This probe attributes it instead, which
-/// is the only reason the correction is a fact rather than a second guess.
+/// object and ~389 us / 225 KB over bare star field at a deep zoom, collapsing to ~1.7 us past 60
+/// degrees. It cannot say WHY, and the first written explanation was wrong: the cliff was attributed
+/// to <c>EffectiveMagnitudeLimit</c> tightening as you zoom out. This probe attributes it instead,
+/// which is the only reason the correction is a fact rather than a second guess.
 /// </summary>
 /// <remarks>
 /// <para>Env-gated (<c>TIANWEN_HOVER_PROBE=1</c>) because it bulk-loads Tycho-2 and then times
@@ -21,13 +22,22 @@ namespace TianWen.Lib.Tests;
 /// invariants it established are pinned by the benchmark and by <c>SkyMapHoverAndPictureTests</c>
 /// instead.</para>
 ///
-/// <para><b>It RANKS terms; it does not price them.</b> Its absolute microseconds run about 3x
-/// <c>SkyMapHoverResolveBenchmarks</c> and vary run to run -- a Stopwatch loop inside a test host is
-/// not BenchmarkDotNet steady state. Never subtract one of its figures from a benchmark figure, and
-/// never quote one as the cost of the resolve. That mistake was made with the first version of this
-/// probe and shipped into four documents.</para>
+/// <para><b>Run it with <c>DOTNET_TieredCompilation=0</c>, or it ranks terms by the order they were
+/// timed in.</b> The test host tiers a method up only after a quiet period with no new JIT activity,
+/// which a test that keeps calling new code never grants, so a loop timed early runs Tier-0 code and
+/// the same loop timed at the end runs optimised code: the lookup loop below measured 992 us first and
+/// 290 us when re-timed last in one run. That is what the "905 ns per lookup" and the "probe runs 3x
+/// the benchmark" once written here and in four documents were -- JIT order, not a Stopwatch in a
+/// test host. With tiering off, every term re-times within 5 percent of its first figure, the parts
+/// sum to the whole they are parts of, and the whole lands within 7 percent of the benchmark
+/// (417 us against 389 at 1 degree; the difference is the dynamic PGO the benchmark has and a
+/// tiering-off run cannot). The allocation figures come from the runtime's own counter and are exact
+/// at either setting: the per-resolve bytes reproduce the benchmark's to the byte (224,880 and
+/// 225,064). The two "re-timed last" lines at the end exist to show whether order is still showing
+/// through. Quote the benchmark for what a resolve costs; quote this for how the cost splits.</para>
 ///
-/// <para>What it establishes, at the Aquila pointing the benchmark uses (Release, win-arm64):</para>
+/// <para>What it establishes, at the Aquila pointing the benchmark uses (Release, win-arm64,
+/// tiering off):</para>
 /// <list type="bullet">
 /// <item>The nine cells are the SAME at every zoom -- they derive from the unprojected pointer
 /// position, not the field of view -- and hold 22 deep-sky entries against 1094 composite ones.</item>
@@ -40,16 +50,30 @@ namespace TianWen.Lib.Tests;
 /// <item>The magnitude limit is the minor term and runs the OTHER way: 1 degree is dearer than 10
 /// over identical cells and identical lookups, because zoomed IN the limit admits MORE stars to the
 /// projection, not fewer.</item>
-/// <item><b>Inside the pass, ranked:</b> <c>TryLookupByIndex</c> at ~905 ns for each of the 1094
-/// candidates is the dominant term, three to four times the nine cell lookups (~320 us) that fed it.
-/// Within those, <c>Tycho2RaDecIndex.GetStarsInCell</c> reads only 6x what it keeps (6572 entries
-/// over 16 GSC regions for 1072 stars), and <c>Tyc2CatalogIndex</c> is ~14% of the scan. The
-/// over-scan and the index packing were both guessed at as the cause before this was measured, and
-/// both guesses were wrong -- which is the whole reason the splits below are printed separately.</item>
-/// <item>At ~205 B per candidate, the benchmark's 225 KB points at the same term the timing ranks
-/// first. <b>The fix both halves share:</b> the 17-byte Tycho-2 entry already carries RA, Dec and
-/// magnitude, so the filter, the projection and the hit test could all run before any lookup,
-/// leaving ONE <c>TryLookupByIndex</c> for the winner rather than 1094.</item>
+/// <item><b>Inside the pass, per resolve on bare sky at 10 degrees (389 us / 225 KB):</b>
+/// <c>TryLookupByIndex</c> for each of the 1094 candidates is 320 us and 197 KB (293 ns, 180 B
+/// each), five sixths of the time and seven eighths of the bytes; the nine composite cell lookups
+/// that fed it are 53 us and ~28 KB; the magnitude gate, projection and hit test are the ~16 us left
+/// (~45 at 1 degree, which is the whole of the magnitude term). Within the cell lookups,
+/// <c>Tycho2RaDecIndex.GetStarsInCell</c> reads only 6x what it keeps (6572 entries over 16 GSC
+/// regions for 1072 stars) and <c>Tyc2CatalogIndex</c> is 20 us of it. The over-scan and the index
+/// packing were both guessed at as the cause before this was measured, and both guesses were
+/// wrong -- which is the whole reason the splits below are printed separately.</item>
+/// <item><b>Inside the lookup, two terms, both allocating, neither needed by a hit test.</b>
+/// <c>ConstellationBoundary.TryFindConstellation</c> is 174 us and 120 KB (162 ns, 112 B each): it
+/// precesses the star from J2000 to B1875 through <c>CoordinateUtils.PrecessRadians</c>, which builds
+/// its two vectors and its 3x3 rotation matrix as heap arrays, to fill
+/// <c>CelestialObject.Constellation</c> -- a field the resolver never reads. And the binary search
+/// itself, <c>TryGetTycho2Star</c>, is 111 us and 78 KB (102 ns, 71 B each), where the bytes are
+/// <c>CatalogIndex.ToCatalogAndValue</c> building a string and a byte array to decode the base91
+/// index: the mirror of the string round trip <c>Tyc2CatalogIndex</c> took out of the ENCODE side.</item>
+/// <item><b>So the fixes are three, and two of them are not in the resolver at all:</b> an
+/// allocation-free <c>PrecessRadians</c> and an allocation-free <c>ToCatalogAndValue</c> are one
+/// function each in <c>TianWen.Lib</c> and pay off on every catalogue lookup in the program; and the
+/// star pass calling <c>TryGetTycho2Star</c> (which already exists, and is the 17-byte entry as a
+/// struct) for its candidates and <c>TryLookupByIndex</c> only for the winner removes the
+/// constellation term from the resolve outright. Together they leave the nine cell lookups and a
+/// 40 ns binary search per candidate: on the order of 110 us and 28 KB.</item>
 /// </list>
 /// </remarks>
 [Collection("Astrometry")]
@@ -73,6 +97,13 @@ public class SkyMapHoverResolveCostProbe(ITestOutputHelper output)
         Assert.SkipUnless(Environment.GetEnvironmentVariable(EnvVar) is { Length: > 0 }, $"{EnvVar} not set");
 
         var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
+
+        if (Environment.GetEnvironmentVariable("DOTNET_TieredCompilation") is not "0")
+        {
+            output.WriteLine("WARNING: DOTNET_TieredCompilation is not 0. The terms below rank by the ORDER they were");
+            output.WriteLine("         timed in, not by cost: a loop timed early runs Tier-0 code. See the class doc.");
+            output.WriteLine("");
+        }
 
         var dsoGrid = db.DeepSkyCoordinateGrid;
         var starGrid = db.CoordinateGrid;
@@ -109,6 +140,20 @@ public class SkyMapHoverResolveCostProbe(ITestOutputHelper output)
         output.WriteLine($"  {dsoEntries} deep-sky entries, {starEntries} composite entries");
         output.WriteLine($"  nearest deep-sky entry: {nearestDso} at {nearestDsoSepDeg:F3} deg");
         output.WriteLine("");
+
+        // Every term this probe times is exercised here BEFORE any of them is timed. Without this,
+        // the terms rank by the order they were measured in: the test host tiers a method up only
+        // after a quiet period, so a loop timed early ran Tier-0 code and a loop timed late ran
+        // optimised code, and the first version of this probe printed parts that summed to more
+        // than the whole they were parts of. Each block below keeps its own short warm-up as well.
+        foreach (var fov in Fovs)
+        {
+            var warmState = MakeState(fov);
+            for (var i = 0; i < 30; i++)
+            {
+                Resolve(warmState, db);
+            }
+        }
 
         // The lookups alone: no projection, no hit test, no planets. Whatever this costs, the star
         // pass has paid it before it has looked at one star.
@@ -226,24 +271,57 @@ public class SkyMapHoverResolveCostProbe(ITestOutputHelper output)
 
         swLookupByIndex.Stop();
         var byIdxUs = swLookupByIndex.Elapsed.TotalMicroseconds / 200;
+        var (_, byIdxBytes) = Measure(() =>
+        {
+            foreach (var idx in all)
+            {
+                db.TryLookupByIndex(idx, out _);
+            }
+        });
         output.WriteLine(
             $"TryLookupByIndex x{all.Count} (the loop BODY): {byIdxUs,8:F1} us " +
-            $"({byIdxUs * 1000.0 / Math.Max(all.Count, 1),5:F0} ns each)");
+            $"({byIdxUs * 1000.0 / Math.Max(all.Count, 1),5:F0} ns each, {byIdxBytes / Math.Max(all.Count, 1),4:F0} B each)");
+
+        // INSIDE that lookup, for a Tycho-2 index: a binary search for the 17-byte entry, and then
+        // ConstellationBoundary.TryFindConstellation to fill CelestialObject.Constellation -- a field
+        // the hit test never reads. That call precesses J2000 to B1875 through
+        // CoordinateUtils.Precess, which builds its two vectors and its rotation matrix as heap
+        // arrays. TryGetTycho2Star is the SAME binary search returning the 17-byte entry as a struct,
+        // with no constellation: it is what a filter-before-lookup star pass would call.
+        var positions = new List<(double Ra, double Dec)>(all.Count);
+        foreach (var idx in all)
+        {
+            if (db.TryGetTycho2Star(idx, out var lite))
+            {
+                positions.Add((lite.RaHours, lite.DecDeg));
+            }
+        }
+
+        var (liteUs, liteBytes) = Measure(() =>
+        {
+            foreach (var idx in all)
+            {
+                db.TryGetTycho2Star(idx, out _);
+            }
+        });
+        var (constUs, constBytes) = Measure(() =>
+        {
+            foreach (var (ra, dec) in positions)
+            {
+                ConstellationBoundary.TryFindConstellation(ra, dec, out _);
+            }
+        });
+        output.WriteLine(
+            $"  of which TryGetTycho2Star x{all.Count} (binary search only): {liteUs,8:F1} us " +
+            $"({liteUs * 1000.0 / Math.Max(all.Count, 1),5:F0} ns each, {liteBytes / Math.Max(all.Count, 1),4:F0} B each)");
+        output.WriteLine(
+            $"  of which TryFindConstellation x{positions.Count}:            {constUs,8:F1} us " +
+            $"({constUs * 1000.0 / Math.Max(positions.Count, 1),5:F0} ns each, {constBytes / Math.Max(positions.Count, 1),4:F0} B each)");
         output.WriteLine("");
 
-        foreach (var fov in new[] { 1.0, 10.0, 60.0, 170.0 })
+        foreach (var fov in Fovs)
         {
-            var state = new SkyMapState
-            {
-                Mode = SkyMapMode.Equatorial,
-                CenterRA = PointingRaHours,
-                CenterDec = PointingDecDeg,
-                FieldOfViewDeg = fov,
-                ShowObjectOverlay = true,
-                ShowDarkNebulae = true,
-                LastContentRect = new RectF32(0f, 0f, ViewportW, ViewportH),
-            };
-            state.CurrentViewMatrix = state.ComputeViewMatrix();
+            var state = MakeState(fov);
 
             var hit = Resolve(state, db);
             for (var i = 0; i < 20; i++)
@@ -251,14 +329,7 @@ public class SkyMapHoverResolveCostProbe(ITestOutputHelper output)
                 Resolve(state, db);
             }
 
-            const int N = 200;
-            var sw = Stopwatch.StartNew();
-            for (var i = 0; i < N; i++)
-            {
-                Resolve(state, db);
-            }
-
-            sw.Stop();
+            var (resolveUs, resolveBytes) = Measure(() => Resolve(state, db));
 
             // What the 20 px floor is worth in SKY here, which is the deep-sky pass's whole reach.
             var toleranceDeg = ClickToleranceScreenPx / SkyMapProjection.PixelsPerRadian(ViewportH, fov) * 180.0 / Math.PI;
@@ -269,8 +340,58 @@ public class SkyMapHoverResolveCostProbe(ITestOutputHelper output)
 
             output.WriteLine(
                 $"FOV {fov,6}: 20px = {toleranceDeg,6:F3} deg -> {starPass,-17} " +
-                $"resolved {what,-28} {sw.Elapsed.TotalMicroseconds / N,8:F1} us");
+                $"resolved {what,-28} {resolveUs,8:F1} us {resolveBytes,9:F0} B");
         }
+
+        // The two headline terms again, now that everything has run: if these differ from the
+        // figures above by more than noise, the order of measurement was still showing through.
+        output.WriteLine("");
+        output.WriteLine($"re-timed last: 9 composite lookups alone: {TimeLookups(db, deepSky: false),8:F1} us");
+        var (againUs, _) = Measure(() =>
+        {
+            foreach (var idx in all)
+            {
+                db.TryLookupByIndex(idx, out _);
+            }
+        });
+        output.WriteLine($"re-timed last: TryLookupByIndex x{all.Count}:        {againUs,8:F1} us");
+    }
+
+    private static readonly double[] Fovs = [1.0, 10.0, 60.0, 170.0];
+
+    private static SkyMapState MakeState(double fov)
+    {
+        var state = new SkyMapState
+        {
+            Mode = SkyMapMode.Equatorial,
+            CenterRA = PointingRaHours,
+            CenterDec = PointingDecDeg,
+            FieldOfViewDeg = fov,
+            ShowObjectOverlay = true,
+            ShowDarkNebulae = true,
+            LastContentRect = new RectF32(0f, 0f, ViewportW, ViewportH),
+        };
+        state.CurrentViewMatrix = state.ComputeViewMatrix();
+        return state;
+    }
+
+    /// <summary>
+    /// Mean wall time and mean bytes allocated on this thread per call of <paramref name="body"/>,
+    /// over <paramref name="n"/> calls. The allocation figure is exact (the runtime's own counter);
+    /// the time is a Stopwatch mean in a test host, so read it against the caveat in the class doc.
+    /// </summary>
+    private static (double Us, double Bytes) Measure(Action body, int n = 200)
+    {
+        var bytesBefore = GC.GetAllocatedBytesForCurrentThread();
+        var sw = Stopwatch.StartNew();
+        for (var i = 0; i < n; i++)
+        {
+            body();
+        }
+
+        sw.Stop();
+        var bytes = GC.GetAllocatedBytesForCurrentThread() - bytesBefore;
+        return (sw.Elapsed.TotalMicroseconds / n, (double)bytes / n);
     }
 
     /// <summary>
@@ -325,7 +446,8 @@ public class SkyMapHoverResolveCostProbe(ITestOutputHelper output)
     /// <summary>
     /// The benchmark's fixed instant, NOT <c>UtcNow</c>. The planet pass caches on the viewing time,
     /// so a fresh instant per call misses that cache and measures an ephemeris recompute on top of
-    /// the search -- which is how this probe first read 3x the benchmark it exists to explain.
+    /// the search. (It was checked as the cause of the probe once reading 3x the benchmark, and was
+    /// not -- that was JIT tiering, see the class doc -- but the pin is right regardless.)
     /// </summary>
     private static readonly DateTimeOffset ViewingUtc = new(2026, 6, 21, 22, 0, 0, TimeSpan.Zero);
 
