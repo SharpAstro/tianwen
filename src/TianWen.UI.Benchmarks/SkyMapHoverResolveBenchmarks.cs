@@ -32,7 +32,17 @@ namespace TianWen.UI.Benchmarks;
 /// unprojected pointer. What moves with the FOV is the DSO pass's REACH -- its hit test floors at a
 /// fixed 20 screen pixels, which is 0.020 deg of sky at 1 degree FOV and 4.200 deg at 170 -- so
 /// zoomed out it sweeps up something catalogued and short-circuits the star pass entirely, and
-/// zoomed in it reaches nothing and the star pass runs. That is the whole of the 44x.</para>
+/// zoomed in it reaches nothing and the star pass runs. That is the whole of the gap: 44x when this
+/// was first measured, 16x since.</para>
+///
+/// <para><b>What moved the star-field row from 389 us / 225 KB to 166 us / 27.6 KB</b> (1 degree,
+/// Release, win-arm64, 2026-09-20). Not the cell scan, which reads only 6x what it keeps: the star
+/// pass built a <see cref="TianWen.Lib.Astrometry.Catalogs.CelestialObject"/> for every one of ~1,100
+/// candidates, and each one named its constellation by precessing the star to B1875 through three
+/// heap arrays and decoded its base91 index through a string and a byte array -- for a hit test that
+/// reads RA, Dec and magnitude. The pass now reads a Tycho-2 candidate as the 17-byte entry it is
+/// (<c>TryGetTycho2Star</c>) and looks up only the winner in full; the precession and the decode are
+/// allocation-free for every caller. The 27.6 KB left is the nine cell lookups' lists.</para>
 ///
 /// <para><b>What this benchmark cannot tell you</b>, and got written down wrong once: the ladder was
 /// first attributed to <see cref="SkyMapState.EffectiveMagnitudeLimit"/> widening as you zoom in.

@@ -47,21 +47,23 @@ namespace TianWen.UI.Abstractions
         // deep zoom. Measured by SkyMapHoverResolveBenchmarks (Release, win-arm64; an earlier figure
         // quoted here came from a Debug test run and was about 5x pessimistic):
         //
-        //              over an object      over bare star field
-        //   1 deg        8.8 us, 288 B        389 us, 225 KB
-        //   10 deg       9.7 us, 288 B        357 us, 225 KB
-        //   60 deg       9.4 us, 288 B        1.7 us,  288 B
-        //   170 deg      9.6 us, 288 B        1.6 us,  288 B
+        //              over an object      over bare star field    (before 2026-09-20)
+        //   1 deg        ~10 us, 288 B        166 us, 27.6 KB       (389 us, 225 KB)
+        //   10 deg       ~10 us, 288 B        139 us, 27.6 KB       (357 us, 225 KB)
+        //   60 deg       ~10 us, 288 B        1.8 us,  288 B
+        //   170 deg      ~10 us, 288 B        1.7 us,  288 B
         //
-        // The paths differ by 44x, which the old single number hid, and the whole of that difference
-        // is WHETHER THE STAR PASS RUNS. It is not a per-star cost that varies with zoom: the nine
-        // index cells are derived from the unprojected pointer and are IDENTICAL at every zoom, and
-        // hold 1094 candidates whatever the FOV. What the pass then SPENDS, per
+        // The paths differ by 16x (44x before), which the old single number hid, and the whole of
+        // that difference is WHETHER THE STAR PASS RUNS. It is not a per-star cost that varies with
+        // zoom: the nine index cells are derived from the unprojected pointer and are IDENTICAL at
+        // every zoom, and hold 1094 candidates whatever the FOV. What the pass SPENT, per
         // SkyMapHoverResolveCostProbe (run with DOTNET_TieredCompilation=0, or it ranks by JIT
-        // order): TryLookupByIndex for every one of those 1094 candidates is 320 of the 389 us and
+        // order): TryLookupByIndex for every one of those 1094 candidates was 320 of the 389 us and
         // 197 of the 225 KB -- six times the nine cell lookups (53 us) that fed it -- and over half
-        // of THAT is a constellation lookup precessing each star to B1875 through heap-allocated
-        // arrays, for a field this resolver never reads. The cell scan reads only 6x what it keeps.
+        // of THAT a constellation lookup precessing each star to B1875 through heap-allocated arrays,
+        // for a field this resolver never reads. The star pass now reads a Tycho-2 candidate through
+        // TryGetTycho2Star and looks up only the winner in full, and the precession and the base91
+        // index decode allocate nothing for anyone. The cell scan reads only 6x what it keeps.
         //
         // What decides whether that is paid is the DSO pass, which short-circuits the star pass on a
         // match and floors its hit test at a FIXED 20 SCREEN PIXELS. That floor's footprint in SKY

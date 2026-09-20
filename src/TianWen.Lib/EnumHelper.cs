@@ -57,9 +57,23 @@ public static class EnumHelper
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public static string EnumValueToAbbreviation(ulong value)
     {
+        Span<char> chars = stackalloc char[MaxLenInASCII];
+        var len = EnumValueToAbbreviation(value, chars);
+        return new string(chars[..len]);
+    }
+
+    /// <summary>
+    /// Writes the abbreviation into a caller-supplied buffer of at least <see cref="MaxLenInASCII"/>
+    /// chars and returns the number written, so a caller in a loop can <c>stackalloc</c> once instead
+    /// of allocating a string per item. This IS the string overload's body, so the two cannot drift.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static int EnumValueToAbbreviation(ulong value, Span<char> output)
+    {
         var msb = (value & MSBUlongMask) == MSBUlongMask;
 
-        Span<char> chars = stackalloc char[MaxLenInASCII];
+        var chars = output[..MaxLenInASCII];
+        chars.Clear();
         int i;
         for (i = 0; i < MaxLenInASCII; i++)
         {
@@ -75,12 +89,12 @@ public static class EnumHelper
         if (msb)
         {
             chars[0] |= (char)(1 << ASCIIBits);
-            return new string(chars);
+            return MaxLenInASCII;
         }
-        else
-        {
-            return new string(chars.Slice(MaxLenInASCII - i, i));
-        }
+
+        // Span.CopyTo is defined for overlapping ranges, so the trailing chars slide to the front.
+        chars.Slice(MaxLenInASCII - i, i).CopyTo(chars);
+        return i;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]

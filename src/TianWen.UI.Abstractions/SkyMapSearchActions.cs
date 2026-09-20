@@ -742,10 +742,10 @@ public static class SkyMapSearchActions
         // Measured by SkyMapHoverResolveBenchmarks; the click has always paid this too.
         // Hoisted because CoordinateGrid below is a PROPERTY returning `new CompositeRaDecIndex(...)`
         // on every read, so reading it inside the probe loop built one per cell. Measured at no
-        // significant change (293.5 KB against 293.9 at the time; 225 KB since the Tycho-2 index
-        // stopped round-tripping through a string), because one small wrapper object is nothing
-        // against the per-candidate TryLookupByIndex the star pass below pays 1094 times -- kept
-        // anyway as strictly less work, not as a fix. SkyMapHoverResolveCostProbe has the split.
+        // significant change (293.5 KB against 293.9 at the time; 27.6 KB since the star pass below
+        // stopped building a CelestialObject per candidate), because one small wrapper object was
+        // nothing against the per-candidate lookups the star pass paid 1094 times -- kept anyway as
+        // strictly less work, not as a fix. SkyMapHoverResolveCostProbe has the split.
         var dsoGrid = db.DeepSkyCoordinateGrid;
         foreach (var (probeRa, probeDec) in probes)
         {
@@ -825,25 +825,47 @@ public static class SkyMapSearchActions
             {
                 foreach (var idx in starGrid[probeRa, probeDec])
                 {
-                    if (!db.TryLookupByIndex(idx, out var o)) continue;
-                    if (double.IsNaN(o.RA) || double.IsNaN(o.Dec)) continue;
-                    // Stars follow the visible magnitude cutoff (same rule the GPU uses; NaN
-                    // V_Mag falls through as visible) and are never layer-gated -- the star
-                    // field is always drawn. But CoordinateGrid is the COMPOSITE index
-                    // (deep-sky + Tycho-2), so a layer-hidden deep-sky object (e.g. a dark
-                    // nebula with [D] off) can surface here too; gate any non-star by the same
-                    // per-layer visibility as the DSO pass so it can't be selected through the
-                    // star pass after the DSO pass already skipped it.
-                    var vMag = (float)o.V_Mag;
-                    if (o.ObjectType.IsStar)
+                    double ra, dec;
+                    float vMag;
+                    if (db.TryGetTycho2Star(idx, out var tyc))
                     {
+                        // A Tycho-2 candidate is read as the 17-byte entry it is, not built into a
+                        // CelestialObject: the full lookup names the star's constellation by
+                        // precessing it to B1875, which a hit test never reads, and that was 174 of
+                        // a 389 us resolve and 120 of its 225 KB over the ~1,100 candidates a dense
+                        // field puts in the nine cells (SkyMapHoverResolveCostProbe). Only the
+                        // WINNER is looked up in full, once, at the end. Same entry, same RA/Dec;
+                        // the magnitude is the entry's float rather than the object's Half.
+                        // EveryTycho2CandidateReadsTheSameEitherWay pins that the two agree.
+                        ra = tyc.RaHours;
+                        dec = tyc.DecDeg;
+                        vMag = tyc.VMag;
                         if (!float.IsNaN(vMag) && vMag > magLimit) continue;
                     }
-                    else if (!IsDsoLayerClickable(o.ObjectType, o.Index, idx, skyMap, db, pinnedCatalogIndices))
+                    else
                     {
-                        continue;
+                        if (!db.TryLookupByIndex(idx, out var o)) continue;
+                        if (double.IsNaN(o.RA) || double.IsNaN(o.Dec)) continue;
+                        // Stars follow the visible magnitude cutoff (same rule the GPU uses; NaN
+                        // V_Mag falls through as visible) and are never layer-gated -- the star
+                        // field is always drawn. But CoordinateGrid is the COMPOSITE index
+                        // (deep-sky + Tycho-2), so a layer-hidden deep-sky object (e.g. a dark
+                        // nebula with [D] off) can surface here too; gate any non-star by the same
+                        // per-layer visibility as the DSO pass so it can't be selected through the
+                        // star pass after the DSO pass already skipped it.
+                        ra = o.RA;
+                        dec = o.Dec;
+                        vMag = (float)o.V_Mag;
+                        if (o.ObjectType.IsStar)
+                        {
+                            if (!float.IsNaN(vMag) && vMag > magLimit) continue;
+                        }
+                        else if (!IsDsoLayerClickable(o.ObjectType, o.Index, idx, skyMap, db, pinnedCatalogIndices))
+                        {
+                            continue;
+                        }
                     }
-                    if (!SkyMapProjection.ProjectWithMatrix(o.RA, o.Dec, viewMatrix, pixelsPerRadian, centerX, centerY,
+                    if (!SkyMapProjection.ProjectWithMatrix(ra, dec, viewMatrix, pixelsPerRadian, centerX, centerY,
                             out var sx, out var sy))
                     {
                         continue;
