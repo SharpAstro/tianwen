@@ -466,7 +466,14 @@ the next pass starts from the findings rather than from the screenshots. The use
 locking the release scope was *"as long as we track everything we skipped in a plan, with high prio"*.
 
 - ~~**P5's click-select**~~ / ~~**hover versus click**~~ -- **CLICK, chosen by the user 2026-09-10, and
-  SHIPPED.** `FindObjectAt` (`ImageRendererBase.ContextMenu.cs`) already resolved the nearest
+  SHIPPED.** *(Amended 2026-09-20: the atlas now HIGHLIGHTS on hover as well, and this decision is
+  untouched by it. The question settled here was which gesture SELECTS, and the answer is still the
+  click. What the answer left open was that, on a field of overlapping markers, nothing told you
+  which object a click would take, so finding out meant clicking and reading the panel -- which is
+  what the 2026-06-08 self-note "sky atlas bug: obj selection" turned out to be. The wash says it
+  before the press and changes nothing about the press. Both come from one resolver,
+  `SkyMapSearchActions.TryResolveHit`, so the highlight cannot name an object the click would not
+  take; see `SkyMapTab.Hover.cs`.)* `FindObjectAt` (`ImageRendererBase.ContextMenu.cs`) already resolved the nearest
   catalogued object at a pixel from the frame's own WCS and `DeepSkyCoordinateGrid`, with an FOV-scaled
   tolerance, and had been wired to right-click ALONE for weeks: what was missing was downstream, since
   the viewer had no notion of a SELECTED object and so nowhere for a left click's answer to go. It
@@ -701,8 +708,8 @@ locking the release scope was *"as long as we track everything we skipped in a p
   the naive `ShowSkyBackdrop` gate kills the unsolved-frame case ALONE, which is exactly what that
   third test is for.
 - **The enhance colour cast is NOT tracked here**: it is a viewer defect with nothing to do with the
-  atlas, and it is [`viewer-prerelease-fixes.md`](viewer-prerelease-fixes.md) P30, open and high
-  priority.
+  atlas, and it is [`viewer-prerelease-fixes.md`](viewer-prerelease-fixes.md) P30, **fixed
+  2026-09-10** (`StretchMode.Auto` was being bypassed by a literal `Linked` in `MasterPreviewRenderer`).
 
 ## What bites
 

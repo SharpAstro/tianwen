@@ -19,7 +19,7 @@ namespace TianWen.UI.Abstractions
     /// actually TianWen's: which layers exist, what they are called, the keys they teach, and a star
     /// chart's colours.</para>
     ///
-    /// <para><b>Each row prints its key, so the palette IS the legend.</b> The ten layers were reachable
+    /// <para><b>Each row prints its key, so the palette IS the legend.</b> The rows were reachable
     /// only by a bare letter -- and on the web build, which hosts this same renderer-agnostic tab on
     /// devices with no keyboard, not reachable at all.</para>
     /// </summary>
@@ -78,10 +78,10 @@ namespace TianWen.UI.Abstractions
         /// <param name="includeKeyHints">
         /// Whether each row prints the key that toggles it. True where this map owns the keyboard,
         /// which is the tab hosts; FALSE where it does not, and the viewer is that case -- every one
-        /// of these ten letters already means something else there (<c>S</c> detects stars, <c>C</c>
-        /// cycles the channel, <c>D</c> the demosaic), so a printed key would be a row teaching a
-        /// shortcut that does something quite different. A palette is a control first and a legend
-        /// second; where it cannot be the legend it stays the control.
+        /// of these letters already means something else there (<c>S</c> detects stars, <c>C</c>
+        /// cycles the channel, <c>D</c> the demosaic, <c>I</c> toggles the info panel), so a printed
+        /// key would be a row teaching a shortcut that does something quite different. A palette is a
+        /// control first and a legend second; where it cannot be the legend it stays the control.
         /// </param>
         public static ImmutableArray<PaletteItem> ItemsFor(SkyMapState state, bool includeKeyHints = true)
         {

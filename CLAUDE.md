@@ -537,6 +537,34 @@ presses alone left every popover dial click-only (`APopoverDialFollowsADragAcros
 also decides when a hover needs a frame; `StandaloneViewerHost` makes those frames full-surface, since the
 viewer narrows a move's damage to the pixel readout.
 
+### The atlas's hover highlight, and what a click would take
+
+**A hover highlight and the click MUST come from one resolver, or they will disagree.**
+`SkyMapSearchActions.TryResolveHit` is the search; `SelectObjectByClick` turns it into an info panel
+and `ResolveHoverAtScreenPoint` into a `SkyMapHoverTarget` (`SkyMapTab.Hover.cs`). Two hit tests
+written the same way is how a wash over one object and a panel about another happens, which is worse
+than no wash. **Hover does not honour Ctrl** -- the modifier is read at the press, and a hover carries
+none, so guessing is wrong exactly where it matters (picking a star out of a nebula). This is a
+HIGHLIGHT, not hover selection: the click still selects (`docs/plans/in-app-sky-atlas.md`, 2026-09-10).
+
+- **The wash is one `Renderer.FillEllipse`**, which all three renderers implement natively, so it needs
+  no instance stream, no cache key and no shader. **Drawn FIRST of the annotation layers**, which is
+  what makes a pointer resting over the search modal or the layer palette harmless with none of them
+  claiming the pointer: the sky behind resolves, the wash paints under the panel covering it.
+- **At most ONE resolve per painted frame, and every resolve asks for a frame.** Measured at a
+  Sagittarius pointing: 2.048 ms at 1 degree FOV, 0.889 at 10, 0.018 at 60, 0.012 at 170 -- the STAR
+  pass, worst zoomed in where `EffectiveMagnitudeLimit` admits most of Tycho-2. Per move that is a
+  quarter of a core; per frame it is 12% of a 60 fps budget. Resolve -> frame -> clear is self-limiting;
+  "resolve only when the answer changed" is not, because the budget is released by a PAINT.
+- **The target is dropped when the view moved**, compared at DRAW time against the view it was
+  resolved for, never cleared at each of the five call sites that move the view.
+- **`ShowOnlyObjectsWithPicture` ([O]'s `I` sub-setting) goes through `OverlayEngine.PassesLayerFilter`,
+  and so do the [O]/[D] gates.** Three callers: the desktop's background gather, the browser / offline
+  primitive path, and the CLICK resolver -- the last must ask it or a filtered-out object stays
+  selectable through apparently-empty sky. It narrows the dark-nebula layer too (deliberate; "only with
+  photo" is about the whole overlay), a pinned landmark survives it, and **it is in BOTH gather cache
+  keys** because it strips the CACHED list.
+
 ### Smart Framing (planner co-framing groups)
 
 Pinning M8 with a wide-field profile auto-groups M20 into the same pointing: the planner derives the

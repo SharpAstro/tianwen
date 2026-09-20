@@ -1,0 +1,197 @@
+using System;
+using DIR.Lib;
+using TianWen.UI.Abstractions.Overlays;
+
+namespace TianWen.UI.Abstractions
+{
+    /// <summary>
+    /// The hover highlight: a translucent wash under the object a click would select, resolved on a
+    /// pointer move through the same search the click runs
+    /// (<see cref="SkyMapSearchActions.ResolveHoverAtScreenPoint"/>).
+    ///
+    /// <para><b>It is a highlight, not hover selection.</b> The atlas's click-versus-hover question was
+    /// settled for SELECTION in favour of the click (see <c>docs/plans/in-app-sky-atlas.md</c>); this
+    /// answers the different question that left open -- on a field of overlapping markers, nothing told
+    /// you which one a click would take, so finding out meant clicking and reading the panel. The wash
+    /// says it before the press, and the press still decides.</para>
+    ///
+    /// <para><b>Drawn first of the annotation layers</b>, before planets, comets and the object overlay,
+    /// so every marker and label it names draws ON TOP of it -- and so does the chrome, which is what
+    /// makes a pointer resting over the search modal or the layer palette harmless without any of them
+    /// having to claim the pointer: the wash is resolved against the sky behind the panel and then
+    /// painted under it.</para>
+    /// </summary>
+    public partial class SkyMapTab<TSurface>
+    {
+        /// <summary>
+        /// How far the pointer has to move before the hover is re-resolved, in DESIGN units. The
+        /// resolve is a 3x3 spatial-cell walk over the deep-sky and composite grids; a mouse delivers
+        /// moves at well over frame rate and most of them land on the same object, so the slop is what
+        /// keeps a still-ish hand from paying for the walk on every one.
+        /// </summary>
+        private const float HoverResolveSlopPx = 2f;
+
+        /// <summary>
+        /// How far the viewing instant may drift before an EPHEMERIS hover target is dropped. A planet
+        /// or comet resolved at one instant is at a different place at another, so a time scrub has to
+        /// invalidate it -- but in live mode the clock advances every frame, and comparing exactly
+        /// would drop the target before it was ever drawn. A minute of drift is invisible on screen;
+        /// the smallest scrub step is ten.
+        /// </summary>
+        private static readonly TimeSpan HoverEphemerisStaleAfter = TimeSpan.FromMinutes(1);
+
+        private float _hoverPointerX = float.NaN;
+        private float _hoverPointerY = float.NaN;
+
+        // At most one resolve per PAINTED frame, which is the bound that makes hover affordable at a
+        // deep zoom. Measured against the real catalogue at a Sagittarius pointing, 400 resolves per
+        // sample: 2.048 ms at 1 degree, 0.889 at 10, 0.018 at 60, 0.012 at 170. The cost is the STAR
+        // pass -- zoomed in, EffectiveMagnitudeLimit admits most of Tycho-2 in the 3x3 cell window,
+        // and zoomed out it rejects nearly all of it early -- so it is worst exactly where a user
+        // sits while picking a target out of a crowded field. A mouse delivers moves at well over
+        // frame rate, so resolving per MOVE would spend a quarter of a core on hover at 1 degree;
+        // per frame it is 12% of a 60 fps budget there and nothing at all past 60 degrees.
+        //
+        // The throttle cannot be replaced by making the hover search cheaper than the click's,
+        // because the highlight agreeing with the click is the entire point of the feature. The
+        // click pays the same 2 ms and always has -- once per press, where nobody can see it.
+        private bool _hoverResolvedThisFrame;
+
+        // The view the current HoverTarget was resolved against. Compared at draw time rather than
+        // cleared at every call site that moves the view: a zoom, a pan, a scrub, a mode flip and a
+        // deep link all move it, and a rule enforced in one place cannot be forgotten by the next one
+        // added. Mirrors how the object overlay detects a moved view before placing labels.
+        private double _hoverViewFov = double.NaN;
+        private double _hoverViewCentreRa = double.NaN;
+        private double _hoverViewCentreDec = double.NaN;
+        private DateTimeOffset _hoverViewTime;
+
+        /// <summary>
+        /// How many times the pointer's position was resolved to an object. The observable for a hover
+        /// test, for the reason <see cref="PrimOverlayGathers"/> is one for the gather: a re-resolve
+        /// that lands on the same object draws the identical frame, so nothing in the pixels separates
+        /// "resolved once and reused" from "resolved on every move".
+        /// </summary>
+        internal int HoverResolves { get; private set; }
+
+        /// <summary>
+        /// Resolves what the pointer is over, at most once per painted frame, and asks for the frame
+        /// that shows it. Never consumes the move: a hover is something the map notices on the way
+        /// past, not something it handles.
+        /// </summary>
+        private void TrackHoverPointer(float x, float y)
+        {
+            // Within the slop of the last resolve, the answer cannot have changed enough to matter.
+            if (!float.IsNaN(_hoverPointerX)
+                && MathF.Abs(x - _hoverPointerX) < HoverResolveSlopPx * DpiScale
+                && MathF.Abs(y - _hoverPointerY) < HoverResolveSlopPx * DpiScale)
+            {
+                return;
+            }
+
+            // Already answered for the frame on screen. Nothing can SHOW a second answer before the
+            // next paint, so the moves in between are free -- see _hoverResolvedThisFrame.
+            if (_hoverResolvedThisFrame)
+            {
+                return;
+            }
+
+            _hoverPointerX = x;
+            _hoverPointerY = y;
+
+            if (_plannerState is not { ObjectDb: { } db } plannerState)
+            {
+                return;
+            }
+
+            _hoverResolvedThisFrame = true;
+
+            HoverResolves++;
+            var resolved = SkyMapSearchActions.ResolveHoverAtScreenPoint(
+                State, db, _lastViewingTime, x, y, plannerState.Proposals, plannerState.Comets);
+
+            // Record the view alongside, so the draw can tell a target that is still current from one
+            // the sky has since moved out from under.
+            _hoverViewFov = State.FieldOfViewDeg;
+            _hoverViewCentreRa = State.CenterRA;
+            _hoverViewCentreDec = State.CenterDec;
+            _hoverViewTime = _lastViewingTime;
+
+            State.HoverTarget = resolved;
+
+            // Every resolve asks for the frame, even one that landed on the same object and will
+            // draw an identical wash. That is what closes the loop the throttle above opens: the
+            // flag is cleared by a PAINT, so a resolve that scheduled no paint would be the last one
+            // until something else happened to repaint, and the highlight would sit on whatever the
+            // pointer was over minutes ago. Resolve -> frame -> clear -> resolve is self-limiting;
+            // "resolve only when the answer changed" is not, and the pointer moving over the map is
+            // an interaction, which is what the redraw gate is for rather than what it guards
+            // against.
+            State.NeedsRedraw = true;
+        }
+
+        /// <summary>Drops the hover target, if there is one, and asks for the frame without it.</summary>
+        private void ClearHoverTarget()
+        {
+            _hoverPointerX = float.NaN;
+            _hoverPointerY = float.NaN;
+            if (State.HoverTarget is not null)
+            {
+                State.HoverTarget = null;
+                State.NeedsRedraw = true;
+            }
+        }
+
+        /// <summary>
+        /// Paints the wash under the hovered object, or drops the target when the view has moved since
+        /// it was resolved. One <c>FillEllipse</c>, which every renderer implements natively (the
+        /// Vulkan and WebGL ones as a single distance-field quad), so this needs no instance stream, no
+        /// cache key and no shader of its own.
+        /// </summary>
+        private void DrawHoverSpot(RectF32 contentRect, double pixelsPerRadian, float cx, float cy)
+        {
+            // Released FIRST, before every early return: this runs once per frame whether or not
+            // there is anything to draw, and it is what re-opens the one-resolve-per-frame budget.
+            _hoverResolvedThisFrame = false;
+
+            if (State.HoverTarget is not { } hover)
+            {
+                return;
+            }
+
+            // The pointer has not been re-tested against this view, so the target is no longer an
+            // answer about where the cursor is. Dropping it beats redrawing it somewhere plausible.
+            if (State.FieldOfViewDeg != _hoverViewFov
+                || State.CenterRA != _hoverViewCentreRa
+                || State.CenterDec != _hoverViewCentreDec
+                || (hover.IsEphemeris
+                    && (_lastViewingTime - _hoverViewTime).Duration() > HoverEphemerisStaleAfter))
+            {
+                State.HoverTarget = null;
+                _hoverPointerX = float.NaN;
+                _hoverPointerY = float.NaN;
+                return;
+            }
+
+            if (!SkyMapProjection.ProjectWithMatrix(hover.RA, hover.Dec, State.CurrentViewMatrix,
+                    pixelsPerRadian, cx, cy, out var sx, out var sy)
+                || sx < contentRect.X || sx >= contentRect.X + contentRect.Width
+                || sy < contentRect.Y || sy >= contentRect.Y + contentRect.Height)
+            {
+                return;
+            }
+
+            var dpiScale = DpiScale;
+            var radius = Math.Clamp(
+                hover.HitRadiusPx,
+                OverlayEngine.HoverSpotMinRadiusPx * dpiScale,
+                OverlayEngine.HoverSpotMaxRadiusPx * dpiScale);
+
+            Renderer.FillEllipse(
+                new RectInt(
+                    new PointInt((int)MathF.Ceiling(sx + radius), (int)MathF.Ceiling(sy + radius)),
+                    new PointInt((int)MathF.Floor(sx - radius), (int)MathF.Floor(sy - radius))),
+                OverlayEngine.HoverSpotColor);
+        }
+    }
+}

@@ -40,6 +40,9 @@ namespace TianWen.Lib.Tests
             {
                 MilkyWayAvailable = milkyWay,
                 SiteAvailable = true,
+                // The parent of the "Only with photo" sub-setting: with it off, that row has
+                // nothing to narrow and is deliberately unavailable.
+                ShowObjectOverlay = true,
                 MountOverlay = new SkyMapMountOverlay(5.0, -25.0, "Mount", IsSlewing: false, IsTracking: true),
             };
 
@@ -50,6 +53,11 @@ namespace TianWen.Lib.Tests
 
             for (var i = 0; i < SkyMapLayers.All.Length; i++)
             {
+                // SETUP, taken before the snapshot so it is not counted as a move: the object
+                // overlay is a PARENT layer, and the iteration before "Only with photo" is the one
+                // that turns it off -- which is exactly what makes that row unavailable.
+                state.ShowObjectOverlay = true;
+
                 var before = Snapshot(state);
                 SkyMapLayers.All[i].Toggle(state).ShouldBeTrue();
                 var after = Snapshot(state);
@@ -155,6 +163,9 @@ namespace TianWen.Lib.Tests
         /// nothing. Each is a different absence, and all three are the FITS viewer's normal state: a
         /// host with no milky-way texture beside its executable, a photograph whose header does not
         /// say where it was taken, and any host at all with no mount reporting.
+        /// <para>"Only with photo" is unavailable here for a fourth reason, and it is the one that
+        /// is not about the world: it is a sub-setting of the object overlay, which a bare state has
+        /// off, so there is nothing for it to narrow.</para>
         /// </summary>
         [Fact]
         public void ALayerWithNothingToDraw_IsUnavailableAndLeavesItsKeyAlone()
@@ -162,7 +173,8 @@ namespace TianWen.Lib.Tests
             var bare = new SkyMapState();
 
             var unavailable = SkyMapLayers.All.Where(l => !l.Available(bare)).Select(l => l.Label).ToArray();
-            unavailable.ShouldBe(["Alt/Az grid", "Horizon", "Milky Way", "Mount"], ignoreOrder: true);
+            unavailable.ShouldBe(
+                ["Alt/Az grid", "Horizon", "Milky Way", "  Only with photo", "Mount"], ignoreOrder: true);
 
             foreach (var layer in SkyMapLayers.All.Where(l => !l.Available(bare)))
             {

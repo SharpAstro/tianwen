@@ -278,15 +278,23 @@ advice for a linear sensor; worth checking against what the SV605CC actually doe
 - [x] SDF font atlas: `Grow()` / `CreateImage` used to transition the fresh `VkImage` via `ctx.ExecuteOneShot`, which submits a side cmd buffer to the graphics queue while the frame's cmd buffer is recording; some drivers reject this with `VK_ERROR_INITIALIZATION_FAILED` from the next `vkQueueSubmit`. Fixed: deferred initial transition to the next `Flush` via `_needsInitialTransition` flag; initial atlas dim now scales with `SdfRasterSize` (`2048²` at 128px raster) so `Grow()` rarely fires during typical startup UI anyway (commit `30fcdf7`).
 - [x] `VkTexture.CreateDeferred`: pixel-format parameter; was hard-coded to `B8G8R8A8Unorm`, which forced RGBA-producing CPU renderers (altitude chart via `RgbaImageRenderer`) to run a per-pixel swizzle loop before upload. Now takes `VkFormat format = B8G8R8A8Unorm` so callers can pass `R8G8B8A8Unorm` with RGBA bytes directly (commit `90f877a`); `VkPlannerTab` dropped its CPU swizzle loop.
 - [ ] `VkSdfFontAtlas.Grow()` mid-frame hazard: destroys the old `VkImage` and calls `vkUpdateDescriptorSets` while the frame's cmd buffer is still recording. Works on current drivers but is spec-grey (`VUID-vkUpdateDescriptorSets-pDescriptorWrites-06993` forbids updating a descriptor set that is in use by a pending submission). If we ever see corruption or validation noise tied to `Grow()`, defer the destroy + descriptor update to the next `OnPreRenderPass` (same pattern as `VkPlannerTab`'s deferred texture swap). Not pre-emptively worth fixing; the initial-atlas bump in `30fcdf7` makes `Grow()` rare, and there is no known observed corruption.
-- [ ] **The inspector can only synthesize a LEFT click, and cannot move the pointer at all** (found
+- [~] **The inspector could only synthesize a LEFT click and could not move the pointer at all** (found
   2026-08-27 while verifying the viewer's new right-click menu and the dropdown hover state, both of
-  which had to be checked by hand). Two additions: a `button` on the click command (right and middle
-  are real gestures now -- right-click opens the image context menu and reverse-cycles toolbar buttons,
-  middle-drag pans), and a `move` command that delivers pointer motion with no button held, since
-  hover state is resolved during PAINT from `PixelWidgetBase.Pointer` and so cannot be driven by a
-  click at all. `drag` is not a substitute: it presses, which selects a menu item. Until both exist,
-  any hover or right-click behaviour is unverifiable unattended, which is exactly the class of thing
-  the inspector exists for. The user has okayed adding functionality to SdlVulkan.Renderer for this.
+  which had to be checked by hand). Two additions were asked for, and **one of them shipped**.
+  - [x] **`move` -- DONE 2026-08-26, SdlVulkan.Renderer 7.27** (`feat(inspector): expose move as an
+    MCP tool`). `DebugInspector.ExecuteMove` delivers interpolated pointer motion with NO button held
+    and requests a redraw; the MCP tool's own description names what it is for ("the only verb that
+    can reach hover-driven behaviour: a hover highlight, a tooltip, a cursor change"). So hover IS
+    verifiable unattended, and this entry saying otherwise is what made it read as still blocked on
+    2026-09-20, three weeks after the fix.
+  - [ ] **A `button` on the click command is still missing.** There is no `button` parameter anywhere
+    in `InspectorTools` -- `click` takes `mods` and `clicks` and nothing else -- so right-click (the
+    image context menu, reverse-cycling a toolbar button) and middle-drag pan remain unreachable.
+    `drag` is not a substitute: it presses, which selects a menu item.
+  - **This repo cannot USE `move` yet, and that is a pin, not a gap.** `.mcp.json` runs the inspector
+    as `SdlVulkan.Renderer.Inspector@7.5.1921`, which predates 7.27 by twenty-two minors; latest
+    published is 7.44.3321. Bump the pin (and reconnect the MCP server) before relying on hover
+    verification here.
 - [ ] `SdlVulkanWindow.Create` should take the SDL `WindowFlags` as a parameter instead of hardcoding `WindowFlags.Vulkan | WindowFlags.Resizable | WindowFlags.Maximized`. Default keeps `Maximized` (matches today's behaviour) but callers can opt out, e.g. to launch at the supplied `1280×900` non-maximized, or to force fullscreen at startup. Both `TianWen.UI.Gui/Program.cs:74` and `TianWen.UI.FitsViewer/Program.cs` (same `Create` call) pick up the change for free. Consider exposing as an overload `Create(title, width, height, WindowFlags extraFlags)` with `Vulkan | Resizable` always on, `Maximized` added by default but overridable.
 
 ### SdlEventLoop (DONE, all consumers now use the shared loop)
@@ -546,17 +554,49 @@ Three items from one note, root-caused against the code rather than left as a ba
   check at all ("labels that happen to overlap simply overlap") because the O(N^2) scan dominates cost
   at wide FOV / dense fields. Overlap in a crowded field is therefore the current, deliberate trade-off;
   the part actually worth fixing is the low-density path's drop-with-no-fallback case.
-- [ ] **A "show objects with picture" mode: net new.** `OverlayItem.HasPicture` already exists and
-  appends a camera mark to a label (`OverlayEngine.cs:893,1474,1577`; `SkyMapTab.ObjectOverlay.cs:27,357`;
-  `VkSkyMapTab.cs:567`), per [object-imagery.md](../plans/object-imagery.md) P1. That is a passive
-  per-object indicator, not a mode: `SkyMapState.cs` has a toggle for every other layer (grid, horizon,
-  figures, planets, comets, Milky Way, dark nebulae, mount) but none that filters the map down to, or
-  defaults to, only objects the bake verified a picture for.
-- [?] **Hover recolours the object that would be selected: reopens a settled decision.** No hover state
-  for objects exists anywhere in `SkyMapTab`/`SkyMapState`/`VkSkyMapTab` (only the search dropdown row
-  hovers). [in-app-sky-atlas.md](../plans/in-app-sky-atlas.md) records the opposite choice already made:
-  "P5's click-select / hover versus click -- CLICK, chosen by the user 2026-09-10, and SHIPPED." Confirm
-  this is meant to revisit that decision before it becomes a build item.
+- [x] **A "show objects with picture" mode. DONE 2026-09-20.** Shipped as
+  `SkyMapState.ShowOnlyObjectsWithPicture`, a SUB-SETTING of the object overlay rather than a layer of
+  its own -- it draws nothing, it only narrows what [O] and [D] already admit -- keyed `I` and drawn
+  indented under "Objects" in the layer palette, unavailable (dimmed, key unhandled) while [O] is off.
+  The per-object camera mark this builds on stays exactly as it was; what was missing was the filter.
+  - **One predicate, three callers**: `OverlayEngine.PassesLayerFilter` / `ApplyLayerFilter`, asked by
+    the desktop's background gather, the browser / offline primitive path AND the click resolver. The
+    first two were already two hand-maintained copies of the [O]/[D] rule; a third copy of a four-term
+    rule was not worth writing, and the click gate is the one that *must* agree or a filtered-out
+    object stays selectable through apparently-empty sky.
+  - **It narrows the dark-nebula layer too**, which reads as harsh (almost no dust lane has a verified
+    article) and is deliberate: "only with photo" is a statement about the whole overlay, and a layer
+    that quietly opted out would be the surprise. A pinned target survives it, as it survives every
+    other filter on that path.
+  - **It is in both gather cache keys** (`PrimOverlayKey`, `OverlayGatherKey`), because it strips the
+    CACHED candidate list: without that, switching it on keeps serving the list gathered before it and
+    switching it off never brings the objects back.
+- [x] **Hover recolours the object that would be selected. DONE 2026-09-20, and it did NOT reopen the
+  settled decision.** That decision was about which gesture SELECTS (still the click); this is the
+  question it left open -- on a field of overlapping markers nothing told you which object a click
+  would take. `SkyMapState.HoverTarget` + `SkyMapTab.Hover.cs` paint a translucent wash under that
+  object; the press still decides. Very likely the same complaint as the 2026-06-08 self-note "sky
+  atlas bug: obj selection" (see [inbox.md](inbox.md)).
+  - **The load-bearing property is that the wash and the click come from ONE resolver**
+    (`SkyMapSearchActions.TryResolveHit`, which `SelectObjectByClick` and the new
+    `ResolveHoverAtScreenPoint` both call). Two hit tests written the same way is exactly how a wash
+    over one object and a panel about another happens, and that is worse than no wash.
+  - **Ctrl is deliberately not honoured by the hover.** The modifier is read at the press and a hover
+    carries none, so guessing would be wrong precisely when the user is holding Ctrl to pick a star
+    out of a nebula.
+  - **One `FillEllipse`, no new machinery.** All three renderers implement it natively (Vulkan and
+    WebGL as a single distance-field quad), so the wash needs no instance stream, no cache key and no
+    shader -- and drawing it FIRST of the annotation layers is what makes a pointer resting over the
+    search modal or the layer palette harmless without any of them claiming the pointer.
+  - **At most one resolve per painted frame**, measured: against the real catalogue at a Sagittarius
+    pointing, 400 resolves per sample, one resolve costs **2.048 ms at 1 degree FOV, 0.889 at 10,
+    0.018 at 60, 0.012 at 170**. The cost is the STAR pass -- zoomed in, `EffectiveMagnitudeLimit`
+    admits most of Tycho-2 in the 3x3 cell window -- so it is worst exactly where a user sits picking
+    a target out of a crowded field. Per MOVE that would be a quarter of a core at 1 degree; per frame
+    it is 12% of a 60 fps budget there and nothing past 60 degrees. The click has always paid the same
+    2 ms, once per press, where nobody can see it.
+  - **The hover target is dropped when the view moves**, compared at draw time against the view it was
+    resolved for rather than cleared at each of the five call sites that move it.
 
 ## Charts and the web showcase (user's notes 2026-08-27)
 

@@ -1,0 +1,510 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
+using DIR.Lib;
+using Shouldly;
+using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.SOFA;
+using TianWen.UI.Abstractions;
+using TianWen.UI.Abstractions.Overlays;
+using Xunit;
+
+namespace TianWen.Lib.Tests;
+
+/// <summary>
+/// The hover highlight and the "only with photo" object filter, which ship together because they are
+/// two halves of the same complaint: the atlas could not tell you what a click would take, and it
+/// could not narrow itself to the objects it can show you a picture of.
+/// </summary>
+/// <remarks>
+/// The load-bearing property of the hover half is that the highlight and the click come from ONE
+/// resolver, so the tests here assert the two agree rather than asserting the highlight in isolation
+/// -- an isolated assertion would still pass if the two drifted apart, which is the whole failure
+/// mode. The picture half is tested at its three consumers (the shared predicate, the click gate, the
+/// gather cache key) for the same reason: it is one rule that three call sites have to ask.
+/// </remarks>
+[Collection("Astrometry")]
+public class SkyMapHoverAndPictureTests
+{
+    private static readonly CelestialObject Nebula = new(
+        CatalogIndex.NGC7331, ObjectType.HIIReg, 12.0, 0.0, Constellation.Pegasus,
+        Half.NaN, Half.NaN, Half.NaN, new HashSet<string> { "Photogenic" });
+
+    private static readonly CelestialObject Star = new(
+        CatalogIndex.HIP025281, ObjectType.Star, 12.0, 0.1, Constellation.Pegasus,
+        Half.NaN, Half.NaN, Half.NaN, new HashSet<string> { "PlainStar" });
+
+    // 60' major axis -> a hit radius of ~250 px at the 2 deg FOV below, which is what lets the
+    // nebula's ellipse claim a click that lands on the star inside it.
+    private static readonly CelestialObjectShape NebulaShape = new((Half)60.0, (Half)60.0, (Half)0.0);
+
+    private const float SurfaceSize = 1000f;
+
+    private static SkyMapState NewState(bool onlyWithPicture = false) => new()
+    {
+        Mode = SkyMapMode.Equatorial,
+        CenterRA = 12.0,
+        CenterDec = 0.0,
+        FieldOfViewDeg = 2.0,
+        ShowObjectOverlay = true,
+        ShowOnlyObjectsWithPicture = onlyWithPicture,
+        LastContentRect = new RectF32(0, 0, SurfaceSize, SurfaceSize),
+    };
+
+    private static (float X, float Y) Project(SkyMapState state, double ra, double dec)
+    {
+        var ppr = SkyMapProjection.PixelsPerRadian(SurfaceSize, state.FieldOfViewDeg);
+        SkyMapProjection.ProjectWithMatrix(ra, dec, state.CurrentViewMatrix, ppr,
+            SurfaceSize * 0.5f, SurfaceSize * 0.5f, out var x, out var y).ShouldBeTrue();
+        return (x, y);
+    }
+
+    // The whole point of routing both through TryResolveHit. A highlight over one object and a panel
+    // about another is worse than no highlight, and two hit tests written the same way is exactly how
+    // that happens -- so this asserts the agreement, not the highlight.
+    [Fact]
+    public void TheHoverHighlightNamesTheObjectAClickWouldSelect()
+    {
+        var db = new ArticleDb(Nebula, Star, NebulaShape);
+        var state = NewState();
+        state.CurrentViewMatrix = state.ComputeViewMatrix();
+        var viewingUtc = DateTimeOffset.UtcNow;
+        var (starX, starY) = Project(state, Star.RA, Star.Dec);
+
+        var hover = SkyMapSearchActions.ResolveHoverAtScreenPoint(
+            state, db, viewingUtc, starX, starY, []).ShouldNotBeNull();
+
+        SkyMapSearchActions.SelectAtScreenPoint(
+            state, db, 0, 0, viewingUtc, starX, starY, InputModifier.None, []).ShouldBeTrue();
+
+        // Both land on the nebula: its shape radius swallows a click on the star inside it.
+        hover.Index.ShouldBe(Nebula.Index);
+        state.Search.InfoPanel.ShouldNotBeNull().Name.ShouldBe("Photogenic");
+        hover.IsEphemeris.ShouldBeFalse();
+        hover.HitRadiusPx.ShouldBeGreaterThan(20f, "the ellipse, not the plain click tolerance, claimed it");
+    }
+
+    // Ctrl is read at the moment of the press and a hover carries no press. Guessing at it would make
+    // the wash wrong precisely when the user is holding Ctrl to pick a star out of a nebula.
+    [Fact]
+    public void HoverShowsThePlainAnswerEvenWhereCtrlWouldPickDifferently()
+    {
+        var db = new ArticleDb(Nebula, Star, NebulaShape);
+        var state = NewState();
+        state.CurrentViewMatrix = state.ComputeViewMatrix();
+        var viewingUtc = DateTimeOffset.UtcNow;
+        var (starX, starY) = Project(state, Star.RA, Star.Dec);
+
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, viewingUtc, starX, starY, [])
+            .ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
+
+        SkyMapSearchActions.SelectAtScreenPoint(
+            state, db, 0, 0, viewingUtc, starX, starY, InputModifier.Ctrl, []).ShouldBeTrue();
+        state.Search.InfoPanel.ShouldNotBeNull().Name.ShouldBe("PlainStar");
+    }
+
+    [Fact]
+    public void HoverOverEmptySkyResolvesToNothing()
+    {
+        var db = new ArticleDb(Nebula, Star, NebulaShape);
+        var state = NewState();
+        state.CurrentViewMatrix = state.ComputeViewMatrix();
+
+        // Far outside the nebula's ~250 px hit radius, still inside the surface.
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(
+            state, db, DateTimeOffset.UtcNow, 980f, 20f, []).ShouldBeNull();
+    }
+
+    // A pointer off the map is not over anything, and the projection would happily answer for a point
+    // outside the rect -- so the bound is stated rather than inherited.
+    [Fact]
+    public void HoverOutsideTheContentRectResolvesToNothing()
+    {
+        var db = new ArticleDb(Nebula, Star, NebulaShape);
+        var state = NewState();
+        state.CurrentViewMatrix = state.ComputeViewMatrix();
+        var (nebX, nebY) = Project(state, Nebula.RA, Nebula.Dec);
+
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, DateTimeOffset.UtcNow, nebX, nebY, [])
+            .ShouldNotBeNull();
+
+        state.LastContentRect = new RectF32(0, 0, 200, 200);
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, DateTimeOffset.UtcNow, nebX, nebY, [])
+            .ShouldBeNull();
+    }
+
+    // The failure the click gate exists for, one filter further on: an object the overlay is not
+    // drawing must not stay selectable through apparently-empty sky.
+    [Fact]
+    public void OnlyWithPictureTakesAnObjectOutOfTheClickAndTheHoverTogether()
+    {
+        // The nebula has no verified article; the star does. Contrived the "wrong" way round on
+        // purpose, so a rule that quietly applied to extended objects only would fail here.
+        var db = new ArticleDb(Nebula, Star, NebulaShape, withPicture: Star.Index);
+        var state = NewState(onlyWithPicture: true);
+        state.CurrentViewMatrix = state.ComputeViewMatrix();
+        var viewingUtc = DateTimeOffset.UtcNow;
+        var (nebX, nebY) = Project(state, Nebula.RA, Nebula.Dec);
+
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, viewingUtc, nebX, nebY, [])
+            .ShouldBeNull("the nebula has no verified picture and the filter is on");
+        SkyMapSearchActions.SelectAtScreenPoint(
+            state, db, 0, 0, viewingUtc, nebX, nebY, InputModifier.None, []).ShouldBeFalse();
+
+        // Switch the filter off and the same pixel resolves again.
+        state.ShowOnlyObjectsWithPicture = false;
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, viewingUtc, nebX, nebY, [])
+            .ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
+    }
+
+    [Fact]
+    public void AnObjectWithAVerifiedPictureSurvivesTheFilter()
+    {
+        var db = new ArticleDb(Nebula, Star, NebulaShape, withPicture: Nebula.Index);
+        var state = NewState(onlyWithPicture: true);
+        state.CurrentViewMatrix = state.ComputeViewMatrix();
+        var (nebX, nebY) = Project(state, Nebula.RA, Nebula.Dec);
+
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, DateTimeOffset.UtcNow, nebX, nebY, [])
+            .ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
+    }
+
+    // Every other filter on this path exempts a pinned landmark; this one has to as well, or turning
+    // the mode on would hide the targets the user explicitly asked to see.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void APinnedTargetSurvivesEveryLayerFilter(bool onlyWithPicture)
+    {
+        OverlayEngine.PassesLayerFilter(
+            ObjectType.HIIReg, isPinned: true, hasPicture: false,
+            showObjects: false, showDarkNebulae: false, onlyWithPicture: onlyWithPicture)
+            .ShouldBeTrue();
+    }
+
+    // Stated because it reads as harsh and is deliberate: "only with photo" is a statement about the
+    // whole overlay, so the dark-nebula layer is narrowed by it too.
+    [Fact]
+    public void TheFilterNarrowsTheDarkNebulaLayerAsWell()
+    {
+        OverlayEngine.PassesLayerFilter(
+            ObjectType.DarkNeb, isPinned: false, hasPicture: false,
+            showObjects: false, showDarkNebulae: true, onlyWithPicture: true).ShouldBeFalse();
+
+        OverlayEngine.PassesLayerFilter(
+            ObjectType.DarkNeb, isPinned: false, hasPicture: true,
+            showObjects: false, showDarkNebulae: true, onlyWithPicture: true).ShouldBeTrue();
+    }
+
+    // The filter strips the CACHED candidate list, so a key that does not carry it would keep serving
+    // the list gathered before the toggle -- and, switching back, never restore what it removed.
+    [Fact]
+    public void TogglingTheFilterChangesTheOverlayGatherKey()
+    {
+        using var renderer = new RgbaImageRenderer(64, 64);
+        var tab = new HoverTestSkyMapTab(renderer);
+        var plannerState = new PlannerState();
+        var rect = new RectF32(0, 0, 64, 64);
+        tab.State.CurrentViewMatrix = tab.State.ComputeViewMatrix();
+
+        object KeyNow() => tab.BuildOverlayKeyForTest(rect, 30.0, 32f, 32f, 1000.0, plannerState);
+
+        var before = KeyNow();
+        KeyNow().ShouldBe(before, "nothing changed");
+
+        tab.State.ShowOnlyObjectsWithPicture = true;
+        KeyNow().ShouldNotBe(before);
+    }
+
+    // A sub-setting, not a layer: with [O] off there is nothing for it to narrow, so the palette
+    // draws it dimmed and its key stays unhandled (SkyMapLayer.Toggle returns false).
+    [Fact]
+    public void TheOnlyWithPhotoRowIsUnavailableWhileTheObjectOverlayIsOff()
+    {
+        var layer = SkyMapLayers.All.Single(l => l.KeyLabel == "I");
+        var state = new SkyMapState { ShowObjectOverlay = false };
+
+        layer.Available(state).ShouldBeFalse();
+        layer.Toggle(state).ShouldBeFalse();
+        state.ShowOnlyObjectsWithPicture.ShouldBeFalse();
+
+        state.ShowObjectOverlay = true;
+        layer.Available(state).ShouldBeTrue();
+        layer.Toggle(state).ShouldBeTrue();
+        state.ShowOnlyObjectsWithPicture.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void TheOnlyWithPhotoRowSitsDirectlyUnderTheObjectsRow()
+    {
+        var labels = SkyMapLayers.All.Select(l => l.KeyLabel).ToArray();
+        Array.IndexOf(labels, "I").ShouldBe(Array.IndexOf(labels, "O") + 1);
+        // The palette has no nesting, so the indent is in the label itself.
+        SkyMapLayers.All.Single(l => l.KeyLabel == "I").Label.ShouldStartWith("  ");
+    }
+
+    // Counting resolves, not pixels: a re-resolve that lands on the same object draws the identical
+    // frame, so only a count can tell "resolved once and reused" from "resolved on every move". A
+    // frame is rendered between the moves, because otherwise the per-frame budget below would block
+    // the second one and the slop would be untested.
+    [Fact]
+    public void ASmallPointerMoveDoesNotReResolveButAMoveToAnotherObjectDoes()
+    {
+        using var renderer = new RgbaImageRenderer(200, 200);
+        var tab = new HoverTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+        var db = new ArticleDb(Nebula, Star, NebulaShape);
+        var plannerState = new PlannerState { ObjectDb = db };
+        var time = new FakeTimeProviderWrapper(DateTimeOffset.UtcNow);
+        var rect = new RectF32(0, 0, 200, 200);
+
+        tab.State.ShowObjectOverlay = true;
+        tab.Render(plannerState, rect, time);
+
+        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
+        tab.HoverResolves.ShouldBe(1);
+
+        // Inside the slop: the answer cannot have changed enough to matter.
+        tab.Render(plannerState, rect, time);
+        tab.HandleInput(new InputEvent.MouseMove(101f, 100f));
+        tab.HoverResolves.ShouldBe(1);
+
+        // Well outside it.
+        tab.Render(plannerState, rect, time);
+        tab.HandleInput(new InputEvent.MouseMove(140f, 140f));
+        tab.HoverResolves.ShouldBe(2);
+    }
+
+    // The bound that makes hover affordable at a deep zoom, where one resolve was measured at 2 ms
+    // against the real catalogue: a mouse delivers moves at well over frame rate, and nothing can
+    // SHOW a second answer before the next paint. Asserted as a count for the same reason as above --
+    // every one of these moves draws the identical frame.
+    [Fact]
+    public void ManyMovesBetweenTwoFramesCostExactlyOneResolve()
+    {
+        using var renderer = new RgbaImageRenderer(200, 200);
+        var tab = new HoverTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+        var db = new ArticleDb(Nebula, Star, NebulaShape);
+        var plannerState = new PlannerState { ObjectDb = db };
+        var time = new FakeTimeProviderWrapper(DateTimeOffset.UtcNow);
+        var rect = new RectF32(0, 0, 200, 200);
+
+        tab.State.ShowObjectOverlay = true;
+        tab.Render(plannerState, rect, time);
+
+        for (var i = 0; i < 20; i++)
+        {
+            tab.HandleInput(new InputEvent.MouseMove(20f + i * 8f, 20f + i * 8f));
+        }
+
+        tab.HoverResolves.ShouldBe(1);
+
+        // And the budget re-opens with the frame, so the highlight cannot get stuck on a stale answer.
+        tab.Render(plannerState, rect, time);
+        tab.HandleInput(new InputEvent.MouseMove(60f, 60f));
+        tab.HoverResolves.ShouldBe(2);
+    }
+
+    // Every resolve asks for a frame, including one that landed on the same object: the budget above
+    // is released by a PAINT, so a resolve that scheduled none would be the last one until something
+    // else repainted.
+    [Fact]
+    public void AResolveAlwaysAsksForTheFrameThatWouldShowIt()
+    {
+        using var renderer = new RgbaImageRenderer(200, 200);
+        var tab = new HoverTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+        var db = new ArticleDb(Nebula, Star, NebulaShape);
+        var plannerState = new PlannerState { ObjectDb = db };
+        var time = new FakeTimeProviderWrapper(DateTimeOffset.UtcNow);
+        var rect = new RectF32(0, 0, 200, 200);
+
+        tab.State.ShowObjectOverlay = true;
+        tab.Render(plannerState, rect, time);
+
+        tab.State.NeedsRedraw = false;
+        tab.HandleInput(new InputEvent.MouseMove(150f, 150f));
+        tab.State.NeedsRedraw.ShouldBeTrue();
+    }
+
+    // The view moved without the pointer being re-tested, so the target is no longer an answer about
+    // where the cursor is. Dropping it beats redrawing it somewhere plausible.
+    [Fact]
+    public void AZoomDropsAHoverTargetTheCursorWasNotReTestedAgainst()
+    {
+        using var renderer = new RgbaImageRenderer(200, 200);
+        var tab = new HoverTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+        var db = new ArticleDb(Nebula, Star, NebulaShape);
+        var plannerState = new PlannerState { ObjectDb = db };
+        var time = new FakeTimeProviderWrapper(DateTimeOffset.UtcNow);
+        var rect = new RectF32(0, 0, 200, 200);
+
+        tab.State.ShowObjectOverlay = true;
+        tab.State.CenterRA = Nebula.RA;
+        tab.State.CenterDec = Nebula.Dec;
+        tab.State.FieldOfViewDeg = 2.0;
+        tab.Render(plannerState, rect, time);
+
+        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
+        tab.State.HoverTarget.ShouldNotBeNull();
+
+        tab.State.FieldOfViewDeg = 4.0;
+        tab.Render(plannerState, rect, time);
+        tab.State.HoverTarget.ShouldBeNull();
+    }
+
+    // The wash has to reach the PIXELS, and on a surface with no GPU: FillEllipse is the one
+    // primitive it uses precisely because all three renderers implement it natively. Rendered twice
+    // over the same view, so the only difference between the frames IS the highlight.
+    [Fact]
+    public void TheHoverWashIsPaintedUnderTheObjectItNames()
+    {
+        const int size = 400;
+        using var renderer = new RgbaImageRenderer(size, size);
+        var tab = new HoverTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+        var db = new ArticleDb(Nebula, Star, NebulaShape);
+        var plannerState = new PlannerState { ObjectDb = db };
+        var time = new FakeTimeProviderWrapper(DateTimeOffset.UtcNow);
+        var rect = new RectF32(0, 0, size, size);
+
+        tab.State.ShowObjectOverlay = true;
+        tab.State.CenterRA = Nebula.RA;
+        tab.State.CenterDec = Nebula.Dec;
+        tab.State.FieldOfViewDeg = 2.0;
+        tab.Render(plannerState, rect, time);
+        var without = (byte[])renderer.Surface.Pixels.Clone();
+
+        // Park the pointer on the nebula's own screen position (the view is centred on it).
+        tab.HandleInput(new InputEvent.MouseMove(size / 2f, size / 2f));
+        tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
+
+        tab.Render(plannerState, rect, time);
+        var with = renderer.Surface.Pixels;
+
+        var changed = 0;
+        for (var i = 0; i < with.Length; i += 4)
+        {
+            if (with[i] != without[i] || with[i + 1] != without[i + 1] || with[i + 2] != without[i + 2])
+            {
+                changed++;
+            }
+        }
+
+        // The wash is clamped to a 36 px radius, so ~4,000 px of a 160,000 px surface. A floor well
+        // under that catches "drawn as nothing"; the ceiling catches a wash that escaped its clamp
+        // and repainted the frame.
+        changed.ShouldBeGreaterThan(500);
+        changed.ShouldBeLessThan(size * size / 8);
+    }
+
+    // A SkyMapTab over the CPU surface, matching the browser's wiring: the object overlay goes through
+    // the shared primitive path and the view matrix is published each frame the way the GPU pipelines
+    // do, so hit-testing and drawing agree on where things are.
+    private sealed class HoverTestSkyMapTab(RgbaImageRenderer renderer) : SkyMapTab<RgbaImage>(renderer)
+    {
+        protected override void RenderSkyMap(
+            ICelestialObjectDB db, RectF32 contentRect,
+            DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site,
+            SkyMapDrawPhase phase = SkyMapDrawPhase.All)
+        {
+            base.RenderSkyMap(db, contentRect, viewingTime, siteLat, siteLon, site, phase);
+            State.CurrentViewMatrix = State.ComputeViewMatrix();
+        }
+
+        protected override void RenderObjectOverlay(
+            ICelestialObjectDB db, RectF32 contentRect,
+            float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
+            bool showAllOverlays)
+            => RenderObjectOverlayPrimitive(db, contentRect, baseFontSize,
+                site, dimBelowHorizon, plannerState, showAllOverlays);
+    }
+
+    // Two objects in one cell, one of which may carry a verified article with a picture.
+    private sealed class ArticleDb(
+        CelestialObject nebula, CelestialObject star, CelestialObjectShape nebulaShape,
+        CatalogIndex withPicture = default) : ICelestialObjectDB
+    {
+        public IRaDecIndex CoordinateGrid => new FixedIndex(nebula.Index, star.Index);
+
+        public IRaDecIndex DeepSkyCoordinateGrid => new FixedIndex(nebula.Index);
+
+        public IReadOnlySet<CatalogIndex> AllObjectIndices => new HashSet<CatalogIndex> { nebula.Index, star.Index };
+
+        public IReadOnlySet<Catalog> Catalogs => new HashSet<Catalog>();
+
+        public IReadOnlyCollection<string> CommonNames => [];
+
+        public int LastInitProcessed => 0;
+
+        public int LastInitFailed => 0;
+
+        public int HipStarCount => 0;
+
+        public int Tycho2StarCount => 0;
+
+        public bool TryLookupByIndex(CatalogIndex index, out CelestialObject celestialObject)
+        {
+            if (index == nebula.Index) { celestialObject = nebula; return true; }
+            if (index == star.Index) { celestialObject = star; return true; }
+            celestialObject = default;
+            return false;
+        }
+
+        public bool TryGetShape(CatalogIndex index, out CelestialObjectShape shape)
+        {
+            if (index == nebula.Index) { shape = nebulaShape; return true; }
+            shape = default;
+            return false;
+        }
+
+        // The one method these tests are really about: the picture table the imagery bake produced.
+        public bool TryGetArticle(CatalogIndex index, out ObjectArticle article)
+        {
+            if (withPicture != default && index == withPicture)
+            {
+                article = new ObjectArticle(1, "Test",
+                    new ObjectArticleImage("t.jpg", "ab", "CC BY-SA 4.0", "A", "B", true, 100, 100));
+                return true;
+            }
+
+            article = default;
+            return false;
+        }
+
+        public bool TryResolveCommonName(string name, out IReadOnlyList<CatalogIndex> matches)
+        {
+            matches = [];
+            return false;
+        }
+
+        public bool TryGetCrossIndices(CatalogIndex catalogIndex, out IReadOnlySet<CatalogIndex> crossIndices)
+        {
+            crossIndices = new HashSet<CatalogIndex>();
+            return false;
+        }
+
+        public bool TryLookupHIP(int hipNumber, out double ra, out double dec, out float vMag, out float bv)
+        {
+            ra = 0;
+            dec = 0;
+            vMag = float.NaN;
+            bv = float.NaN;
+            return false;
+        }
+
+        public int CopyTycho2Stars(Span<Tycho2StarLite> destination, int startIndex = 0) => 0;
+
+        public System.Threading.Tasks.Task InitDBAsync(
+            bool waitForTycho2BulkLoad = false,
+            System.Threading.CancellationToken cancellationToken = default)
+            => System.Threading.Tasks.Task.CompletedTask;
+
+        public System.Threading.Tasks.Task EnsureTycho2DataLoadedAsync(
+            System.Threading.CancellationToken cancellationToken = default)
+            => System.Threading.Tasks.Task.CompletedTask;
+
+        private sealed class FixedIndex(params CatalogIndex[] items) : IRaDecIndex
+        {
+            public IReadOnlyCollection<CatalogIndex> this[double ra, double dec] => items;
+        }
+    }
+}
