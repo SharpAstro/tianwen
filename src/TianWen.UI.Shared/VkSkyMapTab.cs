@@ -703,8 +703,8 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
             // Per-layer visibility, through the one predicate the primitive path and the click
             // resolver also ask (dark nebulae follow [D], everything else [O], "only with photo"
-            // narrows both, a pinned landmark survives all three). The pinned-only gather already
-            // returns exactly that set, so there is nothing to remove.
+            // narrows the [O] half and does NOT reach [D], a pinned landmark survives all three).
+            // The pinned-only gather already returns exactly that set, so there is nothing to remove.
             if (!pinnedOnly)
             {
                 OverlayEngine.ApplyLayerFilter(list, showAllOverlays, showDarkNebulae, onlyWithPicture);
