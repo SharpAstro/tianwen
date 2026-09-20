@@ -2335,6 +2335,9 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // Grid cells are 1/15 hour in RA and 1° in Dec
         const double raCellSizeGeneral = 1.0 / 15.0;
 
+        // The struct walk of each cell (see RaDecCell): the same stars in the same order as the
+        // indexer, with nothing allocated per cell. A wide search radius walks thousands of cells.
+        var grid = db.CoordinateGrid;
         for (var cellRA = Math.Floor(minRA / raCellSizeGeneral) * raCellSizeGeneral + raCellSizeGeneral * 0.5;
              cellRA <= maxRA;
              cellRA += raCellSizeGeneral)
@@ -2342,7 +2345,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             var queryRA = ConditionRA(cellRA);
             for (var cellDec = Math.Floor(minDec) + 0.5; cellDec <= maxDec; cellDec += 1.0)
             {
-                foreach (var idx in db.CoordinateGrid[queryRA, cellDec])
+                foreach (var idx in grid.EnumerateCell(queryRA, cellDec))
                 {
                     if (seen.Add(idx) && db.TryLookupByIndex(idx, out var obj) && obj.ObjectType is ObjectType.Star)
                     {

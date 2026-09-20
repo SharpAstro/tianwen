@@ -26,6 +26,7 @@ public class Tycho2LiteLookupParityTests
         var grid = db.CoordinateGrid;
 
         var seen = 0;
+        var skipped = 0;
         var mismatches = new List<string>();
         for (var raIdx = 0; raIdx < 360; raIdx++)
         {
@@ -33,10 +34,23 @@ public class Tycho2LiteLookupParityTests
             for (var decIdx = 0; decIdx <= 180; decIdx++)
             {
                 var dec = Math.Min(-90.0 + decIdx + 0.5, 90.0);
-                foreach (var idx in grid[ra, dec])
+                // The struct walk, so the deep-sky half can be stepped over by its length: those entries
+                // are not Tycho-2 stars and must not count as skips.
+                var cell = grid.EnumerateCell(ra, dec);
+                var position = 0;
+                foreach (var idx in cell)
                 {
+                    if (position++ < cell.DirectEntries.Length)
+                    {
+                        continue;
+                    }
+
                     if (!db.TryGetTycho2Star(idx, out var lite))
                     {
+                        // Counted, not ignored: a silent continue here hid the one blob entry the
+                        // lightweight lookup cannot read for as long as this test existed
+                        // (RaDecCellEnumerationTests names it).
+                        skipped++;
                         continue;
                     }
 
@@ -61,9 +75,11 @@ public class Tycho2LiteLookupParityTests
         }
 
         mismatches.ShouldBeEmpty(string.Join(Environment.NewLine, mismatches));
-        // The premise of the premise: the walk covered the catalogue, not a corner of it. A star sits in
-        // exactly one cell box, so this is the star count less the handful on the RA seam and the pole.
-        seen.ShouldBeGreaterThan((int)(db.Tycho2StarCount * 0.99));
+        // The premise of the premise: the walk covered the catalogue, not a corner of it. Every entry of
+        // the blob sits in exactly one cell box (RaDecCellEnumerationTests proves the tiling), so the
+        // walk sees the whole blob, and all of it but the one unaddressable entry reads both ways.
+        (seen + skipped).ShouldBe(db.Tycho2StarCount);
+        skipped.ShouldBe(1, "TYC 1327-606-4, whose component the packed index truncates to 0");
     }
 
     private static void Record(List<string> mismatches, CatalogIndex idx, string what)

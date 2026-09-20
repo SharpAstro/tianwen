@@ -111,7 +111,7 @@ internal sealed class Tycho2RaDecIndex
     /// Polar-cap fast path: returns all Tycho-2 stars in a Dec band (full RA),
     /// scanning each overlapping GSC region's binary entries exactly once.
     ///
-    /// The general per-cell path (<see cref="GetStarsInCell"/>) is O(cells x
+    /// The general per-cell path (<see cref="EnumerateCell(CatalogIndex[], double, double)"/>) is O(cells x
     /// stars-in-overlapping-regions), when the search radius covers the full
     /// 24h of RA at the pole the same polar GSC regions get linearly re-scanned
     /// hundreds of times and one CatalogPlateSolver invocation explodes from
@@ -191,10 +191,10 @@ internal sealed class Tycho2RaDecIndex
     }
 
     /// <summary>
-    /// How much work <see cref="GetStarsInCell"/> does for one cell, for a diagnostic probe: the
-    /// overlapping regions, the entries their linear scan READS, and the stars the cell box keeps.
-    /// The ratio between the last two is the whole question about this method, and a caller cannot
-    /// see it -- the scan is inside, and only the kept list comes out.
+    /// How much work the per-cell scan does for one cell, for a diagnostic probe: the overlapping
+    /// regions, the entries the linear scan READS, and the stars the cell box keeps. The ratio
+    /// between the last two is the whole question about this path, and a caller cannot see it --
+    /// the scan is inside the enumerator, and only the kept stars come out.
     /// </summary>
     internal (int Regions, int EntriesScanned, int Yielded) DescribeCellScan(double ra, double dec)
     {
@@ -218,52 +218,34 @@ internal sealed class Tycho2RaDecIndex
             scanned += (endOffset - startOffset) / entrySize;
         }
 
-        return (regions.Count, scanned, GetStarsInCell(ra, dec).Count);
+        var yielded = 0;
+        foreach (var _ in EnumerateCell(null, ra, dec))
+        {
+            yielded++;
+        }
+
+        return (regions.Count, scanned, yielded);
     }
 
-    internal List<CatalogIndex> GetStarsInCell(double ra, double dec)
+    /// <summary>
+    /// The Tycho-2 stars whose position is inside the 1 h/15 by 1 deg cell box holding
+    /// (<paramref name="ra"/>, <paramref name="dec"/>), scanned out of the cell's overlapping GSC
+    /// regions as the caller advances, behind <paramref name="direct"/> (the deep-sky half of the
+    /// composite cell, or null). The scan itself is <see cref="RaDecCell.Enumerator"/>; this only
+    /// resolves the cell box and its region list. Allocation-free.
+    /// </summary>
+    internal RaDecCell EnumerateCell(CatalogIndex[]? direct, double ra, double dec)
     {
-        var result = new List<CatalogIndex>();
-        var regions = GetOverlappingRegions(ra, dec);
-        if (regions is null || !TryGetGridIndex(ra, dec, out var raIdx, out _))
-            return result;
+        if (!TryGetGridIndex(ra, dec, out var raIdx, out var decIdx))
+        {
+            return new RaDecCell(direct);
+        }
 
         float cellMinRA = raIdx / 15f;
         float cellMaxRA = (raIdx + 1) / 15f;
         float cellMinDec = (float)(Math.Floor(dec + 90) - 90);
         float cellMaxDec = cellMinDec + 1f;
-
-        const int entrySize = 17;
-
-        foreach (var tyc1 in regions)
-        {
-            var gscIdx = tyc1 - 1;
-            if (gscIdx < 0 || gscIdx >= _streamCount)
-                continue;
-
-            GetRegionOffsets(gscIdx, out var startOffset, out var endOffset);
-            var entryCount = (endOffset - startOffset) / entrySize;
-
-            for (int i = 0; i < entryCount; i++)
-            {
-                var pos = startOffset + i * entrySize;
-                var entryRA = BinaryPrimitives.ReadSingleLittleEndian(_tycho2Data.AsSpan(pos + 3, 4));
-                var entryDec = BinaryPrimitives.ReadSingleLittleEndian(_tycho2Data.AsSpan(pos + 7, 4));
-
-                if (entryRA >= cellMinRA && entryRA < cellMaxRA && entryDec >= cellMinDec && entryDec < cellMaxDec)
-                {
-                    var tyc2 = BinaryPrimitives.ReadUInt16LittleEndian(_tycho2Data.AsSpan(pos, 2));
-                    var tyc3 = _tycho2Data[pos + 2];
-
-                    // See the note in EnumerateStarsInDecBand: the direct, stackalloc form rather
-                    // than a string built only to be parsed back. This is the per-cell path the sky
-                    // map's click and hover resolve walks nine times per press.
-                    result.Add(Tyc2CatalogIndex(Catalog.Tycho2, tyc1, tyc2, tyc3));
-                }
-            }
-        }
-
-        return result;
+        return new RaDecCell(direct, _tycho2Data, _streamCount, _gscRegionsPerCell[raIdx, decIdx], cellMinRA, cellMaxRA, cellMinDec, cellMaxDec);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -305,12 +287,21 @@ internal sealed class Tycho2RaDecIndex
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void GetRegionOffsets(int gscIdx, out int startOffset, out int endOffset)
+        => GetRegionOffsets(_tycho2Data, _streamCount, gscIdx, out startOffset, out endOffset);
+
+    /// <summary>
+    /// The byte range of GSC region <paramref name="gscIdx"/> in the catalogue blob: the offset table
+    /// at the front holds one start per stream and the last region runs to the end. Static so the
+    /// struct enumerator in <see cref="RaDecCell"/> reads the same table the same way.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static void GetRegionOffsets(byte[] tycho2Data, int streamCount, int gscIdx, out int startOffset, out int endOffset)
     {
-        var data = _tycho2Data.AsSpan();
+        var data = tycho2Data.AsSpan();
         startOffset = BinaryPrimitives.ReadInt32LittleEndian(data[((gscIdx + 1) * 4)..]);
-        endOffset = gscIdx + 1 < _streamCount
+        endOffset = gscIdx + 1 < streamCount
             ? BinaryPrimitives.ReadInt32LittleEndian(data[((gscIdx + 2) * 4)..])
-            : _tycho2Data.Length;
+            : tycho2Data.Length;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

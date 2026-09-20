@@ -31,6 +31,12 @@ internal sealed class CompositeRaDecIndex(RaDecIndex primary, Tycho2RaDecIndex? 
         }
     }
 
+    public RaDecCell EnumerateCell(double ra, double dec)
+    {
+        var direct = primary.Cell(ra, dec);
+        return tycho2 is not null ? tycho2.EnumerateCell(direct, ra, dec) : new RaDecCell(direct);
+    }
+
     private sealed class CompositeCollection(
         IReadOnlyCollection<CatalogIndex> directEntries,
         Tycho2RaDecIndex tycho2Index,
@@ -58,7 +64,9 @@ internal sealed class CompositeRaDecIndex(RaDecIndex primary, Tycho2RaDecIndex? 
             foreach (var entry in directEntries)
                 yield return entry;
 
-            foreach (var tycEntry in tycho2Index.GetStarsInCell(ra, dec))
+            // The same scan the allocation-free path runs, materialised here for the callers that
+            // want a collection (the plate solver's sweeps, the SPCC matcher, the tests' oracles).
+            foreach (var tycEntry in tycho2Index.EnumerateCell(null, ra, dec))
                 yield return tycEntry;
         }
 
@@ -67,6 +75,14 @@ internal sealed class CompositeRaDecIndex(RaDecIndex primary, Tycho2RaDecIndex? 
         void ICollection<CatalogIndex>.Add(CatalogIndex item) => throw new NotSupportedException();
         void ICollection<CatalogIndex>.Clear() => throw new NotSupportedException();
         bool ICollection<CatalogIndex>.Remove(CatalogIndex item) => throw new NotSupportedException();
-        void ICollection<CatalogIndex>.CopyTo(CatalogIndex[] array, int arrayIndex) => throw new NotSupportedException();
+        // Not NotSupported: List.AddRange, Enumerable.ToList and ToArray all take this path for an
+        // ICollection, so throwing here made `[.. grid[ra, dec]]` a runtime error while foreach worked.
+        void ICollection<CatalogIndex>.CopyTo(CatalogIndex[] array, int arrayIndex)
+        {
+            foreach (var entry in this)
+            {
+                array[arrayIndex++] = entry;
+            }
+        }
     }
 }

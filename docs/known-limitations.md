@@ -55,6 +55,32 @@ every frame independently against the **frozen seed** reference, so per-frame pl
 precision floor with no accumulation. General rule for any incremental/differential estimator:
 re-anchor to an immutable reference, never to your own last output.
 
+### The Tycho-2 blob holds 254 identifiers twice, and one star it cannot address
+
+Found 2026-09-21 by `RaDecCellEnumerationTests`, which walks every grid cell of the sky and holds the
+cell scan against every entry of `CopyTycho2Stars` bucketed into its cell box. Both are properties of
+the baked `tyc2.bin.lz`, not of any lookup, and both had been invisible because
+`Tycho2LiteLookupParityTests` stepped over a candidate its lightweight lookup could not read.
+
+- **254 stars are in the blob under one identifier twice.** `Get-Tycho2Catalogs.ps1` appends
+  Supplement 1 (the bright Hipparcos and Tycho-1 stars the main catalogue lacks) after the main
+  catalogue without asking whether the identifier is already there, and 254 of its 17,588 are:
+  TYC 2271-1073-1 is in `tyc2.dat` at V 7.555 and in `suppl_1.dat` at V 10.6, and the blob has both,
+  in the same region, encoding to the same `CatalogIndex`. A cell scan yields the index twice (the
+  hover resolve then hit-tests the same position twice, harmlessly), the binary search finds whichever
+  sorts first, and the two magnitudes disagree. The raw files themselves have no duplicate within
+  either. The fix is in the baker (skip a supplement identifier the main stream already wrote, or
+  prefer one by a stated rule) followed by a re-bake of the LFS blob; the test pins the count at 254
+  so a re-bake that fixes it fails the test on purpose and the number is updated with the blob.
+- **One star has component 4, and the packed index has two bits for it.** `CatalogUtils.PackTyc2`
+  gives `tyc3` a two-bit field (`TYC3_MASK = 0b11`); Tycho-2 main uses components 1 to 3, and the one
+  Supplement 1 entry with a 4 (TYC 1327-606-4, V 12.6) encodes as TYC 1327-606-0, which decodes to a
+  star that does not exist, so `TryGetTycho2Star` and `TryLookupByIndex` both refuse the index the
+  cell scan yields for it. Widening the field changes the bit layout of EVERY Tycho-2 index, which is
+  persisted in planner pins and written into test constants (`CatalogIndex.Tyc_6447_45_1`), so it is
+  not a one-line change; one twelfth-magnitude component is not worth it today. Pinned as exactly one
+  unreadable entry by the same test.
+
 ## Imaging / stretch pipeline
 
 ### The AI runner's linear/stretched auto-detect misreads a bright-sky master, on about 2.5 percent of this archive

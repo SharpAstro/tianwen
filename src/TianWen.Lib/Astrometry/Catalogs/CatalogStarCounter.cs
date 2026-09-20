@@ -46,7 +46,10 @@ namespace TianWen.Lib.Astrometry.Catalogs
                 for (var ra = raMinH; ra <= raMaxH + raStepH; ra += raStepH)
                 {
                     var queryRA = ((ra % 24.0) + 24.0) % 24.0; // wrap across 0/24 h
-                    foreach (var index in grid[queryRA, queryDec])
+                    // EnumerateCell, not the indexer: the struct scans the cell as this advances and
+                    // allocates nothing, where the indexer built a wrapper, an iterator and a boxed
+                    // enumerator per cell (and, before 2026-09-21, a List of the cell's stars).
+                    foreach (var index in grid.EnumerateCell(queryRA, queryDec))
                     {
                         if (!seen.Add(index))
                         {

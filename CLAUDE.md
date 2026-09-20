@@ -552,8 +552,8 @@ HIGHLIGHT, not hover selection: the click still selects (`docs/plans/in-app-sky-
   what makes a pointer resting over the search modal or the layer palette harmless with none of them
   claiming the pointer: the sky behind resolves, the wash paints under the panel covering it.
 - **At most ONE resolve per painted frame, and every resolve asks for a frame.** Measured by
-  `SkyMapHoverResolveBenchmarks` (Release, win-arm64): over an OBJECT ~10 us / 288 B at any zoom,
-  over bare STAR FIELD 166 us / 27.6 KB at 1 degree and 139 at 10, falling to ~1.8 us / 288 B by 60
+  `SkyMapHoverResolveBenchmarks` (Release, win-arm64): over an OBJECT ~9 us at any zoom, over bare
+  STAR FIELD 157 us at 1 degree and 134 at 10, falling to ~1.7 us by 60, and **0 B on every row**
   (389 us / 225 KB before the fixes below). **The 16x is entirely WHETHER THE STAR PASS RUNS, not a
   per-star cost that varies with zoom** -- the nine index cells come from the unprojected pointer
   and are identical at every zoom, holding 1094 candidates whatever the FOV. **The DSO pass
@@ -566,7 +566,13 @@ HIGHLIGHT, not hover selection: the click still selects (`docs/plans/in-app-sky-
   was 320 of the 389 us and 197 of the 225 KB. Both are allocation-free now (`PrecessRadians`, the
   span `Base91.DecodeBytes`), which every catalogue lookup in the program inherits;
   `Tycho2LiteLookupParityTests` walks the whole catalogue to pin that the two lookups read the same
-  star. Resolve -> frame -> clear is self-limiting; "resolve only when the answer changed" is not,
+  star. **A cell is walked through `IRaDecIndex.EnumerateCell`, never the indexer, on a per-frame
+  path**: the indexer built a `List` of the cell's Tycho-2 stars, a wrapper and an iterator per cell
+  (the last 27.6 KB of a resolve), the struct (`RaDecCell`) scans the same regions as the caller
+  advances and allocates nothing, and `RaDecCellEnumerationTests` holds the two equal for every
+  cell of the sky against the catalogue bucketed independently, which is how the blob's 254
+  duplicate identifiers and its one unaddressable star were found (`docs/known-limitations.md`).
+  Resolve -> frame -> clear is self-limiting; "resolve only when the answer changed" is not,
   because the budget is released by a PAINT. **Three corrections worth keeping: a Debug timing was
   ~5x pessimistic and blended the two paths; the cliff was attributed to the magnitude limit by
   reading the code; and a test-host Stopwatch ranked terms by JIT order. Attribute with

@@ -47,11 +47,15 @@ namespace TianWen.UI.Abstractions
         // deep zoom. Measured by SkyMapHoverResolveBenchmarks (Release, win-arm64; an earlier figure
         // quoted here came from a Debug test run and was about 5x pessimistic):
         //
-        //              over an object      over bare star field    (before 2026-09-20)
-        //   1 deg        ~10 us, 288 B        166 us, 27.6 KB       (389 us, 225 KB)
-        //   10 deg       ~10 us, 288 B        139 us, 27.6 KB       (357 us, 225 KB)
-        //   60 deg       ~10 us, 288 B        1.8 us,  288 B
-        //   170 deg      ~10 us, 288 B        1.7 us,  288 B
+        //              over an object   over bare star field   (2026-09-20)       (before 2026-09-20)
+        //   1 deg        ~9 us, 0 B        157 us, 0 B            (166 us, 27.6 KB)  (389 us, 225 KB)
+        //   10 deg       ~9 us, 0 B        134 us, 0 B            (139 us, 27.6 KB)  (357 us, 225 KB)
+        //   60 deg       ~9 us, 0 B        1.7 us, 0 B            (1.8 us,  288 B)
+        //   170 deg      ~9 us, 0 B        1.6 us, 0 B            (1.7 us,  288 B)
+        //
+        // A resolve allocates nothing since 2026-09-21: both passes walk their nine cells through
+        // IRaDecIndex.EnumerateCell (the struct RaDecCell) rather than the indexer, whose per-cell
+        // List, wrapper and iterator were the 27.6 KB and whose boxed array enumerator was the 288 B.
         //
         // The paths differ by 16x (44x before), which the old single number hid, and the whole of
         // that difference is WHETHER THE STAR PASS RUNS. It is not a per-star cost that varies with

@@ -592,9 +592,9 @@ Three items from one note, root-caused against the code rather than left as a ba
     shader -- and drawing it FIRST of the annotation layers is what makes a pointer resting over the
     search modal or the layer palette harmless without any of them claiming the pointer.
   - **At most one resolve per painted frame**, bounded by a checked-in benchmark
-    (`SkyMapHoverResolveBenchmarks`, Release, win-arm64): over an OBJECT ~10 us / 288 B at any zoom,
-    over bare STAR FIELD 166 us / 27.6 KB at 1 degree, 139 at 10, and ~1.8 us / 288 B by 60; before
-    the fix, 389 us / 225 KB and 357. **The two paths differ by 16x** (44x before) -- the DSO pass
+    (`SkyMapHoverResolveBenchmarks`, Release, win-arm64): over an OBJECT ~9 us at any zoom, over
+    bare STAR FIELD 157 us at 1 degree, 134 at 10, and ~1.7 us by 60, with 0 B on every row; before
+    the fixes, 389 us / 225 KB and 357, and 166 us / 27.6 KB after the first of them. **The two paths differ by 16x** (44x before) -- the DSO pass
     runs first and the star pass never runs when it matches -- which the original single number hid.
     **The gap is that short-circuit and NOTHING else**: the nine index cells derive from the
     unprojected pointer and are identical at every zoom, and what decides whether they are walked is
@@ -605,7 +605,11 @@ Three items from one note, root-caused against the code rather than left as a ba
     2026-09-20**: the precession and the base91 index decode are allocation-free for every caller in
     the program, and the star pass reads a Tycho-2 candidate through `TryGetTycho2Star` and looks up
     only the winner in full (`Tycho2LiteLookupParityTests` pins that the two read the same star).
-    Attribution is `SkyMapHoverResolveCostProbe` (`TIANWEN_HOVER_PROBE=1 DOTNET_TieredCompilation=0`;
+    **Fixed 2026-09-21**: the cells are walked through `IRaDecIndex.EnumerateCell` (the struct
+    `RaDecCell`, scanning the Tycho-2 regions as the caller advances) instead of the indexer's
+    per-cell `List`, wrapper and iterator, and the composite grid is cached on the database, which
+    took the last 27.6 KB and the 288 B to nothing (`RaDecCellEnumerationTests`, whole sky, against
+    the catalogue bucketed independently). Attribution is `SkyMapHoverResolveCostProbe` (`TIANWEN_HOVER_PROBE=1 DOTNET_TieredCompilation=0`;
     with tiering on it ranks by JIT order, which is where a "905 ns" once quoted here came from). An
     earlier version of this entry blamed `GetStarsInCell` for both halves, and one before it credited
     `EffectiveMagnitudeLimit`, which is the minor term and runs the other way. The figures first

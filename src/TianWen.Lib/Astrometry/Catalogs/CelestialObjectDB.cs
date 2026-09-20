@@ -73,6 +73,15 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     private Tycho2RaDecIndex? _tycho2RaDecIndex;
 
     /// <summary>
+    /// The composite grid, built once per Tycho-2 index rather than per read: the property used to
+    /// return a new wrapper on every access, which was the last 32 B of a sky-map hover resolve and
+    /// the reason every caller hoisted it. Reset by the two places that assign
+    /// <see cref="_tycho2RaDecIndex"/>; a reader racing that reset sees the old composite or the new,
+    /// which is what it saw before too.
+    /// </summary>
+    private CompositeRaDecIndex? _coordinateGrid;
+
+    /// <summary>
     /// The Tycho-2 spatial index, for a diagnostic probe that needs to see INSIDE a cell lookup
     /// (see <see cref="Tycho2RaDecIndex.DescribeCellScan"/>). Null until the bulk load has run.
     /// </summary>
@@ -164,7 +173,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
     public IReadOnlySet<CatalogIndex> AllObjectIndices => GetOrRebuildIndex(ref _catalogIndicesCache, RebuildObjectIndices);
 
-    public IRaDecIndex CoordinateGrid => new CompositeRaDecIndex(_raDecIndex, _tycho2RaDecIndex);
+    public IRaDecIndex CoordinateGrid => _coordinateGrid ??= new CompositeRaDecIndex(_raDecIndex, _tycho2RaDecIndex);
 
     public IRaDecIndex DeepSkyCoordinateGrid => _raDecIndex;
 
@@ -895,6 +904,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         {
             var boundsData = LzipDecoder.Decompress(boundsStream);
             _tycho2RaDecIndex = new Tycho2RaDecIndex(_tycho2Data, _tycho2StreamCount, boundsData);
+            _coordinateGrid = null;
         }
 
         var sidecarManifest = manifestNames.FirstOrDefault(p => p.EndsWith(".tyc2_pm_sidecar.bin.lz"));
@@ -1004,6 +1014,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
         var boundsData = LzipDecoder.Decompress(boundsStream);
         _tycho2RaDecIndex = new Tycho2RaDecIndex(data, _tycho2StreamCount, boundsData);
+        _coordinateGrid = null;
     }
 
     /// <summary>
