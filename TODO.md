@@ -178,21 +178,35 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     `SkyMapHoverResolveCostProbe` (`TIANWEN_HOVER_PROBE=1`) attributes it:
     - The nine index cells derive from the unprojected pointer, so they are **identical at every
       zoom** -- 22 deep-sky entries against 1094 composite ones, whatever the FOV.
-    - What the pass then SPENDS, ranked (see the scale caveat below): **`TryLookupByIndex` at
-      ~905 ns for each of the 1094 candidates** is the dominant term, three to four times the nine
-      cell lookups (~320 us) that fed it. Inside those lookups, `Tycho2RaDecIndex.GetStarsInCell`
-      reads only **6x** what it keeps (6572 entries read, 1072 kept over 16 GSC regions), and
-      `Tyc2CatalogIndex` is ~14% of the scan. **An earlier version of this entry named
-      `GetStarsInCell` as the cost and the allocation; that was wrong** -- it subtracted a
-      probe-scale figure from a benchmark-scale one, and it stopped measuring one level too early.
-    - **The probe's absolute microseconds are ~3x the benchmark's and vary run to run** (a Stopwatch
-      loop in a test host against BenchmarkDotNet steady state). Use it to RANK terms; quote
-      `SkyMapHoverResolveBenchmarks` for what the resolve costs.
-    - **The cheap fix is to stop looking up candidates the filter will reject.** The 17-byte Tycho-2
-      entry already carries RA, Dec and magnitude, so the magnitude gate, the projection and the hit
-      test could all run before any `TryLookupByIndex`, leaving ONE lookup for the winner instead of
-      1094. That helps `Tycho2ColorCalibration` and `PlateSolveAnnotator` too, which walk the same
-      grid per detected star.
+    - What the pass then SPENDS, per resolve on bare sky at 10 degrees (389 us / 225 KB, probe
+      with `DOTNET_TieredCompilation=0`, whole within 7% of the benchmark):
+      | term | time | bytes | each |
+      |---|---|---|---|
+      | `TryLookupByIndex` x1094 | **320 us** | **197 KB** | 293 ns, 180 B |
+      | of which `ConstellationBoundary.TryFindConstellation` x1072 | 174 us | 120 KB | 162 ns, 112 B |
+      | of which `TryGetTycho2Star` x1094 (the binary search) | 111 us | 78 KB | 102 ns, 71 B |
+      | 9 composite cell lookups (`GetStarsInCell`, 6572 read / 1072 kept = 6x) | 53 us | ~28 KB | |
+      | magnitude gate + projection + hit test | ~16 us (~45 at 1 deg) | 0 | |
+      The constellation term precesses every candidate J2000 -> B1875 through
+      `CoordinateUtils.PrecessRadians`, which allocates its two vectors and its 3x3 matrix, to fill
+      `CelestialObject.Constellation`, which the hit test never reads. The binary search's bytes are
+      `CatalogIndex.ToCatalogAndValue` decoding base91 through a string and a byte array -- the
+      mirror of the string round trip `Tyc2CatalogIndex` removed from the ENCODE side.
+    - **Two earlier versions of this entry were wrong.** The first named `GetStarsInCell` as the
+      cost and the allocation (it stopped measuring one level too early). The second put
+      `TryLookupByIndex` at "~905 ns, three to four times the cell lookups" and explained the
+      probe's 3x excess over the benchmark as Stopwatch overhead: both were JIT tiering. A test host
+      tiers a method up only after a quiet period, so a loop timed early ran Tier-0 code -- the same
+      lookup loop read 992 us first and 290 us re-timed last in one run. **Run the probe with
+      `DOTNET_TieredCompilation=0`** (it prints a warning otherwise); the parts then sum to the whole.
+    - **The fixes are three, and two are in `TianWen.Lib`, not the resolver:** an allocation-free
+      `PrecessRadians` (locals for the three arrays) and an allocation-free `ToCatalogAndValue`
+      (stackalloc the decode, as `Tyc2CatalogIndex` did for the encode) each pay off on every
+      catalogue lookup in the program, `Tycho2ColorCalibration` and `PlateSolveAnnotator` included.
+      Then the star pass calls `TryGetTycho2Star` -- which already exists and IS the 17-byte entry
+      as a struct -- for its candidates and `TryLookupByIndex` for the winner only, which removes
+      the constellation term from the resolve outright. Together: the nine cell lookups plus a
+      ~40 ns search per candidate, on the order of 110 us and 28 KB.
     - What decides whether it is paid is the DSO pass's hit test, floored at a **fixed 20 SCREEN
       pixels**, whose footprint in sky runs 0.020 deg at 1 degree FOV to 4.200 deg at 170. The
       nearest deep-sky-grid entry to the benchmark's Aquila pointing is HD 183919 at 0.409 deg, so
@@ -203,12 +217,11 @@ Checks that only a real device or a real night can answer live in ONE place, ind
 
     The Debug figure (2.048 ms at 1 degree) was also about 5x pessimistic. **The louder cost turns
     out to be ALLOCATION**: 225 KB per resolve on bare sky zoomed in, roughly 13 MB/s at 60 fps and
-    28 MB/s if it ran per MOVE at a 125 Hz mouse. At ~205 B per candidate over 1094 candidates that
-    points at `TryLookupByIndex` rather than the cell scan, which is the same term the timing ranks
-    first, so the one fix above closes both halves. The click has always paid the same, once per press, where nobody can
-    see it. Every resolve asks for the frame, even one that landed on the same object: the budget is
-    released by a PAINT, so a resolve that scheduled none would be the last one until something else
-    repainted.
+    28 MB/s if it ran per MOVE at a 125 Hz mouse. Measured, not inferred: 197 of the 225 KB is
+    `TryLookupByIndex` (120 KB the precession, 78 KB the base91 decode), so the same three fixes close
+    both halves. The click has always paid the same, once per press, where nobody can see it. Every
+    resolve asks for the frame, even one that landed on the same object: the budget is released by a
+    PAINT, so a resolve that scheduled none would be the last one until something else repainted.
   - **"Only with photo" is a SUB-SETTING of [O], not a layer** (key `I`, indented under "Objects" in
     the palette, unavailable while [O] is off): it draws nothing, it only narrows. It goes through
     **one predicate asked by three callers** -- `OverlayEngine.PassesLayerFilter`, for the desktop's
@@ -219,7 +232,7 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   - **It is in BOTH gather cache keys** (`PrimOverlayKey`, `OverlayGatherKey`), because it strips the
     CACHED candidate list: without that, switching it on keeps serving the list gathered before it
     and switching it off never brings the objects back.
-  - Pinned by `SkyMapHoverAndPictureTests` (17), including a CPU-surface render test that the wash
+  - Pinned by `SkyMapHoverAndPictureTests` (20), including a CPU-surface render test that the wash
     reaches the pixels, and four of them were seen to FAIL with each rule removed in turn.
     [docs/todo/ui.md](docs/todo/ui.md) § Sky Map.
 

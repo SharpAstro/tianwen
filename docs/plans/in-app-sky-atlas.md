@@ -709,7 +709,11 @@ locking the release scope was *"as long as we track everything we skipped in a p
   third test is for.
 - **The enhance colour cast is NOT tracked here**: it is a viewer defect with nothing to do with the
   atlas, and it is [`viewer-prerelease-fixes.md`](viewer-prerelease-fixes.md) P30, **fixed
-  2026-09-10** (`StretchMode.Auto` was being bypassed by a literal `Linked` in `MasterPreviewRenderer`).
+  2026-09-10**: `Auto` resolved to Unlinked over a background-extracted frame whose channels already
+  agreed, so three curves were fitted to the noise between them; the resolver now measures that
+  agreement (`ChannelsAlreadyAgree`) and keeps Linked. (An earlier version of this line described the
+  stacking renderer's literal-`Linked` incident from CLAUDE.md instead, which is a different bug in a
+  different renderer.)
 
 ## What bites
 

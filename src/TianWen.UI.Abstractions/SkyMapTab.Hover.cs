@@ -56,10 +56,12 @@ namespace TianWen.UI.Abstractions
         // The paths differ by 44x, which the old single number hid, and the whole of that difference
         // is WHETHER THE STAR PASS RUNS. It is not a per-star cost that varies with zoom: the nine
         // index cells are derived from the unprojected pointer and are IDENTICAL at every zoom, and
-        // hold 1094 candidates whatever the FOV. What the pass then SPENDS, ranked by
-        // SkyMapHoverResolveCostProbe, is TryLookupByIndex at ~905 ns for every one of those 1094
-        // candidates -- roughly three to four times the nine cell lookups (~320 us) that fed it, and
-        // the likely source of the 225 KB as well. The cell scan itself reads only 6x what it keeps.
+        // hold 1094 candidates whatever the FOV. What the pass then SPENDS, per
+        // SkyMapHoverResolveCostProbe (run with DOTNET_TieredCompilation=0, or it ranks by JIT
+        // order): TryLookupByIndex for every one of those 1094 candidates is 320 of the 389 us and
+        // 197 of the 225 KB -- six times the nine cell lookups (53 us) that fed it -- and over half
+        // of THAT is a constellation lookup precessing each star to B1875 through heap-allocated
+        // arrays, for a field this resolver never reads. The cell scan reads only 6x what it keeps.
         //
         // What decides whether that is paid is the DSO pass, which short-circuits the star pass on a
         // match and floors its hit test at a FIXED 20 SCREEN PIXELS. That floor's footprint in SKY

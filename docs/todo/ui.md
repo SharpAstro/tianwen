@@ -596,8 +596,11 @@ Three items from one note, root-caused against the code rather than left as a ba
     nine index cells derive from the unprojected pointer and are identical at every zoom, and what
     decides whether they are walked is the DSO pass's hit test floored at a fixed 20 SCREEN px --
     0.020 deg of sky at 1 degree FOV against 4.200 at 170. Within the pass, `TryLookupByIndex`
-    (~905 ns x 1094 candidates) outranks the nine cell lookups three to four times over and is the
-    likely 225 KB; an earlier version of this entry blamed `GetStarsInCell` for both. This entry used to credit
+    x1094 is 320 of the 389 us and 197 of the 225 KB, six times the nine cell lookups (53 us), and
+    over half of it is a constellation lookup that precesses every candidate through heap arrays to
+    fill a field the hit test never reads (probe with `DOTNET_TieredCompilation=0`; with tiering on
+    it ranks by JIT order, which is where a "905 ns" once quoted here came from). An earlier version
+    of this entry blamed `GetStarsInCell` for both halves. This entry used to credit
     `EffectiveMagnitudeLimit`, which is the minor term and runs the other way; the attribution is
     `SkyMapHoverResolveCostProbe` (`TIANWEN_HOVER_PROBE=1`). The figures first published here came
     from a Debug test run and were about 5x pessimistic as well as blended; that is what the

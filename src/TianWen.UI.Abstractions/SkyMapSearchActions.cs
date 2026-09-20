@@ -742,8 +742,10 @@ public static class SkyMapSearchActions
         // Measured by SkyMapHoverResolveBenchmarks; the click has always paid this too.
         // Hoisted because CoordinateGrid below is a PROPERTY returning `new CompositeRaDecIndex(...)`
         // on every read, so reading it inside the probe loop built one per cell. Measured at no
-        // significant change (293.5 KB against 293.9), because the per-cell cost is dominated by
-        // Tycho2RaDecIndex.GetStarsInCell -- kept anyway as strictly less work, not as a fix.
+        // significant change (293.5 KB against 293.9 at the time; 225 KB since the Tycho-2 index
+        // stopped round-tripping through a string), because one small wrapper object is nothing
+        // against the per-candidate TryLookupByIndex the star pass below pays 1094 times -- kept
+        // anyway as strictly less work, not as a fix. SkyMapHoverResolveCostProbe has the split.
         var dsoGrid = db.DeepSkyCoordinateGrid;
         foreach (var (probeRa, probeDec) in probes)
         {
