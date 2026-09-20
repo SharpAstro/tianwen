@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using TianWen.Lib.Geometry;
 using System.IO;
 using System.Linq;
@@ -856,9 +857,40 @@ public static class ViewerActions
         }
     }
 
+    /// <summary>
+    /// The actions whose STATE this method does not own, because completing them needs the document
+    /// and this method cannot see one. A press runs <see cref="HandleToolbarAction"/> and THEN the
+    /// renderer's helper, so for these the helper does the whole job and this method only owes the
+    /// frame.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Declared rather than commented, because a comment could not stop it happening
+    /// again.</b> Background neutralisation had an arm here that flipped
+    /// <c>BackgroundNeutralizationEnabled</c>, and the renderer's
+    /// <c>TryToggleBackgroundNeutralization</c> -- which is itself a complete toggle -- then read
+    /// the flipped value, took its OFF branch and set it straight back. A button press therefore
+    /// toggled twice and netted ZERO: the button did nothing at all, while the <c>N</c> key, which
+    /// calls only the helper, worked. Two paths for one action, one of them rotted.</para>
+    /// <para>Membership is the whole rule, so a future action that needs the document is one entry
+    /// here rather than a new arm plus a new comment explaining why the arm is empty.
+    /// <c>ColorCalibrate</c> is deliberately NOT a member: its helper starts a calibration and
+    /// toggles nothing, so its arm and its helper compose instead of cancelling.</para>
+    /// </remarks>
+    public static readonly ImmutableArray<ToolbarAction> RendererOwnedState =
+    [
+        ToolbarAction.BackgroundNeutralize,
+    ];
+
     public static bool HandleToolbarAction(ViewerState state, IPreviewSource? source, ToolbarAction action, bool reverse = false,
         SplitCompareController? split = null, bool hasBeforePixels = false, bool hasCrop = false)
     {
+        // The declaration above, obeyed before the switch so there is no arm to get wrong.
+        if (RendererOwnedState.Contains(action))
+        {
+            state.NeedsRedraw = true;
+            return true;
+        }
+
         switch (action)
         {
             // The same one line the L key runs. The button is the affordance, not a second path.
@@ -907,10 +939,6 @@ public static class ViewerActions
                 return true;
             case ToolbarAction.ColorCalibrate:
                 SetColorCalibrationEnabled(state, !state.ColorCalibrationEnabled);
-                state.NeedsRedraw = true;
-                return true;
-            case ToolbarAction.BackgroundNeutralize:
-                state.BackgroundNeutralizationEnabled = !state.BackgroundNeutralizationEnabled;
                 state.NeedsRedraw = true;
                 return true;
             case ToolbarAction.Shortcuts:
