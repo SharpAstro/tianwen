@@ -55,6 +55,18 @@ so compare run LENGTHS against Astro-Pics before calling a session filed, and fi
 This also means **Unsorted costs almost no disk** and a "copy" into it is a link, so the usual
 size arithmetic does not apply there.
 
+**NEVER mutate the tree while a digest walk is enumerating it, and do not trust the failure count
+to tell you if you did.** `os.walk` treats a directory that disappears between listing its parent
+and descending into it as nothing to do: no error, no stat failure, the files are simply never
+enumerated. On 2026-09-20 a digest top-up ran concurrently with a filter-folder rename and silently
+missed **820 files** (three renamed light sessions and two flat sets) while reporting only 11 stat
+failures -- and those 11 were junction paths far enough along to fail loudly, which made an 820-file
+hole look like a cosmetic 11-file one. The store then read as complete, and the next gap survey
+reported 78 freshly filed lights as UNFILED. A spot check is not enough either: the sessions that
+were NOT renamed verified perfectly, which is exactly what made the store look fine. Finish every
+rename and move first, then run the store, then survey; and verify by COUNT against the tree
+(`paths` before and after should differ by exactly what you filed), never by sampling.
+
 **Track inodes while planning a copy and skip repeats** (`organizeC.py` / `organizeD.py` record a
 `dedup-skip` row rather than copying the same file twice under two names). A session reached through
 two paths is normal here, not a sign of a mistake.
