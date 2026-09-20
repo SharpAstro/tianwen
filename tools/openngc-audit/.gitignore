@@ -1,3 +1,5 @@
 # The audit writes its report and CSVs beside the script; the report is read, not committed.
 openngc-audit*.md
 openngc-audit-*.csv
+# The Stellarium names.dat cache the corroboration pass downloads once per run.
+stellarium-names.dat

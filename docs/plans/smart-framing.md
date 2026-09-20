@@ -63,8 +63,23 @@ deleted. A name cannot be reviewed by reading it: "Flame Nebula" sat on IC 434 f
 from NGC 2024, until a viewer label over the Horsehead read wrong (2026-09-18). **`tools/openngc-audit`
 is the review**: it resolves every OpenNGC name and identifier through SIMBAD by POSITION and sorts the
 misses into MISPLACED (a different object beyond the row's extent), SUSPECT (inside it, where IC 434
-hid) and CENTRE (the same designation, not an error). Run it after every `Copy-OpenNGC.ps1`, and send
-what it finds upstream with the SIMBAD link as the evidence.
+hid) and CENTRE (the same designation, not an error). Run it after every `Copy-OpenNGC.ps1`.
+
+**SIMBAD ALONE IS NOT EVIDENCE, and the first upstream PR proved it: 10 of 18 findings rejected**
+(mattiaverga/OpenNGC#53), nearly all on "SIMBAD is wrong, NED and LEDA agree with each other". A
+single source cannot tell a catalogue ERROR from a disagreement BETWEEN catalogues. Every miss now
+gets a second opinion -- NED, HyperLeda for a PGC/LEDA number, Stellarium's `names.dat` for a common
+name -- and lands in CONFIRMED / DISPUTED / SIMBAD-ONLY. **It is triage, not a filter**, measured:
+requiring a second source to agree would have suppressed 10 of the 12 rejected rows AND 5 of the 8
+ACCEPTED ones, because NED and HyperLeda are compilations carrying the same stale cross-ids. Only
+the SOURCE catalogue settles a disputed row (MCG at HEASARC, the IRAS PSC/FSC), and that is a human
+step. Send the CONFIRMED list upstream with both the SIMBAD link and the second opinion.
+
+**An upstream DECLINE is a permanent line in `OpenNgcCorrections`, and it has to say so.** The Flame
+Nebula is the case: OpenNGC keeps it on IC 434 on a taxonomy argument (NGC 2024 the cluster inside
+Orion B, IC 434 the HII region) and we override it, because Stellarium's curated list puts the name
+on NGC 2024 under nine source keys with SIMBAD not among them, and because the defect that started
+this audit was the viewer drawing "Flame Nebula" over the Horsehead.
 
 ## Deferred
 
