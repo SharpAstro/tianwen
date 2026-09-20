@@ -41,19 +41,6 @@ namespace TianWen.UI.Abstractions
             return (btnX, btnY, btnW, btnH);
         }
 
-        /// <summary>
-        /// Returns true if the given screen position hits the histogram LOG button.
-        /// </summary>
-        public bool HitTestHistogramLog(float screenX, float screenY, ViewerState state)
-        {
-            if (!state.ShowHistogram || GetHistogramDisplay() is not { ChannelCount: > 0 })
-            {
-                return false;
-            }
-            var (bx, by, bw, bh) = GetHistogramLogButtonRect(state);
-            return screenX >= bx && screenX < bx + bw && screenY >= by && screenY < by + bh;
-        }
-
         private void RenderHistogram(IPreviewSource source, ViewerState state)
         {
             // Taken here, the first time the overlay is drawn after an upload, rather than at the upload:
@@ -82,28 +69,37 @@ namespace TianWen.UI.Abstractions
             RenderHistogramQuad(stretch, histogramDisplay, state,
                 histLeft, histTop, histLeft + histW, histTop + histH, Width, Height);
 
-            // Draw LOG button in upper-right corner of histogram
+            // The LOG button is a DECLARED node, not four hand-laid rects. The engine measures it,
+            // paints it, resolves its hover and binds its click from the one arranged rect, so the
+            // draw and the hit test cannot disagree -- which is the whole reason the chrome is moving
+            // to trees (docs/plans/viewer-layout-engine.md).
+            //
+            // The hover CONDITION is still the viewer's own prediction, and has to be: hover is
+            // resolved at PAINT time, this surface paints before the popovers, and an open popover
+            // claims the pointer only when IT paints. The host cannot declare the claim itself --
+            // the claim is per WINDOW, and in the GUI this viewer is one widget among several (see
+            // the note at the top of Render). So the prediction is consulted ONCE here, on the node,
+            // instead of being folded into a hand-computed hover boolean; .Bg always sets a value,
+            // which is why the hover colour is applied conditionally rather than passed as default.
             if (!string.IsNullOrEmpty(FontPath))
             {
                 var (bx, by, bw, bh) = GetHistogramLogButtonRect(state);
-                var mouseX = state.MouseScreenPosition.X;
-                var mouseY = state.MouseScreenPosition.Y;
-                var hovered = !state.OverlayOwnsPointer && mouseX >= bx && mouseX < bx + bw && mouseY >= by && mouseY < by + bh;
+                var fill = state.HistogramLogScale ? HistogramLogOnBg : HistogramLogOffBg;
+                var hoverFill = state.HistogramLogScale ? HistogramLogOnHoverBg : HistogramLogOffHoverBg;
 
-                if (state.HistogramLogScale)
+                var button = Layout.Builder
+                    .Text("LOG", ToolbarFontSize, ViewerTheme.Palette.BodyText, hAlign: TextAlign.Center)
+                    .Bg(fill)
+                    .Clickable(new HitResult.ButtonHit("HistogramLog"),
+                        _ => { state.HistogramLogScale = !state.HistogramLogScale; },
+                        CursorKind.Pointer);
+
+                if (!state.OverlayOwnsPointer)
                 {
-                    FillRect(bx, by, bw, bh, hovered ? HistogramLogOnHoverBg : HistogramLogOnBg);
-                }
-                else
-                {
-                    FillRect(bx, by, bw, bh, hovered ? HistogramLogOffHoverBg : HistogramLogOffBg);
+                    button = button.BgHover(hoverFill);
                 }
 
-                var textY = by + (bh - ToolbarFontSize) / 2f;
-                DrawText("LOG", bx + ButtonPaddingH / 2f, textY, ToolbarFontSize, ViewerTheme.Palette.BodyText);
-
-                RegisterClickable(bx, by, bw, bh, new HitResult.ButtonHit("HistogramLog"),
-                    _ => { state.HistogramLogScale = !state.HistogramLogScale; });
+                RenderLayout(button, new RectF32(bx, by, bw, bh));
             }
         }
 
