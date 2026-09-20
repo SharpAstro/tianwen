@@ -486,6 +486,24 @@ namespace TianWen.UI.Abstractions
                         ViewerActions.CycleChannelView(state, channelSource.ChannelCount);
                     }
                     return true;
+                case InputKey.D:
+                    // Through the BUTTON's predicate, not a second copy of it. The button has always
+                    // been disabled for a frame with no CFA; the key was not, so on a mono frame D
+                    // cycled a demosaic that has nothing to act on, and the status line changing said
+                    // the picture had changed when it had not.
+                    //
+                    // NOT routed through ViewerShortcuts: Debayer has a DROPDOWN, and the host's press
+                    // policy opens it on a left press, so a routed key would open the menu where this
+                    // key has always cycled. ViewerShortcutRoute.Press is for actions with no menu.
+                    if (IsToolbarButtonEnabled(ToolbarAction.Debayer, _document))
+                    {
+                        ViewerActions.CycleDebayerAlgorithm(state);
+                    }
+                    return true;
+                case InputKey.N:
+                    // Not routed, for the reason D is not: BackgroundNeutralize has a dropdown.
+                    TryToggleBackgroundNeutralization(state);
+                    return true;
                 case InputKey.I:
                     state.ShowInfoPanel = !state.ShowInfoPanel;
                     return true;

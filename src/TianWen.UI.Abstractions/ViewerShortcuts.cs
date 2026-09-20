@@ -117,11 +117,15 @@ public static class ViewerShortcuts
         // reachable by guessing. N stays beside it because the two are the colour pair.
         new("W", "White balance: sliders, photometric calibration, reset",
             InputKey.W, Button: ToolbarAction.WhiteBalance, Route: ViewerShortcutRoute.OpenMenu),
+        // Button named but NOT routed: a left press on this one opens its DROPDOWN in the host
+        // (StandaloneViewerHost's policy tries OpenToolbarDropdown first), so routing the key as a
+        // press would open a menu where the key has always toggled. See ViewerShortcutRoute.Press.
         new("N", "Neutralise the background", InputKey.N,
-            Button: ToolbarAction.BackgroundNeutralize, Route: ViewerShortcutRoute.Press),
+            Button: ToolbarAction.BackgroundNeutralize),
         new("C", "Cycle the channel view", InputKey.C),
-        new("D", "Cycle the demosaic algorithm", InputKey.D,
-            Button: ToolbarAction.Debayer, Route: ViewerShortcutRoute.Press),
+        // Same as N: Debayer has a dropdown, so the key keeps its arm (which still asks the
+        // button's enabled predicate, the one duplication this row cannot yet remove).
+        new("D", "Cycle the demosaic algorithm", InputKey.D, Button: ToolbarAction.Debayer),
 
         // ── Work on the frame ──────────────────────────────────────────────────────────────────
         new("P", "Plate solve this frame", InputKey.P),
@@ -152,6 +156,34 @@ public static class ViewerShortcuts
         // Esc does BOTH, in that order, which is worth one row rather than two: a reader who has
         // just selected something needs to know the key is not going to close the viewer.
         new("Esc", "Clear the selection, else quit", InputKey.Escape),
+    ];
+
+    /// <summary>
+    /// The toolbar actions whose button opens a DROPDOWN on a left press.
+    /// </summary>
+    /// <remarks>
+    /// <para>Declared because it decides whether a key may be routed as a
+    /// <see cref="ViewerShortcutRoute.Press"/>, and getting that wrong is silent. The host's press
+    /// policy (<c>StandaloneViewerHost</c>) tries <c>OpenToolbarDropdown</c> first on a left press,
+    /// so routing a key at one of these would open a MENU where the key has always done the thing --
+    /// D would offer a demosaic list instead of cycling, N a neutralisation list instead of
+    /// toggling. Both were routed that way for one commit and the tests did not see it, because
+    /// they exercise the EMBEDDED default policy, which special-cases only the two popovers.</para>
+    /// <para>So these keep their arms and take <see cref="ViewerShortcutRoute.OpenMenu"/> only when
+    /// opening the menu IS what the key means (Z, W, F1, Ctrl+Shift+S).</para>
+    /// </remarks>
+    public static readonly ImmutableArray<ToolbarAction> ActionsWithADropdown =
+    [
+        ToolbarAction.WhiteBalance,
+        ToolbarAction.Zoom,
+        ToolbarAction.Save,
+        ToolbarAction.Shortcuts,
+        ToolbarAction.StretchLink,
+        ToolbarAction.Channel,
+        ToolbarAction.Debayer,
+        ToolbarAction.StretchParams,
+        ToolbarAction.Tone,
+        ToolbarAction.BackgroundNeutralize,
     ];
 
     /// <summary>

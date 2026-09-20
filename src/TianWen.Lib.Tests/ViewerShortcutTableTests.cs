@@ -131,8 +131,6 @@ public class ViewerShortcutTableTests
 
     [Theory]
     [InlineData(InputKey.T, ToolbarAction.StretchToggle, ViewerShortcutRoute.Press)]
-    [InlineData(InputKey.N, ToolbarAction.BackgroundNeutralize, ViewerShortcutRoute.Press)]
-    [InlineData(InputKey.D, ToolbarAction.Debayer, ViewerShortcutRoute.Press)]
     [InlineData(InputKey.Z, ToolbarAction.Zoom, ViewerShortcutRoute.OpenMenu)]
     [InlineData(InputKey.W, ToolbarAction.WhiteBalance, ViewerShortcutRoute.OpenMenu)]
     [InlineData(InputKey.F1, ToolbarAction.Shortcuts, ViewerShortcutRoute.OpenMenu)]
@@ -148,6 +146,9 @@ public class ViewerShortcutTableTests
     // still implements it.
     [Theory]
     [InlineData(InputKey.G)]
+    // D and N name a button but keep their arms, because that button opens a dropdown.
+    [InlineData(InputKey.D)]
+    [InlineData(InputKey.N)]
     [InlineData(InputKey.P)]
     [InlineData(InputKey.E)]
     [InlineData(InputKey.F)]
@@ -155,4 +156,35 @@ public class ViewerShortcutTableTests
     [InlineData(InputKey.Escape)]
     public void AnUnroutedKeyIsLeftToItsArm(InputKey key)
         => ViewerShortcuts.TryResolveRoute(key, InputModifier.None).ShouldBeNull();
+
+    // The trap that shipped for one commit: Debayer and BackgroundNeutralize have dropdowns, the
+    // host's press policy opens a dropdown on a LEFT press, so routing their keys as a Press opened
+    // a menu where the key had always acted. The embedded policy the other tests use does not, which
+    // is exactly why nothing caught it. This makes the combination undeclarable.
+    [Fact]
+    public void NoKeyIsRoutedAsAPressToAButtonThatOpensAMenu()
+    {
+        foreach (var s in ViewerShortcuts.All)
+        {
+            if (s.Route is ViewerShortcutRoute.Press && s.Button is { } button)
+            {
+                ViewerShortcuts.ActionsWithADropdown.ShouldNotContain(button,
+                    $"'{s.Chord}' would open {button}'s menu instead of doing its action");
+            }
+        }
+    }
+
+    // And the other half: a row that opens a menu must name a button that HAS one.
+    [Fact]
+    public void EveryOpenMenuRowNamesAButtonThatHasAMenu()
+    {
+        foreach (var s in ViewerShortcuts.All)
+        {
+            if (s.Route is ViewerShortcutRoute.OpenMenu && s.Button is { } button)
+            {
+                ViewerShortcuts.ActionsWithADropdown.ShouldContain(button,
+                    $"'{s.Chord}' opens a menu that {button} does not have");
+            }
+        }
+    }
 }
