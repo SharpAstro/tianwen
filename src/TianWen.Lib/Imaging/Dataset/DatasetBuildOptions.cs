@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using TianWen.Lib.Imaging.Stacking;
 
 namespace TianWen.Lib.Imaging.Dataset;
 
@@ -67,7 +68,7 @@ public sealed record DatasetBuildOptions
     /// quality gate (<see cref="SessionFrameAnalyzer.ApplyGate"/>); the stacker's
     /// <c>--quality-reject-sigma</c> semantics. 0 disables the relative gate
     /// (zero-star frames are still rejected). Default 3.</summary>
-    public float QualityRejectSigma { get; init; } = 3f;
+    public float QualityRejectSigma { get; init; } = FrameQualityFilter.DefaultSigma;
 
     /// <summary>
     /// Sigma above the master dark's own background at which a pixel is masked out of drizzle
@@ -99,10 +100,11 @@ public sealed record DatasetBuildOptions
     public WarpInterpolation WarpInterpolation { get; init; } = WarpInterpolation.Lanczos3Clamped;
 
     /// <summary>Keep-floor for the quality gate: the maximum fraction of a session's frames the
-    /// gate may reject before the severity-ranked floor engages. Higher than the stacker's 0.20
-    /// because dataset building favours purity over yield (there are 20k+ subs to draw from, so
-    /// dropping a few good frames to keep clouded ones out is the right trade). Default 0.5.</summary>
-    public float QualityMaxRejectFraction { get; init; } = 0.5f;
+    /// gate may reject before the severity-ranked floor engages. Dataset building favours purity over
+    /// yield (there are 20k+ subs to draw from, so dropping a few good frames to keep clouded ones
+    /// out is the right trade), and that judgement is now the SHARED default rather than an
+    /// override: <see cref="FrameQualityFilter.DefaultMaxRejectFraction"/>.</summary>
+    public float QualityMaxRejectFraction { get; init; } = FrameQualityFilter.DefaultMaxRejectFraction;
 
     /// <summary>Tile edge length in pixels. Must match the inference tiling contract
     /// (<c>ChunkedInference</c> default 256).</summary>

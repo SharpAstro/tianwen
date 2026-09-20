@@ -78,16 +78,16 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// per-cell averaging). Default 8 is conservative; hot pixels typically
 /// score 100+ sigma. The dark fallback is further ignored when no dark
 /// master is matched to the light group.</param>
-/// <param name="QualityRejectSigma">When set, runs the post-registration
-/// frame quality filter at this sigma threshold: a frame is dropped from
-/// integration if its median HFD or ellipticity exceeds
-/// <c>median + sigma · 1.4826 · MAD</c> of the session's matched-frame
-/// distribution. An 80% keep floor caps rejection at the worst 20% by
-/// severity when the MAD threshold would over-cut. Null disables the
-/// filter (default; preserves the pre-this-feature behaviour). 3.0 is the
-/// recommended starting value -- conservative, catches clear outliers
-/// (low-altitude bloated frames, wind-trailed frames) without biting
-/// into the body of the distribution. See <see cref="FrameQualityFilter"/>.</param>
+/// <param name="QualityRejectSigma">Sigma for the post-registration frame quality filter: a frame
+/// is dropped from integration if its median HFD or ellipticity exceeds
+/// <c>median + sigma · 1.4826 · MAD</c> of the session's matched-frame distribution, or if its
+/// star count falls the same distance below. A keep floor caps how much one pass may reject; see
+/// <see cref="FrameQualityFilter.DefaultMaxRejectFraction"/>. 0 or null runs no relative gate, but
+/// a frame with NO stars is still rejected either way, being invalid rather than an outlier.
+/// <para>Defaults to <see cref="FrameQualityFilter.DefaultSigma"/>, the SAME value the dataset
+/// bake uses. It used to default to null here and 3 there, so one session stacked the two ways
+/// gave two different masters with nothing saying which rule built it.</para>
+/// See <see cref="FrameQualityFilter"/>.</param>
 /// <param name="RejectLowSigma">Overrides the PIXEL rejector's low
 /// (dark-outlier) threshold. Null keeps the per-kind default of 3.
 /// Distinct from <paramref name="QualityRejectSigma"/>, which drops whole
@@ -188,7 +188,7 @@ public sealed record StackingOptions(
     bool SplitByPierSide = false,
     bool RequireGainMatch = true,
     float HotPixelSigma = 8.0f,
-    float? QualityRejectSigma = null,
+    float? QualityRejectSigma = FrameQualityFilter.DefaultSigma,
     float? RejectLowSigma = null,
     float? RejectHighSigma = null,
     StarRemovalMode StarRemovalMode = StarRemovalMode.Mosaic,
