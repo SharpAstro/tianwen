@@ -7,17 +7,28 @@ bad, the opposite one.
 
 Dataset bake passes sigma 3 and a 0.5 reject cap; `tianwen stack` leaves QualityRejectSigma null,
 so the gate does not run there at all.
+
+The count is a PROXY: photosites above the frame's median plus eight sigma, on one colour of the
+mosaic, the same crude number band_stars.py uses. It is not the registration detector's star list,
+so the medians and MADs printed here are not the ones the real gate would compute; what carries over
+is which SIDE of the session median a defect puts its frames on, and a proxy that moves with the
+star count puts them on the same side.
+
+Usage: python would_the_gate_fire.py "<folder of lights>" ["<folder>" ...] [--sigma 3] [--cap 0.5]
 """
-import glob, os, warnings
+import argparse
+import glob
+import os
+import warnings
+
 import numpy as np
+
 warnings.filterwarnings("ignore")
-from astropy.io import fits
-
-SIGMA, CAP = 3.0, 0.5
+from astropy.io import fits  # noqa: E402
 
 
-def star_counts(folder, limit=None):
-    fs = sorted(glob.glob(os.path.join(folder, "**", "*.fits"), recursive=True))[:limit]
+def star_counts(folder):
+    fs = sorted(glob.glob(os.path.join(folder, "**", "*.fits"), recursive=True))
     out = []
     for f in fs:
         with fits.open(f, memmap=False) as h:
@@ -28,31 +39,42 @@ def star_counts(folder, limit=None):
     return np.array(out), [os.path.basename(f) for f in fs]
 
 
-def gate(counts, label):
+def gate(counts, names, sigma, cap):
     n = len(counts)
     med = float(np.sort(counts)[n // 2])
     mad = float(np.sort(np.abs(counts - med))[n // 2])
-    thr = med - SIGMA * 1.4826 * mad
+    thr = med - sigma * 1.4826 * mad
     flagged = counts < thr
-    print(f"\n{label}")
-    print(f"  n={n}  session median star count {med:.0f}  MAD {mad:.0f}  threshold {thr:.0f}")
+    print(f"  n={n}  session median proxy count {med:.0f}  MAD {mad:.0f}  threshold {thr:.0f}")
     print(f"  frames below threshold: {int(flagged.sum())} of {n}"
-          + (f"  (cap {CAP:.0%} would allow {int(CAP*n)})" if flagged.sum() else ""))
-    lo = np.argsort(counts)[:6]
-    print("  lowest counts: " + ", ".join(f"{int(counts[i])}" for i in lo))
+          + (f"  (cap {cap:.0%} would allow {int(cap * n)})" if flagged.sum() else ""))
+    order = np.argsort(counts)
+    print("  lowest counts: " + ", ".join(f"{names[i]} {int(counts[i])}" for i in order[:6]))
+    print("  highest counts: " + ", ".join(f"{names[i]} {int(counts[i])}" for i in order[-3:]))
+    if flagged.any():
+        print("  flagged: " + ", ".join(names[i] for i in np.nonzero(flagged)[0][:12])
+              + (" ..." if flagged.sum() > 12 else ""))
+    if thr < 0:
+        print("  the threshold is NEGATIVE: the session's median IS the defective state, so no frame "
+              "can fall below it and the clear frames are the outliers, on the side nothing tests")
     return flagged
 
 
-c, _ = star_counts("D:/Astro-Pics/2026/2026-02-20 BAD LIGHT EXAMPLES")
-f1 = gate(c, "CLOUD-OUT: 2026-02-20 BAD LIGHT EXAMPLES (24 of 33 clouded, stars 0.07 of the clear frames)")
-print(f"  the two clear frames are {int(c[0])} and {int(c[1])}, ABOVE the median, so the gate sees")
-print("  the clouded state as normal and the clear frames as the outliers.")
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("folders", nargs="+", help="folders of lights, each a session")
+    p.add_argument("--sigma", type=float, default=3.0, help="the bake's QualityRejectSigma (default 3)")
+    p.add_argument("--cap", type=float, default=0.5, help="the bake's QualityMaxRejectFraction (default 0.5)")
+    a = p.parse_args()
+    for folder in a.folders:
+        counts, names = star_counts(folder)
+        print(f"\n{folder}")
+        if len(counts) == 0:
+            print("  no FITS found")
+            continue
+        gate(counts, names, a.sigma, a.cap)
+    return 0
 
-c2, names = star_counts("E:/Astro/SharpCap Captures/Helix Nebula RGB 120s -4deg 121g 11o/Light")
-f2 = gate(c2, "POWERLINE: Helix 2022-08-31 (6 of 46 obstructed)")
-print("  the six obstructed frames are 1 to 6: " + ", ".join(f"{int(x)}" for x in c2[:6]))
-print(f"  of those, flagged by the gate: {int(f2[:6].sum())}")
 
-c3, _ = star_counts("D:/Astro-Organized/lights/SVBONY-SV605CC/Optolong-L-Ultimate-3nm/Helix-Nebula/2026-08-01")
-gate(c3, "ROOF: Helix 2026-08-01 (21 of 21 obstructed)")
-print("  every frame carries the roof, so there is no in-session contrast for a relative test.")
+if __name__ == "__main__":
+    raise SystemExit(main())

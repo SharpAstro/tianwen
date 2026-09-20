@@ -1,6 +1,7 @@
 # Plan: detect an obstruction from the frames themselves, in stacking
 
-Status: **RESEARCHED, MEASURED ON ONE REAL OBSTRUCTION, NOT STARTED.** Backlog `#48` (issue #307).
+Status: **RESEARCHED, MEASURED ON TWO REAL OBSTRUCTIONS AND A CLOUD-OUT, NOT STARTED.** Backlog
+`#48` (issue #307).
 The gap and the design below are established against the code. The thresholds were deliberately
 unset, because the machine that did the research has no archive attached (`D:` lives on the
 desktop); the desktop has since measured the first of them against a session with a KNOWN
@@ -77,6 +78,12 @@ other outright.
 
 So a threshold on EITHER number must sit at the attenuating depths, and the AND is what keeps that
 low bar from firing on noise.
+
+**SUPERSEDED, two sections down.** The `BAD_` corpus refutes the AND on its commonest case: the roof
+frames sit 7 percent down on background while holding 0.89 to 0.96 of the clear-cell star count, so
+a rule requiring both is silent on the obstruction the owner names first. Background deficit with
+spatial structure is the primary signal; the star count corroborates where it happens to move and
+gates nothing. The two paragraphs above are kept as the design the measurement was made against.
 
 **Bounded by construction, and that is the point**: the comparison is within ONE frame, so
 transparency, moon, gradient and exposure all cancel. A frame-wide drop moves every cell and is
@@ -238,6 +245,11 @@ Four things follow, and each one changes something above.
   wants the frame's own sky level and star count against the SESSION's run, a per-frame
   session-relative statistic, beside a full-well check. Two statistics, two reference frames, and
   conflating them is how one of them ends up unable to fire.
+- **`BAD_` is a reliable POSITIVE and nothing else.** It does not say why (the corpus holds dawn and
+  saturation under the same prefix as roof), and absence of it does not mean clean: the 2022
+  powerline frames carry no prefix at all, because the capture software of the day had no grading
+  and nobody renamed them. So **the unlabelled frames are NOT the clean control**, and the detector's
+  actual job is the ones nobody marked.
 
 ### The cloud control, and why the cell test could not see it
 
@@ -276,7 +288,12 @@ between samples. Downsample a frame by block MAXIMUM when the question involves 
 `FrameQualityFilter` is session-relative: it rejects a frame whose star count falls below
 `median - sigma * 1.4826 * MAD`, capped by a keep floor. **`tianwen stack` leaves
 `StackingOptions.QualityRejectSigma` null, so the gate does not run there at all**; the dataset bake
-sets sigma 3 with a 0.5 reject cap. Fed the measured per-frame star counts of the three sessions:
+sets sigma 3 with a 0.5 reject cap. Fed the per-frame counts `would_the_gate_fire.py` measures for
+the three sessions. **Those counts are a PROXY**, the number of photosites above the frame's median
+plus eight sigma on one colour of the mosaic, not the registration detector's star list, so the
+medians and MADs below are not the numbers the real gate would see. The conclusion does not turn on
+them: it is about which side of the session median a defect lands on, and a proxy that moves with
+the star count lands it on the same side.
 
 | session | median | MAD | threshold | flagged |
 |---|---|---|---|---|
@@ -291,7 +308,7 @@ with: a partial obstruction is not necessarily kept, and this one is not. It sur
 **The other two are invisible for the same structural reason: a session-relative outlier test cannot
 see a defect that affects the MAJORITY of the session**, because the majority defines the median.
 The cloud-out's median star count IS the clouded state, its threshold comes out NEGATIVE, and the
-three frames holding literally zero detected stars pass the gate; the two clear frames are the
+three frames whose proxy count is literally zero pass the gate; the two clear frames are the
 outliers, on the side nothing tests. The roof's 21 frames all carry it equally, so there is no
 in-session contrast at all.
 
@@ -303,7 +320,7 @@ standing between those frames and the integration today.
 ### Before any of that: the two paths already disagree, and nothing says so
 
 Fix this first, because it is a live divergence rather than a missing feature. **`tianwen stack` and
-the dataset bake answer "is this frame fit to integrate" differently in four ways**, and the same
+the dataset bake answer "is this frame fit to integrate" differently in three ways**, and the same
 session stacked both ways produces two different masters with nothing in either output saying which
 rule built it:
 
@@ -328,15 +345,10 @@ So the frame-admission rule wants ONE definition that both paths read, with the 
 it, and a per-path override only where a real difference is intended and stated (the bake genuinely
 prefers purity over yield, which is what its 0.5 cap says). Doing that first also gives this plan's
 detector one place to land instead of two.
-- **`BAD_` is a reliable POSITIVE and nothing else.** It does not say why (the corpus holds dawn and
-  saturation under the same prefix as roof), and absence of it does not mean clean: the 2022
-  powerline frames carry no prefix at all, because the capture software of the day had no grading
-  and nobody renamed them. So **the unlabelled frames are NOT the clean control**, and the detector's
-  actual job is the ones nobody marked.
 
-The three scripts that took these numbers are
+The five scripts that took these numbers are
 [`tools/obstruction-cell-stats/`](../../tools/obstruction-cell-stats/), in the pattern
-`tools/coverage-edge-walk/` sets: point them at any folder of subs and they re-derive the table
+`tools/coverage-edge-walk/` sets: point them at any folder of subs and they re-derive the tables
 above, which is what makes the cloud control a command rather than a rewrite.
 
 **One method trap, found the hard way.** The first star-count pass thresholded each cell against its
