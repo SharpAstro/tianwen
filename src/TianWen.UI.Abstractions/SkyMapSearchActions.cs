@@ -729,12 +729,26 @@ public static class SkyMapSearchActions
         // The radius that CLAIMED the winner, carried out with it so the hover wash can be drawn at
         // the size of the region that actually resolves to this object rather than at a constant.
         var bestRadiusPx = (float)ClickToleranceScreenPx;
-        var seenDso = new HashSet<CatalogIndex>();
+
+        // NO dedupe set, and that is a measured removal rather than an oversight. Two facts make one
+        // unnecessary. An object is filed in exactly ONE cell (RaDecIndex.Add writes a single
+        // raIdx/decIdx), and the probe step below is the cell size (1 degree in Dec, 1/15 h in RA),
+        // so the nine probes are nine DISTINCT cells except where the pole clamp or the RA wrap
+        // collapses two onto one. And on that collapse, re-testing an object is IDEMPOTENT: the
+        // distance is the same, so `distSq < best` is false the second time and nothing moves.
+        //
+        // The set it replaces cost 360 KB per resolve on a dense field at a deep zoom -- about 22
+        // MB/s at 60 fps -- to deduplicate a handful of objects in the rare collapsed-cell case.
+        // Measured by SkyMapHoverResolveBenchmarks; the click has always paid this too.
+        // Hoisted because CoordinateGrid below is a PROPERTY returning `new CompositeRaDecIndex(...)`
+        // on every read, so reading it inside the probe loop built one per cell. Measured at no
+        // significant change (293.5 KB against 293.9), because the per-cell cost is dominated by
+        // Tycho2RaDecIndex.GetStarsInCell -- kept anyway as strictly less work, not as a fix.
+        var dsoGrid = db.DeepSkyCoordinateGrid;
         foreach (var (probeRa, probeDec) in probes)
         {
-            foreach (var idx in db.DeepSkyCoordinateGrid[probeRa, probeDec])
+            foreach (var idx in dsoGrid[probeRa, probeDec])
             {
-                if (!seenDso.Add(idx)) continue;
                 if (!db.TryLookupByIndex(idx, out var o)) continue;
                 if (double.IsNaN(o.RA) || double.IsNaN(o.Dec)) continue;
 
@@ -801,12 +815,14 @@ public static class SkyMapSearchActions
             var magLimit = skyMap.EffectiveMagnitudeLimit;
             var fovDeg = skyMap.FieldOfViewDeg;
             bestDistSq = double.MaxValue;
-            var seenStar = new HashSet<CatalogIndex>();
+            // No dedupe set here either, for the reason given at the DSO pass above -- and this is
+            // the one that cost: the composite grid is where Tycho-2 lives, so this set was the 360 KB.
+            // One composite index for the whole pass, not one per probe: the property allocates.
+            var starGrid = db.CoordinateGrid;
             foreach (var (probeRa, probeDec) in probes)
             {
-                foreach (var idx in db.CoordinateGrid[probeRa, probeDec])
+                foreach (var idx in starGrid[probeRa, probeDec])
                 {
-                    if (!seenStar.Add(idx)) continue;
                     if (!db.TryLookupByIndex(idx, out var o)) continue;
                     if (double.IsNaN(o.RA) || double.IsNaN(o.Dec)) continue;
                     // Stars follow the visible magnitude cutoff (same rule the GPU uses; NaN
