@@ -1338,6 +1338,19 @@ namespace TianWen.UI.Abstractions
 
         public override bool HandleInput(InputEvent evt)
         {
+            // Any PRESS retires the hover wash, and one line covers three cases that have no signal
+            // of their own. A DIR.Lib DragCapture begins with a press and then takes every move
+            // straight to itself, so the tab would stop being told where the pointer is and the wash
+            // would sit on whatever it last resolved; a tab switch IS a press, on the tab button; and
+            // a press on the sky is the user acting rather than asking what a click would take, which
+            // is the only question the wash answers. (Leaving the map needs nothing: the resolver
+            // already returns null outside the content rect. Leaving the WINDOW is undetectable --
+            // InputEvent has no leave event at all.)
+            if (evt is InputEvent.MouseDown)
+            {
+                ClearHoverTarget();
+            }
+
             // A driven view is not this map's to move, so every gesture that would move it is left
             // UNHANDLED for the host that owns it -- the viewer pans and zooms the photograph, and the
             // sky follows from where that lands. What still belongs here is the palette's own pointer
