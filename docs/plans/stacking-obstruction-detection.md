@@ -5,8 +5,8 @@ The gap and the design below are established against the code. The thresholds we
 unset, because the machine that did the research has no archive attached (`D:` lives on the
 desktop); the desktop has since measured the first of them against a session with a KNOWN
 obstruction, and the numbers are in "What one real obstruction measures" below. They changed the
-remedy, so read that section before the design. The cloud control is still outstanding, and until
-it is taken the sign rule is corroborated on one side only.
+remedy, so read that section before the design. The cloud control has since been taken too, on a
+session the owner had kept as a bad-light reference, so all four regimes below are measured.
 
 Sibling of, and deliberately separate from,
 [`fov-obstruction-detection.md`](fov-obstruction-detection.md) and
@@ -366,26 +366,28 @@ Steps 1 to 3 are DONE for the obstruction side, on the Helix powerline session a
 2. ~~**Confirm by eye, at 1:1.**~~ Confirmed by profile instead, which answers the same question
    with a number: straight, +9.8 degrees, bounded, no edge. The 1:1 look is still worth taking
    before fitting an edge model to a TREE, whose boundary is the one this cannot stand in for.
-3. ~~**Measure the cell statistics across the transition.**~~ Done for the obstruction; see above.
-   **The CLOUD CONTROL IS STILL OUTSTANDING and is the half that can still refute the design**, and
-   the search for one is worth recording, because it says where NOT to look next.
+3. ~~**Measure the cell statistics across the transition, and against a cloud control.**~~ Done for
+   both; see "The cloud control" above. The search for the control is worth keeping, because it
+   says where NOT to look and it cost two wrong turns.
 
-   A screen over the filed sessions found three whose sky level is not smooth (mean absolute
+   A screen over the FILED sessions found three whose sky level is not smooth (mean absolute
    residual about a 9-frame running median, in units of the data's own quantisation step: HIP-80609
    2026-04-21 at 9.8, Tarantula 2025-10-18 at 8.6, eta Car 2025-01-14 at 7.2, against 0.01 to 0.14
-   for three clear controls, a fifty-fold separation). **The roughest of them is not cloud.** Its
-   residuals are 1.2 to 1.8 percent of the level, and its rough frames carry LESS cell structure
-   than its own smooth ones (4.5 cells below 0.95 against 10.4, 1.9 above 1.05 against 3.5), so
-   there is nothing spatial to measure a sign on.
+   for three clear controls, a fifty-fold separation). **None of them is cloud.** The roughest has
+   residuals of 1.2 to 1.8 percent of level and its rough frames carry LESS cell structure than its
+   own smooth ones, so there is nothing spatial there to measure a sign on.
 
-   That is probably not a gap in the screen. **A filed session is a SURVIVOR**: the operator grades
-   a clouded frame out with a `BAD_` prefix and does not file a clouded night at all, so the filed
-   tree is close to the worst place to look for one. Look instead in the unfiled `Astro-Pics`
-   captures, or shoot one deliberately. Whichever it is, the control must still show:
+   **A filed session is a SURVIVOR**, which is why: the operator grades a clouded frame out with a
+   `BAD_` prefix and does not file a clouded night at all, so the filed tree is the worst place to
+   look. The control was in the unfiled `Astro-Pics` captures the whole time, in the folder kept
+   deliberately as bad-light examples.
+
+   What it must still be checked against is a SECOND cloud session, because one is an example and
+   not a distribution:
    - that the cloud cells are BRIGHTER, which is the whole discriminator;
    - that they are frame-wide and soft-edged where the obstruction is bounded and straight;
-   - and that the depths do not overlap. **If they do, the sign rule is wrong and the design above
-     needs revisiting before any of it is built.**
+   - and that the star collapse separates from an obstruction's by more than the 0.07 against 0.5
+     to 0.96 measured here. **If it does not, the design above needs revisiting before it is built.**
 
    Two traps the screen itself hit, both the same shape, both worth avoiding next time. A roughness
    statistic on a quantised level series **measures its own floor**: the first pass scored six of ten
