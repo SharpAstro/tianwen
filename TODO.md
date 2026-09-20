@@ -160,15 +160,25 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     release. Drawn FIRST of the annotation layers, which is what makes a pointer resting over the
     search modal or the layer palette harmless without any of them claiming the pointer: the sky
     behind resolves, and the wash is painted under the panel covering it.
-  - **At most one resolve per painted frame, and that bound was measured rather than assumed.**
-    Against the real catalogue at a Sagittarius pointing, 400 resolves per sample: **2.048 ms at 1
-    degree FOV, 0.889 at 10, 0.018 at 60, 0.012 at 170.** The cost is the STAR pass -- zoomed in,
-    `EffectiveMagnitudeLimit` admits most of Tycho-2 in the 3x3 cell window -- so it is worst exactly
-    where a user sits picking a target out of a crowded field. Per MOVE that is a quarter of a core
-    at 1 degree; per frame it is 12% of a 60 fps budget there and nothing past 60 degrees. The click
-    has always paid the same 2 ms, once per press, where nobody can see it. Every resolve asks for
-    the frame, even one that landed on the same object: the budget is released by a PAINT, so a
-    resolve that scheduled none would be the last one until something else repainted.
+  - **At most one resolve per painted frame, and the bound is now a checked-in benchmark**
+    (`SkyMapHoverResolveBenchmarks`, Release, win-arm64). The first figures here came from a
+    throwaway Debug probe and were wrong in two ways at once, which is why the benchmark exists:
+    | FOV | over an object | over bare star field |
+    |---|---|---|
+    | 1 deg | 10.9 us | **419 us, 360 KB** |
+    | 10 deg | 14.2 us | **394 us, 360 KB** |
+    | 60 deg | 11.3 us | 2.0 us, 1.8 KB |
+    | 170 deg | 12.1 us | 2.4 us, 1.8 KB |
+    **The two paths differ by 38x**, because the DSO pass runs first and the star pass NEVER RUNS
+    when it matches -- so resting on a catalogued object is cheap at any zoom and only bare sky pays.
+    The old single number blended them. And the star pass falls off a cliff between 10 and 60 degrees
+    as `EffectiveMagnitudeLimit` tightens, so the expense is exactly where a user sits picking a
+    target out of a crowded field. The Debug figure (2.048 ms at 1 degree) was also about 5x
+    pessimistic. **The louder cost turns out to be ALLOCATION**: 360 KB per resolve on bare sky
+    zoomed in, roughly 22 MB/s at 60 fps and 45 MB/s if it ran per MOVE at a 125 Hz mouse. The click
+    has always paid the same, once per press, where nobody can see it. Every resolve asks for the
+    frame, even one that landed on the same object: the budget is released by a PAINT, so a resolve
+    that scheduled none would be the last one until something else repainted.
   - **"Only with photo" is a SUB-SETTING of [O], not a layer** (key `I`, indented under "Objects" in
     the palette, unavailable while [O] is off): it draws nothing, it only narrows. It goes through
     **one predicate asked by three callers** -- `OverlayEngine.PassesLayerFilter`, for the desktop's

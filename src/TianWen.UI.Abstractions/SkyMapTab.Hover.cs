@@ -44,17 +44,28 @@ namespace TianWen.UI.Abstractions
         private float _hoverPointerY = float.NaN;
 
         // At most one resolve per PAINTED frame, which is the bound that makes hover affordable at a
-        // deep zoom. Measured against the real catalogue at a Sagittarius pointing, 400 resolves per
-        // sample: 2.048 ms at 1 degree, 0.889 at 10, 0.018 at 60, 0.012 at 170. The cost is the STAR
-        // pass -- zoomed in, EffectiveMagnitudeLimit admits most of Tycho-2 in the 3x3 cell window,
-        // and zoomed out it rejects nearly all of it early -- so it is worst exactly where a user
-        // sits while picking a target out of a crowded field. A mouse delivers moves at well over
-        // frame rate, so resolving per MOVE would spend a quarter of a core on hover at 1 degree;
-        // per frame it is 12% of a 60 fps budget there and nothing at all past 60 degrees.
+        // deep zoom. Measured by SkyMapHoverResolveBenchmarks (Release, win-arm64; an earlier figure
+        // quoted here came from a Debug test run and was about 5x pessimistic):
+        //
+        //              over an object      over bare star field
+        //   1 deg        10.9 us              419 us,  360 KB
+        //   10 deg       14.2 us              394 us,  360 KB
+        //   60 deg       11.3 us              2.0 us,  1.8 KB
+        //   170 deg      12.1 us              2.4 us,  1.8 KB
+        //
+        // TWO facts the old single number hid. The paths differ by 38x, because the DSO pass runs
+        // first and the star pass NEVER RUNS when it matches -- so resting on a catalogued object is
+        // cheap at any zoom, and only bare sky pays. And the star pass falls off a cliff between 10
+        // and 60 degrees (394 us to 2 us) as EffectiveMagnitudeLimit tightens, so the expense is
+        // exactly where a user sits picking a target out of a crowded field.
+        //
+        // The ALLOCATION is now the louder half: 360 KB per resolve on bare sky at a deep zoom, from
+        // the seen-sets the two passes grow. Per frame that is ~22 MB/s at 60 fps; per MOVE, at a
+        // 125 Hz mouse, it would be ~45 MB/s of Gen0 churn on the input thread.
         //
         // The throttle cannot be replaced by making the hover search cheaper than the click's,
         // because the highlight agreeing with the click is the entire point of the feature. The
-        // click pays the same 2 ms and always has -- once per press, where nobody can see it.
+        // click pays the same cost and always has -- once per press, where nobody can see it.
         private bool _hoverResolvedThisFrame;
 
         // The view the current HoverTarget was resolved against. Compared at draw time rather than

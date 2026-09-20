@@ -588,13 +588,14 @@ Three items from one note, root-caused against the code rather than left as a ba
     WebGL as a single distance-field quad), so the wash needs no instance stream, no cache key and no
     shader -- and drawing it FIRST of the annotation layers is what makes a pointer resting over the
     search modal or the layer palette harmless without any of them claiming the pointer.
-  - **At most one resolve per painted frame**, measured: against the real catalogue at a Sagittarius
-    pointing, 400 resolves per sample, one resolve costs **2.048 ms at 1 degree FOV, 0.889 at 10,
-    0.018 at 60, 0.012 at 170**. The cost is the STAR pass -- zoomed in, `EffectiveMagnitudeLimit`
-    admits most of Tycho-2 in the 3x3 cell window -- so it is worst exactly where a user sits picking
-    a target out of a crowded field. Per MOVE that would be a quarter of a core at 1 degree; per frame
-    it is 12% of a 60 fps budget there and nothing past 60 degrees. The click has always paid the same
-    2 ms, once per press, where nobody can see it.
+  - **At most one resolve per painted frame**, bounded by a checked-in benchmark
+    (`SkyMapHoverResolveBenchmarks`, Release, win-arm64): over an OBJECT 11-14 us at any zoom, over
+    bare STAR FIELD 419 us at 1 degree, 394 at 10, and ~2 us by 60 as `EffectiveMagnitudeLimit`
+    tightens. **The two paths differ by 38x** -- the DSO pass runs first and the star pass never runs
+    when it matches -- which the original single number hid, and the ALLOCATION is the louder half at
+    360 KB per resolve on bare sky zoomed in (~22 MB/s at 60 fps). The figures first published here
+    came from a Debug test run and were about 5x pessimistic as well as blended; that is what the
+    benchmark replaced.
   - **The hover target is dropped when the view moves**, compared at draw time against the view it was
     resolved for rather than cleared at each of the five call sites that move it.
 

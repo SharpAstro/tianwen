@@ -551,11 +551,15 @@ HIGHLIGHT, not hover selection: the click still selects (`docs/plans/in-app-sky-
   no instance stream, no cache key and no shader. **Drawn FIRST of the annotation layers**, which is
   what makes a pointer resting over the search modal or the layer palette harmless with none of them
   claiming the pointer: the sky behind resolves, the wash paints under the panel covering it.
-- **At most ONE resolve per painted frame, and every resolve asks for a frame.** Measured at a
-  Sagittarius pointing: 2.048 ms at 1 degree FOV, 0.889 at 10, 0.018 at 60, 0.012 at 170 -- the STAR
-  pass, worst zoomed in where `EffectiveMagnitudeLimit` admits most of Tycho-2. Per move that is a
-  quarter of a core; per frame it is 12% of a 60 fps budget. Resolve -> frame -> clear is self-limiting;
-  "resolve only when the answer changed" is not, because the budget is released by a PAINT.
+- **At most ONE resolve per painted frame, and every resolve asks for a frame.** Measured by
+  `SkyMapHoverResolveBenchmarks` (Release, win-arm64): over an OBJECT 11-14 us at any zoom, over bare
+  STAR FIELD 419 us at 1 degree and 394 at 10, falling to ~2 us by 60. **The two paths differ by 38x
+  because the DSO pass runs first and the star pass never runs when it matches**, and the star pass
+  falls off a cliff between 10 and 60 degrees as `EffectiveMagnitudeLimit` tightens. The louder cost
+  is ALLOCATION: 360 KB per resolve on bare sky zoomed in (~22 MB/s at 60 fps, ~45 at a 125 Hz mouse).
+  Resolve -> frame -> clear is self-limiting; "resolve only when the answer changed" is not, because
+  the budget is released by a PAINT. **A timing quoted from a Debug test run was ~5x pessimistic and
+  blended the two paths into one number; quote the benchmark, and name the box.**
 - **The target is dropped when the view moved**, compared at DRAW time against the view it was
   resolved for, never cleared at each of the five call sites that move the view.
 - **`ShowOnlyObjectsWithPicture` ([O]'s `I` sub-setting) goes through `OverlayEngine.PassesLayerFilter`,
