@@ -7,10 +7,15 @@ answer what the thresholds should be, they are not the feature.
 Run against a folder of raw subs:
 
 ```bash
-python cell_background.py "<folder of lights>" [grid]      # which frames are obstructed, and where
-python band_stars.py      "<folder of lights>" [grid]      # do the stars fall inside the band too
-python band_profile.py    "<folder of lights>" [frame]     # how wide is the ramp, is there an edge
+python cell_background.py     "<folder of lights>" [grid]      # which frames are obstructed, and where
+python band_stars.py          "<folder of lights>" [grid]      # do the stars fall inside the band too
+python band_profile.py        "<folder of lights>" [frame]     # how wide is the ramp, is there an edge
+python contact_sheet.py       "<folder of lights>"             # look at the frames (block-max downsample)
+python would_the_gate_fire.py "<folder>" ["<folder>" ...]      # would FrameQualityFilter drop them
 ```
+
+`cell_background.py` writes `obstruction_cells.json` to the working directory and `contact_sheet.py`
+writes `contact_sheet2.png` beside itself; both are gitignored, neither is committed.
 
 ## What each one is for
 
@@ -27,10 +32,19 @@ python band_profile.py    "<folder of lights>" [frame]     # how wide is the ram
   background against perpendicular distance, with a median per bin so the stars do not enter it.
   This is the number the remedy turns on: if the transition has an edge, an obstructed frame can be
   masked and kept; if it is a long smooth ramp, there is nowhere to cut and the frame is dropped.
+- **`contact_sheet.py`** is the look at 1:1 the plan asks for before believing a statistic, with the
+  downsample done by block MAXIMUM so a 2 to 3 px star survives it (a decimating sheet showed pure
+  noise in every frame of the cloud-out and read as evidence).
+- **`would_the_gate_fire.py`** runs `FrameQualityFilter`'s own arithmetic (median minus sigma times
+  1.4826 times MAD, the bake's sigma 3 and 0.5 cap) over a PROXY star count per frame: photosites
+  above the frame's median plus eight sigma, on one colour. It answers whether a session's bad frames
+  are outliers WITHIN that session, which is the only question a relative gate asks. The proxy is
+  not the detector's star list, so its medians are not the gate's; the side of the median a defect
+  lands on is.
 
 ## Two things that will bite
 
-**Split by photosite before any median.** All three scripts take a single colour population out of
+**Split by photosite before any median.** All five scripts take a single colour population out of
 the mosaic (`a[0::2, 1::2]`) rather than working on the mosaic. Four colours at four levels put a
 colour pattern into every cell statistic, and a non-neutral white balance scales it further. Same
 rule `BadPixelDetection` and `ClassicalBackgroundExtractor` had to learn.
@@ -46,3 +60,10 @@ A powerline over the Helix Nebula, `E:/Astro/SharpCap Captures/Helix Nebula RGB 
 (2022-08-31, ASI533MC Pro at 135 mm, 46 x 120 s). Six frames of 46; band 15% down on background and
 0.5 to 0.75 on star count; a symmetric ramp reaching clear only past 210 px with no step in it. The
 numbers and what they changed in the design are in the plan.
+
+The gate script was run over three sessions, and the plan's table is theirs: the powerline above
+(`.../Helix Nebula RGB 120s -4deg 121g 11o/Light`, 6 of 46 obstructed, all six flagged), the
+cloud-out `D:/Astro-Pics/2026/2026-02-20 BAD LIGHT EXAMPLES` (24 of 33 clouded, threshold negative,
+none flagged) and the roof
+`D:/Astro-Organized/lights/SVBONY-SV605CC/Optolong-L-Ultimate-3nm/Helix-Nebula/2026-08-01` (21 of
+21, no in-session contrast, none flagged).

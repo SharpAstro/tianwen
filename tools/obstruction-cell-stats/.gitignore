@@ -1,0 +1,4 @@
+# The scripts write their outputs beside themselves or into the working directory; they are read,
+# not committed.
+obstruction_cells.json
+contact_sheet2.png
