@@ -15,7 +15,8 @@ star-halo notes **straight into [imaging.md](imaging.md)** with full detail rath
 which is why they are absent here, a 2026-08-27/28 pass that filed the whole FITS-viewer band straight
 into [viewer-prerelease-fixes](../plans/viewer-prerelease-fixes.md) as P11-P21, plus the chart and web-build
 notes into [ui.md](ui.md), and a 2026-09-20 pass that filed a Sky Map note into `ui.md` and a Save-dialog
-gap into `viewer-prerelease-fixes.md` as P30. When re-sweeping, read the DM back only to this watermark,
+gap into `viewer-prerelease-fixes.md` as P35 (filed as P30, a number already taken; renumbered
+2026-09-20). When re-sweeping, read the DM back only to this watermark,
 and check `imaging.md`, `viewer-prerelease-fixes.md` and `ui.md` before concluding a note was never
 triaged.
 
@@ -98,11 +99,15 @@ the next time the DM is scanned.
   by name with no runtime reflection. That is a scripting surface in everything but syntax. **Confirm the
   intent before closing.** If the ask was a persistent, re-runnable script *file* (a scenario you can
   check in and replay), that does not exist.
-- [?] **"sky atlas bug: obj selection"** (2026-06-08): too terse to match to a fix with confidence. Two
-  candidates landed later: `b920c53a` (2026-07-11, selection reticles + alt/az stayed live across a
-  date/time scrub) and the dark-nebula click resolver now honouring the `[D]` layer toggle
-  (`SkyMapSearchActionsTests.DarkNebulaClickRespectsLayerToggleAndPinning`). If neither is the bug you
-  saw, it is still open and needs a repro.
+- [x] **"sky atlas bug: obj selection"** (2026-06-08): **CLOSED 2026-09-20 by the hover highlight.**
+  It was too terse to match to a fix with confidence for two sweeps -- two candidates had landed in
+  the meantime (`b920c53a`, selection reticles + alt/az live across a date/time scrub; and the
+  dark-nebula click resolver honouring the `[D]` toggle) and neither was obviously it. The user's own
+  reading, 2026-09-20: *"probably fixed by supporting mouse-over highlighting"*. So the complaint was
+  never that selection picked the WRONG object, it was that on a crowded field you could not tell
+  WHICH object a click would take without clicking and reading the panel. Shipped as
+  `SkyMapState.HoverTarget` + `SkyMapTab.Hover.cs`; see [ui.md](ui.md) § Sky Map. Reopen with a repro
+  if the bug you saw was something else.
 
 ### Closed by the time it was swept
 - [x] Sky atlas: `D` toggles dark nebulae (2026-06-08): shipped; the click resolver honours the layer.
@@ -131,22 +136,25 @@ TianWen; there were no other-repo strays to leave behind.
 
 ### Already filed when the sweep ran
 
+**State re-checked 2026-09-20**, because a map into other files goes stale where the files move on and
+then reads as more open than it is: five of these rows were out of date by three weeks.
+
 | Note (date written) | Home | State there |
 |---|---|---|
 | Star profile / colour / name on hover (08-19) | [ui.md](ui.md) FITS Viewer | open |
 | `--help` shows no version; AI discovery status + download options (08-21) | P11 | half fixed -- version + status shipped, **download open** |
-| Needs more in-depth doco (08-22) | P13 | next release |
+| Needs more in-depth doco (08-22) | P13 | **FIXED** |
 | An empty instance should adopt an opened file (08-22) | P14 | **FIXED** |
 | Gain/ISO and offset missing from the right pane (08-22) | P12 | **FIXED** |
-| Carry calibration/stretch when stepping between frames of the same type (08-22) | P19 (blink mode) | next release |
+| Carry calibration/stretch when stepping between frames of the same type (08-22) | P19 (blink mode) | **FIXED** 2026-09-04 |
 | Right-click to copy colour / RA-Dec (08-24) | P17 | **FIXED** |
 | Show detected object name; clickable object mode (08-24) | [ui.md](ui.md) FITS Viewer | open, and **explicitly undecided by you** |
-| Share link to the web viewer, needs `&t=<capture time>` (08-24) | P20 | backlog (needs the web side) |
+| Share link to the web viewer, needs `&t=<capture time>` (08-24) | P20 | **FIXED** 2026-09-04 |
 | Show debayered channels via "the new `AsChannel*`" (08-26) | P21 | backlog. Note there is no `AsChannel*` API anywhere; that note resolved to `Channel.AsSpan()` |
-| Save as seen on screen, Save-As, iconise Open/Save (08-27) | P18 | next release |
+| Save as seen on screen, Save-As, iconise Open/Save (08-27) | P18 | **FIXED** |
 | Atlas spark lines (08-21) | [atlas-planet-detail.md](../plans/atlas-planet-detail.md) A1 | planned; A1 is literally titled after this note |
 | Log / time-compressed graphs (08-22) | [ui.md](ui.md) Charts | open |
-| Web build: fake profiles for framing, Milky Way texture, copy-link-to-point (08-24) | [ui.md](ui.md) Charts | open (the copy-link half is the other end of P20) |
+| Web build: fake profiles for framing, Milky Way texture, copy-link-to-point (08-24) | [ui.md](ui.md) Charts | Milky Way texture **DONE** 2026-09-17; fake profiles and copy-link still open |
 
 ### Closed since the note was written
 
@@ -187,6 +195,11 @@ belongs to another repo. Three of the six already had a root cause in the code b
 filed, and it is recorded where the fix goes rather than here.
 
 ### Filed by this sweep
+
+**All six TianWen notes here are now CLOSED** (re-checked 2026-09-20): P23-P26 were all fixed on
+2026-09-08, the text-selection defect on the same day in DIR.Lib 8.14 (TianWen is pinned at `10.2.*`,
+so it is long since in), and the narrowband Auto-stretch cast by the line-selective veto recorded in
+[imaging.md](imaging.md).
 
 | Note (date written) | Home | What it turned out to be |
 |---|---|---|
@@ -269,8 +282,8 @@ directly rather than leaving them as bare repro requests.
 
 | Note (date written) | Home | What it turned out to be |
 |---|---|---|
-| Sky atlas: label collision isn't 100%, a "show objects with photo" mode, hover recolours the target (09-19) | [ui.md, Sky Map](ui.md) | The collision gap is partly a documented density trade-off (best-effort placement above ~60-100 labels), not a plain bug; the picture mode is net new (the per-object indicator already exists); the hover idea reopens a click-vs-hover choice made 2026-09-10 |
-| Viewer: Save should land in the folder the file was opened from (09-17, first half) | [viewer-prerelease-fixes.md](../plans/viewer-prerelease-fixes.md) P30 | Confirmed gap: the Save dialog never sets `lpstrInitialDir`, so Windows falls back to Explorer's own last-used folder |
+| Sky atlas: label collision isn't 100%, a "show objects with photo" mode, hover recolours the target (09-19) | [ui.md, Sky Map](ui.md) | Two of the three are **DONE (2026-09-20)**: the picture mode shipped as a sub-setting of [O] (key `I`) and the hover highlight shipped as a wash resolved through the click's own resolver -- which also closed the 2026-06-08 "obj selection" note above, and did NOT reopen the 2026-09-10 click-vs-hover choice, that being about which gesture SELECTS. Still open: the label collision gap, which is partly a documented density trade-off (best-effort placement above ~60-100 labels) rather than a plain bug |
+| Viewer: Save should land in the folder the file was opened from (09-17, first half) | [viewer-prerelease-fixes.md](../plans/viewer-prerelease-fixes.md) P35 | Confirmed gap: the Save dialog never sets `lpstrInitialDir`, so Windows falls back to Explorer's own last-used folder |
 
 ### Held here, mismatched to its own header
 
