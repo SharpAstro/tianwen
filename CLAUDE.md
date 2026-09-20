@@ -578,9 +578,10 @@ HIGHLIGHT, not hover selection: the click still selects (`docs/plans/in-app-sky-
 - **`ShowOnlyObjectsWithPicture` ([O]'s `I` sub-setting) goes through `OverlayEngine.PassesLayerFilter`,
   and so do the [O]/[D] gates.** Three callers: the desktop's background gather, the browser / offline
   primitive path, and the CLICK resolver -- the last must ask it or a filtered-out object stays
-  selectable through apparently-empty sky. It narrows the dark-nebula layer too (deliberate; "only with
-  photo" is about the whole overlay), a pinned landmark survives it, and **it is in BOTH gather cache
-  keys** because it strips the CACHED list.
+  selectable through apparently-empty sky. It does NOT reach the dark-nebula layer, which [O] does not
+  govern (the predicate's [D] branch says why; four comments said the opposite until 2026-09-20), a
+  pinned landmark survives it, and **it is in BOTH gather cache keys** because it strips the CACHED
+  list.
 
 ### Smart Framing (planner co-framing groups)
 

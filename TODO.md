@@ -227,12 +227,16 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     **one predicate asked by three callers** -- `OverlayEngine.PassesLayerFilter`, for the desktop's
     background gather, the browser / offline primitive path AND the click gate, the last of which
     must agree or a filtered-out object stays selectable through apparently-empty sky. The first two
-    were already two hand-maintained copies of the [O]/[D] rule. It narrows the dark-nebula layer
-    too, deliberately, and a pinned target survives it as it survives every other filter there.
+    were already two hand-maintained copies of the [O]/[D] rule. It does NOT reach the dark-nebula
+    layer -- [D] is its own layer that [O] does not govern, so a filter presented as [O]'s
+    sub-setting reaching it contradicted the control's own shape, and did so invisibly (with [O] off
+    and [D] on the row read as off while the filter emptied the layer). Pinned by
+    `TheFilterDoesNotReachTheDarkNebulaLayer`; the entry below and three code comments said the
+    opposite until 2026-09-20. A pinned target survives it as it survives every other filter there.
   - **It is in BOTH gather cache keys** (`PrimOverlayKey`, `OverlayGatherKey`), because it strips the
     CACHED candidate list: without that, switching it on keeps serving the list gathered before it
     and switching it off never brings the objects back.
-  - Pinned by `SkyMapHoverAndPictureTests` (20), including a CPU-surface render test that the wash
+  - Pinned by `SkyMapHoverAndPictureTests` (21), including a CPU-surface render test that the wash
     reaches the pixels, and four of them were seen to FAIL with each rule removed in turn.
     [docs/todo/ui.md](docs/todo/ui.md) § Sky Map.
 

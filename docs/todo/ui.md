@@ -564,10 +564,13 @@ Three items from one note, root-caused against the code rather than left as a ba
     first two were already two hand-maintained copies of the [O]/[D] rule; a third copy of a four-term
     rule was not worth writing, and the click gate is the one that *must* agree or a filtered-out
     object stays selectable through apparently-empty sky.
-  - **It narrows the dark-nebula layer too**, which reads as harsh (almost no dust lane has a verified
-    article) and is deliberate: "only with photo" is a statement about the whole overlay, and a layer
-    that quietly opted out would be the surprise. A pinned target survives it, as it survives every
-    other filter on that path.
+  - **It does NOT reach the dark-nebula layer.** It was first written to (on the argument that "only
+    with photo" is about the whole overlay), and that was reversed in "the review's two confirmed
+    bugs": the row is a sub-setting of [O], indented under it and unavailable while [O] is off, so a
+    filter reaching a layer [O] does not govern contradicted the control's shape -- and with [O] off
+    and [D] on it went on emptying the layer while the row read as off, with no way to reach it.
+    Pinned by `TheFilterDoesNotReachTheDarkNebulaLayer`. A pinned target survives it, as it survives
+    every other filter on that path.
   - **It is in both gather cache keys** (`PrimOverlayKey`, `OverlayGatherKey`), because it strips the
     CACHED candidate list: without that, switching it on keeps serving the list gathered before it and
     switching it off never brings the objects back.

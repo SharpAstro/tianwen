@@ -970,9 +970,9 @@ public static class OverlayEngine
     /// same question or a hidden object stays selectable through apparently-empty sky. The first two
     /// had already been written out twice and had to agree by hand; the picture filter would have
     /// made that three copies of a four-term rule.
-    /// <para>The picture filter applies to the dark-nebula layer too. It reads as harsh -- almost no
-    /// dust lane has a verified article -- but "only with photo" is a statement about the whole
-    /// overlay, and a layer that quietly opted out of it would be the surprise.</para>
+    /// <para>The picture filter does NOT reach the dark-nebula layer; the comment on the [D] branch
+    /// below says why, and <c>TheFilterDoesNotReachTheDarkNebulaLayer</c> pins it. This paragraph
+    /// used to say the opposite, from before that branch was written.</para>
     /// </remarks>
     public static bool PassesLayerFilter(
         ObjectType objectType, bool isPinned, bool hasPicture,

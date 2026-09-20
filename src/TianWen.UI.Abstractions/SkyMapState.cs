@@ -215,7 +215,7 @@ namespace TianWen.UI.Abstractions
         /// <remarks>
         /// The per-object camera mark after a label has said "there is a photo of this" since the
         /// imagery bake shipped; this is the other half, for the night you want to plan AROUND what
-        /// you can look up. It filters the dark-nebula layer as well -- see
+        /// you can look up. It does not reach the dark-nebula layer, which is its own -- see
         /// <see cref="Overlays.OverlayEngine.PassesLayerFilter"/> for why. Off by default.
         /// </remarks>
         public bool ShowOnlyObjectsWithPicture { get; set; }
