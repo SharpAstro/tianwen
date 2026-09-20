@@ -9,13 +9,15 @@ deduped against the rest of this file. Date in parens is when the note was writt
 sections above when picked up. Notes that turned out to be already DONE or already tracked elsewhere are
 intentionally NOT repeated here.
 
-**Sweep watermark: the Slack self-DM is swept through 2026-09-08.** Earlier passes are folded in below: the
+**Sweep watermark: the Slack self-DM is swept through 2026-09-19.** Earlier passes are folded in below: the
 2026-06-02 consolidation below (Mar-May), and a 2026-07-07 pass that filed the ROEBA banding and Hough
 star-halo notes **straight into [imaging.md](imaging.md)** with full detail rather than through this file,
-which is why they are absent here, and a 2026-08-27/28 pass that filed the whole FITS-viewer band straight
+which is why they are absent here, a 2026-08-27/28 pass that filed the whole FITS-viewer band straight
 into [viewer-prerelease-fixes](../plans/viewer-prerelease-fixes.md) as P11-P21, plus the chart and web-build
-notes into [ui.md](ui.md). When re-sweeping, read the DM back only to this watermark, and check
-`imaging.md`, `viewer-prerelease-fixes.md` and `ui.md` before concluding a note was never triaged.
+notes into [ui.md](ui.md), and a 2026-09-20 pass that filed a Sky Map note into `ui.md` and a Save-dialog
+gap into `viewer-prerelease-fixes.md` as P30. When re-sweeping, read the DM back only to this watermark,
+and check `imaging.md`, `viewer-prerelease-fixes.md` and `ui.md` before concluding a note was never
+triaged.
 
 ### Sky Map
 - [x] **Pan/zoom jank at sub-90deg FOV (worst with SCP in view)**: FIXED 2026-06-11: the overlay Phase A cache (`VkSkyMapTab.RenderObjectOverlay`) was keyed on the exact view matrix below `WideFovThresholdDeg`, so every drag frame re-ran the catalog grid scan (`GatherSkyMapOverlayCandidates`; pole-in-view = full-RA Dec strip, ~16k cell lookups -> 100-240 ms/frame; ~5k cells elsewhere -> 40-90 ms). Fix: key on the unprojected view centre quantized to FOV/8 cells + FOV quantized to ~10% log steps, and widen the gather margin to `max(1deg, 0.15 x FOV)` (RA scaled 1/cos dec) so the cached set covers every view inside a cell; Phase B's per-frame projection culls as before. Measured at the SCP all-layers-on: 8 zoom/time stimuli -> ONE 93 ms frame (the legitimate cell-boundary rebuild) vs 1-3 slow frames per stimulus before.
@@ -256,3 +258,28 @@ is the one that is **gone**, along with `apv.app`, `photoviewer.app`, `deepsky.a
 `astroview.app`, `astroviewer.app`, `fitsview.app`, `fitsviewer.app`, and `tianwen.{app,io}` — while
 `tianwen.{com,org,net,dev}` are taken. `.app` and `.dev` are HSTS-preloaded, so anything there is
 HTTPS-only by construction.
+
+## Inbox: Slack self-notes, 2026-09-08 -> 2026-09-19 (swept 2026-09-20)
+
+Two notes since the previous watermark (the 2026-09-08 sweep-summary message itself excluded). Both
+had a confirmable root cause in the code by the time they were read back, so this pass filed them
+directly rather than leaving them as bare repro requests.
+
+### Filed by this sweep
+
+| Note (date written) | Home | What it turned out to be |
+|---|---|---|
+| Sky atlas: label collision isn't 100%, a "show objects with photo" mode, hover recolours the target (09-19) | [ui.md, Sky Map](ui.md) | The collision gap is partly a documented density trade-off (best-effort placement above ~60-100 labels), not a plain bug; the picture mode is net new (the per-object indicator already exists); the hover idea reopens a click-vs-hover choice made 2026-09-10 |
+| Viewer: Save should land in the folder the file was opened from (09-17, first half) | [viewer-prerelease-fixes.md](../plans/viewer-prerelease-fixes.md) P30 | Confirmed gap: the Save dialog never sets `lpstrInitialDir`, so Windows falls back to Explorer's own last-used folder |
+
+### Held here, mismatched to its own header
+
+- [?] **"on decline should allow user to type address and fill in coords from there"** (09-17, second
+  half, written under the same "fits viewer:" line as the Save note above). No geocoding code exists
+  anywhere in `src/`, and manual coordinate entry already exists but in the Equipment tab's profile
+  panel (`EquipmentTab.ProfilePanel.cs:337,342-343`, `SiteLatitude`/`SiteLongitude`), not the viewer.
+  [in-app-sky-atlas.md](../plans/in-app-sky-atlas.md) separately rejected OS geolocation for a related
+  problem and points users at that same manual entry instead. Reads like a site-setup idea (a
+  location-permission "decline" prompt, falling back to an address lookup) that landed under the wrong
+  header rather than something the FITS viewer's Save flow should do. Needs one line confirming what
+  "decline" refers to before it gets a home.

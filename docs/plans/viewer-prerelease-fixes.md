@@ -60,6 +60,7 @@ the 35 TIFF / import / codec tests pass against it.
 | P27 | Escape and an open panel: NOT a defect, and now pinned. My first diagnosis was wrong | **VERIFIED** 2026-09-08 |
 | P28 | The menu cannot name the object under the cursor, and the atlas link only copies | **FIXED** 2026-09-08 |
 | P29 | A touchscreen pinch does not zoom: the events were raised and dropped | **FIXED** 2026-09-09 |
+| P30 | Save opens to Explorer's last folder, not the currently-open file's folder | BACKLOG |
 
 ---
 
@@ -1805,4 +1806,16 @@ on the same arm as "UGC" (both start "UG"), so UGCA 423 (-> NGC 7176) and UGC 42
 to the identical `CatalogIndex` and cross-linked to each other. `Catalog.UGCA` is now its own
 catalogue, probed before UGC; pinned by `UGCAndUGCAAreDistinctCatalogsDespiteSharingTheUGPrefix` and
 `GivenAUGCAIdentifierWhenLookingItUpThenTheCrossReferencedObjectIsReturnedNotTheUGCOne`.
+
+## P30. Save does not default to the opened file's folder  (BACKLOG, filed 2026-09-19)
+
+**Confirmed gap, not yet fixed.** `ViewerController.cs:471-483` builds the suggested Save name as a
+bare filename (`stem + ".png"`, no directory) and passes it straight to `fileDialog.SaveAsync(filters,
+suggested, ...)`. `IFileDialogHelper.SaveAsync` (`IFileDialogHelper.cs:20-25`) has no initial-directory
+parameter at all, and `FileDialogHelper.SaveWindows` (`FileDialogHelper.cs:162-199`) declares
+`lpstrInitialDir` on the `OPENFILENAME` struct (`FileDialogHelper.cs:236`) but never sets it. Windows
+therefore opens the Save dialog on Explorer's own remembered last-used folder, not the folder the
+currently-open file came from. P18 (Save/Save-As/icons, FIXED 2026-09-04) shipped the button and the
+icon but never this default. Fix is to thread the open document's directory through
+`SaveAsync`/`lpstrInitialDir` so Save (and Save As) start where the file already lives.
 

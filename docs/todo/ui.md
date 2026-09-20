@@ -533,6 +533,31 @@ reading and the next person will reach for it again.
   - Reaches TianWen when DIR.Lib 8.14 is published and `src/Directory.Packages.props` re-pins from
     `8.13.*`. Every field in the GUI, the viewer and the web build gets it at once.
 
+## Sky Map: label collisions, a "pictures" mode, and hover highlight (user's note 2026-09-19)
+
+Three items from one note, root-caused against the code rather than left as a bare repro request.
+
+- [ ] **Label collision avoidance is not 100%, and part of that is by design.**
+  `OverlayEngine.PlaceLabels` (`OverlayEngine.cs:1713-1805`) tries 4 candidate positions per label and
+  drops the label outright when none is clear (`OverlayEngine.cs:1793`), rather than falling back to
+  *some* position. Separately, `VkSkyMapTab.RenderObjectOverlay` (`VkSkyMapTab.cs:440-463`) only runs
+  that collision-checked path below a sticky projected-item-count band (~60-100); above it, it switches
+  to `OverlayEngine.PlaceLabelsBestEffort` (`OverlayEngine.cs:1807-1821`), which does no inter-label
+  check at all ("labels that happen to overlap simply overlap") because the O(N^2) scan dominates cost
+  at wide FOV / dense fields. Overlap in a crowded field is therefore the current, deliberate trade-off;
+  the part actually worth fixing is the low-density path's drop-with-no-fallback case.
+- [ ] **A "show objects with picture" mode: net new.** `OverlayItem.HasPicture` already exists and
+  appends a camera mark to a label (`OverlayEngine.cs:893,1474,1577`; `SkyMapTab.ObjectOverlay.cs:27,357`;
+  `VkSkyMapTab.cs:567`), per [object-imagery.md](../plans/object-imagery.md) P1. That is a passive
+  per-object indicator, not a mode: `SkyMapState.cs` has a toggle for every other layer (grid, horizon,
+  figures, planets, comets, Milky Way, dark nebulae, mount) but none that filters the map down to, or
+  defaults to, only objects the bake verified a picture for.
+- [?] **Hover recolours the object that would be selected: reopens a settled decision.** No hover state
+  for objects exists anywhere in `SkyMapTab`/`SkyMapState`/`VkSkyMapTab` (only the search dropdown row
+  hovers). [in-app-sky-atlas.md](../plans/in-app-sky-atlas.md) records the opposite choice already made:
+  "P5's click-select / hover versus click -- CLICK, chosen by the user 2026-09-10, and SHIPPED." Confirm
+  this is meant to revisit that decision before it becomes a build item.
+
 ## Charts and the web showcase (user's notes 2026-08-27)
 
 - [ ] **Log / time-compressed graphs.** The session and guider graphs plot linear time, so a long night
