@@ -112,10 +112,21 @@ three-measurement palette rather than a two-measurement one stretched over three
 
 **What supporting it actually requires**, none of it blocked:
 
-1. **Two filter curves and two slugs that resolve.** Digitise both from the vendor chart via the
-   `digitize-filter` skill into `FilterCurveDatabase`, and add both to `SpccReachabilityProbe`. The
-   passbands must come from the chart, not from memory: the pair's value depends on where the two
-   red-side lines actually sit, and this plan should not carry numbers nobody measured.
+1. **Curves and slugs: ALREADY DONE, and the physics is already pinned.**
+   `ASKAR_COLOURMAGIC_D1` (OIII+Ha) and `ASKAR_COLOURMAGIC_D2` (OIII+SII) are two of the seven
+   standalone duo-band / light-pollution curves digitised here from vendor charts by
+   `tools/digitize-filter-curve/` (chart-unit CSVs under `tools/import-sasp-data/local-filters/`),
+   and `SpccReachabilityProbe` already carries `Askar Colour Magic D1`, `Askar D1`, `Askar D2`,
+   `Colour Magic D2`, `D1` and `D2`.
+
+   **`FilterCurveDatabaseTests.TheColourMagicDuoBandsPassTheirOwnLineAndBlockTheOther` already
+   asserts the exact property this whole phase rests on**: each curve passes OIII 500.7 and its own
+   red line above 0.8 while holding the *other* filter's red line below 0.05, i.e. the pair is
+   separated to better than the 15 nm between Ha 656.3 and SII 671.6, with a dead baseline (<0.05)
+   at 400, 450, 550, 600, 700, 800 and 1000 nm so "passes everything" cannot satisfy it. Nothing
+   about those wavelengths went into building either curve or calibrating either axis. So the
+   optical separation the table above claims is measured, not assumed, and it is measured on our own
+   trace of the vendor chart.
 2. **Nothing in the archive layout.** `lights/<camera>/<filter>/<target>/<night>` already keeps two
    filters of one target apart, and the bake already groups on `(camera, filter, target, night)`, so
    each filter gets its own session master with no change. That is the right granularity: the
@@ -129,8 +140,10 @@ three-measurement palette rather than a two-measurement one stretched over three
    between planes of one master.
 5. **The line-selective veto must trip on both filters**, so neither master is rendered as if SPCC
    described it. `FilterCurveDatabase.IsLineSelective` is a 38 nm cut and a duo-band's per-line
-   passbands are far under it, but it takes the R/G/B system response, so confirm it on the digitised
-   curves rather than assuming.
+   passbands are far under it, but it takes the R/G/B SYSTEM response from
+   `BuildChannelThroughputs(sensorMeta)`, not the filter curve alone, so it depends on the sensor as
+   well. **Runnable today**, both curves being in the database: assert it for the OSC bodies this
+   archive uses, in the same theory that pins the curves.
 
 **What it does NOT require:** the quad-band four-lines-from-three-channels algebra, the per-sensor
 crosstalk coefficient table it needs, or the sensor gating on it. Phase 3 stays worth having for
