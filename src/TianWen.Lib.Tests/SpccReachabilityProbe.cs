@@ -131,6 +131,13 @@ public class SpccReachabilityProbe(ITestOutputHelper output)
             // Mono channel names, for the two ASI1600MM sessions. A mono session has one filter and
             // no CFA, so the pixel method cannot help and the path tag is the only evidence.
             "Ha", "H-Alpha", "Luminance", "LUM", "Baader Ha", "Astrodon Ha",
+            // SII, used by group R for three sessions: two mono QHY183M eta Carinae nights whose
+            // lights carry FILTER = SII, and one OSC ASI533 night (2024-07-06) whose own flat reads
+            // true R/G 4.52 with B/G 0.42 at 5 percent of full scale, i.e. red alone, against a sky
+            // of 0.1 to 0.2 ADU/s that no broadband filter can produce. NO MATCH is correct and is
+            // not a gap: the database carries no standalone SII curve, and SPCC is broadband-only,
+            // so there is no colour to calibrate. The tag's job here is pool grouping.
+            "SII", "S-II", "Sulphur-II",
             // Filters we do NOT carry, listed so the report says what a card naming one would
             // resolve to instead. A confident WRONG match is worse than no match: the curve is
             // then used as if it described the glass in front of the sensor.

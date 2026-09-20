@@ -159,7 +159,7 @@ separating 4.5-fold (filter-inference.md 2a-ter), so find which ratio separates 
 reading either. Corroborate with the channel ratios of the session's own FLAT set, which carries the
 passband with none of the sky's confounds.
 
-Four traps, each of which produced a confident wrong answer before it was caught:
+Six traps, each of which produced a confident wrong answer before it was caught:
 
 - **Read `BAYERPAT` per frame; never assume `RGGB`.** SVBONY writes `GRBG`, QHY writes `RGGB`.
   Forcing the wrong one silently samples two greens as "R" and "B", and the tell is `R/G` and `B/G`
@@ -170,6 +170,21 @@ Four traps, each of which produced a confident wrong answer before it was caught
 - **A bias is required, and its absence is why whole groups are parked.** The raw ratio overlaps
   between families; the correction is what separates them. If no bias exists for the rig at that
   gain, the session stays parked rather than getting a guessed verdict.
+- **Undo the in-camera WHITE BALANCE before comparing any ratio, and read it off the BIAS.** On the
+  ZWO bodies WB_R / WB_B are a digital gain on the RAW stream: green is never scaled, red and blue
+  arrive multiplied by `WB/50`. A bias measures it to four figures (`WB_R = 50 * bias_R / bias_G`;
+  the ASI533 at offset 13 reads 649 / 516 / 649, i.e. 63/63, while offset 20 is grey). So a raw flat
+  R/G is a filter TIMES a camera setting, and one filter shot at two white balances reads as two
+  filters. A flat set reduces itself with its own DARKFLAT, which carries the same scaling:
+  `true R/G = (flat_R - darkflat_R) / (darkflat_R / darkflat_G) / (flat_G - darkflat_G)`. This
+  parked the January 2025 L-Ultimate sessions as an unidentified dual-band for four days, against a
+  capture folder that said `L-Ultra`, purely because a 63/63 set was compared with a grey one.
+- **For a LINE-SELECTIVE filter only B/G identifies; R/G is a property of the flat PANEL.** Over ten
+  L-Ultimate flat sets true B/G holds to +/-1 percent while true R/G swings 3.5-fold (0.158 to
+  0.546): a 3 nm window at 656 nm samples whatever far-red tail the panel emits, which changes with
+  the panel and its brightness. A broadband filter integrates the panel's whole spectrum, so its R/G
+  is stable (IDAS LPS D3 holds +/-2 percent over nine months) and stays usable. Quoting a narrowband
+  set's R/G as corroboration is quoting the light source.
 - **A filename tag beats a measurement it does not contradict.** Several sessions carry the filter in
   a frame name (`..._0003_LPS.fits`) or a marker file (`USING_IDAS_LPS.txt`). Use it as the identity
   and use the measurement to confirm one filter ran the whole night.
@@ -249,6 +264,15 @@ it); the per-group scripts before it stay in `_provenance` beside the manifests 
 - **Dry-run by default**, `--apply` to execute. Print the destinations and the per-kind counts.
 - **Refuse before writing** on a destination collision, on an existing destination, on an unexpected
   exposure, and on a frame whose camera or readout mode does not match.
+- **A calibration RUN is one set, and it is named by the date it STARTED.** Filing each frame under
+  its own `DATE-OBS` date splits any run that crosses midnight UTC: one 70-frame ASI533 dark landed
+  as a 39-frame `2025-05-02` folder and a 31-frame `2025-05-03` folder, each too thin to be a master
+  and with nothing in the names to say they belong together (the frames are a single N.I.N.A.
+  sequence `_0000` to `_0069`). Group R would have done it to four more. Take the date the way the
+  temperature is already taken, over the whole SET, and the run folder the operator captured into
+  (`23_26_19Z`) is the corroboration. Applies to flats and dark-flats as much as darks and biases;
+  a LIGHT source is the exception, since a dateless SharpCap `Light` folder really can hold several
+  nights.
 - **Declare the exposures a folder may contain.** A folder name states a kind and cannot be trusted
   to hold only that kind: one folder called `DARK` held dark-flats, another held daylight frames at
   +22 C, and a third (`2026-08 SV545`) held 10.10 s frames typed `DARK` that are the dark-flats for

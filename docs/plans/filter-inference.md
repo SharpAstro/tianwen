@@ -172,13 +172,96 @@ within-population agreement is 0.021 or better, so this is not one new populatio
 two, or one plus a confound. Their R/G differs threefold, which section 2a already warns is the
 uninformative axis.
 
-**Neither is nameable from the pixels alone and both stay parked.** `Rosette Dec 24`'s folder says
-`Rosette RGB 120s`, and `RGB` is a processing mode rather than a filter by section 1's own rule, so
-there is no textual hint to corroborate. A B/G between a 3 nm dual-band and a quad-band is where an
-L-eNhance would sit physically, and the ASI585's L-eNhance reads 0.85 on ITS sensor, but that is a
-cross-sensor coincidence and this plan's central caution is that the bands belong to a sensor
-family. Naming either needs the owner, a reference frame on this body, or a flat set shot through a
-filter already identified.
+### 2a-quater. Half of that table was in the wrong UNITS: undo the white balance first (2026-09-20)
+
+**The confound above was the in-camera white balance, and this plan already had the mechanism two
+sections down without applying it here.** The pedestal table in "Reference values on this archive"
+records that the ASI533 at offset 13 is *not grey* (R 649, G 516, B 649) because ZWO white balance
+was on in that era. That is a **digital gain on the raw stream**: green is never scaled, and red and
+blue arrive multiplied by `WB/50`. So a raw flat R/G is a filter TIMES a camera setting, and the
+table above compares sets that do not share the setting. `Optolong-L-Ultimate-3nm` 2025-05-03 is a
+**gain 252, offset 20** set, which is grey; `ASI533mc -10deg 240s` and both LPS D3 rows are
+**offset 13**, which is 63/63. The 3 nm row was being read against sets 1.26x brighter in blue.
+
+Measured over five ASI533 campaigns, the pedestal recovers the setting to four figures, so no folder
+name is needed: `WB_R = 50 * bias_R / bias_G`. r56 gives 576/516, WR73 gives 749/516, 78r gives
+802/516, WB63 gives 649/516; the ASI585 at 65r gives 1120/864.
+
+**Every flat set carries its own darkflat at the same exposure, gain and offset, which carries the
+same scaling, so each set reduces itself with nothing external:**
+
+```
+gain_R   = darkflat_R / darkflat_G            (green is the unit)
+true R/G = (flat_R - darkflat_R) / gain_R / (flat_G - darkflat_G)
+```
+
+| ASI533 flat set | raw R/G | raw B/G | WB | **true R/G** | **true B/G** |
+|---|---|---|---|---|---|
+| `Optolong-L-Ultimate-3nm` 2025-05-03 | 0.1794 | 0.5781 | 50/50 | 0.1576 | **0.5669** |
+| `Optolong-L-Ultimate-3nm` 2025-05-21 | 0.1835 | 0.5797 | 50/50 | 0.1586 | **0.5668** |
+| `ASI533mc -10deg 240s` (was UNKNOWN) | 0.2175 | 0.7262 | 63/63 | 0.1590 | **0.5703** |
+| `ASI55mc Cal Jul Optolong Ultra` 2024-07-06 | 0.2238 | 0.7285 | 63/63 | 0.1696 | **0.5749** |
+| `IDAS-LPS-D3` 2024-06-06 Rim Nebula | 0.2381 | 0.9563 | 63/63 | 0.1813 | **0.7579** |
+| `IDAS-LPS-D3` 2023-09-15 LMC | 0.2388 | 0.9659 | 63/63 | 0.1791 | **0.7648** |
+| `Vela SNR 2024` cal 2024-02-10 | 0.2279 | 0.9615 | 63/63 | 0.1734 | **0.7622** |
+| `Orion Dec 24` 2024-12-08 (UNKNOWN) | 0.6168 | 0.8628 | 63/63 | 0.4842 | **0.6822** |
+| `Rosette Dec 24` 2024-12-30 (UNKNOWN) | 0.6009 | 0.8561 | 63/63 | 0.4718 | **0.6770** |
+| `Optolong-L-Quad-Enhance` 2026-04-22 | 0.4528 | 1.0027 | 50/50 | 0.4413 | **1.0027** |
+| `Optolong-L-eNhance` 2023-06-17 (ASI533, `LEH`) | 0.1756 | 0.8895 | 78/63 | 0.0992 | **0.7026** |
+
+**`ASI533mc -10deg 240s` is the Optolong L-Ultimate 3 nm, and its folder said so all along.** In true
+units its B/G is 0.5703 against the 3 nm band's 0.5588 +/- 0.0053, and within 0.6 percent of the two
+clean May 2025 sets. Its capture folder reads `L-Ultra`; the parking was caused entirely by comparing
+0.7262 against 0.567. Its two sessions (Vela SNR P2a 2025-01-18, eta Car OIII+Ha 2025-01-31) had been
+heading for a provisional `Unidentified-HaOIII` slug on the strength of that gap, and group R files
+them as 3 nm instead. Their de-white-balanced sky B/G is 0.565 to 0.580 against the 3 nm reference
+sky 0.5639 +/- 0.0099, at the reference's own 1.7 to 2.2 ADU/s, so sky and flat now agree; the sky
+rate had *always* read 3 nm-class and was the tell that went unexplained.
+
+**The two LPS D3 rows were never affected**, because both are offset 13 and shared the setting; the
+anchor and its first use compare cleanly, and in true units the population is 0.1802 +/- 0.0011 /
+0.7614 +/- 0.0034, tighter than the raw figures suggested. The 2024-02-10 Vela campaign flat joins
+it at 0.1734 / 0.7622, which is 0.1 percent off on the discriminating axis.
+
+**`Rosette Dec 24` survives the correction as a genuine unknown, and gains a partner.** At
+0.4718 / 0.6770 it still matches no anchored band, but `Orion Dec 24` three weeks earlier reads
+0.4842 / 0.6822, agreeing to 2.6 and 0.8 percent, so it is a population of two rather than a
+singleton. Both sessions run 55 to 95 ADU/s, which is broadband, so R/G is evidence here (see below)
+and the pair is one unidentified broadband filter. Group R files all three sessions that use them
+(Orion, Rosette, Seagull) as `Unidentified-Broadband`. The L-eNhance guess the old text floated is
+now excluded on this body's own measurement rather than on a cross-sensor caution: the ASI533
+L-eNhance reads B/G 0.7026 and 55 to 95 ADU/s is not a dual-band's throughput.
+
+### 2a-quinquies. For a LINE-SELECTIVE filter only B/G is usable; R/G belongs to the flat PANEL
+
+Section 2a says R/G is the uninformative axis and section 2a-ter says that is a property of the
+ASI533/SV605 measurements rather than a law. Here is the mechanism, measured over ten L-Ultimate
+flat sets (seven ASI533, three SV605CC):
+
+| filter | sets | true R/G | true B/G |
+|---|---|---|---|
+| `Optolong-L-Ultimate-3nm` ASI533 | 7 | 0.158 to 0.546 (**3.5x**) | 0.5526 to 0.5669 (**+/-1%**) |
+| `Optolong-L-Ultimate-3nm` SV605CC | 3 | 0.281 to 0.518 | 0.5183 to 0.5387 |
+| `IDAS-LPS-D3` ASI533 (broadband) | 3 | 0.1734 to 0.1813 (**+/-2%**) | 0.7579 to 0.7648 |
+| `Optolong-L-Quad-Enhance` SV605CC (broadband) | 3 | 0.4117 to 0.4233 | 1.0243 to 1.0322 |
+
+**A 3 nm window at 656 nm samples whatever far-red tail the flat panel happens to emit**, which
+varies with the panel, its brightness setting and the exposure, and is a property of the light
+source rather than of the filter. B/G is stable because the OIII window at 500.7 nm sits where an
+LED panel actually produces light. A broadband filter integrates the panel's whole spectrum, so its
+R/G is stable too and remains usable: LPS D3 holds to +/-2 percent over three sessions spanning
+nine months.
+
+**So identify a line-selective filter on B/G alone, and say so in the verdict.** Quoting a 3 nm
+set's R/G as corroboration is quoting the flat panel. This is also why the L-eNhance row above cites
+B/G 0.7026 and not its R/G of 0.0992: against the 3 nm's 0.5588 the blue excess is the Hb line at
+486.1 nm that the L-eNhance passes and the L-Ultimate does not, which is a real physical separation,
+while the red difference is two different panels.
+
+**Neither unknown is nameable from the pixels alone and `Unidentified-Broadband` stays parked.**
+`Rosette Dec 24`'s folder says `Rosette RGB 120s`, and `RGB` is a processing mode rather than a
+filter by section 1's own rule, so there is no textual hint to corroborate. Naming it needs the
+owner, a reference frame on this body, or a flat set shot through a filter already identified.
 
 ### 2b. The owner's hand-labelled reference frames are the naming evidence
 
