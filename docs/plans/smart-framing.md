@@ -65,8 +65,8 @@ is the review**: it resolves every OpenNGC name and identifier through SIMBAD by
 misses into MISPLACED (a different object beyond the row's extent), SUSPECT (inside it, where IC 434
 hid) and CENTRE (the same designation, not an error). Run it after every `Copy-OpenNGC.ps1`.
 
-**SIMBAD ALONE IS NOT EVIDENCE, and the first upstream PR proved it: 10 of 18 findings rejected**
-(mattiaverga/OpenNGC#53), nearly all on "SIMBAD is wrong, NED and LEDA agree with each other". A
+**SIMBAD ALONE IS NOT EVIDENCE, and the first upstream PR proved it: 11 of 18 findings rejected**
+(mattiaverga/OpenNGC#53), 10 of them on "SIMBAD is wrong, NED and LEDA agree with each other". A
 single source cannot tell a catalogue ERROR from a disagreement BETWEEN catalogues. Every miss now
 gets a second opinion -- NED, HyperLeda for a PGC/LEDA number, Stellarium's `names.dat` for a common
 name -- and lands in CONFIRMED / DISPUTED / SIMBAD-ONLY. **It is triage, not a filter**, measured:

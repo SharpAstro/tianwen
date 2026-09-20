@@ -107,8 +107,10 @@ namespace TianWen.UI.Abstractions
             _hoverResolvedThisFrame = true;
 
             HoverResolves++;
+            // The CACHED pinned set, not a fresh one: this runs once per painted frame while the
+            // pointer moves, and GetPinnedCatalogIndices allocates a set per call.
             var resolved = SkyMapSearchActions.ResolveHoverAtScreenPoint(
-                State, db, _lastViewingTime, x, y, plannerState.Proposals, plannerState.Comets);
+                State, db, _lastViewingTime, x, y, PinnedCatalogIndices(plannerState), plannerState.Comets);
 
             // Record the view alongside, so the draw can tell a target that is still current from one
             // the sky has since moved out from under.
@@ -174,9 +176,21 @@ namespace TianWen.UI.Abstractions
             }
 
             if (!SkyMapProjection.ProjectWithMatrix(hover.RA, hover.Dec, State.CurrentViewMatrix,
-                    pixelsPerRadian, cx, cy, out var sx, out var sy)
-                || sx < contentRect.X || sx >= contentRect.X + contentRect.Width
-                || sy < contentRect.Y || sy >= contentRect.Y + contentRect.Height)
+                    pixelsPerRadian, cx, cy, out var sx, out var sy))
+            {
+                return;
+            }
+
+            // Culled with a MARGIN, not at the rect edge. An object is resolved by its shape radius,
+            // so at a deep zoom into a large nebula -- NGC 7000, M 42, exactly the crowded fields this
+            // feature is for -- the CENTRE is commonly off screen while the object fills the view. An
+            // edge test dropped the wash there: hover resolved, nothing drew, and the click still
+            // selected. The margin mirrors ProjectSkyMapCandidatesInto, which keeps a candidate up to
+            // 100 px plus its semi-major axis outside the rect for the same reason; the renderer clips
+            // whatever hangs over.
+            var margin = OverlayEngine.HoverSpotMaxRadiusPx * DpiScale;
+            if (sx < contentRect.X - margin || sx >= contentRect.X + contentRect.Width + margin
+                || sy < contentRect.Y - margin || sy >= contentRect.Y + contentRect.Height + margin)
             {
                 return;
             }

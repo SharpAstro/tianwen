@@ -429,8 +429,8 @@ def main():
     # ---------------------------------------------------------- second opinion --
     #
     # SIMBAD alone cannot tell a catalogue ERROR from a disagreement BETWEEN catalogues, and the
-    # first PR this audit produced (mattiaverga/OpenNGC#53) had 10 of 18 findings rejected on
-    # exactly that: "SIMBAD is wrong, NED and LEDA agree with each other". So every miss now gets
+    # first PR this audit produced (mattiaverga/OpenNGC#53) had 11 of 18 findings rejected -- 10 of
+    # them on exactly that: "SIMBAD is wrong, NED and LEDA agree with each other". So every miss gets
     # asked of a second source -- and the result is a BUCKET, never a filter. See corroborate.py
     # for why filtering was measured and rejected: it would have suppressed 10 of the 12 rejected
     # rows and 5 of the 8 ACCEPTED ones.
@@ -456,7 +456,10 @@ def main():
                 log(f"  {n}/{len(to_check)}")
         log(f"Second-opinion requests made: {corroborate.REQUEST_COUNT}")
     for m in misses:
-        m.setdefault('corroboration', 'NOT CHECKED' if m['class'] == 'CENTRE' else 'NOT CHECKED')
+        # 'NOT CHECKED' either way: a CENTRE miss is skipped deliberately (it is the same
+        # designation with a different centre, so there is no "which object" to corroborate), and a
+        # --no-corroborate run skipped everything. The distinction is in the summary, not the row.
+        m.setdefault('corroboration', 'NOT CHECKED')
         m.setdefault('corroboration_detail', '')
         m.setdefault('source_catalogue', '')
 
@@ -531,8 +534,8 @@ def main():
             "numbering), Stellarium's curated `names.dat` for a common name.\n\n"
             "**This is triage, not a filter, and the reason is measured.** The first PR this "
             "audit produced ([mattiaverga/OpenNGC#53]"
-            "(https://github.com/mattiaverga/OpenNGC/pull/53)) had **10 of 18 findings "
-            "rejected**, nearly all on one sentence from the maintainer: *SIMBAD is wrong, NED "
+            "(https://github.com/mattiaverga/OpenNGC/pull/53)) had **11 of 18 findings "
+            "rejected**, 10 of them on one sentence from the maintainer: *SIMBAD is wrong, NED "
             "and LEDA agree with each other*. But re-running those 20 identifier rows through "
             "NED shows that a rule of 'only file when a second source agrees with SIMBAD' "
             "would have suppressed **10 of the 12 rejected rows AND 5 of the 8 accepted "

@@ -421,10 +421,15 @@ namespace TianWen.UI.Abstractions
         /// the sky is behind it, because the map is then drawing the same catalogue everywhere else
         /// and this overlay reaches past the frame edge -- the band where both would draw is exactly
         /// the band that produced two stacked labels per object.</param>
+        /// <param name="onlyWithPicture">Passed through to the gather, for the same reason
+        /// <paramref name="showDarkNebulae"/> is: this overlay is a producer the palette's rows drive,
+        /// so a row that reaches the sky around the photograph but not the photograph would leave the
+        /// objects it filtered still marked and labelled on the frame.</param>
         /// <param name="showDarkNebulae">Passed through to the gather; false while the sky map's own
         /// [D] row is off, so one row switches them off everywhere rather than only outside.</param>
         private void RenderOverlays(ViewerState state, WCS wcs, ICelestialObjectDB db,
-            SelectionRingGeometry? selectionRing, bool confineToFrame = false, bool showDarkNebulae = true)
+            SelectionRingGeometry? selectionRing, bool confineToFrame = false, bool showDarkNebulae = true,
+            bool onlyWithPicture = false)
         {
             _drawnOverlayObjects = ImmutableArray<DrawnOverlayObject>.Empty;
 
@@ -436,7 +441,7 @@ namespace TianWen.UI.Abstractions
             var layout = CurrentViewportLayout(state);
 
             var items = OverlayEngine.ComputeOverlays(layout, wcs, db, MeasureText, BaseFontSize,
-                showDarkNebulae);
+                showDarkNebulae, onlyWithPicture);
 
             // The split is by the marker's CENTRE, not by clipping, so an object is drawn whole by
             // exactly one of the two producers -- a clip would cut markers in half at the frame edge

@@ -1021,7 +1021,11 @@ namespace TianWen.UI.Abstractions
             {
                 RenderOverlays(state, overlayWcs, db, selectionRing,
                     confineToFrame: skyOwnsOutside,
-                    showDarkNebulae: !skyOwnsOutside || SkyBackdrop?.State.ShowDarkNebulae != false);
+                    showDarkNebulae: !skyOwnsOutside || SkyBackdrop?.State.ShowDarkNebulae != false,
+                    // The [I] row, for the same reason [D] is carried: both drive this producer too
+                    // while the backdrop is drawing. Only while it IS drawing -- with no backdrop the
+                    // palette is not on screen and its rows govern nothing here.
+                    onlyWithPicture: skyOwnsOutside && SkyBackdrop?.State.ShowOnlyObjectsWithPicture == true);
             }
             else
             {

@@ -385,9 +385,17 @@ public static class OverlayEngine
     /// from the orange pinned halo it can sit under.
     /// </summary>
     /// <remarks>
-    /// A WASH rather than a ring, deliberately. A ring is what selection already is, and a second
-    /// ring a few pixels out reads as a second object; a fill is a different visual channel and
-    /// survives Night mode, where blue is zero and a hue shift is not available to separate the two.
+    /// <para>A WASH rather than a ring, deliberately. A ring is what selection already is, and a
+    /// second ring a few pixels out reads as a second object; a fill is a different visual channel,
+    /// so the two separate without needing a hue difference to carry the distinction.</para>
+    /// <para>The RGB is the sky map's own selection yellow, the same triple
+    /// <c>SkyMapTab.Search</c>'s <c>SelectionMarker</c> uses, so the thing a click would take and the
+    /// thing it took are one colour at two alphas. A star-chart literal rather than a
+    /// <see cref="GuiTheme"/> entry for the reason the whole map's chrome is: it is drawn over the
+    /// sky and has to stay legible against that rather than against the app's background. An earlier
+    /// draft of this remark claimed the fill "survives Night mode, where blue is zero" -- it carries
+    /// blue 0x60, so that was simply wrong, and the wash is no more Night-proof than the selection
+    /// reticle it matches.</para>
     /// </remarks>
     public static readonly RGBAColor32 HoverSpotColor = new(0xFF, 0xEE, 0x60, 0x30);
 
@@ -638,6 +646,11 @@ public static class OverlayEngine
     /// <param name="measureText">Callback to measure text width: (text, fontSize) → width in pixels.</param>
     /// <param name="baseFontSize">Base font size (before DPI scaling) for labels.</param>
     /// <returns>Sorted list of overlay items (brightest first).</returns>
+    /// <param name="onlyWithPicture">The <c>[I]</c> sub-setting of the object layer: narrow to the
+    /// objects the imagery bake verified a picture for. Carried here because the viewer's in-frame
+    /// overlay is a FOURTH producer of markers driven by the same palette rows, and a row that
+    /// reaches the sky around the photograph but not the photograph itself leaves the objects it
+    /// filtered still marked and labelled on the frame.</param>
     /// <param name="showDarkNebulae">Whether dark nebulae are among the types drawn. False drops
     /// them, which is what the sky map's own [D] row means -- and this overlay has to honour it too
     /// while both are on screen, or switching the row off leaves every dark nebula INSIDE the frame
@@ -648,7 +661,8 @@ public static class OverlayEngine
         ICelestialObjectDB db,
         Func<string, float, float> measureText,
         float baseFontSize,
-        bool showDarkNebulae = true)
+        bool showDarkNebulae = true,
+        bool onlyWithPicture = false)
     {
         var result = new List<OverlayItem>();
 
@@ -765,9 +779,18 @@ public static class OverlayEngine
                         continue;
                     }
 
-                    // The sky map's own [D] row, honoured here too while both producers are drawing:
-                    // one row has to switch dark nebulae off everywhere, not only outside the frame.
-                    if (!showDarkNebulae && obj.ObjectType == ObjectType.DarkNeb)
+                    // The sky map's own [D] and [I] rows, honoured here too while both producers
+                    // are drawing: one row has to act everywhere, not only outside the frame. Through
+                    // the SAME predicate the gather and the click resolver ask, so this producer
+                    // cannot answer differently -- it was a fourth producer with its own copy of the
+                    // [D] rule and no copy at all of [I], which left a filtered object unmarked in
+                    // the sky and still marked on the photograph.
+                    //
+                    // showObjects is true here by construction: this overlay only runs when the
+                    // viewer's own [O] equivalent (state.ShowOverlays) is on.
+                    if (!PassesLayerFilter(obj.ObjectType, isPinned: false,
+                            hasPicture: onlyWithPicture && HasVerifiedPicture(db, idx),
+                            showObjects: true, showDarkNebulae, onlyWithPicture))
                     {
                         continue;
                     }
@@ -960,12 +983,23 @@ public static class OverlayEngine
             return true;
         }
 
-        if (!(objectType == ObjectType.DarkNeb ? showDarkNebulae : showObjects))
+        // [D] is its OWN layer and the picture filter does not reach it. That is not a softening of
+        // "only with photo": the row is presented as a sub-setting of [O] -- indented under it, and
+        // unavailable while it is off -- so filtering a layer that [O] does not govern contradicted
+        // the control's own shape, and it did so invisibly.
+        //
+        // It was also a trap in two keystrokes. With [O] on, turn [I] on; then turn [O] off and [D]
+        // on. The filter went on applying (almost no dust lane has a verified article, so the layer
+        // emptied), while SkyMapLayer.Toggle answered false because the row is unavailable and
+        // ItemsFor drew it dimmed and OFF -- a filter in force, reported as off, with no way to
+        // reach it but turning [O] back on. Scoping it here is what makes the row's availability
+        // rule and its effect the same rule.
+        if (objectType == ObjectType.DarkNeb)
         {
-            return false;
+            return showDarkNebulae;
         }
 
-        return !onlyWithPicture || hasPicture;
+        return showObjects && (!onlyWithPicture || hasPicture);
     }
 
     /// <summary>
@@ -980,6 +1014,10 @@ public static class OverlayEngine
         {
             return;
         }
+
+        // Note the picture filter alone is NOT a no-op even with both layers on, because it narrows
+        // the [O] half; and with [O] off it changes nothing, which is why the row may be unavailable
+        // then without stranding a filter nobody can reach.
 
         candidates.RemoveAll(c => !PassesLayerFilter(
             c.ObjectType, c.IsPinned, c.HasPicture, showObjects, showDarkNebulae, onlyWithPicture));

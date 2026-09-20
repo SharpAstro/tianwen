@@ -73,7 +73,7 @@ public class SkyMapHoverAndPictureTests
         var (starX, starY) = Project(state, Star.RA, Star.Dec);
 
         var hover = SkyMapSearchActions.ResolveHoverAtScreenPoint(
-            state, db, viewingUtc, starX, starY, []).ShouldNotBeNull();
+            state, db, viewingUtc, starX, starY, pinnedCatalogIndices: null).ShouldNotBeNull();
 
         SkyMapSearchActions.SelectAtScreenPoint(
             state, db, 0, 0, viewingUtc, starX, starY, InputModifier.None, []).ShouldBeTrue();
@@ -96,7 +96,7 @@ public class SkyMapHoverAndPictureTests
         var viewingUtc = DateTimeOffset.UtcNow;
         var (starX, starY) = Project(state, Star.RA, Star.Dec);
 
-        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, viewingUtc, starX, starY, [])
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, viewingUtc, starX, starY, pinnedCatalogIndices: null)
             .ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
 
         SkyMapSearchActions.SelectAtScreenPoint(
@@ -113,7 +113,7 @@ public class SkyMapHoverAndPictureTests
 
         // Far outside the nebula's ~250 px hit radius, still inside the surface.
         SkyMapSearchActions.ResolveHoverAtScreenPoint(
-            state, db, DateTimeOffset.UtcNow, 980f, 20f, []).ShouldBeNull();
+            state, db, DateTimeOffset.UtcNow, 980f, 20f, pinnedCatalogIndices: null).ShouldBeNull();
     }
 
     // A pointer off the map is not over anything, and the projection would happily answer for a point
@@ -126,11 +126,11 @@ public class SkyMapHoverAndPictureTests
         state.CurrentViewMatrix = state.ComputeViewMatrix();
         var (nebX, nebY) = Project(state, Nebula.RA, Nebula.Dec);
 
-        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, DateTimeOffset.UtcNow, nebX, nebY, [])
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, DateTimeOffset.UtcNow, nebX, nebY, pinnedCatalogIndices: null)
             .ShouldNotBeNull();
 
         state.LastContentRect = new RectF32(0, 0, 200, 200);
-        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, DateTimeOffset.UtcNow, nebX, nebY, [])
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, DateTimeOffset.UtcNow, nebX, nebY, pinnedCatalogIndices: null)
             .ShouldBeNull();
     }
 
@@ -147,14 +147,14 @@ public class SkyMapHoverAndPictureTests
         var viewingUtc = DateTimeOffset.UtcNow;
         var (nebX, nebY) = Project(state, Nebula.RA, Nebula.Dec);
 
-        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, viewingUtc, nebX, nebY, [])
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, viewingUtc, nebX, nebY, pinnedCatalogIndices: null)
             .ShouldBeNull("the nebula has no verified picture and the filter is on");
         SkyMapSearchActions.SelectAtScreenPoint(
             state, db, 0, 0, viewingUtc, nebX, nebY, InputModifier.None, []).ShouldBeFalse();
 
         // Switch the filter off and the same pixel resolves again.
         state.ShowOnlyObjectsWithPicture = false;
-        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, viewingUtc, nebX, nebY, [])
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, viewingUtc, nebX, nebY, pinnedCatalogIndices: null)
             .ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
     }
 
@@ -166,7 +166,7 @@ public class SkyMapHoverAndPictureTests
         state.CurrentViewMatrix = state.ComputeViewMatrix();
         var (nebX, nebY) = Project(state, Nebula.RA, Nebula.Dec);
 
-        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, DateTimeOffset.UtcNow, nebX, nebY, [])
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, DateTimeOffset.UtcNow, nebX, nebY, pinnedCatalogIndices: null)
             .ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
     }
 
@@ -183,19 +183,46 @@ public class SkyMapHoverAndPictureTests
             .ShouldBeTrue();
     }
 
-    // Stated because it reads as harsh and is deliberate: "only with photo" is a statement about the
-    // whole overlay, so the dark-nebula layer is narrowed by it too.
-    [Fact]
-    public void TheFilterNarrowsTheDarkNebulaLayerAsWell()
-    {
-        OverlayEngine.PassesLayerFilter(
-            ObjectType.DarkNeb, isPinned: false, hasPicture: false,
-            showObjects: false, showDarkNebulae: true, onlyWithPicture: true).ShouldBeFalse();
-
-        OverlayEngine.PassesLayerFilter(
-            ObjectType.DarkNeb, isPinned: false, hasPicture: true,
+    // [D] is its OWN layer and the picture filter does not reach it. This asserted the opposite at
+    // first, on the reasoning that "only with photo" is a statement about the whole overlay -- and
+    // that contradicted the row's own shape, since it is presented as a sub-setting of [O] and is
+    // unavailable while [O] is off.
+    //
+    // Worse, the two rules together were a trap reachable in two keystrokes: with [O] on turn [I]
+    // on, then turn [O] off and [D] on. The filter kept applying (almost no dust lane has a
+    // verified article, so the layer emptied) while the row was unavailable, its Toggle answered
+    // false and the palette drew it dimmed and OFF. A filter in force, reported as off, reachable
+    // only by turning [O] back on. Both halves had a passing test and neither saw it.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TheFilterDoesNotReachTheDarkNebulaLayer(bool hasPicture)
+        => OverlayEngine.PassesLayerFilter(
+            ObjectType.DarkNeb, isPinned: false, hasPicture: hasPicture,
             showObjects: false, showDarkNebulae: true, onlyWithPicture: true).ShouldBeTrue();
+
+    // The other half of the same rule: with [O] off the filter changes nothing at all, which is
+    // what makes the row's availability rule and its effect the same rule.
+    [Fact]
+    public void WithTheObjectLayerOffTheFilterIsInert()
+    {
+        foreach (var onlyWithPicture in new[] { false, true })
+        {
+            OverlayEngine.PassesLayerFilter(
+                ObjectType.HIIReg, isPinned: false, hasPicture: false,
+                showObjects: false, showDarkNebulae: true, onlyWithPicture: onlyWithPicture)
+                .ShouldBeFalse("an object of an [O] type is hidden by [O] being off, filter or not");
+        }
     }
+
+    // And it still narrows what [O] admits, which is the whole point of the row.
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public void TheFilterNarrowsTheObjectLayer(bool hasPicture, bool expected)
+        => OverlayEngine.PassesLayerFilter(
+            ObjectType.HIIReg, isPinned: false, hasPicture: hasPicture,
+            showObjects: true, showDarkNebulae: false, onlyWithPicture: true).ShouldBe(expected);
 
     // The filter strips the CACHED candidate list, so a key that does not carry it would keep serving
     // the list gathered before the toggle -- and, switching back, never restore what it removed.

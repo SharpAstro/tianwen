@@ -101,7 +101,7 @@ the next time the DM is scanned.
   check in and replay), that does not exist.
 - [x] **"sky atlas bug: obj selection"** (2026-06-08): **CLOSED 2026-09-20 by the hover highlight.**
   It was too terse to match to a fix with confidence for two sweeps -- two candidates had landed in
-  the meantime (`b920c53a`, selection reticles + alt/az live across a date/time scrub; and the
+  the meantime ("fix(skymap): keep selection reticles + alt/az live on date/time scrub"; and the
   dark-nebula click resolver honouring the `[D]` toggle) and neither was obviously it. The user's own
   reading, 2026-09-20: *"probably fixed by supporting mouse-over highlighting"*. So the complaint was
   never that selection picked the WRONG object, it was that on a crowded field you could not tell

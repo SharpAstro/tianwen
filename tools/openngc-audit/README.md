@@ -62,7 +62,7 @@ User-Agent naming the project, and a growing pause on a 429 or a 5xx.
 
 The first upstream PR this audit produced
 ([mattiaverga/OpenNGC#53](https://github.com/mattiaverga/OpenNGC/pull/53), 18 findings) came back
-with **10 rejected**, nearly all on one sentence from the maintainer: *SIMBAD is wrong, NED and
+with **11 rejected** -- 10 of them on one sentence from the maintainer: *SIMBAD is wrong, NED and
 LEDA agree with each other*. A single source cannot tell a catalogue ERROR from a disagreement
 BETWEEN catalogues, and this audit was reporting the second as if it were the first.
 
