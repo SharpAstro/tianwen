@@ -181,8 +181,11 @@ internal sealed class Tycho2RaDecIndex
                 var tyc2 = BinaryPrimitives.ReadUInt16LittleEndian(_tycho2Data.AsSpan(pos, 2));
                 var tyc3 = _tycho2Data[pos + 2];
 
-                var encoded = EncodeTyc2CatalogIndex(Catalog.Tycho2, tyc1, tyc2, tyc3);
-                yield return AbbreviationToCatalogIndex(encoded, isBase91Encoded: true);
+                // Tyc2CatalogIndex, not EncodeTyc2CatalogIndex + a re-parse: the two pack the same
+                // value, but the encoder returns a STRING that this then reads straight back. The
+                // direct one is stackalloc throughout. Same substitution as the one its own doc
+                // records (33.7 MB of Gen0 to 3.84 MB); these two call sites were missed by it.
+                yield return Tyc2CatalogIndex(Catalog.Tycho2, tyc1, tyc2, tyc3);
             }
         }
     }
@@ -221,8 +224,10 @@ internal sealed class Tycho2RaDecIndex
                     var tyc2 = BinaryPrimitives.ReadUInt16LittleEndian(_tycho2Data.AsSpan(pos, 2));
                     var tyc3 = _tycho2Data[pos + 2];
 
-                    var encoded = EncodeTyc2CatalogIndex(Catalog.Tycho2, tyc1, tyc2, tyc3);
-                    result.Add(AbbreviationToCatalogIndex(encoded, isBase91Encoded: true));
+                    // See the note in EnumerateStarsInDecBand: the direct, stackalloc form rather
+                    // than a string built only to be parsed back. This is the per-cell path the sky
+                    // map's click and hover resolve walks nine times per press.
+                    result.Add(Tyc2CatalogIndex(Catalog.Tycho2, tyc1, tyc2, tyc3));
                 }
             }
         }
