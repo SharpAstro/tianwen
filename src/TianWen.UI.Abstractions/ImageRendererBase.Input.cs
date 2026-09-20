@@ -364,6 +364,35 @@ namespace TianWen.UI.Abstractions
                 return false;
             }
 
+            // A chord that names a toolbar button is resolved from the DECLARATION, not from an arm
+            // here. This is what makes a key and a button one control rather than two that agree by
+            // hand: the enabled gate comes from the button's own predicate, so a key can never act
+            // where its button is greyed out -- D used to hand-copy that predicate, with a comment
+            // saying it was "through the BUTTON's predicate, not a second copy of it", which it was.
+            // The route (press, or open the menu) is declared too, because it is not guessable from
+            // the action: a press on Zoom toggles fit/1:1 while Z opens the ratio menu.
+            if (ViewerShortcuts.TryResolveRoute(key, modifiers) is { Button: { } declaredButton } routed)
+            {
+                switch (routed.Route)
+                {
+                    case ViewerShortcutRoute.OpenMenu:
+                        // Answers false when the button was never painted, which is the right no-op:
+                        // there would be nothing to anchor the panel to.
+                        return OpenToolbarDropdown(state, declaredButton);
+
+                    case ViewerShortcutRoute.Press:
+                        if (IsToolbarButtonEnabled(declaredButton, _document))
+                        {
+                            PressToolbarButton(state, declaredButton, MouseButton.Left);
+                            state.NeedsRedraw = true;
+                        }
+
+                        // Handled either way: the key belongs to a button that exists, and letting it
+                        // fall through would hand it to whatever tests the same chord next.
+                        return true;
+                }
+            }
+
             if (ctrl)
             {
                 switch (key)
@@ -397,11 +426,10 @@ namespace TianWen.UI.Abstractions
                         state.CarryDisplayAcrossFrames = !state.CarryDisplayAcrossFrames;
                         state.NeedsRedraw = true;
                         return true;
+                    // Ctrl+Shift+S is NOT handled here: it names the Save button and is resolved
+                    // from the declaration above, which opens that button's menu. Keeping a shift
+                    // branch here as well would be the second copy this whole change removes.
                     case InputKey.S:
-                        if (shift)
-                        {
-                            return OpenToolbarDropdown(state, ToolbarAction.Save);
-                        }
                         PostSignal(new SaveImageSignal(WithOverlays: false, PngDepth.SixteenBit));
                         return true;
                 }
@@ -442,9 +470,6 @@ namespace TianWen.UI.Abstractions
                 case InputKey.F11:
                     PostSignal(new ToggleFullscreenSignal());
                     return true;
-                case InputKey.T:
-                    ViewerActions.ToggleStretch(state);
-                    return true;
                 case InputKey.S:
                     state.ShowStarOverlay = !state.ShowStarOverlay;
                     return true;
@@ -459,17 +484,6 @@ namespace TianWen.UI.Abstractions
                     else if (_source is { } channelSource)
                     {
                         ViewerActions.CycleChannelView(state, channelSource.ChannelCount);
-                    }
-                    return true;
-                case InputKey.D:
-                    // Through the BUTTON's predicate, not a second copy of it. The button has always
-                    // been disabled for a frame with no CFA; the key was not, so on a mono frame D
-                    // cycled a demosaic that has nothing to act on, and the status line changing said
-                    // the picture had changed when it had not. (Auto already resolves mono to
-                    // BilinearMono, so every option there was the same option.)
-                    if (IsToolbarButtonEnabled(ToolbarAction.Debayer, _document))
-                    {
-                        ViewerActions.CycleDebayerAlgorithm(state);
                     }
                     return true;
                 case InputKey.I:
@@ -494,8 +508,6 @@ namespace TianWen.UI.Abstractions
                 // anchors under the button, starts the AI capability probe and opens the root page.
                 // It answers false when the button was never painted (a chromeless embedded host),
                 // which is the right no-op rather than a panel anchored at nothing.
-                case InputKey.F1:
-                    return OpenToolbarDropdown(state, ToolbarAction.Shortcuts);
                 case InputKey.Plus:
                     ViewerActions.CycleStretchPreset(state);
                     return true;
@@ -577,32 +589,9 @@ namespace TianWen.UI.Abstractions
                 case InputKey.F:
                     ViewerActions.ZoomToFit(state);
                     return true;
-                case InputKey.N:
-                    TryToggleBackgroundNeutralization(state);
-                    return true;
-                case InputKey.W:
-                    // Opens the white-balance popover, which is where the calibration now lives beside
-                    // the sliders it populates. It used to toggle the calibration directly, from a time
-                    // when that was a toolbar button and the only thing W could usefully reach; now the
-                    // popover holds the toggle, the provenance line and the three sliders, and a key
-                    // that opened only one of them would be the odd way in. Same shape as Z, which
-                    // opens the zoom menu rather than cycling a zoom.
-                    OpenToolbarDropdown(state, ToolbarAction.WhiteBalance);
-                    state.NeedsRedraw = true;
-                    return true;
                 case InputKey.R:
                     ViewerActions.ZoomToActual(state);
                     return true;
-                case InputKey.Z:
-                    // Opens the MENU rather than cycling a zoom, because the menu is the only way to
-                    // reach 1:N without already knowing which Ctrl+digit each ratio is -- and a
-                    // keyboard user could not open it at all before. F and R keep their direct fit and
-                    // 1:1, so the fast paths are untouched; this is the discoverable one.
-                    //
-                    // Returns the open result rather than a bare true: with no document the Zoom button
-                    // is not painted, so there are no bounds to anchor a menu to, and claiming the key
-                    // there would swallow it for nothing.
-                    return OpenToolbarDropdown(state, ToolbarAction.Zoom);
                 case InputKey.Space:
                     // The SER transport claims Space while a sequence is loaded (handled above), so this
                     // is the still-image case: the same play/pause gesture, pointed at the file list.
