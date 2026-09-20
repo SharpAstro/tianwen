@@ -12,9 +12,13 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// <see cref="OpenNgcCorrections"/> is the gap between a fix sent upstream to OpenNGC and the refresh that
-/// brings it in. Two things keep it honest: every line must still be NEEDED against the raw embedded row,
-/// and the catalogue must actually carry the corrected names.
+/// <see cref="OpenNgcCorrections"/> is either the gap between a fix upstream ACCEPTED and the refresh that
+/// brings it in, or a divergence upstream DECLINED and we kept. Two things keep it honest: every line must
+/// still be NEEDED against the raw embedded row, and the catalogue must actually carry the corrected names.
+/// <para>The pin below reads the same for both kinds, and deliberately so: it asks whether the raw row is
+/// still what the line says it is, which is the question that matters whether or not a fix is ever coming.
+/// What differs is only what a failure MEANS -- for an accepted line the fix landed and the line goes; for
+/// a declined one upstream changed its mind, and that is worth reading before deleting anything.</para>
 /// </summary>
 public sealed class OpenNgcCorrectionsTests
 {
@@ -70,7 +74,9 @@ public sealed class OpenNgcCorrectionsTests
     public void EveryCorrectionIsStillNeededAgainstTheRawUpstreamRow(string row)
     {
         // A value to remove must still be on the raw row and a value to add must still be absent from it.
-        // When this fails after an OpenNGC refresh, upstream has shipped the fix: delete the line.
+        // When this fails after an OpenNGC refresh: for a line whose Upstream says ACCEPTED, the fix has
+        // shipped and the line goes. For one that says DECLINED (the Flame Nebula pair), upstream has
+        // REVERSED a considered no, so read the PR before deleting -- the line was never waiting on it.
         var correction = OpenNgcCorrections.All.Single(c => c.Row == row);
         var raw = RawRows();
         raw.ShouldContainKey(row, "the corrected row must exist in the embedded OpenNGC table");
