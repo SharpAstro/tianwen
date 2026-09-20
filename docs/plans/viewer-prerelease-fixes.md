@@ -60,7 +60,7 @@ the 35 TIFF / import / codec tests pass against it.
 | P27 | Escape and an open panel: NOT a defect, and now pinned. My first diagnosis was wrong | **VERIFIED** 2026-09-08 |
 | P28 | The menu cannot name the object under the cursor, and the atlas link only copies | **FIXED** 2026-09-08 |
 | P29 | A touchscreen pinch does not zoom: the events were raised and dropped | **FIXED** 2026-09-09 |
-| P30 | Save opens to Explorer's last folder, not the currently-open file's folder | BACKLOG |
+| P35 | Save opens to Explorer's last folder, not the currently-open file's folder | BACKLOG |
 
 ---
 
@@ -1830,7 +1830,10 @@ to the identical `CatalogIndex` and cross-linked to each other. `Catalog.UGCA` i
 catalogue, probed before UGC; pinned by `UGCAndUGCAAreDistinctCatalogsDespiteSharingTheUGPrefix` and
 `GivenAUGCAIdentifierWhenLookingItUpThenTheCrossReferencedObjectIsReturnedNotTheUGCOne`.
 
-## P30. Save does not default to the opened file's folder  (BACKLOG, filed 2026-09-19)
+## P35. Save does not default to the opened file's folder  (BACKLOG, filed 2026-09-19)
+
+*Filed as "P30" on 2026-09-19, which was already taken by the Auto-renders-a-flat-colour-field fix
+above; renumbered 2026-09-20. A reference to "P30" written between those dates means this entry.*
 
 **Confirmed gap, not yet fixed.** `ViewerController.cs:471-483` builds the suggested Save name as a
 bare filename (`stem + ".png"`, no directory) and passes it straight to `fileDialog.SaveAsync(filters,
