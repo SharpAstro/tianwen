@@ -423,16 +423,24 @@ public static class CatalogIndexEx
 
         if (isMSBSet)
         {
-            var encoded = EnumValueToAbbreviation(catalogIndexUl);
-            if (Base91.DecodeBytes(encoded) is { Length: > 1} decoded)
+            // Both steps into stack buffers: the string and the byte array this used to build per
+            // call were 71 B and most of a 100 ns lookup, paid by every decode of a Tycho-2 or comet
+            // index anywhere in the program (SkyMapHoverResolveCostProbe measured 78 KB of a 225 KB
+            // sky-map hover resolve here). The encode side had already gone the same way in
+            // CatalogUtils.Tyc2CatalogIndex.
+            Span<char> encoded = stackalloc char[MaxLenInASCII];
+            var encodedLength = EnumValueToAbbreviation(catalogIndexUl, encoded);
+            Span<byte> decoded = stackalloc byte[Base91.MaxDecodedLength(MaxLenInASCII)];
+            var decodedLength = Base91.DecodeBytes(encoded[..encodedLength], decoded);
+            if (decodedLength > 1)
             {
                 const int max = BytesInUlong;
                 Span<byte> bytesUlN = stackalloc byte[max];
-                decoded.CopyTo(bytesUlN[(max - decoded.Length)..]);
+                decoded[..decodedLength].CopyTo(bytesUlN[(max - decodedLength)..]);
 
                 var decodedULH = BinaryPrimitives.ReadUInt64BigEndian(bytesUlN);
 
-                return ((Catalog)(decoded[^1] & ASCIIMask), decodedULH >> ASCIIBits, true);
+                return ((Catalog)(decoded[decodedLength - 1] & ASCIIMask), decodedULH >> ASCIIBits, true);
             }
             else
             {

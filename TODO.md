@@ -162,24 +162,32 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     behind resolves, and the wash is painted under the panel covering it.
   - **At most one resolve per painted frame, and the bound is now a checked-in benchmark**
     (`SkyMapHoverResolveBenchmarks`, Release, win-arm64). The first figures here came from a
-    throwaway Debug probe and were wrong in two ways at once, which is why the benchmark exists:
-    | FOV | over an object | over bare star field |
-    |---|---|---|
-    | 1 deg | 8.8 us, 288 B | **389 us, 225 KB** |
-    | 10 deg | 9.7 us, 288 B | **357 us, 225 KB** |
-    | 60 deg | 9.4 us, 288 B | 1.7 us, 288 B |
-    | 170 deg | 9.6 us, 288 B | 1.6 us, 288 B |
-    **The two paths differ by 44x**, because the DSO pass runs first and the star pass NEVER RUNS
-    when it matches -- so resting on a catalogued object is cheap at any zoom and only bare sky pays.
-    The old single number blended them.
-    **The 44x is that short-circuit and nothing else**, which took a second correction to establish.
+    throwaway Debug probe and were wrong in two ways at once, which is why the benchmark exists.
+    Before and after the fixes below:
+    | FOV | over an object | over bare star field, before | after |
+    |---|---|---|---|
+    | 1 deg | ~10 us, 288 B | **389 us, 225 KB** | **166 us, 27.6 KB** |
+    | 10 deg | ~10 us, 288 B | **357 us, 225 KB** | **139 us, 27.6 KB** |
+    | 60 deg | ~10 us, 288 B | 1.7 us, 288 B | 1.8 us, 288 B |
+    | 170 deg | ~10 us, 288 B | 1.6 us, 288 B | 1.7 us, 288 B |
+    **The two paths differ by 16x** (44x before), because the DSO pass runs first and the star pass
+    NEVER RUNS when it matches -- so resting on a catalogued object is cheap at any zoom and only
+    bare sky pays. The old single number blended them.
+    **The gap is that short-circuit and nothing else**, which took a second correction to establish.
     This entry used to say the star pass "falls off a cliff as `EffectiveMagnitudeLimit` tightens",
     which was read off the code rather than measured, and is wrong twice over.
-    `SkyMapHoverResolveCostProbe` (`TIANWEN_HOVER_PROBE=1`) attributes it:
+    `SkyMapHoverResolveCostProbe` (`TIANWEN_HOVER_PROBE=1 DOTNET_TieredCompilation=0`) attributes it:
     - The nine index cells derive from the unprojected pointer, so they are **identical at every
       zoom** -- 22 deep-sky entries against 1094 composite ones, whatever the FOV.
-    - What the pass then SPENDS, per resolve on bare sky at 10 degrees (389 us / 225 KB, probe
-      with `DOTNET_TieredCompilation=0`, whole within 7% of the benchmark):
+    - What decides whether the pass is paid is the DSO pass's hit test, floored at a **fixed 20
+      SCREEN pixels**, whose footprint in sky runs 0.020 deg at 1 degree FOV to 4.200 deg at 170. The
+      nearest deep-sky-grid entry to the benchmark's Aquila pointing is HD 183919 at 0.409 deg, so
+      the pass misses at 1 and 10 and matches at 60 and 170 -- which is exactly where the cliff is.
+    - The magnitude limit is the minor term and runs the **opposite** way: 1 degree is dearer than
+      10 over identical cells and identical lookups, because zoomed IN the limit admits MORE stars to
+      the projection.
+    - What the pass SPENT before the fix, per resolve on bare sky at 10 degrees (389 us / 225 KB,
+      probe whole within 7% of the benchmark):
       | term | time | bytes | each |
       |---|---|---|---|
       | `TryLookupByIndex` x1094 | **320 us** | **197 KB** | 293 ns, 180 B |
@@ -187,11 +195,23 @@ Checks that only a real device or a real night can answer live in ONE place, ind
       | of which `TryGetTycho2Star` x1094 (the binary search) | 111 us | 78 KB | 102 ns, 71 B |
       | 9 composite cell lookups (`GetStarsInCell`, 6572 read / 1072 kept = 6x) | 53 us | ~28 KB | |
       | magnitude gate + projection + hit test | ~16 us (~45 at 1 deg) | 0 | |
-      The constellation term precesses every candidate J2000 -> B1875 through
-      `CoordinateUtils.PrecessRadians`, which allocates its two vectors and its 3x3 matrix, to fill
-      `CelestialObject.Constellation`, which the hit test never reads. The binary search's bytes are
-      `CatalogIndex.ToCatalogAndValue` decoding base91 through a string and a byte array -- the
-      mirror of the string round trip `Tyc2CatalogIndex` removed from the ENCODE side.
+      The constellation term precessed every candidate J2000 -> B1875 through
+      `CoordinateUtils.PrecessRadians`, which built its two vectors and its 3x3 matrix as heap
+      arrays, to fill `CelestialObject.Constellation`, which the hit test never reads. The binary
+      search's bytes were `CatalogIndex.ToCatalogAndValue` decoding base91 through a string and a
+      byte array -- the mirror of the string round trip `Tyc2CatalogIndex` removed from the ENCODE
+      side.
+    - **Fixed 2026-09-20, three changes, two of them in `TianWen.Lib`:** `PrecessRadians` is scalars
+      throughout and `ToCatalogAndValue` decodes into stack buffers (a span `Base91.DecodeBytes` and
+      a span `EnumValueToAbbreviation` that the string forms now call, so they cannot drift), which
+      every catalogue lookup in the program inherits -- `TryLookupByIndex` on a Tycho-2 star went
+      from 293 ns / 180 B to 230 ns / 0 B. And the star pass reads a Tycho-2 candidate through
+      `TryGetTycho2Star` (the 17-byte entry as a struct, 76 ns / 0 B) and looks up only the WINNER
+      in full, which takes the constellation out of the resolve altogether.
+      `Tycho2LiteLookupParityTests` walks every cell of the composite grid to pin that the two
+      lookups read the same star (type, position, magnitude at Half width). What remains of the
+      27.6 KB is the nine cell lookups' `List` per cell and the composite's iterator; it is 1.7 MB/s
+      at 60 fps and not worth a pooled buffer yet.
     - **Two earlier versions of this entry were wrong.** The first named `GetStarsInCell` as the
       cost and the allocation (it stopped measuring one level too early). The second put
       `TryLookupByIndex` at "~905 ns, three to four times the cell lookups" and explained the
@@ -199,27 +219,12 @@ Checks that only a real device or a real night can answer live in ONE place, ind
       tiers a method up only after a quiet period, so a loop timed early ran Tier-0 code -- the same
       lookup loop read 992 us first and 290 us re-timed last in one run. **Run the probe with
       `DOTNET_TieredCompilation=0`** (it prints a warning otherwise); the parts then sum to the whole.
-    - **The fixes are three, and two are in `TianWen.Lib`, not the resolver:** an allocation-free
-      `PrecessRadians` (locals for the three arrays) and an allocation-free `ToCatalogAndValue`
-      (stackalloc the decode, as `Tyc2CatalogIndex` did for the encode) each pay off on every
-      catalogue lookup in the program, `Tycho2ColorCalibration` and `PlateSolveAnnotator` included.
-      Then the star pass calls `TryGetTycho2Star` -- which already exists and IS the 17-byte entry
-      as a struct -- for its candidates and `TryLookupByIndex` for the winner only, which removes
-      the constellation term from the resolve outright. Together: the nine cell lookups plus a
-      ~40 ns search per candidate, on the order of 110 us and 28 KB.
-    - What decides whether it is paid is the DSO pass's hit test, floored at a **fixed 20 SCREEN
-      pixels**, whose footprint in sky runs 0.020 deg at 1 degree FOV to 4.200 deg at 170. The
-      nearest deep-sky-grid entry to the benchmark's Aquila pointing is HD 183919 at 0.409 deg, so
-      the pass misses at 1 and 10 and matches at 60 and 170 -- which is exactly where the cliff is.
-    - The magnitude limit is the minor term and runs the **opposite** way: 1 degree (389 us) is
-      dearer than 10 (357 us) over identical cells and identical lookups, because zoomed IN the
-      limit admits MORE stars to the projection.
 
-    The Debug figure (2.048 ms at 1 degree) was also about 5x pessimistic. **The louder cost turns
+    The Debug figure (2.048 ms at 1 degree) was also about 5x pessimistic. **The louder cost turned
     out to be ALLOCATION**: 225 KB per resolve on bare sky zoomed in, roughly 13 MB/s at 60 fps and
-    28 MB/s if it ran per MOVE at a 125 Hz mouse. Measured, not inferred: 197 of the 225 KB is
-    `TryLookupByIndex` (120 KB the precession, 78 KB the base91 decode), so the same three fixes close
-    both halves. The click has always paid the same, once per press, where nobody can see it. Every
+    28 MB/s if it ran per MOVE at a 125 Hz mouse -- measured, not inferred, 197 of it in
+    `TryLookupByIndex` (120 KB the precession, 78 KB the base91 decode), and gone with the fixes
+    above. The click has always paid the same, once per press, where nobody can see it. Every
     resolve asks for the frame, even one that landed on the same object: the budget is released by a
     PAINT, so a resolve that scheduled none would be the last one until something else repainted.
   - **"Only with photo" is a SUB-SETTING of [O], not a layer** (key `I`, indented under "Objects" in

@@ -85,9 +85,32 @@ public static class Base91
     {
         ArgumentNullException.ThrowIfNull(code);
 
-        // Decoded output is at most ~81% of encoded length
         // Safety check for large strings by stackalloc'ing small outputs. This should not happen in practice.
-        Span<byte> output = code.Length < 100 ? stackalloc byte[code.Length] : new byte[code.Length];
+        Span<byte> output = code.Length < 100 ? stackalloc byte[MaxDecodedLength(code.Length)] : new byte[MaxDecodedLength(code.Length)];
+        var pos = DecodeBytes(code.AsSpan(), output);
+        return output[..pos].ToArray();
+    }
+
+    /// <summary>Upper bound on the bytes <see cref="DecodeBytes(ReadOnlySpan{char}, Span{byte})"/> writes: decoded output is at most ~81% of the encoded length.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int MaxDecodedLength(int charCount) => charCount;
+
+    /// <summary>
+    /// Decodes into a caller-supplied buffer and returns the number of bytes written, so a caller in a
+    /// loop can <c>stackalloc</c> once instead of allocating an array per item.
+    /// </summary>
+    /// <param name="code">The characters to decode.</param>
+    /// <param name="output">At least <see cref="MaxDecodedLength(int)"/> bytes.</param>
+    /// <exception cref="DecoderFallbackException">code contains invalid characters.</exception>
+    /// <remarks>
+    /// The decode-side twin of <see cref="EncodeBytes(ReadOnlySpan{byte}, Span{char})"/>, split out for
+    /// the same reason: this IS the string overload's body. <c>CatalogIndex.ToCatalogAndValue</c>
+    /// decodes every base91-packed index (every Tycho-2 star, every comet) through here, and the
+    /// string plus array it used to build per call were 71 B and most of a 100 ns lookup.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static int DecodeBytes(ReadOnlySpan<char> code, Span<byte> output)
+    {
         var pos = 0;
         int dbVal = 0, dbBits = 0, dbPrev = -1;
 
@@ -124,7 +147,7 @@ public static class Base91
         if (dbPrev != -1)
             output[pos++] = (byte)((dbVal | (dbPrev << dbBits)) & byte.MaxValue);
 
-        return output[..pos].ToArray();
+        return pos;
     }
 
     /// <summary>Standard 91-character set:

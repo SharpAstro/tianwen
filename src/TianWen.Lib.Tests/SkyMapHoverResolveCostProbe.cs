@@ -10,11 +10,12 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// <c>SkyMapHoverResolveBenchmarks</c> measures that the hover resolve costs ~9 us over a catalogued
-/// object and ~389 us / 225 KB over bare star field at a deep zoom, collapsing to ~1.7 us past 60
-/// degrees. It cannot say WHY, and the first written explanation was wrong: the cliff was attributed
-/// to <c>EffectiveMagnitudeLimit</c> tightening as you zoom out. This probe attributes it instead,
-/// which is the only reason the correction is a fact rather than a second guess.
+/// <c>SkyMapHoverResolveBenchmarks</c> measures that the hover resolve costs ~10 us over a catalogued
+/// object and ~166 us / 27.6 KB over bare star field at a deep zoom (389 us / 225 KB before
+/// 2026-09-20), collapsing to ~1.8 us past 60 degrees. It cannot say WHY, and the first written
+/// explanation was wrong: the cliff was attributed to <c>EffectiveMagnitudeLimit</c> tightening as
+/// you zoom out. This probe attributes it instead, which is the only reason the correction is a fact
+/// rather than a second guess -- and it is what found the fix.
 /// </summary>
 /// <remarks>
 /// <para>Env-gated (<c>TIANWEN_HOVER_PROBE=1</c>) because it bulk-loads Tycho-2 and then times
@@ -50,7 +51,7 @@ namespace TianWen.Lib.Tests;
 /// <item>The magnitude limit is the minor term and runs the OTHER way: 1 degree is dearer than 10
 /// over identical cells and identical lookups, because zoomed IN the limit admits MORE stars to the
 /// projection, not fewer.</item>
-/// <item><b>Inside the pass, per resolve on bare sky at 10 degrees (389 us / 225 KB):</b>
+/// <item><b>Inside the pass BEFORE the fix, per resolve on bare sky at 10 degrees (389 us / 225 KB):</b>
 /// <c>TryLookupByIndex</c> for each of the 1094 candidates is 320 us and 197 KB (293 ns, 180 B
 /// each), five sixths of the time and seven eighths of the bytes; the nine composite cell lookups
 /// that fed it are 53 us and ~28 KB; the magnitude gate, projection and hit test are the ~16 us left
@@ -67,13 +68,18 @@ namespace TianWen.Lib.Tests;
 /// itself, <c>TryGetTycho2Star</c>, is 111 us and 78 KB (102 ns, 71 B each), where the bytes are
 /// <c>CatalogIndex.ToCatalogAndValue</c> building a string and a byte array to decode the base91
 /// index: the mirror of the string round trip <c>Tyc2CatalogIndex</c> took out of the ENCODE side.</item>
-/// <item><b>So the fixes are three, and two of them are not in the resolver at all:</b> an
-/// allocation-free <c>PrecessRadians</c> and an allocation-free <c>ToCatalogAndValue</c> are one
-/// function each in <c>TianWen.Lib</c> and pay off on every catalogue lookup in the program; and the
-/// star pass calling <c>TryGetTycho2Star</c> (which already exists, and is the 17-byte entry as a
-/// struct) for its candidates and <c>TryLookupByIndex</c> only for the winner removes the
-/// constellation term from the resolve outright. Together they leave the nine cell lookups and a
-/// 40 ns binary search per candidate: on the order of 110 us and 28 KB.</item>
+/// <item><b>So the fixes were three, and two of them not in the resolver at all</b> (all taken
+/// 2026-09-20): an allocation-free <c>PrecessRadians</c> and an allocation-free
+/// <c>ToCatalogAndValue</c>, one function each in <c>TianWen.Lib</c>, paying off on every catalogue
+/// lookup in the program; and the star pass calling <c>TryGetTycho2Star</c> (which already existed,
+/// and is the 17-byte entry as a struct) for its candidates and <c>TryLookupByIndex</c> only for the
+/// winner, which removed the constellation term from the resolve outright.
+/// <c>Tycho2LiteLookupParityTests</c> pins that the two lookups read the same star.</item>
+/// <item><b>After, same pointing, same setting:</b> the resolve is ~150-175 us and 27,632 B on bare
+/// sky at 1 and 10 degrees (the benchmark says 166 and 139 us); <c>TryLookupByIndex</c> is 230 ns
+/// and 0 B, <c>TryGetTycho2Star</c> 76 ns and 0 B, <c>TryFindConstellation</c> 130 ns and 0 B. What
+/// is left is the nine cell lookups (~50 us and the whole 27.6 KB: a <c>List</c> per cell plus the
+/// composite's iterator) and about 1,100 binary searches.</item>
 /// </list>
 /// </remarks>
 [Collection("Astrometry")]

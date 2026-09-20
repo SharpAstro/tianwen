@@ -592,22 +592,25 @@ Three items from one note, root-caused against the code rather than left as a ba
     shader -- and drawing it FIRST of the annotation layers is what makes a pointer resting over the
     search modal or the layer palette harmless without any of them claiming the pointer.
   - **At most one resolve per painted frame**, bounded by a checked-in benchmark
-    (`SkyMapHoverResolveBenchmarks`, Release, win-arm64): over an OBJECT 9-10 us / 288 B at any zoom,
-    over bare STAR FIELD 389 us / 225 KB at 1 degree, 357 at 10, and ~1.7 us / 288 B by 60. **The two
-    paths differ by 44x** -- the DSO pass runs first and the star pass never runs when it matches --
-    which the original single number hid. **The 44x is that short-circuit and NOTHING else**: the
-    nine index cells derive from the unprojected pointer and are identical at every zoom, and what
-    decides whether they are walked is the DSO pass's hit test floored at a fixed 20 SCREEN px --
-    0.020 deg of sky at 1 degree FOV against 4.200 at 170. Within the pass, `TryLookupByIndex`
-    x1094 is 320 of the 389 us and 197 of the 225 KB, six times the nine cell lookups (53 us), and
-    over half of it is a constellation lookup that precesses every candidate through heap arrays to
-    fill a field the hit test never reads (probe with `DOTNET_TieredCompilation=0`; with tiering on
-    it ranks by JIT order, which is where a "905 ns" once quoted here came from). An earlier version
-    of this entry blamed `GetStarsInCell` for both halves. This entry used to credit
-    `EffectiveMagnitudeLimit`, which is the minor term and runs the other way; the attribution is
-    `SkyMapHoverResolveCostProbe` (`TIANWEN_HOVER_PROBE=1`). The figures first published here came
-    from a Debug test run and were about 5x pessimistic as well as blended; that is what the
-    benchmark replaced.
+    (`SkyMapHoverResolveBenchmarks`, Release, win-arm64): over an OBJECT ~10 us / 288 B at any zoom,
+    over bare STAR FIELD 166 us / 27.6 KB at 1 degree, 139 at 10, and ~1.8 us / 288 B by 60; before
+    the fix, 389 us / 225 KB and 357. **The two paths differ by 16x** (44x before) -- the DSO pass
+    runs first and the star pass never runs when it matches -- which the original single number hid.
+    **The gap is that short-circuit and NOTHING else**: the nine index cells derive from the
+    unprojected pointer and are identical at every zoom, and what decides whether they are walked is
+    the DSO pass's hit test floored at a fixed 20 SCREEN px -- 0.020 deg of sky at 1 degree FOV
+    against 4.200 at 170. Within the pass, `TryLookupByIndex` x1094 was 320 of the 389 us and 197 of
+    the 225 KB, six times the nine cell lookups (53 us), and over half of it a constellation lookup
+    precessing every candidate through heap arrays to fill a field the hit test never reads. **Fixed
+    2026-09-20**: the precession and the base91 index decode are allocation-free for every caller in
+    the program, and the star pass reads a Tycho-2 candidate through `TryGetTycho2Star` and looks up
+    only the winner in full (`Tycho2LiteLookupParityTests` pins that the two read the same star).
+    Attribution is `SkyMapHoverResolveCostProbe` (`TIANWEN_HOVER_PROBE=1 DOTNET_TieredCompilation=0`;
+    with tiering on it ranks by JIT order, which is where a "905 ns" once quoted here came from). An
+    earlier version of this entry blamed `GetStarsInCell` for both halves, and one before it credited
+    `EffectiveMagnitudeLimit`, which is the minor term and runs the other way. The figures first
+    published here came from a Debug test run and were about 5x pessimistic as well as blended; that
+    is what the benchmark replaced.
   - **The hover target is dropped when the view moves**, compared at draw time against the view it was
     resolved for rather than cleared at each of the five call sites that move it.
 

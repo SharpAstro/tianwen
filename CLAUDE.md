@@ -552,27 +552,25 @@ HIGHLIGHT, not hover selection: the click still selects (`docs/plans/in-app-sky-
   what makes a pointer resting over the search modal or the layer palette harmless with none of them
   claiming the pointer: the sky behind resolves, the wash paints under the panel covering it.
 - **At most ONE resolve per painted frame, and every resolve asks for a frame.** Measured by
-  `SkyMapHoverResolveBenchmarks` (Release, win-arm64): over an OBJECT 9-10 us / 288 B at any zoom,
-  over bare STAR FIELD 389 us / 225 KB at 1 degree and 357 at 10, falling to ~1.7 us / 288 B by 60.
-  **The 44x is entirely WHETHER THE STAR PASS RUNS, not a per-star cost that varies with zoom** --
-  the nine index cells come from the unprojected pointer and are identical at every zoom, holding
-  1094 candidates whatever the FOV. What the pass spends on them: `TryLookupByIndex` x1094 is
-  320 of the 389 us and 197 of the 225 KB, six times the nine cell lookups (53 us) that fed it, and
-  more than half of THAT is `ConstellationBoundary.TryFindConstellation` precessing every candidate
-  to B1875 through heap-allocated vectors to fill a field the hit test never reads; the rest is
-  `CatalogIndex.ToCatalogAndValue` decoding base91 through a string and a byte array (71 B each).
-  `Tycho2RaDecIndex.GetStarsInCell` reads only 6x what it keeps. **Measure with
-  `DOTNET_TieredCompilation=0`**: with tiering on, a test host ranks terms by the order they were
-  timed in (the same loop read 992 us first and 290 us last), which is what a "905 ns per lookup"
-  once written here was.
-  **The DSO pass short-circuits it and floors its hit test at a FIXED 20 SCREEN PX**, whose sky
-  footprint runs 0.020 deg at 1 degree FOV to 4.200 at 170, so it reaches something catalogued only
-  when zoomed out. `EffectiveMagnitudeLimit` is the minor term and runs the OTHER way (1 degree is
-  dearer than 10 over the same cells). Resolve -> frame -> clear is self-limiting; "resolve only when
-  the answer changed" is not, because the budget is released by a PAINT. **Two corrections worth
-  keeping: a timing from a Debug test run was ~5x pessimistic and blended the two paths, and the
-  cliff was then attributed to the magnitude limit by reading the code rather than measuring.
-  `SkyMapHoverResolveCostProbe` (`TIANWEN_HOVER_PROBE=1`) is what attributes it.**
+  `SkyMapHoverResolveBenchmarks` (Release, win-arm64): over an OBJECT ~10 us / 288 B at any zoom,
+  over bare STAR FIELD 166 us / 27.6 KB at 1 degree and 139 at 10, falling to ~1.8 us / 288 B by 60
+  (389 us / 225 KB before the fixes below). **The 16x is entirely WHETHER THE STAR PASS RUNS, not a
+  per-star cost that varies with zoom** -- the nine index cells come from the unprojected pointer
+  and are identical at every zoom, holding 1094 candidates whatever the FOV. **The DSO pass
+  short-circuits it and floors its hit test at a FIXED 20 SCREEN PX**, whose sky footprint runs
+  0.020 deg at 1 degree FOV to 4.200 at 170, so it reaches something catalogued only when zoomed
+  out. `EffectiveMagnitudeLimit` is the minor term and runs the OTHER way (1 degree is dearer than
+  10 over the same cells). **The star pass reads a Tycho-2 candidate through `TryGetTycho2Star` and
+  looks up only the WINNER in full**: a `CelestialObject` names its constellation by precessing the
+  star to B1875, which a hit test never reads, and that plus `ToCatalogAndValue`'s base91 decode
+  was 320 of the 389 us and 197 of the 225 KB. Both are allocation-free now (`PrecessRadians`, the
+  span `Base91.DecodeBytes`), which every catalogue lookup in the program inherits;
+  `Tycho2LiteLookupParityTests` walks the whole catalogue to pin that the two lookups read the same
+  star. Resolve -> frame -> clear is self-limiting; "resolve only when the answer changed" is not,
+  because the budget is released by a PAINT. **Three corrections worth keeping: a Debug timing was
+  ~5x pessimistic and blended the two paths; the cliff was attributed to the magnitude limit by
+  reading the code; and a test-host Stopwatch ranked terms by JIT order. Attribute with
+  `SkyMapHoverResolveCostProbe` (`TIANWEN_HOVER_PROBE=1 DOTNET_TieredCompilation=0`).**
 - **The target is dropped when the view moved**, compared at DRAW time against the view it was
   resolved for, never cleared at each of the five call sites that move the view.
 - **`ShowOnlyObjectsWithPicture` ([O]'s `I` sub-setting) goes through `OverlayEngine.PassesLayerFilter`,

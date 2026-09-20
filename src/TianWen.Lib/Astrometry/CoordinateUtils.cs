@@ -423,11 +423,20 @@ public static class CoordinateUtils
     /// <param name="epoch1">Origin epoch (years AD)</param>
     /// <param name="epoch2">Target epoch (years AD)</param>
     /// <returns>(RA, Dec), in radians, precessed to <paramref name="epoch2"/>, where the epoch is in years AD.</returns>
+    /// <remarks>
+    /// Scalars throughout, no arrays: this runs once per catalogue lookup of a Tycho-2 or HD star
+    /// (<c>ConstellationBoundary.TryFindConstellation</c> precesses to B1875 to name the
+    /// constellation), and the three small arrays it used to build were 112 B and about a third of
+    /// that lookup's time -- 120 KB of a 225 KB sky-map hover resolve, measured by
+    /// <c>SkyMapHoverResolveCostProbe</c>. Same arithmetic, same order of operations.
+    /// </remarks>
     public static (double RA, double Dec) PrecessRadians(double ra1Rad, double dec1Rad, double epoch1, double epoch2)
     {
         var csr = double.DegreesToRadians(1.0) / 3600.0;
         var a = Math.Cos(dec1Rad);
-        var x1 = new double[] { a * Math.Cos(ra1Rad), a * Math.Sin(ra1Rad), Math.Sin(dec1Rad) };
+        var x1X = a * Math.Cos(ra1Rad);
+        var x1Y = a * Math.Sin(ra1Rad);
+        var x1Z = Math.Sin(dec1Rad);
         var t = 0.001 * (epoch2 - epoch1);
         var st = 0.001 * (epoch1 - 1900.0);
         a = csr * t * (23042.53 + st * (139.75 + 0.06 * st) + t * (30.23 - 0.27 * st + 18.0 * t));
@@ -439,27 +448,24 @@ public static class CoordinateUtils
         var cosa = Math.Cos(a);
         var cosb = Math.Cos(b);
         var cosc = Math.Cos(c);
-        var r = new double[3,3];
-        r[0, 0] = cosa * cosb * cosc - sina * sinb;
-        r[0, 1] = -cosa * sinb - sina * cosb * cosc;
-        r[0, 2] = -cosb * sinc;
-        r[1, 0] = sina * cosb + cosa * sinb * cosc;
-        r[1, 1] = cosa * cosb - sina * sinb * cosc;
-        r[1, 2] = -sinb * sinc;
-        r[2, 0] = cosa * sinc;
-        r[2, 1] = -sina * sinc;
-        r[2, 2] = cosc;
-        var x2 = new double[3];
-        for (var i = 0; i < 3; i++)
-        {
-            x2[i] = r[i, 0] * x1[0] + r[i, 1] * x1[1] + r[i, 2] * x1[2];
-        }
-        var ra2 = Math.Atan2(x2[1], x2[0]);
+        var r00 = cosa * cosb * cosc - sina * sinb;
+        var r01 = -cosa * sinb - sina * cosb * cosc;
+        var r02 = -cosb * sinc;
+        var r10 = sina * cosb + cosa * sinb * cosc;
+        var r11 = cosa * cosb - sina * sinb * cosc;
+        var r12 = -sinb * sinc;
+        var r20 = cosa * sinc;
+        var r21 = -sina * sinc;
+        var r22 = cosc;
+        var x2X = r00 * x1X + r01 * x1Y + r02 * x1Z;
+        var x2Y = r10 * x1X + r11 * x1Y + r12 * x1Z;
+        var x2Z = r20 * x1X + r21 * x1Y + r22 * x1Z;
+        var ra2 = Math.Atan2(x2Y, x2X);
         if (ra2 < 0.0)
         {
             ra2 += 2.0 * Math.PI;
         }
-        var dec2 = Math.Asin(x2[2]);
+        var dec2 = Math.Asin(x2Z);
         return (ra2, dec2);
     }
 
