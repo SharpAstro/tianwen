@@ -178,9 +178,21 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     `SkyMapHoverResolveCostProbe` (`TIANWEN_HOVER_PROBE=1`) attributes it:
     - The nine index cells derive from the unprojected pointer, so they are **identical at every
       zoom** -- 22 deep-sky entries against 1094 composite ones, whatever the FOV.
-    - Nine deep-sky lookups over them cost **1 us**; nine composite lookups cost **~320 us**, before
-      one star has been hit-tested. That is `Tycho2RaDecIndex.GetStarsInCell`, a `List` per cell plus
-      a linear scan of every star in each overlapping GSC region. It IS the number.
+    - What the pass then SPENDS, ranked (see the scale caveat below): **`TryLookupByIndex` at
+      ~905 ns for each of the 1094 candidates** is the dominant term, three to four times the nine
+      cell lookups (~320 us) that fed it. Inside those lookups, `Tycho2RaDecIndex.GetStarsInCell`
+      reads only **6x** what it keeps (6572 entries read, 1072 kept over 16 GSC regions), and
+      `Tyc2CatalogIndex` is ~14% of the scan. **An earlier version of this entry named
+      `GetStarsInCell` as the cost and the allocation; that was wrong** -- it subtracted a
+      probe-scale figure from a benchmark-scale one, and it stopped measuring one level too early.
+    - **The probe's absolute microseconds are ~3x the benchmark's and vary run to run** (a Stopwatch
+      loop in a test host against BenchmarkDotNet steady state). Use it to RANK terms; quote
+      `SkyMapHoverResolveBenchmarks` for what the resolve costs.
+    - **The cheap fix is to stop looking up candidates the filter will reject.** The 17-byte Tycho-2
+      entry already carries RA, Dec and magnitude, so the magnitude gate, the projection and the hit
+      test could all run before any `TryLookupByIndex`, leaving ONE lookup for the winner instead of
+      1094. That helps `Tycho2ColorCalibration` and `PlateSolveAnnotator` too, which walk the same
+      grid per detected star.
     - What decides whether it is paid is the DSO pass's hit test, floored at a **fixed 20 SCREEN
       pixels**, whose footprint in sky runs 0.020 deg at 1 degree FOV to 4.200 deg at 170. The
       nearest deep-sky-grid entry to the benchmark's Aquila pointing is HD 183919 at 0.409 deg, so
@@ -191,8 +203,9 @@ Checks that only a real device or a real night can answer live in ONE place, ind
 
     The Debug figure (2.048 ms at 1 degree) was also about 5x pessimistic. **The louder cost turns
     out to be ALLOCATION**: 225 KB per resolve on bare sky zoomed in, roughly 13 MB/s at 60 fps and
-    28 MB/s if it ran per MOVE at a 125 Hz mouse -- all of it `GetStarsInCell` too, so the one fix
-    would close both halves. The click has always paid the same, once per press, where nobody can
+    28 MB/s if it ran per MOVE at a 125 Hz mouse. At ~205 B per candidate over 1094 candidates that
+    points at `TryLookupByIndex` rather than the cell scan, which is the same term the timing ranks
+    first, so the one fix above closes both halves. The click has always paid the same, once per press, where nobody can
     see it. Every resolve asks for the frame, even one that landed on the same object: the budget is
     released by a PAINT, so a resolve that scheduled none would be the last one until something else
     repainted.

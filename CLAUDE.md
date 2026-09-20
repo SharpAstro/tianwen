@@ -555,8 +555,11 @@ HIGHLIGHT, not hover selection: the click still selects (`docs/plans/in-app-sky-
   `SkyMapHoverResolveBenchmarks` (Release, win-arm64): over an OBJECT 9-10 us / 288 B at any zoom,
   over bare STAR FIELD 389 us / 225 KB at 1 degree and 357 at 10, falling to ~1.7 us / 288 B by 60.
   **The 44x is entirely WHETHER THE STAR PASS RUNS, not a per-star cost that varies with zoom** --
-  the nine index cells come from the unprojected pointer and are identical at every zoom, and the
-  cost in them is `Tycho2RaDecIndex.GetStarsInCell` (~320 us of the 389, before one star is tested).
+  the nine index cells come from the unprojected pointer and are identical at every zoom, holding
+  1094 candidates whatever the FOV. What the pass spends on them, RANKED (the probe's absolute
+  microseconds run ~3x the benchmark's, so it ranks terms and does not price them): `TryLookupByIndex`
+  at ~905 ns x 1094 dominates, three to four times the nine cell lookups that fed it, and is the
+  likely 225 KB too; `Tycho2RaDecIndex.GetStarsInCell` reads only 6x what it keeps.
   **The DSO pass short-circuits it and floors its hit test at a FIXED 20 SCREEN PX**, whose sky
   footprint runs 0.020 deg at 1 degree FOV to 4.200 at 170, so it reaches something catalogued only
   when zoomed out. `EffectiveMagnitudeLimit` is the minor term and runs the OTHER way (1 degree is

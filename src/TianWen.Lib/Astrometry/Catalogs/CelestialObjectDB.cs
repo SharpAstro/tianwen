@@ -73,6 +73,12 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     private Tycho2RaDecIndex? _tycho2RaDecIndex;
 
     /// <summary>
+    /// The Tycho-2 spatial index, for a diagnostic probe that needs to see INSIDE a cell lookup
+    /// (see <see cref="Tycho2RaDecIndex.DescribeCellScan"/>). Null until the bulk load has run.
+    /// </summary>
+    internal Tycho2RaDecIndex? Tycho2RaDecIndexForDiagnostics => _tycho2RaDecIndex;
+
+    /// <summary>
     /// Exact-pm overrides for the ~11 Tycho-2 stars whose |pmRA| or |pmDec| exceeds
     /// the int16 x 10 inline encoding's range of +/-3276.7 mas/yr (Barnard's,
     /// Kapteyn's, etc.). Built once from <c>tyc2_pm_sidecar.bin.lz</c> during the

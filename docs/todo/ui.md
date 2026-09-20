@@ -593,10 +593,11 @@ Three items from one note, root-caused against the code rather than left as a ba
     over bare STAR FIELD 389 us / 225 KB at 1 degree, 357 at 10, and ~1.7 us / 288 B by 60. **The two
     paths differ by 44x** -- the DSO pass runs first and the star pass never runs when it matches --
     which the original single number hid. **The 44x is that short-circuit and NOTHING else**: the
-    nine index cells derive from the unprojected pointer and are identical at every zoom, the cost in
-    them is `Tycho2RaDecIndex.GetStarsInCell` (~320 us of the 389, and all 225 KB, before one star is
-    tested), and what decides whether it is paid is the DSO pass's hit test floored at a fixed 20
-    SCREEN px -- 0.020 deg of sky at 1 degree FOV against 4.200 at 170. This entry used to credit
+    nine index cells derive from the unprojected pointer and are identical at every zoom, and what
+    decides whether they are walked is the DSO pass's hit test floored at a fixed 20 SCREEN px --
+    0.020 deg of sky at 1 degree FOV against 4.200 at 170. Within the pass, `TryLookupByIndex`
+    (~905 ns x 1094 candidates) outranks the nine cell lookups three to four times over and is the
+    likely 225 KB; an earlier version of this entry blamed `GetStarsInCell` for both. This entry used to credit
     `EffectiveMagnitudeLimit`, which is the minor term and runs the other way; the attribution is
     `SkyMapHoverResolveCostProbe` (`TIANWEN_HOVER_PROBE=1`). The figures first published here came
     from a Debug test run and were about 5x pessimistic as well as blended; that is what the
