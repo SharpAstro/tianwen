@@ -376,6 +376,12 @@ shape is not testing H2.
 
 ### Level range
 
+**Both the cells AND the level anchor come from the P0 manifest, never the master.** A MAD taken on
+a MASTER reads the cell's gradient as noise -- measured about 7x too high -- so the level anchor is
+always a real SUB's `NoiseMad`, mapped through `Image.MidtonesTransferFunctionSlope` into the same
+stretch domain both sides of a training pair share (the target's own unit divisor and MTF parameters,
+`Image.MtfStretchWith`: `docs/plans/model-training-roadmap.md`).
+
 Per tile, read the cell's sub `NoiseMad` values from the manifest, take their median as "one sub"
 for that cell, and draw the injected sigma log-uniform over [0.1, 1.5] of it. The bottom of that range
 is below master depth (0.152x) on purpose, so the deployed level is interior, not an edge.

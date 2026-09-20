@@ -412,6 +412,20 @@ frame, not `Resize`. **`LiveFramePreviewSource.PerChannelBackground` must be non
 channel-sized** (`ComputePostStretchBackground` indexes `[0]`; an empty array crashed the GUI;
 `LiveFramePreviewSourceTests`).
 
+- **There are TWO live sources and they are not interchangeable.** `LiveFramePreviewSource` is
+  per-EXPOSURE (Live Session, guider, polar-align) and holds no document; `LiveStackPreviewSource` is
+  the video-rate one (planetary), and it wraps an `AstroImageDocument`, which is where its histograms
+  and info-panel stats come from. Cost arguments about "the live path" have to name which: a statistics
+  pass that is free at one frame per 120 s is not free at 60 fps, and the per-frame path is the one that
+  does NOT go through `LiveFramePreviewSource`.
+- **What a display CHANNEL is has one definition per kind, in `StretchSolver`:**
+  `CollectPerChannelStats` (the medians/MADs the curve is solved from) and `CollectChannelHistograms`
+  (what the panel and the overlay draw), both three-for-a-mosaic and both taking a `pixelStride`. The
+  document and the live preview call them rather than deciding for themselves, which is what stops the
+  GUI and `tianwen-fits` disagreeing about the same frame. They are two collectors and not one because
+  the two want DIFFERENT histograms -- the stats are taken with the pedestal removed (the shader
+  subtracts it before the curve, so the median positioning that curve must be in the same space) while
+  a viewer draws the frame's own levels; conflating them would be a silent numeric bug.
 - **The "?" panel is a MENU** (`HelpPage`), because it had grown past a laptop screen and is the one
   panel opened when the viewer has misbehaved. Row 0 of a sub-page is the way back. **A page change
   re-opens the dropdown NEXT frame** (`PumpHelpPanel`): the dropdown closes itself after its

@@ -1049,9 +1049,32 @@ limits' mechanical tier. Two things make that work:
   went in. Over blocks the same interior reads p0.1 = 0.990. 0.99 as the fraction is not usable for the
   same reason; 0.95 is the default, and keeps the noise inside 1.026x of the interior's.
 
+**A weight deficit in the MIDDLE of a frame is not an edge, and the coverage tier had this backwards in
+exactly the way the pixel tier had already been fixed for.** The comparison above (block against
+threshold, straight into the rectangle search) reads any deficit anywhere as absence, but a crop exists
+to trim the under-exposed RIM, not a saturated core. On the Great Orion Nebula master the Trapezium
+saturates in the SUBS; rejection drops those samples, and the coverage plane honestly records weight at
+0.79 / 0.93 / 0.81 of the surroundings with pixels at zero (worst in red, where the Ha-dominant 3 nm
+passband saturates first). That is 35 blocks of 35,910, one 96 x 112 island dead centre -- and it took
+the crop to 1600 x 2960, **51.8% of a canvas whose blocks pass at 97.3%**, the left half of the picture
+sliced off with the nebula. Border-reachability alone (the same rule the pixel-hole flood uses, see
+above) takes the same plane to 96.8%: the master is NOT clipped there (peak 0.98 against the frame's own
+1.0296), it is 145x the sky in red. Fixed by routing the coverage-plane comparison through the same
+`FloodFromBorder` the pixel tier uses, instead of a bare threshold test. Pinned by
+`LargestCoveredRectangleTests.ASaturatedCoreIsNotAnUncoveredEdge`, with a border-connected notch as the
+control so the rule cannot widen into "nothing is ever absence".
+
 **The status bar says which tier answered** (", by coverage") and when an edge was left alone
 (", edge held"), for the same reason it declares the crop at all: the only other evidence is a border
 that is missing.
+
+**A master with no coverage plane at all is a master the pixel walk can decline outright**, not just
+answer wrong on. V1045 Ori, a `Float16Staged` master, carries a 350 px dither strip sitting at 2.7x the
+surrounding noise -- never inside the 5% band the walk looks at -- and until this was found, every
+staged master's only sidecar was the rejection FRACTION, which the exact tier does not read as
+coverage. The pixel-walk fallback still finds something (264 px), just short of the full strip, and
+that gap is what leaves the dither strip visible on the gallery card for any master staged before its
+own coverage sidecar existed.
 
 **A border still visible after a GRADIENT CORRECTION is a noise band, and no fit removes it.** That was
 the other half of the report, and the measurement says the fit is not the problem:

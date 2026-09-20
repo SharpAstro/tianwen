@@ -65,22 +65,38 @@ It is resolved to a concrete mode before any `StretchUniforms` is built. Auto is
 the shader's numeric values for None/Linked/Unlinked/Luma are unchanged, and `StretchSolver` maps a
 stray Auto to Linked as a backstop.
 
-Resolution is the pure extension `mode.ResolveAuto(isColour, calibrationActive)`
-(`StretchModeExtensions`, TianWen.Lib, shared with the Explorer thumbnail renderer):
+Resolution is the pure extension `mode.ResolveAuto(isColour, calibrationActive,
+colourIsNotPhotometric, channelsAlreadyAgree)` (`StretchModeExtensions`, TianWen.Lib, shared with the
+Explorer thumbnail renderer). It grew from two inputs to four once a literal `StretchMode.Linked` in
+`MasterPreviewRenderer` (the dataset bake and `tianwen image render`) exposed the gap: the
+line-selective veto (`FilterCurveDatabase.IsLineSelective`, a 38 nm cut measured over all 183 shipped
+curves) applied to the interactive viewer alone and to nothing the bake drew, so a 3 nm L-Ultimate
+master's SPCC (`1.136, 1.000, 1.860`, a fit against a continuum that never reached the sensor) rendered
+Linked: the one shared shadow point came off the mean of three unequal medians, and red -- weakest
+after that triple -- clipped to zero once the enhance had shrunk the MAD (five of 139 gallery cards,
+every one of them that filter). The white balance is not refused and not changed; what Unlinked stops
+is ASSERTING a fit of nothing as colour.
 
 | input | resolves to | why |
 |---|---|---|
-| colour + a calibration being applied | Linked | the WB shows as colour |
+| colour + a calibration being applied + the filter is photometric | Linked | the WB shows as colour |
+| colour + a calibration being applied + the filter is line-selective (narrowband) | Unlinked | no continuum reached the sensor; a shared curve clips the weakest channel |
 | colour, no calibration | Unlinked | each channel's background neutralises, no cast asserted |
 | mono | Linked | there is nothing to link |
+
+The fourth input, whether the frame's backgrounds already agree, is `StretchSolver.ChannelsAgree` (the
+0.15 percent rule), which the viewer's `ChannelsAlreadyAgree` delegates to; it used to live on the
+document alone. Through `RenderAsync` it rarely decides, because with no catalog that path still
+solves a sky-background white balance and a calibration is then active, so the pin is on the predicate
+rather than the outcome.
 
 The two producers resolve it with what only they know -- `AstroImageDocument` from its channels and
 `autoWb is not null` (which already honours the SPCC toggle), `LiveFramePreviewSource` from channel
 count with no calibration. So running SPCC on an Auto frame flips it to Linked on its own, which is the
 decision the user otherwise made by hand. The StretchLink button names what Auto resolved to
-("Auto (Linked)"). Pinned by `ColorCalibrationToggleTests` +
-`ViewerActionsTests.DefaultStretchMode_IsAuto`. A test or renderer that needs a fixed curve passes an
-explicit mode, never Auto.
+("Auto (Linked)"). Pinned by `ColorCalibrationToggleTests`, `ViewerActionsTests.DefaultStretchMode_IsAuto`
+and `NarrowbandStretchModeTests.TheHeadlessRendererHonoursTheSameLineSelectiveVeto` (whose broadband row
+is the control). A test or renderer that needs a fixed curve passes an explicit mode, never Auto.
 
 ## Background neutralisation is solved for a neutral POST-WB background
 

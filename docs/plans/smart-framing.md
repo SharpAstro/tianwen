@@ -53,6 +53,19 @@ Shipped alongside: full catalog data refresh (13 SIMBAD catalogs + OpenNGC), and
 binary fully retired; `tools/lzip-util.ps1` (managed SharpAstro.Lzip encoder AND decoder) is now the
 single lzip path shared by `Get-SimbadCatalogs.ps1`, `Copy-OpenNGC.ps1`, and `preprocess-catalog.ps1`.
 
+## OpenNGC data-quality audit
+
+**OpenNGC is copied verbatim, and a row it has wrong is corrected in ONE place, `OpenNgcCorrections`,
+never in the CSV.** Names and identifiers only (the geometry is trusted); every line cites the SIMBAD
+object its value lands on and the upstream pull request, and `OpenNgcCorrectionsTests` pins it against
+the RAW embedded row, so a refresh that brings the upstream fix turns the test red and the line is
+deleted. A name cannot be reviewed by reading it: "Flame Nebula" sat on IC 434 for years, 34 arcminutes
+from NGC 2024, until a viewer label over the Horsehead read wrong (2026-09-18). **`tools/openngc-audit`
+is the review**: it resolves every OpenNGC name and identifier through SIMBAD by POSITION and sorts the
+misses into MISPLACED (a different object beyond the row's extent), SUSPECT (inside it, where IC 434
+hid) and CENTRE (the same designation, not an error). Run it after every `Copy-OpenNGC.ps1`, and send
+what it finds upstream with the SIMBAD link as the evidence.
+
 ## Deferred
 
 - Phase 4 sky-map group-frame rendering (shared FOV rectangle + member labels).

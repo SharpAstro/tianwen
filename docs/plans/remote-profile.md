@@ -765,11 +765,15 @@ inconsistently through the bundled emoji font. `U+1F3E0` qualifies. And icons ar
 `\U0001F3E0` escapes, not literal glyphs, so the edit needs a tool that can match escape sequences (see
 `reference_edit_unicode_escape_gotcha`).
 
-Adding a tab touches six places, and the last one is the easily-missed one: the `GuiTab` enum;
-`GuiAppState.TabOrder` (**first**, since it is the landing tab); `VkGuiRenderer.TabChrome` (icon +
-tooltip); the `GuiEventHandlerBase` `Ctrl+<letter>` map; the two `VkGuiRenderer` switches (tab instance
-+ render); and `GuiTabNavigationTests.TabOrder_IsTheSidebarLayoutOrder`, which pins the exact order and
-will go red by design.
+Adding a tab touches five places: the `GuiTab` enum; `GuiAppState.TabOrder` (**first**, since it is
+the landing tab); `VkGuiRenderer.TabChrome` (icon + tooltip); the two `VkGuiRenderer` switches (tab
+instance + render); and `GuiTabNavigationTests.TabOrder_IsTheSidebarLayoutOrder`, which pins the exact
+order and will go red by design. **The `Ctrl+<letter>` map is gone since DIR.Lib 9.5**, replaced by a
+`TabItem<GuiTab>` carrying its own `Shortcut` and `OnSelect`, so `TabChrome`'s chord and `SelectTab`
+reach the painted node through the item rather than a `CollectPaintedNodes` override that rewrote
+every cell once per frame. The bar drops both for a LOCKED tab, which is what makes its chord inert
+with no guard beside the key. The LABEL alone is still re-stated afterward (`RailTab` / `TabButton` in
+`CollectPaintedRegions`, so click-by-label can drive it), and the tooltip is printed from the chord.
 
 **Leave room -- do not fill the viewport** (user, 2026-07-27). The rig cards are one section of a home
 screen, not the whole of it: multi-night progress per target ("M31, 4.2 h of 12 h, over 3 nights", the

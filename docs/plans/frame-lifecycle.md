@@ -574,6 +574,13 @@ logged as the single exception so that it stays one rather than becoming the pre
   thread-safe derivation, not D1' itself, which cost nothing. Anything the policy adds belongs at
   frame granularity, and where a per-sample check is unavoidable the cure is a hoist to a scope
   (`ResidentPlanes()`), not a cheaper check.
+- **A caller that reads a plane without going through the `Planes` accessor silently reads the evicted
+  0x0 stub.** `GetChannelArray`, the subpixel sampler and `ScaleFloatValuesToUnitInPlace` all did this
+  directly at one point: a FITS write of an evicted image emitted nothing, and the in-place rescale
+  threw on `plane[0, 0]`.
+- **`SharedTestData` caches the extracted temp file path, not an `Image`.** Two parallel test
+  collections sharing one cached `Image` through `AdoptImageAsync` produced a "1 ms / 0 stars"
+  `FindStarsAsync` flake.
 
 ## Open questions (decide at the phase, not now)
 
