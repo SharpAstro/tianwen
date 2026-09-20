@@ -131,12 +131,16 @@ public class FrameQualityFilterTests
     }
 
     [Fact]
-    public void Filter_WouldReject25Pct_CapsAt20PctBySeverity()
+    public void Filter_WouldRejectMoreThanTheCap_CapsBySeverity()
     {
-        // 20 frames where 5 are clear HFD outliers (25% of N, above the
-        // 20% floor). The MAD threshold flags all 5; the 80% keep floor
-        // caps rejection at floor(0.20 * 20) = 4 by severity, so the
-        // 5th (least-severe) outlier gets a reprieve.
+        // 20 frames where 5 are clear HFD outliers. The cap is passed EXPLICITLY, because this
+        // test is about the floor MECHANISM and not about which fraction is configured: the shared
+        // default moved from 0.20 to the dataset bake's 0.50 when `tianwen stack` and the bake were
+        // unified on one admission rule, and a mechanism test that silently re-tunes itself from a
+        // default is a test of the default.
+        //
+        // At 0.20 the MAD threshold flags all 5 and the floor caps rejection at
+        // floor(0.20 * 20) = 4 by severity, so the 5th (least-severe) outlier gets a reprieve.
         //
         // Baseline body has small HFD jitter (0.01 px) so MAD > 0 --
         // a degenerate MAD = 0 distribution can't rank rejects by
@@ -163,7 +167,7 @@ public class FrameQualityFilterTests
         var metrics = baseline.Concat(outliers)
             .Select(t => new FrameMetrics(t.Hfd, t.Hfd, t.Ecc, 1000))
             .ToArray();
-        var result = FrameQualityFilter.Filter(metrics, sigma: 3f);
+        var result = FrameQualityFilter.Filter(metrics, sigma: 3f, maxRejectFraction: 0.20f);
 
         result.KeptCount.ShouldBe(16); // 20 - floor(0.20 * 20) = 16
         result.FloorTriggered.ShouldBeTrue();
@@ -177,6 +181,95 @@ public class FrameQualityFilterTests
         outlierReasons.Count(r => r != FrameRejectReason.Kept).ShouldBe(4);
         // The reprieved frame must be the lowest-HFD outlier (4.5).
         outlierReasons[0].ShouldBe(FrameRejectReason.Kept);
+    }
+
+    /// <summary>
+    /// A frame with no detected stars is rejected whatever the gate is set to, including on the
+    /// documented "off" path. It cannot be registered and cannot contribute, so this is a validity
+    /// check and not a tuning choice.
+    ///
+    /// <para>The rule used to live in the dataset bake's own analyzer, so `tianwen stack` kept such
+    /// frames unconditionally. That is the divergence this pins shut.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(3f)]
+    [InlineData(0f)]     // the gate explicitly off
+    [InlineData(-1f)]
+    public void AFrameWithNoStarsIsRejectedAtAnySigma(float sigma)
+    {
+        var metrics = Enumerable.Range(0, 10)
+            .Select(i => new FrameMetrics(2.5f, 2.5f, 0.45f, i == 4 ? 0 : 1000))
+            .ToArray();
+
+        var result = FrameQualityFilter.Filter(metrics, sigma);
+
+        result.Reasons[4].ShouldBe(FrameRejectReason.StarCountTooLow);
+        result.KeptCount.ShouldBe(9);
+    }
+
+    /// <summary>
+    /// A zero-star frame takes no part in the statistics. With one zero among a tight body, a
+    /// two-sided MAD that counted it would be inflated by the whole distance to zero, widening the
+    /// tolerance for everything else.
+    /// </summary>
+    [Fact]
+    public void AZeroStarFrameDoesNotWidenTheThresholdForTheRest()
+    {
+        // 19 frames at 1000 stars with one genuine left-tail outlier at 400, plus one zero.
+        var metrics = Enumerable.Range(0, 21)
+            .Select(i => new FrameMetrics(2.5f + 0.005f * (i % 7), 2.5f, 0.45f,
+                i == 0 ? 0 : i == 1 ? 400 : 1000 + (i % 5)))
+            .ToArray();
+
+        var result = FrameQualityFilter.Filter(metrics, sigma: 3f);
+
+        result.Reasons[0].ShouldBe(FrameRejectReason.StarCountTooLow);
+        result.Reasons[1].ShouldBe(FrameRejectReason.StarCountTooLow);
+    }
+
+    /// <summary>
+    /// A cap that works out to zero rejected frames reprieves every flagged frame. It used to index
+    /// one past the end of a sorted severity copy: `sevSorted[n - maxReject]` with `maxReject == 0`
+    /// is `sevSorted[n]`. Reachable on the old 0.20 default at exactly the minimum session length,
+    /// since floor(0.20 * 4) is 0.
+    /// </summary>
+    [Fact]
+    public void ACapOfZeroReprievesEveryFlaggedFrameInsteadOfThrowing()
+    {
+        var metrics = new[]
+        {
+            new FrameMetrics(2.50f, 2.50f, 0.45f, 1000),
+            new FrameMetrics(2.51f, 2.51f, 0.45f, 1000),
+            new FrameMetrics(2.49f, 2.49f, 0.45f, 1000),
+            new FrameMetrics(9.00f, 9.00f, 0.45f, 1000),   // an unmistakable outlier
+        };
+
+        var result = FrameQualityFilter.Filter(metrics, sigma: 3f, maxRejectFraction: 0f);
+
+        result.KeptCount.ShouldBe(4);
+        result.FloorTriggered.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The cap is a BOUND, including when severities tie. The previous form took a cutoff VALUE off
+    /// a sorted copy and reprieved `severity &lt; cutoff`, which reprieves nobody sitting exactly on
+    /// it, so a tie at the cutoff left more than the cap rejected.
+    /// </summary>
+    [Fact]
+    public void TiedSeveritiesCannotPushRejectionPastTheCap()
+    {
+        // 12 frames: 8 tight, 4 outliers at the IDENTICAL HFD so their severities tie exactly.
+        var metrics = Enumerable.Range(0, 12)
+            .Select(i => i < 8
+                ? new FrameMetrics(2.50f + 0.005f * (i - 4), 2.5f, 0.45f, 1000)
+                : new FrameMetrics(6.0f, 6.0f, 0.45f, 1000))
+            .ToArray();
+
+        var result = FrameQualityFilter.Filter(metrics, sigma: 3f, maxRejectFraction: 0.25f);
+
+        // floor(0.25 * 12) = 3, so exactly three of the four tied outliers may be rejected.
+        (metrics.Length - result.KeptCount).ShouldBe(3);
+        result.FloorTriggered.ShouldBeTrue();
     }
 
     [Fact]

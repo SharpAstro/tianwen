@@ -147,7 +147,7 @@ internal sealed class StackSubCommand(
         };
         var qualityRejectSigmaOpt = new Option<float?>("--quality-reject-sigma")
         {
-            Description = "Enable per-frame quality filtering at this sigma threshold: a frame is dropped from integration when its median HFD or ellipticity exceeds median + sigma * 1.4826 * MAD of the session. An 80% keep floor caps rejection at the worst 20% by severity. 3.0 is a conservative starting value - catches clear outliers (bloated low-altitude frames, wind-trailed frames) without biting into the body of the distribution. Off by default.",
+            Description = "Per-frame quality filtering sigma: a frame is dropped from integration when its median HFD or ellipticity exceeds median + sigma * 1.4826 * MAD of the session, or its star count falls the same distance below. A keep floor caps how much one pass may reject. Defaults to 3, the same value the dataset bake uses, so one session stacked either way is admitted by the same rule; it used to be off here and 3 there. Pass 0 to run no relative gate; a frame with NO stars is rejected either way, being invalid rather than an outlier.",
         };
         var rejectLowSigmaOpt = new Option<float?>("--reject-low-sigma")
         {

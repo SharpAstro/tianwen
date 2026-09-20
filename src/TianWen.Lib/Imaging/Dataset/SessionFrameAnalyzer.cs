@@ -115,42 +115,31 @@ public static class SessionFrameAnalyzer
     /// rejected regardless of the filter (they would poison the session medians and can
     /// never register anyway).
     /// </summary>
-    public static GateResult ApplyGate(IReadOnlyList<AnalyzedFrame> frames, float sigma, float maxRejectFraction = 0.5f)
+    public static GateResult ApplyGate(IReadOnlyList<AnalyzedFrame> frames, float sigma, float maxRejectFraction = FrameQualityFilter.DefaultMaxRejectFraction)
     {
-        // Zero-star frames are hard-rejected up front: FrameQualityFilter's left-tail
-        // star-count check would usually catch them, but its keep-floor could reprieve
-        // them in a badly mixed session, and a 0-star frame is unusable downstream.
-        var measurable = new List<AnalyzedFrame>(frames.Count);
-        var rejected = ImmutableArray.CreateBuilder<(AnalyzedFrame, FrameRejectReason)>();
-        foreach (var frame in frames)
+        // The zero-star hard reject used to be done HERE, before the filter saw the frames, with a
+        // comment explaining that the keep floor could otherwise reprieve one. That rule now lives
+        // inside FrameQualityFilter, where it excludes such frames from the statistics and from the
+        // floor, so `tianwen stack` gets it too instead of only the bake. This method is left as a
+        // straight adapter: frames in, gate verdict out, no second opinion.
+        Span<FrameMetrics> metrics = frames.Count < 512 ? stackalloc FrameMetrics[frames.Count] : new FrameMetrics[frames.Count];
+        for (var i = 0; i < frames.Count; i++)
         {
-            if (frame.Metrics.StarCount == 0)
-            {
-                rejected.Add((frame, FrameRejectReason.StarCountTooLow));
-            }
-            else
-            {
-                measurable.Add(frame);
-            }
-        }
-
-        Span<FrameMetrics> metrics = measurable.Count < 512 ? stackalloc FrameMetrics[measurable.Count] : new FrameMetrics[measurable.Count];
-        for (var i = 0; i < measurable.Count; i++)
-        {
-            metrics[i] = measurable[i].Metrics;
+            metrics[i] = frames[i].Metrics;
         }
         var result = FrameQualityFilter.Filter(metrics, sigma, maxRejectFraction);
 
         var kept = ImmutableArray.CreateBuilder<AnalyzedFrame>(result.KeptCount);
-        for (var i = 0; i < measurable.Count; i++)
+        var rejected = ImmutableArray.CreateBuilder<(AnalyzedFrame, FrameRejectReason)>();
+        for (var i = 0; i < frames.Count; i++)
         {
             if (result.Reasons[i] == FrameRejectReason.Kept)
             {
-                kept.Add(measurable[i]);
+                kept.Add(frames[i]);
             }
             else
             {
-                rejected.Add((measurable[i], result.Reasons[i]));
+                rejected.Add((frames[i], result.Reasons[i]));
             }
         }
         return new GateResult(kept.ToImmutable(), rejected.ToImmutable(), result.FloorTriggered);
