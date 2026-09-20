@@ -221,7 +221,7 @@ is a fourth:
 |---|---|---|---|---|---|
 | `Helix-Nebula/2026-08-01`, 21 of 21 `BAD_` | roof cutting the APERTURE | 7% | 175 of 576 cells | a smooth illumination ramp spanning ~2000 px, **no edge anywhere** | **0.89 to 0.96** |
 | Helix 2022-08-31 frames 1 to 6 | powerline in the FIELD | 16% | 53 of 576 cells | straight band, 210 px penumbra each side | 0.50 to 0.75 |
-| `2026-02-20 BAD LIGHT EXAMPLES`, 33 | dawn, to saturation | none spatial | whole frame | frame median climbs 896 to 65532 ADU (full well) | n/a |
+| `2026-02-20 BAD LIGHT EXAMPLES`, 33 | **a CLOUD-OUT**, dawn only at the end | see below | whole frame | clouds over at 17:15 and never recovers | **0.07** |
 | `C-101/2026-08-01`, 4 of 4 `BAD_` | unknown | none | none | flat to 0.5%, sky level normal for the night | n/a |
 
 Four things follow, and each one changes something above.
@@ -234,12 +234,71 @@ Four things follow, and each one changes something above.
   7% down on background with **0.89 to 0.96** of the clear-cell star count. A rule that requires both
   is silent on the obstruction the owner names first. Background deficit with spatial structure is
   the primary signal; the star count corroborates where it happens to move, and gates nothing.
-- **A frame-wide defect is a DIFFERENT test and the per-cell one is deliberately blind to it.** The
-  dawn set is the proof: 33 frames the operator graded out, and the spatial test flags almost none of
-  them, correctly, because a level that moves everywhere is exactly what a within-frame comparison
-  cancels. Cloud belongs with dawn, not here: it wants the frame's own sky level and star count
-  against the SESSION's run, a per-frame session-relative statistic, beside a full-well check. Two
-  statistics, two reference frames, and conflating them is how one of them ends up unable to fire.
+- **A frame-wide defect is a DIFFERENT test and the per-cell one is deliberately blind to it.** It
+  wants the frame's own sky level and star count against the SESSION's run, a per-frame
+  session-relative statistic, beside a full-well check. Two statistics, two reference frames, and
+  conflating them is how one of them ends up unable to fire.
+
+### The cloud control, and why the cell test could not see it
+
+`2026-02-20 BAD LIGHT EXAMPLES` was first read here as "dawn to saturation", from the level series
+alone, with the per-cell test reporting almost every frame flat. **Both readings were wrong, and a
+contact sheet settled it in one look.** The session is a CLOUD-OUT: it clouds over at 17:15 and
+never recovers, and only the last six frames are dawn.
+
+| frame | time | sky level | stars vs the clear frames |
+|---|---|---|---|
+| 1 to 2 | 16:55 to 17:14 | 896 | 1.32 to 1.44 |
+| 3 | 17:15:58 | 904 | 1.00, cloud arrives, cell-map correlation to the next frame drops to 0.50 |
+| 4 to 6 | 17:16 to 17:19 | 952 to 1078 | 0.67, 0.30, 0.13 |
+| 7 to 26 | 17:20 to 18:58 | 1032 to 1528 | **0.07** |
+| 27 to 31 | 19:14 to 19:29 | 3840 to 57878 | 0.00, dawn on top of the overcast |
+
+**Cloud takes 93 percent of the stars while raising the sky 70 percent.** Against that, the roof took
+4 to 11 percent of the stars and moved the level not at all, and the powerline took 25 to 50 percent.
+
+Two faults kept the cell test from seeing any of it, and both are structural rather than a tuning
+miss. It flags cells BELOW their frame's median, and cloud is the bright side. And normalising each
+frame by its OWN cell median subtracts exactly the frame-wide brightening cloud causes: a sheet
+covering most of the field moves the median with it and the ratios collapse toward 1.
+
+**So the DEPTH of the per-cell structure is not a discriminator at all**: cloud 3 to 11 percent, roof
+7 percent, powerline 16 percent, completely overlapping. The sign rule is real but it does not live
+in a within-frame statistic. Cloud is frame-level and session-relative (level up, stars collapsing);
+obstruction is cell-level and frame-relative (a bounded darker region, stars barely moving).
+
+**A method note worth keeping: the first contact sheet showed pure noise and no stars in any frame,
+which read as evidence.** It was decimating, taking every 5th pixel, and a 2 to 3 px star falls
+between samples. Downsample a frame by block MAXIMUM when the question involves point sources.
+
+### Can the existing gate see any of this? Measured, by running its own arithmetic
+
+`FrameQualityFilter` is session-relative: it rejects a frame whose star count falls below
+`median - sigma * 1.4826 * MAD`, capped by a keep floor. **`tianwen stack` leaves
+`StackingOptions.QualityRejectSigma` null, so the gate does not run there at all**; the dataset bake
+sets sigma 3 with a 0.5 reject cap. Fed the measured per-frame star counts of the three sessions:
+
+| session | median | MAD | threshold | flagged |
+|---|---|---|---|---|
+| powerline, 6 of 46 obstructed | 4149 | 39 | 3976 | **all 6**, plus 3 more; the cap allows 23 |
+| cloud-out, 24 of 33 clouded | 271 | 111 | **-223** | **none** |
+| roof, 21 of 21 obstructed | 795 | 8 | 759 | **none** |
+
+**The powerline is already caught, by the bake.** That is a correction to the gap this plan opens
+with: a partial obstruction is not necessarily kept, and this one is not. It survives only in
+`tianwen stack`, where the gate is off by default.
+
+**The other two are invisible for the same structural reason: a session-relative outlier test cannot
+see a defect that affects the MAJORITY of the session**, because the majority defines the median.
+The cloud-out's median star count IS the clouded state, its threshold comes out NEGATIVE, and the
+three frames holding literally zero detected stars pass the gate; the two clear frames are the
+outliers, on the side nothing tests. The roof's 21 frames all carry it equally, so there is no
+in-session contrast at all.
+
+This is the sharpest argument in the plan for a detector that reads the FRAME rather than the
+session, and it also says where the cheap win is: **an ABSOLUTE floor costs nothing and catches the
+zero-star frames that a relative test cannot.** Registration's own quad match is the only thing
+standing between those frames and the integration today.
 - **`BAD_` is a reliable POSITIVE and nothing else.** It does not say why (the corpus holds dawn and
   saturation under the same prefix as roof), and absence of it does not mean clean: the 2022
   powerline frames carry no prefix at all, because the capture software of the day had no grading
