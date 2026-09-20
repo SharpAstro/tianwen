@@ -41,10 +41,13 @@ import uuid
 import xml.sax.saxutils as saxutils
 import re
 
+import corroborate
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 OPENNGC_DIR = os.path.normpath(os.path.join(HERE, '..', '..', 'src', 'TianWen.Lib', 'OpenNGC', 'database_files'))
 OUT_DIR = HERE
 ROW_LIMIT = 0
+CORROBORATE = True
 
 TAP_URL = "https://simbad.cds.unistra.fr/simbad/sim-tap/sync"
 USER_AGENT = "TianWen OpenNGC audit (https://github.com/SharpAstro/tianwen)"
@@ -292,15 +295,18 @@ def classify(miss):
 # -------------------------------------------------------------------- main --
 
 def parse_args():
-    global OPENNGC_DIR, OUT_DIR, ROW_LIMIT
+    global OPENNGC_DIR, OUT_DIR, ROW_LIMIT, CORROBORATE
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--openngc', default=OPENNGC_DIR, help='OpenNGC database_files directory')
     p.add_argument('--out', default=OUT_DIR, help='where the three output files go')
     p.add_argument('--limit', type=int, default=0, help='audit only the first N rows (plus IC0434), for a dry run')
+    p.add_argument('--no-corroborate', action='store_true',
+                   help='skip the NED / HyperLeda / Stellarium second opinion (SIMBAD only, the pre-2026-09-20 behaviour)')
     a = p.parse_args()
     OPENNGC_DIR = a.openngc
     OUT_DIR = a.out
     ROW_LIMIT = a.limit
+    CORROBORATE = not a.no_corroborate
     os.makedirs(OUT_DIR, exist_ok=True)
 
 
@@ -420,13 +426,49 @@ def main():
         m['class'] = classify(m)
     misses.sort(key=lambda m: ({'MISPLACED': 0, 'SUSPECT': 1, 'CENTRE': 2}[m['class']], -m['separation_arcmin']))
 
+    # ---------------------------------------------------------- second opinion --
+    #
+    # SIMBAD alone cannot tell a catalogue ERROR from a disagreement BETWEEN catalogues, and the
+    # first PR this audit produced (mattiaverga/OpenNGC#53) had 10 of 18 findings rejected on
+    # exactly that: "SIMBAD is wrong, NED and LEDA agree with each other". So every miss now gets
+    # asked of a second source -- and the result is a BUCKET, never a filter. See corroborate.py
+    # for why filtering was measured and rejected: it would have suppressed 10 of the 12 rejected
+    # rows and 5 of the 8 ACCEPTED ones.
+    #
+    # CENTRE-class misses are skipped: they are the same designation with a different centre, which
+    # is not a claim about which object a value belongs to, so there is nothing to corroborate.
+    if CORROBORATE:
+        to_check = [m for m in misses if m['class'] != 'CENTRE']
+        log(f"Corroborating {len(to_check)} non-CENTRE misses against NED / HyperLeda / Stellarium...")
+        stellarium = corroborate.load_stellarium_names(os.path.join(OUT_DIR, 'stellarium-names.dat'))
+        log(f"  Stellarium names.dat: {len(stellarium)} names")
+        for n, m in enumerate(to_check, 1):
+            if m['kind'] == 'common name':
+                verdict, detail = corroborate.corroborate_common_name(
+                    m['value'], m['openngc_name'], stellarium)
+            else:
+                verdict, detail = corroborate.corroborate_identifier(m['value'], m['openngc_name'])
+            m['corroboration'] = verdict
+            m['corroboration_detail'] = detail
+            src = corroborate.source_catalogue_for(m['value']) if m['kind'] == 'identifier' else None
+            m['source_catalogue'] = f"{src[0]} -- {src[1]}" if src else ''
+            if n % 25 == 0:
+                log(f"  {n}/{len(to_check)}")
+        log(f"Second-opinion requests made: {corroborate.REQUEST_COUNT}")
+    for m in misses:
+        m.setdefault('corroboration', 'NOT CHECKED' if m['class'] == 'CENTRE' else 'NOT CHECKED')
+        m.setdefault('corroboration_detail', '')
+        m.setdefault('source_catalogue', '')
+
     # ------------------------------------------------------------- outputs --
     misses_path = os.path.join(OUT_DIR, 'openngc-audit-misses.csv')
     with open(misses_path, 'w', newline='', encoding='utf-8') as f:
         w = csv.DictWriter(f, fieldnames=[
-            'class', 'openngc_name', 'kind', 'value', 'simbad_main_id', 'simbad_otype',
+            'class', 'corroboration', 'openngc_name', 'kind', 'value',
+            'simbad_main_id', 'simbad_otype',
             'openngc_ra_deg', 'openngc_dec_deg', 'simbad_ra_deg', 'simbad_dec_deg',
             'separation_arcmin', 'majax_arcmin',
+            'corroboration_detail', 'source_catalogue',
         ])
         w.writeheader()
         for m in misses:
@@ -479,6 +521,60 @@ def main():
         f.write(f"- SIMBAD requests made: {REQUEST_COUNT}\n")
         f.write(f"- Failed batches (skipped after retries): {len(failed_batches)}\n")
         f.write(f"- Run time: {elapsed:.1f} s ({elapsed / 60.0:.1f} min)\n\n")
+
+        by_corr = {v: [m for m in misses if m.get('corroboration') == v]
+                   for v in ('CONFIRMED', 'DISPUTED', 'SIMBAD ONLY', 'NOT CHECKED')}
+        f.write("## Second opinion: what to actually file\n\n")
+        f.write(
+            "Every non-CENTRE miss is put to a second source -- NED for any identifier, "
+            "HyperLeda as well for a PGC/LEDA number (it is the authority for its own "
+            "numbering), Stellarium's curated `names.dat` for a common name.\n\n"
+            "**This is triage, not a filter, and the reason is measured.** The first PR this "
+            "audit produced ([mattiaverga/OpenNGC#53]"
+            "(https://github.com/mattiaverga/OpenNGC/pull/53)) had **10 of 18 findings "
+            "rejected**, nearly all on one sentence from the maintainer: *SIMBAD is wrong, NED "
+            "and LEDA agree with each other*. But re-running those 20 identifier rows through "
+            "NED shows that a rule of 'only file when a second source agrees with SIMBAD' "
+            "would have suppressed **10 of the 12 rejected rows AND 5 of the 8 accepted "
+            "ones** -- NED puts `ESO 056-007` on IC 2105, `PGC 089595` on IC 3231, "
+            "`LEDA 1434085` on IC 3018, `MCG -04-08-032` on NGC 1232A and `MCG +10-25-025` on "
+            "NGC 6377, every one of them the row the accepted fix was moving the value OFF. "
+            "NED and HyperLeda are compilations too, and they carry the same stale "
+            "cross-identifications OpenNGC does.\n\n"
+            "So a DISPUTED row is not wrong, it is **unsettled** -- and the only thing that "
+            "settled them upstream was the SOURCE catalogue (MCG at HEASARC, the IRAS PSC/FSC "
+            "tables). That link is printed per row; opening it is the human step this tool "
+            "does not pretend to automate.\n\n"
+        )
+        f.write(f"- **CONFIRMED** ({len(by_corr['CONFIRMED'])}): no second source puts the "
+                f"value on the row it sits on. File upstream.\n")
+        f.write(f"- **DISPUTED** ({len(by_corr['DISPUTED'])}): a second source does. Check the "
+                f"source catalogue BEFORE filing.\n")
+        f.write(f"- **SIMBAD ONLY** ({len(by_corr['SIMBAD ONLY'])}): every second source is "
+                f"silent. File, saying so.\n")
+        f.write(f"- NOT CHECKED ({len(by_corr['NOT CHECKED'])}): CENTRE-class, or the run used "
+                f"`--no-corroborate`.\n\n")
+
+        for verdict, blurb in (
+            ('CONFIRMED', 'no second source backs the row: this is the list to send upstream'),
+            ('DISPUTED', 'NED, HyperLeda or Stellarium puts the value where OpenNGC already has '
+                         'it -- settle it against the source catalogue before filing'),
+            ('SIMBAD ONLY', 'nobody else knows the value; SIMBAD is the only opinion available'),
+        ):
+            bucket = by_corr[verdict]
+            if not bucket:
+                continue
+            f.write(f"### {verdict} ({len(bucket)}) -- {blurb}\n\n")
+            f.write("| Row | Kind | Value | SIMBAD says | Sep | Second opinion | Source catalogue |\n")
+            f.write("|---|---|---|---|---|---|---|\n")
+            for m in bucket:
+                f.write(
+                    f"| {m['openngc_name']} | {m['kind']} | `{m['value']}` "
+                    f"| {m['simbad_main_id']} | {m['separation_arcmin']:.1f}' "
+                    f"| {m.get('corroboration_detail', '')} "
+                    f"| {m.get('source_catalogue', '')} |\n"
+                )
+            f.write("\n")
 
         f.write("## IC0434 / Flame Nebula check\n\n")
         if ic0434_found:

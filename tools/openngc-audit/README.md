@@ -7,8 +7,9 @@ wrong row. The report on stdout and in `openngc-audit.md` is the review; the CSV
 detail.
 
 ```bash
-python tools/openngc-audit/openngc_simbad_audit.py            # ~15 minutes, ~300 requests
-python tools/openngc-audit/openngc_simbad_audit.py --limit 30 # a dry run, about a minute
+python tools/openngc-audit/openngc_simbad_audit.py                    # ~15 min + ~1 s per miss
+python tools/openngc-audit/openngc_simbad_audit.py --limit 30         # a dry run, about a minute
+python tools/openngc-audit/openngc_simbad_audit.py --no-corroborate   # SIMBAD only (pre-2026-09-20)
 ```
 
 Defaults: the OpenNGC checkout at `src/TianWen.Lib/OpenNGC/database_files`, outputs next to the
@@ -57,10 +58,54 @@ name is asked as `NAME <name>`; an identifier as given, then in obvious respelli
 `Sh 2-`, the catalogue prefix in title case) when it does not resolve. One request per second, a
 User-Agent naming the project, and a growing pause on a 429 or a 5xx.
 
+## SIMBAD alone is not enough, and the number that proves it
+
+The first upstream PR this audit produced
+([mattiaverga/OpenNGC#53](https://github.com/mattiaverga/OpenNGC/pull/53), 18 findings) came back
+with **10 rejected**, nearly all on one sentence from the maintainer: *SIMBAD is wrong, NED and
+LEDA agree with each other*. A single source cannot tell a catalogue ERROR from a disagreement
+BETWEEN catalogues, and this audit was reporting the second as if it were the first.
+
+So every non-CENTRE miss now gets a second opinion (`corroborate.py`): **NED** for any identifier,
+**HyperLeda** as well for a PGC/LEDA number (it is the authority for its own numbering, which is the
+argument the maintainer made -- "I assume Leda db knows better its own entries"), and
+**Stellarium's curated `names.dat`** for a common name. Findings land in three buckets:
+
+- **CONFIRMED** -- no second source puts the value on the row it currently sits on. File upstream.
+- **DISPUTED** -- one does. Check the source catalogue before filing.
+- **SIMBAD ONLY** -- every second source is silent. File, saying so.
+
+**It is triage, not a filter, and that distinction is measured rather than assumed.** Re-running
+that PR's 20 disputed identifier rows through NED: a rule of "only file when a second source agrees
+with SIMBAD" would have suppressed **10 of the 12 rows upstream rejected -- and 5 of the 8 it
+ACCEPTED**. NED puts `ESO 056-007` on IC 2105, `PGC 089595` on IC 3231, `LEDA 1434085` on IC 3018,
+`MCG -04-08-032` on NGC 1232A and `MCG +10-25-025` on NGC 6377, every one of them the row the
+accepted fix was moving the value OFF. NED and HyperLeda are compilations too and carry the same
+stale cross-identifications OpenNGC does. A DISPUTED row is **unsettled**, not wrong.
+
+What actually settled the contested rows upstream was the **source catalogue** -- the maintainer
+opened MCG at HEASARC and the IRAS PSC/FSC tables. The report prints that link per row; opening it
+is a human step the tool does not pretend to automate.
+
+### Why Stellarium is the right second opinion for a NAME
+
+`names.dat` is the only curated DSO name list that records **per-name provenance**: a trailing
+comment of source keys (`WK`, `S&T`, `WP`, `APOD`, `SIMBAD`, ...) with a legend at the top of the
+file. It had also already met this exact problem -- the file carries
+`# NGC 4990 _("Cocoon Galaxy") # SIMBAD` as a **commented-out** line: Stellarium saw SIMBAD's
+placement, rejected it, and left the evidence in place. The audit reads withdrawn lines for that
+reason. And on the case that started all this it is unambiguous: `Flame Nebula` sits on NGC 2024
+under nine keys, `WK` ("well-known name which does not need special source ... the preferred name")
+among them, and SIMBAD is not one of them.
+
 ## What to do with a finding
 
-Fix it upstream in [OpenNGC](https://github.com/mattiaverga/OpenNGC), citing the SIMBAD object
-(`https://simbad.cds.unistra.fr/simbad/sim-id?Ident=<name>`) as the evidence, as the earlier
-TianWen PRs there did. Until the fix ships, `OpenNgcCorrections` in `TianWen.Lib` carries the
-correction, each line pinned by a test that expects the raw upstream row to still be wrong, so the
-line is deleted the day the refresh brings the fix in.
+File the **CONFIRMED** ones upstream in [OpenNGC](https://github.com/mattiaverga/OpenNGC), citing
+the SIMBAD object (`https://simbad.cds.unistra.fr/simbad/sim-id?Ident=<name>`) AND the second
+opinion, as `openngc-audit.md` prints them. Take the DISPUTED ones to the source catalogue first, or
+leave them out: a PR of clean findings is worth more than a long one a maintainer has to re-derive.
+
+Until a fix ships, `OpenNgcCorrections` in `TianWen.Lib` carries the correction, each line pinned by
+a test that expects the raw upstream row to still be wrong, so the line is deleted the day the
+refresh brings the fix in. A line upstream **declines** is permanent and says so -- see the Flame
+Nebula pair, which OpenNGC keeps on IC 434 on a taxonomy argument and we override deliberately.
