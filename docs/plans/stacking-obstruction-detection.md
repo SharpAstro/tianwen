@@ -179,6 +179,46 @@ What it establishes, and what it costs:
   100 px 19.9%, plus 150 px 23.3%, plus 250 px 30.0%. Dropping the six frames instead costs 7% in
   master noise.
 
+### The archive carries a LABELLED corpus, and it says the regimes are three
+
+N.I.N.A. renames a frame the operator grades out with a `BAD_` prefix, and `CaptureRejection`
+already keeps those out of every frame source (`FitsFolderFrameSource`, pinned by
+`FitsFolderFrameSourceTests`; the bake reports them as `rejected-at-capture`). So they are a free
+ground-truth set that is already excluded from stacking: 66 frames under `D:/Astro-Pics`, 27 under
+`D:/Astro-Organized`. The owner says they are mostly roof, some trees.
+
+Run through the same grid, they do not describe one defect. They describe three, and the powerline
+is a fourth:
+
+| case | what it is | depth | extent | shape | stars, band / clear |
+|---|---|---|---|---|---|
+| `Helix-Nebula/2026-08-01`, 21 of 21 `BAD_` | roof cutting the APERTURE | 7% | 175 of 576 cells | a smooth illumination ramp spanning ~2000 px, **no edge anywhere** | **0.89 to 0.96** |
+| Helix 2022-08-31 frames 1 to 6 | powerline in the FIELD | 16% | 53 of 576 cells | straight band, 210 px penumbra each side | 0.50 to 0.75 |
+| `2026-02-20 BAD LIGHT EXAMPLES`, 33 | dawn, to saturation | none spatial | whole frame | frame median climbs 896 to 65532 ADU (full well) | n/a |
+| `C-101/2026-08-01`, 4 of 4 `BAD_` | unknown | none | none | flat to 0.5%, sky level normal for the night | n/a |
+
+Four things follow, and each one changes something above.
+
+- **An aperture cut is not a shadow, it is a VIGNETTE that moves.** A roof edge across the aperture
+  does not silhouette onto the sensor; it removes part of the beam, so every pixel dims and the loss
+  varies smoothly across the field. Cutting it out costs **61% of the frame** at zero margin. There
+  is no version of masking that survives this case, and it is the commonest one in the corpus.
+- **The AND with a star collapse is REFUTED, on the strongest case available.** The roof frames sit
+  7% down on background with **0.89 to 0.96** of the clear-cell star count. A rule that requires both
+  is silent on the obstruction the owner names first. Background deficit with spatial structure is
+  the primary signal; the star count corroborates where it happens to move, and gates nothing.
+- **A frame-wide defect is a DIFFERENT test and the per-cell one is deliberately blind to it.** The
+  dawn set is the proof: 33 frames the operator graded out, and the spatial test flags almost none of
+  them, correctly, because a level that moves everywhere is exactly what a within-frame comparison
+  cancels. Cloud belongs with dawn, not here: it wants the frame's own sky level and star count
+  against the SESSION's run, a per-frame session-relative statistic, beside a full-well check. Two
+  statistics, two reference frames, and conflating them is how one of them ends up unable to fire.
+- **`BAD_` is a reliable POSITIVE and nothing else.** It does not say why (the corpus holds dawn and
+  saturation under the same prefix as roof), and absence of it does not mean clean: the 2022
+  powerline frames carry no prefix at all, because the capture software of the day had no grading
+  and nobody renamed them. So **the unlabelled frames are NOT the clean control**, and the detector's
+  actual job is the ones nobody marked.
+
 The three scripts that took these numbers are
 [`tools/obstruction-cell-stats/`](../../tools/obstruction-cell-stats/), in the pattern
 `tools/coverage-edge-walk/` sets: point them at any folder of subs and they re-derive the table

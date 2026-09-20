@@ -43,17 +43,25 @@ def main(root, grid):
         med = float(np.median(cells))
         rel = cells / med
         low = int((rel < 0.95).sum())
-        out.append(dict(i=i, name=os.path.basename(path), when=when, median=med,
+        out.append(dict(i=i + 1, name=os.path.basename(path), when=when, median=med,
                         minrel=float(rel.min()), cells_below_095=low,
                         rel=[round(float(v), 4) for v in rel.ravel()]))
-        print(f"{i:4d} {os.path.basename(path)[-22:]:22s} {when[11:19]:9s} med={med:8.1f} "
+        print(f"{i + 1:4d} {os.path.basename(path)[-22:]:22s} {when[11:19]:9s} med={med:8.1f} "
               f"min={rel.min():.4f} max={rel.max():.4f} cells<0.95={low:4d}", flush=True)
     with open("obstruction_cells.json", "w", encoding="utf-8") as f:
         json.dump(out, f)
     flagged = [r for r in out if r["cells_below_095"] > 0]
     print(f"\n{len(flagged)} of {len(out)} frames carry a cell below 0.95 of their own cell median")
     if flagged:
-        print("  frames: " + ", ".join(str(r["i"] + 1) for r in flagged[:40]))
+        print("  frames: " + ", ".join(str(r["i"]) for r in flagged[:40]))
+    # The spatial test is deliberately blind to a frame-wide level change, so say what it did not
+    # look at: a session that brightens into dawn, or a frame at full well, is a DIFFERENT defect
+    # and needs the frame's own median against the session, not a cell against its neighbours.
+    meds = sorted(r["median"] for r in out)
+    lo, hi = meds[0], meds[-1]
+    if hi > 4 * max(lo, 1):
+        print(f"  NOTE frame medians span {lo:.0f} to {hi:.0f} ADU ({hi / max(lo, 1):.0f}x): this "
+              f"session has a frame-wide level problem that the per-cell test does not see")
     print("wrote obstruction_cells.json")
     return 0
 
