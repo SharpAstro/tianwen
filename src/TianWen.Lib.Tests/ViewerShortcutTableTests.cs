@@ -101,4 +101,58 @@ public class ViewerShortcutTableTests
             row.Button.ShouldBe(action, $"'{chord}' presses the {action} button");
         }
     }
+
+    // The resolver matches on `is { Button: { } }`, so a row that declares a ROUTE but names no
+    // button is skipped in silence -- the key would simply stop working, with nothing to say why.
+    [Fact]
+    public void EveryRoutedRowNamesTheButtonItRoutesTo()
+    {
+        foreach (var s in ViewerShortcuts.All)
+        {
+            if (s.Route is not ViewerShortcutRoute.None)
+            {
+                s.Button.ShouldNotBeNull($"'{s.Chord}' declares a route but no button, so it resolves to nothing");
+                s.Key.ShouldNotBeNull($"'{s.Chord}' declares a route but no key, so nothing can resolve it");
+            }
+        }
+    }
+
+    // Modifiers are part of the chord, not decoration: Ctrl+Shift+S opens the Save menu while
+    // Ctrl+S writes the file, and resolving one as the other would silently swap them.
+    [Fact]
+    public void ResolutionIsExactOnModifiers()
+    {
+        ViewerShortcuts.TryResolveRoute(InputKey.S, InputModifier.Ctrl | InputModifier.Shift)
+            .ShouldNotBeNull().Button.ShouldBe(ToolbarAction.Save);
+
+        ViewerShortcuts.TryResolveRoute(InputKey.S, InputModifier.Ctrl).ShouldBeNull();
+        ViewerShortcuts.TryResolveRoute(InputKey.S, InputModifier.None).ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(InputKey.T, ToolbarAction.StretchToggle, ViewerShortcutRoute.Press)]
+    [InlineData(InputKey.N, ToolbarAction.BackgroundNeutralize, ViewerShortcutRoute.Press)]
+    [InlineData(InputKey.D, ToolbarAction.Debayer, ViewerShortcutRoute.Press)]
+    [InlineData(InputKey.Z, ToolbarAction.Zoom, ViewerShortcutRoute.OpenMenu)]
+    [InlineData(InputKey.W, ToolbarAction.WhiteBalance, ViewerShortcutRoute.OpenMenu)]
+    [InlineData(InputKey.F1, ToolbarAction.Shortcuts, ViewerShortcutRoute.OpenMenu)]
+    public void TheRoutedKeysResolveToTheirButtonAndRoute(
+        InputKey key, ToolbarAction button, ViewerShortcutRoute route)
+    {
+        var resolved = ViewerShortcuts.TryResolveRoute(key, InputModifier.None).ShouldNotBeNull();
+        resolved.Button.ShouldBe(button);
+        resolved.Route.ShouldBe(route);
+    }
+
+    // A key with no declared route must NOT resolve, or it would be taken from the switch arm that
+    // still implements it.
+    [Theory]
+    [InlineData(InputKey.G)]
+    [InlineData(InputKey.P)]
+    [InlineData(InputKey.E)]
+    [InlineData(InputKey.F)]
+    [InlineData(InputKey.R)]
+    [InlineData(InputKey.Escape)]
+    public void AnUnroutedKeyIsLeftToItsArm(InputKey key)
+        => ViewerShortcuts.TryResolveRoute(key, InputModifier.None).ShouldBeNull();
 }
