@@ -76,6 +76,67 @@ Everything else composes per-plane without change: continuum subtraction (phase 
 broadband from *each* line plane, and the phase 5 mask is built from *one* line plane, which is
 exactly what the OIII range mask is.
 
+### The DUO-BAND PAIR is the OSC workflow to support, and it dissolves the hard part
+
+The paragraph above ends on "doing algebra on too few measurements". The fix is not better algebra,
+it is **more measurements**, and the way an OSC imager buys them is a **pair of duo-band filters**
+shot as two sessions of the same target: `Ha/OIII` on one night and `SII/OIII` on another. This is
+the owner's stated direction (2026-09-20, the Askar Colour Duo pair) and it should be the OSC path
+this plan optimises for.
+
+| | lines wanted | channels available | conditioning |
+|---|---|---|---|
+| quad-band OSC, one session | Ha, OIII, SII, (Hb) | 3 (R, G, B) | **underdetermined**; needs a per-sensor crosstalk table, gated on a known sensor |
+| **duo-band PAIR, two sessions** | Ha, OIII, SII | **6** (R, G, B per filter) | **over-determined**, and the hard separation is optical |
+
+**The decisive property is that Ha and SII are never on the sensor at the same time.** A quad-band
+has to pull them apart algebraically out of one red channel, where they sit 16 nm apart and the CFA
+red response is nearly flat across both; the pair separates them the way a mono filter wheel does,
+**in time rather than in space**. So the OSC on-ramp's genuinely ill-conditioned step does not arise
+at all. What remains inside each frame is Ha-vs-OIII (or SII-vs-OIII), which is R against G+B with
+the passbands 155 nm apart -- the well-conditioned dual-band case phase 3 already handles, and close
+enough to disjoint on a CFA that phase 1 alone gets most of the way.
+
+**OIII measured twice is the second payoff, and it is what makes the two sessions combinable at
+all.** Two nights through two filters have different transparency, altitude, moon and exposure, so
+their planes cannot simply be stacked side by side into SHO. The shared OIII is a **common
+reference** present in both: normalise each session's OIII plane to the other (phase 1's median
+offset plus MAD gain, about the background), and the same transform carries its Ha or SII plane onto
+the common scale. Without a shared line the two sessions have no anchor and the palette mix is
+guesswork. The duplicate also buys real SNR in the weakest line, since OIII is usually the faint one
+and the pair collects it on both nights.
+
+**And it answers ADR-1's complaint directly.** Naive HOO is rank-deficient because `G = B = OIII`
+renders uniformly teal by construction. The pair supplies a genuine third line, so SHO is a real
+three-measurement palette rather than a two-measurement one stretched over three channels.
+
+**What supporting it actually requires**, none of it blocked:
+
+1. **Two filter curves and two slugs that resolve.** Digitise both from the vendor chart via the
+   `digitize-filter` skill into `FilterCurveDatabase`, and add both to `SpccReachabilityProbe`. The
+   passbands must come from the chart, not from memory: the pair's value depends on where the two
+   red-side lines actually sit, and this plan should not carry numbers nobody measured.
+2. **Nothing in the archive layout.** `lights/<camera>/<filter>/<target>/<night>` already keeps two
+   filters of one target apart, and the bake already groups on `(camera, filter, target, night)`, so
+   each filter gets its own session master with no change. That is the right granularity: the
+   combination is a post-bake step over two masters, not a stacking-time merge.
+3. **Session PAIRING by target across filters.** The only new discovery logic: find the two masters
+   of one target whose filters are the two halves of a declared pair. A filter-pair declaration
+   (which slug partners which, and which line each contributes) is a small static asset beside the
+   curve table.
+4. **Phase 1 extended to normalise ACROSS sessions through the shared line**, which is the same
+   median-offset-plus-gain operation it already specifies, applied between masters rather than
+   between planes of one master.
+5. **The line-selective veto must trip on both filters**, so neither master is rendered as if SPCC
+   described it. `FilterCurveDatabase.IsLineSelective` is a 38 nm cut and a duo-band's per-line
+   passbands are far under it, but it takes the R/G/B system response, so confirm it on the digitised
+   curves rather than assuming.
+
+**What it does NOT require:** the quad-band four-lines-from-three-channels algebra, the per-sensor
+crosstalk coefficient table it needs, or the sensor gating on it. Phase 3 stays worth having for
+single-filter dual-band data already in the archive, but it stops being the blocker on the road to
+SHO from an OSC.
+
 ## Status: NOT STARTED (research ongoing 2026-08-02 through 2026-08-28; nothing built yet)
 
 **P1 scope, for a reader arriving from [pixinsight-parity.md](pixinsight-parity.md):** Phases 1+2
@@ -92,6 +153,7 @@ why).
 | 1 | **Robust plane normalization.** Align each weak line plane to the reference plane (usually Ha) by median offset then MAD/percentile gain, about the background. No catalog, no spectra, no new data. Works for any N. | `TianWen.Lib/Imaging/`, new `NarrowbandNormalizer` | NOT STARTED |
 | 2 | **Palette mixer + named presets.** `Ha`/`OIII` to RGB as a per-channel lerp, applied globally. Presets name which effect they apply (H-beta vs hue rotation). | same | NOT STARTED |
 | 3 | **Line unmixing: the OSC on-ramp only.** Recovers mono line planes from one dual/tri-band RGB frame, via DBXtract algebra + per-sensor crosstalk coefficients. **Mono imagers skip this entirely** and start at phase 1. **3a: the three-line Ha/Hb/OIII solve is the high-value variant** (exactly determined, the only source of *measured* blue). Gated on a known sensor. | same, plus a coefficient table asset | NOT STARTED |
+| **3b** | **DUO-BAND PAIR: the OSC path to real SHO, and the one to build.** Two sessions of one target through `Ha/OIII` and `SII/OIII`, paired by target across filters, normalised to each other through the **shared OIII** plane. Over-determined (6 channels, 3 lines) and the Ha-vs-SII separation is optical, so phase 3's crosstalk table and sensor gating do not apply. Needs: both curves digitised, a filter-pair declaration, and phase 1 extended across masters. | same, plus a filter-pair asset | NOT STARTED |
 | 4 | **SPCC narrowband mode.** Declared passbands convolved against real star spectra. Needs a Gaia DR3 spectra source. | `Astrometry/`, extends `Tycho2ColorCalibration` | NOT STARTED (blocked, see ADR-3) |
 | 5 | **Masked colour adjustment.** Mask = (hue band and/or **line plane**) x luminance range, minus protection ramps (low-saturation / shadow / highlight). Then curves over Lab `L`/`C` + per-channel RGB, `C` as a hue-preserving scale of `a`,`b`. Reuses `FritschCarlsonSpline` (ADR-7). See ADR-8/11. | `Image.Masks.cs`, `MasterPreviewRenderer` | NOT STARTED (separate concern, see ADR-4/8) |
 | 6 | **Narrowband star colour.** Synthesize plausible RGB stars from the line planes and recombine with the starless narrowband image. Fixes the magenta stars that narrowband colour calibration produces. | `TianWen.Lib/Imaging/`, composes with `SharpenPipeline`'s star lineage | NOT STARTED |
