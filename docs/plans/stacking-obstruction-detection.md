@@ -279,12 +279,34 @@ Steps 1 to 3 are DONE for the obstruction side, on the Helix powerline session a
    with a number: straight, +9.8 degrees, bounded, no edge. The 1:1 look is still worth taking
    before fitting an edge model to a TREE, whose boundary is the one this cannot stand in for.
 3. ~~**Measure the cell statistics across the transition.**~~ Done for the obstruction; see above.
-   **The CLOUD CONTROL IS STILL OUTSTANDING and is the half that can still refute the design.**
-   Take the same grid over a session with thin cloud and confirm the separation:
+   **The CLOUD CONTROL IS STILL OUTSTANDING and is the half that can still refute the design**, and
+   the search for one is worth recording, because it says where NOT to look next.
+
+   A screen over the filed sessions found three whose sky level is not smooth (mean absolute
+   residual about a 9-frame running median, in units of the data's own quantisation step: HIP-80609
+   2026-04-21 at 9.8, Tarantula 2025-10-18 at 8.6, eta Car 2025-01-14 at 7.2, against 0.01 to 0.14
+   for three clear controls, a fifty-fold separation). **The roughest of them is not cloud.** Its
+   residuals are 1.2 to 1.8 percent of the level, and its rough frames carry LESS cell structure
+   than its own smooth ones (4.5 cells below 0.95 against 10.4, 1.9 above 1.05 against 3.5), so
+   there is nothing spatial to measure a sign on.
+
+   That is probably not a gap in the screen. **A filed session is a SURVIVOR**: the operator grades
+   a clouded frame out with a `BAD_` prefix and does not file a clouded night at all, so the filed
+   tree is close to the worst place to look for one. Look instead in the unfiled `Astro-Pics`
+   captures, or shoot one deliberately. Whichever it is, the control must still show:
    - that the cloud cells are BRIGHTER, which is the whole discriminator;
    - that they are frame-wide and soft-edged where the obstruction is bounded and straight;
    - and that the depths do not overlap. **If they do, the sign rule is wrong and the design above
      needs revisiting before any of it is built.**
+
+   Two traps the screen itself hit, both the same shape, both worth avoiding next time. A roughness
+   statistic on a quantised level series **measures its own floor**: the first pass scored six of ten
+   sessions at exactly 0.000, which was the 4 ADU step, and the second pass scored all six at zero
+   because a MEDIAN absolute residual over quantised data is zero by construction (a running median
+   returns one of the data's own values). Use the mean, quote it in units of the step so the floor is
+   visible, and **order the series by `DATE-OBS`, never by filename**: a session captured in two runs
+   concatenates out of order, which put 105 of 175 Tarantula frames in the wrong place and injected
+   roughness that was pure bookkeeping.
 4. **Only then** write the detector, with the measured numbers as the defaults and the measurement
    quoted at the constant, the way `BadPixelDetection` and `OverlayEngine`'s thresholds are.
 5. **Re-measure the margin on a SECOND obstruction before shipping the cauterise.** 210 px is one
