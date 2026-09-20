@@ -166,6 +166,12 @@ namespace TianWen.Lib.Tests
             trims.Top.Depth.ShouldBe(0);
             trims.Top.SettleDepth.ShouldBeInRange(56, 72);   // it knows where the band ends
             trims.Top.Settled.ShouldBeTrue();                // it DID settle, just past the cap
+            // ... and it is still an edge the walk LEFT ALONE, which is the fact the consumers act on:
+            // the viewer says "edge held" and the CLI's --trim-declined trims it by hand. Both read
+            // AnyDeclined, and a band the cap refused has to count, or the option written for exactly
+            // this edge (see its description: the QHY294C master's 130 px ramps) stops firing on it.
+            trims.Top.Declined.ShouldBeTrue();
+            trims.AnyDeclined.ShouldBeTrue();
             trims.Apply(Whole(image)).ShouldBe(Whole(image));
 
             // Raise only the cap. The reference used to need raising with it; it does not now.

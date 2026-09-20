@@ -229,9 +229,10 @@ internal sealed class ImageSubCommand(
         };
         var trimDeclinedOpt = new Option<double>("--trim-declined")
         {
-            Description = "When the walk REFUSES an edge (its noise was still falling at the bound), trim "
-                + "that edge by this fraction of the axis anyway. Default 0.05, the walk's own bound: it "
-                + "looked that far and never saw the band settle, so that is the depth it cannot vouch for. "
+            Description = "When the walk LEAVES AN EDGE ALONE without calling it clean (its noise was still "
+                + "falling in the search window, or it settled deeper than the loss cap allows), trim that "
+                + "edge by this fraction of the axis anyway. Default 0.05, the walk's own cap: that is the "
+                + "depth it would not vouch for or would not pay. "
                 + "0 keeps the viewer's behaviour, which is to leave a refused edge alone -- correct when a "
                 + "person is looking at every pixel that exists, wrong when the crop feeds a background "
                 + "model, because the ramp it keeps is exactly what the model then fits. Measured on the "
@@ -270,29 +271,31 @@ internal sealed class ImageSubCommand(
             var scan = ViewerActions.ScanForCrop(src, input, logger);
             var rect = scan.Rect;
 
-            // A refused edge is the one case where the scan's answer is "I do not know", and the two
-            // callers want opposite things from that: the viewer keeps the pixels, this keeps the ramp
-            // out of a background fit. Only the refused edges move, and only by the depth the walk
-            // searched, so an edge that DID settle is left exactly where it said.
+            // A declined edge is the case where the scan left the pixels alone without calling them
+            // clean (refused, never settled, or settled past the cap), and the two callers want opposite
+            // things from that: the viewer keeps the pixels, this keeps the ramp out of a background fit.
+            // Only the declined edges move, and only by this fraction, so an edge that was trimmed or
+            // found clean is left exactly where it said. Declined, not !Settled: a band deeper than the
+            // cap DID settle and is still left alone, and it is the edge this option was written for.
             var trimDeclined = Math.Clamp(parseResult.GetValue(trimDeclinedOpt), 0.0, 0.25);
             if (trimDeclined > 0 && scan is { Declined: true, Trims: { } trims } && rect.Width > 0 && rect.Height > 0)
             {
                 var dx = (int)Math.Round(rect.Width * trimDeclined);
                 var dy = (int)Math.Round(rect.Height * trimDeclined);
-                var left = trims.Left.Settled ? 0 : dx;
-                var right = trims.Right.Settled ? 0 : dx;
-                var top = trims.Top.Settled ? 0 : dy;
-                var bottom = trims.Bottom.Settled ? 0 : dy;
+                var left = trims.Left.Declined ? dx : 0;
+                var right = trims.Right.Declined ? dx : 0;
+                var top = trims.Top.Declined ? dy : 0;
+                var bottom = trims.Bottom.Declined ? dy : 0;
                 var held = new PixelRect(rect.X + left, rect.Y + top,
                     rect.Width - left - right, rect.Height - top - bottom);
                 if (held.Width > 16 && held.Height > 16)
                 {
                     var edges = string.Join(", ", new[]
                     {
-                        trims.Left.Settled ? null : "left",
-                        trims.Top.Settled ? null : "top",
-                        trims.Right.Settled ? null : "right",
-                        trims.Bottom.Settled ? null : "bottom",
+                        trims.Left.Declined ? "left" : null,
+                        trims.Top.Declined ? "top" : null,
+                        trims.Right.Declined ? "right" : null,
+                        trims.Bottom.Declined ? "bottom" : null,
                     }.Where(e => e is not null));
                     consoleHost.WriteScrollable(
                         $"[autocrop] declined ({edges}) trimmed by {trimDeclined:P1}: "

@@ -1066,7 +1066,8 @@ public sealed class ViewerController(
             var kept = 100.0 * rect.Width * rect.Height / (image.Width * (double)image.Height);
             // Which tier answered is worth a word: one is the master's own record of what it covered, the
             // other is measured off the noise and can be short of the mark. "Edge held" names the case
-            // where an edge was left alone because its noise had not settled -- see CoverageEdgeWalk.
+            // where an edge was left alone without being clean: its noise had not settled, or it settled
+            // deeper than the loss cap allows -- CoverageEdgeTrim.Declined, see CoverageEdgeWalk.
             var how = scan.FromCoverage ? ", by coverage" : scan.Declined ? ", edge held" : "";
             state.StatusMessage = $"Cropped to {rect.Width}x{rect.Height} ({kept:F1}% of the frame{how})";
         }

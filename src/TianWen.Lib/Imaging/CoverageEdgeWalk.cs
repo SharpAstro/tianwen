@@ -62,8 +62,11 @@ namespace TianWen.Lib.Imaging
         /// different answer from a profile that never settles at all, and
         /// <see cref="CoverageEdgeTrim.SettleDepth"/> reports which.
         ///
-        /// <para>Defaults to twice the loss cap, so the walk can always see far enough to tell those two
-        /// apart, and raising the cap widens the search with it rather than against it.</para></summary>
+        /// <para>0.10, twice the DEFAULT loss cap, so at the defaults the walk sees far enough to tell
+        /// those two apart. It is a fixed value, not a multiple: a caller who raises the cap past it gets
+        /// a search floored AT the cap (the walk never looks less far than it may trim), and has to raise
+        /// this too to keep seeing past the cap. The floor, not a multiple, because the reference pool is
+        /// pushed to twice the search, and a search of twice a large cap leaves no room for it.</para></summary>
         public double SettleSearchFraction { get; init; } = 0.10;
 
         /// <summary>How close to the settled level counts as settled.</summary>
@@ -117,9 +120,19 @@ namespace TianWen.Lib.Imaging
     /// <see cref="CoverageEdgeOutcome.BeyondCap"/> actionable rather than a shrug.</param>
     public readonly record struct CoverageEdgeTrim(int Depth, CoverageEdgeOutcome Outcome, double EdgeRatio, int SettleDepth)
     {
-        /// <summary>Whether the profile reached the settled level at all, at any depth. Kept because it
-        /// is what most callers want to branch on; the outcome carries the detail.</summary>
+        /// <summary>Whether the profile reached the settled level at all, at any depth: the PHYSICAL
+        /// fact about the edge. True for <see cref="CoverageEdgeOutcome.BeyondCap"/>, which did settle,
+        /// just past what the caller will pay. Not what a consumer with a fallback branches on; that is
+        /// <see cref="Declined"/>.</summary>
         public bool Settled => Outcome is CoverageEdgeOutcome.Clean or CoverageEdgeOutcome.Trimmed or CoverageEdgeOutcome.BeyondCap;
+
+        /// <summary>Whether the walk LEFT THE EDGE ALONE for a reason other than it being clean: the
+        /// VERDICT the consumers act on. The viewer reports it as "edge held" and the CLI's
+        /// <c>--trim-declined</c> trims such an edge by hand, and a band the cap refused
+        /// (<see cref="CoverageEdgeOutcome.BeyondCap"/>) has to count here or both stop seeing the one
+        /// edge they were written for. It reads the outcome, not <see cref="Settled"/>, because the two
+        /// disagree on exactly that case.</summary>
+        public bool Declined => Outcome is CoverageEdgeOutcome.BeyondCap or CoverageEdgeOutcome.NeverSettles or CoverageEdgeOutcome.NotMeasurable;
     }
 
     /// <summary>The four edges' verdicts, and the rectangle they leave.</summary>
@@ -129,8 +142,9 @@ namespace TianWen.Lib.Imaging
         CoverageEdgeTrim Right,
         CoverageEdgeTrim Bottom)
     {
-        /// <summary>True when at least one edge refused to answer.</summary>
-        public bool AnyDeclined => !Left.Settled || !Top.Settled || !Right.Settled || !Bottom.Settled;
+        /// <summary>True when at least one edge was left alone for a reason other than being clean
+        /// (<see cref="CoverageEdgeTrim.Declined"/>): refused, never settled, or settled past the cap.</summary>
+        public bool AnyDeclined => Left.Declined || Top.Declined || Right.Declined || Bottom.Declined;
 
         /// <summary>Total px discarded across all four edges.</summary>
         public int TotalDepth => Left.Depth + Top.Depth + Right.Depth + Bottom.Depth;
