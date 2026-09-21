@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -586,7 +586,6 @@ public static class DatasetBuildRunner
                             frameCount: reg.Subs.Length, strategy: reg.MasterStrategy, logger: logger,
                             wcs: await SolveRetainedMasterAsync(plateSolver, reg, session.Id, logger, cancellationToken),
                             rejectionMap: reg.RejectionMap,
-                            rejectionMapIsCoverage: reg.RejectionMapIsCoverage,
                             coverage: reg.Coverage))
                         {
                             mastersRetained++;
@@ -714,7 +713,6 @@ public static class DatasetBuildRunner
                             frameCount: side.Subs.Length, strategy: side.MasterStrategy, logger: logger,
                             wcs: await SolveRetainedMasterAsync(plateSolver, side, side.Session.Id, logger, cancellationToken),
                             rejectionMap: side.RejectionMap,
-                            rejectionMapIsCoverage: side.RejectionMapIsCoverage,
                             coverage: side.Coverage))
                         {
                             mastersRetained++;

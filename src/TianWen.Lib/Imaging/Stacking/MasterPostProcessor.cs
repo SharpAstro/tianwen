@@ -663,9 +663,21 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
 
     private static IntegrationResult CropIntegrationResult(IntegrationResult full, PixelRect rect)
     {
+        // Both sidecars are per-pixel maps OF the master, so both follow it through the crop. The
+        // rejection map is null for a strategy that rejects nothing (drizzle), and the coverage plane
+        // was not being cropped at all: the autocrop master came out 2628x2919 beside a 3414x3121
+        // coverage sidecar, a sidecar describing a different picture. Nothing had caught it because
+        // until this commit only drizzle wrote coverage, and drizzle put it in the rejection slot,
+        // which WAS cropped.
         var croppedMaster = CropImage(full.Master, rect);
-        var croppedRejection = CropImage(full.RejectionMap, rect);
-        return full with { Master = croppedMaster, RejectionMap = croppedRejection };
+        var croppedRejection = full.RejectionMap is { } rejection ? CropImage(rejection, rect) : null;
+        var croppedCoverage = full.Coverage is { } coverage ? CropImage(coverage, rect) : null;
+        return full with
+        {
+            Master = croppedMaster,
+            RejectionMap = croppedRejection,
+            Coverage = croppedCoverage,
+        };
     }
 
     private static Image WithUpdatedFocalLength(Image src, int focalLengthMm)

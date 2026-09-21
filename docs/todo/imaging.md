@@ -2,6 +2,30 @@
 
 Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the active/high-priority list.
 
+## HIGH PRIORITY: a coverage sidecar is 42.6 MB of float32 for a number that fits in a byte
+
+Filed 2026-09-21, on the change that made every strategy retain a coverage plane (PR #327). Measured
+on the re-baked V1045 Ori master: `master_*.coverage.fits` is 3414x3121 float32, **42.6 MB**, holding
+a per-pixel count whose maximum is the frame count (`DATAMAX = 58`). Across a 139-master store that is
+roughly **6 GB of sidecars where there were none**, and it lands the moment the store is re-baked --
+which it must be, since every master in it predates the coverage work. **Decide before the re-bake,
+not after.** Three ways down, not exclusive:
+
+- **Tile-compress it** (`.fz`). The repository already READS tile-compressed FITS -- `Fits.ReadFirstImageHdu`
+  walks to HDU 1 precisely because a tile-compressed image is a binary table and can never be in HDU 0 --
+  so only the write side is missing. A coverage plane is mostly large flat regions and should compress by
+  a couple of orders of magnitude. Best ratio, and it keeps full resolution.
+- **Integer `BITPIX`.** The value is a count: 8-bit covers 255 frames (10.6 MB), 16-bit covers any
+  session anyone will shoot (21 MB). Note it is currently an AVERAGE over channels, so it is not
+  integral today -- rounding it is a decision, not a free change.
+- **A coarser grid than the master.** `Image.LargestCoveredRectangle` already reduces to a block grid,
+  so full resolution may be more than the only consumer needs. Cheapest to implement, and the one that
+  throws information away.
+
+Also open, smaller: `CoveragePlane` has three entry points because three strategies hold their counts in
+three shapes (a sink, a `uint[,]`, an assembled plane). One definition, three doors -- acceptable, but
+worth collapsing if a fourth appears.
+
 ## Calibration + integration gaps vs Siril / APP / PixInsight WBPP
 
 Filed 2026-08-03 from a stage-by-stage comparison of `StackingPipeline` against the three tools,

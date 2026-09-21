@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using TianWen.Lib.Geometry;
 using System.Numerics;
 using System.Threading;
@@ -337,12 +337,17 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
         // disk when there are actually holes worth inspecting. A well-
         // dithered run with full coverage drops the side-car file entirely.
         var uncovered = totalCells - coveredCells;
+        // Drizzle does no kappa-sigma rejection, so it has no rejection fraction to report. Its
+        // accumulated per-pixel weight is coverage and now says so by WHERE it is put, rather than by
+        // a flag on a field named for the other thing.
         return new IntegrationResult(
             Master: master,
-            RejectionMap: coverageMap,
+            RejectionMap: null,
             FrameCount: frameCount,
             TotalRejections: uncovered,
-            MeanRejectionRate: (double)uncovered / totalCells,
-            RejectionMapIsCoverage: true);
+            MeanRejectionRate: (double)uncovered / totalCells)
+        {
+            Coverage = coverageMap,
+        };
     }
 }

@@ -149,12 +149,11 @@ public static class IntegrationFitsWriter
 
         result.Master.WriteToFitsFile(masterPath, wcs, extras);
 
-        if (result.TotalRejections > 0)
+        if (result.TotalRejections > 0 && result.RejectionMap is { } rejection)
         {
-            WriteRejectionMap(masterPath, result.RejectionMap, result.FrameCount, result.MeanRejectionRate,
-                result.RejectionMapIsCoverage, strategy);
+            WriteRejectionMap(masterPath, rejection, result.FrameCount, result.MeanRejectionRate, strategy);
         }
-        if (!result.RejectionMapIsCoverage && result.Coverage is { } coverage)
+        if (result.Coverage is { } coverage)
         {
             WriteCoverageMap(masterPath, coverage, result.FrameCount, strategy);
         }
@@ -206,7 +205,6 @@ public static class IntegrationFitsWriter
         Image map,
         int frameCount,
         double meanRejectionRate,
-        bool isCoverage,
         IntegrationStrategyKind? strategy = null)
     {
         var rejectionPath = RejectionPathFor(masterPath);
@@ -220,9 +218,7 @@ public static class IntegrationFitsWriter
             ["REJ_RATE"] = (meanRejectionRate, "Mean rejection rate (this map's average)"),
             ["SWCREATE"] = (SoftwareCreator, "Software that created this rejection map"),
             ["IMAGETYP"] = ("REJECTION", "Per-pixel rejection-fraction map [0, 1]"),
-            ["MAPKIND"] = isCoverage
-                ? (CoverageMapKind, "Accumulated per-pixel weight; high is well covered")
-                : (RejectionMapKind, "Per-pixel rejected/total; high is heavily rejected"),
+            ["MAPKIND"] = (RejectionMapKind, "Per-pixel rejected/total; high is heavily rejected"),
         };
         if (strategy is { } s2)
         {

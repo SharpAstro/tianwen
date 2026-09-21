@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using TianWen.Lib.Geometry;
 using System.IO;
 using System.Threading;
@@ -378,13 +378,18 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
             imageMeta: refMeta);
 
         var uncovered = totalCells - coveredCells;
+        // Drizzle does no kappa-sigma rejection, so it has no rejection fraction to report. Its
+        // accumulated per-pixel weight is coverage and now says so by WHERE it is put, rather than by
+        // a flag on a field named for the other thing.
         return new IntegrationResult(
             Master: master,
-            RejectionMap: coverageMap,
+            RejectionMap: null,
             FrameCount: n,
             TotalRejections: uncovered,
-            MeanRejectionRate: (double)uncovered / totalCells,
-            RejectionMapIsCoverage: true);
+            MeanRejectionRate: (double)uncovered / totalCells)
+        {
+            Coverage = coverageMap,
+        };
     }
 
     /// <summary>Load + calibrate, no debayer. Same contract as

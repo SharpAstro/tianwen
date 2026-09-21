@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -366,19 +366,15 @@ public static class SessionRegistrar
         public WarpedSubSource? WarpedSubs { get; init; }
 
         /// <summary>
-        /// The integration's per-pixel map for <see cref="Master"/>: accumulated WEIGHT from a drizzle,
-        /// a rejection FRACTION from every other strategy, null when nothing was rejected.
-        /// <see cref="RejectionMapIsCoverage"/> is what tells the two apart, and a writer must stamp it.
+        /// The integration's per-pixel rejection FRACTION for <see cref="Master"/>, null when nothing
+        /// was rejected or the strategy rejects nothing at all. It is only ever a rejection fraction:
+        /// a drizzle's weight plane is coverage and lives in <see cref="Coverage"/>.
         /// </summary>
         /// <remarks>Kept because a retained master without it forces every downstream crop onto the
         /// edge-noise ESTIMATE. The walk measures where noise settles and a partial-coverage band is a
         /// LEVEL, about 0.1 percent deep, so it can refuse an edge and leave a ramp that a background
         /// model then fits.</remarks>
         public Image? RejectionMap { get; init; }
-
-        /// <summary>Whether <see cref="RejectionMap"/> is a coverage/weight plane (high is well
-        /// covered) rather than a rejection fraction (high is heavily rejected).</summary>
-        public bool RejectionMapIsCoverage { get; init; }
 
         /// <summary>The per-pixel count of frames with a finite sample, for a strategy whose
         /// <see cref="RejectionMap"/> is a fraction (<see cref="IntegrationResult.Coverage"/>); null
@@ -1005,7 +1001,6 @@ public static class SessionRegistrar
                 {
                     WarpedSubs = warpedSubs,
                     RejectionMap = sideIntegration.TotalRejections > 0 ? sideIntegration.RejectionMap : null,
-                    RejectionMapIsCoverage = sideIntegration.RejectionMapIsCoverage,
                     Coverage = sideIntegration.Coverage,
                 });
             }
@@ -1021,7 +1016,6 @@ public static class SessionRegistrar
             WarpedSubs = warpedSubs,
             FlipSides = sides,
             RejectionMap = integration.TotalRejections > 0 ? integration.RejectionMap : null,
-            RejectionMapIsCoverage = integration.RejectionMapIsCoverage,
             Coverage = integration.Coverage,
             // On the COMBINED master only. A flip side is a subset of the same night's registered
             // subs, so attaching the session's drops to each side would count every one of them

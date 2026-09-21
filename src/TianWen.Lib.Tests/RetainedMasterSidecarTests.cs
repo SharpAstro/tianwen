@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using Shouldly;
@@ -78,14 +78,14 @@ namespace TianWen.Lib.Tests
 
             RetainedMasterStore.Write(_root, SessionId, master, frameCount: 24,
                 strategy: IntegrationStrategyKind.BayerDrizzle,
-                rejectionMap: coverage, rejectionMapIsCoverage: true, meanRejectionRate: 0.0)
+                coverage: coverage, meanRejectionRate: 0.0)
                 .ShouldBeTrue();
 
             var masterPath = RetainedMasterStore.PathFor(_root, SessionId);
             // Through the writer's own rule, never by appending the suffix to the master path:
             // it strips the .fits stem first, so a hand-built path is one directory listing away
             // from concluding the file was never written.
-            var sidecar = IntegrationFitsWriter.RejectionPathFor(masterPath);
+            var sidecar = IntegrationFitsWriter.CoveragePathFor(masterPath);
             File.Exists(sidecar).ShouldBeTrue("the coverage plane must sit beside the master under the stacker's own name");
 
             // MAPKIND is the whole point of the file: drizzle writes accumulated WEIGHT here and every
@@ -111,7 +111,7 @@ namespace TianWen.Lib.Tests
             // from the files my change AFFECTED.
             RetainedMasterStore.Write(_root, SessionId, Frame(1000f), frameCount: 24,
                 strategy: IntegrationStrategyKind.BayerDrizzle,
-                rejectionMap: Frame(24f), rejectionMapIsCoverage: true, meanRejectionRate: 0.0)
+                coverage: Frame(24f), meanRejectionRate: 0.0)
                 .ShouldBeTrue();
 
             var dir = Path.Combine(_root, RetainedMasterStore.DirectoryName);
@@ -136,7 +136,7 @@ namespace TianWen.Lib.Tests
         {
             RetainedMasterStore.Write(_root, SessionId, Frame(1000f), frameCount: 24,
                 strategy: IntegrationStrategyKind.Float16Staged,
-                rejectionMap: Frame(0.01f), rejectionMapIsCoverage: false, meanRejectionRate: 0.01,
+                rejectionMap: Frame(0.01f), meanRejectionRate: 0.01,
                 coverage: Frame(24f))
                 .ShouldBeTrue();
 
@@ -155,13 +155,18 @@ namespace TianWen.Lib.Tests
             RetainedMasterStore.EnumerateMasters(_root).ToArray().Length.ShouldBe(1);
             IntegrationFitsWriter.IsRejectionMapPath(coveragePath).ShouldBeTrue();
 
-            // A drizzle master's rejection sidecar IS its coverage, so a count handed over is not written.
+            // Coverage has ONE home now, whatever produced it. A drizzle's accumulated weight is a
+            // coverage plane and is written under the coverage suffix like every other strategy's,
+            // where it used to sit in the rejection slot behind a flag saying it meant the opposite.
             const string Drizzled = "TestCam/None/Other/2026-01-03|TestCam|Other|None";
             RetainedMasterStore.Write(_root, Drizzled, Frame(900f), frameCount: 8,
                 strategy: IntegrationStrategyKind.BayerDrizzle,
-                rejectionMap: Frame(8f), rejectionMapIsCoverage: true, coverage: Frame(8f)).ShouldBeTrue();
-            File.Exists(IntegrationFitsWriter.CoveragePathFor(RetainedMasterStore.PathFor(_root, Drizzled)))
-                .ShouldBeFalse("drizzle's coverage is its rejection sidecar; a second file would say the same thing twice");
+                coverage: Frame(8f)).ShouldBeTrue();
+            var drizzledMaster = RetainedMasterStore.PathFor(_root, Drizzled);
+            File.Exists(IntegrationFitsWriter.CoveragePathFor(drizzledMaster))
+                .ShouldBeTrue("a drizzle's weight plane is coverage, and coverage has one home");
+            File.Exists(IntegrationFitsWriter.RejectionPathFor(drizzledMaster))
+                .ShouldBeFalse("drizzle rejects nothing, so there is no fraction to write");
         }
 
         [Fact]
