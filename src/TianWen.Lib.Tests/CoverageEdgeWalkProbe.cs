@@ -57,8 +57,18 @@ public class CoverageEdgeWalkProbe(ITestOutputHelper output)
                 continue;
             }
 
-            var full = new PixelRect(0, 0, image.Width, image.Height);
-            output.WriteLine($"\n=== {Path.GetFileName(file)}  {image.Width}x{image.Height} ===");
+            // The covered rectangle, not the frame: see the corpus fact below for what the frame does
+            // to an edge that still has its canvas ring, and how many edges it did it to.
+            var full = image.LargestCoveredRectangle();
+            output.WriteLine($"\n=== {Path.GetFileName(file)}  frame {image.Width}x{image.Height}"
+                + $"  covered {full.Width}x{full.Height} at ({full.X},{full.Y}) ===");
+
+            if (full.Width <= 0 || full.Height <= 0)
+            {
+                output.WriteLine("  no covered rectangle; there is nothing the walk could be asked");
+                image.Release();
+                continue;
+            }
 
             // The shipped verdict first, so the sweep below is read against what ships today.
             var shipped = CoverageEdgeWalk.Measure(image, full);
@@ -70,7 +80,7 @@ public class CoverageEdgeWalkProbe(ITestOutputHelper output)
             {
                 var o = CoverageEdgeWalkOptions.Default with { MaxTrimFraction = f };
                 var t = CoverageEdgeWalk.Measure(image, full, o);
-                var capX = (int)(f * image.Width);
+                var capX = (int)(f * full.Width);
                 output.WriteLine($"  {f,6:F2} {capX,7} | {Cell(t.Left)} {Cell(t.Top)} {Cell(t.Right)} {Cell(t.Bottom)}");
             }
 
@@ -116,7 +126,15 @@ public class CoverageEdgeWalkProbe(ITestOutputHelper output)
     /// all, and a profile that "settles" at the end of its window may be settling on the window rather
     /// than on the frame. The widest value is near the practical ceiling: the reference pool starts at
     /// <c>2 * search + BandThickness</c>, so past about 0.45 nothing is measurable at all.</summary>
-    private static readonly double[] Searches = [0.05, 0.075, 0.10, 0.15, 0.20, 0.25, 0.30];
+    private static readonly double[] DefaultSearches = [0.05, 0.075, 0.10, 0.15, 0.20, 0.25, 0.30];
+
+    /// <summary>The sweep, or just the windows named in <c>TIANWEN_CROP_CORPUS_WINDOWS</c>. Naming one
+    /// is how the mix AT THE SHIPPED DEFAULTS is checked after a change to the walk, at a seventh of
+    /// the cost of re-sweeping.</summary>
+    private static double[] Searches
+        => Environment.GetEnvironmentVariable("TIANWEN_CROP_CORPUS_WINDOWS") is { Length: > 0 } list
+            ? list.Split(',').Select(static s => double.Parse(s.Trim(), CultureInfo.InvariantCulture)).ToArray()
+            : DefaultSearches;
 
     /// <summary>
     /// Where every edge of a whole corpus settles, as the search window widens. This is the measurement
@@ -142,6 +160,12 @@ public class CoverageEdgeWalkProbe(ITestOutputHelper output)
             var replayed = ReadRows(replay);
             output.WriteLine($"replaying {replayed.Count} rows from {replay}");
             SummariseCorpus(replayed, output);
+            if (Environment.GetEnvironmentVariable("TIANWEN_CROP_CORPUS_COMPARE") is { Length: > 0 } baseline
+                && File.Exists(baseline))
+            {
+                CompareToBaseline(replayed, baseline, output);
+            }
+
             return;
         }
 
@@ -170,25 +194,47 @@ public class CoverageEdgeWalkProbe(ITestOutputHelper output)
 
             read++;
             var name = Path.GetFileNameWithoutExtension(file);
-            var full = new PixelRect(0, 0, image.Width, image.Height);
+
+            // Start where the PRODUCTION callers start. All three of them (ViewerActions.ScanForCrop,
+            // Image.SettledCoverageRectangle, ClassicalBackgroundExtractor) hand the walk the covered
+            // rectangle, never the frame. The walk profiles an UNDER-EXPOSED band, and a canvas ring is
+            // not one: fed the whole frame, a master that still has its ring has its outermost band
+            // INSIDE that ring, where every pixel holds the same value, so the difference sigma is 0,
+            // the ratio is 0.00 and the edge reads "clean". Measured on the first run of this probe:
+            // 43 edges over 17 of the 139 masters, every one of them a false Clean, and none of them
+            // describing anything that ships.
+            var union = image.LargestCoveredRectangle();
+            if (union.Width <= 0 || union.Height <= 0)
+            {
+                output.WriteLine($"{name}: no covered rectangle");
+                image.Release();
+                continue;
+            }
 
             foreach (var search in Searches)
             {
                 var options = CoverageEdgeWalkOptions.Default with { SettleSearchFraction = search };
-                var t = CoverageEdgeWalk.Measure(image, full, options);
+                if (Environment.GetEnvironmentVariable("TIANWEN_CROP_CORPUS_CONFIRM") is { Length: > 0 } cf)
+                {
+                    options = options with { ConfirmFactor = double.Parse(cf, CultureInfo.InvariantCulture) };
+                }
 
+                var t = CoverageEdgeWalk.Measure(image, union, options);
+
+                // The span is the COVERED rectangle's, not the frame's, because that is what every
+                // depth here is a depth into and what the walk's own fractions are fractions of.
                 foreach (var (edge, trim, span) in new[]
                 {
-                    ("left", t.Left, image.Width),
-                    ("right", t.Right, image.Width),
-                    ("top", t.Top, image.Height),
-                    ("bottom", t.Bottom, image.Height),
+                    ("left", t.Left, union.Width),
+                    ("right", t.Right, union.Width),
+                    ("top", t.Top, union.Height),
+                    ("bottom", t.Bottom, union.Height),
                 })
                 {
                     rows.Add((name, edge, span, search, trim.SettleDepth, trim.Outcome));
                     var frac = trim.SettleDepth >= 0 ? (double)trim.SettleDepth / span : double.NaN;
                     csv.Append(CultureInfo.InvariantCulture,
-                        $"\"{name}\",{edge},{image.Width},{image.Height},{span},{search:F3},{trim.SettleDepth},{frac:F5},{trim.Outcome},{trim.EdgeRatio:F4}\n");
+                        $"\"{name}\",{edge},{union.Width},{union.Height},{span},{search:F3},{trim.SettleDepth},{frac:F5},{trim.Outcome},{trim.EdgeRatio:F4}\n");
                 }
             }
 
@@ -315,28 +361,14 @@ public class CoverageEdgeWalkProbe(ITestOutputHelper output)
         // inside it; the sweep can, but only after the fact. So the cap is the only thing standing
         // between a gradient and a trim, and the question a default has to answer is what each setting
         // buys and what it costs AT THE SHIPPED WINDOW.
-        var kind = new Dictionary<(string, string), string>();
-        foreach (var series in byEdge)
-        {
-            var depths = series.Where(static r => r.SettleDepth > 0).ToArray();
-            var key = (series[0].File, series[0].Edge);
-            if (depths.Length == 0)
-            {
-                kind[key] = "never";
-            }
-            else if (depths.Length == 1)
-            {
-                kind[key] = "single";
-            }
-            else
-            {
-                var min = depths.Min(static r => r.SettleDepth);
-                var max = depths.Max(static r => r.SettleDepth);
-                kind[key] = max - min <= Math.Max(2 * CoverageEdgeWalkOptions.Default.Step, 0.10 * max) ? "border" : "grows";
-            }
-        }
+        var kind = Classify(rows);
 
-        var shippedSearch = CoverageEdgeWalkOptions.Default.SettleSearchFraction;
+        // Which window the cap analysis below is read at. The shipped one by default; naming another
+        // answers "what would this cap buy if the window moved" off rows already measured, instead of
+        // editing a shipped default to run an experiment and having to remember to put it back.
+        var shippedSearch = Environment.GetEnvironmentVariable("TIANWEN_CROP_CORPUS_ANALYSE") is { Length: > 0 } w
+            ? double.Parse(w, CultureInfo.InvariantCulture)
+            : CoverageEdgeWalkOptions.Default.SettleSearchFraction;
         var atShipped = rows.Where(r => r.Search == shippedSearch && r.SettleDepth > 0).ToArray();
         output.WriteLine("");
         output.WriteLine($"  at the SHIPPED window of {shippedSearch:F2}, what each cap would trim ({atShipped.Length} edges report a depth):");
@@ -363,6 +395,79 @@ public class CoverageEdgeWalkProbe(ITestOutputHelper output)
             var fracs = group.Select(static r => (double)r.SettleDepth / r.Span).OrderBy(static v => v).ToArray();
             output.WriteLine($"    {group.Key,-8} {group.Count(),3}   depth/span p50 {Pct(fracs, 0.50):F4}  max {Pct(fracs, 1.0):F4}"
                 + $"   (the blind fraction would have taken {blind}% of each)");
+        }
+    }
+
+    /// <summary>Each edge's verdict over a whole window sweep: <c>border</c>, <c>grows</c>,
+    /// <c>single</c> (one window saw a depth and no other did) or <c>never</c>. The one place the
+    /// sweep is turned into a judgement, so a comparison between two runs cannot use a second rule.</summary>
+    private static Dictionary<(string, string), string> Classify(
+        List<(string File, string Edge, int Span, double Search, int SettleDepth, CoverageEdgeOutcome Outcome)> rows)
+    {
+        var kind = new Dictionary<(string, string), string>();
+        foreach (var series in rows.GroupBy(static r => (r.File, r.Edge)))
+        {
+            var depths = series.Where(static r => r.SettleDepth > 0).ToArray();
+            var key = (series.Key.File, series.Key.Edge);
+            if (depths.Length == 0)
+            {
+                kind[key] = "never";
+            }
+            else if (depths.Length == 1)
+            {
+                kind[key] = "single";
+            }
+            else
+            {
+                var min = depths.Min(static r => r.SettleDepth);
+                var max = depths.Max(static r => r.SettleDepth);
+                kind[key] = max - min <= Math.Max(2 * CoverageEdgeWalkOptions.Default.Step, 0.10 * max) ? "border" : "grows";
+            }
+        }
+
+        return kind;
+    }
+
+    /// <summary>
+    /// What a change to the WALK did, judged against a sweep taken before it. The single-window run
+    /// that checks a change cannot classify anything itself (one window per edge is one data point),
+    /// so it is cross-tabulated against a baseline sweep's verdict: the question a contract change has
+    /// to answer is not how the outcome mix moved but WHICH edges moved, and whether the ones that
+    /// stopped being trimmed are the ones the sweep calls gradients.
+    /// </summary>
+    /// <remarks>Set <c>TIANWEN_CROP_CORPUS_COMPARE</c> to the baseline sweep's csv and
+    /// <c>TIANWEN_CROP_CORPUS_REPLAY</c> to the new run's.</remarks>
+    private static void CompareToBaseline(
+        List<(string File, string Edge, int Span, double Search, int SettleDepth, CoverageEdgeOutcome Outcome)> now,
+        string baselinePath,
+        ITestOutputHelper output)
+    {
+        var baseline = Classify(ReadRows(baselinePath));
+        var table = new Dictionary<(CoverageEdgeOutcome, string), int>();
+        var missing = 0;
+        foreach (var r in now)
+        {
+            if (!baseline.TryGetValue((r.File, r.Edge), out var was))
+            {
+                missing++;
+                continue;
+            }
+
+            var key = (r.Outcome, was);
+            table[key] = table.TryGetValue(key, out var c) ? c + 1 : 1;
+        }
+
+        output.WriteLine("");
+        output.WriteLine($"  this run's outcome against the baseline sweep's verdict ({missing} edges not in the baseline):");
+        output.WriteLine($"    {"outcome",-14} {"border",8} {"grows",8} {"single",8} {"never",8}");
+        foreach (var outcome in Enum.GetValues<CoverageEdgeOutcome>())
+        {
+            var row = new[] { "border", "grows", "single", "never" }
+                .Select(k => table.TryGetValue((outcome, k), out var c) ? c : 0).ToArray();
+            if (row.Sum() > 0)
+            {
+                output.WriteLine($"    {outcome,-14} {row[0],8} {row[1],8} {row[2],8} {row[3],8}");
+            }
         }
     }
 
