@@ -22,6 +22,13 @@ Partner Center's "What's new in this version" field, and the detail behind it.
 Nothing else in the repo records what has been submitted, which is why writing it
 down is worth the file.
 
+THIS RELEASE IS 9.0, AND THE JUMP IS NOT ABOUT THE VIEWER. 9.0 is breaking for
+TianWen.Lib (its geometry types are its own, the dependency floor moves two majors,
+and the ZWO and QHYCCD drivers move to a package of their own), and a Store user
+sees none of that. What they see is the 8.1 work below, which was drafted on
+2026-09-19 and never dispatched, plus what 9.0 added on top. So the span is
+v8.0.1716..{{TAG}} and it carries two releases' worth of viewer changes, not one.
+
 
 ================================================================================
 FIRST, AUDIT WHAT THE LISTING ALREADY CLAIMS
@@ -51,6 +58,14 @@ sentence still holds. The auto-crop bullet ("no longer mistakes a dead pixel for
 the edge of the stack") is TRUE but now understates the rule, which since 8.1 also
 covers a drizzle hole; that is an extension, not a correction.
 
+Re-audited 2026-09-21, the draft having sat unreleased for six days while 9.0 work
+landed. 8.0.1716 is still the live listing and every sentence in it still holds.
+The auto-crop bullet now understates the rule a SECOND way: since the edge-walk
+rework it also declines a gradient that merely goes quiet, and trims a dither strip
+deeper than the old cap. Still an extension rather than a correction, and the block
+below restates the crop claim from scratch rather than patching it, because three
+separate widenings of one sentence is how a claim stops matching the code.
+
 One CORRECTION is in this release, and it leads the block for that reason: the
 toolbar's "HDR" button never did HDR. It applies a soft knee after the stretch and
 inside [0, 1], so it compresses highlights into ordinary white and never asks the
@@ -66,6 +81,7 @@ WHAT'S NEW  (Partner Center copy - paste between the two marker lines VERBATIM)
 Measured at bake time: {{WHATSNEW_CHARS}} characters, or {{WHATSNEW_CHARS_CRLF}} if
 the paste turns the newlines into CRLF. The cap is 1500 and the bake FAILS over it,
 so this number is always true of what is below. Do not paste the DETAIL section.
+Measured locally before dispatch on 2026-09-21: 1402 LF, 1414 CRLF, pure ASCII.
 
 Shape that has worked twice: two or three HEADED sections carrying the release,
 then an "Also in this release" list of one-line bullets. Corrections go first
@@ -73,23 +89,33 @@ within their group. Say what the user can now DO, in their words, not ours.
 
 ----- BEGIN WHAT'S NEW -----
 The HDR button was never HDR
-It softens the clipping in the brightest parts of the picture, which is useful, but it never asks your display for anything brighter than an ordinary window's white. On an HDR screen the name promised something it could not deliver. It has moved in with Boost under one Tone button: one panel holding the boost, how hard the highlights bend and where the bend starts, and a line naming the display HDR this viewer cannot do yet. B and H still step them. The picture itself is unchanged.
+It softens the clipping in the brightest parts of the picture, which is useful, but it never asks your display for anything brighter than an ordinary window's white. On an HDR screen the name promised something it could not deliver. It now sits with Boost under one Tone button, alongside a line naming the display HDR this viewer cannot do yet. B and H still step them, and the picture itself is unchanged.
 
-Drizzle stacks keep their whole frame
-Auto crop used to treat the small holes a drizzle stack leaves inside the frame as if they were its edge, and could cut a fully covered master down to half its width. Only what reaches the border counts as the edge now, and the holes themselves are filled from their neighbours when the file opens, so they no longer show as black specks or skew the statistics.
+The sky atlas shows what a click will take
+Rest the pointer on a crowded field and a soft wash marks the object a click would select, so you can tell which of several overlapping markers you are about to open.
 
-Faster where it counts
-Saving a frame demosaiced with MHC, the default for planetary video and one of the choices under D, is about ten times faster; what you see on screen was already the GPU's work. The luminance statistic taken when a colour frame opens is twice as fast.
+Auto crop keeps the whole frame
+It no longer reads a drizzle stack's interior holes, or a dither strip down one edge, as the edge of the stack. A fully covered master is no longer cut to half its width, and the holes are filled from their neighbours when the file opens, so they neither show as black specks nor skew the statistics.
 
 Also in this release
-- Menus stay under their toolbar button when you resize or maximise the window, and never run off a narrow one.
-- The mouse wheel over a long menu scrolls the menu, not the picture behind it.
+- Saving a frame demosaiced with MHC is about ten times faster, and a colour frame opens twice as fast.
+- Menus stay under their toolbar button when you resize or maximise, never run off a narrow window, and the wheel scrolls a long one instead of zooming the picture.
+- The download is around 8 MB smaller: camera and focuser driver libraries this viewer never used are no longer packaged with it.
 ----- END WHAT'S NEW -----
 
 Which way to cut if it goes over: the headed sections are the release and the
 bullets are the tail, except that a bullet CORRECTING a live claim is cut last of
 all. Record here what was left out, so the next writer knows what is owed rather
 than rediscovering it.
+
+Left out of this one, with 86 characters of headroom remaining and each judged not
+worth the space: the object overlay can now be narrowed to objects that have a
+photo, and the same filter applies to what a click can select (a sub-setting of a
+sub-menu, hard to state in one line without teaching the menu first); the atlas
+hover resolve was made allocation-free (invisible, and a speed claim about
+something the user never saw as slow invites the question); and every headless
+render obeys the viewer's own stretch rules now, which matters to `tianwen stack`
+and the gallery rather than to anyone running this app.
 
 
 DETAIL
@@ -107,15 +133,39 @@ not a canvas ring, and what the crop keeps now has a number", PR #262)
   Image.FillInteriorHolesInPlace runs from AstroImageDocument.AdoptImageAsync
   before any statistic; the canvas ring is never filled. The count is on
   AstroImageDocument.InteriorHolesFilled and is NOT yet shown anywhere in the UI
-  (see KNOWN ISSUES). This is the change that made the release 8.1: new public
+  (see KNOWN ISSUES). This is what would have made the release 8.1: new public
   TianWen.Lib API on an 8.0 already dispatched ("build: 8.1, because
-  FillInteriorHolesInPlace is new public API on an 8.0 already dispatched").
+  FillInteriorHolesInPlace is new public API on an 8.0 already dispatched"). It
+  ships as part of 9.0 instead, 8.1 never having been dispatched.
 
-The flood behind the crop ("perf(imaging): the absence flood runs 64 columns at a
-time, and BitMatrix can finally be used that way", PR #262)
-  29 ms to 6.3 ms on that master, the whole crop 92 to 67 ms. Not user-visible as a
-  feature, so not in the block; it is what keeps the fill affordable on the load
-  path.
+The edge walk behind the crop, added since the 8.1 draft (issue #71, PR #327)
+  Second half of the same user-facing sentence, and a different mechanism. The
+  walk that finds an uncovered border read MaxTrimFraction twice, as the cap on
+  what an edge may lose AND as the depth it was allowed to look, coupled to a fixed
+  reference band. Swept on four real masters, every edge of every master went to
+  0 px at ratio 1.00 from 0.08 upward: the knob's useful range ended at about 0.075
+  with nothing saying so, so turning it up to reach a deep dither strip silently
+  disabled the crop entirely. Cap, search depth and reference are three settings
+  now. The walk also profiles to 1.5x its search and applies the settle rule at
+  both widths, because within one window a real border and a gradient that happens
+  to go quiet are indistinguishable, and reports Unconfirmed rather than folding
+  the two into one verdict; over a 139-master corpus that is 7 borders to 15
+  gradients. The user-visible half is only "a dither strip down one edge comes off
+  and a gradient is left alone"; the rest is in CHANGELOG 9.0.
+
+The sky atlas hover wash, added since the 8.1 draft ("feat(atlas): say what a click
+would take, and narrow the overlay to objects with a photo")
+  The complaint was that on a field of overlapping markers nothing told you which
+  object a press would land on. The load-bearing property is that the wash and the
+  click come from ONE resolver (SkyMapSearchActions.TryResolveHit): two hit tests
+  written the same way is exactly how a wash over one object and a panel about
+  another happens, which is worse than no wash. Ctrl is deliberately not honoured
+  by the hover, the modifier being read at the press. One FillEllipse, drawn first
+  of the annotation layers, so a pointer resting over the search modal or the layer
+  palette is harmless. At most one resolve per painted frame; the resolve was made
+  allocation-free on the way (389 us / 225 KB over bare star field to 157 us at
+  1 degree FOV and about 1.7 us by 60, 0 B on every row), which is why it is
+  affordable per frame at all but is NOT claimed in the block.
 
 The HDR button, and the fold that replaced it ("feat(viewer): boost and the
 highlight soft clip share one Tone popover, and it names the HDR it cannot do",
@@ -129,9 +179,9 @@ docs/plans/hdr-display.md P1)
   display HDR with a reason about the VIEWER, since nothing asks the GPU yet. The
   MATH did not move -- image.frag, Image.ApplyHdr, StretchTests_NewPipeline and
   GpuStretchPipelineTests are byte-for-byte what they were. Real display HDR is
-  measured and possible on this hardware (Qualcomm Adreno driver 31.0.170.0, scRGB
-  on the Surface OLED, confirmed on the panel with SdlVulkan.Renderer's HdrProbe)
-  and is P2 to P4 of that plan, not in this build.
+  measured and possible on the laptop's hardware (Qualcomm Adreno driver
+  31.0.170.0, scRGB on the Surface OLED, confirmed with SdlVulkan.Renderer's
+  HdrProbe) and is P2 to P4 of that plan, not in this build.
 
 Faster demosaic and statistics ("perf(imaging): a plane stays float[,]; the hot
 loops stop reading it as [y, x]", PR #263)
@@ -142,7 +192,8 @@ loops stop reading it as [y, x]", PR #263)
   claimed. Lanczos3 and the CFA split/merge also gained but reach the viewer only
   through stacking and gradient removal, so they are not in the block either. All
   numbers and their caveats: docs/architecture/image-pipeline.md, "How a plane is
-  READ".
+  READ". NOTE the multipliers are per-machine: these were taken on win-arm64 and
+  the block states them as ratios, not times, for that reason.
 
 Toolbar menus and the window (PR #310; "fix(viewer): a toolbar menu follows its
 button on resize, and the wheel scrolls a long one" and "fix(viewer): a menu is
@@ -157,6 +208,30 @@ never wider than the window, so it hangs from its button")
   sideways off its button; its width is now capped at the window's, so it always
   hangs from the button. ViewerE2ETests pins all three at DPI 1 and 1.5.
 
+The package is smaller, added since the 8.1 draft ("refactor(devices): the vendor
+drivers are their own assembly, so a viewer stops shipping 8.2 MB of them")
+  8.0.1716 shipped ASICamera2.dll, qhyccd.dll, EAFFocuser1.6.dll and EFW1.7.dll
+  inside an image viewer that connects no hardware and registers no device source.
+  They arrived through the reference graph and nothing downstream could refuse
+  them: the SDK projects mark their natives CopyToOutputDirectory deliberately,
+  MSBuild propagates that to every transitive consumer, and trimming reasons about
+  MANAGED reachability while a native library is an opaque blob a DllImport may
+  resolve by name at run time. The drivers now live in TianWen.Devices.Native,
+  which the viewer does not reference. Verified on a clean Release rebuild: 0 of
+  the four in the viewer's output against 61 DLLs in total, with the GUI unchanged.
+  The block says "around 8 MB" because 8.2 MB is the measured payload of the four
+  files and the bundle is compressed, so the download delta is smaller than the
+  disk delta; do not restate 8.2 MB as a download saving.
+
+Also landed in this span but NOT in the block, being invisible here: every headless
+render (the master_*.png companion of `tianwen stack`, the dataset gallery) now
+resolves its stretch through the same rule the viewer always used, which changed
+five of 139 gallery cards; per-pixel sidecars are quantised before gzip (112.80 MB
+to 1.71 MB on a real coverage map); `stack` and the dataset bake agree on which
+frames are fit to integrate; and a camera whose model number hides its sensor die
+now finds its QE curve (73.5 to 92.3 percent of the reference archive's frames).
+None of these is reachable from this app.
+
 
 KNOWN ISSUES IN THIS BUILD
 ================================================================================
@@ -164,7 +239,7 @@ Carry the previous record's list forward item by item and mark each one Unchange
 closed, or changed. A known issue that quietly vanishes between records is one
 nobody decided about.
 
-Carried forward from 8.0.1716 on 2026-09-15; re-check each at dispatch time.
+Carried forward from 8.0.1716 on 2026-09-15, re-checked 2026-09-21.
 
   P21    Unchanged, still BACKLOG. Single-channel views of a mosaic show the raw
          mosaic, not the separated colour planes (a shader change).
@@ -174,28 +249,38 @@ Carried forward from 8.0.1716 on 2026-09-15; re-check each at dispatch time.
 
   P9/P10 Unchanged, still unconfirmed, neither reproduced since first report.
 
-  SPCC   Unchanged. Broadband only; narrowband blocked on data.
+  SPCC   Unchanged. Broadband only; narrowband blocked on data (per-star Gaia DR3
+         xp_sampled spectra), not on maths.
 
   Layout Unchanged. Below about 730 px of window width the image pane reaches zero
          width and the histogram overlay lands on the file list.
 
   About  Unchanged. The About banner concatenates run attempt onto the version
-         (8.1.NNNN1 for attempt 1); FileVersion is correct.
+         (9.0.NNNN1 for attempt 1); FileVersion is correct. Worth re-reading at
+         submission: the version shown will now start 9.0, and a reviewer
+         comparing it against the Store's 8.0.1716 sees a two-part jump.
 
   CFA    Unchanged. The SER frame-by-frame histogram sits a mosaic out.
 
-  HDR    New, and a KNOWN GAP rather than a bug: the Tone panel names display HDR
-         and cannot offer it. The reason it gives is about the viewer ("not yet;
-         the viewer always presents SDR") and NOT about the user's GPU, because
-         nothing in the build asks the GPU what its surface offers. A user whose
-         machine can do it is told the same thing as one whose cannot. That is
-         deliberate for this release and is what P2 of the plan closes.
+  HDR    Unchanged from the 8.1 draft, and a KNOWN GAP rather than a bug: the Tone
+         panel names display HDR and cannot offer it. The reason it gives is about
+         the viewer ("not yet; the viewer always presents SDR") and NOT about the
+         user's GPU, because nothing in the build asks the GPU what its surface
+         offers. A user whose machine can do it is told the same thing as one whose
+         cannot. Deliberate for this release; P2 of the plan closes it.
 
-  Holes  New. The number of interior holes filled at load is recorded on the
-         document (AstroImageDocument.InteriorHolesFilled) but not yet shown in the
-         info strip or the status bar, so a user cannot see that pixels were
-         interpolated. The block above therefore says the holes are filled and
-         does not promise a count.
+  Holes  Unchanged from the 8.1 draft. The number of interior holes filled at load
+         is recorded on the document (AstroImageDocument.InteriorHolesFilled) but
+         not shown in the info strip or the status bar, so a user cannot see that
+         pixels were interpolated. The block above therefore says the holes are
+         filled and does not promise a count.
+
+  Crop   New, and a deliberate refusal rather than a defect: an edge whose profile
+         never settles, or settles only within one window and not a wider one, is
+         DECLINED and left uncropped. That is the correct answer (trimming to an
+         unconfirmed depth would cut real data), but to a user it looks like auto
+         crop doing nothing on a frame that visibly has a ramp. Nothing in the UI
+         says which edges were declined or why.
 
 
 STORE LISTING: PRODUCT FEATURES
@@ -205,9 +290,10 @@ not the release, so it is only edited when the product GAINS something. Up to 20
 entries of 200 characters each, and the listing is at the cap as of 7.1.1627, so
 an addition now has to displace something. Say NO CHANGE and why, if so.
 
-NO CHANGE THIS RELEASE (as of 2026-09-15). A fix and two speed-ups add no product
-surface. The queue from 7.1.1627 still stands if a slot frees: auto-crop to the
-covered area; A/B and blink; Explorer thumbnails for FITS and SER.
+NO CHANGE THIS RELEASE (re-checked 2026-09-21). The hover wash is a refinement of
+the sky atlas already described, and the smaller download is not a product feature.
+The queue from 7.1.1627 still stands if a slot frees: auto-crop to the covered
+area; A/B and blink; Explorer thumbnails for FITS and SER.
 
 
 SUBMISSION
@@ -215,9 +301,10 @@ SUBMISSION
   1. Download the package and this record from the run that baked it:
        gh run download {{RUN_ID}} -n msix-store-package
        gh run download {{RUN_ID}} -n msix-release-notes
-     The bundle is about 145 MB. Retention is 30 days on both. The notes artifact
-     holds this record AND whats-new-{{VERSION}}.txt, which is the Partner Center
-     copy alone, so nothing has to be selected out of a 20 KB file by eye.
+     The bundle is about 145 MB, and a little smaller this time. Retention is 30
+     days on both. The notes artifact holds this record AND
+     whats-new-{{VERSION}}.txt, which is the Partner Center copy alone, so nothing
+     has to be selected out of a 20 KB file by eye.
   2. Upload AstroPhotoViewer.msixbundle to the draft submission for
      Store ID 9PMDZP16TGBG. It is unsigned by design; the Store re-signs after
      certification, so it cannot be installed by double-clicking.
