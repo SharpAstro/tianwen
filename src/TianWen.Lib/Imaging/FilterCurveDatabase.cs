@@ -588,11 +588,56 @@ public static class FilterCurveDatabase
             // NormalizeName lowercases, so keys must be lowercase to match `needle.Contains(modelToken, Ordinal)`.
             ["sv605"] = "IMX533", // SVBony SV605CC / SV605MC (OSC and mono share the IMX533)
             ["sv705"] = "IMX585", // SVBony SV705C
-            // QHY294C/M Pro. The die is the IMX492; "11M MODE" is its 2x2-binned readout and
-            // "47M MODE" the native one, same silicon and same QE either way. The number in the
-            // product name is 294, which no key in sensor_qe.gs.gz contains, so the digit
-            // heuristic below cannot reach it -- an alias is the only route.
+
+            // --- Sony IMX492 (the 47MP 4/3 die; "IMX294" is the same silicon read 2x2-binned) ---
+            // QHY294C/M Pro. "11M MODE" is the binned readout and "47M MODE" the native one, same
+            // silicon and same QE either way. The number in the product name is 294, which no key
+            // in sensor_qe.gs.gz contains, so the digit heuristic below cannot reach it.
             ["qhy294"] = "IMX492",
+            ["asi294"] = "IMX492",   // ZWO ASI294MC/MM (Pro), whose own 47MP unlocked mode is this die
+            ["artemis"] = "IMX492",  // Player One Artemis-C/M
+
+            // --- Sony IMX571 (APS-C 26MP) ---
+            ["asi2600"] = "IMX571",  // ZWO ASI2600MC/MM Pro / Air / DUO
+            ["qhy268"] = "IMX571",   // QHY268C/M, verified against qhyccd.com
+            ["poseidon"] = "IMX571", // Player One Poseidon-C/M
+
+            // --- Sony IMX455 (full frame 61MP) ---
+            ["asi6200"] = "IMX455",  // ZWO ASI6200MC/MM Pro
+            ["qhy600"] = "IMX455",   // QHY600 series, verified against qhyccd.com
+            ["zeus"] = "IMX455",     // Player One Zeus-M/C
+
+            // --- Sony IMX533 (1" square 9MP) ---
+            // Qualified with the model suffix rather than left bare: "ares" is a substring of
+            // "Antares", a brand and a star name, and an alias that fires on the wrong camera is
+            // worse than no alias at all -- it applies a confidently wrong QE curve.
+            ["aresc"] = "IMX533",    // Player One Ares-C / Ares-C Pro
+            ["aresm"] = "IMX533",    // Player One Ares-M
+            ["saturnc"] = "IMX533",  // Player One Saturn-C
+            ["saturnm"] = "IMX533",  // Player One Saturn-M
+
+            // --- Sony IMX585 (1/1.2" 8.3MP) ---
+            ["uranus"] = "IMX585",   // Player One Uranus-C/M (the archive's own strings carry the
+                                     // die in brackets, but the bare product name does not)
+            ["xena"] = "IMX585",     // Player One Xena
+
+            // --- Sony IMX462 ---
+            // The curve is named for the product it was derived for; the die is the same one every
+            // other IMX462 camera carries, so it serves them too.
+            ["seestar"] = "IMX462_SEESTAR", // ZWO Seestar S50
+            ["ceresc"] = "IMX462_SEESTAR",  // Player One Ceres-C
+
+            // --- Panasonic MN34230 (4/3 16MP) ---
+            ["asi1600"] = "PANASONIC_MN34230", // ZWO ASI1600MM/MC (Pro / Cool)
+            ["qhy163"] = "PANASONIC_MN34230",  // QHY163M/C
+
+            // Deliberately NOT aliased, and each for a reason worth keeping:
+            //  - Player One Apollo is IMX428 OR IMX432 depending on the model, and we hold curves
+            //    for both, so a single token cannot answer and a guess would pick one at random.
+            //  - Player One Sedna (IMX178), Neptune (IMX464) and Mars (IMX662) name dies that are
+            //    not in sensor_qe.gs.gz, so an alias would resolve to nothing anyway.
+            //  - "QHYCCD-Cameras-Capture" and "notAvailable" are capture-software strings rather
+            //    than cameras: the archive holds two different sensors under the first of them.
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>Extracts contiguous digit sequences from a normalised string.</summary>
