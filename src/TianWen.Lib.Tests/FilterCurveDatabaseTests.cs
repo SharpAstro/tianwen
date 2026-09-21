@@ -227,6 +227,74 @@ public sealed class FilterCurveDatabaseTests(ITestOutputHelper output)
         imx571.Name.ShouldBe("IMX571");
     }
 
+    /// <summary>
+    /// A camera whose product number does not contain its die reaches its QE curve only through
+    /// the alias table, and the table is the whole reason these resolve at all.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>These are the cameras the market actually uses, not the ones this archive holds.</b>
+    /// Every die named here is already in <c>sensor_qe.gs.gz</c>; what was missing was the route
+    /// from a product name to it. The digit heuristic reaches a name that carries its own die
+    /// number (ASI533 to IMX533), and nothing else: "2600" appears in no key, and neither does
+    /// "Poseidon".</para>
+    /// <para>The Player One line was read off the vendor's own site, and QHY268 / QHY600 off
+    /// theirs, because the one entry guessed from memory was wrong -- Artemis is the IMX492, not
+    /// the IMX533 its stablemates Ares and Saturn use. A wrong alias is worse than a missing one:
+    /// it applies a confidently incorrect QE to a colour calibration, where a missing one merely
+    /// falls back.</para>
+    /// </remarks>
+    [Theory]
+    // ZWO, whose model number is the megapixel count rather than the die
+    [InlineData("ZWO ASI294MC Pro", "IMX492")]
+    [InlineData("ZWO ASI294MM", "IMX492")]
+    [InlineData("ZWO ASI1600MM Pro", "PANASONIC_MN34230")]
+    [InlineData("ZWO ASI2600MC Pro", "IMX571")]
+    [InlineData("ZWO ASI2600MM DUO", "IMX571")]
+    [InlineData("ZWO ASI6200MM Pro", "IMX455")]
+    [InlineData("Seestar S50", "IMX462_SEESTAR")]
+    // QHY
+    [InlineData("QHY268M", "IMX571")]
+    [InlineData("QHY600M", "IMX455")]
+    [InlineData("QHY163M", "PANASONIC_MN34230")]
+    [InlineData("QHY294PROC", "IMX492")]
+    // Player One, whose names carry no number at all
+    [InlineData("Player One Poseidon-C Pro", "IMX571")]
+    [InlineData("Player One Artemis-M Pro", "IMX492")]
+    [InlineData("Player One Ares-C Pro", "IMX533")]
+    [InlineData("Player One Saturn-M SQR", "IMX533")]
+    [InlineData("Player One Uranus-C", "IMX585")]
+    [InlineData("Player One Zeus-M", "IMX455")]
+    [InlineData("Player One Ceres-C", "IMX462_SEESTAR")]
+    // SVBony, already aliased before this
+    [InlineData("SVBONY SV605CC", "IMX533")]
+    [InlineData("SVBony SV705C", "IMX585")]
+    public async Task ACameraWhoseNameHidesItsDieStillFindsItsQeCurve(string product, string expectedDie)
+    {
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+
+        FilterCurveDatabase.TryMatchSensor(product, out var qe).ShouldBeTrue($"{product} should resolve a QE curve");
+        qe.Name.ShouldBe(expectedDie);
+        qe.Count.ShouldBeGreaterThan(10, "a resolved curve has to have samples in it");
+    }
+
+    /// <summary>
+    /// The aliases are matched as SUBSTRINGS of the product name, so a token that is a substring of
+    /// an unrelated word would fire on the wrong camera. This is why the IMX533 entries are
+    /// qualified by their model suffix: "ares" lives inside "Antares".
+    /// </summary>
+    [Theory]
+    [InlineData("Antares focal reducer")]
+    [InlineData("Player One Sedna-M")]   // IMX178, a die sensor_qe.gs.gz does not hold
+    [InlineData("Player One Neptune-C")] // IMX464, likewise
+    [InlineData("notAvailable")]
+    public async Task ANameThatOnlyLooksLikeACameraResolvesNothing(string product)
+    {
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+
+        FilterCurveDatabase.TryMatchSensor(product, out _).ShouldBeFalse(
+            $"{product} must not be given someone else's QE curve");
+    }
+
     [Theory]
     [InlineData("IMX533")]
     [InlineData("imx533")]

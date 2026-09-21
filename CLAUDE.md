@@ -1001,6 +1001,18 @@ it (a ONE-sided difference still resolves, e.g. `Baader R CCD 31mm`). Re-run
 are ours, digitised via `tools/digitize-filter-curve/` (the **`digitize-filter`** skill); the
 `L-eNhance` tri-line (Hb 486.1) trap, gate table and coverage: `docs/known-limitations.md`.
 
+**A QE curve keys on the DIE; the crop fallback's geometry keys on the CAMERA.** Opposite answers to
+what looks like one question, and both are right: silicon sets quantum efficiency, so an IMX585 is an
+IMX585 in a ZWO or a Player One body, while ACTIVE AREA differs between them (ASI585MC Pro 3840x2160
+against Uranus-C 3856x2180), which is why `SensorGeometry` is keyed the other way. A camera whose
+product number does not contain its die (ASI2600, QHY268, anything Player One) reaches its curve only
+through `_cameraToSensorAliases`; the digit heuristic finds the rest. **A wrong alias is worse than a
+missing one** -- missing falls back, wrong applies a confidently incorrect QE to a colour
+calibration -- so a token that is a substring of another word is qualified (`aresc`, not `ares`,
+which lives inside "Antares"), an ambiguous product line gets no alias at all (Player One Apollo is
+IMX428 OR IMX432), and **a vendor's marketing name is read off the vendor, never recalled**: Artemis
+is the IMX492, not the IMX533 its stablemates Ares and Saturn use.
+
 **Zero-pedestal render (do not regress).** Shadows derive from the pedestal-SUBTRACTED median -- a
 no-op on raw masters, but an enhanced (GraXpert-flattened) master needs
 `MasterPreviewRenderer.WithZeroPedestal` or subtracting the floor explodes or blacks out a drizzle
