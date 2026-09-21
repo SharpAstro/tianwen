@@ -710,8 +710,7 @@ namespace TianWen.Lib.Imaging.Dataset
         /// <summary>The integration cards the master carries about itself: <c>STRATEGY</c> and <c>STACK_N</c>.</summary>
         internal static (string Strategy, int StackedFrames) ReadMasterCards(string path)
         {
-            using var reader = new BufferedFile(path, FileAccess.Read, FileShare.Read, 4 * 2880);
-            using var fits = new Fits(reader, path.EndsWith(".gz", StringComparison.OrdinalIgnoreCase));
+            using var fits = Image.OpenFits(path);
             var header = fits.ReadFirstImageHduHeaderOnly()?.Header;
             if (header is null)
             {

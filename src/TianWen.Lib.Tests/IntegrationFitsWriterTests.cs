@@ -87,7 +87,8 @@ public class IntegrationFitsWriterTests
         IntegrationFitsWriter.Write(masterPath, result);
 
         File.Exists(masterPath).ShouldBeTrue();
-        File.Exists(IntegrationFitsWriter.RejectionPathFor(masterPath)).ShouldBeFalse();
+        IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.RejectionPathFor(masterPath))
+            .ShouldBeNull();
     }
 
     [Fact]
@@ -109,7 +110,10 @@ public class IntegrationFitsWriterTests
         IntegrationFitsWriter.Write(masterPath, result);
 
         File.Exists(masterPath).ShouldBeTrue();
-        File.Exists(IntegrationFitsWriter.RejectionPathFor(masterPath)).ShouldBeTrue();
+        // Through ExistingSidecarPath: a map is STORED compressed, and only that helper and the
+        // writer know it. Asking File.Exists about the logical name answers no.
+        IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.RejectionPathFor(masterPath))
+            .ShouldNotBeNull();
     }
 
     [Fact]
@@ -171,12 +175,14 @@ public class IntegrationFitsWriterTests
 
         // The rejection map is the ORIGINAL integration statistic re-written beside the
         // modified pixels; a modifier card there would claim something touched it.
-        var rejectionPath = IntegrationFitsWriter.RejectionPathFor(masterPath);
-        File.Exists(rejectionPath).ShouldBeTrue();
-        using (var bf = new nom.tam.util.BufferedFile(rejectionPath, FileAccess.Read, FileShare.Read, 1024))
-        using (var fits = new nom.tam.fits.Fits(bf, false))
+        var rejectionPath = IntegrationFitsWriter.ExistingSidecarPath(
+            IntegrationFitsWriter.RejectionPathFor(masterPath));
+        rejectionPath.ShouldNotBeNull();
+        using (var fits = Image.OpenFits(rejectionPath))
         {
-            var hdu = fits.ReadHDUHeaderOnly();
+            // The whole HDU, since a header-only peek would have to seek past the data block and
+            // a gzip stream cannot.
+            var hdu = fits.ReadFirstImageHdu();
             hdu.ShouldNotBeNull();
             hdu.Header.GetStringValue("SWMODIFY").ShouldBeNull();
         }

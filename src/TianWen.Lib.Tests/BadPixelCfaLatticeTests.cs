@@ -255,12 +255,12 @@ namespace TianWen.Lib.Tests
                 -10f, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
             var dark = new Image([data], BitDepth.Float32, 200f, 100f, 0f, meta);
 
-            BadPixelDetection.CountMaskedPixels(BadPixelDetection.BuildMaskFromDark(dark, 8f), Size, Size)
+            BadPixelDetection.CountMaskedPixels(BadPixelDetection.BuildMaskFromDark(dark, 8f))
                 .ShouldBe(0);
 
             // The guard is the caller's to relax: with it disabled the same threshold flags the 5%.
             BadPixelDetection.CountMaskedPixels(
-                    BadPixelDetection.BuildMaskFromDark(dark, 8f, maxMaskedFraction: 0f), Size, Size)
+                    BadPixelDetection.BuildMaskFromDark(dark, 8f, maxMaskedFraction: 0f))
                 .ShouldBeGreaterThan(total / 100);
         }
     }

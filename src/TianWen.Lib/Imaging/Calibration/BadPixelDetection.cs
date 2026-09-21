@@ -1,4 +1,5 @@
 using System;
+using System.Numerics;
 using Microsoft.Extensions.Logging;
 
 namespace TianWen.Lib.Imaging.Calibration;
@@ -233,18 +234,26 @@ public static class BadPixelDetection
     /// different orders of magnitude hint at a bad sigma choice or a
     /// corrupted dark.
     /// </summary>
-    public static int CountMaskedPixels(BitMatrix[]? mask, int width, int height)
+    /// <remarks>
+    /// Counted a word at a time rather than a bit at a time, and over the matrix's OWN extent
+    /// rather than a width and height passed alongside it: a mask is 64 bits per load, a real one
+    /// is sparse enough that most of those words are zero, and the dimensions cannot be handed in
+    /// wrong when they are not handed in at all. The padding bits of a short last word are never
+    /// set, so they cannot be counted.
+    /// </remarks>
+    public static int CountMaskedPixels(BitMatrix[]? mask)
     {
         if (mask is null) return 0;
         var total = 0;
         for (var c = 0; c < mask.Length; c++)
         {
             var m = mask[c];
-            for (var y = 0; y < height; y++)
+            var wordsPerRow = m.WordsPerRow;
+            for (var y = 0; y < m.Rows; y++)
             {
-                for (var x = 0; x < width; x++)
+                for (var w = 0; w < wordsPerRow; w++)
                 {
-                    if (m[y, x]) total++;
+                    total += BitOperations.PopCount(m.GetWord(y, w));
                 }
             }
         }

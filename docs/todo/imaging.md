@@ -2,63 +2,90 @@
 
 Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the active/high-priority list.
 
-## HIGH PRIORITY: a coverage sidecar is 42.6 MB of float32 for a number that fits in a byte
+## A map sidecar is stored quantised and gzipped, and the mask is kept
 
-Filed 2026-09-21, on the change that made every strategy retain a coverage plane (PR #327). Measured
-on the re-baked V1045 Ori master: `master_*.coverage.fits` is 3414x3121 float32, **42.6 MB**, holding
-a per-pixel count whose maximum is the frame count (`DATAMAX = 58`). Across a 139-master store that is
-roughly **6 GB of sidecars where there were none**, and it lands the moment the store is re-baked --
-which it must be, since every master in it predates the coverage work. **Decide before the re-bake,
-not after.** Three ways down, not exclusive:
+- [x] **DONE 2026-09-21, filed and fixed the same day.** Filed on the change that made every strategy
+  retain a coverage plane (PR #327), which would have added roughly **6 GB of sidecars** to a
+  139-master store the moment it was re-baked. Two things shipped together, because they were one
+  question: how a per-pixel map is stored, and which of them we keep at all.
 
-- **Tile-compress it** (`.fz`). The repository already READS tile-compressed FITS -- `Fits.ReadFirstImageHdu`
-  walks to HDU 1 precisely because a tile-compressed image is a binary table and can never be in HDU 0 --
-  so only the write side is missing. A coverage plane is mostly large flat regions and should compress by
-  a couple of orders of magnitude. Best ratio, and it keeps full resolution.
-- **Integer `BITPIX`.** The value is a count: 8-bit covers 255 frames (10.6 MB), 16-bit covers any
-  session anyone will shoot (21 MB). Note it is currently an AVERAGE over channels, so it is not
-  integral today -- rounding it is a decision, not a free change.
-- **A coarser grid than the master.** `Image.LargestCoveredRectangle` already reduces to a block grid,
-  so full resolution may be more than the only consumer needs. Cheapest to implement, and the one that
-  throws information away.
+**The finding that decided it: the compression comes from the quantisation, not from the compressor.**
+Measured on a real store map (`Eta Car Neb SY135mm`, 3072x3060x3, 81 frames, drizzle weights):
 
-Also open, smaller: `CoveragePlane` has three entry points because three strategies hold their counts in
-three shapes (a sink, a `uint[,]`, an assembled plane). One definition, three doors -- acceptable, but
-worth collapsing if a fourth appears.
+| stored as | raw | gzipped |
+|---|---|---|
+| float32, 3 channels (what it was) | 112.80 MB | 94.68 MB (1.2x) |
+| uint8, 3 channels | 28.20 MB | **1.71 MB** (66x vs float32) |
+| uint16, 3 channels | 56.40 MB | 2.09 MB (54x) |
+| float32, 1 channel | 37.60 MB | 18.36 MB (6.1x) |
 
-### The same decision, for a bad pixel map we compute and throw away
+Gzip alone is worth 1.2x because float mantissa bits are noise; quantise first and the same map has 28
+distinct values with the interior mode covering 89% of it. So the rule is **quantise, then compress**,
+and it lives in one place, `IntegrationFitsWriter.MapStorage`:
 
-Same filing because it is the same question: what `BITPIX` does a per-pixel sidecar want, and which of
-them do we persist at all. `BadPixelDetection` already returns `BitMatrix[]`, one per channel, and the
-union of its two producers is the mask the integration actually uses -- and then it is discarded. APP
-persists one; we recompute per run and never let anyone look at it.
+- **A map whose samples are whole numbers and fit in the container keeps unit steps** (`BSCALE = 1`),
+  so a coverage COUNT is stored as that count and reads back exactly, in any tool, with no scale to
+  believe. 8-bit up to 255 frames, 16-bit beyond.
+- **Anything else spreads its own range over a 16-bit container** through `BSCALE`, so the step is the
+  smallest the data allow: a drizzle's accumulated weight and a rejection fraction both get 65535
+  levels of whatever they hold, against the 0.95-of-median comparison the crop tier makes of them.
+- **The scale comes off the OBSERVED peak, not the declared one.** A coverage plane is labelled with
+  the frame count while a drizzle's weights top out below it; scaling to what is there is a finer step
+  for free and loses nothing, no sample exceeding it by construction.
+- Sidecars are written `.fits.gz` and read from either form, so every store written before this one
+  still reads. `ExistingSidecarPath` is the one place that knows.
 
-**It is worth persisting for a reason we already paid for.** The incident where an EVEN sampling stride
-phase-locked to the CFA, flagged 100% of blue as hot, and wrote a master with an all-NaN blue plane
-while reporting success is exactly the failure a written mask makes legible at a glance.
-`BadPixelDetection.DefaultMaxMaskedFraction` is the guard that stops it now; the map is what would have
-explained it.
+**Two bugs found on the way, both silent.** `Fits.Write` wraps any stream in a `BinaryReader`, so a
+write-only `GZipStream` is rejected with "Stream was not readable" -- the writer goes through a scratch
+file instead of buffering tens of MB per map. And **the `.gz` READ path had never worked**: handed
+FITS.Lib's own `BufferedFile`, a compressed file yields an EMPTY HDU list rather than an error, so
+every reader here answered "unreadable" for one, silently, for as long as the suffix has been
+recognised. Nothing had written one yet. `Image.OpenFits` is now the single opener and uses a plain
+`FileStream` for a compressed file; a header-only peek additionally cannot SKIP a data block over gzip
+(no seek), which is why `TryReadCoverageMap` looks in the coverage-named slot first.
 
-**The conversion is nearly free, and that is the point.** `BitMatrix` is 64-bit words, row-major, with
-`WordsPerRow` = ceil(cols/64) and an all-zero-word fast path already exercised by its tests. A real
-mask is sparse, so almost every word is zero. Two encodings, and the second is probably right:
+**Still open, and no longer urgent:**
 
-- **Raster, `BITPIX = 8`**: expand bits to bytes, skipping whole zero words. 9.05 MB for a 3008 square
-  mono mask against 36 MB as float32, and it tile-compresses to nearly nothing. Simple, and it matches
-  how the coverage plane will end up being stored.
-- **Coordinate list, a FITS binary table of (x, y)**: iterate SET bits only, which the zero-word fast
-  path makes trivial. A typical sensor is 0.01 to 0.1 percent bad, so a few thousand pairs -- kilobytes
-  rather than megabytes, and it reads back as a list rather than needing a threshold. This is the one
-  to reach for unless a consumer genuinely wants a raster.
+- **Tile compression (`.fz`)** is the standards-native answer and would keep third-party readability
+  without a `.gz` step, but FITS.Lib only DECODES it (`CompressedImageHDU` has no encoder), so it is a
+  sibling-repo change. Worth doing when something else needs the encoder; the ratio would be similar.
+- **A coordinate-list bad pixel map** (a FITS binary table of set pixels) would be kilobytes rather
+  than the compressed raster's tens of KB, but it is a format only we could read, and the raster is
+  already small enough that the difference does not pay for that.
+- `CoveragePlane` still has three entry points because three strategies hold their counts in three
+  shapes (a sink, a `uint[,]`, an assembled plane). One definition, three doors: acceptable, worth
+  collapsing if a fourth appears.
+- **The re-bake itself.** It was gated on this decision and no longer is.
 
-**We already have a corpus to check against, and it settled the sensor table.** The archive holds 18
-distinct APP bad pixel maps named `BPM-<camera>-<W>x<H>.fits` (`D:/Astro-Reports/fits-index.jsonl`,
-304 entries). They are worth reading for three separate reasons: they are a format and naming
-convention to be compatible with, they are real masks to validate ours against rather than only
-synthetic ones, and their dimensions are an authoritative per-camera frame size -- which is where
-`SensorGeometry`'s table now comes from, all four of its original entries independently confirmed.
-Note `BPM-ZWO_ASI533MC_Pro-2256x2256.fits`: a BPM is built against a FRAME geometry, so a ROI or a
-binned run gets its own, and the LARGEST per camera is the sensor.
+### The bad pixel map is now persisted, in the format the archive already uses
+
+- [x] **DONE 2026-09-21, with the above.** `BadPixelDetection` returns `BitMatrix[]`, the union of its
+  two producers is the mask the integration applies, and it used to be discarded at the end of every
+  run. It is now written beside the master as `.badpixels.fits.gz` from both paths (the stacker
+  through `MasterPostProcessor`, the bake through `RetainedMasterStore`), which makes a store a dated
+  SERIES per camera rather than a single latest mask: **that is the point, a sensor's defect
+  population moves over years.**
+
+**Why persisting it was worth it, in one incident we already paid for.** An EVEN sampling stride
+phase-locked to the CFA, 100% of blue was flagged hot, and the master was written with an all-NaN blue
+plane while the session reported success. `BadPixelDetection.DefaultMaxMaskedFraction` is the guard
+that stops that now; a written map, with `NBADPIX` and `PBADPIX` in its header, is what would have
+SHOWN it at a glance instead of a log line nobody read.
+
+**The format is AstroPixelProcessor's, deliberately** (`BadPixelMap`). Reading one of this archive's
+own maps settled it: `BPM-ZWO_ASI462MC-1936x1096.fits` is `BITPIX = 8`, one byte per photosite, three
+levels -- 127 linear, 255 hot, 0 cold -- with `NBADPIX = 58629` (2.763%, kappa 3, 200 darks) and cards
+naming the instrument and the frame counts. We write 127 and 255 only, our detectors converging a
+threshold rather than sorting hot from cold, and READ anything that is not 127 as flagged, so their
+maps are legible here and ours in their tools. It gzips 23.4x on that real map (2.12 MB to 0.091 MB),
+and the conversion walks `BitMatrix` a word at a time, skipping the zero words a sparse mask is almost
+entirely made of.
+
+**The archive's 18 APP maps stay useful for the other two reasons:** they are real masks to validate
+ours against rather than only synthetic ones, and their dimensions are an authoritative per-camera
+frame size, which is where `SensorGeometry`'s table comes from. Note
+`BPM-ZWO_ASI533MC_Pro-2256x2256.fits`: a BPM is built against a FRAME geometry, so a ROI or a binned
+run gets its own, and the LARGEST per camera is the sensor.
 
 ### Make the sensor table a baked database, not a private list in the crop path
 

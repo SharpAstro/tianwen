@@ -191,6 +191,28 @@ public readonly struct BitMatrix
     };
 
     /// <summary>
+    /// Number of rows, as constructed. Stated so a caller that has only the matrix can walk it:
+    /// every consumer used to carry the frame's width and height alongside, which is two more
+    /// parameters that can disagree with the thing they describe.
+    /// </summary>
+    public readonly int Rows
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        get => _d0;
+    }
+
+    /// <summary>
+    /// Number of columns, as constructed. NOT <c>WordsPerRow * 64</c>: the last word of a row is
+    /// partly padding whenever the column count is not a multiple of 64, and those padding bits
+    /// are never set.
+    /// </summary>
+    public readonly int Columns
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        get => _d1;
+    }
+
+    /// <summary>
     /// Number of 64-bit words per row -- equals <c>ceil(_d1 / 64)</c>. Useful
     /// for callers that want to walk the matrix at word granularity instead
     /// of bit granularity (e.g. for chunked sparse-skip fast paths).

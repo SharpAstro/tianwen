@@ -556,8 +556,7 @@ namespace TianWen.Lib.Tests
             // whose header will not parse is simply not classifiable as an integration.
             try
             {
-                using var reader = new BufferedFile(path, FileAccess.Read, FileShare.Read, 4 * 2880);
-                using var fits = new Fits(reader, path.EndsWith(".gz", StringComparison.OrdinalIgnoreCase));
+                using var fits = Image.OpenFits(path);
                 if (fits.ReadHDUHeaderOnly()?.Header is not { } header)
                 {
                     return false;
