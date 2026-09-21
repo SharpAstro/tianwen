@@ -33,11 +33,16 @@ other commit hash from before 2026-04-22 no longer resolves anywhere.
 
 ## 9.0
 
-Breaking, so a major. The geometry types in `TianWen.Lib`'s public API are its own now, the
-dependency floor moves two majors, a filter name the library does not recognise stops comparing
-equal to `Filter.Unknown`, and the hourly forecast record carries the seeing estimate's four inputs.
-Three further changes alter what a dataset bake produces from the same archive, which no signature
-announces.
+Breaking, so a major. The ZWO and QHYCCD drivers move to a package of their own, the geometry types
+in `TianWen.Lib`'s public API are its own now, the dependency floor moves two majors, a filter name
+the library does not recognise stops comparing equal to `Filter.Unknown`, and the hourly forecast
+record carries the seeing estimate's four inputs. Several further changes alter what a dataset bake
+produces from the same archive, which no signature announces.
+
+**A consumer that drives ZWO or QHYCCD hardware now needs a second reference**, `TianWen.Devices.Native`
+beside `TianWen.Lib`. Nothing else changes: the namespaces and the `AddZWO()` / `AddQHY()` calls are
+exactly as they were, so it is a reference to add and no source to edit. A consumer that does not drive
+that hardware needs nothing and stops paying for it, which is the whole point of the split.
 
 **`System.Drawing.Rectangle` and `Point` are gone from the public API**, replaced by
 `TianWen.Lib.Geometry.PixelRect` and `PixelPoint` in 24 public signatures, among them `Image.Crop`,
@@ -57,7 +62,13 @@ again, additively, to DIR.Lib 10.2 (popover triggers and groups, tab item presse
 containers, and a router that no longer blurs a field the same press's handler focused), with
 Console.Lib 5.1, SdlVulkan.Renderer 7.44 and WebGl.Renderer 1.35 rebuilt against it. Console.Lib
 then moved to 5.2, additively: without colour (`NO_COLOR`) a list's selected row is reverse video, where
-it used to look like every other row.
+it used to look like every other row. SdlVulkan.Renderer then moved to 7.45, a correctness fix rather
+than a feature: an atlas flush obeys the transfer queue's `minImageTransferGranularity` when it copies,
+a queue may require image copies aligned to a granule, violating it is undefined behaviour rather than a
+validation nicety, and the path it sits on is the glyph and texture atlas upload every frame of both
+Vulkan hosts goes through. The pin read `7.44.*` and so could not float across the minor, which nothing
+local would have shown: `UseLocalSiblings` self-enables when the sibling clone is present, so the pin is
+exercised only by CI and by a release.
 
 **`Filter.FromName` keeps a name it does not recognise.** It returned `Filter.Unknown` and dropped the
 text, and an unknown filter's identity IS that text, so every such filter built from a name (the
@@ -271,6 +282,148 @@ is re-done unless its PSF record proves the lights are today's (registered plus 
 for path), in which case the ledger adopts it; a store whose records predate the dropped-sub column
 is therefore re-baked whole on its first resume, on purpose. A missing retained master is recovered
 through the re-register path with the tiles untouched, rather than left missing.
+
+**The vendor device drivers are their own assembly, so referencing the library no longer ships their
+native binaries.** `TianWen.Lib.Devices.ZWO`, `TianWen.Lib.Devices.QHYCCD` and the `AddZWO()` /
+`AddQHY()` registrations moved into a new `TianWen.Devices.Native` package. Every namespace is
+unchanged, so a consumer that drives that hardware adds a reference and edits no source, and one that
+does not gets neither the assembly nor the binaries. `Astro Photo Viewer` 8.0.1716 shipped
+`ASICamera2.dll`, `qhyccd.dll`, `EAFFocuser1.6.dll` and `EFW1.7.dll` to the Microsoft Store: 8.2 MB of
+camera, focuser and filter-wheel drivers inside an image viewer that connects no hardware and registers
+no device source. Nothing had asked for them. The SDK projects mark their natives
+`CopyToOutputDirectory` deliberately, a `runtimes/<rid>/native` layout being a NuGet mechanism a
+`ProjectReference` does not honour, and MSBuild propagates that to every transitive consumer's output;
+nothing downstream could undo it either, because trimming reasons about MANAGED reachability while a
+native library is an opaque blob a `DllImport` may resolve by name at run time. So the fix is the
+reference graph rather than a filter. The viewer's publish now carries none of the four, against 61
+DLLs in total, while the GUI, the CLI and the server keep them. The drivers stay internal and see the
+DAL device abstraction through `InternalsVisibleTo`, rather than a packaging split freezing a
+deliberately internal abstraction into public API.
+
+**`tianwen stack` and the dataset bake now agree on which frames are fit to integrate.** They differed
+three ways, so the same session stacked both ways produced two different masters with nothing in either
+output saying which rule built it, and none of it had been decided: `StackingOptions.QualityRejectSigma`
+defaulted to null under a doc comment saying it "preserves the pre-this-feature behaviour". The rule now
+lives once, in `FrameQualityFilter`: sigma 3, which both option types default to; a maximum reject
+fraction of 0.50, the bake's value, since every master under the reference store was built at it; and
+the zero-star hard reject moved inside, where it also excludes such frames from the statistics and from
+the keep floor, having previously sat in the bake's analyzer alone so that stacking kept a frame the
+detector found no stars in, unconditionally. Two real bugs fell out of the keep floor, each pinned by a
+test seen to fail against the old code. A cap of zero indexed one past the end (`sevSorted[n -
+maxReject]` with `maxReject` 0), reachable at the old 0.20 fraction on any 4-frame session, and it
+throws rather than reprieving anything. And the cap was not a bound when severities tie, because it took
+a cutoff VALUE off a sorted copy and reprieved `severity < cutoff`, which reprieves nobody sitting
+exactly on it; the floor now ranks the flagged set worst-first and reprieves past the cap, frame order
+breaking a tie. Measured end to end on the archive's 2026-02-20 Rim Nebula session with its 33 graded-out
+frames put back, the gate still drops none of them: after registration the 90 survivors span 400 to 6595
+stars and no session-relative MAD threshold reaches into that. This makes the two paths agree; it does
+not make either one detect cloud. Separately, fourteen sites across eight files that sorted a whole
+buffer to read a single order statistic now call `StatisticsHelper`, each keeping its own rank
+convention (nine took the upper median, two averaged the middle pair, four indexed `(int)(len * p)`, one
+rounded) so that no number moves in the stretch solver, the colour calibration or the comet model, with
+a source test that flags the next `Array.Sort` followed by a single indexed read.
+
+**A master's per-pixel sidecars are quantised before they are compressed, and the bad pixel map is
+kept.** Every sidecar was float32, which is what made them both large and incompressible: a real
+3072x3060x3 coverage map is 112.80 MB and gzips to 94.68 MB, a factor of 1.2, because the low mantissa
+bits of a weight are noise. Quantised first it is 1.71 MB, 66x. The compression comes from the
+quantisation and not from the compressor, so the two ship as one rule, `IntegrationFitsWriter.MapStorage`,
+for coverage, rejection and bad pixels alike: whole numbers that fit keep unit steps, so a coverage COUNT
+is stored as that count and reads back exactly in any tool with no scale to believe (8-bit to 255 frames,
+16-bit beyond), and anything else spreads its own observed range over a 16-bit container through `BSCALE`,
+the finest step the data allow. Then `.fits.gz`. The bad pixel map is now written too, `.badpixels.fits.gz`
+beside every master from both paths, in AstroPixelProcessor's own format (`BITPIX 8`, 127 linear / 255 hot
+/ 0 cold, `NBADPIX` / `PBADPIX`) read off one of this archive's 18 maps rather than invented, so their maps
+are legible here and ours in their tools. A store therefore becomes a dated series per camera, which is the
+point: a sensor's defect population moves over years, and the mask was computed on every run and then
+discarded. Two silent bugs came out of it. `Fits.Write` wraps any stream in a `BinaryReader`, so a
+write-only `GZipStream` is refused outright, and the writer goes through a scratch file rather than
+buffering tens of MB per map. And the `.gz` READ path had never worked at all: handed FITS.Lib's own
+`BufferedFile`, a compressed file yields an EMPTY HDU list rather than an error, so every reader answered
+"unreadable" for one, silently, for as long as the suffix has been recognised, and nothing had written one
+yet. `Image.OpenFits` is the single opener now, and five call sites carrying their own copy of that pattern
+go through it. `SensorGeometry` gains nine cameras from those same 18 maps, which are built against a
+camera's own full frame and so are authoritative per-camera frame sizes; one pair is the argument for
+keying that table on the CAMERA rather than the die, `ZWO_ASI585MC_Pro` at 3840x2160 and `Uranus-C` at
+3856x2180 being the same IMX585 with different active areas.
+
+**A camera whose model number hides its die now finds its QE curve.** The matcher reached a curve either
+by exact name or by pulling a number out of the product string and looking for a key containing it, which
+works for an ASI533 (533 is in IMX533) and fails for everything whose model number counts megapixels
+instead: "2600" appears in no key, and "Poseidon" contains no number at all. No curve was added,
+`sensor_qe.gs.gz` already holding 16; what was missing was the route to data already shipped. The alias
+table now covers IMX492 (ASI294MC/MM, Artemis), IMX571 (ASI2600, QHY268, Poseidon), IMX455 (ASI6200,
+QHY600, Zeus), IMX533 (Ares, Saturn), IMX585 (Uranus, Xena), IMX462_SEESTAR (Seestar S50, Ceres) and
+PANASONIC_MN34230 (ASI1600, QHY163), which is the market and not just the cameras behind this repo.
+Measured over the reference archive's 24 distinct `INSTRUME` values, coverage goes from 73.5 to 92.3
+percent of frames, 168,273 to 211,369 of 228,965. A wrong alias is worse than a missing one, a miss
+falling back to no matrix and Rec.709 weights while a hit applies a confidently incorrect QE to a colour
+calibration, so every vendor name was read off the vendor rather than recalled, which is how the one
+entry written from memory was caught: Artemis is the IMX492, not the IMX533 its stablemates Ares and
+Saturn use. Two further consequences of the same rule: a token that is a substring of another word is
+qualified ("aresc", never "ares", which lives inside "Antares"), and an ambiguous product line gets no
+alias at all, Player One's Apollo being IMX428 or IMX432 depending on the model when curves for both are
+held.
+
+**The coverage edge walk looks twice, and its trim cap no longer bounds its own search (#71).** The
+reported problem was that a dither strip wider than `MaxTrimFraction` is refused rather than trimmed, so
+a master from another stacker crops wrong, and widening the knob could never have worked.
+`MaxTrimFraction` was read twice in `MeasureEdge`, as the cap on what an edge may lose and as the depth
+the profile had to settle within, and it is coupled to a third constant: `ReferenceFraction` is fixed at
+0.15 while the cap moves, so a guard fires and returns an internal value carrying `Settled: true,
+EdgeRatio: 1.0`, which reads to every caller as "I looked, there is nothing to trim". Swept on four real
+masters, every edge of every master goes to 0 px at ratio 1.00 from 0.08 upward and stays there: the
+knob's useful range ended at about 0.075 with nothing saying so, and turning it up to reach a deep strip
+silently disabled the crop entirely. The three duties are separate now. `MaxTrimFraction` is the loss cap
+alone; `SettleSearchFraction` is how far the walk looks, defaulting to twice the cap and floored at it,
+because looking less far than you are willing to trim can only manufacture refusals; and
+`ReferenceFraction` becomes a floor, the reference pushed outside the window being profiled. The bool
+became `CoverageEdgeOutcome` (Clean, Trimmed, BeyondCap, NeverSettles, NotMeasurable), because "could not
+look" and "looked, it is clean" were one value, and `BeyondCap` carries the depth, an edge that settles
+past the cap being a known quantity at a known price. The walk also profiles out to 1.5x its search and
+runs the settle rule at BOTH widths over that one array against the one reference level, because inside a
+single window a real border and a gradient that happens to go quiet are indistinguishable: a border
+answers the same depth however far you look, while a gradient answers differently every time the window
+moves, the answer having been the window. The comparison needs no tolerance, which was not obvious: the
+wider scan walks outward from deeper, so where everything between the two limits is quiet it breaks at an
+index IDENTICAL to the narrow scan's, not close to it. `CoverageEdgeOutcome.Unconfirmed` is that verdict,
+Declined and never Settled, carrying its depth for diagnostics only, and a consumer must not trim to it.
+Over the 139-master corpus at the shipped window, Unconfirmed is 7 borders to 15 gradients.
+
+**`IntegrationResult` says coverage one way.** Every strategy but drizzle put a rejection FRACTION in
+`RejectionMap` and the count in `Coverage`, while the two drizzle strategies put their accumulated WEIGHT
+in `RejectionMap` and raised `RejectionMapIsCoverage`: one field meaning two things that are opposite in
+sense (high is bad in one and good in the other) and different in range (a fraction in [0, 1] against a
+frame count), with the flag the only thing standing between a consumer and reading one as the other.
+`RejectionMap` is always a rejection fraction now and is null for a strategy that rejects nothing,
+`Coverage` is always coverage, and `RejectionMapIsCoverage` is gone along with the branch in the sidecar
+writer, the parameters on `WriteRejectionMap` and `RetainedMasterStore.Write`, and the field on
+`RegisteredSession`. One on-disk change falls out and is the point rather than a side effect: a drizzle
+master's weight plane is written as `<stem>.coverage.fits` like every other strategy's, where it used to
+be `<stem>.rejection.fits` carrying `MAPKIND=COVERAGE`. Readers are unaffected, `TryReadCoverageMap`
+having taken either since #315, so old masters keep working and new ones stop being a special case. Two
+bugs came out of it: `MasterPostProcessor.CropIntegrationResult` never cropped `Coverage`, so an autocrop
+master came out 2628x2919 beside a 3414x3121 sidecar describing a different picture, invisible while only
+drizzle wrote coverage because drizzle put it in the rejection slot and that WAS cropped; and the same
+method dereferenced `RejectionMap` unconditionally, which a strategy that rejects nothing does not have.
+
+**The sky atlas says what a click would take.** A translucent wash sits under the object a press would
+select. It does not reopen the click-over-hover choice of 2026-09-10, which settled which gesture
+SELECTS and still holds; this is the question that left open, that on a field of overlapping markers
+nothing told you which object the press would land on. The wash and the click come from ONE resolver,
+`SkyMapSearchActions.TryResolveHit`, because two hit tests written the same way is exactly how a wash
+over one object and a panel about another happens, which is worse than no wash. It is one `FillEllipse`,
+which all three renderers implement natively, so it needs no instance stream, no cache key and no
+shader, and it is drawn first of the annotation layers, which is what makes a pointer resting over the
+search modal or the layer palette harmless with none of them claiming the pointer. Ctrl is deliberately
+not honoured, the modifier being read at the press while a hover carries none, so guessing would be
+wrong exactly where it matters. At most one resolve per painted frame, and the resolve was made
+allocation-free on the way there: 389 us and 225 KB over bare star field became 157 us at 1 degree FOV,
+falling to about 1.7 us by 60, with 9 us over an object at any zoom and 0 B on every row, because a
+`CelestialObject` names its constellation by precessing the star to B1875, which a hit test never reads,
+and that plus a base91 decode was 320 of the 389 us. Both are allocation-free now, which every catalogue
+lookup in the program inherits. `ShowOnlyObjectsWithPicture` also reaches the click resolver, so an
+object filtered out of the overlay is no longer selectable through apparently-empty sky.
 
 ## 8.2
 

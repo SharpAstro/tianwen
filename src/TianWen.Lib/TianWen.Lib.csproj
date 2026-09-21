@@ -315,17 +315,12 @@
     <ProjectReference Include="..\..\..\TianWen.DAL\TianWen.DAL.csproj" />
   </ItemGroup>
 
-  <!-- ZWOptical.SDK: native ZWO camera / focuser / filter-wheel drivers. Folded into
-       UseLocalSiblings for the same reason as the DAL it depends on: its published
-       package declares TianWen.DAL 2.1.x, which OUTRANKS a locally built sibling, so
-       taking it as a package while building the DAL from source puts two assemblies of
-       the same simple name in front of the compiler (CS1704). -->
-  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
-    <ProjectReference Include="..\..\..\ZWOptical.SDK\ZWOptical.SDK.csproj" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
-    <PackageReference Include="ZWOptical.SDK" />
-  </ItemGroup>
+  <!-- ZWOptical.SDK and QHYCCD.SDK are NOT referenced here any more. Their drivers moved to
+       TianWen.Devices.Native, because a PackageReference to this library used to copy two
+       vendors' native driver binaries into every consumer's output whether it drove hardware or
+       not: the viewer shipped 8.2 MB of them to the Store while registering no device source at
+       all. The DAL stays, being the abstraction the drivers are written against and which this
+       assembly still owns. -->
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="TianWen.DAL" />
   </ItemGroup>
@@ -451,18 +446,6 @@
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="Lzip.Lib" />
-  </ItemGroup>
-
-  <!-- QHYCCD.SDK: native QHY camera/filter-wheel/focuser drivers (Devices/QHYCCD).
-       Sibling repo's csproj lives at the repo root (../QHYCCD.SDK/QHYCCD.SDK.csproj,
-       no src/Lib/Lib pattern). Folded into UseLocalSiblings so local edits to the SDK
-       wrapper are picked up without a NuGet round-trip; CI (no sibling) uses the
-       published package. -->
-  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
-    <ProjectReference Include="..\..\..\QHYCCD.SDK\QHYCCD.SDK.csproj" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
-    <PackageReference Include="QHYCCD.SDK" />
   </ItemGroup>
 
 </Project>

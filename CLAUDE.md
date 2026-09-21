@@ -75,6 +75,7 @@ src/
 ├── Directory.Build.props          # Auto-detect sibling repos (ProjectReference vs PackageReference)
 ├── Directory.Packages.props       # Centralized package version management
 ├── TianWen.Lib/                   # Core library (net10.0)
+├── TianWen.Devices.Native/        # ZWO + QHYCCD drivers, split out so Lib carries no vendor natives
 ├── TianWen.Lib.SourceGenerators/  # Roslyn generators for Lib (DispatchInterfaceGenerator)
 ├── TianWen.Lib.Tests/             # Unit tests (xUnit v3)
 ├── TianWen.Lib.Tests.Functional/  # Functional/integration tests (Session loops with FakeTimeProvider)
@@ -334,6 +335,20 @@ URI-addressed: `DeviceBase` (URI identity), `IDeviceSource<T>` (driver backends)
 Each subclass reads query keys (`?key=value`) defined in `DeviceQueryKey`. See class XML doc comments
 for supported keys. Full driver hierarchy (ASCOM / Alpaca / ZWO / QHY / native-serial subgraphs):
 `docs/architecture/device-architecture.md`.
+
+**A vendor's native binaries reach an app through the REFERENCE GRAPH, and nothing downstream can
+filter them out.** The ZWO and QHYCCD drivers therefore live in `TianWen.Devices.Native`, not in
+`TianWen.Lib`: an SDK project marks its natives `CopyToOutputDirectory` deliberately (a
+`runtimes/<rid>/native` layout is a NuGet mechanism a `ProjectReference` does not honour), MSBuild
+propagates that to every transitive consumer, and trimming cannot undo it because it reasons about
+MANAGED reachability while a native library is an opaque blob a `DllImport` may resolve by name at run
+time. Not calling `AddZWO()` changes nothing; only not referencing does. The viewer shipped 8.2 MB of
+camera, focuser and filter-wheel drivers to the Store this way. **Namespaces stayed
+`TianWen.Lib.Devices.*` / `TianWen.Lib.Extensions` on purpose** (a deployment split, not an API
+redesign), so the assembly name and the namespace root differ; the drivers stay `internal` and see
+Lib's internals through `InternalsVisibleTo` rather than the DAL abstraction being promoted to public
+API. An app that drives hardware references the project; `tianwen-fits` must NOT, and a new consumer
+that only reads files must not either.
 
 **A profile scan never probes a COM port, and a port that will not TAKE bytes is given up, not retried.**
 `DiscoverOnlyDeviceType(type)` runs the serial probe pass only when a source for that type consumes it (it

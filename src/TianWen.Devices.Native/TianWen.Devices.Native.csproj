@@ -1,0 +1,100 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The ZWO and QHYCCD drivers, split out of TianWen.Lib so that referencing the library no longer
+    drags two vendors' native driver binaries along.
+
+    WHY THIS PROJECT EXISTS. `Astro Photo Viewer` 8.0.1716 shipped ASICamera2.dll, qhyccd.dll,
+    EAFFocuser1.6.dll and EFW1.7.dll to the Microsoft Store: 8.2 MB of camera, focuser and
+    filter-wheel drivers inside an image viewer that connects no hardware and registers no device
+    source. They were not requested by anything. The SDK projects mark their natives
+    `CopyToOutputDirectory` (deliberately: a `runtimes/<rid>/native` layout is a NuGet mechanism a
+    ProjectReference does not honour, and without the copy the drivers silently found no camera on
+    a dev box), and MSBuild propagates that to every transitive consumer's output. Nothing
+    downstream can undo it, because trimming reasons about MANAGED reachability and a native
+    library is an opaque blob that a DllImport could resolve by name at runtime.
+
+    So the fix is the reference graph, not a filter: an app that wants hardware references this
+    project, and one that only wants to read a FITS file does not.
+
+    NAMESPACES ARE UNCHANGED (`TianWen.Lib.Devices.ZWO`, `.QHYCCD`, `TianWen.Lib.Extensions`).
+    The assembly name and the namespace root therefore differ, which is deliberate: this is a
+    DEPLOYMENT split, not an API redesign, so `using TianWen.Lib.Extensions;` and `.AddZWO()` keep
+    working and a consumer adds a reference rather than editing its source.
+
+    The drivers stay `internal` and see TianWen.Lib's internals through InternalsVisibleTo rather
+    than by promoting the DAL device abstraction to public API. That abstraction is deliberately
+    internal, and a split for packaging reasons is not a reason to freeze it into a public
+    contract. In trust terms this assembly is part of the library; only its delivery is separate.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <!-- Derived; the version itself lives in src/Directory.Build.props (VersionMajorMinor). -->
+    <AssemblyVersion>$(VersionMajorMinor).0.0</AssemblyVersion>
+    <PackageID>TianWen.Devices.Native</PackageID>
+    <Description>Native vendor device drivers for TianWen: ZWO (ASI cameras, EAF focusers, EFW filter wheels) and QHYCCD (cameras, filter wheels, QFOC focusers), over the vendors' own SDKs. Reference this alongside TianWen.Lib to drive that hardware; TianWen.Lib alone covers ASCOM, Alpaca and the serial-native drivers and carries no vendor binaries.</Description>
+    <PackageTags>astronomy astrophotography zwo qhyccd camera focuser filter-wheel drivers</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- The same file pair as TianWen.Lib, and it matters MORE here: the section-7 additional
+         permission in LICENSE.EXCEPTION is what lets this code link the proprietary vendor SDKs,
+         and this is the assembly that actually links them. Both files must travel or the terms
+         are only half stated. -->
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <RepositoryUrl>https://github.com/SharpAstro/tianwen.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <DebugType>embedded</DebugType>
+    <Nullable>enable</Nullable>
+    <Platforms>AnyCPU</Platforms>
+    <IsTrimmable>True</IsTrimmable>
+    <IsAotCompatible>True</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
+  </ItemGroup>
+
+  <!-- TianWen.DAL: the native-camera abstraction every driver here does `using TianWen.DAL` for.
+       Declared directly rather than relied on transitively, the same "this project imports it"
+       signal TianWen.Lib uses, and folded into UseLocalSiblings because a camera CAPABILITY is
+       expressed there and edited in the same breath as the driver that needs one. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\TianWen.DAL\TianWen.DAL.csproj" />
+  </ItemGroup>
+
+  <!-- ZWOptical.SDK: native ZWO camera / focuser / filter-wheel drivers. Folded into
+       UseLocalSiblings for the same reason as the DAL it depends on: its published package
+       declares TianWen.DAL 2.1.x, which OUTRANKS a locally built sibling, so taking it as a
+       package while building the DAL from source puts two assemblies of the same simple name in
+       front of the compiler (CS1704). -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\ZWOptical.SDK\ZWOptical.SDK.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="ZWOptical.SDK" />
+  </ItemGroup>
+
+  <!-- QHYCCD.SDK: native QHY camera / filter-wheel / focuser drivers, same reasoning. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\QHYCCD.SDK\QHYCCD.SDK.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="QHYCCD.SDK" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <None Include="../../LICENSE" Pack="True" PackagePath="/" />
+    <None Include="../../LICENSE.EXCEPTION" Pack="True" PackagePath="/" />
+  </ItemGroup>
+
+</Project>
