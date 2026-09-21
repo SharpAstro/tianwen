@@ -360,12 +360,14 @@ internal sealed class ImageSubCommand(
     /// What a declined edge actually loses under <c>--trim-declined</c>.
     /// </summary>
     /// <remarks>
-    /// A band the cap refused (<see cref="CoverageEdgeOutcome.BeyondCap"/>) was MEASURED: the walk
-    /// knows where the noise came down and only declined to pay for it, so that depth is what comes
-    /// off, and <paramref name="blind"/> is never consulted for it. Only an edge with no depth to read
-    /// (<see cref="CoverageEdgeOutcome.NeverSettles"/>, <see cref="CoverageEdgeOutcome.NotMeasurable"/>)
-    /// falls back to the fraction. An edge the walk answered for keeps its own answer and loses nothing
-    /// more.
+    /// A band the cap refused (<see cref="CoverageEdgeOutcome.BeyondCap"/>) was MEASURED AND CONFIRMED:
+    /// the walk found the same depth looking further, so it is a border rather than a window, and that
+    /// depth is what comes off with <paramref name="blind"/> never consulted for it. Every other
+    /// declined outcome falls back to the fraction, <see cref="CoverageEdgeOutcome.Unconfirmed"/>
+    /// included: a depth that followed the window is not a border, and trimming to it would take a bite
+    /// out of a gradient on the strength of a number that only looks like an answer. Measured over the
+    /// corpus before the confirming pass existed, 10 of the 16 edges past the cap were exactly that.
+    /// An edge the walk answered for keeps its own answer and loses nothing more.
     /// <para>
     /// A measured depth EXCEEDS the loss cap by construction, and the fraction defaults to that same
     /// cap, so this trims a beyond-cap edge DEEPER than the flag's own number rather than shallower.
@@ -393,6 +395,7 @@ internal sealed class ImageSubCommand(
     {
         (<= 0, _) => null,
         (_, CoverageEdgeOutcome.BeyondCap) => $"{name} {depth} px, settled there",
+        (_, CoverageEdgeOutcome.Unconfirmed) => $"{name} {depth} px, blind (no border, the depth followed the window)",
         (_, CoverageEdgeOutcome.NeverSettles) => $"{name} {depth} px, blind (never settled)",
         _ => $"{name} {depth} px, blind (not measurable)",
     };
