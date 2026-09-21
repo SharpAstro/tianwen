@@ -276,32 +276,24 @@ internal sealed class ImageSubCommand(
             var scan = ViewerActions.ScanForCrop(src, input, logger);
             var rect = scan.Rect;
 
-            // A declined edge is the case where the scan left the pixels alone without calling them
-            // clean (refused, never settled, or settled past the cap), and the two callers want opposite
-            // things from that: the viewer keeps the pixels, this keeps the ramp out of a background fit.
-            // Only the declined edges move, so an edge that was trimmed or found clean is left exactly
-            // where it said. Declined, not !Settled: a band deeper than the cap DID settle and is still
-            // left alone, and it is the edge this option was written for. What such an edge LOSES is its
-            // own measured depth rather than the fraction; see DeclinedDepth.
+            // What a refused edge loses is CoverageTrimPolicy's, not this verb's. The scan hands back a
+            // viewer-shaped rectangle (every pixel that exists), so this re-applies the same verdicts
+            // under the producing policy, which is the one the stacker uses. This verb and a master
+            // written by `tianwen stack` therefore crop identically, which they did not while this
+            // logic lived here: the CLI removed V1045 Ori's strip exactly and the bake kept it.
             var trimDeclined = Math.Clamp(parseResult.GetValue(trimDeclinedOpt), 0.0, 0.25);
             if (trimDeclined > 0 && scan is { Declined: true, Trims: { } trims } && rect.Width > 0 && rect.Height > 0)
             {
-                var dx = (int)Math.Round(rect.Width * trimDeclined);
-                var dy = (int)Math.Round(rect.Height * trimDeclined);
-                var left = DeclinedDepth(trims.Left, dx);
-                var right = DeclinedDepth(trims.Right, dx);
-                var top = DeclinedDepth(trims.Top, dy);
-                var bottom = DeclinedDepth(trims.Bottom, dy);
-                var held = new PixelRect(rect.X + left, rect.Y + top,
-                    rect.Width - left - right, rect.Height - top - bottom);
-                if (held.Width > 16 && held.Height > 16)
+                var policy = CoverageTrimPolicy.Default with { DeclinedFraction = trimDeclined };
+                var held = trims.Apply(rect, policy);
+                if (held != rect)
                 {
                     var edges = string.Join(", ", new[]
                     {
-                        DescribeDeclinedEdge("left", trims.Left, left),
-                        DescribeDeclinedEdge("top", trims.Top, top),
-                        DescribeDeclinedEdge("right", trims.Right, right),
-                        DescribeDeclinedEdge("bottom", trims.Bottom, bottom),
+                        policy.Describe("left", trims.Left, policy.DepthFor(trims.Left, rect.Width)),
+                        policy.Describe("top", trims.Top, policy.DepthFor(trims.Top, rect.Height)),
+                        policy.Describe("right", trims.Right, policy.DepthFor(trims.Right, rect.Width)),
+                        policy.Describe("bottom", trims.Bottom, policy.DepthFor(trims.Bottom, rect.Height)),
                     }.Where(e => e is not null));
                     consoleHost.WriteScrollable(
                         $"[autocrop] declined ({edges}): "
@@ -355,50 +347,6 @@ internal sealed class ImageSubCommand(
 
         return cmd;
     }
-
-    /// <summary>
-    /// What a declined edge actually loses under <c>--trim-declined</c>.
-    /// </summary>
-    /// <remarks>
-    /// A band the cap refused (<see cref="CoverageEdgeOutcome.BeyondCap"/>) was MEASURED AND CONFIRMED:
-    /// the walk found the same depth looking further, so it is a border rather than a window, and that
-    /// depth is what comes off with <paramref name="blind"/> never consulted for it. Every other
-    /// declined outcome falls back to the fraction, <see cref="CoverageEdgeOutcome.Unconfirmed"/>
-    /// included: a depth that followed the window is not a border, and trimming to it would take a bite
-    /// out of a gradient on the strength of a number that only looks like an answer. Measured over the
-    /// corpus before the confirming pass existed, 10 of the 16 edges past the cap were exactly that.
-    /// An edge the walk answered for keeps its own answer and loses nothing more.
-    /// <para>
-    /// A measured depth EXCEEDS the loss cap by construction, and the fraction defaults to that same
-    /// cap, so this trims a beyond-cap edge DEEPER than the flag's own number rather than shallower.
-    /// That is the intent: the option exists to keep a ramp out of a background fit, and the ramp ends
-    /// where the walk says it ends. It cannot run away, because the walk never looks past
-    /// <see cref="CoverageEdgeWalkOptions.SettleSearchFraction"/> of the axis, and the caller still
-    /// refuses a crop that would leave nothing.
-    /// </para>
-    /// <para>
-    /// CLI policy, not the walk's: the viewer wants the opposite from the same verdict (every pixel
-    /// that exists), which is why this lives beside the option and not on
-    /// <see cref="CoverageEdgeTrim"/>.
-    /// </para>
-    /// </remarks>
-    internal static int DeclinedDepth(CoverageEdgeTrim trim, int blind) => trim.Outcome switch
-    {
-        CoverageEdgeOutcome.BeyondCap when trim.SettleDepth > 0 => trim.SettleDepth,
-        _ => trim.Declined ? blind : 0,
-    };
-
-    /// <summary>One edge's share of the log line, naming the px AND where the number came from, because
-    /// a depth the walk measured and a fraction nobody measured are not the same claim. Null for an edge
-    /// that did not move.</summary>
-    internal static string? DescribeDeclinedEdge(string name, CoverageEdgeTrim trim, int depth) => (depth, trim.Outcome) switch
-    {
-        (<= 0, _) => null,
-        (_, CoverageEdgeOutcome.BeyondCap) => $"{name} {depth} px, settled there",
-        (_, CoverageEdgeOutcome.Unconfirmed) => $"{name} {depth} px, blind (no border, the depth followed the window)",
-        (_, CoverageEdgeOutcome.NeverSettles) => $"{name} {depth} px, blind (never settled)",
-        _ => $"{name} {depth} px, blind (not measurable)",
-    };
 
     // The companion-file options, declared once instead of copied into every verb that offers them.
     private static Option<ImageOutputFormat> BuildCompanionFormatOption() => new("--output-format")

@@ -161,6 +161,81 @@ namespace TianWen.Lib.Imaging
             or CoverageEdgeOutcome.NeverSettles or CoverageEdgeOutcome.NotMeasurable;
     }
 
+    /// <summary>
+    /// What a consumer does with an edge the walk REFUSED. The verdict is the walk's; this is the
+    /// policy on top of it, and it lives here because there is exactly one of it.
+    /// </summary>
+    /// <remarks>
+    /// <para>It used to live in <c>ImageSubCommand</c>, on the argument that the viewer wants the
+    /// opposite of what the CLI wants from the same verdict. That is an argument for a PARAMETER, not
+    /// for a second implementation in another assembly, and the cost of getting it wrong was measured:
+    /// with the policy in the CLI alone, <c>tianwen image autocrop</c> removed V1045 Ori's 356 px
+    /// dither strip exactly while the stacking pipeline, which never had the policy, kept writing a
+    /// master with the strip still on it. The fix worked on the path nobody looks at and not on the one
+    /// that produced the reported bug.</para>
+    ///
+    /// <para>So the stacker, the CLI and the viewer all come through here, and the viewer differs only
+    /// by asking for <see cref="KeepEveryPixel"/>.</para>
+    /// </remarks>
+    public sealed record CoverageTrimPolicy
+    {
+        /// <summary>Trim a refused edge as well: the default everywhere a master is being PRODUCED,
+        /// because the ramp a crop keeps is exactly what a background model then fits.</summary>
+        public static CoverageTrimPolicy Default { get; } = new CoverageTrimPolicy();
+
+        /// <summary>Show every pixel that exists: a refused edge loses nothing. What a person looking
+        /// at a frame wants, and wrong for anything feeding a fit.</summary>
+        public static CoverageTrimPolicy KeepEveryPixel { get; } = new CoverageTrimPolicy { DeclinedFraction = 0.0 };
+
+        /// <summary>What an edge with NO depth to read loses, as a fraction of the span. Zero leaves
+        /// every refused edge alone. An edge whose depth was measured AND confirmed
+        /// (<see cref="CoverageEdgeOutcome.BeyondCap"/>) ignores this and comes off at that depth
+        /// instead; see <see cref="DepthFor"/>.</summary>
+        public double DeclinedFraction { get; init; } = 0.05;
+
+        /// <summary>Refuse a crop that would leave less than this on an axis.</summary>
+        public int MinimumKeptPx { get; init; } = 16;
+
+        /// <summary>What this edge actually loses.</summary>
+        /// <remarks>
+        /// A band past the cap was measured AND confirmed: the walk found the same depth looking
+        /// further, so it is a border rather than a window, and that depth is what comes off with
+        /// <see cref="DeclinedFraction"/> never consulted for it. Every other refusal falls back to the
+        /// fraction, <see cref="CoverageEdgeOutcome.Unconfirmed"/> included: a depth that followed the
+        /// window is not a border, and trimming to it would bite into a gradient on the strength of a
+        /// number that only looks like an answer.
+        /// </remarks>
+        public int DepthFor(in CoverageEdgeTrim trim, int span)
+        {
+            if (!trim.Declined)
+            {
+                return trim.Depth;
+            }
+
+            if (DeclinedFraction <= 0)
+            {
+                return 0;
+            }
+
+            return trim.Outcome is CoverageEdgeOutcome.BeyondCap && trim.SettleDepth > 0
+                ? trim.SettleDepth
+                : (int)Math.Round(span * DeclinedFraction);
+        }
+
+        /// <summary>One edge's share of a log line, naming the px AND where the number came from,
+        /// because a depth the walk measured and a fraction nobody measured are not the same claim.
+        /// Null for an edge that did not move.</summary>
+        public string? Describe(string name, in CoverageEdgeTrim trim, int depth) => (depth, trim.Outcome) switch
+        {
+            ( <= 0, _) => null,
+            (_, CoverageEdgeOutcome.Trimmed) => $"{name} {depth} px",
+            (_, CoverageEdgeOutcome.BeyondCap) => $"{name} {depth} px, settled there",
+            (_, CoverageEdgeOutcome.Unconfirmed) => $"{name} {depth} px, blind (no border, the depth followed the window)",
+            (_, CoverageEdgeOutcome.NeverSettles) => $"{name} {depth} px, blind (never settled)",
+            _ => $"{name} {depth} px, blind (not measurable)",
+        };
+    }
+
     /// <summary>The four edges' verdicts, and the rectangle they leave.</summary>
     public readonly record struct CoverageEdgeTrims(
         CoverageEdgeTrim Left,
@@ -175,13 +250,25 @@ namespace TianWen.Lib.Imaging
         /// <summary>Total px discarded across all four edges.</summary>
         public int TotalDepth => Left.Depth + Top.Depth + Right.Depth + Bottom.Depth;
 
-        /// <summary>Applies the trims to the rectangle they were measured on.</summary>
-        public PixelRect Apply(PixelRect rect)
+        /// <summary>Applies the trims to the rectangle they were measured on, taking each edge's own
+        /// answer and nothing more. A declined edge keeps its pixels. Equivalent to
+        /// <c>Apply(rect, CoverageTrimPolicy.KeepEveryPixel)</c>, and kept because that IS the plain
+        /// meaning of a set of trims.</summary>
+        public PixelRect Apply(PixelRect rect) => Apply(rect, CoverageTrimPolicy.KeepEveryPixel);
+
+        /// <summary>Applies the trims under a <paramref name="policy"/>, which decides the one thing a
+        /// verdict does not: what an edge the walk REFUSED should lose.</summary>
+        public PixelRect Apply(PixelRect rect, CoverageTrimPolicy policy)
         {
-            var width = rect.Width - Left.Depth - Right.Depth;
-            var height = rect.Height - Top.Depth - Bottom.Depth;
-            return width > 0 && height > 0
-                ? new PixelRect(rect.X + Left.Depth, rect.Y + Top.Depth, width, height)
+            ArgumentNullException.ThrowIfNull(policy);
+            var left = policy.DepthFor(Left, rect.Width);
+            var right = policy.DepthFor(Right, rect.Width);
+            var top = policy.DepthFor(Top, rect.Height);
+            var bottom = policy.DepthFor(Bottom, rect.Height);
+            var width = rect.Width - left - right;
+            var height = rect.Height - top - bottom;
+            return width > policy.MinimumKeptPx && height > policy.MinimumKeptPx
+                ? new PixelRect(rect.X + left, rect.Y + top, width, height)
                 : rect;
         }
     }
@@ -227,8 +314,14 @@ namespace TianWen.Lib.Imaging
     public static class CoverageEdgeWalk
     {
         /// <summary>The rectangle left once every edge's under-exposed band is discarded.</summary>
-        public static PixelRect Trim(Image image, PixelRect start, CoverageEdgeWalkOptions? options = null)
-            => Measure(image, start, options).Apply(start);
+        /// <remarks>
+        /// <paramref name="policy"/> decides what a REFUSED edge loses, and defaults to
+        /// <see cref="CoverageTrimPolicy.Default"/> so that a master produced by the stacker and one
+        /// cropped by <c>tianwen image autocrop</c> come out the same. A caller showing pixels to a
+        /// person passes <see cref="CoverageTrimPolicy.KeepEveryPixel"/> instead.
+        /// </remarks>
+        public static PixelRect Trim(Image image, PixelRect start, CoverageEdgeWalkOptions? options = null, CoverageTrimPolicy? policy = null)
+            => Measure(image, start, options).Apply(start, policy ?? CoverageTrimPolicy.Default);
 
         /// <summary>Per-edge verdicts, so a caller can report what happened as well as apply it.</summary>
         public static CoverageEdgeTrims Measure(Image image, PixelRect start, CoverageEdgeWalkOptions? options = null)

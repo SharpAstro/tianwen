@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using TianWen.Lib.Geometry;
 using System.Runtime.CompilerServices;
@@ -744,10 +744,12 @@ public partial class Image
     /// the best answer available for a frame that carries no coverage plane. See
     /// <see cref="CoverageEdgeWalk"/> for what the walk can and cannot see.
     /// </summary>
-    public PixelRect SettledCoverageRectangle(CoverageEdgeWalkOptions? options = null)
+    public PixelRect SettledCoverageRectangle(CoverageEdgeWalkOptions? options = null, CoverageTrimPolicy? policy = null)
     {
         var start = LargestCoveredRectangle();
-        return start.Width > 0 && start.Height > 0 ? CoverageEdgeWalk.Trim(this, start, options) : start;
+        return start.Width > 0 && start.Height > 0
+            ? CoverageEdgeWalk.Trim(this, start, options, policy)
+            : start;
     }
 
     /// <summary>The median of the central half of a block grid: what "full" means for a coverage map.</summary>
