@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using TianWen.Lib.Geometry;
 using System.IO;
@@ -229,6 +229,9 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
         // ---------------- Pass 2: strip-by-strip integration ----------------
         var masterData = Image.CreateChannelData(channelCount, canvasH, canvasW);
         var rejectMapData = Image.CreateChannelData(1, canvasH, canvasW);
+        // Each strip integrates through Integrator, which counts coverage, so the canvas-wide plane
+        // is assembled exactly as the rejection map is rather than counted a second time here.
+        var coverageData = Image.CreateChannelData(1, canvasH, canvasW);
         long totalRejections = 0;
         var stripOpts = opts with { ApplyNormalization = false };
 
@@ -297,6 +300,10 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
             var stripResult = Integrator.Integrate(stripFrames, stripOpts);
             CopyStripIntoMaster(stripResult.Master, masterData, stripY0, channelCount);
             CopyStripIntoMaster(stripResult.RejectionMap, rejectMapData, stripY0, channelCount: 1);
+            if (stripResult.Coverage is { } stripCoverage)
+            {
+                CopyStripIntoMaster(stripCoverage, coverageData, stripY0, channelCount: 1);
+            }
             totalRejections += stripResult.TotalRejections;
 
             stripIdx++;
@@ -323,7 +330,10 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
             ? (double)totalRejections / ((double)n * canvasW * canvasH * channelCount)
             : 0.0;
 
-        return new IntegrationResult(masterImage, rejectMapImage, n, totalRejections, meanRate);
+        return new IntegrationResult(masterImage, rejectMapImage, n, totalRejections, meanRate)
+        {
+            Coverage = CoveragePlane.FromPlane(coverageData, n, firstMeta),
+        };
     }
 
     /// <summary>Load + calibrate, no debayer. Used by Phase 8.6 pass 1 to

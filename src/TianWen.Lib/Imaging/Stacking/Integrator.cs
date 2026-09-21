@@ -193,6 +193,13 @@ public static class Integrator
         ValidateSinkShape(rejectSink, 1, width, height, nameof(rejectSink));
         using IIntegrationSink masterSinkInUse = masterSink ?? new ArraySink(channelCount, width, height);
         using IIntegrationSink rejectSinkInUse = rejectSink ?? new ArraySink(1, width, height);
+        // Coverage: how many frames put a finite sample on each pixel, counted in the one loop that
+        // already reads every sample. Without it this strategy's only sidecar is a rejection
+        // fraction, which the exact crop tier cannot use, so every consumer of its masters falls to
+        // CoverageEdgeWalk and an edge whose band never settles is declined. #315 gave the streaming
+        // path this and left the in-RAM path without it, which is what a re-bake of V1045 Ori at HEAD
+        // exposed: it chose InRamAllFrames and wrote no coverage plane at all.
+        using IIntegrationSink coverageSinkInUse = new ArraySink(1, width, height);
 
         long totalRejections = 0;
 
@@ -223,19 +230,26 @@ public static class Integrator
                     // channels (final /= channelCount happens below the channel loop).
                     var masterRow = masterSinkInUse.GetRow(channelIdx, row);
                     var rejectRow = rejectSinkInUse.GetRow(0, row);
+                    var coverageRow = coverageSinkInUse.GetRow(0, row);
 
                     for (var col = 0; col < width; col++)
                     {
                         // Fill column with normalized values (or raw, if normalization disabled).
+                        var finite = 0;
                         for (var f = 0; f < n; f++)
                         {
                             var v = channelInputs[f][row, col];
-                            if (!float.IsNaN(v) && minForCh is not null)
+                            if (!float.IsNaN(v))
                             {
-                                v = (v - minForCh[f]) * scaleForCh![f];
+                                finite++;
+                                if (minForCh is not null)
+                                {
+                                    v = (v - minForCh[f]) * scaleForCh![f];
+                                }
                             }
                             column[f] = v;
                         }
+                        coverageRow[col] += finite;
 
                         int kept;
                         if (rejector is not null)
@@ -268,16 +282,23 @@ public static class Integrator
                 });
         }
 
-        // Average the rejection fraction across channels.
-        if (rejector is not null && channelCount > 1)
+        // Average across channels. The rejection fraction only needs it when a rejector ran; the
+        // coverage count always does, since every channel added its own tally.
+        if (channelCount > 1)
         {
             var inv = 1f / channelCount;
             for (var y = 0; y < height; y++)
             {
                 var rejectRow = rejectSinkInUse.GetRow(0, y);
+                var coverageRow = coverageSinkInUse.GetRow(0, y);
                 for (var x = 0; x < width; x++)
                 {
-                    rejectRow[x] *= inv;
+                    if (rejector is not null)
+                    {
+                        rejectRow[x] *= inv;
+                    }
+
+                    coverageRow[x] *= inv;
                 }
             }
         }
@@ -300,7 +321,12 @@ public static class Integrator
             pedestal: 0f,
             meta: firstMeta);
 
-        return new IntegrationResult(masterImage, rejectMapImage, n, totalRejections, meanRate);
+        var coverageImage = CoveragePlane.Finalise(coverageSinkInUse, n, firstMeta);
+
+        return new IntegrationResult(masterImage, rejectMapImage, n, totalRejections, meanRate)
+        {
+            Coverage = coverageImage,
+        };
     }
 
     private struct RowState

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Threading;
@@ -292,12 +292,7 @@ public static class StreamingIntegrator
             minValue: 0f,
             pedestal: 0f,
             meta: firstFrame.Meta);
-        var coverageImage = coverageSink.FinaliseAsImage(
-            BitDepth.Float32,
-            maxValue: n,
-            minValue: 0f,
-            pedestal: 0f,
-            meta: firstFrame.Meta);
+        var coverageImage = CoveragePlane.Finalise(coverageSink, n, firstFrame.Meta);
 
         return new IntegrationResult(masterImage, rejectMapImage, n, totalRejections, meanRate)
         {

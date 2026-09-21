@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -225,7 +225,14 @@ public sealed class ChunkedTwoPassStrategy : IIntegrationStrategy
             imageMeta: firstFrame.ImageMeta);
 
         job.Progress?.Report(new IntegrationProgress(IntegrationPhase.Finalizing, 1, 1, swStrat.Elapsed));
-        return new IntegrationResult(masterImage, rejectMapImage, framesSeen, totalRejections, meanRate);
+
+        // Pass A already tallied, per pixel, how many frames put a finite sample there -- that IS the
+        // coverage, and it was being thrown away while every consumer of this strategy's masters fell
+        // to the edge walk for want of it. Surfaced, not recounted.
+        return new IntegrationResult(masterImage, rejectMapImage, framesSeen, totalRejections, meanRate)
+        {
+            Coverage = CoveragePlane.FromCounts(countArr, channels, framesSeen, firstFrame.ImageMeta),
+        };
     }
 
     /// <summary>Normalise the warped frame using stats taken over
