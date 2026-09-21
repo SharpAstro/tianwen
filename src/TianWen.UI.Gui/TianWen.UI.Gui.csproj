@@ -53,6 +53,7 @@
     <ProjectReference Include="..\TianWen.UI.Abstractions\TianWen.UI.Abstractions.csproj" />
     <ProjectReference Include="..\TianWen.UI.Shared\TianWen.UI.Shared.csproj" />
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
+    <ProjectReference Include="..\TianWen.Devices.Native\TianWen.Devices.Native.csproj" />
   </ItemGroup>
 
   <!-- LAN.Lib: Program.cs calls AddLanDiscovery (symmetric "tianwen-gui" beacon) and drives
