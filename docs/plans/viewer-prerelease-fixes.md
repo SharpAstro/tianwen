@@ -1,4 +1,4 @@
-# Viewer pre-release fixes
+﻿# Viewer pre-release fixes
 
 Defects found while packaging `tianwen-fits` as **Astro Photo Viewer** for the Microsoft Store
 (see `packaging/windows/msix/README.md`). Packaging the viewer meant opening a folder of real
@@ -1033,6 +1033,13 @@ The verdict a consumer branches on is `CoverageEdgeTrim.Declined`, NOT `Settled`
 exactly the interesting case, because a band past the cap DID settle. `CoverageEdgeOutcome` is `Clean`,
 `Trimmed`, `BeyondCap` (settled deeper than the cap, `SettleDepth` says where), `NeverSettles` and
 `NotMeasurable`.
+
+**The three tuning fractions ship EXPERIMENTAL.** `MaxTrimFraction` 0.05, `SettleSearchFraction` 0.10
+and `ConfirmFactor` 1.5 are defensible, not derived, and the section below is the evidence for exactly
+that and no more. Two things bound it. The corpus predates every strategy retaining a coverage plane,
+so it describes a FOREIGN master rather than one of ours; and the walk now takes a floor from
+`SensorGeometry` where the camera is known, so these three only govern what is left above it. Neither
+is a reason to change them today, and both are reasons not to quote them as measured defaults.
 
 **What the corpus says about the defaults** (2026-09-21, `CoverageEdgeWalkProbe`'s corpus fact over the
 139 session masters of `2026-09-19-full`, none of which has a `.coverage.fits` sidecar; 556 edges swept

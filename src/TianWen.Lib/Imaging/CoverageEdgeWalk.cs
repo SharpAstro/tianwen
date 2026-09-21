@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Buffers;
 using TianWen.Lib.Geometry;
 using TianWen.Lib.Stat;
@@ -15,8 +15,23 @@ namespace TianWen.Lib.Imaging
     }
 
     /// <summary>
-    /// Knobs for <see cref="CoverageEdgeWalk"/>. Every default was measured rather than picked --
-    /// see the class remarks for the corpus and the numbers.
+    /// Knobs for <see cref="CoverageEdgeWalk"/>.
+    ///
+    /// <para><b>THE THREE TUNING FRACTIONS ARE EXPERIMENTAL.</b> <see cref="MaxTrimFraction"/>,
+    /// <see cref="SettleSearchFraction"/> and <see cref="ConfirmFactor"/> ship at values that are
+    /// defensible rather than derived, and a caller should not read them as settled. They were swept
+    /// over 139 masters, but that store predates every strategy retaining a coverage plane, so it
+    /// stands in for a FOREIGN master and not for one of ours -- and the marginal trade it showed for
+    /// the cap runs near 1:1 from 0.03 to 0.10, which singles nothing out. Their remaining scope
+    /// narrowed again when the walk started taking the dither margin from
+    /// <see cref="SensorGeometry"/>: where the camera is known, geometry sets the floor and these only
+    /// apply above it. Re-measure on masters that actually reach the walk before treating any of them
+    /// as a default worth defending. Numbers and method:
+    /// <c>docs/plans/viewer-prerelease-fixes.md</c>.</para>
+    ///
+    /// <para>The rest -- <see cref="BandThickness"/>, <see cref="TileLength"/>, <see cref="Step"/>,
+    /// <see cref="ReferenceFraction"/>, <see cref="SettleMargin"/>, <see cref="MinimumRise"/>,
+    /// <see cref="Percentile"/> -- are not in that category and carry their own rationale below.</para>
     /// </summary>
     /// <remarks>
     /// A record CLASS, not a record struct: property initialisers on a record struct are skipped by
@@ -77,9 +92,12 @@ namespace TianWen.Lib.Imaging
         /// Looking further separates them. A border answers the same depth however far you look, because
         /// the quiet region beyond it really is quiet; a gradient answers deeper every time the window
         /// grows, because the answer WAS the window. Measured over 139 masters
-        /// (<c>docs/plans/viewer-prerelease-fixes.md</c>): of 556 edges, 328 hold their depth and 81
-        /// follow the window, and at the shipped window 10 of the 16 edges past the cap have no border
-        /// at all, which is who a consumer acting on a bare depth was really acting on.</para>
+        /// (<c>docs/plans/viewer-prerelease-fixes.md</c>): of 556 edges, 308 hold their depth and 93
+        /// follow the window. At the shipped window the pass sorts them 7 borders to 15 gradients into
+        /// <see cref="CoverageEdgeOutcome.Unconfirmed"/>, and leaves
+        /// <see cref="CoverageEdgeOutcome.BeyondCap"/> at 9 borders to 8 gradients. Earlier revisions
+        /// of this comment quoted 328/81 and 5-to-12, which were measured on the whole frame instead
+        /// of the covered rectangle and are withdrawn.</para>
         ///
         /// <para>1.5 rather than more because the reference pool is pushed to twice the widened search
         /// and has to stay inside the span. It costs one extra pass over a profile already computed, not
