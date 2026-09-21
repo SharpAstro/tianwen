@@ -1,4 +1,4 @@
-using DIR.Lib;
+﻿using DIR.Lib;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -978,6 +978,9 @@ public static class ViewerActions
         logger?.LogDebug(
             "Auto-crop edge walk: left {L} top {T} right {R} bottom {B} (declined: {Declined})",
             trims.Left.Depth, trims.Top.Depth, trims.Right.Depth, trims.Bottom.Depth, trims.AnyDeclined);
-        return new CropScan(trims.Apply(union), FromCoverage: false, trims.AnyDeclined, trims);
+        // KeepEveryPixel, stated rather than implied: this is the one consumer that wants a
+        // refused edge left alone, because a person is looking at the frame. The stacker and the
+        // CLI share CoverageTrimPolicy.Default instead.
+        return new CropScan(trims.Apply(union, CoverageTrimPolicy.KeepEveryPixel), FromCoverage: false, trims.AnyDeclined, trims);
     }
 }
