@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
@@ -124,7 +124,6 @@ namespace TianWen.AI.Imaging
             ILogger? logger = null,
             WCS? wcs = null,
             Image? rejectionMap = null,
-            bool rejectionMapIsCoverage = false,
             double meanRejectionRate = 0.0,
             Image? coverage = null)
         {
@@ -182,7 +181,7 @@ namespace TianWen.AI.Imaging
                 try
                 {
                     IntegrationFitsWriter.WriteRejectionMap(
-                        path, rejectionMap, frameCount, meanRejectionRate, rejectionMapIsCoverage, strategy);
+                        path, rejectionMap, frameCount, meanRejectionRate, strategy);
                 }
                 catch (Exception ex)
                 {
@@ -190,10 +189,10 @@ namespace TianWen.AI.Imaging
                 }
             }
 
-            // A staged master's first sidecar is a rejection fraction, which the exact crop tier cannot
-            // use; its coverage COUNT goes beside it under its own suffix. Drizzle masters pass null
-            // here, since their rejection sidecar already is the coverage.
-            if (coverage is not null && !rejectionMapIsCoverage)
+            // Coverage has one home and one suffix, whatever produced it: a drizzle's accumulated
+            // weight arrives here the same way a counted plane does, so this no longer has to know
+            // which strategy ran to decide where its coverage went.
+            if (coverage is not null)
             {
                 try
                 {
@@ -207,7 +206,7 @@ namespace TianWen.AI.Imaging
 
             logger?.LogDebug("  [{Session}] session master retained{Wcs}{Map}", sessionId,
                 wcs is not null ? " with a WCS" : "",
-                rejectionMapIsCoverage || coverage is not null ? " and its coverage map" : rejectionMap is not null ? " and its rejection map" : "");
+                coverage is not null ? " and its coverage map" : rejectionMap is not null ? " and its rejection map" : "");
             return true;
         }
 

@@ -150,13 +150,14 @@ public class StackingPipelineRgbBayerDrizzleTest(ITestOutputHelper output)
             $"uncovered-cell fraction {result.Result.MeanRejectionRate:P1} is too high -- " +
             "drizzle forward-warp or pattern dispatch likely missing most pixels");
 
-        // 5) Coverage map (RejectionMap on the result) is 3-channel and
-        //    has non-zero values across most of the canvas. The drizzle
-        //    integrator returns its weight buffer as the RejectionMap so
-        //    downstream code (FITS write, future QA) can see per-channel
-        //    coverage.
-        result.Result.RejectionMap.ChannelCount.ShouldBe(3,
-            "drizzle's RejectionMap is the per-channel coverage buffer");
+        // 5) The coverage map is 3-channel and has non-zero values across most of the canvas, so
+        //    downstream code (FITS write, QA) can see per-channel coverage. It arrives as Coverage,
+        //    which is where coverage lives for every strategy; it used to be handed back as the
+        //    RejectionMap under a flag saying it meant the opposite of a rejection fraction, and
+        //    drizzle has no rejection fraction to report at all.
+        result.Result.RejectionMap.ShouldBeNull("drizzle does no kappa-sigma rejection");
+        var coverage = result.Result.Coverage.ShouldNotBeNull("drizzle's weight buffer IS its coverage");
+        coverage.ChannelCount.ShouldBe(3, "the drizzle weight buffer is per-channel");
     }
 
     [Fact]

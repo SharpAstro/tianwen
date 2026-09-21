@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
@@ -35,7 +35,7 @@ public class StreamingIntegratorCoverageTests
         {
             var result = StreamingIntegrator.Integrate(frames, new IntegrationOptions(ApplyNormalization: false));
 
-            result.RejectionMapIsCoverage.ShouldBeFalse("the rejection map keeps its meaning; coverage is beside it");
+            result.RejectionMap.ShouldNotBeNull("the rejection map keeps its own meaning; coverage is beside it");
             var coverage = result.Coverage.ShouldNotBeNull("a staged integration reports coverage");
             coverage.Width.ShouldBe(Size);
             coverage.Height.ShouldBe(Size);
