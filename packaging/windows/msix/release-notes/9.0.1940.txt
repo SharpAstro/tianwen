@@ -1,13 +1,13 @@
 Astro Photo Viewer (tianwen-fits)
-Store package version {{PACKAGE_VERSION}}   -   supersedes {{PREV_PACKAGE}}
+Store package version 9.0.1940.0   -   supersedes 8.0.1716.0
 Package identity  SharpAstro.AstroPhotoViewer   Store ID  9PMDZP16TGBG
-Git tag  {{TAG}}   -   span  v{{PREV_VERSION}}..{{TAG}}   -   {{SPAN_COMMITS}} commits
-Baked from run {{RUN_NUMBER}} (id {{RUN_ID}}) on {{DATE}}
+Git tag  v9.0.1940   -   span  v8.0.1716..v9.0.1940   -   376 commits
+Baked from run 1940 (id 35597765249) on 2026-09-22
 
 THIS FILE IS THE DRAFT. It is baked by packaging/windows/msix/bake-release-notes.ps1
 in the msix job, which fills the version in and measures the block below, and the
 result arrives beside the package as the msix-release-notes artifact. Download it,
-commit it as release-notes/{{VERSION}}.txt, and reset this draft for the next one.
+commit it as release-notes/9.0.1940.txt, and reset this draft for the next one.
 
 Write it BEFORE dispatching. The package version ends in the run number, so it does
 not exist until the run does, and a record written afterwards is a record written
@@ -27,7 +27,7 @@ TianWen.Lib (its geometry types are its own, the dependency floor moves two majo
 and the ZWO and QHYCCD drivers move to a package of their own), and a Store user
 sees none of that. What they see is the 8.1 work below, which was drafted on
 2026-09-19 and never dispatched, plus what 9.0 added on top. So the span is
-v8.0.1716..{{TAG}} and it carries two releases' worth of viewer changes, not one.
+v8.0.1716..v9.0.1940 and it carries two releases' worth of viewer changes, not one.
 
 
 ================================================================================
@@ -78,7 +78,7 @@ next release knows the label changed and why.
 ================================================================================
 WHAT'S NEW  (Partner Center copy - paste between the two marker lines VERBATIM)
 ================================================================================
-Measured at bake time: {{WHATSNEW_CHARS}} characters, or {{WHATSNEW_CHARS_CRLF}} if
+Measured at bake time: 1375 characters, or 1387 if
 the paste turns the newlines into CRLF. The cap is 1500 and the bake FAILS over it,
 so this number is always true of what is below. Do not paste the DETAIL section.
 Measured locally before dispatch on 2026-09-21: 1402 LF, 1414 CRLF, pure ASCII.
@@ -317,20 +317,20 @@ area; A/B and blink; Explorer thumbnails for FITS and SER.
 SUBMISSION
 ================================================================================
   1. Download the package and this record from the run that baked it:
-       gh run download {{RUN_ID}} -n msix-store-package
-       gh run download {{RUN_ID}} -n msix-release-notes
+       gh run download 35597765249 -n msix-store-package
+       gh run download 35597765249 -n msix-release-notes
      The bundle is about 145 MB, and a little smaller this time. Retention is 30
      days on both. The notes artifact holds this record AND
-     whats-new-{{VERSION}}.txt, which is the Partner Center copy alone, so nothing
+     whats-new-9.0.1940.txt, which is the Partner Center copy alone, so nothing
      has to be selected out of a 20 KB file by eye.
   2. Upload AstroPhotoViewer.msixbundle to the draft submission for
      Store ID 9PMDZP16TGBG. It is unsigned by design; the Store re-signs after
      certification, so it cannot be installed by double-clicking.
-  3. Paste whats-new-{{VERSION}}.txt into "What's new in this version". It is
+  3. Paste whats-new-9.0.1940.txt into "What's new in this version". It is
      exactly the bytes the field should receive, markers and commentary excluded.
   4. If the bundle was signed locally for testing, re-download before uploading;
      signing edits the package in place.
-  5. Commit this baked file as release-notes/{{VERSION}}.txt and reset NEXT.txt.
+  5. Commit this baked file as release-notes/9.0.1940.txt and reset NEXT.txt.
 
   A re-dispatch takes the NEXT run number, so the baked record and the package
   agree only within one run. If a run has to be re-run, use the new run's artifacts
