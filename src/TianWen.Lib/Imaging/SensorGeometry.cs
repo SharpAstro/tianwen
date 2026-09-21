@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 
@@ -43,14 +43,31 @@ namespace TianWen.Lib.Imaging
         private static readonly FrozenDictionary<string, (int Width, int Height)> Sensors =
             new Dictionary<string, (int, int)>(StringComparer.OrdinalIgnoreCase)
             {
-                // IMX533, square 1 inch. Corpus minimum canvas 3011x3027 over 87 masters.
-                ["ZWO ASI533MC Pro"] = (3008, 3008),
-                // IMX533 rebadged. Corpus minimum canvas 3024x3025 over 24 masters.
-                ["SVBONY SV605CC"] = (3008, 3008),
-                // IMX585. Corpus minimum canvas 3844x2174 over 14 masters.
-                ["ZWO ASI585MC Pro"] = (3840, 2160),
-                // MN34230. Corpus minimum canvas 4714x3558 over 4 masters.
-                ["ZWO ASI1600MM Pro"] = (4656, 3520),
+                // Every value below is the dimension in an AstroPixelProcessor bad pixel map from
+                // this archive (BPM-<camera>-<W>x<H>.fits), which is a map built against that
+                // camera's own full frame. The first four are corroborated a second time by the
+                // smallest canvas the 139-master store holds for them, quoted per entry.
+                ["ZWO ASI533MC Pro"] = (3008, 3008),    // BPM; corpus minimum canvas 3011x3027, 87 masters
+                ["SVBONY SV605CC"] = (3008, 3008),      // BPM; corpus minimum canvas 3024x3025, 24 masters
+                ["ZWO ASI585MC Pro"] = (3840, 2160),    // BPM; corpus minimum canvas 3844x2174, 14 masters
+                ["ZWO ASI1600MM Pro"] = (4656, 3520),   // BPM; corpus minimum canvas 4714x3558, 4 masters
+                ["ZWO ASI294MC"] = (4144, 2822),        // BPM
+                ["ZWO ASI294MM"] = (4144, 2822),        // BPM
+                ["QHY294PROC"] = (4164, 2795),          // BPM
+                ["ZWO ASI183MM"] = (5496, 3672),        // BPM
+                ["ZWO ASI290MM"] = (1936, 1096),        // BPM
+                ["ZWO ASI462MC"] = (1936, 1096),        // BPM
+                ["QHY178M"] = (3056, 2048),             // BPM
+                ["Uranus-C IMX585"] = (3856, 2180),     // BPM. The SAME DIE as the ASI585MC Pro above
+                                                        // and a DIFFERENT active area, which is why
+                                                        // these are keyed on the camera and not the
+                                                        // sensor model.
+                ["Canon EOS 6D"] = (5568, 3708),        // BPM
+                // Deliberately ABSENT, and they must stay absent: 'QHYCCD-Cameras-Capture' is the
+                // capture software's name rather than a camera's, and the archive holds both a
+                // 3056x2048 bad pixel map and a 5570x3749 master under it. One name, two sensors, and
+                // the smaller would under-state the footprint, which is the only direction that can
+                // make the walk look too far. Same for 'notAvailable'.
             }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>Whether a camera is one this table knows, so a caller can report the difference

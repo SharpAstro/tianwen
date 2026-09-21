@@ -26,6 +26,40 @@ Also open, smaller: `CoveragePlane` has three entry points because three strateg
 three shapes (a sink, a `uint[,]`, an assembled plane). One definition, three doors -- acceptable, but
 worth collapsing if a fourth appears.
 
+### The same decision, for a bad pixel map we compute and throw away
+
+Same filing because it is the same question: what `BITPIX` does a per-pixel sidecar want, and which of
+them do we persist at all. `BadPixelDetection` already returns `BitMatrix[]`, one per channel, and the
+union of its two producers is the mask the integration actually uses -- and then it is discarded. APP
+persists one; we recompute per run and never let anyone look at it.
+
+**It is worth persisting for a reason we already paid for.** The incident where an EVEN sampling stride
+phase-locked to the CFA, flagged 100% of blue as hot, and wrote a master with an all-NaN blue plane
+while reporting success is exactly the failure a written mask makes legible at a glance.
+`BadPixelDetection.DefaultMaxMaskedFraction` is the guard that stops it now; the map is what would have
+explained it.
+
+**The conversion is nearly free, and that is the point.** `BitMatrix` is 64-bit words, row-major, with
+`WordsPerRow` = ceil(cols/64) and an all-zero-word fast path already exercised by its tests. A real
+mask is sparse, so almost every word is zero. Two encodings, and the second is probably right:
+
+- **Raster, `BITPIX = 8`**: expand bits to bytes, skipping whole zero words. 9.05 MB for a 3008 square
+  mono mask against 36 MB as float32, and it tile-compresses to nearly nothing. Simple, and it matches
+  how the coverage plane will end up being stored.
+- **Coordinate list, a FITS binary table of (x, y)**: iterate SET bits only, which the zero-word fast
+  path makes trivial. A typical sensor is 0.01 to 0.1 percent bad, so a few thousand pairs -- kilobytes
+  rather than megabytes, and it reads back as a list rather than needing a threshold. This is the one
+  to reach for unless a consumer genuinely wants a raster.
+
+**We already have a corpus to check against, and it settled the sensor table.** The archive holds 18
+distinct APP bad pixel maps named `BPM-<camera>-<W>x<H>.fits` (`D:/Astro-Reports/fits-index.jsonl`,
+304 entries). They are worth reading for three separate reasons: they are a format and naming
+convention to be compatible with, they are real masks to validate ours against rather than only
+synthetic ones, and their dimensions are an authoritative per-camera frame size -- which is where
+`SensorGeometry`'s table now comes from, all four of its original entries independently confirmed.
+Note `BPM-ZWO_ASI533MC_Pro-2256x2256.fits`: a BPM is built against a FRAME geometry, so a ROI or a
+binned run gets its own, and the LARGEST per camera is the sensor.
+
 ## Calibration + integration gaps vs Siril / APP / PixInsight WBPP
 
 Filed 2026-08-03 from a stage-by-stage comparison of `StackingPipeline` against the three tools,
