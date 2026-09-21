@@ -63,6 +63,63 @@ namespace TianWen.Lib.Tests
             fresh.BandThickness.ShouldBe(16);
             fresh.TileLength.ShouldBe(64);
             fresh.SettleMargin.ShouldBe(1.15);
+            fresh.ConfirmFactor.ShouldBe(1.5);
+        }
+
+        /// <summary>
+        /// The confirming look, and the case it exists for: a profile whose quiet region ENDS between
+        /// the search window and the wider one. Inside the narrow window alone this is indistinguishable
+        /// from an edge with a known price, and acting on that depth is how a consumer takes a bite out
+        /// of a gradient. Looking further changes the answer, so the answer was the window.
+        /// </summary>
+        /// <remarks>
+        /// This shape is deliberately the AMBIGUOUS one: a hard band at 120 px is a real border that two
+        /// widths cannot prove, because the narrow window never reaches past it. The walk refuses it and
+        /// says why, which is what it did before as well (as <c>NeverSettles</c>), so nothing that used
+        /// to be trimmed stops being trimmed. What is new is that the depth is now reported alongside
+        /// the refusal, and that a consumer can tell this apart from a confirmed band past the cap.
+        /// </remarks>
+        [Fact]
+        public void ADepthTheWiderLookDisagreesWithIsNotABorder()
+        {
+            // search is 100 px of 1024 and the confirming look reaches 148, so the band ends between
+            // them: the narrow window is still inside it and the wider one is past it.
+            var image = NoiseFrame(1024, 1024, static (_, y) => y < 120 ? 3.0 : 1.0);
+
+            var trims = CoverageEdgeWalk.Measure(image, Whole(image));
+
+            trims.Top.Outcome.ShouldBe(CoverageEdgeOutcome.Unconfirmed);
+            trims.Top.Depth.ShouldBe(0);
+            trims.Top.SettleDepth.ShouldBeInRange(116, 132);   // reported, for diagnostics only
+            trims.Top.Settled.ShouldBeFalse();                 // it did NOT settle in a way we believe
+            trims.Top.Declined.ShouldBeTrue();                 // so the consumers leave it alone
+            trims.AnyDeclined.ShouldBeTrue();
+            trims.Apply(Whole(image)).ShouldBe(Whole(image));
+
+            // And the mechanism, not just its answer. At a factor of 1 the second look collapses onto
+            // the first, the two can no longer disagree, and the same frame falls back to the verdict
+            // this outcome was carved out of. Delete the confirming pass and the assertions above fail
+            // exactly here.
+            var unconfirming = CoverageEdgeWalk.Measure(
+                image, Whole(image), new CoverageEdgeWalkOptions { ConfirmFactor = 1.0 });
+            unconfirming.Top.Outcome.ShouldBe(CoverageEdgeOutcome.NeverSettles);
+            unconfirming.Top.SettleDepth.ShouldBe(-1);
+        }
+
+        /// <summary>A band well inside the search window is confirmed by the wider look, because the
+        /// region between the two is quiet, and so it keeps its depth. The companion to the test above:
+        /// the confirming pass must not turn ordinary borders into refusals.</summary>
+        [Fact]
+        public void AQuietRegionBEYONDTheBandConfirmsIt()
+        {
+            var image = NoiseFrame(1024, 1024, static (_, y) => y < 32 ? 2.5 : 1.0);
+
+            var trims = CoverageEdgeWalk.Measure(image, Whole(image));
+
+            trims.Top.Outcome.ShouldBe(CoverageEdgeOutcome.Trimmed);
+            trims.Top.Depth.ShouldBeInRange(28, 40);
+            trims.Top.Settled.ShouldBeTrue();
+            trims.Top.Declined.ShouldBeFalse();
         }
 
         [Fact]
