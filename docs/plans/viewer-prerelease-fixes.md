@@ -1015,13 +1015,42 @@ interior, the same against the edge's own deep plateau, and a knee/slope test.
 | **left** | **4 px** | **312-460** | **312** | **432-456** |
 
 **What ships instead: a band whose END is not visible is not trimmed.** `CoverageEdgeWalk` takes the
-shallowest depth from which every sample out to 5% of the span is within 1.15x of the settled level, and
-answers `Settled: false` with a trim of zero when there is no such depth. Two independent protections
-fall out of that and both are load-bearing: an edge that is not the noisiest part of its own profile is
-"nothing to trim" (`MinimumRise`, which is what spares the 10P left edge), and a band deeper than the
-bound is refused outright rather than trimmed as far as the bound allows (which would leave a frame
-smaller on every edge that still shows the band it was cropped to remove). Pinned by
+shallowest depth from which every sample out to `SettleSearchFraction` of the span (0.10) is within
+1.15x of the settled level, and leaves the edge alone when there is no such depth. Two independent
+protections fall out of that and both are load-bearing: an edge that is not the noisiest part of its own
+profile is "nothing to trim" (`MinimumRise`, which is what spares the 10P left edge), and a band deeper
+than `MaxTrimFraction` (0.05) is refused outright rather than trimmed as far as the bound allows (which
+would leave a frame smaller on every edge that still shows the band it was cropped to remove). Pinned by
 `CoverageEdgeWalkTests`, whose two synthetic frames are exactly those two shapes.
+
+**How far it LOOKS and what it will PAY are two knobs, and this paragraph described one knob doing both
+until 2026-09-21, which is the bug rather than the design.** `MaxTrimFraction` was read twice, as the
+cap and as the depth the profile had to settle within, and it is coupled to `ReferenceFraction`, so past
+about 0.075 the guard fired and every edge of every master read as "nothing to trim". The split is
+`MaxTrimFraction` (loss cap alone), `SettleSearchFraction` (how far the walk looks, floored at the cap)
+and `ReferenceFraction` as a FLOOR, with the reference pushed to `max(ref * span, 2 * search + band)`.
+The verdict a consumer branches on is `CoverageEdgeTrim.Declined`, NOT `Settled`: the two disagree on
+exactly the interesting case, because a band past the cap DID settle. `CoverageEdgeOutcome` is `Clean`,
+`Trimmed`, `BeyondCap` (settled deeper than the cap, `SettleDepth` says where), `NeverSettles` and
+`NotMeasurable`.
+
+**Both defaults are measured, not chosen** (2026-09-21, `CoverageEdgeWalkProbe`'s corpus fact over the
+139 session masters of `2026-09-19-full`, none of which has a coverage sidecar, so every crop is the
+walk's; 556 edges swept over search windows 0.05 to 0.30). Classified over the windows that could SEE
+the border, 328 edges have one (the same depth at every window that reached it), 81 report a depth that
+merely follows the window, and 146 never settle anywhere. A real border is SHALLOW: p50 0.0117, p90
+0.0283, p95 0.0423 of its span, with 9 of 328 past the 0.05 cap and the deepest at 0.1176. The cap is
+what the marginal trade sets, because at run time the walk sees ONE window and cannot tell a border from
+a gradient that goes quiet inside it. At the shipped window, moving the cap 0.03 to 0.05 buys 20 more
+borders for 10 more gradients, and 0.05 to 0.08 buys 5 more borders for 9 more gradients: the trade
+turns over exactly at the shipped value, so **0.05 stays**, and so does the 0.10 window (only 3 borders
+in the corpus sit deeper than it).
+
+**The classification is easy to get wrong in the flattering direction.** A window too narrow to reach a
+border does not report a truncated depth, it reports `NeverSettles`, so requiring a depth at EVERY
+window throws out every border deeper than the narrowest and caps what survives at that window. Done
+that way the same corpus answered "max 0.0490" against a 0.05 narrowest window, which reads as the frames
+confirming the shipped cap and is the filter describing itself.
 
 **On the real corpus, running the shipped code:** the reported file goes from 96.3% of the frame (union)
 to 88.5% (left 56, top 92, right 16, bottom 92 px), its two siblings to 89.0% and 89.9%. The 10P master
