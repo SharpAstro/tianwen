@@ -137,7 +137,12 @@ $block = $text.Substring($blockStart, $end - $blockStart).Trim("`n")
 # one character per line against the same cap, so both are reported and the CRLF figure is the one
 # enforced: it is the larger, and which one the browser applies is not ours to decide.
 $lfChars   = $block.Length
-$crlfChars = $lfChars + ($block.ToCharArray() | Where-Object { $_ -eq "`n" }).Count
+# The @() is load bearing under Set-StrictMode -Version Latest. A pipeline that yields nothing is
+# $null and one that yields a single item is that item, and neither answers .Count there, so this
+# threw for any block with FEWER THAN TWO newlines. Written copy always has many, which is why it
+# never fired; the RESET draft is a one-line sentinel, so it fired the moment NEXT.txt went back to
+# its placeholder and turned the documented "an unwritten record only warns" into a failed msix job.
+$crlfChars = $lfChars + @($block.ToCharArray() | Where-Object { $_ -eq "`n" }).Count
 
 $text = $text.Replace('{{WHATSNEW_CHARS}}', "$lfChars").Replace('{{WHATSNEW_CHARS_CRLF}}', "$crlfChars")
 
