@@ -1034,23 +1034,45 @@ exactly the interesting case, because a band past the cap DID settle. `CoverageE
 `Trimmed`, `BeyondCap` (settled deeper than the cap, `SettleDepth` says where), `NeverSettles` and
 `NotMeasurable`.
 
-**Both defaults are measured, not chosen** (2026-09-21, `CoverageEdgeWalkProbe`'s corpus fact over the
-139 session masters of `2026-09-19-full`, none of which has a coverage sidecar, so every crop is the
-walk's; 556 edges swept over search windows 0.05 to 0.30). Classified over the windows that could SEE
-the border, 328 edges have one (the same depth at every window that reached it), 81 report a depth that
-merely follows the window, and 146 never settle anywhere. A real border is SHALLOW: p50 0.0117, p90
-0.0283, p95 0.0423 of its span, with 9 of 328 past the 0.05 cap and the deepest at 0.1176. The cap is
-what the marginal trade sets, because at run time the walk sees ONE window and cannot tell a border from
-a gradient that goes quiet inside it. At the shipped window, moving the cap 0.03 to 0.05 buys 20 more
-borders for 10 more gradients, and 0.05 to 0.08 buys 5 more borders for 9 more gradients: the trade
-turns over exactly at the shipped value, so **0.05 stays**, and so does the 0.10 window (only 3 borders
-in the corpus sit deeper than it).
+**What the corpus says about the defaults** (2026-09-21, `CoverageEdgeWalkProbe`'s corpus fact over the
+139 session masters of `2026-09-19-full`, none of which has a `.coverage.fits` sidecar; 556 edges swept
+over search windows 0.05 to 0.30). Classified over the windows that could SEE the border, 308 edges
+have one (the same depth at every window that reached it), 93 report a depth that merely follows the
+window, and 149 never settle anywhere. A real border is SHALLOW: p50 0.0053, p90 0.0258, p95 0.0502 of
+its span, with 16 of 308 past the 0.05 cap and the deepest at 0.1169. The cap is what the marginal
+trade sets, because at run time the walk sees ONE window and cannot tell a border from a gradient that
+goes quiet inside it -- but **that trade runs near 1:1 the whole way** (0.03 to 0.05 buys 10 borders for
+9 gradients, 0.05 to 0.06 buys 1 for 3, 0.06 to 0.08 buys 5 for 3), so the corpus does NOT single 0.05
+out. It is defensible, not derived. The counts also understate a deeper cap's cost, since a gradient
+trimmed further loses more pixels.
 
-**The classification is easy to get wrong in the flattering direction.** A window too narrow to reach a
-border does not report a truncated depth, it reports `NeverSettles`, so requiring a depth at EVERY
-window throws out every border deeper than the narrowest and caps what survives at that window. Done
-that way the same corpus answered "max 0.0490" against a 0.05 narrowest window, which reads as the frames
-confirming the shipped cap and is the filter describing itself.
+**Three ways this measurement lied before it was believed**, all worth knowing before running it again:
+
+- **It profiled the canvas ring.** All three production callers hand the walk `LargestCoveredRectangle()`;
+  the probe passed the full frame. On a master that still has its ring the outermost band is INSIDE it,
+  where every pixel is equal, so the sigma is 0 and the edge reads `Clean` (43 edges); one step deeper,
+  the reference pool lands in the same ring, the settled level is 0 and the guard answers `NotMeasurable`
+  (72 edges). That is 115 of 556 edges, and it hid V1045 Ori's left edge, the case the feature exists for.
+- **The classifier was flattering.** A window too narrow to reach a border does not report a truncated
+  depth, it reports `NeverSettles`, so requiring a depth at EVERY window throws out every border deeper
+  than the narrowest and caps what survives at that window. Done that way the corpus answered
+  "max 0.0490" against a 0.05 narrowest window: the filter describing itself.
+- **Not every master in a store reaches the walk.** `TryReadCoverageMap` takes a `.rejection.fits` as
+  well as a `.coverage.fits` (since #315), so a master with a usable rejection plane crops by the exact
+  tier and never exercises the walk. `tianwen image autocrop --dry-run` says which tier answered; the
+  QHY294C SMC says `via the coverage plane`, V1045 Ori says `via the edge walk`. A default set on all
+  139 is set partly on frames that do not use it.
+
+**The case that decides the search window is V1045 Ori.** Its left edge is the reported 350 px dither
+strip, and the corrected run measures it at **356 px at every window from 0.075 to 0.30**, ratio 2.92,
+visually confirmed at 1:1 against the rendered master. 356 px is 0.1051 of its span: just OUTSIDE the
+shipped 0.10 window, so the narrow look finds nothing, the confirming look finds 356, the two disagree
+and the edge is refused as `Unconfirmed` -- the flagship case, still uncropped. At a 0.15 window both
+looks reach it, they agree, it becomes `BeyondCap` at 356 px and `--trim-declined` removes exactly that.
+The cost is measured too: at 0.10 `BeyondCap` is 9 borders to 8 gradients and `Unconfirmed` hides 7 real
+borders; at 0.15 `Unconfirmed` becomes a pure gradient bucket (0 borders, 11 gradients) but `BeyondCap`
+goes to 16 borders against 22 gradients, and a gradient there is trimmed to a measured depth whose
+median is 0.118 of the axis.
 
 **On the real corpus, running the shipped code:** the reported file goes from 96.3% of the frame (union)
 to 88.5% (left 56, top 92, right 16, bottom 92 px), its two siblings to 89.0% and 89.9%. The 10P master
