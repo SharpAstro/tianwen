@@ -60,6 +60,34 @@ synthetic ones, and their dimensions are an authoritative per-camera frame size 
 Note `BPM-ZWO_ASI533MC_Pro-2256x2256.fits`: a BPM is built against a FRAME geometry, so a ROI or a
 binned run gets its own, and the LARGEST per camera is the sensor.
 
+### Make the sensor table a baked database, not a private list in the crop path
+
+`SensorGeometry`'s dictionary is 13 cameras hand-entered from this archive's bad pixel maps. That is
+the right SOURCE and the wrong SHAPE: it is private to the auto-crop fallback, it covers only gear
+that has passed through here, and at least three other things want the same data.
+
+**Bake it the way `FilterCurveDatabase` is baked** -- a generated table plus a tool that builds it,
+rather than a literal someone edits. Three sources, and the first is already done:
+
+- **Canon needs no fetching.** `FC.SDK.Raw.CanonSensorInfo.Resolve(width, height, cfa, makerNote)`
+  already returns a per-body `CanonActiveArea`, which is exactly this fact and is what
+  `Image.TryReadCanonRaw` crops to. A bake reads it rather than restating it.
+- **IMX and the CMOS astro cameras** are the fetch: ZWO, QHY, SVBONY and Player One publish full-well,
+  pitch and resolution per model. One scrape, reviewed by hand, committed as data. Keyed on the camera
+  as `INSTRUME` writes it, never on the die -- the ASI585MC Pro and the Uranus-C are the same IMX585
+  with different active areas.
+- **The archive's own BPM filenames** stay as the cross-check, since they are measured rather than
+  claimed.
+
+**Three consumers, which is what justifies the shape:**
+
+1. The auto-crop fallback, for a foreign master with no coverage plane (today's only caller).
+2. Smart framing, which currently gets sensor specs only by capturing them off a connected camera into
+   the profile -- so a rig you have not plugged in cannot be framed.
+3. **The web app**, where a sensor + telescope picker is the whole point: let someone try framings for
+   gear they do not own yet. That one needs the database to ship as data rather than to be discovered
+   from hardware, and it is the reason this belongs somewhere more public than a crop helper.
+
 ## Calibration + integration gaps vs Siril / APP / PixInsight WBPP
 
 Filed 2026-08-03 from a stage-by-stage comparison of `StackingPipeline` against the three tools,
