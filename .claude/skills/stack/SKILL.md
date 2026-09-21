@@ -34,14 +34,28 @@ Under `<data-root>/output/` (or `--output` if set):
 - `master_<group>.manifest.json`: the stack manifest -- the frame list with each frame's fate, the
   reference frame, and each matched frame's STAR transform, keyed by a digest of the FITS data
   section. Feed it to a later run with `--manifest` so both layers are built from identical inputs.
-- `master_<group>.rejection.fits`: per-pixel rejection count map (when rejections > 0)
+- `master_<group>.rejection.fits.gz`: per-pixel rejection fraction (when rejections > 0)
+- `master_<group>.coverage.fits.gz`: per-pixel count of frames with a finite sample, whatever the
+  strategy. This is what the exact auto-crop tier reads; without it a consumer falls back to the
+  edge-noise estimate.
+- `master_<group>.badpixels.fits.gz`: the photosites the integration refused to use, in
+  AstroPixelProcessor's format (`BITPIX = 8`, 127 trusted / 255 flagged). **On the SENSOR's geometry,
+  not the master's canvas**, since it is built before anything is warped.
+
+**Every per-pixel sidecar is quantised and gzipped** (one rule, `IntegrationFitsWriter.MapStorage`): a
+count keeps unit steps and reads back exactly, a weight or a fraction gets 65535 levels of its own
+range. It is worth two orders of magnitude, and the quantisation is what does it -- gzip alone on
+float32 is 1.2x. Older stores hold the uncompressed `.fits` form and still read.
 
 **Drizzle exception**: when `--strategy BayerDrizzle` is in use, the master + sidecars carry a `_drizzle` infix so a side-by-side run against the default strategy can coexist in the same output dir:
 
 - `master_<group>_drizzle.fits`
 - `master_<group>_drizzle_autocrop.fits`
 - `master_<group>_drizzle.png`
-- `master_<group>_drizzle.rejection.fits`  (here this is the per-channel **coverage map**, not a rejection-fraction map)
+- `master_<group>_drizzle.coverage.fits.gz` (a drizzle's accumulated per-channel WEIGHT is its
+  coverage, and since #327 it is written under the coverage name like every other strategy's, rather
+  than sitting in the rejection slot behind a flag saying it meant the opposite. Drizzle rejects
+  nothing, so there is no rejection sidecar at all.)
 
 **Comet runs** (`--comet`) write three masters from the one run, all on the same reference frame:
 

@@ -75,7 +75,7 @@ namespace TianWen.Lib.Tests
             {
                 ct.ThrowIfCancellationRequested();
                 var mask = BadPixelDetection.BuildMaskFromDark(dark, sigma);
-                var count = BadPixelDetection.CountMaskedPixels(mask, w, h);
+                var count = BadPixelDetection.CountMaskedPixels(mask);
                 Line($"  {sigma,5:F1} | {count,10:N0} | {count / (double)totalPx * 100,10:F3}%");
             }
 

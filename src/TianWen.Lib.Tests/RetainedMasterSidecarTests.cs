@@ -84,20 +84,21 @@ namespace TianWen.Lib.Tests
             var masterPath = RetainedMasterStore.PathFor(_root, SessionId);
             // Through the writer's own rule, never by appending the suffix to the master path:
             // it strips the .fits stem first, so a hand-built path is one directory listing away
-            // from concluding the file was never written.
-            var sidecar = IntegrationFitsWriter.CoveragePathFor(masterPath);
-            File.Exists(sidecar).ShouldBeTrue("the coverage plane must sit beside the master under the stacker's own name");
+            // from concluding the file was never written. And through ExistingSidecarPath rather
+            // than File.Exists on the logical name, because a map is stored compressed.
+            var sidecar = IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.CoveragePathFor(masterPath));
+            sidecar.ShouldNotBeNull("the coverage plane must sit beside the master under the stacker's own name");
+            sidecar.ShouldEndWith(Image.GzipSuffix, Case.Insensitive);
 
-            // MAPKIND is the whole point of the file: drizzle writes accumulated WEIGHT here and every
-            // other strategy a rejection FRACTION, and the two are opposite in sense. A reader that
-            // wants coverage has to see it stated, and its absence is never read as either.
+            // MAPKIND is the whole point of the file: a rejection FRACTION and a coverage COUNT are
+            // opposite in sense, so a reader that wants coverage has to see it stated and never
+            // reads its absence as either. Asserted through the reader that acts on it.
             Image.TryReadFitsFile(sidecar, out var readBack, out _).ShouldBeTrue();
-            Image.TryReadFitsHeader(sidecar, out var meta).ShouldBeTrue();
             readBack.Width.ShouldBe(W);
             readBack.Height.ShouldBe(H);
-            var cards = File.ReadAllText(sidecar, System.Text.Encoding.ASCII);
-            cards.ShouldContain(IntegrationFitsWriter.MapKindCard);
-            cards.ShouldContain(IntegrationFitsWriter.CoverageMapKind);
+            IntegrationFitsWriter.TryReadCoverageMap(masterPath, out var asCoverage).ShouldBeTrue(
+                "the sidecar has to SAY it is coverage, or nothing may treat it as such");
+            asCoverage.ShouldNotBeNull();
         }
 
         [Fact]
@@ -115,14 +116,22 @@ namespace TianWen.Lib.Tests
                 .ShouldBeTrue();
 
             var dir = Path.Combine(_root, RetainedMasterStore.DirectoryName);
-            Directory.GetFiles(dir, "*.fits").Length
+            Directory.GetFiles(dir, "*.fits*").Length
                 .ShouldBe(2, "the master and its sidecar, which is what makes a bare glob wrong");
 
             var masters = RetainedMasterStore.EnumerateMasters(_root).ToArray();
             masters.Length.ShouldBe(1);
             masters[0].ShouldBe(RetainedMasterStore.PathFor(_root, SessionId));
-            IntegrationFitsWriter.IsRejectionMapPath(masters[0]).ShouldBeFalse();
-            IntegrationFitsWriter.IsRejectionMapPath(IntegrationFitsWriter.RejectionPathFor(masters[0])).ShouldBeTrue();
+
+            // The predicate answers for BOTH forms on purpose. A compressed sidecar is invisible to
+            // a ".fits" enumeration anyway, but every store written before compression holds the
+            // plain ones, and those are exactly the folders a re-measure walks.
+            IntegrationFitsWriter.IsMapSidecarPath(masters[0]).ShouldBeFalse();
+            IntegrationFitsWriter.IsMapSidecarPath(IntegrationFitsWriter.RejectionPathFor(masters[0])).ShouldBeTrue();
+            IntegrationFitsWriter.IsMapSidecarPath(
+                IntegrationFitsWriter.CompressedPathFor(IntegrationFitsWriter.CoveragePathFor(masters[0]))).ShouldBeTrue();
+            IntegrationFitsWriter.IsMapSidecarPath(
+                IntegrationFitsWriter.CompressedPathFor(IntegrationFitsWriter.BadPixelPathFor(masters[0]))).ShouldBeTrue();
         }
 
         /// <summary>
@@ -142,18 +151,19 @@ namespace TianWen.Lib.Tests
 
             var masterPath = RetainedMasterStore.PathFor(_root, SessionId);
             var coveragePath = IntegrationFitsWriter.CoveragePathFor(masterPath);
-            File.Exists(IntegrationFitsWriter.RejectionPathFor(masterPath)).ShouldBeTrue("the fraction is still written");
-            File.Exists(coveragePath).ShouldBeTrue("and the count beside it");
+            IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.RejectionPathFor(masterPath))
+                .ShouldNotBeNull("the fraction is still written");
+            IntegrationFitsWriter.ExistingSidecarPath(coveragePath).ShouldNotBeNull("and the count beside it");
 
             IntegrationFitsWriter.TryReadCoverageMap(masterPath, out var coverage).ShouldBeTrue();
             coverage.ShouldNotBeNull();
             // The count, not the fraction: Frame(24f) puts 24 + channel + 0.01x in every pixel.
             coverage[0, 0, 0].ShouldBe(24f, tolerance: 0.5f);
 
-            // Three .fits in the folder and one master: the second sidecar is excluded like the first.
-            Directory.GetFiles(Path.Combine(_root, RetainedMasterStore.DirectoryName), "*.fits").Length.ShouldBe(3);
+            // Three files in the folder and one master: the second sidecar is excluded like the first.
+            Directory.GetFiles(Path.Combine(_root, RetainedMasterStore.DirectoryName), "*.fits*").Length.ShouldBe(3);
             RetainedMasterStore.EnumerateMasters(_root).ToArray().Length.ShouldBe(1);
-            IntegrationFitsWriter.IsRejectionMapPath(coveragePath).ShouldBeTrue();
+            IntegrationFitsWriter.IsMapSidecarPath(coveragePath).ShouldBeTrue();
 
             // Coverage has ONE home now, whatever produced it. A drizzle's accumulated weight is a
             // coverage plane and is written under the coverage suffix like every other strategy's,
@@ -163,10 +173,10 @@ namespace TianWen.Lib.Tests
                 strategy: IntegrationStrategyKind.BayerDrizzle,
                 coverage: Frame(8f)).ShouldBeTrue();
             var drizzledMaster = RetainedMasterStore.PathFor(_root, Drizzled);
-            File.Exists(IntegrationFitsWriter.CoveragePathFor(drizzledMaster))
-                .ShouldBeTrue("a drizzle's weight plane is coverage, and coverage has one home");
-            File.Exists(IntegrationFitsWriter.RejectionPathFor(drizzledMaster))
-                .ShouldBeFalse("drizzle rejects nothing, so there is no fraction to write");
+            IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.CoveragePathFor(drizzledMaster))
+                .ShouldNotBeNull("a drizzle's weight plane is coverage, and coverage has one home");
+            IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.RejectionPathFor(drizzledMaster))
+                .ShouldBeNull("drizzle rejects nothing, so there is no fraction to write");
         }
 
         [Fact]

@@ -910,6 +910,18 @@ guard: a threshold flagging more than `BadPixelDetection.DefaultMaxMaskedFractio
 estimate, not a defect set, so it masks nothing. `IntegratedMaster.Labelled` is the backstop for
 every strategy -- a master with a channel holding no finite pixel throws rather than being written.
 
+**A master's per-pixel sidecars are QUANTISED then gzipped, and the defect mask is one of them.**
+One rule, `IntegrationFitsWriter.MapStorage`, for coverage, rejection and bad pixels alike: whole
+numbers that fit keep unit steps (a coverage COUNT stays that count, 8-bit to 255 frames), anything
+else spreads its own observed range over 16 bits through `BSCALE`, and the file is written `.fits.gz`.
+**The order is the whole point** -- a real 3072x3060x3 float32 coverage map is 112.8 MB and gzips to
+94.7 MB (1.2x) because mantissa bits are noise, while quantised first it is 1.71 MB (66x). Write
+through `WriteCoverageMap` / `WriteRejectionMap` / `WriteBadPixelMap`, address a sidecar by its
+LOGICAL path and resolve it with `ExistingSidecarPath` (older stores hold the uncompressed form), and
+ask `IsMapSidecarPath` before treating a `.fits` in a master folder as a master. The bad pixel map is
+APP's format (`BITPIX = 8`, 127 linear / 255 hot / 0 cold) so their maps and ours are interchangeable,
+and it is on the SENSOR's geometry, never the master's canvas.
+
 **Provenance skip (never re-ingest our own outputs).** The scan drops any TianWen-produced FITS
 (`STACK_N > 0` OR a TianWen `SWCREATE`, gated by `--include-integrations`). Markers, the ghost-master
 failure mode and the `ScanSummary` reporting: the architecture doc above.
@@ -1224,6 +1236,13 @@ vocabulary (own/borrow/consume), the four conventions and the DEBUG leak leg:
 first HDU that carries an image, and **every reader of an image file uses them** --
 `Image.TryReadFitsFile`, `Image.TryReadFitsHeader`, `MasterCache.ReadFingerprint`,
 `IntegrationFitsWriter.IsTianWenMaster`. A bare `ReadHDU()` on the read path is a regression.
+
+- **A file is OPENED through `Image.OpenFits`, never by constructing a `BufferedFile` beside a
+  `.gz` test.** Handed FITS.Lib's own `BufferedFile`, a gzipped file reads back as an EMPTY HDU list
+  rather than throwing, so every reader answered "unreadable" for one, silently, until the first
+  compressed sidecar was written (2026-09-21). The opener uses a plain `FileStream` for a compressed
+  file. **And a gzip stream cannot seek**, so `ReadFirstImageHduHeaderOnly` throws over one: skipping
+  a data block is a seek. Read the whole HDU there, or arrange not to need the peek.
 
 - **A tile-compressed (`.fz`) image can never be in HDU 0.** It is a binary table, which is only
   legal as an extension, so an fpack file always opens with an empty primary (`NAXIS = 0`) and

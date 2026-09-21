@@ -686,7 +686,7 @@ public sealed class StackingPipeline(
         if (dark is not null && options.HotPixelSigma > 0f)
         {
             badPixelMask = BadPixelDetection.BuildMaskFromDark(dark, options.HotPixelSigma, logger);
-            var maskedCount = BadPixelDetection.CountMaskedPixels(badPixelMask, dark.Width, dark.Height);
+            var maskedCount = BadPixelDetection.CountMaskedPixels(badPixelMask);
             logger.LogInformation("  hot-pixel mask: {Count} px flagged at sigma={Sigma:F1}",
                 maskedCount, options.HotPixelSigma);
         }
@@ -1711,7 +1711,12 @@ public sealed class StackingPipeline(
                 Intermediates: intermediates,
                 RawBayerFrames: isStreamingDrizzle ? RawBayerFramesProducer : null,
                 DrizzleOptions: isDrizzle ? (options.DrizzleOptions ?? new DrizzleOptions()) : null,
-                BadPixelMask: isDrizzle ? badPixelMask : null);
+                // Handed over whoever integrates, as the dataset path already does. Only the
+                // drizzle strategies read it (a staged path's sigma-clip washes outliers out across
+                // N frames), so this changes nothing about what is integrated -- but the mask is
+                // now also PROVENANCE, written beside the master, and gating provenance on which
+                // strategy happened to run is how a fact about the sensor goes missing.
+                BadPixelMask: badPixelMask);
 
             // index i in Integrator's frame list is matched[i] here, so a normalized dump can be
             // named after its light rather than numbered.
@@ -1780,11 +1785,13 @@ public sealed class StackingPipeline(
                     CanvasOriginY = outOriginY,
                     ReferenceFrame = Path.GetFileName(reference.Path),
                 },
+                badPixelMask: badPixelMask,
                 ct: ct);
             timings.Record(StageNames.Post, postStart, 1, (long)outWidth * outHeight);
             if (intResult.TotalRejections > 0)
             {
-                logger.LogInformation("  wrote {Path}", IntegrationFitsWriter.RejectionPathFor(masterPath));
+                logger.LogInformation("  wrote {Path}",
+                    IntegrationFitsWriter.CompressedPathFor(IntegrationFitsWriter.RejectionPathFor(masterPath)));
             }
 
             if (modelScaleCount > 0 && modelScaleSum is { } sums)
@@ -1856,6 +1863,7 @@ public sealed class StackingPipeline(
                 // Says what this is: registered on the stars, with the body composited in. The drift
                 // and its source travel with it so the placement is reproducible from the header.
                 alignment: new AlignmentProvenance("Composite", cometAlignment.TargetBody, cometAlignment.DriftPxPerHour, cometAlignment.RateSource),
+                badPixelMask: badPixelMask,
                 ct: token);
             timings.Record(StageNames.Post, compositeStart, 1, (long)starMaster.Width * starMaster.Height);
             logger.LogInformation(

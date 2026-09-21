@@ -549,8 +549,22 @@ namespace TianWen.Lib.Tests
             // the session: the case of every staged master baked before the plane existed.
             var m42Master = RetainedMasterStore.EnumerateMasters(outDir)
                 .Single(p => Path.GetFileName(p).StartsWith("M42", StringComparison.Ordinal));
-            File.Delete(IntegrationFitsWriter.RejectionPathFor(m42Master));
-            File.Delete(IntegrationFitsWriter.CoveragePathFor(m42Master));
+            // Both slots and both forms: a sidecar is stored compressed, so deleting the logical
+            // name alone leaves the real file behind and the master still reads as complete.
+            foreach (var logical in new[]
+                     {
+                         IntegrationFitsWriter.RejectionPathFor(m42Master),
+                         IntegrationFitsWriter.CoveragePathFor(m42Master),
+                     })
+            {
+                foreach (var candidate in new[] { logical, IntegrationFitsWriter.CompressedPathFor(logical) })
+                {
+                    if (File.Exists(candidate))
+                    {
+                        File.Delete(candidate);
+                    }
+                }
+            }
             var afterStrip = await DatasetBuildRunner.RunAsync(options with { Resume = true }, cancellationToken: ct);
             afterStrip.Redone.ShouldBe(1);
             afterStrip.Resumed.ShouldBe(1);

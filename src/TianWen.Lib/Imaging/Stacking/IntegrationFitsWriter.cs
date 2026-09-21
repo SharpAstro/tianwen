@@ -7,6 +7,7 @@ using System.Numerics;
 using nom.tam.fits;
 using nom.tam.util;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Imaging.Calibration;
 
 namespace TianWen.Lib.Imaging.Stacking;
 
@@ -60,8 +61,21 @@ public static class IntegrationFitsWriter
 
     /// <summary>Suffix of the coverage sidecar a non-drizzle master carries BESIDE its rejection map,
     /// on the master's stem like <see cref="RejectionMapSuffix"/>. A second <c>.fits</c> in the same
-    /// folder, so anything enumerating masters asks <see cref="IsRejectionMapPath"/> about it too.</summary>
+    /// folder, so anything enumerating masters asks <see cref="IsMapSidecarPath"/> about it too.</summary>
     public const string CoverageMapSuffix = ".coverage.fits";
+
+    /// <summary>Suffix of the bad pixel map sidecar: the mask the integration actually applied, kept
+    /// rather than recomputed and thrown away.</summary>
+    /// <remarks>
+    /// <b>It is on the SENSOR's geometry, not the master's</b>, being built from the calibration dark
+    /// and the registration residuals before anything is warped onto a canvas. So it sits beside the
+    /// master as provenance, not as an overlay: nothing may assume it aligns with the master's pixels,
+    /// which is why it carries its own dimensions and <c>INSTRUME</c>.
+    /// </remarks>
+    public const string BadPixelMapSuffix = ".badpixels.fits";
+
+    /// <summary>Per-pixel "do not trust this photosite": what a bad pixel map holds.</summary>
+    public const string BadPixelMapKind = "BADPIXEL";
 
     /// <summary>
     /// Writes <paramref name="result"/> to <paramref name="masterPath"/>
@@ -90,7 +104,11 @@ public static class IntegrationFitsWriter
     /// never carries it: the map is the ORIGINAL integration statistic,
     /// re-written verbatim beside the modified pixels. Null (the default)
     /// writes no card.</param>
-    public static void Write(string masterPath, IntegrationResult result, WCS? wcs = null, IntegrationStrategyKind? strategy = null, string? modifiedBy = null, AlignmentProvenance? alignment = null)
+    /// <param name="badPixelMask">The photosites this integration refused to use, one
+    /// <see cref="BitMatrix"/> per channel, written beside the master as
+    /// <see cref="BadPixelMapSuffix"/>. Null writes none, which is what a run with no matched dark
+    /// produces. Note it is on the SENSOR's geometry, not the master's canvas.</param>
+    public static void Write(string masterPath, IntegrationResult result, WCS? wcs = null, IntegrationStrategyKind? strategy = null, string? modifiedBy = null, AlignmentProvenance? alignment = null, BitMatrix[]? badPixelMask = null)
     {
         var extras = new Dictionary<string, (object Value, string Comment)>
         {
@@ -157,6 +175,7 @@ public static class IntegrationFitsWriter
         {
             WriteCoverageMap(masterPath, coverage, result.FrameCount, strategy);
         }
+        WriteBadPixelMap(masterPath, badPixelMask, result.Master.ImageMeta, result.FrameCount);
     }
 
     /// <summary>
@@ -184,8 +203,76 @@ public static class IntegrationFitsWriter
         {
             extras["STRATEGY"] = (s.ToString(), "Integration strategy used (IntegrationStrategyKind)");
         }
-        coverage.WriteToFitsFile(CoveragePathFor(masterPath), wcs: null, extras);
+        WriteMapSidecar(CoveragePathFor(masterPath), coverage, extras);
     }
+
+    /// <summary>
+    /// How a per-pixel map goes to disk, for every map this writer produces: narrowed to an integer
+    /// container scaled to the values it actually holds, then gzipped.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Both halves are needed and the order matters.</b> A map is held as float32 because
+    /// that is what a plane is, and float32 is what makes it both large and incompressible: measured
+    /// on one real 3072x3060x3 coverage map of 81 frames, the file is 112.8 MB and gzip alone takes
+    /// it to 94.7 MB, a ratio of 1.2, because the low mantissa bits of a weight are noise. Quantised
+    /// to 16 bits first the same map is 56.4 MB and gzips to 2.09 MB; at 8 bits, 28.2 MB gzipping to
+    /// 1.71 MB. <b>The compression comes from the quantisation.</b> A store of 139 such masters was
+    /// therefore carrying several GB of mantissa noise.</para>
+    ///
+    /// <para><b>What the narrowing costs.</b> A map whose samples are already whole numbers and fit
+    /// keeps unit steps, so a coverage COUNT is stored as that count exactly and reads back exactly,
+    /// in any tool, with no scale to believe. Anything else (a drizzle's accumulated weight, a
+    /// rejection fraction) spreads its own range over the container through <c>BSCALE</c>, so the
+    /// step is the smallest the data allow rather than a fixed one: 65535 levels of whatever the map
+    /// holds, against the 0.95-of-median comparison the crop tier makes of it.</para>
+    ///
+    /// <para>Public because the storage decision is worth one home: the dataset bake writes its own
+    /// masters and reaches the same rule through <see cref="WriteCoverageMap"/> and
+    /// <see cref="WriteRejectionMap"/> rather than restating it.</para>
+    /// </remarks>
+    public static FitsSampleStorage MapStorage(Image map)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+
+        var wholeNumbers = true;
+        var observedMax = 0.0;
+        for (var c = 0; c < map.ChannelCount; c++)
+        {
+            var plane = map.GetChannelSpan(c);
+            for (var i = 0; i < plane.Length; i++)
+            {
+                var v = plane[i];
+                if (!float.IsFinite(v))
+                {
+                    continue;
+                }
+
+                if (v > observedMax)
+                {
+                    observedMax = v;
+                }
+
+                if (wholeNumbers && v != MathF.Round(v))
+                {
+                    wholeNumbers = false;
+                }
+            }
+        }
+
+        // The OBSERVED peak, not the declared one: a coverage plane is labelled with the frame count
+        // while a drizzle's weights top out below it, and scaling to what is actually there buys the
+        // finer step. Nothing is lost, since no sample exceeds it by construction.
+        var depth = wholeNumbers && observedMax <= byte.MaxValue ? BitDepth.Int8 : BitDepth.Int16;
+        return FitsSampleStorage.Spanning(depth, observedMax, wholeNumbers);
+    }
+
+    /// <summary>Writes one map sidecar at its logical path, in the storage
+    /// <see cref="MapStorage"/> chooses and gzipped.</summary>
+    private static void WriteMapSidecar(
+        string logicalPath,
+        Image map,
+        Dictionary<string, (object Value, string Comment)> extras)
+        => map.WriteToFitsFile(CompressedPathFor(logicalPath), wcs: null, extras, MapStorage(map));
 
     /// <summary>
     /// Writes the per-pixel map beside a master, at the master's path plus
@@ -224,7 +311,63 @@ public static class IntegrationFitsWriter
         {
             rejExtras["STRATEGY"] = (s2.ToString(), "Integration strategy used (IntegrationStrategyKind)");
         }
-        map.WriteToFitsFile(rejectionPath, wcs: null, rejExtras);
+        WriteMapSidecar(rejectionPath, map, rejExtras);
+    }
+
+    /// <summary>
+    /// Writes the bad pixel mask the integration applied, beside the master, at the master's path
+    /// plus <see cref="BadPixelMapSuffix"/>. No-op for a null or empty mask, which is what a run
+    /// with no matched dark and no usable registration residual produces.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why keep it at all.</b> The mask is computed on every run and was then discarded, so
+    /// the one artefact that explains a master's defect handling did not exist. The incident that
+    /// makes the case: an EVEN sampling stride phase-locked to the CFA, 100% of blue was flagged
+    /// hot, and the master was written with an all-NaN blue plane while the session reported
+    /// success. <c>BadPixelDetection.DefaultMaxMaskedFraction</c> is what stops that now; a written
+    /// map is what would have SHOWN it, at a glance, before anyone read a log.</para>
+    ///
+    /// <para><b>And why keep one per master rather than one per camera.</b> A sensor's defect
+    /// population grows and moves over years, so the interesting object is the SERIES, not the
+    /// latest. One beside each master is that series for free, dated and instrumented by the
+    /// master's own header, at a cost the compression makes negligible. The archive's own APP maps
+    /// are the same thing done by hand, one per processing run.</para>
+    /// </remarks>
+    public static void WriteBadPixelMap(
+        string masterPath,
+        BitMatrix[]? mask,
+        in ImageMeta meta,
+        int frameCount,
+        string? source = null)
+    {
+        if (mask is not { Length: > 0 })
+        {
+            return;
+        }
+
+        var flagged = BadPixelDetection.CountMaskedPixels(mask);
+        var pixels = (long)mask.Length * mask[0].Rows * mask[0].Columns;
+        var extras = new Dictionary<string, (object Value, string Comment)>
+        {
+            // APP's own card names where APP has one, so its maps and ours read the same way.
+            ["CALFRAME"] = ("BadPixelMap", "bad pixel map for instrument " + (meta.Instrument ?? "unknown")),
+            ["NPIX"] = (pixels, "raw number of pixels"),
+            ["NBADPIX"] = (flagged, "number of bad pixels"),
+            ["PBADPIX"] = (pixels > 0 ? flagged * 100.0 / pixels : 0.0, "percentage of bad pixels"),
+            ["SWCREATE"] = (SoftwareCreator, "Software that created this bad pixel map"),
+            ["IMAGETYP"] = ("BADPIXEL", "Per-pixel mask: 127 trusted, 255 flagged"),
+            [MapKindCard] = (BadPixelMapKind, "Photosites the integration refused to use"),
+        };
+        if (frameCount > 0)
+        {
+            extras["STACK_N"] = (frameCount, "Frames the master beside this map was built from");
+        }
+        if (!string.IsNullOrWhiteSpace(source))
+        {
+            extras["MASKSRC"] = (source, "Which detector(s) produced this mask");
+        }
+
+        WriteMapSidecar(BadPixelPathFor(masterPath), BadPixelMap.ToImage(mask, meta), extras);
     }
 
     /// <summary>
@@ -293,8 +436,7 @@ public static class IntegrationFitsWriter
     {
         try
         {
-            using var bufferedReader = new BufferedFile(path, FileAccess.Read, FileShare.Read, 4 * 2880);
-            using var fitsFile = new Fits(bufferedReader, path.EndsWith(".gz", StringComparison.OrdinalIgnoreCase));
+            using var fitsFile = Image.OpenFits(path);
             var hdu = fitsFile.ReadFirstImageHduHeaderOnly();
             return IsTianWenProduct(hdu?.Header?.GetStringValue("SWCREATE"));
         }
@@ -325,14 +467,29 @@ public static class IntegrationFitsWriter
             return false;
         }
 
-        // Either sidecar, whichever says it is coverage: the drizzle strategies put their weight in
-        // the rejection slot, every other strategy writes the count beside its fraction.
-        foreach (var path in new[] { RejectionPathFor(masterPath), CoveragePathFor(masterPath) })
+        // The coverage-named sidecar first, then the rejection slot, which is where a drizzle
+        // master written before coverage had a name of its own kept its weight plane. Each is
+        // looked for compressed first, since that is how they are written now, then uncompressed,
+        // which is how every store before that holds them.
+        //
+        // The ORDER is what keeps this cheap. The card check below cannot skip the data block of a
+        // compressed file (a gzip stream does not seek), so asking it about a rejection FRACTION
+        // that happens to be compressed costs a full decode to learn it is not coverage. Looking
+        // where coverage actually lives first means that only happens for a master that has no
+        // coverage sidecar at all.
+        var coveragePath = ExistingSidecarPath(CoveragePathFor(masterPath));
+        if (coveragePath is not null)
         {
-            if (File.Exists(path) && SaysCoverage(path))
-            {
-                return Image.TryReadFitsFile(path, out coverage);
-            }
+            // This name carries coverage and nothing else: this writer is its only producer and
+            // WriteCoverageMap is its only caller. That is why it is not asked to say so again --
+            // the MAPKIND check exists for the AMBIGUOUS slot below, where a weight plane and a
+            // rejection fraction are both possible and are opposite in sense.
+            return Image.TryReadFitsFile(coveragePath, out coverage);
+        }
+
+        if (ExistingSidecarPath(RejectionPathFor(masterPath)) is { } rejectionPath && SaysCoverage(rejectionPath))
+        {
+            return Image.TryReadFitsFile(rejectionPath, out coverage);
         }
 
         return false;
@@ -342,9 +499,14 @@ public static class IntegrationFitsWriter
     {
         try
         {
-            using var bufferedReader = new BufferedFile(path, FileAccess.Read, FileShare.Read, 4 * 2880);
-            using var fitsFile = new Fits(bufferedReader, path.EndsWith(".gz", StringComparison.OrdinalIgnoreCase));
-            var kind = fitsFile.ReadFirstImageHduHeaderOnly()?.Header?.GetStringValue(MapKindCard);
+            using var fitsFile = Image.OpenFits(path);
+            // Header-only where the data block can be SKIPPED, which needs a seek, which a gzip
+            // stream does not have: there the whole HDU is read for one card. The caller's order
+            // is what keeps that off the common path.
+            var kind = (Image.IsGzipped(path)
+                    ? fitsFile.ReadFirstImageHdu()
+                    : fitsFile.ReadFirstImageHduHeaderOnly())
+                ?.Header?.GetStringValue(MapKindCard);
             return string.Equals(kind?.Trim(), CoverageMapKind, StringComparison.OrdinalIgnoreCase);
         }
         catch
@@ -362,20 +524,55 @@ public static class IntegrationFitsWriter
     /// that address a master by its session id never meet this; only the ones that walk the folder do.
     /// </para>
     /// </summary>
-    public static bool IsRejectionMapPath(string path)
+    public static bool IsMapSidecarPath(string path)
     {
         var name = Path.GetFileName(path);
+        if (name.EndsWith(Image.GzipSuffix, StringComparison.OrdinalIgnoreCase))
+        {
+            name = name[..^Image.GzipSuffix.Length];
+        }
+
         return name.EndsWith(RejectionMapSuffix, StringComparison.OrdinalIgnoreCase)
-            || name.EndsWith(CoverageMapSuffix, StringComparison.OrdinalIgnoreCase);
+            || name.EndsWith(CoverageMapSuffix, StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith(BadPixelMapSuffix, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Computes the rejection-map sibling path for a given master path.</summary>
     public static string RejectionPathFor(string masterPath) => SiblingPath(masterPath, RejectionMapSuffix);
 
     /// <summary>The coverage sibling of a master whose rejection sidecar is a fraction: the stem plus
-    /// <see cref="CoverageMapSuffix"/>. The drizzle strategies never write it; their coverage is the
-    /// rejection sidecar itself.</summary>
+    /// <see cref="CoverageMapSuffix"/>. A drizzle master written before coverage had its own slot
+    /// carries it in the rejection sidecar instead.</summary>
     public static string CoveragePathFor(string masterPath) => SiblingPath(masterPath, CoverageMapSuffix);
+
+    /// <summary>The bad pixel map sibling of a master: the stem plus
+    /// <see cref="BadPixelMapSuffix"/>.</summary>
+    public static string BadPixelPathFor(string masterPath) => SiblingPath(masterPath, BadPixelMapSuffix);
+
+    /// <summary>
+    /// What a map sidecar is CALLED once written: the logical path plus <see cref="Image.GzipSuffix"/>.
+    /// </summary>
+    /// <remarks>
+    /// The logical path stays the addressable name, so a caller asks for "this master's coverage" and
+    /// gets an answer that does not depend on how it happens to be stored; only the two ends that
+    /// touch the bytes, this and <see cref="ExistingSidecarPath"/>, know about the suffix.
+    /// </remarks>
+    public static string CompressedPathFor(string logicalPath) => logicalPath + Image.GzipSuffix;
+
+    /// <summary>
+    /// The sidecar actually on disk for a logical sidecar path: the compressed one it is written as
+    /// today, else the uncompressed one every store written before carries, else null.
+    /// </summary>
+    public static string? ExistingSidecarPath(string logicalPath)
+    {
+        if (string.IsNullOrEmpty(logicalPath))
+        {
+            return null;
+        }
+
+        var compressed = CompressedPathFor(logicalPath);
+        return File.Exists(compressed) ? compressed : File.Exists(logicalPath) ? logicalPath : null;
+    }
 
     private static string SiblingPath(string masterPath, string suffix)
     {

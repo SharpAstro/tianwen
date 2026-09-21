@@ -74,7 +74,7 @@ namespace TianWen.Lib.Tests
         }
 
         private static int Count(BitMatrix[]? mask)
-            => BadPixelDetection.CountMaskedPixels(mask, Size, Size);
+            => BadPixelDetection.CountMaskedPixels(mask);
 
         /// <summary>The regression the budget exists for: a caller passing a conservative sigma
         /// still gets the warm population, because the threshold descends until the count reaches

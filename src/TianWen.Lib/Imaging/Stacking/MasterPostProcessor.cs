@@ -66,6 +66,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         float ultraHdrPeakNits = 1000f,
         ColourCalibration? inheritedWhiteBalance = null,
         AlignmentProvenance? alignment = null,
+        BitMatrix[]? badPixelMask = null,
         CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
@@ -222,8 +223,9 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             logger.LogInformation("  [plateSolve] skipped (no catalog DB supplied)");
         }
 
-        // 2) Write the master FITS with WCS baked into the headers.
-        IntegrationFitsWriter.Write(masterPath, result, solvedWcs, strategy, alignment: alignment);
+        // 2) Write the master FITS with WCS baked into the headers, and beside it the defect mask
+        //    this integration applied, which nothing kept before.
+        IntegrationFitsWriter.Write(masterPath, result, solvedWcs, strategy, alignment: alignment, badPixelMask: badPixelMask);
         logger.LogInformation("  wrote {Path}{Wcs}", masterPath, solvedWcs is null ? "" : " (WCS embedded)");
 
         // The preview PNG, the Ultra HDR JPEG, and the --split-plates TIFFs are display-side

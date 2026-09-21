@@ -4,6 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
@@ -73,7 +74,19 @@ namespace TianWen.AI.Imaging
         public static void Remove(string outDir, string sessionId)
         {
             var path = PathFor(outDir, sessionId);
-            foreach (var file in new[] { path, IntegrationFitsWriter.RejectionPathFor(path), IntegrationFitsWriter.CoveragePathFor(path), path + PartialSuffix })
+            // Each sidecar in both forms: compressed, which is how they are written now, and plain,
+            // which is how a store written before that holds them. A resume that left the old form
+            // behind would leave a master beside a sidecar from a different integration.
+            string[] logical =
+            [
+                IntegrationFitsWriter.RejectionPathFor(path),
+                IntegrationFitsWriter.CoveragePathFor(path),
+                IntegrationFitsWriter.BadPixelPathFor(path),
+            ];
+
+            foreach (var file in new[] { path, path + PartialSuffix }
+                .Concat(logical)
+                .Concat(logical.Select(IntegrationFitsWriter.CompressedPathFor)))
             {
                 if (File.Exists(file))
                 {
@@ -104,7 +117,7 @@ namespace TianWen.AI.Imaging
             // Top level only: the store is flat, and a walk that descends would follow a junction
             // into whatever someone parked under the output root.
             return FileEnumeration.EnumerateFiles(dir, ".fits", recursive: false)
-                .Where(static p => !IntegrationFitsWriter.IsRejectionMapPath(p))
+                .Where(static p => !IntegrationFitsWriter.IsMapSidecarPath(p))
                 .OrderBy(static p => p, StringComparer.OrdinalIgnoreCase);
         }
 
@@ -125,7 +138,8 @@ namespace TianWen.AI.Imaging
             WCS? wcs = null,
             Image? rejectionMap = null,
             double meanRejectionRate = 0.0,
-            Image? coverage = null)
+            Image? coverage = null,
+            BitMatrix[]? badPixelMask = null)
         {
             var path = PathFor(outDir, sessionId);
             if (File.Exists(path))
@@ -201,6 +215,22 @@ namespace TianWen.AI.Imaging
                 catch (Exception ex)
                 {
                     logger?.LogWarning(ex, "  [{Session}] could not retain the coverage count; the master stands", sessionId);
+                }
+            }
+
+            // The defect mask the integration applied, kept rather than recomputed and discarded. A
+            // bake writes one beside every master, which is what turns a per-run artefact into a
+            // dated series per camera: the store becomes the record of how a sensor ages.
+            if (badPixelMask is { Length: > 0 })
+            {
+                try
+                {
+                    IntegrationFitsWriter.WriteBadPixelMap(
+                        path, badPixelMask, master.ImageMeta, frameCount, source: "dark+registration union");
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogWarning(ex, "  [{Session}] could not retain the bad pixel map; the master stands", sessionId);
                 }
             }
 

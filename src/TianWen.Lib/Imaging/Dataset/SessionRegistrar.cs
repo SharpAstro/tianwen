@@ -383,6 +383,18 @@ public static class SessionRegistrar
         public Image? Coverage { get; init; }
 
         /// <summary>
+        /// The photosites this session's integration refused to use: the union of the dark-derived
+        /// and registration-derived masks, one <see cref="BitMatrix"/> per channel, on the SENSOR's
+        /// geometry rather than the canvas's. Null where neither detector could build one.
+        /// </summary>
+        /// <remarks>Carried out of the registrar for the same reason as the two planes above: it is
+        /// computed on every run and was then discarded, so the one artefact that explains a
+        /// master's defect handling did not survive the run that made it. Retained as
+        /// <c>.badpixels.fits.gz</c> beside the master, which makes the store a dated SERIES per
+        /// camera rather than a single latest mask.</remarks>
+        public BitMatrix[]? BadPixelMask { get; init; }
+
+        /// <summary>
         /// The same night integrated once per FIELD ORIENTATION when it crossed the meridian, empty
         /// otherwise. Each is a session in its own right (its own master, stats rect, subs and, where
         /// it has the frames for one, its own half-master pair) and carries
@@ -850,7 +862,7 @@ public static class SessionRegistrar
             // (BadPixelDetection walks it down to the defect budget), so this line reports the
             // resulting count and the fraction it represents. The per-channel line from the
             // detector itself carries the sigma and threshold actually chosen.
-            var flagged = BadPixelDetection.CountMaskedPixels(badPixelMask, darkMaster.Width, darkMaster.Height);
+            var flagged = BadPixelDetection.CountMaskedPixels(badPixelMask);
             logger?.LogInformation("  [{Session}] hot-pixel mask: {Count} px ({Pct:F3}% of frame), from sigma<={Sigma:F1}",
                 session.Id,
                 flagged,
@@ -1002,6 +1014,10 @@ public static class SessionRegistrar
                     WarpedSubs = warpedSubs,
                     RejectionMap = sideIntegration.TotalRejections > 0 ? sideIntegration.RejectionMap : null,
                     Coverage = sideIntegration.Coverage,
+                    // The same mask as the combined master's: a flip side is a subset of the same
+                    // night's subs through the same calibration, so the defect set is one fact
+                    // about the sensor, not one per side.
+                    BadPixelMask = badPixelMask,
                 });
             }
             sides = built.MoveToImmutable();
@@ -1017,6 +1033,7 @@ public static class SessionRegistrar
             FlipSides = sides,
             RejectionMap = integration.TotalRejections > 0 ? integration.RejectionMap : null,
             Coverage = integration.Coverage,
+            BadPixelMask = badPixelMask,
             // On the COMBINED master only. A flip side is a subset of the same night's registered
             // subs, so attaching the session's drops to each side would count every one of them
             // twice and invite a reader to sum the sides.

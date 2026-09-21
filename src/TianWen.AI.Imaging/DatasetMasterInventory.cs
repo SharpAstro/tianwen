@@ -132,7 +132,10 @@ public static class DatasetMasterInventory
             }
 
             var header = ReadHeader(path);
-            var hasSidecar = File.Exists(IntegrationFitsWriter.RejectionPathFor(path));
+            // Either form: compressed, as they are written now, or plain, as every store written
+            // before that holds them. File.Exists on the logical name alone stopped seeing them.
+            var hasSidecar = IntegrationFitsWriter.ExistingSidecarPath(
+                IntegrationFitsWriter.RejectionPathFor(path)) is not null;
 
             int? patchX = null, patchY = null;
             if (skyPatchSize is { } patch && Image.TryReadFitsFile(path, out var image))
@@ -270,8 +273,7 @@ public static class DatasetMasterInventory
     {
         try
         {
-            using var bufferedReader = new BufferedFile(path, FileAccess.Read, FileShare.Read, 4 * 2880);
-            using var fitsFile = new Fits(bufferedReader, path.EndsWith(".gz", StringComparison.OrdinalIgnoreCase));
+            using var fitsFile = Image.OpenFits(path);
             return fitsFile.ReadFirstImageHduHeaderOnly()?.Header;
         }
         catch (Exception ex) when (ex is IOException or FitsException)
