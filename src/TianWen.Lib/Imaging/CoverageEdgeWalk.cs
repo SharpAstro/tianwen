@@ -374,8 +374,18 @@ namespace TianWen.Lib.Imaging
 
             // How far the walk LOOKS, and the most it may take. The search is at least the cap, because
             // looking less far than you are willing to trim can only manufacture refusals.
+            // What the CANVAS says, before any statistic. For a master whose camera is known and whose
+            // header can be scaled, everything beyond one frame's footprint is dither excursion and so
+            // is partial coverage by construction, which is a floor under both numbers below: the walk
+            // must look at least that far, and may pay at least that much, because inside it there is
+            // no fully-covered data to lose. Zero for our own masters (they carry a coverage plane and
+            // never reach here), for an unknown camera, and for a header that cannot be scaled.
+            var margin = SensorGeometry.DitherMarginPx(image.ImageMeta, span, horizontal) / o.Step * o.Step;
+
             var search = (int)(Math.Max(o.SettleSearchFraction, o.MaxTrimFraction) * span) / o.Step * o.Step;
             var maxTrim = (int)(o.MaxTrimFraction * span) / o.Step * o.Step;
+            search = Math.Max(search, margin);
+            maxTrim = Math.Max(maxTrim, margin);
 
             // And how far the CONFIRMING look goes. The profile is measured once, out to here; the
             // settle rule then runs at both widths over the one array, which is what makes the second
