@@ -229,11 +229,16 @@ internal sealed class ImageSubCommand(
         };
         var trimDeclinedOpt = new Option<double>("--trim-declined")
         {
-            Description = "When the walk LEAVES AN EDGE ALONE without calling it clean (its noise was still "
-                + "falling in the search window, or it settled deeper than the loss cap allows), trim that "
-                + "edge by this fraction of the axis anyway. Default 0.05, the walk's own cap: that is the "
-                + "depth it would not vouch for or would not pay. "
-                + "0 keeps the viewer's behaviour, which is to leave a refused edge alone -- correct when a "
+            Description = "When the walk LEAVES AN EDGE ALONE without calling it clean, trim it anyway. "
+                + "An edge that SETTLED PAST THE LOSS CAP was measured, so it comes off at its own settle "
+                + "depth and this fraction is never consulted for it. The fraction is the fallback for an "
+                + "edge with no depth to read: one whose noise was still falling at the end of the search "
+                + "window, or that could not be measured at all. Default 0.05, the walk's own cap. A "
+                + "measured depth is deeper than that cap by definition, so a beyond-cap edge loses MORE "
+                + "than this number, bounded by the search window at 0.10 of the axis. That is the point: "
+                + "it is where the noise actually comes down, not a fraction chosen without seeing the "
+                + "frame. "
+                + "0 keeps the viewer's behaviour, which is to leave a refused edge alone: correct when a "
                 + "person is looking at every pixel that exists, wrong when the crop feeds a background "
                 + "model, because the ramp it keeps is exactly what the model then fits. Measured on the "
                 + "QHY294C SMC master, whose left and right edges both declined: the outermost ~130 px sit "
@@ -274,31 +279,32 @@ internal sealed class ImageSubCommand(
             // A declined edge is the case where the scan left the pixels alone without calling them
             // clean (refused, never settled, or settled past the cap), and the two callers want opposite
             // things from that: the viewer keeps the pixels, this keeps the ramp out of a background fit.
-            // Only the declined edges move, and only by this fraction, so an edge that was trimmed or
-            // found clean is left exactly where it said. Declined, not !Settled: a band deeper than the
-            // cap DID settle and is still left alone, and it is the edge this option was written for.
+            // Only the declined edges move, so an edge that was trimmed or found clean is left exactly
+            // where it said. Declined, not !Settled: a band deeper than the cap DID settle and is still
+            // left alone, and it is the edge this option was written for. What such an edge LOSES is its
+            // own measured depth rather than the fraction; see DeclinedDepth.
             var trimDeclined = Math.Clamp(parseResult.GetValue(trimDeclinedOpt), 0.0, 0.25);
             if (trimDeclined > 0 && scan is { Declined: true, Trims: { } trims } && rect.Width > 0 && rect.Height > 0)
             {
                 var dx = (int)Math.Round(rect.Width * trimDeclined);
                 var dy = (int)Math.Round(rect.Height * trimDeclined);
-                var left = trims.Left.Declined ? dx : 0;
-                var right = trims.Right.Declined ? dx : 0;
-                var top = trims.Top.Declined ? dy : 0;
-                var bottom = trims.Bottom.Declined ? dy : 0;
+                var left = DeclinedDepth(trims.Left, dx);
+                var right = DeclinedDepth(trims.Right, dx);
+                var top = DeclinedDepth(trims.Top, dy);
+                var bottom = DeclinedDepth(trims.Bottom, dy);
                 var held = new PixelRect(rect.X + left, rect.Y + top,
                     rect.Width - left - right, rect.Height - top - bottom);
                 if (held.Width > 16 && held.Height > 16)
                 {
                     var edges = string.Join(", ", new[]
                     {
-                        trims.Left.Declined ? "left" : null,
-                        trims.Top.Declined ? "top" : null,
-                        trims.Right.Declined ? "right" : null,
-                        trims.Bottom.Declined ? "bottom" : null,
+                        DescribeDeclinedEdge("left", trims.Left, left),
+                        DescribeDeclinedEdge("top", trims.Top, top),
+                        DescribeDeclinedEdge("right", trims.Right, right),
+                        DescribeDeclinedEdge("bottom", trims.Bottom, bottom),
                     }.Where(e => e is not null));
                     consoleHost.WriteScrollable(
-                        $"[autocrop] declined ({edges}) trimmed by {trimDeclined:P1}: "
+                        $"[autocrop] declined ({edges}): "
                         + $"{rect.Width}x{rect.Height} -> {held.Width}x{held.Height}");
                     rect = held;
                 }
@@ -349,6 +355,47 @@ internal sealed class ImageSubCommand(
 
         return cmd;
     }
+
+    /// <summary>
+    /// What a declined edge actually loses under <c>--trim-declined</c>.
+    /// </summary>
+    /// <remarks>
+    /// A band the cap refused (<see cref="CoverageEdgeOutcome.BeyondCap"/>) was MEASURED: the walk
+    /// knows where the noise came down and only declined to pay for it, so that depth is what comes
+    /// off, and <paramref name="blind"/> is never consulted for it. Only an edge with no depth to read
+    /// (<see cref="CoverageEdgeOutcome.NeverSettles"/>, <see cref="CoverageEdgeOutcome.NotMeasurable"/>)
+    /// falls back to the fraction. An edge the walk answered for keeps its own answer and loses nothing
+    /// more.
+    /// <para>
+    /// A measured depth EXCEEDS the loss cap by construction, and the fraction defaults to that same
+    /// cap, so this trims a beyond-cap edge DEEPER than the flag's own number rather than shallower.
+    /// That is the intent: the option exists to keep a ramp out of a background fit, and the ramp ends
+    /// where the walk says it ends. It cannot run away, because the walk never looks past
+    /// <see cref="CoverageEdgeWalkOptions.SettleSearchFraction"/> of the axis, and the caller still
+    /// refuses a crop that would leave nothing.
+    /// </para>
+    /// <para>
+    /// CLI policy, not the walk's: the viewer wants the opposite from the same verdict (every pixel
+    /// that exists), which is why this lives beside the option and not on
+    /// <see cref="CoverageEdgeTrim"/>.
+    /// </para>
+    /// </remarks>
+    internal static int DeclinedDepth(CoverageEdgeTrim trim, int blind) => trim.Outcome switch
+    {
+        CoverageEdgeOutcome.BeyondCap when trim.SettleDepth > 0 => trim.SettleDepth,
+        _ => trim.Declined ? blind : 0,
+    };
+
+    /// <summary>One edge's share of the log line, naming the px AND where the number came from, because
+    /// a depth the walk measured and a fraction nobody measured are not the same claim. Null for an edge
+    /// that did not move.</summary>
+    internal static string? DescribeDeclinedEdge(string name, CoverageEdgeTrim trim, int depth) => (depth, trim.Outcome) switch
+    {
+        (<= 0, _) => null,
+        (_, CoverageEdgeOutcome.BeyondCap) => $"{name} {depth} px, settled there",
+        (_, CoverageEdgeOutcome.NeverSettles) => $"{name} {depth} px, blind (never settled)",
+        _ => $"{name} {depth} px, blind (not measurable)",
+    };
 
     // The companion-file options, declared once instead of copied into every verb that offers them.
     private static Option<ImageOutputFormat> BuildCompanionFormatOption() => new("--output-format")
