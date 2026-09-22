@@ -703,26 +703,15 @@ namespace TianWen.UI.Abstractions
             var (majorX, majorY, minorX, minorY) =
                 Overlays.OverlayEngine.ComputeEllipseScreenAxes(dnx, dny, paRad, State.MirrorView);
 
-            // Trace the ellipse.
-            const int Segments = 36;
-            var prevValid = false;
-            float prevX = 0, prevY = 0;
-            for (var i = 0; i <= Segments; i++)
-            {
-                var theta = i * (2.0 * Math.PI / Segments);
-                var (sinT, cosT) = Math.SinCos(theta);
-                var ex = (float)(semiMajorPx * cosT);
-                var ey = (float)(semiMinorPx * sinT);
-                var plotX = centerX + ex * majorX + ey * minorX;
-                var plotY = centerY + ex * majorY + ey * minorY;
-                if (prevValid)
-                {
-                    DrawLine(prevX, prevY, plotX, plotY, SelectionMarker);
-                }
-                prevX = plotX;
-                prevY = plotY;
-                prevValid = true;
-            }
+            // One ring through the affine ellipse on the abstraction (DIR.Lib 10.4): the marker's own
+            // axes, an anti-aliased edge and a pixel-width stroke on every backend, in place of the
+            // 36-segment DrawLine walk that existed while the renderer's ellipse was axis-aligned
+            // only. The same stroke as the crosshair circle the shapeless case draws.
+            Renderer.DrawEllipse(
+                (centerX, centerY),
+                (semiMajorPx * majorX, semiMajorPx * majorY),
+                (semiMinorPx * minorX, semiMinorPx * minorY),
+                SelectionMarker, 1.5f);
 
             // Tiny centre cross so users can still see the centroid for large shapes.
             var tick = 4f * dpiScale;

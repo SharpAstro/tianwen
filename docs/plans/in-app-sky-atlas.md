@@ -632,13 +632,16 @@ locking the release scope was *"as long as we track everything we skipped in a p
     CONCENTRIC with the outline drawn underneath it rather than approximately on it, and is why
     nothing here re-derives the shape from the CD matrix: the overlay probes the WCS and so does this.
     Three decisions worth keeping:
-    - **Still a pair.** The viewer's selection idiom is a double stroke, and changing that for shaped
-      objects would have made "selected" mean two different things on one surface. The outer ring is
-      a UNIFORM scale of the inner (it gains the same 3 px on the MAJOR axis the circle fallback's
-      outer gains, and the minor follows proportionally), because a constant pixel offset rounds an
-      edge-on galaxy off -- the same failure `EllipseLegibilityScale` exists to prevent at the small
-      end. A sabotage swapping the scale for a constant offset fails the ratio assertion even on
-      M51, whose 0.85 axis ratio is far from the worst case.
+    - ~~**Still a pair.**~~ **One ring since 2026-09-22.** It was kept a pair (the outer a UNIFORM
+      scale of the inner, because a constant pixel offset rounds an edge-on galaxy off) so that
+      "selected" would mean one thing on the surface, and the uniform scale is exactly why it could
+      not work: the rings sit 4.5 px apart along the major axis and 4.5 times the axis ratio apart
+      along the minor, 1.6 px on M31, less than the strokes, so the pair fused into one line along the
+      sides and split into two at the ends. Measured on the first anti-aliased build, which is what
+      made it legible. A shaped object now gets one ring stroked 3 px (the pair's combined weight,
+      `ShapedSelectionStrokePx`); a star keeps its circle pair, where uniform scale and constant
+      offset are the same thing. The atlas already drew its own selection as one ring, so this is
+      the parity the pair was meant to be.
     - **The classifier gate is load-bearing.** A star can carry a stray or cross-linked shape
       (Antares sits inside the rho Ophiuchi complex) and must still ring as a star. Asking the same
       `ChooseMarkerKind` the overlay markers ask is what keeps the two answers the same one.
