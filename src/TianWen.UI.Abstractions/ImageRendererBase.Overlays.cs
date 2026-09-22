@@ -714,6 +714,17 @@ namespace TianWen.UI.Abstractions
         /// every label off it and to leave the selected object's own label out, while the ring itself
         /// has to be drawn LAST so it sits over that object's marker rather than under it.</para>
         /// </remarks>
+        /// <summary>
+        /// The hover wash: the object's ring, filled. A shaped object lights as its own ellipse, a
+        /// star or a shapeless entry as the disc its circle pair encloses.
+        /// </summary>
+        private void RenderHoverWash(in SelectionRingGeometry ring)
+        {
+            var semiMajor = ring.Pair ? ring.OuterMajor : ring.InnerMajor;
+            var semiMinor = ring.Pair ? ring.OuterMinor : ring.InnerMinor;
+            FillEllipseOverlay(ring.ScreenX, ring.ScreenY, semiMajor, semiMinor, ring.AngleRad, OverlayEngine.HoverSpotColor);
+        }
+
         private void RenderSelectionHighlight(in SelectionRingGeometry ring)
         {
             var accent = ViewerTheme.Palette.Accent;
@@ -779,8 +790,15 @@ namespace TianWen.UI.Abstractions
         /// and put NGC 7320's ring 330 px from where the map had drawn the galaxy.</para>
         /// </remarks>
         private SelectionRingGeometry? SolveSelectionRing(ViewerState state, WCS wcs)
+            => state.SelectedObject is { } selection ? SolveObjectRing(in selection, state, wcs) : null;
+
+        /// <summary>
+        /// The ring for ANY object payload: the selection's, stroked, and the hover's, filled as the
+        /// wash. One solver, so the wash under the pointer is exactly the ring a click there would draw.
+        /// </summary>
+        private SelectionRingGeometry? SolveObjectRing(in SkyMapInfoPanelData selection, ViewerState state, WCS wcs)
         {
-            if (state.SelectedObject is not { } selection || ImageWidth <= 0 || ImageHeight <= 0)
+            if (ImageWidth <= 0 || ImageHeight <= 0)
             {
                 return null;
             }

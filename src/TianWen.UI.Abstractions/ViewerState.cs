@@ -119,6 +119,21 @@ public sealed class ViewerState
     /// </remarks>
     public SkyMapInfoPanelData? SelectedObject { get; set; }
 
+    /// <summary>
+    /// What a click at the pointer would select: the object under the hover wash. The "different
+    /// feature" the remark above keeps out of <see cref="SelectedObject"/>, and deliberately its
+    /// own property: a HIGHLIGHT that disappears the moment the pointer moves on, never a selection.
+    /// </summary>
+    /// <remarks>
+    /// The same payload as the selection because the same solver rings both
+    /// (<c>ImageRendererBase.SolveObjectRing</c>): the wash is the ring a click here would draw,
+    /// filled, which is what makes hover and click one answer rather than two hit tests that
+    /// disagree (the atlas's rule, <c>SkyMapTab.Hover</c>). Resolved through the click's own chain,
+    /// at most once per painted frame. Cleared by a zoom or a pan, because the pointer has not been
+    /// re-tested against the view that moved under it.
+    /// </remarks>
+    public SkyMapInfoPanelData? HoverObject { get; set; }
+
     /// <summary>Whether a plate solve is currently in progress.</summary>
     public bool IsPlateSolving { get; set; }
 
