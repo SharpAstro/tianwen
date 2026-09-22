@@ -353,10 +353,13 @@ public class SkyMapHoverAndPictureTests
         tab.State.NeedsRedraw.ShouldBeTrue();
     }
 
-    // The view moved without the pointer being re-tested, so the target is no longer an answer about
-    // where the cursor is. Dropping it beats redrawing it somewhere plausible.
+    // The view moved since the resolve, so the target is no longer known to be an answer about
+    // where the cursor is. It used to be DROPPED; it is now re-tested at the pointer's last position
+    // against the new view (one resolve, inside the draw), which keeps the wash where the object is
+    // still under the pointer and clears it where it is not. Dropping unconditionally is what made
+    // the wash flash in Horizon mode, whose centre moves with time on every frame.
     [Fact]
-    public void AZoomDropsAHoverTargetTheCursorWasNotReTestedAgainst()
+    public void AZoomReTestsTheHoverTargetAgainstTheNewView()
     {
         using var renderer = new RgbaImageRenderer(200, 200);
         var tab = new HoverTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
@@ -373,10 +376,18 @@ public class SkyMapHoverAndPictureTests
 
         tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
         tab.State.HoverTarget.ShouldNotBeNull();
+        var resolves = tab.HoverResolves;
 
+        // Zoomed out with the nebula still under the pointer: re-tested once, still the nebula.
         tab.State.FieldOfViewDeg = 4.0;
         tab.Render(plannerState, rect, time);
-        tab.State.HoverTarget.ShouldBeNull();
+        tab.HoverResolves.ShouldBe(resolves + 1, "the moved view is re-tested at the pointer, once");
+        tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
+
+        // Panned so that nothing is under the pointer any more: re-tested, and cleared.
+        tab.State.CenterRA = Nebula.RA + 0.5;
+        tab.Render(plannerState, rect, time);
+        tab.State.HoverTarget.ShouldBeNull("nothing is under the pointer in the moved view");
     }
 
     // The wash has to reach the PIXELS, and on a surface with no GPU: FillEllipse is the one
@@ -534,6 +545,143 @@ public class SkyMapHoverAndPictureTests
     // A SkyMapTab over the CPU surface, matching the browser's wiring: the object overlay goes through
     // the shared primitive path and the view matrix is published each frame the way the GPU pipelines
     // do, so hit-testing and drawing agree on where things are.
+    // ------------------------------------------------------------------------------------------
+    // Against the real catalogue, on the Small Magellanic Cloud: what the pointer resolves to is
+    // what is DRAWN, wherever inside the drawn shape the pointer is, for as long as it stays there.
+    // ------------------------------------------------------------------------------------------
+
+    private static async System.Threading.Tasks.Task<(HoverTestSkyMapTab Tab, PlannerState Planner, ICelestialObjectDB Db)>
+        RealSkyAsync(RgbaImageRenderer renderer, SkyMapMode mode, System.Threading.CancellationToken ct)
+    {
+        var db = await SharedCatalogDB.InitAsync(ct);
+        var tab = new HoverTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+        tab.State.Mode = mode;
+        tab.State.ShowObjectOverlay = true;
+        var planner = new PlannerState
+        {
+            ObjectDb = db,
+            SiteLatitude = -33.9,
+            SiteLongitude = 18.4,
+            SiteTimeZone = TimeSpan.Zero,
+            PlanningDate = new DateTimeOffset(2026, 9, 22, 20, 0, 0, TimeSpan.Zero),
+        };
+        return (tab, planner, db);
+    }
+
+    /// <summary>
+    /// <b>An object the field does not draw cannot take the hover or the click.</b> NGC 265 is a
+    /// cluster inside the SMC below the six degree field's magnitude cutoff: the overlay does not
+    /// draw it there, so the pointer on it resolves to the galaxy around it. At half a degree it is
+    /// drawn, and then it is what the pointer takes, as the nearest centre.
+    /// </summary>
+    [Theory]
+    [InlineData(6.0, false)]
+    [InlineData(0.5, true)]
+    public async System.Threading.Tasks.Task AnUndrawnClusterInsideTheSmcDoesNotTakeThePointer(double fovDeg, bool clusterIsDrawn)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var renderer = new RgbaImageRenderer(800, 800);
+        var (tab, planner, db) = await RealSkyAsync(renderer, SkyMapMode.Equatorial, ct);
+        CatalogUtils.TryGetCleanedUpCatalogName("NGC265", out var ngc265).ShouldBeTrue();
+        db.TryLookupByIndex(ngc265, out var cluster).ShouldBeTrue();
+        ((double)cluster.V_Mag).ShouldBeGreaterThan(OverlayEngine.GetExtendedMagCutoff(6.0 * 60.0),
+            "the fixture needs a cluster the six degree field does not draw");
+        var time = new FakeTimeProviderWrapper(planner.PlanningDate.Value);
+        var rect = new RectF32(0, 0, 800, 800);
+        // The first frame with a site places the map's initial view and would override a centre set
+        // before it: point the view after that frame.
+        tab.Render(planner, rect, time);
+        tab.State.CenterRA = cluster.RA;
+        tab.State.CenterDec = cluster.Dec;
+        tab.State.FieldOfViewDeg = fovDeg;
+        tab.Render(planner, rect, time);
+        tab.Render(planner, rect, time);
+
+        tab.HandleInput(new InputEvent.MouseMove(401f, 401f));
+
+        tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(clusterIsDrawn ? ngc265 : CatalogIndex.NGC0292);
+    }
+
+    /// <summary>
+    /// <b>Inside the drawn ellipse, the object is found wherever the pointer is.</b> The resolver's
+    /// cell window reaches a degree or so from the pointer, and the SMC's ellipse reaches 2.5; a
+    /// pointer 1.8 degrees out along the major axis found nothing, though the outline was drawn
+    /// around it. And just outside the ellipse, still inside the circle of its major radius, it
+    /// finds nothing: the hit region is the shape that is drawn, not a disc around it.
+    /// </summary>
+    [Theory]
+    [InlineData(1.8, 45.0, true)]
+    [InlineData(2.2, 135.0, false)]
+    public async System.Threading.Tasks.Task TheSmcIsFoundInsideItsDrawnEllipseAndNotBesideIt(double offsetDeg, double bearingDeg, bool found)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var renderer = new RgbaImageRenderer(800, 800);
+        var (tab, planner, db) = await RealSkyAsync(renderer, SkyMapMode.Equatorial, ct);
+        db.TryLookupByIndex(CatalogIndex.NGC0292, out var smc).ShouldBeTrue();
+        db.TryGetShape(CatalogIndex.NGC0292, out var shape).ShouldBeTrue();
+        ((double)shape.PositionAngle).ShouldBe(45.0, 1e-6, "the fixture walks along and across the SMC's own position angle");
+
+        // A point offsetDeg from the SMC's centre along a bearing measured from north through east.
+        var (sinB, cosB) = Math.SinCos(double.DegreesToRadians(bearingDeg));
+        var dec = smc.Dec + (offsetDeg * cosB);
+        var ra = smc.RA + (offsetDeg * sinB / Math.Cos(double.DegreesToRadians(smc.Dec)) / 15.0);
+
+        var time = new FakeTimeProviderWrapper(planner.PlanningDate.Value);
+        var rect = new RectF32(0, 0, 800, 800);
+        tab.Render(planner, rect, time); // the first frame with a site places the initial view
+        tab.State.CenterRA = ra;
+        tab.State.CenterDec = dec;
+        tab.State.FieldOfViewDeg = 6.0;
+        tab.Render(planner, rect, time);
+        tab.Render(planner, rect, time);
+
+        tab.HandleInput(new InputEvent.MouseMove(400f, 400f));
+
+        if (found)
+        {
+            tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(CatalogIndex.NGC0292);
+        }
+        else
+        {
+            (tab.State.HoverTarget?.Index).ShouldNotBe(CatalogIndex.NGC0292,
+                "outside the ellipse, though inside the circle of its major radius, the SMC is not what is drawn there");
+        }
+    }
+
+    /// <summary>
+    /// <b>A wash under a still pointer survives sidereal drift.</b> In Horizon mode the view centre
+    /// moves with time on every frame; the wash used to be dropped whenever the centre was not
+    /// bit-identical to the one it was resolved for, so it died a frame after every resolve. The
+    /// target is now judged by its own movement on screen, and re-tested at the pointer rather than
+    /// dropped when the drift adds up.
+    /// </summary>
+    [Fact]
+    public async System.Threading.Tasks.Task TheWashSurvivesSiderealDriftInHorizonMode()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var renderer = new RgbaImageRenderer(800, 800);
+        var (tab, planner, db) = await RealSkyAsync(renderer, SkyMapMode.Horizon, ct);
+        db.TryLookupByIndex(CatalogIndex.NGC0292, out var smc).ShouldBeTrue();
+        var rect = new RectF32(0, 0, 800, 800);
+        var t0 = planner.PlanningDate.Value;
+        tab.Render(planner, rect, new FakeTimeProviderWrapper(t0)); // the first frame with a site places the initial view
+        tab.State.FieldOfViewDeg = 6.0;
+        SkyMapViewActions.CenterOn(tab.State, smc.RA, smc.Dec);
+        tab.Render(planner, rect, new FakeTimeProviderWrapper(t0));
+        tab.Render(planner, rect, new FakeTimeProviderWrapper(t0));
+
+        tab.HandleInput(new InputEvent.MouseMove(400f, 400f));
+        tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(CatalogIndex.NGC0292);
+
+        // Frames a second apart for a minute: the sky turns a quarter of a degree, tens of pixels.
+        for (var second = 1; second <= 60; second++)
+        {
+            tab.Render(planner, rect, new FakeTimeProviderWrapper(t0.AddSeconds(second)));
+            tab.State.HoverTarget.ShouldNotBeNull($"the wash is still there {second} s after the resolve")
+                .Index.ShouldBe(CatalogIndex.NGC0292);
+        }
+    }
+
     private sealed class HoverTestSkyMapTab(RgbaImageRenderer renderer) : SkyMapTab<RgbaImage>(renderer)
     {
         protected override void RenderSkyMap(

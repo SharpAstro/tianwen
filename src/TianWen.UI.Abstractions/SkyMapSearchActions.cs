@@ -760,6 +760,106 @@ public static class SkyMapSearchActions
         // walk their cells through EnumerateCell, and a resolve allocates nothing at all (the
         // benchmark's Allocated column reads "-" on every row). SkyMapHoverResolveCostProbe has the
         // split.
+        // What the overlay pass would DRAW at this field, asked here too: an object under the
+        // field's magnitude cutoff is not on screen, and an object that is not on screen must not
+        // take the hover or the click. NGC 256, 265 and 269, clusters inside the SMC that the pass
+        // stops drawing past a few degrees of field, went on winning the pointer over the galaxy
+        // around them: the wash flashed between the SMC and a spot as the pointer crossed them,
+        // and a click there selected a cluster nobody could see. A pinned target is drawn whatever
+        // its magnitude (a planned landmark) and stays clickable the same way.
+        var magCutoff = OverlayEngine.GetExtendedMagCutoff(skyMap.FieldOfViewDeg * 60.0);
+
+        // A copy for the local function below: an `in` parameter cannot be captured.
+        var view = viewMatrix;
+
+        void Consider(CatalogIndex idx)
+        {
+            if (!db.TryLookupByIndex(idx, out var o)) return;
+            if (double.IsNaN(o.RA) || double.IsNaN(o.Dec)) return;
+
+            // Honour the same per-layer visibility the rendered overlay uses (mirrors
+            // OverlayEngine.GatherSkyMapOverlayCandidates): dark nebulae follow the [D]
+            // layer, all other catalog objects follow the [O] layer, and pinned planner
+            // targets stay clickable as landmarks regardless of layer state. Without this a
+            // hidden object stays selectable by a click on apparently-empty sky.
+            if (!IsDsoLayerClickable(o.ObjectType, o.Index, idx, skyMap, db, pinnedCatalogIndices))
+            {
+                return;
+            }
+
+            if (!Half.IsNaN(o.V_Mag) && (double)o.V_Mag > magCutoff
+                && !IsPinned(o.Index, idx, pinnedCatalogIndices))
+            {
+                return;
+            }
+
+            if (!SkyMapProjection.ProjectWithMatrix(o.RA, o.Dec, in view, pixelsPerRadian, centerX, centerY,
+                    out var sx, out var sy))
+            {
+                return;
+            }
+
+            var dx = clickScreenX - sx;
+            var dy = clickScreenY - sy;
+            var distSq = dx * dx + dy * dy;
+            if (distSq >= bestDsoDistSq)
+            {
+                return;
+            }
+
+            // Inside the click tolerance of the centre is always a hit. Beyond it, an extended
+            // object is hit inside its DRAWN ellipse -- the axes the marker is drawn with -- rather
+            // than inside a circle of its major radius, which for the SMC (300 by 180 arcmin at 45
+            // degrees) claimed a band of empty sky beside the galaxy and lit the ellipse from
+            // outside it. Ctrl+click (preferPointSource) skips the shape entirely so the ellipse no
+            // longer swallows clicks meant for stars inside it; the DSO then only matches near its
+            // centroid.
+            var hitRadiusPx = (double)ClickToleranceScreenPx;
+            var hit = distSq <= hitRadiusPx * hitRadiusPx;
+            if (!hit && !preferPointSource && db.TryGetShape(idx, out var shape)
+                && (double)shape.MajorAxis > 0)
+            {
+                const double ArcminToRad = Math.PI / (180.0 * 60.0);
+                var semiMajorPx = (double)shape.MajorAxis * 0.5 * ArcminToRad * pixelsPerRadian;
+                var minorArcmin = (double)shape.MinorAxis;
+                var semiMinorPx = double.IsNaN(minorArcmin) || minorArcmin <= 0
+                    ? semiMajorPx
+                    : minorArcmin * 0.5 * ArcminToRad * pixelsPerRadian;
+
+                if (distSq <= semiMajorPx * semiMajorPx)
+                {
+                    // The screen direction of north at the object, as the marker finds its axes.
+                    var paDeg = (double)shape.PositionAngle;
+                    if (semiMinorPx >= semiMajorPx || double.IsNaN(paDeg)
+                        || !SkyMapProjection.ProjectWithMatrix(o.RA, o.Dec + (1.0 / 60.0), in view, pixelsPerRadian,
+                            centerX, centerY, out var nx, out var ny))
+                    {
+                        hit = true;
+                    }
+                    else
+                    {
+                        var (majorX, majorY, minorX, minorY) = OverlayEngine.ComputeEllipseScreenAxes(
+                            nx - sx, ny - sy, (float)double.DegreesToRadians(paDeg), skyMap.MirrorView);
+                        var along = ((dx * majorX) + (dy * majorY)) / semiMajorPx;
+                        var across = ((dx * minorX) + (dy * minorY)) / semiMinorPx;
+                        hit = (along * along) + (across * across) <= 1.0;
+                    }
+
+                    if (hit)
+                    {
+                        hitRadiusPx = semiMajorPx;
+                    }
+                }
+            }
+
+            if (hit)
+            {
+                bestDsoDistSq = distSq;
+                bestDsoIdx = idx;
+                bestRadiusPx = (float)hitRadiusPx;
+            }
+        }
+
         var dsoGrid = db.DeepSkyCoordinateGrid;
         foreach (var (probeRa, probeDec) in probes)
         {
@@ -767,54 +867,19 @@ public static class SkyMapSearchActions
             // cell, which was the whole 288 B of a resolve over an object.
             foreach (var idx in dsoGrid.EnumerateCell(probeRa, probeDec))
             {
-                if (!db.TryLookupByIndex(idx, out var o)) continue;
-                if (double.IsNaN(o.RA) || double.IsNaN(o.Dec)) continue;
-
-                // Honour the same per-layer visibility the rendered overlay uses (mirrors
-                // OverlayEngine.GatherSkyMapOverlayCandidates): dark nebulae follow the [D]
-                // layer, all other catalog objects follow the [O] layer, and pinned planner
-                // targets stay clickable as landmarks regardless of layer state. Without this a
-                // hidden object stays selectable by a click on apparently-empty sky.
-                if (!IsDsoLayerClickable(o.ObjectType, o.Index, idx, skyMap, db, pinnedCatalogIndices))
-                {
-                    continue;
-                }
-
-                if (!SkyMapProjection.ProjectWithMatrix(o.RA, o.Dec, viewMatrix, pixelsPerRadian, centerX, centerY,
-                        out var sx, out var sy))
-                {
-                    continue;
-                }
-
-                var dx = sx - clickScreenX;
-                var dy = sy - clickScreenY;
-                var distSq = dx * dx + dy * dy;
-
-                // Effective hit radius: click tolerance, extended to the shape's
-                // projected major-axis radius for extended objects. Arcmin -> rad
-                // -> screen px uses the current pixelsPerRadian.
-                // Ctrl+click (preferPointSource) skips the shape expansion so the
-                // ellipse no longer swallows clicks meant for stars inside it; the
-                // DSO then only matches near its centroid.
-                var hitRadiusPx = (double)ClickToleranceScreenPx;
-                if (!preferPointSource && db.TryGetShape(idx, out var shape))
-                {
-                    var majorArcmin = (double)shape.MajorAxis;
-                    if (majorArcmin > 0)
-                    {
-                        var majorRadiusRad = majorArcmin * Math.PI / (180.0 * 60.0) * 0.5;
-                        var shapeRadiusPx = majorRadiusRad * pixelsPerRadian;
-                        if (shapeRadiusPx > hitRadiusPx) hitRadiusPx = shapeRadiusPx;
-                    }
-                }
-
-                if (distSq <= hitRadiusPx * hitRadiusPx && distSq < bestDsoDistSq)
-                {
-                    bestDsoDistSq = distSq;
-                    bestDsoIdx = idx;
-                    bestRadiusPx = (float)hitRadiusPx;
-                }
+                Consider(idx);
             }
+        }
+
+        // The window above finds an object by where its CENTRE is, so an object whose drawn shape
+        // reaches further than a cell or two -- the SMC's ellipse reaches 2.5 degrees out, the
+        // LMC's over 5 -- was a candidate only near its centre, with a band inside its own outline
+        // where neither a hover nor a click found it. The few objects that large are asked on
+        // every resolve; re-asking one the window already found changes nothing (same distance,
+        // not closer).
+        foreach (var idx in LargeShapedObjects(db))
+        {
+            Consider(idx);
         }
 
         CatalogIndex? bestIdx = bestDsoIdx;
@@ -1015,13 +1080,52 @@ public static class SkyMapSearchActions
     /// the object is pinned (under its own index, the grid key we entered on, or a cross-index) and
     /// whether the bake verified a picture for it.
     /// </summary>
+    /// <summary>Whether an object, under either of the indices it is reached by, is a pinned target.</summary>
+    private static bool IsPinned(CatalogIndex objIndex, CatalogIndex gridIndex, IReadOnlySet<CatalogIndex>? pinnedCatalogIndices)
+        => pinnedCatalogIndices is not null
+            && ((objIndex != default && pinnedCatalogIndices.Contains(objIndex))
+                || pinnedCatalogIndices.Contains(gridIndex));
+
+    /// <summary>Semi-major axis, in arcminutes, from which an object is asked on every resolve.</summary>
+    /// <remarks>
+    /// Three quarters of a degree: half a cell beyond the one-cell window, which is where the
+    /// window's own reach ends. Objects this large are few (measured 2026-09-22: a few hundred of
+    /// the deep-sky catalogue), so asking all of them per resolve costs less than one extra cell.
+    /// </remarks>
+    private const double LargeShapeSemiMajorArcmin = 45.0;
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ICelestialObjectDB, CatalogIndex[]> LargeShapes = new();
+
+    /// <summary>
+    /// The objects whose drawn shape reaches further than the resolver's cell window, found once per
+    /// catalogue and kept for its lifetime.
+    /// </summary>
+    internal static CatalogIndex[] LargeShapedObjects(ICelestialObjectDB db)
+    {
+        if (LargeShapes.TryGetValue(db, out var cached))
+        {
+            return cached;
+        }
+
+        var builder = ImmutableArray.CreateBuilder<CatalogIndex>();
+        foreach (var idx in db.AllObjectIndices)
+        {
+            if (db.TryGetShape(idx, out var shape) && (double)shape.MajorAxis * 0.5 >= LargeShapeSemiMajorArcmin)
+            {
+                builder.Add(idx);
+            }
+        }
+
+        var built = builder.ToArray();
+        LargeShapes.AddOrUpdate(db, built);
+        return built;
+    }
+
     private static bool IsDsoLayerClickable(
         ObjectType objectType, CatalogIndex objIndex, CatalogIndex gridIndex,
         SkyMapState skyMap, ICelestialObjectDB db, IReadOnlySet<CatalogIndex>? pinnedCatalogIndices)
     {
-        var isPinned = pinnedCatalogIndices is not null
-            && ((objIndex != default && pinnedCatalogIndices.Contains(objIndex))
-                || pinnedCatalogIndices.Contains(gridIndex));
+        var isPinned = IsPinned(objIndex, gridIndex, pinnedCatalogIndices);
 
         // Asked only when it can change the answer: the picture table is a dictionary lookup, but
         // this runs for every object in a 3x3 cell window on every pointer move once hover is live.

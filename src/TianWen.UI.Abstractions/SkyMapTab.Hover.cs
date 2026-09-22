@@ -88,9 +88,11 @@ namespace TianWen.UI.Abstractions
         // deep link all move it, and a rule enforced in one place cannot be forgotten by the next one
         // added. Mirrors how the object overlay detects a moved view before placing labels.
         private double _hoverViewFov = double.NaN;
-        private double _hoverViewCentreRa = double.NaN;
-        private double _hoverViewCentreDec = double.NaN;
         private DateTimeOffset _hoverViewTime;
+
+        /// <summary>Where the target projected when it was resolved, so the draw can tell whether the view moved it.</summary>
+        private float _hoverTargetScreenX = float.NaN;
+        private float _hoverTargetScreenY = float.NaN;
 
         /// <summary>
         /// How many times the pointer's position was resolved to an object. The observable for a hover
@@ -139,11 +141,22 @@ namespace TianWen.UI.Abstractions
                 State, db, _lastViewingTime, x, y, PinnedCatalogIndices(plannerState), plannerState.Comets);
 
             // Record the view alongside, so the draw can tell a target that is still current from one
-            // the sky has since moved out from under.
+            // the sky has since moved out from under: the field, and where the target itself landed.
             _hoverViewFov = State.FieldOfViewDeg;
-            _hoverViewCentreRa = State.CenterRA;
-            _hoverViewCentreDec = State.CenterDec;
             _hoverViewTime = _lastViewingTime;
+            _hoverTargetScreenX = float.NaN;
+            _hoverTargetScreenY = float.NaN;
+            if (resolved is { } target)
+            {
+                var rect = State.LastContentRect;
+                var ppr = SkyMapProjection.PixelsPerRadian(rect.Height, State.FieldOfViewDeg);
+                if (SkyMapProjection.ProjectWithMatrix(target.RA, target.Dec, State.CurrentViewMatrix, ppr,
+                        rect.X + (rect.Width * 0.5f), rect.Y + (rect.Height * 0.5f), out var tx, out var ty))
+                {
+                    _hoverTargetScreenX = tx;
+                    _hoverTargetScreenY = ty;
+                }
+            }
 
             State.HoverTarget = resolved;
 
@@ -187,24 +200,49 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            // The pointer has not been re-tested against this view, so the target is no longer an
-            // answer about where the cursor is. Dropping it beats redrawing it somewhere plausible.
-            if (State.FieldOfViewDeg != _hoverViewFov
-                || State.CenterRA != _hoverViewCentreRa
-                || State.CenterDec != _hoverViewCentreDec
-                || (hover.IsEphemeris
-                    && (_lastViewingTime - _hoverViewTime).Duration() > HoverEphemerisStaleAfter))
-            {
-                State.HoverTarget = null;
-                _hoverPointerX = float.NaN;
-                _hoverPointerY = float.NaN;
-                return;
-            }
-
             if (!SkyMapProjection.ProjectWithMatrix(hover.RA, hover.Dec, State.CurrentViewMatrix,
                     pixelsPerRadian, cx, cy, out var sx, out var sy))
             {
                 return;
+            }
+
+            // Has the view moved the sky out from under the pointer since the resolve? Judged by the
+            // TARGET's own movement on screen and by the field, never by the centre being
+            // bit-identical: in Horizon mode the centre drifts with sidereal time on every frame,
+            // so a centre test dropped the wash one frame after each resolve and it flashed under a
+            // moving pointer (reported on the SMC, 2026-09-22). Sidereal drift moves a target by a
+            // fraction of a pixel a frame; a pan or a zoom moves it by many. And a moved view is
+            // RE-TESTED at the pointer's last position rather than merely dropped, so a wash under
+            // a still pointer survives the drift: it re-resolves once the drift has added up to the
+            // slop, which is once every few seconds, and lands on the same object.
+            var slop = HoverResolveSlopPx * DpiScale;
+            var viewMoved = State.FieldOfViewDeg != _hoverViewFov
+                || float.IsNaN(_hoverTargetScreenX)
+                || MathF.Abs(sx - _hoverTargetScreenX) > slop
+                || MathF.Abs(sy - _hoverTargetScreenY) > slop;
+            var ephemerisStale = hover.IsEphemeris
+                && (_lastViewingTime - _hoverViewTime).Duration() > HoverEphemerisStaleAfter;
+            if (viewMoved || ephemerisStale)
+            {
+                var px = _hoverPointerX;
+                var py = _hoverPointerY;
+                _hoverPointerX = float.NaN;
+                _hoverPointerY = float.NaN;
+                State.HoverTarget = null;
+                if (float.IsNaN(px))
+                {
+                    return;
+                }
+
+                TrackHoverPointer(px, py);
+                if (State.HoverTarget is not { } retested
+                    || !SkyMapProjection.ProjectWithMatrix(retested.RA, retested.Dec, State.CurrentViewMatrix,
+                        pixelsPerRadian, cx, cy, out sx, out sy))
+                {
+                    return;
+                }
+
+                hover = retested;
             }
 
             // The wash takes the object's own SHAPE where it has one: the ellipse the selection ring
