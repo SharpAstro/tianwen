@@ -31,6 +31,7 @@ services
     .AddExternal()
     .AddAstrometry()
     .AddZWO()
+    .AddPlayerOne()
     .AddQHY()
     .AddAscom()
     .AddAlpaca()

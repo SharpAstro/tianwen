@@ -86,6 +86,16 @@
     <PackageReference Include="QHYCCD.SDK" />
   </ItemGroup>
 
+  <!-- PlayerOne.SDK: native Player One camera drivers, same reasoning again. This one covers more
+       of the RID space than either sibling (Windows x86/x64, Linux x86/x64/arm/arm64, and macOS
+       universal), so it is the only vendor here a Mac consumer can drive hardware with. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\PlayerOne.SDK\PlayerOne.SDK.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="PlayerOne.SDK" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />

@@ -25,6 +25,7 @@ builder.Services
     .AddExternal()
     .AddAstrometry()
     .AddZWO()
+    .AddPlayerOne()
     .AddQHY()
     .AddAscom()
     .AddAlpaca()
