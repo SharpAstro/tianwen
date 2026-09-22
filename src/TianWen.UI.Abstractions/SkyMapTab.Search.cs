@@ -886,7 +886,7 @@ namespace TianWen.UI.Abstractions
                 return false; // never armed (press didn't reach the map) or classified as a drag-pan
             }
 
-            PostSignal(new SkyMapClickSelectSignal(upX, upY, downModifiers));
+            EmitSelectAt(upX, upY, downModifiers);
             return true;
         }
 

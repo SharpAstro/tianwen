@@ -996,8 +996,7 @@ namespace TianWen.UI.Abstractions
             {
                 Name = name;
                 Hit = new HitResult.ButtonHit(hitPrefix + name);
-                OnClick = _ => owner.PostSignal(
-                    new SkyMapClickSelectSignal(ScreenX, ScreenY, InputModifier.None));
+                OnClick = _ => owner.EmitSelectAt(ScreenX, ScreenY, InputModifier.None);
             }
 
             public string Name { get; }

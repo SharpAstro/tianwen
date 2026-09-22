@@ -346,6 +346,11 @@ namespace TianWen.UI.Abstractions
                     var col = item.IsPinned
                         ? new RGBAColor32(0xFF, 0x90, 0x50, (byte)(a * 255f))
                         : RGBAColor32.FromFloat(r, g, b, a);
+                    // A host's selection wears the host's colour here, so the host draws no second name.
+                    if (State.HostSelection is { } hostSel && hostSel.Index == item.Index)
+                    {
+                        col = new RGBAColor32(hostSel.Color.Red, hostSel.Color.Green, hostSel.Color.Blue, (byte)(a * 255f));
+                    }
                     for (var i = 0; i < item.LabelLines.Count; i++)
                     {
                         DrawText(item.LabelLines[i].AsSpan(), fontPath,
@@ -376,7 +381,7 @@ namespace TianWen.UI.Abstractions
                         var objY = item.ScreenY;
                         RegisterClickable(lx, ly, maxLineW, labelH,
                             new HitResult.ButtonHit($"SkyMapObjectLabel:{item.LabelLines[0]}"),
-                            _ => PostSignal(new SkyMapClickSelectSignal(objX, objY, InputModifier.None)));
+                            _ => EmitSelectAt(objX, objY, InputModifier.None));
                     }
                 },
                 reservedRegions: HostOccluderReservation, pictureMarkWidth: pictureMarkWidth);

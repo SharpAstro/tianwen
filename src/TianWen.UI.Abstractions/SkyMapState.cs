@@ -238,6 +238,16 @@ namespace TianWen.UI.Abstractions
         public SkyMapHoverTarget? HoverTarget { get; set; }
 
         /// <summary>
+        /// The object a HOST painting this map behind its own content has selected, and the colour
+        /// its selection wears there, or null. The map's own label for that object is drawn in that
+        /// colour instead of the object's, so the host does not have to name it a second time beside
+        /// the map's label: the FITS viewer's ring on NGC 7000 used to carry "North America Nebula"
+        /// in the accent next to the map's own orange "North America Nebula / NGC 7000". Set by the
+        /// host every frame it paints the map; cleared when it stops.
+        /// </summary>
+        public (CatalogIndex Index, DIR.Lib.RGBAColor32 Color)? HostSelection { get; set; }
+
+        /// <summary>
         /// Current mount pointing for the reticle overlay. Null when no mount is connected
         /// or its coordinates can't be read. Populated by the event loop from the single
         /// canonical <c>LiveSessionState.MountState</c> (fed by the preview poll while idle,

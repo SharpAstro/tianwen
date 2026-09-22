@@ -59,6 +59,18 @@ namespace TianWen.UI.Abstractions
                     // the user afterwards.
                     value.State.LayerPalette.OffsetAlong =
                         BaseHistogramMargin + BaseHistogramHeight + FloatingPalette.Margin;
+
+                    // The map's label regions win the hit test over this widget's press, so a tap on
+                    // one has to come back here as a selection rather than leave as a signal nothing
+                    // in this host subscribes to. The point is the object's own screen position, so
+                    // it resolves exactly as a tap on the marker would.
+                    value.HostSelectAt = (x, y) =>
+                    {
+                        if (_state is { } current && TrySelectObjectAt(current, x, y))
+                        {
+                            current.NeedsRedraw = true;
+                        }
+                    };
                 }
             }
         }
@@ -205,6 +217,7 @@ namespace TianWen.UI.Abstractions
                 if (SkyBackdrop is { } idle)
                 {
                     idle.State.OccludedByHost = null;
+                    idle.State.HostSelection = null;
                 }
 
                 return false;
@@ -217,6 +230,12 @@ namespace TianWen.UI.Abstractions
             }
 
             SkyBackdropView.ApplyTo(tab.State, in solution);
+
+            // The map names this widget's selection in this widget's colour, in its own label, so the
+            // ring beside a map-placed selection draws no second name (SolveSelectionRing).
+            tab.State.HostSelection = state.SelectedObject is { Index: { } selectedIndex }
+                ? (selectedIndex, ViewerTheme.Palette.Accent)
+                : null;
 
             // Which of the two grids is right depends on how far past the frame's reference the pane
             // reaches, so it is measured HERE, where the placement that decides it is in hand.
