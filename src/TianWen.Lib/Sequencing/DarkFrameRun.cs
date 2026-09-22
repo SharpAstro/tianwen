@@ -1,0 +1,137 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging;
+
+namespace TianWen.Lib.Sequencing;
+
+/// <summary>
+/// What to shoot: one row of a dark library.
+/// </summary>
+/// <param name="Exposure">Exposure per frame. A dark must match the LIGHT's exposure exactly, since
+/// dark current accumulates with time, so this is never rounded or adjusted.</param>
+/// <param name="Count">Frames to capture.</param>
+/// <param name="Gain">Camera gain, or null to leave whatever is set. Matters more than it looks on a
+/// body whose conversion gain changes at a threshold: a Uranus-C at gain 200 is in low conversion
+/// gain and at 220 is in high, and no header says which, so a dark shot on the wrong side of it does
+/// not describe the light however well the temperature matches.</param>
+/// <param name="Offset">Camera offset / black level, or null to leave it. A dark with a different
+/// offset has a different pedestal and subtracts to the wrong level.</param>
+/// <param name="Bin">Binning, 1 unless the lights were binned.</param>
+public sealed record DarkFrameRunOptions(
+    TimeSpan Exposure,
+    int Count,
+    short? Gain = null,
+    int? Offset = null,
+    int Bin = 1);
+
+/// <summary>One captured frame and the state it was captured in.</summary>
+public sealed record DarkFrameCaptured(string Path, DateTimeOffset StartedUtc, double SensorTemperatureC);
+
+/// <summary>
+/// Captures a set of dark frames from one camera, with no mount, no cover and no filter wheel.
+/// </summary>
+/// <remarks>
+/// <para>This lives in the library rather than in the CLI verb that drives it, for the same reason
+/// the flat run does: a capture is product logic, and a copy of it in a script diverges from the one
+/// the session uses without anything failing.</para>
+/// <para><b>Nothing here darkens the sensor.</b> <see cref="FrameType.Dark"/> asks the driver for a
+/// closed mechanical shutter where the body has one, and most CMOS astro cameras do not, so on those
+/// the operator caps the telescope. The frame type is still the thing that matters, because it is
+/// what the stacker matches on; the path is cosmetic.</para>
+/// <para><b>Every frame carries its OWN measured temperature</b>, stamped by the driver into
+/// <c>CCD-TEMP</c> at capture. That is not a convenience on an unregulated body: there is no setpoint
+/// to record instead, and the sensor follows the room, so the per-frame value is the only true
+/// statement about what was shot. The run reports the observed spread so a caller can see whether the
+/// set is one library row or several.</para>
+/// </remarks>
+public sealed class DarkFrameRun(IExternal external, ITimeProvider timeProvider, ILogger<DarkFrameRun> logger)
+{
+    /// <summary>
+    /// How often the frame-ready flag is polled. Short enough not to add meaningfully to a long
+    /// exposure's wall clock, long enough not to spin.
+    /// </summary>
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(250);
+
+    public async ValueTask<IReadOnlyList<DarkFrameCaptured>> RunAsync(
+        ICameraDriver camera,
+        DarkFrameRunOptions options,
+        IProgress<DarkFrameCaptured>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.Count, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.Exposure, TimeSpan.Zero);
+
+        if (options.Bin is > 0 and var bin && bin != camera.BinX)
+        {
+            camera.BinX = bin;
+            camera.BinY = bin;
+        }
+
+        if (options.Gain is { } gain)
+        {
+            await camera.SetGainAsync(gain, cancellationToken);
+        }
+
+        if (options.Offset is { } offset)
+        {
+            await camera.SetOffsetAsync(offset, cancellationToken);
+        }
+
+        var folder = Path.Combine(
+            external.ImageOutputFolder.FullName,
+            "Darks",
+            DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", DateTimeFormatInfo.InvariantInfo));
+        Directory.CreateDirectory(folder);
+
+        var captured = new List<DarkFrameCaptured>(options.Count);
+
+        for (var frame = 1; frame <= options.Count; frame++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var startedUtc = await camera.StartExposureAsync(options.Exposure, FrameType.Dark, cancellationToken);
+
+            while (!await camera.GetImageReadyAsync(cancellationToken))
+            {
+                await timeProvider.SleepAsync(PollInterval, cancellationToken);
+            }
+
+            var image = await camera.GetImageAsync(cancellationToken)
+                ?? throw new InvalidOperationException($"Camera reported frame {frame} ready but returned no image");
+
+            try
+            {
+                var meta = image.ImageMeta;
+
+                // The state goes in the NAME as well as the header, because a dark library is read by
+                // people as well as by the stacker, and a folder of frame_0001.fits tells a human
+                // nothing about which row they belong to.
+                var stem = string.Create(CultureInfo.InvariantCulture,
+                    $"dark_{options.Exposure.TotalSeconds:0.###}s_g{meta.Gain}_o{meta.Offset}_{meta.CCDTemperature:0.0}C_{startedUtc:yyyy-MM-ddTHH_mm_ss}_{frame:0000}");
+                var path = Path.Combine(folder, external.GetSafeFileName(stem) + ".fits");
+
+                await external.WriteFitsFileAsync(image, path);
+
+                var record = new DarkFrameCaptured(path, startedUtc, meta.CCDTemperature);
+                captured.Add(record);
+                progress?.Report(record);
+
+                logger.LogInformation(
+                    "Dark {Frame}/{Count}: {Exposure}s at {Temp:0.0} C, gain {Gain}, offset {Offset} -> {Path}",
+                    frame, options.Count, options.Exposure.TotalSeconds, meta.CCDTemperature, meta.Gain, meta.Offset, path);
+            }
+            finally
+            {
+                image.Release();
+            }
+        }
+
+        return captured;
+    }
+}
