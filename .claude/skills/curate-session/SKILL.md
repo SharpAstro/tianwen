@@ -207,7 +207,7 @@ The bake reads the filter off the Organized directory name, so **the slug decide
 gets an SPCC curve**. Check it before creating the folder:
 
 ```
-dotnet test TianWen.Lib.Tests -c Debug --filter "FullyQualifiedName~SpccReachabilityProbe" --logger "console;verbosity=detailed"
+dotnet test TianWen.Lib.Tests -c Debug --filter "FullyQualifiedName~SpccReachabilityProbe" --output Detailed
 ```
 
 **A tag that says LESS resolves WORSE**, which inverts the usual instinct about verbose names.

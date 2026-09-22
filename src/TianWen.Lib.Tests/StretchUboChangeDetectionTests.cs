@@ -54,6 +54,14 @@ namespace TianWen.Lib.Tests
             var (first, second) = _gpu.Invoke(() =>
             {
                 var p = _gpu.Pipeline!;
+                // The pipeline comes from a CLASS fixture, so this slot still holds whatever the
+                // previous test in this class left in it. Put a known-different shape in first:
+                // otherwise "the first write is a change" is an assertion about test ORDER, not about
+                // the comparison. It read as an assertion about the comparison for as long as the
+                // order happened to put an altering test immediately before this one, and xunit 4.x
+                // discovers this class in a different order from 3.2.2, where the test before it
+                // leaves the baseline already written and `first` came back False.
+                Write(p, normFactor: 0.125f);
                 Write(p);
                 var a = p.StretchUboChanged();
                 Write(p);
@@ -61,7 +69,7 @@ namespace TianWen.Lib.Tests
                 return (a, b);
             });
 
-            first.ShouldBeTrue("the slot had not been written in this shape before");
+            first.ShouldBeTrue("a write that differs from the one before it must read as a change");
             second.ShouldBeFalse("identical uniforms must not read as a change, or nothing is ever reusable");
         }
 

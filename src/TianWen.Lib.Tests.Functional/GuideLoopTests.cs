@@ -533,7 +533,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             $"guiding should keep total RMS bounded even with {label}");
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenSeeingJitterWhenRenderThenCentroidVaries()
     {
         // Same seed, same offset, but different jitter RNG state → different centroids
@@ -562,7 +562,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             "seeing jitter should produce different centroid positions between frames");
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenNoSeeingWhenRenderThenCentroidStable()
     {
         // Without jitter RNG, same parameters should produce identical frames

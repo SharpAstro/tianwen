@@ -62,11 +62,15 @@ gets promoted to a diagnosis.
 ```bash
 cd src
 OUT="$SCRATCH/testrun-$(date +%H%M%S)"; mkdir -p "$OUT"
-dotnet test TianWen.Lib.Tests -p:UseLocalSiblings=false --no-build   --logger "trx;LogFileName=run.trx"   --logger "console;verbosity=detailed"   --blame-hang --blame-hang-timeout 5min   --results-directory "$OUT" > "$OUT/console.log" 2>&1
+dotnet test TianWen.Lib.Tests -p:UseLocalSiblings=false --no-build   --report-trx --report-trx-filename run.trx   --output Detailed   --crashdump --hangdump --hangdump-timeout 5min --crash-sequence on   --results-directory "$OUT" > "$OUT/console.log" 2>&1
 ```
 
-Redirect to a file, never a pipe. `--blame-hang` matters locally too: without it a hung test
+Redirect to a file, never a pipe. `--hangdump` matters locally too: without it a hung test
 looks identical to a slow one and the run simply never ends.
+
+**These are Microsoft.Testing.Platform options, not VSTest ones** (xunit.v3 4.x runs on MTP;
+see `global.json`). `--logger` and `--blame-*` no longer exist and fail the run with an unknown
+option, which is the good outcome; `--filter` survived unchanged, VSTest syntax and all.
 
 ## Reading the result -- from the TRX, not the console
 
@@ -84,8 +88,9 @@ for path in glob.glob(OUT + '/*.trx'):
                 print('   ', (m.text or '')[:800])
 ```
 
-Check `total` as well as `failed`: a filter that matches nothing exits 0, and a stale-binary
-run reports a count that does not match the source.
+Check `total` as well as `failed`: a stale-binary run reports a count that does not match the
+source. A filter that matches nothing is now caught by the platform (exit code 8, and
+`--minimum-expected-tests N` states a floor), which is what CI leans on in the DEBUG leg.
 
 ## Hunting a flake
 
@@ -101,12 +106,25 @@ the bar; without a name, say so explicitly rather than implying it was diagnosed
 
 ## When it hung rather than failed
 
-`--blame-hang` writes `Sequence_*.xml` beside the dumps. The test still running is the one
-that hung -- everything else is `Completed="True"`:
+`--crash-sequence on` writes `<app>_<hash>_crash.sequence.log` into the results directory, as
+tab-separated `STARTED`/`ENDED` lines. It is written AS THE RUN GOES and deleted when the run
+exits cleanly, so it is there for a hang and for a kill and not only for a crash, and a green run
+leaves none (do not go looking for it after a pass). The test still running is the one with a
+`STARTED` line and no `ENDED` line:
 
 ```python
-r = ET.parse('Sequence_*.xml').getroot()
-print([e.get('DisplayName') for e in r.findall('Test') if e.get('Completed') != 'True'])
+import glob
+ended, name = set(), {}
+for path in glob.glob(OUT + '/*crash.sequence.log'):
+    for line in open(path, encoding='utf-8-sig'):
+        if line.startswith('#'):
+            continue
+        ev, _ts, uid, rest = line.rstrip('\n').split('\t')
+        if ev == 'STARTED':
+            name[uid] = rest
+        else:
+            ended.add(uid)
+print([n for uid, n in name.items() if uid not in ended])
 ```
 
 That is how `DeviceOwnershipTests.AFinishedRunGivesTheRigBack` was identified: 4824 of 4825
@@ -122,7 +140,7 @@ calls `SessionTestHelper.CreateSessionAsync` belongs in that collection and want
 timeout and a multi-GB dump instead of one red test, and the bound is what made this nameable.
 
 On CI the same artifacts are uploaded as `test-blame-<leg>`. The dump is large (4.8 GB
-uncompressed in one case); the `Sequence_*.xml` beside it is ~2 MB and is usually all you need,
+uncompressed in one case); the sequence log beside it is ~2 MB and is usually all you need,
 so download the artifact ZIP and extract just that rather than letting `gh run download`
 expand the dumps.
 

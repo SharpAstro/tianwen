@@ -135,7 +135,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         result.ShouldBe(CalibrationValidationResult.Valid);
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public async Task GivenCalibrationResultWhenTransformThenMountAxesSeparated()
     {
         // Given a 45° camera rotation

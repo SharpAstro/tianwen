@@ -179,7 +179,7 @@ jobs:
       run: dotnet build $TEST_PROJECT -c $BUILD_CONF --no-restore
       working-directory: src
     - name: Alpaca simulator tests
-      run: dotnet test $TEST_PROJECT -c $BUILD_CONF --no-build --logger "console;verbosity=detailed"
+      run: dotnet test $TEST_PROJECT -c $BUILD_CONF --no-build --output Detailed
       working-directory: src
     - name: Upload OmniSim log
       if: always()
@@ -294,5 +294,5 @@ jobs:
     - name: ASCOM simulator tests
       env:
         TIANWEN_ASCOM_CI: "1"
-      run: dotnet test $env:TEST_PROJECT -c $env:BUILD_CONF --no-build --logger "console;verbosity=detailed"
+      run: dotnet test $env:TEST_PROJECT -c $env:BUILD_CONF --no-build --output Detailed
       working-directory: src

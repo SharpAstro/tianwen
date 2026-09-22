@@ -241,7 +241,7 @@ the flip happens and ~128 frames are written, then the loop stops with the pump'
 so fake time never advances again. Not slowness (survives a 900 s budget and halving the frame count)
 and specific to coupled + `FakeSkywatcherMountDriver` + `ExternalTimePump`. Opting that one test out
 keeps the hang out of CI instead of hiding it behind a shorter run, and costs it nothing it had
-before. Root-causing it needs a stack (`--blame-hang`), not more inference.
+before. Root-causing it needs a stack (`--hangdump`), not more inference.
 
 ## Invariants to preserve
 

@@ -66,7 +66,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         return (factory, external);
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenProfileWithOneOTAWhenCreateWithScheduledObservationsThenSessionIsCreated()
     {
         // given
@@ -110,7 +110,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         session.Setup.GuiderSetup.HasFocuser.ShouldBeFalse();
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenProfileWithMultipleOTAsWhenCreatedThenAllTelescopesArePopulated()
     {
         // given
@@ -145,7 +145,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         session.Setup.Telescopes[1].FocalLength.ShouldBe(1200);
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenProfileWithOAGWhenCreatedThenGuiderSetupReferencesCorrectOTA()
     {
         // given
@@ -177,7 +177,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         session.Setup.GuiderSetup.OAG.ShouldBeSameAs(session.Setup.Telescopes[0]);
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenProfileWithGuiderCameraWhenCreatedThenGuiderSetupHasCamera()
     {
         // given
@@ -204,7 +204,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         session.Setup.GuiderSetup.Camera.ShouldNotBeNull();
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenProfileWithGuiderFocuserWhenCreatedThenGuiderSetupHasFocuser()
     {
         // given
@@ -231,7 +231,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         session.Setup.GuiderSetup.Focuser.ShouldNotBeNull();
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenUnknownProfileIdWhenCreateThenThrowsArgumentException()
     {
         // given
@@ -251,7 +251,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         );
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenProfileWithScheduledObservationsWhenCreateThenSessionIsCreated()
     {
         // given
@@ -324,7 +324,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         await deviceDiscovery.Received(1).DiscoverAsync(Arg.Any<CancellationToken>());
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenProfileWithFocusDirectionOverridesWhenCreatedThenFocusDirectionIsSet()
     {
         // given
@@ -350,7 +350,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         session.Setup.Telescopes[0].FocusDirection.OutwardIsPositive.ShouldBeFalse();
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenDeviceDependentGuiderWhenCreatedWithGuiderCameraThenGuiderReceivesMountAndCamera()
     {
         // given: use BuiltInGuiderDevice which implements IDeviceDependentGuider
@@ -382,7 +382,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         builtInDriver.CameraDriver.ShouldBeSameAs(s.Setup.GuiderSetup.Camera!.Driver);
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenDeviceDependentGuiderWhenCreatedWithoutGuiderCameraThenThrows()
     {
         // given: BuiltInGuiderDevice with no guider camera configured
@@ -405,7 +405,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         );
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenProfileWithZeroOTAsWhenCreateThenThrowsArgumentException()
     {
         // given
@@ -424,7 +424,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         ).Message.ShouldContain("at least one OTA");
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenProfileWithApertureAndOpticalDesignWhenCreatedThenOTAHasValues()
     {
         // given
@@ -450,7 +450,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         telescope.OpticalDesign.NeedsFocusAdjustmentPerFilter.ShouldBeFalse();
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenProfileWithRefractorWhenCreatedThenNeedsFocusAdjustmentPerFilter()
     {
         // given
@@ -476,7 +476,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         telescope.OpticalDesign.NeedsFocusAdjustmentPerFilter.ShouldBeTrue();
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenProfileWithFilterWheelWhenCreatedThenOTAHasFilterWheel()
     {
         // given
@@ -504,7 +504,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         telescope.Focuser.ShouldNotBeNull();
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenProfileWithCoverWhenCreatedThenOTAHasCover()
     {
         // given
@@ -532,7 +532,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         telescope.FilterWheel.ShouldBeNull();
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenProfileWithFullOTAWhenCreatedThenAllDevicesWired()
     {
         // given: OTA with camera, focuser, filter wheel, cover, aperture, and optical design
@@ -570,7 +570,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         telescope.FocusDirection.OutwardIsPositive.ShouldBeTrue();
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenUnresolvableDeviceUriInProfileWhenCreateThenThrowsArgumentException()
     {
         // given: camera URI uses an unknown scheme that the registry won't resolve
@@ -592,7 +592,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         ).Message.ShouldContain("failed to instantiate");
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenOAGOnSecondOTAWhenCreatedThenGuiderReferencesSecondTelescope()
     {
         // given: two OTAs, OAG on the second (index 1)
@@ -623,7 +623,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         session.Setup.GuiderSetup.OAG.ShouldBeSameAs(session.Setup.Telescopes[1]);
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenScheduleWithCustomSubExposureWhenCreateThenPreserved()
     {
         // given: schedule with 60s sub-exposure

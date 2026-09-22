@@ -518,7 +518,7 @@ namespace TianWen.Lib.Tests
         /// the actionable one -- at solve time the detection list is what it is and the CATALOG cut is
         /// the free variable, so this asks whether any cut aligns the two populations.</para>
         /// </remarks>
-        [Fact(Timeout = 900_000)]
+        [Fact]
         public void ReportWhetherSharedQuadsAreAPopulationOrAConstructionProblem()
         {
             Assert.SkipUnless(
@@ -612,7 +612,7 @@ namespace TianWen.Lib.Tests
         /// frame exactly, so a tolerance of 0 ought to be enough and anything wider only admits more
         /// candidates. If locks need a WIDE tolerance here, the window is not what was blocking them.
         /// </remarks>
-        [Fact(Timeout = 900_000)]
+        [Fact]
         public void ReportWhetherARatioOnlyMatchLocksWhereTheMixedUnitOneCannot()
         {
             Assert.SkipUnless(
@@ -683,7 +683,7 @@ namespace TianWen.Lib.Tests
         /// projection should match the SAME quads. If it does, the two-parity race the seed runs today
         /// is pure waste for a quad matcher.</para>
         /// </remarks>
-        [Fact(Timeout = 1_800_000)]
+        [Fact]
         public void ReportWhetherQuadsSurviveAWrongHint()
         {
             Assert.SkipUnless(

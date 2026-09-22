@@ -2,9 +2,9 @@ name: Analyze crash dump
 
 # Reusable, on-demand analyzer for the crash dumps the test jobs capture.
 #
-# The unit-test job (dotnet.yml) runs with --blame-crash + DOTNET_DbgEnableMiniDump and, on
-# failure, uploads a `test-blame-<runner>` artifact holding the runtime minidump(s) + the blame
-# Sequence_*.xml (the last test executed per thread before a crash). Those dumps are architecture-
+# The unit-test job (dotnet.yml) runs with --crashdump + DOTNET_DbgEnableMiniDump and, on
+# failure, uploads a `test-blame-<runner>` artifact holding the runtime minidump(s) + the crash
+# sequence log (which tests were running when it died). Those dumps are architecture-
 # and OS-specific: a linux-x64 dump can only be analyzed with a matching x64 runtime + DAC, which is
 # exactly what `ubuntu-latest` provides here -- so a dev on a different arch (e.g. win-arm64) can get
 # the native stack without a local x64 box.
@@ -64,15 +64,24 @@ jobs:
           echo "== downloaded files =="
           find dump -type f -printf '%s\t%p\n' | sort -n
 
-      - name: Blame Sequence (last test per thread before the crash)
+      - name: Crash sequence (which tests were running when it died)
         run: |
           set -euo pipefail
           shopt -s globstar nullglob
-          seqs=(dump/**/Sequence_*.xml)
+          seqs=(dump/**/*crash.sequence.log)
           if [ ${#seqs[@]} -eq 0 ]; then
-            echo "no Sequence_*.xml in the artifact (crash may have been outside a test, e.g. host teardown)"
+            echo "no *_crash.sequence.log in the artifact (crash may have been outside a test, e.g. host teardown)"
           else
-            for s in "${seqs[@]}"; do echo "== $s =="; cat "$s"; echo; done
+            # The file is <event>\t<iso timestamp>\t<uid>\t<display name or state>,
+            # appended AS THE RUN GOES. A STARTED with no matching ENDED never finished, which is
+            # the one line worth reading out of a file that runs to megabytes.
+            for s in "${seqs[@]}"; do
+              echo "== $s =="
+              awk -F'\t' '/^STARTED/ { n[$3] = $4 } /^ENDED/ { delete n[$3] }
+                          END { for (uid in n) print "  still running: " n[uid] }' "$s"
+              echo "  (last 10 events)"
+              tail -n 10 "$s" | sed 's/^/    /'
+            done
           fi
 
       - name: Locate the dump
@@ -80,7 +89,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s globstar nullglob
-          # Prefer the runtime minidump (DOTNET_DbgEnableMiniDump) over the blame testhost dump.
+          # Prefer the runtime minidump (DOTNET_DbgEnableMiniDump) over the test process dump.
           cands=(dump/**/coredump-*.dmp dump/**/*.dmp)
           if [ ${#cands[@]} -eq 0 ]; then
             echo "no .dmp found in the artifact" >&2

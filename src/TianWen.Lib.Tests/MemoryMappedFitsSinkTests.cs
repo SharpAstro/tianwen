@@ -108,6 +108,8 @@ public class MemoryMappedFitsSinkTests
 
         // Pixel-equivalent master + rejection map + aggregate stats.
         Flatten(mmfResult.Master).ShouldBe(Flatten(refResult.Master));
+        mmfResult.RejectionMap.ShouldNotBeNull();
+        refResult.RejectionMap.ShouldNotBeNull();
         Flatten(mmfResult.RejectionMap).ShouldBe(Flatten(refResult.RejectionMap));
         mmfResult.FrameCount.ShouldBe(refResult.FrameCount);
         mmfResult.TotalRejections.ShouldBe(refResult.TotalRejections);

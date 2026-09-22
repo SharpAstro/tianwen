@@ -12,7 +12,7 @@ namespace TianWen.Lib.Tests.Functional;
 
 public class FocusDirectionTests(ITestOutputHelper output)
 {
-    [Theory(Timeout = 60_000)]
+    [Theory]
     [InlineData(true, true, true, 1)]
     [InlineData(true, false, false, -1)]
     [InlineData(false, true, false, -1)]

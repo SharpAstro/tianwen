@@ -313,26 +313,31 @@ jobs:
       working-directory: src
     - name: Unit Tests
       if: matrix.config == 'Release'
-      # verbosity=detailed surfaces ITestOutputHelper messages for Skip+Pass tests too,
+      # --output Detailed surfaces ITestOutputHelper messages for Skip+Pass tests too,
       # not just Fail, which is useful for the GPU comp tests' diagnostic dumps.
       #
-      # --blame-crash + --blame-hang capture a Sequence_*.xml (last test before
-      # the testhost died) and a *.dmp (testhost crash dump) under test-results/.
+      # --crashdump + --hangdump + --crash-sequence capture a <app>_<hash>_crash.sequence.log
+      # (tab separated STARTED / ENDED lines, written AS THE RUN GOES, so a hang leaves one
+      # too) and a *.dmp under test-results/. They are the
+      # Microsoft.Testing.Platform equivalents of VSTest's --blame-crash / --blame-hang,
+      # and they come from the CrashDump / HangDump extension packages TianWen.Lib.Tests
+      # references: on MTP the --blame-* flags do not exist at all, so a stale copy of
+      # this line fails the step with 'Unknown option' rather than quietly collecting less.
       # The hang timeout fires when a single test stalls > 5 min, which catches
-      # the "tests finished but testhost lingered then crashed" pattern we saw
+      # the "tests finished but the test process lingered then crashed" pattern we saw
       # on the ubuntu-24.04-arm runner in run 26022912901 (70 s of silence after
       # the last test before SIGSEGV).
       #
       # DOTNET_DbgEnableMiniDump is belt-and-suspenders: the runtime writes its
       # own minidump on any unhandled .NET exception or fatal-runtime event,
-      # not just on the testhost-process crash xUnit detects. Type=2 = "Heap"
+      # not just on the test-process crash the platform detects. Type=2 = "Heap"
       # (managed heap + all threads, no full process memory). Path templated
       # so multiple dumps don't overwrite each other.
       env:
         DOTNET_DbgEnableMiniDump: "1"
         DOTNET_DbgMiniDumpType: "2"
         DOTNET_DbgMiniDumpName: /tmp/coredump-%e-%p-%t.dmp
-      run: dotnet test TianWen.Lib.Tests -c $BUILD_CONF --no-build --logger "console;verbosity=detailed" --blame-crash --blame-hang --blame-hang-timeout 5min --results-directory test-results/
+      run: dotnet test TianWen.Lib.Tests -c $BUILD_CONF --no-build --output Detailed --crashdump --hangdump --hangdump-timeout 5min --crash-sequence on --results-directory test-results/
       working-directory: src
     # ---------------------------------------------------------------------------------------
     # DEBUG leg. Some instrumentation is compiled out of Release, so the Release run above
@@ -355,23 +360,18 @@ jobs:
       working-directory: src
     - name: Unit Tests (DEBUG-gated instrumentation)
       if: matrix.config == 'Debug'
-      # The guard is not optional. `dotnet test` with a filter that matches NOTHING prints
-      # "No test matches the given testcase filter" and exits 0, so a renamed or mistyped
-      # trait would turn this whole leg into a green no-op -- the same vacuous pass the
-      # SkipUnless above exists to prevent, one level up. Read the count back from the TRX
-      # and fail when it is zero.
+      # The guard is not optional: a renamed or mistyped trait would otherwise turn this
+      # whole leg into a green no-op -- the same vacuous pass the SkipUnless above exists
+      # to prevent, one level up. --minimum-expected-tests is the platform's OWN enforcement
+      # of that rule (exit code 8 when fewer ran), so the count is no longer read back out
+      # of the TRX by hand. The TRX is still written, for the failure artifact.
       run: |
         dotnet test TianWen.Lib.Tests -c Debug --no-build --filter "Category=DebugOnly" \
-          --logger "console;verbosity=detailed" --logger "trx;LogFileName=debug-only.trx" \
+          --output Detailed --report-trx --report-trx-filename debug-only.trx \
+          --minimum-expected-tests 1 \
           --results-directory test-results-debug/
-        RAN=$(sed -n 's/.*<Counters total="\([0-9]*\)".*/\1/p' test-results-debug/debug-only.trx)
-        echo "DEBUG-gated tests executed: ${RAN:-0}"
-        if [ "${RAN:-0}" -lt 1 ]; then
-          echo "::error::The DEBUG leg ran no tests. Category=DebugOnly matched nothing, so the instrumentation it covers is unverified."
-          exit 1
-        fi
       working-directory: src
-    # On a native testhost crash (SIGSEGV -> exit 139), symbolicate the runtime minidump HERE, on
+    # On a native test-process crash (SIGSEGV -> exit 139), symbolicate the runtime minidump HERE, on
     # the same runner, while the crashed process's shared libraries are still on disk -- lldb reads
     # the minidump's module list and loads those .so from their recorded paths, so the backtrace
     # names the culprit (e.g. the lavapipe software-Vulkan .so) directly in this run's log. The
@@ -409,10 +409,11 @@ jobs:
         path: /tmp/TianWen.Lib.Tests/*/GpuStretchPipelineTests/
         if-no-files-found: ignore
         retention-days: 7
-    # Upload --blame-crash / --blame-hang artifacts + runtime minidumps so
-    # a SIGSEGV / hang in the testhost can be diagnosed without re-running.
-    # The Sequence_*.xml inside test-results/ names the last test executed
-    # before the crash; the *.dmp files (testhost + runtime) are loadable
+    # Upload --crashdump / --hangdump artifacts + runtime minidumps so
+    # a SIGSEGV / hang in the test process can be diagnosed without re-running.
+    # The *_crash.sequence.log inside test-results/ names the tests that were
+    # running when it died (STARTED with no ENDED); the *.dmp files (test
+    # process + runtime) are loadable
     # in `dotnet-dump analyze` or lldb.
     - name: Upload test-blame + crash dumps on failure
       if: failure()

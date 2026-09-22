@@ -112,6 +112,29 @@ dotnet test
 dotnet test TianWen.Lib.Tests --filter "FullyQualifiedName~Catalog"
 ```
 
+**Tests run on Microsoft.Testing.Platform (MTP), not VSTest.** xunit.v3 4.x dropped the VSTest
+bridge and the .NET 10 SDK refuses it outright ("Testing with VSTest target is no longer
+supported"), so the opt-in lives in `global.json` -- this repo's ONLY one, and it pins no SDK
+version, which is why the org rule against pinning one is untouched. Each test project is an
+`Exe`, and `Microsoft.NET.Test.Sdk` / `xunit.runner.visualstudio` / `coverlet.collector` are gone
+(nothing ever collected coverage; `Microsoft.Testing.Extensions.CodeCoverage` is the MTP
+equivalent if it is ever wanted). What changes at a call site:
+
+| VSTest | Microsoft.Testing.Platform |
+|---|---|
+| `--logger "console;verbosity=detailed"` | `--output Detailed` |
+| `--logger "trx;LogFileName=x.trx"` | `--report-trx --report-trx-filename x.trx` |
+| `--blame-crash` | `--crashdump` |
+| `--blame-hang --blame-hang-timeout 5min` | `--hangdump --hangdump-timeout 5min` |
+| `Sequence_*.xml` (written on crash) | `<app>_<hash>_crash.sequence.log`, TSV, written AS THE RUN GOES and deleted when the run exits cleanly (so a crash, a hang AND a kill leave one, and a green run leaves none) |
+| reading `<Counters total=` back out of the TRX to catch a filter that matched nothing | `--minimum-expected-tests N` |
+
+**`--filter` survived unchanged, VSTest syntax and all**, as did `xunit.runner.json` and the
+`[Collection]` / parallelism rules below. A stale `--logger` or `--blame-*` fails the run with an
+unknown option rather than collecting less, which is the good outcome. The dump and TRX options
+come from `Microsoft.Testing.Extensions.CrashDump` / `.HangDump` / `.TrxReport`, referenced by
+`TianWen.Lib.Tests` and `.Functional` only, so they do not exist on the other two suites.
+
 ## SharpAstro Sibling Libraries
 
 TianWen depends on in-house libraries published to nuget.org under the **SharpAstro** org.
@@ -198,6 +221,13 @@ and `LALR.CC` is deliberately exempt from the shared shape, so leave it alone.
 - Test data: embedded resources in `Data/` subdirectories
 - **Never use reflection in tests**: add an `internal` property/method instead (test project has `InternalsVisibleTo`)
 - **Avoid duplication**: extract shared setup to helpers (e.g., `SessionTestHelper`)
+- **A shared fixture plus an assertion about a FIRST write is an order dependency**, whether or not
+  today's order satisfies it. `IClassFixture<T>` lives for the whole class, so its state carries from
+  one test to the next: establish the precondition in the test (write a known-different shape, then
+  the one under test) rather than inheriting whatever the previous test left. Test order is not a
+  contract and it moved under us: `StretchUboChangeDetectionTests` passed for as long as an ALTERING
+  test happened to run immediately before the one that needed it, and the xunit 3.2.2 to 4.x upgrade
+  reordered the class and turned it red in Release only.
 
 ### Device-Simulator Integration Tests (on-demand)
 
@@ -240,8 +270,25 @@ as starvation for a day. Full story: `docs/architecture/session-test-harness.md`
 
 **No wall-clock `CancellationTokenSource` timeouts** in session tests; use `[Fact(Timeout = ...)]`
 (inner timeouts cause flakes). **A test that drives a whole run needs that bound**: a wedged run hangs
-rather than fails, and an unbounded hang is a five-minute `--blame-hang` timeout plus a multi-GB dump
+rather than fails, and an unbounded hang is a five-minute `--hangdump` timeout plus a multi-GB dump
 instead of one red test.
+
+**That bound is best-effort, not a guarantee, and xunit says so**: `IFactAttribute.Timeout`'s own
+documentation reads "using this with parallelization turned on will result in undefined behavior.
+Timeout is only supported when parallelization is disabled, either globally or with a
+parallelization-disabled test collection". `[Collection("Session")]` serialises its OWN tests but
+still runs alongside other collections, and neither `TianWen.Lib.Tests` nor `.Functional` sets
+`parallelizeTestCollections: false` (only `.Simulators` does), so every session bound sits in that
+undefined zone. Keep writing the bound, since it is the best available and it costs nothing, but do
+not read a hang that outlived one as impossible, and do not quote it as the reason a past hang was
+nameable without checking whether that test carried one at the time. Making it
+reliable means `parallelizeTestCollections: false` on the two suites, which is a measurement, not a
+one-line edit: less parallelism has twice come out FASTER here (see below).
+
+**A `Timeout` on a SYNCHRONOUS test does nothing at all** and the analyzer now says so
+(`xUnit1069`): the framework can fail the test but cannot interrupt a body that never awaits. 36
+such attributes were decoration and were removed in 9.0; if you add one, the test must reference
+`TestContext.Current.CancellationToken` for it to mean anything.
 
 **Less parallelism is faster here, and the config only counts if it is copied to the output.** All three
 test projects carry an `xunit.runner.json` (`maxParallelThreads: 4`; Simulators pins 1 +

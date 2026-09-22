@@ -9,7 +9,7 @@ description: >
   mesa-vulkan-drivers + libvulkan1 + vulkan-tools are a software Vulkan stack (Mesa lavapipe),
   so the GPU comp tests run end to end against the offscreen renderer instead of skipping: a
   hosted runner has no GPU, so the loader auto-picks the lavapipe ICD. lldb is there so a native
-  testhost crash can be symbolicated on the SAME runner, where the crashed process's .so files
+  test-process crash can be symbolicated on the SAME runner, where the crashed process's .so files
   still exist: the offline analyze-crash-dump workflow cannot (a fresh runner lacks those .so,
   hence lldb's "no associated executable images").
 

@@ -13,7 +13,7 @@ namespace TianWen.Lib.Tests.Functional;
 
 public class BuiltInGuiderDriverTests(ITestOutputHelper output)
 {
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenBuiltInGuiderDeviceWhenCreatedThenDefaultPulseGuideSourceIsAuto()
     {
         var device = new BuiltInGuiderDevice();
@@ -21,7 +21,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         device.PulseGuideSource.ShouldBe(PulseGuideSource.Auto);
     }
 
-    [Theory(Timeout = 60_000)]
+    [Theory]
     [InlineData("Auto", PulseGuideSource.Auto)]
     [InlineData("Camera", PulseGuideSource.Camera)]
     [InlineData("Mount", PulseGuideSource.Mount)]
@@ -36,7 +36,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         device.PulseGuideSource.ShouldBe(expected);
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenBuiltInGuiderDeviceWithInvalidQueryParamWhenCreatedThenDefaultsToAuto()
     {
         var uri = new Uri("guider://BuiltInGuiderDevice/builtin?pulseGuideSource=invalid#Built-in Guider");
@@ -85,7 +85,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         (await driver.IsGuidingAsync(ct)).ShouldBeFalse();
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenPulseGuideRouterWithCameraSourceThenRoutesToCamera()
     {
         // FakeCameraDriver has CanPulseGuide = true (ST-4 simulation)
@@ -120,7 +120,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         output.WriteLine($"Is pulse guiding after send: {isPulseGuiding}");
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenPulseGuideRouterWithAutoSourceAndNeitherSupportsThenThrows()
     {
         var external = new FakeExternal(output);

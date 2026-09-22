@@ -425,6 +425,63 @@ and that plus a base91 decode was 320 of the 389 us. Both are allocation-free no
 lookup in the program inherits. `ShowOnlyObjectsWithPicture` also reaches the click resolver, so an
 object filtered out of the overlay is no longer selectable through apparently-empty sky.
 
+**Tests run on Microsoft.Testing.Platform, and `dotnet test` is opted into it through a
+`global.json`.** xunit.v3 4.0 dropped the VSTest bridge and the .NET 10 SDK refuses that path
+outright, so a bare `dotnet test` failed with "Testing with VSTest target is no longer supported"
+until the runner was declared. `Microsoft.NET.Test.Sdk`, `xunit.runner.visualstudio` and
+`coverlet.collector` are gone from all four suites (nothing ever collected coverage, and
+`Microsoft.Testing.Extensions.CodeCoverage` is the equivalent if it is ever wanted), each test
+project is now an `Exe`, and the crash dump, hang dump and TRX come from
+`Microsoft.Testing.Extensions.CrashDump` / `.HangDump` / `.TrxReport`. `--filter` keeps its VSTest
+syntax and `xunit.runner.json` keeps its meaning, while `--logger` and `--blame-*` no longer exist
+and fail the run with an unknown option rather than collecting less. The crash sequence is a TSV
+written as the run goes (`<app>_<hash>_crash.sequence.log`) and deleted on a clean exit, not a
+`Sequence_*.xml` written on death, so a hang or a kill leaves one too and a green run leaves none. CI's DEBUG leg drops its hand-rolled "the trait matched
+nothing" TRX read-back for the platform's own `--minimum-expected-tests 1`. This `global.json`
+pins no SDK version, so the org rule against pinning one is untouched.
+
+**Every third-party pin moves to its current release**: the `Microsoft.Extensions.*` and
+`System.*` 10.0 lines to 10.0.12, ASP.NET Core WebAssembly to 10.0.12, TimeProvider.Testing to
+10.10, DotNext.Threading to 6.8, Nerdbank.Streams to 2.14, System.CommandLine to 2.0.12,
+NSubstitute to 6.2, Pastel to 8.0, Playwright to 1.62, Meziantou's xunit logger to 3.0, and Roslyn
+to 5.9. **Roslyn is the one with a floor**: a source generator that references a newer Roslyn than
+the compiler loading it is silently DISABLED, which surfaces as one `CS9057` warning and then a
+flood of missing-type errors from the code it should have generated, so 5.9 makes SDK 10.0.4xx the
+minimum for building this repo. **ONNX Runtime deliberately stays at 1.24** though 1.30 is out:
+`Microsoft.ML.OnnxRuntime.DirectML` and `.QNN` have no 1.30, and bumping the core package alone
+would unify `Microsoft.ML.OnnxRuntime.Managed` to 1.30 over 1.24 native execution providers.
+
+**A `Timeout` that could never fire is gone from 36 tests.** xunit.analyzers 2.1.0 rides in with
+xunit.v3 4.x and adds `xUnit1069`, which flags a test carrying `Timeout` that never references
+`TestContext.Current.CancellationToken`: the bound fails the test but cannot stop its body. Every
+one of the 36 it found was a SYNCHRONOUS computation test (session-factory construction, the
+synthetic renderer's maths, guider URI parsing, the quad-catalogue probes) where there is nothing
+to cancel and the attribute was decoration, so the attribute went rather than a token being
+threaded through. The rule stays on, because it protects the tests that DO drive a run, and those
+already pass the token and so never warned: `DeviceOwnershipTests` and the fake-time pump tests keep
+their bounds, as does `ReportWhetherTheQuadMatchSurvivesTheProductionProjection`, the one probe in
+that file that is async and does reference the token. Worth knowing before trusting any of these
+bounds:
+`IFactAttribute.Timeout`'s own documentation says using it "with parallelization turned on will
+result in undefined behavior", and both suites run `maxParallelThreads: 4`.
+
+**Two latent nulls the build was already warning about are fixed** rather than carried:
+`TilePipelinedStrategy` passed a strip's `RejectionMap` straight into the copy, which is null for
+a strategy that rejects nothing, so turning rejection off would have thrown on the first strip; it
+is now guarded exactly as `Coverage` beside it is. The two tests that read a rejection map now
+assert it exists first.
+
+**One test was asserting on test ORDER without saying so, and the runner change found it.**
+`StretchUboChangeDetectionTests.WritingTheSameValuesTwiceIsNotAChange` takes its pipeline from a
+CLASS fixture, so the UBO slot it writes still holds whatever the previous test in the class left
+there, and its first assertion ("this write is a change") held only while the order happened to put
+an ALTERING test immediately before it. xunit 4.x discovers the class in a different order from
+3.2.2: under the new order the test before it leaves the baseline already written, and the
+assertion failed. It passed on xunit 3.2.2 in both configurations and it passed on 4.x in Debug, so
+the order, not the configuration, is what moved. The test now writes a known-different shape first
+and asserts what it meant to assert. Worth generalising: a shared fixture plus an assertion about a
+FIRST write is an order dependency whether or not the current order satisfies it.
+
 ## 8.2
 
 The sibling pins move as a family, and a flat pixel with no throughput stops being multiplied by a
