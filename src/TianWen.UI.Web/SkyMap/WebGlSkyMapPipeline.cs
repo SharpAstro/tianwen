@@ -99,9 +99,21 @@ namespace TianWen.UI.Web.SkyMap
                 return min(r * zoomScale, 15.0);
             }
 
+            // A culled vertex has to land OUTSIDE the clip volume with a POSITIVE w.
+            // vec4(0) does not: w = 0 makes the perspective divide 0/0, which is
+            // undefined, and the clip test -w <= x <= w degenerates to 0 <= 0 <= 0, so
+            // on the way there the vertex reads as INSIDE the volume. A desktop driver
+            // drops the primitive anyway; a tiling binner deriving a tile range from
+            // NaN need not, since every comparison against NaN is false. Horizon mode
+            // sends every below-horizon star down this path, thousands per frame, and
+            // this build is the one that runs on phone GPUs. Mirrors skymap_star.vert.
+            // x = 2 > w fails the x clip plane whatever depth clamping does, and all
+            // corners land on one point, so the primitive is off-screen and zero area.
+            const vec4 CULLED_VERTEX = vec4(2.0, 2.0, 0.0, 1.0);
+
             void main() {
                 if (aMagnitude > magnitudeLimit) {
-                    gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
+                    gl_Position = CULLED_VERTEX;
                     return;
                 }
 
@@ -109,7 +121,7 @@ namespace TianWen.UI.Web.SkyMap
                     float sinAlt = sinLat * aUnitPos.z
                         + cosLat * (cosLST * aUnitPos.x + sinLST * aUnitPos.y);
                     if (sinAlt < 0.0) {
-                        gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
+                        gl_Position = CULLED_VERTEX;
                         return;
                     }
                 }
@@ -117,7 +129,7 @@ namespace TianWen.UI.Web.SkyMap
                 vec3 camPos = (viewMatrix * vec4(aUnitPos, 1.0)).xyz;
                 vec3 proj = stereoProject(camPos);
                 if (proj.z <= -0.99) {
-                    gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
+                    gl_Position = CULLED_VERTEX;
                     return;
                 }
 
@@ -249,8 +261,10 @@ namespace TianWen.UI.Web.SkyMap
                 vec3 camPos = (viewMatrix * vec4(aUnitVec, 1.0)).xyz;
                 vec3 proj = stereoProject(camPos);
                 if (proj.z <= -0.99) {
-                    // Anti-hemisphere: emit a degenerate vertex so the whole instance is culled.
-                    gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
+                    // Anti-hemisphere: cull the whole instance. Outside the clip volume
+                    // with a positive w, never vec4(0), whose 0/0 divide is undefined
+                    // and whose NaN a tiling binner need not drop. See the star shader.
+                    gl_Position = vec4(2.0, 2.0, 0.0, 1.0);
                     vLocal = vec2(0.0);
                     vSize = vec2(1.0);
                     vThickness = 0.0;
@@ -274,7 +288,17 @@ namespace TianWen.UI.Web.SkyMap
                 // Measured in SCREEN space (Y down), exactly as the Vulkan source does -- the GL
                 // NDC flip belongs at the gl_Position write and nowhere else. Flipping earlier
                 // would mirror every position angle.
-                float screenNorthAngle = atan(north2d.y, north2d.x);
+                // atan(y, x) is UNDEFINED when both arguments are zero, which this pair
+                // reaches two ways: the tip can land on the antipode sentinel (0, 0),
+                // and near the antipode k = 2 / (1 + cosD) grows without bound so
+                // center and tip are large nearly-equal numbers that cancel to nothing
+                // in float. The angle feeds cos and sin, then the corners, then
+                // gl_Position, so one NaN puts a primitive with no finite position into
+                // the stream. Orientation is meaningless there; draw unrotated instead.
+                float northLen = length(north2d);
+                float screenNorthAngle = (tipProj.z > -0.99 && northLen > 1e-6)
+                    ? atan(north2d.y, north2d.x)
+                    : 0.0;
                 float totalAngle = screenNorthAngle - aPaFromNorth;
 
                 float arcminToPx = pixelsPerRadian * 0.00029088820866;  // pi / (180 * 60)
