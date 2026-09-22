@@ -46,7 +46,13 @@ void main() {
     vec3 j2000 = transpose(mat3(ubo.viewMatrix)) * camDir;
 
     // J2000 unit vector -> equirectangular UV
-    float ra = atan(j2000.y, j2000.x);       // [-PI, PI]
+    // atan(y, x) is UNDEFINED at (0, 0), and a unit vector reaches it exactly at the
+    // celestial poles, where x and y are both zero. This is a full-screen pass, so any
+    // view holding a pole has a fragment sitting on one. Right ascension is genuinely
+    // undefined there (every meridian meets at the pole) and u is arbitrary, so take
+    // zero and let v, which is well defined, place the texel at the map's edge.
+    float raLen = length(j2000.xy);
+    float ra = raLen > 1e-6 ? atan(j2000.y, j2000.x) : 0.0;  // [-PI, PI]
     float u = ra / TWO_PI + 0.5;              // [0, 1]
     float dec = asin(clamp(j2000.z, -1.0, 1.0)); // [-PI/2, PI/2]
     float v = 0.5 - dec / PI;                 // [0, 1], north at top

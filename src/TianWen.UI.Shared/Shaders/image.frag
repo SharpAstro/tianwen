@@ -128,7 +128,16 @@ vec2 pixelToSky(vec2 pixel) {
     // skymap_mw.frag already clamps its own asin for this reason; the two had
     // drifted apart.
     float dec = asin(clamp(cosC * sinDec0 + eta * sinC * cosDec0 / rho, -1.0, 1.0));
-    float ra  = ra0 + atan(xi * sinC, rho * cosDec0 * cosC - eta * sinDec0 * sinC);
+    // atan(y, x) is UNDEFINED at (0, 0), and this pair reaches it. The rho early return
+    // above keeps sinC positive, so the first argument vanishes only where xi is zero;
+    // the second then vanishes where dec0 + c = PI/2, which is the fragment sitting on
+    // the celestial pole, an ordinary thing for a frame that contains one. Right
+    // ascension is undefined at a pole rather than merely hard to compute, so fall back
+    // to the frame centre's and let dec, computed above, carry the position.
+    float raY = xi * sinC;
+    float raX = rho * cosDec0 * cosC - eta * sinDec0 * sinC;
+    float raLen = length(vec2(raY, raX));
+    float ra  = ra0 + (raLen > 1e-12 ? atan(raY, raX) : 0.0);
     return vec2(ra, dec);
 }
 

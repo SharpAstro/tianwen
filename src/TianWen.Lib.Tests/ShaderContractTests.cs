@@ -32,11 +32,7 @@ namespace TianWen.Lib.Tests;
 /// below matters most, and it is the copy most likely to be forgotten: it drifted from the Vulkan
 /// shaders once already.</para>
 /// <para><b>What these do NOT cover.</b> A computed <c>gl_Position</c> -- every real projection --
-/// cannot be checked statically, so only CONSTANT positions are judged. A two-argument
-/// <c>atan(y, x)</c> is undefined at (0, 0) and is deliberately not linted here: two calls in the
-/// codebase reach it only on a texture-coordinate path where a NaN costs one wrong pixel and cannot
-/// reach a vertex position, and a blanket rule with exemptions carved into it stops being a rule.
-/// The one that DID feed <c>gl_Position</c> is guarded, and is pinned by name below.</para>
+/// cannot be checked statically, so only CONSTANT positions are judged.</para>
 /// </remarks>
 public class ShaderContractTests
 {
@@ -169,34 +165,69 @@ public class ShaderContractTests
     }
 
     /// <summary>
-    /// <b>The overlay's north angle is guarded.</b> This is the one <c>atan(y, x)</c> that feeds
-    /// <c>gl_Position</c>, so an undefined result there is worse than a cull gone wrong: it puts a
-    /// VISIBLE instance with no finite position into the stream. The pair reaches (0, 0) two ways --
-    /// the tip landing on the antipode sentinel, and, near the antipode, the projection scale growing
-    /// without bound so that centre and tip are large nearly-equal numbers cancelling to nothing in
-    /// float. Pinned by name rather than by a blanket lint, for the reason in the class remarks.
+    /// <b>Every two-argument <c>atan</c> is guarded.</b> <c>atan(y, x)</c> is undefined when both
+    /// arguments are zero, and all three calls in this codebase reach that point on real input:
+    /// the overlay's screen north angle near the antipode, and the two inverse projections at a
+    /// celestial pole, where right ascension is genuinely undefined rather than merely awkward.
     /// </summary>
+    /// <remarks>
+    /// <para>The overlay's is the one that matters most, because it feeds <c>gl_Position</c> through
+    /// a cosine and a sine: an undefined angle there puts a VISIBLE primitive with no finite
+    /// position into the stream, which is worse than a cull gone wrong. The other two only reach a
+    /// texture coordinate, where the cost is one wrong pixel.</para>
+    /// <para>This began as a rule pinned to the overlay shader by name, because the other two were
+    /// unguarded and a blanket rule with exemptions carved into it stops being a rule. They are
+    /// guarded now, so the rule is the blanket one, which is the version that catches the call
+    /// nobody has written yet.</para>
+    /// <para>A single-argument <c>atan(x)</c> is defined everywhere and is not matched: the
+    /// distinction is a top-level comma inside the call's own parentheses.</para>
+    /// </remarks>
     [Theory]
-    [InlineData("skymap_overlay.vert")]
-    [InlineData("WebGlSkyMapPipeline.cs.txt")]
-    public void TheOverlaysNorthAngleIsGuardedBeforeItReachesAPosition(string fileName)
+    [MemberData(nameof(ShaderSources))]
+    public void EveryTwoArgumentAtanIsGuarded(string fileName)
     {
         var text = StripComments(File.ReadAllText(Path.Combine(ShaderDir, fileName)));
 
-        var calls = Regex.Matches(text, @"atan\s*\(\s*north2d\.y\s*,\s*north2d\.x\s*\)");
-        calls.Count.ShouldBeGreaterThan(0, $"{fileName} measures the screen north angle");
-
-        foreach (Match call in calls)
+        foreach (Match call in Regex.Matches(text, @"\batan\s*\("))
         {
+            var open = text.IndexOf('(', call.Index);
+            var argument = BalancedArgument(text, open);
+            if (!HasTopLevelComma(argument))
+            {
+                continue;
+            }
+
             var statement = StatementAround(text, call.Index);
 
-            statement.Contains('?', StringComparison.Ordinal).ShouldBeTrue(
-                $"{fileName}: the north angle must be chosen, not taken unconditionally");
-            statement.Contains("north", StringComparison.Ordinal).ShouldBeTrue(
-                $"{fileName}: the guard must test the vector being measured");
-            Regex.IsMatch(statement, @"length\s*\(\s*north2d\s*\)|northLen").ShouldBeTrue(
-                $"{fileName}: the guard must test that north2d has a measurable length, since "
-                + $"atan(0, 0) is undefined -- found: {Compact(statement)}");
+            (statement.Contains('?', StringComparison.Ordinal)
+                && Regex.IsMatch(statement, @"length\s*\(|Len\b")).ShouldBeTrue(
+                $"{fileName}: atan({Compact(argument)}) is undefined at (0, 0), so it has to be "
+                + "chosen against a length test rather than taken unconditionally -- found: "
+                + $"{Compact(statement)}");
+        }
+    }
+
+    /// <summary>
+    /// The set must hold the three calls the rule above was written for, or a refactor that renames
+    /// them past the pattern would leave it passing over nothing.
+    /// </summary>
+    [Fact]
+    public void TheThreeKnownTwoArgumentAtansAreStillThere()
+    {
+        var expected = new (string File, string Marker)[]
+        {
+            ("skymap_overlay.vert", "north2d"),
+            ("skymap_mw.frag", "j2000"),
+            ("image.frag", "raY"),
+            ("WebGlSkyMapPipeline.cs.txt", "north2d"),
+            ("WebGlSkyMapPipeline.cs.txt", "j2000"),
+        };
+
+        foreach (var (file, marker) in expected)
+        {
+            var text = StripComments(File.ReadAllText(Path.Combine(ShaderDir, file)));
+            Regex.IsMatch(text, @"atan\s*\([^)]*" + Regex.Escape(marker)).ShouldBeTrue(
+                $"{file} should still measure an angle from {marker}; if that moved, move this with it");
         }
     }
 
@@ -279,6 +310,32 @@ public class ShaderContractTests
         }
 
         return text[openIndex..];
+    }
+
+    /// <summary>
+    /// Whether a call's argument list has a comma at its own nesting level, which is what separates
+    /// the two-argument <c>atan(y, x)</c> from the one-argument form. A comma inside a nested call,
+    /// as in <c>atan(max(a, b))</c>, belongs to that call and not to this one.
+    /// </summary>
+    private static bool HasTopLevelComma(string argument)
+    {
+        var depth = 0;
+        foreach (var ch in argument)
+        {
+            switch (ch)
+            {
+                case '(':
+                    depth++;
+                    break;
+                case ')':
+                    depth--;
+                    break;
+                case ',' when depth == 0:
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>The statement an index sits in: back to the previous <c>;</c> or <c>{</c>, forward to the next <c>;</c>.</summary>
