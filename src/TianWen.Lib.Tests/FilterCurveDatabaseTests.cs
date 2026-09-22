@@ -11,16 +11,16 @@ namespace TianWen.Lib.Tests;
 public sealed class FilterCurveDatabaseTests(ITestOutputHelper output)
 {
     [Fact]
-    public async Task LoadAsync_LoadsAll183Curves()
+    public async Task LoadAsync_LoadsAll184Curves()
     {
         await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
 
         FilterCurveDatabase.IsLoaded.ShouldBeTrue();
-        // 176 upstream (SETI Astro's SASP_data.fits) + 7 local, digitised from vendor charts and
+        // 176 upstream (SETI Astro's SASP_data.fits) + 8 local, digitised from vendor charts and
         // merged by tools/import-sasp-data --merge-only: IDAS_LPS_D3, IDAS_NBZ,
-        // ASKAR_COLOURMAGIC_D1/D2, OPTOLONG_L_QUAD_ENHANCE, OPTOLONG_L_ULTIMATE and OPTOLONG_L_ENHANCE. Local curves live in
-        // tools/import-sasp-data/local-filters/.
-        FilterCurveDatabase.AllCurves.Length.ShouldBe(183);
+        // ASKAR_COLOURMAGIC_D1/D2, OPTOLONG_L_QUAD_ENHANCE, OPTOLONG_L_ULTIMATE, OPTOLONG_L_ENHANCE
+        // and BAADER_SEMI_APO. Local curves live in tools/import-sasp-data/local-filters/.
+        FilterCurveDatabase.AllCurves.Length.ShouldBe(184);
 
         foreach (var curve in FilterCurveDatabase.AllCurves)
         {
@@ -972,5 +972,39 @@ public sealed class FilterCurveDatabaseTests(ITestOutputHelper output)
         // And it must still PASS light, or a "blocks everything" curve would satisfy the above.
         d3.Interpolate(4300.0).ShouldBeGreaterThan(0.5, "the blue passband must transmit");
         d3.Interpolate(6600.0).ShouldBeGreaterThan(0.5, "the H-alpha passband must transmit");
+    }
+
+    [Fact]
+    public async Task TheSemiApoNotchesSitOnTheSodiumLinesAndTheRestOfTheBandPasses()
+    {
+        // Same argument as the D3 test above, and it bites harder here: the Semi-APO is a
+        // BROADBAND filter whose whole identity is two narrow neodymium notches inside an
+        // otherwise open visible band. A mis-scaled axis would slide those notches off the sodium
+        // lines while leaving a curve that still looks like a plausible broadband filter, which is
+        // exactly the failure a peak-position check cannot see.
+        //
+        // The pairing is what makes it strong: the passes and the blocks interleave in
+        // wavelength, so an axis shifted far enough to move a notch off sodium would drag a
+        // passband onto it, and both halves cannot hold at once unless the calibration is right.
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+        FilterCurveDatabase.TryMatchFilter("Baader Semi-APO", out var semiApo).ShouldBeTrue();
+
+        foreach (var (line, name) in ((double Nm, string Name)[])[
+            (589.0, "NaI 589.0"), (589.6, "NaI 589.6")])
+        {
+            var t = semiApo.Interpolate(line * 10.0);
+            output.WriteLine($"{name,-12} -> {t:P1}");
+            t.ShouldBeLessThan(0.15, $"{name} is a line the neodymium notch suppresses");
+        }
+
+        // The band either side of the notch is open, which is what separates this from a
+        // narrowband filter and is why SPCC applies to it at all.
+        semiApo.Interpolate(4861.0).ShouldBeGreaterThan(0.5, "H-beta must transmit");
+        semiApo.Interpolate(6563.0).ShouldBeGreaterThan(0.5, "H-alpha must transmit");
+
+        // The UV and IR cuts are the other half of the filter, and a curve that passed everything
+        // outside the notches would satisfy the checks above without them.
+        semiApo.Interpolate(3800.0).ShouldBeLessThan(0.1, "the UV cut blocks below 400 nm");
+        semiApo.Interpolate(8000.0).ShouldBeLessThan(0.1, "the IR cut blocks past 730 nm");
     }
 }
