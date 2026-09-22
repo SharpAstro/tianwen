@@ -157,10 +157,37 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         {
             if (Connected && value >= 1 && value <= MaxBinX && value <= MaxBinY && value <= byte.MaxValue)
             {
-                _cameraSettings = _cameraSettings with { BinX = (byte)value };
+                _cameraSettings = RebinnedToFullFrame(_cameraSettings with { BinX = (byte)value }, value);
             }
         }
     }
+
+    /// <summary>
+    /// Rescales the region of interest to the full frame AT THE NEW BIN.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Width and Height are in BINNED pixels, and changing the bin without rescaling them
+    /// asks the sensor for a region it does not have.</b> The ROI is set at exposure time as
+    /// <c>SetROIFormat(Width, Height, BinX, ...)</c>, so a body connected at 3856 x 2180 and then
+    /// switched to bin 2 asked for 3856 x 2180 BINNED pixels, which is four times the binned sensor.
+    /// Measured on a Uranus-C: the frame came back at the full 3856 x 2180 with only the valid
+    /// quarter populated and the rest zero, and nothing failed. A bias taken that way read a mean of
+    /// 8.2 ADU against the correct 32.5, purely because three quarters of it was zero.</para>
+    /// <para>Resetting to the full binned frame is the least surprising behaviour and matches what a
+    /// caller changing only the bin means. A caller that wants a sub-frame sets
+    /// <see cref="NumX"/>/<see cref="NumY"/> AFTER the bin, which is the ASCOM ordering anyway,
+    /// since those are expressed in binned pixels and their meaning changes with the bin.</para>
+    /// <para>The start position is reset with them: an offset valid at bin 1 can sit outside the
+    /// binned sensor entirely.</para>
+    /// </remarks>
+    private CameraSettings RebinnedToFullFrame(CameraSettings settings, int bin)
+        => settings with
+        {
+            Width = _deviceInfo.MaxWidth / bin,
+            Height = _deviceInfo.MaxHeight / bin,
+            StartX = 0,
+            StartY = 0
+        };
 
     public int BinY
     {
@@ -177,7 +204,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         {
             if (Connected && value >= 1 && value <= MaxBinX && value <= MaxBinY && value <= byte.MaxValue)
             {
-                _cameraSettings = _cameraSettings with { BinY = (byte)value };
+                _cameraSettings = RebinnedToFullFrame(_cameraSettings with { BinY = (byte)value }, value);
             }
         }
     }
@@ -248,7 +275,9 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
                 throw NotConnectedException();
             }
 
-            return _cameraSettings.Height;
+            // Width, not Height. Both accessors returned Height, so NumX reported the frame's height
+            // on every non-square sensor and a caller reading it back got a square ROI.
+            return _cameraSettings.Width;
         }
 
         set
@@ -257,7 +286,11 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
             {
                 throw NotConnectedException();
             }
-            else if (value >= 1 && value * BinX < CameraXSize)
+            // <=, not <. The bound is inclusive: the whole point of a binned full frame is that
+            // value * BinX EQUALS the sensor width, so the strict test rejected precisely the most
+            // common ROI there is (1928 x 2 == 3856 on an IMX585 at bin 2) and left no way to ask
+            // for the full binned frame at all.
+            else if (value >= 1 && value * BinX <= CameraXSize)
             {
                 _cameraSettings = _cameraSettings with { Width = value };
             }
@@ -285,7 +318,8 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
             {
                 throw NotConnectedException();
             }
-            else if (value >= 1 && value * BinY < CameraYSize)
+            // <=, not <; see NumX for why the strict bound made a full binned frame unreachable.
+            else if (value >= 1 && value * BinY <= CameraYSize)
             {
                 _cameraSettings = _cameraSettings with { Height = value };
             }

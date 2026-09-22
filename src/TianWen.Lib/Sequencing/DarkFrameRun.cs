@@ -23,12 +23,21 @@ namespace TianWen.Lib.Sequencing;
 /// <param name="Offset">Camera offset / black level, or null to leave it. A dark with a different
 /// offset has a different pedestal and subtracts to the wrong level.</param>
 /// <param name="Bin">Binning, 1 unless the lights were binned.</param>
+/// <param name="FrameType">
+/// <see cref="TianWen.Lib.Imaging.FrameType.Dark"/> or
+/// <see cref="TianWen.Lib.Imaging.FrameType.Bias"/>.
+/// <para>A bias IS a dark of the shortest exposure the camera accepts, but it must be LABELLED as
+/// one: <see cref="TianWen.Lib.Imaging.Calibration.MasterGroupKey"/> matches on the frame type, so a
+/// bias written as a Dark is a frame the calibration resolver will never find when it wants a bias,
+/// however short its exposure. The type is the fact; the exposure is only how it was achieved.</para>
+/// </param>
 public sealed record DarkFrameRunOptions(
     TimeSpan Exposure,
     int Count,
     short? Gain = null,
     int? Offset = null,
-    int Bin = 1);
+    int Bin = 1,
+    FrameType FrameType = FrameType.Dark);
 
 /// <summary>One captured frame and the state it was captured in.</summary>
 public sealed record DarkFrameCaptured(string Path, DateTimeOffset StartedUtc, double SensorTemperatureC);
@@ -83,9 +92,39 @@ public sealed class DarkFrameRun(IExternal external, ITimeProvider timeProvider,
             await camera.SetOffsetAsync(offset, cancellationToken);
         }
 
+        // READ BACK what the camera accepted, and refuse if it is not what was asked for.
+        //
+        // A calibration frame is defined ENTIRELY by the state it was captured in, so a silently
+        // ignored setting does not produce a worse frame, it produces a frame that belongs to a
+        // different library row and will never match the lights it was shot for. Both driver
+        // setters here fail SILENTLY by design (an out-of-range bin is a no-op, not a throw), which
+        // is survivable for a preview and not for this. Found the hard way: a bin-2 run was asked
+        // for, the driver kept bin 1, and 50 frames would have been written that no light can use.
+        if (camera.BinX != options.Bin || camera.BinY != options.Bin)
+        {
+            throw new InvalidOperationException(
+                $"Requested bin {options.Bin} but the camera reports {camera.BinX}x{camera.BinY} "
+                + $"(max bin {camera.MaxBinX}). Refusing to capture frames that would not match.");
+        }
+
+        if (options.Gain is { } wantGain && await camera.GetGainAsync(cancellationToken) is var gotGain && gotGain != wantGain)
+        {
+            throw new InvalidOperationException($"Requested gain {wantGain} but the camera reports {gotGain}.");
+        }
+
+        if (options.Offset is { } wantOffset && await camera.GetOffsetAsync(cancellationToken) is var gotOffset && gotOffset != wantOffset)
+        {
+            throw new InvalidOperationException($"Requested offset {wantOffset} but the camera reports {gotOffset}.");
+        }
+
+        logger.LogInformation(
+            "Capturing {Count} {FrameType} at bin {Bin}, ROI {Width}x{Height}, gain {Gain}, offset {Offset}",
+            options.Count, options.FrameType, camera.BinX, camera.NumX, camera.NumY,
+            await camera.GetGainAsync(cancellationToken), await camera.GetOffsetAsync(cancellationToken));
+
         var folder = Path.Combine(
             external.ImageOutputFolder.FullName,
-            "Darks",
+            options.FrameType is FrameType.Bias ? "Bias" : "Darks",
             DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", DateTimeFormatInfo.InvariantInfo));
         Directory.CreateDirectory(folder);
 
@@ -95,7 +134,7 @@ public sealed class DarkFrameRun(IExternal external, ITimeProvider timeProvider,
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var startedUtc = await camera.StartExposureAsync(options.Exposure, FrameType.Dark, cancellationToken);
+            var startedUtc = await camera.StartExposureAsync(options.Exposure, options.FrameType, cancellationToken);
 
             while (!await camera.GetImageReadyAsync(cancellationToken))
             {
@@ -112,8 +151,9 @@ public sealed class DarkFrameRun(IExternal external, ITimeProvider timeProvider,
                 // The state goes in the NAME as well as the header, because a dark library is read by
                 // people as well as by the stacker, and a folder of frame_0001.fits tells a human
                 // nothing about which row they belong to.
+                var kind = options.FrameType is FrameType.Bias ? "bias" : "dark";
                 var stem = string.Create(CultureInfo.InvariantCulture,
-                    $"dark_{options.Exposure.TotalSeconds:0.###}s_g{meta.Gain}_o{meta.Offset}_{meta.CCDTemperature:0.0}C_{startedUtc:yyyy-MM-ddTHH_mm_ss}_{frame:0000}");
+                    $"{kind}_{options.Exposure.TotalSeconds:0.#####}s_g{meta.Gain}_o{meta.Offset}_{meta.CCDTemperature:0.0}C_{startedUtc:yyyy-MM-ddTHH_mm_ss}_{frame:0000}");
                 var path = Path.Combine(folder, external.GetSafeFileName(stem) + ".fits");
 
                 await external.WriteFitsFileAsync(image, path);
@@ -123,8 +163,8 @@ public sealed class DarkFrameRun(IExternal external, ITimeProvider timeProvider,
                 progress?.Report(record);
 
                 logger.LogInformation(
-                    "Dark {Frame}/{Count}: {Exposure}s at {Temp:0.0} C, gain {Gain}, offset {Offset} -> {Path}",
-                    frame, options.Count, options.Exposure.TotalSeconds, meta.CCDTemperature, meta.Gain, meta.Offset, path);
+                    "{Kind} {Frame}/{Count}: {Exposure}s at {Temp:0.0} C, gain {Gain}, offset {Offset} -> {Path}",
+                    options.FrameType, frame, options.Count, options.Exposure.TotalSeconds, meta.CCDTemperature, meta.Gain, meta.Offset, path);
             }
             finally
             {
