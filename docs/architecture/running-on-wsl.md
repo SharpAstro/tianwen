@@ -35,10 +35,22 @@ Each of these cost time to find, and each fails in a way that does not name itse
 |---|---|
 | **.NET SDK matching the Windows one** (10.0.401) | An older SDK's Roslyn silently DROPS the source generator. Ubuntu's `dotnet` is 10.0.110, whose compiler is 5.0, and `TianWen.Lib.SourceGenerators` references 5.9. You get **one** `CS9057` warning and then **146 errors** about partial members that never mention the generator. Install with `dotnet-install.sh --version 10.0.401 --install-dir "$HOME/.dotnet"` and put it first on `PATH` with `DOTNET_ROOT` set. Do **not** "fix" it by pinning `Microsoft.CodeAnalysis.*` down in `Directory.Packages.props`. |
 | **`pwsh`** | `TianWen.Lib.csproj`'s `ExpandTycho2` target shells out to `tools/expand-tycho2.ps1`. Without it the build dies with `MSB3073 ... exited with code 127`. `dotnet tool install --global PowerShell` is enough (7.6.6 here), no Microsoft apt repo needed. |
-| **`LD_PRELOAD=/lib/aarch64-linux-gnu/libudev.so.1`** | `libEFW1.7.so` (the ZWO filter wheel) has an undefined `udev_new`, and the process dies at startup with `symbol lookup error` the moment the native is loaded. It **cannot be avoided by not calling `AddZWO()`**: a vendor native reaches an app through the REFERENCE GRAPH, so referencing `TianWen.Devices.Native` is what brings it (see CLAUDE.md, Device Management). |
+| **`LD_PRELOAD=/lib/aarch64-linux-gnu/libudev.so.1`**, for `tianwen-gui` only | `libEFW1.7.so` (the ZWO filter wheel) has an undefined `udev_new`, and the process dies at startup with `symbol lookup error` the moment the native is loaded. Not calling `AddZWO()` does not help: a vendor native reaches an app through the REFERENCE GRAPH, and the GUI references `TianWen.Devices.Native` deliberately, because it drives hardware. **`tianwen-fits` needs no preload at all**, since the whole point of that split is that an app connecting no hardware does not reference the project (see CLAUDE.md, Device Management). |
 | **`libicu`**, or `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` | A stock WSL image ships none and the app `FailFast`s inside logger construction, before its first frame. Present on this box already. |
 | **`xdotool`** | The input driver, above. Needs an X11 or XWayland session, which WSLg provides. |
 | **`vulkan-validationlayers`** | The whole point. Turn it on with `SDLVK_VALIDATION=1 SDLVK_SYNC_VALIDATION=1`. |
+
+## Which app to run
+
+`tianwen-fits` is the cheaper target: no vendor natives, so no preload, and it still builds the same
+`VkSkyMapTab` over the same `VkSkyMapPipeline` and the same shaders for its sky backdrop, hover wash
+included. Use it for a validation smoke.
+
+**It is the wrong target for the wedge**, and that is not a detail. The viewer ran the same renderer
+and the same wash for an hour beside the wedged atlas on 2026-09-22 and did not wedge. The asymmetry
+the desktop identified is the HORIZON CULL: in Horizon mode the star shader sends every below-horizon
+star down the cull path, thousands of primitives a frame, and the viewer's backdrop never does that.
+So a wedge hunt runs `tianwen-gui`, on the Sky Map tab, in Horizon mode, with the preload.
 
 ## Build on ext4, and let the siblings be absent
 
