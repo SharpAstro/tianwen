@@ -219,10 +219,10 @@ public static class OverlayEngine
             return 0f;
         }
 
-        // The angle is consumed by DrawRotatedEllipseOutline, which lays the major axis
-        // along (cos, sin) -- a MATH angle measured from screen +x, in the SAME screen
-        // frame WcsAnnotationLayer.ImageToScreen produces. So this is a plain
-        // atan2(dY, dX) over that mapping's own output and nothing else.
+        // The angle is consumed by EllipseAxes, which lays the major axis along
+        // (cos, sin) -- a MATH angle measured from screen +x, in the SAME screen frame
+        // WcsAnnotationLayer.ImageToScreen produces. So this is a plain atan2(dY, dX)
+        // over that mapping's own output and nothing else.
         //
         // Two separate reflections used to live in these three lines, which is why the
         // ellipse could look plausible at some angles and never be right:
@@ -238,40 +238,30 @@ public static class OverlayEngine
     }
 
     /// <summary>
-    /// Single source of truth for drawing a ROTATED ellipse outline, shared by
-    /// <c>VkOverlayShapes.DrawEllipse</c> (the FITS viewer's live GPU overlay) and
-    /// <c>AnnotatedRasterExport.DrawEllipseOverlay</c> (the CPU "save annotated view"
-    /// path). Both used to carry their own copy of this walk; the FITS viewer's copy
-    /// silently drifted to a version that only used <paramref name="angleRad"/> to size
-    /// an axis-aligned bounding box and never actually rotated the drawn shape (found on
-    /// M31: PA 35 degrees rendered upright and barely elongated). Renderer's own ellipse
-    /// primitive is axis-aligned only, so a rotated one is walked as a closed polyline --
-    /// exact rather than an approximation of the shape (only of its smoothness).
-    /// <see cref="TianWen.UI.Abstractions.SkyMapTab"/>'s own atlas markers do NOT go
-    /// through this: that path derives its axis vectors by reprojecting through the
-    /// view matrix every frame (the atlas view rotates freely) rather than from a
-    /// precomputed angle, and is tuned for hundreds of markers a frame, so it keeps its
-    /// own inline walk rather than paying an extra atan2/cos/sin round trip per call.
+    /// The semi-axis VECTORS of an overlay ellipse, from its semi-axes in pixels and its angle: the
+    /// major axis lies along <c>(cos, sin)</c> of <paramref name="angleRad"/>, a MATH angle from
+    /// screen +x in the frame <c>WcsAnnotationLayer.ImageToScreen</c> produces (the convention
+    /// <see cref="ComputeScreenPA"/> documents), and the minor axis is a quarter turn on. These are
+    /// what <c>Renderer.DrawEllipse</c> and <c>Renderer.FillEllipse</c> take, so the FITS viewer's
+    /// GPU overlay (<c>VkOverlayShapes.DrawEllipse</c>) and the CPU "save annotated view" path
+    /// (<c>AnnotatedRasterExport.DrawEllipseOverlay</c>) draw the marker's own shape through the
+    /// abstraction, anti-aliased and with a pixel-width stroke, on every backend alike.
     /// </summary>
-    public static void DrawRotatedEllipseOutline<TSurface>(
-        Renderer<TSurface> renderer,
-        float cx, float cy,
-        float semiMajor, float semiMinor, float angleRad,
-        RGBAColor32 color, int thickness)
+    /// <remarks>
+    /// This replaces a polyline walk both callers shared (16 to 64 flat segments with an integer
+    /// stroke), which itself replaced a copy in the viewer that had drifted to using the angle only
+    /// to size an axis-aligned bounding box (found on M31: PA 35 degrees rendered upright and barely
+    /// elongated). The walk existed because the renderer's ellipse was axis-aligned only; DIR.Lib
+    /// 10.4 declares the affine one on the abstraction, so the one thing left to state here is which
+    /// way the axes point. <see cref="TianWen.UI.Abstractions.SkyMapTab"/>'s atlas markers do NOT go
+    /// through this: that path derives its axes by reprojecting through the view matrix in the vertex
+    /// shader every frame (the atlas view rotates freely) and draws hundreds of markers as one
+    /// instanced call.
+    /// </remarks>
+    public static ((float X, float Y) U, (float X, float Y) V) EllipseAxes(float semiMajor, float semiMinor, float angleRad)
     {
-        var segments = Math.Clamp((int)(MathF.Max(semiMajor, semiMinor) * 0.7f), 16, 64);
-        var cos = MathF.Cos(angleRad);
-        var sin = MathF.Sin(angleRad);
-        Span<(float X, float Y)> points = stackalloc (float X, float Y)[segments + 1];
-        for (var i = 0; i <= segments; i++)
-        {
-            var t = i / (float)segments * MathF.Tau;
-            var ex = semiMajor * MathF.Cos(t);
-            var ey = semiMinor * MathF.Sin(t);
-            points[i] = (cx + ex * cos - ey * sin, cy + ex * sin + ey * cos);
-        }
-
-        renderer.DrawPolyline(points, color, thickness);
+        var (sin, cos) = MathF.SinCos(angleRad);
+        return ((semiMajor * cos, semiMajor * sin), (-semiMinor * sin, semiMinor * cos));
     }
 
     /// <summary>

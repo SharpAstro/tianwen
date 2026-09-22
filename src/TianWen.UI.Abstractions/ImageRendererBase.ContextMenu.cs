@@ -415,12 +415,13 @@ namespace TianWen.UI.Abstractions
         /// apart under the pair's own circle, where "smallest" handed a tap on A's exact centre to B
         /// because B's outline is thinner. An exact tie -- a cluster at the centre of its nebula --
         /// goes to the smaller outline.</para>
-        /// <para>Tested against what the renderer PAINTS. <see cref="DrawEllipseOverlay"/> rasterises
-        /// an axis-aligned ellipse over the rotated ellipse's bounding box, so the containment test is
-        /// on that bounding-box ellipse, not on the rotated one the marker describes; a circle marker
-        /// carries its radius in <see cref="OverlayMarker.RadiusPx"/> alone and is round. A few pixels
-        /// of slack make a hairline marker (an edge-on galaxy is under two pixels across its minor
-        /// axis) hittable at all.</para>
+        /// <para>Tested against what the renderer PAINTS. <see cref="DrawEllipseOverlay"/> draws the
+        /// marker's own rotated ellipse on every backend (DIR.Lib 10.4's affine primitive), so the
+        /// containment test is on that rotated ellipse, in the marker's own frame: it used to be on
+        /// the axis-aligned bounding-box ellipse, because that was what the viewer painted. A circle
+        /// marker carries its radius in <see cref="OverlayMarker.RadiusPx"/> alone and is round. A few
+        /// pixels of slack make a hairline marker (an edge-on galaxy is under two pixels across its
+        /// minor axis) hittable at all.</para>
         /// </remarks>
         private (CelestialObject Object, CatalogIndex Index)? FindDrawnMarkerAt(float px, float py)
         {
@@ -459,16 +460,16 @@ namespace TianWen.UI.Abstractions
                     }
                     default:
                     {
-                        // The painted shape is the bounding-box ellipse of the rotated one.
+                        // The painted shape is the rotated ellipse itself, so the tap is taken into the
+                        // marker's frame (major axis along (cos, sin), as EllipseAxes lays it) and tested
+                        // against the unit disc of the slack-grown semi-axes.
                         var (sin, cos) = MathF.SinCos(marker.AngleRad);
-                        var a = marker.SemiMajorPx;
-                        var b = marker.SemiMinorPx;
-                        var halfW = MathF.Sqrt((a * a * cos * cos) + (b * b * sin * sin)) + slack;
-                        var halfH = MathF.Sqrt((a * a * sin * sin) + (b * b * cos * cos)) + slack;
-                        var nx = dx / halfW;
-                        var ny = dy / halfH;
+                        var a = marker.SemiMajorPx + slack;
+                        var b = marker.SemiMinorPx + slack;
+                        var nx = ((dx * cos) + (dy * sin)) / a;
+                        var ny = ((dy * cos) - (dx * sin)) / b;
                         inside = (nx * nx) + (ny * ny) <= 1f;
-                        extent = halfW * halfH;
+                        extent = a * b;
                         break;
                     }
                 }

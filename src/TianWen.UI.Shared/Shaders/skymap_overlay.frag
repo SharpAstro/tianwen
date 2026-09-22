@@ -8,16 +8,17 @@ layout(location = 3) in vec4  vColor;
 layout(location = 0) out vec4 FragColor;
 
 void main() {
-    // Axis-aligned ellipse SDF: (x/a)^2 + (y/b)^2 = 1 on the boundary.
-    // Scale by the mean semi-axis to convert the normalised distance back
-    // to an approximate pixel distance from the ring -- good enough for
-    // typical DSO aspect ratios (eccentric shapes get a slightly uneven
-    // stroke, still visually clean at overlay marker sizes).
+    // Ellipse ring by pixel distance: (x/a)^2 + (y/b)^2 = 1 on the boundary,
+    // and dividing the normalised distance by its own screen-space derivative
+    // turns it into an exact pixel distance at every point of the ring, so an
+    // eccentric marker is stroked as evenly as a round one. The mean semi-axis
+    // this replaces was exact only for a circle. Same rule as DIR.Lib's affine
+    // ellipse and the WebGL twin of this shader.
     vec2 s = max(vSize, vec2(0.5));
     vec2 n = vLocal / s;
     float normDist = sqrt(dot(n, n));
-    float avgR = (s.x + s.y) * 0.5;
-    float pixelDist = abs(normDist - 1.0) * avgR;
+    float g = max(length(vec2(dFdx(normDist), dFdy(normDist))), 1e-6);
+    float pixelDist = abs(normDist - 1.0) / g;
 
     float halfT = max(vThickness * 0.5, 0.5);
     // Antialiased ring: full alpha inside halfT, fade to 0 over 1 px.

@@ -1864,8 +1864,10 @@ above it, covers the centre of NGC 7173's marker 19 pixels away, and a tap on th
 pixels apart under the pair's own circle, and a tap on A's exact centre answered B because B's
 outline is thinner. A circle marker carries its radius in `RadiusPx` alone (its `SemiMinorPx` is
 zero), which is the trap the first containment test fell into: treated as an ellipse it is a
-three-pixel sliver that wins every "smallest" contest. The containment test is on the axis-aligned
-bounding-box ellipse, because that is what `VkOverlayShapes.DrawEllipse` paints.
+three-pixel sliver that wins every "smallest" contest. The containment test is on the marker's own
+rotated ellipse, in the marker's frame, because that is what `VkOverlayShapes.DrawEllipse` paints
+since the affine ellipse moved onto DIR.Lib's abstraction (10.4); it was on the axis-aligned
+bounding-box ellipse while the viewer painted that.
 
 **The name.** `SolveSelectionRing` runs once per frame BEFORE the overlay pass: the overlay leaves
 the selected object out of its label pass and reserves the ring's name box, so no neighbour's label

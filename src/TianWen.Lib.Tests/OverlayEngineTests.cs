@@ -349,8 +349,8 @@ public class OverlayEngineTests
         OverlayEngine.ComputeScreenPA(wcs, 5.0, -2.0, Half.NaN).ShouldBe(0f);
     }
 
-    // The angle is consumed by exactly one thing, DrawRotatedEllipseOutline, which lays the major
-    // axis along (cos, sin) in the screen frame WcsAnnotationLayer.ImageToScreen produces. So the
+    // The angle is consumed by exactly one thing, EllipseAxes, which lays the major axis along
+    // (cos, sin) in the screen frame WcsAnnotationLayer.ImageToScreen produces. So the
     // assertion has to be against a direction in THAT frame, derived from something other than the
     // position angle itself -- the two bugs these replace were both REFLECTIONS (one about the
     // screen diagonal, one about the horizontal), and a reflection is invisible to any check that

@@ -314,13 +314,15 @@ namespace TianWen.UI.Web.SkyMap
             out vec4 FragColor;
 
             void main() {
-                // Axis-aligned ellipse SDF: (x/a)^2 + (y/b)^2 = 1 on the boundary, scaled by the
-                // mean semi-axis to approximate a pixel distance from the ring.
+                // Ellipse ring by pixel distance: (x/a)^2 + (y/b)^2 = 1 on the boundary, and the
+                // normalised distance over its own screen-space derivative is an exact pixel
+                // distance at every point of the ring (the mean semi-axis this replaces was exact
+                // only for a circle). Byte-for-byte the Vulkan skymap_overlay.frag rule.
                 vec2 s = max(vSize, vec2(0.5));
                 vec2 n = vLocal / s;
                 float normDist = sqrt(dot(n, n));
-                float avgR = (s.x + s.y) * 0.5;
-                float pixelDist = abs(normDist - 1.0) * avgR;
+                float g = max(length(vec2(dFdx(normDist), dFdy(normDist))), 1e-6);
+                float pixelDist = abs(normDist - 1.0) / g;
 
                 float halfT = max(vThickness * 0.5, 0.5);
                 float alpha = 1.0 - smoothstep(halfT, halfT + 1.0, pixelDist);
