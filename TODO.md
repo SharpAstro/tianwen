@@ -5,6 +5,23 @@ Checks that only a real device or a real night can answer live in ONE place, ind
 
 ## High Priority
 
+- [ ] **Recover from a lost GPU device in-process** (user, 2026-09-22, high priority: "a queue
+  submit failed should not stop the whole app to work. remember we might be connecting cooling
+  cameras etc."). What happened: on the Adreno X1-85 the driver rejected every `vkQueueSubmit` for
+  minutes; the process, the session and the input all kept running, tabs changed in state, and the
+  window kept showing its last frame. SdlVulkan.Renderer 7.46 now reports a streak of rejections,
+  runs the mid-frame recovery, backs off and fires the host's load-shed; a device that stays dead
+  still leaves the window frozen on its last frame. The real fix is Vulkan's: destroy the `VkDevice`
+  and create a new one, rebuild everything device-owned in the renderer (pipelines, sync, vertex
+  ring, glyph atlases, swapchain), and give the host one "GPU resources invalidated" event so the
+  viewer re-uploads its textures, the sky map its star and Milky Way buffers, and the GUI its
+  planner chart texture (`docs/architecture/viewer-gpu-lifetime.md` holds the lifetime rules that
+  every re-upload must follow). What stays impossible is the same device after `DEVICE_LOST`, and a
+  driver that blocks inside its own teardown on a hung device (the June zombie), which is why the
+  recovery must run on the sacrificial task and be abandonable. The trigger of the 2026-09-22 wedge
+  is still unnamed on this machine (no validation layer installed); the desktop with the layer runs
+  the repro first.
+
 - [ ] **DIR.Lib 10: a control is declared once, and the engine behaves** (user, 2026-09-15, high
   priority: "the usage site of a text box should not have to write in that double click or Ctrl-A
   while inside the control selects text ... declaring that the textbox is selectable via Ctrl-F via a
