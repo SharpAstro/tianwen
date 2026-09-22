@@ -482,8 +482,8 @@ namespace TianWen.UI.Abstractions
             // Above the wide threshold the gather cannot depend on the field of view AT ALL, so the FOV
             // drops out of the key exactly as the centre already has. Three facts make that exact rather
             // than approximate: the scan sweeps the whole sphere past 90 degrees, and BOTH magnitude
-            // cutoffs are already flat by then (GetExtendedMagCutoff and GetStarMagCutoff both switch
-            // for the last time at 5 degrees, to 8.0 and 1.0). The last FOV dependence was the
+            // cutoffs are already flat by then (GetExtendedMagCutoff and GetStarMagCutoff switch for
+            // the last time at 30 and 5 degrees, to 8.0 and 1.0). The last FOV dependence was the
             // dark-nebula on-screen-size filter; the gather now admits a superset valid across the
             // whole wide range and the projection applies the exact test per frame, so [D] no longer
             // has to hold the FOV in the key.
