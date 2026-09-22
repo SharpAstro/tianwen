@@ -550,10 +550,11 @@ public class SkyMapHoverAndPictureTests
     // what is DRAWN, wherever inside the drawn shape the pointer is, for as long as it stays there.
     // ------------------------------------------------------------------------------------------
 
-    private static async System.Threading.Tasks.Task<(HoverTestSkyMapTab Tab, PlannerState Planner, ICelestialObjectDB Db)>
+    private static async System.Threading.Tasks.Task<(HoverTestSkyMapTab Tab, PlannerState Planner, ICelestialObjectDB Db, DateTimeOffset At)>
         RealSkyAsync(RgbaImageRenderer renderer, SkyMapMode mode, System.Threading.CancellationToken ct)
     {
         var db = await SharedCatalogDB.InitAsync(ct);
+        var at = new DateTimeOffset(2026, 9, 22, 20, 0, 0, TimeSpan.Zero);
         var tab = new HoverTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
         tab.State.Mode = mode;
         tab.State.ShowObjectOverlay = true;
@@ -563,9 +564,9 @@ public class SkyMapHoverAndPictureTests
             SiteLatitude = -33.9,
             SiteLongitude = 18.4,
             SiteTimeZone = TimeSpan.Zero,
-            PlanningDate = new DateTimeOffset(2026, 9, 22, 20, 0, 0, TimeSpan.Zero),
+            PlanningDate = at,
         };
-        return (tab, planner, db);
+        return (tab, planner, db, at);
     }
 
     /// <summary>
@@ -581,12 +582,12 @@ public class SkyMapHoverAndPictureTests
     {
         var ct = TestContext.Current.CancellationToken;
         using var renderer = new RgbaImageRenderer(800, 800);
-        var (tab, planner, db) = await RealSkyAsync(renderer, SkyMapMode.Equatorial, ct);
+        var (tab, planner, db, at) = await RealSkyAsync(renderer, SkyMapMode.Equatorial, ct);
         CatalogUtils.TryGetCleanedUpCatalogName("NGC265", out var ngc265).ShouldBeTrue();
         db.TryLookupByIndex(ngc265, out var cluster).ShouldBeTrue();
         ((double)cluster.V_Mag).ShouldBeGreaterThan(OverlayEngine.GetExtendedMagCutoff(6.0 * 60.0),
             "the fixture needs a cluster the six degree field does not draw");
-        var time = new FakeTimeProviderWrapper(planner.PlanningDate.Value);
+        var time = new FakeTimeProviderWrapper(at);
         var rect = new RectF32(0, 0, 800, 800);
         // The first frame with a site places the map's initial view and would override a centre set
         // before it: point the view after that frame.
@@ -616,7 +617,7 @@ public class SkyMapHoverAndPictureTests
     {
         var ct = TestContext.Current.CancellationToken;
         using var renderer = new RgbaImageRenderer(800, 800);
-        var (tab, planner, db) = await RealSkyAsync(renderer, SkyMapMode.Equatorial, ct);
+        var (tab, planner, db, at) = await RealSkyAsync(renderer, SkyMapMode.Equatorial, ct);
         db.TryLookupByIndex(CatalogIndex.NGC0292, out var smc).ShouldBeTrue();
         db.TryGetShape(CatalogIndex.NGC0292, out var shape).ShouldBeTrue();
         ((double)shape.PositionAngle).ShouldBe(45.0, 1e-6, "the fixture walks along and across the SMC's own position angle");
@@ -626,7 +627,7 @@ public class SkyMapHoverAndPictureTests
         var dec = smc.Dec + (offsetDeg * cosB);
         var ra = smc.RA + (offsetDeg * sinB / Math.Cos(double.DegreesToRadians(smc.Dec)) / 15.0);
 
-        var time = new FakeTimeProviderWrapper(planner.PlanningDate.Value);
+        var time = new FakeTimeProviderWrapper(at);
         var rect = new RectF32(0, 0, 800, 800);
         tab.Render(planner, rect, time); // the first frame with a site places the initial view
         tab.State.CenterRA = ra;
@@ -660,10 +661,10 @@ public class SkyMapHoverAndPictureTests
     {
         var ct = TestContext.Current.CancellationToken;
         using var renderer = new RgbaImageRenderer(800, 800);
-        var (tab, planner, db) = await RealSkyAsync(renderer, SkyMapMode.Horizon, ct);
+        var (tab, planner, db, at) = await RealSkyAsync(renderer, SkyMapMode.Horizon, ct);
         db.TryLookupByIndex(CatalogIndex.NGC0292, out var smc).ShouldBeTrue();
         var rect = new RectF32(0, 0, 800, 800);
-        var t0 = planner.PlanningDate.Value;
+        var t0 = at;
         tab.Render(planner, rect, new FakeTimeProviderWrapper(t0)); // the first frame with a site places the initial view
         tab.State.FieldOfViewDeg = 6.0;
         SkyMapViewActions.CenterOn(tab.State, smc.RA, smc.Dec);
