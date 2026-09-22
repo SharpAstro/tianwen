@@ -23,53 +23,14 @@ namespace TianWen.Lib.Tests
         private const int Card = FitsHeaderEditor.CardSize;
 
         private static string CreateTempDir([System.Runtime.CompilerServices.CallerMemberName] string? name = null)
-        {
-            var dir = Path.Combine(Path.GetTempPath(), "TianWen.HeaderEditorTests", name ?? "unnamed", Guid.NewGuid().ToString("N")[..8]);
-            Directory.CreateDirectory(dir);
-            return dir;
-        }
+            => FitsFixture.CreateTempDir("TianWen.HeaderEditorTests", name ?? "unnamed");
 
         /// <summary>Builds a FITS file by hand so the test owns every byte: a primary header of
         /// <paramref name="extraCards"/> plus the mandatory structural cards, then a pseudo-random
         /// but deterministic payload.</summary>
         private static (string Path, byte[] Payload) WriteFits(
             string dir, string name, IEnumerable<string> extraCards, int payloadBytes = Block * 3)
-        {
-            var cards = new List<string>
-            {
-                "SIMPLE  =                    T / C# FITS",
-                "BITPIX  =                   16",
-                "NAXIS   =                    2 / Dimensionality",
-                "NAXIS1  =                   40",
-                "NAXIS2  =                   36",
-                "BZERO   =                32768",
-            };
-            cards.AddRange(extraCards);
-
-            var headerBlocks = (cards.Count + 1 + 35) / 36;
-            var header = new byte[headerBlocks * Block];
-            header.AsSpan().Fill((byte)' ');
-            for (var i = 0; i < cards.Count; i++)
-            {
-                Encoding.ASCII.GetBytes(cards[i].PadRight(Card), header.AsSpan(i * Card, Card));
-            }
-            Encoding.ASCII.GetBytes("END".PadRight(Card), header.AsSpan(cards.Count * Card, Card));
-
-            var payload = new byte[payloadBytes];
-            // Deterministic, non-trivial content: a run of zeros would hide a truncation.
-            for (var i = 0; i < payload.Length; i++)
-            {
-                payload[i] = (byte)((i * 31 + 7) & 0xFF);
-            }
-
-            var path = Path.Combine(dir, name);
-            using (var fs = File.Create(path))
-            {
-                fs.Write(header);
-                fs.Write(payload);
-            }
-            return (path, payload);
-        }
+            => FitsFixture.WriteFits(dir, name, extraCards, payloadBytes);
 
         /// <summary>The whole 80-byte card as written, so a test can assert on FORMAT (quoting,
         /// justification) and not merely on the value a parser recovers from it.</summary>
@@ -652,21 +613,10 @@ namespace TianWen.Lib.Tests
         /// <summary>Adds <paramref name="link"/> as another name for <paramref name="existing"/>,
         /// skipping the test when the volume cannot do it. Goes through the production helper so the
         /// fixture and the code under test agree about what a hard link is.</summary>
-        private static void LinkOrSkip(string link, string existing)
-        {
-            Assert.SkipUnless(OperatingSystem.IsWindows(), "Hard links are only handled on Windows.");
-            Assert.SkipUnless(
-                HardLinkProbe.TryCreateHardLink(link, existing, out var error),
-                $"Could not create a hard link on this volume: {error}");
-        }
+        private static void LinkOrSkip(string link, string existing) => FitsFixture.LinkOrSkip(link, existing);
 
         /// <summary>The identity of the file a path names, failing the test if it cannot be read.</summary>
-        private static HardLinkProbe.FileIdentity IdentityOf(string path)
-        {
-            var identity = HardLinkProbe.TryGetIdentity(path);
-            identity.ShouldNotBeNull($"the identity of {path} must be readable");
-            return identity.Value;
-        }
+        private static HardLinkProbe.FileIdentity IdentityOf(string path) => FitsFixture.IdentityOf(path);
 
         [Fact]
         public async Task GivenAHardLinkedFrame_WhenTagging_ThenItIsRefusedAndNeitherNameChanges()

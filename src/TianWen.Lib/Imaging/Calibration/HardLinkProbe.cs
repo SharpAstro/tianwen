@@ -215,6 +215,69 @@ internal static partial class HardLinkProbe
         return false;
     }
 
+    /// <summary>Scratch name a re-pointed link is created under before it is renamed over the name
+    /// it replaces. A leftover file with this suffix says which step stopped.</summary>
+    public const string RepointSuffix = ".tianwen-relink";
+
+    /// <summary>
+    /// Makes <paramref name="namePath"/> another name for the file <paramref name="atFile"/> names,
+    /// replacing whatever it named before. The caller owns the decision that the two are
+    /// interchangeable; this owns only doing it without a window in which the name is missing.
+    ///
+    /// <para><b>The order is the safety.</b> Link first under a staging name, then rename over the
+    /// target, because a replacing rename is one atomic directory operation and the path is never
+    /// absent even for an instant. Delete-then-link has a window in which a crash loses a name
+    /// outright, and a name in this archive is how a night is found.</para>
+    ///
+    /// <para>The result is verified before returning. A rename that reports success and leaves the
+    /// path naming something else is exactly the failure this class exists to catch, and the whole
+    /// point of doing this through identity rather than through link counts.</para>
+    /// </summary>
+    /// <exception cref="IOException">The link could not be made, or the path does not name
+    /// <paramref name="atFile"/>'s file afterwards. The staging name is cleaned up either way.</exception>
+    public static void RepointTo(string namePath, string atFile)
+    {
+        if (TryGetIdentity(atFile) is not { } wanted)
+        {
+            throw new IOException($"Cannot re-point {namePath}: {atFile} cannot be read.");
+        }
+
+        var staging = namePath + RepointSuffix;
+        try
+        {
+            if (!TryCreateHardLink(staging, atFile, out var error))
+            {
+                throw new IOException($"Could not add a name for {atFile} at {staging}: {error}");
+            }
+            File.Move(staging, namePath, overwrite: true);
+        }
+        catch
+        {
+            TryDeleteStaging(staging);
+            throw;
+        }
+
+        if (TryGetIdentity(namePath) is not { } now || !now.IsSameFileAs(wanted))
+        {
+            throw new IOException(
+                $"{namePath} does not name the file {atFile} names after re-pointing (it names " +
+                $"{TryGetIdentity(namePath)?.ToString() ?? "nothing readable"}, expected {wanted}).");
+        }
+    }
+
+    /// <summary>Best effort: a leftover staging name is untidy, and throwing about it would mask
+    /// whichever real failure put us here.</summary>
+    private static void TryDeleteStaging(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
     /// <summary>The buffer's first code unit as the <c>ushort</c> the imports are declared over. A
     /// static method rather than a local function on purpose: a local function cannot take a span at
     /// all (CS8175), so the reinterpretation has to happen behind a real parameter.</summary>

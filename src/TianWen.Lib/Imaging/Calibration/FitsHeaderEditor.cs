@@ -59,11 +59,6 @@ public static class FitsHeaderEditor
     /// a throughput choice and not an allocation cost.</summary>
     private const int CompareChunk = 1 << 20;
 
-    /// <summary>Scratch name a re-pointed hard link is created under before it is renamed over the
-    /// sibling it replaces. Distinct from the temp/backup suffixes so a leftover says which step
-    /// stopped.</summary>
-    private const string RelinkSuffix = ".tianwen-relink";
-
     /// <summary>Why a file was left alone, or how it changed.</summary>
     public enum TagOutcome
     {
@@ -481,28 +476,16 @@ public static class FitsHeaderEditor
         var moved = 0;
         foreach (var sibling in siblings)
         {
-            var staging = sibling + RelinkSuffix;
             try
             {
-                // Link first, then rename over the sibling: a replacing rename is one atomic
-                // directory operation, so the sibling's path is never absent even for an instant.
-                // The opposite order, delete then link, has a window in which a crash loses a name
-                // outright, and a name in this archive is how a night is found.
-                if (!HardLinkProbe.TryCreateHardLink(staging, path, out var error))
-                {
-                    throw new IOException($"Could not add a name for the amended frame at {staging}: {error}");
-                }
-                File.Move(staging, sibling, overwrite: true);
-
-                if (HardLinkProbe.TryGetIdentity(sibling) is not { } relinked || !relinked.IsSameFileAs(amended))
-                {
-                    throw new IOException($"{sibling} still does not name the amended frame after re-linking.");
-                }
+                // The link-then-atomic-rename ordering, and the verification that the name really
+                // moved, live in HardLinkProbe.RepointTo: the archive sweeps need the same operation
+                // and two copies of it would be two chances to get the ordering wrong.
+                HardLinkProbe.RepointTo(sibling, path);
                 moved++;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                TryDelete(staging);
                 throw new IOException(
                     $"Amended {path} and re-pointed {moved} of {siblings.Length} other name(s) before failing " +
                     $"on {sibling}: {ex.Message} The names not yet re-pointed still hold the original, " +
@@ -535,7 +518,7 @@ public static class FitsHeaderEditor
     /// concatenate them, so each file paid for N block arrays, one header-sized array, and a full
     /// copy of its own header, to arrive at a number.</para>
     /// </summary>
-    private static async Task<(int Length, List<string> Cards)?> ReadPrimaryHeaderAsync(Stream stream, CancellationToken ct)
+    internal static async Task<(int Length, List<string> Cards)?> ReadPrimaryHeaderAsync(Stream stream, CancellationToken ct)
     {
         // One buffer reused for every block, which is only correct because no block outlives its own
         // pass now. It cannot be a stackalloc: a span may not be held across an await.
