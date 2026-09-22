@@ -105,14 +105,22 @@ namespace TianWen.Lib.Tests
 
             var dry = await ArchiveLinkSweep.LinkAsync(
                 raw, curated, apply: false, cancellationToken: TestContext.Current.CancellationToken);
+
+            // The dry run's own effect is none, and that is proven against the FILE: same bytes,
+            // and the raw path still names its own file rather than the curated one. Asserting
+            // only on the returned verdict would pass against a sweep that wrote anyway.
+            dry.Outcome.ShouldBe(ArchiveLinkSweep.LinkOutcome.Linked);
+            FitsFixture.ShaOfFile(raw).ShouldBe(rawBefore);
+            FitsFixture.IdentityOf(raw).IsSameFileAs(FitsFixture.IdentityOf(curated)).ShouldBeFalse();
+
             var applied = await ArchiveLinkSweep.LinkAsync(
                 raw, curated, apply: true, cancellationToken: TestContext.Current.CancellationToken);
 
-            dry.Outcome.ShouldBe(ArchiveLinkSweep.LinkOutcome.Linked);
-            dry.BytesReleased.ShouldBe(applied.BytesReleased);
-            // The dry run's own effect: none. Proven against the bytes, not against the verdict.
-            rawBefore.ShouldNotBe(FitsFixture.ShaOfFile(curated));
-            applied.Outcome.ShouldBe(ArchiveLinkSweep.LinkOutcome.Linked);
+            // ...and what it predicted is what the real run does, which is the property that makes
+            // a dry run worth reading before committing to 472 GB of re-pointing.
+            applied.Outcome.ShouldBe(dry.Outcome);
+            applied.BytesReleased.ShouldBe(dry.BytesReleased);
+            FitsFixture.IdentityOf(raw).IsSameFileAs(FitsFixture.IdentityOf(curated)).ShouldBeTrue();
         }
 
         [Fact]
