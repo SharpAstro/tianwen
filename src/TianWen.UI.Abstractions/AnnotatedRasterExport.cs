@@ -345,27 +345,25 @@ namespace TianWen.UI.Abstractions
                 ViewerState state, float left, float top, float right, float bottom, uint projW, uint projH) { }
 
             /// <summary>
-            /// An ellipse at any angle. The rasteriser offers only an axis-aligned one, so a rotated
-            /// ellipse goes through the one shared walk (<see cref="OverlayEngine.DrawRotatedEllipseOutline{TSurface}"/>),
-            /// which also backs the FITS viewer's live GPU overlay -- see that method's doc for why
-            /// this used to carry its own copy of the same loop instead.
+            /// An ellipse at any angle, through the affine ellipse on the abstraction: the same axes
+            /// (<see cref="OverlayEngine.EllipseAxes"/>) and the same pixel-distance rule the FITS
+            /// viewer's live GPU overlay draws with, so the export and the screen agree on the shape,
+            /// its anti-aliased edge and its stroke width. A non-positive thickness is a FILL, as the
+            /// base contract says; the polyline walk this replaces turned one into a one-pixel ring,
+            /// so a dot glyph exported hollow.
             /// </summary>
             protected override void DrawEllipseOverlay(float cx, float cy, float semiMajor, float semiMinor,
                 float angleRad, RGBAColor32 color, float thickness)
             {
-                var stroke = MathF.Max(1f, thickness * _scale);
-
-                if (MathF.Abs(angleRad) < 1e-3f)
+                var (u, v) = OverlayEngine.EllipseAxes(semiMajor, semiMinor, angleRad);
+                if (thickness > 0f)
                 {
-                    var rect = new RectInt(
-                        new PointInt((int)MathF.Round(cx - semiMajor), (int)MathF.Round(cy - semiMinor)),
-                        new PointInt((int)MathF.Round(cx + semiMajor), (int)MathF.Round(cy + semiMinor)));
-                    _renderer.DrawEllipse(rect, color, stroke);
-                    return;
+                    _renderer.DrawEllipse((cx, cy), u, v, color, MathF.Max(1f, thickness * _scale));
                 }
-
-                OverlayEngine.DrawRotatedEllipseOutline(_renderer, cx, cy, semiMajor, semiMinor, angleRad,
-                    color, (int)MathF.Round(stroke));
+                else
+                {
+                    _renderer.FillEllipse((cx, cy), u, v, color);
+                }
             }
 
             protected override void DrawCrossOverlay(float cx, float cy, float armLength, RGBAColor32 color)

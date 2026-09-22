@@ -20,41 +20,28 @@ public static class VkOverlayShapes
     /// a rotation angle in radians measured from the +X axis (matches
     /// <see cref="TianWen.UI.Abstractions.Overlays.OverlayMarker.Ellipse"/>).
     /// </summary>
+    /// <remarks>
+    /// One GPU draw whatever the angle, through the affine ellipse DIR.Lib 10.4 declares on the
+    /// abstraction: the axes are the marker's own, so the shape is the marker's own, anti-aliased,
+    /// with <paramref name="thickness"/> a pixel width at every point of the ring. Before that this
+    /// held three paths and two of them were wrong in a way a viewer could see: a rotated outline was
+    /// a CPU polyline of 16 to 64 flat segments with the 1.5 px stroke rounded to 2, an axis-aligned
+    /// one was a hard-edged discard ring, and a rotated fill fell back to its bounding box.
+    /// </remarks>
     public static void DrawEllipse(
         VkRenderer renderer, float dpiScale,
         float cx, float cy,
         float semiMajor, float semiMinor, float angleRad,
         RGBAColor32 color, float thickness)
     {
-        // A rotated OUTLINE goes through the one shared walk (OverlayEngine), which also
-        // backs AnnotatedRasterExport's CPU export path -- this call site used to carry
-        // its own copy that silently drifted to bounding-box-only (see the method's doc).
-        if (thickness > 0f && MathF.Abs(angleRad) >= 1e-3f)
-        {
-            OverlayEngine.DrawRotatedEllipseOutline(renderer, cx, cy, semiMajor, semiMinor, angleRad,
-                color, Math.Max(1, (int)MathF.Round(thickness * dpiScale)));
-            return;
-        }
-
-        // Bounding box of the rotated ellipse: see https://iquilezles.org/articles/ellipses/
-        // Exact for the unrotated case above, and the fallback for a rotated FILL, which
-        // no caller exercises today -- there is no rotated-fill primitive to reach for.
-        var cosA = MathF.Cos(angleRad);
-        var sinA = MathF.Sin(angleRad);
-        var bboxW = MathF.Sqrt(semiMajor * semiMajor * cosA * cosA + semiMinor * semiMinor * sinA * sinA);
-        var bboxH = MathF.Sqrt(semiMajor * semiMajor * sinA * sinA + semiMinor * semiMinor * cosA * cosA);
-
-        var rect = new RectInt(
-            new PointInt((int)(cx + bboxW), (int)(cy + bboxH)),
-            new PointInt((int)(cx - bboxW), (int)(cy - bboxH)));
-
+        var (u, v) = OverlayEngine.EllipseAxes(semiMajor, semiMinor, angleRad);
         if (thickness > 0f)
         {
-            renderer.DrawEllipseOutline(rect, color, thickness * dpiScale);
+            renderer.DrawEllipse((cx, cy), u, v, color, thickness * dpiScale);
         }
         else
         {
-            renderer.FillEllipse(rect, color);
+            renderer.FillEllipse((cx, cy), u, v, color);
         }
     }
 
