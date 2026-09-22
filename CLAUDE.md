@@ -610,7 +610,10 @@ none, so guessing is wrong exactly where it matters (picking a star out of a neb
 HIGHLIGHT, not hover selection: the click still selects (`docs/plans/in-app-sky-atlas.md`, 2026-09-10).
 
 - **The wash is one `Renderer.FillEllipse`**, which all three renderers implement natively, so it needs
-  no instance stream, no cache key and no shader. **Drawn FIRST of the annotation layers**, which is
+  no instance stream, no cache key and no shader. **It is the object's OWN ellipse** (since 2026-09-22,
+  the same solver as the selection ring; a disc only for a shapeless object or a star), and **the FITS
+  viewer has the same wash** through its click resolver (`ViewerState.HoverObject`, budgeted by pointer
+  travel, never through a declared region). **Drawn FIRST of the annotation layers**, which is
   what makes a pointer resting over the search modal or the layer palette harmless with none of them
   claiming the pointer: the sky behind resolves, the wash paints under the panel covering it.
 - **At most ONE resolve per painted frame, and every resolve asks for a frame.** Measured by

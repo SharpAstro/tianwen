@@ -410,6 +410,18 @@ namespace TianWen.UI.Abstractions
             float left, float top, float right, float bottom, uint projW, uint projH);
 
         /// <summary>
+        /// Fills an ellipse at a screen position: the hover wash's one primitive. Virtual with a
+        /// default on the abstraction's affine fill (DIR.Lib 10.4), which every backend implements
+        /// natively, so a host overrides it only to observe it.
+        /// </summary>
+        protected virtual void FillEllipseOverlay(float cx, float cy, float semiMajor, float semiMinor,
+            float rotationRad, RGBAColor32 color)
+        {
+            var (u, v) = OverlayEngine.EllipseAxes(semiMajor, semiMinor, rotationRad);
+            Renderer.FillEllipse((cx, cy), u, v, color);
+        }
+
+        /// <summary>
         /// Draws an ellipse overlay (outline or filled) at the given screen position.
         /// </summary>
         protected abstract void DrawEllipseOverlay(float cx, float cy,
@@ -997,6 +1009,17 @@ namespace TianWen.UI.Abstractions
             var selectionRing = document?.Wcs is { HasCDMatrix: true } ringWcs
                 ? SolveSelectionRing(state, ringWcs)
                 : null;
+
+            // The hover wash: what a click at the pointer would select, in the object's own shape,
+            // painted FIRST of the object marks so the overlay's outline and the selection ring sit
+            // over it (the atlas's order, SkyMapTab.DrawHoverSpot). The selection's solver rings it,
+            // so the wash IS the ring a click would draw, filled.
+            if (state.HoverObject is { } hovered
+                && document?.Wcs is { HasCDMatrix: true } hoverWcs
+                && SolveObjectRing(in hovered, state, hoverWcs) is { } wash)
+            {
+                RenderHoverWash(in wash);
+            }
 
             // ONE CATALOGUE, SPLIT BY REGION: this overlay owns what is INSIDE the photograph, the
             // map owns what is outside it. Same objects, two transforms -- this one from the frame's

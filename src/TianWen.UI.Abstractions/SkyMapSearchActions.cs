@@ -679,8 +679,19 @@ public static class SkyMapSearchActions
             return null;
         }
 
+        // The type and shape ride on the target so the wash can be the object's own ellipse. One
+        // lookup per RESOLVE, which is at most once per painted frame and only when the pointer
+        // moved onto something; the wash itself then reads them off the target every frame.
+        var objType = default(ObjectType);
+        CelestialObjectShape? shape = null;
+        if (hit.Kind == SkyMapHitKind.Catalog && db.TryLookupByIndex(hit.Index, out var hitObject))
+        {
+            objType = hitObject.ObjectType;
+            shape = ResolveShape(db, hit.Index);
+        }
+
         return new SkyMapHoverTarget(
-            hit.Index, hit.RA, hit.Dec, hit.HitRadiusPx, hit.Kind != SkyMapHitKind.Catalog);
+            hit.Index, hit.RA, hit.Dec, hit.HitRadiusPx, hit.Kind != SkyMapHitKind.Catalog, objType, shape);
     }
 
     /// <inheritdoc cref="SelectObjectByClick"/>

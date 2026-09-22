@@ -78,6 +78,13 @@ namespace TianWen.Lib.Tests
                 DrawnEllipses.Add(new DrawnEllipse(cx, cy, semiMajor, semiMinor, rotationRad));
             }
 
+            protected override void FillEllipseOverlay(float cx, float cy, float semiMajor, float semiMinor,
+                float rotationRad, RGBAColor32 color)
+                => Fills.Add(new DrawnEllipse(cx, cy, semiMajor, semiMinor, rotationRad));
+
+            /// <summary>Every ellipse this frame FILLED, which is the hover wash and nothing else.</summary>
+            public List<DrawnEllipse> Fills { get; } = [];
+
             protected override void DrawCrossOverlay(float cx, float cy, float armLength, RGBAColor32 color) { }
 
             protected override void DrawLineOverlay(float x0, float y0, float x1, float y1,
@@ -742,6 +749,59 @@ namespace TianWen.Lib.Tests
         /// shaped object's ring is one ellipse, so the count rises by one over a frame with no
         /// selection.
         /// </remarks>
+        /// <summary>
+        /// <b>Hovering an object washes it in its own shape, before any click.</b> The wash is the
+        /// ring a click would draw, filled: for M 51 an ellipse, centred where the object is drawn.
+        /// Off the picture the wash is gone the next frame.
+        /// </summary>
+        [Fact]
+        public async Task HoveringAnObjectWashesItInItsOwnShape()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _) = await NewViewerOnAsync(renderer, CatalogIndex.NGC5194, ct);
+            viewer.Render(document, state);
+            var (x, y) = ObjectOnScreen(viewer, state);
+
+            viewer.HandleInput(new InputEvent.MouseMove(x, y));
+            state.HoverObject.ShouldNotBeNull().Index.ShouldBe(CatalogIndex.NGC5194);
+
+            viewer.Fills.Clear();
+            viewer.Render(document, state);
+            var wash = viewer.Fills.ShouldHaveSingleItem();
+            wash.SemiMajor.ShouldBeGreaterThan(wash.SemiMinor, "M 51 is washed as its ellipse, not as a spot");
+            wash.Cx.ShouldBe(x, 1.5f);
+            wash.Cy.ShouldBe(y, 1.5f);
+
+            // Over the toolbar, which is not the picture: no resolve, no wash.
+            viewer.HandleInput(new InputEvent.MouseMove(viewer.ImageArea.X + 5f, 1f));
+            state.HoverObject.ShouldBeNull();
+            viewer.Fills.Clear();
+            viewer.Render(document, state);
+            viewer.Fills.ShouldBeEmpty();
+        }
+
+        /// <summary>
+        /// <b>The wash and the click are one answer.</b> A tap where the wash is selects the object
+        /// the wash named, because both go through the same resolver.
+        /// </summary>
+        [Fact]
+        public async Task ATapWhereTheWashIsSelectsWhatTheWashNamed()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _) = await NewViewerOnAsync(renderer, CatalogIndex.NGC5194, ct);
+            viewer.Render(document, state);
+            var (x, y) = ObjectOnScreen(viewer, state);
+
+            viewer.HandleInput(new InputEvent.MouseMove(x, y));
+            var hovered = state.HoverObject.ShouldNotBeNull();
+
+            TapAt(viewer, x, y);
+
+            state.SelectedObject.ShouldNotBeNull().Index.ShouldBe(hovered.Index);
+        }
+
         [Fact]
         public async Task TheHighlightDrawsWithTheOverlayOff()
         {

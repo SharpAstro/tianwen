@@ -662,14 +662,29 @@ namespace TianWen.UI.Abstractions
         {
             semiAxisU = default;
             semiAxisV = default;
-            if (info.Shape is not { } shape) return false;
+            return info.Shape is { } shape
+                && TrySolveShapeEllipse(info.ObjType, in shape, info.RA, info.Dec, pixelsPerRadian, centerX, centerY,
+                    out semiAxisU, out semiAxisV);
+        }
+
+        /// <summary>
+        /// The same solve for an object given by its type, shape and position: what the hover wash
+        /// asks, whose target carries those rather than a panel's data. The panel form above
+        /// delegates here, so the selection ring, the host's ring and the wash are one ellipse.
+        /// </summary>
+        internal bool TrySolveShapeEllipse(ObjectType objType, in CelestialObjectShape shape, double ra, double dec,
+            double pixelsPerRadian, float centerX, float centerY,
+            out (float X, float Y) semiAxisU, out (float X, float Y) semiAxisV)
+        {
+            semiAxisU = default;
+            semiAxisV = default;
             var dpiScale = DpiScale;
 
             // A star can carry a stray/cross-linked shape (e.g. Antares sits inside the
             // rho-Oph dark-cloud complex), but it must still draw as the crosshair, never
             // an extended-object ellipse. Gate on the same classifier the overlay markers
             // use so all three marker paths agree.
-            if (Overlays.OverlayEngine.ChooseMarkerKind(info.ObjType, hasShape: true)
+            if (Overlays.OverlayEngine.ChooseMarkerKind(objType, hasShape: true)
                 != Overlays.OverlayMarkerKind.Ellipse)
             {
                 return false;
@@ -709,9 +724,9 @@ namespace TianWen.UI.Abstractions
             // of the object and subtracting the projected centre. We only care about
             // direction, so magnitude is renormalised. Bail if any projection fails
             // (object at antipode, etc.): crosshair fallback still works.
-            if (!SkyMapProjection.ProjectWithMatrix(info.RA, info.Dec, State.CurrentViewMatrix,
+            if (!SkyMapProjection.ProjectWithMatrix(ra, dec, State.CurrentViewMatrix,
                     pixelsPerRadian, centerX, centerY, out var ox, out var oy)
-                || !SkyMapProjection.ProjectWithMatrix(info.RA, info.Dec + 1.0 / 60.0,
+                || !SkyMapProjection.ProjectWithMatrix(ra, dec + 1.0 / 60.0,
                     State.CurrentViewMatrix, pixelsPerRadian, centerX, centerY,
                     out var nx, out var ny))
             {

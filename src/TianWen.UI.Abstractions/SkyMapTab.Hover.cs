@@ -207,6 +207,30 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
+            // The wash takes the object's own SHAPE where it has one: the ellipse the selection ring
+            // and the [O] overlay draw for it, from the same solver, filled. A spot of the hit radius
+            // over M31 read as a mark ON the galaxy rather than the galaxy lit, and it was clamped to
+            // 36 px besides, so the bigger the object the less of it the wash said. The fill is the
+            // affine ellipse on the abstraction (DIR.Lib 10.4): one call on every backend, as the
+            // circle was. The circle stays for a shapeless object, and for a star, which the solver
+            // declines however stray a shape it carries.
+            var dpiScale = DpiScale;
+            if (hover.Shape is { } shape
+                && TrySolveShapeEllipse(hover.ObjType, in shape, hover.RA, hover.Dec, pixelsPerRadian, cx, cy,
+                    out var semiAxisU, out var semiAxisV))
+            {
+                // Culled on the shape's own reach, for the reason the circle's margin below gives.
+                var reach = MathF.Sqrt((semiAxisU.X * semiAxisU.X) + (semiAxisU.Y * semiAxisU.Y));
+                if (sx < contentRect.X - reach || sx >= contentRect.X + contentRect.Width + reach
+                    || sy < contentRect.Y - reach || sy >= contentRect.Y + contentRect.Height + reach)
+                {
+                    return;
+                }
+
+                Renderer.FillEllipse((sx, sy), semiAxisU, semiAxisV, OverlayEngine.HoverSpotColor);
+                return;
+            }
+
             // Culled with a MARGIN, not at the rect edge. An object is resolved by its shape radius,
             // so at a deep zoom into a large nebula -- NGC 7000, M 42, exactly the crowded fields this
             // feature is for -- the CENTRE is commonly off screen while the object fills the view. An
@@ -221,7 +245,6 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var dpiScale = DpiScale;
             var radius = Math.Clamp(
                 hover.HitRadiusPx,
                 OverlayEngine.HoverSpotMinRadiusPx * dpiScale,

@@ -496,7 +496,20 @@ locking the release scope was *"as long as we track everything we skipped in a p
   what the 2026-06-08 self-note "sky atlas bug: obj selection" turned out to be. The wash says it
   before the press and changes nothing about the press. Both come from one resolver,
   `SkyMapSearchActions.TryResolveHit`, so the highlight cannot name an object the click would not
-  take; see `SkyMapTab.Hover.cs`.)* `FindObjectAt` (`ImageRendererBase.ContextMenu.cs`) already resolved the nearest
+  take; see `SkyMapTab.Hover.cs`.)* *(Amended 2026-09-22: the wash takes the hovered object's OWN
+  SHAPE. It was a disc of the hit radius clamped to 36 px, which over M31 read as a mark on the
+  galaxy rather than the galaxy lit, and the bigger the object the less of it the wash said. The
+  hover target now carries the object's type and shape, looked up once at resolve time, and the
+  wash is the same ellipse the selection ring and the [O] outline draw for it, from the one solver
+  `SkyMapTab.TrySolveShapeEllipse`, filled through the abstraction's affine fill. The disc stays for
+  a shapeless object and for a star. And the FITS viewer has the same wash now, which it never had:
+  `ViewerState.HoverObject`, resolved through the click's own chain `ResolveObjectAt` (marker,
+  label, catalogue, then the map beside the picture) and ringed by the selection's own solver
+  `SolveObjectRing`, so the wash under the pointer is the ring a click there would draw. The viewer
+  budgets a resolve per four pixels of travel and repaints only when the answer changed, because it
+  repaints only what a move changed; a declared region, the object panel and its links first, claims
+  the pointer and no wash resolves through it. Pinned by `SkyMapHoverAndPictureTests` and
+  `ViewerObjectSelectionTests`.)* `FindObjectAt` (`ImageRendererBase.ContextMenu.cs`) already resolved the nearest
   catalogued object at a pixel from the frame's own WCS and `DeepSkyCoordinateGrid`, with an FOV-scaled
   tolerance, and had been wired to right-click ALONE for weeks: what was missing was downstream, since
   the viewer had no notion of a SELECTED object and so nowhere for a left click's answer to go. It

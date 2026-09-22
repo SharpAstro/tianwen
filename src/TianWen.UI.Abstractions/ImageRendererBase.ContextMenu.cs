@@ -541,13 +541,26 @@ namespace TianWen.UI.Abstractions
         /// selection: "nothing changed" and "nothing is selected" are different answers, and only the
         /// first one means no repaint.</para>
         /// </remarks>
-        private bool TrySelectObjectAt(ViewerState state, float px, float py)
+        /// <summary>
+        /// The object a click at (<paramref name="px"/>, <paramref name="py"/>) would select, or null
+        /// over nothing. The ONE resolver behind the click and the hover wash, so the two cannot
+        /// disagree: a wash over one object and a panel about another is worse than no wash.
+        /// </summary>
+        /// <remarks>
+        /// Resolved from the point given rather than from the last mouse-move: the pointer may never
+        /// have moved over the image (a synthesized click, a touch tap), and a selection that
+        /// silently fails then is indistinguishable from the feature being absent. Through
+        /// <see cref="ResolveSkyPixelAt"/>, so a click BESIDE the picture still has a sky position --
+        /// the overlay draws objects out there and a marker you can see is one you expect to be able
+        /// to click.
+        /// <para>In this order: the MARKER enclosing the point, then the LABEL under it, then the
+        /// nearest catalogue centre, and, beside the picture with the sky drawn behind it, the MAP's
+        /// own answer -- each method's remarks say why it sits where it does. Both drawn lookups
+        /// answer nothing while the overlay is off, so the catalogue search is then the frame's
+        /// whole resolver, as it always was.</para>
+        /// </remarks>
+        private (CelestialObject Object, CatalogIndex Index)? ResolveObjectAt(ViewerState state, float px, float py)
         {
-            // Resolved from THIS release rather than from the last mouse-move: the pointer may never
-            // have moved over the image (a synthesized click, a touch tap), and a selection that
-            // silently fails then is indistinguishable from the feature being absent. Through
-            // ResolveSkyPixelAt, so a click BESIDE the picture still has a sky position -- the overlay
-            // draws objects out there and a marker you can see is one you expect to be able to click.
             var info = ResolveSkyPixelAt(state, px, py);
 
             var image = _document?.UnstretchedImage;
@@ -555,15 +568,91 @@ namespace TianWen.UI.Abstractions
                 ? SkyAtlasLink.FieldOfViewDeg(_document?.Wcs, img.Width, img.Height)
                 : null;
 
-            // In this order: the MARKER enclosing the tap, then the LABEL under it, then the nearest
-            // catalogue centre, and, beside the picture with the sky drawn behind it, the MAP's own
-            // answer -- each method's remarks say why it sits where it does. Both drawn lookups
-            // answer nothing while the overlay is off, so the catalogue search is then the frame's
-            // whole resolver, as it always was.
-            var resolved = FindDrawnMarkerAt(px, py)
+            return FindDrawnMarkerAt(px, py)
                 ?? FindDrawnLabelAt(px, py)
                 ?? (info is { } pixel ? FindCatalogObjectAt(pixel, fovDeg) : null)
                 ?? FindBackdropObjectAt(state, px, py);
+        }
+
+        /// <summary>
+        /// Where the pointer was when the hover was last resolved; NaN before the first resolve.
+        /// </summary>
+        private float _hoverResolvedX = float.NaN;
+        private float _hoverResolvedY = float.NaN;
+
+        /// <summary>
+        /// How far the pointer travels between hover resolves, in design pixels. The budget is pointer
+        /// TRAVEL rather than the painted frame the atlas uses, because this host repaints only what
+        /// a move changed: a resolve whose answer is the same must ask for nothing, and a budget
+        /// released by a paint would then never reopen.
+        /// </summary>
+        private const float HoverResolveStepPx = 4f;
+
+        /// <summary>
+        /// Re-resolves the hover wash for the pointer at (<paramref name="px"/>, <paramref name="py"/>).
+        /// True when the wash CHANGED, which is when a frame is owed; false when nothing on screen
+        /// would differ, including when the pointer has not travelled far enough for another resolve.
+        /// </summary>
+        /// <remarks>
+        /// A declared region -- the object panel and its links, the histogram, the sky's palette --
+        /// claims the pointer outright: no wash resolves through a panel to the picture behind it, and
+        /// a move inside a lit link asks for nothing, which the router's own hover rule requires
+        /// (<c>CrossingOntoAPanelLinkRepaintsAndMovingWithinItDoesNot</c>).
+        /// </remarks>
+        private bool UpdateHoverAt(ViewerState state, float px, float py)
+        {
+            var overThePicture = _layout.ImageArea.Contains(px, py)
+                && !state.OverlayOwnsPointer
+                && !_isPinching
+                && HitTest(px, py) is null;
+            if (!overThePicture)
+            {
+                _hoverResolvedX = float.NaN;
+                _hoverResolvedY = float.NaN;
+                if (state.HoverObject is null)
+                {
+                    return false;
+                }
+
+                state.HoverObject = null;
+                return true;
+            }
+
+            var step = HoverResolveStepPx * DpiScale;
+            if (!float.IsNaN(_hoverResolvedX)
+                && MathF.Abs(px - _hoverResolvedX) < step
+                && MathF.Abs(py - _hoverResolvedY) < step)
+            {
+                return false;
+            }
+
+            _hoverResolvedX = px;
+            _hoverResolvedY = py;
+
+            if (ResolveObjectAt(state, px, py) is not { } hit)
+            {
+                if (state.HoverObject is null)
+                {
+                    return false;
+                }
+
+                state.HoverObject = null;
+                return true;
+            }
+
+            // The same object under a moving pointer keeps the payload it has, and changes nothing.
+            if (state.HoverObject is { Index: { } current } && current == hit.Index)
+            {
+                return false;
+            }
+
+            state.HoverObject = BuildSelectionPanelData(hit.Object, hit.Index);
+            return true;
+        }
+
+        private bool TrySelectObjectAt(ViewerState state, float px, float py)
+        {
+            var resolved = ResolveObjectAt(state, px, py);
 
             if (resolved is not { } hit)
             {

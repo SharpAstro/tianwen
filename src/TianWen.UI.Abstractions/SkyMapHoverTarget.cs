@@ -28,9 +28,17 @@ namespace TianWen.UI.Abstractions;
 /// <see cref="Overlays.OverlayEngine.HoverSpotMaxRadiusPx"/>.</param>
 /// <param name="IsEphemeris">True for a planet, the Sun, the Moon or a comet: its position is
 /// computed for the viewing instant, so it is only valid while the clock is not scrubbed.</param>
+/// <param name="ObjType">The catalogue object's type, which decides whether <paramref name="Shape"/>
+/// is drawn as an ellipse (a star carrying a stray shape still washes as a spot). Meaningless for
+/// an ephemeris body, which carries no shape.</param>
+/// <param name="Shape">The catalogue shape, when the object has one, so the wash can take the
+/// object's own ellipse rather than a spot of the hit radius. Looked up ONCE, at resolve time: the
+/// wash paints every frame the target lives.</param>
 public readonly record struct SkyMapHoverTarget(
     CatalogIndex Index,
     double RA,
     double Dec,
     float HitRadiusPx,
-    bool IsEphemeris);
+    bool IsEphemeris,
+    ObjectType ObjType = default,
+    CelestialObjectShape? Shape = null);

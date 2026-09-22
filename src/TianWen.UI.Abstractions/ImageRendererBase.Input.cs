@@ -230,6 +230,7 @@ namespace TianWen.UI.Abstractions
             // The controller kept the FRAME pixel under the fingers fixed; with the sky behind the
             // frame it is the sky under them that must stay, and far from the frame the two differ.
             KeepSkyPointUnder(state, area, underPinch, centerX, centerY);
+            state.HoverObject = null;
             return true;
         }
 
@@ -1150,6 +1151,7 @@ namespace TianWen.UI.Abstractions
                 // this position instead of jumping back to the press.
                 _panZoom.PanOffset = new Vector2(state.PanOffset.X, state.PanOffset.Y);
                 _panZoom.BeginPan(px, py);
+                state.HoverObject = null;
                 return true;
             }
 
@@ -1157,7 +1159,18 @@ namespace TianWen.UI.Abstractions
             if (_panZoom.UpdatePan(px, py))
             {
                 state.PanOffset = (_panZoom.PanOffset.X, _panZoom.PanOffset.Y);
+                state.HoverObject = null;
                 return true;
+            }
+
+            // The hover wash: what a click here would select, through the click's own resolver, so the
+            // wash and the click cannot disagree. Resolved once per few pixels of travel and repainted
+            // only when the answer changed (UpdateHoverAt). A full frame then, not the readout's
+            // narrow one: the wash is anywhere on the pane.
+            if (UpdateHoverAt(state, px, py))
+            {
+                state.NeedsRedraw = true;
+                hoverRepaint = true;
             }
 
             // Only redraw when cursor moves to a different image pixel
@@ -1357,6 +1370,9 @@ namespace TianWen.UI.Abstractions
                     // the frame it is the sky under the cursor that must stay, and far from the frame
                     // the two differ (SkyBackdropView.TryPlaceSkyPoint).
                     KeepSkyPointUnder(state, area, underCursor, mouseX, mouseY);
+
+                    // The pointer has not been re-tested against the view that just moved under it.
+                    state.HoverObject = null;
                 }
                 return true;
             }

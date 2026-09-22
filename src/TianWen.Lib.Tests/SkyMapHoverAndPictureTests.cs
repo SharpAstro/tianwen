@@ -416,11 +416,72 @@ public class SkyMapHoverAndPictureTests
             }
         }
 
-        // The wash is clamped to a 36 px radius, so ~4,000 px of a 160,000 px surface. A floor well
-        // under that catches "drawn as nothing"; the ceiling catches a wash that escaped its clamp
-        // and repainted the frame.
-        changed.ShouldBeGreaterThan(500);
-        changed.ShouldBeLessThan(size * size / 8);
+        // The wash is the object's own shape: a 60 arcmin disc at this field is a 100 px radius, so
+        // about 31,000 px of a 160,000 px surface. A floor well under that catches "drawn as nothing"
+        // (and the old 36 px spot, about 4,000 px); the ceiling catches a wash that repainted the frame.
+        changed.ShouldBeGreaterThan(20_000);
+        changed.ShouldBeLessThan(size * size / 4);
+    }
+
+    /// <summary>
+    /// <b>The wash takes the hovered object's shape.</b> An elongated galaxy lights as its ellipse,
+    /// not as a spot: inside along the major axis is washed, the same distance out along the minor
+    /// axis is not, and the area is the ellipse's. It used to be a circle of the hit radius clamped
+    /// to 36 px, which over M31 read as a mark on the galaxy rather than the galaxy lit.
+    /// </summary>
+    [Fact]
+    public void TheHoverWashTakesTheObjectsShape()
+    {
+        const int size = 400;
+        using var renderer = new RgbaImageRenderer(size, size);
+        var tab = new HoverTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+
+        // 60 by 20 arcmin, position angle 0: the major axis runs north-south, which in an
+        // equatorial view is screen-vertical. At a 2 degree field on 400 px that is a 100 px
+        // semi-major and a 33 px semi-minor axis.
+        var galaxyShape = new CelestialObjectShape((Half)60.0, (Half)20.0, (Half)0.0);
+        var db = new ArticleDb(Nebula, Star, galaxyShape);
+        var plannerState = new PlannerState { ObjectDb = db };
+        var time = new FakeTimeProviderWrapper(DateTimeOffset.UtcNow);
+        var rect = new RectF32(0, 0, size, size);
+
+        tab.State.ShowObjectOverlay = true;
+        tab.State.CenterRA = Nebula.RA;
+        tab.State.CenterDec = Nebula.Dec;
+        tab.State.FieldOfViewDeg = 2.0;
+        tab.Render(plannerState, rect, time);
+        var without = (byte[])renderer.Surface.Pixels.Clone();
+
+        tab.HandleInput(new InputEvent.MouseMove(size / 2f, size / 2f));
+        tab.State.HoverTarget.ShouldNotBeNull().Shape.ShouldNotBeNull();
+
+        tab.Render(plannerState, rect, time);
+        var with = renderer.Surface.Pixels;
+
+        static bool Changed(byte[] a, byte[] b, int x, int y, int size)
+        {
+            var i = ((y * size) + x) * 4;
+            return a[i] != b[i] || a[i + 1] != b[i + 1] || a[i + 2] != b[i + 2];
+        }
+
+        const int centre = size / 2;
+        Changed(with, without, centre, centre + 60, size).ShouldBeTrue("60 px along the major axis is inside the ellipse");
+        Changed(with, without, centre, centre - 60, size).ShouldBeTrue("60 px along the major axis is inside the ellipse");
+        Changed(with, without, centre + 60, centre, size).ShouldBeFalse("60 px along the minor axis is outside a 33 px semi-minor axis");
+        Changed(with, without, centre - 60, centre, size).ShouldBeFalse("60 px along the minor axis is outside a 33 px semi-minor axis");
+
+        var changed = 0;
+        for (var i = 0; i < with.Length; i += 4)
+        {
+            if (with[i] != without[i] || with[i + 1] != without[i + 1] || with[i + 2] != without[i + 2])
+            {
+                changed++;
+            }
+        }
+
+        // pi * 100 * 33 is about 10,500 px. The old spot was about 4,000 and a 100 px disc 31,000.
+        changed.ShouldBeGreaterThan(7_000);
+        changed.ShouldBeLessThan(15_000);
     }
 
     // One press retires the wash, which is how three cases with no signal of their own are covered:
