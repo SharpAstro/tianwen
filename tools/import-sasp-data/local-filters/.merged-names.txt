@@ -4,6 +4,7 @@
 # say who put a curve there (upstream SASP curves also carry .csv origins). Checked in.
 ASKAR_COLOURMAGIC_D1
 ASKAR_COLOURMAGIC_D2
+BAADER_SEMI_APO
 IDAS_LPS_D3
 IDAS_NBZ
 OPTOLONG_L_ENHANCE

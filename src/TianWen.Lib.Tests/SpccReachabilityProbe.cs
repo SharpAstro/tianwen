@@ -143,7 +143,15 @@ public class SpccReachabilityProbe(ITestOutputHelper output)
             // then used as if it described the glass in front of the sensor.
             "Optolong L-Quad Enhance", "L-Quad Enhance", "Optolong L-eNhance", "L-eNhance",
             "Optolong L-eXtreme", "Optolong L-Ultimate", "Optolong L-Pro",
-            "Askar Colour Magic D1", "Askar D1", "Askar D2", "Colour Magic D2", "D1", "D2"])
+            "Askar Colour Magic D1", "Askar D1", "Askar D2", "Colour Magic D2", "D1", "D2",
+            // The Baader Semi-APO, digitised 2026-09-23 from the vendor's Neodymium/Skyglow chart.
+            // Both spellings are listed because the ARCHIVE uses the hyphenated one as a directory
+            // name and a written FILTER card would use the spaced one, and the bake reads the
+            // filter off the directory: a rename that broke only the hyphenated form would
+            // otherwise cost the SPCC curve silently. "Baader UV/IR Cut" is here already and must
+            // stay NO MATCH, which is what proves the Semi-APO did not capture its sibling on the
+            // shared "baader" token.
+            "Baader Semi-APO", "Baader-Semi-APO", "Semi-APO"])
         {
             var ok = FilterCurveDatabase.TryMatchFilter(candidate, out var match);
             output.WriteLine($"  '{candidate}' -> {(ok ? match.Name : "NO MATCH")}");
