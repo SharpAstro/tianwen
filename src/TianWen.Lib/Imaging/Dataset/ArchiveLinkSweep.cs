@@ -193,6 +193,35 @@ public static class ArchiveLinkSweep
         return index;
     }
 
+    /// <summary>
+    /// True when this raw frame already has a name under <paramref name="curatedRoot"/>, so the
+    /// sweep has nothing left to do with it.
+    ///
+    /// <para><b>This is what makes a re-run cheap.</b> A full sweep reads every frame twice to
+    /// digest it, which over a terabyte is measured in hours, and a run that is interrupted has to
+    /// be started again. Answering "already done" from the directory entries costs no read at all,
+    /// so the second run skips everything the first one finished.</para>
+    /// </summary>
+    public static bool AlreadyLinkedInto(string rawPath, string curatedRoot)
+    {
+        var links = HardLinkProbe.EnumerateLinks(rawPath);
+        if (links.IsDefaultOrEmpty || links.Length < 2)
+        {
+            return false;
+        }
+
+        var prefix = Path.GetFullPath(curatedRoot)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        foreach (var link in links)
+        {
+            if (Path.GetFullPath(link).StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /// <summary>The reason to refuse, or an empty string to go ahead.</summary>
     private static async Task<string> HeaderVetoAsync(
         string rawPath, string curatedPath, HeaderPolicy policy, CancellationToken cancellationToken)

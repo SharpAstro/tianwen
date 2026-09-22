@@ -21,7 +21,7 @@ namespace TianWen.Cli;
 /// CLI contract: NO machine specifics; archive roots and the output dir are required parameters
 /// with fail-fast validation; behavioural knobs carry portable defaults only.
 /// </summary>
-internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFactory? plateSolverFactory = null, ILogger<DatasetSubCommand>? logger = null)
+internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFactory? plateSolverFactory = null, ILogger<DatasetSubCommand>? logger = null)
 {
     public Command Build()
     {
@@ -440,6 +440,10 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                 BuildTagCardGenericCommand(),
                 BuildTagFrameTypeCommand(),
                 BuildRelabelFrameTypeCommand(),
+                // Archive dedup: relink turns a raw frame and its curated twin into one file with two
+                // names; prune retires a raw folder once every file in it has a name elsewhere.
+                BuildRelinkCommand(),
+                BuildPruneCommand(),
             },
         };
     }
