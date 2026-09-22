@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.Cli;
@@ -25,12 +26,26 @@ namespace TianWen.Cli;
 /// </summary>
 internal sealed class DarksSubCommand(IConsoleHost consoleHost, IDeviceHub deviceHub, DarkFrameRun darkFrameRun)
 {
+    /// <summary>
+    /// Default bias exposure: 10 microseconds, the shortest a Player One body accepts.
+    /// </summary>
+    /// <remarks>
+    /// A camera with a longer minimum clamps up to its own, which is correct: a bias is "as short as
+    /// this sensor goes", not a specific duration, and the frame records what it actually got. It is
+    /// a default rather than a discovered value because <see cref="ICameraDriver"/> exposes an
+    /// exposure RESOLUTION but no minimum, so there is nothing to ask; <c>--exposure</c> overrides it.
+    /// </remarks>
+    private const double BiasExposureSeconds = 0.00001;
+
     public Command Build()
     {
-        var exposureOpt = new Option<double>("--exposure")
+        var exposureOpt = new Option<double?>("--exposure")
         {
-            Description = "Exposure per frame in seconds. Must match the lights exactly; dark current accumulates with time.",
-            Required = true,
+            Description = "Exposure per frame in seconds. Must match the lights exactly; dark current accumulates with time. Required unless --bias, which defaults to the shortest exposure.",
+        };
+        var biasOpt = new Option<bool>("--bias")
+        {
+            Description = "Capture BIAS frames instead of darks: the shortest exposure the camera accepts, labelled IMAGETYP = Bias.",
         };
         var countOpt = new Option<int>("--count")
         {
@@ -55,17 +70,25 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost, IDeviceHub devic
             Description = "Which camera, matched against its display name or serial. Optional when exactly one is present.",
         };
 
-        var darksCommand = new Command("darks", "Capture dark frames on-demand from one camera.")
+        var darksCommand = new Command("darks", "Capture dark or bias frames on-demand from one camera.")
         {
-            Options = { exposureOpt, countOpt, gainOpt, offsetOpt, binOpt, cameraOpt },
+            Options = { exposureOpt, biasOpt, countOpt, gainOpt, offsetOpt, binOpt, cameraOpt },
         };
 
         darksCommand.SetAction(async (parseResult, ct) =>
         {
-            var exposureSeconds = parseResult.GetValue(exposureOpt);
+            var isBias = parseResult.GetValue(biasOpt);
+            var frameType = isBias ? FrameType.Bias : FrameType.Dark;
+
+            // A bias has no exposure to match, only a shortest one, so it defaults. A dark has
+            // nothing sensible to default TO: it is defined by matching the light, and a made-up
+            // duration would produce files that calibrate nothing while looking complete.
+            var exposureSeconds = parseResult.GetValue(exposureOpt) ?? (isBias ? BiasExposureSeconds : 0);
             if (exposureSeconds <= 0)
             {
-                consoleHost.WriteScrollable("--exposure must be greater than zero");
+                consoleHost.WriteScrollable(isBias
+                    ? "--exposure must be greater than zero"
+                    : "--exposure is required for darks (it must match the lights exactly)");
                 return 1;
             }
 
@@ -101,10 +124,11 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost, IDeviceHub devic
                 parseResult.GetValue(countOpt),
                 parseResult.GetValue(gainOpt) is { } g ? (short)g : null,
                 parseResult.GetValue(offsetOpt),
-                parseResult.GetValue(binOpt));
+                parseResult.GetValue(binOpt),
+                frameType);
 
             consoleHost.WriteScrollable(
-                $"[darks] {device.DisplayName}: {options.Count} x {options.Exposure.TotalSeconds:0.###}s"
+                $"[{frameType.ToString().ToLowerInvariant()}] {device.DisplayName}: {options.Count} x {options.Exposure.TotalSeconds:0.#####}s"
                 + (options.Gain is { } gv ? $", gain {gv}" : "")
                 + (options.Offset is { } ov ? $", offset {ov}" : "")
                 + $", bin {options.Bin}");
@@ -116,11 +140,13 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost, IDeviceHub devic
                 return 1;
             }
 
+            var tag = frameType.ToString().ToLowerInvariant();
+
             try
             {
                 var progress = new Progress<DarkFrameCaptured>(f =>
                     consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                        $"[darks] {f.SensorTemperatureC:0.0} C  {System.IO.Path.GetFileName(f.Path)}")));
+                        $"[{tag}] {f.SensorTemperatureC:0.0} C  {System.IO.Path.GetFileName(f.Path)}")));
 
                 var captured = await darkFrameRun.RunAsync(camera, options, progress, ct);
 
@@ -132,13 +158,13 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost, IDeviceHub devic
                     var mean = temps.Average();
 
                     consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                        $"\n[darks] {captured.Count} frame(s), sensor {mean:0.00} C mean, {min:0.0} to {max:0.0} C, span {max - min:0.00} C"));
+                        $"\n[{tag}] {captured.Count} frame(s), sensor {mean:0.00} C mean, {min:0.0} to {max:0.0} C, span {max - min:0.00} C"));
 
                     // The spread is the thing a caller has to judge, not a number to bury in a log: on
                     // an unregulated body it decides whether this is one library row or several.
                     consoleHost.WriteScrollable(max - min <= 0.3
-                        ? "[darks] spread is within a regulated body's own stability; treat as one row."
-                        : "[darks] spread is wider than a regulated body's; these frames do not all describe the same temperature.");
+                        ? $"[{tag}] spread is within a regulated body's own stability; treat as one row."
+                        : $"[{tag}] spread is wider than a regulated body's; these frames do not all describe the same temperature.");
                 }
 
                 return 0;
