@@ -154,8 +154,10 @@ public class OverlayEngineTests
     // --- GetExtendedMagCutoff ---
 
     [Theory]
-    [InlineData(400.0, 8.0)]    // > 5 degrees FOV
-    [InlineData(301.0, 8.0)]    // Just above 300
+    [InlineData(2000.0, 8.0)]   // > 30 degrees FOV
+    [InlineData(1801.0, 8.0)]   // Just above 1800
+    [InlineData(400.0, 10.5)]   // 5-30 degrees: every Messier object, M32 and M110 included
+    [InlineData(301.0, 10.5)]   // Just above 300
     [InlineData(100.0, 12.0)]   // 1-5 degrees
     [InlineData(61.0, 12.0)]    // Just above 60
     [InlineData(30.0, 20.0)]    // < 1 degree

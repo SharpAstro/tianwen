@@ -532,9 +532,20 @@ public static class OverlayEngine
     /// <summary>
     /// Computes the extended-object magnitude cutoff based on field-of-view in arcminutes.
     /// </summary>
+    /// <remarks>
+    /// The 5-to-30 degree tier admits the whole Messier list (its faintest member, M91, is V 10.2).
+    /// It used to stop at 8.0, which was labelled "Messier-class only" and was not: M32 (V 8.13) and
+    /// M110 (V 8.15) fell off an 8-degree M31 frame shown at fit, while NGC 218 and NGC 389 beside
+    /// it, which carry no V magnitude at all and so pass every tier, stayed marked. Any frame wider
+    /// than 5 degrees on its short side sat in that tier, which is every widefield lens. The 8.0
+    /// tier survives past 30 degrees, where the wide gather sweeps the whole sphere and the cutoff
+    /// is what bounds its cost; <see cref="WideFovDeg"/> lies above it, so the wide overlay key's
+    /// claim that both cutoffs are flat by then still holds.
+    /// </remarks>
     public static double GetExtendedMagCutoff(double fovArcmin) => fovArcmin switch
     {
-        > 300.0 => 8.0,   // > 5 degrees: Messier-class only
+        > 1800.0 => 8.0,  // > 30 degrees: the brightest only
+        > 300.0 => 10.5,  // 5-30 degrees: the whole Messier list
         > 60.0 => 12.0,   // 1-5 degrees: bright NGC/IC
         _ => 20.0          // < 1 degree: show all
     };
