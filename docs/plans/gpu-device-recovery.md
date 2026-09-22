@@ -94,6 +94,42 @@ inline GLSL and asserts a culled vertex leaves the clip volume with a positive w
 take a clamped argument, and the overlay's north angle is guarded. Reverting the four shader
 sources to the commit before the fix turns 6 of its 31 cases red, one per defect per backend.
 
+## Prior art: what Drawboard's PDF viewer does, and why it is not obviously right for us
+
+`drawboard/pdf-viewer` runs the same renderer (a Drawboard fork of SdlVulkan.Renderer, carried as a
+git submodule) on the same Adreno X1-85, and it has already answered the question this plan is about.
+Its answer is **not** to recover the device. It is to replace the process.
+
+`MultiWindowApp`'s `OnGpuWedged` snapshots the open tabs and the navigation history, writes them to
+an INI manifest, spawns a successor process, and calls `Environment.Exit(70)` **with no Vulkan
+teardown at all**. The reasoning is recorded there and is sound: an orderly shutdown runs
+`vkDeviceWaitIdle` and `vkFreeMemory`, both of which block for ever on a hung device (which is the
+same driver behaviour our own sacrificial-recovery task exists for), so the teardown is skipped
+rather than attempted, and a fresh process gets a fresh driver instance, which is the one recovery
+layer a hung driver cannot defeat.
+
+Three details worth copying if we ever go that way, and one reason we probably cannot:
+
+- **A recovery storm is treated as terminal, not as a load to shed.** Their `OnRenderDegraded`
+  immediately calls `OnGpuWedged`, so the third quick recovery inside a second is a respawn. Ours
+  switches the GUI to Notifications and posts a warning instead.
+- **The boot loop is bounded three ways**: a generation counter capped at three, a five minute
+  "healthy uptime" rule that resets it, and a two minute freshness window on the manifest, so a
+  stale hand-off from yesterday cannot restore anything.
+- **The successor is marked by an environment variable** so the single-instance gate does not hand
+  the session back to the process that is dying.
+- **The reason it does not transfer**: a PDF viewer's whole state is which documents are open and
+  where the reader was looking, and that is a few hundred bytes. Ours is a running session with a
+  mount tracking, cameras at setpoint, a guider calibrated and a filter wheel mid-sequence, held
+  through device leases that a new process would have to re-acquire from drivers that still believe
+  they are owned. A respawn ends the night. That is the argument FOR in-process recreation here and
+  against simply taking their approach, and it is why this plan still says what it says.
+
+Also worth knowing: **their submodule predates the 7.46 streak fix**, so on that build a device
+rejecting every submit still reads as healthy for ever and their `OnGpuWedged` can only be reached
+through the fence-stuck path or an explicit `DEVICE_LOST`. If the wedge is ever reproduced there,
+that is why it will look different.
+
 ## What the desktop must check (it has the Vulkan validation layer; this machine does not)
 
 Same repo root, same branches. The branches involved and their heads on 2026-09-22:
