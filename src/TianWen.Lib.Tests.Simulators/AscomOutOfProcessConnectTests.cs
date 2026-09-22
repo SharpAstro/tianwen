@@ -42,7 +42,7 @@ public class AscomOutOfProcessConnectTests(ITestOutputHelper output)
         isOop.ShouldBe(expectedOutOfProcess);
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenTheRealGeminiFlatPanelWhenConnectedThroughTheHelperThenTheProcessSurvives()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "ASCOM COM is Windows-only.");

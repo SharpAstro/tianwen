@@ -22,7 +22,7 @@ try {
     "commit $(git rev-parse --short HEAD) (dirty: $((git status --porcelain -- src/) -ne $null)); configuration Release" | Out-File $log -Encoding utf8
     & dotnet test TianWen.Lib.Tests -c Release --no-build `
         --filter "FullyQualifiedName~ReportWhetherPerTileConditioningChangesTheOutputWhereTheWidthDiffers" `
-        --logger "console;verbosity=detailed" *>> $log
+        --output Detailed *>> $log
     if ($LASTEXITCODE -ne 0) { throw "dotnet test exited $LASTEXITCODE" }
     "done $(Get-Date -Format o)" | Out-File $status -Encoding utf8
 }

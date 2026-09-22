@@ -87,6 +87,7 @@ public class IntegratorTests
             v.ShouldBeInRange(0.49f, 0.51f);
         }
         // Each output pixel rejected 1 of 5 frames -> rejection rate 1/5 = 0.2
+        result.RejectionMap.ShouldNotBeNull();
         foreach (var v in Flatten(result.RejectionMap))
         {
             v.ShouldBe(0.2f, tolerance: 1e-5f);

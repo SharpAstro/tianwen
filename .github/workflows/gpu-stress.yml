@@ -82,7 +82,7 @@ jobs:
             echo "==== iteration $i / $N ===="
             dotnet test TianWen.Lib.Tests -c Release --no-build \
               --filter "$filter" \
-              --blame-crash --blame-hang --blame-hang-timeout 5min \
+              --crashdump --hangdump --hangdump-timeout 5min --crash-sequence on \
               --results-directory "test-results-$i/" > "/tmp/iter-$i.log" 2>&1
             rc=$?
             if [ "$rc" -ne 0 ]; then

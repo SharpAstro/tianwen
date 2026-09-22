@@ -3400,26 +3400,26 @@ export TIANWEN_PSF_STORE_DIR="D:/Astro-Dataset/2026-09-12-clamped"
 # the CONTROL, and its documented staleness (count 1.038, +0.033 px) is what makes the newer bake's
 # exact zeros readable rather than a self-comparison.
 TIANWEN_PSF_PROBE_MAX=8 dotnet test TianWen.Lib.Tests \
-  --filter "FullyQualifiedName~PsfStoreVsCurrentDetectorProbe" --logger "console;verbosity=detailed"
+  --filter "FullyQualifiedName~PsfStoreVsCurrentDetectorProbe" --output Detailed
 
 # E1 / H5, the conditioning contract. ~1.7 min for all 79 masters (MAX=0 means all).
 TIANWEN_PSF_PROBE_MAX=0 dotnet test TianWen.Lib.Tests \
-  --filter "FullyQualifiedName~PsfEncodingSpreadProbe" --logger "console;verbosity=detailed"
+  --filter "FullyQualifiedName~PsfEncodingSpreadProbe" --output Detailed
 
 # E1 / H1, the oracle ceiling. ~26 min at 30 iterations, ~45 at 60. The tabled numbers are 60.
 TIANWEN_ORACLE_MASTERS=6 TIANWEN_ORACLE_ITERS=60 dotnet test TianWen.Lib.Tests \
-  --filter "FullyQualifiedName~ReportHowMuchOfAKnownBlurAnOracleRecovers" --logger "console;verbosity=detailed"
+  --filter "FullyQualifiedName~ReportHowMuchOfAKnownBlurAnOracleRecovers" --output Detailed
 
 # E1 / H1, the iteration sweep that picked 60. ~22 min; reads 5..120 off ONE run per combination.
 TIANWEN_ORACLE_MASTERS=3 dotnet test TianWen.Lib.Tests \
-  --filter "FullyQualifiedName~ReportWhereTheIterationCountStopsHelping" --logger "console;verbosity=detailed"
+  --filter "FullyQualifiedName~ReportWhereTheIterationCountStopsHelping" --output Detailed
 
 # E1b / H11, the ESTIMATED-kernel ceiling: every listed arm runs on the same observed frame, in parallel,
 # and the summary pairs each estimated arm against exact row by row. ~1 h at 60 iterations including
 # the whole-frame fallback fits. Release, because the direct convolution is the cost.
 TIANWEN_ORACLE_MASTERS=6 TIANWEN_ORACLE_ITERS=60 TIANWEN_ORACLE_KERNEL=exact,estimated,estimated-shape \
   dotnet test TianWen.Lib.Tests -c Release \
-  --filter "FullyQualifiedName~ReportHowMuchOfAKnownBlurAnOracleRecovers" --logger "console;verbosity=detailed"
+  --filter "FullyQualifiedName~ReportHowMuchOfAKnownBlurAnOracleRecovers" --output Detailed
 
 # E2.9, the per-sub identity and air mass: the measure stage alone over every recorded session of the
 # bake (~2 min a session, ~2.5 h for 79), then the readout. From the repo root, in pwsh; the launcher

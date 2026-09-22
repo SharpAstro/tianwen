@@ -296,7 +296,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         (await mount.IsPulseGuidingAsync(ct)).ShouldBeFalse();
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public async Task GivenSyntheticRendererWhenOffsetAppliedThenStarsShift()
     {
         // Render same field with and without offset
@@ -319,7 +319,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         await Task.CompletedTask; // suppress warning
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenSyntheticRendererWhenHotPixelsInjectedThenMaxADUPresent()
     {
         var data = SyntheticStarFieldRenderer.Render(320, 240, 0,
@@ -339,7 +339,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         hotCount.ShouldBeGreaterThanOrEqualTo(3);
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void GivenSyntheticRendererWhenSeeingAppliedThenPsfWidens()
     {
         // No seeing

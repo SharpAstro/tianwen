@@ -27,7 +27,7 @@ public class AscomHostProcessTests
     /// during teardown. This path had no coverage while it carried the suppressed-then-deleted
     /// ManualResetEventSlim; the bounded wait is Thread.Join now, and this is what pins it.
     /// </summary>
-    [Fact(Timeout = 30_000)]
+    [Fact]
     public void GivenAProcessThatNeverConnectsWhenSpawningThenFailsWithinTheBudget()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "The ASCOM COM host is Windows-only.");

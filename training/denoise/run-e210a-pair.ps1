@@ -18,7 +18,7 @@ try {
     $commit | Out-File (Join-Path $LogDir 'e210a-pair-cpu.txt') -Encoding utf8
     & dotnet test TianWen.Lib.Tests -c Release --no-build `
         --filter "FullyQualifiedName~SeeingSplitPairProbe.ReportWhatTheOracleRecoversOnARealSeeingSplit" `
-        --logger "console;verbosity=detailed" *>> (Join-Path $LogDir 'e210a-pair-cpu.txt')
+        --output Detailed *>> (Join-Path $LogDir 'e210a-pair-cpu.txt')
     if ($LASTEXITCODE -ne 0) { throw "pair probe (cpu) exited $LASTEXITCODE" }
 
     "running sas $(Get-Date -Format o)" | Out-File $status -Encoding utf8
@@ -26,7 +26,7 @@ try {
     $commit | Out-File (Join-Path $LogDir 'e210a-pair-sas.txt') -Encoding utf8
     & dotnet test TianWen.Lib.Tests -c Release --no-build `
         --filter "FullyQualifiedName~SeeingSplitPairProbe.ReportWhatTheShippedGraphDoesOnARealSeeingSplit" `
-        --logger "console;verbosity=detailed" *>> (Join-Path $LogDir 'e210a-pair-sas.txt')
+        --output Detailed *>> (Join-Path $LogDir 'e210a-pair-sas.txt')
     if ($LASTEXITCODE -ne 0) { throw "pair probe (sas) exited $LASTEXITCODE" }
 
     "done $(Get-Date -Format o)" | Out-File $status -Encoding utf8

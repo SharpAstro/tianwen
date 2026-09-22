@@ -23,7 +23,7 @@ try {
     "configuration Debug (Release output locked by the running E2.9 pass)" | Out-File $log -Append -Encoding utf8
     & dotnet test TianWen.Lib.Tests -c Debug --no-build `
         --filter "FullyQualifiedName~ReportHowMuchOfAKnownBlurAnOracleRecovers" `
-        --logger "console;verbosity=detailed" *>> $log
+        --output Detailed *>> $log
     if ($LASTEXITCODE -ne 0) { throw "dotnet test exited $LASTEXITCODE" }
     "done $(Get-Date -Format o)" | Out-File $status -Encoding utf8
 }

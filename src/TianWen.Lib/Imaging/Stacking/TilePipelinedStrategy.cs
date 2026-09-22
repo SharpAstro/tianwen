@@ -299,7 +299,14 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
 
             var stripResult = Integrator.Integrate(stripFrames, stripOpts);
             CopyStripIntoMaster(stripResult.Master, masterData, stripY0, channelCount);
-            CopyStripIntoMaster(stripResult.RejectionMap, rejectMapData, stripY0, channelCount: 1);
+            // A strip integrated with rejection off carries no map (IntegrationResult.RejectionMap
+            // is null for a strategy that rejects nothing), and passing that to the copy was an NRE
+            // waiting for the first caller to turn rejection off. The canvas then stays zeros, which
+            // is what TotalRejections == 0 means anyway and what IntegrationFitsWriter gates on.
+            if (stripResult.RejectionMap is { } stripRejections)
+            {
+                CopyStripIntoMaster(stripRejections, rejectMapData, stripY0, channelCount: 1);
+            }
             if (stripResult.Coverage is { } stripCoverage)
             {
                 CopyStripIntoMaster(stripCoverage, coverageData, stripY0, channelCount: 1);
