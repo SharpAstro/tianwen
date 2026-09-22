@@ -122,7 +122,12 @@ vec2 pixelToSky(vec2 pixel) {
     float c = atan(rho);
     float sinC = sin(c);
     float cosC = cos(c);
-    float dec = asin(cosC * sinDec0 + eta * sinC * cosDec0 / rho);
+    // Clamped because asin is UNDEFINED outside [-1, 1] and this argument is only
+    // mathematically inside it: rounding in the products and the divide can land a
+    // fragment at the pole on 1.0000001, which returns NaN and paints a NaN pixel.
+    // skymap_mw.frag already clamps its own asin for this reason; the two had
+    // drifted apart.
+    float dec = asin(clamp(cosC * sinDec0 + eta * sinC * cosDec0 / rho, -1.0, 1.0));
     float ra  = ra0 + atan(xi * sinC, rho * cosDec0 * cosC - eta * sinDec0 * sinC);
     return vec2(ra, dec);
 }

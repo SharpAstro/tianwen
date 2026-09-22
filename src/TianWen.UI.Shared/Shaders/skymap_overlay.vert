@@ -39,13 +39,23 @@ vec3 stereoProject(vec3 camPos) {
     return vec3(sx, sy, cosD);
 }
 
+// A culled vertex has to land OUTSIDE the clip volume with a POSITIVE w. The
+// obvious vec4(0) does not: w = 0 makes the perspective divide 0/0, which the
+// spec leaves undefined, and the clip test -w <= x <= w degenerates to 0 <= 0 <= 0,
+// so on the way there the vertex reads as INSIDE the volume. A desktop driver
+// drops the primitive anyway; a tiling binner deriving a tile range from NaN need
+// not, since every comparison against NaN is false. Same rule as the star shader.
+// x = 2 > w fails the x clip plane whatever depth clamping does, and all corners
+// land on one point, so the primitive is both off-screen and zero area.
+const vec4 CULLED_VERTEX = vec4(2.0, 2.0, 0.0, 1.0);
+
 void main() {
     // 1. Project center through view matrix + stereographic (shared with star + line shaders).
     vec3 camPos = (ubo.viewMatrix * vec4(aUnitVec, 1.0)).xyz;
     vec3 proj = stereoProject(camPos);
     if (proj.z <= -0.99) {
-        // Anti-hemisphere: emit a degenerate vertex so the whole instance is culled.
-        gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
+        // Anti-hemisphere: cull the whole instance.
+        gl_Position = CULLED_VERTEX;
         vLocal = vec2(0.0);
         vSize = vec2(1.0);
         vThickness = 0.0;
@@ -73,7 +83,20 @@ void main() {
     // (cos(totalAngle), sin(totalAngle)) with totalAngle = northAngle - PA, so a
     // positive PA rotates the major axis from north toward east. The sky map is
     // east-left, so this is true sky position angle (PA = 0 -> major along north).
-    float screenNorthAngle = atan(north2d.y, north2d.x);
+    // atan(y, x) is UNDEFINED when both arguments are zero, and this pair reaches
+    // zero two ways: the tip can fall on the antipode sentinel, which is (0, 0)
+    // and would otherwise measure the angle to -center rather than to north; and
+    // near the antipode the projection scale k = 2 / (1 + cosD) grows without
+    // bound, so center and tip are two large nearly-equal numbers whose difference
+    // cancels to nothing in float. An undefined angle here is not a cosmetic
+    // problem: it feeds cos and sin, then the quad corners, then gl_Position, so
+    // one NaN puts a whole primitive with no finite position into the stream.
+    // Orientation is meaningless where north cannot be measured, so fall back to a
+    // finite angle and let the marker draw unrotated.
+    float northLen = length(north2d);
+    float screenNorthAngle = (tipProj.z > -0.99 && northLen > 1e-6)
+        ? atan(north2d.y, north2d.x)
+        : 0.0;
     float totalAngle = screenNorthAngle - aPaFromNorth;
 
     // 4. Convert arcmin -> pixels using the UBO's pixelsPerRadian.

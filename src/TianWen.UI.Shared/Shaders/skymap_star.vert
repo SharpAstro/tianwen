@@ -69,10 +69,22 @@ float rawStarRadius(float vMag, float fovDeg) {
     return min(r * zoomScale, 15.0);
 }
 
+// A culled vertex has to land OUTSIDE the clip volume with a POSITIVE w. The
+// obvious vec4(0) does not: w = 0 makes the perspective divide 0/0, which the
+// spec leaves undefined, and the clip test -w <= x <= w degenerates to 0 <= 0 <= 0,
+// so on the way there the vertex reads as INSIDE the volume. A desktop driver
+// drops the primitive anyway; a tiling binner deriving a tile range from NaN need
+// not, since every comparison against NaN is false. Horizon mode sends every
+// below-horizon star down this path, thousands per frame, and that is the one
+// thing the atlas does which the viewer's sky backdrop never does.
+// x = 2 > w fails the x clip plane whatever depth clamping does, and all corners
+// land on one point, so the primitive is both off-screen and zero area.
+const vec4 CULLED_VERTEX = vec4(2.0, 2.0, 0.0, 1.0);
+
 void main() {
     // Skip stars beyond magnitude limit
     if (aMagnitude > ubo.magnitudeLimit) {
-        gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
+        gl_Position = CULLED_VERTEX;
         return;
     }
 
@@ -82,7 +94,7 @@ void main() {
         float sinAlt = ubo.sinLat * aUnitPos.z
             + ubo.cosLat * (ubo.cosLST * aUnitPos.x + ubo.sinLST * aUnitPos.y);
         if (sinAlt < 0.0) {
-            gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
+            gl_Position = CULLED_VERTEX;
             return;
         }
     }
@@ -91,7 +103,7 @@ void main() {
     vec3 camPos = (ubo.viewMatrix * vec4(aUnitPos, 1.0)).xyz;
     vec3 proj = stereoProject(camPos);
     if (proj.z <= -0.99) {
-        gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
+        gl_Position = CULLED_VERTEX;
         return;
     }
 
