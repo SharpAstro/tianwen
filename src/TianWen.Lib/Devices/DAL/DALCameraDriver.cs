@@ -384,14 +384,27 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
                 return bitSize switch
                 {
                     8 => byte.MaxValue,
-                    // Native ADC full-scale (16383 for the 14-bit ASI533MC Pro): the vendor SDK hands
-                    // TianWen native-scale values -- TianWen does NOT left-shift them into the 16-bit
-                    // container on capture. (N.I.N.A.'s FITS files from the same cameras span [0, 65532]
-                    // only because N.I.N.A. multiplies on recording; do not infer the SDK's delivered
-                    // scale from N.I.N.A. files -- for those, the container full-scale
+                    // WHERE the converter's levels sit in the 16-bit word, which the ADC depth does
+                    // not say and the two vendors do not agree on. TianWen never shifts a delivered
+                    // buffer either way, so this only decides what saturation is DECLARED.
+                    //
+                    // Native scale (16383 for the 14-bit ASI533MC Pro) is the ZWO and QHY answer: the
+                    // SDK hands over the converter's own values. Player One hands over the same bits
+                    // LEFT-ALIGNED, so a 12-bit Uranus-C spans 0..65520 in steps of 16 and the native
+                    // reading is 16x too small; measured over the archive 2026-09-23, and SharpCap's
+                    // own Uranus-C captures carry the same quantum, so it is the SDK's doing rather
+                    // than any one consumer's. ICMOSNativeInterface.DeliversContainerScaledPixels is
+                    // the SDK saying which it is, defaulting to native so a binding that has not been
+                    // taught it behaves as before.
+                    //
+                    // (N.I.N.A.'s FITS files from the same cameras span [0, 65532] only because
+                    // N.I.N.A. multiplies on recording; do not infer the SDK's delivered scale from
+                    // N.I.N.A. files -- for those, the container full-scale
                     // BitDepthEx.UnsignedFullScale is the right divisor, see the dataset builder.)
                     // Bits <= 16 also guards the (int) cast against a nonsense >16-bit ADC report.
-                    16 => AdcDepth is { Bits: <= 16 } adcDepth ? (int)adcDepth.FullScaleAdu : ushort.MaxValue,
+                    16 => _deviceInfo.DeliversContainerScaledPixels
+                        ? ushort.MaxValue
+                        : AdcDepth is { Bits: <= 16 } adcDepth ? (int)adcDepth.FullScaleAdu : ushort.MaxValue,
                     _ => int.MinValue
                 };
             }
