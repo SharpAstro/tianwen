@@ -113,6 +113,22 @@ namespace TianWen.Lib.Tests
         private readonly record struct DrawnEllipse(
             float Cx, float Cy, float SemiMajor, float SemiMinor, float AngleRad);
 
+        /// <summary>
+        /// A sky map whose <c>[O]</c> overlay draws on a CPU surface. The base tab's object overlay is a
+        /// no-op (the Vulkan and web tabs override it), so a backdrop built on the bare tab draws no
+        /// markers and places no labels; this routes it to the shared primitive path, as
+        /// <c>SkyMapObjectOverlayRenderTests</c> does.
+        /// </summary>
+        private sealed class MapWithObjectOverlay(RgbaImageRenderer renderer) : SkyMapTab<RgbaImage>(renderer)
+        {
+            protected override void RenderObjectOverlay(
+                ICelestialObjectDB db, RectF32 contentRect,
+                float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
+                bool showAllOverlays)
+                => RenderObjectOverlayPrimitive(db, contentRect, baseFontSize,
+                    site, dimBelowHorizon, plannerState, showAllOverlays);
+        }
+
         /// <summary>A frame whose reference pixel is at its own centre, pointed at the given sky position.</summary>
         private static WCS CentredOn(double raHours, double decDeg, double scaleDeg = ScaleDeg) => new WCS(raHours, decDeg)
         {
@@ -858,8 +874,10 @@ namespace TianWen.Lib.Tests
 
             var db = await SharedCatalogDB.InitAsync(ct);
             var when = new DateTimeOffset(2026, 6, 21, 0, 0, 0, TimeSpan.Zero);
-            var tab = new SkyMapTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+            var tab = new MapWithObjectOverlay(renderer) { FontPath = FontResolver.ResolveSystemFont() };
             tab.State.ViewDrivenExternally = true;
+            // The map's Objects layer, off by default: what draws the markers and labels beside the picture.
+            tab.State.ShowObjectOverlay = true;
             viewer.SkyBackdrop = tab;
             viewer.SkyTimeProvider = new FakeTimeProviderWrapper(when);
             viewer.SkyPlannerState = new PlannerState
@@ -914,6 +932,11 @@ namespace TianWen.Lib.Tests
             ring.Cx.ShouldBe(mapX, 2f, "the ring is centred where the map projects the object");
             ring.Cy.ShouldBe(mapY, 2f);
 
+            // And the map names it, in this viewer's colour, in its own label: the viewer draws no
+            // second name beside the map's.
+            tab.State.HostSelection.ShouldNotBeNull("the map is told what the host selected")
+                .Index.ShouldBe(expected);
+
             // The control: with the map not drawing, the same tap is beyond the frame's five degrees
             // and selects nothing, which is what this path exists to change.
             state.SelectedObject = null;
@@ -921,6 +944,62 @@ namespace TianWen.Lib.Tests
             viewer.Render(document, state);
             TapAt(viewer, tapX, tapY);
             state.SelectedObject.ShouldBeNull("the frame's own search does not reach the band the map owns");
+            tab.State.HostSelection.ShouldBeNull("and a map that is not painted is told of no selection");
+        }
+
+        /// <summary>
+        /// A tap on a map object's LABEL beside the picture selects the object. The map's label regions
+        /// win the hit test over the viewer's own press, and used to consume the tap into a signal
+        /// nothing in the viewer subscribes to; the map now hands the object's position to its host.
+        /// </summary>
+        [Fact]
+        public async Task ATapOnAMapObjectsLabelBesideThePictureSelectsIt()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _) = await NewViewerOnAsync(renderer, CatalogIndex.NGC5194, ct);
+            state.ShowOverlays = true;
+
+            var db = await SharedCatalogDB.InitAsync(ct);
+            var when = new DateTimeOffset(2026, 6, 21, 0, 0, 0, TimeSpan.Zero);
+            var tab = new MapWithObjectOverlay(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+            tab.State.ViewDrivenExternally = true;
+            // The map's Objects layer, off by default: what draws the markers and labels beside the picture.
+            tab.State.ShowObjectOverlay = true;
+            viewer.SkyBackdrop = tab;
+            viewer.SkyTimeProvider = new FakeTimeProviderWrapper(when);
+            viewer.SkyPlannerState = new PlannerState
+            {
+                ObjectDb = db,
+                SiteLatitude = 48.0,
+                SiteLongitude = 11.0,
+                SiteTimeZone = TimeSpan.Zero,
+                PlanningDate = when,
+            };
+            state.ShowSkyBackdrop = true;
+            viewer.Render(document, state);
+            // The map places labels only on a frame the view did not move in; the first frame set it.
+            viewer.Render(document, state);
+
+            // The map's own label regions, as it registered them; one whose box lies outside the picture.
+            var frame = viewer.Placement;
+            var labelRegions = tab.GetRegisteredRegions()
+                .Where(r => r.Result is HitResult.ButtonHit { Action: { } act } && act.StartsWith("SkyMapObjectLabel:"))
+                .ToList();
+            labelRegions.ShouldNotBeEmpty("the map places object labels on a settled frame");
+            var beside = labelRegions.FirstOrDefault(r =>
+                !(r.X + (r.Width * 0.5f) >= frame.OffsetX && r.X + (r.Width * 0.5f) < frame.OffsetX + frame.DrawW
+                  && r.Y + (r.Height * 0.5f) >= frame.OffsetY && r.Y + (r.Height * 0.5f) < frame.OffsetY + frame.DrawH));
+            beside.Width.ShouldBeGreaterThan(0f,
+                "the fixture needs the map to place at least one object label beside the picture");
+            var (labelX, labelY) = (beside.X + (beside.Width * 0.5f), beside.Y + (beside.Height * 0.5f));
+
+            TapAt(viewer, labelX, labelY);
+
+            var selected = state.SelectedObject.ShouldNotBeNull("a label you can see is a label you can click");
+            viewer.Render(document, state);
+            tab.State.HostSelection.ShouldNotBeNull().Index.ShouldBe(selected.Index.ShouldNotBeNull(),
+                "and the map is told to name it in the host's colour");
         }
 
         /// <summary>

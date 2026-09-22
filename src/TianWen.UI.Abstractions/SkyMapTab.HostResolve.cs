@@ -1,3 +1,5 @@
+using System;
+using DIR.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
 
 namespace TianWen.UI.Abstractions
@@ -11,6 +13,33 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public partial class SkyMapTab<TSurface>
     {
+        /// <summary>
+        /// Where a "select at this screen point" goes when a HOST owns the selection. Every way the
+        /// map asks for a selection (a tap that did not become a drag, a click on an object label, a
+        /// click on a planet or comet label) emits through <see cref="EmitSelectAt"/>; with this set,
+        /// the point reaches the host, otherwise it is posted as <see cref="SkyMapClickSelectSignal"/>
+        /// for the atlas's own handler. The FITS viewer sets it, because its backdrop map's label
+        /// regions win the hit test over the viewer's own press and used to consume a tap on a label
+        /// into a signal nothing there subscribed to: the label could be seen and not clicked.
+        /// </summary>
+        public Action<float, float>? HostSelectAt { get; set; }
+
+        /// <summary>
+        /// The one exit for a selection request; see <see cref="HostSelectAt"/>. The point is the
+        /// OBJECT's screen position for a label click (the bridges re-synthesise it there), so the
+        /// host resolves it exactly as it would a tap on the marker.
+        /// </summary>
+        protected void EmitSelectAt(float screenX, float screenY, InputModifier modifiers)
+        {
+            if (HostSelectAt is { } host)
+            {
+                host(screenX, screenY);
+                return;
+            }
+
+            PostSignal(new SkyMapClickSelectSignal(screenX, screenY, modifiers));
+        }
+
         /// <summary>
         /// The catalogue object a tap at (<paramref name="x"/>, <paramref name="y"/>) resolves to on
         /// this map, or null.

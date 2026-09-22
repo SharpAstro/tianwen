@@ -557,7 +557,10 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             for (var li = 0; li < item.LabelLines.Count; li++)
             {
                 var lineAlpha = (li == 0 ? 1.0f : 0.7f) * labelAlpha;
-                var color = RGBAColor32.FromFloat(r, g, b, lineAlpha);
+                // A host's selection wears the host's colour here, so the host draws no second name.
+                var color = State.HostSelection is { } hostSel && hostSel.Index == item.Index
+                    ? new RGBAColor32(hostSel.Color.Red, hostSel.Color.Green, hostSel.Color.Blue, (byte)(lineAlpha * 255f))
+                    : RGBAColor32.FromFloat(r, g, b, lineAlpha);
                 var line = item.LabelLines[li];
                 Renderer.DrawText(line.AsSpan(), fontPath, labelSize, color,
                     new RectInt(
@@ -594,7 +597,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
                 var objY = item.ScreenY;
                 RegisterClickable(lx, ly, maxLineW, labelH,
                     new HitResult.ButtonHit($"SkyMapObjectLabel:{item.LabelLines[0]}"),
-                    _ => PostSignal(new SkyMapClickSelectSignal(objX, objY, InputModifier.None)));
+                    _ => EmitSelectAt(objX, objY, InputModifier.None));
             }
         }
 

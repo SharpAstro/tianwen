@@ -729,7 +729,7 @@ namespace TianWen.UI.Abstractions
                     OverlayEngine.SelectionStrokePx);
             }
 
-            if (!string.IsNullOrEmpty(FontPath))
+            if (!ring.NameDrawnByMap && !string.IsNullOrEmpty(FontPath))
             {
                 DrawText(ring.Name, ring.LabelBox.X, ring.LabelBox.Y, FontSize * 0.85f, accent);
             }
@@ -755,6 +755,7 @@ namespace TianWen.UI.Abstractions
             float OuterMinor,
             float AngleRad,
             bool Pair,
+            bool NameDrawnByMap,
             string Name,
             (float X, float Y, float W, float H) LabelBox);
 
@@ -788,6 +789,7 @@ namespace TianWen.UI.Abstractions
 
             float screenX, screenY;
             (float SemiMajor, float SemiMinor, float AngleRad, float HalfWidth)? ellipse;
+            var nameDrawnByMap = false;
 
             var framePx = wcs.SkyToPixel(selection.RA, selection.Dec);
             var beyondFrame = framePx is not { } fp
@@ -801,6 +803,10 @@ namespace TianWen.UI.Abstractions
                 }
 
                 ellipse = u == default && v == default ? null : MapSolvedEllipse(u, v);
+
+                // The map draws this object's label in this widget's accent (HostSelection), so the
+                // ring adds no name of its own: one name, not two.
+                nameDrawnByMap = true;
             }
             else if (framePx is { } px)
             {
@@ -844,7 +850,7 @@ namespace TianWen.UI.Abstractions
 
             return new SelectionRingGeometry(
                 selection.Index, screenX, screenY,
-                innerMajor, innerMinor, outerMajor, outerMinor, angleRad, pair,
+                innerMajor, innerMinor, outerMajor, outerMinor, angleRad, pair, nameDrawnByMap,
                 selection.Name, labelBox);
         }
 
