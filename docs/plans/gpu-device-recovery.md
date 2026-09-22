@@ -50,6 +50,50 @@ The FITS viewer, running the same renderer and the same wash for an hour beside 
      never a frozen window, because a running session with cooling cameras is worth more than the
      picture of it.
 
+## What the desktop found, and what the laptop then measured (2026-09-23)
+
+The desktop ran the repro below with the Khronos layer live on a GTX 1070, at the same fields and
+star counts, and **it never wedged, before or after, with zero validation messages and zero sync
+hazards**. What the review found instead was a class of defect the layer does not report and a
+conforming driver need not show:
+
+- **Eight cull sites wrote `gl_Position = vec4(0, 0, 0, 0)`.** That is an undefined vertex, not a
+  degenerate one. `w = 0` makes the perspective divide `0/0`, and the clip test `-w <= x <= w`
+  degenerates to `0 <= 0 <= 0`, so on the way to being NaN the vertex reads as INSIDE the view
+  volume. A desktop rasteriser drops the primitive anyway; a tiling binner deriving a tile range
+  from NaN need not, since every comparison against NaN is false. **Three of the Vulkan sites are in
+  the star shader and one of those is the HORIZON clip**, so Horizon mode sends every below-horizon
+  star down this path, thousands of primitives per frame. That is the one thing the atlas does which
+  the viewer's sky backdrop never does, and it is the asymmetry the account above could not explain.
+  `skymap_line.vert` already used `vec4(2, 2, 0, 1)`; the rule existed and the other shaders had
+  drifted off it.
+- The overlay shaders took `atan(north2d.y, north2d.x)` unguarded, which is undefined at (0, 0) and
+  reachable two ways near the antipode. That one puts a VISIBLE instance with no finite position
+  into the stream rather than a culled one.
+- `image.frag` took `asin` of an argument only mathematically within [-1, 1].
+
+**Then the laptop measured whether any of it is observable on the Adreno**, through a new offscreen
+GPU test (`SkyMapHorizonCullGpuTests`): the sky map pipeline built from the real catalogue, drawn
+headless at 512x512 centred on the nadir, read back and counted.
+
+| Shaders | Star pixels below the horizon | Star pixels at the zenith | Result |
+|---|---|---|---|
+| Fixed (`vec4(2, 2, 0, 1)`) | 0 | thousands | passes |
+| Pre-fix (`vec4(0, 0, 0, 0)`), rebaked | 0 | thousands | passes |
+
+**So the undefined vertices are not observable this way on the Adreno either.** The cull works in
+both arms; the defect is real but its effect, if it has one, is not a mis-drawn star in a single
+offscreen frame. That rules out the simplest story (culled stars leaking into the picture) and
+leaves the binner's behaviour under a real swapchain and sustained load, which no test in this repo
+reaches. **Whether the fix closes the wedge is still unknown**, and the only evidence that can
+settle it is the atlas running for a long session on the Adreno without wedging.
+
+What IS pinned, on every host and with no GPU at all, is that the source keeps saying the safe
+thing: `ShaderContractTests` reads every `.vert` and `.frag` the app ships plus the WebGL twin's
+inline GLSL and asserts a culled vertex leaves the clip volume with a positive w, `asin` and `acos`
+take a clamped argument, and the overlay's north angle is guarded. Reverting the four shader
+sources to the commit before the fix turns 6 of its 31 cases red, one per defect per backend.
+
 ## What the desktop must check (it has the Vulkan validation layer; this machine does not)
 
 Same repo root, same branches. The branches involved and their heads on 2026-09-22:
@@ -108,4 +152,6 @@ hang (the event loop pumped throughout); a Windows TDR (none logged).
 - `tianwen/src/TianWen.UI.Gui/Program.cs`: the GUI's `OnRenderDegraded` handler.
 - `tianwen/src/TianWen.UI.Shared/Shaders/skymap_overlay.*`: the atlas's marker pipeline.
 - `tianwen/src/TianWen.UI.Abstractions/SkyMapTab.Hover.cs`: the wash.
+- `tianwen/src/TianWen.Lib.Tests/ShaderContractTests.cs`: the source rules, and what they deliberately do not cover.
+- `tianwen/src/TianWen.Lib.Tests/SkyMapHorizonCullGpuTests.cs`: the offscreen sky-map render, and `VkSkyMapGpuFixture` beside the other offscreen fixtures.
 - Memory of the June 2026 wedge: `reference_gpu_wedge_from_inspector_readback` (an unbounded wait on a hung device; unrelated shaders).

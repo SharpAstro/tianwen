@@ -238,6 +238,25 @@ public sealed class VkPrimitiveGpuFixture : OffscreenGpuFixtureBase
     public VkPrimitiveGpuFixture() : base(256, 256) { }
 }
 
+/// <summary>
+/// Offscreen Vulkan stack for <see cref="SkyMapHorizonCullGpuTests"/> (512x512). Square, because the
+/// test points the view at the zenith and at the nadir and compares the two frames, and an aspect
+/// ratio would make that comparison carry the viewport's shape as well as the sky's.
+/// </summary>
+/// <remarks>
+/// The sky map pipeline is NOT built here. It is the one piece of device-owned state a test creates
+/// and destroys itself, on this fixture's own thread through <see cref="OffscreenGpuFixtureBase.Invoke"/>,
+/// because the base's Dispose is not virtual and a pipeline outliving its device is a crash at exit
+/// rather than a failed test.
+/// </remarks>
+public sealed class VkSkyMapGpuFixture : OffscreenGpuFixtureBase
+{
+    public const int Width = 512;
+    public const int Height = 512;
+
+    public VkSkyMapGpuFixture() : base(Width, Height) { }
+}
+
 /// <summary>Offscreen Vulkan stack sized for <see cref="VkHistogramPipelineTests"/> (512x64).</summary>
 public sealed class VkHistogramGpuFixture : OffscreenGpuFixtureBase
 {
