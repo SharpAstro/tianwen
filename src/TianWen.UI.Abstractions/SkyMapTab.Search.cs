@@ -631,6 +631,37 @@ namespace TianWen.UI.Abstractions
         private bool TryDrawShapeMarker(in SkyMapInfoPanelData info, double pixelsPerRadian,
             float centerX, float centerY)
         {
+            if (!TrySolveShapeEllipse(in info, pixelsPerRadian, centerX, centerY, out var u, out var v))
+            {
+                return false;
+            }
+
+            // One ring through the affine ellipse on the abstraction (DIR.Lib 10.4): the object's own
+            // axes, an anti-aliased edge and a pixel-width stroke on every backend, in place of the
+            // 36-segment DrawLine walk that existed while the renderer's ellipse was axis-aligned
+            // only. At SelectionStrokePx it covers the overlay's own 1.5 px outline of the same
+            // object underneath, which is drawn from the same inputs.
+            Renderer.DrawEllipse((centerX, centerY), u, v, SelectionMarker, Overlays.OverlayEngine.SelectionStrokePx);
+
+            // Tiny centre cross so users can still see the centroid for large shapes.
+            var tick = 4f * DpiScale;
+            DrawLine(centerX - tick, centerY, centerX + tick, centerY, SelectionMarker);
+            DrawLine(centerX, centerY - tick, centerX, centerY + tick, SelectionMarker);
+            return true;
+        }
+
+        /// <summary>
+        /// The selection ellipse of a shaped object at screen (<paramref name="centerX"/>,
+        /// <paramref name="centerY"/>), as its semi-axis VECTORS in pixels, or false for anything that
+        /// takes the crosshair instead. The one solver: this tab's own marker draws from it, and a host
+        /// painting this map behind its own content places its selection from it
+        /// (<see cref="TryPlaceSelectionForHost"/>), so the two cannot disagree about the shape.
+        /// </summary>
+        internal bool TrySolveShapeEllipse(in SkyMapInfoPanelData info, double pixelsPerRadian,
+            float centerX, float centerY, out (float X, float Y) semiAxisU, out (float X, float Y) semiAxisV)
+        {
+            semiAxisU = default;
+            semiAxisV = default;
             if (info.Shape is not { } shape) return false;
             var dpiScale = DpiScale;
 
@@ -662,15 +693,15 @@ namespace TianWen.UI.Abstractions
             // reported "the shape is an ellipse but the selection is a circle" mismatch. So the size
             // floor is an INFLATE, not a gate: scale both axes by the same factor, so the marker keeps
             // the object's true axis ratio and position angle and only grows to a legibility floor.
-            // The slack factor applies at every size, so the ring sits just outside the object's own
-            // outline instead of coinciding with it (a marker drawn exactly on top of the overlay
-            // ellipse does not read as "selected"). The crosshair stays for genuinely shapeless
+            // No slack: the ring IS the object's ellipse, and a ring a few percent outside the overlay's
+            // own outline read as a double outline rather than a selection (see
+            // OverlayEngine.SelectionMinSemiMajorPx). The crosshair stays for genuinely shapeless
             // entries: stars, which ChooseMarkerKind already separates out above.
             if (!(semiMajorPx > 0f)) return false;
             var inflate = Overlays.OverlayEngine.EllipseLegibilityScale(
                 semiMajorPx,
                 Overlays.OverlayEngine.SelectionMinSemiMajorPx * dpiScale,
-                Overlays.OverlayEngine.SelectionSlack);
+                minScale: 1f);
             semiMajorPx *= inflate;
             semiMinorPx *= inflate;
 
@@ -703,20 +734,8 @@ namespace TianWen.UI.Abstractions
             var (majorX, majorY, minorX, minorY) =
                 Overlays.OverlayEngine.ComputeEllipseScreenAxes(dnx, dny, paRad, State.MirrorView);
 
-            // One ring through the affine ellipse on the abstraction (DIR.Lib 10.4): the marker's own
-            // axes, an anti-aliased edge and a pixel-width stroke on every backend, in place of the
-            // 36-segment DrawLine walk that existed while the renderer's ellipse was axis-aligned
-            // only. The same stroke as the crosshair circle the shapeless case draws.
-            Renderer.DrawEllipse(
-                (centerX, centerY),
-                (semiMajorPx * majorX, semiMajorPx * majorY),
-                (semiMinorPx * minorX, semiMinorPx * minorY),
-                SelectionMarker, 1.5f);
-
-            // Tiny centre cross so users can still see the centroid for large shapes.
-            var tick = 4f * dpiScale;
-            DrawLine(centerX - tick, centerY, centerX + tick, centerY, SelectionMarker);
-            DrawLine(centerX, centerY - tick, centerX, centerY + tick, SelectionMarker);
+            semiAxisU = (semiMajorPx * majorX, semiMajorPx * majorY);
+            semiAxisV = (semiMinorPx * minorX, semiMinorPx * minorY);
             return true;
         }
 
