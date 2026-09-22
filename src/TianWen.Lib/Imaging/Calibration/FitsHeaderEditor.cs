@@ -192,6 +192,27 @@ public static class FitsHeaderEditor
             allowedFrameTypes, overwriteExisting, hardLinks, apply, cancellationToken);
     }
 
+    /// <summary>
+    /// The current value of one card, exactly as the writer below would see it, or null when the file
+    /// cannot be read or carries no such card.
+    /// </summary>
+    /// <remarks>
+    /// This exists so a caller guarding an edit ("only amend frames that currently say 4095") compares
+    /// against a value parsed by THE SAME code that is about to rewrite it. A second reader would be a
+    /// second answer: the parsed <see cref="ImageMeta"/> surface covers only the cards it models, so it
+    /// cannot guard an arbitrary keyword at all, and a hand-rolled parse would disagree about quoting
+    /// and comments at exactly the boundary cases a guard is for.
+    /// </remarks>
+    public static async Task<string?> TryReadCardAsync(
+        string path, string keyword, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentException.ThrowIfNullOrWhiteSpace(keyword);
+        RejectOverlongKeyword(keyword);
+        var (failure, _, cards) = await ReadHeaderForEditAsync(path, cancellationToken);
+        return failure is not null ? null : CardValue(cards, keyword);
+    }
+
     private static void RejectOverlongKeyword(string keyword)
     {
         if (keyword.Length > 8)

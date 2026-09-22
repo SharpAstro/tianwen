@@ -422,7 +422,25 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
 
         return new Command("dataset", "Training-dataset tooling (see docs/plans/ai-denoise-deconv.md).")
         {
-            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildGradientReportCommand(), BuildDegradeCommand(), BuildPairCommand(), BuildCoverageCommand(consoleHost), BuildMastersCommand(consoleHost), BuildTagFilterCommand(), BuildTagObjectCommand(), BuildTagSiteElevationCommand(), BuildTagFrameTypeCommand(), BuildRelabelFrameTypeCommand() },
+            Subcommands =
+            {
+                buildCommand,
+                BuildReportCommand(consoleHost),
+                BuildGradientReportCommand(),
+                BuildDegradeCommand(),
+                BuildPairCommand(),
+                BuildCoverageCommand(consoleHost),
+                BuildMastersCommand(consoleHost),
+                // The header-surgery family. tag-card is the general form; the others exist because
+                // they carry knowledge a keyword alone does not (filter identity, both frame-type
+                // cards at once, which frame types may be replaced).
+                BuildTagFilterCommand(),
+                BuildTagObjectCommand(),
+                BuildTagSiteElevationCommand(),
+                BuildTagCardGenericCommand(),
+                BuildTagFrameTypeCommand(),
+                BuildRelabelFrameTypeCommand(),
+            },
         };
     }
 
@@ -1192,6 +1210,69 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
             numeric: true);
 
     /// <summary>
+    /// <c>tianwen dataset tag-saturation</c> corrects the <c>SATURATE</c> card on frames whose driver
+    /// declared the converter's native full scale for a body that hands over LEFT-ALIGNED pixels.
+    ///
+    /// <para>A bit depth says how many LEVELS a converter produces, not where they sit in a 16-bit
+    /// word, and the vendors disagree: a Player One IMX585 frame is every-value-a-multiple-of-16 and
+    /// saturates at 65520, while a ZWO IMX533 frame carries its native 14-bit values unshifted. A
+    /// driver deriving saturation from the depth is therefore right for one vendor and 16x low for the
+    /// other, and 16x low is the damaging direction: everything above the declared value reads as
+    /// saturated. On the 2023 Uranus-C lights measured here that would be 100 percent of the frame.</para>
+    ///
+    /// <para><b>The pixels are correct and are never touched.</b> Only the claim about them is wrong,
+    /// which is why this is a header edit rather than a re-scale: re-scaling would make a frame
+    /// incomparable with the same camera's older captures, and those are the frames it has to
+    /// calibrate.</para>
+    ///
+    /// <para>Pair it with <c>--expect</c>, which is what keeps this surgical: quoting the wrong value
+    /// you are replacing means a frame that already says something else is skipped rather than
+    /// overwritten, so the command cannot be run twice to a different effect.</para>
+    /// </summary>
+    private Command BuildTagCardGenericCommand()
+    {
+        var keywordOpt = new Option<string>("--keyword")
+        {
+            Description = "FITS keyword to write, at most 8 characters, e.g. SATURATE. Case is preserved.",
+            Required = true,
+        };
+        var commentOpt = new Option<string>("--comment")
+        {
+            Description = "Card comment, e.g. \"[adu] Saturation level\". Omit for none.",
+            DefaultValueFactory = _ => "",
+        };
+        var numericOpt = new Option<bool>("--numeric")
+        {
+            Description = "Write the value as a NUMBER (right-justified, unquoted) rather than a quoted string, "
+                          + "and compare --expect as a number. Spelling differs between capture software (74, "
+                          + "74.0, 7.4E1 are one elevation), so a text compare would refuse every frame while "
+                          + "reporting a value that looks identical to the one asked for.",
+        };
+        return BuildTagCardCommand(
+            label: "tag-card",
+            keyword: null,
+            cardComment: null,
+            valueOptionName: "--value",
+            valueDescription: "Value to write into --keyword.",
+            summary: "Write or correct ONE arbitrary FITS card across a folder of frames (header-surgical; dry "
+                     + "run by default). The general form of tag-filter, tag-object and tag-site-elevation, for a "
+                     + "card TianWen does not model: it guards on the RAW card rather than on parsed metadata.",
+            defaultFrameTypes: ["Light", "Dark", "Flat", "Bias", "DarkFlat"],
+            frameTypeDescription: "IMAGETYP values to amend. Defaults to every frame type, because an arbitrary "
+                                  + "card carries no assumption about which kinds of frame it applies to; narrow it "
+                                  + "when the card is only true of some.",
+            refusalAdvice: "Pass --hard-links relink to bring the other names along, but think first: unlike a "
+                           + "filter or a site, an arbitrary card is not necessarily true of every name a frame has.",
+            readCurrent: null,
+            relabels: true,
+            numeric: false,
+            extraOptions: [keywordOpt, commentOpt, numericOpt],
+            resolveKeyword: parse => parse.GetValue(keywordOpt) ?? "",
+            resolveComment: parse => parse.GetValue(commentOpt) ?? "",
+            resolveNumeric: parse => parse.GetValue(numericOpt));
+    }
+
+    /// <summary>
     /// <c>tianwen dataset tag-frame-type</c> fills in the frame type on frames whose capture software
     /// never wrote it in full.
     ///
@@ -1354,22 +1435,34 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
 
     private Command BuildTagCardCommand(
         string label,
-        string keyword,
-        string cardComment,
+        // Null for the generic verb, whose keyword and comment are OPTIONS rather than a property of
+        // the command, and so are known per invocation instead of at construction. Everything built
+        // here that would name the card says "the card" instead; the resolvers below supply the real
+        // values once the arguments are parsed.
+        string? keyword,
+        string? cardComment,
         string valueOptionName,
         string valueDescription,
         string summary,
         string[] defaultFrameTypes,
         string frameTypeDescription,
         string refusalAdvice,
-        Func<ImageMeta, string?> readCurrent,
+        // Null for a verb naming an arbitrary keyword: ImageMeta models only the cards it knows, so a
+        // generic card edit has to guard against the CARD instead. See the fallback at the use site.
+        Func<ImageMeta, string?>? readCurrent,
         bool relabels = false,
         bool numeric = false,
         Func<string, IReadOnlySet<FrameType>, string?>? validateArguments = null,
         string? overwriteDescription = null,
         Func<string, string, IReadOnlySet<FrameType>, FitsHeaderEditor.HardLinkPolicy, bool, CancellationToken,
-            Task<FitsHeaderEditor.TagResult>>? tagFile = null)
+            Task<FitsHeaderEditor.TagResult>>? tagFile = null,
+        Option[]? extraOptions = null,
+        Func<ParseResult, string>? resolveKeyword = null,
+        Func<ParseResult, string>? resolveComment = null,
+        Func<ParseResult, bool>? resolveNumeric = null)
     {
+        // What the card is CALLED in help text, before any arguments exist to say.
+        var cardName = keyword ?? "the card";
         var pathOpt = new Option<string>("--path")
         {
             Description = "Directory holding the frames to tag (see --recursive).",
@@ -1382,7 +1475,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
         };
         var expectOpt = new Option<string?>("--expect")
         {
-            Description = $"Only touch a frame whose current {keyword} already reads this"
+            Description = $"Only touch a frame whose current {cardName} already reads this"
                           + (numeric
                               ? ", compared as a NUMBER so 74 matches a card reading 74.0. "
                               : ", compared exactly. ")
@@ -1394,8 +1487,8 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
         var overwriteOpt = new Option<bool>("--overwrite-existing")
         {
             Description = overwriteDescription ?? (relabels
-                ? $"Ignored: correcting {keyword} is by definition a replacement, so this is always on. Use --expect to bound it."
-                : $"Also replace a {keyword} card that already has a value. Off by default: filling in what " +
+                ? $"Ignored: correcting {cardName} is by definition a replacement, so this is always on. Use --expect to bound it."
+                : $"Also replace a {cardName} card that already has a value. Off by default: filling in what " +
                   "was never recorded is a different and far safer act than relabelling a frame that stated its own."),
         };
         var frameTypesOpt = new Option<string[]>("--frame-type")
@@ -1418,6 +1511,10 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
         {
             pathOpt, valueOpt, expectOpt, recursiveOpt, applyOpt, overwriteOpt, frameTypesOpt, hardLinksOpt,
         };
+        foreach (var extra in extraOptions ?? [])
+        {
+            command.Options.Add(extra);
+        }
 
         command.SetAction(async (parseResult, ct) =>
         {
@@ -1428,10 +1525,21 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                 return 1;
             }
             var cardValue = parseResult.Required(valueOpt);
+            // A named verb knows all three at construction; the generic one learns them from its own
+            // options here. Everything below reads these, never the captured parameters.
+            var kw = resolveKeyword?.Invoke(parseResult) ?? keyword
+                ?? throw new InvalidOperationException($"[{label}] has neither a keyword nor a resolver.");
+            var cmt = resolveComment?.Invoke(parseResult) ?? cardComment ?? "";
+            var isNumeric = resolveNumeric?.Invoke(parseResult) ?? numeric;
+            if (kw.Length is 0 or > 8)
+            {
+                consoleHost.WriteError($"[{label}] --keyword: a FITS keyword is 1 to 8 characters, got '{kw}'");
+                return 1;
+            }
             // A numeric card is parsed ONCE, here, so a malformed number fails before a single file
             // is opened rather than 186 times inside the loop.
             var numericValue = 0.0;
-            if (numeric && !TryParseCard(cardValue, out numericValue))
+            if (isNumeric && !TryParseCard(cardValue, out numericValue))
             {
                 consoleHost.WriteError($"[{label}] {valueOptionName}: expected a number, got '{cardValue}'");
                 return 1;
@@ -1469,8 +1577,8 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                 .ToArray();
 
             consoleHost.WriteScrollable(
-                $"[{label}] {(apply ? "APPLYING" : "DRY RUN")}: {keyword}='{cardValue}'"
-                + (expect is null ? "" : $" where {keyword}='{expect}'")
+                $"[{label}] {(apply ? "APPLYING" : "DRY RUN")}: {kw}='{cardValue}'"
+                + (expect is null ? "" : $" where {kw}='{expect}'")
                 + $" over {files.Length} FITS file(s) under {path}");
 
             var counts = new SortedDictionary<string, int>(StringComparer.Ordinal);
@@ -1491,19 +1599,24 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
                     // 2880-byte block against a file we are about to rewrite anyway.
                     if (expect is not null)
                     {
-                        var current = Image.TryReadFitsHeader(file, out var head)
-                            ? readCurrent(head.Meta) : null;
+                        // A verb that names a MODELLED card reads it off ImageMeta, which is the same
+                        // value the rest of TianWen acts on. A verb naming an arbitrary keyword has no
+                        // such field, so it reads the raw card through the editor's own parse: the
+                        // guard then compares against exactly what the writer is about to replace.
+                        var current = readCurrent is not null
+                            ? Image.TryReadFitsHeader(file, out var head) ? readCurrent(head.Meta) : null
+                            : await FitsHeaderEditor.TryReadCardAsync(file, kw, ct);
                         // A numeric card is compared as a NUMBER, never as text: the same elevation is
                         // spelled 74, 74.0 and 7.4E1 by different capture software, and a string compare
                         // would refuse every frame while reporting a value that looks identical to the one
                         // asked for -- the most confusing possible failure.
-                        var matches = numeric
+                        var matches = isNumeric
                             ? TryParseCard(current, out var currentValue) && TryParseCard(expect, out var expectValue)
                                 && Math.Abs(currentValue - expectValue) <= 1e-6 * Math.Max(1.0, Math.Abs(expectValue))
                             : string.Equals(current, expect, StringComparison.Ordinal);
                         if (!matches)
                         {
-                            var reason = $"skipped (--expect: {keyword} is {current ?? "unreadable"})";
+                            var reason = $"skipped (--expect: {kw} is {current ?? "unreadable"})";
                             counts[reason] = counts.GetValueOrDefault(reason) + 1;
                             continue;
                         }
@@ -1511,13 +1624,13 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFa
 
                     var result = tagFile is not null
                         ? await tagFile(file, cardValue, allowed, hardLinks, apply, ct)
-                        : numeric
+                        : isNumeric
                         ? await FitsHeaderEditor.SetNumericCardAsync(
-                            file, keyword, numericValue, cardComment, allowed,
+                            file, kw, numericValue, cmt, allowed,
                             overwriteExisting: overwrite, hardLinks: hardLinks, apply: apply,
                             cancellationToken: ct)
                         : await FitsHeaderEditor.SetStringCardAsync(
-                            file, keyword, cardValue, cardComment, allowed,
+                            file, kw, cardValue, cmt, allowed,
                             overwriteExisting: overwrite, hardLinks: hardLinks, apply: apply,
                             cancellationToken: ct);
                     var key = result.Outcome switch
