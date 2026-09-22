@@ -1038,6 +1038,16 @@ namespace TianWen.UI.Abstractions
 
             state.MouseScreenPosition = (px, py);
 
+            // Read BEFORE anything else in this handler, because the readout's resolver is not the
+            // only caller that moves the cursor: the hover branch below asks what a click here would
+            // select, that answer comes through ResolveSkyPixelAt, and ResolveSkyPixelAt calls
+            // UpdateCursorFromScreenPosition to find the pixel under the pointer. Captured after it,
+            // this would already BE the new position, the comparison at the end of the handler would
+            // read "the pointer did not change pixel", and the move would return false -- no damage
+            // declared and no frame -- so the pixel readout would freeze for as long as anything
+            // resolvable sat under the pointer. Found by ViewerFrameDamageTests.
+            var prevPos = state.CursorImagePosition;
+
             // The sky's palette gets every move, before anything else looks at it: it holds its own
             // fade open from the pointer, and while its grip is dragging the move is ITS move -- a
             // palette dragged across the picture must not also pan the picture. It answers false the
@@ -1173,8 +1183,8 @@ namespace TianWen.UI.Abstractions
                 hoverRepaint = true;
             }
 
-            // Only redraw when cursor moves to a different image pixel
-            var prevPos = state.CursorImagePosition;
+            // Only redraw when cursor moves to a different image pixel (prevPos was read at entry,
+            // above, and must stay there).
             // The pane and the placement, both from the single layout pass.
             ViewerActions.UpdateCursorFromScreenPosition(_document, state, px, py, CurrentViewportLayout(state));
             if (state.CursorImagePosition == prevPos)
