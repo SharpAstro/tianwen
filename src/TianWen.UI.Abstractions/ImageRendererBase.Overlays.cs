@@ -710,8 +710,16 @@ namespace TianWen.UI.Abstractions
         {
             var accent = ViewerTheme.Palette.Accent;
 
-            DrawEllipseOverlay(ring.ScreenX, ring.ScreenY, ring.InnerMajor, ring.InnerMinor, ring.AngleRad, accent, 1.5f);
-            DrawEllipseOverlay(ring.ScreenX, ring.ScreenY, ring.OuterMajor, ring.OuterMinor, ring.AngleRad, accent, 1.5f);
+            if (ring.Pair)
+            {
+                DrawEllipseOverlay(ring.ScreenX, ring.ScreenY, ring.InnerMajor, ring.InnerMinor, ring.AngleRad, accent, 1.5f);
+                DrawEllipseOverlay(ring.ScreenX, ring.ScreenY, ring.OuterMajor, ring.OuterMinor, ring.AngleRad, accent, 1.5f);
+            }
+            else
+            {
+                DrawEllipseOverlay(ring.ScreenX, ring.ScreenY, ring.InnerMajor, ring.InnerMinor, ring.AngleRad, accent,
+                    ShapedSelectionStrokePx);
+            }
 
             if (!string.IsNullOrEmpty(FontPath))
             {
@@ -738,18 +746,31 @@ namespace TianWen.UI.Abstractions
             float OuterMajor,
             float OuterMinor,
             float AngleRad,
+            bool Pair,
             string Name,
             (float X, float Y, float W, float H) LabelBox);
+
+        /// <summary>
+        /// The stroke of a shaped object's selection ring, in design pixels: the two 1.5 px strokes of
+        /// the circle pair, as one. A pair drawn as a uniform scale of the object's ellipse cannot read
+        /// as two rings on anything elongated: the rings sit 4.5 px apart along the major axis and
+        /// 4.5 times the axis ratio apart along the minor, which on M31 is 1.6 px, less than the
+        /// strokes themselves, so the pair fused into one line along the sides and split into two at
+        /// the ends. One ring of the pair's combined weight is what the pair was trying to be, and it
+        /// is also what the atlas draws for its own selection.
+        /// </summary>
+        private const float ShapedSelectionStrokePx = 3f;
 
         /// <summary>
         /// Where the selection ring and its name land this frame, or null when there is no selection
         /// or it does not project.
         /// </summary>
         /// <remarks>
-        /// An extended object is ringed by its OWN outline; only a star or a shapeless entry falls
-        /// back to the circle pair, which is the atlas's rule and now this one's. The name sits to the
-        /// right of the ring's widest point on the screen's X axis, which for a rotated ellipse is
-        /// neither semi-axis but the projection of both.
+        /// An extended object is ringed by its OWN outline, one ring stroked
+        /// <see cref="ShapedSelectionStrokePx"/>; only a star or a shapeless entry falls back to the
+        /// circle pair, which is the atlas's rule and now this one's. The name sits to the right of
+        /// the ring's widest point on the screen's X axis, which for a rotated ellipse is neither
+        /// semi-axis but the projection of both.
         /// </remarks>
         private SelectionRingGeometry? SolveSelectionRing(ViewerState state, WCS wcs)
         {
@@ -772,9 +793,13 @@ namespace TianWen.UI.Abstractions
             var screenY = (float)sy;
 
             float innerMajor, innerMinor, outerMajor, outerMinor, angleRad, halfWidth;
+            bool pair;
             if (TrySolveSelectionEllipse(in selection, in wcs, in layout) is { } ellipse)
             {
-                (innerMajor, innerMinor, outerMajor, outerMinor, angleRad, halfWidth) = ellipse;
+                (innerMajor, innerMinor, angleRad, halfWidth) = ellipse;
+                outerMajor = innerMajor;
+                outerMinor = innerMinor;
+                pair = false;
             }
             else
             {
@@ -783,6 +808,7 @@ namespace TianWen.UI.Abstractions
                 outerMajor = outerMinor = innerMajor + (3f * DpiScale);
                 angleRad = 0f;
                 halfWidth = outerMajor;
+                pair = true;
             }
 
             var labelSize = FontSize * 0.85f;
@@ -794,7 +820,7 @@ namespace TianWen.UI.Abstractions
 
             return new SelectionRingGeometry(
                 selection.Index, screenX, screenY,
-                innerMajor, innerMinor, outerMajor, outerMinor, angleRad,
+                innerMajor, innerMinor, outerMajor, outerMinor, angleRad, pair,
                 selection.Name, labelBox);
         }
 
@@ -804,8 +830,8 @@ namespace TianWen.UI.Abstractions
         /// then takes the circle pair.
         /// </summary>
         /// <returns>
-        /// Both rings' semi-axes, their screen angle, and the outer ring's half-width on the screen's
-        /// X axis, which is what the name has to clear.
+        /// The ring's semi-axes, its screen angle, and its half-width on the screen's X axis including
+        /// the stroke's outer half, which is what the name has to clear.
         /// </returns>
         /// <remarks>
         /// <para><b>Every input is the one the [O] overlay already uses for the same object</b> --
@@ -818,11 +844,12 @@ namespace TianWen.UI.Abstractions
         /// or cross-linked shape -- Antares sits inside the rho Ophiuchi dark-cloud complex -- and
         /// must still ring as a star rather than acquire a nebula's ellipse. Asking the same
         /// classifier the overlay markers ask is what keeps the two answers the same one.</para>
-        /// <para><b>A pair, like the circles.</b> The outer ring is a UNIFORM scale of the inner, not
-        /// a constant pixel offset, so an edge-on galaxy's 10:1 ratio survives it -- the same rule
-        /// <see cref="OverlayEngine.EllipseLegibilityScale"/> exists to protect at the small end.</para>
+        /// <para><b>One ring, not the circle pair.</b> It used to be a pair with the outer a UNIFORM
+        /// scale of the inner (a constant pixel offset rounds an edge-on galaxy off, the failure
+        /// <see cref="OverlayEngine.EllipseLegibilityScale"/> exists to prevent at the small end), and
+        /// that is exactly why it could not work: see <see cref="ShapedSelectionStrokePx"/>.</para>
         /// </remarks>
-        private (float InnerMajor, float InnerMinor, float OuterMajor, float OuterMinor, float AngleRad, float HalfWidth)?
+        private (float SemiMajor, float SemiMinor, float AngleRad, float HalfWidth)?
             TrySolveSelectionEllipse(in SkyMapInfoPanelData selection, in WCS wcs, in ViewportLayout layout)
         {
             if (selection.Shape is not { } shape
@@ -867,20 +894,14 @@ namespace TianWen.UI.Abstractions
 
             var angleRad = OverlayEngine.ComputeScreenPA(wcs, selection.RA, selection.Dec, shape.PositionAngle);
 
-            // The outer ring is the inner one scaled so its MAJOR axis gains the same 3 px the circle
-            // fallback's outer gains; the minor axis follows proportionally rather than by the same
-            // absolute amount, which is what keeps an elongated object from rounding off.
-            var outerScale = 1f + (3f * DpiScale / semiMajorPx);
-            var outerMajorPx = semiMajorPx * outerScale;
-            var outerMinorPx = semiMinorPx * outerScale;
-
             // The label clears the ring's widest point on the screen's X axis, which for a rotated
-            // ellipse is neither semi-axis but the projection of both.
+            // ellipse is neither semi-axis but the projection of both, plus the stroke's outer half.
             var (sin, cos) = MathF.SinCos(angleRad);
+            var halfStroke = ShapedSelectionStrokePx * 0.5f * DpiScale;
             var halfWidth = MathF.Sqrt(
-                (outerMajorPx * cos * (outerMajorPx * cos)) + (outerMinorPx * sin * (outerMinorPx * sin)));
-            return (semiMajorPx, semiMinorPx, outerMajorPx, outerMinorPx, angleRad,
-                float.IsFinite(halfWidth) ? halfWidth : outerMajorPx);
+                (semiMajorPx * cos * (semiMajorPx * cos)) + (semiMinorPx * sin * (semiMinorPx * sin))) + halfStroke;
+            return (semiMajorPx, semiMinorPx, angleRad,
+                float.IsFinite(halfWidth) ? halfWidth : semiMajorPx + halfStroke);
         }
 
         private static RGBAColor32 FloatToColor(float r, float g, float b, float a)

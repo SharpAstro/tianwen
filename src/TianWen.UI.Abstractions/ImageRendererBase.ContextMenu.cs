@@ -165,6 +165,43 @@ namespace TianWen.UI.Abstractions
             => obj.CommonNames.Count > 0 ? obj.DisplayName : obj.Index.ToCanonical();
 
         /// <summary>
+        /// The sky map's answer for a tap OUTSIDE the picture while the map is painted behind it, or
+        /// null: inside the picture the frame's own overlay is the authority and the map draws nothing.
+        /// </summary>
+        /// <remarks>
+        /// <para>The frame's catalogue search stops <see cref="MaxOffFrameClickAngleDeg"/> from its
+        /// tangent point, for the reason given there, and the map's markers go on to the edge of the
+        /// pane. An object drawn out there by the map could be seen and not clicked: NGC 7000, sixty
+        /// degrees from an M31 frame, took a tap and answered nothing while M31 itself answered from
+        /// anywhere inside its ellipse.</para>
+        /// <para>The map answers through <see cref="SkyMapTab{TSurface}.ResolveCatalogObjectAt"/>,
+        /// the ONE resolver its own hover and click already share, so an extended object is hit
+        /// anywhere inside its projected ellipse there too, and this pass cannot disagree with the
+        /// wash the pointer showed a moment before. The selection is then built by this viewer's own
+        /// <see cref="BuildSelectionPanelData"/>, at the frame's site and capture instant like every
+        /// other selection here, not by the map's panel.</para>
+        /// </remarks>
+        private (CelestialObject Object, CatalogIndex Index)? FindBackdropObjectAt(ViewerState state, float px, float py)
+        {
+            if (PaintedSkyBackdrop is not { } sky || LoadedCatalog is not { } db)
+            {
+                return null;
+            }
+
+            var layout = CurrentViewportLayout(state);
+            var insidePicture = px >= layout.ImageOffsetX && px < layout.ImageOffsetX + layout.DrawWidth
+                && py >= layout.ImageOffsetY && py < layout.ImageOffsetY + layout.DrawHeight;
+            if (insidePicture)
+            {
+                return null;
+            }
+
+            return sky.ResolveCatalogObjectAt(px, py) is { } idx && db.TryLookupByIndex(idx, out var obj)
+                ? (obj, idx)
+                : null;
+        }
+
+        /// <summary>
         /// How far outside the sensor a click may still be resolved to a sky position, in degrees from
         /// the frame's tangent point.
         /// </summary>
@@ -178,8 +215,8 @@ namespace TianWen.UI.Abstractions
         /// <para>Five degrees because it comfortably covers everything the frame's overlay can DRAW
         /// outside the picture: that gather runs over the image's own bounds expanded by one degree, so
         /// any marker beside the frame is within about a degree of it. Objects further out belong to
-        /// the sky map behind, which places them from ITS projection and would have to answer for them
-        /// itself -- see the note in the plan.</para>
+        /// the sky map behind, which places them from ITS projection and answers for them itself
+        /// through <see cref="FindBackdropObjectAt"/>.</para>
         /// </remarks>
         private const double MaxOffFrameClickAngleDeg = 5.0;
 
@@ -519,12 +556,14 @@ namespace TianWen.UI.Abstractions
                 : null;
 
             // In this order: the MARKER enclosing the tap, then the LABEL under it, then the nearest
-            // catalogue centre -- each method's remarks say why it sits where it does. Both drawn
-            // lookups answer nothing while the overlay is off, so the catalogue search is then the
+            // catalogue centre, and, beside the picture with the sky drawn behind it, the MAP's own
+            // answer -- each method's remarks say why it sits where it does. Both drawn lookups
+            // answer nothing while the overlay is off, so the catalogue search is then the frame's
             // whole resolver, as it always was.
             var resolved = FindDrawnMarkerAt(px, py)
                 ?? FindDrawnLabelAt(px, py)
-                ?? (info is { } pixel ? FindCatalogObjectAt(pixel, fovDeg) : null);
+                ?? (info is { } pixel ? FindCatalogObjectAt(pixel, fovDeg) : null)
+                ?? FindBackdropObjectAt(state, px, py);
 
             if (resolved is not { } hit)
             {

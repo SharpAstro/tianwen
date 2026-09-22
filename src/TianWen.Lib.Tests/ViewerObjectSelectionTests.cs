@@ -529,7 +529,7 @@ namespace TianWen.Lib.Tests
 
             viewer.DrawnEllipses.Clear();
             viewer.Render(document, state);
-            var (_, outer) = SelectionRings(viewer, baseline);
+            var outer = SelectionRing(viewer, baseline);
 
             var drawn = viewer.DrawnOverlayObjects.First(d => d.Index == CatalogIndex.NGC5194);
             drawn.NamedByRing.ShouldBeTrue(
@@ -722,8 +722,9 @@ namespace TianWen.Lib.Tests
         /// selection that draws nothing cannot be told from a click that missed.
         /// </summary>
         /// <remarks>
-        /// Counted rather than read back from pixels because the ring's PRESENCE is the question; the
-        /// pair is two ellipses, so the count rises by at least two over a frame with no selection.
+        /// Counted rather than read back from pixels because the ring's PRESENCE is the question; a
+        /// shaped object's ring is one ellipse, so the count rises by one over a frame with no
+        /// selection.
         /// </remarks>
         [Fact]
         public async Task TheHighlightDrawsWithTheOverlayOff()
@@ -746,8 +747,8 @@ namespace TianWen.Lib.Tests
             viewer.Ellipses = 0;
             viewer.Render(document, state);
 
-            viewer.Ellipses.ShouldBe(withoutSelection + 2,
-                "the selection ring is a pair of ellipses, and nothing else changed between the frames");
+            viewer.Ellipses.ShouldBe(withoutSelection + 1,
+                "a shaped object's selection ring is one ellipse, and nothing else changed between the frames");
         }
 
         /// <summary>
@@ -769,7 +770,7 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// The selection's own pair out of the frame's ellipses: exactly two more than the baseline,
+        /// A star's selection pair out of the frame's ellipses: exactly two more than the baseline,
         /// and the LAST two, since the highlight draws after the picture's own markers.
         /// </summary>
         private static (DrawnEllipse Inner, DrawnEllipse Outer)
@@ -777,12 +778,26 @@ namespace TianWen.Lib.Tests
         {
             var drawn = viewer.DrawnEllipses;
             drawn.Count.ShouldBe(baseline + 2,
-                "the selection ring is a pair, and nothing else changed between the two frames");
+                "a star's selection ring is a pair, and nothing else changed between the two frames");
             return (drawn[^2], drawn[^1]);
         }
 
         /// <summary>
-        /// An EXTENDED object is ringed by its own outline, not by a circle: both rings carry the
+        /// A shaped object's selection ring out of the frame's ellipses: exactly ONE more than the
+        /// baseline, and the last, since the highlight draws after the picture's own markers. One
+        /// ring, because a pair scaled uniformly from the object's own ellipse fuses along the minor
+        /// axis and splits along the major on anything elongated.
+        /// </summary>
+        private static DrawnEllipse SelectionRing(SelectionViewer viewer, int baseline)
+        {
+            var drawn = viewer.DrawnEllipses;
+            drawn.Count.ShouldBe(baseline + 1,
+                "a shaped object's selection ring is one ring, and nothing else changed between the two frames");
+            return drawn[^1];
+        }
+
+        /// <summary>
+        /// An EXTENDED object is ringed by its own outline, not by a circle: the ring carries the
         /// catalogue's axis ratio, which is the whole difference between "something is selected here"
         /// and "this galaxy is selected".
         /// </summary>
@@ -815,22 +830,81 @@ namespace TianWen.Lib.Tests
             viewer.DrawnEllipses.Clear();
             viewer.Render(document, state);
 
-            var (inner, outer) = SelectionRings(viewer, baseline);
+            var ring = SelectionRing(viewer, baseline);
 
-            foreach (var ring in new[] { inner, outer })
+            (ring.SemiMinor / ring.SemiMajor).ShouldBe((float)catalogueRatio, 0.01f,
+                "the ring carries the object's OWN axis ratio, not a circle's");
+            MathF.Abs(ring.AngleRad).ShouldBeGreaterThan(0.01f,
+                "M51's catalogued position angle is not zero, so the ring is not axis-aligned");
+        }
+
+        /// <summary>
+        /// A tap on an object the SKY MAP drew beside the picture selects it. The frame's own
+        /// catalogue search stops five degrees from the frame, so before this a marker the map drew
+        /// out there could be seen and not clicked (NGC 7000 on an M31 frame). The candidate is
+        /// whatever the map's own resolver answers at a point in the band the map owns, so the test
+        /// asks the same question the tap will, rather than guessing which object is out there.
+        /// </summary>
+        [Fact]
+        public async Task ATapOnAMapObjectBesideThePictureSelectsIt()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _) = await NewViewerOnAsync(renderer, CatalogIndex.NGC5194, ct);
+            state.ShowOverlays = true;
+
+            var db = await SharedCatalogDB.InitAsync(ct);
+            var when = new DateTimeOffset(2026, 6, 21, 0, 0, 0, TimeSpan.Zero);
+            var tab = new SkyMapTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+            tab.State.ViewDrivenExternally = true;
+            viewer.SkyBackdrop = tab;
+            viewer.SkyTimeProvider = new FakeTimeProviderWrapper(when);
+            viewer.SkyPlannerState = new PlannerState
             {
-                (ring.SemiMinor / ring.SemiMajor).ShouldBe((float)catalogueRatio, 0.01f,
-                    "each ring carries the object's OWN axis ratio, not a circle's");
+                ObjectDb = db,
+                SiteLatitude = 48.0,
+                SiteLongitude = 11.0,
+                SiteTimeZone = TimeSpan.Zero,
+                PlanningDate = when,
+            };
+            state.ShowSkyBackdrop = true;
+            viewer.Render(document, state);
+
+            // Walk the band the map owns (in the pane, outside the picture) until the map's resolver
+            // names something there; that point and that object are the fixture.
+            var frame = viewer.Placement;
+            var pane = viewer.ImageArea;
+            (float X, float Y, CatalogIndex Index)? found = null;
+            for (var y = pane.Y + 8f; y < pane.Y + pane.Height - 8f && found is null; y += 12f)
+            {
+                for (var x = pane.X + 8f; x < pane.X + pane.Width - 8f; x += 12f)
+                {
+                    var insidePicture = x >= frame.OffsetX && x < frame.OffsetX + frame.DrawW
+                        && y >= frame.OffsetY && y < frame.OffsetY + frame.DrawH;
+                    if (insidePicture) continue;
+                    if (SkyMapSearchActions.ResolveHoverAtScreenPoint(tab.State, db, when, x, y, null) is { IsEphemeris: false } hit)
+                    {
+                        found = (x, y, hit.Index);
+                        break;
+                    }
+                }
             }
 
-            // The outer ring is a UNIFORM scale of the inner, which is what stops an edge-on galaxy
-            // rounding off: a constant pixel offset would leave the two ratios apart.
-            (outer.SemiMinor / outer.SemiMajor).ShouldBe(inner.SemiMinor / inner.SemiMajor, 0.001f,
-                "the outer ring scales uniformly rather than gaining a constant number of pixels");
-            outer.SemiMajor.ShouldBeGreaterThan(inner.SemiMajor, "and it sits outside the inner one");
-            outer.AngleRad.ShouldBe(inner.AngleRad, 1e-6f, "both rings share the object's position angle");
-            MathF.Abs(inner.AngleRad).ShouldBeGreaterThan(0.01f,
-                "M51's catalogued position angle is not zero, so the ring is not axis-aligned");
+            var (tapX, tapY, expected) = found.ShouldNotBeNull(
+                "the fixture needs the map to draw at least one catalogue object beside the picture");
+
+            TapAt(viewer, tapX, tapY);
+
+            state.SelectedObject.ShouldNotBeNull("a marker you can see is a marker you can click")
+                .Index.ShouldBe(expected, "and it is the object the map's own resolver named there");
+
+            // The control: with the map not drawing, the same tap is beyond the frame's five degrees
+            // and selects nothing, which is what this path exists to change.
+            state.SelectedObject = null;
+            state.ShowSkyBackdrop = false;
+            viewer.Render(document, state);
+            TapAt(viewer, tapX, tapY);
+            state.SelectedObject.ShouldBeNull("the frame's own search does not reach the band the map owns");
         }
 
         /// <summary>
