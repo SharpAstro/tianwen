@@ -578,8 +578,6 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
             [CMOSControlType.HighSpeedMode] = Convert.ToInt32(_cameraSettings.FastReadout),
             [CMOSControlType.MonoBin] = 0,
             [CMOSControlType.HardwareBin] = 0,
-            [CMOSControlType.WB_R] = 50,
-            [CMOSControlType.WB_B] = 50,
             [CMOSControlType.PatternAdjust] = 0,
             [CMOSControlType.BandwidthOverload] = 50,
             [CMOSControlType.EnableDDR] = 1,
@@ -591,6 +589,48 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         {
             // ignore
             _ =_deviceInfo.SetControlValue(pair.Key, pair.Value);
+        }
+
+        SetNeutralWhiteBalance();
+    }
+
+    /// <summary>
+    /// Puts the white balance where it applies NO gain, asking the camera what that value is.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>This used to be a literal 50 written to red and blue, which is neutral on exactly
+    /// one vendor.</b> ZWO's channels run about [1, 99] with unity at the midpoint, so 50 was right
+    /// there and was quietly wrong everywhere else: a Player One body scales [-1200, 1200] about a
+    /// neutral of 0, so 50 is a small red and blue lift applied to every frame captured through this
+    /// driver. It went unnoticed because NO FITS header records a white balance. It is baked into
+    /// the pixels, so the only way to see it afterwards is to measure the per-photosite quantisation
+    /// step.</para>
+    /// <para>It is not a preview matter. A white balance is a digital gain on the RAW stream, so it
+    /// scales the PEDESTAL, and a dark library shot at one balance does not describe lights shot at
+    /// another. That is a calibration error, not a colour cast.</para>
+    /// <para><b>Green is written only where the body has a green channel.</b> ZWO balances red and
+    /// blue against an implicit green and has no <see cref="CMOSControlType.WB_G"/> at all, while
+    /// Player One has all three, and writing two of three leaves the third wherever it was last
+    /// put.</para>
+    /// <para>The 50 remains as the fallback for a device that does not yet answer
+    /// <see cref="ICMOSNativeInterface.TryGetWhiteBalanceRange"/>, so this is not a behaviour change
+    /// for ZWO or QHY: they keep exactly what they had until each implements the member, and only a
+    /// camera that states its own scale is driven by it.</para>
+    /// </remarks>
+    private void SetNeutralWhiteBalance()
+    {
+        var hasScale = _deviceInfo.TryGetWhiteBalanceRange(out _, out _, out var neutral);
+        if (!hasScale)
+        {
+            neutral = 50;
+        }
+
+        _ = _deviceInfo.SetControlValue(CMOSControlType.WB_R, neutral);
+        _ = _deviceInfo.SetControlValue(CMOSControlType.WB_B, neutral);
+
+        if (hasScale && _deviceInfo.HasThreeChannelWhiteBalance)
+        {
+            _ = _deviceInfo.SetControlValue(CMOSControlType.WB_G, neutral);
         }
     }
 
