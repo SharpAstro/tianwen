@@ -367,7 +367,7 @@ public static class SkyBackdropView
     }
 
     /// <summary>Iterations the placement solve allows itself before giving up.</summary>
-    private const int PlaceIterations = 12;
+    private const int PlaceIterations = 40;
 
     /// <summary>How close to the target, in pane pixels, counts as placed.</summary>
     private const float PlaceTolerancePx = 0.05f;

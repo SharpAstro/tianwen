@@ -584,9 +584,11 @@ namespace TianWen.UI.Abstractions
         /// How far the pointer travels between hover resolves, in design pixels. The budget is pointer
         /// TRAVEL rather than the painted frame the atlas uses, because this host repaints only what
         /// a move changed: a resolve whose answer is the same must ask for nothing, and a budget
-        /// released by a paint would then never reopen.
+        /// released by a paint would then never reopen. Two pixels, the atlas's own slop: the wash
+        /// may lag the pointer by this much, and at the edge of a small cluster inside a galaxy that
+        /// is the window in which the wash names one object and a click takes the other.
         /// </summary>
-        private const float HoverResolveStepPx = 4f;
+        private const float HoverResolveStepPx = 2f;
 
         /// <summary>
         /// Re-resolves the hover wash for the pointer at (<paramref name="px"/>, <paramref name="py"/>).
