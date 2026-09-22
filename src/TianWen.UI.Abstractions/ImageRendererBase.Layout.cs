@@ -346,6 +346,28 @@ namespace TianWen.UI.Abstractions
             return float.IsFinite(floor) && floor > 0f ? floor : null;
         }
 
+        /// <summary>
+        /// The quad origin the placement pass gives a pan offset at a zoom, by the pass's own arithmetic,
+        /// and <see cref="PanForOrigin"/> its inverse. For the gestures that solve a placement between
+        /// frames, where the last drawn placement is one move stale.
+        /// </summary>
+        private (float X, float Y) OriginForPan(ViewerState state, RectF32 area, float zoom, (float X, float Y) pan)
+        {
+            var shown = VisibleImageRegion(state);
+            var centredX = area.X + ((area.Width - (shown.Width * zoom)) / 2f);
+            var centredY = area.Y + ((area.Height - (shown.Height * zoom)) / 2f);
+            return (centredX + pan.X - (shown.X * zoom), centredY + pan.Y - (shown.Y * zoom));
+        }
+
+        /// <summary>The pan offset that draws the quad from an origin at a zoom; see <see cref="OriginForPan"/>.</summary>
+        private (float X, float Y) PanForOrigin(ViewerState state, RectF32 area, float zoom, (float X, float Y) origin)
+        {
+            var shown = VisibleImageRegion(state);
+            var centredX = area.X + ((area.Width - (shown.Width * zoom)) / 2f);
+            var centredY = area.Y + ((area.Height - (shown.Height * zoom)) / 2f);
+            return (origin.X + (shown.X * zoom) - centredX, origin.Y + (shown.Y * zoom) - centredY);
+        }
+
         // Clamp a top-left coordinate so a draw of <paramref name="drawSize"/> stays confined to the viewport
         // axis [areaStart, areaStart + areaSize]: covering it when larger, inside it when smaller.
         private static float ConfineToViewport(float offset, float areaStart, float areaSize, float drawSize)

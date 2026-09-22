@@ -234,6 +234,29 @@ reports -- *"where's the sky?"*, then *"its still the tri-state overlay?"*:
   to carry a precondition, so the refusal was invisible. The button is dim there with a tooltip
   saying to plate solve first.
 
+**A gesture on the sky is stated on the sky (since 2026-09-22).** The backdrop's view is solved from
+the frame's placement: the reference pixel goes where the quad draws it, through the map's
+stereographic projection about the pane's centre. That is right and stays; what was wrong was
+letting the drag and the wheel remain PIXEL gestures on the frame. The stereographic is
+`2 tan(theta/2)` of the angle out, so a pixel of frame movement was worth `cos^2(theta/2)` of sky
+under the pointer: half speed with the frame 90 degrees from the pane's centre, a sixth near the far
+pole from an M31 frame, and the Southern Cross from a northern frame barely moved. Reported three
+ways in one sitting: a slow pan near the SCP, a dampened zoom there, a touch pan near Crux that
+"does not work". Now a drag keeps the sky position grabbed at the press under the pointer and a
+wheel or pinch keeps the sky position under the cursor, exactly as the atlas does, and the frame's
+pan is SOLVED from that (`SkyBackdropView.TryPlaceSkyPoint`, Newton on the two pan numbers with a
+Jacobian off two one-pixel probes of `Solve`). The picture still cannot rotate, so the map's roll
+remains the frame's rule rather than the atlas's north-up one; near the frame the solve IS the pixel
+pan the viewer always did, so nothing changed where it was right. Measured on the M31 frame: six
+800 px drags from Dec +41 to the pole moved the centre 19.8 degrees each, first and last alike, and
+three wheel steps on the SCP marker with the frame 131 degrees away moved it 0.03 px. The same
+sitting fixed the wheel at the floor: the pan-zoom controller clamped at ITS floor (0.01), not the
+backdrop's, so every notch past the whole sky still shifted the pan for a zoom the layout then
+refused and the sky slid sideways; the controller is now seeded with the backdrop's floor
+(`SeedPanZoom`) and a notch there is the no-op it reports. Pinned by `ViewerSkyGridTests` (a drag
+and a wheel far from the frame, a wheel at the floor) and `SkyBackdropViewTests` (the solve near and
+113 degrees out, and its refusal at the antipode).
+
 `ShowSkyBackdrop` is INTENT and `SkyBackdropActive` is capability, deliberately apart: an unsolved
 frame remembers the request and honours it the moment a solve lands. `Y` because the sky's own
 palette claims `G A H C B S O D E M` and `V` the moment the backdrop is up -- exactly when you would

@@ -297,5 +297,142 @@ namespace TianWen.Lib.Tests
             viewer.SkyBackdrop.ShouldNotBeNull();
             viewer.SkyBackdrop!.State.DrawOwnGrid.ShouldBeFalse("G means no grid, on either side of the handover");
         }
+
+        // ------------------------------------------------------------------------------------------
+        // Gestures on the sky. With the sky drawn behind the frame, a drag and a wheel are gestures ON
+        // THE SKY: the sky position under the pointer follows the pointer, wherever the frame is. They
+        // used to be pixel gestures on the frame, which through the projection were worth less and
+        // less sky the further the frame sat from the pane's centre -- a pan that crawled near the
+        // pole, a zoom that would not keep its point, a touch pan near Crux that "did not work".
+        // ------------------------------------------------------------------------------------------
+
+        /// <summary>The sky position under a pane point, read off the backdrop the viewer just drove.</summary>
+        private static (double RA, double Dec) SkyUnder(GridViewer viewer, float x, float y)
+        {
+            var tab = viewer.SkyBackdrop.ShouldNotBeNull();
+            var pane = viewer.Pane;
+            var view = tab.State.ComputeViewMatrix();
+            var pixelsPerRadian = SkyMapProjection.PixelsPerRadian(pane.Height, tab.State.FieldOfViewDeg);
+            return SkyMapProjection.UnprojectWithMatrix(x, y, in view, pixelsPerRadian,
+                pane.X + (pane.Width * 0.5f), pane.Y + (pane.Height * 0.5f));
+        }
+
+        /// <summary>Great-circle separation of two sky positions, in degrees.</summary>
+        private static double SeparationDeg((double RA, double Dec) a, (double RA, double Dec) b)
+        {
+            var (sinA, cosA) = Math.SinCos(double.DegreesToRadians(a.Dec));
+            var (sinB, cosB) = Math.SinCos(double.DegreesToRadians(b.Dec));
+            var dRa = double.DegreesToRadians((a.RA - b.RA) * 15.0);
+            var dot = Math.Clamp((sinA * sinB) + (cosA * cosB * Math.Cos(dRa)), -1.0, 1.0);
+            return double.RadiansToDegrees(Math.Acos(dot));
+        }
+
+        /// <summary>
+        /// A frame pushed far to the right of the pane: about a hundred degrees from the pane's centre
+        /// at this zoom, which is the pole from a mid-northern frame. Rendered twice so the placement
+        /// and the backdrop it drives have both settled.
+        /// </summary>
+        private static ViewerState FarFrame(GridViewer viewer, AstroImageDocument document)
+        {
+            var state = NewState(sky: true, zoom: 0.05f);
+            state.PanOffset = (12000f, 0f);
+            viewer.Render(document, state);
+            viewer.Render(document, state);
+            return state;
+        }
+
+        /// <summary>
+        /// <b>A drag far from the picture moves the sky with the pointer.</b> The position grabbed at
+        /// the press is under the pointer when it stops, and the frame travelled further than the
+        /// pointer did, which the pixel pan never could.
+        /// </summary>
+        [Fact]
+        public async Task ADragFarFromTheFrameMovesTheSkyWithThePointer()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var viewer = new GridViewer(renderer);
+            await AttachSkyAsync(viewer, renderer, ct);
+            var document = await DocumentAsync(ct);
+            var state = FarFrame(viewer, document);
+
+            var pane = viewer.Pane;
+            var fromX = pane.X + (pane.Width * 0.5f);
+            var fromY = pane.Y + (pane.Height * 0.5f);
+            var toX = fromX + 180f;
+            var toY = fromY - 120f;
+            var grabbed = SkyUnder(viewer, fromX, fromY);
+            var panBefore = state.PanOffset;
+
+            viewer.HandleInput(new InputEvent.MouseDown(fromX, fromY));
+            viewer.HandleInput(new InputEvent.MouseMove(toX, toY, MouseButton.Left));
+            viewer.HandleInput(new InputEvent.MouseUp(toX, toY));
+            viewer.Render(document, state);
+
+            SeparationDeg(grabbed, SkyUnder(viewer, toX, toY)).ShouldBeLessThan(0.01,
+                "the sky position grabbed at the press is under the pointer where it stopped");
+
+            var dx = state.PanOffset.X - panBefore.X;
+            var dy = state.PanOffset.Y - panBefore.Y;
+            MathF.Sqrt((dx * dx) + (dy * dy)).ShouldBeGreaterThan(2f * MathF.Sqrt((180f * 180f) + (120f * 120f)),
+                "far from the pane's centre the frame travels further than the pointer; a pixel pan moves it exactly as far");
+        }
+
+        /// <summary>
+        /// <b>A wheel far from the picture keeps the sky under the cursor.</b> The zoom changes and the
+        /// sky position under the cursor does not, as in the atlas.
+        /// </summary>
+        [Fact]
+        public async Task AWheelFarFromTheFrameKeepsTheSkyUnderTheCursor()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var viewer = new GridViewer(renderer);
+            await AttachSkyAsync(viewer, renderer, ct);
+            var document = await DocumentAsync(ct);
+            var state = FarFrame(viewer, document);
+
+            var pane = viewer.Pane;
+            var x = pane.X + (pane.Width * 0.3f);
+            var y = pane.Y + (pane.Height * 0.65f);
+            var under = SkyUnder(viewer, x, y);
+            var zoomBefore = state.Zoom;
+
+            viewer.HandleInput(new InputEvent.Scroll(1f, x, y));
+            viewer.Render(document, state);
+
+            state.Zoom.ShouldBeGreaterThan(zoomBefore, "the wheel zoomed in");
+            SeparationDeg(under, SkyUnder(viewer, x, y)).ShouldBeLessThan(0.01,
+                "the sky position under the cursor stays under the cursor through a zoom");
+        }
+
+        /// <summary>
+        /// <b>A wheel held at the floor moves nothing.</b> The controller used to clamp at its own floor,
+        /// far below the backdrop's, so each notch past the whole sky still shifted the pan for a zoom
+        /// the layout then refused: the sky slid sideways under a wheel that was zooming nothing.
+        /// </summary>
+        [Fact]
+        public async Task AWheelAtTheFloorMovesNothing()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var viewer = new GridViewer(renderer);
+            await AttachSkyAsync(viewer, renderer, ct);
+            var document = await DocumentAsync(ct);
+            var state = NewState(sky: true, zoom: 0.001f);
+            viewer.Render(document, state);
+            viewer.Render(document, state);
+
+            var pane = viewer.Pane;
+            var zoom = state.Zoom;
+            var pan = state.PanOffset;
+            zoom.ShouldBeGreaterThan(0.001f, "the fixture starts AT the floor, which is above what was asked");
+
+            viewer.HandleInput(new InputEvent.Scroll(-1f, pane.X + (pane.Width * 0.8f), pane.Y + (pane.Height * 0.7f)));
+            viewer.Render(document, state);
+
+            state.Zoom.ShouldBe(zoom);
+            state.PanOffset.ShouldBe(pan, "a notch past the floor is a no-op, pan included");
+        }
     }
 }
