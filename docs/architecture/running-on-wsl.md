@@ -35,7 +35,7 @@ Each of these cost time to find, and each fails in a way that does not name itse
 |---|---|
 | **.NET SDK matching the Windows one** (10.0.401) | An older SDK's Roslyn silently DROPS the source generator. Ubuntu's `dotnet` is 10.0.110, whose compiler is 5.0, and `TianWen.Lib.SourceGenerators` references 5.9. You get **one** `CS9057` warning and then **146 errors** about partial members that never mention the generator. Install with `dotnet-install.sh --version 10.0.401 --install-dir "$HOME/.dotnet"` and put it first on `PATH` with `DOTNET_ROOT` set. Do **not** "fix" it by pinning `Microsoft.CodeAnalysis.*` down in `Directory.Packages.props`. |
 | **`pwsh`** | `TianWen.Lib.csproj`'s `ExpandTycho2` target shells out to `tools/expand-tycho2.ps1`. Without it the build dies with `MSB3073 ... exited with code 127`. `dotnet tool install --global PowerShell` is enough (7.6.6 here), no Microsoft apt repo needed. |
-| **`LD_PRELOAD=/lib/aarch64-linux-gnu/libudev.so.1`**, for `tianwen-gui` only | `libEFW1.7.so` (the ZWO filter wheel) has an undefined `udev_new`, and the process dies at startup with `symbol lookup error` the moment the native is loaded. Not calling `AddZWO()` does not help: a vendor native reaches an app through the REFERENCE GRAPH, and the GUI references `TianWen.Devices.Native` deliberately, because it drives hardware. **`tianwen-fits` needs no preload at all**, since the whole point of that split is that an app connecting no hardware does not reference the project (see CLAUDE.md, Device Management). |
+| ~~`LD_PRELOAD=/lib/aarch64-linux-gnu/libudev.so.1`~~, **fixed at the source in ZWOptical.SDK 4.4** | `libEFW1.7.so` and `libEAFFocuser1.6.so` call fifteen udev functions each and declare no dependency on libudev, so the first call into either one killed the PROCESS with `undefined symbol: udev_new` before a frame was drawn. The SDK now loads libudev with `RTLD_GLOBAL` from those two classes' static constructors, which is the only way the symbols reach a library the runtime loads afterwards. **Until this repo's pin moves from `4.3.*` to `4.4`, a GUI build still needs the preload.** `tianwen-fits` never did: it references no vendor drivers. |
 | **`libicu`**, or `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` | A stock WSL image ships none and the app `FailFast`s inside logger construction, before its first frame. Present on this box already. |
 | **`xdotool`** | The input driver, above. Needs an X11 or XWayland session, which WSLg provides. |
 | **`vulkan-validationlayers`** | The whole point. Turn it on with `SDLVK_VALIDATION=1 SDLVK_SYNC_VALIDATION=1`. |
@@ -87,6 +87,8 @@ VK_DRIVER_FILES=$HOME/mesa-dzn/share/vulkan/icd.d/dzn_icd.aarch64.json \
 SDLVK_VALIDATION=1 SDLVK_SYNC_VALIDATION=1 \
 ./tianwen-gui
 ```
+
+The `LD_PRELOAD` line goes away once the `ZWOptical.SDK` pin is 4.4 or later; see the table above.
 
 `VK_DRIVER_FILES` is pinned deliberately: leave it off and `llvmpipe` is enumerable beside `dzn`, and
 a software run proves nothing about the GPU. The launch is correct when the log carries
