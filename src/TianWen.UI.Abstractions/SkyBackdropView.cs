@@ -1,4 +1,5 @@
 using System;
+using System.Numerics;
 using DIR.Lib;
 using TianWen.Lib.Astrometry;
 
@@ -340,6 +341,149 @@ public static class SkyBackdropView
     /// (<see cref="SkyMapState.ViewDrivenExternally"/>): that is the host saying it has taken the view
     /// over, which has to be true before the first frame and stay true on a frame this cannot solve.
     /// </summary>
+    /// <summary>The map's view matrix for a solution, with no state to apply it to.</summary>
+    public static Matrix4x4 ViewMatrixOf(in Solution solution)
+        => SkyMapState.ComputeViewMatrix(solution.CenterRaHours, solution.CenterDecDeg, solution.CenterRollRad, solution.Mirror);
+
+    /// <summary>
+    /// Where a sky position lands on the pane under a solution; false when it is behind the view.
+    /// </summary>
+    public static bool TryProject(in Solution solution, RectF32 pane, double raHours, double decDeg,
+        out float screenX, out float screenY)
+    {
+        var view = ViewMatrixOf(in solution);
+        var pixelsPerRadian = SkyMapProjection.PixelsPerRadian(pane.Height, solution.FieldOfViewDeg);
+        return SkyMapProjection.ProjectWithMatrix(raHours, decDeg, in view, pixelsPerRadian,
+            pane.X + (pane.Width * 0.5f), pane.Y + (pane.Height * 0.5f), out screenX, out screenY);
+    }
+
+    /// <summary>The sky position under a pane point, under a solution.</summary>
+    public static (double RA, double Dec) Unproject(in Solution solution, RectF32 pane, float screenX, float screenY)
+    {
+        var view = ViewMatrixOf(in solution);
+        var pixelsPerRadian = SkyMapProjection.PixelsPerRadian(pane.Height, solution.FieldOfViewDeg);
+        return SkyMapProjection.UnprojectWithMatrix(screenX, screenY, in view, pixelsPerRadian,
+            pane.X + (pane.Width * 0.5f), pane.Y + (pane.Height * 0.5f));
+    }
+
+    /// <summary>Iterations the placement solve allows itself before giving up.</summary>
+    private const int PlaceIterations = 12;
+
+    /// <summary>How close to the target, in pane pixels, counts as placed.</summary>
+    private const float PlaceTolerancePx = 0.05f;
+
+    /// <summary>
+    /// The image origin at which the sky position (<paramref name="raHours"/>, <paramref name="decDeg"/>)
+    /// lands on the pane point (<paramref name="targetX"/>, <paramref name="targetY"/>) at
+    /// <paramref name="scale"/>, starting from the origin the frame has now. False when no such
+    /// placement is found, in which case the outputs are meaningless.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is what makes a gesture on the sky a gesture ON THE SKY.</b> The viewer's drag and wheel
+    /// are stated in pane pixels on the frame, and <see cref="Solve"/> turns a frame placement into a
+    /// view: the frame's reference pixel goes where the quad draws it, through the map's stereographic
+    /// projection about the pane's centre. That projection is 2 tan(theta/2) of the angle out, so a
+    /// pixel of frame movement is worth cos squared of half that angle in sky, and the further the
+    /// frame is pushed from the pane's centre the less of the sky a drag moves and the less a
+    /// cursor-anchored zoom keeps under the cursor: at 90 degrees out a drag ran at half speed, near
+    /// the far pole from an M31 frame at a sixth, and the Southern Cross from a northern frame would
+    /// barely move at all. Reported three ways, as a slow pan near the pole, a dampened zoom there,
+    /// and a touch pan that "does not work" near Crux.
+    /// </para>
+    /// <para>
+    /// The frame's placement has two degrees of freedom and so does the view's centre, so the sky
+    /// position under the pointer can be sent wherever the pointer goes by moving the frame, and this
+    /// finds the frame origin that does it: Newton's method on the two unknowns with a Jacobian read
+    /// off two one-pixel probes through <see cref="Solve"/>. Near the frame the Jacobian is the
+    /// identity and the answer is the pixel pan the viewer always did, so nothing changes where the
+    /// old behaviour was right; far from it the same call moves the frame by whatever the sky asks.
+    /// </para>
+    /// <para>
+    /// It fails, honestly, where the geometry does: a sky position that cannot project (behind the
+    /// view), or a Jacobian that has collapsed (the grabbed point at the antipode of the frame, where
+    /// no frame movement moves it), and the caller keeps the pixel pan for that event.
+    /// </para>
+    /// </remarks>
+    public static bool TryPlaceSkyPoint(in WCS wcs, RectF32 pane, float scale, double raHours, double decDeg,
+        float targetX, float targetY, float originX, float originY, out float solvedX, out float solvedY)
+    {
+        solvedX = originX;
+        solvedY = originY;
+
+        // A step is never allowed to fling the frame further than a few panes: Newton from a poor
+        // linearisation far out can propose one, and the next iteration recovers from a bounded step
+        // where it would not from an absurd one.
+        var maxStep = 4f * MathF.Max(pane.Width, pane.Height);
+        const float Probe = 1f;
+
+        for (var i = 0; i < PlaceIterations; i++)
+        {
+            if (!ProjectFromOrigin(in wcs, pane, scale, solvedX, solvedY, raHours, decDeg, out var px, out var py))
+            {
+                return false;
+            }
+
+            var ex = targetX - px;
+            var ey = targetY - py;
+            if (MathF.Abs(ex) <= PlaceTolerancePx && MathF.Abs(ey) <= PlaceTolerancePx)
+            {
+                return float.IsFinite(solvedX) && float.IsFinite(solvedY);
+            }
+
+            if (!ProjectFromOrigin(in wcs, pane, scale, solvedX + Probe, solvedY, raHours, decDeg, out var pxx, out var pyx)
+                || !ProjectFromOrigin(in wcs, pane, scale, solvedX, solvedY + Probe, raHours, decDeg, out var pxy, out var pyy))
+            {
+                return false;
+            }
+
+            // d(screen)/d(origin), one column per probe.
+            var a = (pxx - px) / Probe;
+            var b = (pxy - px) / Probe;
+            var c = (pyx - py) / Probe;
+            var d = (pyy - py) / Probe;
+            var det = (a * d) - (b * c);
+            if (!float.IsFinite(det) || MathF.Abs(det) < 1e-9f)
+            {
+                return false;
+            }
+
+            var dx = ((d * ex) - (b * ey)) / det;
+            var dy = ((a * ey) - (c * ex)) / det;
+            var length = MathF.Sqrt((dx * dx) + (dy * dy));
+            if (!float.IsFinite(length))
+            {
+                return false;
+            }
+
+            if (length > maxStep)
+            {
+                dx *= maxStep / length;
+                dy *= maxStep / length;
+            }
+
+            solvedX += dx;
+            solvedY += dy;
+        }
+
+        return false;
+    }
+
+    /// <summary>Where a sky position lands for a frame drawn from an origin at a scale.</summary>
+    private static bool ProjectFromOrigin(in WCS wcs, RectF32 pane, float scale, float originX, float originY,
+        double raHours, double decDeg, out float screenX, out float screenY)
+    {
+        if (Solve(in wcs, pane, originX, originY, scale) is not { } solution)
+        {
+            screenX = float.NaN;
+            screenY = float.NaN;
+            return false;
+        }
+
+        return TryProject(in solution, pane, raHours, decDeg, out screenX, out screenY)
+            && float.IsFinite(screenX) && float.IsFinite(screenY);
+    }
+
     public static void ApplyTo(SkyMapState state, in Solution solution)
     {
         ArgumentNullException.ThrowIfNull(state);

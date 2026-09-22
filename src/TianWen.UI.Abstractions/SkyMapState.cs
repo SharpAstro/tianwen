@@ -1278,10 +1278,16 @@ namespace TianWen.UI.Abstractions
         /// function of three angles and cannot be singular.
         /// </para>
         /// </summary>
-        public Matrix4x4 ComputeViewMatrix()
+        public Matrix4x4 ComputeViewMatrix() => ComputeViewMatrix(CenterRA, CenterDec, CenterRoll, MirrorView);
+
+        /// <summary>
+        /// The same matrix for a centre, roll and mirror that are not this state's: what the FITS
+        /// viewer's backdrop asks while solving a gesture against a view it has not applied yet.
+        /// </summary>
+        public static Matrix4x4 ComputeViewMatrix(double centerRaHours, double centerDecDeg, double centerRollRad, bool mirror)
         {
-            var (forward, right0, up0) = ReferenceFrame(CenterRA, CenterDec);
-            var (sinRoll, cosRoll) = Math.SinCos(CenterRoll);
+            var (forward, right0, up0) = ReferenceFrame(centerRaHours, centerDecDeg);
+            var (sinRoll, cosRoll) = Math.SinCos(centerRollRad);
 
             // Rotate the frame about the view axis. up stays right x forward, as before.
             var right = (float)cosRoll * right0 + (float)sinRoll * up0;
@@ -1290,7 +1296,7 @@ namespace TianWen.UI.Abstractions
             // The mirror is applied AFTER up is taken, so it flips the screen's x sense and nothing
             // else: taking up from a negated right would flip the y sense too, which is a 180 degree
             // rotation rather than a reflection and leaves the handedness exactly as it was.
-            if (MirrorView)
+            if (mirror)
             {
                 right = -right;
             }

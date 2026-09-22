@@ -32,6 +32,90 @@ namespace TianWen.UI.Abstractions
             MaxZoom = ViewerActions.MaxZoom,
         };
 
+        /// <summary>The controller's own floor, restored whenever the sky is not behind the frame.</summary>
+        private const float DefaultMinZoom = 0.01f;
+
+        /// <summary>
+        /// Seeds the controller from the display transform for one zoom gesture, floor included.
+        /// </summary>
+        /// <remarks>
+        /// The floor has to reach the controller, not only the layout pass. The layout clamps the zoom
+        /// to <see cref="MinZoomForBackdrop"/> once the sky is drawn behind the frame, but a
+        /// cursor-anchored zoom moves the pan by the zoom RATIO it computed, and it computed that
+        /// against its own floor of 0.01: at the backdrop's floor every further wheel notch still
+        /// took the zoom below it, shifted the pan to keep the cursor's point fixed for that zoom,
+        /// and then the layout put the zoom back and kept the shift. The sky slid sideways under a
+        /// wheel that was zooming nothing. With the floor seeded here the controller clamps where
+        /// the layout would, and a notch at the floor is the no-op it reports.
+        /// </remarks>
+        private void SeedPanZoom(ViewerState state, RectF32 area)
+        {
+            _panZoom.Zoom = state.Zoom;
+            _panZoom.PanOffset = new Vector2(state.PanOffset.X, state.PanOffset.Y);
+            _panZoom.MinZoom = (SkyBackdropActive ? MinZoomForBackdrop(area) : null) ?? DefaultMinZoom;
+        }
+
+        /// <summary>
+        /// The sky position the current drag took hold of, while the sky is drawn behind the frame;
+        /// null for a drag on the picture alone, and between drags.
+        /// </summary>
+        private (double RA, double Dec)? _skyDragPoint;
+
+        /// <summary>
+        /// The sky position under a pane point, or null when no sky is drawn there.
+        /// </summary>
+        /// <remarks>
+        /// Stated from the DISPLAY TRANSFORM (zoom and pan), never from the last frame's placement:
+        /// the gestures run between frames, and the second move of a drag would otherwise start from
+        /// where the first was drawn rather than where it left the pan.
+        /// </remarks>
+        private (double RA, double Dec)? SkyPointUnder(ViewerState state, float x, float y)
+        {
+            if (!SkyBackdropActive || _document?.Wcs is not { } wcs)
+            {
+                return null;
+            }
+
+            var area = _layout.ImageArea;
+            var origin = OriginForPan(state, area, state.Zoom, state.PanOffset);
+            if (SkyBackdropView.Solve(in wcs, area, origin.X, origin.Y, state.Zoom) is not { } solution)
+            {
+                return null;
+            }
+
+            var sky = SkyBackdropView.Unproject(in solution, area, x, y);
+            return double.IsFinite(sky.RA) && double.IsFinite(sky.Dec) ? sky : null;
+        }
+
+        /// <summary>
+        /// Moves the pan so <paramref name="sky"/> lies under (<paramref name="x"/>, <paramref name="y"/>)
+        /// at the current zoom. False, with the pan untouched, when there is no sky position or it
+        /// cannot be placed there.
+        /// </summary>
+        /// <remarks>
+        /// The one call behind every gesture on the sky. A drag hands it the position grabbed at the
+        /// press and the pointer; a zoom hands it the position that was under the cursor BEFORE the
+        /// zoom and the cursor. Why a pixel pan is not enough once the frame is far from the pane's
+        /// centre: <see cref="SkyBackdropView.TryPlaceSkyPoint"/>.
+        /// </remarks>
+        private bool KeepSkyPointUnder(ViewerState state, RectF32 area, (double RA, double Dec)? sky, float x, float y)
+        {
+            if (sky is not { } grabbed || _document?.Wcs is not { } wcs)
+            {
+                return false;
+            }
+
+            var guess = OriginForPan(state, area, state.Zoom, state.PanOffset);
+            if (!SkyBackdropView.TryPlaceSkyPoint(in wcs, area, state.Zoom, grabbed.RA, grabbed.Dec, x, y,
+                    guess.X, guess.Y, out var originX, out var originY))
+            {
+                return false;
+            }
+
+            state.PanOffset = PanForOrigin(state, area, state.Zoom, (originX, originY));
+            return true;
+        }
+
         // Which toolbar button the pointer was last over, so a move that changes it can ask for the
         // repaint that hover chrome needs. Derived, render-thread only -- not view state.
         private ToolbarAction? _lastHoveredToolbarButton;
@@ -54,6 +138,7 @@ namespace TianWen.UI.Abstractions
             }
             _panZoom.PanOffset = new Vector2(state.PanOffset.X, state.PanOffset.Y);
             _panZoom.BeginPan(x, y);
+            _skyDragPoint = SkyPointUnder(state, x, y);
 
             // Where the press landed, so the release can tell a TAP from a drag. Recorded here because
             // this is the one place both hosts arm the pan -- the standalone viewer has its own press
@@ -118,6 +203,7 @@ namespace TianWen.UI.Abstractions
 
             _isPinching = true;
             _panZoom.EndPan();
+            _skyDragPoint = null;
 
             // Anchored on the image pane, like the wheel: a midpoint over the file list or the toolbar
             // is not a gesture on the image, and the anchor arithmetic is expressed against this rect.
@@ -130,8 +216,8 @@ namespace TianWen.UI.Abstractions
             // Same seed-run-write-back as the wheel: the controller owns the gesture, the display
             // transform stays on ViewerState. A clamped no-op (already at the floor) changes nothing,
             // ZoomToFit included -- it only clears when the zoom actually moves.
-            _panZoom.Zoom = state.Zoom;
-            _panZoom.PanOffset = new Vector2(state.PanOffset.X, state.PanOffset.Y);
+            SeedPanZoom(state, area);
+            var underPinch = SkyPointUnder(state, centerX, centerY);
             if (!_panZoom.ZoomByFactor(scale, centerX, centerY, area))
             {
                 return false;
@@ -140,6 +226,10 @@ namespace TianWen.UI.Abstractions
             state.Zoom = _panZoom.Zoom;
             state.PanOffset = (_panZoom.PanOffset.X, _panZoom.PanOffset.Y);
             state.ZoomToFit = false;
+
+            // The controller kept the FRAME pixel under the fingers fixed; with the sky behind the
+            // frame it is the sky under them that must stay, and far from the frame the two differ.
+            KeepSkyPointUnder(state, area, underPinch, centerX, centerY);
             return true;
         }
 
@@ -1050,6 +1140,19 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
+            // While the sky is drawn behind the frame a drag is a drag on the SKY: the position grabbed
+            // at the press follows the pointer, and the frame's pan is solved from that. The pixel pan
+            // below is what it always was, and stays the answer for a drag on the picture alone and
+            // the fallback for a move the solve cannot answer.
+            if (_skyDragPoint is { } grabbed && KeepSkyPointUnder(state, _layout.ImageArea, grabbed, px, py))
+            {
+                // Re-arm the pixel pan from here, so a later move that falls back to it continues from
+                // this position instead of jumping back to the press.
+                _panZoom.PanOffset = new Vector2(state.PanOffset.X, state.PanOffset.Y);
+                _panZoom.BeginPan(px, py);
+                return true;
+            }
+
             // Panning always needs a redraw (image position changes)
             if (_panZoom.UpdatePan(px, py))
             {
@@ -1162,6 +1265,7 @@ namespace TianWen.UI.Abstractions
                 }
 
                 _panZoom.EndPan();
+                _skyDragPoint = null;
                 return true;
             }
             return false;
@@ -1241,13 +1345,18 @@ namespace TianWen.UI.Abstractions
                 // Cursor-anchored zoom via the shared controller: seed the display transform from state,
                 // run the zoom, write the result back. A clamped no-op (already at the floor) changes
                 // nothing, including ZoomToFit, which only clears when the zoom actually moves.
-                _panZoom.Zoom = state.Zoom;
-                _panZoom.PanOffset = new Vector2(state.PanOffset.X, state.PanOffset.Y);
+                SeedPanZoom(state, area);
+                var underCursor = SkyPointUnder(state, mouseX, mouseY);
                 if (_panZoom.ZoomAtCursor(scrollY, mouseX, mouseY, area))
                 {
                     state.Zoom = _panZoom.Zoom;
                     state.PanOffset = (_panZoom.PanOffset.X, _panZoom.PanOffset.Y);
                     state.ZoomToFit = false;
+
+                    // The controller kept the FRAME pixel under the cursor fixed; with the sky behind
+                    // the frame it is the sky under the cursor that must stay, and far from the frame
+                    // the two differ (SkyBackdropView.TryPlaceSkyPoint).
+                    KeepSkyPointUnder(state, area, underCursor, mouseX, mouseY);
                 }
                 return true;
             }

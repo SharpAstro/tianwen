@@ -485,4 +485,67 @@ public class SkyBackdropViewTests
             .ShouldBeFalse();
     }
 
+    /// <summary>
+    /// <b>A gesture on the sky is stated on the sky.</b> Whatever the frame's distance from the pane's
+    /// centre, the placement solve puts the grabbed sky position under the target point.
+    /// </summary>
+    /// <remarks>
+    /// Row one is the frame under the pointer, where the answer has to be the pixel pan the viewer
+    /// always did: the origin moves by exactly the pointer's delta. Row two pushes the frame sixteen
+    /// panes to the right, about 113 degrees from the pane's centre, where a pixel pan moved the sky
+    /// under the pointer by a third of the pointer's travel (the stereographic's cos squared of half
+    /// the angle out), so the frame has to travel three times as far as the pointer.
+    /// </remarks>
+    [Theory]
+    [InlineData(100f, 75f, 0.5f, 400f, 300f, 700f, 100f, true)]
+    [InlineData(16000f, 75f, 0.05f, 400f, 300f, 700f, 100f, false)]
+    public void ThePlacementSolvePutsTheGrabbedSkyUnderTheTarget(float originX, float originY, float scale,
+        float fromX, float fromY, float toX, float toY, bool underThePointer)
+    {
+        var wcs = ChartOriented();
+        var before = SkyBackdropView.Solve(in wcs, Pane, originX, originY, scale);
+        before.ShouldNotBeNull();
+        var grabbed = SkyBackdropView.Unproject(before.Value, Pane, fromX, fromY);
+
+        SkyBackdropView.TryPlaceSkyPoint(in wcs, Pane, scale, grabbed.RA, grabbed.Dec, toX, toY,
+            originX, originY, out var solvedX, out var solvedY).ShouldBeTrue();
+
+        var after = SkyBackdropView.Solve(in wcs, Pane, solvedX, solvedY, scale);
+        after.ShouldNotBeNull();
+        SkyBackdropView.TryProject(after.Value, Pane, grabbed.RA, grabbed.Dec, out var x, out var y).ShouldBeTrue();
+        x.ShouldBe(toX, 0.1f);
+        y.ShouldBe(toY, 0.1f);
+
+        var movedX = solvedX - originX;
+        var movedY = solvedY - originY;
+        var pointerTravel = MathF.Sqrt(((toX - fromX) * (toX - fromX)) + ((toY - fromY) * (toY - fromY)));
+        if (underThePointer)
+        {
+            movedX.ShouldBe(toX - fromX, 0.1f, "under the pointer the solve is the pixel pan the viewer always did");
+            movedY.ShouldBe(toY - fromY, 0.1f);
+        }
+        else
+        {
+            MathF.Sqrt((movedX * movedX) + (movedY * movedY)).ShouldBeGreaterThan(2f * pointerTravel,
+                "far from the pane's centre the frame has to travel further than the pointer, which is what the pixel pan never did");
+        }
+    }
+
+    /// <summary>
+    /// The solve says no where the geometry does: the point opposite the view cannot be placed anywhere,
+    /// and the caller keeps its pixel pan for that event rather than a frame flung to a made-up place.
+    /// </summary>
+    [Fact]
+    public void ThePlacementSolveRefusesTheAntipode()
+    {
+        var wcs = ChartOriented();
+        var solution = SkyBackdropView.Solve(in wcs, Pane, 100f, 75f, 0.5f);
+        solution.ShouldNotBeNull();
+        var centre = SkyBackdropView.Unproject(solution.Value, Pane, Pane.X + (Pane.Width * 0.5f), Pane.Y + (Pane.Height * 0.5f));
+        var antipodeRa = (centre.RA + 12.0) % 24.0;
+
+        SkyBackdropView.TryPlaceSkyPoint(in wcs, Pane, 0.5f, antipodeRa, -centre.Dec, 400f, 300f,
+            100f, 75f, out _, out _).ShouldBeFalse();
+    }
+
 }
