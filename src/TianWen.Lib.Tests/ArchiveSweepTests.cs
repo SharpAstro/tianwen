@@ -194,6 +194,31 @@ namespace TianWen.Lib.Tests
             HeaderText(alsoRaw).ShouldNotContain("FILTER");
         }
 
+        [Fact]
+        public void GivenAFrameAlreadyLinkedIntoTheCuratedTree_WhenAskedBeforeReading_ThenItSaysSo()
+        {
+            // What makes an interrupted sweep restartable. A full pass reads every frame to digest
+            // it, so a re-run that re-read the part already finished would cost the same hours
+            // twice. This answers from the directory entries and reads nothing.
+            var root = TempDir();
+            var curatedRoot = Path.Combine(root, "curated");
+            var rawRoot = Path.Combine(root, "raw");
+            Directory.CreateDirectory(curatedRoot);
+            Directory.CreateDirectory(rawRoot);
+            var (curated, _) = FitsFixture.WriteFits(curatedRoot, "frame.fits", ["IMAGETYP= 'LIGHT'"]);
+            var done = Path.Combine(rawRoot, "done.fits");
+            FitsFixture.LinkOrSkip(done, curated);
+            var (notDone, _) = FitsFixture.WriteFits(rawRoot, "not-done.fits", ["IMAGETYP= 'LIGHT'"]);
+
+            ArchiveLinkSweep.AlreadyLinkedInto(done, curatedRoot).ShouldBeTrue();
+            ArchiveLinkSweep.AlreadyLinkedInto(notDone, curatedRoot).ShouldBeFalse();
+            // A second name that is NOT under the curated tree is not the sweep's work either, so
+            // this must not read as done just because the link count is up.
+            var elsewhere = Path.Combine(rawRoot, "second-raw-name.fits");
+            FitsFixture.LinkOrSkip(elsewhere, notDone);
+            ArchiveLinkSweep.AlreadyLinkedInto(notDone, curatedRoot).ShouldBeFalse();
+        }
+
         // ---- ArchivePruneSweep ------------------------------------------------------------
 
         [Fact]
