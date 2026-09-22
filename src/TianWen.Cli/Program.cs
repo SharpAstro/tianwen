@@ -48,6 +48,7 @@ builder.Services
     .AddExternal()
     .AddAstrometry()
     .AddZWO()
+    .AddPlayerOne()
     .AddQHY()
     .AddAscom()
     .AddAlpaca()
@@ -76,6 +77,7 @@ builder.Services
     // product is licensed, else falls back to the SETI Astro ONNX enhancers.
     // AddRcAstroAi() calls AddTianWenAi() internally, so the SAS baseline stands.
     .AddRcAstroAi()
+    .AddSingleton<TianWen.Lib.Sequencing.DarkFrameRun>()
     .AddSingleton<IVirtualTerminal, VirtualTerminal>()
     .AddSingleton<DocumentCache>()
     .AddSingleton<IConsoleHost, ConsoleHost>();
@@ -157,6 +159,10 @@ var rootCommand = new RootCommand
             consoleHost,
             services.GetRequiredService<TianWen.Lib.Sequencing.ISessionFactory>(),
             profileSelector).Build(),
+        new DarksSubCommand(
+            consoleHost,
+            services.GetRequiredService<TianWen.Lib.Devices.IDeviceHub>(),
+            services.GetRequiredService<TianWen.Lib.Sequencing.DarkFrameRun>()).Build(),
         new ImageSubCommand(
             consoleHost,
             services.GetRequiredService<SharpenPipeline>(),

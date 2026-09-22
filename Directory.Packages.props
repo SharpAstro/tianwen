@@ -94,8 +94,9 @@
     <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.12" />
     <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.12" />
 
+    <PackageVersion Include="PlayerOne.SDK" Version="3.10.*" />
     <PackageVersion Include="QHYCCD.SDK" Version="1.1.*" />
-    <PackageVersion Include="TianWen.DAL" Version="2.1.*" />
+    <PackageVersion Include="TianWen.DAL" Version="3.0.*" />
     <PackageVersion Include="ZWOptical.SDK" Version="4.3.*" />
   </ItemGroup>
 </Project>
