@@ -529,7 +529,7 @@ namespace TianWen.Lib.Tests
 
             viewer.DrawnEllipses.Clear();
             viewer.Render(document, state);
-            var outer = SelectionRing(viewer, baseline);
+            var outer = SelectionRing(viewer, baseline, replacesMarker: true);
 
             var drawn = viewer.DrawnOverlayObjects.First(d => d.Index == CatalogIndex.NGC5194);
             drawn.NamedByRing.ShouldBeTrue(
@@ -783,16 +783,19 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// A shaped object's selection ring out of the frame's ellipses: exactly ONE more than the
-        /// baseline, and the last, since the highlight draws after the picture's own markers. One
-        /// ring, because a pair scaled uniformly from the object's own ellipse fuses along the minor
-        /// axis and splits along the major on anything elongated.
+        /// A shaped object's selection ring out of the frame's ellipses, always the last, since the
+        /// highlight draws after the picture's own markers. With the overlay ON the ring REPLACES the
+        /// object's own marker (one for one, so the count is the baseline's); with it off there is no
+        /// marker to replace and the count rises by one. One ring, because a pair scaled uniformly
+        /// from the object's own ellipse fuses along the minor axis and splits along the major on
+        /// anything elongated.
         /// </summary>
-        private static DrawnEllipse SelectionRing(SelectionViewer viewer, int baseline)
+        private static DrawnEllipse SelectionRing(SelectionViewer viewer, int baseline, bool replacesMarker)
         {
             var drawn = viewer.DrawnEllipses;
-            drawn.Count.ShouldBe(baseline + 1,
-                "a shaped object's selection ring is one ring, and nothing else changed between the two frames");
+            drawn.Count.ShouldBe(replacesMarker ? baseline : baseline + 1, replacesMarker
+                ? "the selection ring stands in for the object's own overlay ellipse, one for one"
+                : "a shaped object's selection ring is one ring, and nothing else changed between the two frames");
             return drawn[^1];
         }
 
@@ -830,7 +833,7 @@ namespace TianWen.Lib.Tests
             viewer.DrawnEllipses.Clear();
             viewer.Render(document, state);
 
-            var ring = SelectionRing(viewer, baseline);
+            var ring = SelectionRing(viewer, baseline, replacesMarker: false);
 
             (ring.SemiMinor / ring.SemiMajor).ShouldBe((float)catalogueRatio, 0.01f,
                 "the ring carries the object's OWN axis ratio, not a circle's");
@@ -897,6 +900,19 @@ namespace TianWen.Lib.Tests
 
             state.SelectedObject.ShouldNotBeNull("a marker you can see is a marker you can click")
                 .Index.ShouldBe(expected, "and it is the object the map's own resolver named there");
+
+            // And its ring is placed by the MAP's projection, on the object the map drew, not by the
+            // frame's WCS, which put NGC 7320's ring 330 px from the galaxy thirty degrees off M31.
+            db.TryLookupByIndex(expected, out var expectedObject).ShouldBeTrue();
+            var rect = tab.State.LastContentRect;
+            var ppr = SkyMapProjection.PixelsPerRadian(rect.Height, tab.State.FieldOfViewDeg);
+            SkyMapProjection.ProjectWithMatrix(expectedObject.RA, expectedObject.Dec, tab.State.CurrentViewMatrix, ppr,
+                rect.X + (rect.Width * 0.5f), rect.Y + (rect.Height * 0.5f), out var mapX, out var mapY).ShouldBeTrue();
+            viewer.DrawnEllipses.Clear();
+            viewer.Render(document, state);
+            var ring = viewer.DrawnEllipses[^1];
+            ring.Cx.ShouldBe(mapX, 2f, "the ring is centred where the map projects the object");
+            ring.Cy.ShouldBe(mapY, 2f);
 
             // The control: with the map not drawing, the same tap is beyond the frame's five degrees
             // and selects nothing, which is what this path exists to change.

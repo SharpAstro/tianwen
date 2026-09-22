@@ -397,17 +397,27 @@ public static class OverlayEngine
     /// one marker, and the user meets both surfaces in the same session.
     /// </summary>
     /// <remarks>
-    /// Both factors scale the ellipse UNIFORMLY through <see cref="EllipseLegibilityScale"/>, so the
-    /// marker always keeps the object's real axis ratio and position angle. The floor is a legibility
+    /// The floor scales the ellipse UNIFORMLY through <see cref="EllipseLegibilityScale"/>, so the
+    /// marker always keeps the object's real axis ratio and position angle; it is a legibility
     /// minimum on the projected semi-major axis (most galaxies project to a couple of pixels at
-    /// ordinary zooms); the slack keeps the ring just OUTSIDE the object's own overlay ellipse rather
-    /// than coinciding with it, since a marker drawn exactly on top of that outline does not read as
-    /// "selected".
+    /// ordinary zooms). There is no slack: the ring IS the object's ellipse, drawn from the same
+    /// inputs the overlay marker is, in the selection colour at <see cref="SelectionStrokePx"/>. The
+    /// viewer leaves the marker out under it and the atlas covers its own; a ring a few percent
+    /// outside the marker, which is what a slack factor gave, read as a double outline rather than a
+    /// selection.
     /// </remarks>
     public const float SelectionMinSemiMajorPx = 10f;
 
-    /// <inheritdoc cref="SelectionMinSemiMajorPx"/>
-    public const float SelectionSlack = 1.15f;
+    /// <summary>
+    /// The stroke of a shaped object's selection ring, in design pixels, on both surfaces: the two
+    /// 1.5 px strokes of the shapeless circle pair, as one. The viewer's ring used to be a pair too,
+    /// with the outer a uniform scale of the inner, and a uniformly scaled pair cannot read as two
+    /// rings on anything elongated: the rings sit 4.5 px apart along the major axis and 4.5 times the
+    /// axis ratio apart along the minor, which on M31 is 1.6 px, less than the strokes themselves, so
+    /// the pair fused into one line along the sides and split into two at the ends. One ring of the
+    /// pair's combined weight is what the pair was trying to be.
+    /// </summary>
+    public const float SelectionStrokePx = 3f;
 
     /// <summary>
     /// The halo's colour, here for the same reason the geometry is: it is drawn by the object overlay

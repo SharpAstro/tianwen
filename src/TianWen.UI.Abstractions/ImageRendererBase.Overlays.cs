@@ -478,6 +478,14 @@ namespace TianWen.UI.Abstractions
                 switch (marker.Kind)
                 {
                     case OverlayMarkerKind.Ellipse:
+                        // The selected object's own ellipse is not drawn here: the selection ring IS
+                        // that ellipse, in the accent at SelectionStrokePx, drawn after this pass. Two
+                        // outlines a few percent apart read as a double outline, not as a selection.
+                        if (selectionRing is { Pair: false, Index: { } selectedShaped } && item.Index == selectedShaped)
+                        {
+                            break;
+                        }
+
                         DrawEllipseOverlay(item.ScreenX, item.ScreenY,
                             marker.SemiMajorPx, marker.SemiMinorPx, marker.AngleRad,
                             FloatToColor(r, g, b, 1.0f), 1.5f);
@@ -718,7 +726,7 @@ namespace TianWen.UI.Abstractions
             else
             {
                 DrawEllipseOverlay(ring.ScreenX, ring.ScreenY, ring.InnerMajor, ring.InnerMinor, ring.AngleRad, accent,
-                    ShapedSelectionStrokePx);
+                    OverlayEngine.SelectionStrokePx);
             }
 
             if (!string.IsNullOrEmpty(FontPath))
@@ -750,16 +758,6 @@ namespace TianWen.UI.Abstractions
             string Name,
             (float X, float Y, float W, float H) LabelBox);
 
-        /// <summary>
-        /// The stroke of a shaped object's selection ring, in design pixels: the two 1.5 px strokes of
-        /// the circle pair, as one. A pair drawn as a uniform scale of the object's ellipse cannot read
-        /// as two rings on anything elongated: the rings sit 4.5 px apart along the major axis and
-        /// 4.5 times the axis ratio apart along the minor, which on M31 is 1.6 px, less than the
-        /// strokes themselves, so the pair fused into one line along the sides and split into two at
-        /// the ends. One ring of the pair's combined weight is what the pair was trying to be, and it
-        /// is also what the atlas draws for its own selection.
-        /// </summary>
-        private const float ShapedSelectionStrokePx = 3f;
 
         /// <summary>
         /// Where the selection ring and its name land this frame, or null when there is no selection
@@ -767,10 +765,17 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         /// <remarks>
         /// An extended object is ringed by its OWN outline, one ring stroked
-        /// <see cref="ShapedSelectionStrokePx"/>; only a star or a shapeless entry falls back to the
-        /// circle pair, which is the atlas's rule and now this one's. The name sits to the right of
-        /// the ring's widest point on the screen's X axis, which for a rotated ellipse is neither
+        /// <see cref="OverlayEngine.SelectionStrokePx"/> that stands in for the overlay's marker
+        /// rather than sitting beside it; only a star or a shapeless entry falls back to the circle
+        /// pair, which is the atlas's rule and now this one's. The name sits to the right of the
+        /// ring's widest point on the screen's X axis, which for a rotated ellipse is neither
         /// semi-axis but the projection of both.
+        /// <para><b>Placed by whoever owns the object.</b> Inside the frame's five degrees the ring is
+        /// projected through the frame's WCS, the one mapping every WCS-drawn thing uses, so it lands
+        /// on the object's marker and on its light. Beyond that, while the sky map is painted behind
+        /// the frame, the map places it (<see cref="SkyMapTab{TSurface}.TryPlaceSelectionForHost"/>):
+        /// a gnomonic solution fitted to one field says nothing about a point thirty degrees from it,
+        /// and put NGC 7320's ring 330 px from where the map had drawn the galaxy.</para>
         /// </remarks>
         private SelectionRingGeometry? SolveSelectionRing(ViewerState state, WCS wcs)
         {
@@ -779,24 +784,43 @@ namespace TianWen.UI.Abstractions
                 return null;
             }
 
-            if (wcs.SkyToPixel(selection.RA, selection.Dec) is not { } px)
+            var layout = CurrentViewportLayout(state);
+
+            float screenX, screenY;
+            (float SemiMajor, float SemiMinor, float AngleRad, float HalfWidth)? ellipse;
+
+            var framePx = wcs.SkyToPixel(selection.RA, selection.Dec);
+            var beyondFrame = framePx is not { } fp
+                || !(SkyBackdropView.TangentAngleDeg(in wcs, fp.X, fp.Y) <= MaxOffFrameClickAngleDeg);
+            if (beyondFrame && PaintedSkyBackdrop is { } sky)
+            {
+                // The map's object, the map's projection: see the remarks.
+                if (!sky.TryPlaceSelectionForHost(in selection, out screenX, out screenY, out var u, out var v))
+                {
+                    return null;
+                }
+
+                ellipse = u == default && v == default ? null : MapSolvedEllipse(u, v);
+            }
+            else if (framePx is { } px)
+            {
+                // Through the one mapping every WCS-drawn thing uses, so the ring lands on the object's
+                // marker AND on the object's light -- the second is what the test measures.
+                var (sx, sy) = WcsAnnotationLayer.ImageToScreen(px.X, px.Y, layout);
+                screenX = (float)sx;
+                screenY = (float)sy;
+                ellipse = TrySolveSelectionEllipse(in selection, in wcs, in layout);
+            }
+            else
             {
                 return null;
             }
 
-            var layout = CurrentViewportLayout(state);
-
-            // Through the one mapping every WCS-drawn thing uses, so the ring lands on the object's
-            // marker AND on the object's light -- the second is what the test measures.
-            var (sx, sy) = WcsAnnotationLayer.ImageToScreen(px.X, px.Y, layout);
-            var screenX = (float)sx;
-            var screenY = (float)sy;
-
             float innerMajor, innerMinor, outerMajor, outerMinor, angleRad, halfWidth;
             bool pair;
-            if (TrySolveSelectionEllipse(in selection, in wcs, in layout) is { } ellipse)
+            if (ellipse is { } solved)
             {
-                (innerMajor, innerMinor, angleRad, halfWidth) = ellipse;
+                (innerMajor, innerMinor, angleRad, halfWidth) = solved;
                 outerMajor = innerMajor;
                 outerMinor = innerMinor;
                 pair = false;
@@ -847,7 +871,7 @@ namespace TianWen.UI.Abstractions
         /// <para><b>One ring, not the circle pair.</b> It used to be a pair with the outer a UNIFORM
         /// scale of the inner (a constant pixel offset rounds an edge-on galaxy off, the failure
         /// <see cref="OverlayEngine.EllipseLegibilityScale"/> exists to prevent at the small end), and
-        /// that is exactly why it could not work: see <see cref="ShapedSelectionStrokePx"/>.</para>
+        /// that is exactly why it could not work: see <see cref="OverlayEngine.SelectionStrokePx"/>.</para>
         /// </remarks>
         private (float SemiMajor, float SemiMinor, float AngleRad, float HalfWidth)?
             TrySolveSelectionEllipse(in SkyMapInfoPanelData selection, in WCS wcs, in ViewportLayout layout)
@@ -888,20 +912,39 @@ namespace TianWen.UI.Abstractions
             var inflate = OverlayEngine.EllipseLegibilityScale(
                 semiMajorPx,
                 OverlayEngine.SelectionMinSemiMajorPx * DpiScale,
-                OverlayEngine.SelectionSlack);
+                minScale: 1f);
             semiMajorPx *= inflate;
             semiMinorPx *= inflate;
 
             var angleRad = OverlayEngine.ComputeScreenPA(wcs, selection.RA, selection.Dec, shape.PositionAngle);
 
-            // The label clears the ring's widest point on the screen's X axis, which for a rotated
-            // ellipse is neither semi-axis but the projection of both, plus the stroke's outer half.
+            return (semiMajorPx, semiMinorPx, angleRad, RingHalfWidth(semiMajorPx, semiMinorPx, angleRad));
+        }
+
+        /// <summary>
+        /// The ring's half-width on the screen's X axis, which for a rotated ellipse is neither
+        /// semi-axis but the projection of both, plus the stroke's outer half: what the name clears.
+        /// </summary>
+        private float RingHalfWidth(float semiMajorPx, float semiMinorPx, float angleRad)
+        {
             var (sin, cos) = MathF.SinCos(angleRad);
-            var halfStroke = ShapedSelectionStrokePx * 0.5f * DpiScale;
+            var halfStroke = OverlayEngine.SelectionStrokePx * 0.5f * DpiScale;
             var halfWidth = MathF.Sqrt(
-                (semiMajorPx * cos * (semiMajorPx * cos)) + (semiMinorPx * sin * (semiMinorPx * sin))) + halfStroke;
-            return (semiMajorPx, semiMinorPx, angleRad,
-                float.IsFinite(halfWidth) ? halfWidth : semiMajorPx + halfStroke);
+                (semiMajorPx * cos * (semiMajorPx * cos)) + (semiMinorPx * sin * (semiMinorPx * sin)));
+            return (float.IsFinite(halfWidth) ? halfWidth : semiMajorPx) + halfStroke;
+        }
+
+        /// <summary>
+        /// A ring the MAP solved, as semi-axis VECTORS in screen pixels, in this class's terms: the
+        /// major axis lies along <c>u</c>, as <see cref="OverlayEngine.EllipseAxes"/> lays it.
+        /// </summary>
+        private (float SemiMajor, float SemiMinor, float AngleRad, float HalfWidth) MapSolvedEllipse(
+            (float X, float Y) u, (float X, float Y) v)
+        {
+            var semiMajor = MathF.Sqrt((u.X * u.X) + (u.Y * u.Y));
+            var semiMinor = MathF.Sqrt((v.X * v.X) + (v.Y * v.Y));
+            var angleRad = MathF.Atan2(u.Y, u.X);
+            return (semiMajor, semiMinor, angleRad, RingHalfWidth(semiMajor, semiMinor, angleRad));
         }
 
         private static RGBAColor32 FloatToColor(float r, float g, float b, float a)
