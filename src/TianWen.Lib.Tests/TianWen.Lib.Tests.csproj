@@ -58,6 +58,23 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The GLSL the atlas and the viewer actually ship, as DATA, for ShaderContractTests. Those
+         rules are about what the SOURCE says (a culled vertex leaves the clip volume with a positive
+         w; asin and acos take a clamped argument), so the test reads the text rather than the baked
+         SPIR-V: the .spv cannot be read back into an expression without a disassembler, and the rule
+         is one a person edits, not one a compiler infers. The WebGL twin carries its shaders as
+         string literals inside a .cs file, so that file comes along under a .txt link, it is read
+         here as text, never compiled (TianWen.UI.Web is a WASM project this suite cannot reference).
+         Both are Link'ed flat into Shaders\ so the test needs no path out of the output directory. -->
+    <Content Include="..\TianWen.UI.Shared\Shaders\*.vert" Link="Shaders\%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\TianWen.UI.Shared\Shaders\*.frag" Link="Shaders\%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\TianWen.UI.Web\SkyMap\WebGlSkyMapPipeline.cs" Link="Shaders\WebGlSkyMapPipeline.cs.txt"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="Data\CR2\*.CR2" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Data\CR3\*.CR3" CopyToOutputDirectory="PreserveNewest" />
     <!-- The in-house AI models used to be copied here by a rule of this project's own. They now
