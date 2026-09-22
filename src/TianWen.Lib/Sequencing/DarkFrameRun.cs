@@ -152,8 +152,16 @@ public sealed class DarkFrameRun(IExternal external, ITimeProvider timeProvider,
                 // people as well as by the stacker, and a folder of frame_0001.fits tells a human
                 // nothing about which row they belong to.
                 var kind = options.FrameType is FrameType.Bias ? "bias" : "dark";
+
+                // Binning is named only when it is not 1. A calibration frame is defined by the
+                // state it was shot in, and binning changes the GEOMETRY, so two sets that differ
+                // only by it are not interchangeable and must not look alike in a folder listing.
+                // Omitting bin 1 keeps the common case short, which is the same reason a filter is
+                // not named on a dark.
+                var binTag = meta.BinX > 1 ? $"_bin{meta.BinX}" : "";
+
                 var stem = string.Create(CultureInfo.InvariantCulture,
-                    $"{kind}_{options.Exposure.TotalSeconds:0.#####}s_g{meta.Gain}_o{meta.Offset}_{meta.CCDTemperature:0.0}C_{startedUtc:yyyy-MM-ddTHH_mm_ss}_{frame:0000}");
+                    $"{kind}_{options.Exposure.TotalSeconds:0.#####}s_g{meta.Gain}_o{meta.Offset}{binTag}_{meta.CCDTemperature:0.0}C_{startedUtc:yyyy-MM-ddTHH_mm_ss}_{frame:0000}");
                 var path = Path.Combine(folder, external.GetSafeFileName(stem) + ".fits");
 
                 await external.WriteFitsFileAsync(image, path);
