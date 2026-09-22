@@ -1433,8 +1433,15 @@ namespace TianWen.UI.Abstractions
             }
 
             // Hover NEVER consumes the move -- it is something the map notices on the way past, so a
-            // host with its own use for the position still gets it.
-            TrackHoverPointer(x, y);
+            // host with its own use for the position still gets it. A host that owns the SELECTION
+            // (HostSelectAt) owns the wash too: it resolves the pointer through this map's resolver and
+            // rings the object with this map's shape solver, so a wash of this map's own would be a
+            // second wash on the same object, and of a different size where the host's ring rule and
+            // this map's spot rule differ (NGC 346 wore both, 2026-09-22).
+            if (HostSelectAt is null)
+            {
+                TrackHoverPointer(x, y);
+            }
             return false;
         }
 

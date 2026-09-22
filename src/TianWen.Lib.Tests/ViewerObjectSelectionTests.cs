@@ -128,6 +128,20 @@ namespace TianWen.Lib.Tests
         /// </summary>
         private sealed class MapWithObjectOverlay(RgbaImageRenderer renderer) : SkyMapTab<RgbaImage>(renderer)
         {
+            /// <summary>
+            /// The view matrix the map's resolver and its host read is stamped by the GPU uniform
+            /// writer, which a CPU map never runs; stamp it here, as the hover fixture does, or the
+            /// map resolves against the identity while it draws the view the frame drove.
+            /// </summary>
+            protected override void RenderSkyMap(
+                ICelestialObjectDB db, RectF32 contentRect,
+                DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site,
+                SkyMapDrawPhase phase = SkyMapDrawPhase.All)
+            {
+                base.RenderSkyMap(db, contentRect, viewingTime, siteLat, siteLon, site, phase);
+                State.CurrentViewMatrix = State.ComputeViewMatrix();
+            }
+
             protected override void RenderObjectOverlay(
                 ICelestialObjectDB db, RectF32 contentRect,
                 float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
@@ -1005,6 +1019,68 @@ namespace TianWen.Lib.Tests
             TapAt(viewer, tapX, tapY);
             state.SelectedObject.ShouldBeNull("the frame's own search does not reach the band the map owns");
             tab.State.HostSelection.ShouldBeNull("and a map that is not painted is told of no selection");
+        }
+
+        /// <summary>
+        /// <b>Hovering a map object beside the picture washes it in its own shape, and the map draws no
+        /// second wash.</b> The viewer resolves the pointer through the map's resolver and rings the
+        /// object with the map's own shape solver, so the wash under the pointer is the SMC's ellipse;
+        /// the map, whose selection this host owns, leaves the wash to the host too, or the same object
+        /// carried two washes of two sizes (seen live on NGC 346 inside the SMC, 2026-09-22).
+        /// </summary>
+        [Fact]
+        public async Task HoveringAMapObjectBesideThePictureWashesItsShapeOnce()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _) = await NewViewerOnAsync(renderer, CatalogIndex.NGC5194, ct);
+            state.ShowOverlays = true;
+
+            var db = await SharedCatalogDB.InitAsync(ct);
+            var when = new DateTimeOffset(2026, 6, 21, 0, 0, 0, TimeSpan.Zero);
+            var tab = new MapWithObjectOverlay(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+            tab.State.ViewDrivenExternally = true;
+            tab.State.ShowObjectOverlay = true;
+            viewer.SkyBackdrop = tab;
+            viewer.SkyTimeProvider = new FakeTimeProviderWrapper(when);
+            viewer.SkyPlannerState = new PlannerState
+            {
+                ObjectDb = db,
+                SiteLatitude = 48.0,
+                SiteLongitude = 11.0,
+                SiteTimeZone = TimeSpan.Zero,
+                PlanningDate = when,
+            };
+            state.ShowSkyBackdrop = true;
+            state.ZoomToFit = false;
+            state.Zoom = 0.05f;
+            viewer.Render(document, state);
+            viewer.Render(document, state);
+
+            // Put the SMC, far from the M 51 frame, under the pane's centre by solving the pan for it.
+            db.TryLookupByIndex(CatalogIndex.NGC0292, out var smc).ShouldBeTrue();
+            var area = viewer.ImageArea;
+            var cx = area.X + (area.Width * 0.5f);
+            var cy = area.Y + (area.Height * 0.5f);
+            var wcs = document.Wcs.ShouldNotBeNull();
+            var placed = viewer.Placement;
+            SkyBackdropView.TryPlaceSkyPoint(in wcs, area, placed.Scale, smc.RA, smc.Dec, cx, cy,
+                placed.OffsetX, placed.OffsetY, out var ox, out var oy).ShouldBeTrue();
+            state.PanOffset = (state.PanOffset.X + (ox - placed.OffsetX), state.PanOffset.Y + (oy - placed.OffsetY));
+            viewer.Render(document, state);
+            viewer.Render(document, state);
+
+            viewer.HandleInput(new InputEvent.MouseMove(cx + 2f, cy + 2f));
+            state.HoverObject.ShouldNotBeNull().Index.ShouldBe(CatalogIndex.NGC0292);
+            tab.State.HoverTarget.ShouldBeNull("the host owns the wash, so the map tracks no hover of its own");
+
+            viewer.Fills.Clear();
+            viewer.Render(document, state);
+            var wash = viewer.Fills.ShouldHaveSingleItem();
+            wash.SemiMajor.ShouldBeGreaterThan(wash.SemiMinor * 1.3f, "the SMC is 300 by 180 arcmin, washed as that ellipse");
+            wash.SemiMajor.ShouldBeGreaterThan(40f, "150 arcmin at this field is well over 40 px, not the 12 px disc of a shapeless entry");
+            wash.Cx.ShouldBe(cx, 2f);
+            wash.Cy.ShouldBe(cy, 2f);
         }
 
         /// <summary>
