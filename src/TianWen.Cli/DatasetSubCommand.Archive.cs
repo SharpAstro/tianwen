@@ -158,9 +158,15 @@ internal sealed partial class DatasetSubCommand
                 seen++;
                 if (seen % ProgressEvery == 0)
                 {
+                    // The running tally, not just the total. Over the un-curated end of the archive
+                    // every frame reports nothing, and "0.0 GB" alone cannot tell a cheap size miss
+                    // from a frame that was fully read and turned out to hold different pixels. On a
+                    // run measured in hours that is the difference between working and wedged.
+                    var tally = string.Join(", ", counts.OrderByDescending(kv => kv.Value)
+                        .Take(3).Select(kv => $"{kv.Value} {kv.Key}"));
                     consoleHost.WriteScrollable(
-                        $"[relink] {seen} frame(s) considered, {Gb(released)} GB " +
-                        $"{(apply ? "released" : "releasable")} so far");
+                        $"[relink] {seen} considered, {Gb(released)} GB " +
+                        $"{(apply ? "released" : "releasable")}" + (tally.Length > 0 ? $"; {tally}" : ""));
                 }
 
                 // Answered from the directory entries, before any read. A full sweep is hours of
