@@ -490,7 +490,11 @@ namespace TianWen.UI.Web.SkyMap
                 vec3 j2000 = transpose(mat3(viewMatrix)) * camDir;
 
                 // J2000 unit vector -> equirectangular UV
-                float ra = atan(j2000.y, j2000.x);            // [-PI, PI]
+                // atan(y, x) is UNDEFINED at (0, 0), which a unit vector reaches at the
+                // celestial poles. Right ascension is genuinely undefined there, so take
+                // zero and let v place the texel. Mirrors skymap_mw.frag.
+                float raLen = length(j2000.xy);
+                float ra = raLen > 1e-6 ? atan(j2000.y, j2000.x) : 0.0;  // [-PI, PI]
                 float u = ra / TWO_PI + 0.5;                   // [0, 1]
                 float dec = asin(clamp(j2000.z, -1.0, 1.0));   // [-PI/2, PI/2]
                 float v = 0.5 - dec / PI;                      // [0, 1], north at top
