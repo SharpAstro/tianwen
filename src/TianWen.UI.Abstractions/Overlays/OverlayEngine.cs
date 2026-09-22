@@ -897,6 +897,7 @@ public static class OverlayEngine
             OverlayMarker marker;
             var hasShape = db.TryGetShape(idx, out var shape)
                 && !Half.IsNaN(shape.MajorAxis) && !Half.IsNaN(shape.MinorAxis);
+            var circleRadius = 8f * layout.DpiScale;
             switch (ChooseMarkerKind(obj.ObjectType, hasShape))
             {
                 case OverlayMarkerKind.Ellipse:
@@ -904,10 +905,15 @@ public static class OverlayEngine
                     var semiMajPx = (float)((double)shape.MajorAxis / 2.0 * arcminToPixels);
                     var semiMinPx = (float)((double)shape.MinorAxis / 2.0 * arcminToPixels);
 
-                    // Skip tiny ellipses (< 3 pixels). continue targets the foreach.
+                    // An ellipse under 3 px cannot show its shape, so it takes the circle a shapeless
+                    // object of its type gets. It used to be DROPPED here, which made zooming out remove
+                    // exactly the objects that HAVE a shape while shapeless ones beside them kept their
+                    // circle: on Stephan's Quintet, NGC 7319 and 7320 went and HCG 92 and NGC 7318 stayed
+                    // ringed. Too small for its shape is not too small to mark.
                     if (semiMajPx < 3f)
                     {
-                        continue;
+                        marker = OverlayMarker.Circle(circleRadius);
+                        break;
                     }
 
                     var paScreen = ComputeScreenPA(wcs, obj.RA, obj.Dec, shape.PositionAngle);
@@ -922,8 +928,7 @@ public static class OverlayEngine
                 }
                 default:
                 {
-                    var markerRadius = 8f * layout.DpiScale;
-                    marker = OverlayMarker.Circle(markerRadius);
+                    marker = OverlayMarker.Circle(circleRadius);
                     break;
                 }
             }

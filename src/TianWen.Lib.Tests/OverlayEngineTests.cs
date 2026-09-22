@@ -662,12 +662,18 @@ public class OverlayEngineTests
         items.ShouldBeEmpty();
     }
 
+    /// <summary>
+    /// An ellipse too small to show its shape is still marked, with the circle a shapeless object of
+    /// its type gets. It used to be dropped, which made zooming out remove exactly the objects that
+    /// HAVE a shape while shapeless ones beside them kept their circle (Stephan's Quintet: NGC 7319
+    /// and 7320 gone, HCG 92 and NGC 7318 still ringed).
+    /// </summary>
     [Fact]
-    public void ComputeOverlays_TinyEllipse_IsSkipped()
+    public void ComputeOverlays_TinyEllipse_TakesTheShapelessCircle()
     {
         var wcs = MakeSimpleWCS();
         var obj = MakeObject(CatalogIndex.NGC1976);
-        // Very tiny shape: will be < 3px at normal zoom
+        // Very tiny shape: well under 3 px at this zoom
         var shape = new CelestialObjectShape((Half)0.01, (Half)0.005, (Half)0.0);
         var db = new FakeDB(obj, shape: shape, gridRA: 5.0, gridDec: -2.0);
 
@@ -675,8 +681,9 @@ public class OverlayEngineTests
 
         var items = OverlayEngine.ComputeOverlays(layout, wcs, db, (_, _) => 50f, 18f);
 
-        // Object should be skipped because its ellipse is < 3px
-        items.ShouldBeEmpty();
+        var item = items.ShouldHaveSingleItem("too small for its shape is not too small to mark");
+        item.Marker.Kind.ShouldBe(OverlayMarkerKind.Circle, "it takes the circle a shapeless object gets");
+        item.Marker.RadiusPx.ShouldBe(8f * layout.DpiScale, 1e-4f, "the same circle, at the same size");
     }
 
     [Fact]
