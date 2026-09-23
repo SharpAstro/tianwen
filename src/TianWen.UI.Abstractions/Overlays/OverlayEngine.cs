@@ -26,6 +26,27 @@ public static class OverlayEngine
     public const int MaxOverlayLabels = 80;
 
     /// <summary>
+    /// Whether a ring centred at (<paramref name="cx"/>, <paramref name="cy"/>) whose INSIDE reaches
+    /// <paramref name="innerRadiusPx"/> contains the whole rectangle, so no part of the ring can be seen in
+    /// it. Such a ring draws nothing, yet its quad covers the rectangle: one full-pane fragment pass per
+    /// ring, and a deep zoom inside a nebula complex encloses dozens. For an ellipse pass its semi-minor
+    /// axis less half the stroke, the largest circle it is sure to contain at any position angle.
+    /// </summary>
+    public static bool RingEnclosesRect(float cx, float cy, float innerRadiusPx,
+        float left, float top, float width, float height)
+    {
+        if (innerRadiusPx <= 0f)
+        {
+            return false;
+        }
+
+        // The rectangle is inside the circle exactly when its farthest corner is.
+        var dx = MathF.Max(MathF.Abs(left - cx), MathF.Abs(left + width - cx));
+        var dy = MathF.Max(MathF.Abs(top - cy), MathF.Abs(top + height - cy));
+        return dx * dx + dy * dy < innerRadiusPx * innerRadiusPx;
+    }
+
+    /// <summary>
     /// Object types considered "extended" (drawn as ellipses/markers).
     /// </summary>
     public static bool IsExtendedObjectType(ObjectType ot) => ot is

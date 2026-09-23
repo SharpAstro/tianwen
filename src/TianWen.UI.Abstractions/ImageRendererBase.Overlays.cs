@@ -471,6 +471,7 @@ namespace TianWen.UI.Abstractions
             var labelPad = 4f;
 
             // Draw markers first (brightest-first order is preserved by the engine)
+            const float MarkerStrokePx = 1.5f;
             foreach (var item in items)
             {
                 var (r, g, b) = item.Color;
@@ -486,18 +487,32 @@ namespace TianWen.UI.Abstractions
                             break;
                         }
 
+                        // A ring the whole pane sits inside is invisible and costs a full-pane pass.
+                        if (OverlayEngine.RingEnclosesRect(item.ScreenX, item.ScreenY,
+                            MathF.Min(marker.SemiMajorPx, marker.SemiMinorPx) - MarkerStrokePx,
+                            layout.AreaLeft, layout.AreaTop, layout.AreaWidth, layout.AreaHeight))
+                        {
+                            break;
+                        }
+
                         DrawEllipseOverlay(item.ScreenX, item.ScreenY,
                             marker.SemiMajorPx, marker.SemiMinorPx, marker.AngleRad,
-                            FloatToColor(r, g, b, 1.0f), 1.5f);
+                            FloatToColor(r, g, b, 1.0f), MarkerStrokePx);
                         break;
                     case OverlayMarkerKind.Cross:
                         DrawCrossOverlay(item.ScreenX, item.ScreenY, marker.ArmPx,
                             FloatToColor(r, g, b, 1.0f));
                         break;
                     case OverlayMarkerKind.Circle:
+                        if (OverlayEngine.RingEnclosesRect(item.ScreenX, item.ScreenY, marker.RadiusPx - MarkerStrokePx,
+                            layout.AreaLeft, layout.AreaTop, layout.AreaWidth, layout.AreaHeight))
+                        {
+                            break;
+                        }
+
                         DrawEllipseOverlay(item.ScreenX, item.ScreenY,
                             marker.RadiusPx, marker.RadiusPx, 0f,
-                            FloatToColor(r, g, b, 0.9f), 1.5f);
+                            FloatToColor(r, g, b, 0.9f), MarkerStrokePx);
                         break;
                 }
             }

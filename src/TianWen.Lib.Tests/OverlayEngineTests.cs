@@ -15,6 +15,17 @@ namespace TianWen.Lib.Tests;
 [Collection("Astrometry")]
 public class OverlayEngineTests
 {
+    [Theory]
+    // A pane 100 x 60 at (0, 0), ring centred in it: the farthest corner is sqrt(50^2 + 30^2) = 58.3 away.
+    [InlineData(50f, 30f, 60f, true)]    // the whole pane is inside: the ring cannot show
+    [InlineData(50f, 30f, 58f, false)]   // a corner pokes out: the ring crosses the pane
+    [InlineData(500f, 30f, 60f, false)]  // centred far off to one side: most of the pane is outside
+    [InlineData(50f, 30f, 0f, false)]    // no inside at all (a stroke wider than the radius)
+    public void ARingIsSkippedOnlyWhenThePaneSitsWhollyInsideIt(float cx, float cy, float innerRadius, bool encloses)
+    {
+        OverlayEngine.RingEnclosesRect(cx, cy, innerRadius, 0f, 0f, 100f, 60f).ShouldBe(encloses);
+    }
+
     // --- IsExtendedObjectType ---
 
     [Theory]

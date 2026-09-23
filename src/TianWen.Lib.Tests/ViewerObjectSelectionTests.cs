@@ -1328,8 +1328,11 @@ namespace TianWen.Lib.Tests
         /// <remarks>
         /// The overlay draws every catalogued object in and beside the field, so the object's marker is
         /// the ellipse drawn NEAREST the star. M51's nearest catalogued neighbour, NGC 5195, is 265
-        /// arcseconds away -- over a thousand screen pixels at this zoom -- so nearest is unambiguous.
+        /// arcseconds away -- over 250 screen pixels even at 2x -- so nearest is unambiguous.
         /// Measured with the star overlay OFF, so the star's own circle cannot be the ellipse found.
+        /// At 2x, not the helper's 8x: M51's catalogued semi-minor axis is about 350 arcseconds, so from 4x
+        /// up its ellipse holds the whole 900 x 700 pane inside it, none of its ring is on screen, and the
+        /// overlay rightly does not draw it (OverlayEngine.RingEnclosesRect).
         /// </remarks>
         [Fact]
         public async Task TheCatalogueMarkerIsDrawnWhereTheStarsLightIs()
@@ -1337,6 +1340,7 @@ namespace TianWen.Lib.Tests
             var ct = TestContext.Current.CancellationToken;
             using var renderer = new RgbaImageRenderer(WindowW, WindowH);
             var (viewer, state, document, _, _) = await NewViewerWithAStarOnAsync(renderer, CatalogIndex.NGC5194, ct);
+            state.Zoom = 2f;
 
             var (star, _) = StarCircle(viewer, state, document);
 
