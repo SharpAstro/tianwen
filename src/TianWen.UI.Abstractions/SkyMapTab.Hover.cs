@@ -319,6 +319,20 @@ namespace TianWen.UI.Abstractions
                     return;
                 }
 
+                // An object that FILLS the view is the view, not something in it: zoomed into the LMC
+                // (646' across at a 4.5 degree field) every pointer position was inside it, so the whole
+                // screen washed under any hover, which highlights nothing and reads as a flash (reported
+                // 2026-09-23). Judged on the ellipse's SHORT semi-axis against half the view's short
+                // side, i.e. whether it covers the view across its narrow direction. Only the paint is
+                // withheld: the object is still the resolver's answer, so a click still selects it and
+                // the highlight never names a different object from the click.
+                var semiMinor = MathF.Min(reach,
+                    MathF.Sqrt((semiAxisV.X * semiAxisV.X) + (semiAxisV.Y * semiAxisV.Y)));
+                if (semiMinor >= MathF.Min(contentRect.Width, contentRect.Height) * 0.5f)
+                {
+                    return;
+                }
+
                 Renderer.FillEllipse((sx, sy), semiAxisU, semiAxisV, OverlayEngine.HoverSpotColor);
                 return;
             }
