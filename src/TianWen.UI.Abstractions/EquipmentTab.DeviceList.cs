@@ -140,14 +140,14 @@ namespace TianWen.UI.Abstractions
                 var btnColX    = checkColX - padding - connBtnW;
                 var statusColX = btnColX - padding - statusW;
 
-                // Assigned checkmark (still answers "is this URI wired into the profile?")
+                // Assigned checkmark (still answers "is this URI wired into the profile?"). A drawn mark, not
+                // U+2713 in a text run: a face without the glyph drew .notdef, and a colour emoji face would
+                // draw it in its own colour rather than AssignedGreen.
                 if (isAssigned)
                 {
-                    DrawText(
-                        "\u2713".AsSpan(),
-                        fontPath,
-                        checkColX, rowY, checkW, itemH,
-                        fontSize, AssignedGreen, TextAlign.Center, TextAlign.Center);
+                    RenderLayout(
+                        Layout.Builder.Icon(Layout.IconKind.Check, BaseFontSize * Layout.Content.Icon.TextSizeRatio, AssignedGreen),
+                        new RectF32(checkColX, rowY, checkW, itemH));
                 }
 
                 // Reachability indicator + connect/disconnect button render for EVERY discovered
@@ -384,9 +384,12 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Renders the segmented On|Off connect/disconnect button. The current state's segment
-        /// is highlighted; only the *other* segment is clickable. While a transition is in flight,
-        /// the inactive segment is shown as "..." and no clickables are registered.
+        /// Renders the segmented On|Off connect/disconnect button, a declared
+        /// <see cref="Layout.Builder.ButtonGroup{T}"/> over "is it connected". The group owns the rules this
+        /// used to state by hand: the current state's segment is filled and swallows its press, so it does
+        /// not fall through to the row's AssignDeviceSignal; only the other one acts and lights. While a
+        /// transition is in flight the target segment reads "..." and the group is a DISPLAY (no select
+        /// handler), so a press falls through to the row, as the old early-return did.
         /// </summary>
         private void RenderConnectSegment(
             Uri deviceUri,
@@ -397,32 +400,42 @@ namespace TianWen.UI.Abstractions
         {
             var isConnected = reach == EquipmentActions.DeviceReachability.Connected;
 
-            var onBg  = isConnected ? SegmentActive : SegmentInactive;
-            var offBg = isConnected ? SegmentInactive : SegmentActive;
-            // Telegraph that Off would land on the warm/force confirmation strip: tint the inactive Off
-            // segment red. (When isConnected, Off is the actionable segment; a darker red keeps it clickable.)
-            if (offIsUnsafe)
-            {
-                offBg = isConnected ? ConfirmDangerBg : ConfirmForceBg;
-            }
+            // Telegraph that Off would land on the warm/force confirmation strip: tint the Off segment red,
+            // and keep it red under the pointer, which is when the warning matters. (When isConnected, Off is
+            // the actionable segment; a darker red keeps it readable as one.)
+            RGBAColor32? offFill = offIsUnsafe ? (isConnected ? ConfirmDangerBg : ConfirmForceBg) : null;
 
             // Ellipsis on the segment we are transitioning *to*; otherwise On / Off.
-            var onLabel  = pending && !isConnected ? "\u2026" : "On";
-            var offLabel = pending &&  isConnected ? "\u2026" : "Off";
+            ReadOnlySpan<Layout.ButtonGroupOption<bool>> options =
+            [
+                new(true, pending && !isConnected ? "\u2026" : "On") { Hit = new HitResult.ButtonHit("Connect") },
+                new(false, pending && isConnected ? "\u2026" : "Off")
+                {
+                    Hit = new HitResult.ButtonHit("Disconnect"),
+                    Fill = offFill,
+                    HoverFill = offFill is { } red ? GuiTheme.Hover(red) : null,
+                },
+            ];
 
-            // Two inset segment pills. Both register a hit (even the active "you are here" segment swallows
-            // its click so it does not fall through to the row's AssignDeviceSignal); while a transition is
-            // pending both are inert (null Hit, so the click falls through, matching the old early-return).
             var capturedUri = deviceUri;
-            Action<InputModifier> onAction = _ => { if (!isConnected) PostSignal(new ConnectDeviceSignal(capturedUri)); };
-            Action<InputModifier> offAction = _ => { if (isConnected) PostSignal(new DisconnectDeviceSignal(capturedUri)); };
-            var seg = Layout.Builder.HStack(
-                FormRowLayout.InsetPillButton(onLabel, BaseFontSize * 0.85f, onBg, BodyText,
-                    pending ? null : new HitResult.ButtonHit("Connect"), pending ? null : onAction),
-                FormRowLayout.InsetPillButton(offLabel, BaseFontSize * 0.85f, offBg, BodyText,
-                    pending ? null : new HitResult.ButtonHit("Disconnect"), pending ? null : offAction))
-                .WithGap(1f);
-            RenderLayout(seg, new RectF32(x, y, w, h));
+            Action<bool>? onSelect = pending ? null : connect =>
+            {
+                if (connect)
+                {
+                    PostSignal(new ConnectDeviceSignal(capturedUri));
+                }
+                else
+                {
+                    PostSignal(new DisconnectDeviceSignal(capturedUri));
+                }
+            };
+            var style = new Layout.ButtonGroupStyle(SegmentActive, SegmentInactive, BodyText, BodyText, GuiTheme.Hover(SegmentInactive))
+            {
+                Gap = 1f,
+                InsetFraction = 0.7f,
+            };
+            RenderLayout(Layout.Builder.ButtonGroup(options, isConnected, onSelect, style, BaseFontSize * 0.85f),
+                new RectF32(x, y, w, h));
         }
 
     }

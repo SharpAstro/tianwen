@@ -107,8 +107,8 @@ namespace TianWen.Lib.Tests
             ClickCard(board, "This computer", clickCount: 1).ShouldBe(new GuiTab?[] { null });
         }
 
-        // A double-click opens whichever rig it lands on, on the tab OpenTabFor picks. The release still
-        // delivers the click's plain select, which changes nothing more.
+        // A double-click opens whichever rig it lands on, on the tab OpenTabFor picks. The second press runs
+        // the declared open IN PLACE of the click (DIR.Lib's DoubleClickable); the first press already selected.
         [Fact]
         public void ADoubleClickOpensTheRigItLandsOn()
         {

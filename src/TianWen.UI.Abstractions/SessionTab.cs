@@ -72,9 +72,6 @@ namespace TianWen.UI.Abstractions
         /// <summary>Reused scratch buffer for measuring the shared stepper value-column width (no per-frame alloc).</summary>
         private readonly List<string> _stepperValueScratch = [];
 
-        /// <summary>Cached reference to planner state for HandleInput access.</summary>
-        private PlannerState? _plannerState;
-
         /// <summary>Cached reference to time provider for observation list rendering.</summary>
         private ITimeProvider? _timeProvider;
 
@@ -108,7 +105,6 @@ namespace TianWen.UI.Abstractions
             BeginFrame();
             // DPI comes from the inherited DpiScale (host-set); local alias keeps the px math unchanged.
             var dpiScale = DpiScale;
-            _plannerState = plannerState;
             _timeProvider = timeProvider;
             RenderLayout(Layout.Builder.Spacer().Bg(ContentBg), contentRect);
 
@@ -152,9 +148,6 @@ namespace TianWen.UI.Abstractions
         {
             switch (evt)
             {
-                case InputEvent.MouseDown(var px, var py, _, _, var clicks) when clicks >= 2:
-                    return HandleDoubleClick(px, py);
-
                 case InputEvent.KeyDown(var key, _):
                     return HandleConfigKey(key);
 
@@ -254,77 +247,43 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// The exposure-value cell (and its proposal index) under a point, read back from the arranged
-        /// tree <see cref="RenderLayout"/> already built this frame -- the "exp:{index}" Fill key encodes
-        /// the proposal index, so there is nothing left to stash by hand at paint time (see the comment
-        /// beside where the key is set).
+        /// Opens the exposure field on proposal <paramref name="proposalIdx"/>, seeded with its current
+        /// sub-exposure. Reached by a double-click DECLARED on the exposure cell
+        /// (<see cref="Layout.Node.DoubleClickable"/>), which replaced a host arm that caught the second press
+        /// and then searched the arranged tree for an "exp:{index}" key under the pointer to learn which cell
+        /// it was: the cell that was pressed already knew.
         /// </summary>
-        private (RectF32 Rect, int ProposalIndex)? ExposureValueRegionAt(float px, float py)
+        private void BeginExposureEdit(PlannerState plannerState, int proposalIdx)
         {
-            foreach (var arranged in GetCapturedLayout())
+            var defaultExpSec = SessionContent.DefaultExposureSeconds(State);
+            var p = plannerState.Proposals[proposalIdx];
+            var cur = p.SubExposure ?? TimeSpan.FromSeconds(defaultExpSec);
+
+            State.EditingExposureIndex = proposalIdx;
+            State.ExposureInput.OnCommit = text =>
             {
-                if (arranged.Node is not Layout.Node.Leaf { Content: Layout.Content.Fill { Key: { } key } }
-                    || !key.StartsWith("exp:", StringComparison.Ordinal)
-                    || !int.TryParse(key.AsSpan("exp:".Length), out var proposalIdx))
+                if (SessionTabState.TryParseExposureInput(text, out var newExp))
                 {
-                    continue;
+                    plannerState.Proposals = plannerState.Proposals.SetItem(
+                        proposalIdx, plannerState.Proposals[proposalIdx] with { SubExposure = newExp });
                 }
-
-                var b = arranged.Bounds;
-                var rect = new RectF32(b.X, b.Y, b.Width, b.Height);
-                if (rect.Contains(px, py))
-                {
-                    return (rect, proposalIdx);
-                }
-            }
-
-            return null;
-        }
-
-        private bool HandleDoubleClick(float px, float py)
-        {
-            if (State.IsSessionRunning || _plannerState is null)
-            {
-                return false;
-            }
-
-            if (ExposureValueRegionAt(px, py) is { } hit)
-            {
-                var proposalIdx = hit.ProposalIndex;
-                var defaultExpSec = SessionContent.DefaultExposureSeconds(State);
-                var p = _plannerState.Proposals[proposalIdx];
-                var cur = p.SubExposure ?? TimeSpan.FromSeconds(defaultExpSec);
-                var capturedIdx = proposalIdx;
-
-                State.EditingExposureIndex = capturedIdx;
-                State.ExposureInput.OnCommit = text =>
-                {
-                    if (SessionTabState.TryParseExposureInput(text, out var newExp))
-                    {
-                        _plannerState.Proposals = _plannerState.Proposals.SetItem(
-                            capturedIdx, _plannerState.Proposals[capturedIdx] with { SubExposure = newExp });
-                    }
-                    State.EditingExposureIndex = -1;
-                    PostSignal(new DeactivateTextInputSignal());
-                    State.NeedsRedraw = true;
-                    return Task.CompletedTask;
-                };
-                State.ExposureInput.OnCancel = () =>
-                {
-                    State.EditingExposureIndex = -1;
-                    PostSignal(new DeactivateTextInputSignal());
-                    State.NeedsRedraw = true;
-                };
-                // Through the focus owner, seeded and selected in one call. This was three spellings of
-                // one act -- Activate, SelectAll, and a DEFERRED ActivateTextInputSignal that re-focused
-                // the field a frame later -- from before the tab had a route to the owner; it has one
-                // now, Ui.Focus being the window's own.
-                Ui.Focus.Focus(State.ExposureInput, $"{(int)cur.TotalSeconds}");
+                State.EditingExposureIndex = -1;
+                PostSignal(new DeactivateTextInputSignal());
                 State.NeedsRedraw = true;
-                return true;
-            }
-
-            return false;
+                return Task.CompletedTask;
+            };
+            State.ExposureInput.OnCancel = () =>
+            {
+                State.EditingExposureIndex = -1;
+                PostSignal(new DeactivateTextInputSignal());
+                State.NeedsRedraw = true;
+            };
+            // Through the focus owner, seeded and selected in one call. This was three spellings of
+            // one act -- Activate, SelectAll, and a DEFERRED ActivateTextInputSignal that re-focused
+            // the field a frame later -- from before the tab had a route to the owner; it has one
+            // now, Ui.Focus being the window's own.
+            Ui.Focus.Focus(State.ExposureInput, $"{(int)cur.TotalSeconds}");
+            State.NeedsRedraw = true;
         }
 
         // -----------------------------------------------------------------------
@@ -588,17 +547,21 @@ namespace TianWen.UI.Abstractions
                 var subExp = proposal.SubExposure ?? TimeSpan.FromSeconds(defaultExpSec);
                 var expStr = SessionContent.FormatExposure(subExp);
 
-                // Exposure value cell. The two states are now two different NODES rather than one Fill that
+                // Exposure value cell. The two states are two different NODES rather than one Fill that
                 // branches inside its painter: editing is a TextInput leaf, display stays a Fill because it
-                // is genuinely bespoke. Its double-click-to-edit region is read back from the arranged tree
-                // (see ExposureValueRegionAt) via this same "exp:{index}" key, rather than a rect the
-                // painter stashes by hand.
+                // is genuinely bespoke. The display cell DECLARES its double-click-to-edit, so the press
+                // reaches this cell's own proposal index and no host arm has to find the cell again.
                 var expKey = $"exp:{i}";
                 _obsFills[expKey] = r =>
                     DrawText(expStr, fontPath, r.X, r.Y, r.Width, r.Height, BaseFontSize * 0.9f * dpiScale, BodyText, TextAlign.Center, TextAlign.Center);
                 var expCell = State.EditingExposureIndex == capturedI
                     ? Layout.Builder.TextInput(State.ExposureInput, BaseFontSize * 0.9f)
-                    : Layout.Builder.Fill(key: expKey);
+                    : State.IsSessionRunning
+                        ? Layout.Builder.Fill(key: expKey)
+                        : Layout.Builder.Fill(key: expKey)
+                            .Clickable(new HitResult.ButtonHit($"EditExp:{i}"))
+                            .DoubleClickable(_ => BeginExposureEdit(plannerState, capturedI))
+                            .WithTooltip("Double-click to type an exposure");
 
                 Layout.Node ExpButton(Layout.IconKind icon, string hit, Action<InputModifier> onClick) =>
                     Layout.Builder.Icon(icon, BaseFontSize * 0.85f * Layout.Content.Icon.TextSizeRatio, BodyText)

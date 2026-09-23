@@ -513,15 +513,21 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     private Layout.Node OverlayToggleRow()
         => CheckRow("Show ROI on image", _roiOverlay, "RoiOverlayToggle", () => _roiOverlay = !_roiOverlay);
 
-    // A "[x]/[ ] label" checkbox row: green bg when on, neutral when off. The base re-armed the clickable
-    // tracker in Render(), so this .Clickable registers after that and survives.
+    // A checkbox row: green bg when on, neutral when off, and a DRAWN tick in a well (DIR.Lib's declared
+    // Checkbox) where it used to write "[x] " into the label, which is a mark in a text run. The base
+    // re-armed the clickable tracker in Render(), so the row's hit registers after that and survives.
     private Layout.Node CheckRow(string label, bool on, string id, Action onClick)
     {
-        var checkFill = on ? CheckOnBg : StepBtnBg;
-        return Layout.Builder.Text((on ? "[x] " : "[ ] ") + label, PanelFontSize * 0.9f,
-                on ? HeaderText : DimText, TextAlign.Near, TextAlign.Center)
-            .RowH(BaseRowHeight).Bg(checkFill).BgHover(GuiTheme.Hover(checkFill))
-            .Clickable(new HitResult.ButtonHit(id), _ => onClick());
+        var style = new Layout.CheckboxStyle(ContentBg, CheckOnBg, DimText, GuiTheme.Hover(on ? CheckOnBg : StepBtnBg))
+        {
+            CheckedLabelColor = HeaderText,
+            RowFill = StepBtnBg,
+            CheckedRowFill = CheckOnBg,
+            BoxSize = PanelFontSize * 0.9f,
+        };
+        return Layout.Builder.Checkbox(label, on, _ => onClick(), style, PanelFontSize * 0.9f, new HitResult.ButtonHit(id))
+            .PadX(4f)
+            .RowH(BaseRowHeight);
     }
 
     // A single-glyph mount-nudge button (manual coarse recenter / framing) -- posts the same JogMountSignal /
