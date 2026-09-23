@@ -26,6 +26,12 @@
 .PARAMETER ScratchRoot
     Scratch directory, which should be on an SSD; reading lights is already spindle-bound.
 
+.PARAMETER Parameters
+    The dataset's standing decisions (held-out sessions and their reasons). Defaults to the
+    repo-root dataset-parameters.json and is always passed as --parameters, because the bake runs
+    with src/ as its working directory, where the CLI's own default lookup finds no file, and a
+    missing file is not an error to it: the held-out sessions were silently trained on.
+
 .PARAMETER ExtraArgs
     Passed through to `dataset build` verbatim (e.g. --exclude-path, --resume, --force-psf).
 
@@ -40,6 +46,7 @@ param(
     [Parameter(Mandatory)][string] $Out,
     [Parameter(Mandatory)][string[]] $ArchiveRoot,
     [string] $ScratchRoot = 'C:\temp\astro-scratch',
+    [string] $Parameters = (Join-Path (Split-Path -Parent $PSScriptRoot) 'dataset-parameters.json'),
     [string[]] $ExtraArgs = @(),
     [switch] $SkipBuild
 )
@@ -98,6 +105,12 @@ try {
                'carries no commit to compare. Re-run without -SkipBuild. Refusing to launch.')
     }
 
+    # The CLI treats a missing parameters file as "no standing decisions", which is right for a
+    # fresh checkout and wrong for a launcher that names one: fail here instead.
+    if ($ExtraArgs -contains '--parameters') { throw 'pass -Parameters, not --parameters in -ExtraArgs' }
+    $Parameters = (Resolve-Path $Parameters -ErrorAction Stop).Path
+    Write-Host "parameters $Parameters"
+
     New-Item -ItemType Directory -Force -Path $Out, $ScratchRoot | Out-Null
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $log = Join-Path ([IO.Path]::GetTempPath()) "astro-bake-$stamp.log"
@@ -108,7 +121,7 @@ try {
     $q = { param($s) if ($s -match '\s') { '"' + $s + '"' } else { $s } }
     $argv = @('dataset', 'build', '--archive-root') +
             ($ArchiveRoot | ForEach-Object { & $q $_ }) +
-            @('--out', (& $q $Out), '--scratch-root', (& $q $ScratchRoot)) +
+            @('--out', (& $q $Out), '--scratch-root', (& $q $ScratchRoot), '--parameters', (& $q $Parameters)) +
             ($ExtraArgs | ForEach-Object { & $q $_ })
 
     $proc = Start-Process -FilePath $exe -ArgumentList $argv -WorkingDirectory $src `
@@ -124,6 +137,7 @@ try {
         pid          = $proc.Id
         archiveRoots = $ArchiveRoot
         scratchRoot  = $ScratchRoot
+        parameters   = $Parameters
         extraArgs    = $ExtraArgs
         stdout       = $log
         stderr       = $err
