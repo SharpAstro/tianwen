@@ -294,6 +294,32 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// How long until a settling answer is due to go on screen: zero when it is due now, null when
+        /// nothing is settling -- the pointer came back to what is shown, which cancels the switch, or a
+        /// frame already committed it. What a host's delayed wake asks before painting.
+        /// </summary>
+        /// <remarks>
+        /// A settle asks for its frame each time the PENDING answer changes, so a pointer crossing a star
+        /// field schedules a wake per star it passes, and most of those wakes find the switch cancelled or
+        /// not yet due. Painting on every one of them repainted the whole map for nothing to show: 12 wakes
+        /// against 6 committed answers over one 40-move E2E hover (#339). A host that paints only when this
+        /// says zero, and re-arms for what it says otherwise, paints once per answer that actually changes.
+        /// </remarks>
+        internal TimeSpan? PendingHoverDueIn
+        {
+            get
+            {
+                if (!_hasPendingHover || _timeProvider is not { } clock)
+                {
+                    return null;
+                }
+
+                var left = HoverSettle - clock.GetElapsedTime(_pendingHoverSince);
+                return left > TimeSpan.Zero ? left : TimeSpan.Zero;
+            }
+        }
+
+        /// <summary>
         /// Shows a settling answer whose time has come. Called at the top of the draw, which is how a
         /// pointer that has stopped still gets its wash: the host's delayed frame (RequestFrameAfter) is the
         /// one that lands here. Returns whether it changed what is on screen.

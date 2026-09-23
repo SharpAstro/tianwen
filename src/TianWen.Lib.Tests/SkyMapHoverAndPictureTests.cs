@@ -472,6 +472,53 @@ public class SkyMapHoverAndPictureTests
         tab.HoverFrameRequests.ShouldBe(requests, "the wash never switched");
     }
 
+    // What a host's delayed wake asks before it paints (#339): how long until the settling answer is due,
+    // zero once it is, and nothing at all once the frame has shown it. The browser painted on EVERY wake,
+    // and a pointer crossing a star field schedules one per star.
+    [Fact]
+    public void TheSettlingAnswerSaysWhenItIsDueAndNothingOnceShown()
+    {
+        using var renderer = new RgbaImageRenderer(200, 200);
+        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
+        tab.HoverSettle = TimeSpan.FromMilliseconds(120);
+        tab.Render(plannerState, rect, time);
+        tab.PendingHoverDueIn.ShouldBeNull("nothing is settling yet");
+
+        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
+        tab.PendingHoverDueIn.ShouldBe(TimeSpan.FromMilliseconds(120));
+
+        time.Advance(TimeSpan.FromMilliseconds(50));
+        tab.PendingHoverDueIn.ShouldBe(TimeSpan.FromMilliseconds(70), "a wake this early re-arms for what is left");
+
+        time.Advance(TimeSpan.FromMilliseconds(80));
+        tab.PendingHoverDueIn.ShouldBe(TimeSpan.Zero, "due: this wake paints");
+
+        tab.Render(plannerState, rect, time);
+        tab.PendingHoverDueIn.ShouldBeNull("the frame showed it, so a later wake has nothing to paint");
+    }
+
+    // A pointer that comes back before the settle is up cancels the switch, and the wake it scheduled must
+    // find nothing to show rather than paint an identical frame.
+    [Fact]
+    public void AnAnswerThatReturnsLeavesTheWakeNothingToPaint()
+    {
+        using var renderer = new RgbaImageRenderer(200, 200);
+        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
+        tab.HoverSettle = TimeSpan.FromMilliseconds(120);
+        tab.Render(plannerState, rect, time);
+        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
+        time.Advance(TimeSpan.FromMilliseconds(130));
+        tab.Render(plannerState, rect, time);
+
+        time.Advance(TimeSpan.FromMilliseconds(10));
+        tab.HandleInput(new InputEvent.MouseMove(5f, 5f));
+        tab.PendingHoverDueIn.ShouldNotBeNull("off the nebula: a switch is settling");
+        time.Advance(TimeSpan.FromMilliseconds(10));
+        tab.HandleInput(new InputEvent.MouseMove(110f, 104f));
+
+        tab.PendingHoverDueIn.ShouldBeNull("back on the nebula before it settled: the switch is cancelled");
+    }
+
     private static (HoverTestSkyMapTab Tab, PlannerState PlannerState, FakeTimeProviderWrapper Time, RectF32 Rect)
         NewNebulaCentredTab(RgbaImageRenderer renderer)
     {
