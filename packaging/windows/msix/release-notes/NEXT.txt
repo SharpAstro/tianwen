@@ -71,8 +71,9 @@ which is what that listing now tells users:
     twice and rewritten once; widen it a third time and rewrite it again instead.
   - Camera and focuser driver libraries are no longer installed with the viewer.
     Verify against the PACKAGE, not the build output: unzip the msixbundle and
-    confirm neither payload carries ASICamera2.dll, qhyccd.dll, EAFFocuser1.6.dll
-    or EFW1.7.dll. It was 0 of 4 across both x64 and arm64 payloads in 9.0.1940.
+    confirm neither payload carries ASICamera2.dll, qhyccd.dll, EAFFocuser.dll
+    or EFWFilter.dll (EAFFocuser1.6.dll and EFW1.7.dll before ZWOptical.SDK 6.0).
+    It was 0 of 4 across both x64 and arm64 payloads in 9.0.1940.
 
 
 ================================================================================

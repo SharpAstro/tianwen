@@ -5,8 +5,8 @@ using System.Threading.Tasks;
 using TianWen.DAL;
 using TianWen.Lib.Devices.DAL;
 using ZWOptical.SDK;
-using static ZWOptical.SDK.EFW1_7;
-using static ZWOptical.SDK.EFW1_7.EFW_ERROR_CODE;
+using static ZWOptical.SDK.EFWFilter;
+using static ZWOptical.SDK.EFWFilter.EFW_ERROR_CODE;
 
 namespace TianWen.Lib.Devices.ZWO;
 

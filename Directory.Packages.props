@@ -98,6 +98,6 @@
     <PackageVersion Include="ToupTek.SDK" Version="1.0.*" />
     <PackageVersion Include="QHYCCD.SDK" Version="2.0.*" />
     <PackageVersion Include="TianWen.DAL" Version="3.2.*" />
-    <PackageVersion Include="ZWOptical.SDK" Version="5.1.*" />
+    <PackageVersion Include="ZWOptical.SDK" Version="6.0.*" />
   </ItemGroup>
 </Project>
