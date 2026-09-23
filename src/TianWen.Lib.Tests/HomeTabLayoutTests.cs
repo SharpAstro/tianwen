@@ -94,33 +94,47 @@ namespace TianWen.Lib.Tests
             return [.. opened];
         }
 
-        // A click selects the rig to LOOK at and opens nothing: with several rigs the click is a choice, and
-        // switching tab on it would take the user off the board they are scanning.
-        [Fact]
-        public void AClickOnOneOfSeveralRigsSelectsItWithoutLeavingTheBoard()
+        // A click selects the rig to LOOK at and opens nothing, however many cards there are: one gesture,
+        // one meaning. A lone card once opened on a single click, which made the same click mean two things
+        // depending on how many rigs were bound.
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        public void AClickSelectsTheRigWithoutOpeningIt(int rigs)
         {
-            ClickCard([Card("This computer"), Card("Rig B")], "Rig B", clickCount: 1)
-                .ShouldBe(new GuiTab?[] { null });
+            ImmutableArray<RigCard> board = rigs == 1 ? [Card("This computer")] : [Card("This computer"), Card("Rig B")];
+
+            ClickCard(board, "This computer", clickCount: 1).ShouldBe(new GuiTab?[] { null });
         }
 
-        // With one card there is nothing to choose between, and the click that only re-selected the rig
-        // already looked at did nothing visible at all -- a dead click on the landing screen.
-        [Fact]
-        public void AClickOnTheOnlyRigOpensItsEquipmentTab()
-        {
-            ClickCard([Card("This computer")], "This computer", clickCount: 1)
-                .ShouldBe(new GuiTab?[] { GuiTab.Equipment });
-        }
-
-        // A double-click opens whichever rig it lands on: this computer's hardware set-up, or a remote rig's
-        // mirrored session. The release still delivers the click's plain select, which changes nothing more.
+        // A double-click opens whichever rig it lands on, on the tab OpenTabFor picks. The release still
+        // delivers the click's plain select, which changes nothing more.
         [Fact]
         public void ADoubleClickOpensTheRigItLandsOn()
         {
-            ImmutableArray<RigCard> board = [Card("This computer"), Card("Rig B")];
+            ImmutableArray<RigCard> board = [Card("This computer", running: true), Card("Rig B")];
 
-            ClickCard(board, "This computer", clickCount: 2).ShouldContain(GuiTab.Equipment);
-            ClickCard(board, "Rig B", clickCount: 2).ShouldContain(GuiTab.LiveSession);
+            ClickCard(board, "This computer", clickCount: 2).ShouldContain(GuiTab.LiveSession);
+            ClickCard(board, "Rig B", clickCount: 2).ShouldContain(GuiTab.Planner);
+        }
+
+        // Where a rig opens depends on what it needs next, not on which kind of rig it is.
+        [Fact]
+        public void ARigOpensOnTheTabItsStateCallsFor()
+        {
+            // A run in progress, or a prompt waiting on someone: the session, where both are dealt with.
+            HomeTab<RgbaImage>.OpenTabFor(Card("This computer", running: true)).ShouldBe(GuiTab.LiveSession);
+            HomeTab<RgbaImage>.OpenTabFor(Card("Rig B", running: true)).ShouldBe(GuiTab.LiveSession);
+            HomeTab<RgbaImage>.OpenTabFor(Card("Rig B", prompt: new RigCardPrompt("Open the cover", null, false))).ShouldBe(GuiTab.LiveSession);
+
+            // This computer with nothing configured: there is nothing else to do with it yet.
+            HomeTab<RgbaImage>.OpenTabFor(Card("This computer") with { Subtitle = null }).ShouldBe(GuiTab.Equipment);
+            HomeTab<RgbaImage>.OpenTabFor(Card("This computer", devices: new RigDeviceLink(0, 0))).ShouldBe(GuiTab.Equipment);
+
+            // Configured and idle, local or remote: plan the night. A remote rig's device count is never
+            // known, so it is never judged unconfigured.
+            HomeTab<RgbaImage>.OpenTabFor(Card("This computer", devices: new RigDeviceLink(0, 3))).ShouldBe(GuiTab.Planner);
+            HomeTab<RgbaImage>.OpenTabFor(Card("Rig B")).ShouldBe(GuiTab.Planner);
         }
 
         [Fact]
