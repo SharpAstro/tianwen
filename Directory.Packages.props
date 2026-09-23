@@ -95,7 +95,7 @@
     <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.12" />
 
     <PackageVersion Include="PlayerOne.SDK" Version="3.11.*" />
-    <PackageVersion Include="ToupTek.SDK" Version="1.0.*" />
+    <PackageVersion Include="ToupTek.SDK" Version="1.1.*" />
     <PackageVersion Include="QHYCCD.SDK" Version="2.0.*" />
     <PackageVersion Include="TianWen.DAL" Version="3.2.*" />
     <PackageVersion Include="ZWOptical.SDK" Version="6.0.*" />
