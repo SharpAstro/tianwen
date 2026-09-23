@@ -628,7 +628,7 @@ void RequestQuit()
                     }
                     else
                     {
-                        await EquipmentActions.WarmAndDisconnectAsync(hubAtQuit, capUri, logger, force: true, System.Threading.CancellationToken.None);
+                        await EquipmentActions.WarmAndDisconnectAsync(hubAtQuit, capUri, timeProvider, logger, force: true, System.Threading.CancellationToken.None);
                     }
                 }
                 catch (Exception ex)

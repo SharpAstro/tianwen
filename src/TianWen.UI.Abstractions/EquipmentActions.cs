@@ -722,10 +722,11 @@ public static class EquipmentActions
     /// see <see cref="IDeviceHub.DisconnectAsync"/>.</param>
     public static ValueTask WarmAndDisconnectAsync(
         IDeviceHub hub, Uri deviceUri,
+        ITimeProvider timeProvider,
         Microsoft.Extensions.Logging.ILogger logger,
         bool force,
         System.Threading.CancellationToken cancellationToken)
-        => WarmCameraAsync(hub, deviceUri, logger, disconnectAfter: true, force, cancellationToken);
+        => WarmCameraAsync(hub, deviceUri, timeProvider, logger, disconnectAfter: true, force, cancellationToken);
 
     /// <summary>
     /// Warm-up ramp + cooler-off without disconnecting (camera stays available for
@@ -734,9 +735,10 @@ public static class EquipmentActions
     /// </summary>
     public static ValueTask WarmAndCoolerOffAsync(
         IDeviceHub hub, Uri deviceUri,
+        ITimeProvider timeProvider,
         Microsoft.Extensions.Logging.ILogger logger,
         System.Threading.CancellationToken cancellationToken)
-        => WarmCameraAsync(hub, deviceUri, logger, disconnectAfter: false, force: false, cancellationToken);
+        => WarmCameraAsync(hub, deviceUri, timeProvider, logger, disconnectAfter: false, force: false, cancellationToken);
 
     /// <summary>
     /// Shared warm-up ramp implementation. Steps the setpoint toward the heat-sink (or
@@ -745,6 +747,7 @@ public static class EquipmentActions
     /// </summary>
     private static async ValueTask WarmCameraAsync(
         IDeviceHub hub, Uri deviceUri,
+        ITimeProvider timeProvider,
         Microsoft.Extensions.Logging.ILogger logger,
         bool disconnectAfter,
         bool force,
@@ -811,13 +814,13 @@ public static class EquipmentActions
                 break;
             }
 
-            await Task.Delay(stepInterval, cancellationToken);
+            await timeProvider.SleepAsync(stepInterval, cancellationToken);
         }
 
         try { await camera.SetCoolerOnAsync(false, cancellationToken); }
         catch (Exception ex) { logger.LogWarning(ex, "SetCoolerOnAsync(false) failed for {Uri}", deviceUri); }
 
-        await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(2), cancellationToken);
 
         if (disconnectAfter)
         {
