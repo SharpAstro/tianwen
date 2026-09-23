@@ -756,7 +756,8 @@ reproducible. Per session:
 Bayer drizzle when it can run (`SessionRegistrar.TryDrizzle`), AHD + sigma-clip otherwise. Two
 independent conditions: the stacker's own `DrizzleStrategy.Evaluate` (RGGB, enough matched frames for
 per-Bayer-position R/B coverage, flux+weight planes inside the RAM budget) **and a matched dark
-master**, which is not the stacker's business. Drizzle has no per-cell rejection while the AHD path's
+master**, which is not the stacker's business. Drizzle's per-sample clip (#93) takes out a transient
+but not a hot photosite that tracking lands in the same cell every frame, while the AHD path's
 sigma-clip washes hot pixels out across the session, and dark subtraction removes a hot pixel's
 offset; so an uncalibrated session would get uncorrected hot pixels deposited straight into the
 master, which is a worse master than the interpolated one. Falling back beats building a bad-pixel

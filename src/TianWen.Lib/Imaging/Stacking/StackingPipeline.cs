@@ -1742,6 +1742,12 @@ public sealed class StackingPipeline(
             timings.Record(StageNames.Integrate, integrateStart, matched.Count, (long)matched.Count * outWidth * outHeight);
             logger.LogInformation("  integrated in {ElapsedMs} ms (frames={Frames}, rejections={Rej}, rate={Rate:P2})",
                 (long)Stopwatch.GetElapsedTime(integrateStart).TotalMilliseconds, intResult.FrameCount, intResult.TotalRejections, intResult.MeanRejectionRate);
+            if (intResult.DrizzleTotalDeposits > 0)
+            {
+                logger.LogInformation("  drizzle clip rejected {Rejected} of {Total} deposits ({Fraction:P3})",
+                    intResult.DrizzleRejectedDeposits, intResult.DrizzleTotalDeposits,
+                    (double)intResult.DrizzleRejectedDeposits / intResult.DrizzleTotalDeposits);
+            }
             hostTracker.Log(logger, $"integrate/{slug}");
 
             // 3c. Plate-solve the master + write FITS (+ autocrop). No

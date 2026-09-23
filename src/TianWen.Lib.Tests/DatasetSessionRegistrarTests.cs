@@ -94,8 +94,9 @@ namespace TianWen.Lib.Tests
         /// <see cref="DrizzleStrategy.Evaluate"/> covers sensor pattern, frame count and RAM; the
         /// extra condition here is a MATCHED DARK, and it is not the stacker's business.
         ///
-        /// <para>Why the dark is load-bearing: drizzle has no per-cell rejection, while the AHD path's
-        /// sigma-clip washes hot pixels out across the whole session. Dark subtraction removes a hot
+        /// <para>Why the dark is load-bearing: drizzle's per-sample clip cannot see a hot photosite
+        /// that lands in the same cell every frame, while the AHD path's sigma-clip washes hot pixels
+        /// out across the whole session. Dark subtraction removes a hot
         /// pixel's offset, so a calibrated session is fine and an uncalibrated one would have
         /// uncorrected hot pixels deposited straight into the master, which is a worse master than the
         /// interpolated one it replaced. Falling back beats building a bad-pixel mask, because the mask

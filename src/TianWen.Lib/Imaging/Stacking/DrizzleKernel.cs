@@ -117,6 +117,75 @@ internal static class DrizzleKernel
         BitMatrix badPixelMask,
         bool hasBadPixelMask)
         where TMap : struct, ISourceToCanvas
+        => Iterate(raw, map, pattern, halfP, new FluxWeightSink(flux, weight),
+            xStart, xEnd, yStart, yEnd, sourceRect, badPixelMask, hasBadPixelMask);
+
+    /// <summary>
+    /// The statistics pass of a REJECTING drizzle: deposits exactly as <see cref="IterateAndDeposit(Image, Matrix3x2, int[,], float, float[][,], float[][,], int, int, int, int, PixelRect, BitMatrix, bool)"/>
+    /// does, and also accumulates each cell's area-weighted sum of squares, so the clipped pass can
+    /// read every cell's mean and spread. See <see cref="DrizzleMoments"/>.
+    /// </summary>
+    public static void IterateAndAccumulateMoments(
+        Image raw,
+        Matrix3x2 transform,
+        int[,] pattern,
+        float halfP,
+        DrizzleMoments moments,
+        int xStart,
+        int xEnd,
+        int yStart,
+        int yEnd,
+        PixelRect sourceRect,
+        BitMatrix badPixelMask,
+        bool hasBadPixelMask)
+        => Iterate(raw, new AffineMap(transform), pattern, halfP, new MomentsSink(moments),
+            xStart, xEnd, yStart, yEnd, sourceRect, badPixelMask, hasBadPixelMask);
+
+    /// <summary>
+    /// The deposit pass of a REJECTING drizzle: every sample is tested, per cell it lands in, against
+    /// that cell's statistics from <paramref name="moments"/> with the sample's OWN contribution taken
+    /// out, and deposited into <paramref name="flux"/> / <paramref name="weight"/> only if it passes.
+    /// See <see cref="DrizzleClip"/> for why the test leaves the sample out.
+    /// </summary>
+    /// <returns>How many (sample, cell) deposits were rejected, and how many were judged in all.</returns>
+    public static (long Rejected, long Total) IterateAndDepositClipped(
+        Image raw,
+        Matrix3x2 transform,
+        int[,] pattern,
+        float halfP,
+        DrizzleMoments moments,
+        DrizzleClip clip,
+        float[][,] flux,
+        float[][,] weight,
+        int xStart,
+        int xEnd,
+        int yStart,
+        int yEnd,
+        PixelRect sourceRect,
+        BitMatrix badPixelMask,
+        bool hasBadPixelMask)
+    {
+        var counts = new long[2];
+        Iterate(raw, new AffineMap(transform), pattern, halfP, new ClippedSink(moments, clip, flux, weight, counts),
+            xStart, xEnd, yStart, yEnd, sourceRect, badPixelMask, hasBadPixelMask);
+        return (counts[0], counts[1]);
+    }
+
+    private static void Iterate<TMap, TSink>(
+        Image raw,
+        TMap map,
+        int[,] pattern,
+        float halfP,
+        TSink sink,
+        int xStart,
+        int xEnd,
+        int yStart,
+        int yEnd,
+        PixelRect sourceRect,
+        BitMatrix badPixelMask,
+        bool hasBadPixelMask)
+        where TMap : struct, ISourceToCanvas
+        where TSink : struct, IDropSink
     {
         var srcX0 = sourceRect.X;
         var srcX1 = sourceRect.X + sourceRect.Width;
@@ -139,7 +208,7 @@ internal static class DrizzleKernel
                     // Fast path: no per-pixel mask check needed.
                     for (; xSrc < chunkEnd; xSrc++)
                     {
-                        DepositOne(xSrc, ySrc, raw, map, pattern, halfP, flux, weight, xStart, xEnd, yStart, yEnd);
+                        DepositOne(xSrc, ySrc, raw, map, pattern, halfP, sink, xStart, xEnd, yStart, yEnd);
                     }
                 }
                 else
@@ -149,7 +218,7 @@ internal static class DrizzleKernel
                     for (; xSrc < chunkEnd; xSrc++)
                     {
                         if ((maskWord & (1UL << (xSrc & 63))) != 0UL) continue;
-                        DepositOne(xSrc, ySrc, raw, map, pattern, halfP, flux, weight, xStart, xEnd, yStart, yEnd);
+                        DepositOne(xSrc, ySrc, raw, map, pattern, halfP, sink, xStart, xEnd, yStart, yEnd);
                     }
                 }
             }
@@ -168,12 +237,13 @@ internal static class DrizzleKernel
     /// the per-frame rotation residuals will reappear as visible artifacts.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void DepositOne<TMap>(
+    private static void DepositOne<TMap, TSink>(
         int xSrc, int ySrc,
         Image raw, TMap map, int[,] pattern, float halfP,
-        float[][,] flux, float[][,] weight,
+        TSink sink,
         int xStart, int xEnd, int yStart, int yEnd)
         where TMap : struct, ISourceToCanvas
+        where TSink : struct, IDropSink
     {
         var v = raw[0, ySrc, xSrc];
         if (float.IsNaN(v)) return;
@@ -196,8 +266,6 @@ internal static class DrizzleKernel
         if (x1 < x0 || y1 < y0) return;
 
         var ch = pattern[ySrc & 1, xSrc & 1];
-        var fluxCh = flux[ch];
-        var weightCh = weight[ch];
 
         for (var yc = y0; yc <= y1; yc++)
         {
@@ -213,9 +281,7 @@ internal static class DrizzleKernel
                 var cellXHi = xc + 0.5f;
                 var dx = MathF.Min(xHi, cellXHi) - MathF.Max(xLo, cellXLo);
                 if (dx <= 0f) continue;
-                var area = dx * dy;
-                fluxCh[localY, localX] += v * area;
-                weightCh[localY, localX] += area;
+                sink.Add(ch, localY, localX, v, dx * dy);
             }
         }
     }

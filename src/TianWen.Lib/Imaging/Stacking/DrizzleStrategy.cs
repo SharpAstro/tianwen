@@ -80,7 +80,10 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
         // channels (drizzle ignores ChannelCount and always emits RGB), plus
         // one in-flight calibrated 1-channel raw frame. No N-scaling on the
         // accumulators -- streaming drizzle holds everything full-canvas.
-        var fluxWeightBytes = (long)probe.CanvasWidth * probe.CanvasHeight * 3 * sizeof(float) * 2;
+        // A rejecting drizzle (every run the pipeline hands a rejector, i.e. 5 frames and up, and
+        // drizzle needs 60) also holds the statistics pass's three moment planes and the slope plane
+        // derived from them beside the output pair, so six planes per channel, not two.
+        var fluxWeightBytes = (long)probe.CanvasWidth * probe.CanvasHeight * 3 * sizeof(float) * 6;
         var inFlightRam = (long)probe.FrameWidth * probe.FrameHeight * sizeof(float); // 1-channel calibrated bayer
         var ram = fluxWeightBytes + inFlightRam;
 
@@ -119,12 +122,12 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
         }
 
         // Wall-time = load+calibrate (every frame, full source) + forward-
-        // project (every frame, full source, ~4 cells per pixel). No
-        // debayer, no warp, no reject-combine -- those phases are
-        // replaced by the drizzle deposit + final divide. Typical net is
-        // 3-5x faster than the standard path on RGGB inputs.
+        // project (every frame, full source, ~4 cells per pixel), TWICE, since a rejecting drizzle
+        // (every run that reaches 60 frames) projects once for the moments and once to deposit what
+        // passes the clip. No debayer and no warp; those phases are replaced by the drizzle deposit
+        // + final divide.
         var loadCalibrate = _costs.LoadAndCalibrateAllFrames(probe);
-        var projectMs = (double)probe.FrameWidth * probe.FrameHeight * probe.FrameCount * _costs.CpuNsPerDrizzleProjectPixel / 1e6;
+        var projectMs = 2.0 * probe.FrameWidth * probe.FrameHeight * probe.FrameCount * _costs.CpuNsPerDrizzleProjectPixel / 1e6;
         var eta = loadCalibrate + TimeSpan.FromMilliseconds(projectMs);
 
         return new StrategyFit(
@@ -220,9 +223,68 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
         var badPixelMask = job.BadPixelMask is { Length: > 0 } m ? m[0] : default;
         var hasBadPixelMask = job.BadPixelMask is { Length: > 0 };
 
+        // Outlier rejection, from the rejector the pipeline built for this session. Drizzle used to
+        // ignore it ("no kappa-sigma rejection by design", on the grounds that coverage weight is the
+        // natural mask), which confused two questions: weight says whether any frame covered a cell,
+        // rejection says whether THIS frame's sample there is an outlier. A satellite or airplane
+        // trail has full coverage and is an outlier, so every one in a drizzled session reached its
+        // master (the Omega Cen 2024-02-16 gallery card carried an airplane through the cluster).
+        // With a clip, the frames are streamed TWICE: once to accumulate each cell's moments, once
+        // to deposit only the samples that pass against the rest of their cell. See DrizzleClip.
+        var clip = DrizzleClip.From(job.Options.Rejector);
+        var moments = clip is null ? null : new DrizzleMoments(3, canvasH, canvasW);
+        long rejectedDeposits = 0, totalDeposits = 0;
+
         await foreach (var frame in job.RawBayerFrames(ct).WithCancellation(ct))
         {
             ct.ThrowIfCancellationRequested();
+            var (raw, transform, pattern) = Prepare(frame);
+            var sourceRect = new PixelRect(0, 0, raw.Width, raw.Height);
+            if (moments is not null)
+            {
+                DrizzleKernel.IterateAndAccumulateMoments(
+                    raw, transform, pattern, halfP, moments,
+                    xStart: 0, xEnd: canvasW, yStart: 0, yEnd: canvasH,
+                    sourceRect, badPixelMask, hasBadPixelMask);
+            }
+            else
+            {
+                // Full-canvas deposit: iterate the entire source frame, accumulate into the
+                // full-canvas flux/weight planes. The kernel handles the chunked hot-pixel-mask fast
+                // path internally so the streaming drizzle and the tile-pipelined variant share one
+                // deposit implementation -- a previous version inlined the loop here and diverged
+                // subtly from the half-pixel convention in the warp path, producing dumbbell stars
+                // in combined-pier-flip output.
+                DrizzleKernel.IterateAndDeposit(
+                    raw, transform, pattern, halfP, flux, weight,
+                    xStart: 0, xEnd: canvasW, yStart: 0, yEnd: canvasH,
+                    sourceRect, badPixelMask, hasBadPixelMask);
+            }
+
+            frameCount++;
+        }
+
+        if (moments is not null && clip is { } c2)
+        {
+            moments.ComputeSlope();
+            await foreach (var frame in job.RawBayerFrames(ct).WithCancellation(ct))
+            {
+                ct.ThrowIfCancellationRequested();
+                var (raw, transform, pattern) = Prepare(frame);
+                var (rejected, total) = DrizzleKernel.IterateAndDepositClipped(
+                    raw, transform, pattern, halfP, moments, c2, flux, weight,
+                    xStart: 0, xEnd: canvasW, yStart: 0, yEnd: canvasH,
+                    new PixelRect(0, 0, raw.Width, raw.Height), badPixelMask, hasBadPixelMask);
+                rejectedDeposits += rejected;
+                totalDeposits += total;
+            }
+        }
+
+        // One frame's plane ready to deposit: the reference metadata captured off the first frame,
+        // normalised (or sky-shifted) exactly as before, with its Bayer pattern and transform. Called
+        // once per frame per pass, and deterministic, so both passes deposit identical values.
+        (Image Raw, System.Numerics.Matrix3x2 Transform, int[,] Pattern) Prepare(RawBayerFrame frame)
+        {
             if (refMeta is null)
             {
                 refMeta = frame.RawCfa.ImageMeta;
@@ -264,25 +326,7 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
                 : job.Options.DrizzleSkyReference is { } skyReference
                     ? Normalizer.OffsetCfaToReference(frame.RawCfa, Normalizer.ComputeCfaStats(frame.RawCfa), skyReference)
                     : frame.RawCfa;
-            var srcW = raw.Width;
-            var srcH = raw.Height;
-
-            // Full-canvas deposit: iterate the entire source frame, accumulate
-            // into the full-canvas flux/weight planes. The kernel handles the
-            // chunked hot-pixel-mask fast path internally so the streaming
-            // drizzle and the tile-pipelined variant share one deposit
-            // implementation -- a previous version inlined the loop here and
-            // diverged subtly from the half-pixel convention in the warp path,
-            // producing dumbbell stars in combined-pier-flip output.
-            DrizzleKernel.IterateAndDeposit(
-                raw, transform, pattern, halfP,
-                flux, weight,
-                xStart: 0, xEnd: canvasW,
-                yStart: 0, yEnd: canvasH,
-                new PixelRect(0, 0, srcW, srcH),
-                badPixelMask, hasBadPixelMask);
-
-            frameCount++;
+            return (raw, transform, pattern);
         }
 
         if (frameCount == 0 || refMeta is null)
@@ -325,9 +369,9 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
             pedestal: 0f,
             imageMeta: refMeta.Value);
 
-        // Drizzle has no kappa-sigma rejection by design -- the per-cell
-        // weight IS the natural mask. We repurpose the IntegrationResult
-        // rejection fields to expose drizzle coverage:
+        // Drizzle's outlier rejection is per SAMPLE, not per output cell (see DrizzleClip), so it
+        // has no per-cell rejection fraction to put here and reports its count separately
+        // (DrizzleRejectedDeposits). The IntegrationResult rejection fields carry coverage instead:
         //   TotalRejections    -> uncovered (weight==0) cells on the canvas
         //   RejectionMap       -> per-channel coverage weight buffer
         //   MeanRejectionRate  -> fraction of canvas cells uncovered
@@ -337,9 +381,9 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
         // disk when there are actually holes worth inspecting. A well-
         // dithered run with full coverage drops the side-car file entirely.
         var uncovered = totalCells - coveredCells;
-        // Drizzle does no kappa-sigma rejection, so it has no rejection fraction to report. Its
-        // accumulated per-pixel weight is coverage and now says so by WHERE it is put, rather than by
-        // a flag on a field named for the other thing.
+        // Drizzle rejects per sample, so it has no per-cell rejection fraction to report. Its
+        // accumulated per-pixel weight is coverage and says so by WHERE it is put, rather than by a
+        // flag on a field named for the other thing; the clip's own count travels beside it.
         return new IntegrationResult(
             Master: master,
             RejectionMap: null,
@@ -348,6 +392,8 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
             MeanRejectionRate: (double)uncovered / totalCells)
         {
             Coverage = coverageMap,
+            DrizzleRejectedDeposits = rejectedDeposits,
+            DrizzleTotalDeposits = totalDeposits,
         };
     }
 }

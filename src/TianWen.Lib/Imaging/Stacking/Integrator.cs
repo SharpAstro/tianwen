@@ -94,6 +94,23 @@ public sealed record IntegrationResult(
     /// record is a binary break for anything compiled against the old shape.</para>
     /// </remarks>
     public Image? Coverage { get; init; }
+
+    /// <summary>
+    /// For the drizzle strategies: how many (sample, cell) deposits the per-sample outlier clip
+    /// dropped (<see cref="DrizzleClip"/>), and out of how many. Zero and zero for every other
+    /// strategy, whose rejections are <see cref="TotalRejections"/>, and for a drizzle that was handed
+    /// no rejector.
+    /// </summary>
+    /// <remarks>
+    /// Its own pair rather than <see cref="TotalRejections"/>, which a drizzle result already spends on
+    /// its uncovered cells (the writer's gate for emitting the coverage sidecar); folding the two
+    /// together would make one number mean two things again, the mistake <see cref="RejectionMap"/>
+    /// was untangled from.
+    /// </remarks>
+    public long DrizzleRejectedDeposits { get; init; }
+
+    /// <inheritdoc cref="DrizzleRejectedDeposits"/>
+    public long DrizzleTotalDeposits { get; init; }
 }
 
 /// <summary>
