@@ -886,6 +886,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
         var api = ctx.DeviceApi;
 
+        // Names this draw in the renderer's slow-GPU-frame log; see VkSkyMapPipeline.Draw.
+        ctx.BeginGpuSection("fits.image");
         api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _imagePipeline);
 
         // Bind set 0 (UBO) and set 1 (samplers). The sampler set is THIS frame's slot's copy, brought
@@ -906,6 +908,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             1, 1, &samplerSet, 0, null);
 
         PushProjectionAndDraw(cmd, ctx, left, top, right, bottom, projW, projH);
+        ctx.EndGpuSection();
     }
 
     /// <summary>
@@ -919,6 +922,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     {
         var api = ctx.DeviceApi;
 
+        ctx.BeginGpuSection("fits.histogram");
         api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _histogramPipeline);
 
         var uboSet = _histogramUboSet;
@@ -929,6 +933,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             1, 1, &samplerSet, 0, null);
 
         PushProjectionAndDraw(cmd, ctx, left, top, right, bottom, projW, projH);
+        ctx.EndGpuSection();
     }
 
     public void Dispose()

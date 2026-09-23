@@ -565,6 +565,10 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         if (drawImagery && state.ShowMilkyWay && milkyWayAlpha > 0.005f
             && _milkyWayTexture is not null && _milkyWayPipeline != VkPipeline.Null)
         {
+            // GPU sections name each pass in the renderer's slow-frame log (SdlVulkan.Renderer's
+            // VulkanContext.GpuTiming), which is how a frame that runs towards the OS GPU timeout
+            // says which pass it was. Accurate on a desktop GPU, a hint on a tiler.
+            _ctx.BeginGpuSection("skymap.milkyway");
             api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _milkyWayPipeline);
             // Bind set 0 (UBO) with the Milky Way pipeline layout
             api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics,
@@ -582,6 +586,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         // ── Horizon fill ──
         if (drawImagery && state.ShowHorizon && _horizonFillPipeline != VkPipeline.Null)
         {
+            _ctx.BeginGpuSection("skymap.horizonfill");
             api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _horizonFillPipeline);
             // Re-bind UBO after pipeline change
             api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _pipelineLayout,
@@ -592,6 +597,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         // ── Lines: grid, meridian, boundaries, constellation figures, horizon ──
         if (drawLines)
         {
+            _ctx.BeginGpuSection("skymap.lines");
             api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _linePipeline);
 
             // Grid (back to front: coarsest first)
@@ -673,6 +679,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             var (vx, vy, vz) = SkyMapState.RaDecToUnitVec(state.CenterRA, state.CenterDec);
             var viewRadiusRad = (float)double.DegreesToRadians(Math.Min(180.0, state.FieldOfViewDeg));
 
+            _ctx.BeginGpuSection("skymap.stars");
             api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _starPipeline);
 
             // Bind quad (binding 0) and star instance data (binding 1) once; each chunk is a
@@ -721,6 +728,8 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             }
 #endif
         }
+
+        _ctx.EndGpuSection();
     }
 
     // ────────────────────────────────────────────────── Grid drawing
@@ -810,6 +819,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         api.vkCmdSetViewport(cmd, 0, 1, &vp);
         api.vkCmdSetScissor(cmd, 0, 1, &scissor);
 
+        _ctx.BeginGpuSection("skymap.overlays");
         api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _overlayEllipsePipeline);
 
         var uboSet = _uboSets[_currentUboFrame];
@@ -825,6 +835,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         api.vkCmdBindVertexBuffers(cmd, 0, 2, buffers, offsets);
 
         api.vkCmdDraw(cmd, 6, instanceCount, 0, 0);
+        _ctx.EndGpuSection();
     }
 
     // ────────────────────────────────────────────────── Geometry builders
