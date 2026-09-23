@@ -430,7 +430,15 @@ namespace TianWen.UI.Gui
             _plannerTab = new VkPlannerTab(renderer) { Bus = bus };
             _equipmentTab = new VkEquipmentTab(renderer) { Bus = bus };
             _sessionTab = new VkSessionTab(renderer) { Bus = bus };
-            _skyMapTab = new VkSkyMapTab(renderer) { Bus = bus, Logger = logger };
+            _skyMapTab = new VkSkyMapTab(renderer)
+            {
+                Bus = bus,
+                Logger = logger,
+                // The atlas's hover settles before switching (SkyMapTab.HoverSettle), as in the browser;
+                // the delayed frame that shows a settled answer comes from TakeDueFrameRequest.
+                HoverSettle = SkyMapTab<VulkanContext>.InteractiveHoverSettle,
+                RequestFrameAfter = RequestFrameAfter,
+            };
             // Preview + guide-cam now use the SAME full image viewer as the FITS viewer + planetary tab
             // (configured chromeless via ViewerState.HideChrome), not a separate mini widget.
             _previewViewer = new VkImageRenderer(renderer, width, height);
@@ -497,6 +505,37 @@ namespace TianWen.UI.Gui
 
         /// <summary>The caret blink phase the last frame was painted in; see <see cref="CaretBlink"/>.</summary>
         public long PaintedCaretPhase { get; private set; }
+
+        // The earliest Stopwatch timestamp a widget has asked for a frame at, 0 for none. Written by
+        // RequestFrameAfter and read by TakeDueFrameRequest, both on the render thread (a widget asks
+        // from its input handling, the host checks once per loop iteration), so a plain field.
+        private long _frameDueTimestamp;
+
+        /// <summary>A widget asks for a frame <paramref name="delay"/> from now; the earliest request wins.</summary>
+        private void RequestFrameAfter(TimeSpan delay)
+        {
+            var due = System.Diagnostics.Stopwatch.GetTimestamp()
+                + (long)(delay.TotalSeconds * System.Diagnostics.Stopwatch.Frequency);
+            if (_frameDueTimestamp == 0 || due < _frameDueTimestamp)
+            {
+                _frameDueTimestamp = due;
+            }
+        }
+
+        /// <summary>
+        /// Whether a frame a widget asked for is now due, clearing the request if so. The host's
+        /// per-iteration redraw check calls it; that is what lets a widget be woken at a time rather than
+        /// by an event, which a settling hover needs once the pointer stops.
+        /// </summary>
+        public bool TakeDueFrameRequest()
+        {
+            if (_frameDueTimestamp == 0 || System.Diagnostics.Stopwatch.GetTimestamp() < _frameDueTimestamp)
+            {
+                return false;
+            }
+            _frameDueTimestamp = 0;
+            return true;
+        }
 
         public void Resize(uint width, uint height)
         {
