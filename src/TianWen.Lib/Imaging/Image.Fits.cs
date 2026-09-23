@@ -55,10 +55,37 @@ public partial class Image
     /// <para>A gzip stream is forward-only in any case, so it gains nothing from a random-access
     /// reader, and a plain file keeps the one it has always used.</para>
     /// </remarks>
-    public static Fits OpenFits(string fileName)
+    public static Fits OpenFits(string fileName) => OpenFits(fileName, FrameReadAheadBytes);
+
+    /// <summary>
+    /// <see cref="OpenFits(string)"/> for a caller that reads a HEADER and nothing else: the same
+    /// opener, with a read-ahead the size of a header rather than of a frame.
+    /// </summary>
+    /// <remarks>
+    /// <para>A <c>BufferedFile</c> fills its whole buffer on the first read, so the frame-sized one
+    /// read about 2 MB off the disk to parse one or two 2,880-byte blocks. Over an archive scan that
+    /// is the scan's entire cost: the 2026-09-24 coverage run made 28,420 reads totalling 59.3 GB in
+    /// its first 83 minutes, 2.09 MB apiece, five frames a second off a USB hard disk, and took
+    /// 2 h 18 min for 46,537 headers (#307 <c>#97</c>). Measured cold on two comparable folders of
+    /// 4.2 MB frames (<c>dataset coverage</c>, one never-read folder per reader): 17.5 frames a
+    /// second at 2,039 KB read per frame before, 67.9 at 64 KB after. A header that outgrows the
+    /// buffer is still read whole, one more fill at a time.</para>
+    /// </remarks>
+    public static Fits OpenFitsHeader(string fileName) => OpenFits(fileName, HeaderReadAheadBytes);
+
+    /// <summary>Read-ahead for a caller that will read the pixels.</summary>
+    internal const int FrameReadAheadBytes = 1000 * 2088;
+
+    /// <summary>Read-ahead for a header-only read: 22 FITS blocks of 2,880 bytes. Every one of the
+    /// 46,564 headers in the reference archive's four bake roots is 1 to 4 blocks (22,348 one,
+    /// 24,176 two, 40 larger, all of them processed products; measured 2026-09-24), so one fill holds
+    /// any of them with room to spare.</summary>
+    internal const int HeaderReadAheadBytes = 1 << 16;
+
+    private static Fits OpenFits(string fileName, int readAheadBytes)
         => IsGzipped(fileName)
             ? new Fits(new FileStream(fileName, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16), compressed: true)
-            : new Fits(new BufferedFile(fileName, FileAccess.Read, FileShare.Read, 1000 * 2088), compressed: false);
+            : new Fits(new BufferedFile(fileName, FileAccess.Read, FileShare.Read, readAheadBytes), compressed: false);
 
     /// <summary>
     /// Whether a FITS header's DATAMIN/DATAMAX have to be recomputed from the pixels because the
@@ -183,7 +210,7 @@ public partial class Image
         // anyway. Honour the TryX contract rather than propagate.
         try
         {
-            using var fitsFile = OpenFits(fileName);
+            using var fitsFile = OpenFitsHeader(fileName);
             var hdu = fitsFile.ReadFirstImageHduHeaderOnly();
             if (hdu?.Axes?.Length is not { } axisLength
                 || hdu.Data is not ImageData

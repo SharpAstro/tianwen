@@ -268,7 +268,7 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
     {
         try
         {
-            using var fits = Image.OpenFits(masterPath);
+            using var fits = Image.OpenFitsHeader(masterPath);
             var header = fits.ReadFirstImageHduHeaderOnly()?.Header;
             // Asked as one question: a fingerprint that came back is proof the header did too, which
             // is what the second read needed and used to assert.
