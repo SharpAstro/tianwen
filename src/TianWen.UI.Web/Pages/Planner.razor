@@ -2722,7 +2722,8 @@
         // field's selection), else to hover, else to the tab. The divider used to be tested here first,
         // off a state machine this page drove by hand; it arms its own DragCapture now, so there is
         // nothing left for a host to consult.
-        router.Handle(new InputEvent.MouseMove(e.X, e.Y));
+        // The held modifiers ride on the move (DIR.Lib 11.0), as on the press, from the same browser event.
+        router.Handle(new InputEvent.MouseMove(e.X, e.Y, MouseButton.None, ToModifiers(e.Original)));
         // Coalesced: a drag delivers several moves per vsync and only the last is ever presented.
         RequestRenderCoalesced(); // mouse-follower / sky-map drag pan
     }
