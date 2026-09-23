@@ -16,7 +16,10 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// <param name="TemperatureC">Sensor temperature in Celsius, rounded to the
 /// nearest integer (most cameras stabilize to ~0.1 C, but 1 C tolerance is
 /// the practical lower bound for noise-pattern matching). <c>null</c> when
-/// the FITS header had no <c>CCD-TEMP</c>.</param>
+/// the FITS header had no <c>CCD-TEMP</c>. <see cref="FromFrame"/> gives one frame's reading; a
+/// calibration SET's key carries the rounded median of its temperature run instead
+/// (<see cref="CalibrationEpochs.SplitSets"/>), and a session's the median of its lights, because
+/// an uncooled camera's run drifts through several degrees and is still one run.</param>
 /// <param name="FilterIdentity">Filter in the optical path, as
 /// <see cref="Filter.IdentityKey"/>. Empty for bias and darks; meaningful for flats.
 /// <para><b>This is the one filter-identity answer, deliberately not a second one.</b> It was

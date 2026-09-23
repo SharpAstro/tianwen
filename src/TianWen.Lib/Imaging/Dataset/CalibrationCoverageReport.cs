@@ -138,13 +138,14 @@ public static class CalibrationCoverageReport
         IReadOnlyDictionary<(int Width, int Height), BpmCensusEntry> bpmCensus)
     {
         var light = session.Lights[0];
-        var lightKey = MasterGroupKey.FromFrame(light);
+        // The resolver's own session key, so the report's pick cannot drift from the bake's.
+        var lightKey = CalibrationResolver.SessionKey(session.Lights);
         var lightCamera = CalibrationResolver.CalTrain.Camera(light);
         var lightTrain = CalibrationResolver.CalTrain.OpticalTrain(light);
         var sessionDate = light.Meta.ExposureStartTime;
 
-        var darkGroup = CalibrationResolver.BestDark(darks, light, options.RequireGainMatch, options.MaxDarkTemperatureDelta);
-        var flatGroup = CalibrationResolver.BestFlat(flats, light);
+        var darkGroup = CalibrationResolver.BestDark(darks, light, options.RequireGainMatch, options.MaxDarkTemperatureDelta, lightKey);
+        var flatGroup = CalibrationResolver.BestFlat(flats, light, lightKey);
         var pedestal = flatGroup is { IsMaster: false }
             ? CalibrationResolver.BestFlatPedestal(biases, darkFlats, darks, flatGroup)
             : null;
@@ -328,7 +329,7 @@ public static class CalibrationCoverageReport
         {
             return 0;
         }
-        var flatKey = MasterGroupKey.FromFrame(flatGroup.Frames[0]);
+        var flatKey = flatGroup.Key;
         var flatCamera = CalibrationResolver.CalTrain.Camera(flatGroup.Frames[0]);
         var count = 0;
         Count(darkFlats);

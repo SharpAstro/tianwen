@@ -620,6 +620,41 @@ The durable fix is data: an old flat set shot days away from its lights is only 
 optics cards, and the evidence for which train it was on is the calibration map and the folders,
 since a flat cannot be plate-solved.
 
+### Calibration was grouped and ranked by the degree (FIXED 2026-09-24, #307 `#96`)
+
+`MasterGroupKey` carries `CCD-TEMP` rounded to an integer, calibration was grouped by that key, and
+both `BestDark` and `BestFlat` charged 10 per degree against 1 per year with no term for how many
+frames a group held. Right for a cooled camera at its setpoint; wrong for anything that drifts. Read
+off `dataset coverage` over the four bake roots (145 sessions):
+
+- **18 sessions (1,156 lights) were calibrated from masters of 2 to 7 frames.** An uncooled dark run
+  that drifted across several degrees became one group per degree, and the degree nearest the lights
+  won: 2 frames of the 294MC's 50-frame 2021-12-29 run for its Orion M42 night; the 2 frames of the
+  ASI585's 76-frame -10 C library that read -9.4 C while the cooler settled, for six sessions; 4 of
+  the 100 flats for the ASI294MM's Leo Triplet. A 2-frame master puts one noise pattern into every
+  light, which both halves of an N2N pair then share.
+- **The light side was ONE frame**: a session was keyed on `Lights[0]`, so Lagoon 2025-05-25, whose
+  first light read -9.4 C and the rest -10, was matched as a -9 C session.
+- **Temperature outranked the night for card-proven flats.** The ASI533's L-Ultimate flats were shot
+  warm (20.9 to 27.0 C, cooler off) on every night but one, 2026-01-21 at -5.1 C, and that one set
+  calibrated 18 sessions 3 to 35 days away over their own. Where no card names the filter it went
+  further: the SY135 nights of 2022-12-24 took an IDAS-LPS-D3 flat 265 days away over their
+  same-night UV-IR-Cut set. The 2026-09-17 fix above had already taken temperature out of the
+  date-admitted tier's ranking and left it in the card-proven one.
+
+**Fixed as one rule, in one place.** `TemperatureClusters.Split` (the gap rule `LightGroupKey.Assign`
+already used for lights, factored out) splits frames that agree on everything but temperature where
+two consecutive readings differ by more than a tolerance, and a run's key carries the rounded MEDIAN.
+`CalibrationEpochs.SplitSets` applies it within each epoch (epochs first, so another shoot's readings
+cannot bridge two setpoints), and both the dataset resolver and `tianwen stack` group calibration
+through it; a foreign master keeps the degree, being one file served as it is. The tolerance,
+`CalibrationEpochs.TemperatureToleranceC` = 1.5 C, is measured: the largest gap between consecutive
+readings inside any of the archive's 173 runs is 1.00 C, and the closest two runs that must stay two
+sit 2.9 C apart. A session is keyed on its lights' median (`CalibrationResolver.SessionKey`, used by
+the resolver and the coverage report alike), and flats rank filter, proof tier, DAYS from the lights,
+then gain and temperature as a tie-break. Pinned by `CalibrationResolverTests` and
+`CalibrationEpochsTests`; seven of the new tests fail with the old grouping and ranking restored.
+
 ### Some dark-flats are recorded as `IMAGETYP='DARK'`
 
 On the reference archive, 2,220 dark-flat frames sit in a `DARKFLAT` folder while their header says
