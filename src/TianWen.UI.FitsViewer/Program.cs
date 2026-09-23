@@ -46,6 +46,9 @@ var sp = services.BuildServiceProvider();
 StartupTrace.Mark("di");
 var state = sp.GetRequiredService<ViewerState>();
 var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("TianWen.UI.FitsViewer");
+// The renderer's GPU forensics default to stderr, which a double-clicked viewer never keeps: point
+// them at this app's log file, before anything touches Vulkan.
+SdlVulkanLog.Logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("SdlVulkan.Renderer");
 var controller = sp.GetRequiredService<ViewerController>();
 var tracker = sp.GetRequiredService<BackgroundTaskTracker>();
 // Wire the AI enhance pipeline so the Enhance toolbar button (+ 'E' shortcut) is active.

@@ -1307,6 +1307,9 @@ namespace TianWen.UI.Abstractions
         /// completed, read its result and upload the texture (via <see cref="OnMilkyWayLoaded"/>),
         /// then drop the Task so the upload happens exactly once. Cheap no-op while the decode is
         /// still in flight. Keeps the GPU upload on the render thread; mirrors the Tycho-2 swap.
+        /// The Task is kept, and the upload asked for again on a later frame, when the upload says the
+        /// display device could not take it YET (a stuck GPU): dropping it first, as this used to, lost
+        /// the Milky Way for the rest of the process on one failed upload.
         /// </summary>
         protected void TryApplyPendingMilkyWay()
         {
@@ -1314,24 +1317,28 @@ namespace TianWen.UI.Abstractions
             {
                 return;
             }
-            _milkyWayLoadTask = null;
 
             // IsCompletedSuccessfully filters out a faulted/cancelled decode; a null result is the
             // already-logged "bad file" path. Reading .Result on a completed Task does not block.
             if (task.IsCompletedSuccessfully && task.Result is { } decoded)
             {
-                OnMilkyWayLoaded(decoded.Bgra, decoded.Width, decoded.Height);
+                if (!OnMilkyWayLoaded(decoded.Bgra, decoded.Width, decoded.Height))
+                {
+                    State.NeedsRedraw = true;
+                    return;
+                }
                 Logger?.LogInformation("Milky Way texture loaded, available={Available}", State.MilkyWayAvailable);
             }
+            _milkyWayLoadTask = null;
         }
 
         /// <summary>
         /// Called when the Milky Way BGRA texture has been decompressed and is ready for upload.
-        /// Override in the GPU subclass to create a Vulkan texture.
+        /// Override in the GPU subclass to create a Vulkan texture. Returns false to be called again on
+        /// a later frame, for a display device that cannot take the upload yet; true when it is done with
+        /// it, uploaded or given up on (an upload that fails for good must not be retried every frame).
         /// </summary>
-        protected virtual void OnMilkyWayLoaded(ReadOnlySpan<byte> bgraData, int width, int height)
-        {
-        }
+        protected virtual bool OnMilkyWayLoaded(ReadOnlySpan<byte> bgraData, int width, int height) => true;
 
         // ── Input handling ──
 

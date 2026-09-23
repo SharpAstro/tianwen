@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Numerics;
 using System.Threading.Tasks;
 using DIR.Lib;
+using Microsoft.Extensions.Logging;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -1285,10 +1286,25 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         _pictures.Draw(renderer, image, rect);
     }
 
-    protected override void OnMilkyWayLoaded(ReadOnlySpan<byte> bgraData, int width, int height)
+    protected override bool OnMilkyWayLoaded(ReadOnlySpan<byte> bgraData, int width, int height)
     {
-        _pipeline?.LoadMilkyWayTexture(bgraData, width, height);
+        try
+        {
+            _pipeline?.LoadMilkyWayTexture(bgraData, width, height);
+        }
+        catch (Vortice.Vulkan.VkException ex) when (ex.Result == Vortice.Vulkan.VkResult.Timeout)
+        {
+            // A stuck GPU (the one-shot gave up, or was not submitted): ask again once it takes work.
+            Logger?.LogWarning("Milky Way upload deferred: the GPU is not taking work ({Message})", ex.Message);
+            return false;
+        }
+        catch (Vortice.Vulkan.VkException ex)
+        {
+            // Anything else fails the same way every time: draw the sky without it rather than retry.
+            Logger?.LogError(ex, "Milky Way upload failed; drawing the sky without it");
+        }
         State.MilkyWayAvailable = _pipeline?.HasMilkyWayTexture ?? false;
+        return true;
     }
 
     /// <summary>

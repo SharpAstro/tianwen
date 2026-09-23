@@ -83,6 +83,26 @@ offscreen frame never set the paintable region, so a clip popped to empty mid-fr
 to an empty rect; and a cached layer or thumbnail pass inherited the PREVIOUS swapchain frame's
 region rather than its own.
 
+## A sampler set never holds a null or destroyed view, and an upload may fail halfway
+
+A channel texture is replaced by a destroy followed by a create, and the create can throw: out of device
+memory, or the one-shot upload giving up on a stuck GPU (SdlVulkan.Renderer 7.48 bounds it at 5 s and
+refuses at once while the device is known stuck). `EnsureSamplerSet` used to skip a channel with no view,
+so the set kept the view that destroy had just freed, and the next draw bound it: invalid, and on a strict
+driver a device fault. Two rules close it. `DestroyChannelTexture` itself marks the sets for rewriting
+(not the create after it, which may never run), and a channel with no view binds the pipeline's own 1x1
+`_fallbackView`, owned for its life. A document whose upload fails on a TIMEOUT is asked for again
+(`NeedsTextureUpdate` re-armed); any other failure is not, since an upload that always fails would then
+fail every frame. An image wider or taller than the device's `maxImageDimension2D` is refused with a
+status message before any texture is made (a drizzle-2x IMX455 master, 19152 x 12776, is past 16384).
+
+## A cached-layer slot's record is rolled back with a dropped frame
+
+`PrepareCachedImageLayer` records what a slot HOLDS while recording the frame that renders it. A frame
+the driver refuses leaves the slot's previous picture under the new record, and a pan reusing it drew the
+old document or stretch. The record now registers a rollback (`RegisterFrameRollback`, backed by
+`VulkanContext.OnFrameDropped`) that clears it if the frame never reaches the GPU.
+
 ## The cached image layer samples in TEXTURE space
 
 And a fixed-capacity target is not the size you asked for this frame. `VulkanContext.CachedLayer`

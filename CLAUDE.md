@@ -1532,7 +1532,10 @@ prefix table; draw only the regions the view cone reaches and only their prefix.
 the other** (magnitude bounds a wide field, ~3% of Tycho-2 at 60 degrees but 81% at V<=12; the cone
 bounds a deep zoom and nothing at full sky). **Submitting the whole ~2.5M-star buffer TDR'd an Adreno
 X1-85** and dropped 944 of 1287 frames in the browser. **A limit past the last bin clamps to
-"everything", never wraps to zero** (pinned by a `[Theory]`). Measurements, the WebGL2 `firstInstance`
+"everything", never wraps to zero** (pinned by a `[Theory]`). **The TOTAL is capped too**
+(`StarChunkIndex.BudgetedMagnitudeLimit`, `MaxStarInstancesPerView` = 300k, both pipelines): the two
+culls bound a view on two axes, never their product, and a limit raised by hand to 12 over a wide field
+reached ~0.8M, so the limit drops a bin at a time until the view fits. Measurements, the WebGL2 `firstInstance`
 workaround and the two cull details that bite: `docs/plans/web-tycho2.md`.
 
 ### A quantized cache key must not derive its grid from a continuous input
