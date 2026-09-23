@@ -952,11 +952,15 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
         var api = _ctx.DeviceApi;
 
-        // Skip the pre-teardown drain when the GPU is known wedged; an unbounded wait on a stuck
-        // device would hang Dispose (matches the renderer's recovery/teardown guards).
-        if (!_ctx.IsGpuStuck)
+        // Bounded, and skipped when the GPU is known wedged or a recovery was abandoned. An unbounded
+        // vkDeviceWaitIdle could hang Dispose, and the stuck flag alone did not cover the abandoned case:
+        // recovery clears it before the rebuild in which the driver is observed to block, so a leaked
+        // recovery thread may still be inside the driver when this runs, which also breaks the queue's
+        // external synchronization. The frame fences are all that can be pending: uploads are one-shots
+        // that wait for themselves.
+        if (!_ctx.IsAbandoned)
         {
-            api.vkDeviceWaitIdle();
+            _ctx.TryWaitAllFramesIdle("FITS pipeline dispose");
         }
 
         // Pipelines
