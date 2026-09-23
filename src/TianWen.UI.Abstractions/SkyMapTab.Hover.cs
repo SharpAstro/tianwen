@@ -110,6 +110,46 @@ namespace TianWen.UI.Abstractions
         private float _hoverTargetScreenY = float.NaN;
 
         /// <summary>
+        /// How long a NEW answer must hold before it replaces the wash on screen; zero (the default) shows
+        /// every answer at once. Both interactive hosts set it, so the atlas settles the same way on the
+        /// desktop and in the browser; a test or a host with no way to wake itself leaves it at zero.
+        /// </summary>
+        /// <remarks>
+        /// What it is for: inside a large object dotted with small ones -- the LMC at 19 degrees, its
+        /// clusters and stars -- each small object claims the pointer as it passes, so the answer flips
+        /// LMC, NGC 1850, LMC, a star, LMC, and every flip swapped a huge ellipse for a speck and back: a
+        /// flicker that is the resolver being right too eagerly (reported 2026-09-23). Settling does not
+        /// change the answer, only when it is SHOWN: a pointer that sweeps across keeps the wash it had, and
+        /// one that stops lands on what a click there would take. An answer that returns to the one on
+        /// screen before it settles simply cancels the pending switch.
+        /// </remarks>
+        public TimeSpan HoverSettle { get; set; }
+
+        /// <summary>
+        /// The settle both interactive hosts use, stated once so the desktop and the browser cannot drift:
+        /// long enough that a sweep across a crowded field does not register every object it passes, short
+        /// enough that the wash still reads as following the pointer when it stops.
+        /// </summary>
+        public static readonly TimeSpan InteractiveHoverSettle = TimeSpan.FromMilliseconds(120);
+
+        /// <summary>
+        /// The host's way to be asked for a frame at a later time: called with the delay when a switch
+        /// starts settling, since a pointer that stops moving sends nothing more that could show it. The
+        /// desktop answers from its per-iteration redraw check, the browser with a delayed repaint; the
+        /// frame itself commits the settled answer (see <see cref="DrawHoverSpot"/>).
+        /// </summary>
+        public Action<TimeSpan>? RequestFrameAfter { get; set; }
+
+        // The answer waiting to replace HoverTarget, with the view it was resolved against; see HoverSettle.
+        private bool _hasPendingHover;
+        private SkyMapHoverTarget? _pendingHover;
+        private long _pendingHoverSince;
+        private double _pendingHoverFov;
+        private DateTimeOffset _pendingHoverTime;
+        private float _pendingHoverScreenX;
+        private float _pendingHoverScreenY;
+
+        /// <summary>
         /// How many times the pointer's position was resolved to an object. The observable for a hover
         /// test, for the reason <see cref="PrimOverlayGathers"/> is one for the gather: a re-resolve
         /// that lands on the same object draws the identical frame, so nothing in the pixels separates
@@ -177,10 +217,8 @@ namespace TianWen.UI.Abstractions
 
             // Record the view alongside, so the draw can tell a target that is still current from one
             // the sky has since moved out from under: the field, and where the target itself landed.
-            _hoverViewFov = State.FieldOfViewDeg;
-            _hoverViewTime = _lastViewingTime;
-            _hoverTargetScreenX = float.NaN;
-            _hoverTargetScreenY = float.NaN;
+            var screenX = float.NaN;
+            var screenY = float.NaN;
             if (resolved is { } target)
             {
                 var rect = State.LastContentRect;
@@ -188,13 +226,10 @@ namespace TianWen.UI.Abstractions
                 if (SkyMapProjection.ProjectWithMatrix(target.RA, target.Dec, State.CurrentViewMatrix, ppr,
                         rect.X + (rect.Width * 0.5f), rect.Y + (rect.Height * 0.5f), out var tx, out var ty))
                 {
-                    _hoverTargetScreenX = tx;
-                    _hoverTargetScreenY = ty;
+                    screenX = tx;
+                    screenY = ty;
                 }
             }
-
-            var changed = !IsSameHoverObject(State.HoverTarget, resolved);
-            State.HoverTarget = resolved;
 
             // Only a CHANGED answer asks for a frame: another object, or onto or off one. A resolve
             // that lands on the object already washed, or on the bare sky already unwashed, would
@@ -204,12 +239,85 @@ namespace TianWen.UI.Abstractions
             // up to 70 percent for a hover that changed nothing on screen (2026-09-23). It was done
             // because the per-frame budget above was released only by a paint, so a resolve that
             // scheduled none would have been the last one; the clock bound is what releases it now.
-            if (changed)
+            if (IsSameHoverObject(State.HoverTarget, resolved))
             {
-                HoverFrameRequests++;
-                _hoverFramePending = true;
-                State.NeedsRedraw = true;
+                // The same object: refresh its record (a later instant, a moved view) and drop any
+                // switch that was settling, which is what stops an A, B, A sweep from flickering.
+                SetDisplayedHover(resolved, State.FieldOfViewDeg, _lastViewingTime, screenX, screenY);
+                _hasPendingHover = false;
+                return;
             }
+
+            // A changed answer settles first, where the host has asked for that (HoverSettle). A moved
+            // view's re-test does not: a pan or a zoom moved the sky out from under the old answer, and
+            // leaving it standing for the settle time would wash the wrong place.
+            if (HoverSettle > TimeSpan.Zero && !retestForMovedView && _timeProvider is { } settleClock)
+            {
+                var now = settleClock.GetTimestamp();
+                if (!_hasPendingHover || !IsSameHoverObject(_pendingHover, resolved))
+                {
+                    _hasPendingHover = true;
+                    _pendingHoverSince = now;
+                    RequestFrameAfter?.Invoke(HoverSettle);
+                }
+                _pendingHover = resolved;
+                _pendingHoverFov = State.FieldOfViewDeg;
+                _pendingHoverTime = _lastViewingTime;
+                _pendingHoverScreenX = screenX;
+                _pendingHoverScreenY = screenY;
+                if (settleClock.GetElapsedTime(_pendingHoverSince, now) < HoverSettle)
+                {
+                    return;
+                }
+                _hasPendingHover = false;
+            }
+
+            ShowHover(resolved, State.FieldOfViewDeg, _lastViewingTime, screenX, screenY);
+        }
+
+        /// <summary>Puts a changed answer on screen, and asks for the frame that shows it.</summary>
+        private void ShowHover(SkyMapHoverTarget? target, double fov, DateTimeOffset viewTime, float screenX, float screenY)
+        {
+            SetDisplayedHover(target, fov, viewTime, screenX, screenY);
+            HoverFrameRequests++;
+            _hoverFramePending = true;
+            State.NeedsRedraw = true;
+        }
+
+        private void SetDisplayedHover(SkyMapHoverTarget? target, double fov, DateTimeOffset viewTime, float screenX, float screenY)
+        {
+            State.HoverTarget = target;
+            _hoverViewFov = fov;
+            _hoverViewTime = viewTime;
+            _hoverTargetScreenX = screenX;
+            _hoverTargetScreenY = screenY;
+        }
+
+        /// <summary>
+        /// Shows a settling answer whose time has come. Called at the top of the draw, which is how a
+        /// pointer that has stopped still gets its wash: the host's delayed frame (RequestFrameAfter) is the
+        /// one that lands here. Returns whether it changed what is on screen.
+        /// </summary>
+        private bool CommitSettledHover()
+        {
+            if (!_hasPendingHover || _timeProvider is not { } clock)
+            {
+                return false;
+            }
+
+            // Woken a little early (a host timer and this clock need not agree to the millisecond): ask
+            // again for exactly what is left, or the switch would wait for the next pointer move.
+            var elapsed = clock.GetElapsedTime(_pendingHoverSince);
+            if (elapsed < HoverSettle)
+            {
+                RequestFrameAfter?.Invoke(HoverSettle - elapsed);
+                return false;
+            }
+
+            _hasPendingHover = false;
+            SetDisplayedHover(_pendingHover, _pendingHoverFov, _pendingHoverTime, _pendingHoverScreenX, _pendingHoverScreenY);
+            HoverFrameRequests++;
+            return true;
         }
 
         /// <summary>
@@ -227,6 +335,7 @@ namespace TianWen.UI.Abstractions
         {
             _hoverPointerX = float.NaN;
             _hoverPointerY = float.NaN;
+            _hasPendingHover = false;
             if (State.HoverTarget is not null)
             {
                 State.HoverTarget = null;
@@ -245,6 +354,9 @@ namespace TianWen.UI.Abstractions
             // Released FIRST, before every early return: this runs once per frame whether or not
             // there is anything to draw, and it is what re-opens the one-resolve-per-frame budget.
             _hoverFramePending = false;
+
+            // A switch that has finished settling goes on screen in THIS frame (see HoverSettle).
+            CommitSettledHover();
 
             if (State.HoverTarget is not { } hover)
             {

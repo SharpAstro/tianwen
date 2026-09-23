@@ -477,7 +477,10 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         // undrawn until the next frame; force that follow-up frame so the chart doesn't
         // lag one selection behind. Gated to the Planner tab so it can't spin a redraw
         // loop while another tab is active (the flag clears once RenderChart draws it).
-        return appState.NeedsRedraw || plannerState.NeedsRedraw
+        // A frame a widget asked for at a later time (the atlas's settling hover) is taken first, so the
+        // request clears even on an iteration another trigger would have drawn anyway.
+        var widgetFrameDue = guiRenderer.TakeDueFrameRequest();
+        return widgetFrameDue || appState.NeedsRedraw || plannerState.NeedsRedraw
             || guiRenderer.SkyMapState.NeedsRedraw
             || guiRenderer.ViewContexts.AnyNeedsRedraw
             || (appState.ActiveTab == GuiTab.Planner && guiRenderer.PlannerChartPendingDraw)

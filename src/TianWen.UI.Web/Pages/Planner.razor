@@ -327,7 +327,15 @@
             _webGl.HostRendersSelectableText = true;
             _tab = new PlannerTab<WebGlContext>(_webGl) { Bus = _bus };
             // RequestRepaint: an object picture that lands between events paints on the next animation frame.
-            _skyTab = new WebSkyMapTab(_webGl) { Bus = _bus, RequestRepaint = RequestRenderCoalesced };
+            // HoverSettle + RequestFrameAfter: the hover settles before switching exactly as on the
+            // desktop; a page with no render loop is woken for the settled frame by a delayed repaint.
+            _skyTab = new WebSkyMapTab(_webGl)
+            {
+                Bus = _bus,
+                RequestRepaint = RequestRenderCoalesced,
+                HoverSettle = SkyMapTab<WebGlContext>.InteractiveHoverSettle,
+                RequestFrameAfter = delay => _tracker.Run(() => RepaintAfterAsync(delay), "Hover settle repaint"),
+            };
             // One window, one context: the sky tab hands the planner tab its own WindowUiSettings, so
             // "which field has the keyboard" has a single answer across both views -- and it is the one
             // the router resolves focus against. The platform binding goes on afterwards, so it is bound
@@ -1915,6 +1923,18 @@
             return; // superseded by a later frame of the same gesture
         }
         RenderFrame();
+    }
+
+    // A widget's "a frame after this long" (the sky map's settling hover): the browser paints per event,
+    // so a pointer that stops would otherwise never see the settled answer.
+    async Task RepaintAfterAsync(TimeSpan delay)
+    {
+        await Task.Delay(delay);
+        if (_skyTab is not null)
+        {
+            _skyTab.State.NeedsRedraw = true;
+            RequestRenderCoalesced();
+        }
     }
 
     void RequestRenderCoalesced()

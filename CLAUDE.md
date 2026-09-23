@@ -621,6 +621,11 @@ HIGHLIGHT, not hover selection: the click still selects (`docs/plans/in-app-sky-
   clock. Every resolve used to ask for one, so every pointer move repainted the whole atlas at
   display rate and a hover that changed nothing held the Adreno at up to 70 percent (2026-09-23).
   Assert with `HoverFrameRequests`, never `NeedsRedraw`, which a render sets for reasons of its own.
+  **Both interactive hosts settle a switch** (`HoverSettle = SkyMapTab.InteractiveHoverSettle`, 120 ms):
+  a new answer shows only once it has held, and one that returns first cancels it, which is what stops
+  the wash flickering across a crowded field; the host supplies `RequestFrameAfter` (desktop: the
+  per-iteration `TakeDueFrameRequest`; browser: a delayed coalesced repaint) and the frame commits it.
+  **An object that fills the view is hovered but not washed.**
   The resolve cost itself, measured by
   `SkyMapHoverResolveBenchmarks` (Release, win-arm64): over an OBJECT ~9 us at any zoom, over bare
   STAR FIELD 157 us at 1 degree and 134 at 10, falling to ~1.7 us by 60, and **0 B on every row**

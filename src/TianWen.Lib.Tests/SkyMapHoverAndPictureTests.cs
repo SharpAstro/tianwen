@@ -416,6 +416,56 @@ public class SkyMapHoverAndPictureTests
         tab.HoverFrameRequests.ShouldBe(requests, "the re-test landed on the object already washed");
     }
 
+    // With a settle, a new answer waits before it replaces the wash, and the tab asks its host for the
+    // frame that will show it -- a pointer that has stopped sends nothing else that could.
+    [Fact]
+    public void ASettlingHostShowsANewAnswerOnlyOnceItHasHeld()
+    {
+        using var renderer = new RgbaImageRenderer(200, 200);
+        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
+        var asked = new List<TimeSpan>();
+        tab.HoverSettle = TimeSpan.FromMilliseconds(120);
+        tab.RequestFrameAfter = asked.Add;
+        tab.Render(plannerState, rect, time);
+
+        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
+        tab.State.HoverTarget.ShouldBeNull("the nebula has not held for the settle yet");
+        asked.ShouldBe([TimeSpan.FromMilliseconds(120)], "the host is asked for the frame that will show it");
+
+        // The host's delayed frame, drawn once the settle has passed, is what puts it on screen.
+        time.Advance(TimeSpan.FromMilliseconds(130));
+        tab.Render(plannerState, rect, time);
+        tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
+    }
+
+    // The flicker this exists for: a pointer that crosses something small and comes back before the
+    // settle is up never switches the wash at all.
+    [Fact]
+    public void AnAnswerThatReturnsBeforeItSettlesNeverSwitchesTheWash()
+    {
+        using var renderer = new RgbaImageRenderer(200, 200);
+        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
+        tab.HoverSettle = TimeSpan.FromMilliseconds(120);
+        tab.Render(plannerState, rect, time);
+        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
+        time.Advance(TimeSpan.FromMilliseconds(130));
+        tab.Render(plannerState, rect, time);
+        tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
+        var requests = tab.HoverFrameRequests;
+
+        // Off onto bare sky and straight back, inside the settle.
+        time.Advance(TimeSpan.FromMilliseconds(10));
+        tab.HandleInput(new InputEvent.MouseMove(5f, 5f));
+        time.Advance(TimeSpan.FromMilliseconds(10));
+        tab.HandleInput(new InputEvent.MouseMove(110f, 104f));
+
+        // Long after the settle would have run out, the wash is where it was all along.
+        time.Advance(TimeSpan.FromMilliseconds(500));
+        tab.Render(plannerState, rect, time);
+        tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
+        tab.HoverFrameRequests.ShouldBe(requests, "the wash never switched");
+    }
+
     private static (HoverTestSkyMapTab Tab, PlannerState PlannerState, FakeTimeProviderWrapper Time, RectF32 Rect)
         NewNebulaCentredTab(RgbaImageRenderer renderer)
     {
