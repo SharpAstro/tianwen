@@ -100,6 +100,17 @@ means "meets this rule and is not filed yet", not "any raw capture".
 - **Too low a quality:** a light set that does not solve, or survives as fewer than 10 frames once
   clouded frames are out; a calibration set the pixels refuse (a dark with a gradient or a rate heat
   cannot explain, a flat not at flat level). Focusing runs and Moon frames are not deep-sky lights.
+- **"Too low a quality" is measured against what the archive already ACCEPTED, not a threshold
+  chosen for the occasion.** The last bake's `stats/psf-sessions.jsonl` holds per-sub FWHM and
+  ellipticity for every session it took; its range is the bar (2026-09-19: FWHM at most 3.38 px,
+  ellipticity at most 0.56, and it reads like eccentricity, since every round-starred session sits
+  at 0.42 or above). Measure the candidate with `tianwen image stats` on frames spread across the
+  night, and first run both on frames they SHARE: `image stats` read 2.09 px / 0.424 where the store
+  read 1.99 / 0.46 on the same 2022-12-24 subs, so its eccentricity is about 0.04 low. Older data
+  is where this bites (uncooled bodies, new optics, early tracking): group T left out a night
+  defocused at 7 px from first frame to last beside a 2.4 px sibling, and a colour camera at 0.61
+  beside a round mono camera on the same mount the same night. Look at the whole night before
+  calling it: a bad START with a usable tail is a partial filing, not a skip.
 - **Calibration is filed for a filed session, never for its own sake.** A bias or dark library that
   serves no filed light stays where it is; the coverage matcher is what says whether it serves one.
 - **Say what was left out and why.** A skip is a decision with a reason, recorded like a filing, so
@@ -197,6 +208,11 @@ Six traps, each of which produced a confident wrong answer before it was caught:
   the panel and its brightness. A broadband filter integrates the panel's whole spectrum, so its R/G
   is stable (IDAS LPS D3 holds +/-2 percent over nine months) and stays usable. Quoting a narrowband
   set's R/G as corroboration is quoting the light source.
+- **A file name's filter token is a claim like any other, and it can contradict the card beside
+  it.** All 111 lights of `2022/Cen A 250mm` are named `..._Red_00005.fits` while every `FILTER`
+  card says `Luminance` (a SharpCap filename template left on the wheel's last slot). On a MONO body
+  the sky rate arbitrates: a red filter passes about a third of luminance's sky, and the same
+  night's `Luminance`-by-both set is the control (122 ADU/s against 138: luminance).
 - **A filename tag beats a measurement it does not contradict.** Several sessions carry the filter in
   a frame name (`..._0003_LPS.fits`) or a marker file (`USING_IDAS_LPS.txt`). Use it as the identity
   and use the measurement to confirm one filter ran the whole night.
@@ -373,6 +389,18 @@ set with no `FILTER` card only competes with other card-less flats: when a sessi
 from a sidecar, its flats need the same declaration or they read as a mismatch. After filing, check `flat_train_proof` in `tianwen dataset coverage`:
 `date` is a flat trusted only because it was shot with the lights. Until 2026-09-17 a card missing
 on either side counted as a match, which is how the 24 mm session above was handed a 289 mm flat.
+
+**Calibration from a DIFFERENT capture program must name the camera exactly as the lights do.**
+`CalibrationResolver` treats two known `INSTRUME` values that differ as a hard mismatch (trimmed,
+case-insensitive, nothing more), so the set is silently never used. TianWen's Player One driver
+writes `Uranus-C` where SharpCap writes `Uranus-C (IMX585)`, and 253 darks and biases shot for the
+SharpCap lights would have calibrated nothing (fixed 2026-09-23 with `dataset tag-card --keyword
+INSTRUME --expect`, on the calibration side because the lights share inodes with the raw archive).
+A frame the CLI captured stacks with other TianWen frames by construction, never with another
+program's; compare the cards before filing, and let the offset card's NAME differ (`OFFSET` and
+`BLKLEVEL` are read alike). Offset is only a score penalty there, never a gate, so a borrowed dark
+at a HIGHER offset than the lights can be chosen with a log warning: measure the pairing the matcher
+actually makes (`dataset coverage`), not the one you expect.
 
 **A missing dark is not a free pass either.** The ASI585 measures +294 ADU over bias at 120 s and
 -10 C, so a 60 s frame on that body carries real dark current and the honest options are scaling the
