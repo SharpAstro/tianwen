@@ -436,7 +436,7 @@ public static class IntegrationFitsWriter
     {
         try
         {
-            using var fitsFile = Image.OpenFits(path);
+            using var fitsFile = Image.OpenFitsHeader(path);
             var hdu = fitsFile.ReadFirstImageHduHeaderOnly();
             return IsTianWenProduct(hdu?.Header?.GetStringValue("SWCREATE"));
         }
@@ -499,7 +499,7 @@ public static class IntegrationFitsWriter
     {
         try
         {
-            using var fitsFile = Image.OpenFits(path);
+            using var fitsFile = Image.OpenFitsHeader(path);
             // Header-only where the data block can be SKIPPED, which needs a seek, which a gzip
             // stream does not have: there the whole HDU is read for one card. The caller's order
             // is what keeps that off the common path.

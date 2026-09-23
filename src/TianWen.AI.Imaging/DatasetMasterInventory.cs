@@ -273,7 +273,7 @@ public static class DatasetMasterInventory
     {
         try
         {
-            using var fitsFile = Image.OpenFits(path);
+            using var fitsFile = Image.OpenFitsHeader(path);
             return fitsFile.ReadFirstImageHduHeaderOnly()?.Header;
         }
         catch (Exception ex) when (ex is IOException or FitsException)
