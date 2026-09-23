@@ -522,8 +522,11 @@ public class FitsPixelScaleTests
     /// <remarks>
     /// The shape of every SharpCap and N.I.N.A. binned light: <c>XPIXSZ</c> already doubled, no
     /// <c>PIXSCALE</c>. Reading the card as the photosite and then multiplying by <c>XBINNING</c> counted
-    /// the binning twice and handed the solver 13.29 arcsec/px for a 6.65 frame; the 237 bin-2 lights
-    /// of the 2023-08-03 Lagoon-and-Trifid session are this case.
+    /// the binning twice: 13.29 arcsec/px where the cards say 6.65. The 237 bin-2 lights of the
+    /// 2023-08-03 Lagoon-and-Trifid session are this shape, and they also show the limit of the fix:
+    /// ASTAP solves them at 8.660 arcsec/px from either hint, so that night's train was about 138 mm
+    /// and its <c>FOCALLEN = 180</c> is wrong. Counting the binning once removes the pitch error only;
+    /// a wrong focal length stays a wrong hint, which is why a declared (solved) scale wins.
     /// </remarks>
     [Fact]
     public void AForeignBinnedFrameWithNoDeclaredScaleCountsItsBinningOnce()
