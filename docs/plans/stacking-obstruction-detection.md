@@ -229,7 +229,7 @@ is a fourth:
 | `Helix-Nebula/2026-08-01`, 21 of 21 `BAD_` | roof cutting the APERTURE | 7% | 175 of 576 cells | a smooth illumination ramp spanning ~2000 px, **no edge anywhere** | **0.89 to 0.96** |
 | Helix 2022-08-31 frames 1 to 6 | powerline in the FIELD | 16% | 53 of 576 cells | straight band, 210 px penumbra each side | 0.50 to 0.75 |
 | `2026-02-20 BAD LIGHT EXAMPLES`, 33 | **a CLOUD-OUT**, dawn only at the end | see below | whole frame | clouds over at 17:15 and never recovers | **0.07** |
-| `C-101/2026-08-01`, 4 of 4 `BAD_` | unknown | none | none | flat to 0.5%, sky level normal for the night | n/a |
+| `C-101/2026-08-01`, 4 of 4 `BAD_` | **nothing in the pixels**: the wrong filter was in, so the owner stopped after four frames and graded them out (owner, 2026-09-23) | none | none | flat to 0.5%, sky level normal for the night | n/a |
 
 Four things follow, and each one changes something above.
 
@@ -245,8 +245,11 @@ Four things follow, and each one changes something above.
   wants the frame's own sky level and star count against the SESSION's run, a per-frame
   session-relative statistic, beside a full-well check. Two statistics, two reference frames, and
   conflating them is how one of them ends up unable to fire.
-- **`BAD_` is a reliable POSITIVE and nothing else.** It does not say why (the corpus holds dawn and
-  saturation under the same prefix as roof), and absence of it does not mean clean: the 2022
+- **`BAD_` is a reliable POSITIVE for the operator's decision, not for a defect in the pixels.** It
+  does not say why (the corpus holds dawn and saturation under the same prefix as roof), and it need
+  not be about the pixels at all: C-101's four frames are clean and were graded out because the wrong
+  filter was in, which makes them a NEGATIVE fixture the detector must stay silent on. Absence of it
+  does not mean clean either: the 2022
   powerline frames carry no prefix at all, because the capture software of the day had no grading
   and nobody renamed them. So **the unlabelled frames are NOT the clean control**, and the detector's
   actual job is the ones nobody marked.
