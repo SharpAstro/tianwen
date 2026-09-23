@@ -946,11 +946,14 @@ public partial class Image
         // GetImageDim uses meta.PixelSizeX * meta.BinX as the effective pixel
         // pitch -- scale only PixelSizeX (the effective pitch on the binned
         // image truly is `factor` times larger), leave BinX alone since it
-        // refers to camera hardware binning, not this software downsample.
+        // refers to camera hardware binning, not this software downsample. A DECLARED scale scales
+        // too: GetImageDim prefers it, so leaving it alone reported the un-downsampled scale for any
+        // frame that stated one (NaN stays NaN).
         var newMeta = imageMeta with
         {
             PixelSizeX = imageMeta.PixelSizeX * factor,
             PixelSizeY = imageMeta.PixelSizeY * factor,
+            DeclaredPixelScale = imageMeta.DeclaredPixelScale * factor,
         };
 
         return new Image(dst, bitDepth, MaxValue, MinValue, pedestal, newMeta);

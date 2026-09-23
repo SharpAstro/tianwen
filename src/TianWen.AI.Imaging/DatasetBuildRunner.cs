@@ -1000,12 +1000,13 @@ public static class DatasetBuildRunner
         try
         {
             var hint = new WCS(meta.TargetRA, meta.TargetDec);
-            // A DECLARED scale beats the one derived from FOCALLEN, which is only a hint, and the
-            // declared value already includes binning while the derived one is per unbinned photosite:
-            // handing the solver the wrong convention is a factor of BinX out on the search scale.
+            // A DECLARED scale beats the one derived from FOCALLEN, which is only a hint. Both are the
+            // scale of the frame's own pixels, binning included: the fallback used to be the
+            // per-photosite DerivedPixelScale, a factor of BinX out on the search scale for exactly the
+            // frames the comment above it warned about.
             var scale = !float.IsNaN(meta.DeclaredPixelScale) && meta.DeclaredPixelScale > 0
                 ? meta.DeclaredPixelScale
-                : meta.DerivedPixelScale;
+                : meta.DerivedImageScale;
             var dim = scale > 0 && !double.IsNaN(scale)
                 ? new ImageDim((float)scale, reg.CanvasWidth, reg.CanvasHeight)
                 : null as ImageDim?;

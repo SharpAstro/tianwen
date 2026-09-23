@@ -583,12 +583,9 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
         {
             return new ImageDim(meta.DeclaredPixelScale, Width, Height);
         }
-        if (meta.PixelSizeX > 0 && meta.FocalLength > 0 && meta.BinX > 0)
-        {
-            var pixelScale = Astrometry.CoordinateUtils.PixelScaleArcsec(meta.PixelSizeX * meta.BinX, meta.FocalLength);
-            return new ImageDim(pixelScale, Width, Height);
-        }
-        return null;
+        return meta.DerivedImageScale is > 0 and var pixelScale
+            ? new ImageDim(pixelScale, Width, Height)
+            : null;
     }
 
     /// <summary>

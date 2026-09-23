@@ -1349,7 +1349,12 @@ pixel-scale precedence and the guiding cards:
   else `null`, never a guess).
 - **`DeclaredPixelScale` and `DerivedPixelScale` are in different conventions.** The declared one
   already includes binning; the derived one is per unbinned photosite: collapsing them double-counts
-  `BinX`.
+  `BinX`. `DerivedImageScale` (pixel size x `BinX`) is the one comparable with the declared scale, and
+  it is what `PIXSCALE` is written from.
+- **`ImageMeta.PixelSizeX` is the unbinned PHOTOSITE, the `XPIXSZ` card INCLUDES binning** (MaxIm DL,
+  N.I.N.A., SharpCap: "microns, includes binning if any"). The one parse divides by `XBINNING`, the one
+  writer multiplies back, nothing else converts. Both directions were wrong until 2026-09-23 and a
+  bin-1 fixture sees none of it; test on a bin-2 frame, with a hand-set foreign `XPIXSZ`.
 - **A light carries the guiding quality of ITS OWN exposure** (`ImageMeta.Guiding`;
   `GUIDERMS`/`GUIRMSRA`/`GUIRMSDE`/`GUIDEPK`/`GUIDEN`, arcsec, ours alone): `GuideStatistics.OverExposure`
   reduces `Session.GuideSamples` over the exposure window, **never a rolling session average**; null is
