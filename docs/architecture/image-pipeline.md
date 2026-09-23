@@ -465,8 +465,23 @@ with neither it returns `null` rather than guess. A declared scale is either rep
 
 **The two scales are in different conventions and must not be substituted for one another.**
 `DeclaredPixelScale` is the ACTUAL image scale, so it already includes binning; `DerivedPixelScale` is
-per unbinned photosite, which is why `GetImageDim` multiplies pixel size by `BinX` only on that
-branch. Collapsing them into one property would silently double-count binning on a binned frame.
+per unbinned photosite. `DerivedImageScale` is the bridge: pixel size x `BinX` x focal length, the
+quantity a `PIXSCALE` card states, and the one both `GetImageDim`'s fallback and the writer's
+`PIXSCALE` are computed from. Collapsing the declared and per-photosite scales into one property would
+silently double-count binning on a binned frame.
+
+**`ImageMeta.PixelSizeX` is the unbinned PHOTOSITE; the `XPIXSZ` card INCLUDES binning.** That is
+MaxIm DL's definition, followed by N.I.N.A. and by SharpCap, whose card reads `XPIXSZ = 5.8 / microns,
+includes binning if any` on a 2.9 um Uranus-C at bin 2. So `ParseImageMetaFromHeader` divides the card
+by `XBINNING` and the writer multiplies back, and nothing else converts. Until 2026-09-23 TianWen got
+this wrong in BOTH directions, and the two errors did not cancel: it wrote the photosite into the card
+(so its own bin-2 frames read at half pitch in any other tool), read the card as the photosite (so a
+SharpCap or N.I.N.A. bin-2 frame with no `PIXSCALE` derived twice its real scale), and stamped
+`PIXSCALE` per photosite while reading `PIXSCALE` as the binned scale that wins over everything (so its
+OWN bin-2 lights read back at half their scale, into the plate-solve hint). A bin-1 fixture sees none of
+it; `FitsPixelScaleTests` pins all three on a bin-2 frame, including a foreign one whose `XPIXSZ` is set
+by hand, because a fixture built with our writer passes a reader that is wrong the same way. The 103
+bin-2 calibration frames TianWen had written were retagged (`_provenance/CORRECTIONS.md`, 2026-09-23).
 
 ## A light carries the guiding quality of its own exposure
 

@@ -36,8 +36,14 @@ namespace TianWen.Lib.Imaging;
 /// <param name="ExposureDuration">Exposure duration (FITS: EXPTIME, EXPOSURE).</param>
 /// <param name="FrameType">Frame type: Light, Dark, Flat, Bias, etc. (FITS: IMAGETYP, FRAMETYP).</param>
 /// <param name="Telescope">Telescope or optical assembly name (FITS: TELESCOP).</param>
-/// <param name="PixelSizeX">Physical pixel width in micrometers (FITS: XPIXSZ).</param>
-/// <param name="PixelSizeY">Physical pixel height in micrometers (FITS: YPIXSZ).</param>
+/// <param name="PixelSizeX">Pixel width in micrometers of ONE UNBINNED PHOTOSITE, so the pitch of a
+/// binned pixel is this times <see cref="BinX"/>. The FITS card is in the other convention: <c>XPIXSZ</c>
+/// "includes binning if any" (MaxIm DL, N.I.N.A., SharpCap, which says so in the card's own comment),
+/// so the one parse divides it by <c>XBINNING</c> and the one writer multiplies back. TianWen wrote the
+/// photosite pitch into the card until 2026-09-23, which put every binned frame it captured at half
+/// its true pitch for any other reader.</param>
+/// <param name="PixelSizeY">Pixel height in micrometers of one unbinned photosite (FITS: <c>YPIXSZ</c>,
+/// which includes binning; see <paramref name="PixelSizeX"/>).</param>
 /// <param name="FocalLength">Effective focal length in mm (FITS: FOCALLEN). -1 if unknown.</param>
 /// <param name="DeclaredPixelScale">The image scale in arcsec/px that the FILE stated
 /// (FITS: PIXSCALE, or SCALE), NaN when it stated none. Kept separate from
@@ -307,11 +313,27 @@ public record struct ImageMeta(
     }
 
     /// <summary>
-    /// Pixel scale in arcsec/pixel, derived from pixel size and focal length.
-    /// Returns NaN if either value is unavailable.
+    /// Pixel scale in arcsec/pixel of one UNBINNED photosite, derived from pixel size and focal length.
+    /// Returns NaN if either value is unavailable. Not the scale of a binned frame's pixels, which is
+    /// <see cref="DerivedImageScale"/>.
     /// </summary>
     public readonly double DerivedPixelScale =>
         Astrometry.CoordinateUtils.PixelScaleArcsec(PixelSizeX, FocalLength);
+
+    /// <summary>
+    /// The scale in arcsec/pixel of the frame's OWN pixels, derived from the photosite pitch times
+    /// <see cref="BinX"/> and the focal length: the quantity <see cref="DeclaredPixelScale"/> states,
+    /// and what <c>PIXSCALE</c> is written from. NaN when the pitch, the focal length or the binning is
+    /// unknown.
+    /// </summary>
+    /// <remarks>
+    /// The writer used to stamp <c>PIXSCALE</c> from <see cref="DerivedPixelScale"/>, while every
+    /// reader takes <c>PIXSCALE</c> as the frame's own scale and prefers it over anything derived, so a
+    /// binned frame read back as BinX times finer than it is and handed that to the plate solver.
+    /// </remarks>
+    public readonly double DerivedImageScale => BinX > 0
+        ? Astrometry.CoordinateUtils.PixelScaleArcsec(PixelSizeX * BinX, FocalLength)
+        : double.NaN;
 
     /// <summary>
     /// F-ratio derived from <see cref="FocalLength"/> and <see cref="Aperture"/>

@@ -33,20 +33,20 @@ public class FitsPixelScaleTests
 {
     private static ImageMeta Meta(int focalLength, float declaredPixelScale, TimeSpan? exposure = null,
         float latitude = float.NaN, float longitude = float.NaN, float siteElevation = float.NaN,
-        ColourCalibration? colourCalibration = null)
+        ColourCalibration? colourCalibration = null, float pixelSize = 4.63f, int bin = 1)
         => new(
             Instrument: "Test Camera",
             ExposureStartTime: new DateTimeOffset(2026, 8, 16, 10, 53, 18, TimeSpan.Zero),
             ExposureDuration: exposure ?? TimeSpan.FromSeconds(60),
             FrameType: FrameType.Light,
             Telescope: "SV 545 f4.5",
-            PixelSizeX: 4.63f,
-            PixelSizeY: 4.63f,
+            PixelSizeX: pixelSize,
+            PixelSizeY: pixelSize,
             FocalLength: focalLength,
             FocusPos: -1,
             Filter: Filter.None,
-            BinX: 1,
-            BinY: 1,
+            BinX: bin,
+            BinY: bin,
             CCDTemperature: float.NaN,
             SensorType: SensorType.Monochrome,
             BayerOffsetX: 0,
@@ -475,6 +475,95 @@ public class FitsPixelScaleTests
 
         reread!.ImageMeta.DeclaredPixelScale.ShouldBe(4.7044f, tolerance: 1e-3f);
         reread.GetImageDim()!.Value.PixelScale.ShouldBe(4.7044, tolerance: 1e-3);
+    }
+
+    /// <summary>
+    /// A binned frame's pixel cards are in the BINNED convention on disk and the photosite one in
+    /// memory, and a round trip lands back where it started.
+    /// </summary>
+    /// <remarks>
+    /// The real frame this came from: a Player One Uranus-C (IMX585, 2.9 um) at bin 2, captured by
+    /// TianWen 9.0 on 2026-09-22 with <c>XPIXSZ = 2.9</c> beside <c>XBINNING = 2</c>. SharpCap wrote
+    /// 5.8 for the same body at bin 2 and says why in the card's comment ("includes binning if any").
+    /// The writer also stamped <c>PIXSCALE</c> per photosite, and since a declared scale wins over
+    /// anything derived, our own bin-2 light read back at half its scale: 3.323 arcsec/px at 180 mm
+    /// where the frame is 6.646. A bin-1 fixture cannot see either defect, which is why every earlier
+    /// scale test passed.
+    /// </remarks>
+    [Fact]
+    public void ABinnedFrameWritesItsCardsIncludingBinningAndReadsBackToThePhotosite()
+    {
+        var testDir = SharedTestData.CreateTempTestOutputDir();
+        var fitsPath = Path.Combine(testDir, "bin2-round-trip.fits");
+        ImageWith(Meta(focalLength: 180, declaredPixelScale: float.NaN, pixelSize: 2.9f, bin: 2))
+            .WriteToFitsFile(fitsPath);
+
+        // 206.265 * 5.8 / 180. The per-photosite figure is half of it, so the two cannot be confused.
+        const double binnedScale = 6.6463;
+        var header = ReadFirstImageHeader(fitsPath);
+        header.GetFloatValue("XPIXSZ", float.NaN).ShouldBe(5.8f, tolerance: 1e-4f);
+        header.GetFloatValue("YPIXSZ", float.NaN).ShouldBe(5.8f, tolerance: 1e-4f);
+        header.GetIntValue("XBINNING", -1).ShouldBe(2);
+        header.GetDoubleValue("PIXSCALE", double.NaN).ShouldBe(binnedScale, tolerance: 1e-3);
+
+        Image.TryReadFitsFile(fitsPath, out var viaPixels).ShouldBeTrue();
+        Image.TryReadFitsHeader(fitsPath, out var viaHeader).ShouldBeTrue();
+        var meta = viaPixels!.ImageMeta;
+        meta.PixelSizeX.ShouldBe(2.9f, tolerance: 1e-4f);
+        meta.PixelSizeY.ShouldBe(2.9f, tolerance: 1e-4f);
+        meta.BinX.ShouldBe(2);
+        viaPixels.GetImageDim()!.Value.PixelScale.ShouldBe(binnedScale, tolerance: 1e-3);
+        viaHeader.Meta.ShouldBe(meta);
+    }
+
+    /// <summary>
+    /// Another program's binned frame, which states no scale, derives the right one from its pitch.
+    /// </summary>
+    /// <remarks>
+    /// The shape of every SharpCap and N.I.N.A. binned light: <c>XPIXSZ</c> already doubled, no
+    /// <c>PIXSCALE</c>. Reading the card as the photosite and then multiplying by <c>XBINNING</c> counted
+    /// the binning twice and handed the solver 13.29 arcsec/px for a 6.65 frame; the 237 bin-2 lights
+    /// of the 2023-08-03 Lagoon-and-Trifid session are this case.
+    /// </remarks>
+    [Fact]
+    public void AForeignBinnedFrameWithNoDeclaredScaleCountsItsBinningOnce()
+    {
+        var testDir = SharedTestData.CreateTempTestOutputDir();
+        var fitsPath = Path.Combine(testDir, "bin2-foreign.fits");
+        ImageWith(Meta(focalLength: 180, declaredPixelScale: float.NaN, pixelSize: 2.9f, bin: 2))
+            .WriteToFitsFile(fitsPath);
+        // Hide both scale cards, and state the pitch as SharpCap does rather than as our writer does,
+        // so only XPIXSZ = 5.8, XBINNING = 2 and FOCALLEN = 180 are left, exactly the SharpCap frame.
+        // Relying on our writer for the 5.8 would let a writer and reader wrong in the SAME way pass.
+        RenameCard(fitsPath, "PIXSCALE", "XPIXSCAL");
+        RenameCard(fitsPath, "SCALE", "XSCALE");
+        MutateFirstImageHeader(fitsPath, header =>
+        {
+            header.RemoveCard("XPIXSZ");
+            header.AddValue("XPIXSZ", 5.8, "microns, includes binning if any");
+        });
+
+        Image.TryReadFitsFile(fitsPath, out var reread).ShouldBeTrue();
+
+        float.IsNaN(reread!.ImageMeta.DeclaredPixelScale).ShouldBeTrue("premise: the frame states no scale");
+        reread.ImageMeta.PixelSizeX.ShouldBe(2.9f, tolerance: 1e-4f);
+        reread.GetImageDim()!.Value.PixelScale.ShouldBe(6.6463, tolerance: 1e-3);
+    }
+
+    [Fact]
+    public void DownsamplingAFrameThatDeclaresItsScaleScalesTheDeclarationToo()
+    {
+        // GetImageDim prefers a declared scale, so a Downsample that updated only the pixel pitch went
+        // on reporting the full-resolution scale for any frame that stated one.
+        var small = ImageWith(Meta(focalLength: 203, declaredPixelScale: 2.5f)).Downsample(2);
+
+        small.GetImageDim()!.Value.PixelScale.ShouldBe(5.0, tolerance: 1e-4);
+    }
+
+    private static Header ReadFirstImageHeader(string path)
+    {
+        using var source = new BufferedFile(path, FileAccess.Read, FileShare.Read, 4 * 2880);
+        return new Fits(source).ReadHDU().Header;
     }
 
     [Fact]

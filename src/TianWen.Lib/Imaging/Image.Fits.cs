@@ -312,10 +312,15 @@ public partial class Image
         var exposureDuration = TimeSpan.FromSeconds(new double[] { maybeExpTime, maybeExposure, 0.0 }.First(x => !double.IsNaN(x)));
         var instrument = hdu.Instrument;
         var telescope = hdu.Telescope;
-        var pixelSizeX = hdu.Header.GetFloatValue("XPIXSZ", float.NaN);
-        var pixelSizeY = hdu.Header.GetFloatValue("YPIXSZ", float.NaN);
         var xbinning = hdu.Header.GetIntValue("XBINNING", 1);
         var ybinning = hdu.Header.GetIntValue("YBINNING", 1);
+        // XPIXSZ / YPIXSZ INCLUDE the binning (MaxIm DL's definition, which N.I.N.A. and SharpCap
+        // follow; SharpCap's own comment on the card reads "microns, includes binning if any"), while
+        // ImageMeta carries the unbinned photosite pitch. So this is the one place a card becomes a
+        // photosite: 5.8 at XBINNING = 2 is a 2.9 um sensor. Reading the card as the photosite put
+        // every binned frame from other software at BinX times its real pitch.
+        var pixelSizeX = hdu.Header.GetFloatValue("XPIXSZ", float.NaN) / Math.Max(xbinning, 1);
+        var pixelSizeY = hdu.Header.GetFloatValue("YPIXSZ", float.NaN) / Math.Max(ybinning, 1);
         // FOCALLEN is often written as a float (e.g. "270.0"), and nom.tam.fits's
         // GetIntValue won't coerce -- falls back to -1, which silently disables
         // pixel-scale derivation downstream (plate solver bails on null ImageDim).
@@ -835,8 +840,10 @@ public partial class Image
         AddHeaderValueIfHasValue("PEDESTAL", pedestal, "", isDataValue: true);
         AddHeaderValueIfHasValue("XBINNING", imageMeta.BinX, "");
         AddHeaderValueIfHasValue("YBINNING", imageMeta.BinY, "");
-        AddHeaderValueIfHasValue("XPIXSZ", imageMeta.PixelSizeX, "");
-        AddHeaderValueIfHasValue("YPIXSZ", imageMeta.PixelSizeX, "");
+        // The card includes binning, ImageMeta does not (see ParseImageMetaFromHeader, which divides
+        // back). YPIXSZ used to be written from PixelSizeX, harmless only while every pixel is square.
+        AddHeaderValueIfHasValue("XPIXSZ", imageMeta.PixelSizeX * Math.Max(imageMeta.BinX, 1), "microns, includes binning if any");
+        AddHeaderValueIfHasValue("YPIXSZ", imageMeta.PixelSizeY * Math.Max(imageMeta.BinY, 1), "microns, includes binning if any");
         AddHeaderValueIfHasValue("DATE-OBS", FitsDate.GetFitsDateString(imageMeta.ExposureStartTime.UtcDateTime), "UT");
         AddHeaderValueIfHasValue("EXPTIME", imageMeta.ExposureDuration.TotalSeconds, "seconds");
         AddHeaderValueIfHasValue("IMAGETYP", imageMeta.FrameType, "");
@@ -875,10 +882,14 @@ public partial class Image
         {
             AddHeaderValueIfHasValue("FOCRATIO", imageMeta.DerivedFRatio, "f-ratio");
         }
-        if (!double.IsNaN(imageMeta.DerivedPixelScale))
+        // The scale of THIS frame's pixels, binning included, because that is how every reader takes
+        // PIXSCALE (DeclaredPixelScale, and WCS.FromHeader's approximate CD). Written from the
+        // per-photosite DerivedPixelScale until 2026-09-23, so a binned frame read back BinX times too
+        // fine and the plate solver searched at the wrong scale.
+        if (!double.IsNaN(imageMeta.DerivedImageScale))
         {
-            AddHeaderValueIfHasValue("SCALE", imageMeta.DerivedPixelScale, "arcsec/px");
-            AddHeaderValueIfHasValue("PIXSCALE", imageMeta.DerivedPixelScale, "arcsec/px");
+            AddHeaderValueIfHasValue("SCALE", imageMeta.DerivedImageScale, "arcsec/px");
+            AddHeaderValueIfHasValue("PIXSCALE", imageMeta.DerivedImageScale, "arcsec/px");
         }
         if (imageMeta.FocusPos >= 0)
         {
