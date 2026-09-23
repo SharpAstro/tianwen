@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
@@ -16,7 +17,7 @@ namespace TianWen.Lib.Tests
     /// </summary>
     public class CalibrationEpochsTests
     {
-        private static FrameInfo Dark(DateTimeOffset? when)
+        private static FrameInfo Dark(DateTimeOffset? when, float tempC = -10f)
         {
             var meta = new ImageMeta(
                 Instrument: "TestCam",
@@ -31,7 +32,7 @@ namespace TianWen.Lib.Tests
                 Filter: Filter.None,
                 BinX: 1,
                 BinY: 1,
-                CCDTemperature: -10f,
+                CCDTemperature: tempC,
                 SensorType: SensorType.RGGB,
                 BayerOffsetX: 0,
                 BayerOffsetY: 0,
@@ -109,6 +110,102 @@ namespace TianWen.Lib.Tests
         {
             CalibrationEpochs.EpochSlug(Day(2025, 5, 21)).ShouldBe("_e20250521");
             CalibrationEpochs.EpochSlug(default).ShouldBe("_eundated");
+        }
+
+        /// <summary>A run of <paramref name="count"/> frames on one night, drifting from
+        /// <paramref name="fromC"/> by <paramref name="stepC"/> a frame, the way an uncooled camera's
+        /// dark run does.</summary>
+        private static List<FrameInfo> Run(DateTimeOffset night, int count, float fromC, float stepC)
+        {
+            var frames = new List<FrameInfo>(count);
+            for (var i = 0; i < count; i++)
+            {
+                frames.Add(Dark(night + TimeSpan.FromMinutes(4 * i), fromC + (stepC * i)));
+            }
+            return frames;
+        }
+
+        [Fact]
+        public void SplitSets_ADriftingRunIsOneSet_ASetpointLibraryIsAnother()
+        {
+            // An uncooled run crossing six degrees is ONE calibration set, keyed on its median; the
+            // cooled library beside it, with no reading between the two, is a second.
+            var frames = Run(Day(2021, 12, 29), 50, 14.1f, 0.12f);
+            frames.AddRange(Run(Day(2021, 12, 30), 20, -10f, 0f));
+
+            var sets = CalibrationEpochs.SplitSets(frames);
+
+            sets.Count.ShouldBe(2);
+            sets[0].TemperatureC.ShouldBe(-10);
+            sets[0].Frames.Count.ShouldBe(20);
+            sets[1].TemperatureC.ShouldBe(17, "the median of 14.1 to 20.0 C");
+            sets[1].Frames.Count.ShouldBe(50);
+            sets.ShouldAllBe(s => s.EpochSuffix == "", "one epoch, so the legacy cache names hold");
+        }
+
+        [Fact]
+        public void SplitSets_ACoolersSettlingFramesJoinItsLibrary()
+        {
+            // The ASI585's 2025-08-09 library: 74 frames at -10.0 C and two that read -9.4 while the
+            // cooler settled. Keyed by the degree, those two were a library of their own, and won
+            // every session whose lights sat nearer -9 than -10.
+            var frames = Run(Day(2025, 8, 10), 74, -10f, 0f);
+            frames.Add(Dark(Day(2025, 8, 10), -9.4f));
+            frames.Add(Dark(Day(2025, 8, 10) + TimeSpan.FromHours(1.5), -9.4f));
+
+            var set = CalibrationEpochs.SplitSets(frames).ShouldHaveSingleItem();
+
+            set.TemperatureC.ShouldBe(-10);
+            set.Frames.Count.ShouldBe(76);
+        }
+
+        [Fact]
+        public void SplitSets_SplitsEpochsBeforeTemperature_SoAnotherShootCannotBridgeTwoSetpoints()
+        {
+            // One night at 10 C and 14 C, and months later a run that reads 11, 12 and 13: pooled,
+            // those readings would chain 10 to 14 into one set. Epochs first keeps the first night's
+            // two setpoints apart.
+            var frames = new List<FrameInfo>
+            {
+                Dark(Day(2021, 1, 1), 10f), Dark(Day(2021, 1, 1), 10f),
+                Dark(Day(2021, 1, 2), 14f), Dark(Day(2021, 1, 2), 14f),
+                Dark(Day(2021, 6, 1), 11f), Dark(Day(2021, 6, 1), 12f), Dark(Day(2021, 6, 1), 13f),
+            };
+
+            var sets = CalibrationEpochs.SplitSets(frames);
+
+            sets.Select(s => (s.TemperatureC, s.Frames.Count)).ToArray().ShouldBe(new (int?, int)[] { (10, 2), (14, 2), (12, 3) });
+            sets[0].EpochSuffix.ShouldBe("_e20210101");
+            sets[2].EpochSuffix.ShouldBe("_e20210601");
+        }
+
+        [Fact]
+        public void SplitSets_ASetSpansItsOwnFrames_NotTheWholeEpoch()
+        {
+            // Two setpoints shot on different nights of one epoch: each set's span is its own nights,
+            // which is what the time terms and the coverage report's age read.
+            var frames = new List<FrameInfo>
+            {
+                Dark(Day(2026, 1, 5), -10f), Dark(Day(2026, 1, 6), -10f),
+                Dark(Day(2026, 1, 20), -5f), Dark(Day(2026, 1, 21), -5f),
+            };
+
+            var sets = CalibrationEpochs.SplitSets(frames);
+
+            sets.Count.ShouldBe(2);
+            (sets[0].Start, sets[0].End).ShouldBe((Day(2026, 1, 5), Day(2026, 1, 6)));
+            (sets[1].Start, sets[1].End).ShouldBe((Day(2026, 1, 20), Day(2026, 1, 21)));
+        }
+
+        [Fact]
+        public void SplitSets_AtZeroTolerance_KeepsOneSetPerDegree()
+        {
+            // The foreign-master path: a master is one integrated file, served as it is.
+            var frames = new List<FrameInfo> { Dark(Day(2025, 1, 1), -10f), Dark(Day(2025, 1, 1), -9.4f), Dark(Day(2025, 1, 1), -10.2f) };
+
+            var sets = CalibrationEpochs.SplitSets(frames, temperatureToleranceC: 0);
+
+            sets.Select(s => (s.TemperatureC, s.Frames.Count)).ToArray().ShouldBe(new (int?, int)[] { (-10, 2), (-9, 1) });
         }
     }
 }

@@ -88,6 +88,66 @@ namespace TianWen.Lib.Imaging.Calibration
             return epochs;
         }
 
+        /// <summary>Largest gap, in degrees C, between consecutive sensor readings (sorted by
+        /// temperature) that still chains calibration frames into one run.
+        ///
+        /// <para>Sized from what it must keep together and what it must keep apart, measured over the
+        /// 173 calibration runs filed in the reference archive (one capture run per folder,
+        /// 2026-09-24). Together: the largest gap between consecutive readings inside any one run is
+        /// 1.00 C (an ASI1600MM flat set), while runs SPAN up to 4.8 C (the 294MC's 2021-12-12 darks,
+        /// 26.0 to 30.8 C), which the degree key had cut into one group per degree crossed; a cooled library's settling
+        /// frames sit 0.6 C off it (ASI585 2025-08-09: two of 76 at -9.4 C beside -10.0). Apart: the
+        /// closest two runs of one configuration inside one epoch that must stay two are 2.9 C apart
+        /// (the Uranus-C's 2023-07-29 darks at 13 and 17 C). One pair of runs does join, the
+        /// ASI294MM's 2021-12-29 and 2022-01-09 darks, 0.7 C and eleven days apart, which is one
+        /// library by the same reasoning <see cref="MaxEpochGapDays"/> gives.</para></summary>
+        public const double TemperatureToleranceC = 1.5;
+
+        /// <summary>One calibration SET, the unit a master is built from: the frames of one epoch
+        /// that also form one temperature run. <paramref name="Start"/>/<paramref name="End"/> span the
+        /// set's own frames (default when undated); <paramref name="TemperatureC"/> is the rounded
+        /// median of their readings (null when none has one); <paramref name="EpochSuffix"/> is the
+        /// epoch's <see cref="EpochSlug"/> when the group split into several epochs and empty
+        /// otherwise, as before.</summary>
+        public readonly record struct CalibrationSet(
+            DateTimeOffset Start, DateTimeOffset End, int? TemperatureC, List<FrameInfo> Frames, string EpochSuffix);
+
+        /// <summary>
+        /// Splits the frames of one group that agree on everything BUT temperature into calibration
+        /// sets: epochs first (<see cref="Split"/>), then temperature runs within each epoch
+        /// (<see cref="TemperatureClusters.Split"/>). Epochs go first so one library's drift cannot
+        /// chain, through another shoot's readings, into a set that spans two setpoints.
+        /// </summary>
+        /// <param name="temperatureToleranceC">Zero or less keeps the old one-set-per-degree grouping
+        /// (a foreign master is one integrated file, served as it is, and stays that way).</param>
+        public static List<CalibrationSet> SplitSets(IReadOnlyList<FrameInfo> frames, double temperatureToleranceC = TemperatureToleranceC)
+        {
+            var epochs = Split(frames);
+            var sets = new List<CalibrationSet>();
+            foreach (var epoch in epochs)
+            {
+                var suffix = epochs.Count > 1 ? EpochSlug(epoch.Start) : "";
+                foreach (var run in TemperatureClusters.Split(epoch.Frames, temperatureToleranceC))
+                {
+                    var start = epoch.Start;
+                    var end = epoch.End;
+                    if (start != default)
+                    {
+                        start = DateTimeOffset.MaxValue;
+                        end = DateTimeOffset.MinValue;
+                        foreach (var frame in run.Frames)
+                        {
+                            var t = frame.Meta.ExposureStartTime;
+                            if (t < start) start = t;
+                            if (t > end) end = t;
+                        }
+                    }
+                    sets.Add(new CalibrationSet(start, end, run.TemperatureC, run.Frames, suffix));
+                }
+            }
+            return sets;
+        }
+
         /// <summary>
         /// Filename-safe suffix identifying an epoch inside a group that split, e.g.
         /// <c>_e20250521</c>. Empty input (the undated epoch) yields <c>_eundated</c>. Callers

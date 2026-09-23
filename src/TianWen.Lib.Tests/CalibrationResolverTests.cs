@@ -712,5 +712,107 @@ namespace TianWen.Lib.Tests
 
             CalibrationResolver.BestFlat([undatedFlat], light).ShouldBeNull();
         }
+
+        [Fact]
+        public void GroupCalibration_KeepsADriftingRunWhole_SoTwoFramesOfItCannotWinOnTheLightsDegree()
+        {
+            // #307 #96, the 294MC Orion M42 night of 2021-11-28: an uncooled 240 s dark run that
+            // drifted across several degrees, keyed by the degree, became one group per degree, and
+            // the matcher took the 2-frame group that sat on the lights' degree. As ONE run it builds
+            // one master from every frame.
+            var night = Utc(2021, 12, 29, 12, 0);
+            var frames = new List<FrameInfo>();
+            for (var i = 0; i < 50; i++)
+            {
+                frames.Add(Cal(FrameType.Dark, 240, 17.9f + (0.056f * i), gain: 120, when: night + TimeSpan.FromMinutes(4 * i)));
+            }
+            var light = Light(240, 18.3f, gain: 120, when: Utc(2021, 11, 28, 12, 0));
+
+            var darks = CalibrationResolver.GroupCalibration(frames)[FrameType.Dark];
+
+            var dark = darks.ShouldHaveSingleItem();
+            dark.Frames.Length.ShouldBe(50);
+            CalibrationResolver.BestDark(darks, light).ShouldBe(dark);
+        }
+
+        [Fact]
+        public void GroupCalibration_ACoolersSettlingFrames_AreNotALibraryOfTheirOwn()
+        {
+            // The ASI585's 2025-08-09 library: 74 frames at -10.0 C and two at -9.4 C. Keyed by the
+            // degree, those two were a library, and six sessions whose lights sat nearer -9 took it.
+            var frames = new List<FrameInfo>();
+            for (var i = 0; i < 74; i++)
+            {
+                frames.Add(Cal(FrameType.Dark, 60, -10f, gain: 252, when: Utc(2025, 8, 10, 1, 45) + TimeSpan.FromMinutes(i)));
+            }
+            frames.Add(Cal(FrameType.Dark, 60, -9.4f, gain: 252, when: Utc(2025, 8, 10, 1, 41)));
+            frames.Add(Cal(FrameType.Dark, 60, -9.4f, gain: 252, when: Utc(2025, 8, 10, 3, 11)));
+            var warmLight = Light(60, 6f, gain: 252, when: Utc(2025, 1, 30, 12, 0));
+
+            var darks = CalibrationResolver.GroupCalibration(frames)[FrameType.Dark];
+
+            var library = darks.ShouldHaveSingleItem();
+            library.Frames.Length.ShouldBe(76);
+            library.Key.TemperatureC.ShouldBe(-10);
+            CalibrationResolver.BestDark(darks, warmLight)!.Frames.Length.ShouldBe(76);
+        }
+
+        [Fact]
+        public void SessionKey_IsTheLightsMedianTemperature_NotTheFirstLights()
+        {
+            // Lagoon 2025-05-25: the first light read -9.4 C and the rest -10.0, so a session keyed on
+            // its first light alone was a -9 C session and chose the dark on that degree.
+            var lights = new List<FrameInfo> { Light(60, -9.4f, gain: 252) };
+            for (var i = 0; i < 59; i++)
+            {
+                lights.Add(Light(60, -10f, gain: 252));
+            }
+            var atMinus9 = Group(FrameType.Dark, 60, -9, gain: 252);
+            var atMinus10 = Group(FrameType.Dark, 60, -10, gain: 252);
+
+            CalibrationResolver.BestDark([atMinus9, atMinus10], lights[0]).ShouldBe(atMinus9, "keyed on the first light alone");
+
+            var sessionKey = CalibrationResolver.SessionKey(lights);
+            sessionKey.TemperatureC.ShouldBe(-10);
+            CalibrationResolver.BestDark([atMinus9, atMinus10], lights[0], lightKey: sessionKey).ShouldBe(atMinus10);
+            CalibrationResolver.BestDark([atMinus10, atMinus9], lights[0], lightKey: sessionKey).ShouldBe(atMinus10);
+        }
+
+        [Fact]
+        public void BestFlat_AmongCardProvenFlats_TheNightWins_NotTheOneShotCold()
+        {
+            // The ASI533's L-Ultimate flats: every set carries the same N.I.N.A. train and filter cards,
+            // every one but 2026-01-21 was shot warm (cooler off), and at 10 per degree that one cold
+            // set calibrated eighteen sessions up to 35 days away over their own. A flat's temperature
+            // says nothing about its dust; the days between it and the lights do.
+            const string Camera = "ZWO ASI533MC Pro";
+            var lUltimate = Filter.FromName("Optolong L-Ultimate 3nm");
+            var light = Light(60, -5.1f, gain: 121, instrument: Camera, telescope: "Samyang 135 f", focalLength: 130,
+                when: Utc(2026, 1, 18, 11, 0), filter: lUltimate);
+            var ownWarm = Group(FrameType.Flat, 4.6, 24, gain: 121, instrument: Camera, telescope: "Samyang 135 f", focalLength: 130,
+                when: Utc(2026, 1, 18, 21, 30), filter: lUltimate);
+            var otherCold = Group(FrameType.Flat, 4.61, -5.1f, gain: 121, instrument: Camera, telescope: "Samyang 135 f", focalLength: 130,
+                when: Utc(2026, 1, 21, 21, 29), filter: lUltimate);
+
+            CalibrationResolver.BestFlat([otherCold, ownWarm], light).ShouldBe(ownWarm);
+            CalibrationResolver.BestFlat([ownWarm, otherCold], light).ShouldBe(ownWarm);
+        }
+
+        [Fact]
+        public void BestFlat_ASameNightFlat_BeatsAColdFlatMonthsAway_WhenNoCardNamesAFilter()
+        {
+            // The SY135 nights of 2022-12-24: SharpCap lights and their own flats that evening (21.6 C,
+            // cooler off), and an IDAS-LPS-D3 set on the same lens 265 days later at 4.9 C. No card on
+            // any of them names the filter, so temperature chose the LPS-D3 flat for UV-IR-Cut lights.
+            const string Camera = "ZWO ASI533MC Pro";
+            var light = Light(120, -10, gain: 121, instrument: Camera, telescope: "", focalLength: 135, when: Utc(2022, 12, 24, 11, 59));
+            var sameNight = Group(FrameType.Flat, 0.113, 21.6f, gain: 121, instrument: Camera, telescope: "", focalLength: 135,
+                when: Utc(2022, 12, 24, 11, 18));
+            var monthsLater = Group(FrameType.Flat, 0.033, 4.9f, gain: 121, instrument: Camera, telescope: "", focalLength: 135,
+                when: Utc(2023, 9, 15, 21, 49));
+
+            CalibrationResolver.BestFlat([monthsLater, sameNight], light).ShouldBe(sameNight);
+            CalibrationResolver.BestFlat([sameNight, monthsLater], light).ShouldBe(sameNight);
+        }
     }
 }

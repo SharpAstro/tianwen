@@ -422,7 +422,8 @@ public sealed class StackingPipeline(
                 // the term is a constant (~0 s exposures), so temperature decides, as it always
                 // did. The gated darks are re-gated against THIS group's exposure (the pool gate
                 // above used any flat group's).
-                var flatKey = MasterGroupKey.FromFrame(list[0]);
+                // The SET's temperature (its run's median), as BuildMastersAsync keys the set.
+                var flatKey = MasterGroupKey.FromFrame(list[0]) with { TemperatureC = TemperatureClusters.MedianTemperatureC(list) };
                 var candidates = new List<(MasterGroupKey Key, Image Master)>(biasMasters.Count + darkFlatMasters.Count + pedestalDarkMasters.Count);
                 candidates.AddRange(biasMasters);
                 candidates.AddRange(darkFlatMasters);
@@ -2332,20 +2333,23 @@ public sealed class StackingPipeline(
         var masters = new List<(MasterGroupKey, Image)>();
         if (frames is null || frames.Count == 0) return masters;
 
-        foreach (var group in frames.GroupBy(MasterGroupKey.FromFrame))
+        // Temperature is left out of the grouping key and decided per set, by run rather than by
+        // degree (CalibrationEpochs.SplitSets, the rule the dataset resolver groups by too).
+        foreach (var group in frames.GroupBy(static f => MasterGroupKey.FromFrame(f) with { TemperatureC = null }))
         {
-            var key = group.Key;
             // One master per EPOCH (task #25): a config whose library was re-shot years later must
             // not blend both shoots into one master -- epoch merging attenuates recently-emerged
             // defects by frames-from-epoch/total and hides them from the hot-pixel detector, and the
             // blend was invisible (one representative DATE-OBS). The suffix is minted only when the
-            // config actually split, so a single-epoch root keeps its legacy cache filename.
-            var epochs = CalibrationEpochs.Split(group.ToList());
-            foreach (var epoch in epochs)
+            // config actually split, so a single-epoch root keeps its legacy cache filename. And one
+            // per temperature RUN within the epoch (#307 #96), so a drifting uncooled run is one
+            // master rather than one per degree it crossed.
+            foreach (var set in CalibrationEpochs.SplitSets(group.ToList()))
             {
-                var list = epoch.Frames;
+                var list = set.Frames;
                 if (list.Count < 2) continue;
-                var epochSuffix = epochs.Count > 1 ? CalibrationEpochs.EpochSlug(epoch.Start) : "";
+                var key = group.Key with { TemperatureC = set.TemperatureC };
+                var epochSuffix = set.EpochSuffix;
                 var masterPath = Path.Combine(mastersDir, $"master_{key.Slug()}{pathSuffix}{epochSuffix}.fits");
 
                 // Cache hit: master from a previous run. Bias/dark/flat
@@ -2366,7 +2370,7 @@ public sealed class StackingPipeline(
                 // declared nothing about itself or its input span.
                 master.WriteToFitsFile(masterPath, null, MasterFrameBuilder.ProvenanceHeaders(list));
                 logger.LogInformation("  built {File} ({Count} input frames, {Start:yyyy-MM-dd}..{End:yyyy-MM-dd})",
-                    Path.GetFileName(masterPath), list.Count, epoch.Start, epoch.End);
+                    Path.GetFileName(masterPath), list.Count, set.Start, set.End);
             }
         }
         return masters;

@@ -203,7 +203,8 @@ public static class CalibrationResolver
         // Compose the sensor-config key with the optical train so two cameras that share a sensor
         // model never fold their calibration into one master (their dark/flat patterns differ), and
         // with the master flag so a foreign already-integrated master is never medianed together with
-        // raw subs of the same config (it is loaded directly, they are combined).
+        // raw subs of the same config (it is loaded directly, they are combined). Temperature is left
+        // OUT of this key and decided below, by run rather than by degree.
         var byKey = new Dictionary<(MasterGroupKey Key, CalTrain Train, bool IsMaster), List<FrameInfo>>();
         foreach (var frame in frames)
         {
@@ -211,7 +212,7 @@ public static class CalibrationResolver
             {
                 continue;
             }
-            var composite = (MasterGroupKey.FromFrame(frame), CalTrain.ForFrame(frame), frame.IsMaster);
+            var composite = (MasterGroupKey.FromFrame(frame) with { TemperatureC = null }, CalTrain.ForFrame(frame), frame.IsMaster);
             if (!byKey.TryGetValue(composite, out var list))
             {
                 byKey[composite] = list = new List<FrameInfo>();
@@ -232,16 +233,27 @@ public static class CalibrationResolver
             // foreign master groups too, so several archived masters of one config resolve to the
             // temporally nearest rather than the ordinally first. The suffix is minted only when a
             // config actually split, so single-epoch archives keep their legacy cache filenames.
-            var epochs = CalibrationEpochs.Split(list);
-            foreach (var epoch in epochs)
+            //
+            // And one per temperature RUN within the epoch (#307 #96): an uncooled camera's run
+            // drifts through several degrees, and keyed by the degree it became several groups the
+            // matcher then chose between, two frames of fifty winning on the lights' degree. A
+            // foreign master is one integrated file served as it is, so those keep the degree.
+            foreach (var set in CalibrationEpochs.SplitSets(list, isMaster ? 0 : CalibrationEpochs.TemperatureToleranceC))
             {
-                groups.Add(new CalGroup(key, train, [.. epoch.Frames], isMaster,
-                    EpochStart: epoch.Start, EpochEnd: epoch.End,
-                    EpochSuffix: epochs.Count > 1 ? CalibrationEpochs.EpochSlug(epoch.Start) : ""));
+                groups.Add(new CalGroup(key with { TemperatureC = set.TemperatureC }, train, [.. set.Frames], isMaster,
+                    EpochStart: set.Start, EpochEnd: set.End, EpochSuffix: set.EpochSuffix));
             }
         }
         return byType;
     }
+
+    /// <summary>The key a SESSION is matched on: its first light's sensor configuration, with the
+    /// MEDIAN sensor temperature of all its lights. The first light alone decided it before
+    /// (#307 #96), and a first frame read before the cooler settled then chose the dark for the whole
+    /// night: Lagoon 2025-05-25 opened at -9.4 C against -10 for the rest, and was matched as a -9 C
+    /// session.</summary>
+    public static MasterGroupKey SessionKey(IReadOnlyList<FrameInfo> lights) =>
+        MasterGroupKey.FromFrame(lights[0]) with { TemperatureC = TemperatureClusters.MedianTemperatureC(lights) };
 
     /// <summary>
     /// Resolves the best-matching <see cref="Calibrator"/> for a session (dark + flat, no bias),
@@ -259,10 +271,10 @@ public static class CalibrationResolver
         CancellationToken cancellationToken = default)
     {
         var light = session.Lights[0];
-        var lightKey = MasterGroupKey.FromFrame(light);
+        var lightKey = SessionKey(session.Lights);
 
-        var darkGroup = BestDark(calGroups.GetValueOrDefault(FrameType.Dark), light, requireGainMatch, maxDarkTemperatureDelta);
-        var flatGroup = BestFlat(calGroups.GetValueOrDefault(FrameType.Flat), light);
+        var darkGroup = BestDark(calGroups.GetValueOrDefault(FrameType.Dark), light, requireGainMatch, maxDarkTemperatureDelta, lightKey);
+        var flatGroup = BestFlat(calGroups.GetValueOrDefault(FrameType.Flat), light, lightKey);
 
         // A gain/offset-mismatched dark is only ever picked when no same-gain library exists (the
         // penalty guarantees a matching one wins) -- but it mis-scales the fixed pattern that dark
@@ -527,10 +539,13 @@ public static class CalibrationResolver
     /// see <see cref="GainMismatchPenalty"/>). Score ties break by ordinal <see cref="MasterGroupKey.Slug"/>
     /// so the pick never depends on dictionary / filesystem enumeration order (the build's determinism
     /// claim).</summary>
-    internal static CalGroup? BestDark(List<CalGroup>? darks, FrameInfo light, bool requireGainMatch = true, double? maxTempDelta = null)
+    /// <param name="lightKey">The session's key (<see cref="SessionKey"/>) where there is a session;
+    /// <paramref name="light"/>'s own key otherwise.</param>
+    internal static CalGroup? BestDark(List<CalGroup>? darks, FrameInfo light, bool requireGainMatch = true, double? maxTempDelta = null,
+        MasterGroupKey? lightKey = null)
     {
         if (darks is null) return null;
-        var lightKey = MasterGroupKey.FromFrame(light);
+        lightKey ??= MasterGroupKey.FromFrame(light);
         var lightCamera = CalTrain.Camera(light);
         CalGroup? best = null;
         var bestScore = double.PositiveInfinity;
@@ -565,19 +580,31 @@ public static class CalibrationResolver
     /// <summary>Best flat for a light: same OPTICAL TRAIN (camera + telescope + focal length -- a
     /// flat encodes this train's vignetting + dust, so a different scope / body / focal length flat
     /// is simply wrong), dimension/sensor-compatible, preferring the same filter (Name + Bandpass),
-    /// then closest temperature, then matching gain (flat division normalises most of the gain away,
-    /// but same-gain is still the better master when both exist). Exposure is irrelevant for flats;
-    /// offset cancels in the flat normalisation. Ties break by ordinal slug, as for darks.
+    /// then the flat shot nearest the lights, then matching gain and closest temperature as a
+    /// tie-break (flat division normalises most of the gain away, but same-gain is still the better
+    /// master when both exist). Exposure is irrelevant for flats; offset cancels in the flat
+    /// normalisation. Ties break by ordinal slug, as for darks.
     ///
     /// <para><b>A flat whose cards cannot prove the train ranks BEHIND every flat whose cards can,
     /// and among its own kind the one shot nearest the lights wins</b> (see
     /// <see cref="IsFlatCandidate"/>). Temperature is the wrong axis there: it picked the Ha flat for
     /// Luminance lights 12 days away over their own flat the next day, because the Ha set happened
-    /// to be shot 10 C nearer the lights' setpoint.</para></summary>
-    internal static CalGroup? BestFlat(List<CalGroup>? flats, FrameInfo light)
+    /// to be shot 10 C nearer the lights' setpoint.</para>
+    ///
+    /// <para><b>And among card-proven flats the night decides too, never the temperature</b>
+    /// (#307 #96). A flat lasts seconds and its own dark-flat removes the heat it gathered, so its
+    /// temperature says nothing about its dust, while the days between it and the lights say what
+    /// the dust had time to do. Ranked at 10 per degree, the ASI533's one L-Ultimate flat set shot
+    /// cold (2026-01-21, -5.1 C against 20.9 to 27.0 C for every other night's) calibrated eighteen
+    /// sessions up to 35 days away over their own sets, and two SY135 nights took a flat 265 days
+    /// away over their same-night set. Temperature and gain now only break a tie between flats
+    /// shot the same distance from the lights.</para></summary>
+    /// <param name="lightKey">The session's key (<see cref="SessionKey"/>) where there is a session;
+    /// <paramref name="light"/>'s own key otherwise.</param>
+    internal static CalGroup? BestFlat(List<CalGroup>? flats, FrameInfo light, MasterGroupKey? lightKey = null)
     {
         if (flats is null) return null;
-        var lightKey = MasterGroupKey.FromFrame(light);
+        lightKey ??= MasterGroupKey.FromFrame(light);
         var lightTrain = CalTrain.OpticalTrain(light);
         var lightStart = light.Meta.ExposureStartTime;
         CalGroup? best = null;
@@ -589,19 +616,14 @@ public static class CalibrationResolver
             // no flat at all. A foreign master flat is exempt (loaded directly).
             if (!IsFlatCandidate(g, lightKey, lightTrain, lightStart, out var unprovenDays)) continue;
             var filterMismatch = FlatFilterPenalty(g.Key, lightKey);
-            // Time matters a little more for flats than the constant's sizing suggests (dust moves
-            // between seasons), but it is still no physical axis: filter and temperature dominate,
-            // and time separates two epochs of the SAME train's flats -- the season whose dust
-            // matches the lights wins.
-            var score = filterMismatch + TempPenalty(g.Key, lightKey) * 10.0 + GainPenalty(g.Key, lightKey)
-                + TimePenalty(g.EpochStart, lightStart);
             // The filter label decides first, for both kinds: a flat whose cards prove the lens but
             // state another filter must never outrank a same-night flat of the lights' own filter.
-            // Then proven before date-admitted, and within each kind the old score (proven) or the
-            // distance (date-admitted).
-            var rank = unprovenDays is { } days
-                ? (Filter: filterMismatch, Tier: 1, Primary: days, Secondary: score)
-                : (Filter: filterMismatch, Tier: 0, Primary: score, Secondary: 0.0);
+            // Then proven before date-admitted, then, within each kind, the days between the flat
+            // and the lights (an undated flat sits as far out as TimeUnknownPenalty's years), and
+            // only then gain and temperature, as a tie-break.
+            var days = unprovenDays ?? DaysFromEpoch(g, lightStart) ?? TimeUnknownPenalty * 365.25;
+            var tieBreak = GainPenalty(g.Key, lightKey) + TempPenalty(g.Key, lightKey);
+            var rank = (Filter: filterMismatch, Tier: unprovenDays is null ? 0 : 1, Primary: days, Secondary: tieBreak);
             var order = best is null ? -1 : rank.CompareTo(bestRank);
             if (order < 0 || (order == 0 && SlugBefore(g, best)))
             {
@@ -656,7 +678,8 @@ public static class CalibrationResolver
     {
         if (biases is null || darkGroup.Frames.Length == 0) return null;
         var dark = darkGroup.Frames[0];
-        var darkKey = MasterGroupKey.FromFrame(dark);
+        // The group's key, not its first frame's: it carries the SET's temperature (the run's median).
+        var darkKey = darkGroup.Key;
         var darkCamera = CalTrain.Camera(dark);
         CalGroup? best = null;
         var bestScore = double.PositiveInfinity;
@@ -737,7 +760,8 @@ public static class CalibrationResolver
     {
         if ((biases is null && darkFlats is null && darks is null) || flatGroup.Frames.Length == 0) return null;
         var flat = flatGroup.Frames[0];
-        var flatKey = MasterGroupKey.FromFrame(flat);
+        // The group's key, not its first frame's: it carries the SET's temperature (the run's median).
+        var flatKey = flatGroup.Key;
         var flatCamera = CalTrain.Camera(flat);
         CalGroup? best = null;
         var bestScore = double.PositiveInfinity;

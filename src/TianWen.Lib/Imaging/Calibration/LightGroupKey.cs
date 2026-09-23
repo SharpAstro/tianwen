@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 
 namespace TianWen.Lib.Imaging.Calibration;
@@ -74,44 +73,14 @@ public sealed record LightGroupKey(MasterGroupKey CalibrationKey, string ObjectN
 
         foreach (var (baseKey, members) in byBase)
         {
-            var withTemperature = new List<(float Temperature, FrameInfo Frame)>(members.Count);
-            foreach (var member in members)
+            // No temperature is not "any temperature": that run keeps a null, as FromFrame has it.
+            foreach (var cluster in TemperatureClusters.Split(members, temperatureToleranceC))
             {
-                var t = member.Meta.CCDTemperature;
-                if (float.IsNaN(t))
+                var clusterKey = baseKey with { CalibrationKey = baseKey.CalibrationKey with { TemperatureC = cluster.TemperatureC } };
+                foreach (var frame in cluster.Frames)
                 {
-                    // No temperature is not "any temperature": it stays its own group, as FromFrame has it.
-                    keys[member] = baseKey;
+                    keys[frame] = clusterKey;
                 }
-                else
-                {
-                    withTemperature.Add((t, member));
-                }
-            }
-
-            withTemperature.Sort(static (a, b) => a.Temperature.CompareTo(b.Temperature));
-            var start = 0;
-            for (var i = 1; i <= withTemperature.Count; i++)
-            {
-                var cutHere = i == withTemperature.Count
-                    || withTemperature[i].Temperature - withTemperature[i - 1].Temperature > temperatureToleranceC;
-                if (!cutHere)
-                {
-                    continue;
-                }
-
-                var count = i - start;
-                var mid = start + (count / 2);
-                var median = count % 2 == 1
-                    ? withTemperature[mid].Temperature
-                    : 0.5f * (withTemperature[mid - 1].Temperature + withTemperature[mid].Temperature);
-                var clusterKey = baseKey with { CalibrationKey = baseKey.CalibrationKey with { TemperatureC = (int)Math.Round(median) } };
-                for (var j = start; j < i; j++)
-                {
-                    keys[withTemperature[j].Frame] = clusterKey;
-                }
-
-                start = i;
             }
         }
 
