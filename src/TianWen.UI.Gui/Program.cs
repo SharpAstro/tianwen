@@ -298,6 +298,8 @@ bus.Post(new DiscoverDevicesSignal(IncludeFake: includeFakeOnStartup));
 
 // --- Main event loop via SdlEventLoop ---
 var _lastSessionRedrawTimestamp = timeProvider.GetTimestamp();
+// The shutdown drain's redraw tick (see CheckNeedsRedraw): 0 so its first check draws at once.
+long _lastShutdownRedrawTimestamp = 0;
 long _lastSlowFrameLogTimestamp = 0;
 
 // One literal for the window's clear and for the image pane the viewer tab hosts, for the reason stated
@@ -408,12 +410,22 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             signalHandler.PollPreviewTelemetry();
         }
 
-        // During shutdown, show progress and signal ready to stop
+        // During shutdown, show progress and signal ready to stop. This is where the cameras WARM, so it
+        // can run for minutes, and it used to ask for a frame on every loop iteration, which rendered the
+        // whole GUI flat out for the length of the warm-up. It still needs frames: signals (the warm-up
+        // progress) and task completions are processed in OnPostFrame, which runs only after a frame, and
+        // so is the Stop once everything has finished. So: one frame when the pending set changes, one
+        // when it empties (whose post-frame stops the loop), and a 500 ms tick in between, the cadence a
+        // running session already uses for its progress. NeedsRedraw is not consulted here: OnPostFrame
+        // leaves it set for the whole shutdown, so it would answer true on every iteration.
         if (appState.ShuttingDown)
         {
+            var shutdownNow = timeProvider.GetTimestamp();
+            var shutdownChanged = false;
             if (!tracker.HasPending)
             {
                 appState.ShutdownComplete = true;
+                shutdownChanged = true;
             }
             else if (tracker.PendingCount != _lastShutdownPendingCount)
             {
@@ -421,8 +433,16 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
                 appState.StatusMessage = _lastShutdownPendingCount == 1
                     ? $"Shutting down\u2026 {tracker.PendingDescriptions.First()}"
                     : $"Shutting down\u2026 ({_lastShutdownPendingCount} tasks)";
+                shutdownChanged = true;
             }
-            return true; // always redraw during shutdown
+
+            if (shutdownChanged
+                || timeProvider.GetElapsedTime(_lastShutdownRedrawTimestamp, shutdownNow) >= TimeSpan.FromMilliseconds(500))
+            {
+                _lastShutdownRedrawTimestamp = shutdownNow;
+                return true;
+            }
+            return false;
         }
 
         // The status-bar wall clock (HH:mm:ss) is shown on EVERY tab, so we need at
@@ -462,7 +482,12 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             || guiRenderer.SkyMapState.NeedsRedraw
             || guiRenderer.ViewContexts.AnyNeedsRedraw
             || (appState.ActiveTab == GuiTab.Planner && guiRenderer.PlannerChartPendingDraw)
-            || appState.ActiveTextInput is { IsActive: true };
+            // A focused field needs a frame only when its caret FLIPS, twice a second: the blink is on
+            // the clock now (DIR.Lib CaretBlink). It used to be counted in frames, so a focused field
+            // asked for one on every iteration and the whole GUI rendered continuously while it had the
+            // keyboard.
+            || (appState.ActiveTextInput is { IsActive: true }
+                && CaretBlink.PhaseAt(timeProvider.GetTimestamp(), timeProvider.TimestampFrequency) != guiRenderer.PaintedCaretPhase);
     },
 
     OnRender = () =>

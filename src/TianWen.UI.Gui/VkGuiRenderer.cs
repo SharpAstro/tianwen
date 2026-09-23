@@ -495,6 +495,9 @@ namespace TianWen.UI.Gui
 
         private RGBAColor32 _canvasBackground = new RGBAColor32(0x12, 0x12, 0x18, 0xff);
 
+        /// <summary>The caret blink phase the last frame was painted in; see <see cref="CaretBlink"/>.</summary>
+        public long PaintedCaretPhase { get; private set; }
+
         public void Resize(uint width, uint height)
         {
             _width = width;
@@ -519,15 +522,19 @@ namespace TianWen.UI.Gui
 
             BeginFrame();
             _appState = appState;
-            _equipmentTab.FrameCount++;
-            _plannerTab.FrameCount++;
-            _sessionTab.FrameCount++;
-            _skyMapTab.FrameCount++;
-            _liveSessionTab.FrameCount++;
-            _guiderTab.FrameCount++;
-            _planetaryTab.FrameCount++;
-            _notificationsTab.FrameCount++;
-            _homeTab.FrameCount++;
+            // The caret blinks on the clock (DIR.Lib's CaretBlink); PaintedCaretPhase is what the host's
+            // redraw check compares against, so a focused field costs a frame per blink, not every frame.
+            var caretPhase = CaretBlink.PhaseAt(timeProvider.GetTimestamp(), timeProvider.TimestampFrequency);
+            PaintedCaretPhase = caretPhase;
+            _equipmentTab.CaretPhase = caretPhase;
+            _plannerTab.CaretPhase = caretPhase;
+            _sessionTab.CaretPhase = caretPhase;
+            _skyMapTab.CaretPhase = caretPhase;
+            _liveSessionTab.CaretPhase = caretPhase;
+            _guiderTab.CaretPhase = caretPhase;
+            _planetaryTab.CaretPhase = caretPhase;
+            _notificationsTab.CaretPhase = caretPhase;
+            _homeTab.CaretPhase = caretPhase;
 
             _activeTab = appState.ActiveTab switch
             {
