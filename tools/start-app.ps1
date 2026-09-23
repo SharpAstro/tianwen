@@ -70,6 +70,28 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Make this script's own stdout and stderr NON-inheritable before it starts anything. Start-Process with a
+# redirect (and the build's native call) creates the child with handle inheritance on, so the child inherited
+# every inheritable handle this process held, the caller's output pipe included. The caller waits for EOF on
+# that pipe, which then came only when the APP exited: "started detached" printed, and the tool call that ran
+# the launcher still hung until the GUI was closed (2026-09-23, seven minutes and counting). The MSBuild worker
+# nodes the build leaves behind (nodeReuse, about fifteen minutes) held it the same way. The child's own
+# redirects are fresh file handles, so clearing ours changes nothing for the app. Measured with a stand-in
+# child: the caller got EOF after 16 s without this and 1 s with it. Windows only: elsewhere a detached child
+# gets no such handle.
+if ($IsWindows) {
+    Add-Type -Namespace TianWenStartApp -Name Native -MemberDefinition @'
+[DllImport("kernel32.dll", SetLastError = true)] public static extern System.IntPtr GetStdHandle(int nStdHandle);
+[DllImport("kernel32.dll", SetLastError = true)] public static extern bool SetHandleInformation(System.IntPtr hObject, uint dwMask, uint dwFlags);
+'@
+    $STD_OUTPUT_HANDLE = -11
+    $STD_ERROR_HANDLE = -12
+    $HANDLE_FLAG_INHERIT = 1
+    foreach ($std in $STD_OUTPUT_HANDLE, $STD_ERROR_HANDLE) {
+        [void][TianWenStartApp.Native]::SetHandleInformation([TianWenStartApp.Native]::GetStdHandle($std), $HANDLE_FLAG_INHERIT, 0)
+    }
+}
+
 $apps = @{
     gui  = @{ Project = 'TianWen.UI.Gui'; Exe = 'tianwen-gui'; Log = 'gui' }
     fits = @{ Project = 'TianWen.UI.FitsViewer'; Exe = 'tianwen-fits'; Log = 'fitsviewer' }
