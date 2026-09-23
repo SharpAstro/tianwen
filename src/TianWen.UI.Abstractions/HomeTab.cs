@@ -38,24 +38,44 @@ namespace TianWen.UI.Abstractions
 
             // The cards are built once per frame by the telemetry poll, so the tab neither reaches into the
             // rig registry nor decides when a card is stale.
-            // With one card there is nothing to choose between, and a click that only re-selected the rig
-            // already being looked at did nothing visible, so a lone card's click opens it.
-            var openOnClick = appState.HomeCards.Length == 1;
+            // One rule however many cards there are: a click selects the rig to look at, a double-click opens
+            // it. A lone card once opened on a single click, which made the same gesture mean two things.
             RenderLayout(
                 HomeBoardLayout.Build(
                     appState.HomeCards, HomeBoardStyle.Default,
                     contentRect.Width / scale, now, contentRect.Height / scale,
-                    appState.HomeBoardView, card => SelectAction(card, openOnClick), SelectViewAction,
+                    appState.HomeBoardView, card => SelectAction(card, open: false), SelectViewAction,
                     GuiTheme.State, CycleThemeAction,
                     onOpen: card => SelectAction(card, open: true)),
                 contentRect);
         }
 
         /// <summary>
-        /// The tab a rig opens on: this computer's Equipment tab, where its hardware is set up, and a remote
-        /// rig's Live Session, which is what its mirror is for.
+        /// The tab a rig opens on, decided by what the rig needs next rather than by which kind of rig it is:
+        /// <list type="bullet">
+        /// <item>a run in progress, or a prompt waiting on someone: <see cref="GuiTab.LiveSession"/>, where
+        /// the run is watched and the prompt answered;</item>
+        /// <item>this computer with nothing configured (no profile, or a profile assigning no devices):
+        /// <see cref="GuiTab.Equipment"/>, since there is nothing else to do with it yet;</item>
+        /// <item>otherwise, configured and idle: <see cref="GuiTab.Planner"/>, the next step of an evening.</item>
+        /// </list>
+        /// A remote rig's device count is not knowable (<see cref="RigCard.Devices"/> is null for every one),
+        /// so a remote rig is never judged unconfigured; its own node is where it gets set up.
         /// </summary>
-        private static GuiTab OpenTabFor(RigCard card) => card.IsLocal ? GuiTab.Equipment : GuiTab.LiveSession;
+        internal static GuiTab OpenTabFor(RigCard card)
+        {
+            if (card.IsRunning || card.Prompt is not null)
+            {
+                return GuiTab.LiveSession;
+            }
+
+            if (card.IsLocal && (card.Subtitle is null || card.Devices is { Assigned: 0 }))
+            {
+                return GuiTab.Equipment;
+            }
+
+            return GuiTab.Planner;
+        }
 
         /// <summary>Posts the header selector's choice; the handler stores it and nothing else happens.</summary>
         private Action<InputModifier>? SelectViewAction(HomeBoardView view) =>

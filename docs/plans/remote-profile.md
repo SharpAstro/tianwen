@@ -937,14 +937,17 @@ Layout DSL section, and the measured detail is here.
 - **Read-only with respect to hardware.** A card click changes which rig you *look at*, via the same
   `SelectRemoteRigSignal` / `SelectLocalContextSignal` the profile picker posts. Nothing on this screen
   connects a driver, commands anything, or takes a lease.
-- **A double-click OPENS the rig, and so does a click on the only card** (2026-09-23): the same signals
-  carry an `OpenTab`, Equipment for this computer and Live Session for a remote rig. Before, a single-rig
-  user's one click on the landing screen re-selected the rig already looked at and did nothing visible,
-  which contradicted the "one click per launch ... before diving in" above. Opening is a tab switch and
-  nothing more, so the read-only rule holds. The double-click rides a press handler (only a press
-  carries the click count) that declines the gesture, so the release still delivers the plain select.
-  Pinned by `HomeTabLayoutTests.AClickOnTheOnlyRigOpensItsEquipmentTab` and
-  `ADoubleClickOpensTheRigItLandsOn`.
+- **A click selects, a double-click OPENS, however many cards there are** (2026-09-23). The select
+  signals carry an optional `OpenTab`, and where a rig opens depends on what it needs next
+  (`HomeTab.OpenTabFor`): a run in progress or a waiting prompt opens Live Session; this computer with
+  nothing configured (no profile, or no devices assigned) opens Equipment; a configured idle rig opens the
+  Planner. A remote rig's device count is not knowable, so it is never judged unconfigured. A lone card
+  briefly opened on a single click and was reverted: the same click meaning two things depending on how
+  many rigs are bound is worse than one extra click. Opening is a tab switch and nothing more, so the
+  read-only rule holds. The double-click rides a press handler (only a press carries the click count)
+  that declines the gesture, so the release still delivers the plain select. Pinned by
+  `HomeTabLayoutTests.AClickSelectsTheRigWithoutOpeningIt`, `ADoubleClickOpensTheRigItLandsOn` and
+  `ARigOpensOnTheTabItsStateCallsFor`.
 - **Zero device I/O**, and structurally so: cards are built in the pre-gate part of `PollPreviewTelemetry`
   and the board is **not** added to that method's `ActiveTab` gate (which exists to guard polling
   already-connected *drivers*). Previews stay **off** -- N mirrors each pulling JPEGs is the failure mode

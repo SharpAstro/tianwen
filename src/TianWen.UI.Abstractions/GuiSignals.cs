@@ -50,7 +50,7 @@ public readonly record struct SelectRemoteRigSignal(string DisplayName, GuiTab? 
 /// coming back is free and instant.
 /// </summary>
 /// <param name="OpenTab">A tab to switch to as well, or null to change only what is looked at. The home
-/// board passes one for a double-click, and for a click on its only card.</param>
+/// board passes one for a double-click.</param>
 public readonly record struct SelectLocalContextSignal(GuiTab? OpenTab = null);
 
 /// <summary>
