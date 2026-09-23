@@ -28,10 +28,12 @@ than switching to ProjectReference. `FITS.Lib`, `ZWOptical.SDK`, `QHYCCD.SDK` an
 
 ## Steps for a single library release
 
-1. **Bump version** in the library repo. Update BOTH:
-   - `<VersionPrefix>X.Y.0</VersionPrefix>` in the `.csproj`
-   - `VERSION_PREFIX: X.Y.${{ github.run_number }}` in `.github/workflows/dotnet.yml`
-   - Increment minor for new features, major for breaking changes
+1. **Bump version** in the library repo: edit `<VersionMajorMinor>` in its `Directory.Build.props`
+   (usually `src/`) and NOTHING else -- `VersionPrefix`, `AssemblyVersion` and the workflow's
+   `VERSION_PREFIX` all derive from it, and a version literal in a csproj or the workflow is a
+   regression (the org `.github/CLAUDE.md`, "Versioning"). Add the `CHANGELOG.md` entry in the same
+   commit, and for a breaking change the `MIGRATION.md` port too. Minor for additions, major for
+   breaks. Open it as a PR; CI publishes when the user merges it to main.
 
 2. **Build and test** the library locally:
    ```
@@ -93,7 +95,7 @@ and the old NuGet versions won't have the new APIs.
    b. Update SdlVulkan.Renderer's `Directory.Packages.props` with exact DIR.Lib version,
       bump SdlVulkan.Renderer minor, push. Poll NuGet for exact version.
 5. ONLY AFTER both Console.Lib and SdlVulkan.Renderer are on NuGet:
-   Update TianWen's `src/Directory.Packages.props` with ALL three exact versions:
+   Update TianWen's `Directory.Packages.props` (at the repo root, not in `src/`) with ALL three versions:
    ```xml
    <PackageVersion Include="DIR.Lib" Version="2.3.445" />
    <PackageVersion Include="Console.Lib" Version="2.1.123" />
