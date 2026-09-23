@@ -58,6 +58,14 @@ internal static class NativeDriverBlacklist
             ["ASCOM.QHYCFW2st.FilterWheel"] = "QHYDevice",
             ["ASCOM.QHYFWRS232.FilterWheel"] = "QHYDevice",
             ["ASCOM.qfoc.Focuser"] = "QHYDevice",
+
+            // ToupTek camera -- native ToupTek SDK (ToupTekDevice, AddToupTek). ToupTek's own ASCOM
+            // installer registers three numbered slots; the ProgIDs are read off a machine that has it.
+            // Both drivers opening one body fails the second with E_BUSY, so hiding the twin is not
+            // cosmetic. The rebadged brands' ASCOM ProgIDs are not listed until one is seen installed.
+            ["ASCOM.ToupTek.Camera1"] = "ToupTekDevice",
+            ["ASCOM.ToupTek.Camera2"] = "ToupTekDevice",
+            ["ASCOM.ToupTek.Camera3"] = "ToupTekDevice",
         };
 
     /// <summary>Looks up the native <see cref="DeviceBase.DeviceClass"/> that supersedes an ASCOM ProgID, if any.</summary>

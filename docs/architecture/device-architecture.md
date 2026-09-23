@@ -46,6 +46,16 @@ graph LR
         QHYFocuserDriver
     end
 
+    subgraph "Player One"
+        PlayerOneDevice
+        PlayerOneCameraDriver
+    end
+
+    subgraph "ToupTek (+ rebadged)"
+        ToupTekDevice
+        ToupTekCameraDriver
+    end
+
     subgraph Gemini
         GeminiDevice
         GeminiFlatPanelDriver
@@ -100,6 +110,8 @@ graph LR
     DeviceBase --> AlpacaDevice
     DeviceBase --> ZWODevice
     DeviceBase --> QHYDevice
+    DeviceBase --> PlayerOneDevice
+    DeviceBase --> ToupTekDevice
     DeviceBase --> GeminiDevice
     DeviceBase --> GeminiFocuserDevice
     DeviceBase --> MeadeDevice
@@ -136,6 +148,9 @@ graph LR
     QHYDevice -.-> QHYSerialControlledFilterWheelDriver
     QHYDevice -.-> QHYFocuserDriver
 
+    PlayerOneDevice -.-> PlayerOneCameraDriver
+    ToupTekDevice -.-> ToupTekCameraDriver
+
     GeminiDevice -.-> GeminiFlatPanelDriver
     GeminiFocuserDevice -.-> GeminiFocuserDriver
 
@@ -157,3 +172,19 @@ graph LR
 ```
 
 > Solid arrows = inheritance, dashed arrows = instantiates driver via `NewInstanceFromDevice`.
+
+## ToupTek: one binding for eleven libraries
+
+`ToupTekDevice` covers ToupTek and the ten brands that ship the same SDK under their own library and
+function prefix (Altair, Bresser, MallinCam, Nn, OGMAVision, Omegon, Orion, Teleskop Service, SVBONY's
+ToupTek line, Meade). `ToupTek.SDK` resolves each brand's entry points at run time from its own library
+handle, so a rebadged camera works wherever its library sits beside the app; only ToupTek's natives ship
+in the package, and only a ToupTek body (G3M678M) has been verified. A camera enumerated by two brand
+libraries is listed once, keyed by serial: the SDK's own id is a USB device PATH and names a port. The
+device source shows a rebadged body under its brand name. ToupTek's own ASCOM driver
+(`ASCOM.ToupTek.Camera1..3`) is hidden by `NativeDriverBlacklist` when the native camera is found,
+because both opening one body fails the second with `E_BUSY`.
+
+The binding's design notes (why the DAL struct keys into a session registry, the software-trigger
+capture, the left-aligned 12-bit pixels, the Windows upside-down default, the frame-rate table and the
+video-mode stall that `INativeDeviceInfo.ResetDevice` recovers) are in the ToupTek.SDK README.

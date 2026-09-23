@@ -64,6 +64,7 @@
       AND Exists('$(MSBuildThisFileDirectory)..\..\TianWen.DAL\TianWen.DAL.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\ZWOptical.SDK\ZWOptical.SDK.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\PlayerOne.SDK\PlayerOne.SDK.csproj')
+      AND Exists('$(MSBuildThisFileDirectory)..\..\ToupTek.SDK\ToupTek.SDK.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\FITS.Lib\CSharpFITS\CSharpFITS.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\SER.Lib\src\SER.Lib\SER.Lib.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\Lzip.Lib\src\Lzip.Lib\Lzip.Lib.csproj')

@@ -86,7 +86,22 @@ public class NativeDriverBlacklistTests
         ids.ShouldBe(["ASCOM.GeminiFocuserPro.Focuser", "COM3"]);
     }
 
+    [Fact]
+    public void GivenToupTekAscomWithNativeToupTekPresentThenAscomToupTekIsHidden()
+    {
+        // ToupTek's ASCOM installer registers numbered slots; both drivers opening one body fails the
+        // second with E_BUSY, so the twin must not be offered beside the native camera.
+        var ids = FilterIds(
+            Ascom(DeviceType.Camera, "ASCOM.ToupTek.Camera1"),
+            Ascom(DeviceType.Camera, "ASCOM.ToupTek.Camera2"),
+            Native("ToupTekDevice", DeviceType.Camera, "TP250818143548A337C2B6718F4135B"));
+
+        ids.ShouldBe(["TP250818143548A337C2B6718F4135B"]);
+    }
+
     [Theory]
+    [InlineData("ASCOM.ToupTek.Camera1", "ToupTekDevice")]
+    [InlineData("ASCOM.ToupTek.Camera3", "ToupTekDevice")]
     [InlineData("ASCOM.GeminiFPLite.CoverCalibrator", "GeminiDevice")]
     [InlineData("ASCOM.GeminiFocuserPro.Focuser", "GeminiFocuserDevice")]
     [InlineData("ascom.asicamera2.camera", "ZWODevice")] // case-insensitive ProgID match

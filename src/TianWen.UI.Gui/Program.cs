@@ -32,6 +32,7 @@ services
     .AddAstrometry()
     .AddZWO()
     .AddPlayerOne()
+    .AddToupTek()
     .AddQHY()
     .AddAscom()
     .AddAlpaca()

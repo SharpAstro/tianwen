@@ -96,6 +96,15 @@
     <PackageReference Include="PlayerOne.SDK" />
   </ItemGroup>
 
+  <!-- ToupTek.SDK: ToupTek cameras and the ten rebadged families on the same SDK (Altair, Omegon,
+       OGMA, ...), one binding resolving each brand's library at run time. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\ToupTek.SDK\ToupTek.SDK.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="ToupTek.SDK" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
