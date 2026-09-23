@@ -41,6 +41,13 @@ public class SkyMapHoverAndPictureTests
 
     private const float SurfaceSize = 1000f;
 
+    // The instant every test here views the sky at, never the real clock: the fixture's objects sit
+    // at RA 12h, Dec 0, which is where the SUN is at the September equinox, and the atlas draws and
+    // hit-tests the Sun live. Under DateTimeOffset.UtcNow AMoveThatLandsOnTheSameAnswerAsksForNoFrame
+    // resolved the Sun instead of the nebula on 2026-09-23, the day after it merged green, on both
+    // Linux legs. At the June solstice the Sun is at RA 6h, Dec +23, a quarter of the sky away.
+    private static readonly DateTimeOffset ViewingUtc = new(2026, 6, 21, 22, 0, 0, TimeSpan.Zero);
+
     private static SkyMapState NewState(bool onlyWithPicture = false) => new()
     {
         Mode = SkyMapMode.Equatorial,
@@ -69,7 +76,7 @@ public class SkyMapHoverAndPictureTests
         var db = new ArticleDb(Nebula, Star, NebulaShape);
         var state = NewState();
         state.CurrentViewMatrix = state.ComputeViewMatrix();
-        var viewingUtc = DateTimeOffset.UtcNow;
+        var viewingUtc = ViewingUtc;
         var (starX, starY) = Project(state, Star.RA, Star.Dec);
 
         var hover = SkyMapSearchActions.ResolveHoverAtScreenPoint(
@@ -93,7 +100,7 @@ public class SkyMapHoverAndPictureTests
         var db = new ArticleDb(Nebula, Star, NebulaShape);
         var state = NewState();
         state.CurrentViewMatrix = state.ComputeViewMatrix();
-        var viewingUtc = DateTimeOffset.UtcNow;
+        var viewingUtc = ViewingUtc;
         var (starX, starY) = Project(state, Star.RA, Star.Dec);
 
         SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, viewingUtc, starX, starY, pinnedCatalogIndices: null)
@@ -113,7 +120,7 @@ public class SkyMapHoverAndPictureTests
 
         // Far outside the nebula's ~250 px hit radius, still inside the surface.
         SkyMapSearchActions.ResolveHoverAtScreenPoint(
-            state, db, DateTimeOffset.UtcNow, 980f, 20f, pinnedCatalogIndices: null).ShouldBeNull();
+            state, db, ViewingUtc, 980f, 20f, pinnedCatalogIndices: null).ShouldBeNull();
     }
 
     // A pointer off the map is not over anything, and the projection would happily answer for a point
@@ -126,11 +133,11 @@ public class SkyMapHoverAndPictureTests
         state.CurrentViewMatrix = state.ComputeViewMatrix();
         var (nebX, nebY) = Project(state, Nebula.RA, Nebula.Dec);
 
-        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, DateTimeOffset.UtcNow, nebX, nebY, pinnedCatalogIndices: null)
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, ViewingUtc, nebX, nebY, pinnedCatalogIndices: null)
             .ShouldNotBeNull();
 
         state.LastContentRect = new RectF32(0, 0, 200, 200);
-        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, DateTimeOffset.UtcNow, nebX, nebY, pinnedCatalogIndices: null)
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, ViewingUtc, nebX, nebY, pinnedCatalogIndices: null)
             .ShouldBeNull();
     }
 
@@ -144,7 +151,7 @@ public class SkyMapHoverAndPictureTests
         var db = new ArticleDb(Nebula, Star, NebulaShape, withPicture: Star.Index);
         var state = NewState(onlyWithPicture: true);
         state.CurrentViewMatrix = state.ComputeViewMatrix();
-        var viewingUtc = DateTimeOffset.UtcNow;
+        var viewingUtc = ViewingUtc;
         var (nebX, nebY) = Project(state, Nebula.RA, Nebula.Dec);
 
         SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, viewingUtc, nebX, nebY, pinnedCatalogIndices: null)
@@ -166,7 +173,7 @@ public class SkyMapHoverAndPictureTests
         state.CurrentViewMatrix = state.ComputeViewMatrix();
         var (nebX, nebY) = Project(state, Nebula.RA, Nebula.Dec);
 
-        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, DateTimeOffset.UtcNow, nebX, nebY, pinnedCatalogIndices: null)
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, ViewingUtc, nebX, nebY, pinnedCatalogIndices: null)
             .ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
     }
 
@@ -282,7 +289,7 @@ public class SkyMapHoverAndPictureTests
         var tab = new HoverTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
         var db = new ArticleDb(Nebula, Star, NebulaShape);
         var plannerState = new PlannerState { ObjectDb = db };
-        var time = new FakeTimeProviderWrapper(DateTimeOffset.UtcNow);
+        var time = new FakeTimeProviderWrapper(ViewingUtc);
         var rect = new RectF32(0, 0, 200, 200);
 
         tab.State.ShowObjectOverlay = true;
@@ -315,7 +322,7 @@ public class SkyMapHoverAndPictureTests
         var tab = new HoverTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
         var db = new ArticleDb(Nebula, Star, NebulaShape);
         var plannerState = new PlannerState { ObjectDb = db };
-        var time = new FakeTimeProviderWrapper(DateTimeOffset.UtcNow);
+        var time = new FakeTimeProviderWrapper(ViewingUtc);
         var rect = new RectF32(0, 0, 200, 200);
 
         tab.State.ShowObjectOverlay = true;
@@ -425,7 +432,7 @@ public class SkyMapHoverAndPictureTests
         tab.State.CenterRA = Nebula.RA;
         tab.State.CenterDec = Nebula.Dec;
         tab.State.FieldOfViewDeg = 2.0;
-        return (tab, plannerState, new FakeTimeProviderWrapper(DateTimeOffset.UtcNow), new RectF32(0, 0, 200, 200));
+        return (tab, plannerState, new FakeTimeProviderWrapper(ViewingUtc), new RectF32(0, 0, 200, 200));
     }
 
     // The view moved since the resolve, so the target is no longer known to be an answer about
@@ -440,7 +447,7 @@ public class SkyMapHoverAndPictureTests
         var tab = new HoverTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
         var db = new ArticleDb(Nebula, Star, NebulaShape);
         var plannerState = new PlannerState { ObjectDb = db };
-        var time = new FakeTimeProviderWrapper(DateTimeOffset.UtcNow);
+        var time = new FakeTimeProviderWrapper(ViewingUtc);
         var rect = new RectF32(0, 0, 200, 200);
 
         tab.State.ShowObjectOverlay = true;
@@ -476,7 +483,7 @@ public class SkyMapHoverAndPictureTests
         var tab = new HoverTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
         var db = new ArticleDb(Nebula, Star, NebulaShape);
         var plannerState = new PlannerState { ObjectDb = db };
-        var time = new FakeTimeProviderWrapper(DateTimeOffset.UtcNow);
+        var time = new FakeTimeProviderWrapper(ViewingUtc);
         var rect = new RectF32(0, 0, size, size);
 
         tab.State.ShowObjectOverlay = true;
@@ -528,7 +535,7 @@ public class SkyMapHoverAndPictureTests
         var galaxyShape = new CelestialObjectShape((Half)60.0, (Half)20.0, (Half)0.0);
         var db = new ArticleDb(Nebula, Star, galaxyShape);
         var plannerState = new PlannerState { ObjectDb = db };
-        var time = new FakeTimeProviderWrapper(DateTimeOffset.UtcNow);
+        var time = new FakeTimeProviderWrapper(ViewingUtc);
         var rect = new RectF32(0, 0, size, size);
 
         tab.State.ShowObjectOverlay = true;
@@ -581,7 +588,7 @@ public class SkyMapHoverAndPictureTests
         var tab = new HoverTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
         var db = new ArticleDb(Nebula, Star, NebulaShape);
         var plannerState = new PlannerState { ObjectDb = db };
-        var time = new FakeTimeProviderWrapper(DateTimeOffset.UtcNow);
+        var time = new FakeTimeProviderWrapper(ViewingUtc);
         var rect = new RectF32(0, 0, 200, 200);
 
         tab.State.ShowObjectOverlay = true;
@@ -609,11 +616,11 @@ public class SkyMapHoverAndPictureTests
         var (nebX, nebY) = Project(state, Nebula.RA, Nebula.Dec);
 
         SkyMapSearchActions.ResolveHoverAtScreenPoint(
-            state, db, DateTimeOffset.UtcNow, nebX, nebY, pinnedCatalogIndices: null).ShouldNotBeNull();
+            state, db, ViewingUtc, nebX, nebY, pinnedCatalogIndices: null).ShouldNotBeNull();
 
         // Same object, pointer now outside the rect the map was given.
         SkyMapSearchActions.ResolveHoverAtScreenPoint(
-            state, db, DateTimeOffset.UtcNow, SurfaceSize + 10f, nebY, pinnedCatalogIndices: null)
+            state, db, ViewingUtc, SurfaceSize + 10f, nebY, pinnedCatalogIndices: null)
             .ShouldBeNull();
     }
 
