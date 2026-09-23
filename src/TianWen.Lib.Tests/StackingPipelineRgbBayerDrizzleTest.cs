@@ -154,8 +154,8 @@ public class StackingPipelineRgbBayerDrizzleTest(ITestOutputHelper output)
         //    downstream code (FITS write, QA) can see per-channel coverage. It arrives as Coverage,
         //    which is where coverage lives for every strategy; it used to be handed back as the
         //    RejectionMap under a flag saying it meant the opposite of a rejection fraction, and
-        //    drizzle has no rejection fraction to report at all.
-        result.Result.RejectionMap.ShouldBeNull("drizzle does no kappa-sigma rejection");
+        //    drizzle rejects per deposited sample, so it has no per-cell fraction to report.
+        result.Result.RejectionMap.ShouldBeNull("drizzle's clip is per sample, not per cell");
         var coverage = result.Result.Coverage.ShouldNotBeNull("drizzle's weight buffer IS its coverage");
         coverage.ChannelCount.ShouldBe(3, "the drizzle weight buffer is per-channel");
     }

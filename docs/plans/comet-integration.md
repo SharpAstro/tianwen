@@ -718,8 +718,9 @@ AHD + SigmaClip(3, 2.5) against the drizzle master, sampled along the nucleus tr
 | 120 px | 0.48% | 0.49% (+2%) |
 
 The compact trail is a genuine temporal outlier and goes; the diffuse smear is present in EVERY frame
-at those pixels and rejection structurally cannot see it. Drizzle does no kappa-sigma rejection at
-all, which is why the trail survived into the original star layer.
+at those pixels and rejection structurally cannot see it. Drizzle did no rejection at all when this
+was measured, which is why the trail survived into the original star layer; it has clipped per
+sample at the stack's own thresholds since #93.
 
 ### Identifying an artifact: measure the STAGE, not the picture
 

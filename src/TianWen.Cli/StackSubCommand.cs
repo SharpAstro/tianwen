@@ -155,7 +155,7 @@ internal sealed class StackSubCommand(
         };
         var rejectHighSigmaOpt = new Option<float?>("--reject-high-sigma")
         {
-            Description = "Override the PIXEL rejector's high (bright-outlier) threshold. Default 5 at 30+ frames, chosen to be generous so a real star is never clipped out of a sidereal stack. A comet layer wants the opposite: comet-aligned, a star lands on any given canvas cell in only a handful of frames, so it IS the outlier. Try 2.5-3.0 with --remove-stars to take out the trailed residuals per-frame star removal leaves behind. Has no effect under BayerDrizzle, which does no kappa-sigma rejection at all - pair it with --no-bayer-drizzle.",
+            Description = "Override the PIXEL rejector's high (bright-outlier) threshold. Default 5 at 30+ frames, chosen to be generous so a real star is never clipped out of a sidereal stack. A comet layer wants the opposite: comet-aligned, a star lands on any given canvas cell in only a handful of frames, so it IS the outlier. Try 2.5-3.0 with --remove-stars to take out the trailed residuals per-frame star removal leaves behind. Applies under BayerDrizzle too, whose per-sample clip takes the same thresholds.",
         };
         var starRemovalModeOpt = new Option<StarRemovalMode>("--star-removal-mode")
         {
@@ -233,7 +233,7 @@ internal sealed class StackSubCommand(
 
         var noBayerDrizzleOpt = new Option<bool>("--no-bayer-drizzle")
         {
-            Description = "Opt out of drizzle auto-selection. On RGGB sensors with >= 60 matched frames the selector picks BayerDrizzle / TilePipelinedDrizzle by default (3-5x faster than the standard AHD-debayer path on big-N sessions); this flag forces the standard path instead. Useful for A/B against a reference master, or when you specifically want kappa-sigma rejection rather than drizzle's per-cell coverage map. --strategy overrides still win - forcing BayerDrizzle bypasses this flag.",
+            Description = "Opt out of drizzle auto-selection. On RGGB sensors with >= 60 matched frames the selector picks BayerDrizzle / TilePipelinedDrizzle by default (3-5x faster than the standard AHD-debayer path on big-N sessions); this flag forces the standard path instead. Useful for A/B against a reference master, or to compare the two strategies' rejection (the AHD path rejects per output pixel, drizzle per deposited sample). --strategy overrides still win - forcing BayerDrizzle bypasses this flag.",
         };
         var includeIntegrationsOpt = new Option<bool>("--include-integrations")
         {

@@ -9,7 +9,7 @@ namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// Tile-pipelined Bayer drizzle: combines <see cref="DrizzleStrategy"/>'s
-/// forward-projection algorithm (no debayer, no warp, no reject-combine)
+/// forward-projection algorithm (no debayer, no warp; outliers clipped per sample, see <see cref="DrizzleClip"/>)
 /// with <see cref="TilePipelinedStrategy"/>'s strip-pipelined memory
 /// layout (one strip's worth of flux/weight planes live at a time,
 /// rather than the full canvas).
@@ -82,7 +82,9 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
         // target would otherwise bust.
         var calibratedFrameBytes = (long)probe.FrameWidth * probe.FrameHeight * sizeof(float);
         var cacheRam = calibratedFrameBytes * probe.FrameCount;
-        var stripBytes = (long)probe.CanvasWidth * StripHeight * 3 * sizeof(float) * 2; // flux + weight, 3 channels
+        // flux + weight, 3 channels, plus the rejecting drizzle's three strip-local moment planes and
+        // its slope plane (two halo rows are noise against StripHeight and are not counted)
+        var stripBytes = (long)probe.CanvasWidth * StripHeight * 3 * sizeof(float) * 6;
         var masterRam = (long)probe.CanvasWidth * probe.CanvasHeight * 3 * sizeof(float) * 2; // master + coverage canvases
         var inFlightRam = calibratedFrameBytes;
         var ram = cacheRam + stripBytes + masterRam + inFlightRam;
@@ -122,13 +124,13 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
         }
 
         // Wall-time: same components as DrizzleStrategy (no debayer / no
-        // warp / no reject-combine). The strip iteration adds a small
+        // warp, and two projection passes per strip for the clip). The strip iteration adds a small
         // overhead for inverse-projection bounds + strip allocation;
         // covered by the same forward-project per-pixel constant. With
-        // full cache the per-frame work is touched exactly once
+        // full cache the per-frame work is decoded exactly once
         // regardless of strip count.
         var loadCalibrate = _costs.LoadAndCalibrateAllFrames(probe);
-        var projectMs = (double)probe.FrameWidth * probe.FrameHeight * probe.FrameCount * _costs.CpuNsPerDrizzleProjectPixel / 1e6;
+        var projectMs = 2.0 * probe.FrameWidth * probe.FrameHeight * probe.FrameCount * _costs.CpuNsPerDrizzleProjectPixel / 1e6;
         var eta = loadCalibrate + TimeSpan.FromMilliseconds(projectMs);
 
         return new StrategyFit(
@@ -269,6 +271,13 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
         var stripsTotal = (canvasH + StripHeight - 1) / StripHeight;
         var stripIdx = 0;
 
+        // Outlier rejection, per strip: the same two passes as DrizzleStrategy (moments, then a
+        // clipped deposit against the rest of each cell), run over one strip's cells at a time. A
+        // cell's moments only ever see samples landing in that cell, so strip-local moments are
+        // exactly the full-canvas ones and the two drizzle strategies still agree deposit for deposit.
+        var clip = DrizzleClip.From(job.Options.Rejector);
+        long rejectedDeposits = 0, totalDeposits = 0;
+
         for (var stripY0 = 0; stripY0 < canvasH; stripY0 += StripHeight)
         {
             ct.ThrowIfCancellationRequested();
@@ -293,33 +302,71 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
             // kernel takes the accumulator's canvas-coord origin via
             // (xStart, yStart) -- (0, stripY0) for this strip -- so
             // canvas cell (yc, xc) lands at stripFlux[c][yc - stripY0, xc].
-            for (var f = 0; f < n; f++)
+            // A rejecting strip's moments carry one halo row above and below it wherever the canvas
+            // has one, so ComputeSlope reads the same neighbours at the strip's edge rows as the
+            // full-canvas strategy does; the clipped deposit still covers the strip's own rows only.
+            var haloTop = stripY0 > 0 ? 1 : 0;
+            var haloBottom = stripY0 + stripH < canvasH ? 1 : 0;
+            var momentsRect = new PixelRect(0, stripY0 - haloTop, canvasW, stripH + haloTop + haloBottom);
+            var stripMoments = clip is null ? null : new DrizzleMoments(3, momentsRect.Height, canvasW, rowOffset: haloTop);
+            for (var pass = 0; pass < (clip is null ? 1 : 2); pass++)
             {
-                ct.ThrowIfCancellationRequested();
-                if (!cache.TryGet(f, out var calibrated))
+                if (pass == 1)
                 {
-                    // Tier miss: re-decode + recalibrate (+ re-normalise, same as pass 1 -- a
-                    // frame's deposited values must be identical whichever tier serves it). Re-add
-                    // to cache; the cache may evict another frame to make room.
-                    calibrated = LoadCalibrateNormalize(sources[f]);
-                    cache.Set(f, calibrated);
+                    stripMoments?.ComputeSlope();
                 }
 
-                var transform = sources[f].TransformToCanvas;
-                var sourceRect = CanvasGeometry.ProjectCanvasRectToSourceRect(stripRect, transform, rawW, rawH, projectionHalo);
-                if (sourceRect.Width <= 0 || sourceRect.Height <= 0)
+                for (var f = 0; f < n; f++)
                 {
-                    // Frame's source pixels can't reach this strip -- skip
-                    // entirely.
-                    continue;
-                }
+                    ct.ThrowIfCancellationRequested();
+                    if (!cache.TryGet(f, out var calibrated))
+                    {
+                        // Tier miss: re-decode + recalibrate (+ re-normalise, same as pass 1 -- a
+                        // frame's deposited values must be identical whichever tier serves it). Re-add
+                        // to cache; the cache may evict another frame to make room.
+                        calibrated = LoadCalibrateNormalize(sources[f]);
+                        cache.Set(f, calibrated);
+                    }
 
-                DrizzleKernel.IterateAndDeposit(
-                    calibrated, transform, pattern, halfP,
-                    stripFlux, stripWeight,
-                    xStart: 0, xEnd: canvasW,
-                    yStart: stripY0, yEnd: stripY0 + stripH,
-                    sourceRect, badPixelMask, hasBadPixelMask);
+                    var transform = sources[f].TransformToCanvas;
+                    var sourceRect = CanvasGeometry.ProjectCanvasRectToSourceRect(
+                        stripMoments is not null && pass == 0 ? momentsRect : stripRect, transform, rawW, rawH, projectionHalo);
+                    if (sourceRect.Width <= 0 || sourceRect.Height <= 0)
+                    {
+                        // Frame's source pixels can't reach this strip -- skip
+                        // entirely.
+                        continue;
+                    }
+
+                    if (stripMoments is null)
+                    {
+                        DrizzleKernel.IterateAndDeposit(
+                            calibrated, transform, pattern, halfP,
+                            stripFlux, stripWeight,
+                            xStart: 0, xEnd: canvasW,
+                            yStart: stripY0, yEnd: stripY0 + stripH,
+                            sourceRect, badPixelMask, hasBadPixelMask);
+                    }
+                    else if (pass == 0)
+                    {
+                        DrizzleKernel.IterateAndAccumulateMoments(
+                            calibrated, transform, pattern, halfP, stripMoments,
+                            xStart: 0, xEnd: canvasW,
+                            yStart: momentsRect.Y, yEnd: momentsRect.Y + momentsRect.Height,
+                            sourceRect, badPixelMask, hasBadPixelMask);
+                    }
+                    else if (clip is { } c)
+                    {
+                        var (rejected, total) = DrizzleKernel.IterateAndDepositClipped(
+                            calibrated, transform, pattern, halfP, stripMoments, c,
+                            stripFlux, stripWeight,
+                            xStart: 0, xEnd: canvasW,
+                            yStart: stripY0, yEnd: stripY0 + stripH,
+                            sourceRect, badPixelMask, hasBadPixelMask);
+                        rejectedDeposits += rejected;
+                        totalDeposits += total;
+                    }
+                }
             }
 
             // Copy strip-local accumulators into the canvas-sized master
@@ -378,9 +425,9 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
             imageMeta: refMeta);
 
         var uncovered = totalCells - coveredCells;
-        // Drizzle does no kappa-sigma rejection, so it has no rejection fraction to report. Its
-        // accumulated per-pixel weight is coverage and now says so by WHERE it is put, rather than by
-        // a flag on a field named for the other thing.
+        // Drizzle rejects per sample, so it has no per-cell rejection fraction to report. Its
+        // accumulated per-pixel weight is coverage and says so by WHERE it is put, rather than by a
+        // flag on a field named for the other thing; the clip's own count travels beside it.
         return new IntegrationResult(
             Master: master,
             RejectionMap: null,
@@ -389,6 +436,8 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
             MeanRejectionRate: (double)uncovered / totalCells)
         {
             Coverage = coverageMap,
+            DrizzleRejectedDeposits = rejectedDeposits,
+            DrizzleTotalDeposits = totalDeposits,
         };
     }
 

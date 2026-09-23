@@ -99,7 +99,9 @@ public static class SessionRegistrar
     /// enough matched frames for the per-Bayer-position coverage to fill R/B, and the flux +
     /// weight planes inside the RAM budget. Its <c>Rationale</c> is logged when it refuses, so a
     /// session that silently fell back can be explained after the fact.</item>
-    /// <item><b>A matched dark master must exist.</b> Drizzle has no per-cell rejection
+    /// <item><b>A matched dark master must exist.</b> Drizzle's clip (<see cref="DrizzleClip"/>)
+    /// rejects a sample that disagrees with the rest of its cell, which takes out a satellite
+    /// trail but not a hot photosite that tracking lands in the same cell every frame
     /// (<see cref="IntegrationJob.BadPixelMask"/> exists for exactly this reason), whereas the
     /// AHD path's sigma-clip washes hot pixels out across the whole session. Dark subtraction
     /// removes a hot pixel's offset, so a calibrated session is fine; an UNCALIBRATED one relies
@@ -923,6 +925,13 @@ public static class SessionRegistrar
             "  [{Session}] master integrated via {Strategy} ({Frames} frames)",
             session.Id, useDrizzle ? nameof(IntegrationStrategyKind.BayerDrizzle) : nameof(IntegrationStrategyKind.Float16Staged),
             subsList.Length);
+        if (integration.DrizzleTotalDeposits > 0)
+        {
+            logger?.LogInformation(
+                "  [{Session}] drizzle clip rejected {Rejected} of {Total} deposits ({Fraction:P3})",
+                session.Id, integration.DrizzleRejectedDeposits, integration.DrizzleTotalDeposits,
+                (double)integration.DrizzleRejectedDeposits / integration.DrizzleTotalDeposits);
+        }
 
         // 7b. Half-master pair: two integrations over DISJOINT halves, so they share the scene and
         //     nothing else. The split is INTERLEAVED, not the first-half/second-half it is natural

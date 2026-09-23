@@ -82,8 +82,9 @@ public sealed record DatasetBuildOptions
     /// removes them. Measured on this archive, exposure scaling moves almost nothing in the bulk
     /// anyway: on all three sensors the master dark's median EQUALS the master bias's median to the
     /// ADU, so there is no bulk thermal signal to rescale and the arithmetic only ever moves
-    /// defective pixels. Drizzle then has no rejection of its own (<c>DrizzleStrategy</c> says so
-    /// explicitly), which leaves the mask as the only defence.</para>
+    /// defective pixels. Drizzle's own clip is no substitute: it rejects a sample that disagrees
+    /// with the rest of its cell, and a hot photosite on an undithered session lands in the same
+    /// cell every frame, where it IS the rest of the cell. That leaves the mask as the defence.</para>
     /// <para><b>A ceiling, not the threshold.</b> Sigma multiplies a quantized MAD and so is not
     /// portable between darks: 8 recovered 32.95% of one ASI533's consensus defect set from its
     /// gain-121 master dark and 74.77% from its gain-252 one. The detector walks this value DOWN to

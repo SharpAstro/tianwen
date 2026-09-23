@@ -176,7 +176,7 @@ namespace TianWen.Lib.Tests
             IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.CoveragePathFor(drizzledMaster))
                 .ShouldNotBeNull("a drizzle's weight plane is coverage, and coverage has one home");
             IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.RejectionPathFor(drizzledMaster))
-                .ShouldBeNull("drizzle rejects nothing, so there is no fraction to write");
+                .ShouldBeNull("drizzle rejects per sample, not per cell, so there is no per-cell fraction to write");
         }
 
         [Fact]

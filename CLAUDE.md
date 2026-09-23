@@ -1003,6 +1003,22 @@ ask `IsMapSidecarPath` before treating a `.fits` in a master folder as a master.
 APP's format (`BITPIX = 8`, 127 linear / 255 hot / 0 cold) so their maps and ours are interchangeable,
 and it is on the SENSOR's geometry, never the master's canvas.
 
+**Drizzle rejects per DEPOSITED SAMPLE, at the stack's own thresholds, and coverage is not a
+substitute** (#93). Coverage says whether any frame reached a cell; a satellite trail has full
+coverage. Both drizzle strategies used to ignore `job.Options.Rejector`, so every trail and airplane
+in a drizzled session reached the master (the gallery's Omega Cen card). `DrizzleClip` now runs two
+passes (moments, then a clipped deposit) and judges each sample against the OTHER samples in its
+cell: **leave-one-out is not optional**, since an outlier inflates the spread it is judged by and its
+naive z can never pass (n - 1) / sqrt(n), about 4.6 for a red cell of a 91-frame session, under the
+high sigma of 5. **A sample may also deviate by the cell's local SLOPE** (`DrizzleClip.SlopeScale`,
+2, astrodrizzle's `driz_cr_scale` term): a drizzle deposits a photosite as it is, so near a star a
+deposit varies with WHERE the star fell inside it, and without the allowance the clip took a median
+0.75% of every faint star's flux on that master (0.05% with it, the trails removed just the same).
+The tile strategy's strip moments carry a one-row halo so the slope reads the same neighbours as on
+the full canvas. A rejecting drizzle streams `RawBayerFrames` twice, so a producer must be
+re-enumerable. It does NOT replace the dark gate: a hot photosite that tracking lands in the same
+cell every frame is the rest of that cell, not an outlier. Pinned by `DrizzleOutlierRejectionTests`.
+
 **Provenance skip (never re-ingest our own outputs).** The scan drops any TianWen-produced FITS
 (`STACK_N > 0` OR a TianWen `SWCREATE`, gated by `--include-integrations`). Markers, the ghost-master
 failure mode and the `ScanSummary` reporting: the architecture doc above.
