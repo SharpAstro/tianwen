@@ -39,14 +39,19 @@ public readonly record struct SwitchProfileSignal(System.Guid ProfileId);
 /// <c>AppData/RemoteProfiles</c>) and reuses that binding thereafter, so a rig is bound by being
 /// looked at rather than through a separate setup step.
 /// </summary>
-public readonly record struct SelectRemoteRigSignal(string DisplayName);
+/// <param name="DisplayName">The rig, as discovery names it.</param>
+/// <param name="OpenTab">A tab to switch to as well, or null to change only what is looked at. The home
+/// board's double-click passes one; the profile picker does not.</param>
+public readonly record struct SelectRemoteRigSignal(string DisplayName, GuiTab? OpenTab = null);
 
 /// <summary>
 /// Return the view to this computer's own context. The inverse of <see cref="SelectRemoteRigSignal"/>;
 /// like it, it changes only what is displayed -- the rig keeps running and its mirror keeps polling, so
 /// coming back is free and instant.
 /// </summary>
-public readonly record struct SelectLocalContextSignal;
+/// <param name="OpenTab">A tab to switch to as well, or null to change only what is looked at. The home
+/// board passes one for a double-click, and for a click on its only card.</param>
+public readonly record struct SelectLocalContextSignal(GuiTab? OpenTab = null);
 
 /// <summary>
 /// Drop a bound rig entirely: disconnect its mirror and delete its binding record. Distinct from

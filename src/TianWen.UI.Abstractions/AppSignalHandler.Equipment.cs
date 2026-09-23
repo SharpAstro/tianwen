@@ -439,6 +439,12 @@ namespace TianWen.UI.Abstractions
             {
                 // Deliberately ungated: this is a view-context overlay, so the local session keeps
                 // running underneath with its hardware untouched. ProfileSwitchGate must never apply.
+                // The tab switches here, on the UI thread, not after the bind: the tab renders the rig
+                // as soon as its mirror has anything, and a continuation must not write UI state.
+                if (sig.OpenTab is { } openTab)
+                {
+                    appState.ActiveTab = openTab;
+                }
                 RunTracked($"BindRig {sig.DisplayName}", "Could not connect to the rig", async ct =>
                 {
                     var outcome = await RemoteRigActions.SelectAsync(
@@ -449,9 +455,13 @@ namespace TianWen.UI.Abstractions
                 }, onFinally: () => appState.NeedsRedraw = true);
             });
 
-            bus.Subscribe<SelectLocalContextSignal>(_ =>
+            bus.Subscribe<SelectLocalContextSignal>(sig =>
             {
                 _contexts.Activate(_contexts.Local);
+                if (sig.OpenTab is { } openTab)
+                {
+                    appState.ActiveTab = openTab;
+                }
                 appState.NeedsRedraw = true;
             });
 

@@ -71,6 +71,58 @@ namespace TianWen.Lib.Tests
                 .Where(r => r.Result is HitResult.ButtonHit { Action: var a } && a.StartsWith("HomeRig:"))
                 .OrderBy(r => r.Y).ThenBy(r => r.X)];
 
+        /// <summary>
+        /// Renders the board with a bus attached, then routes a press and its release onto the named card the
+        /// way a real click arrives, and returns the tab each select signal asked to open (null for none).
+        /// </summary>
+        private static GuiTab?[] ClickCard(ImmutableArray<RigCard> cards, string title, int clickCount)
+        {
+            using var renderer = new RgbaImageRenderer(1600, 1000);
+            var bus = new SignalBus();
+            var opened = new System.Collections.Generic.List<GuiTab?>();
+            bus.Subscribe<SelectLocalContextSignal>(s => opened.Add(s.OpenTab));
+            bus.Subscribe<SelectRemoteRigSignal>(s => opened.Add(s.OpenTab));
+            var tab = new HomeTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont(), Bus = bus };
+            tab.Render(new GuiAppState { HomeCards = cards }, new RectF32(0, 0, renderer.Width, renderer.Height), Now);
+
+            var card = Cards(tab).Single(r => r.Result is HitResult.ButtonHit { Action: var a } && a == $"HomeRig:{title}");
+            var (x, y) = (card.X + card.Width / 2f, card.Y + card.Height / 2f);
+            var router = new InputRouter(tab.Ui, new BackgroundTaskTracker(), () => { }) { Widgets = () => [tab] };
+            router.Handle(new InputEvent.MouseDown(x, y, ClickCount: clickCount));
+            router.Handle(new InputEvent.MouseUp(x, y));
+            bus.ProcessPending();
+            return [.. opened];
+        }
+
+        // A click selects the rig to LOOK at and opens nothing: with several rigs the click is a choice, and
+        // switching tab on it would take the user off the board they are scanning.
+        [Fact]
+        public void AClickOnOneOfSeveralRigsSelectsItWithoutLeavingTheBoard()
+        {
+            ClickCard([Card("This computer"), Card("Rig B")], "Rig B", clickCount: 1)
+                .ShouldBe(new GuiTab?[] { null });
+        }
+
+        // With one card there is nothing to choose between, and the click that only re-selected the rig
+        // already looked at did nothing visible at all -- a dead click on the landing screen.
+        [Fact]
+        public void AClickOnTheOnlyRigOpensItsEquipmentTab()
+        {
+            ClickCard([Card("This computer")], "This computer", clickCount: 1)
+                .ShouldBe(new GuiTab?[] { GuiTab.Equipment });
+        }
+
+        // A double-click opens whichever rig it lands on: this computer's hardware set-up, or a remote rig's
+        // mirrored session. The release still delivers the click's plain select, which changes nothing more.
+        [Fact]
+        public void ADoubleClickOpensTheRigItLandsOn()
+        {
+            ImmutableArray<RigCard> board = [Card("This computer"), Card("Rig B")];
+
+            ClickCard(board, "This computer", clickCount: 2).ShouldContain(GuiTab.Equipment);
+            ClickCard(board, "Rig B", clickCount: 2).ShouldContain(GuiTab.LiveSession);
+        }
+
         [Fact]
         public void CardsFillTheirColumnAtTheDesignedHeight()
         {

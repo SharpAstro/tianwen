@@ -38,14 +38,24 @@ namespace TianWen.UI.Abstractions
 
             // The cards are built once per frame by the telemetry poll, so the tab neither reaches into the
             // rig registry nor decides when a card is stale.
+            // With one card there is nothing to choose between, and a click that only re-selected the rig
+            // already being looked at did nothing visible, so a lone card's click opens it.
+            var openOnClick = appState.HomeCards.Length == 1;
             RenderLayout(
                 HomeBoardLayout.Build(
                     appState.HomeCards, HomeBoardStyle.Default,
                     contentRect.Width / scale, now, contentRect.Height / scale,
-                    appState.HomeBoardView, SelectAction, SelectViewAction,
-                    GuiTheme.State, CycleThemeAction),
+                    appState.HomeBoardView, card => SelectAction(card, openOnClick), SelectViewAction,
+                    GuiTheme.State, CycleThemeAction,
+                    onOpen: card => SelectAction(card, open: true)),
                 contentRect);
         }
+
+        /// <summary>
+        /// The tab a rig opens on: this computer's Equipment tab, where its hardware is set up, and a remote
+        /// rig's Live Session, which is what its mirror is for.
+        /// </summary>
+        private static GuiTab OpenTabFor(RigCard card) => card.IsLocal ? GuiTab.Equipment : GuiTab.LiveSession;
 
         /// <summary>Posts the header selector's choice; the handler stores it and nothing else happens.</summary>
         private Action<InputModifier>? SelectViewAction(HomeBoardView view) =>
@@ -59,17 +69,20 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// Looking at a rig, not driving it. Local and remote go through the same two signals the profile
-        /// picker posts, so there is exactly one path that changes the view context.
+        /// picker posts, so there is exactly one path that changes the view context. With
+        /// <paramref name="open"/> the signal also switches to the rig's tab (<see cref="OpenTabFor"/>),
+        /// which is a change of tab and nothing more: no driver is connected and nothing is commanded.
         /// </summary>
-        private Action<InputModifier>? SelectAction(RigCard card) => _ =>
+        private Action<InputModifier>? SelectAction(RigCard card, bool open) => _ =>
         {
+            GuiTab? openTab = open ? OpenTabFor(card) : null;
             if (card.IsLocal)
             {
-                PostSignal(new SelectLocalContextSignal());
+                PostSignal(new SelectLocalContextSignal(openTab));
             }
             else
             {
-                PostSignal(new SelectRemoteRigSignal(card.Title));
+                PostSignal(new SelectRemoteRigSignal(card.Title, openTab));
             }
         };
     }

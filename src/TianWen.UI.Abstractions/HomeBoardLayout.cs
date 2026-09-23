@@ -254,6 +254,8 @@ namespace TianWen.UI.Abstractions
         /// <param name="onCycleTheme">Advances the theme, or null to draw no theme control.</param>
         /// <param name="themeControl">How that control presents itself; see <see cref="ThemeControlStyle"/>
         /// before reaching for <see cref="ThemeControlStyle.IconOnly"/>.</param>
+        /// <param name="onOpen">What a DOUBLE-click on a card or row does, beyond the single click's select:
+        /// open the rig's tab. Null for none. See <see cref="WithOpenOnDoubleClick"/>.</param>
         public static Layout.Node Build(
             ImmutableArray<RigCard> cards,
             HomeBoardStyle style,
@@ -265,7 +267,8 @@ namespace TianWen.UI.Abstractions
             Func<HomeBoardView, Action<InputModifier>?>? onSelectView = null,
             UiThemeState theme = UiThemeState.Dark,
             Action<InputModifier>? onCycleTheme = null,
-            ThemeControlStyle themeControl = ThemeControlStyle.IconAndLabel)
+            ThemeControlStyle themeControl = ThemeControlStyle.IconAndLabel,
+            Func<RigCard, Action<InputModifier>?>? onOpen = null)
         {
             var cardArea = width - BodyPadding * 2f;
             var columns = ColumnsFor(cardArea, cards.Length);
@@ -275,7 +278,7 @@ namespace TianWen.UI.Abstractions
 
             if (view is HomeBoardView.Table)
             {
-                body = Table(cards, style, now, onSelect);
+                body = Table(cards, style, now, onSelect, onOpen);
             }
             else
             {
@@ -286,11 +289,11 @@ namespace TianWen.UI.Abstractions
                     : float.PositiveInfinity;
 
                 body = Body(cards, style, columns, now, DetailFor(ColumnWidth(cardArea, columns)), onSelect,
-                    cardsFitWithin, out fellBack);
+                    cardsFitWithin, out fellBack, onOpen);
 
                 if (fellBack)
                 {
-                    body = Table(cards, style, now, onSelect);
+                    body = Table(cards, style, now, onSelect, onOpen);
                 }
             }
 
@@ -564,7 +567,8 @@ namespace TianWen.UI.Abstractions
             ImmutableArray<RigCard> cards,
             HomeBoardStyle style,
             DateTimeOffset now,
-            Func<RigCard, Action<InputModifier>?>? onSelect = null)
+            Func<RigCard, Action<InputModifier>?>? onSelect = null,
+            Func<RigCard, Action<InputModifier>?>? onOpen = null)
         {
             if (cards.IsDefaultOrEmpty)
             {
@@ -578,7 +582,7 @@ namespace TianWen.UI.Abstractions
 
             foreach (var card in cards)
             {
-                rows.Add(TableRow(card, style, now, onSelect));
+                rows.Add(TableRow(card, style, now, onSelect, onOpen));
             }
 
             rows.Add(Layout.Builder.Spacer().HStar());
@@ -633,7 +637,8 @@ namespace TianWen.UI.Abstractions
 
         private static Layout.Node TableRow(
             RigCard card, HomeBoardStyle style, DateTimeOffset now,
-            Func<RigCard, Action<InputModifier>?>? onSelect)
+            Func<RigCard, Action<InputModifier>?>? onSelect,
+            Func<RigCard, Action<InputModifier>?>? onOpen)
         {
             var dot = !card.IsOnline ? style.OfflineDot : card.IsRunning ? style.RunningDot : style.OnlineDot;
 
@@ -661,10 +666,39 @@ namespace TianWen.UI.Abstractions
                 cells.Add(rmsCell);
             }
 
-            return Layout.Builder.HStack([.. cells])
-                .RowH(TitleRowHeight)
-                .WithGap(8f)
-                .Clickable(new HitResult.ButtonHit($"HomeRig:{card.Title}"), onSelect?.Invoke(card));
+            return WithOpenOnDoubleClick(
+                Layout.Builder.HStack([.. cells])
+                    .RowH(TitleRowHeight)
+                    .WithGap(8f)
+                    .Clickable(new HitResult.ButtonHit($"HomeRig:{card.Title}"), onSelect?.Invoke(card)),
+                card, onOpen);
+        }
+
+        /// <summary>
+        /// A double-click on a card or row opens the rig, on top of what the click already does (selects
+        /// it). Stated as a PRESS handler because only a press carries the click count; it declines the
+        /// gesture (returns no drag), so the node's click still fires on release and the select still runs.
+        /// Opening changes the tab and nothing else: the board stays read-only with respect to hardware.
+        /// </summary>
+        private static Layout.Node WithOpenOnDoubleClick(
+            Layout.Node node, RigCard card, Func<RigCard, Action<InputModifier>?>? onOpen)
+        {
+            if (onOpen?.Invoke(card) is not { } open)
+            {
+                return node;
+            }
+
+            return node with
+            {
+                OnPress = press =>
+                {
+                    if (press.Clicks >= 2)
+                    {
+                        open(press.Modifiers);
+                    }
+                    return null;
+                },
+            };
         }
 
         /// <summary>
@@ -703,7 +737,8 @@ namespace TianWen.UI.Abstractions
             ImmutableArray<RigCard> cards, HomeBoardStyle style, int columns,
             DateTimeOffset now, RigCardDetail detail,
             Func<RigCard, Action<InputModifier>?>? onSelect,
-            float fitWithin, out bool fellBackToTable)
+            float fitWithin, out bool fellBackToTable,
+            Func<RigCard, Action<InputModifier>?>? onOpen = null)
         {
             fellBackToTable = false;
 
@@ -726,7 +761,7 @@ namespace TianWen.UI.Abstractions
             var tallest = CardHeight;
             for (var i = 0; i < cards.Length; i++)
             {
-                built[i] = CardBody(cards[i], style, now, detail, onSelect);
+                built[i] = CardBody(cards[i], style, now, detail, onSelect, onOpen);
                 tallest = Math.Max(tallest, built[i].Height);
             }
 
@@ -774,9 +809,10 @@ namespace TianWen.UI.Abstractions
             HomeBoardStyle style,
             DateTimeOffset now,
             RigCardDetail detail = RigCardDetail.Full,
-            Func<RigCard, Action<InputModifier>?>? onSelect = null)
+            Func<RigCard, Action<InputModifier>?>? onSelect = null,
+            Func<RigCard, Action<InputModifier>?>? onOpen = null)
         {
-            var (node, height) = CardBody(card, style, now, detail, onSelect);
+            var (node, height) = CardBody(card, style, now, detail, onSelect, onOpen);
             return node.RowH(height);
         }
 
@@ -790,7 +826,8 @@ namespace TianWen.UI.Abstractions
             HomeBoardStyle style,
             DateTimeOffset now,
             RigCardDetail detail,
-            Func<RigCard, Action<InputModifier>?>? onSelect)
+            Func<RigCard, Action<InputModifier>?>? onSelect,
+            Func<RigCard, Action<InputModifier>?>? onOpen = null)
         {
             var dot = !card.IsOnline ? style.OfflineDot : card.IsRunning ? style.RunningDot : style.OnlineDot;
             var rows = ImmutableArray.CreateBuilder<Layout.Node>(11);
@@ -903,6 +940,7 @@ namespace TianWen.UI.Abstractions
                 .Radius(CardRadius)
                 .Clickable(new HitResult.ButtonHit($"HomeRig:{card.Title}"), selectHandler);
             if (selectHandler is not null) node = node.BgHover(GuiTheme.Hover(cardFill));
+            node = WithOpenOnDoubleClick(node, card, onOpen);
 
             return (node, Math.Max(CardHeight, contentHeight + gaps + CardPadding * 2f));
         }
