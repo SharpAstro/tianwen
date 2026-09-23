@@ -4,8 +4,8 @@ using System.Threading.Tasks;
 using TianWen.DAL;
 using TianWen.Lib.Devices.DAL;
 using ZWOptical.SDK;
-using static ZWOptical.SDK.EAFFocuser1_6;
-using static ZWOptical.SDK.EAFFocuser1_6.EAF_ERROR_CODE;
+using static ZWOptical.SDK.EAFFocuser;
+using static ZWOptical.SDK.EAFFocuser.EAF_ERROR_CODE;
 
 namespace TianWen.Lib.Devices.ZWO;
 

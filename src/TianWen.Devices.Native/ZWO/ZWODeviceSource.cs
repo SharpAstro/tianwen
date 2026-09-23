@@ -5,8 +5,8 @@ using System.Threading.Tasks;
 using System.Threading;
 using ZWOptical.SDK;
 using static ZWOptical.SDK.ASICamera2;
-using static ZWOptical.SDK.EAFFocuser1_6;
-using static ZWOptical.SDK.EFW1_7;
+using static ZWOptical.SDK.EAFFocuser;
+using static ZWOptical.SDK.EFWFilter;
 using TianWen.DAL;
 
 namespace TianWen.Lib.Devices.ZWO;
