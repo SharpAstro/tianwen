@@ -317,7 +317,11 @@ namespace TianWen.UI.Abstractions
                 var isMountWins = pd.SiteTieBreaker == SiteTieBreaker.Mount;
                 Layout.Node TieBtn(string label, bool active, SiteTieBreaker tb, string hit)
                 {
-                    var fill = active ? SlotActive : CreateButton;
+                    // The unselected segment is the NEUTRAL fill. It was CreateButton, which is the same
+                    // Mix(PanelBg, Accent, 0.55) as SlotActive (GuiTheme.PrimaryButtonBg), so both halves
+                    // drew identically and nothing said which side won (reported 2026-09-23). A declared
+                    // button group that owns these colours is the lasting fix.
+                    var fill = active ? SlotActive : SlotNormal;
                     return Layout.Builder.Text(label, BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
                         .WStar().HStar().Bg(fill).BgHover(GuiTheme.Hover(fill))
                         .Clickable(new HitResult.ButtonHit(hit), _ => PostSignal(new UpdateProfileSignal(EquipmentActions.SetSiteTieBreaker(pd, tb))));
