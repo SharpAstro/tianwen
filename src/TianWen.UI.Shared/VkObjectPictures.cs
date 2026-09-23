@@ -15,16 +15,21 @@ namespace TianWen.UI.Shared;
 /// </summary>
 /// <remarks>
 /// The fetch and the decode run on the thread pool (the store's cache check is file I/O and a decode is tens
-/// of milliseconds); the upload happens on the render thread in a later frame, as the Milky Way texture's does.
-/// A texture evicted in the frame that drew it is safe, because <see cref="VkTexture.Dispose"/> defers
-/// destruction until every frame that could reference it has retired.
+/// of milliseconds); the upload is recorded into the NEXT frame, at its start, through
+/// <see cref="VulkanContext.QueueTextureUpload"/>, and the picture is drawn from the frame after it lands. It
+/// used to be a one-shot from the draw path: a render-thread wait for the GPU in the middle of a frame's
+/// render pass, which blocks for as long as the GPU is busy, some drivers reject outright, and on a stuck
+/// GPU leaked a texture per attempt. A texture evicted in the frame that drew it is safe, because
+/// <see cref="VkTexture.Dispose"/> defers destruction until every frame that could reference it has retired.
 /// </remarks>
 internal sealed class VkObjectPictures : IDisposable
 {
     private readonly ObjectPictureCache<ObjectPicture, VkTexture> _cache;
+    private readonly Action _requestRedraw;
 
     public VkObjectPictures(VulkanContext context, Action requestRedraw, ILogger? logger)
     {
+        _requestRedraw = requestRedraw;
         _cache = new ObjectPictureCache<ObjectPicture, VkTexture>(
             load: (image, pixels) => Store is { } store
                 ? Task.Run(() => store.GetAsync(image, pixels))
@@ -51,6 +56,17 @@ internal sealed class VkObjectPictures : IDisposable
 
         if (_cache.TryGet(in image, (int)MathF.Ceiling(rect.Width), out var texture))
         {
+            // Not drawable until its upload is recorded, at the start of a frame (see Upload): drawing it
+            // sooner samples an image that has never been written. Ask for that frame instead.
+            if (!texture.IsUploaded)
+            {
+                _requestRedraw();
+                return;
+            }
+
+            // The staging copy is kept until the texture goes (a picture's is small): freed in the frame that
+            // recorded the upload, a drop of that frame would find nothing left to upload again, and the
+            // picture would never land.
             var fitted = ObjectPictureCache<ObjectPicture, VkTexture>.Fit(rect, texture.Width, texture.Height);
             renderer.DrawTexture(texture.DescriptorSet, fitted.X, fitted.Y, fitted.Width, fitted.Height);
         }
@@ -60,8 +76,7 @@ internal sealed class VkObjectPictures : IDisposable
     {
         // The decoder's bytes are RGBA, so the texture is too: no per-pixel swap into BGRA.
         var texture = VkTexture.CreateDeferred(context, picture.Rgba, picture.Width, picture.Height, VkFormat.R8G8B8A8Unorm);
-        context.ExecuteOneShot(texture.RecordUpload);
-        texture.CleanupStaging();
+        context.QueueTextureUpload(texture);
         return texture;
     }
 

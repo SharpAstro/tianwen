@@ -940,6 +940,8 @@ namespace TianWen.UI.Web.SkyMap
                 // and out at the screen edges.
                 var (vx, vy, vz) = SkyMapState.RaDecToUnitVec(state.CenterRA, state.CenterDec);
                 var viewRadiusRad = (float)double.DegreesToRadians(Math.Min(180.0, state.FieldOfViewDeg));
+                // Bounded in total too, as on the desktop (StarChunkIndex.MaxStarInstancesPerView).
+                magLimit = StarChunkIndex.BudgetedMagnitudeLimit(chunks, vx, vy, vz, viewRadiusRad, magLimit);
 
                 var pipelineBound = false;
                 foreach (var chunk in chunks)

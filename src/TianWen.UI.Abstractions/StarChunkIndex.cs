@@ -192,6 +192,51 @@ namespace TianWen.UI.Abstractions
             return sep <= viewRadiusRad + chunk.ConeRadiusRad;
         }
 
+        /// <summary>
+        /// The most star instances one view's star pass submits. About ten times the default view (31,500
+        /// at magnitude 8.5 over a 60-degree field) and an eighth of the ~2.5M that, submitted at once,
+        /// reset an Adreno X1-85's GPU context; the magnitude limit raised to its cap of 12 over a wide
+        /// field reaches ~0.8M, which is what this bounds.
+        /// </summary>
+        public const uint MaxStarInstancesPerView = 300_000;
+
+        /// <summary>
+        /// <paramref name="magLimit"/>, lowered a half-magnitude bin at a time until the stars the view
+        /// cone reaches at that limit fit in <paramref name="maxInstances"/>. The two culls bound a view on
+        /// two axes; this bounds the product, which neither does alone when the limit is raised by hand.
+        /// Normally one pass over the chunks, answering the limit unchanged; over budget, one more pass
+        /// per bin given up. Never below the first bin, whatever that holds.
+        /// </summary>
+        public static float BudgetedMagnitudeLimit(ReadOnlySpan<StarChunk> chunks,
+            float viewX, float viewY, float viewZ, float viewRadiusRad,
+            float magLimit, uint maxInstances = MaxStarInstancesPerView)
+        {
+            var limit = magLimit;
+            while (true)
+            {
+                ulong total = 0;
+                foreach (var chunk in chunks)
+                {
+                    if (chunk.Count == 0 || !IsVisible(chunk, viewX, viewY, viewZ, viewRadiusRad))
+                    {
+                        continue;
+                    }
+                    total += StarMagnitudeIndex.VisibleCount(chunk.MagBins, limit);
+                    if (total > maxInstances)
+                    {
+                        break;
+                    }
+                }
+
+                // The first bin is where VisibleCount stops going down, so a limit below it buys nothing.
+                if (total <= maxInstances || limit < 1f)
+                {
+                    return limit;
+                }
+                limit -= 0.5f;
+            }
+        }
+
         /// <summary>Bounding cone for a chunk's stars, at the standard record stride. Shared with
         /// <see cref="StarChunkAccumulator"/> so both tables bound their chunks identically.</summary>
         internal static (float X, float Y, float Z, float RadiusRad) ComputeConeOf(ReadOnlySpan<float> span)

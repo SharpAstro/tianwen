@@ -17,6 +17,51 @@ namespace TianWen.Lib.Tests
     {
         private const int Stride = SkyMapState.FloatsPerStar;
 
+        /// <summary>A chunk facing +X whose prefix table holds <paramref name="perBin"/> more stars in each
+        /// half-magnitude bin than the last.</summary>
+        private static StarChunk UniformChunk(uint perBin)
+        {
+            var bins = new uint[StarMagnitudeIndex.BinCount];
+            for (var b = 0; b < bins.Length; b++) bins[b] = perBin * (uint)(b + 1);
+            return new StarChunk(0, bins[^1], bins, 1f, 0f, 0f, 0.1f);
+        }
+
+        [Fact]
+        public void AViewWithinTheBudgetKeepsItsLimit()
+        {
+            StarChunk[] chunks = [UniformChunk(1000), UniformChunk(1000)];
+            // At 8.5 each chunk shows bin 16's prefix, 17,000: 34,000 in all, well inside the budget.
+            StarChunkIndex.BudgetedMagnitudeLimit(chunks, 1f, 0f, 0f, 0.5f, 8.5f).ShouldBe(8.5f);
+        }
+
+        [Fact]
+        public void AViewOverTheBudgetDropsBinsUntilItFits()
+        {
+            StarChunk[] chunks = [UniformChunk(10_000), UniformChunk(10_000)];
+            var limit = StarChunkIndex.BudgetedMagnitudeLimit(chunks, 1f, 0f, 0f, 0.5f, 12f, maxInstances: 300_000);
+
+            // 12 would show 240,000 per chunk (bin 23). The answer is the highest limit that fits, not merely a lower one.
+            var drawn = chunks.Sum(c => (long)StarMagnitudeIndex.VisibleCount(c.MagBins, limit));
+            drawn.ShouldBeLessThanOrEqualTo(300_000);
+            chunks.Sum(c => (long)StarMagnitudeIndex.VisibleCount(c.MagBins, limit + 0.5f)).ShouldBeGreaterThan(300_000);
+        }
+
+        [Fact]
+        public void OnlyChunksTheViewReachesCountAgainstTheBudget()
+        {
+            // One chunk faces the view, one the opposite way: the far one must not cost the near one stars.
+            var far = UniformChunk(20_000) with { ConeX = -1f };
+            StarChunk[] chunks = [UniformChunk(10_000), far];
+            StarChunkIndex.BudgetedMagnitudeLimit(chunks, 1f, 0f, 0f, 0.5f, 12f, maxInstances: 300_000).ShouldBe(12f);
+        }
+
+        [Fact]
+        public void TheBudgetNeverTakesTheLimitBelowTheFirstBin()
+        {
+            StarChunk[] chunks = [UniformChunk(1_000_000)];
+            StarChunkIndex.BudgetedMagnitudeLimit(chunks, 1f, 0f, 0f, 0.5f, 12f, maxInstances: 10).ShouldBeLessThan(1f);
+        }
+
         /// <summary>A star at a known sky position, with its identity encoded in the colour field so a
         /// regrouping that scrambled records is detectable.</summary>
         private static void Write(Span<float> verts, int index, double raHours, double decDeg, float mag)

@@ -705,6 +705,40 @@ namespace TianWen.UI.Abstractions
         public void UploadDocumentTextures(IPreviewSource source, ViewerState state)
         {
             state.NeedsTextureUpdate = false;
+
+            // A texture wider or taller than the device allows is INVALID USAGE, which Vulkan need not
+            // report and a strict driver may fault on. A drizzle-2x master off a full-frame sensor
+            // (19152 x 12776 from an IMX455) is past the 16384 many GPUs allow, so refuse and say why
+            // instead of handing the driver an extent it cannot take.
+            if (source.Width > MaxTextureDimension || source.Height > MaxTextureDimension)
+            {
+                state.StatusMessage = $"{source.Width} x {source.Height} is larger than this GPU's "
+                    + $"{MaxTextureDimension}-pixel texture limit, so it cannot be displayed";
+                return;
+            }
+
+            try
+            {
+                UploadDocumentTexturesCore(source, state);
+            }
+            catch (Exception ex) when (IsGpuTimeout(ex))
+            {
+                // The GPU is stuck, not the upload wrong: ask again once it takes work. Any other failure
+                // is not re-armed, because an upload that fails every time would then fail every frame.
+                state.NeedsTextureUpdate = true;
+                throw;
+            }
+        }
+
+        /// <summary>The largest texture edge the display device takes. Unlimited unless a GPU host says.</summary>
+        protected virtual int MaxTextureDimension => int.MaxValue;
+
+        /// <summary>Whether <paramref name="ex"/> is the display device timing out (a stuck GPU), which is
+        /// worth retrying once it recovers. False unless a GPU host says.</summary>
+        protected virtual bool IsGpuTimeout(Exception ex) => false;
+
+        private void UploadDocumentTexturesCore(IPreviewSource source, ViewerState state)
+        {
             state.StatusMessage = "Preparing display...";
 
 

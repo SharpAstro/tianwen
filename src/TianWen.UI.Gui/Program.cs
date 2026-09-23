@@ -76,6 +76,10 @@ var appState = sp.GetRequiredService<GuiAppState>();
 // service would do). Changed hints a redraw so a rig that appears/disappears while the no-profile
 // screen is showing doesn't wait for the 1Hz clock-tick fallback redraw.
 var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("TianWen.UI.Gui");
+// The renderer's GPU forensics (rejected submits, device loss, recovery, slow GPU frames) default to
+// stderr, which only a launcher that redirects it ever keeps: point them at this app's log file,
+// before anything touches Vulkan.
+SdlVulkanLog.Logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("SdlVulkan.Renderer");
 
 var lanDiscovery = sp.GetRequiredService<LanDiscovery>();
 

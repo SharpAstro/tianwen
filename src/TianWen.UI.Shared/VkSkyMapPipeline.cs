@@ -442,8 +442,11 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     /// </summary>
     public void LoadMilkyWayTexture(ReadOnlySpan<byte> bgraData, int width, int height)
     {
+        // Created BEFORE the old one goes, so a create that throws leaves the field on a live texture,
+        // not on a disposed one the next frame would bind.
+        var texture = VkTexture.CreateFromBgra(_ctx, bgraData, width, height);
         _milkyWayTexture?.Dispose();
-        _milkyWayTexture = VkTexture.CreateFromBgra(_ctx, bgraData, width, height);
+        _milkyWayTexture = texture;
     }
 
     /// <summary>True when a Milky Way texture has been loaded.</summary>
@@ -670,14 +673,17 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         // ~2M-star catalog to the GPU: the unbounded version TDR'd the Adreno X1-85.
         if (drawImagery && _starChunks.Length > 0 && _starCount > 0)
         {
-            var effMag = state.EffectiveMagnitudeLimit;
-
             // View cone in J2000: axis = the look-at direction (identical to the view
             // matrix's forward vector, so the cull is exact in both equatorial and horizon
             // modes). Radius = the full FOV: generous enough to cover the viewport diagonal
             // for any reasonable aspect, so chunks never pop in/out at the screen edges.
             var (vx, vy, vz) = SkyMapState.RaDecToUnitVec(state.CenterRA, state.CenterDec);
             var viewRadiusRad = (float)double.DegreesToRadians(Math.Min(180.0, state.FieldOfViewDeg));
+
+            // Bounded in total as well as by the two culls: a limit raised by hand over a wide field
+            // would otherwise submit most of the catalogue in one pass.
+            var effMag = StarChunkIndex.BudgetedMagnitudeLimit(_starChunks, vx, vy, vz, viewRadiusRad,
+                state.EffectiveMagnitudeLimit);
 
             _ctx.BeginGpuSection("skymap.stars");
             api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _starPipeline);

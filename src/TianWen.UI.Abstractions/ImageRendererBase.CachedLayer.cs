@@ -221,6 +221,28 @@ namespace TianWen.UI.Abstractions
                 ImageW: ImageWidth, ImageH: ImageHeight,
                 LayerW: layerW, LayerH: layerH);
             _cachedLayerRenders++;
+
+            // What the slot HOLDS is recorded here, before the frame carrying the pass has run. A frame
+            // that never reaches the GPU leaves the slot's previous picture (or nothing) under this
+            // record, and a pan that reuses it would draw the old document or the old stretch until
+            // something else invalidated it. So the record goes if the frame does.
+            RegisterFrameRollback(() =>
+            {
+                if ((uint)slot < (uint)_cachedLayerSlots.Length)
+                {
+                    _cachedLayerSlots[slot] = default;
+                }
+            });
+        }
+
+        /// <summary>
+        /// Registers what to undo if the frame being recorded never reaches the GPU (the driver refused it,
+        /// or recovery discarded it), for bookkeeping advanced while RECORDING that frame. A host without
+        /// that failure (a CPU surface) runs nothing. The rollback may run off the render thread, on the
+        /// GPU host's recovery task, while the render thread waits for it.
+        /// </summary>
+        protected virtual void RegisterFrameRollback(Action rollback)
+        {
         }
 
         /// <summary>

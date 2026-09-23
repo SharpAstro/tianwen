@@ -42,6 +42,14 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
         ResolveFontPath();
     }
 
+    /// <inheritdoc />
+    protected override int MaxTextureDimension => (int)Math.Min(_renderer.Context.MaxImageDimension2D, int.MaxValue);
+
+    /// <summary>A stuck GPU: the one-shot upload gave up waiting, or was not submitted because the device
+    /// was already known stuck (<see cref="VulkanDevice.ExecuteOneShot"/>). Worth asking again once it
+    /// takes work.</summary>
+    protected override bool IsGpuTimeout(Exception ex) => ex is Vortice.Vulkan.VkException { Result: Vortice.Vulkan.VkResult.Timeout };
+
     private VkObjectPictures? _pictures;
     private IObjectPictureStore? _pictureStore;
 
@@ -134,6 +142,10 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
 
     /// <inheritdoc/>
     protected override void EndCachedLayerPass() => _renderer.EndCachedLayer();
+
+    /// <inheritdoc/>
+    protected override void RegisterFrameRollback(Action rollback)
+        => _renderer.Context.OnFrameDropped(_renderer.CurrentCommandBuffer, rollback);
 
     /// <inheritdoc/>
     protected override bool TryDrawCachedLayer(int slot, float x, float y, float w, float h,

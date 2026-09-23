@@ -149,6 +149,15 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     private readonly VkImage[] _beforeImages = new VkImage[ChannelCount];
     private readonly VkDeviceMemory[] _beforeMemories = new VkDeviceMemory[ChannelCount];
     private readonly VkImageView[] _beforeViews = new VkImageView[ChannelCount];
+
+    // What a sampler set binds for a channel that has no texture at the moment: a 1x1 zero, owned for
+    // the pipeline's life and never replaced. A channel is without one between a destroy and a create
+    // that THREW (out of device memory, or a one-shot that gave up on a stuck GPU), and a set that
+    // skipped such a channel kept the view it held before, which that destroy had just freed: binding
+    // it is invalid, and on a strict driver a device fault.
+    private VkImage _fallbackImage;
+    private VkDeviceMemory _fallbackMemory;
+    private VkImageView _fallbackView;
     private readonly int[] _beforeWidth = new int[ChannelCount];
     private readonly int[] _beforeHeight = new int[ChannelCount];
     private long _beforeChannelBytes;
@@ -981,6 +990,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             DestroyChannelTexture(i);
             DestroyHistogramTexture(i);
         }
+        _ctx.DeferDestroy(view: _fallbackView, image: _fallbackImage, memory: _fallbackMemory);
 
         // UBO buffers
         if (_stretchUboBuffer != VkBuffer.Null)
@@ -1256,6 +1266,15 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         EnsureStagingBuffer(byteSize);
         CopyToStaging(placeholder.AsSpan(), byteSize);
 
+        // The fallback first, built through slot 0 and then moved out of it, so it is made exactly as a
+        // channel placeholder is. Slot 0 then gets its own placeholder below.
+        CreateChannelTexture(0, 1, 1, VkFormat.R32Sfloat);
+        UploadToImage(_channelImages[0], 1, 1, byteSize, VkFormat.R32Sfloat);
+        (_fallbackImage, _fallbackMemory, _fallbackView) = (_channelImages[0], _channelMemories[0], _channelViews[0]);
+        _channelImages[0] = VkImage.Null;
+        _channelMemories[0] = VkDeviceMemory.Null;
+        _channelViews[0] = VkImageView.Null;
+
         for (var i = 0; i < ChannelCount; i++)
         {
             CreateChannelTexture(i, 1, 1, VkFormat.R32Sfloat);
@@ -1422,6 +1441,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     /// </remarks>
     private void DestroyChannelTexture(int channel)
     {
+        // Here, not at the create that follows: that create can throw, and a set still holding this view
+        // after it is freed is a bind of a destroyed view (see _fallbackView).
+        SamplerViewsChanged();
         _ctx.DeferDestroy(view: _channelViews[channel], image: _channelImages[channel], memory: _channelMemories[channel]);
         _channelViews[channel] = VkImageView.Null;
         _channelImages[channel] = VkImage.Null;
@@ -1449,8 +1471,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     /// The sampler set for <paramref name="slot"/>, rewritten from <paramref name="views"/> first if a
     /// view changed since that slot last drew. Legal because the slot's previous frame retired at the
     /// BeginFrame that produced the command buffer being recorded, so no pending frame holds this set.
-    /// A view a channel does not have (a vacated before slot) falls back to the live view, so a set can
-    /// never hold a null or destroyed one.
+    /// A view a channel does not have (a vacated before slot) falls back to the live view, and a channel
+    /// with no live view either (a create that threw) to <see cref="_fallbackView"/>, so every binding is
+    /// rewritten and a set can never hold a null or destroyed one.
     /// </summary>
     private VkDescriptorSet EnsureSamplerSet(int slot, VkDescriptorSet[] sets, int[] stamps, VkImageView[] views)
     {
@@ -1460,10 +1483,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             for (var i = 0; i < ChannelCount; i++)
             {
                 var view = views[i] != VkImageView.Null ? views[i] : _channelViews[i];
-                if (view != VkImageView.Null)
-                {
-                    BindChannelSampler(i, view, set);
-                }
+                BindChannelSampler(i, view != VkImageView.Null ? view : _fallbackView, set);
             }
             stamps[slot] = _samplerViewsStamp;
         }
