@@ -49,6 +49,7 @@ builder.Services
     .AddAstrometry()
     .AddZWO()
     .AddPlayerOne()
+    .AddToupTek()
     .AddQHY()
     .AddAscom()
     .AddAlpaca()
