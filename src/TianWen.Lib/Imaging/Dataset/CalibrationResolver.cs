@@ -212,7 +212,7 @@ public static class CalibrationResolver
             {
                 continue;
             }
-            var composite = (MasterGroupKey.FromFrame(frame) with { TemperatureC = null }, CalTrain.ForFrame(frame), frame.IsMaster);
+            var composite = (CalibrationEpochs.SetGroupKey(frame), CalTrain.ForFrame(frame), frame.IsMaster);
             if (!byKey.TryGetValue(composite, out var list))
             {
                 byKey[composite] = list = new List<FrameInfo>();

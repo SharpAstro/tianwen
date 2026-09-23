@@ -103,6 +103,39 @@ namespace TianWen.Lib.Imaging.Calibration
         /// library by the same reasoning <see cref="MaxEpochGapDays"/> gives.</para></summary>
         public const double TemperatureToleranceC = 1.5;
 
+        /// <summary>
+        /// The key a calibration frame is grouped under before <see cref="SplitSets"/> divides the
+        /// group into sets: its own key with the temperature left out (the set decides that, by run),
+        /// and for a FLAT with the exposure to three significant figures. The one grouping rule for
+        /// the dataset resolver and <c>tianwen stack</c> alike.
+        ///
+        /// <para><b>Why a flat's exposure is rounded.</b> A flat wizard steps its exposure by a
+        /// fraction of a millisecond while it settles, and the key compares exposure exactly, so one
+        /// flat run became two groups: the SV605CC's 2025-12-20 L-Quad set held 46 frames at 0.47768 s
+        /// and 3 at 0.47808 s, both slugged <c>flat_0.48s_...</c>, and two sessions got the 3-frame
+        /// one. A flat's exposure says nothing about its dust, and the pedestal match that does read
+        /// it tolerates a factor of four. Measured over the 96 filed flat and dark-flat runs
+        /// (2026-09-24): two hold more than one exposure, that set (0.084% apart) and an ASI533
+        /// L-Quad set whose flat wizard probes (0.205 s and 16.4 s beside 6.68 s) are rightly kept
+        /// apart. Darks keep their exact exposure, which their scaling reads.</para>
+        /// </summary>
+        public static MasterGroupKey SetGroupKey(FrameInfo frame)
+        {
+            var key = MasterGroupKey.FromFrame(frame) with { TemperatureC = null };
+            return key.Type is FrameType.Flat ? key with { Exposure = ThreeSignificantFigures(key.Exposure) } : key;
+        }
+
+        private static TimeSpan ThreeSignificantFigures(TimeSpan exposure)
+        {
+            var seconds = exposure.TotalSeconds;
+            if (!(seconds > 0))
+            {
+                return exposure;
+            }
+            var digits = Math.Clamp(2 - (int)Math.Floor(Math.Log10(seconds)), 0, 15);
+            return TimeSpan.FromSeconds(Math.Round(seconds, digits));
+        }
+
         /// <summary>One calibration SET, the unit a master is built from: the frames of one epoch
         /// that also form one temperature run. <paramref name="Start"/>/<paramref name="End"/> span the
         /// set's own frames (default when undated); <paramref name="TemperatureC"/> is the rounded

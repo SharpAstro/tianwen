@@ -2335,7 +2335,7 @@ public sealed class StackingPipeline(
 
         // Temperature is left out of the grouping key and decided per set, by run rather than by
         // degree (CalibrationEpochs.SplitSets, the rule the dataset resolver groups by too).
-        foreach (var group in frames.GroupBy(static f => MasterGroupKey.FromFrame(f) with { TemperatureC = null }))
+        foreach (var group in frames.GroupBy(CalibrationEpochs.SetGroupKey))
         {
             // One master per EPOCH (task #25): a config whose library was re-shot years later must
             // not blend both shoots into one master -- epoch merging attenuates recently-emerged

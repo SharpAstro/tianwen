@@ -758,6 +758,38 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public void GroupCalibration_AFlatRunWhoseExposureJitters_IsOneSet_AndAFlatWizardsProbesAreNot()
+        {
+            // The SV605CC's 2025-12-20 L-Quad run: 46 flats at 0.47768 s and 3 at 0.47808 s, a
+            // flat wizard settling. Compared exactly, that was two groups slugged alike, and two
+            // sessions got the 3-frame one. The ASI533's 2026-04-22 run beside it: 50 at 6.68164 s and
+            // one probe each at 0.20507 s and 16.37665 s, which must stay out of it.
+            var frames = new List<FrameInfo>();
+            for (var i = 0; i < 46; i++) frames.Add(Cal(FrameType.Flat, 0.47768, -5f, gain: 120, when: Utc(2025, 12, 20, 9, 0)));
+            for (var i = 0; i < 3; i++) frames.Add(Cal(FrameType.Flat, 0.47808, -5f, gain: 120, when: Utc(2025, 12, 20, 9, 1)));
+            for (var i = 0; i < 50; i++) frames.Add(Cal(FrameType.Flat, 6.68164, -5f, gain: 121, when: Utc(2026, 4, 22, 9, 0)));
+            frames.Add(Cal(FrameType.Flat, 0.20507, -5f, gain: 121, when: Utc(2026, 4, 22, 8, 58)));
+            frames.Add(Cal(FrameType.Flat, 16.37665, -5f, gain: 121, when: Utc(2026, 4, 22, 8, 59)));
+
+            var flats = CalibrationResolver.GroupCalibration(frames)[FrameType.Flat];
+
+            flats.Select(g => g.Frames.Length).OrderBy(n => n).ShouldBe([1, 1, 49, 50]);
+        }
+
+        [Fact]
+        public void GroupCalibration_ADarksExposureStaysExact()
+        {
+            // Dark scaling reads a dark's exposure, so only a flat's is rounded.
+            var frames = new List<FrameInfo>
+            {
+                Cal(FrameType.Dark, 60.0, -10f), Cal(FrameType.Dark, 60.0, -10f),
+                Cal(FrameType.Dark, 60.02, -10f), Cal(FrameType.Dark, 60.02, -10f),
+            };
+
+            CalibrationResolver.GroupCalibration(frames)[FrameType.Dark].Count.ShouldBe(2);
+        }
+
+        [Fact]
         public void SessionKey_IsTheLightsMedianTemperature_NotTheFirstLights()
         {
             // Lagoon 2025-05-25: the first light read -9.4 C and the rest -10.0, so a session keyed on
