@@ -70,6 +70,9 @@ chromeless Live Session / polar / guide-cam previews (`ViewerState.HideChrome`).
 | `SplitCompareController` | tianwen (UI.Abstractions) | viewer before/after split | owns divider position + drag + mode + pinned settings; arms its own drag from the region it paints. DIR.Lib promotion candidate (the drag half has no domain dependency) |
 | `AltitudeChartRenderer`, `GuideGraphRenderer` | tianwen (UI.Abstractions) | planner, guider | display-only |
 | `ScrollableList` | Console.Lib | TUI tabs | keyboard row scroller; thumb formula already unified into `ListScrollController` at P1 |
+| `Layout.Builder.ButtonGroup<T>` | **DIR.Lib** (11.1) | Home view selector, Tie breaker, device On/Off | segmented control; the style owns the chosen fill, every segment swallows its press, only an actionable one lights, a null `onSelect` is a display (press falls through) |
+| `Layout.Builder.Checkbox` | **DIR.Lib** (11.1) | planetary recenter / ROI rows | drawn `IconKind.Check` in a well, whole row toggles; same hover / disabled / display rules as the group |
+| `Node.DoubleClickable` | **DIR.Lib** (11.1) | Home cards and rows, Session exposure cell | runs on the second press IN PLACE of the click; no press handler reading `Clicks` |
 
 ## Rules
 
@@ -99,6 +102,15 @@ chromeless Live Session / polar / guide-cam previews (`ViewerState.HideChrome`).
    `Node.OnPress`**, so a host not yet on the router needs a place to hold the capture --
    `ImageRendererBase.TryBeginRegionDrag` is the viewer's, and it goes when the toolbar goes on the
    tree.
+   **A choice, a checkbox and a double-click are declarations, not patterns** (DIR.Lib 11.1). A row of
+   buttons where one is "active" is `Layout.Builder.ButtonGroup`; a hand-picked fill per segment is how
+   the site tie-breaker drew both halves in the same colour and said nothing about which side won
+   (2026-09-23). A checkbox is `Layout.Builder.Checkbox`, never `"[x] "` in a label. A double-click is
+   `.DoubleClickable(...)` on the node that was pressed, never a host arm on `clicks >= 2` that then
+   searches the arranged tree for what was under the pointer (the Session tab did exactly that, by Fill
+   key prefix). Still hand-built, deliberately or pending: the polar panel's cycling pills (a cycle, not a
+   set of segments), the TUI's `[On|Off]` strip (colour-only, not clickable), and the viewer's toolbar
+   toggles (independent, not one choice).
 2. **Generic controls live in DIR.Lib** (the widget-framework layering rule): if a control has no
    TianWen domain dependency, it belongs next to `PixelWidgetBase`/`TextInputState`. Domain-specific
    interaction glue (planner slider placement, catalog search resolution) stays in UI.Abstractions --

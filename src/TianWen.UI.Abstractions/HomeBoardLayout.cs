@@ -379,10 +379,7 @@ namespace TianWen.UI.Abstractions
 
             if (onSelectView is not null)
             {
-                foreach (var option in ViewOptions)
-                {
-                    children.Add(ViewButton(option, view, style, onSelectView));
-                }
+                children.Add(ViewSelector(view, style, onSelectView));
             }
 
             if (onCycleTheme is not null)
@@ -514,8 +511,12 @@ namespace TianWen.UI.Abstractions
             _ => Layout.IconKind.Auto,
         };
 
+        /// <summary>Space between the selector's segments: the header's own gap, so the three squares sit
+        /// as they did when they were the header's children.</summary>
+        private const float ViewSegmentGap = 4f;
+
         /// <summary>
-        /// One segmented-selector button. Segments rather than a dropdown: there are three, and the current
+        /// The segmented view selector. Segments rather than a dropdown: there are three, and the current
         /// one has to be readable at a glance from across the room -- a dropdown would hide two of the three
         /// behind a click and still cost the same width.
         /// <para>
@@ -524,30 +525,45 @@ namespace TianWen.UI.Abstractions
         /// no indication of what it is doing. The camera-style bracketed A is the affordance that makes it
         /// showable at icon size at all.
         /// </para>
+        /// <para>
+        /// A declared <see cref="Layout.Builder.ButtonGroup{T}"/>: only the selected segment is filled and the
+        /// others are bare (a null unselected fill), so the row reads as one control with a current value
+        /// rather than three buttons, and only an unselected segment lights, since a press on the current
+        /// view changes nothing. Sized with HFixed, NOT RowH: RowH is "a full-width row of fixed height" and
+        /// sets Width = Star, which silently discards a fixed width -- the trap the card's width hit too (see
+        /// HomeTabLayoutTests' class remarks).
+        /// </para>
         /// </summary>
-        private static Layout.Node ViewButton(
-            HomeBoardView option, HomeBoardView selected, HomeBoardStyle style,
-            Func<HomeBoardView, Action<InputModifier>?> onSelectView)
+        private static Layout.Node ViewSelector(
+            HomeBoardView selected, HomeBoardStyle style, Func<HomeBoardView, Action<InputModifier>?> onSelectView)
         {
-            var isSelected = option == selected;
-            var node = Layout.Builder
-                .Icon(IconFor(option), ViewIconSize, isSelected ? style.BodyText : style.DimText)
-                // HFixed, NOT RowH: RowH is "a full-width row of fixed height" and sets Width = Star, which
-                // silently discards the WFixed above it. That is what the segments were doing before the
-                // icons landed -- ViewButtonWidth was inert and the three buttons sprawled across the whole
-                // header, which is only obvious once you look at an arranged rect. Same trap the card's
-                // width hit (see HomeTabLayoutTests' class remarks).
-                .WFixed(ViewButtonWidth)
-                .HFixed(ControlHeight)
-                .Radius(4f)
-                .Clickable(new HitResult.ButtonHit($"HomeView:{option}"), onSelectView(option));
+            var options = new Layout.ButtonGroupOption<HomeBoardView>[ViewOptions.Length];
+            for (var i = 0; i < ViewOptions.Length; i++)
+            {
+                var option = ViewOptions[i];
+                options[i] = new Layout.ButtonGroupOption<HomeBoardView>(option, Icon: IconFor(option))
+                {
+                    Hit = new HitResult.ButtonHit($"HomeView:{option}"),
+                };
+            }
 
-            // Only the selected segment is filled; an unselected one is bare so the row reads as one control
-            // with a current value rather than three separate buttons. It is the UNSELECTED ones that light
-            // under the pointer, over the header they sit on: a press on the current view changes nothing.
-            return isSelected
-                ? node.Bg(style.ViewedCardBg)
-                : node.BgHover(GuiTheme.Hover(style.HeaderBg, style.BodyText));
+            var groupStyle = new Layout.ButtonGroupStyle(
+                SelectedFill: style.ViewedCardBg,
+                UnselectedFill: null,
+                SelectedContent: style.BodyText,
+                UnselectedContent: style.DimText,
+                HoverFill: GuiTheme.Hover(style.HeaderBg, style.BodyText))
+            {
+                Gap = ViewSegmentGap,
+                CornerRadius = 4f,
+                SegmentWidth = ViewButtonWidth,
+            };
+
+            return Layout.Builder
+                .ButtonGroup<HomeBoardView>(options, selected, view => onSelectView(view)?.Invoke(InputModifier.None),
+                    groupStyle, ViewIconSize)
+                .WFixed(ViewButtonWidth * ViewOptions.Length + ViewSegmentGap * (ViewOptions.Length - 1))
+                .HFixed(ControlHeight);
         }
 
         /// <summary>
@@ -675,30 +691,15 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// A double-click on a card or row opens the rig, on top of what the click already does (selects
-        /// it). Stated as a PRESS handler because only a press carries the click count; it declines the
-        /// gesture (returns no drag), so the node's click still fires on release and the select still runs.
-        /// Opening changes the tab and nothing else: the board stays read-only with respect to hardware.
+        /// A double-click on a card or row opens the rig; the first click of the pair has already selected
+        /// it. Declared on the node (<see cref="Layout.Node.DoubleClickable"/>), so the router runs the open
+        /// in place of a second select. Opening changes the tab and nothing else: the board stays read-only
+        /// with respect to hardware.
         /// </summary>
         private static Layout.Node WithOpenOnDoubleClick(
             Layout.Node node, RigCard card, Func<RigCard, Action<InputModifier>?>? onOpen)
         {
-            if (onOpen?.Invoke(card) is not { } open)
-            {
-                return node;
-            }
-
-            return node with
-            {
-                OnPress = press =>
-                {
-                    if (press.Clicks >= 2)
-                    {
-                        open(press.Modifiers);
-                    }
-                    return null;
-                },
-            };
+            return onOpen?.Invoke(card) is { } open ? node.DoubleClickable(open) : node;
         }
 
         /// <summary>

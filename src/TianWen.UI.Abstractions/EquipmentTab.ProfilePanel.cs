@@ -314,25 +314,20 @@ namespace TianWen.UI.Abstractions
                     => FormRowLayout.LabeledInputRow(label, labelW, fieldH, 0f, BaseFontSize * 0.85f, DimText,
                         input, inputFontSize: BaseFontSize * 0.9f);
 
-                var isMountWins = pd.SiteTieBreaker == SiteTieBreaker.Mount;
-                Layout.Node TieBtn(string label, bool active, SiteTieBreaker tb, string hit)
-                {
-                    // The unselected segment is the NEUTRAL fill. It was CreateButton, which is the same
-                    // Mix(PanelBg, Accent, 0.55) as SlotActive (GuiTheme.PrimaryButtonBg), so both halves
-                    // drew identically and nothing said which side won (reported 2026-09-23). A declared
-                    // button group that owns these colours is the lasting fix.
-                    var fill = active ? SlotActive : SlotNormal;
-                    return Layout.Builder.Text(label, BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
-                        .WStar().HStar().Bg(fill).BgHover(GuiTheme.Hover(fill))
-                        .Clickable(new HitResult.ButtonHit(hit), _ => PostSignal(new UpdateProfileSignal(EquipmentActions.SetSiteTieBreaker(pd, tb))));
-                }
-
-                // Tie-breaker: which side wins on mount connect when both have a site?
+                // Tie-breaker: which side wins on mount connect when both have a site? A declared button
+                // group, so which side won is the STYLE's to show: the two halves were once hand-picked
+                // fills that drifted into the same colour, and nothing said which side won (2026-09-23).
+                ReadOnlySpan<Layout.ButtonGroupOption<SiteTieBreaker>> tieOptions =
+                [
+                    new(SiteTieBreaker.Mount, "Mount") { Hit = new HitResult.ButtonHit("TieMount") },
+                    new(SiteTieBreaker.Profile, "Profile") { Hit = new HitResult.ButtonHit("TieProfile") },
+                ];
+                var tieStyle = new Layout.ButtonGroupStyle(SlotActive, SlotNormal, BodyText, BodyText, GuiTheme.Hover(SlotNormal));
                 var tieRow = Layout.Builder.HStack(
                         Layout.Builder.Text("  Tie:", BaseFontSize * 0.85f, DimText).WFixed(labelW).HStar(),
-                        TieBtn("Mount", isMountWins, SiteTieBreaker.Mount, "TieMount"),
-                        Layout.Builder.Spacer().WFixed(4f).HStar(),
-                        TieBtn("Profile", !isMountWins, SiteTieBreaker.Profile, "TieProfile"))
+                        Layout.Builder.ButtonGroup(tieOptions, pd.SiteTieBreaker,
+                            tb => PostSignal(new UpdateProfileSignal(EquipmentActions.SetSiteTieBreaker(pd, tb))),
+                            tieStyle, BaseFontSize).Stretch())
                     .RowH(BaseButtonHeight);
 
                 var saveRow = Layout.Builder.HStack(

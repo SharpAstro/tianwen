@@ -1602,6 +1602,10 @@ rule: `docs/architecture/widgets-and-controls.md`, read it before any layout wor
 - **A mark is a `Layout.Content.Icon`, never a symbol character in a `Text` run** (a glyph draws
   .notdef where the face lacks it); every step/jog/pan mark resolves in ONE place,
   `FormRowLayout.StepMark`.
+- **A choice, a checkbox and a double-click are DECLARATIONS** (DIR.Lib 11.1):
+  `Layout.Builder.ButtonGroup` (never per-segment hand-picked fills), `Layout.Builder.Checkbox` (never
+  `"[x] "` in a label) and `.DoubleClickable(...)` (never a host arm on `clicks >= 2`). What is still
+  hand-built and why: `docs/architecture/widgets-and-controls.md` rule 1.
 - **`.PadX(u)` / `.Pad(across, down)` for a FIXED-height bar**, or the icon becomes a stub while the
   text overflows and goes on looking correct.
 - **`PushClip(x, y, w, h)` / `PopClip()` on the widget base**, never `Renderer.PushClip` with a

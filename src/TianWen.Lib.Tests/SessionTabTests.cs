@@ -3,6 +3,8 @@ using System.Linq;
 using Console.Lib;
 using DIR.Lib;
 using Shouldly;
+using TianWen.Lib.Devices;
+using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -143,6 +145,51 @@ namespace TianWen.Lib.Tests
             listHit.ListId.ShouldBe("ConfigField");
             state.SelectedFieldIndex.ShouldBe(listHit.Index);
         }
+
+        /// <summary>
+        /// Presses the exposure cell of proposal 0 through the router, as the GUI host does, and returns the
+        /// field's editing index afterwards. The cell DECLARES its double-click, so the router reaches it by
+        /// the painted region alone; nothing searches the layout for the cell under the pointer any more.
+        /// </summary>
+        private static int PressExposureCell(bool running, params int[] clickCounts)
+        {
+            var tab = CreateTab(out var state);
+            state.IsSessionRunning = running;
+            var plannerState = new PlannerState
+            {
+                Proposals = [new ProposedObservation(new Target(5.58, -5.39, "M42", null))],
+            };
+            RenderTab(tab, new GuiAppState(), plannerState);
+
+            var cell = tab.GetRegisteredRegions()
+                .SingleOrDefault(r => r.Result is HitResult.ButtonHit { Action: "EditExp:0" });
+            if (cell == default)
+            {
+                return int.MinValue;
+            }
+
+            var (x, y) = (cell.X + cell.Width / 2f, cell.Y + cell.Height / 2f);
+            var router = new InputRouter(tab.Ui, new BackgroundTaskTracker(), () => { }) { Widgets = () => [tab] };
+            foreach (var clicks in clickCounts)
+            {
+                router.Handle(new InputEvent.MouseDown(x, y, ClickCount: clicks));
+                router.Handle(new InputEvent.MouseUp(x, y));
+            }
+            return state.EditingExposureIndex;
+        }
+
+        [Fact]
+        public void ADoubleClickOnAnExposureOpensItsField()
+            => PressExposureCell(running: false, 1, 2).ShouldBe(0);
+
+        [Fact]
+        public void ASingleClickOnAnExposureOpensNothing()
+            => PressExposureCell(running: false, 1).ShouldBe(-1);
+
+        // A running session's plan is not edited from here, so the cell declares nothing to press.
+        [Fact]
+        public void WhileASessionRunsTheExposureCellOffersNoEdit()
+            => PressExposureCell(running: true, 1, 2).ShouldBe(int.MinValue);
 
         [Fact]
         public void ClickOnConfigFieldLabel_WithGuiContentOffset_SelectsField()
