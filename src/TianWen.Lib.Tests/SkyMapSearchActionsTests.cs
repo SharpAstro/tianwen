@@ -15,6 +15,13 @@ namespace TianWen.Lib.Tests;
 [Collection("Astrometry")]
 public class SkyMapSearchActionsTests
 {
+    // The instant every sky here is viewed at, never the real clock. The click fixtures sit at
+    // RA 12h, Dec 0, where the SUN is at the September equinox, and the click resolver hit-tests the
+    // Sun live: under DateTimeOffset.UtcNow DarkNebulaClickRespectsLayerToggleAndPinning resolved it
+    // on 2026-09-23 and failed on every Linux leg. The hover tests had the same fault (fixed in #338).
+    // At the June solstice the Sun is at RA 6h, Dec +23, a quarter of the sky away.
+    private static readonly DateTimeOffset ViewingUtc = new(2026, 6, 21, 22, 0, 0, TimeSpan.Zero);
+
     // SkyMapSearchActions relies on ICelestialObjectDB for the real index. These
     // tests only cover the parts that don't need a loaded catalog; filter-with-empty
     // index and state plumbing. End-to-end filtering is exercised via the GUI.
@@ -184,7 +191,7 @@ public class SkyMapSearchActionsTests
             new SkyMapSearchResult("nothing", Index: null, ObjType: default, VMag: float.NaN),
             new TextInputFocus(),
             siteLat: 0, siteLon: 0,
-            viewingUtc: DateTimeOffset.UtcNow,
+            viewingUtc: ViewingUtc,
             site: default);
 
         ok.ShouldBeFalse();
@@ -260,7 +267,7 @@ public class SkyMapSearchActionsTests
         offsetPx.ShouldBeGreaterThan(20f);
         offsetPx.ShouldBeLessThan(200f);
 
-        var viewingUtc = DateTimeOffset.UtcNow;
+        var viewingUtc = ViewingUtc;
         var site = SiteContext.Create(0, 0, viewingUtc);
 
         // Plain click -> nebula (ellipse swallows the click).
@@ -315,7 +322,7 @@ public class SkyMapSearchActionsTests
         SkyMapProjection.ProjectWithMatrix(star.RA, star.Dec, skyMap.CurrentViewMatrix, ppr, 500f, 500f,
             out var starX, out var starY).ShouldBeTrue();
 
-        var viewingUtc = DateTimeOffset.UtcNow;
+        var viewingUtc = ViewingUtc;
         var noProposals = ImmutableArray<ProposedObservation>.Empty;
 
         // Plain click -> nebula (the ellipse swallows the click); proves ppr/centre were derived from
@@ -365,7 +372,7 @@ public class SkyMapSearchActionsTests
         SkyMapProjection.ProjectWithMatrix(darkNeb.RA, darkNeb.Dec, viewMatrix, ppr, cx, cy, out var nx, out var ny)
             .ShouldBeTrue();
 
-        var viewingUtc = DateTimeOffset.UtcNow;
+        var viewingUtc = ViewingUtc;
         var site = SiteContext.Create(0, 0, viewingUtc);
 
         // [D] layer OFF, not pinned -> the dark nebula is not selectable.
