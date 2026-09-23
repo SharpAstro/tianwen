@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -296,18 +296,20 @@ public class SkyMapHoverAndPictureTests
         tab.HandleInput(new InputEvent.MouseMove(101f, 100f));
         tab.HoverResolves.ShouldBe(1);
 
-        // Well outside it.
+        // Well outside it, once the clock bound has passed (the fake clock only moves when told to).
         tab.Render(plannerState, rect, time);
+        time.Advance(TimeSpan.FromMilliseconds(10));
         tab.HandleInput(new InputEvent.MouseMove(140f, 140f));
         tab.HoverResolves.ShouldBe(2);
     }
 
-    // The bound that makes hover affordable at a deep zoom, where one resolve was measured at 2 ms
-    // against the real catalogue: a mouse delivers moves at well over frame rate, and nothing can
-    // SHOW a second answer before the next paint. Asserted as a count for the same reason as above --
+    // The bound that makes hover affordable at a deep zoom: a mouse delivers moves at well over frame
+    // rate. A changed answer holds the next resolve until its frame paints; an unchanged one, which
+    // asks for no frame, holds it for the clock bound instead. The fake clock does not move here, so
+    // twenty moves are one resolve either way. Asserted as a count for the same reason as above --
     // every one of these moves draws the identical frame.
     [Fact]
-    public void ManyMovesBetweenTwoFramesCostExactlyOneResolve()
+    public void ManyMovesInsideTheClockBoundCostExactlyOneResolve()
     {
         using var renderer = new RgbaImageRenderer(200, 200);
         var tab = new HoverTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
@@ -326,31 +328,104 @@ public class SkyMapHoverAndPictureTests
 
         tab.HoverResolves.ShouldBe(1);
 
-        // And the budget re-opens with the frame, so the highlight cannot get stuck on a stale answer.
+        // And the budget re-opens with the clock, so the highlight cannot get stuck on a stale answer
+        // even though an unchanged answer paints nothing that could re-open it.
         tab.Render(plannerState, rect, time);
+        time.Advance(TimeSpan.FromMilliseconds(10));
         tab.HandleInput(new InputEvent.MouseMove(60f, 60f));
         tab.HoverResolves.ShouldBe(2);
     }
 
-    // Every resolve asks for a frame, including one that landed on the same object: the budget above
-    // is released by a PAINT, so a resolve that scheduled none would be the last one until something
-    // else repainted.
+    // The pointer moving onto an object is a change on screen, so it has to schedule the frame that
+    // shows the wash.
     [Fact]
-    public void AResolveAlwaysAsksForTheFrameThatWouldShowIt()
+    public void AMoveOntoAnObjectAsksForTheFrameThatShowsItsWash()
     {
         using var renderer = new RgbaImageRenderer(200, 200);
-        var tab = new HoverTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
-        var db = new ArticleDb(Nebula, Star, NebulaShape);
-        var plannerState = new PlannerState { ObjectDb = db };
-        var time = new FakeTimeProviderWrapper(DateTimeOffset.UtcNow);
-        var rect = new RectF32(0, 0, 200, 200);
-
-        tab.State.ShowObjectOverlay = true;
+        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
         tab.Render(plannerState, rect, time);
 
         tab.State.NeedsRedraw = false;
-        tab.HandleInput(new InputEvent.MouseMove(150f, 150f));
+        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
+
+        tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
+        tab.HoverFrameRequests.ShouldBe(1);
         tab.State.NeedsRedraw.ShouldBeTrue();
+    }
+
+    // The cost this pins: every pointer move used to repaint the whole atlas at display rate, even
+    // when the answer was the one already on screen, which held the Adreno X1-85 at up to 70 percent
+    // for a hover that changed nothing (2026-09-23). The resolves still RUN -- the count proves it --
+    // they just draw nothing new, so they ask for nothing.
+    [Fact]
+    public void AMoveThatLandsOnTheSameAnswerAsksForNoFrame()
+    {
+        using var renderer = new RgbaImageRenderer(200, 200);
+        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
+        tab.Render(plannerState, rect, time);
+
+        // Onto the nebula (a change), and paint it.
+        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
+        tab.Render(plannerState, rect, time);
+
+        // Across the same nebula: its ~50 px shape radius covers ten pixels either way.
+        var resolves = tab.HoverResolves;
+        var requests = tab.HoverFrameRequests;
+        time.Advance(TimeSpan.FromMilliseconds(10));
+        tab.HandleInput(new InputEvent.MouseMove(110f, 104f));
+        tab.HoverResolves.ShouldBe(resolves + 1, "the move was resolved, not skipped");
+        tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
+        tab.HoverFrameRequests.ShouldBe(requests, "the same object is already washed");
+
+        // Off it onto bare sky (a change), and paint that.
+        time.Advance(TimeSpan.FromMilliseconds(10));
+        tab.HandleInput(new InputEvent.MouseMove(5f, 5f));
+        tab.State.HoverTarget.ShouldBeNull();
+        tab.HoverFrameRequests.ShouldBe(requests + 1, "the wash has to come off");
+        tab.Render(plannerState, rect, time);
+
+        // Across bare sky: nothing washed before, nothing washed after.
+        resolves = tab.HoverResolves;
+        requests = tab.HoverFrameRequests;
+        time.Advance(TimeSpan.FromMilliseconds(10));
+        tab.HandleInput(new InputEvent.MouseMove(15f, 5f));
+        tab.HoverResolves.ShouldBe(resolves + 1, "the move was resolved, not skipped");
+        tab.State.HoverTarget.ShouldBeNull();
+        tab.HoverFrameRequests.ShouldBe(requests, "bare sky is already unwashed");
+    }
+
+    // The draw's re-test of a target the view moved (sidereal drift in Horizon mode, a zoom) that
+    // finds the same object must not ask for a frame either, or a still pointer over an object in
+    // Horizon mode would repaint every few seconds for nothing.
+    [Fact]
+    public void AMovedViewThatStillFindsTheSameObjectAsksForNoFrame()
+    {
+        using var renderer = new RgbaImageRenderer(200, 200);
+        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
+        tab.Render(plannerState, rect, time);
+        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
+        tab.Render(plannerState, rect, time);
+
+        var resolves = tab.HoverResolves;
+        var requests = tab.HoverFrameRequests;
+        tab.State.FieldOfViewDeg = 4.0;
+        tab.Render(plannerState, rect, time);
+
+        tab.HoverResolves.ShouldBe(resolves + 1, "the moved view was re-tested");
+        tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
+        tab.HoverFrameRequests.ShouldBe(requests, "the re-test landed on the object already washed");
+    }
+
+    private static (HoverTestSkyMapTab Tab, PlannerState PlannerState, FakeTimeProviderWrapper Time, RectF32 Rect)
+        NewNebulaCentredTab(RgbaImageRenderer renderer)
+    {
+        var tab = new HoverTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+        var plannerState = new PlannerState { ObjectDb = new ArticleDb(Nebula, Star, NebulaShape) };
+        tab.State.ShowObjectOverlay = true;
+        tab.State.CenterRA = Nebula.RA;
+        tab.State.CenterDec = Nebula.Dec;
+        tab.State.FieldOfViewDeg = 2.0;
+        return (tab, plannerState, new FakeTimeProviderWrapper(DateTimeOffset.UtcNow), new RectF32(0, 0, 200, 200));
     }
 
     // The view moved since the resolve, so the target is no longer known to be an answer about
