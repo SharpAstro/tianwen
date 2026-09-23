@@ -509,6 +509,45 @@ public class SkyMapHoverAndPictureTests
         changed.ShouldBeLessThan(size * size / 4);
     }
 
+    // Zoomed INTO an object that fills the view (the LMC at a 4.5 degree field, reported 2026-09-23),
+    // every pointer position is inside it, so washing it lit the whole screen under any hover -- a
+    // highlight of everything, which says nothing. The paint is withheld; the answer is not, so the
+    // object is still what a click selects and the highlight never disagrees with the click.
+    [Fact]
+    public void AnObjectThatFillsTheViewIsHoveredButNotWashed()
+    {
+        const int size = 400;
+        using var renderer = new RgbaImageRenderer(size, size);
+        var tab = new HoverTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+        var plannerState = new PlannerState { ObjectDb = new ArticleDb(Nebula, Star, NebulaShape) };
+        var time = new FakeTimeProviderWrapper(DateTimeOffset.UtcNow);
+        var rect = new RectF32(0, 0, size, size);
+
+        // The 60 arcmin nebula at a 0.5 degree field: a 30 arcmin semi-axis against a 15 arcmin half-view.
+        tab.State.ShowObjectOverlay = true;
+        tab.State.CenterRA = Nebula.RA;
+        tab.State.CenterDec = Nebula.Dec;
+        tab.State.FieldOfViewDeg = 0.5;
+        tab.Render(plannerState, rect, time);
+        var without = (byte[])renderer.Surface.Pixels.Clone();
+
+        tab.HandleInput(new InputEvent.MouseMove(size / 2f, size / 2f));
+        tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(Nebula.Index, "still the resolver's answer, so a click selects it");
+
+        tab.Render(plannerState, rect, time);
+        var with = renderer.Surface.Pixels;
+        var changed = 0;
+        for (var i = 0; i < with.Length; i += 4)
+        {
+            if (with[i] != without[i] || with[i + 1] != without[i + 1] || with[i + 2] != without[i + 2])
+            {
+                changed++;
+            }
+        }
+
+        changed.ShouldBe(0, "an object filling the view is not washed");
+    }
+
     /// <summary>
     /// <b>The wash takes the hovered object's shape.</b> An elongated galaxy lights as its ellipse,
     /// not as a spot: inside along the major axis is washed, the same distance out along the minor
