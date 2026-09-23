@@ -11,6 +11,16 @@ namespace TianWen.Lib.Devices.PlayerOne;
 internal class PlayerOneCameraDriver(PlayerOneDevice device, IServiceProvider sp)
     : DALCameraDriver<PlayerOneDevice, POACameraProperties>(device, sp)
 {
+    /// <summary>
+    /// Asked of the connected camera rather than taken from the device URI, so a profile saved
+    /// before discovery named the camera <see cref="PlayerOneDevice.InstrumentName"/>'s way still
+    /// writes that spelling into every frame. Before connect the struct is empty and the display
+    /// name answers.
+    /// </summary>
+    public override string Name => _deviceInfo.Name is { Length: > 0 } model
+        ? PlayerOneDevice.InstrumentName(model, _deviceInfo.SensorModel)
+        : base.Name;
+
     public override string? DriverInfo => $"Player One Camera Driver v{DriverVersion}";
 
     public override string? Description { get; } = $"Player One Camera driver using C# SDK wrapper v{POAGetSDKVersion()}";
