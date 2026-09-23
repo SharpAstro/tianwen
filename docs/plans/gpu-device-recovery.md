@@ -1,6 +1,7 @@
 # GPU device loss: the 2026-09-22 wedge, what the desktop must check, and in-process recovery
 
-Status: **NOT STARTED** (the recovery); **OPEN** (the wedge's trigger). High priority: `TODO.md`.
+Status: **NOT STARTED** (the recovery); **FOUND** (the mechanism: a Windows GPU timeout reset,
+LiveKernelEvent 141); **OPEN** (which submission runs past the 2 s watchdog). High priority: `TODO.md`.
 
 ## What happened (win-arm64, Adreno X1-85, 2026-09-22 20:35 local)
 
@@ -18,11 +19,58 @@ back to 16. The GPU then took longer than 500 ms on a frame and never took anoth
 
 No exception anywhere. The process stayed alive: the session, the input and the tab state all
 kept running (a tab click still retitled the window), but nothing new was ever presented, so the
-window showed its last frame until it was closed. Windows logged no display-driver reset. The
-application log (`%LOCALAPPDATA%/TianWen/Logs/20260922/GUI_20260922T20_25_37.log`) holds nothing
-about it.
+window showed its last frame until it was closed. The application log
+(`%LOCALAPPDATA%/TianWen/Logs/20260922/GUI_20260922T20_25_37.log`) holds nothing about it.
 
-The FITS viewer, running the same renderer and the same wash for an hour beside it, did not wedge.
+The FITS viewer, running the same renderer and the same wash for an hour beside it, did not wedge
+that night. It has wedged the same way before (below).
+
+## What killed the device: a Windows GPU timeout reset (found 2026-09-23)
+
+This section used to say Windows logged no display-driver reset. **That was wrong.** Windows reset
+the GPU and said so, just not where anyone looked. There is no Display event 4101 ("display driver
+stopped responding"), because Windows did not reset the whole adapter. It reset the one engine
+context running our work, and that kind of reset logs somewhere else:
+
+| When | Where | What |
+|---|---|---|
+| 2026-09-22 20:35:37 | `Microsoft-Windows-WerKernel/Operational` 1001/1002 | component `WATCHDOG` creates and submits a live kernel dump, `WATCHDOG-20260922-2035.dmp` |
+| 2026-09-22 20:35:4x | `Application`, Windows Error Reporting 1001 | `LiveKernelEvent`, P1 = `141`, which is `VIDEO_ENGINE_TIMEOUT_DETECTED` |
+
+The laptop has no `TdrDelay` override under `HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers`,
+so the timeout is the 2 s default. That matches the stuck fence: late at 500 ms, then signalled at
+2141 ms, when the reset completed every pending fence.
+
+**It is not specific to the atlas, and it is not the first one.** `src/fitsviewer-stderr3.log` was
+last written at 2026-08-19 13:55:42, the same second as another `WATCHDOG` dump. It is the FITS
+viewer on the same Adreno: fence late at 516 ms, stuck 2516 ms, escalation, then the recovery task
+died with an access violation in `vkGetPhysicalDeviceSurfaceCapabilitiesKHR` inside
+`RecoverFromGpuError`. `WATCHDOG` dumps also fall on 2026-08-04 at 17:37, 18:39 and 19:57, the day of
+the August capture of rejected submits that the renderer's `SubmitFrame` comment describes.
+
+This explains everything in the table above that no theory had explained:
+
+- **The first rejected submit comes before any teardown of ours.** Windows killed our context; our
+  code did not.
+- **The fence signalled and the queue stayed shut.** A reset completes the pending fences, but the
+  context behind them is gone.
+- **`ErrorInitializationFailed` is not a legal `vkQueueSubmit` result.** It is how Qualcomm's driver
+  reports a context the OS has reset, where the spec would say `VK_ERROR_DEVICE_LOST`. So on this
+  driver, a streak of those rejections should be read as device loss.
+- **A 2 s GPU frame after ordinary CPU frames.** Something in one submission ran past the watchdog.
+  What, is still unknown.
+
+**The dumps are gone.** WER deletes a live kernel dump once its report is uploaded, and an elevated
+listing of `C:\Windows\LiveKernelReports` on 2026-09-23 found none since August. The next one has to
+be caught, either by keeping WER's dumps or, better, by measuring GPU time per pass in the renderer
+so a pass that runs long is named before the watchdog fires.
+
+Two consequences for the rest of this plan. The 7.46 recovery rebuilds on the SAME `VkDevice`, so it
+can never bring back a context the OS has reset: what it buys is reporting and load-shedding, not
+recovery. And the device-recreation work below is no longer speculative. It is the only in-process
+answer, and it should be easier than feared here, because the reset has already completed the
+pending work and teardown should not block the way it does on a GPU that is still hung. That is an
+expectation, not a measurement.
 
 ## Two defects, one fixed
 
@@ -179,7 +227,8 @@ Candidates the layer can confirm or clear, in the order of suspicion:
 
 Ruled out on this machine: infinite or NaN vertex positions from a zero-length axis (both the
 generic instanced shader and the atlas overlay shader keep `ext * |axis| <= |axis| + pad`); a CPU
-hang (the event loop pumped throughout); a Windows TDR (none logged).
+hang (the event loop pumped throughout). A Windows GPU timeout was listed here as ruled out, "none
+logged"; it was not ruled out, it was the cause (see "What killed the device").
 
 ## Where the pieces are
 
