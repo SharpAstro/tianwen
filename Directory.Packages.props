@@ -59,7 +59,7 @@
     <PackageVersion Include="Pastel" Version="8.0.0" />
     <PackageVersion Include="System.CommandLine" Version="2.0.12" />
 
-    <PackageVersion Include="DIR.Lib" Version="11.0.*" />
+    <PackageVersion Include="DIR.Lib" Version="11.1.*" />
 
     <PackageVersion Include="SharpAstro.Tiff" Version="$(SharpAstroCodecsVersion)" />
     <PackageVersion Include="SharpAstro.Exif" Version="$(SharpAstroCodecsVersion)" />
@@ -76,7 +76,7 @@
 
     <PackageVersion Include="SharpAstro.Codecs" Version="$(SharpAstroCodecsVersion)" />
 
-    <PackageVersion Include="Console.Lib" Version="5.3.*" />
+    <PackageVersion Include="Console.Lib" Version="5.4.*" />
 
     <PackageVersion Include="SdlVulkan.Renderer" Version="7.47.*" />
     <!-- tools/BakeShaders only. Here rather than inline because this file now covers tools/ as well as
