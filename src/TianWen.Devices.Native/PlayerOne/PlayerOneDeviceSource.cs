@@ -64,8 +64,10 @@ internal class PlayerOneDeviceSource : IDeviceSource<PlayerOneDevice>
                     : deviceInfo.CustomId is { Length: > 0 } cid ? cid : deviceInfo.Name;
 
                 // Escape both halves: a model name contains spaces, and a custom id is
-                // user-supplied text that can contain anything.
-                var uri = new Uri($"{DeviceType.Camera}://{typeof(PlayerOneDevice).Name}/{Uri.EscapeDataString(deviceId)}#{Uri.EscapeDataString(deviceInfo.Name)}");
+                // user-supplied text that can contain anything. The fragment is the display name,
+                // which is what INSTRUME records, so it takes SharpCap's spelling.
+                var displayName = PlayerOneDevice.InstrumentName(deviceInfo.Name, deviceInfo.SensorModel);
+                var uri = new Uri($"{DeviceType.Camera}://{typeof(PlayerOneDevice).Name}/{Uri.EscapeDataString(deviceId)}#{Uri.EscapeDataString(displayName)}");
                 yield return new PlayerOneDevice(uri);
 
                 ids.Add(deviceInfo.ID);

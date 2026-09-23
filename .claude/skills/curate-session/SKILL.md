@@ -393,9 +393,10 @@ on either side counted as a match, which is how the 24 mm session above was hand
 **Calibration from a DIFFERENT capture program must name the camera exactly as the lights do.**
 `CalibrationResolver` treats two known `INSTRUME` values that differ as a hard mismatch (trimmed,
 case-insensitive, nothing more), so the set is silently never used. TianWen's Player One driver
-writes `Uranus-C` where SharpCap writes `Uranus-C (IMX585)`, and 253 darks and biases shot for the
+wrote `Uranus-C` where SharpCap writes `Uranus-C (IMX585)`, and 253 darks and biases shot for the
 SharpCap lights would have calibrated nothing (fixed 2026-09-23 with `dataset tag-card --keyword
-INSTRUME --expect`, on the calibration side because the lights share inodes with the raw archive).
+INSTRUME --expect`, on the calibration side because the lights share inodes with the raw archive;
+the driver now writes SharpCap's spelling, `PlayerOneDevice.InstrumentName`).
 A frame the CLI captured stacks with other TianWen frames by construction, never with another
 program's; compare the cards before filing, and let the offset card's NAME differ (`OFFSET` and
 `BLKLEVEL` are read alike). Offset is only a score penalty there, never a gate, so a borrowed dark
