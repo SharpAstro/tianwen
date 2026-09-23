@@ -47,7 +47,7 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture, ITestOutput
     private readonly record struct RenderStats(
         int Frames, int Coalesced, int Gathers, bool Overlay, int Uploads,
         double LabelMs, double RenderMs, double GatherMs, double ProjectMs, double MarkerMs,
-        int Pins, int Candidates);
+        int Pins, int Candidates, int HoverFrames);
 
     private static async Task<RenderStats> GetStatsAsync(IPage page)
     {
@@ -77,7 +77,9 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture, ITestOutput
             // off), so an empty planner measures an early-out -- read `overlay` here as the analogous
             // guard on the other branch.
             r.GetProperty("pins").GetInt32(),
-            r.GetProperty("cands").GetInt32());
+            r.GetProperty("cands").GetInt32(),
+            // Frames the atlas hover asked for, one per changed answer: what a hover's paints are held to.
+            r.GetProperty("hoverFrames").GetInt32());
     }
 
     /// <summary>
@@ -103,6 +105,32 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture, ITestOutput
             await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
         }
         Assert.Fail($"could not drive the [O] catalog overlay to {on}; the gather assertions would measure nothing");
+    }
+
+    /// <summary>
+    /// Waits on the app rather than the clock: until the page has painted nothing for
+    /// <paramref name="quietFrames"/> animation frames in a row. A delayed repaint (a hover settling,
+    /// 120 ms) lands inside that window or it was never coming. Bounded, and a page that is still painting
+    /// at the bound fails the test, since that is itself the regression these tests exist for.
+    /// </summary>
+    private static async Task<RenderStats> WaitForPaintingToStopAsync(IPage page, int quietFrames = 20, int maxFrames = 600)
+    {
+        var last = await GetStatsAsync(page);
+        var quiet = 0;
+        for (var frame = 0; frame < maxFrames; frame++)
+        {
+            await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
+            var now = await GetStatsAsync(page);
+            quiet = now.Frames == last.Frames ? quiet + 1 : 0;
+            last = now;
+            if (quiet >= quietFrames)
+            {
+                return now;
+            }
+        }
+
+        Assert.Fail($"the page was still painting after {maxFrames} animation frames with nothing happening");
+        return last;
     }
 
     private async Task<IPage> WarmSkyAtlasAsync()
@@ -362,8 +390,10 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture, ITestOutput
         {
             // One upload has to have happened before the pan, or "it did not upload" is vacuous.
             await CanvasGestures.WheelZoomAsync(page, canvas, events: 2, deltaPerEvent: 1.5, burst: false);
-            await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
-            before = await GetStatsAsync(page);
+            // Until the zoom has finished painting, not one frame after it: a zoom's last effect can land
+            // a frame or two late, and its upload then counted against the PAN (uploads +2 against gathers
+            // +1, 2026-09-23, once stray hover wakes stopped flushing it early).
+            before = await WaitForPaintingToStopAsync(page);
             Assert.True(before.Uploads > 0,
                 "no instance buffer was ever uploaded; the pan assertion below would measure nothing");
 
@@ -506,5 +536,54 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture, ITestOutput
         {
             await SetObjectOverlayAsync(page, canvas, on: false);
         }
+    }
+
+    /// <summary>
+    /// A pointer moving over the map with no button held must not repaint per move (#339). The page used
+    /// to request a frame on EVERY pointer move, so a mouse drifting over the canvas redrew it at display
+    /// rate for as long as it moved -- the browser twin of the desktop atlas hover that held an Adreno at
+    /// 70 percent GPU. A move now paints only when it changed something the frame shows: a hover whose
+    /// answer changed (and has settled), a lit highlight, a gesture.
+    ///
+    /// <para>Paced one move per animation frame, so every move COULD paint: that is what makes the bound
+    /// discriminating (before the fix, 40 moves painted 49 frames). Not zero, because crossing a star or an
+    /// object is a real change of the hover answer and legitimately paints once it settles. So the bound is
+    /// held against the hover's OWN count of the frames it asked for (<c>hoverFrames</c>), not against a
+    /// fraction of the moves: every paint must be explained by a changed answer. That also pins the settle
+    /// wake, which must paint only when an answer is actually due.</para>
+    /// </summary>
+    [Fact]
+    public async Task AHoverThatChangesNothingDoesNotPaintPerMove()
+    {
+        var page = await WarmSkyAtlasAsync();
+        var canvas = page.Locator("#planner");
+        var box = await canvas.BoundingBoxAsync() ?? throw new InvalidOperationException("canvas not visible");
+        const int moves = 40;
+
+        // No button: a hover, not a drag. A short path, so it crosses little that the hover could name.
+        var y = (float)(box.Y + (box.Height * 0.4));
+        var x0 = (float)(box.X + (box.Width * 0.4));
+        await page.Mouse.MoveAsync(x0, y);
+        var before = await WaitForPaintingToStopAsync(page); // any settle from the first move has landed
+        for (var i = 1; i <= moves; i++)
+        {
+            await page.Mouse.MoveAsync(x0 + i, y);
+            await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
+        }
+        var after = await WaitForPaintingToStopAsync(page); // and so has a settling hover's delayed frame
+
+        var painted = after.Frames - before.Frames;
+        var asked = after.HoverFrames - before.HoverFrames;
+        Report($"hover: {moves} moves, one per animation frame, painted {painted} frames, the hover asked for {asked}");
+
+        // Every paint must be explained by a changed answer. The slack is for a frame straddling either end
+        // of the window, not a per-change allowance: a settle wake that fires early or finds the switch
+        // cancelled re-arms or returns WITHOUT painting (SkyMapTab.PendingHoverDueIn). Before that it
+        // painted on every wake, 13 frames against 5 changes on a warm page; per move, 48 against 7.
+        const int windowEdgeSlack = 2;
+        Assert.True(painted <= asked + windowEdgeSlack,
+            $"a {moves}-move hover painted {painted} frames but its answer changed only {asked} times: the "
+            + "page is repainting per pointer move again rather than when something changed (#339)");
+        Assert.True(painted < moves, $"a {moves}-move hover painted {painted} frames, one per move or more");
     }
 }

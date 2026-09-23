@@ -1530,7 +1530,12 @@ in the browser and a never-settling walk on the desktop:
 The browser build has no render loop: every input handler repaints synchronously (71% of move-driven
 repaints were superseded inside their own 16.67 ms). `RequestRenderCoalesced()` (via
 `wwwroot/raf-pump.js`) is for `OnPointerMove` / `OnWheel` / `OnPinch` **only**. **Clear the dirty flag
-BEFORE painting and on the schedule-failure path**, or the canvas freezes for good. **A trackpad pinch
+BEFORE painting and on the schedule-failure path**, or the canvas freezes for good. **A pointer move
+repaints only when the router or a tab handled it, a gesture owns it, or the atlas hover's
+`HoverFrameRequests` moved** (#339), never on `NeedsRedraw`, which a render sets for reasons of its own
+(it was true on 41 moves of 41, so a gate on it passed every move); and **the settle wake paints only when
+`SkyMapTab.PendingHoverDueIn` is zero** (re-arms when early, returns when null), or a pointer crossing a
+star field paints once per star it passes. Pinned by `CanvasRenderCostTests.AHoverThatChangesNothingDoesNotPaintPerMove`. **A trackpad pinch
 is `ctrl`+`wheel`** (Blazor `@onwheel`), a different path from the touch bridge and the densest gesture
 the app sees. Details: `docs/plans/web-host-carve-out.md`.
 

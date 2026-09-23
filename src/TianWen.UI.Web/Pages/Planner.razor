@@ -1926,15 +1926,26 @@
     }
 
     // A widget's "a frame after this long" (the sky map's settling hover): the browser paints per event,
-    // so a pointer that stops would otherwise never see the settled answer.
+    // so a pointer that stops would otherwise never see the settled answer. The wake asks whether an answer
+    // is actually due before painting (#339): a pointer crossing a star field schedules one wake per star it
+    // passes, and most find the switch cancelled (null: nothing to show) or not due yet (re-armed for what
+    // is left, which is also how a timer that fired a moment early is handled without a frame).
     async Task RepaintAfterAsync(TimeSpan delay)
     {
         await Task.Delay(delay);
-        if (_skyTab is not null)
+        if (_skyTab?.PendingHoverDueIn is not { } dueIn)
         {
-            _skyTab.State.NeedsRedraw = true;
-            RequestRenderCoalesced();
+            return;
         }
+
+        if (dueIn > TimeSpan.Zero)
+        {
+            _ = RepaintAfterAsync(dueIn);
+            return;
+        }
+
+        _skyTab.State.NeedsRedraw = true;
+        RequestRenderCoalesced();
     }
 
     void RequestRenderCoalesced()
@@ -2500,6 +2511,10 @@
     [JSInvokable]
     public string GetRenderStatsJson()
         => "{\"frames\":" + _renderFrames.ToString(CultureInfo.InvariantCulture)
+            // hoverFrames - the frames the atlas hover has asked for, one per CHANGED answer. The count a
+            // test holds a hover's paints against: a paint during a plain pointer move that this does not
+            // explain is the page repainting per move again (#339).
+            + ",\"hoverFrames\":" + (_skyTab?.HoverFrameRequests ?? 0).ToString(CultureInfo.InvariantCulture)
             + ",\"coalesced\":" + _rafCoalesced.ToString(CultureInfo.InvariantCulture)
             + ",\"gathers\":" + (_skyTab?.PrimOverlayGathers ?? 0).ToString(CultureInfo.InvariantCulture)
             + ",\"overlay\":" + ((_skyTab?.State.ShowObjectOverlay ?? false) ? "true" : "false")
@@ -2723,9 +2738,25 @@
         // off a state machine this page drove by hand; it arms its own DragCapture now, so there is
         // nothing left for a host to consult.
         // The held modifiers ride on the move (DIR.Lib 11.0), as on the press, from the same browser event.
-        router.Handle(new InputEvent.MouseMove(e.X, e.Y, MouseButton.None, ToModifiers(e.Original)));
-        // Coalesced: a drag delivers several moves per vsync and only the last is ever presented.
-        RequestRenderCoalesced(); // mouse-follower / sky-map drag pan
+        var hoverFramesBefore = _skyTab?.HoverFrameRequests ?? 0;
+        var handled = router.Handle(new InputEvent.MouseMove(e.X, e.Y, MouseButton.None, ToModifiers(e.Original)));
+        // A move is a reason to paint only when it changed something the frame shows (#339). It used to
+        // repaint on EVERY move, so a pointer drifting over the page redrew the whole canvas at display
+        // rate for as long as it moved -- the browser twin of the desktop atlas hover that held an Adreno
+        // at 70 percent GPU. What does need a frame says so: the router itself asks when a gesture owns
+        // the move or a hover highlight changes; a tab that handled it (the planner chart's follower, a
+        // sky-map drag pan) returns true; and the atlas hover counts the frames it asks for, which it
+        // does only on a CHANGED answer (a settling one asks later, through RequestFrameAfter).
+        //
+        // NOT NeedsRedraw, on either state: a render sets that flag for reasons of its own, so it was
+        // true on 41 moves of 41 in the E2E and the gate passed every move (the reason the hover tests
+        // count HoverFrameRequests too). Coalesced: a drag delivers several moves per vsync and only
+        // the last is ever presented.
+        var hoverChanged = (_skyTab?.HoverFrameRequests ?? 0) != hoverFramesBefore;
+        if (handled || _pointerGestureActive || hoverChanged)
+        {
+            RequestRenderCoalesced();
+        }
     }
 
     void OnPointerUp(CanvasPointerEventArgs e)

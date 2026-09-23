@@ -140,6 +140,10 @@ public sealed class TianWenWebFixture : IAsyncLifetime
             {
                 WorkingDirectory = repoRoot,
                 UseShellExecute = false,
+                // Never a console window on the desktop of whoever runs the suite: a console child of a
+                // process with no console of its own gets a fresh visible one, and its output is
+                // redirected below anyway.
+                CreateNoWindow = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
             },
