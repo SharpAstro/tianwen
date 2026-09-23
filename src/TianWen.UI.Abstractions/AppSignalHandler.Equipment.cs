@@ -809,7 +809,7 @@ namespace TianWen.UI.Abstractions
 
                 try
                 {
-                    await RunDeviceOpOffRenderThreadAsync(() => EquipmentActions.WarmAndDisconnectAsync(hub, sig.DeviceUri, _logger, force: false, cts.Token).AsTask(), cts.Token);
+                    await RunDeviceOpOffRenderThreadAsync(() => EquipmentActions.WarmAndDisconnectAsync(hub, sig.DeviceUri, _timeProvider, _logger, force: false, cts.Token).AsTask(), cts.Token);
                     Notify(NotificationSeverity.Info, "Camera warmed and disconnected");
                 }
                 catch (OperationCanceledException)
@@ -853,7 +853,7 @@ namespace TianWen.UI.Abstractions
 
                 try
                 {
-                    await EquipmentActions.WarmAndCoolerOffAsync(hub, sig.DeviceUri, _logger, cts.Token);
+                    await EquipmentActions.WarmAndCoolerOffAsync(hub, sig.DeviceUri, _timeProvider, _logger, cts.Token);
                     Notify(NotificationSeverity.Info, "Camera warmed; cooler off");
                 }
                 catch (OperationCanceledException)
