@@ -74,7 +74,7 @@ Repository: https://github.com/SharpAstro/tianwen
 src/
 ├── TianWen.slnx                   # Solution file (XML format)
 ├── Directory.Build.props          # Auto-detect sibling repos (ProjectReference vs PackageReference)
-├── Directory.Packages.props       # Centralized package version management
+├── (Directory.Packages.props)     # Centralized package versions: at the REPO ROOT, not in src/
 ├── TianWen.Lib/                   # Core library (net10.0)
 ├── TianWen.Devices.Native/        # ZWO + QHYCCD drivers, split out so Lib carries no vendor natives
 ├── TianWen.Lib.SourceGenerators/  # Roslyn generators for Lib (DispatchInterfaceGenerator)
