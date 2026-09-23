@@ -257,6 +257,35 @@ the worked example with its specific failure-class table.
 header metadata reads where a missing value is annoying but a retry storm is
 worse, and for all finaliser steps.
 
+## A lost exposure: the driver's own rung, below all of the above
+
+Everything above reacts to a driver call that THROWS. A camera that stops delivering frames does not
+throw: every call succeeds and the exposure simply never finishes. Before the rung below, a DAL
+camera in that state reported `Exposing` for ever, and since the imaging loop only starts an
+exposure on an `Idle` camera, the night stopped taking frames without an error anywhere.
+
+`DALCameraDriver` (`DALCameraDriver.Recovery.cs`) therefore owns two steps of its own, for every
+DAL vendor:
+
+1. **Deadline.** An exposure still working at `duration + 15 s + duration / 10`
+   (`LostExposureGrace`), or one the SDK reports `Failed`, is LOST: the driver stops it on the device
+   and returns to `Idle` with no image, so the loop logs a failed fetch and starts the next frame. It
+   is counted once however often the state is polled.
+2. **Reset.** Two lost exposures in a row (`ResetAfterConsecutiveLostExposures`) on a body with
+   `INativeDeviceInfo.CanResetDevice` reset it before the NEXT exposure, never inside a state poll:
+   `ResetDevice()`, re-find it by the same identity `DoConnectDeviceAsync` uses (up to 20 s), re-run
+   `InitCamera`, and restore the driver's settings (ROI, binning, bit depth, fast readout) plus gain,
+   offset, white balance, cooler target and cooler on, read from the wedged device before the reset.
+   A camera that does not come back leaves the driver in `CameraState.Error` and throws, which the
+   session's own rungs then handle. A frame that arrives clears the count.
+
+Measured on a ToupTek G3M678M 2026-09-23, the one body that can reset from software today: 1 lost
+trigger in 600 with no SDK event at all (only the deadline sees it; the next trigger worked), and video
+stalls that survived close and reopen and cleared only with the reset. The hardware check of the
+reset path is `ToupTekResetRecoveryProbe` (`TIANWEN_TOUPTEK_PROBE=1`): back in 1.4 s, gain and offset
+restored, the next frame taken binned. The binding's half (arming the SDK's no-packet and no-frame
+timeouts so a stalled transfer fails the exposure at once) is in ToupTek.SDK 1.1.
+
 ## Files
 
 ### New

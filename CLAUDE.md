@@ -872,6 +872,12 @@ All driver calls reachable from the session hot path go through `Session.Resilie
 - **Never introduce a raw `await driver.X(...)` on the session hot path.** Grep PRs for regressions.
 - **Pick the preset:** `IdempotentRead` (3 attempts), `NonIdempotentAction` (1 attempt, would
   double-issue), `AbsoluteMove` (2 attempts, safe to re-issue).
+- **A frame the camera never delivers throws nothing, so none of the above sees it.** The imaging
+  loop only starts an exposure on an `Idle` camera, and a lost frame used to leave a DAL camera
+  `Exposing` for ever: no frames, no error. `DALCameraDriver` gives a lost exposure up at
+  `duration + 15 s + 10%` (and on an SDK `Failed`), and resets a `CanResetDevice` body before the
+  next exposure after two in a row, restoring its settings. Measured cause and the hardware probe:
+  the lost-exposure section of `docs/architecture/driver-resilience.md`.
 
 **A command that fails BACKWARD (returns hardware to a state the driver believes it already reached,
 e.g. Skywatcher's `:I1` sidereal-rate restore and `:K1`/`:K2` pulse stop) needs verified retry, not

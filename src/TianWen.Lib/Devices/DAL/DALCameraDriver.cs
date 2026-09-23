@@ -11,7 +11,7 @@ using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices.DAL;
 
-internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverBase<TDevice, TDeviceInfo>, ICameraDriver
+internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverBase<TDevice, TDeviceInfo>, ICameraDriver
     where TDevice : DeviceBase
     where TDeviceInfo : struct, ICMOSNativeInterface
 {
@@ -683,26 +683,45 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
 
     private CameraState GetCameraStateInternal()
     {
-        if (_camState is CameraState.Exposing && _deviceInfo.GetExposureStatus(out var snapStatus) is CMOSErrorCode.Success)
+        if (_camState is not CameraState.Exposing)
+        {
+            return _camState;
+        }
+
+        if (_deviceInfo.GetExposureStatus(out var snapStatus) is CMOSErrorCode.Success)
         {
             switch (snapStatus)
             {
                 case ExposureStatus.Idle:
-                case ExposureStatus.Failed:
                     _camState = CameraState.Idle;
                     Interlocked.Exchange(ref _camImageReady, IMAGE_STATE_NO_IMG);
                     break;
 
+                case ExposureStatus.Failed:
+                    _camState = CameraState.Idle;
+                    Interlocked.Exchange(ref _camImageReady, IMAGE_STATE_NO_IMG);
+                    NoteLostExposure("the camera reported the exposure failed");
+                    break;
+
                 case ExposureStatus.Success:
                     _camState = CameraState.Idle;
+                    Interlocked.Exchange(ref _consecutiveLostExposures, 0);
                     // do not provide the actual time as it is not clear how long ago it finished
                     SetImageReadyToDownload(null);
+                    break;
+
+                case ExposureStatus.Working when IsPastLostExposureDeadline():
+                    AbandonLostExposure("it was still exposing");
                     break;
 
                 case ExposureStatus.Working:
                     _camState = CameraState.Exposing;
                     break;
             }
+        }
+        else if (IsPastLostExposureDeadline())
+        {
+            AbandonLostExposure("its status could not be read");
         }
 
         return _camState;
@@ -987,6 +1006,11 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
     }
 
     public ValueTask<DateTimeOffset> StartExposureAsync(TimeSpan duration, FrameType frameType = FrameType.Light, CancellationToken cancellationToken = default)
+        => ShouldResetBeforeNextExposure
+            ? ResetThenStartExposureAsync(duration, frameType, cancellationToken)
+            : ValueTask.FromResult(StartExposureCore(duration, frameType));
+
+    private DateTimeOffset StartExposureCore(TimeSpan duration, FrameType frameType)
     {
         var settingsSnapshot = _cameraSettings;
 
@@ -1094,7 +1118,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
             _exposureSettings = settingsSnapshot;
             Interlocked.Exchange(ref _camImageReady, IMAGE_STATE_NO_IMG);
 
-            return ValueTask.FromResult(startTime);
+            return startTime;
         }
         else
         {
