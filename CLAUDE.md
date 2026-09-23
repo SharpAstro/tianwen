@@ -616,7 +616,12 @@ HIGHLIGHT, not hover selection: the click still selects (`docs/plans/in-app-sky-
   travel, never through a declared region). **Drawn FIRST of the annotation layers**, which is
   what makes a pointer resting over the search modal or the layer palette harmless with none of them
   claiming the pointer: the sky behind resolves, the wash paints under the panel covering it.
-- **At most ONE resolve per painted frame, and every resolve asks for a frame.** Measured by
+- **Only a CHANGED answer asks for a frame** (another object, or onto or off one), and resolves are
+  bounded by the pending frame or, with none pending, by `HoverResolveMinInterval` (8 ms) on the app
+  clock. Every resolve used to ask for one, so every pointer move repainted the whole atlas at
+  display rate and a hover that changed nothing held the Adreno at up to 70 percent (2026-09-23).
+  Assert with `HoverFrameRequests`, never `NeedsRedraw`, which a render sets for reasons of its own.
+  The resolve cost itself, measured by
   `SkyMapHoverResolveBenchmarks` (Release, win-arm64): over an OBJECT ~9 us at any zoom, over bare
   STAR FIELD 157 us at 1 degree and 134 at 10, falling to ~1.7 us by 60, and **0 B on every row**
   (389 us / 225 KB before the fixes below). **The 16x is entirely WHETHER THE STAR PASS RUNS, not a
@@ -637,8 +642,7 @@ HIGHLIGHT, not hover selection: the click still selects (`docs/plans/in-app-sky-
   advances and allocates nothing, and `RaDecCellEnumerationTests` holds the two equal for every
   cell of the sky against the catalogue bucketed independently, which is how the blob's 254
   duplicate identifiers and its one unaddressable star were found (`docs/known-limitations.md`).
-  Resolve -> frame -> clear is self-limiting; "resolve only when the answer changed" is not,
-  because the budget is released by a PAINT. **Three corrections worth keeping: a Debug timing was
+  **Three corrections worth keeping: a Debug timing was
   ~5x pessimistic and blended the two paths; the cliff was attributed to the magnitude limit by
   reading the code; and a test-host Stopwatch ranked terms by JIT order. Attribute with
   `SkyMapHoverResolveCostProbe` (`TIANWEN_HOVER_PROBE=1 DOTNET_TieredCompilation=0`).**
