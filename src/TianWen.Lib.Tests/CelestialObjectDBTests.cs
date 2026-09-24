@@ -126,6 +126,27 @@ public class CelestialObjectDBTests
         celestialObject.Dec.ShouldBeInRange(expectedDecDeg - 0.001d, expectedDecDeg + 0.001d);
     }
 
+    /// <summary>
+    /// A Hipparcos star Tycho-2 main lacks is in Supplement 1, whose HIP field carries the CCDM
+    /// component after the number ("375C"). The baker parsed the whole field as an integer, which
+    /// fails on the letter, so 3,768 supplement records mapped no HIP. Of the 396 numbers nothing
+    /// else mapped, 384 resolved to nothing at all; the other 12 (Arcturus, Alpha Centauri A) were
+    /// reached through the HR and SIMBAD cross-identifications instead. Both rows here were among
+    /// the 384. Positions are the supplement's J1991.25 ones carried to J2000 by proper motion.
+    /// </summary>
+    [Theory]
+    [InlineData("HIP000375", 0.07784d, 34.27136d)]  // HIP 375C, TYC 2267-819-2, Hp 10.1
+    [InlineData("HIP000570", 0.11539d, -30.60850d)] // HIP 570B, TYC 6989-544-1, Hp 12.0
+    public async Task ASupplementStarsHipNumberWithAComponentLetterResolves(string hip, double expectedRaHours, double expectedDecDeg)
+    {
+        var db = await InitDBAsync();
+
+        db.TryLookupByIndex(hip, out var star).ShouldBeTrue($"{hip} must resolve through its Supplement 1 record");
+
+        star.RA.ShouldBeInRange(expectedRaHours - 0.001d, expectedRaHours + 0.001d);
+        star.Dec.ShouldBeInRange(expectedDecDeg - 0.001d, expectedDecDeg + 0.001d);
+    }
+
     [Fact]
     public async Task GivenAUGCAIdentifierWhenLookingItUpThenTheCrossReferencedObjectIsReturnedNotTheUGCOne()
     {
