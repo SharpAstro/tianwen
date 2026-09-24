@@ -18,24 +18,38 @@ public abstract record class DeviceBase(Uri DeviceUri)
     private DeviceType? _deviceType;
 
     [JsonIgnore]
-    public DeviceType DeviceType => _deviceType ??= TryParseDeviceType();
-
-    private DeviceType TryParseDeviceType() => DeviceTypeHelper.TryParseDeviceType(DeviceUri.Scheme);
+    public DeviceType DeviceType => _deviceType ??= DeviceTypeOf(DeviceUri);
 
     private string? _deviceId;
 
     [JsonIgnore]
-    public string DeviceId => _deviceId ??= string.Concat(DeviceUri.Segments[1..]);
+    public string DeviceId => _deviceId ??= DeviceIdOf(DeviceUri);
 
     private NameValueCollection? _query;
     [JsonIgnore]
     public NameValueCollection Query => _query ??= HttpUtility.ParseQueryString(DeviceUri.Query);
 
     [JsonIgnore]
-    public string DisplayName => HttpUtility.UrlDecode(DeviceUri.Fragment.TrimStart('#'));
+    public string DisplayName => DisplayNameOf(DeviceUri);
 
     [JsonIgnore]
-    public string DeviceClass => DeviceUri.Host;
+    public string DeviceClass => DeviceClassOf(DeviceUri);
+
+    // The ONE reading of a device URI. The instance properties above call these, and so does
+    // anything that has a URI but no device (Profile.Detailed describing an undiscovered device),
+    // so the two can never disagree about what a URI says.
+
+    /// <summary>The device type is the URI scheme.</summary>
+    internal static DeviceType DeviceTypeOf(Uri deviceUri) => DeviceTypeHelper.TryParseDeviceType(deviceUri.Scheme);
+
+    /// <summary>The device id is the path segments after the leading slash, joined.</summary>
+    internal static string DeviceIdOf(Uri deviceUri) => string.Concat(deviceUri.Segments[1..]);
+
+    /// <summary>The display name is the URL-decoded fragment.</summary>
+    internal static string DisplayNameOf(Uri deviceUri) => HttpUtility.UrlDecode(deviceUri.Fragment.TrimStart('#'));
+
+    /// <summary>The device class is the URI host.</summary>
+    internal static string DeviceClassOf(Uri deviceUri) => deviceUri.Host;
 
     /// <summary>
     /// Short vendor / transport moniker shown in the equipment device list

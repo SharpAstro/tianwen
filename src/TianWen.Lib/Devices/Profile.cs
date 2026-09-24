@@ -120,14 +120,24 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
         {
             if (deviceUriRegistry.TryGetDeviceFromUri(deviceUri, out var device))
             {
-                return device.DisplayName is { Length: > 0 } ? $"{device.DisplayName} ({device.DeviceId})" : device.DeviceId;
+                return NameAndId(device.DisplayName, device.DeviceId);
             }
-            else
+
+            // Not discovered (unplugged, a remote rig, a driver not installed here): the URI still
+            // carries the name, id, type and class, read by the device's own rules.
+            var deviceId = DeviceIdOf(deviceUri);
+            if (deviceId.Length == 0)
             {
-                // TODO try to parse URI manually
                 return $"{deviceUri} [Unknown Device]";
             }
+
+            var deviceClass = DeviceClassOf(deviceUri);
+            var via = deviceClass.Length > 0 ? $" via {deviceClass}" : "";
+            return $"{NameAndId(DisplayNameOf(deviceUri), deviceId)} [not discovered: {DeviceTypeOf(deviceUri)}{via}]";
         }
+
+        static string NameAndId(string displayName, string deviceId)
+            => displayName is { Length: > 0 } ? $"{displayName} ({deviceId})" : deviceId;
     }
 }
 
