@@ -13,6 +13,7 @@ namespace TianWen.Lib.Devices.Alpaca;
 [JsonSerializable(typeof(AlpacaResponse<int[]>))]
 [JsonSerializable(typeof(AlpacaResponse<string[]>))]
 [JsonSerializable(typeof(AlpacaResponse<double[]>))]
+[JsonSerializable(typeof(AlpacaResponse<AlpacaAxisRate[]>))]
 [JsonSerializable(typeof(AlpacaResponse<List<AlpacaConfiguredDevice>>))]
 [JsonSerializable(typeof(AlpacaMethodResponse))]
 [JsonSerializable(typeof(AlpacaDiscoveryResponse))]

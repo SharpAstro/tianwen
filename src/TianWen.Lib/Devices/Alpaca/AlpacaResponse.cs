@@ -68,3 +68,15 @@ public sealed class AlpacaConfiguredDevice
     [JsonPropertyName("UniqueID")]
     public string UniqueID { get; set; } = "";
 }
+
+/// <summary>
+/// One entry of <c>telescope/axisrates</c>: a range of rates the axis can move at, in degrees per second.
+/// </summary>
+public sealed class AlpacaAxisRate
+{
+    [JsonPropertyName("Minimum")]
+    public double Minimum { get; set; }
+
+    [JsonPropertyName("Maximum")]
+    public double Maximum { get; set; }
+}

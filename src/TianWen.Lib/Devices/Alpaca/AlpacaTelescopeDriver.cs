@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
@@ -31,10 +32,11 @@ internal class AlpacaTelescopeDriver(AlpacaDevice device, IServiceProvider servi
 
         _equatorialSystem = (EquatorialCoordinateType)await Client.GetIntAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "equatorialsystem", cancellationToken);
 
-        // Cache CanMoveAxis for all 3 axes
+        // Cache CanMoveAxis and the axis rates for all 3 axes; an axis that cannot move has no rates.
         for (int axis = 0; axis < 3; axis++)
         {
             _canMoveAxis[axis] = await TryGetCapabilityAsync($"canmoveaxis?Axis={axis}", cancellationToken);
+            _axisRates[axis] = _canMoveAxis[axis] ? await TryGetAxisRatesAsync(axis, cancellationToken) : [];
         }
 
         // Cache current rate values
@@ -43,9 +45,63 @@ internal class AlpacaTelescopeDriver(AlpacaDevice device, IServiceProvider servi
         try { _guideRateRA = await Client.GetDoubleAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "guideraterightascension", cancellationToken); } catch { }
         try { _guideRateDec = await Client.GetDoubleAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "guideratedeclination", cancellationToken); } catch { }
 
-        // TODO: query tracking rates from Alpaca when the endpoint supports enumeration
+        _trackingSpeeds = await TryGetTrackingSpeedsAsync(cancellationToken);
 
         return true;
+    }
+
+    private async Task<IReadOnlyList<AxisRate>> TryGetAxisRatesAsync(int axis, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var rates = await Client.GetAxisRatesAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, $"axisrates?Axis={axis}", cancellationToken);
+            if (rates is null)
+            {
+                return [];
+            }
+
+            var result = new AxisRate[rates.Length];
+            for (var i = 0; i < rates.Length; i++)
+            {
+                result[i] = new AxisRate(rates[i].Minimum, rates[i].Maximum);
+            }
+            return result;
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            Logger.LogWarning(ex, "Alpaca {DeviceId} axisrates for axis {Axis} could not be read: {Message}", _device.DeviceId, axis, ex.Message);
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// <c>trackingrates</c> is an array of ASCOM DriveRates integers, mapped through <see cref="DriveRates"/>.
+    /// A value the mapping does not know is skipped rather than guessed at.
+    /// </summary>
+    private async Task<List<TrackingSpeed>> TryGetTrackingSpeedsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var driveRates = await Client.GetIntArrayAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "trackingrates", cancellationToken);
+            var speeds = new List<TrackingSpeed>(driveRates?.Length ?? 0);
+            foreach (var driveRate in driveRates ?? [])
+            {
+                if (DriveRates.TryFromDriveRate(driveRate, out var speed))
+                {
+                    speeds.Add(speed);
+                }
+                else
+                {
+                    Logger.LogWarning("Alpaca {DeviceId} reports tracking rate {DriveRate}, which is not an ASCOM DriveRates value; ignored", _device.DeviceId, driveRate);
+                }
+            }
+            return speeds;
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            Logger.LogWarning(ex, "Alpaca {DeviceId} trackingrates could not be read: {Message}", _device.DeviceId, ex.Message);
+            return [];
+        }
     }
 
     private async Task<bool> TryGetCapabilityAsync(string endpoint, CancellationToken cancellationToken)
@@ -97,6 +153,7 @@ internal class AlpacaTelescopeDriver(AlpacaDevice device, IServiceProvider servi
     // Cached static properties
     private EquatorialCoordinateType _equatorialSystem;
     private bool[] _canMoveAxis = [false, false, false];
+    private IReadOnlyList<AxisRate>[] _axisRates = [[], [], []];
 
     // Write-through cached properties
     private double _rightAscensionRate, _declinationRate, _guideRateRA, _guideRateDec;
@@ -144,12 +201,13 @@ internal class AlpacaTelescopeDriver(AlpacaDevice device, IServiceProvider servi
     public async ValueTask<TrackingSpeed> GetTrackingSpeedAsync(CancellationToken cancellationToken)
     {
         var rate = await Client.GetIntAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "trackingrate", cancellationToken);
-        return (TrackingSpeed)rate;
+        return DriveRates.FromDriveRate(rate);
     }
 
     public async ValueTask SetTrackingSpeedAsync(TrackingSpeed value, CancellationToken cancellationToken)
     {
-        await PutMethodAsync("trackingrate", [new("TrackingRate", ((int)value).ToString(CultureInfo.InvariantCulture))], cancellationToken);
+        var driveRate = DriveRates.ToDriveRate(value);
+        await PutMethodAsync("trackingrate", [new("TrackingRate", driveRate.ToString(CultureInfo.InvariantCulture))], cancellationToken);
     }
 
     public async ValueTask<bool> AtHomeAsync(CancellationToken cancellationToken)
@@ -333,11 +391,7 @@ internal class AlpacaTelescopeDriver(AlpacaDevice device, IServiceProvider servi
 
     public bool CanMoveAxis(TelescopeAxis axis) => (int)axis >= 0 && (int)axis < _canMoveAxis.Length && _canMoveAxis[(int)axis];
 
-    public IReadOnlyList<AxisRate> AxisRates(TelescopeAxis axis)
-    {
-        // TODO: parse axis rates from Alpaca response
-        throw new NotImplementedException();
-    }
+    public IReadOnlyList<AxisRate> AxisRates(TelescopeAxis axis) => (int)axis >= 0 && (int)axis < _axisRates.Length ? _axisRates[(int)axis] : [];
 
     public async ValueTask MoveAxisAsync(TelescopeAxis axis, double rate, CancellationToken cancellationToken)
     {
