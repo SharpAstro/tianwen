@@ -316,7 +316,7 @@ the GUI stops when the GUI does; one that runs in the server finishes.
 | Mount move-axis (polar Phase A; the ninaAPI shim has one) | start carries a LEASE the client must renew; the axis stops when it lapses or the connection drops | new. Safer than today: a GUI that dies mid-move today leaves the axis running |
 | Discovery, profile edits (about 8 writers in the GUI), site reconcile, sensor capture, credential store | async discovery job with progress and a completion event; profile edit endpoints on the socket only | new; **the server becomes the only profile writer** |
 | Session start / abort / prompts / flats | exists (`/session/*`); the GUI must subscribe to the mirror's prompts, which it never does today | P0b fixes |
-| Full-resolution frames: preview, subs, guide frames, polar refine | linear frames, P4 | new |
+| Full-resolution frames: preview, subs, guide frames, polar refine | linear frames, P4; a saved sub is its FITS file, mapped locally and fetched remotely | new |
 | Polar alignment, planetary capture with its rolling stack | server run kinds, P5 | new |
 | Mount limit verdict (the GUI reads `MountLimitWatcher.VerdictFor` every frame) | session-less telemetry field | new |
 
@@ -334,7 +334,8 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
     Alpaca clients.
   - **`SessionStateDto.LastFramePath`** names the last sub the server wrote. A local GUI could open it
     as is, linear and with its headers, but only saved subs have one; previews, polar and planetary
-    frames never touch disk.
+    frames never touch disk. A remote client cannot open it at all: it is a path on the node, and no
+    endpoint serves the file.
 - **Where the 16-bit to float conversion happens: in the camera driver, so in the server, unchanged.**
   - The DAL driver (ZWO, QHY, Player One, ToupTek) converts right after `GetDataAfterExposure` fills its
     reused native buffer. Alpaca and ASCOM convert as they decode.
@@ -358,7 +359,8 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
   (104 MB), extrapolated. Measure a real frame before designing anything faster.
 - **Fetching.** `GET /frames/{source}/latest?after=N` answers only when frame N+1 exists, and a
   `FRAME-AVAILABLE` push tells the client when to ask. The same endpoint serves a remote rig over TCP,
-  so remote rigs get linear frames too.
+  so remote rigs get linear frames too. A SAVED sub is fetched as its file instead (see "A saved
+  frame is its FITS file" below).
 - **Shared memory for a client on the same machine (P4b).** Measured 2026-09-24 on the same box: a 26 MP
   float frame (104 MB) through a named, pagefile-backed map, opened a second time by name as a client
   process would, took 4.5 ms to write and 4.5 ms to read in the steady state (the first frame, while
@@ -501,6 +503,39 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
   - **Where it pays.** The socket's ~80 ms is fine for a sub every 2 to 300 s. Shared memory matters
     for polar refinement (a full frame about once a second), the planetary live frame, a future live
     view, and several local clients watching one camera.
+- **A saved frame is its FITS file, for a remote client as much as a local one, and where the
+  original lives is a NODE policy** (user, 2026-09-24: "usually a mini pc will have plenty of storage
+  and its always good to have the original at hand in case something goes wrong").
+  - **The node that runs the session writes the original, once, on its own disk, and keeps it.** That
+    is already where a remote rig's subs land, since `Session` writes where it runs. What is missing is
+    a way for a client to reach them: `LastFramePath` names a path on the node, and no endpoint serves
+    the file.
+  - **A client re-hydrates a saved frame from that file and from nothing else.** A local client maps
+    it (above). A remote client fetches the same bytes through a new `GET /frames/{id}/fits`, which
+    resumes by `Range` and carries the digest the node took as it wrote, then reads its copy through
+    the same mapped reader. So a remote frame arrives bit-identical to the original, headers included,
+    which the float wire format does not promise, and the float format is left to frames that are
+    never saved (previews, polar refinement, guide frames, the planetary live frame). It also disposes
+    of decision 6's objection for saved frames: the client reads a file it holds, so nothing seeks a
+    socket.
+  - **Each machine decides about its own disk, so the policy has two halves:**
+    - **The node's retention**, set on the node, since it depends on the machine. `Keep` never
+      deletes an original. `FreeWhenCopied`, for a node short of storage (a Raspberry Pi on its SD
+      card), deletes the node's OLDEST frames that a client has fetched and verified by digest, and
+      only once free space falls below a floor; it never deletes a frame with no verified copy
+      elsewhere, and with nothing eligible it warns and deletes nothing.
+    - **The client's copy**, set on the client's binding to that node (`RemoteRigBinding`), since it
+      depends on the client. `OnOpen` fetches a frame when the user opens it, into a cache. `Mirror`
+      pulls each saved frame as it lands, into the client's own archive. `AfterSession` pulls the
+      night once the run has ended.
+  - **Before a night, the node compares the schedule's frames with its free space** (frame count
+    times frame size, less the retention floor) and warns at the start, rather than filling the disk
+    part-way through.
+  - **The local node has nothing to choose**: the file is on this machine already, in the output
+    folder, and the GUI maps it.
+  - **What the copies buy.** The node's original survives a client crash, a link dropped part-way
+    through a transfer (the fetch resumes) and a failed client disk. A mirror survives the node's own
+    disk failing. The defaults are decision 9.
 - **Ownership.** `Image` ownership does not cross the boundary: the client owns what it decoded, and
   the server releases its buffer once sent.
 
@@ -535,7 +570,7 @@ each piece as it lands. Then the GUI switches over in one step.
 | **P1** | Local node transport and lifetime: `--socket`, the lock, spawn with breakaway / setsid, readiness, idle exit, version handshake, clock hand-off, LAN opt-in, the crash journal and stale socket and shared-memory clean-up; `TianWenNodeClient` and the event stream over the socket; `tianwen-server` built and published INTO the GUI's own output directory (a build-only reference), so "spawned from the GUI's own directory" holds in a checkout as well as in a release | functional tests spawn a real server on a temp socket with fakes, and kill it mid-run to see the next one reconnect from the journal; AOT `publish -r win-arm64` and `linux-arm64`, then run it |
 | **P2** | Session-less device plane: connect / disconnect / warm-and-disconnect, cooling and camera settings, focuser, filter, mount actions, leased move-axis, snapshot plus `DEVICE-STATE`, mount-limit verdict, `DeviceOwnershipGate` on every actuation | the server functional suite drives the Equipment flows the GUI runs today, end to end, against fakes |
 | **P3** | Profiles and discovery on the server: async discovery job, profile edits (socket only), site reconcile, sensor capture, credential store; the server as the one profile writer | reconcile and edit parity tests against today's `EquipmentActions` results |
-| **P4** | Linear frames: binary format, `FRAME-AVAILABLE`, guide frames; a network-backed `LiveFramePreviewSource` | a round-trip test that is pixel-exact against the camera's own buffer; a measured 26 MP transfer |
+| **P4** | Linear frames: binary format, `FRAME-AVAILABLE`, guide frames; a network-backed `LiveFramePreviewSource`; a saved frame as its FITS file (`GET /frames/{id}/fits`, `Range`, the write-time digest), the node's retention and the client's copy policy, the pre-night space check | a round-trip test that is pixel-exact against the camera's own buffer; a measured 26 MP transfer; a remote fetch byte-identical to the node's file, resumed after a dropped connection; a `FreeWhenCopied` node that never deletes a frame with no verified copy |
 | **P4b** | Shared-memory carrier for local clients: two slots per source, a seqlock per slot, the server writer as a `ChannelBuffer` borrower and the client reader as a driver-shaped recycling source, Windows sections with a per-user DACL, `shm_open` on Linux and macOS | the same pixel-exact test through the slot; a client killed mid-read leaves the server writing; a measured cross-process 26 MP frame on each OS |
 | **P5** | Run kinds: polar alignment, planetary capture with the rolling stack and recentering, preview / snapshot / solve and sync | each mode run over a fake rig through the socket, including a client killed mid-run with the run continuing |
 | **P6** | **The cut**: the GUI drops `IDeviceHub`, every device source and its `TianWen.Devices.Native` reference; Local means the local node; quit detaches; its `MountLimitWatcher` is deleted; inspector snapshot fields read the mirror; `unattended-ui-driving.md` and the E2E harness spawn a server; packaging ships `tianwen-server` inside the GUI's archive and `.app` (every file in `Contents/MacOS` signed) | the unattended-driving flows pass unchanged against a spawned server; killing the GUI mid-session leaves the session running; a new GUI re-attaches to it |
@@ -558,7 +593,9 @@ each piece as it lands. Then the GUI switches over in one step.
    to 16-bit when every sample allows it, carried in shared memory for a local client (P4b) and as bytes
    for a remote one. The alternative is streaming FITS, which is self-describing,
    but a socket cannot seek and parts of our FITS read path do (CLAUDE.md, the gzip note under "The
-   image is not necessarily in HDU 0").
+   image is not necessarily in HDU 0"). This decision now covers only frames that are never saved: a
+   SAVED frame is its FITS file for every client ("A saved frame is its FITS file"), fetched whole and
+   read locally, so the seek objection does not arise for it.
 7. **Migration.** Recommended: build the server surface first, then cut the GUI over in one wave (P6).
    The alternative is a startup flag with both paths alive, which this repo's rules argue against.
 8. **After a server crash: DECIDED 2026-09-24, the crash journal** (user: "yes we do need that crash
@@ -566,6 +603,14 @@ each piece as it lands. Then the GUI switches over in one step.
    one held, restoring mount-limit enforcement and each camera's cooling from its recorded intent. The
    GUI offers "Stop the rig safely" or "Start the session again", never a silent resume. Its design and
    its two guards are under "When the server dies".
+9. **Frame storage: the principle is DECIDED 2026-09-24, two defaults are open.** Decided (user): the
+   node that runs the session keeps the original, remote nodes included, and what else happens to it
+   is policy, per machine ("A saved frame is its FITS file"). Open: the defaults for the two halves.
+   Recommended: the node's retention `Keep`, with `FreeWhenCopied` only as an explicit setting on a
+   node that is short of storage; the client's copy `OnOpen`, with `Mirror` one setting away on each
+   binding, since mirroring every sub costs the client's disk and the node's copy already keeps the
+   original at hand. The alternative client default is `Mirror`, which has the night on two machines
+   by dawn.
 
 ## Open questions (engineering, not the user's)
 
