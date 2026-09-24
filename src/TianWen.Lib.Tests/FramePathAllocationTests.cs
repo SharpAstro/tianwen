@@ -105,6 +105,70 @@ public class FramePathAllocationTests
             $"three colour planes for the master and no mosaic: {allocated:N0} bytes against {fullPlane:N0} a plane");
     }
 
+    [Fact]
+    public async Task LumaStretchStatisticsAllocateNoLumaPlane()
+    {
+        // Every colour document (a live master on each publish) takes a luminance statistic, and the luma
+        // plane it is taken on used to be a new full-size array per call, read once for a median and a MAD.
+        const int n = 512;
+        var planes = Image.CreateChannelData(3, n, n);
+        var rng = new Random(9);
+        foreach (var plane in planes)
+        {
+            for (var y = 0; y < n; y++)
+            {
+                for (var x = 0; x < n; x++)
+                {
+                    plane[y, x] = (float)rng.NextDouble();
+                }
+            }
+        }
+
+        var image = new Image(planes, BitDepth.Float32, 1f, 0f, 0f, Meta(SensorType.Color));
+        var ct = TestContext.Current.CancellationToken;
+        var first = await image.GetLumaStretchStatsAsync(ct);
+
+        var before = GC.GetTotalAllocatedBytes(precise: true);
+        var again = await image.GetLumaStretchStatsAsync(ct);
+        var allocated = GC.GetTotalAllocatedBytes(precise: true) - before;
+
+        TestContext.Current.TestOutputHelper?.WriteLine($"luma stretch statistics over {n} x {n}: {allocated} bytes");
+        again.ShouldBe(first, "a rented luma plane gives the same statistic");
+        var lumaPlane = (long)n * n * sizeof(float);
+        allocated.ShouldBeLessThan(lumaPlane / 2, $"the luma plane is rented: {allocated:N0} bytes against a {lumaPlane:N0}-byte plane");
+    }
+
+    [Fact]
+    public void AMedianAndMadAllocateNoHistogram()
+    {
+        // Only two numbers leave GetPedestralMedianAndMADScaledToUnit, yet it built a whole histogram for them:
+        // 65,536 bins, 256 KB for a unit-scaled float image, per call. The live preview makes one per channel
+        // per frame (StretchSolver.CollectPerChannelStats), and every document several.
+        const int n = 512;
+        var plane = new float[n, n];
+        var rng = new Random(13);
+        for (var y = 0; y < n; y++)
+        {
+            for (var x = 0; x < n; x++)
+            {
+                plane[y, x] = (float)rng.NextDouble();
+            }
+        }
+
+        var image = new Image([plane], BitDepth.Float32, 1f, 0f, 0f, Meta(SensorType.Monochrome));
+        var first = image.GetPedestralMedianAndMADScaledToUnit(0);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var again = image.GetPedestralMedianAndMADScaledToUnit(0);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        TestContext.Current.TestOutputHelper?.WriteLine($"median and MAD over {n} x {n}: {allocated} bytes");
+        again.ShouldBe(first, "rented bins give the same statistic");
+        var statistics = image.Statistics(0, removePedestral: true);
+        again.Median.ShouldBe(statistics.Median.ShouldNotBeNull() / statistics.RescaledMaxValue.ShouldNotBeNull(), "and the one Statistics gives");
+        allocated.ShouldBeLessThan(16 * 1024, "the 256 KB histogram is rented");
+    }
+
     private static ImageMeta Meta(SensorType sensorType) => new ImageMeta(
         "alloc", DateTimeOffset.UtcNow, TimeSpan.FromSeconds(10),
         FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,

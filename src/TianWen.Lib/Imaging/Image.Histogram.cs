@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -27,7 +28,30 @@ public partial class Image
     /// <returns>historgram values</returns>
     public ImageHistogram Histogram(int channel, byte thresholdPct = 91, bool ignoreBlack = true, bool calcStats = false, bool removePedestral = false, int pixelStride = 1, CfaChannel? cfa = null)
     {
-        var (channelCount, width, height) = Shape;
+        var (rescaledMaxValue, scaleFactor, threshold) = HistogramScale(channel, thresholdPct);
+
+        // A plain array, wrapped without copying at the return. The builder this replaced cost
+        // TWICE the memory for the same bins: its own backing array, then another one because
+        // ToImmutableArray() on a Builder copies. Measured at 0.50 MB per call against 0.25 MB,
+        // and a document open makes 10-12 of these calls. The zero-fill loop is gone too -- it was
+        // 64 AddRange calls per histogram to write zeros that `new uint[]` already guarantees.
+        var histogram = new uint[threshold];
+        var (hist_mean, hist_total, median, mad) = FillHistogram(
+            channel, ignoreBlack, calcStats, removePedestral, pixelStride, cfa, scaleFactor, threshold, histogram);
+
+        // AsImmutableArray wraps the array rather than copying it. Safe because `histogram` is a
+        // local that does not escape this method by any other route, so no caller can hold a
+        // mutable alias to the bins.
+        return new ImageHistogram(channel, ImmutableCollectionsMarshal.AsImmutableArray(histogram), hist_mean,
+            hist_total, threshold, thresholdPct, rescaledMaxValue, median, mad, ignoreBlack);
+    }
+
+    // Checks the arguments and decides the bins: the scale a sample is binned at (a unit-scaled float image
+    // is binned in [0, 65535], inline) and how many bins the threshold keeps. Shared by Histogram and the
+    // rented median-and-MAD path, so the two cannot bin differently.
+    private (float? RescaledMaxValue, float ScaleFactor, uint Threshold) HistogramScale(int channel, byte thresholdPct)
+    {
+        var channelCount = ChannelCount;
 
         if (channel >= channelCount)
         {
@@ -57,13 +81,17 @@ public partial class Image
         }
 
         var threshold = (uint)Math.Round(effectiveMaxValue * (0.01d * thresholdPct), MidpointRounding.ToPositiveInfinity) + 1;
-        // A plain array, wrapped without copying at the return. The builder this replaced cost
-        // TWICE the memory for the same bins: its own backing array, then another one because
-        // ToImmutableArray() on a Builder copies. Measured at 0.50 MB per call against 0.25 MB,
-        // and a document open makes 10-12 of these calls. The zero-fill loop is gone too -- it was
-        // 64 AddRange calls per histogram to write zeros that `new uint[]` already guarantees.
-        var histogram = new uint[threshold];
+        return (rescaledMaxValue, scaleFactor, threshold);
+    }
 
+    // The one traversal: fills `histogram` (threshold bins, zeroed by the caller) and derives the mean, the
+    // count and, with calcStats, the median and MAD. Histogram runs it over a new array it then returns;
+    // GetPedestralMedianAndMADScaledToUnit runs it over rented bins, since only two numbers leave.
+    private (float Mean, long Total, float? Median, float? Mad) FillHistogram(
+        int channel, bool ignoreBlack, bool calcStats, bool removePedestral, int pixelStride, CfaChannel? cfa,
+        float scaleFactor, uint threshold, Span<uint> histogram)
+    {
+        var (_, width, height) = Shape;
         var hist_total = 0L;
         var count = 1; /* prevent divide by zero */
         // Accumulate as double, not float: a 61 MP IMX455 frame with sky ~12 ADU
@@ -261,11 +289,7 @@ public partial class Image
             mad = float.NaN;
         }
 
-        // AsImmutableArray wraps the array rather than copying it. Safe because `histogram` is a
-        // local that does not escape this method by any other route, so no caller can hold a
-        // mutable alias to the bins.
-        return new ImageHistogram(channel, ImmutableCollectionsMarshal.AsImmutableArray(histogram), hist_mean,
-            hist_total, threshold, thresholdPct, rescaledMaxValue, median, mad, ignoreBlack);
+        return (hist_mean, hist_total, median, mad);
     }
 
     public ImageHistogram Statistics(int channel, bool removePedestral = false, int pixelStride = 1, CfaChannel? cfa = null)
@@ -273,15 +297,32 @@ public partial class Image
 
     public (float Pedestral, float Median, float MAD) GetPedestralMedianAndMADScaledToUnit(int channel, int pixelStride = 1, CfaChannel? cfa = null)
     {
-        var stats = Statistics(channel, removePedestral: true, pixelStride: pixelStride, cfa: cfa);
-        if (stats.Median is not { } median || stats.MAD is not { } mad)
+        // Statistics(channel, removePedestral: true) over RENTED bins: only the median and the MAD leave, so
+        // the histogram is scratch. It used to be a new array per call, 256 KB for a unit-scaled float image,
+        // on every live preview frame (StretchSolver.CollectPerChannelStats, per channel) and every document.
+        var (rescaledMaxValue, scaleFactor, threshold) = HistogramScale(channel, thresholdPct: 100);
+        var rented = ArrayPool<uint>.Shared.Rent((int)threshold);
+        float? medianOrNull, madOrNull;
+        try
+        {
+            var bins = rented.AsSpan(0, (int)threshold);
+            bins.Clear();
+            (_, _, medianOrNull, madOrNull) = FillHistogram(
+                channel, ignoreBlack: false, calcStats: true, removePedestral: true, pixelStride, cfa, scaleFactor, threshold, bins);
+        }
+        finally
+        {
+            ArrayPool<uint>.Shared.Return(rented);
+        }
+
+        if (medianOrNull is not { } median || madOrNull is not { } mad)
         {
             throw new InvalidOperationException("Median and MAD should have been calculated");
         }
 
         // The histogram may have been computed on a rescaled copy (float [0,1] → ushort [0,65535]).
         // Median and MAD are in that rescaled space and need dividing by rescaledMaxValue.
-        var maxValueFactor = 1f / (stats.RescaledMaxValue ?? MaxValue);
+        var maxValueFactor = 1f / (rescaledMaxValue ?? MaxValue);
 
         // The histogram with removePedestral:true subtracted the rescaled image's MinValue.
         // The pedestal must land in the SAME space as the median above. When the histogram was
@@ -293,7 +334,7 @@ public partial class Image
         // MinValue/MaxValue would inflate the pedestal relative to the median's space. The
         // un-rescaled (ADU, MaxValue > 1) path keeps MinValue/MaxValue, matching median/MaxValue
         // and the shader's NormFactor = 1/MaxValue.
-        var pedestral = stats.RescaledMaxValue is not null ? MinValue : MinValue / MaxValue;
+        var pedestral = rescaledMaxValue is not null ? MinValue : MinValue / MaxValue;
 
         // Guard against MAD=0 (happens when the distribution is narrower than one histogram bin).
         // Use a minimum of half a bin width in the unit-scaled space.
