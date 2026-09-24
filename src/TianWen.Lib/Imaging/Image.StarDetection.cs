@@ -430,7 +430,13 @@ public partial class Image
             // centroids in MOSAIC coordinates, because that is the space every caller consumes them
             // in (the viewer's star overlay draws them straight onto the displayed mosaic, and a
             // solver-built WCS is expressed in them).
-            var monoImage = await DebayerAsync(DebayerAlgorithm.BilinearMono, cancellationToken: cancellationToken);
+            //
+            // The mono plane is scratch that lives exactly as long as this detection, so it is rented:
+            // a new full-size float[,] per call was 104 MB of garbage per sub on a 26 MP colour camera.
+            // The debayer writes every element, so the pool's uncleared array is safe, and the Image it
+            // returns only wraps the array (self-owned), so the lease is its one owner.
+            using var monoPlane = Array2DPool<float>.RentScoped(Height, Width);
+            var monoImage = await DebayerIntoAsync([new Channel(monoPlane.Array, default, 0f, 0f, 0)], DebayerAlgorithm.BilinearMono, cancellationToken: cancellationToken);
             var monoStars = await monoImage.FindStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, maxFirstPassNoiseSigma, logger, spikeGuard, cancellationToken);
             return WithoutSinglePhotositeSpikes(monoStars.ShiftedBy(BilinearMonoGridOffset, BilinearMonoGridOffset), Planes[channel].Data, spikeGuard, logger);
         }
