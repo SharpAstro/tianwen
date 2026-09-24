@@ -39,7 +39,7 @@ namespace TianWen.Lib.Tests;
 /// having everywhere as the cull's own regression test.</para>
 /// </remarks>
 [Collection("UI")]
-public sealed class SkyMapHorizonCullGpuTests(VkSkyMapGpuFixture gpu) : IClassFixture<VkSkyMapGpuFixture>, IDisposable
+public sealed class SkyMapHorizonCullGpuTests(VkSkyMapGpuFixture gpu) : IClassFixture<VkSkyMapGpuFixture>
 {
     private const int Width = VkSkyMapGpuFixture.Width;
     private const int Height = VkSkyMapGpuFixture.Height;
@@ -52,24 +52,6 @@ public sealed class SkyMapHorizonCullGpuTests(VkSkyMapGpuFixture gpu) : IClassFi
 
     /// <summary>A pixel is a star when every channel is at least this. The ground tint is (46, 28, 15).</summary>
     private const byte StarLevel = 128;
-
-    private VkSkyMapPipeline? _pipeline;
-
-    public void Dispose()
-    {
-        if (_pipeline is { } pipeline)
-        {
-            // On the fixture's thread: the device that owns these objects was created there and
-            // vkDestroy* is no more thread-agnostic than vkQueueSubmit.
-            gpu.Invoke(() =>
-            {
-                pipeline.Dispose();
-                return 0;
-            });
-
-            _pipeline = null;
-        }
-    }
 
     [Fact]
     public async Task NoStarIsPaintedBelowTheHorizonAndTheSkyAboveItIsFullOfThem()
@@ -85,12 +67,12 @@ public sealed class SkyMapHorizonCullGpuTests(VkSkyMapGpuFixture gpu) : IClassFi
         var site = SiteContext.Create(SiteLatitude, SiteLongitude, When);
         site.IsValid.ShouldBeTrue("the horizon clip is only applied for a valid site");
 
-        await BuildStarsAsync(db, ct);
+        var pipeline = await gpu.GetStarPipelineAsync(db, When, ct);
 
         // The zenith is the point the site looks straight up at: right ascension is the local
         // sidereal time, declination is the latitude. The nadir is its antipode.
-        var zenith = RenderAt(site.LST, SiteLatitude, site);
-        var nadir = RenderAt((site.LST + 12.0) % 24.0, -SiteLatitude, site);
+        var zenith = RenderAt(pipeline, site.LST, SiteLatitude, site);
+        var nadir = RenderAt(pipeline, (site.LST + 12.0) % 24.0, -SiteLatitude, site);
 
         var above = CountStarPixels(zenith);
         var below = CountStarPixels(nadir);
@@ -122,11 +104,11 @@ public sealed class SkyMapHorizonCullGpuTests(VkSkyMapGpuFixture gpu) : IClassFi
         var db = await SharedCatalogDB.InitAsync(ct);
         var site = SiteContext.Create(SiteLatitude, SiteLongitude, When);
 
-        await BuildStarsAsync(db, ct);
+        var pipeline = await gpu.GetStarPipelineAsync(db, When, ct);
 
         var nadirRa = (site.LST + 12.0) % 24.0;
-        var clipped = CountStarPixels(RenderAt(nadirRa, -SiteLatitude, site, horizonClip: true));
-        var unclipped = CountStarPixels(RenderAt(nadirRa, -SiteLatitude, site, horizonClip: false));
+        var clipped = CountStarPixels(RenderAt(pipeline, nadirRa, -SiteLatitude, site, horizonClip: true));
+        var unclipped = CountStarPixels(RenderAt(pipeline, nadirRa, -SiteLatitude, site, horizonClip: false));
 
         unclipped.ShouldBeGreaterThan(200,
             "the nadir field holds plenty of stars; if it did not, the cull test above would pass "
@@ -134,44 +116,8 @@ public sealed class SkyMapHorizonCullGpuTests(VkSkyMapGpuFixture gpu) : IClassFi
         clipped.ShouldBe(0, "and the clip is the only difference between these two frames");
     }
 
-    /// <summary>
-    /// Builds the star geometry and waits for the upload. <see cref="VkSkyMapPipeline.BuildGeometry"/>
-    /// starts an async rebuild and <see cref="VkSkyMapPipeline.TryApplyPendingStarBuild"/> performs the
-    /// GPU swap on a later frame, which in the app is the render thread coming round again.
-    /// </summary>
-    private async Task BuildStarsAsync(ICelestialObjectDB db, CancellationToken ct)
-    {
-        _pipeline = gpu.Invoke(() => new VkSkyMapPipeline(gpu.Ctx!));
-
-        gpu.Invoke(() =>
-        {
-            _pipeline.BuildGeometry(db, When);
-            return 0;
-        });
-
-        // Bounded, because a wait that cannot end turns a broken build into a hung suite.
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(60);
-        while (DateTimeOffset.UtcNow < deadline)
-        {
-            var ready = gpu.Invoke(() =>
-            {
-                _pipeline.TryApplyPendingStarBuild();
-                return _pipeline.GeometryReady && _pipeline.FullStarsReady;
-            });
-
-            if (ready)
-            {
-                return;
-            }
-
-            await Task.Delay(50, ct);
-        }
-
-        Assert.Fail("the star geometry was never ready; nothing below would have been measuring the cull");
-    }
-
     /// <summary>One offscreen frame with the view centred on a point of the sky, as RGBA.</summary>
-    private byte[] RenderAt(double centerRaHours, double centerDecDeg, SiteContext site, bool horizonClip = true)
+    private byte[] RenderAt(VkSkyMapPipeline pipeline, double centerRaHours, double centerDecDeg, SiteContext site, bool horizonClip = true)
     {
         var state = new SkyMapState
         {
@@ -197,8 +143,8 @@ public sealed class SkyMapHorizonCullGpuTests(VkSkyMapGpuFixture gpu) : IClassFi
             var renderer = gpu.Renderer!;
 
             renderer.BeginOffscreenFrame(new RGBAColor32(0, 0, 0, 255)).ShouldBeTrue();
-            _pipeline!.UpdateUbo(state, Width, Height, 0f, 0f, site, ctx.CurrentFrame);
-            _pipeline.Draw(
+            pipeline.UpdateUbo(state, Width, Height, 0f, 0f, site, ctx.CurrentFrame);
+            pipeline.Draw(
                 renderer.CurrentCommandBuffer, state, Width, Height, 0f, 0f, 0f,
                 default, default, default);
             renderer.EndOffscreenFrame();
