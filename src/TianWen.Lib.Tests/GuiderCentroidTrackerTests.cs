@@ -335,4 +335,35 @@ public class GuiderCentroidTrackerTests(ITestOutputHelper output)
 
         tracker.IsAcquired.ShouldBeFalse("with nothing there, the honest answer is that the star is gone");
     }
+
+    /// <summary>
+    /// Acquisition re-runs on EVERY frame while the star is lost, and its peak list holds every
+    /// 4-neighbour local maximum: on noise, one pixel in five. Built per call, that list doubled its way
+    /// to megabytes on each guide frame; kept on the tracker, it grows once, and a repeated acquisition
+    /// allocates only what it hands back (the two star profiles on the result).
+    /// </summary>
+    [Fact]
+    public void ARepeatedAcquisitionAllocatesNoPeakList()
+    {
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        var frame = SyntheticStarFieldRenderer.Render(640, 480, 0,
+            offsetX: 0, offsetY: 0, starCount: 5, seed: 42);
+
+        // The first acquisition grows the scratch; the ones after it are what a lost star repeats.
+        tracker.ProcessFrame(frame).ShouldNotBeNull("premise: the tracker must lock");
+        tracker.Reset();
+        tracker.ProcessFrame(frame);
+
+        const int acquisitions = 10;
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < acquisitions; i++)
+        {
+            tracker.Reset();
+            tracker.ProcessFrame(frame).ShouldNotBeNull();
+        }
+        var perAcquisition = (GC.GetAllocatedBytesForCurrentThread() - before) / acquisitions;
+
+        output.WriteLine($"640x480: {perAcquisition:N0} bytes per acquisition");
+        perAcquisition.ShouldBeLessThan(1024L);
+    }
 }
