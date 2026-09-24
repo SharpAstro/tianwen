@@ -276,7 +276,20 @@ the GUI stops when the GUI does; one that runs in the server finishes.
 **Frames are linear and binary, never the preview JPEG.** The viewer's stretch, statistics, star
 profile, plate solve and snapshot save all assume linear floats in memory, and a camera buffer
 (`ChannelBuffer`) already is one: a `float[,]` per channel.
-- **Wire format.** The float planes plus an `ImageMeta` header, bit-exact. When every sample is a
+- **What exists today, and why none of it serves the viewer** (checked 2026-09-24):
+  - **The preview JPEG** (`/preview/{ota}`, `/preview/guider`) is stretched, 8-bit, downscaled and
+    session-only. `RemoteSessionMirror` can fetch it, but nothing in the GUI sets `Previews`.
+  - **Alpaca `imagearray`** (the device plane only; native v1 never uses it) is ImageBytes. Our writer
+    sends channel 0 only, as Int32. The protocol mandates column-major order, so both ends transpose,
+    and it carries no `ImageMeta`. It answers only for a hub-connected camera with an image ready. The
+    protocol would allow UInt16, Single and colour planes, so channel 0 and Int32 are our choice, but
+    the transpose and the missing metadata are the protocol's. It stays as it is, for third-party
+    Alpaca clients.
+  - **`SessionStateDto.LastFramePath`** names the last sub the server wrote. A local GUI could open it
+    as is, linear and with its headers, but only saved subs have one; previews, polar and planetary
+    frames never touch disk.
+- **Wire format.** The float planes plus an `ImageMeta` header, bit-exact, row-major, so neither end
+  transposes. When every sample is a
   whole number in 0 to 65535, which is the usual case for a camera frame in ADU, the planes are packed
   as 16-bit instead. That halves the bytes and is still lossless; the packer checks every sample as it
   writes and falls back to float on the first one that is not.
@@ -330,7 +343,14 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
   - **Security.** The name is unguessable and travels only over the per-user socket. On Windows the
     section needs an explicit DACL for the current user, which means `CreateFileMappingW` with security
     attributes, because .NET's `CreateNew` takes none. On Unix, `shm_open` mode 0600.
-  - **One copy on each side, measured.** The server copies in and the client copies out, 4.5 ms each. A
+  - **One copy on each side, measured.** The server copies in and the client copies out, 4.5 ms each.
+    The client's copy is a single span copy into the `float[,]`, viewed flat through
+    `MemoryMarshal.GetArrayDataReference` (the idiom `SyntheticStarFieldRenderer.FillBackground` already
+    uses): about 4 ms for 104 MB, the machine's memory bandwidth, and no faster row by row. A FRESH
+    array costs 22 ms on its first frame, while the OS commits its pages, which is one more reason the
+    reader recycles its arrays. Against the socket this saves at least one copy and usually two
+    (Kestrel's buffer, the kernel's send and receive copies, `HttpClient`'s buffer), plus every system
+    call and all the HTTP framing. A
     later step could upload a display frame to the GPU straight from the mapped view and build an
     `Image` only when statistics, a solve or a save need one; not before a measurement asks for it.
   - **Where it pays.** The socket's ~80 ms is fine for a sub every 2 to 300 s. Shared memory matters
