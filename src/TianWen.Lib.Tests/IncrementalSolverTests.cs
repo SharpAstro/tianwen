@@ -10,14 +10,20 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Verifies the polar-align refining fast path: seed an
-/// <see cref="IncrementalSolver"/> from a known WCS, render a shifted
-/// synthetic star field, and confirm that
-/// <see cref="IncrementalSolver.Refine"/> recovers a WCS whose CRPix has
-/// moved by the same shift (sub-pixel accuracy). Also pins the residual-spike
-/// fallback path: a wildly shifted frame returns null so the orchestrator can
-/// fall back to a full hinted solve.
+/// Pins the polar-align refining fast path: seed an <see cref="IncrementalSolver"/> from a known WCS,
+/// render the same star field moved by a known affine, and confirm that
+/// <see cref="IncrementalSolver.RefineAsync"/> returns a WCS that puts every moved star on the sky
+/// position the seed WCS gave it before the move. Every refine quad-matches against the FROZEN seed
+/// star list, never the previous refine, so a run of refines cannot drift, and a field that shares
+/// no quads with the seed returns null so the orchestrator falls back to a full solve.
 /// </summary>
+/// <remarks>
+/// Sky agreement is measured as an angular separation, converted to pixels at
+/// <see cref="PixelScaleArcsec"/>, never by comparing <see cref="WCS.CenterRA"/>: the test WCS sits on
+/// RA 0h, where a sky position one pixel west of the centre reads 23.9999h, and a refined WCS moves
+/// its reference pixel to wherever the solver canonicalises it, so only the sky at a named pixel is
+/// comparable between two solutions.
+/// </remarks>
 [Collection("Imaging")]
 public class IncrementalSolverTests(ITestOutputHelper output)
 {
@@ -28,6 +34,19 @@ public class IncrementalSolverTests(ITestOutputHelper output)
 
     /// <summary>Pixel scale of 1.5 arcsec/pixel ≈ a typical polar-align main camera at 200mm focal length.</summary>
     private const double PixelScaleArcsec = 1.5;
+
+    /// <summary>The frame centre in the 0-based detected-centroid coordinates a <see cref="WCS"/> uses in memory.</summary>
+    private const double CentreX = (Width - 1) / 2.0;
+    private const double CentreY = (Height - 1) / 2.0;
+
+    /// <summary>
+    /// Largest sky disagreement, in pixels, a refine of a moved star field may show at any checked
+    /// star or at the frame centre. Measured at 0.031 px at worst (the 2.5, -1.5 shift) and 0.006 to
+    /// 0.027 px elsewhere across every shift, rotation and sequential case here (the test output logs
+    /// each one); the bound leaves a margin of six over that for centroid noise, and 0.2 px is 0.3",
+    /// far under the polar-align gates.
+    /// </summary>
+    private const double MaxSkyErrorPx = 0.2;
 
     /// <summary>
     /// Builds a deterministic list of star positions inside the frame margin.
@@ -142,12 +161,98 @@ public class IncrementalSolverTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// Builds a CD-matrix WCS centred on (0h, 0°) at <see cref="PixelScaleArcsec"/>
+    /// arcsec/pixel with no rotation and no flip. Mirrors the form
+    /// <see cref="CatalogPlateSolver"/> emits, so <see cref="WCS.PixelToSky"/>
+    /// and <see cref="WCS.SkyToPixel"/> round-trip without surprises.
+    /// </summary>
+    private static WCS MakeKnownWcs()
+    {
+        var pixelScaleDeg = PixelScaleArcsec / 3600.0;
+        return new WCS(0.0, 0.0)
+        {
+            // Reference pixel at the image centre, in the 0-based detected-centroid frame a WCS
+            // uses in memory (only a FITS header carries the 1-based form).
+            CRPix1 = CentreX,
+            CRPix2 = CentreY,
+            CD1_1 = pixelScaleDeg,
+            CD1_2 = 0,
+            CD2_1 = 0,
+            CD2_2 = pixelScaleDeg,
+        };
+    }
+
+    /// <summary>
+    /// Moves every star by a rotation of <paramref name="rotationDeg"/> about the frame centre
+    /// followed by the translation (<paramref name="dx"/>, <paramref name="dy"/>): the field as the
+    /// mount sees it after a knob nudge. Flux is carried unchanged.
+    /// </summary>
+    private static (double X, double Y, double Flux)[] Move((double X, double Y, double Flux)[] stars, double rotationDeg, double dx, double dy)
+    {
+        var moved = new (double X, double Y, double Flux)[stars.Length];
+        for (int i = 0; i < stars.Length; i++)
+        {
+            var (x, y) = MovePoint(stars[i].X, stars[i].Y, rotationDeg, dx, dy);
+            moved[i] = (x, y, stars[i].Flux);
+        }
+        return moved;
+    }
+
+    private static (double X, double Y) MovePoint(double x, double y, double rotationDeg, double dx, double dy)
+    {
+        var (sin, cos) = Math.SinCos(double.DegreesToRadians(rotationDeg));
+        var rx = x - CentreX;
+        var ry = y - CentreY;
+        return (CentreX + (rx * cos - ry * sin) + dx, CentreY + (rx * sin + ry * cos) + dy);
+    }
+
+    /// <summary>Great-circle separation in arcsec between two (RA hours, Dec degrees) positions (haversine, safe across RA 0h).</summary>
+    private static double SeparationArcsec((double RA, double Dec) a, (double RA, double Dec) b)
+    {
+        var ra1 = a.RA * Math.PI / 12.0;
+        var ra2 = b.RA * Math.PI / 12.0;
+        var dec1 = double.DegreesToRadians(a.Dec);
+        var dec2 = double.DegreesToRadians(b.Dec);
+        var sinDDec = Math.Sin((dec2 - dec1) / 2);
+        var sinDRa = Math.Sin((ra2 - ra1) / 2);
+        var h = sinDDec * sinDDec + Math.Cos(dec1) * Math.Cos(dec2) * sinDRa * sinDRa;
+        return double.RadiansToDegrees(2 * Math.Asin(Math.Min(1.0, Math.Sqrt(h)))) * 3600.0;
+    }
+
+    /// <summary>
+    /// How far apart, in pixels, the sky the seed WCS gives (<paramref name="seedX"/>, <paramref name="seedY"/>)
+    /// and the sky the refined WCS gives the same point after the move, (<paramref name="liveX"/>, <paramref name="liveY"/>).
+    /// </summary>
+    private static double SkyErrorPx(WCS seed, WCS refined, double seedX, double seedY, double liveX, double liveY)
+    {
+        var before = seed.PixelToSky(seedX, seedY) ?? throw new InvalidOperationException("seed WCS cannot deproject");
+        var after = refined.PixelToSky(liveX, liveY) ?? throw new InvalidOperationException("refined WCS cannot deproject");
+        return SeparationArcsec(before, after) / PixelScaleArcsec;
+    }
+
+    /// <summary>
+    /// The largest <see cref="SkyErrorPx"/> over every fifth star and the frame centre, each carried
+    /// through the known move. Returns the count of points checked alongside.
+    /// </summary>
+    private static (double MaxErrorPx, int Checked) MaxSkyErrorAfterMove(WCS seed, WCS refined, (double X, double Y, double Flux)[] stars, double rotationDeg, double dx, double dy)
+    {
+        var (cx, cy) = MovePoint(CentreX, CentreY, rotationDeg, dx, dy);
+        var maxErr = SkyErrorPx(seed, refined, CentreX, CentreY, cx, cy);
+        var count = 1;
+        for (int i = 0; i < stars.Length; i += 5)
+        {
+            var (x, y) = MovePoint(stars[i].X, stars[i].Y, rotationDeg, dx, dy);
+            maxErr = Math.Max(maxErr, SkyErrorPx(seed, refined, stars[i].X, stars[i].Y, x, y));
+            count++;
+        }
+        return (maxErr, count);
+    }
+
+    /// <summary>
     /// The live path as polar alignment runs it on a finely sampled camera: the seed bins the frame (2x
     /// here, 3.76 um at 1100 mm being 0.705"/px against the 1.5"/px target) and every refine bins again at
     /// the seed's factor, into planes rented from the pool and returned after the detection. Refining the
-    /// very frame that seeded must hand back the seed's own solution. The only active test of the
-    /// incremental path: the ones below target the retired centroid matcher, and at their 1.55"/px they
-    /// would never have binned.
+    /// very frame that seeded must hand back the seed's own solution.
     /// </summary>
     [Fact]
     public async Task ABinnedSeedAndARefineOfTheSameFrameGiveTheSeedsSolution()
@@ -167,33 +272,12 @@ public class IncrementalSolverTests(ITestOutputHelper output)
         result.ShouldNotBeNull("the frame that seeded must refine");
         var refined = result.Value.Solution;
         refined.ShouldNotBeNull();
-        refined.Value.CenterRA.ShouldBe(wcs.CenterRA, tolerance: 1e-5);
-        refined.Value.CenterDec.ShouldBe(wcs.CenterDec, tolerance: 1e-5);
-        output.WriteLine($"seeded with {anchors} anchors at bin {solver.SeedDetectionScale}; refine matched {result.Value.MatchedStars} in {result.Value.Elapsed.TotalMilliseconds:F1} ms");
+        var centreErr = SkyErrorPx(wcs, refined.Value, CentreX, CentreY, CentreX, CentreY);
+        centreErr.ShouldBeLessThan(MaxSkyErrorPx, "the refined WCS must put the frame centre where the seed did");
+        output.WriteLine($"seeded with {anchors} anchors at bin {solver.SeedDetectionScale}; refine matched {result.Value.MatchedStars} in {result.Value.Elapsed.TotalMilliseconds:F1} ms; centre off by {centreErr:F4} px");
     }
 
-    /// <summary>
-    /// Builds a CD-matrix WCS centred on (0h, 0°) at <see cref="PixelScaleArcsec"/>
-    /// arcsec/pixel with no rotation and no flip. Mirrors the form
-    /// <see cref="CatalogPlateSolver"/> emits, so <see cref="WCS.PixelToSky"/>
-    /// and <see cref="WCS.SkyToPixel"/> round-trip without surprises.
-    /// </summary>
-    private static WCS MakeKnownWcs()
-    {
-        var pixelScaleDeg = PixelScaleArcsec / 3600.0;
-        return new WCS(0.0, 0.0)
-        {
-            // 1-based FITS reference pixel at the image centre.
-            CRPix1 = (Width + 1) / 2.0,
-            CRPix2 = (Height + 1) / 2.0,
-            CD1_1 = pixelScaleDeg,
-            CD1_2 = 0,
-            CD2_1 = 0,
-            CD2_2 = pixelScaleDeg,
-        };
-    }
-
-    [Fact(Skip = "Targets retired ROI-centroid path; rewrite for quad-pattern matching.")]
+    [Fact]
     public async Task GivenNoSeed_WhenRefining_ThenReturnsNull()
     {
         var solver = new IncrementalSolver();
@@ -205,7 +289,7 @@ public class IncrementalSolverTests(ITestOutputHelper output)
         solver.IsSeeded.ShouldBeFalse();
     }
 
-    [Fact(Skip = "Targets retired ROI-centroid path; rewrite for quad-pattern matching.")]
+    [Fact]
     public async Task GivenStarFieldAndKnownWcs_WhenSeeding_ThenAnchorsAreCaptured()
     {
         var solver = new IncrementalSolver();
@@ -217,208 +301,177 @@ public class IncrementalSolverTests(ITestOutputHelper output)
         anchorCount.ShouldBeGreaterThanOrEqualTo(solver.MinAnchors);
         solver.IsSeeded.ShouldBeTrue();
         solver.AnchorCount.ShouldBe(anchorCount);
+        solver.AnchorCount.ShouldBeGreaterThanOrEqualTo(solver.MinAnchors);
+        solver.CurrentWcs.ShouldBe(wcs, "the seed WCS is frozen as given");
         output.WriteLine($"Seeded with {anchorCount} anchors");
     }
 
-    [Fact(Skip = "Targets retired ROI-centroid path; rewrite for quad-pattern matching.")]
+    /// <summary>
+    /// The unbinned twin of <see cref="ABinnedSeedAndARefineOfTheSameFrameGiveTheSeedsSolution"/>:
+    /// at 1.55"/px the frame is already coarser than the 1.5"/px detection target, so the seed and the
+    /// refine detect at full resolution, match the identical star list, and must hand back the seed's
+    /// solution at every pixel, not only the centre.
+    /// </summary>
+    [Fact]
     public async Task GivenSeed_WhenRefiningIdenticalFrame_ThenWcsIsApproximatelyUnchanged()
     {
+        var ct = TestContext.Current.CancellationToken;
         var solver = new IncrementalSolver();
-        var seedFrame = RenderFrame();
+        var frame = RenderFrame();
         var wcs = MakeKnownWcs();
-        await solver.SeedAsync(seedFrame, wcs, TestContext.Current.CancellationToken);
+        await solver.SeedAsync(frame, wcs, ct);
+        solver.SeedDetectionScale.ShouldBe(1, "premise: this frame is not binned");
 
-        // Identical frame: anchors should re-centroid to the same positions, M
-        // should be near-identity, recovered WCS should match the seed WCS.
-        var refineFrame = RenderFrame();
-        var result = await solver.RefineAsync(refineFrame, TestContext.Current.CancellationToken);
+        var result = await solver.RefineAsync(frame, ct);
 
         result.ShouldNotBeNull();
         var refined = result.Value.Solution;
         refined.ShouldNotBeNull();
 
-        // Identical frame: the canonicalised WCS should match the seed WCS
-        // within centroid noise. Verify by checking that PixelToSky(centre)
-        // returns the same sky coords.
-        refined.Value.CenterRA.ShouldBe(wcs.CenterRA, tolerance: 1e-5);
-        refined.Value.CenterDec.ShouldBe(wcs.CenterDec, tolerance: 1e-5);
-        refined.Value.CD1_1.ShouldBe(wcs.CD1_1, tolerance: 1e-6);
-        refined.Value.CD2_2.ShouldBe(wcs.CD2_2, tolerance: 1e-6);
-        output.WriteLine($"Refine matched {result.Value.MatchedStars} anchors in {result.Value.Elapsed.TotalMilliseconds:F1} ms");
+        double maxErr = 0;
+        foreach (var (x, y) in new[] { (CentreX, CentreY), (0.0, 0.0), (Width - 1.0, 0.0), (0.0, Height - 1.0), (Width - 1.0, Height - 1.0) })
+        {
+            maxErr = Math.Max(maxErr, SkyErrorPx(wcs, refined.Value, x, y, x, y));
+        }
+        maxErr.ShouldBeLessThan(MaxSkyErrorPx);
+        // The linear part is the seed's: an identity affine leaves the CD matrix alone. 1e-8 deg is
+        // 2.4e-5 of a pixel's 4.2e-4 deg.
+        refined.Value.CD1_1.ShouldBe(wcs.CD1_1, tolerance: 1e-8);
+        refined.Value.CD1_2.ShouldBe(wcs.CD1_2, tolerance: 1e-8);
+        refined.Value.CD2_1.ShouldBe(wcs.CD2_1, tolerance: 1e-8);
+        refined.Value.CD2_2.ShouldBe(wcs.CD2_2, tolerance: 1e-8);
+        output.WriteLine($"Refine matched {result.Value.MatchedStars} stars in {result.Value.Elapsed.TotalMilliseconds:F1} ms; max sky error over centre + corners {maxErr:F4} px");
     }
 
-    [Theory(Skip = "Targets retired ROI-centroid path; rewrite for quad-pattern matching.")]
+    [Theory]
     [InlineData(2.0f, 0f)]    // 2 px shift in X only
     [InlineData(0f, 3.0f)]    // 3 px shift in Y only
     [InlineData(2.5f, -1.5f)] // diagonal sub-integer shift (typical knob nudge magnitude)
     [InlineData(-4.0f, 2.0f)] // negative-X mixed shift
     public async Task GivenSeed_WhenRefiningShiftedFrame_ThenWcsTracksShift(float dx, float dy)
     {
+        var ct = TestContext.Current.CancellationToken;
         var solver = new IncrementalSolver();
-        var seedFrame = RenderFrame();
+        var stars = MakeStars(count: 60, seed: 99);
         var wcs = MakeKnownWcs();
-        await solver.SeedAsync(seedFrame, wcs, TestContext.Current.CancellationToken);
+        await solver.SeedAsync(RenderStarsAt(stars), wcs, ct);
+        solver.IsSeeded.ShouldBeTrue();
 
-        // Render the same star field shifted by (dx, dy). Field-shifted, mount-locked
-        // is the model: every anchor moves by exactly (dx, dy).
-        var refineFrame = RenderFrame(offsetX: dx, offsetY: dy);
-        var result = await solver.RefineAsync(refineFrame, TestContext.Current.CancellationToken);
+        // Field-shifted, mount-locked: every star moves by exactly (dx, dy). Fresh background noise,
+        // so the live detections are not the seed's to the last bit.
+        var result = await solver.RefineAsync(RenderStarsAt(Move(stars, 0, dx, dy), noiseSeed: 8), ct);
 
         result.ShouldNotBeNull();
         var refined = result.Value.Solution;
         refined.ShouldNotBeNull();
 
-        // Verify via reprojection: the seed-frame centre sky should now project
-        // to the shifted pixel (frameCenter + (dx, dy)) under the refined WCS.
-        // CRPix is canonicalised back to frame centre, so we can't use a CRPix
-        // delta check; reprojection is the real invariant we care about
-        // (it's what the orchestrator uses for axis recovery).
-        var seedCentreSky = wcs.PixelToSky(wcs.CRPix1, wcs.CRPix2);
-        seedCentreSky.ShouldNotBeNull();
-        var (ra, dec) = seedCentreSky.Value;
-        var predicted = refined.Value.SkyToPixel(ra, dec);
-        predicted.ShouldNotBeNull();
-        var (px, py) = predicted.Value;
-        // Sub-pixel accuracy: centroid is photon-noise limited but the affine
-        // fit averages ~30 anchors. 0.5 px is roughly 1 arcsec at our scale,
-        // well below the polar-align gates.
-        px.ShouldBe(wcs.CRPix1 + dx, tolerance: 0.5);
-        py.ShouldBe(wcs.CRPix2 + dy, tolerance: 0.5);
-        output.WriteLine($"Shift ({dx}, {dy}): seed-centre sky projects to ({px - wcs.CRPix1:F2}, {py - wcs.CRPix2:F2}) px shift; {result.Value.MatchedStars} anchors matched in {result.Value.Elapsed.TotalMilliseconds:F1} ms");
+        var (maxErr, checkedPoints) = MaxSkyErrorAfterMove(wcs, refined.Value, stars, 0, dx, dy);
+        maxErr.ShouldBeLessThan(MaxSkyErrorPx, $"a shifted star must keep its sky position under the refined WCS (max {maxErr:F4} px over {checkedPoints} points)");
+        output.WriteLine($"Shift ({dx}, {dy}): max sky error {maxErr:F4} px over {checkedPoints} points; {result.Value.MatchedStars} stars in {result.Value.Elapsed.TotalMilliseconds:F1} ms");
     }
 
-    [Fact(Skip = "Targets retired ROI-centroid path; rewrite for quad-pattern matching.")]
-    public async Task GivenSeed_WhenRefiningHugelyShiftedFrame_ThenReturnsNullForFallback()
+    /// <summary>
+    /// A shift alone no longer defeats the matcher (quad invariants do not care where a field sits), so
+    /// the fallback case is a field that shares no quads with the seed: a different sky, as after an
+    /// unannounced slew. The refine must return null so the orchestrator falls back to a full solve.
+    /// </summary>
+    [Fact]
+    public async Task GivenSeed_WhenRefiningAnUnrelatedStarField_ThenReturnsNullForFallback()
     {
+        var ct = TestContext.Current.CancellationToken;
         var solver = new IncrementalSolver();
-        var seedFrame = RenderFrame();
-        var wcs = MakeKnownWcs();
-        await solver.SeedAsync(seedFrame, wcs, TestContext.Current.CancellationToken);
+        await solver.SeedAsync(RenderStarsAt(MakeStars(count: 60, seed: 99)), MakeKnownWcs(), ct);
+        solver.IsSeeded.ShouldBeTrue();
 
-        // Shift larger than the ROI half-size: every anchor's prior is now in
-        // a completely different patch of sky, so most ROIs will fail the SNR
-        // gate. The few that survive (random hits) should fail the residual
-        // ceiling. Either way the orchestrator gets null and falls back to a
-        // full hinted solve.
-        var refineFrame = RenderFrame(offsetX: 50.0f, offsetY: 50.0f);
-        var result = await solver.RefineAsync(refineFrame, TestContext.Current.CancellationToken);
+        var unrelated = RenderStarsAt(MakeStars(count: 60, seed: 1234), noiseSeed: 8);
+        var result = await solver.RefineAsync(unrelated, ct);
 
-        result.ShouldBeNull();
-        output.WriteLine("Huge-shift refine correctly returned null (fallback path).");
+        result.ShouldBeNull("no quad of an unrelated field can match the seed's");
+        solver.IsSeeded.ShouldBeTrue("a failed refine keeps the seed");
     }
 
-    [Fact(Skip = "Targets retired ROI-centroid path; rewrite for quad-pattern matching.")]
-    public async Task GivenSeed_WhenSequentiallyRefiningSmallShifts_ThenAnchorsTrackTheField()
+    /// <summary>
+    /// The drift-free property: knob nudges in sequence walk the field a pixel at a time, and every
+    /// refine aligns to the frozen seed, not the previous refine. So the last frame of the walk must be
+    /// solved exactly as well as the same frame refined once by a solver that saw nothing in between.
+    /// </summary>
+    [Fact]
+    public async Task GivenSeed_WhenSequentiallyRefiningSmallShifts_ThenErrorDoesNotAccumulate()
     {
-        // Sub-arcmin knob nudges in sequence: each frame shifts ~1 px from the
-        // previous. The anchor list updates after every refine, so the
-        // *cumulative* shift from the original seed can grow well past the ROI
-        // half-size as long as each step is small. Mirrors what happens during
-        // a real polar-align refine session: the user turns the knob, the
-        // field drifts a pixel at a time, the solver tracks.
-        var solver = new IncrementalSolver();
-        var seedFrame = RenderFrame();
+        const int Steps = 8;
+        var ct = TestContext.Current.CancellationToken;
+        var stars = MakeStars(count: 60, seed: 99);
+        var seedFrame = RenderStarsAt(stars);
         var wcs = MakeKnownWcs();
-        await solver.SeedAsync(seedFrame, wcs, TestContext.Current.CancellationToken);
+        var solver = new IncrementalSolver();
+        await solver.SeedAsync(seedFrame, wcs, ct);
+        solver.IsSeeded.ShouldBeTrue();
 
-        var seedCentreSky = wcs.PixelToSky(wcs.CRPix1, wcs.CRPix2);
-        seedCentreSky.ShouldNotBeNull();
-        var (seedRa, seedDec) = seedCentreSky.Value;
-
-        float cumulativeX = 0;
-        float cumulativeY = 0;
-        for (int step = 1; step <= 8; step++)
+        double lastErr = double.NaN;
+        for (int step = 1; step <= Steps; step++)
         {
-            cumulativeX += 1.0f;
-            cumulativeY += 0.5f;
-            var refineFrame = RenderFrame(offsetX: cumulativeX, offsetY: cumulativeY);
-            var result = await solver.RefineAsync(refineFrame, TestContext.Current.CancellationToken);
+            var result = await solver.RefineAsync(RenderStarsAt(Move(stars, 0, step * 1.0, step * 0.5), noiseSeed: 100 + step), ct);
 
-            result.ShouldNotBeNull($"Step {step} should still refine successfully (cumulative shift {cumulativeX}, {cumulativeY})");
-            var refined = result.Value.Solution!.Value;
-            // The seed-frame centre sky should now project to the cumulative shifted pixel.
-            var predicted = refined.SkyToPixel(seedRa, seedDec);
-            predicted.ShouldNotBeNull();
-            var (px, py) = predicted.Value;
-            px.ShouldBe(wcs.CRPix1 + cumulativeX, tolerance: 0.7,
-                $"Step {step}: X drift exceeds tolerance");
-            py.ShouldBe(wcs.CRPix2 + cumulativeY, tolerance: 0.7,
-                $"Step {step}: Y drift exceeds tolerance");
+            result.ShouldNotBeNull($"step {step} must refine (cumulative shift {step * 1.0}, {step * 0.5})");
+            var refined = result.Value.Solution ?? throw new InvalidOperationException("a refine result carries a solution");
+            (lastErr, _) = MaxSkyErrorAfterMove(wcs, refined, stars, 0, step * 1.0, step * 0.5);
+            lastErr.ShouldBeLessThan(MaxSkyErrorPx, $"step {step}");
+            output.WriteLine($"step {step}: max sky error {lastErr:F4} px");
         }
-        output.WriteLine($"Tracked 8 sequential 1px nudges to total ({cumulativeX}, {cumulativeY}) without losing the anchor list.");
+
+        // The same last frame, refined once by a solver seeded identically.
+        var fresh = new IncrementalSolver();
+        await fresh.SeedAsync(seedFrame, wcs, ct);
+        var single = await fresh.RefineAsync(RenderStarsAt(Move(stars, 0, Steps * 1.0, Steps * 0.5), noiseSeed: 100 + Steps), ct);
+        single.ShouldNotBeNull();
+        var singleRefined = single.Value.Solution ?? throw new InvalidOperationException("a refine result carries a solution");
+        var (singleErr, _) = MaxSkyErrorAfterMove(wcs, singleRefined, stars, 0, Steps * 1.0, Steps * 0.5);
+
+        lastErr.ShouldBeLessThanOrEqualTo(singleErr + 1e-9, $"frame {Steps} of a walk must be no worse than a single refine of it ({lastErr:F6} vs {singleErr:F6} px)");
+        output.WriteLine($"after {Steps} refines: {lastErr:F6} px; a single refine of the same frame: {singleErr:F6} px");
     }
 
-    [Theory(Skip = "Targets retired ROI-centroid path; rewrite for quad-pattern matching.")]
+    [Theory]
     [InlineData(0.5, 0f, 0f)]      // pure rotation, half a degree
     [InlineData(0.25, 3.0f, 0f)]   // tiny rotation + X translation
     [InlineData(-0.4, -2.0f, 1.5f)] // negative rotation + diagonal translation
     public async Task GivenSeed_WhenRefiningRotatedAndShiftedFrame_ThenWcsMatchesAffine(
         double rotationDeg, float dx, float dy)
     {
-        // The translation-only renderer can't express rotation, so build the
-        // synthetic pair by hand: place stars at known positions for frame 1,
-        // then for frame 2 apply the affine (rotation around image centre +
-        // translation) to each position and re-render.
+        // The translation-only renderer can't express rotation, so build the pair by hand: frame 2
+        // is frame 1 rotated about the image centre and then translated.
+        var ct = TestContext.Current.CancellationToken;
         var solver = new IncrementalSolver();
         var stars = MakeStars(count: 60, seed: 99);
-        var seedFrame = RenderStarsAt(stars);
         var wcs = MakeKnownWcs();
-        await solver.SeedAsync(seedFrame, wcs, TestContext.Current.CancellationToken);
+        await solver.SeedAsync(RenderStarsAt(stars), wcs, ct);
         solver.IsSeeded.ShouldBeTrue("seed must succeed for rotation test");
 
-        var rotRad = rotationDeg * Math.PI / 180.0;
-        var cos = Math.Cos(rotRad);
-        var sin = Math.Sin(rotRad);
-        // Rotate around the image centre in 0-based pixel space (Width/2, Height/2),
-        // matching the convention used elsewhere when reasoning about centred fields.
-        var cxPixel = (Width - 1) / 2.0;
-        var cyPixel = (Height - 1) / 2.0;
-        var rotated = new (double X, double Y, double Flux)[stars.Length];
-        for (int i = 0; i < stars.Length; i++)
-        {
-            var (sx, sy, sf) = stars[i];
-            var rx = sx - cxPixel;
-            var ry = sy - cyPixel;
-            var nx = cxPixel + (rx * cos - ry * sin) + dx;
-            var ny = cyPixel + (rx * sin + ry * cos) + dy;
-            rotated[i] = (nx, ny, sf);
-        }
-        var refineFrame = RenderStarsAt(rotated);
+        var result = await solver.RefineAsync(RenderStarsAt(Move(stars, rotationDeg, dx, dy), noiseSeed: 8), ct);
 
-        var result = await solver.RefineAsync(refineFrame, TestContext.Current.CancellationToken);
         result.ShouldNotBeNull();
-        var refined = result.Value.Solution!.Value;
+        var refined = result.Value.Solution ?? throw new InvalidOperationException("a refine result carries a solution");
 
-        // Verification: pick a small set of catalog directions, project them
-        // through the recovered WCS, and confirm the predicted pixel matches
-        // where the rotated stars actually sit. This validates both the CD
-        // matrix update (rotation) and the CRPix update (translation) in one
-        // go without us having to derive their exact closed forms here.
-        // We use the seed-frame WCS to back out each star's J2000 (RA, Dec)
-        // from its frame-1 pixel, then check refined.SkyToPixel matches its
-        // frame-2 pixel.
-        int checkedStars = 0;
-        double maxErr = 0;
-        for (int i = 0; i < stars.Length; i += 5)
-        {
-            var (sx, sy, _) = stars[i];
-            var sky = wcs.PixelToSky(sx + 1.0, sy + 1.0);
-            sky.ShouldNotBeNull();
-            var (ra, dec) = sky.Value;
-            var predicted = refined.SkyToPixel(ra, dec);
-            predicted.ShouldNotBeNull();
-            var (predX, predY) = predicted.Value;
-            // refined.SkyToPixel returns 1-based; rotated[i] is 0-based.
-            var errX = predX - 1.0 - rotated[i].X;
-            var errY = predY - 1.0 - rotated[i].Y;
-            var err = Math.Sqrt(errX * errX + errY * errY);
-            maxErr = Math.Max(maxErr, err);
-            checkedStars++;
-        }
-        checkedStars.ShouldBeGreaterThan(5);
-        // 1 px slack covers centroid noise (Gaussian PSF at sigma=1.6 + bg
-        // photon noise, no shot noise) compounded across both frames.
-        maxErr.ShouldBeLessThan(1.0, $"max sky-to-pixel reprojection error {maxErr:F2} px");
-        output.WriteLine($"Rotation {rotationDeg:F2}° + ({dx}, {dy}) shift: refined WCS reprojects {checkedStars} stars within {maxErr:F2} px (matched {result.Value.MatchedStars} anchors)");
+        // Every moved star (and the moved frame centre) must sit on the sky the seed WCS gave it
+        // before the move, which checks the CD matrix (rotation) and the reference pixel
+        // (translation) together without deriving their closed forms here.
+        var (maxErr, checkedPoints) = MaxSkyErrorAfterMove(wcs, refined, stars, rotationDeg, dx, dy);
+        checkedPoints.ShouldBeGreaterThan(5);
+        maxErr.ShouldBeLessThan(MaxSkyErrorPx, $"max sky error {maxErr:F4} px over {checkedPoints} points");
+
+        // And the linear part carries the rotation: a live pixel is R * seed pixel + t, so the sky of a
+        // live pixel is CD * R^-1 applied to its offset, which is the expected CD matrix.
+        var (sin, cos) = Math.SinCos(double.DegreesToRadians(rotationDeg));
+        var expectedCd11 = wcs.CD1_1 * cos - wcs.CD1_2 * sin;
+        var expectedCd12 = wcs.CD1_1 * sin + wcs.CD1_2 * cos;
+        var expectedCd21 = wcs.CD2_1 * cos - wcs.CD2_2 * sin;
+        var expectedCd22 = wcs.CD2_1 * sin + wcs.CD2_2 * cos;
+        // 1e-3 of a pixel's scale: the rotation is recovered to ~0.06 degree or better.
+        var cdTolerance = wcs.CD1_1 * 1e-3;
+        refined.CD1_1.ShouldBe(expectedCd11, tolerance: cdTolerance);
+        refined.CD1_2.ShouldBe(expectedCd12, tolerance: cdTolerance);
+        refined.CD2_1.ShouldBe(expectedCd21, tolerance: cdTolerance);
+        refined.CD2_2.ShouldBe(expectedCd22, tolerance: cdTolerance);
+        output.WriteLine($"Rotation {rotationDeg:F2} deg + ({dx}, {dy}) shift: max sky error {maxErr:F4} px over {checkedPoints} points (matched {result.Value.MatchedStars} stars)");
     }
 }
