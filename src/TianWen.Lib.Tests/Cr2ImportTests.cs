@@ -295,6 +295,9 @@ public class Cr2ImportTests(ITestOutputHelper output)
 
         var plane = (long)height * width * sizeof(float);
         output.WriteLine($"{width}x{height} CR2: plain read {plainBytes:N0} bytes, into a supplied plane {intoBytes:N0} ({plane:N0} of plane)");
-        (plainBytes - intoBytes).ShouldBeGreaterThanOrEqualTo(plane, "the plane is the caller's, not a new one");
+        // Nine tenths, not all of it: the small allocations around the decode vary by a few KB from run to
+        // run (the full suite measured the plain read 6,552 bytes lighter than it was alone, the supplied-plane
+        // read unchanged), while a read that made its own plane would leave a difference near zero.
+        (plainBytes - intoBytes).ShouldBeGreaterThanOrEqualTo(plane * 9 / 10, "the plane is the caller's, not a new one");
     }
 }
