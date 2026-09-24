@@ -135,9 +135,21 @@ public sealed class FitsHeaderIndexTests : IDisposable
     [Fact]
     public void EachRootGetsItsOwnIndexFile()
     {
-        FitsHeaderIndex.PathFor(_dir, @"D:\Astro-Organized\lights")
-            .ShouldNotBe(FitsHeaderIndex.PathFor(_dir, @"D:\Astro-Organized\flats"));
-        FitsHeaderIndex.PathFor(_dir, @"D:\Astro-Organized\lights\")
-            .ShouldBe(FitsHeaderIndex.PathFor(_dir, @"D:\Astro-Organized\lights"), "a trailing separator is the same root");
+        var lights = Path.Combine(_dir, "archive", "lights");
+        var index = FitsHeaderIndex.PathFor(_dir, lights);
+
+        FitsHeaderIndex.PathFor(_dir, Path.Combine(_dir, "archive", "flats")).ShouldNotBe(index);
+        FitsHeaderIndex.PathFor(_dir, lights + Path.DirectorySeparatorChar)
+            .ShouldBe(index, "a trailing separator is the same root");
+
+        var otherCase = FitsHeaderIndex.PathFor(_dir, Path.Combine(_dir, "archive", "LIGHTS"));
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+        {
+            otherCase.ShouldBe(index, "a case-insensitive file system names one root either way");
+        }
+        else
+        {
+            otherCase.ShouldNotBe(index, "on a case-sensitive file system they are two roots");
+        }
     }
 }

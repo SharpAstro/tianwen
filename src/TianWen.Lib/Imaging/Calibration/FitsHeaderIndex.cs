@@ -57,10 +57,16 @@ public sealed class FitsHeaderIndex
     public int Count => _entries.Count;
 
     /// <summary>The index file for an archive root under <paramref name="directory"/>: one file per
-    /// root, named for the root's full path, so two roots never share or overwrite one index.</summary>
+    /// root, named for the root's full path, so two roots never share or overwrite one index. The name
+    /// folds case only where the file system does (Windows, macOS): on Linux <c>lights</c> and
+    /// <c>Lights</c> are two roots.</summary>
     public static string PathFor(string directory, string archiveRoot)
     {
-        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(archiveRoot)).ToUpperInvariant();
+        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(archiveRoot));
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+        {
+            full = full.ToUpperInvariant();
+        }
         var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(full)))[..16];
         return Path.Combine(directory, $"{hash}.headers");
     }
