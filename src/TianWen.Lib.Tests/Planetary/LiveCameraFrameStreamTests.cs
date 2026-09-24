@@ -142,6 +142,56 @@ public class LiveCameraFrameStreamTests
     }
 
     [Fact]
+    public void PushingFarMoreFramesThanTheRingHoldsReusesItsPlanes()
+    {
+        // Every push used to copy into a NEW plane per channel and drop the evicted slot's, which at video
+        // rate was 74 to 246 MB/s of garbage (docs/plans/frame-path-allocations.md P2).
+        const int size = 256, capacity = 4;
+        using var stream = new LiveCameraFrameStream(size, size, PlanetaryFrameLayout.Mono, capacity);
+        var source = ConstantMono(size, 0.5f);
+
+        // Warm-up to the ring's steady state: a full ring plus the one incoming copy that exists before the
+        // slot it replaces is released.
+        for (var i = 0; i < capacity + 1; i++)
+        {
+            stream.Push(source);
+        }
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < 100; i++)
+        {
+            stream.Push(source);
+        }
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        stream.PlanesAllocated.ShouldBe(capacity + 1, "the ring's planes, reused; not one more after the warm-up");
+        allocated.ShouldBeLessThan(size * size * sizeof(float), "less than ONE plane over 100 pushes; it was a plane per push");
+    }
+
+    [Fact]
+    public async Task AFrameStillLoadedKeepsItsPixelsWhenItsSlotIsOverwritten()
+    {
+        // The ring recycles an evicted frame's planes, so a frame a stacker still holds must not be handed to
+        // the next push: its planes stay out of the pool until the loader releases it.
+        using var stream = new LiveCameraFrameStream(N, N, PlanetaryFrameLayout.Mono, capacity: 2);
+        stream.Push(ConstantMono(N, 0.1f));
+        var held = await stream.LoadAsync(0, TestContext.Current.CancellationToken);
+
+        for (var i = 0; i < 6; i++)
+        {
+            stream.Push(ConstantMono(N, 0.9f));
+        }
+
+        held[0, N / 2, N / 2].ShouldBe(0.1f, 1e-6f, "evicted from the ring, yet still the frame it was");
+        held.Release();
+
+        // And the ring's own copy survives a loader's release: loading again reads it again.
+        var twice = await stream.LoadAsync(stream.LatestIndex, TestContext.Current.CancellationToken);
+        twice.Release();
+        (await stream.LoadAsync(stream.LatestIndex, TestContext.Current.CancellationToken))[0, 1, 1].ShouldBe(0.9f, 1e-6f);
+    }
+
+    [Fact]
     public void Timestamps_round_trip_and_untimed_returns_null()
     {
         var t0 = new DateTimeOffset(2026, 6, 24, 22, 0, 0, TimeSpan.Zero);
