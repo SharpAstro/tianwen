@@ -846,5 +846,27 @@ namespace TianWen.Lib.Tests
             CalibrationResolver.BestFlat([monthsLater, sameNight], light).ShouldBe(sameNight);
             CalibrationResolver.BestFlat([sameNight, monthsLater], light).ShouldBe(sameNight);
         }
+
+        [Fact]
+        public void BestFlat_AnUndatedMasterWhoseCardsProveTheTrain_RanksAsTwoYearsAway()
+        {
+            // A foreign master flat (APP's MF-IG) that proves the train by its cards but carries no
+            // capture date is a candidate with no days to rank on, so it sits TimeUnknownPenalty years
+            // out (730.5 days): a proven flat shot closer than that wins, whatever its temperature, and
+            // one shot further away loses to it even at the lights' own temperature.
+            const string Camera = "ZWO ASI533MC Pro";
+            var light = Light(60, -10, gain: 121, instrument: Camera, telescope: "Samyang 135", focalLength: 130, when: Utc(2026, 1, 10, 0, 0));
+            var undatedMaster = Group(FrameType.Flat, 3, -10, gain: 121, instrument: Camera, telescope: "Samyang 135", focalLength: 130,
+                frameCount: 1, isMaster: true, when: default(DateTimeOffset));
+            var warmer680DaysAway = Group(FrameType.Flat, 3, 20, gain: 121, instrument: Camera, telescope: "Samyang 135", focalLength: 130,
+                when: Utc(2024, 3, 1, 0, 0));
+            var matching801DaysAway = Group(FrameType.Flat, 3, -10, gain: 121, instrument: Camera, telescope: "Samyang 135", focalLength: 130,
+                when: Utc(2023, 11, 1, 0, 0));
+
+            CalibrationResolver.BestFlat([undatedMaster, warmer680DaysAway], light).ShouldBe(warmer680DaysAway);
+            CalibrationResolver.BestFlat([warmer680DaysAway, undatedMaster], light).ShouldBe(warmer680DaysAway);
+            CalibrationResolver.BestFlat([undatedMaster, matching801DaysAway], light).ShouldBe(undatedMaster);
+            CalibrationResolver.BestFlat([matching801DaysAway, undatedMaster], light).ShouldBe(undatedMaster);
+        }
     }
 }
