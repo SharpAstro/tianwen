@@ -67,6 +67,17 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
     private string? PHDSubvVersion { get; set; }
     private SettleProgress? Settle { get; set; }
 
+    // Written on the event pump, read by the GUI's per-frame poll. A double? is 16 bytes and its read
+    // can tear, so the value is a plain double with NaN meaning "no guide star", published with
+    // Volatile.Write/Read rather than a lock on a render-reachable path.
+    private double _guideStarSNR = double.NaN;
+
+    /// <summary>
+    /// SNR of the guide star from PHD2's latest <c>GuideStep</c> event, or null when no star is
+    /// being guided (lost, stopped, disconnected, or a PHD2 build that does not report it).
+    /// </summary>
+    public double? GuideStarSNR => Volatile.Read(ref _guideStarSNR) is var snr && double.IsNaN(snr) ? null : snr;
+
     public OpenPHD2GuiderDriver(IExternal external, ILogger<OpenPHD2GuiderDriver> logger, ITimeProvider timeProvider)
         : this(MakeDefaultRootDevice(external), external, logger, timeProvider)
     {
@@ -134,7 +145,7 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
     /// <returns></returns>
     public IEnumerable<OpenPHD2GuiderDevice> RegisteredDevices(DeviceType deviceType) => deviceType is DeviceType.Guider ? _equipmentProfiles : [];
 
-    private async ValueTask HandleEventAsync(JsonDocument @event, CancellationToken cancellationToken = default)
+    internal async ValueTask HandleEventAsync(JsonDocument @event, CancellationToken cancellationToken = default)
     {
         string? eventName = @event.RootElement.GetProperty("Event").GetString();
         string? newAppState = null;
@@ -180,6 +191,10 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
 
             newAppState = AppState = "Guiding";
             AverageDistance = @event.RootElement.GetProperty("AvgDist").GetDouble();
+            Volatile.Write(ref _guideStarSNR,
+                @event.RootElement.TryGetProperty("SNR", out var snr) && snr.ValueKind is JsonValueKind.Number
+                    ? snr.GetDouble()
+                    : double.NaN);
             if (IsAccumActive)
             {
                 Stats = stats;
@@ -253,12 +268,15 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
             using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
 
             newAppState = AppState = "Stopped";
+            Volatile.Write(ref _guideStarSNR, double.NaN);
         }
         else if (eventName is "StarLost")
         {
             using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
 
             newAppState = AppState = "LostLock";
+            // StarLost carries an SNR too, but it describes the frame that lost the star, not a guided star.
+            Volatile.Write(ref _guideStarSNR, double.NaN);
             AverageDistance = @event.RootElement.GetProperty("AvgDist").GetDouble();
         }
 
@@ -434,6 +452,7 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
             }
             Interlocked.Exchange(ref _rpcClient, null)?.Dispose();
             Interlocked.Exchange(ref _connection, null)?.Dispose();
+            Volatile.Write(ref _guideStarSNR, double.NaN);
         }
 
         DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(connect));
