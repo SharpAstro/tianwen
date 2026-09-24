@@ -20,6 +20,31 @@ namespace TianWen.Lib.Imaging;
 public partial class Image
 {
     /// <summary>
+    /// The integer planes one <see cref="WriteToFitsFile(string, WCS?, IReadOnlyDictionary{string, ValueTuple{object, string}}?, FitsSampleStorage?)"/>
+    /// rents for its quantised copy, handed back to <see cref="Array2DPool{T}"/> together when the write
+    /// is over. A collector rather than one lease per plane because the element type is chosen per
+    /// write and a multi-channel write rents one plane per channel.
+    /// </summary>
+    private sealed class RentedPlanes : IDisposable
+    {
+        private Action? _returnAll;
+
+        public T[,] Rent<T>(int height, int width)
+        {
+            var array = Array2DPool<T>.Rent(height, width);
+            _returnAll += () => Array2DPool<T>.Return(array);
+            return array;
+        }
+
+        public void Dispose()
+        {
+            var returnAll = _returnAll;
+            _returnAll = null;
+            returnAll?.Invoke();
+        }
+    }
+
+    /// <summary>
     /// What makes a FITS file gzipped, on both ends: the reader decompresses a name ending this
     /// way and the writer compresses one. Stated once because a reader and a writer that disagree
     /// about it produce a file nothing can open.
@@ -780,6 +805,10 @@ public partial class Image
     {
         var (channelCount, width, height) = Shape;
         using var fits = new Fits();
+        // The integer planes below are rented, not allocated, and go back when the file is written:
+        // a new frame-sized array per write was garbage on every captured sub (52 MB at 26 MP, 16-bit).
+        // Declared after `fits`, so it is disposed first, and only once the write is over.
+        using var rented = new RentedPlanes();
         // The container the samples go into: the caller's, or the conventional one for this image's
         // own depth, which is what this writer produced before storage was expressible. Everything
         // below goes through it, so BITPIX, BSCALE and BZERO cannot disagree with the bytes.
@@ -1061,7 +1090,11 @@ public partial class Image
 
         void WritePlain(string path)
         {
-            using var bufferedWriter = new BufferedFile(path, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
+            // 64 KiB, as the gzip path above uses. BufferedFile hands the size to BOTH a FileStream and a
+            // BufferedStream, so the 2 MB asked for here before cost two 2 MB buffers per write, garbage
+            // on every sub, while FITS.Lib writes the pixels in 2 MB chunks that pass straight through a
+            // smaller buffer anyway.
+            using var bufferedWriter = new BufferedFile(path, FileAccess.ReadWrite, FileShare.Read, 1 << 16);
             fits.Write(bufferedWriter);
             bufferedWriter.Flush();
             bufferedWriter.Close();
@@ -1087,7 +1120,8 @@ public partial class Image
 
         T[,] QuantisePlane<T>(float[,] src) where T : struct, INumberBase<T>
         {
-            var dst = new T[height, width];
+            // Every element is written below, so the pool's uncleared array is safe.
+            var dst = rented.Rent<T>(height, width);
             // A row at a time: every term of the conversion but the sample itself is the same for
             // the whole plane, and asking per pixel re-derives the container bounds, the offset
             // conversion and two mode tests tens of millions of times per map.
