@@ -503,6 +503,9 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // is seeing over scale, and a scale gate cannot see seeing. The proposal is verified below
         // against the width the detector actually measures, and may only ever be undone.
         var detectionImage = image;
+        // The binned frame, in RENTED planes: a solve binned every frame of a polar-alignment ramp, and new
+        // planes were 26 MB a frame at factor 2 on a 26 MP sensor. Returned once the detection has read it.
+        RentedImage? binned = null;
         var detectionScale = 1;
         var proposedDetectionScale = 1;
         // Integer-tenths comparison: pixelScale * 10 vs 15 dodges the
@@ -519,7 +522,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             if (detectionScale > 1)
             {
                 stageSw.Restart();
-                detectionImage = image.Downsample(detectionScale);
+                binned = image.DownsampleRented(detectionScale);
+                detectionImage = binned.Image;
                 _logger.LogDebug("CatalogPlateSolver: downsampled {SrcW}x{SrcH} -> {DstW}x{DstH} (factor {Factor}, target {Target}\"/px) in {Ms}ms",
                     image.Width, image.Height, detectionImage.Width, detectionImage.Height, detectionScale, TargetPixelScaleX10 / 10.0, stageSw.Elapsed.TotalMilliseconds);
             }
@@ -545,9 +549,19 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // positions in aggregate, so the faint end it admits is worth having -- which is not true of the
         // detector's other callers (see Image.MaxFirstPassNoiseSigma for what capping them cost).
         stageSw.Restart();
-        var detectedStars = await DetectStarsAsync(detectionImage, cancellationToken);
-        _logger.LogDebug("CatalogPlateSolver: FindStarsAsync detected {Count} stars in {Ms}ms ({W}x{H})",
-            detectedStars.Count, stageSw.Elapsed.TotalMilliseconds, detectionImage.Width, detectionImage.Height);
+        StarList detectedStars;
+        try
+        {
+            detectedStars = await DetectStarsAsync(detectionImage, cancellationToken);
+            _logger.LogDebug("CatalogPlateSolver: FindStarsAsync detected {Count} stars in {Ms}ms ({W}x{H})",
+                detectedStars.Count, stageSw.Elapsed.TotalMilliseconds, detectionImage.Width, detectionImage.Height);
+        }
+        finally
+        {
+            // Nothing below reads the binned frame (a bin that is undone re-detects on the full one), and
+            // from here its planes belong to the pool's next renter.
+            binned?.Dispose();
+        }
 
         // The proposal, judged against what the detector just measured. A binned frame that comes
         // back under Nyquist was binned past what its stars could carry, and every centroid in it is

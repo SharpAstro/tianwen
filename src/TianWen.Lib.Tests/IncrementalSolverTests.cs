@@ -106,7 +106,7 @@ public class IncrementalSolverTests(ITestOutputHelper output)
         return new Image([data], BitDepth.Float32, max, min, 0, meta);
     }
 
-    private static Image RenderFrame(float offsetX = 0, float offsetY = 0, int starCount = 60)
+    private static Image RenderFrame(float offsetX = 0, float offsetY = 0, int starCount = 60, int focalLength = 500)
     {
         var data = SyntheticStarFieldRenderer.Render(
             width: Width,
@@ -136,9 +136,40 @@ public class IncrementalSolverTests(ITestOutputHelper output)
         }
 
         var meta = new ImageMeta("synth", DateTime.UtcNow, TimeSpan.FromSeconds(Exposure),
-            FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
+            FrameType.Light, "", 3.76f, 3.76f, focalLength, -1, Filter.Luminance, 1, 1,
             float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
         return new Image([data], BitDepth.Float32, max, min, 0, meta);
+    }
+
+    /// <summary>
+    /// The live path as polar alignment runs it on a finely sampled camera: the seed bins the frame (2x
+    /// here, 3.76 um at 1100 mm being 0.705"/px against the 1.5"/px target) and every refine bins again at
+    /// the seed's factor, into planes rented from the pool and returned after the detection. Refining the
+    /// very frame that seeded must hand back the seed's own solution. The only active test of the
+    /// incremental path: the ones below target the retired centroid matcher, and at their 1.55"/px they
+    /// would never have binned.
+    /// </summary>
+    [Fact]
+    public async Task ABinnedSeedAndARefineOfTheSameFrameGiveTheSeedsSolution()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var frame = RenderFrame(focalLength: 1100);
+        var wcs = MakeKnownWcs();
+        var solver = new IncrementalSolver();
+
+        var anchors = await solver.SeedAsync(frame, wcs, ct);
+
+        anchors.ShouldBeGreaterThanOrEqualTo(solver.MinAnchors);
+        solver.SeedDetectionScale.ShouldBe(2, "premise: this frame is binned");
+
+        var result = await solver.RefineAsync(frame, ct);
+
+        result.ShouldNotBeNull("the frame that seeded must refine");
+        var refined = result.Value.Solution;
+        refined.ShouldNotBeNull();
+        refined.Value.CenterRA.ShouldBe(wcs.CenterRA, tolerance: 1e-5);
+        refined.Value.CenterDec.ShouldBe(wcs.CenterDec, tolerance: 1e-5);
+        output.WriteLine($"seeded with {anchors} anchors at bin {solver.SeedDetectionScale}; refine matched {result.Value.MatchedStars} in {result.Value.Elapsed.TotalMilliseconds:F1} ms");
     }
 
     /// <summary>

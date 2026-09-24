@@ -91,6 +91,9 @@ namespace TianWen.Lib.Astrometry.PlateSolve
         /// <summary>Detected-star count from the most recent seed (diagnostics).</summary>
         public int AnchorCount => _seedSortedStars?.Count ?? 0;
 
+        /// <summary>The bin factor the seed detected at, which every refine repeats (1 = unbinned).</summary>
+        internal int SeedDetectionScale => _seedDetectionScale;
+
         /// <summary>The seed WCS that all live refines align against -- never mutated.</summary>
         public WCS? CurrentWcs => _seedWcs;
 
@@ -134,20 +137,21 @@ namespace TianWen.Lib.Astrometry.PlateSolve
             const double TargetPixelScaleArcsec = 1.5;
             var dim = image.GetImageDim();
             var detectionScale = 1;
-            var detectionImage = image;
             if (dim is { PixelScale: > 0 } d && d.PixelScale < TargetPixelScaleArcsec)
             {
-                detectionScale = (int)Math.Round(TargetPixelScaleArcsec / d.PixelScale);
-                if (detectionScale > 1)
-                {
-                    detectionImage = image.Downsample(detectionScale);
-                }
+                detectionScale = Math.Max(1, (int)Math.Round(TargetPixelScaleArcsec / d.PixelScale));
             }
 
-            var stars = await detectionImage.FindStarsAsync(
-                0, snrMin: SnrThreshold,
-                maxStars: MaxAnchors, minStars: MinAnchors,
-                logger: _logger, cancellationToken: ct).ConfigureAwait(false);
+            // Binned into RENTED planes (a scale of 1 is the frame itself), returned as soon as the
+            // detection has read them: only the star list leaves.
+            StarList stars;
+            using (var binned = image.DownsampleRented(detectionScale))
+            {
+                stars = await binned.Image.FindStarsAsync(
+                    0, snrMin: SnrThreshold,
+                    maxStars: MaxAnchors, minStars: MinAnchors,
+                    logger: _logger, cancellationToken: ct).ConfigureAwait(false);
+            }
 
             if (stars.Count < MinAnchors)
             {
@@ -160,7 +164,16 @@ namespace TianWen.Lib.Astrometry.PlateSolve
             // call, but worth doing now so the first live Refine doesn't pay
             // a one-shot cost while the user is staring at the gauge).
             var seedSorted = new SortedStarList(stars);
-            _ = await seedSorted.FindQuadsAsync(cancellationToken: ct).ConfigureAwait(false);
+            try
+            {
+                _ = await seedSorted.FindQuadsAsync(cancellationToken: ct).ConfigureAwait(false);
+            }
+            catch
+            {
+                // A cancelled (or failed) quad build never became the seed, so nothing else will dispose it.
+                seedSorted.Dispose();
+                throw;
+            }
 
             // Drop any prior seed before swapping in the new one.
             _seedSortedStars?.Dispose();
@@ -199,17 +212,18 @@ namespace TianWen.Lib.Astrometry.PlateSolve
             // the seed used. Star-quad invariants only match across frames
             // captured at identical pixel scales, since Dist1 is in absolute
             // pixels. Using the seed's detection scale also keeps the per-
-            // frame cost predictable.
-            var detectionImage = image;
-            if (_seedDetectionScale > 1)
+            // frame cost predictable. The binned frame is in RENTED planes,
+            // returned as soon as the detection has read them: this runs on
+            // every refine frame, and new ones were 26 MB a frame at factor 2
+            // on a 26 MP sensor. Only the star list leaves.
+            StarList stars;
+            using (var binned = image.DownsampleRented(_seedDetectionScale))
             {
-                detectionImage = image.Downsample(_seedDetectionScale);
+                stars = await binned.Image.FindStarsAsync(
+                    0, snrMin: SnrThreshold,
+                    maxStars: MaxAnchors, minStars: MinAnchors,
+                    logger: _logger, cancellationToken: ct).ConfigureAwait(false);
             }
-
-            var stars = await detectionImage.FindStarsAsync(
-                0, snrMin: SnrThreshold,
-                maxStars: MaxAnchors, minStars: MinAnchors,
-                logger: _logger, cancellationToken: ct).ConfigureAwait(false);
 
             if (stars.Count < MinAnchors)
             {
