@@ -752,12 +752,14 @@ internal sealed class TuiLiveSessionTab(
             }
         }
 
-        // New frame arrived: kick off async document creation + stretch
+        // New frame arrived: kick off async document creation + stretch. The frame is still the
+        // session's (queued for its FITS write, under star detection), so the document is built from a
+        // leased COPY; adopting the frame itself rescaled the sub being written to [0, 1].
         if (latestImage is not null && !ReferenceEquals(latestImage, _displayedImage) && _pendingDoc is null)
         {
             _displayedImage = latestImage;
             var capturedImage = latestImage;
-            _pendingDoc = Task.Run(async () => (AstroImageDocument?)await AstroImageDocument.AdoptImageAsync(capturedImage));
+            _pendingDoc = Task.Run(() => AstroImageDocument.FromLiveFrameAsync(capturedImage));
         }
 
         // Check if document creation completed

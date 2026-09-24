@@ -478,6 +478,42 @@ public sealed class AstroImageDocument : IPreviewSource
     }
 
     /// <summary>
+    /// Creates a document from a live frame someone else owns, such as a session's
+    /// <c>LastCapturedImages</c> slot, and leaves that frame exactly as it was: the frame is leased,
+    /// copied, and the COPY is adopted.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why not <see cref="AdoptImageAsync"/>.</b> Adopting consumes its input and rescales it to
+    /// <c>[0, 1]</c> in place, and a live frame is still its owner's: the session has it queued for its
+    /// FITS write and runs star detection on it. The TUI's live preview adopted it directly, so the sub
+    /// being written could be saved as 0 or 1 ADU, and the camera's recycled buffer ended up inside the
+    /// document, where the next exposure would overwrite it.</para>
+    /// <para><b>The lease is what makes the copy safe.</b> It holds a reference on every recycled channel
+    /// buffer, so the camera cannot reuse the pixels while they are copied, and it is given back the
+    /// moment the copy exists, so the owner's release still recycles the frame.</para>
+    /// <para>Returns <see langword="null"/> when the frame was already given back before the lease
+    /// (superseded): the next frame will show instead, so there is nothing to report.</para>
+    /// <para><b>Frame ownership: a BORROW</b>, so the caller keeps whatever it held and releases nothing
+    /// here. The copy is self-owned (convention 2), so the document it becomes owes the caller nothing.
+    /// See the frame-ownership notes on <see cref="Image"/>.</para>
+    /// </remarks>
+    public static async Task<AstroImageDocument?> FromLiveFrameAsync(Image frame, CancellationToken cancellationToken = default)
+    {
+        if (!frame.TryLease(out var lease))
+        {
+            return null;
+        }
+
+        Image copy;
+        using (lease)
+        {
+            copy = lease.Image.Clone();
+        }
+
+        return await AdoptImageAsync(copy, cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
     /// Creates a document from an in-memory <see cref="Image"/> (e.g. from the live
     /// session capture). The document <b>adopts</b> the image: its pixel arrays are
     /// rescaled in place to <c>[0, 1]</c> via <see cref="Image.ScaleFloatValuesToUnitInPlace"/>

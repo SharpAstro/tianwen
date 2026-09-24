@@ -1,6 +1,7 @@
 # Frame-path allocations: what a frame costs on its way through
 
-**Status: P0 DONE (2026-09-24, branch `fix/frame-path-allocations`, not yet merged); P1 to P5 NOT STARTED.**
+**Status: P0 DONE (2026-09-24, merged in #349, with FITS.Lib 6.1); P1 DONE (2026-09-24); P2 to P5 NOT
+STARTED.**
 Raised by the user on 2026-09-24: "if we have allocations that are useless already right now, we should
 remove them prior to this server change" ([hardware-in-the-server.md](hardware-in-the-server.md)). A
 read-only sweep of every capture path the same day found the items below; each carries the file, the
@@ -47,7 +48,7 @@ this was found on:
   frame does not have, together with no pixel at or above 32768. A maximum below 32768 alone proves
   nothing, since a short dark may never reach half scale.
 
-## P1: the TUI live preview corrupts the sub it previews (CORRECTNESS, fix first)
+## P1: the TUI live preview corrupted the sub it previewed (CORRECTNESS, FIXED 2026-09-24)
 
 `TuiLiveSessionTab.RenderPreview` passes `LiveState.LastCapturedImages[i]`, which is the session's OWN
 `Image`, to `AstroImageDocument.AdoptImageAsync`. That method CONSUMES its input by its own contract: it
@@ -60,8 +61,14 @@ rescales the pixels to [0, 1] in place (`ScaleFloatValuesToUnitInPlace`).
   next exposure.
 
 Read from the code (2026-09-24), not reproduced. The GUI is not affected: its `LiveFramePreviewSource.AcceptFrame`
-copies. **Fix:** lease the frame (`Image.TryLease`), copy it, adopt the copy. **Test first:** the session
-frame's pixels must be unchanged after the TUI previews it.
+copies. The session also runs star detection on that same `Image` while it waits in the write queue, so the
+rescale raced the star count as well as the write.
+
+**Fixed:** `AstroImageDocument.FromLiveFrameAsync` leases the frame (`Image.TryLease`), copies it
+(`Image.Clone`), disposes the lease and adopts the COPY, and the TUI previews through it. A frame already
+given back returns `null` (the next frame shows instead). `LiveFrameDocumentTests` pins it, written first:
+against the old direct adoption, the frame's pixels changed and a released frame threw; a third test holds
+that the lease is given back, so the owner's release still recycles the buffer.
 
 ## P2: video rate (planetary), the largest by far
 
