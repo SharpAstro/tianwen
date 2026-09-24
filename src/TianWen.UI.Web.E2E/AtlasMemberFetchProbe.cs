@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using Microsoft.Playwright;
 using Shouldly;
@@ -39,12 +40,12 @@ public sealed class AtlasMemberFetchProbe(TianWenWebFixture fixture, ITestOutput
             "probe: set TIANWEN_WEB_PROBE=1 (and point TIANWEN_WEB_BASEURL at a Lightweight server with tyc2/ staged)");
 
         var page = await fixture.NewPageAsync();
-        var console = new List<string>();
-        page.Console += (_, m) => { lock (console) console.Add(m.Text); };
+        var console = new ConcurrentQueue<string>();
+        page.Console += (_, m) => console.Enqueue(m.Text);
 
         // Sizes come from the RESPONSE, not from a local file listing: the point is what crossed the
         // wire, including anything the host added on the way.
-        var fetched = new List<(string Url, int Bytes)>();
+        var fetched = new ConcurrentQueue<(string Url, int Bytes)>();
         page.Response += (_, r) =>
         {
             if (!r.Url.Contains("/tyc2/", StringComparison.Ordinal)) return;
@@ -53,7 +54,7 @@ public sealed class AtlasMemberFetchProbe(TianWenWebFixture fixture, ITestOutput
                 try
                 {
                     var body = await r.BodyAsync();
-                    lock (fetched) fetched.Add((r.Url[(r.Url.LastIndexOf('/') + 1)..], body.Length));
+                    fetched.Enqueue((r.Url[(r.Url.LastIndexOf('/') + 1)..], body.Length));
                 }
                 catch { /* a response body can be gone by the time we ask; the count still lands */ }
             });
@@ -89,12 +90,9 @@ public sealed class AtlasMemberFetchProbe(TianWenWebFixture fixture, ITestOutput
         var afterPan = Count(fetched);
         var rebuilds = CountLines(console, "tyc2 flatten");
 
-        lock (console)
+        foreach (var line in console.Where(c => c.Contains("tyc2") || c.Contains("sky geometry")))
         {
-            foreach (var line in console.Where(c => c.Contains("tyc2") || c.Contains("sky geometry")))
-            {
-                output.WriteLine($"[members]   {line}");
-            }
+            output.WriteLine($"[members]   {line}");
         }
 
         afterOpen.Files.ShouldBeLessThan(166, "a first open must not fetch the whole catalog");
@@ -118,32 +116,31 @@ public sealed class AtlasMemberFetchProbe(TianWenWebFixture fixture, ITestOutput
             "a pan is re-flattening per view cell again; the flatten debounce has regressed");
     }
 
-    private static int CountLines(List<string> console, string marker)
+    private static int CountLines(ConcurrentQueue<string> console, string marker)
     {
-        lock (console) return console.Count(c => c.Contains(marker, StringComparison.Ordinal));
+        return console.Count(c => c.Contains(marker, StringComparison.Ordinal));
     }
 
-    private (int Files, long Bytes) Count(List<(string Url, int Bytes)> fetched)
+    private (int Files, long Bytes) Count(ConcurrentQueue<(string Url, int Bytes)> fetched)
     {
-        lock (fetched) return (fetched.Count, fetched.Sum(f => (long)f.Bytes));
+        // One snapshot, so the file count and the byte total describe the same set of responses.
+        var snapshot = fetched.ToArray();
+        return (snapshot.Length, snapshot.Sum(f => (long)f.Bytes));
     }
 
-    private void Report(string stage, long elapsedMs, List<(string Url, int Bytes)> fetched)
+    private void Report(string stage, long elapsedMs, ConcurrentQueue<(string Url, int Bytes)> fetched)
     {
         var (files, bytes) = Count(fetched);
         output.WriteLine($"[members] {stage}: {files} files, {bytes / (1024.0 * 1024.0):F2} MiB "
             + $"(wall {elapsedMs} ms -- INTERPRETED, not comparable to the deployed build)");
     }
 
-    private static async Task<bool> WaitForConsoleAsync(List<string> console, string marker, float timeoutMs)
+    private static async Task<bool> WaitForConsoleAsync(ConcurrentQueue<string> console, string marker, float timeoutMs)
     {
         var deadline = Stopwatch.StartNew();
         while (deadline.ElapsedMilliseconds < timeoutMs)
         {
-            lock (console)
-            {
-                if (console.Any(c => c.Contains(marker, StringComparison.Ordinal))) return true;
-            }
+            if (console.Any(c => c.Contains(marker, StringComparison.Ordinal))) return true;
             await Task.Delay(50, TestContext.Current.CancellationToken);
         }
         return false;

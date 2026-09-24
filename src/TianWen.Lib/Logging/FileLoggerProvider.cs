@@ -21,6 +21,10 @@ namespace TianWen.Lib.Logging;
 public sealed class FileLoggerProvider : ILoggerProvider
 {
     private readonly StreamWriter _writer;
+    // Shared by every FileLogger: StreamWriter is not thread-safe and an entry (message + exception) must
+    // land as one block. A lock rather than a queue drained by a writer task because AutoFlush writes each
+    // line before Log returns, which is what keeps the last lines before a crash. The one clause of the
+    // standing rule this does not meet: a render thread that logs takes it (docs/todo/infra.md).
     private readonly Lock _lock = new Lock();
 
     public FileLoggerProvider(string appName)

@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
@@ -25,13 +25,13 @@ namespace TianWen.Lib.Tests;
 public class SharpenPipelineDebayerTests
 {
     /// <summary>Records the channel count of every plate it is handed, then passes it through.</summary>
-    private sealed class ShapeRecorder(List<int> seen)
+    private sealed class ShapeRecorder(ConcurrentQueue<int> seen)
         : IImageDeblurrer, IStarRemover, IGradientCorrector, IDenoiseEnhancer
     {
         public string Name => "Test/ShapeRecorder";
         public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
         {
-            lock (seen) { seen.Add(input.ChannelCount); }
+            seen.Enqueue(input.ChannelCount);
             return Task.FromResult(input);
         }
     }
@@ -61,7 +61,7 @@ public class SharpenPipelineDebayerTests
     [Fact]
     public async Task AMosaicIsDebayeredBeforeAnyStepSeesIt()
     {
-        var seen = new List<int>();
+        var seen = new ConcurrentQueue<int>();
         var recorder = new ShapeRecorder(seen);
         var pipeline = new SharpenPipeline(
             starRemover: recorder, gradientCorrector: recorder, denoiser: recorder, deblurrer: recorder);
@@ -83,7 +83,7 @@ public class SharpenPipelineDebayerTests
     [Fact]
     public async Task TheCallersMosaicIsLeftUsable()
     {
-        var seen = new List<int>();
+        var seen = new ConcurrentQueue<int>();
         var recorder = new ShapeRecorder(seen);
         var pipeline = new SharpenPipeline(
             starRemover: recorder, gradientCorrector: recorder, denoiser: recorder, deblurrer: recorder);
@@ -103,7 +103,7 @@ public class SharpenPipelineDebayerTests
     [Fact]
     public async Task AnRgbPlateIsNotTouched()
     {
-        var seen = new List<int>();
+        var seen = new ConcurrentQueue<int>();
         var recorder = new ShapeRecorder(seen);
         var pipeline = new SharpenPipeline(
             starRemover: recorder, gradientCorrector: recorder, denoiser: recorder, deblurrer: recorder);
@@ -125,7 +125,7 @@ public class SharpenPipelineDebayerTests
     [Fact]
     public async Task AMonoPlateStaysMono()
     {
-        var seen = new List<int>();
+        var seen = new ConcurrentQueue<int>();
         var recorder = new ShapeRecorder(seen);
         var pipeline = new SharpenPipeline(
             starRemover: recorder, gradientCorrector: recorder, denoiser: recorder, deblurrer: recorder);

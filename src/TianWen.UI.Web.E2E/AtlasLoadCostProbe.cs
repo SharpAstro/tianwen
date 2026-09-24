@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using Microsoft.Playwright;
 using Xunit;
@@ -41,8 +42,8 @@ public sealed class AtlasLoadCostProbe(TianWenWebFixture fixture, ITestOutputHel
         // One context for both legs: the cold leg populates the IndexedDB cache that the warm leg is
         // there to measure, and a second context would start empty and re-measure the cold path.
         var page = await fixture.NewPageAsync();
-        var console = new List<string>();
-        page.Console += (_, m) => { lock (console) console.Add(m.Text); };
+        var console = new ConcurrentQueue<string>();
+        page.Console += (_, m) => console.Enqueue(m.Text);
 
         output.WriteLine($"[atlas] base url: {fixture.BaseUrl}");
         await RunLegAsync(page, console, "COLD (empty IndexedDB)");
@@ -60,9 +61,9 @@ public sealed class AtlasLoadCostProbe(TianWenWebFixture fixture, ITestOutputHel
         await page.Context.CloseAsync();
     }
 
-    private async Task RunLegAsync(IPage page, List<string> console, string leg)
+    private async Task RunLegAsync(IPage page, ConcurrentQueue<string> console, string leg)
     {
-        lock (console) console.Clear();
+        console.Clear();
         var sw = Stopwatch.StartNew();
 
         // Deep-link straight to the atlas: the fetch fires on the first Sky-Atlas PAINT, so landing on
@@ -88,16 +89,13 @@ public sealed class AtlasLoadCostProbe(TianWenWebFixture fixture, ITestOutputHel
         output.WriteLine($"[atlas] --- {leg} ---");
         output.WriteLine($"[atlas] chrome interactive at {interactive} ms, catalog on screen at {total} ms "
             + $"({total - interactive} ms of atlas work after the app was usable)");
-        lock (console)
+        // Every app line, not only the tyc2/atlas ones. The boot prints the DSO catalog init and
+        // the tonight's-best sweep too, and those are the OTHER half of a repeat visit: the atlas
+        // is cached in IndexedDB, they are not, so filtering them out reported a warm boot as being
+        // as cheap as its atlas phase.
+        foreach (var line in console.Where(c => c.Contains("[tianwen-web]") || c.Contains("atlas")))
         {
-            // Every app line, not only the tyc2/atlas ones. The boot prints the DSO catalog init and
-            // the tonight's-best sweep too, and those are the OTHER half of a repeat visit: the atlas
-            // is cached in IndexedDB, they are not, so filtering them out reported a warm boot as being
-            // as cheap as its atlas phase.
-            foreach (var line in console.Where(c => c.Contains("[tianwen-web]") || c.Contains("atlas")))
-            {
-                output.WriteLine($"[atlas]   {line}");
-            }
+            output.WriteLine($"[atlas]   {line}");
         }
     }
 
@@ -106,15 +104,12 @@ public sealed class AtlasLoadCostProbe(TianWenWebFixture fixture, ITestOutputHel
     /// has been printed cannot un-print, so this cannot pass before the work it names has happened.
     /// Any-of rather than one, because a phase can legitimately be reached by more than one code path
     /// and each names itself differently.</summary>
-    private static async Task<bool> WaitForConsoleAsync(List<string> console, float timeoutMs, params string[] markers)
+    private static async Task<bool> WaitForConsoleAsync(ConcurrentQueue<string> console, float timeoutMs, params string[] markers)
     {
         var deadline = Stopwatch.StartNew();
         while (deadline.ElapsedMilliseconds < timeoutMs)
         {
-            lock (console)
-            {
-                if (console.Any(c => markers.Any(m => c.Contains(m, StringComparison.Ordinal)))) return true;
-            }
+            if (console.Any(c => markers.Any(m => c.Contains(m, StringComparison.Ordinal)))) return true;
             await Task.Delay(50, TestContext.Current.CancellationToken);
         }
         return false;

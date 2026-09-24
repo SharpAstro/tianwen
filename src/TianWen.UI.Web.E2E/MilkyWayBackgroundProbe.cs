@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using Microsoft.Playwright;
 using Xunit;
@@ -51,8 +52,8 @@ public sealed class MilkyWayBackgroundProbe(TianWenWebFixture fixture, ITestOutp
         Directory.CreateDirectory(dir);
 
         var page = await fixture.NewPageAsync();
-        var console = new List<string>();
-        page.Console += (_, m) => { lock (console) { console.Add($"[{m.Type}] {m.Text}"); } };
+        var console = new ConcurrentQueue<string>();
+        page.Console += (_, m) => console.Enqueue($"[{m.Type}] {m.Text}");
 
         // Armed BEFORE navigating: the texture can land before the page is interactive, and a waiter set up
         // afterwards would miss the line and wait out the whole timeout. Either outcome ends the wait, so a
@@ -110,12 +111,9 @@ public sealed class MilkyWayBackgroundProbe(TianWenWebFixture fixture, ITestOutp
         await DrawnWithLayerAsync(on: true, afterFrame: frame);
         var onAgain = await ShootAsync("3-on-again");
 
-        lock (console)
+        foreach (var line in console.Where(c => c.Contains("[tianwen-web]")))
         {
-            foreach (var line in console.Where(c => c.Contains("[tianwen-web]")))
-            {
-                output.WriteLine("  " + line);
-            }
+            output.WriteLine("  " + line);
         }
 
         Assert.False(on.AsSpan().SequenceEqual(off), "switching the layer off changed nothing on screen");

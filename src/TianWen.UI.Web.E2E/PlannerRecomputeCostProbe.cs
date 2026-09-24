@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using Microsoft.Playwright;
 using Xunit;
@@ -34,8 +35,8 @@ public sealed class PlannerRecomputeCostProbe(TianWenWebFixture fixture, ITestOu
             "probe: set TIANWEN_WEB_PROBE=1 (and point TIANWEN_WEB_BASEURL at a DEPLOYED build)");
 
         var page = await fixture.NewPageAsync();
-        var console = new List<string>();
-        page.Console += (_, m) => { lock (console) console.Add(m.Text); };
+        var console = new ConcurrentQueue<string>();
+        page.Console += (_, m) => console.Enqueue(m.Text);
 
         output.WriteLine($"[planner] base url: {fixture.BaseUrl}");
         await page.GotoAsync(fixture.BaseUrl, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
@@ -47,7 +48,7 @@ public sealed class PlannerRecomputeCostProbe(TianWenWebFixture fixture, ITestOu
         // the RecomputeForDate branch rather than re-sweeping the catalog.
         for (var round = 1; round <= 3; round++)
         {
-            lock (console) console.Clear();
+            console.Clear();
             var sw = Stopwatch.StartNew();
             await page.GetByRole(AriaRole.Button, new() { Name = "Recompute" }).ClickAsync();
             var seen = await WaitForConsoleAsync(console, RecomputeTimeout, "tonight's best (");
@@ -59,26 +60,20 @@ public sealed class PlannerRecomputeCostProbe(TianWenWebFixture fixture, ITestOu
         await page.Context.CloseAsync();
     }
 
-    private void Dump(List<string> console, string leg)
+    private void Dump(ConcurrentQueue<string> console, string leg)
     {
-        lock (console)
+        foreach (var line in console.Where(c => c.Contains("[tianwen-web]", StringComparison.Ordinal)))
         {
-            foreach (var line in console.Where(c => c.Contains("[tianwen-web]", StringComparison.Ordinal)))
-            {
-                output.WriteLine($"[planner] {leg}: {line}");
-            }
+            output.WriteLine($"[planner] {leg}: {line}");
         }
     }
 
-    private static async Task<bool> WaitForConsoleAsync(List<string> console, float timeoutMs, params string[] markers)
+    private static async Task<bool> WaitForConsoleAsync(ConcurrentQueue<string> console, float timeoutMs, params string[] markers)
     {
         var deadline = Stopwatch.StartNew();
         while (deadline.ElapsedMilliseconds < timeoutMs)
         {
-            lock (console)
-            {
-                if (console.Any(c => markers.Any(m => c.Contains(m, StringComparison.Ordinal)))) return true;
-            }
+            if (console.Any(c => markers.Any(m => c.Contains(m, StringComparison.Ordinal)))) return true;
             await Task.Delay(50, TestContext.Current.CancellationToken);
         }
         return false;

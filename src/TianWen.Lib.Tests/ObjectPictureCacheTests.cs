@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -33,7 +34,7 @@ public sealed class ObjectPictureCacheTests
     /// <summary>Keeps every entry logged, which is the one thing these tests ask of a log.</summary>
     private sealed class RecordingLogger : ILogger
     {
-        public List<(LogLevel Level, Exception? Exception, string Message)> Entries { get; } = [];
+        public ConcurrentQueue<(LogLevel Level, Exception? Exception, string Message)> Entries { get; } = new ConcurrentQueue<(LogLevel Level, Exception? Exception, string Message)>();
 
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
@@ -42,7 +43,7 @@ public sealed class ObjectPictureCacheTests
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
-            lock (Entries) { Entries.Add((logLevel, exception, formatter(state, exception))); }
+            Entries.Enqueue((logLevel, exception, formatter(state, exception)));
         }
     }
 

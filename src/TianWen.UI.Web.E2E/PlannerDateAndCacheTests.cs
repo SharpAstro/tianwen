@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using Microsoft.Playwright;
 using Xunit;
@@ -38,8 +39,8 @@ public sealed class PlannerDateAndCacheTests(TianWenWebFixture fixture, ITestOut
     public async Task ADateChangeRecomputesAndAReloadSkipsTheCatalogSweep()
     {
         var page = await fixture.NewPageAsync();
-        var console = new List<string>();
-        page.Console += (_, m) => { lock (console) console.Add(m.Text); };
+        var console = new ConcurrentQueue<string>();
+        page.Console += (_, m) => console.Enqueue(m.Text);
 
         // --- First visit: nothing cached, so the full sweep runs and seeds the cache ---
         await GotoReadyAsync(page, fixture.BaseUrl + "?e2e=1");
@@ -56,7 +57,7 @@ public sealed class PlannerDateAndCacheTests(TianWenWebFixture fixture, ITestOut
         }
 
         // --- A date change must reach the planner, not just the sky map ---
-        lock (console) console.Clear();
+        console.Clear();
         await page.Locator("[data-view=sky]").ClickAsync();
         await Expect(page.Locator("[data-view=sky]")).ToHaveClassAsync(new System.Text.RegularExpressions.Regex(@"\bactive\b"),
             new() { Timeout = BootTimeout });
@@ -69,7 +70,7 @@ public sealed class PlannerDateAndCacheTests(TianWenWebFixture fixture, ITestOut
             "PageUp moved the planning date but nothing recomputed; " + Dump(console));
 
         // --- Second visit: the candidate cache replaces the scan ---
-        lock (console) console.Clear();
+        console.Clear();
         await GotoReadyAsync(page, fixture.BaseUrl + "?e2e=1");
 
         Assert.True(Saw(console, "candidates restored"),
@@ -94,20 +95,20 @@ public sealed class PlannerDateAndCacheTests(TianWenWebFixture fixture, ITestOut
         await Expect(page.Locator(".catalog-loading")).ToHaveCountAsync(0, new() { Timeout = BootTimeout });
     }
 
-    private static bool Saw(List<string> console, string marker)
+    private static bool Saw(ConcurrentQueue<string> console, string marker)
     {
-        lock (console) return console.Any(c => c.Contains(marker, StringComparison.Ordinal));
+        return console.Any(c => c.Contains(marker, StringComparison.Ordinal));
     }
 
-    private static string[] Lines(List<string> console)
+    private static string[] Lines(ConcurrentQueue<string> console)
     {
-        lock (console) return [.. console.Where(c => c.Contains("[tianwen-web]", StringComparison.Ordinal))];
+        return [.. console.Where(c => c.Contains("[tianwen-web]", StringComparison.Ordinal))];
     }
 
-    private static string Dump(List<string> console)
+    private static string Dump(ConcurrentQueue<string> console)
         => "app said: " + string.Join(" | ", Lines(console));
 
-    private static async Task<bool> WaitForConsoleAsync(List<string> console, float timeoutMs, string marker)
+    private static async Task<bool> WaitForConsoleAsync(ConcurrentQueue<string> console, float timeoutMs, string marker)
     {
         var deadline = Stopwatch.StartNew();
         while (deadline.ElapsedMilliseconds < timeoutMs)

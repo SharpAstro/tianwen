@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -112,12 +111,14 @@ namespace TianWen.AI.Imaging.RcAstro
 
             // stderr stays empty on success in --json mode; capture it anyway so
             // a hard failure (which can still print there) has a diagnostic.
-            var stderr = new StringBuilder();
+            // The handler runs on a pool thread, so the lines go into a lock-free queue and are joined
+            // once the process has exited.
+            var stderr = new ConcurrentQueue<string>();
             proc.ErrorDataReceived += (_, e) =>
             {
                 if (e.Data is { } line)
                 {
-                    lock (stderr) { stderr.AppendLine(line); }
+                    stderr.Enqueue(line);
                 }
             };
             proc.BeginErrorReadLine();
@@ -203,7 +204,7 @@ namespace TianWen.AI.Imaging.RcAstro
             if (proc.ExitCode != 0 || errorMessage is not null)
             {
                 var detail = errorMessage
-                    ?? (stderr.Length > 0 ? stderr.ToString().Trim() : "no diagnostic output");
+                    ?? (string.Join(Environment.NewLine, stderr).Trim() is { Length: > 0 } text ? text : "no diagnostic output");
                 throw new RcAstroCliException($"RC-Astro '{productKey}' failed (exit {proc.ExitCode}): {detail}");
             }
 

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Playwright;
 using Xunit;
 using static Microsoft.Playwright.Assertions;
@@ -37,8 +38,8 @@ public sealed class ObjectPictureProbe(TianWenWebFixture fixture, ITestOutputHel
         Directory.CreateDirectory(dir);
 
         var page = await fixture.NewPageAsync();
-        var console = new List<string>();
-        page.Console += (_, m) => { lock (console) { console.Add($"[{m.Type}] {m.Text}"); } };
+        var console = new ConcurrentQueue<string>();
+        page.Console += (_, m) => console.Enqueue($"[{m.Type}] {m.Text}");
 
         await page.GotoAsync(fixture.BaseUrl + "?e2e=1&view=sky&object=M42", new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
         await Expect(page.Locator("[data-view=sky]")).ToBeVisibleAsync(new() { Timeout = BootTimeout });
@@ -62,12 +63,9 @@ public sealed class ObjectPictureProbe(TianWenWebFixture fixture, ITestOutputHel
         });
         output.WriteLine($"capture: {path}");
 
-        lock (console)
+        foreach (var line in console.Where(c => c.Contains("[error]", StringComparison.Ordinal) || c.Contains("texture", StringComparison.OrdinalIgnoreCase)))
         {
-            foreach (var line in console.Where(c => c.Contains("[error]", StringComparison.Ordinal) || c.Contains("texture", StringComparison.OrdinalIgnoreCase)))
-            {
-                output.WriteLine("  " + line);
-            }
+            output.WriteLine("  " + line);
         }
 
         Assert.True(drawn > 0);

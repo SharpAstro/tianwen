@@ -19,6 +19,9 @@ internal class FakeSgpSerialDevice : ISerialConnection
     private readonly StringBuilder _responseBuffer = new();
     private int _responsePointer;
     private readonly SemaphoreSlim _semaphore = new(1, 1);
+    // Guards the mount state and the response buffer against the tracking timer. A lock rather than a CAS
+    // swap because one command mutates several fields and appends its reply as one step; a fake serial
+    // device, never reached from a render thread.
     private readonly Lock _lockObj = new();
 
     // Mount state

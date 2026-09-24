@@ -33,6 +33,9 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         SensorType = preset.SensorType;
     }
 
+    // Guards the camera settings and the per-exposure snapshots below, written by the async driver calls and
+    // read by the synthetic frame render (star-field synthesis, not a UI render thread). A lock rather than a
+    // CAS swap because several fields move together (ROI + binning, a pointing snapshot's RA/Dec/pier side).
     private readonly Lock _lock = new Lock();
     private readonly Random _frameRng = new Random(42);
 

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
@@ -41,9 +42,9 @@ public sealed class OverlayVisibilityProbe(TianWenWebFixture fixture, ITestOutpu
         Directory.CreateDirectory(dir);
 
         var page = await fixture.WarmPageAsync();
-        var console = new List<string>();
-        page.Console += (_, m) => { lock (console) { console.Add($"[{m.Type}] {m.Text}"); } };
-        page.PageError += (_, e) => { lock (console) { console.Add($"[pageerror] {e}"); } };
+        var console = new ConcurrentQueue<string>();
+        page.Console += (_, m) => console.Enqueue($"[{m.Type}] {m.Text}");
+        page.PageError += (_, e) => console.Enqueue($"[pageerror] {e}");
 
         await page.Locator("[data-view=sky]").ClickAsync();
         await Expect(page.Locator("[data-view=sky]")).ToHaveClassAsync(ActiveClass, new() { Timeout = BootTimeout });
@@ -55,19 +56,13 @@ public sealed class OverlayVisibilityProbe(TianWenWebFixture fixture, ITestOutpu
         var atlasDeadline = DateTime.UtcNow.AddSeconds(120);
         while (DateTime.UtcNow < atlasDeadline)
         {
-            lock (console)
+            if (console.Any(c => c.Contains("tyc2 flatten") || c.Contains("HR-only atlas")))
             {
-                if (console.Any(c => c.Contains("tyc2 flatten") || c.Contains("HR-only atlas")))
-                {
-                    break;
-                }
+                break;
             }
             await Task.Delay(500, TestContext.Current.CancellationToken);
         }
-        lock (console)
-        {
-            output.WriteLine($"atlas: {(console.FirstOrDefault(c => c.Contains("tyc2 flatten")) ?? "NOT LOADED (HR seed only)")}");
-        }
+        output.WriteLine($"atlas: {(console.FirstOrDefault(c => c.Contains("tyc2 flatten")) ?? "NOT LOADED (HR seed only)")}");
 
         async Task SettleAsync()
         {
@@ -105,13 +100,10 @@ public sealed class OverlayVisibilityProbe(TianWenWebFixture fixture, ITestOutpu
         await canvas.PressAsync("o");
         await ShootAsync("3-overlay-off-again");
 
-        lock (console)
+        output.WriteLine($"--- {console.Count} console messages ---");
+        foreach (var m in console)
         {
-            output.WriteLine($"--- {console.Count} console messages ---");
-            foreach (var m in console)
-            {
-                output.WriteLine("  " + m);
-            }
+            output.WriteLine("  " + m);
         }
     }
 }
