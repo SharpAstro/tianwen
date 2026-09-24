@@ -33,11 +33,36 @@ namespace TianWen.Lib.Tests
             return end >= 0 ? text[..end] : text;
         }
 
+        /// <summary>Relink decides by NTFS file identity, which only Windows reports. Elsewhere every
+        /// pair is Unreadable by design (see the off-Windows test), so a test of a decision it makes
+        /// past that point has nothing to test there.</summary>
+        private static void RequireFileIdentity()
+            => Assert.SkipUnless(OperatingSystem.IsWindows(), "Relink reads NTFS file identity, which only Windows reports.");
+
+        [Fact]
+        public async Task GivenNoFileIdentity_WhenLinkingOffWindows_ThenNothingIsLinkedAndTheRawFrameIsUntouched()
+        {
+            // The fail-safe the Windows-only tests rely on: where the platform cannot say which file a
+            // name points at, relink refuses rather than guessing, so it can never re-point a name there.
+            Assert.SkipWhen(OperatingSystem.IsWindows(), "Windows reports file identity; this is the off-Windows answer.");
+            var dir = TempDir();
+            var (raw, _) = FitsFixture.WriteFits(dir, "raw.fits", ["IMAGETYP= 'LIGHT'"]);
+            var (curated, _) = FitsFixture.WriteFits(dir, "curated.fits", ["IMAGETYP= 'LIGHT'", "FILTER  = 'L'"]);
+            var rawBefore = FitsFixture.ShaOfFile(raw);
+
+            var result = await ArchiveLinkSweep.LinkAsync(
+                raw, curated, apply: true, cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(ArchiveLinkSweep.LinkOutcome.Unreadable);
+            FitsFixture.ShaOfFile(raw).ShouldBe(rawBefore);
+        }
+
         // ---- ArchiveLinkSweep -------------------------------------------------------------
 
         [Fact]
         public async Task GivenARawFrameAndItsCuratedTwin_WhenLinking_ThenOneFileCarriesBothNamesAndTheCuratedHeaderWins()
         {
+            RequireFileIdentity();
             // The whole point of the sweep. The curated frame carries a FILTER identity established
             // by measurement; the raw one never had it. After linking there is ONE file, and the
             // name in the raw tree resolves to the curated header.
@@ -62,6 +87,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public async Task GivenTheRawStatesACardTheCuratedDoesNot_WhenLinking_ThenItIsRefusedAndNamesTheCard()
         {
+            RequireFileIdentity();
             // The veto. Linking discards the raw header, so a card only the raw has is about to
             // stop existing. Measured over 1,500 real pairs this never happens, which is exactly
             // why it must be checked rather than assumed.
@@ -82,6 +108,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public async Task GivenDifferentPixels_WhenLinking_ThenItIsRefusedEvenThoughTheHeadersAgree()
         {
+            RequireFileIdentity();
             // A ledger can be stale, and this archive's was 6 percent stale when the sweep was
             // written, so the digests are recomputed at the moment of writing and not looked up.
             var dir = TempDir();
@@ -98,6 +125,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public async Task GivenTheSameBytesUnderADifferentBzero_WhenLinking_ThenItIsRefusedAsDifferentPixels()
         {
+            RequireFileIdentity();
             // Identical data bytes read under a different BZERO are different pixels, and no digest of
             // the bytes can see it. BZERO is a structural card, which the general veto skips, so this
             // is exactly the case that passed before the meaning cards were compared on their own.
@@ -119,6 +147,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public async Task GivenBytesThatDifferPastTheFirstDataUnit_WhenLinking_ThenItIsRefusedThoughTheLedgerDigestAgrees()
         {
+            RequireFileIdentity();
             // The ledger's digest (StackManifest.DigestData) covers the first image's data unit and
             // stops, so an extension or trailing bytes that differ are invisible to it. The link
             // would silently discard them; everything after the primary header must match.
@@ -145,6 +174,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public async Task GivenADryRun_WhenLinking_ThenTheVerdictMatchesTheRealRunAndNothingIsWritten()
         {
+            RequireFileIdentity();
             var dir = TempDir();
             var (raw, _) = FitsFixture.WriteFits(dir, "raw.fits", ["IMAGETYP= 'LIGHT'"]);
             var (curated, _) = FitsFixture.WriteFits(dir, "curated.fits", ["IMAGETYP= 'LIGHT'", "FILTER  = 'Ha'"]);
@@ -188,6 +218,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public async Task GivenRequireIdentical_WhenTheCuratedHeaderAddsACard_ThenItIsRefused()
         {
+            RequireFileIdentity();
             // The strict policy is for an archive whose curation is not trusted yet: it links only
             // frames that are already byte for byte the same.
             var dir = TempDir();
