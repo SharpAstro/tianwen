@@ -110,27 +110,97 @@ public static class WaveletSharpen
         var max = source.MaxValue;
         var clampMax = float.IsFinite(max) && max > 0f ? max : 1f;
 
+        // The output is the one plane per channel that outlives the call: the caller owns it (the live stack
+        // adopts it into a document).
         var data = Image.CreateChannelData(channels, h, w);
-        for (var c = 0; c < channels; c++)
+        if (IsIdentity(gains, thresholds))
         {
-            var decomposition = ATrousWaveletTransform.Decompose(source.GetChannelSpan(c), w, h, options.ScaleCount);
-            var reconstructed = decomposition.Reconstruct(gains, thresholds);
-
-            var dst = MemoryMarshal.CreateSpan(ref data[c][0, 0], data[c].Length);
-            if (options.Clamp)
+            // The a-trous transform telescopes (c0 = residual + the sum of the details), so identity gains
+            // with no denoise reconstruct the input: copy it, clamped as a sharpen clamps. The live stack
+            // ran exactly this as its "sharpening off" pass, a 6-scale decomposition (ten working planes a
+            // channel) for a result the input already was, and one that matched the input only to float
+            // rounding, where this is exact.
+            for (var c = 0; c < channels; c++)
             {
-                for (var i = 0; i < dst.Length; i++)
+                var src = source.GetChannelSpan(c);
+                var dst = MemoryMarshal.CreateSpan(ref data[c][0, 0], data[c].Length);
+                if (options.Clamp)
                 {
-                    dst[i] = Math.Clamp(reconstructed[i], 0f, clampMax);
+                    for (var i = 0; i < dst.Length; i++)
+                    {
+                        dst[i] = Math.Clamp(src[i], 0f, clampMax);
+                    }
+                }
+                else
+                {
+                    src.CopyTo(dst);
                 }
             }
-            else
+        }
+        else
+        {
+            // The working layers are scratch, rented once for every channel and returned at the end: two
+            // planes plus one per scale (the output plane doubles as the convolution scratch), which
+            // Decompose and Reconstruct used to allocate per channel.
+            var scales = options.ScaleCount;
+            var c0 = Array2DPool<float>.Rent(h, w);
+            var next = Array2DPool<float>.Rent(h, w);
+            var details = new float[scales][,];
+            for (var j = 0; j < scales; j++)
             {
-                reconstructed.CopyTo(dst);
+                details[j] = Array2DPool<float>.Rent(h, w);
+            }
+
+            try
+            {
+                for (var c = 0; c < channels; c++)
+                {
+                    ATrousWaveletTransform.DecomposeAndReconstructInto(
+                        source.GetChannelSpan(c), w, h, gains, thresholds, data[c], c0, next, details);
+                    var dst = MemoryMarshal.CreateSpan(ref data[c][0, 0], data[c].Length);
+                    if (options.Clamp)
+                    {
+                        for (var i = 0; i < dst.Length; i++)
+                        {
+                            dst[i] = Math.Clamp(dst[i], 0f, clampMax);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                Array2DPool<float>.Return(c0);
+                Array2DPool<float>.Return(next);
+                foreach (var detail in details)
+                {
+                    Array2DPool<float>.Return(detail);
+                }
             }
         }
 
         return new Image(data, source.BitDepth, source.MaxValue, source.MinValue, source.Pedestal, source.ImageMeta,
             source.SamplesAreUnitReferred);
+    }
+
+    // Every gain 1 and no denoise: the reconstruction is the input itself.
+    private static bool IsIdentity(ReadOnlySpan<float> gains, ReadOnlySpan<float> thresholds)
+    {
+        foreach (var gain in gains)
+        {
+            if (gain != 1f)
+            {
+                return false;
+            }
+        }
+
+        foreach (var threshold in thresholds)
+        {
+            if (threshold > 0f)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
