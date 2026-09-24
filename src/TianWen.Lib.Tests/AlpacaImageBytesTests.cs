@@ -10,13 +10,13 @@ namespace TianWen.Lib.Tests;
 public class AlpacaImageBytesTests
 {
     // ASCOM ImageArrayElementTypes wire values used in these payloads.
-    private const int Int16 = 1, Int32 = 2, UInt16 = 8;
+    internal const int Int16 = 1, Int32 = 2, UInt16 = 8;
 
     /// <summary>
     /// Builds an ImageBytes payload (44-byte ArrayMetadataV1 header + pixels) the way an Alpaca
     /// server would: pixels in ASCOM column-major order, flat index of (x, y) = y + x*height.
     /// </summary>
-    private static byte[] BuildPayload(int width, int height, int transmissionType, Func<int, int, long> valueAt,
+    internal static byte[] BuildPayload(int width, int height, int transmissionType, Func<int, int, long> valueAt,
         int imageType = -1, int errorNumber = 0, int rank = 2, string errorMessage = "")
     {
         if (imageType < 0) imageType = transmissionType;
