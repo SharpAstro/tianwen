@@ -265,11 +265,15 @@ public static class StageNames
     /// different disk than the integration that follows it.</summary>
     public const string Warp = "warp";
 
-    /// <summary>Session master integration from the warped scratch subs. Items = subs.</summary>
+    /// <summary>Session master integration from the warped scratch subs. Items = subs. For a DRIZZLED
+    /// session since the fused drizzle (2026-09-24) it covers the half-masters and the pier sides too,
+    /// because one pair of passes over the raw lights builds them all, and <see cref="Halves"/> is not
+    /// recorded; a bake before that recorded them apart.</summary>
     public const string Integrate = "integrate";
 
-    /// <summary>Both half-master integrations. Items = subs across the two halves, so it is directly
-    /// comparable per item with <see cref="Integrate"/>.</summary>
+    /// <summary>Both half-master integrations of a STAGED session. Items = subs across the two halves,
+    /// so it is directly comparable per item with <see cref="Integrate"/>. A drizzled session builds its
+    /// halves inside <see cref="Integrate"/>.</summary>
     public const string Halves = "halves";
 
     /// <summary>Resolving and building the bias/dark/flat masters for the session. Items = masters

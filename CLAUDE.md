@@ -1029,6 +1029,15 @@ The tile strategy's strip moments carry a one-row halo so the slope reads the sa
 the full canvas. A rejecting drizzle streams `RawBayerFrames` twice, so a producer must be
 re-enumerable. It does NOT replace the dark gate: a hot photosite that tracking lands in the same
 cell every frame is the rest of that cell, not an outlier. Pinned by `DrizzleOutlierRejectionTests`.
+**Its cost is paid in parallel and once per stream, and both are BIT-IDENTICAL to the serial code**
+(2026-09-24; the bake had doubled on drizzled sessions, all of it in the single-threaded deposit
+kernels). A deposit is split across canvas strips (`DrizzleKernel.ForEachStrip`): each strip writes
+only its rows and still visits its photosites in row-major order, so every cell sums in the same
+order, and its source halo is sized from the transform's smallest singular value (a fixed halo
+drops contributions on a flipped or scaled frame). `DrizzleStrategy.RunSubsetsAsync` builds several
+integrations from one stream, **each with its own rejector** (`BuildRejector` follows the frame
+count), so the bake's master, halves and pier sides cost two passes over the raw lights, not two
+each. Pinned bit for bit by `DrizzleParallelBitIdentityTests`, which fail with the halo removed.
 
 **Provenance skip (never re-ingest our own outputs).** The scan drops any TianWen-produced FITS
 (`STACK_N > 0` OR a TianWen `SWCREATE`, gated by `--include-integrations`). Markers, the ghost-master

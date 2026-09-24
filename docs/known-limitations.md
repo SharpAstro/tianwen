@@ -684,6 +684,44 @@ rule bounds the gap between readings and not a run's width: a library begun whil
 pulling down chains into the setpoint's set, outvoted in the per-pixel median but visible there. The
 widest run in the archive is 4.8 C.
 
+### The rejecting drizzle doubled every drizzled session's bake time (FIXED 2026-09-24)
+
+#346's per-sample clip (a satellite trail no longer reaches a drizzled master) streams the frames
+twice, once for each cell's moments and once to deposit what passes. In the dataset bake that was
+paid by every integration of a session (the master, its two halves, each pier side and its halves),
+each of which re-read its raw lights from the archive disk and deposited them on ONE core. Measured on
+the 29 sessions the 2026-09-19 and 2026-09-24 bakes both timed: the drizzled ones went from 199 to 413
+minutes (x2.07), the staged ones were unchanged (x1.03), and nearly all of it was the two integration
+stages, `integrate` x4.0 and `halves` x3.6. The 2026-09-24 full bake was stopped at session 59 of 141
+with about 16 hours still to run.
+
+Where a pass's time went, per 3008x3008 frame (`DrizzleCostProbe`, Release, real ASI533 lights on the
+archive's USB hard disk): a cold load 329 ms (38 ms warm: the disk, not the decode), calibrate 23, sky
+offset 46 to 60, and the deposit kernels plain 434 to 488, moments 600 to 626, clipped 966 to 1,918
+(the leave-one-out test on every deposit). Two thirds of a rejecting master was the kernels, on one
+core of sixteen.
+
+**Fixed without changing a single output bit**, which is what let the stopped bake resume rather than
+redo its 58 finished sessions:
+
+- **The deposit runs in parallel canvas strips** (`DrizzleKernel.ForEachStrip`): each strip writes only
+  its own rows and visits its photosites in row-major order, so every cell forms its sums in the same
+  order as the serial loop. On 16 cores: plain 461 to 47 ms, moments 600 to 61, clipped 1,203 to 119.
+  The strip's source halo is sized from the transform's smallest singular value; the bit-identity
+  tests fail on a flipped and a half-scale frame with the halo removed.
+- **The slope plane and the final divide are SIMD and parallel**, with the same float operations in
+  the same order: the slope 715 to 17 ms per target.
+- **One stream builds every integration** (`DrizzleStrategy.RunSubsetsAsync`), each with its own
+  accumulators and its own rejector (`BuildRejector` follows the frame count), so a flipped session's
+  nine integrations cost two passes over its lights instead of eighteen. Frames are prepared one ahead
+  on a background task while the current one deposits.
+
+**Measured end to end** on SV605CC Lagoon-and-Trifid 2026-08-01 (140 lights, flipped), re-baked with
+the fix beside the stopped bake's store: all 8,700 tiles (the combined master's and both sides')
+byte-identical, the integration of everything 2.2 minutes against 4.7 + 6.0, the session 11.8 minutes
+against 27.2, and back to its 11.5 before the clip existed. Export (3.0 minutes, 8,700 tiles) is now
+the largest stage.
+
 ### Some dark-flats are recorded as `IMAGETYP='DARK'`
 
 On the reference archive, 2,220 dark-flat frames sit in a `DARKFLAT` folder while their header says
