@@ -1080,11 +1080,17 @@ internal partial record Session
                     // Camera's ref was already dropped by ReleaseImageData() after enqueue.
                     // When both refs are gone, onRelease fires → camera gets float[,] back.
                     imageWrite.Image.Release();
-                    GC.Collect(2, GCCollectionMode.Forced, blocking: true);
-                    GC.WaitForPendingFinalizers();
+                    // No forced collection here any more. A blocking gen2 (plus WaitForPendingFinalizers)
+                    // ran after every write to keep the working set bounded, because each sub left about
+                    // 210 MB of frame-sized garbage (the DAL short[] read copy, the FITS quantise plane,
+                    // a colour frame's mono debayer) that piled up to 2-3 GB between natural collections.
+                    // All three are gone (read in place, rented, rented), and it suspended every thread,
+                    // the GUI's render thread included, once per sub. Measured 2026-09-24 over 20
+                    // simulated 26 MP colour subs: 302 -> 335 MB and ONE natural gen2 without it, flat at
+                    // ~308 MB with 21 forced ones. The line below keeps a night's memory visible.
                     var gcInfo = GC.GetGCMemoryInfo();
                     _logger.LogInformation(
-                        "Memory after FITS Release+GC: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB, " +
+                        "Memory after FITS write: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB, " +
                         "gen0={Gen0}KB, gen1={Gen1}KB, gen2={Gen2}KB, LOH={LOH}KB, POH={POH}KB, " +
                         "committed={CommittedMB:F0}MB, promoted={PromotedMB:F0}MB",
                         Environment.WorkingSet / (1024.0 * 1024),
