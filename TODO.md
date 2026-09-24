@@ -5,6 +5,16 @@ Checks that only a real device or a real night can answer live in ONE place, ind
 
 ## High Priority
 
+- [ ] **The TUI live preview corrupts the sub it previews** (found 2026-09-24 by the capture-path sweep,
+  read from the code, not reproduced). `TuiLiveSessionTab.RenderPreview` hands the session's OWN frame to
+  `AstroImageDocument.AdoptImageAsync`, which rescales it to [0, 1] in place, and that frame is still
+  queued for its FITS write: the sub is likely saved as 0 or 1 ADU. The GUI copies and is unaffected.
+  Fix and test: [docs/plans/frame-path-allocations.md](docs/plans/frame-path-allocations.md) P1.
+- [ ] **Per-frame garbage on the capture paths** (sweep of 2026-09-24): planetary video at 80-480 MB/s plus a
+  ring of about 1.26 GB of float copies at 640 x 480 (a memory-mapped SER as the ring is the proposal),
+  ASCOM guide frames at 17 MB each, Alpaca payloads, per-frame GUI histograms, polar refinement, Canon.
+  Every finding with its size, rate and fix, and the per-sub fixes already made (P0), in
+  [docs/plans/frame-path-allocations.md](docs/plans/frame-path-allocations.md).
 - [ ] **Recover from a lost GPU device in-process** (user, 2026-09-22, high priority: "a queue
   submit failed should not stop the whole app to work. remember we might be connecting cooling
   cameras etc."). What happened: on the Adreno X1-85 the driver rejected every `vkQueueSubmit` for
