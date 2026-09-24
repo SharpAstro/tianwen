@@ -153,20 +153,30 @@ namespace TianWen.Lib.Tests
 
             saves.ShouldBe(0);
         }
-        /// <summary>Shift+H steps the HDR cycler back, the direction every other Shift here means; it
-        /// used to be the display hold, which is Ctrl+H now.</summary>
+        /// <summary>
+        /// H is the histogram and Shift+H its log scale. H used to cycle the highlight soft clip, which
+        /// is the Tone popover's and its button wheel's now, and V, the histogram's old key, is free.
+        /// Neither half may touch the soft clip or the display hold (Ctrl+H).
+        /// </summary>
         [Fact]
-        public void ShiftH_StepsTheHdrCyclerBack()
+        public void H_TogglesTheHistogramAndShiftH_ItsLogScale()
         {
             var (viewer, state, bus) = NewViewer();
-            var start = state.HdrPresetIndex;
+            var (shown, log, hdr) = (state.ShowHistogram, state.HistogramLogScale, state.HdrPresetIndex);
 
             Press(viewer, bus, InputKey.H, InputModifier.None);
-            state.HdrPresetIndex.ShouldBe((start + 1) % ViewerState.HdrPresets.Length);
+            state.ShowHistogram.ShouldBe(!shown);
+            state.HistogramLogScale.ShouldBe(log);
 
             Press(viewer, bus, InputKey.H, InputModifier.Shift);
-            state.HdrPresetIndex.ShouldBe(start);
-            state.CarryDisplayAcrossFrames.ShouldBeFalse("Shift+H is not the hold any more");
+            state.HistogramLogScale.ShouldBe(!log);
+            state.ShowHistogram.ShouldBe(!shown, "Shift+H is the scale, not the overlay");
+
+            state.HdrPresetIndex.ShouldBe(hdr, "H no longer steps the soft clip");
+            state.CarryDisplayAcrossFrames.ShouldBeFalse("neither is the hold, which is Ctrl+H");
+
+            Press(viewer, bus, InputKey.V, InputModifier.None);
+            state.ShowHistogram.ShouldBe(!shown, "V is free: it no longer toggles the histogram");
         }
 
         [Fact]

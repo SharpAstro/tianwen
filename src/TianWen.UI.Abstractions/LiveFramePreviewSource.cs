@@ -97,7 +97,7 @@ namespace TianWen.UI.Abstractions
         /// <remarks>
         /// <para>Three for a Bayer mosaic, one per plane otherwise -- the channel rule lives in
         /// <see cref="StretchSolver.CollectChannelHistograms"/> and nowhere else. These used to be empty,
-        /// which made <c>UploadHistogramData</c> a no-op and left <c>V</c> dead in the GUI's live session
+        /// which made <c>UploadHistogramData</c> a no-op and left the histogram key (<c>H</c>) dead in the GUI's live session
         /// and guider previews: a chromeless host draws no toolbar, but the histogram overlay is gated on
         /// <see cref="ViewerState.ShowHistogram"/> alone, so there was nothing to draw rather than
         /// nowhere to draw it.</para>
@@ -273,7 +273,7 @@ namespace TianWen.UI.Abstractions
 
                 _stats = StretchSolver.CollectPerChannelStats(image, channelCount, stride);
 
-                // The histograms the overlay draws (V) are NOT taken here: they are taken over the planes
+                // The histograms the overlay draws (H) are NOT taken here: they are taken over the planes
                 // on first read (ChannelStatistics), at this same stride, and dropping them is what makes
                 // the next read describe this exposure. Taken here, every exposure paid a histogram pass
                 // and a set of bins that only an open overlay ever looked at.

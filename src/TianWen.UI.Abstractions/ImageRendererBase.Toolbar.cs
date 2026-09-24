@@ -2233,11 +2233,11 @@ namespace TianWen.UI.Abstractions
             // that does something to the WHOLE PANE rather than to the picture, and a reader who has
             // not pressed it has no way to know the viewer can do it at all.
             "Y                    The sky this frame was taken from, drawn behind it",
-            "V / Shift+V          Histogram / log scale",
-            // Both earn a row for the reason their buttons were folded into one: what H does is not
-            // what someone hunting for HDR came for, and the panel is where that is explained.
-            "B / Shift+B          Curves boost / curve mode (Tone)",
-            "H / Shift+H          Highlight soft clip, harder / softer (Tone)",
+            "H / Shift+H          Histogram / log scale",
+            // B earns a row for the reason its button was folded into Tone: the boost and the highlight
+            // soft clip are one panel now, and the soft clip has no key of its own any more (H was it
+            // until 2026-09-24), so the Tone button, and the wheel over it, is where to find it.
+            "B / Shift+B          Curves boost / curve mode (Tone; the soft clip is on its panel)",
             // W earns a row now that it opens a PANEL rather than toggling one flag: the sliders, the
             // photometric calibration and its provenance line all live behind it, and none of them is
             // reachable by guessing. N stays beside it because the two are the colour pair.
