@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -51,34 +50,23 @@ public static class Array2DPool<T>
 
     private static volatile bool _enabled = true;
 
-    private static readonly ConcurrentDictionary<long, ConcurrentQueue<PoolEntry>> _buckets = new();
+    /// <summary>The one pool every caller shares; its policy is <see cref="Array2DPoolCore{T}"/>.</summary>
+    private static readonly Array2DPoolCore<T> Shared = new Array2DPoolCore<T>(MaxRetainedBytes, MaxPerBucket);
 
     /// <summary>Number of active pool buckets (distinct array sizes).</summary>
-    public static int BucketCount => _buckets.Count;
+    public static int BucketCount => Shared.BucketCount;
 
     /// <summary>Total arrays currently held across all buckets.</summary>
-    public static int TotalPooled
-    {
-        get
-        {
-            var count = 0;
-            foreach (var q in _buckets.Values) count += q.Count;
-            return count;
-        }
-    }
+    public static int TotalPooled => Shared.TotalPooled;
 
     /// <summary>Pool hit count (reused an existing array).</summary>
-    public static long HitCount => Volatile.Read(ref _hits);
+    public static long HitCount => Shared.HitCount;
 
     /// <summary>Pool miss count (allocated a new array).</summary>
-    public static long MissCount => Volatile.Read(ref _misses);
+    public static long MissCount => Shared.MissCount;
 
     /// <summary>Pool return count (arrays returned to pool).</summary>
-    public static long ReturnCount => Volatile.Read(ref _returns);
-
-    private static long _hits;
-    private static long _misses;
-    private static long _returns;
+    public static long ReturnCount => Shared.ReturnCount;
 
     /// <summary>Maximum arrays to retain per (height, width) bucket.</summary>
     private const int MaxPerBucket = 8; // AHD debayer uses 6 scratch arrays of the same size
@@ -104,77 +92,37 @@ public static class Array2DPool<T>
     /// </summary>
     private const long MaxRetainedBytes = 256L * 1024 * 1024;
 
-    private static long _retainedBytes;
-
     /// <summary>Bytes currently retained across all buckets.</summary>
-    public static long RetainedBytes => Volatile.Read(ref _retainedBytes);
+    public static long RetainedBytes => Shared.RetainedBytes;
 
     /// <summary>Arrays dropped because the pool was already at <see cref="MaxRetainedBytes"/>.</summary>
-    public static long BudgetEvictionCount => Volatile.Read(ref _budgetEvictions);
-
-    private static long _budgetEvictions;
-
-    private static long BytesOf(T[,] array) => (long)array.Length * Unsafe.SizeOf<T>();
-
-    /// <summary>Arrays unused for longer than this are trimmed on Gen2 GC under moderate pressure.</summary>
-    private const long TrimAfterMs = 30_000;
-
-    private readonly record struct PoolEntry(T[,] Array, long Timestamp);
+    public static long BudgetEvictionCount => Shared.BudgetEvictionCount;
 
     static Array2DPool()
     {
         Gen2GcCallback.Register(static () => Trim());
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static long Key(int height, int width) => (long)height << 32 | (long)(uint)width;
-
     /// <summary>
-    /// Rents a <typeparamref name="T"/>[<paramref name="height"/>, <paramref name="width"/>] array.
-    /// Returns a pooled array (zero-cleared) if one is available, otherwise allocates a new one.
+    /// Rents a <typeparamref name="T"/>[<paramref name="height"/>, <paramref name="width"/>] array: a pooled
+    /// one if one is available, otherwise a new one. A pooled array holds whatever its last user left in
+    /// it, so a caller that needs zeros clears it.
     /// </summary>
     public static T[,] Rent(int height, int width)
     {
-        if (Enabled)
-        {
-            var key = Key(height, width);
-            if (_buckets.TryGetValue(key, out var queue) && queue.TryDequeue(out var entry))
-            {
-                Interlocked.Increment(ref _hits);
-                Interlocked.Add(ref _retainedBytes, -BytesOf(entry.Array));
-                return entry.Array;
-            }
-        }
-        Interlocked.Increment(ref _misses);
-        return new T[height, width];
+        return Shared.Rent(height, width, usePool: Enabled);
     }
 
     /// <summary>
-    /// Returns a previously rented array to the pool. The array is not cleared until next <see cref="Rent"/>.
+    /// Returns a previously rented array to the pool, as it is: nothing clears it.
     /// Excess arrays beyond <see cref="MaxPerBucket"/> are dropped for GC.
     /// </summary>
     public static void Return(T[,] array)
     {
-        if (!Enabled) return;
-        Interlocked.Increment(ref _returns);
-
-        // Budget first: a heterogeneous workload never fills a single bucket, so the per-bucket
-        // cap alone would let the pool grow without bound across shapes.
-        var bytes = BytesOf(array);
-        if (Volatile.Read(ref _retainedBytes) + bytes > MaxRetainedBytes)
+        if (Enabled)
         {
-            Interlocked.Increment(ref _budgetEvictions);
-            return;
+            Shared.Return(array);
         }
-
-        var key = Key(array.GetLength(0), array.GetLength(1));
-        var queue = _buckets.GetOrAdd(key, static _ => new ConcurrentQueue<PoolEntry>());
-        if (queue.Count < MaxPerBucket)
-        {
-            queue.Enqueue(new PoolEntry(array, Environment.TickCount64));
-            Interlocked.Add(ref _retainedBytes, bytes);
-        }
-        // else: let GC collect it; pool is full for this size
     }
 
     /// <summary>
@@ -186,10 +134,7 @@ public static class Array2DPool<T>
     /// </summary>
     internal static void Clear()
     {
-        foreach (var queue in _buckets.Values)
-        {
-            while (queue.TryDequeue(out var dropped)) { Interlocked.Add(ref _retainedBytes, -BytesOf(dropped.Array)); }
-        }
+        Shared.Clear();
     }
 
     /// <summary>
@@ -203,26 +148,7 @@ public static class Array2DPool<T>
             ? (double)info.MemoryLoadBytes / info.TotalAvailableMemoryBytes
             : 0;
 
-        if (pressure > 0.9)
-        {
-            // High pressure: drop everything
-            Clear();
-        }
-        else if (pressure > 0.7)
-        {
-            // Moderate pressure: trim stale entries (FIFO order, oldest first)
-            var cutoff = Environment.TickCount64 - TrimAfterMs;
-            foreach (var queue in _buckets.Values)
-            {
-                while (queue.TryPeek(out var entry) && entry.Timestamp < cutoff)
-                {
-                    if (queue.TryDequeue(out var dropped))
-                    {
-                        Interlocked.Add(ref _retainedBytes, -BytesOf(dropped.Array));
-                    }
-                }
-            }
-        }
+        Shared.Trim(pressure);
     }
 
     /// <summary>
