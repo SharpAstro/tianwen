@@ -345,6 +345,52 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task WithPinnedPortWhoseProbeNeedsControlLinesStage1VerifiesOnItsOwnHandle()
+    {
+        // Pinned Gemini FlatPanel on COM5: its only probe answers only with DTR asserted, which the shared
+        // handle never does. Stage 1 must open the port with control lines asserted and confirm it there,
+        // so Stage 2 never touches COM5 again.
+        var external = new ProbeTestExternal { Ports = ["serial:COM5"] };
+        var probe = StubProbe.Sync("Gemini", baud: 9600,
+            match: (port, _) => new SerialProbeMatch(port, new Uri("CoverDriver://GeminiDevice/panel-id")),
+            matchesDeviceHosts: ["GeminiDevice"],
+            assertControlLines: true);
+        var pinned = new StubPinnedPortsProvider(
+            new PinnedSerialPort("serial:COM5", new Uri("CoverDriver://GeminiDevice/panel-id?port=COM5")));
+
+        var service = BuildService(external, output, pinned, probe);
+        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+
+        var open = external.OpenCalls.ShouldHaveSingleItem("verified in Stage 1, so Stage 2 does not probe COM5 again");
+        open.Port.ShouldBe("serial:COM5");
+        open.AssertControlLines.ShouldBeTrue("the probe needs DTR, so Stage 1 opens its own handle with it asserted");
+        service.ResultsFor("Gemini").ShouldHaveSingleItem().Port.ShouldBe("serial:COM5");
+    }
+
+    [Fact]
+    public async Task WithPinnedPortWhoseProbesNeedNoControlLinesStage1KeepsOneSharedHandle()
+    {
+        // Two family probes at one baud, neither needing control lines: Stage 1 still runs them both on
+        // one shared handle with DTR left alone (isolation would open the port once per probe).
+        var external = new ProbeTestExternal { Ports = ["serial:COM5"] };
+        var silent = StubProbe.Sync("OnStepLegacy", baud: 9600,
+            match: (_, _) => null,
+            matchesDeviceHosts: ["OnStepDevice"]);
+        var onStep = StubProbe.Sync("OnStep", baud: 9600,
+            match: (port, _) => new SerialProbeMatch(port, new Uri("Mount://OnStepDevice/stable-id")),
+            matchesDeviceHosts: ["OnStepDevice"]);
+        var pinned = new StubPinnedPortsProvider(
+            new PinnedSerialPort("serial:COM5", new Uri("Mount://OnStepDevice/stable-id?port=COM5")));
+
+        var service = BuildService(external, output, pinned, silent, onStep);
+        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+
+        var open = external.OpenCalls.ShouldHaveSingleItem("both probes share one handle in Stage 1, and Stage 2 skips the verified port");
+        open.AssertControlLines.ShouldBeFalse("the shared handle never asserts control lines");
+        service.ResultsFor("OnStep").ShouldHaveSingleItem().Port.ShouldBe("serial:COM5");
+    }
+
+    [Fact]
     public async Task WithCableSwapBothDevicesStillDiscoveredViaStage2Fallback()
     {
         // Two pinned devices: OnStep@COM5, Meade@COM6. User swapped cables so OnStep
@@ -471,15 +517,19 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
     private sealed class ProbeTestExternal(ITestOutputHelper? output = null) : FakeExternal(output ?? NullTestOutputHelper.Instance)
     {
         public List<string> Ports { get; set; } = [];
-        public ConcurrentBag<(string Port, int Baud)> OpenCalls { get; } = [];
+        public ConcurrentBag<(string Port, int Baud, bool AssertControlLines)> OpenCalls { get; } = [];
 
         /// <summary>When set, every connection handed out reports <see cref="ISerialConnection.HasAbandonedIo"/>.</summary>
         public bool ConnectionsAbandonIo { get; set; }
 
         public override ValueTask<ISerialConnection> OpenSerialDeviceAsync(string address, int baud, Encoding encoding, bool assertControlLines = false, CancellationToken cancellationToken = default)
         {
-            OpenCalls.Add((address, baud));
-            ISerialConnection conn = new StubSerialConnection(address, baud, encoding) { HasAbandonedIo = ConnectionsAbandonIo };
+            OpenCalls.Add((address, baud, assertControlLines));
+            ISerialConnection conn = new StubSerialConnection(address, baud, encoding)
+            {
+                HasAbandonedIo = ConnectionsAbandonIo,
+                ControlLinesAsserted = assertControlLines,
+            };
             return ValueTask.FromResult(conn);
         }
 
@@ -504,7 +554,8 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         TimeSpan? budget = null,
         int maxAttempts = 1,
         ProbeExclusivity exclusivity = ProbeExclusivity.Shared,
-        IReadOnlyCollection<string>? matchesDeviceHosts = null) : ISerialProbe
+        IReadOnlyCollection<string>? matchesDeviceHosts = null,
+        bool assertControlLines = false) : ISerialProbe
     {
         public string Name => name;
         public int BaudRate => baud;
@@ -513,15 +564,22 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         public TimeSpan Budget => budget ?? TimeSpan.FromSeconds(1);
         public int MaxAttempts => maxAttempts;
         public IReadOnlyCollection<string> MatchesDeviceHosts => matchesDeviceHosts ?? [];
+        public bool AssertControlLines => assertControlLines;
 
+        /// <summary>
+        /// A probe that needs control lines answers only on a handle opened with them asserted, the way the
+        /// Gemini FlatPanel's CH341 keeps its MCU in reset until DTR is raised.
+        /// </summary>
         public ValueTask<SerialProbeMatch?> ProbeAsync(string port, ISerialConnection conn, CancellationToken cancellationToken)
-            => match(port, cancellationToken);
+            => assertControlLines && conn is StubSerialConnection { ControlLinesAsserted: false }
+                ? ValueTask.FromResult<SerialProbeMatch?>(null)
+                : match(port, cancellationToken);
 
         /// <summary>Convenience for sync match callbacks: wraps the result in <see cref="ValueTask"/>.</summary>
         public static StubProbe Sync(string name, int baud, Func<string, CancellationToken, SerialProbeMatch?> match,
             TimeSpan? budget = null, int maxAttempts = 1, ProbeExclusivity exclusivity = ProbeExclusivity.Shared,
-            IReadOnlyCollection<string>? matchesDeviceHosts = null)
-            => new(name, baud, (p, ct) => ValueTask.FromResult(match(p, ct)), budget, maxAttempts, exclusivity, matchesDeviceHosts);
+            IReadOnlyCollection<string>? matchesDeviceHosts = null, bool assertControlLines = false)
+            => new(name, baud, (p, ct) => ValueTask.FromResult(match(p, ct)), budget, maxAttempts, exclusivity, matchesDeviceHosts, assertControlLines);
     }
 
     private sealed class StubSerialConnection(string port, int baud, Encoding encoding) : ISerialConnection
@@ -531,6 +589,9 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         public bool IsOpen { get; private set; } = true;
         public Encoding Encoding => encoding;
         public bool HasAbandonedIo { get; init; }
+
+        /// <summary>Whether the service opened this handle with DTR + RTS asserted.</summary>
+        public bool ControlLinesAsserted { get; init; }
 
         public bool TryClose() { IsOpen = false; return true; }
         public void Dispose() => TryClose();

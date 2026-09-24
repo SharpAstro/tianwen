@@ -247,10 +247,15 @@ internal sealed class SerialProbeService : ISerialProbeService
                 // Run family-scoped probes on the pinned port, grouped by baud.
                 // If any publishes a match whose identity lines up with the pinned URI,
                 // the port is verified and skipped from Stage 2.
+                // A probe that needs control lines (DTR/RTS) is skipped on the shared handle, so the family
+                // runs isolated whenever one of them does: the pinned port is expected to hold THIS device,
+                // so asserting its control lines on its own handle is the right trade. Families that need
+                // no control lines keep the shared handle.
                 await ProbePortAsync(
                     entry.Port,
                     probesToRun: matchingProbes,
                     ct,
+                    isolatePerProbe: Array.Exists(matchingProbes, static p => p.AssertControlLines),
                     onMatch: match =>
                     {
                         if (!IdentityMatches(match.DeviceUri, entry.ExpectedUri))
