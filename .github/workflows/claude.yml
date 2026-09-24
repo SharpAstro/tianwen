@@ -97,11 +97,19 @@ jobs:
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
           #
+          # The model is pinned: left unset the action picks its own default, which was Sonnet on
+          # every run through 2026-09-20.
+          #
           # dotnet restore/build/test only: enough to verify a change, and `dotnet run` stays out.
+          # `gh pr create` so a finished run opens its PR instead of leaving a compare link for a
+          # human to click (the #297 flow). `pwsh tools/bake-icons.ps1` because the icon table is
+          # a generated file with one sanctioned generator, and the bake is byte-reproducible on
+          # any host (the script's own remarks).
           # The appended prompt carries the one fact CLAUDE.md states for a dev box and not for
           # this runner: with no sibling clones beside the repo every SharpAstro library is a
           # nuget.org PACKAGE, built Release, so a Debug build of the solution fails with CS0234
           # on the #if DEBUG inspector namespaces and reads like a broken package.
           claude_args: |
-            --allowedTools "Bash(dotnet restore:*),Bash(dotnet build:*),Bash(dotnet test:*)"
-            --append-system-prompt "This runner has none of the SharpAstro sibling repos checked out, so every SharpAstro library resolves as a nuget.org package, exactly as in CI. Run dotnet from src/ and build the solution with -c Release: a Debug solution build fails with CS0234 on DIR.Lib.Diagnostics because a published package is built Release. The LFS objects the tests need are already pulled. A full TianWen.Lib.Tests run takes several minutes here, so prefer a --filter run for the area you changed."
+            --model claude-opus-5-5
+            --allowedTools "Bash(dotnet restore:*),Bash(dotnet build:*),Bash(dotnet test:*),Bash(gh pr create:*),Bash(pwsh tools/bake-icons.ps1:*)"
+            --append-system-prompt "This runner has none of the SharpAstro sibling repos checked out, so every SharpAstro library resolves as a nuget.org package, exactly as in CI. Run dotnet from src/ and build the solution with -c Release: a Debug solution build fails with CS0234 on DIR.Lib.Diagnostics because a published package is built Release. The LFS objects the tests need are already pulled. A full TianWen.Lib.Tests run takes several minutes here, so prefer a --filter run for the area you changed. When the change is finished and its tests pass, push the branch and open the pull request yourself with gh pr create against main, linking the issue that asked for it."
