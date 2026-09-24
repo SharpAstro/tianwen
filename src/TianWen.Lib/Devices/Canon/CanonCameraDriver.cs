@@ -776,6 +776,9 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     /// the whole frame and the accepted range collapses to a single point.</param>
     internal sealed record EvfWindow(RoiRect Roi, int SensorWidth, int SensorHeight, bool CanPan);
 
+    // The Live View frames' planes, handed back by each frame's release (see CaptureVideoAsync).
+    private readonly Imaging.PlaneRecycler _evfPlanes = new Imaging.PlaneRecycler(nameof(CanonCameraDriver) + ".LiveView");
+
     private EvfWindow? _evfWindow;
 
     /// <inheritdoc/>
@@ -887,7 +890,10 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
                     continue;
                 }
 
-                if (!Image.TryDecodeRaster(jpeg, out var frame))
+                // Into recycled planes: the loop consuming this stream releases each frame before it asks
+                // for the next (PlanetaryCaptureController), and fresh planes plus the RGBA intermediate were
+                // 21.6 MB per 1024 x 680 frame at the EVF's 15 to 30 fps.
+                if (!Image.TryDecodeRaster(jpeg, _evfPlanes, out var frame))
                 {
                     Logger.LogDebug("Canon EVF JPEG frame ({Bytes} bytes) failed to decode", jpeg.Length);
                     if (await PaceAsync(MinVideoPace, cancellationToken))
