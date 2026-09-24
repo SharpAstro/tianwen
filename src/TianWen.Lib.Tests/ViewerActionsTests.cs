@@ -182,35 +182,6 @@ public class ViewerActionsTests
         state.CurvesBoost.ShouldBe(ViewerState.CurvesBoostPresets[^1]);
     }
 
-    // --- CycleHdr ---
-
-    [Fact]
-    public void CycleHdr_SetsAmountAndKneeFromPresets()
-    {
-        var state = new ViewerState();
-
-        ViewerActions.CycleHdr(state);
-
-        var expected = ViewerState.HdrPresets[1];
-        state.HdrAmount.ShouldBe(expected.Amount);
-        state.HdrKnee.ShouldBe(expected.Knee);
-        state.HdrPresetIndex.ShouldBe(1);
-    }
-
-    [Fact]
-    public void CycleHdr_WrapsAround()
-    {
-        var state = new ViewerState();
-
-        for (var i = 0; i < ViewerState.HdrPresets.Length; i++)
-        {
-            ViewerActions.CycleHdr(state);
-        }
-
-        state.HdrPresetIndex.ShouldBe(0);
-        state.HdrAmount.ShouldBe(ViewerState.HdrPresets[0].Amount);
-    }
-
     // --- SelectFile ---
 
     [Fact]

@@ -355,7 +355,7 @@ namespace TianWen.UI.Abstractions
                         PostSignal(new OpenFileSignal());
                         return true;
                     // Hold / release the display mapping across frames (see ViewerState.CarryDisplayAcrossFrames).
-                    // Ctrl, beside Ctrl+Space which goes back to the held frame; plain H is HDR.
+                    // Ctrl, beside Ctrl+Space which goes back to the held frame; plain H is the histogram.
                     case InputKey.H:
                         state.CarryDisplayAcrossFrames = !state.CarryDisplayAcrossFrames;
                         state.NeedsRedraw = true;
@@ -515,10 +515,9 @@ namespace TianWen.UI.Abstractions
                     ViewerActions.ToggleSkyBackdrop(state);
                     return true;
                 case InputKey.H:
-                    // Shift steps back, the direction every other cycler here gives Shift.
-                    ViewerActions.CycleHdr(state, reverse: shift);
-                    return true;
-                case InputKey.V:
+                    // The histogram, and Shift its log scale. H took this over from the highlight soft
+                    // clip (2026-09-24), whose ladder lives on in the Tone popover and in the wheel over
+                    // its button; V, the histogram's old key, is free.
                     if (shift)
                     {
                         state.HistogramLogScale = !state.HistogramLogScale;

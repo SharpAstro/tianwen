@@ -288,14 +288,6 @@ public static class ViewerActions
         state.StatusMessage = amount > 0f ? $"Soft clip: {amount:F1} (knee {knee:F2})" : "Soft clip: Off";
     }
 
-    public static void CycleHdr(ViewerState state, bool reverse = false)
-    {
-        var len = ViewerState.HdrPresets.Length;
-        SetHdrPresetIndex(state, reverse
-            ? (state.HdrPresetIndex - 1 + len) % len
-            : (state.HdrPresetIndex + 1) % len);
-    }
-
     /// <summary>
     /// Steps to the next (or previous) entry of <see cref="StretchParameters.Presets"/>.
     /// </summary>
