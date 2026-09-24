@@ -25,7 +25,10 @@ internal sealed class AlpacaClient(HttpClient httpClient)
     private string BuildGetUrl(string baseUrl, string deviceType, int deviceNumber, string endpoint)
     {
         var txId = NextTransactionId();
-        return $"{baseUrl}/api/v1/{deviceType}/{deviceNumber}/{endpoint}?ClientID=1&ClientTransactionID={txId.ToString(CultureInfo.InvariantCulture)}";
+        // An endpoint may carry its own query (canmoveaxis?Axis=0, axisrates?Axis=1, destinationsideofpier?...),
+        // and a second '?' would glue the client fields onto its last value: Axis=0?ClientID=1.
+        var separator = endpoint.Contains('?') ? '&' : '?';
+        return $"{baseUrl}/api/v1/{deviceType}/{deviceNumber}/{endpoint}{separator}ClientID=1&ClientTransactionID={txId.ToString(CultureInfo.InvariantCulture)}";
     }
 
     private string BuildPutUrl(string baseUrl, string deviceType, int deviceNumber, string endpoint)
@@ -123,6 +126,18 @@ internal sealed class AlpacaClient(HttpClient httpClient)
         var url = BuildGetUrl(baseUrl, deviceType, deviceNumber, endpoint);
         using var response = await httpClient.GetAsync(url, cancellationToken);
         var result = await DeserializeResponseAsync(response, AlpacaJsonSerializerContext.Default.AlpacaResponseStringArray, cancellationToken);
+        ThrowOnError(result.ErrorNumber, result.ErrorMessage);
+        return result.Value;
+    }
+
+    /// <summary>
+    /// GET telescope/axisrates: an array of <c>{ Minimum, Maximum }</c> in degrees per second.
+    /// </summary>
+    public async Task<AlpacaAxisRate[]?> GetAxisRatesAsync(string baseUrl, string deviceType, int deviceNumber, string endpoint, CancellationToken cancellationToken = default)
+    {
+        var url = BuildGetUrl(baseUrl, deviceType, deviceNumber, endpoint);
+        using var response = await httpClient.GetAsync(url, cancellationToken);
+        var result = await DeserializeResponseAsync(response, AlpacaJsonSerializerContext.Default.AlpacaResponseAlpacaAxisRateArray, cancellationToken);
         ThrowOnError(result.ErrorNumber, result.ErrorMessage);
         return result.Value;
     }
