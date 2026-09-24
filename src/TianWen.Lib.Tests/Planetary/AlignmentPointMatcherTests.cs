@@ -118,4 +118,28 @@ public class AlignmentPointMatcherTests
 
         warpedErr.ShouldBeLessThan(frameErr * 0.5); // the mesh more than halves the distortion residual
     }
+
+    [Fact]
+    public void BuildingAMeshAllocatesNoSpectrumPerAlignmentPoint()
+    {
+        // Every alignment point of every frame used to re-transform its FIXED reference patch (dead work, one
+        // of three FFTs) into a new spectrum and correlate through a second: two 16 KB spectra per point at a
+        // 32 px patch. What is left is the mesh itself: its per-point shift list and its node grids.
+        var reference = TexturedDisk(48, 48, 40);
+        var refImg = Image.FromChannel(reference);
+        var frameImg = Image.FromChannel(Distort(reference));
+        var region = PlanetaryDisk.BoundingBox(refImg);
+        var aps = FeatureDetector.DetectAlignmentPoints(refImg, region, spacing: 16, maxPoints: 64, minGradientFraction: 0.1);
+        aps.Length.ShouldBeGreaterThan(4);
+        var matcher = AlignmentPointMatcher.FromReference(refImg, aps, patchSize: 32);
+        var first = matcher.BuildMesh(frameImg, globalDx: 0, globalDy: 0, nodeSpacing: 16, influence: 24);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var again = matcher.BuildMesh(frameImg, globalDx: 0, globalDy: 0, nodeSpacing: 16, influence: 24);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        TestContext.Current.TestOutputHelper?.WriteLine($"BuildMesh over {aps.Length} points: {allocated} bytes");
+        again.Sample(48.5f, 47.25f).ShouldBe(first.Sample(48.5f, 47.25f), "the reused scratch carries nothing between calls");
+        allocated.ShouldBeLessThan(8 * 1024, $"{aps.Length} points used to cost two 16 KB spectra each");
+    }
 }

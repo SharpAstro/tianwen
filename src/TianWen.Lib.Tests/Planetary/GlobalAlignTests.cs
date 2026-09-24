@@ -52,4 +52,28 @@ public class GlobalAlignTests
         shift.Dx.ShouldBe(sx, 0.3);
         shift.Dy.ShouldBe(sy, 0.3);
     }
+
+    [Fact]
+    public void EstimatingAFrameAllocatesNoTileOrSpectrum()
+    {
+        // Every frame used to get a new 256 x 256 float tile (256 KB) and a new 1 MB complex spectrum, which
+        // at a live window's 5 to 200 frames a second was 79 to 262 MB/s of large-object garbage
+        // (docs/plans/frame-path-allocations.md P2).
+        var reference = GaussianImage(300, 300, 150, 150, 20.0);
+        var moving = GaussianImage(300, 300, 152.4, 148.7, 20.0);
+        var other = GaussianImage(300, 300, 146.1, 153.2, 20.0);
+        var aligner = GlobalAligner.FromReference(reference, PlanetaryDisk.BoundingBox(reference), 256);
+        var movingRegion = PlanetaryDisk.BoundingBox(moving);
+        var otherRegion = PlanetaryDisk.BoundingBox(other);
+        var first = aligner.Estimate(moving, movingRegion);
+        _ = aligner.Estimate(other, otherRegion);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var again = aligner.Estimate(moving, movingRegion);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        TestContext.Current.TestOutputHelper?.WriteLine($"GlobalAligner.Estimate at a 256 px tile: {allocated} bytes");
+        again.ShouldBe(first, "the reused scratch carries nothing from one frame into the next");
+        allocated.ShouldBeLessThan(16 * 1024, "the tile alone is 256 KB and the spectrum 1 MB");
+    }
 }
