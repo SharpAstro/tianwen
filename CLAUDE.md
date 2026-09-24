@@ -1053,6 +1053,18 @@ the coverage report and `tianwen stack` alike. By the degree, an uncooled run be
 Flats rank filter, proof tier, then DAYS from the lights; temperature only breaks ties (a cold flat set
 had taken 18 sessions from their own). `docs/known-limitations.md`, 2026-09-24.
 
+**The archive scan is ONE function, `SessionDiscovery.ScanAsync`, and it never excludes before
+reading.** The build, its discovery listing and the coverage report all call it (three loops used to,
+and a bake scanned the archive twice), and the CLI hands its scan to the build. An unchanged file's
+header comes from the root's `FitsHeaderIndex` (raw header BYTES under `<scratch-root>/_header-index`,
+keyed on path, size and write time, replayed through the same parse and stored only when the replay
+matches), which took a cold 26-minute scan of the USB disk to seconds. The same frames feed calibration
+grouping, and a calibration frame under an `ExcludePathSegments` folder still calibrates, so a scan that
+skipped excluded folders would silently change a session's calibration. **A resume fingerprints the
+calibration a session CHOSE** (`CalibrationResolver.Choose`, the metadata-only half `ResolveAsync`
+builds from), never the whole library, so deleting one camera's frames leaves every other camera's
+sessions valid.
+
 **A master is the mean of its warped frames, star by star, to 0.3 percent, so its width is its subs'
 plus the warp kernel's plus any misregistration, and NOTHING in the combine.** Three things measured
 on one warm night (2026-09-07) bite anyone reading a master's sharpness: a detection fixed to the
