@@ -126,6 +126,29 @@ public class RollingWindowStackerTests
     }
 
     [Fact]
+    public async Task TheScoreCacheIsBoundedByTheWindowNotByTheCapture()
+    {
+        // A live stream's frame count grows for as long as the capture runs, and the score cache used to keep
+        // an entry for every frame ever graded: a long live stack grew it without bound.
+        const int window = 8;
+        var frames = new float[60][,];
+        for (var i = 0; i < frames.Length; i++)
+        {
+            frames[i] = Disk(N, i % 3);
+        }
+
+        var stacker = new RollingWindowStacker(
+            new FakeFrameStream(frames), new RollingWindowOptions { FallbackWindowFrames = window, MaxWindowFrames = window });
+        for (var f = 0; f < frames.Length; f++)
+        {
+            (await stacker.StackToAsync(f, TestContext.Current.CancellationToken)).Release();
+        }
+
+        stacker.WindowEnd.ShouldBe(frames.Length - 1);
+        stacker.ScoreCacheCount.ShouldBeLessThanOrEqualTo(2 * window, "the window and one window before it, of 60 frames seen");
+    }
+
+    [Fact]
     public async Task Incremental_slide_matches_a_fresh_rebuild_of_the_same_window()
     {
         // Window of 6 frames (frame-count fallback). Path A slides 5 -> 8 (evict 0,1,2 + add 6,7,8); path B
