@@ -207,7 +207,7 @@ public class PlanetaryCaptureControllerTests(ITestOutputHelper output)
 
         // Resize the ROI live; the source should track down to the new size within a bounded number of frames.
         controller.SetRoiSize(96, 96);
-        var resized = await pump.PumpAsync(() =>controller.Source is { Width: 96 }, ct);
+        var resized = await pump.PumpAsync(() => controller.Source is { Width: 96 }, ct);
 
         output.WriteLine($"after resize: source={controller.Source?.Width}x{controller.Source?.Height}, resized={resized}");
         resized.ShouldBeTrue();
