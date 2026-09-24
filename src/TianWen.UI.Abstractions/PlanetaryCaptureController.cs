@@ -100,7 +100,8 @@ public sealed class PlanetaryCaptureController(
     // sleep-poll the wall clock between Ticks, which is the flake CLAUDE.md warns about: under a loaded
     // suite a 2 ms poll stretches toward 10 ms, so the pump exhausts its iteration budget long before the
     // capture has produced the frames the assertion needs. Completing one TCS per fully-processed frame
-    // lets a test advance in lock-step with the producer instead.
+    // lets a test wait for the producer; the frame gate below makes the producer wait for the test, and
+    // only the two together are lock-step.
     private TaskCompletionSource _frameSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>
@@ -118,6 +119,52 @@ public sealed class PlanetaryCaptureController(
         => Interlocked
             .Exchange(ref _frameSignal, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously))
             .TrySetResult();
+
+    // The other half of the lock-step. The frame signal above lets a test wait for the PRODUCER; this lets
+    // the producer wait for the TEST. Without it the capture loop signals a frame and captures the next at
+    // once (the fake clock advances synchronously, so it never yields), and a test thread that falls behind
+    // on a slow or loaded runner finds the loop thousands of frames on: the recenter chase ran its window
+    // to the sensor edge that way. Null (the app) = no gate at all: the loop enumerates the camera
+    // directly, with no wait and no allocation per frame. Set before Start and read once by the loop.
+    private SemaphoreSlim? _frameGate;
+
+    /// <summary>
+    /// Test seam: from the next <see cref="Start"/> on, the capture loop captures a frame only after a
+    /// matching <see cref="StepFrame"/>. Must be armed before <see cref="Start"/>; cancellation (Stop,
+    /// StopAsync, the app token) still releases a loop parked on the gate.
+    /// </summary>
+    internal void ArmFrameGate()
+    {
+        if (IsCapturing)
+        {
+            throw new InvalidOperationException("Arm the frame gate before Start; a running loop has already chosen its frame source.");
+        }
+
+        _frameGate ??= new SemaphoreSlim(0);
+    }
+
+    /// <summary>Test seam: lets an armed capture loop capture exactly one more frame.</summary>
+    internal void StepFrame()
+        => (_frameGate ?? throw new InvalidOperationException("StepFrame needs ArmFrameGate first.")).Release();
+
+    // Waits on the gate before asking the camera for each frame, so a frame is CAPTURED (and the fake's
+    // clock advanced) only when a step allows it. A cancelled token faults the wait with an OCE, which the
+    // capture loop already treats as a stop.
+    private static async IAsyncEnumerable<Image> GatedFramesAsync(
+        IAsyncEnumerable<Image> frames, SemaphoreSlim gate, [EnumeratorCancellation] CancellationToken token)
+    {
+        await using var enumerator = frames.GetAsyncEnumerator(token);
+        while (true)
+        {
+            await gate.WaitAsync(token).ConfigureAwait(false);
+            if (!await enumerator.MoveNextAsync().ConfigureAwait(false))
+            {
+                yield break;
+            }
+
+            yield return enumerator.Current;
+        }
+    }
 
     /// <summary>True while a capture loop is running.</summary>
     public bool IsCapturing => Volatile.Read(ref _captureActive) == 1;
@@ -242,7 +289,13 @@ public sealed class PlanetaryCaptureController(
         LiveCameraFrameStream? stream = null;
         try
         {
-            await foreach (var frame in Frames(camera, options, token).ConfigureAwait(false))
+            var frames = Frames(camera, options, token);
+            if (_frameGate is { } gate)
+            {
+                frames = GatedFramesAsync(frames, gate, token);
+            }
+
+            await foreach (var frame in frames.ConfigureAwait(false))
             {
                 // Size + layout come from the ACTUAL frame, not the camera's SensorType (a video frame may be
                 // mono even on a colour sensor):
