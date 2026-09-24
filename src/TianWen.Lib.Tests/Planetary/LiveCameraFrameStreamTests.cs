@@ -191,6 +191,73 @@ public class LiveCameraFrameStreamTests
         (await stream.LoadAsync(stream.LatestIndex, TestContext.Current.CancellationToken))[0, 1, 1].ShouldBe(0.9f, 1e-6f);
     }
 
+    // A 12-bit ADU Bayer mosaic whose four photosite colours each carry their own ramp, so a split that
+    // reads the wrong phase or row cannot pass for the right one.
+    private static Image AduMosaic(int width, int height, int bayerOffsetX, int bayerOffsetY)
+    {
+        var a = new float[height, width];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                a[y, x] = (((y & 1) * 2) + (x & 1)) * 1000f + (y * 3) + x;
+            }
+        }
+
+        var meta = new ImageMeta { SensorType = SensorType.RGGB, BayerOffsetX = bayerOffsetX, BayerOffsetY = bayerOffsetY };
+        return new Image([a], BitDepth.Int16, 4095f, 0f, 0f, meta);
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(1, 0)]
+    [InlineData(0, 1)]
+    [InlineData(1, 1)]
+    public async Task AMosaicPushedWholeIsSplitIntoExactlyWhatSplittingFirstGave(int bayerOffsetX, int bayerOffsetY)
+    {
+        // The capture loop used to split every colour frame into four NEW half-size planes before the push
+        // copied them again. The ring now splits the mosaic straight into its own planes, and it must land on
+        // the very samples and labels the two steps did.
+        var mosaic = AduMosaic(2 * N, 2 * N, bayerOffsetX, bayerOffsetY);
+        using var whole = new LiveCameraFrameStream(N, N, PlanetaryFrameLayout.SplitCfa);
+        using var splitFirst = new LiveCameraFrameStream(N, N, PlanetaryFrameLayout.SplitCfa);
+        whole.Push(mosaic);
+        splitFirst.Push(mosaic.SplitBayerChannels());
+
+        var a = await whole.LoadAsync(0, TestContext.Current.CancellationToken);
+        var b = await splitFirst.LoadAsync(0, TestContext.Current.CancellationToken);
+        a.ChannelCount.ShouldBe(4);
+        (a.BitDepth, a.MaxValue, a.MinValue, a.Pedestal, a.SamplesAreUnitReferred)
+            .ShouldBe((b.BitDepth, b.MaxValue, b.MinValue, b.Pedestal, b.SamplesAreUnitReferred));
+        a.ImageMeta.ShouldBe(b.ImageMeta);
+        for (var c = 0; c < 4; c++)
+        {
+            a.GetChannelSpan(c).SequenceEqual(b.GetChannelSpan(c)).ShouldBeTrue($"sub-plane {c}");
+        }
+    }
+
+    [Fact]
+    public void PushingMosaicsIntoASplitRingAllocatesNoSubPlanes()
+    {
+        const int mosaic = 256, capacity = 4;
+        using var stream = new LiveCameraFrameStream(mosaic / 2, mosaic / 2, PlanetaryFrameLayout.SplitCfa, capacity);
+        var frame = AduMosaic(mosaic, mosaic, 0, 0);
+        for (var i = 0; i < capacity + 1; i++)
+        {
+            stream.Push(frame);
+        }
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < 50; i++)
+        {
+            stream.Push(frame);
+        }
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        stream.PlanesAllocated.ShouldBe((capacity + 1) * 4);
+        allocated.ShouldBeLessThan((mosaic / 2) * (mosaic / 2) * sizeof(float), "less than ONE sub-plane over 50 pushes; the split cost four per push");
+    }
+
     [Fact]
     public void Timestamps_round_trip_and_untimed_returns_null()
     {
