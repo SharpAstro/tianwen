@@ -45,6 +45,45 @@ authoritative and the WebSocket is a latency hint; one `LiveSessionState` per vi
 schedule beats the target queue; with no client attached a prompt gets the session's unattended
 answer; numeric enums on the wire; AOT verified by `publish`.
 
+## Not INDI: nobody manages the server
+
+This is INDI's shape (a device server, clients over a socket), and the user's condition is that it must
+not bring INDI's management along (2026-09-24). INDI's jank is almost none of it in the protocol: you
+choose drivers and start a server before a client can connect, a crashed client leaves a server on
+the port, settings live in two places, and client and drivers skew in version. **The server is an
+implementation detail of the GUI, and a user never starts it, stops it, configures it or waits for it.**
+Every rule below is a requirement, and a phase that breaks one is not done:
+
+| INDI pain | The rule here |
+|---|---|
+| Pick drivers, then start `indiserver` with that list; a device not in the list does not exist | No driver list. The server registers every device source the GUI does today, and discovery finds what is plugged in. There is nothing to select |
+| Start the server (by hand, from Ekos, or through INDI Web Manager) before the client can connect | The GUI finds or starts its node itself, before its first frame asks for anything. No menu item, no setting, no "connect to server" step, no separate launcher |
+| A crashed client or server leaves a process on port 7624, so the next start fails | No port for a local node. The lock file admits exactly one server, and the lock holder clears a stale socket. A server that holds nothing exits on its own |
+| Settings in two places: the client profile and each driver's saved config | One place. The server is the only profile writer, and the GUI edits through it (P3). No per-driver configuration exists to save or load |
+| Client and drivers of different versions | The server is spawned from the GUI's OWN directory, never from `PATH`, and ships in the GUI's archive and `.app`, so a GUI always gets its own build. The handshake handles the one skew that can happen (an older server still running a night after an update) without asking anything unless a session is running |
+| A generic property bag: the client must know each driver's property names | A typed API of whole operations (connect, warm up and disconnect, solve and sync, a session), each completed in the server. A client never drives hardware one property at a time |
+| BLOB mode and per-client BLOB enabling, just to receive an image | Frames arrive with no opt-in: shared memory for a local client, bytes for a remote one (P4, P4b) |
+| A driver stuck in a bad state means restarting the server | A stuck device is disconnected and reconnected from the Equipment tab, as today. Restarting the node is never a user action for a local rig |
+
+**What the user does see**:
+- one status indicator (for example "Rig: running, 2 clients");
+- the quit dialog when a run is active (decision 1);
+- a single setting, sharing this rig on the LAN (decision 3).
+
+**When the server itself dies.** The GUI says so in plain words and starts a new one; the new one finds
+the hardware again as a fresh start does today. A session running in it is lost, exactly as a GUI crash
+loses one today, which is the case this plan makes RARER: the server has no GPU, no window and no
+render thread.
+
+INDI runs one process per driver so that a driver crash takes out only its device. This plan runs one
+process for all drivers, which is simpler to own and to manage. It isolates only the class of driver
+known to crash its host, in-proc .NET Framework COM drivers, which already go through
+`tianwen-ascomhost`.
+
+**The fallback is never a dead end.** If the node cannot be spawned the way it should be (a job that
+forbids breakaway), the GUI spawns it plainly, so the server dies with the GUI, and says the rig will
+not outlive the window. It never refuses to run.
+
 ## P0a: a dead GPU must not end the night (regression on `main`)
 
 **What happens today, read from the code and not yet reproduced live.** SdlVulkan.Renderer 7.48
@@ -246,7 +285,39 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
 - **Fetching.** `GET /frames/{source}/latest?after=N` answers only when frame N+1 exists, and a
   `FRAME-AVAILABLE` push tells the client when to ask. The same endpoint serves a remote rig over TCP,
   so remote rigs get linear frames too.
-- **Shared memory** (a `MemoryMappedFile` ring) only if a measurement asks for it.
+- **Shared memory for a client on the same machine (P4b).** Measured 2026-09-24 on the same box: a 26 MP
+  float frame (104 MB) through a named, pagefile-backed map, opened a second time by name as a client
+  process would, took 4.5 ms to write and 4.5 ms to read in the steady state (the first frame, while
+  its pages fault in, 32 ms and 43 ms). That is about 9 ms against about 80 ms over the socket, and two
+  memory copies instead of HTTP framing and kernel copies. Every read matched and none was torn. The
+  design:
+  - **One message, two carriers.** `FRAME-AVAILABLE` carries the frame's `ImageMeta` and where its
+    pixels are. For a client on the local socket that is a shared-memory slot (map, slot, generation);
+    for a TCP client it is the byte endpoint above. The client picks by transport, so a remote rig
+    and the local GUI share one code path above the carrier.
+  - **A small ring per source** (each OTA's camera, the guide camera, the planetary live frame), with
+    two or three slots sized for the largest frame that source can produce. Sections are
+    pagefile-backed, so they count against the commit charge from creation even though only touched
+    pages are resident. A 26 MP camera's three slots are about 312 MB of commit, which is why the
+    ring stays small.
+  - **A seqlock per slot, never an acknowledgement.** The server makes the slot's generation odd,
+    writes, then makes it even. The client reads the generation, copies, and reads it again, dropping
+    a torn read and taking the next frame. A dead or stalled client can therefore never block the
+    server, which is the whole reason this plan exists; a slot a client must release would let a
+    crashed GUI hold the rig's frames.
+  - **Per OS.** Windows: a named section in the `Local\` namespace. Linux and macOS: .NET opens a map by
+    name only on Windows (CA1416 on `MemoryMappedFile.OpenExisting`), so the server creates the object
+    with `shm_open` (a LibraryImport), the client opens it by name the same way, and both hand the
+    descriptor to `MemoryMappedFile.CreateFromFile(SafeFileHandle, ...)`.
+  - **Security.** The name is unguessable and travels only over the per-user socket. On Windows the
+    section needs an explicit DACL for the current user, which means `CreateFileMappingW` with security
+    attributes, because .NET's `CreateNew` takes none. On Unix, `shm_open` mode 0600.
+  - **Still one copy on the client.** `Image` planes are managed `float[,]`, so the client copies out of
+    the slot (the 4.5 ms). A later step can upload a display frame to the GPU straight from the
+    mapped view and copy into an `Image` only when statistics, a solve or a save need one.
+  - **Where it pays.** The socket's ~80 ms is fine for a sub every 2 to 300 s. Shared memory matters
+    for polar refinement (a full frame about once a second), the planetary live frame, a future live
+    view, and several local clients watching one camera.
 - **Ownership.** `Image` ownership does not cross the boundary: the client owns what it decoded, and
   the server releases its buffer once sent.
 
@@ -278,10 +349,11 @@ each piece as it lands. Then the GUI switches over in one step.
 |---|---|---|
 | **P0a** | A dead GPU keeps the night alive (above) | live `gpu_fault reject` over a fake session: the session ends at its own time, `Finalise` runs |
 | **P0b** | Server lifecycle and wire bugs 1-8; the GUI context-gating bug 9 | a test per item that fails first; a server test that aborts a session and sees park and warm-up |
-| **P1** | Local node transport and lifetime: `--socket`, the lock, spawn with breakaway / setsid, readiness, idle exit, version handshake, clock hand-off, LAN opt-in; `TianWenNodeClient` and the event stream over the socket | functional tests spawn a real server on a temp socket with fakes; AOT `publish -r win-arm64` and `linux-arm64`, then run it |
+| **P1** | Local node transport and lifetime: `--socket`, the lock, spawn with breakaway / setsid, readiness, idle exit, version handshake, clock hand-off, LAN opt-in; `TianWenNodeClient` and the event stream over the socket; `tianwen-server` built and published INTO the GUI's own output directory (a build-only reference), so "spawned from the GUI's own directory" holds in a checkout as well as in a release | functional tests spawn a real server on a temp socket with fakes; AOT `publish -r win-arm64` and `linux-arm64`, then run it |
 | **P2** | Session-less device plane: connect / disconnect / warm-and-disconnect, cooling and camera settings, focuser, filter, mount actions, leased move-axis, snapshot plus `DEVICE-STATE`, mount-limit verdict, `DeviceOwnershipGate` on every actuation | the server functional suite drives the Equipment flows the GUI runs today, end to end, against fakes |
 | **P3** | Profiles and discovery on the server: async discovery job, profile edits (socket only), site reconcile, sensor capture, credential store; the server as the one profile writer | reconcile and edit parity tests against today's `EquipmentActions` results |
 | **P4** | Linear frames: binary format, `FRAME-AVAILABLE`, guide frames; a network-backed `LiveFramePreviewSource` | a round-trip test that is pixel-exact against the camera's own buffer; a measured 26 MP transfer |
+| **P4b** | Shared-memory carrier for local clients: a per-source slot ring, a seqlock per slot, Windows sections with a per-user DACL, `shm_open` on Linux and macOS | the same pixel-exact test through the slot; a client killed mid-read leaves the server writing; a measured cross-process 26 MP frame on each OS |
 | **P5** | Run kinds: polar alignment, planetary capture with the rolling stack and recentering, preview / snapshot / solve and sync | each mode run over a fake rig through the socket, including a client killed mid-run with the run continuing |
 | **P6** | **The cut**: the GUI drops `IDeviceHub`, every device source and its `TianWen.Devices.Native` reference; Local means the local node; quit detaches; its `MountLimitWatcher` is deleted; inspector snapshot fields read the mirror; `unattended-ui-driving.md` and the E2E harness spawn a server; packaging ships `tianwen-server` inside the GUI's archive and `.app` (every file in `Contents/MacOS` signed) | the unattended-driving flows pass unchanged against a spawned server; killing the GUI mid-session leaves the session running; a new GUI re-attaches to it |
 | **P7** | GPU recovery by respawn: `OnGpuWedged` starts a successor GUI and exits; `gpu-device-recovery.md` updated (in-process recreation becomes optional) | `gpu_fault lost` mid-session: a new window appears on the same session within seconds |
@@ -300,7 +372,8 @@ each piece as it lands. Then the GUI switches over in one step.
 5. **Where the planetary stack runs.** Recommended: in the server, since only the master and a live
    frame cross.
 6. **Wire format for frames.** Recommended: float planes plus the `ImageMeta` header, packed losslessly
-   to 16-bit when every sample allows it. The alternative is streaming FITS, which is self-describing,
+   to 16-bit when every sample allows it, carried in shared memory for a local client (P4b) and as bytes
+   for a remote one. The alternative is streaming FITS, which is self-describing,
    but a socket cannot seek and parts of our FITS read path do (CLAUDE.md, the gzip note under "The
    image is not necessarily in HDU 0").
 7. **Migration.** Recommended: build the server surface first, then cut the GUI over in one wave (P6).
