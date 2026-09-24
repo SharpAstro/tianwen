@@ -152,6 +152,9 @@ public sealed class LuckyImagingStacker
         var pattern = ctx.MasterMeta.SensorType.GetBayerPatternMatrix(ctx.MasterMeta.BayerOffsetX, ctx.MasterMeta.BayerOffsetY);
 
         var used = 0;
+        // One mosaic plane for the whole stack, merged into per frame (every sample is overwritten): a new
+        // full-size plane per frame was garbage the drizzle read once. Returned when the stack is done.
+        using var mosaicPlane = Array2DPool<float>.RentScoped(mosaicH, mosaicW);
         foreach (var index in ctx.Selected)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -164,7 +167,7 @@ public sealed class LuckyImagingStacker
             try
             {
                 var shift = ctx.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
-                var mosaic = frame.MergeBayerChannels();
+                var mosaic = frame.MergeBayerChannelsInto(mosaicPlane.Array);
                 var sourceRect = new PixelRect(0, 0, mosaic.Width, mosaic.Height);
                 if (ctx.Matcher is { } matcher)
                 {
