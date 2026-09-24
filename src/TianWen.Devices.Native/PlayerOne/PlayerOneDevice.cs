@@ -21,8 +21,10 @@ public record class PlayerOneDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     /// captured here under the bare model name (<c>Uranus-C</c>) could never calibrate them: 253
     /// darks and biases shot for exactly that purpose had to be retagged by hand (2026-09-23). A
     /// model name that already carries the die, or a camera that reports none, is left as it is.
-    /// Only the display name takes this form; the URI path keeps the SDK's own name, because the
-    /// connect-time match compares against that.
+    /// Only the display name, the URI FRAGMENT, takes this form. The path is the camera's identity
+    /// (its serial, else its custom id, else the SDK's model name) and is untouched, and
+    /// <see cref="DeviceBase.SameDevice"/> compares scheme, authority and path and ignores the
+    /// fragment, so a profile saved under the old spelling still names the same camera.
     /// </remarks>
     internal static string InstrumentName(string modelName, string? sensorModel)
         => sensorModel is { Length: > 0 } sensor && !modelName.Contains(sensor, StringComparison.OrdinalIgnoreCase)
