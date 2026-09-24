@@ -64,10 +64,16 @@ public sealed class RollingWindowStacker
     private readonly IPlanetaryFrameStream _stream;
     private readonly RollingWindowOptions _options;
 
-    // Grade-once-per-frame cache. A frame's sharpness never changes (it is a file), so once graded its
-    // score is reused for the lifetime of the stacker -- a rebuild that re-spans already-seen frames pays
-    // no re-grade. Bounded by the frame count (one float each).
+    // Grade-once-per-frame cache. A frame's sharpness never changes, so once graded its score is reused --
+    // a rebuild that re-spans already-seen frames pays no re-grade. It used to say "bounded by the frame
+    // count", which is no bound at all on a LIVE stream: that count grows for as long as the capture runs,
+    // and the cache kept an entry for every frame ever graded. TrimScoreCache now keeps the window and one
+    // window before it, the only frames a rebuild or a short backward scrub can ask for again; a longer
+    // scrub re-grades, which costs time and nothing else.
     private readonly Dictionary<int, float> _scoreCache = new();
+
+    // The lowest index that may still have a cached score, so a trim walks only the indices it removes.
+    private int _scoreCacheFloor = int.MaxValue;
 
     // The folded contribution of each in-window frame, so eviction can subtract exactly what was added
     // (same shift, negated weight) without re-grading. Weight 0 = graded-but-not-folded (kept so the
@@ -121,6 +127,9 @@ public sealed class RollingWindowStacker
 
     /// <summary>Number of frames currently held in the window (folded or graded-zero).</summary>
     public int WindowFrameCount => _window.Count;
+
+    /// <summary>How many frames have a cached score, for the test that holds it bounded.</summary>
+    internal int ScoreCacheCount => _scoreCache.Count;
 
     /// <summary>
     /// Advances the window to end at <paramref name="playheadIndex"/> (clamped to the stream) and returns
@@ -178,7 +187,25 @@ public sealed class RollingWindowStacker
             throw;
         }
 
+        TrimScoreCache();
         return await BuildMasterAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    // Drops the scores of frames more than one window behind the current one (see _scoreCache).
+    private void TrimScoreCache()
+    {
+        var keepFrom = _windowStart - _options.MaxWindowFrames;
+        if (keepFrom <= _scoreCacheFloor)
+        {
+            return;
+        }
+
+        for (var i = _scoreCacheFloor; i < keepFrom; i++)
+        {
+            _scoreCache.Remove(i);
+        }
+
+        _scoreCacheFloor = keepFrom;
     }
 
     /// <summary>Drops the current window/reference so the next <see cref="StackToAsync"/> rebuilds from
@@ -355,6 +382,12 @@ public sealed class RollingWindowStacker
 
         var score = MathF.Max(0f, _options.QualityEstimator.Score(frame, PlanetaryDisk.BoundingBox(frame)));
         _scoreCache[index] = score;
+        if (index < _scoreCacheFloor)
+        {
+            // A backward scrub graded below the floor: the next trim must walk from here.
+            _scoreCacheFloor = index;
+        }
+
         return score;
     }
 
