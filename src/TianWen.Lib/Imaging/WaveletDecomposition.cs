@@ -84,7 +84,8 @@ public sealed class WaveletDecomposition
     }
 
     // Soft threshold: zero below t, shrink the remainder toward zero by t (continuous, no step artefacts).
-    private static float SoftThreshold(float v, float t)
+    // Internal so ATrousWaveletTransform.DecomposeAndReconstructInto applies the very same function.
+    internal static float SoftThreshold(float v, float t)
     {
         var a = MathF.Abs(v);
         return a <= t ? 0f : MathF.CopySign(a - t, v);
