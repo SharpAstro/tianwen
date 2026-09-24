@@ -27,7 +27,12 @@
 
   <!-- Bare-minimum shared sources LINKED (not a TianWen.Lib ProjectReference) so this helper stays
        tiny and AOT-clean: it must not pull the whole library (catalogs, imaging, native camera SDKs)
-       into the native binary. These files are self-contained (BCL + raw COM interop only). -->
+       into the native binary. These files are self-contained (BCL + raw COM interop only). A member
+       of one of them that needs the rest of TianWen.Lib goes in a partial beside it that is NOT
+       linked here: DispatchObject.Imaging.cs, IDispatchTransport.Imaging.cs and
+       SafeArrayMarshal.Imaging.cs hold the ImageArray read into a frame channel. Building TianWen.Lib
+       or running its unit or functional tests never compiles this project, so a Lib type in a linked
+       file fails only a solution build (it did, on CI) or TianWen.Lib.Tests.Simulators. -->
   <ItemGroup>
     <Compile Include="..\TianWen.Lib\Connections\CommunicationProtocol.cs" Link="Connections\CommunicationProtocol.cs" />
     <Compile Include="..\TianWen.Lib\Connections\IUtf8TextBasedConnection.cs" Link="Connections\IUtf8TextBasedConnection.cs" />

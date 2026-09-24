@@ -126,4 +126,112 @@ internal static class RawPixelConversion
 
         return (min, max);
     }
+
+    /// <summary>
+    /// Widens 32-bit SIGNED samples into <paramref name="destination"/>: an ASCOM camera's
+    /// <c>ImageArray</c>, which the standard types as <c>Int32</c>. The conversion rounds exactly as a
+    /// scalar <c>(float)</c> cast does, so a value past 2^24 lands where the old per-pixel cast put it.
+    /// </summary>
+    /// <returns>The smallest and largest sample, or (0, 0) for an empty source.</returns>
+    public static (int Min, int Max) WidenToSingle(ReadOnlySpan<int> source, Span<float> destination)
+    {
+        if (destination.Length < source.Length)
+        {
+            throw new ArgumentException($"Destination holds {destination.Length} samples, source has {source.Length}", nameof(destination));
+        }
+
+        if (source.IsEmpty)
+        {
+            return (0, 0);
+        }
+
+        int min = int.MaxValue, max = int.MinValue;
+        var i = 0;
+        var lanes = Vector<int>.Count;
+        if (Vector.IsHardwareAccelerated && source.Length >= lanes)
+        {
+            var vmin = new Vector<int>(int.MaxValue);
+            var vmax = new Vector<int>(int.MinValue);
+            ref var src = ref MemoryMarshal.GetReference(source);
+            ref var dst = ref MemoryMarshal.GetReference(destination);
+            for (; i <= source.Length - lanes; i += lanes)
+            {
+                var v = Vector.LoadUnsafe(ref src, (nuint)i);
+                vmin = Vector.Min(vmin, v);
+                vmax = Vector.Max(vmax, v);
+                Vector.ConvertToSingle(v).StoreUnsafe(ref dst, (nuint)i);
+            }
+
+            for (var k = 0; k < lanes; k++)
+            {
+                min = Math.Min(min, vmin[k]);
+                max = Math.Max(max, vmax[k]);
+            }
+        }
+
+        for (; i < source.Length; i++)
+        {
+            var v = source[i];
+            destination[i] = v;
+            min = Math.Min(min, v);
+            max = Math.Max(max, v);
+        }
+
+        return (min, max);
+    }
+
+    /// <summary>
+    /// Widens 16-bit SIGNED samples into <paramref name="destination"/>: a COM <c>VT_I2</c> array, which is
+    /// signed by definition. Kept signed on purpose, as the SAFEARRAY reader always widened it, where the
+    /// unsigned <see cref="WidenToSingle(ReadOnlySpan{ushort}, Span{float})"/> is for a sensor's own buffer.
+    /// </summary>
+    /// <returns>The smallest and largest sample, or (0, 0) for an empty source.</returns>
+    public static (short Min, short Max) WidenToSingle(ReadOnlySpan<short> source, Span<float> destination)
+    {
+        if (destination.Length < source.Length)
+        {
+            throw new ArgumentException($"Destination holds {destination.Length} samples, source has {source.Length}", nameof(destination));
+        }
+
+        if (source.IsEmpty)
+        {
+            return (0, 0);
+        }
+
+        short min = short.MaxValue, max = short.MinValue;
+        var i = 0;
+        var lanes = Vector<short>.Count;
+        if (Vector.IsHardwareAccelerated && source.Length >= lanes)
+        {
+            var vmin = new Vector<short>(short.MaxValue);
+            var vmax = new Vector<short>(short.MinValue);
+            ref var src = ref MemoryMarshal.GetReference(source);
+            ref var dst = ref MemoryMarshal.GetReference(destination);
+            for (; i <= source.Length - lanes; i += lanes)
+            {
+                var v = Vector.LoadUnsafe(ref src, (nuint)i);
+                vmin = Vector.Min(vmin, v);
+                vmax = Vector.Max(vmax, v);
+                Vector.Widen(v, out Vector<int> lo, out Vector<int> hi);
+                Vector.ConvertToSingle(lo).StoreUnsafe(ref dst, (nuint)i);
+                Vector.ConvertToSingle(hi).StoreUnsafe(ref dst, (nuint)(i + Vector<int>.Count));
+            }
+
+            for (var k = 0; k < lanes; k++)
+            {
+                min = Math.Min(min, vmin[k]);
+                max = Math.Max(max, vmax[k]);
+            }
+        }
+
+        for (; i < source.Length; i++)
+        {
+            var v = source[i];
+            destination[i] = v;
+            min = Math.Min(min, v);
+            max = Math.Max(max, v);
+        }
+
+        return (min, max);
+    }
 }

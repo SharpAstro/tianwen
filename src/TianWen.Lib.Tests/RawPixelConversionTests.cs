@@ -74,6 +74,70 @@ public class RawPixelConversionTests
         (min, max).ShouldBe(length == 0 ? ((byte)0, (byte)0) : (source.Min(), source.Max()));
     }
 
+    // A 128-bit register holds 4 int lanes and 8 short lanes; the lengths straddle both.
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(9)]
+    [InlineData(100003)]
+    public void ThirtyTwoBitSignedSamplesWidenAsAScalarCastWould(int length)
+    {
+        var source = new int[length];
+        var rng = new Random(length);
+        for (var i = 0; i < length; i++)
+        {
+            source[i] = rng.Next(int.MinValue, int.MaxValue);
+        }
+
+        if (length > 3)
+        {
+            source[0] = (1 << 24) + 1;   // past float's exact range: the vector conversion must round as (float) does
+            source[1] = int.MinValue;
+            source[2] = int.MaxValue;
+        }
+
+        var destination = new float[length];
+        var (min, max) = RawPixelConversion.WidenToSingle(source, destination);
+
+        for (var i = 0; i < length; i++)
+        {
+            destination[i].ShouldBe((float)source[i]);
+        }
+
+        (min, max).ShouldBe(length == 0 ? (0, 0) : (source.Min(), source.Max()));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(7)]
+    [InlineData(8)]
+    [InlineData(9)]
+    [InlineData(17)]
+    [InlineData(100003)]
+    public void SixteenBitSignedSamplesWidenToTheirSignedValues(int length)
+    {
+        var source = new short[length];
+        var rng = new Random(length);
+        for (var i = 0; i < length; i++)
+        {
+            source[i] = (short)rng.Next(short.MinValue, short.MaxValue + 1);
+        }
+
+        var destination = new float[length];
+        var (min, max) = RawPixelConversion.WidenToSingle(source, destination);
+
+        for (var i = 0; i < length; i++)
+        {
+            destination[i].ShouldBe(source[i]);
+        }
+
+        (min, max).ShouldBe(length == 0 ? ((short)0, (short)0) : (source.Min(), source.Max()));
+    }
+
     [Fact]
     public void ADestinationTooShortIsRefusedBeforeAnythingIsWritten()
     {
