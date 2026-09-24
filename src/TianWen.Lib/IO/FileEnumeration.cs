@@ -70,6 +70,24 @@ namespace TianWen.Lib.IO
             return Enumerate(root, recursive, (ref FileSystemEntry entry) => !entry.IsDirectory && HasExtension(entry.FileName, extensions));
         }
 
+        /// <summary>
+        /// As <see cref="EnumerateFiles(string, IReadOnlyList{string}, bool)"/>, with each file's size and
+        /// last write time as the directory listing already states them, so a caller can tell an
+        /// unchanged file without opening it (the dataset bake's header index). Unordered.
+        /// </summary>
+        public static IEnumerable<FileStamp> EnumerateFileStamps(string root, IReadOnlyList<string> extensions, bool recursive)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(root);
+            ArgumentNullException.ThrowIfNull(extensions);
+            return new FileSystemEnumerable<FileStamp>(
+                root,
+                static (ref FileSystemEntry entry) => new FileStamp(entry.ToFullPath(), entry.Length, entry.LastWriteTimeUtc.UtcDateTime),
+                Options(recursive))
+            {
+                ShouldIncludePredicate = (ref FileSystemEntry entry) => !entry.IsDirectory && HasExtension(entry.FileName, extensions),
+            };
+        }
+
         /// <summary>Full paths of every entry under <paramref name="root"/> that <paramref name="include"/>
         /// accepts. The predicate sees directories too; test <see cref="FileSystemEntry.IsDirectory"/> when
         /// only files are wanted. Unordered.</summary>
@@ -117,4 +135,8 @@ namespace TianWen.Lib.IO
             return false;
         }
     }
+
+    /// <summary>A file as the directory listing states it: full path, size in bytes, last write time
+    /// (UTC). Enough to tell an unchanged file from a changed one without opening either.</summary>
+    public readonly record struct FileStamp(string Path, long Length, DateTime LastWriteTimeUtc);
 }

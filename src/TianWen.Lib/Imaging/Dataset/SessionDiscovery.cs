@@ -59,16 +59,40 @@ public static class SessionDiscovery
         public int RejectedAtCapture { get; init; }
     }
 
-    /// <summary>Enumerates all archive roots (header-only reads) and groups into sessions.</summary>
-    public static async Task<(ImmutableArray<ImagingSession> Sessions, DiscoveryStats Stats)> DiscoverAsync(
-        DatasetBuildOptions options, ILogger? logger = null, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Every frame one scan of the archive roots found, with the root it was found under, and what the
+    /// sources applied on the way (sidecar filters, frames rejected at capture).
+    /// </summary>
+    public sealed record ArchiveScan(
+        ImmutableArray<(FrameInfo Frame, string Root)> Frames, FrameMetaSidecarStats Sidecar, int RejectedAtCapture);
+
+    /// <summary>
+    /// The one header-only scan of every archive root, for the build, its discovery listing and the
+    /// coverage report alike (three loops used to do it, so a bake scanned the archive twice). Headers
+    /// an earlier scan stored come from the root's <see cref="FitsHeaderIndex"/> when
+    /// <see cref="DatasetBuildOptions.UseHeaderIndex"/> is on.
+    /// </summary>
+    /// <remarks>
+    /// <b>Nothing is excluded here, and it cannot be:</b> the same frames feed calibration grouping, and
+    /// a calibration frame under an excluded folder still calibrates (only LIGHTS are dropped by
+    /// <see cref="DatasetBuildOptions.ExcludePathSegments"/>, in <see cref="GroupSessions"/>). Skipping
+    /// those files before reading them would silently change which calibration a session gets.
+    /// </remarks>
+    public static async Task<ArchiveScan> ScanAsync(
+        DatasetBuildOptions options, ILogger? logger = null, IProgress<string>? progress = null,
+        string progressTag = "dataset", CancellationToken cancellationToken = default)
     {
-        var frames = new List<(FrameInfo Frame, string Root)>();
+        var frames = ImmutableArray.CreateBuilder<(FrameInfo Frame, string Root)>();
         var sidecar = FrameMetaSidecarStats.Empty;
         var rejectedAtCapture = 0;
         foreach (var root in options.ArchiveRoots)
         {
-            var source = new FitsFolderFrameSource(root, true);
+            // Headers remembered from the last scan of this root: an unchanged file is parsed from its
+            // stored header rather than read, which on a hard disk is a seek saved per file.
+            var index = options.UseHeaderIndex
+                ? FitsHeaderIndex.Load(FitsHeaderIndex.PathFor(options.HeaderIndexDirectory, root), logger)
+                : null;
+            var source = new FitsFolderFrameSource(root, true) { HeaderIndex = index };
             await foreach (var frame in source.EnumerateAsync(cancellationToken))
             {
                 frames.Add((frame, root));
@@ -76,7 +100,10 @@ public static class SessionDiscovery
             // Read after enumerating: the counters accumulate as frames stream past.
             sidecar = sidecar.Add(source.SidecarStats);
             rejectedAtCapture += source.RejectedAtCapture;
-            logger?.LogInformation("Scanned {Root}: {Count} FITS headers so far", root, frames.Count);
+            index?.Save(logger);
+            var fromIndex = index is null ? "" : $" ({index.Hits} from the header index, {index.Misses} read)";
+            progress?.Report($"[{progressTag}] scanned {root}: {frames.Count} FITS headers so far{fromIndex}");
+            logger?.LogInformation("Scanned {Root}: {Count} FITS headers so far{FromIndex}", root, frames.Count, fromIndex);
         }
         if (sidecar.Malformed > 0)
         {
@@ -88,8 +115,19 @@ public static class SessionDiscovery
                 "{Count} frame(s) skipped: named '{Prefix}...', which is how N.I.N.A. and this archive mark a frame rejected at capture",
                 rejectedAtCapture, CaptureRejection.RejectedPrefix);
         }
-        var (sessions, stats) = GroupSessions(frames, options);
-        return (sessions, stats with { Sidecar = sidecar, RejectedAtCapture = rejectedAtCapture });
+        return new ArchiveScan(frames.ToImmutable(), sidecar, rejectedAtCapture);
+    }
+
+    /// <summary>Enumerates all archive roots (header-only reads) and groups into sessions.</summary>
+    public static async Task<(ImmutableArray<ImagingSession> Sessions, DiscoveryStats Stats)> DiscoverAsync(
+        DatasetBuildOptions options, ILogger? logger = null, CancellationToken cancellationToken = default)
+        => Discover(await ScanAsync(options, logger, cancellationToken: cancellationToken), options);
+
+    /// <summary>Groups a scan's lights into sessions, carrying its sidecar and capture-rejection counts.</summary>
+    public static (ImmutableArray<ImagingSession> Sessions, DiscoveryStats Stats) Discover(ArchiveScan scan, DatasetBuildOptions options)
+    {
+        var (sessions, stats) = GroupSessions(scan.Frames, options);
+        return (sessions, stats with { Sidecar = scan.Sidecar, RejectedAtCapture = scan.RejectedAtCapture });
     }
 
     /// <summary>Pure grouping core (unit-testable without disk): gate → dedup → session grouping.</summary>

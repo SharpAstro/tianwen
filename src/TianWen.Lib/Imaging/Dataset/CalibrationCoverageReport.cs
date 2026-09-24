@@ -63,18 +63,9 @@ public static class CalibrationCoverageReport
 
         // One header-only scan feeds session grouping AND calibration grouping, exactly as the
         // dataset builder's own flow does.
-        var frames = new List<(FrameInfo Frame, string Root)>();
-        var sidecar = FrameMetaSidecarStats.Empty;
-        foreach (var root in options.ArchiveRoots)
-        {
-            var source = new FitsFolderFrameSource(root, true);
-            await foreach (var frame in source.EnumerateAsync(cancellationToken))
-            {
-                frames.Add((frame, root));
-            }
-            sidecar = sidecar.Add(source.SidecarStats);
-            progress?.Report($"[coverage] scanned {root}: {frames.Count} FITS headers so far");
-        }
+        var scan = await SessionDiscovery.ScanAsync(options, progress: progress, progressTag: "coverage", cancellationToken: cancellationToken);
+        var frames = scan.Frames;
+        var sidecar = scan.Sidecar;
 
         // Group with a floor of ONE light so marginal sessions get a row; the caller's real
         // threshold survives as the below_bake_min_subs flag.
@@ -104,7 +95,7 @@ public static class CalibrationCoverageReport
         return new CoverageResult(tsvPath, summaryPath, sessions.Length, stats);
     }
 
-    private static IEnumerable<FrameInfo> FramesOnly(List<(FrameInfo Frame, string Root)> frames)
+    private static IEnumerable<FrameInfo> FramesOnly(IReadOnlyList<(FrameInfo Frame, string Root)> frames)
     {
         foreach (var (frame, _) in frames)
         {
