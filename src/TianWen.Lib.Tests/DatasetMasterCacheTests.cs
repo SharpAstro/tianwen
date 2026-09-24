@@ -63,15 +63,15 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
-        public void ComputeFingerprint_IsOrderIndependentButCountSensitive()
+        public void InputSetFingerprint_IsOrderIndependentButCountSensitive()
         {
             var a = WriteBias(Path.Combine(_dir, "a"), 0, 100);
             var b = WriteBias(Path.Combine(_dir, "a"), 1, 100);
             var c = WriteBias(Path.Combine(_dir, "a"), 2, 100);
 
-            var fp1 = MasterCache.ComputeFingerprint([a, b, c]);
-            var fp2 = MasterCache.ComputeFingerprint([c, a, b]);
-            var fp3 = MasterCache.ComputeFingerprint([a, b]);
+            var fp1 = MasterFrameBuilder.InputSetFingerprint([a, b, c]);
+            var fp2 = MasterFrameBuilder.InputSetFingerprint([c, a, b]);
+            var fp3 = MasterFrameBuilder.InputSetFingerprint([a, b]);
 
             fp1.ShouldBe(fp2);
             fp1.ShouldNotBe(fp3);

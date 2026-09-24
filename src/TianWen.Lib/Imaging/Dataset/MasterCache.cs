@@ -8,8 +8,6 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging.Calibration;
@@ -36,9 +34,6 @@ namespace TianWen.Lib.Imaging.Dataset;
 /// output root, e.g. <c>&lt;out&gt;/masters</c>.</param>
 public sealed class MasterCache(string mastersDir, ILogger? logger = null)
 {
-    private const string FingerprintCard = "DSETFPR"; // dataset input-set fingerprint (<= 8 chars)
-    private const string InputCountCard = "DSETNIN";  // dataset input frame count
-
     // Keyed by (sensor-config group, optical train, master flag, epoch suffix): two cameras that
     // share a sensor model produce the same MasterGroupKey, so without the train in the key a second
     // body's build would either cross-serve the first's cached Task (in-flight map) or overwrite its
@@ -101,12 +96,12 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
         // forever on a slug match.
         var usePedestal = key.Type is FrameType.Flat && flatPedestal is not null;
         var fingerprint = usePedestal && flatPedestal is not null
-            ? ComputeFingerprint(inputs) + "+" + ComputeFingerprint(flatPedestal.Frames)
-            : ComputeFingerprint(inputs);
+            ? MasterFrameBuilder.InputSetFingerprint(inputs) + "+" + MasterFrameBuilder.InputSetFingerprint(flatPedestal.Frames)
+            : MasterFrameBuilder.InputSetFingerprint(inputs);
 
         if (File.Exists(masterPath))
         {
-            if (ReadFingerprint(masterPath) == (fingerprint, inputs.Count)
+            if (MasterFrameBuilder.ReadInputSet(masterPath) == (fingerprint, inputs.Count)
                 && Image.TryReadFitsFile(masterPath, out var cached) && cached is not null)
             {
                 logger?.LogInformation("  master {File} cache hit ({Count} inputs)", Path.GetFileName(masterPath), inputs.Count);
@@ -138,10 +133,10 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
         // span as DATE-BEG/DATE-END, so a blend can never again be invisible), plus this cache's
         // own fingerprint pair.
         var extraHeaders = MasterFrameBuilder.ProvenanceHeaders(inputs);
-        extraHeaders[FingerprintCard] = (fingerprint, "TianWen dataset input-set fingerprint");
-        extraHeaders[InputCountCard] = (inputs.Count, "TianWen dataset input frame count");
+        MasterFrameBuilder.AddInputSetCards(extraHeaders, fingerprint, inputs.Count);
         master.WriteToFitsFile(masterPath, null, extraHeaders);
-        logger?.LogInformation("  master {File} built ({Count} inputs)", Path.GetFileName(masterPath), inputs.Count);
+        logger?.LogInformation("  master {File} built ({Count} inputs, {Range})", Path.GetFileName(masterPath), inputs.Count,
+            TemperatureClusters.DescribeRange(inputs));
         return master;
     }
 
@@ -243,45 +238,5 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
             data[c] = channel;
         }
         return new Image(data, BitDepth.Float32, master.MaxValue * scale, master.MinValue * scale, master.Pedestal, master.ImageMeta);
-    }
-
-    /// <summary>
-    /// SHA-256 digest (first 16 hex chars) of the sorted input identities. Uses each frame's
-    /// path + DATE-OBS: a changed library (a night added/removed) changes the DATE-OBS set and
-    /// so the digest, while a pure re-run over the same files reproduces it exactly.
-    /// </summary>
-    internal static string ComputeFingerprint(IReadOnlyList<FrameInfo> inputs)
-    {
-        var ids = inputs
-            .Select(f => $"{Path.GetFileName(f.Path)}|{f.Meta.ExposureStartTime.UtcDateTime:O}")
-            .OrderBy(s => s, StringComparer.Ordinal);
-        var sb = new StringBuilder();
-        foreach (var id in ids)
-        {
-            sb.Append(id).Append('\n');
-        }
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
-        return Convert.ToHexStringLower(hash)[..16];
-    }
-
-    private static (string Fingerprint, int Count)? ReadFingerprint(string masterPath)
-    {
-        try
-        {
-            using var fits = Image.OpenFitsHeader(masterPath);
-            var header = fits.ReadFirstImageHduHeaderOnly()?.Header;
-            // Asked as one question: a fingerprint that came back is proof the header did too, which
-            // is what the second read needed and used to assert.
-            if (header?.GetStringValue(FingerprintCard) is not { } fingerprint)
-            {
-                return null;
-            }
-            var count = header.GetIntValue(InputCountCard, -1);
-            return (fingerprint, count);
-        }
-        catch
-        {
-            return null; // unreadable / not a TianWen master -> treat as a miss, rebuild
-        }
     }
 }

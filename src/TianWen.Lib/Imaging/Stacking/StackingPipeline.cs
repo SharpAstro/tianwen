@@ -381,20 +381,21 @@ public sealed class StackingPipeline(
         // -----------------------------------------------------------------
         progress?.Report(new StackingProgress(StackingPhase.BuildingMasters, "", 0, 0));
         sw.Restart();
-        var biasMasters = await BuildMastersAsync(byType.GetValueOrDefault(FrameType.Bias), MasterFrameBuilder.BuildBiasMasterAsync, mastersDir, ct);
-        var darkMasters = await BuildMastersAsync(byType.GetValueOrDefault(FrameType.Dark), MasterFrameBuilder.BuildDarkMasterAsync, mastersDir, ct);
+        var biasMasters = await BuildMastersAsync(byType.GetValueOrDefault(FrameType.Bias), (_, list, token) => MasterFrameBuilder.BuildBiasMasterAsync(list, token), mastersDir, ct);
+        var darkMasters = await BuildMastersAsync(byType.GetValueOrDefault(FrameType.Dark), (_, list, token) => MasterFrameBuilder.BuildDarkMasterAsync(list, token), mastersDir, ct);
         // A dark-flat master is built exactly like a dark (median, pedestal retained); its job is
         // to be the flat's pedestal below. It deliberately keeps its bias in, so subtracting it
         // whole removes offset + the thermal signal the flat accumulated in one step (the DSS
         // model reaches the same flat algebraically via bias-subtracted stages).
-        var darkFlatMasters = await BuildMastersAsync(byType.GetValueOrDefault(FrameType.DarkFlat), MasterFrameBuilder.BuildDarkMasterAsync, mastersDir, ct);
+        var darkFlatMasters = await BuildMastersAsync(byType.GetValueOrDefault(FrameType.DarkFlat), (_, list, token) => MasterFrameBuilder.BuildDarkMasterAsync(list, token), mastersDir, ct);
 
         // Flats are built AFTER bias + dark-flats so each can have its own pedestal removed before
         // it is normalised (a raw flat is offset + signal, and normalising that divides the offset
         // in, so the master under-corrects by offset/(offset+signal): about 2% on a real ASI533
-        // frame). The suffix is load-bearing, not cosmetic. This cache trusts any file it finds, so
-        // without a new name every existing masters/ directory would keep serving the uncalibrated
-        // flat it cached before this existed; and the suffix encodes the pedestal-candidate KINDS
+        // frame). The suffix is load-bearing, not cosmetic. This cache checks a master's own input
+        // set but not its pedestal's, so without a new name every existing masters/ directory would
+        // keep serving the uncalibrated flat it cached before this existed; and the suffix encodes
+        // the pedestal-candidate KINDS
         // ("_bs" bias-only keeps every existing cache valid, "_dfs" dark-flats only, "_ps" both) so
         // dark-flats appearing in an archive cannot silently leave a bias-pedestalled flat in
         // service. Within one kind-landscape the match is deterministic; to force a refresh,
@@ -410,7 +411,7 @@ public sealed class StackingPipeline(
             .ToList();
         var flatMasters = await BuildMastersAsync(
             flatFrames,
-            async (list, token) =>
+            async (flatKey, list, token) =>
             {
                 // Matched against the FLAT's own key, not a light's: the offset being removed is
                 // the one this flat was recorded with. One candidate pool of biases, dark-flats
@@ -422,8 +423,6 @@ public sealed class StackingPipeline(
                 // the term is a constant (~0 s exposures), so temperature decides, as it always
                 // did. The gated darks are re-gated against THIS group's exposure (the pool gate
                 // above used any flat group's).
-                // The SET's temperature (its run's median), as BuildMastersAsync keys the set.
-                var flatKey = MasterGroupKey.FromFrame(list[0]) with { TemperatureC = TemperatureClusters.MedianTemperatureC(list) };
                 var candidates = new List<(MasterGroupKey Key, Image Master)>(biasMasters.Count + darkFlatMasters.Count + pedestalDarkMasters.Count);
                 candidates.AddRange(biasMasters);
                 candidates.AddRange(darkFlatMasters);
@@ -2323,9 +2322,14 @@ public sealed class StackingPipeline(
         return rate;
     }
 
-    private async Task<List<(MasterGroupKey Key, Image Master)>> BuildMastersAsync(
+    /// <summary>
+    /// One master per calibration set (<see cref="CalibrationEpochs.SplitSets"/>), cached under
+    /// <paramref name="mastersDir"/>. The builder is handed the set's own key, the one its master is
+    /// filed and matched under, so nothing downstream re-derives it from a single frame.
+    /// </summary>
+    internal async Task<List<(MasterGroupKey Key, Image Master)>> BuildMastersAsync(
         List<FrameInfo>? frames,
-        Func<IReadOnlyList<FrameInfo>, CancellationToken, Task<Image>> builder,
+        Func<MasterGroupKey, IReadOnlyList<FrameInfo>, CancellationToken, Task<Image>> builder,
         string mastersDir,
         CancellationToken ct,
         string pathSuffix = "")
@@ -2351,26 +2355,39 @@ public sealed class StackingPipeline(
                 var key = group.Key with { TemperatureC = set.TemperatureC };
                 var epochSuffix = set.EpochSuffix;
                 var masterPath = Path.Combine(mastersDir, $"master_{key.Slug()}{pathSuffix}{epochSuffix}.fits");
+                var fingerprint = MasterFrameBuilder.InputSetFingerprint(list);
 
-                // Cache hit: master from a previous run. Bias/dark/flat
-                // masters are pure functions of their inputs + builder
-                // settings, so if the file exists we trust it. To force
-                // refresh, delete outputDir/masters.
-                if (File.Exists(masterPath) && Image.TryReadFitsFile(masterPath, out var cached) && cached is not null)
+                // Cache hit: a master from a previous run, trusted only when it declares THIS set of
+                // frames. A master is a pure function of its inputs and the builder, but its NAME
+                // says which configuration it serves, never which frames built it: once calibration
+                // was grouped by temperature run (#307 #96), a drifting run's master took the name
+                // one degree's master already had, and a cache trusting the name served that one.
+                // A master declaring no input set (every one written before this check) is rebuilt
+                // once. What the name still has to carry is the flat's pedestal KIND (pathSuffix).
+                if (File.Exists(masterPath))
                 {
-                    masters.Add((key, cached));
-                    logger.LogInformation("  cached {File} ({Count} input frames)", Path.GetFileName(masterPath), list.Count);
-                    continue;
+                    if (MasterFrameBuilder.ReadInputSet(masterPath) == (fingerprint, list.Count)
+                        && Image.TryReadFitsFile(masterPath, out var cached) && cached is not null)
+                    {
+                        masters.Add((key, cached));
+                        logger.LogInformation("  cached {File} ({Count} input frames)", Path.GetFileName(masterPath), list.Count);
+                        continue;
+                    }
+                    logger.LogInformation("  {File} was built from other frames than this set's {Count}, rebuilding",
+                        Path.GetFileName(masterPath), list.Count);
                 }
 
-                var master = await builder(list, ct);
+                var master = await builder(key, list, ct);
                 masters.Add((key, master));
                 // Shared provenance cards (SWCREATE + DATE-BEG/DATE-END): this write had the same
                 // defect the dataset cache had -- the master inherited its subs' SWCREATE and
-                // declared nothing about itself or its input span.
-                master.WriteToFitsFile(masterPath, null, MasterFrameBuilder.ProvenanceHeaders(list));
-                logger.LogInformation("  built {File} ({Count} input frames, {Start:yyyy-MM-dd}..{End:yyyy-MM-dd})",
-                    Path.GetFileName(masterPath), list.Count, set.Start, set.End);
+                // declared nothing about itself or its input span. Plus the input set the check
+                // above reads back.
+                var headers = MasterFrameBuilder.ProvenanceHeaders(list);
+                MasterFrameBuilder.AddInputSetCards(headers, fingerprint, list.Count);
+                master.WriteToFitsFile(masterPath, null, headers);
+                logger.LogInformation("  built {File} ({Count} input frames, {Start:yyyy-MM-dd}..{End:yyyy-MM-dd}, {Range})",
+                    Path.GetFileName(masterPath), list.Count, set.Start, set.End, TemperatureClusters.DescribeRange(list));
             }
         }
         return masters;
