@@ -68,7 +68,10 @@ internal static class JupiterTextureRenderer
 
         // 1) Sharp body: sample the texture across the (oblate) disk; outside the ellipse is left at 0 (sky --
         // sky background + noise are added in the shared compose pass). nx/ny are disk-local coords in [-1, 1].
-        var sharp = new float[height, width];
+        // Rented and cleared: the fake camera renders one of these per video frame.
+        using var sharpLease = Array2DPool<float>.RentScoped(height, width);
+        sharpLease.AsMutableSpan().Clear();
+        var sharp = sharpLease.Array;
         for (var y = 0; y < height; y++)
         {
             var ny = (y - centerY) / polarRadius;
@@ -92,9 +95,14 @@ internal static class JupiterTextureRenderer
             }
         }
 
-        // 2) Seeing blur + 3) sky/noise compose -- shared with the procedural renderer so both noise identically.
-        var body = blurSigma > 0.35 ? SyntheticPlanetRenderer.GaussianBlur(sharp, width, height, blurSigma) : sharp;
-        return SyntheticPlanetRenderer.ComposeWithNoise(body, width, height, maxAdu, skyBackground,
+        // 2) Seeing blur (in place) + 3) sky/noise compose -- shared with the procedural renderer so both noise
+        // identically.
+        if (blurSigma > 0.35)
+        {
+            using var tmp = Array2DPool<float>.RentScoped(height, width);
+            SyntheticPlanetRenderer.GaussianBlurInto(sharp, width, height, blurSigma, tmp.Array, sharp);
+        }
+        return SyntheticPlanetRenderer.ComposeWithNoise(sharp, width, height, maxAdu, skyBackground,
             fullWellElectrons, readNoiseElectrons, noiseSeed, dest);
     }
 
@@ -134,10 +142,18 @@ internal static class JupiterTextureRenderer
         var polarRadius = equatorialRadius * Oblateness;
 
         // 1) Sharp full-colour body: sample R/G/B from the texture across the (oblate) disk into three
-        // planes. Outside the ellipse stays 0 (sky -- added in the shared compose pass).
-        var sharpR = new float[height, width];
-        var sharpG = new float[height, width];
-        var sharpB = new float[height, width];
+        // planes. Outside the ellipse stays 0 (sky -- added in the shared compose pass). Rented and cleared:
+        // the fake camera renders one of these per video frame, and this path made eleven new planes a
+        // frame (three sharp, a scratch and a result per blur, the mosaic and the output).
+        using var leaseR = Array2DPool<float>.RentScoped(height, width);
+        using var leaseG = Array2DPool<float>.RentScoped(height, width);
+        using var leaseB = Array2DPool<float>.RentScoped(height, width);
+        leaseR.AsMutableSpan().Clear();
+        leaseG.AsMutableSpan().Clear();
+        leaseB.AsMutableSpan().Clear();
+        var sharpR = leaseR.Array;
+        var sharpG = leaseG.Array;
+        var sharpB = leaseB.Array;
         for (var y = 0; y < height; y++)
         {
             var ny = (y - centerY) / polarRadius;
@@ -164,16 +180,20 @@ internal static class JupiterTextureRenderer
             }
         }
 
-        // 2) Per-channel seeing blur: the optical image is blurred BEFORE the CFA samples it.
+        // 2) Per-channel seeing blur, each in place: the optical image is blurred BEFORE the CFA samples it.
         if (blurSigma > 0.35)
         {
-            sharpR = SyntheticPlanetRenderer.GaussianBlur(sharpR, width, height, blurSigma);
-            sharpG = SyntheticPlanetRenderer.GaussianBlur(sharpG, width, height, blurSigma);
-            sharpB = SyntheticPlanetRenderer.GaussianBlur(sharpB, width, height, blurSigma);
+            using var tmp = Array2DPool<float>.RentScoped(height, width);
+            SyntheticPlanetRenderer.GaussianBlurInto(sharpR, width, height, blurSigma, tmp.Array, sharpR);
+            SyntheticPlanetRenderer.GaussianBlurInto(sharpG, width, height, blurSigma, tmp.Array, sharpG);
+            SyntheticPlanetRenderer.GaussianBlurInto(sharpB, width, height, blurSigma, tmp.Array, sharpB);
         }
 
-        // 3) Mosaic: each pixel keeps only its CFA channel (RGGB; 0=R, 1=G, 2=B).
-        var mosaic = new float[height, width];
+        // 3) Mosaic: each pixel keeps only its CFA channel (RGGB; 0=R, 1=G, 2=B), written straight into the
+        // output, which the compose then noises in place (it reads each pixel before it writes it).
+        var mosaic = dest is not null && dest.GetLength(0) == height && dest.GetLength(1) == width
+            ? dest
+            : new float[height, width];
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
@@ -187,9 +207,9 @@ internal static class JupiterTextureRenderer
             }
         }
 
-        // 4) Sky + shot/read noise on the mosaic -- shared with the procedural + mono paths.
+        // 4) Sky + shot/read noise on the mosaic, in place -- shared with the procedural + mono paths.
         return SyntheticPlanetRenderer.ComposeWithNoise(mosaic, width, height, maxAdu, skyBackground,
-            fullWellElectrons, readNoiseElectrons, noiseSeed, dest);
+            fullWellElectrons, readNoiseElectrons, noiseSeed, mosaic);
     }
 
     // RGGB Bayer pattern [R, G1] / [G2, B]; channel 0=R, 1=G, 2=B. Matches the convention in

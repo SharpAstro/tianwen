@@ -1482,6 +1482,13 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     // pump drives the whole live-stack loop in CI. The video path is independent of the single-shot
     // StartExposureAsync exposure path (you stream OR expose, not both).
     private int _videoActive;             // 0/1; gates CanJogRoi + enforces one concurrent stream
+
+    // The video frames' planes, handed back by each frame's release; the renderers' own working planes are
+    // rented from Array2DPool, so a steady stream allocates no plane at all.
+    private readonly Imaging.PlaneRecycler _videoPlanes = new Imaging.PlaneRecycler(nameof(FakeCameraDriver) + ".Video");
+
+    /// <summary>How many video frame planes the stream has had to allocate (tests pin a steady stream at none).</summary>
+    internal int VideoPlanesAllocated => _videoPlanes.PlanesAllocated;
     private int _droppedFrames;           // always 0 for the fake (no buffer starvation to model)
     // The ROI window (origin + size) is written and read ONLY on the active capture loop's thread
     // (CaptureVideoAsync, the per-frame resize, JogRoiAsync drained on that loop, and RenderVideoFrame all
@@ -1732,6 +1739,9 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         // A colour (RGGB) sensor delivers a raw Bayer mosaic so the live stack debayers to colour Jupiter and
         // the wavelet deblur runs on real colour data; a mono sensor delivers luminance. Mirrors the
         // SensorType branch in the single-shot star-field path.
+        // Into a recycled plane: the frame's release hands it back (the capture loop releases each frame
+        // before the next), so this is a recycled camera frame like a real driver's.
+        var output = _videoPlanes.Take(roiH, roiW);
         float[,] array;
         Imaging.ImageMeta meta;
         if (SensorType is Imaging.SensorType.RGGB)
@@ -1746,7 +1756,8 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
                 blurSigma: blurSigma,
                 maxAdu: MaxADU,
                 bodyLevel: bodyLevel,
-                noiseSeed: unchecked(VideoBaseSeed + frameIndex));
+                noiseSeed: unchecked(VideoBaseSeed + frameIndex),
+                dest: output);
             meta = new Imaging.ImageMeta
             {
                 SensorType = Imaging.SensorType.RGGB,
@@ -1764,7 +1775,8 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
                 blurSigma: blurSigma,
                 maxAdu: MaxADU,
                 bodyLevel: bodyLevel,
-                noiseSeed: unchecked(VideoBaseSeed + frameIndex));
+                noiseSeed: unchecked(VideoBaseSeed + frameIndex),
+                dest: output);
             meta = new Imaging.ImageMeta { SensorType = Imaging.SensorType.Monochrome };
         }
 
@@ -1777,7 +1789,8 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         var maxValue = 0f;
         foreach (var v in array) maxValue = MathF.Max(maxValue, v);
 
-        return new Image([array], Imaging.BitDepth.Int16, maxValue, minValue: 0f, pedestal: 0f, meta with { SensorFullScaleAdu = MaxADU });
+        return new Image([_videoPlanes.Wrap(array, minValue: 0f, maxValue, 0)], Imaging.BitDepth.Int16, pedestal: 0f,
+            meta with { SensorFullScaleAdu = MaxADU });
     }
 
     private static double NextGaussian(Random rng)
