@@ -335,4 +335,53 @@ public class GuiderCentroidTrackerTests(ITestOutputHelper output)
 
         tracker.IsAcquired.ShouldBeFalse("with nothing there, the honest answer is that the star is gone");
     }
+
+    /// <summary>
+    /// Acquisition re-runs on EVERY frame while the star is lost, and its peak list holds every
+    /// 4-neighbour local maximum: on noise, one pixel in five. Built per call, that list doubled its way
+    /// to megabytes on each guide frame; kept on the tracker, it grows once, and a repeated acquisition
+    /// allocates only what it hands back (the two star profiles on the result).
+    /// </summary>
+    [Fact]
+    public void ARepeatedAcquisitionAllocatesNoPeakList()
+    {
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        var frame = SyntheticStarFieldRenderer.Render(640, 480, 0,
+            offsetX: 0, offsetY: 0, starCount: 5, seed: 42);
+
+        // The first acquisition grows the scratch; the ones after it are what a lost star repeats.
+        tracker.ProcessFrame(frame).ShouldNotBeNull("premise: the tracker must lock");
+        tracker.Reset();
+        tracker.ProcessFrame(frame);
+
+        const int acquisitions = 10;
+        Span<long> each = stackalloc long[acquisitions];
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < acquisitions; i++)
+        {
+            var start = GC.GetAllocatedBytesForCurrentThread();
+            tracker.Reset();
+            tracker.ProcessFrame(frame).ShouldNotBeNull();
+            each[i] = GC.GetAllocatedBytesForCurrentThread() - start;
+        }
+        var perAcquisition = (GC.GetAllocatedBytesForCurrentThread() - before) / acquisitions;
+
+        var least = long.MaxValue;
+        var most = 0L;
+        foreach (var bytes in each)
+        {
+            least = Math.Min(least, bytes);
+            most = Math.Max(most, bytes);
+        }
+        output.WriteLine($"640x480: {perAcquisition:N0} bytes per acquisition ({least:N0} to {most:N0})");
+
+        // The bound sits BETWEEN the two populations, not on the steady state. The peak list this
+        // stopped building cost 2,098,008 bytes per acquisition at 640 x 480; what is left is the two
+        // star profiles and a closure, 352 bytes. CI measured 1,136 on both legs of one run
+        // (2026-09-24, #759) and 352 on the run before with the same code: nothing on the tracker's
+        // path allocates the difference, and it never reproduced here under any tiering setting, so a
+        // bound of 1 KiB failed on noise this test is not about. The range above says, next time,
+        // whether such noise is spread over every acquisition or lands in one.
+        perAcquisition.ShouldBeLessThan(64L * 1024, "the per-call peak list is back");
+    }
 }

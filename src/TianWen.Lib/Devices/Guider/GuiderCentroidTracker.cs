@@ -27,6 +27,14 @@ internal sealed class GuiderCentroidTracker
     private const int MaxRecoverySearchRadius = 48;
 
     private readonly List<TrackedStar> _stars = new List<TrackedStar>();
+
+    // Acquisition scratch, kept from frame to frame. The peak list holds every 4-neighbour local maximum,
+    // which on noise is one pixel in five (about 400k entries on a 2 MP guide frame), and acquisition
+    // re-runs on EVERY frame while the star is lost: built per call it was 2.1 MB at 640 x 480 and about
+    // 12.6 MB of doubling at 2 MP, per frame. Safe because a tracker takes one ProcessFrame at a time.
+    private readonly List<(int X, int Y, float Val)> _peaks = new List<(int X, int Y, float Val)>();
+    private readonly List<CandidateStar> _candidates = new List<CandidateStar>();
+
     private bool _acquired;
     private int _searchRadius;
     private int _maxStars;
@@ -273,14 +281,17 @@ internal sealed class GuiderCentroidTracker
         return new GuiderCentroidResult(primary.LastX, primary.LastY, 0, 0, primary.Flux, primary.SNR, _stars.Count);
     }
 
+    /// <returns>The tracker's own candidate list, refilled: valid until the next acquisition.</returns>
     private List<CandidateStar> FindCandidateStars(float[,] frame, int width, int height)
     {
-        var candidates = new List<CandidateStar>();
+        var candidates = _candidates;
+        candidates.Clear();
         var margin = _searchRadius + 4; // annulus margin
 
         // Build a sorted list of pixel peaks, then refine each with centroid.
         // First pass: collect all local maxima above background.
-        var peaks = new List<(int X, int Y, float Val)>();
+        var peaks = _peaks;
+        peaks.Clear();
 
         for (var y = margin; y < height - margin; y++)
         {
