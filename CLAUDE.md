@@ -1345,7 +1345,8 @@ vocabulary (own/borrow/consume), the four conventions and the DEBUG leak leg:
   show). Pinned by `VngFlatFieldBiasTests`, the one test that asserts on a FLAT field.
 - `Array2DPool` is scratch only; camera buffers use `ChannelBuffer`. A buffer nobody released is
   findable in DEBUG (`ChannelBufferLeakTracker`); the recycle loop is complete for DAL/Fake/Alpaca/
-  ASCOM, Canon deliberately does not recycle its RAW decode output.
+  ASCOM/Canon, a streaming driver's multi-plane frames going through `PlaneRecycler`; FC.SDK.Raw's own
+  decode buffers are that library's to recycle.
 - **`Image.MaxValue` is the peak pixel OBSERVED, not saturation** (`ImageMeta.SensorFullScaleAdu` is
   the fixed value). Two "full scale" numbers must not be conflated: the BITPIX container width vs the
   native ADC resolution -- never route a native ADC depth through `BitDepthEx.FromValue` (falls back
