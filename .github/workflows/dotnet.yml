@@ -108,8 +108,13 @@ jobs:
     - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.0.x
-        cache: true
-        cache-dependency-path: Directory.Packages.props
+        # NuGet caching OFF on every job now, for the reason the publish legs give below. The entry
+        # is 1.3 GB and keyed on Directory.Packages.props, so every pin bump saved one on its PR ref
+        # and a second on main: on 2026-09-25 the repo cache held 11.2 GB against its 10 GB budget,
+        # 10.5 of it NuGet, and least-recently-used eviction was one bad day from taking the lfs-*
+        # entries. With the LFS budget spent, a job whose LFS cache misses cannot pull and FAILS
+        # (#775 did), so those entries are what keeps CI green. A nuget.org restore is free and
+        # cannot refuse.
     # Read the major.minor back from the ONE place it is written (src/Directory.Build.props ->
     # VersionMajorMinor) instead of restating it in this file. It used to be a literal in the
     # workflow `env:`, so the number lived in two places and nothing compared them.
@@ -297,8 +302,7 @@ jobs:
     - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.0.x
-        cache: true
-        cache-dependency-path: Directory.Packages.props
+        # No NuGet cache: the build job's setup-dotnet says why.
     - name: Restore dependencies
       run: dotnet restore
       working-directory: src
@@ -461,8 +465,7 @@ jobs:
     - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.0.x
-        cache: true
-        cache-dependency-path: Directory.Packages.props
+        # No NuGet cache: the build job's setup-dotnet says why.
     - name: Restore dependencies
       run: dotnet restore
       working-directory: src
@@ -580,7 +583,8 @@ jobs:
     - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.0.x
-        # NuGet caching deliberately OFF here, unlike the push/PR jobs. This job only runs on
+        # NuGet caching deliberately OFF here, as on the push/PR jobs since 2026-09-25 (the build
+        # job's note says why they followed). This job only runs on
         # workflow_dispatch, so the cache it saves is paid for on every pin change and collected
         # almost never -- and setup-dotnet keys per OS, so these legs were the ONLY source of the
         # Windows and macOS entries (1.4 GB per pin bump) while every push/PR job runs on Linux.
