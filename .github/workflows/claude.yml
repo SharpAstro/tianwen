@@ -5,27 +5,33 @@ on:
     types: [created]
   pull_request_review_comment:
     types: [created]
-  issues:
-    types: [opened, assigned]
   pull_request_review:
     types: [submitted]
 
+# One run per issue or PR at a time; a second request queues behind the first instead of racing it
+# on the same branch.
+concurrency:
+  group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
 jobs:
   claude:
-    # The @claude text is the trigger; the author_association test keeps a stranger's mention on
-    # this PUBLIC repo from starting a run at all. The action's own check is the real gate (it
-    # refuses anyone without write access), but it runs AFTER the setup steps below, so without
-    # this every drive-by mention would restore ~200 MiB of cache and, on a miss, spend LFS
-    # bandwidth before being refused. An association is a relationship, not a permission (a MEMBER
-    # can have read access only), which is why it only PREFILTERS. `assigned` needs no test:
-    # assigning an issue already takes triage access, and the association on that event is the
-    # issue AUTHOR's, not the assigner's, so testing it would block assigning Claude to a
-    # stranger's issue.
+    # A run is a COMMAND, and only the owner gives one: a new comment (or review) by sebgod whose
+    # text STARTS with @claude. Three things this used to allow, and why each is gone:
+    #   - `issues: opened` / `assigned`. An issue body is data, not a command. On 2026-09-24 about
+    #     400 backlog items were migrated into issues by a script running as the owner; their text
+    #     quoted "the @claude runner", every such issue started a run, and seven worked unasked
+    #     (two opened PRs). To hand Claude an issue, open it, then comment "@claude ...".
+    #   - `contains(..., '@claude')`. A quote, a code span or a sentence ABOUT the runner matched.
+    #   - OWNER/MEMBER/COLLABORATOR. Anyone with a relationship to the repo could start a paid run;
+    #     the login test below admits the owner only. (The action still refuses anyone without write
+    #     access, but only after the setup steps have spent cache and LFS bandwidth.)
+    # `github.actor` is not used: on these events it is the commenter today, but the comment's own
+    # author field says what is meant.
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association)) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) && (github.event.action == 'assigned' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)))
+      (github.event_name == 'issue_comment' && github.event.comment.user.login == 'sebgod' && startsWith(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && github.event.comment.user.login == 'sebgod' && startsWith(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && github.event.review.user.login == 'sebgod' && startsWith(github.event.review.body, '@claude'))
     # Bounded like every job in this repo (see dotnet.yml). No measured figure yet: sized for a
     # Release build plus a full TianWen.Lib.Tests run (test-unit's healthy ~6m) with room for the
     # conversation around them, so a run over it is stuck rather than busy.
@@ -102,7 +108,7 @@ jobs:
           #
           # dotnet restore/build/test only: enough to verify a change, and `dotnet run` stays out.
           # `gh pr create` so a finished run opens its PR instead of leaving a compare link for a
-          # human to click (the #297 flow). `pwsh tools/bake-icons.ps1` because the icon table is
+          # human to click. `pwsh tools/bake-icons.ps1` because the icon table is
           # a generated file with one sanctioned generator, and the bake is byte-reproducible on
           # any host (the script's own remarks).
           # The appended prompt carries the one fact CLAUDE.md states for a dev box and not for
