@@ -656,7 +656,8 @@ HIGHLIGHT, not hover selection: the click still selects (`docs/plans/in-app-sky-
   (the last 27.6 KB of a resolve), the struct (`RaDecCell`) scans the same regions as the caller
   advances and allocates nothing, and `RaDecCellEnumerationTests` holds the two equal for every
   cell of the sky against the catalogue bucketed independently, which is how the blob's 254
-  duplicate identifiers and its one unaddressable star were found (`docs/known-limitations.md`).
+  duplicate identifiers (skipped by the baker since #396) and its one unaddressable star were
+  found (`docs/known-limitations.md`).
   **Three corrections worth keeping: a Debug timing was
   ~5x pessimistic and blended the two paths; the cliff was attributed to the magnitude limit by
   reading the code; and a test-host Stopwatch ranked terms by JIT order. Attribute with

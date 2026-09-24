@@ -55,23 +55,35 @@ every frame independently against the **frozen seed** reference, so per-frame pl
 precision floor with no accumulation. General rule for any incremental/differential estimator:
 re-anchor to an immutable reference, never to your own last output.
 
-### The Tycho-2 blob holds 254 identifiers twice, and one star it cannot address
+### The Tycho-2 blob has one star it cannot address (and held 254 identifiers twice until #396)
 
 Found 2026-09-21 by `RaDecCellEnumerationTests`, which walks every grid cell of the sky and holds the
 cell scan against every entry of `CopyTycho2Stars` bucketed into its cell box. Both are properties of
 the baked `tyc2.bin.lz`, not of any lookup, and both had been invisible because
 `Tycho2LiteLookupParityTests` stepped over a candidate its lightweight lookup could not read.
 
-- **254 stars are in the blob under one identifier twice.** `Get-Tycho2Catalogs.ps1` appends
-  Supplement 1 (the bright Hipparcos and Tycho-1 stars the main catalogue lacks) after the main
-  catalogue without asking whether the identifier is already there, and 254 of its 17,588 are:
-  TYC 2271-1073-1 is in `tyc2.dat` at V 7.555 and in `suppl_1.dat` at V 10.6, and the blob has both,
-  in the same region, encoding to the same `CatalogIndex`. A cell scan yields the index twice (the
-  hover resolve then hit-tests the same position twice, harmlessly), the binary search finds whichever
-  sorts first, and the two magnitudes disagree. The raw files themselves have no duplicate within
-  either. The fix is in the baker (skip a supplement identifier the main stream already wrote, or
-  prefer one by a stated rule) followed by a re-bake of the LFS blob; the test pins the count at 254
-  so a re-bake that fixes it fails the test on purpose and the number is updated with the blob.
+- **254 stars were in the blob under one identifier twice. FIXED 2026-09-25 (#396).**
+  `Get-Tycho2Catalogs.ps1` appended Supplement 1 (the bright Hipparcos and Tycho-1 stars the main
+  catalogue lacks) after the main catalogue without asking whether the identifier was already there,
+  and 254 of its 17,588 were: TYC 2271-1073-1 is in `tyc2.dat` at V 7.555 and in `suppl_1.dat` at
+  V 10.6, and the blob had both, in the same region, encoding to the same `CatalogIndex`. A cell scan
+  yielded the index twice (the hover resolve then hit-tested the same position twice, harmlessly), the
+  binary search found whichever sorted first, and the two magnitudes disagreed. The raw files
+  themselves have no duplicate within either.
+  **What they are, measured over the raw files:** every one is a Hipparcos record (flag `H`, Hp in
+  place of VT) 0.26 to 1.16 arcsec (median 0.91) from the main star at the common epoch 1991.25,
+  fainter in all 254 by a median 2.9 mag, and under the main star's own HIP number with the next CCDM
+  component (A in the main catalogue; B in 250, C in 3, P in 1). So each is the faint companion of a
+  close double that Tycho-1 saw as one star: Tycho-2 gives the Tycho-1 TYC3 to the brighter
+  component (its ReadMe, note 9) and Supplement 1 copies the Tycho-1 identifier onto the companion
+  (note 1). **The rule:** the identifier is the main record's, so the baker skips a supplement record
+  that reuses one. At an arcsecond and fifteen times fainter the companion cannot be told from its
+  primary anywhere the app draws or plate-solves, and no HIP number is lost, since the primary maps
+  the same one. **The re-bake is the old blob with exactly those 254 records removed**, checked
+  region by region: nothing added or reordered, every removed record's identifier held twice, the
+  kept record always the brighter. 2,557,247 stars; the GSC bounds of the five regions whose extreme
+  star was a companion shrank by at most 0.98 arcsec, and every other output is byte-identical in
+  content. `RaDecCellEnumerationTests` now asserts no identifier is held twice.
 - **One star has component 4, and the packed index has two bits for it.** `CatalogUtils.PackTyc2`
   gives `tyc3` a two-bit field (`TYC3_MASK = 0b11`); Tycho-2 main uses components 1 to 3, and the one
   Supplement 1 entry with a 4 (TYC 1327-606-4, V 12.6) encodes as TYC 1327-606-0, which decodes to a

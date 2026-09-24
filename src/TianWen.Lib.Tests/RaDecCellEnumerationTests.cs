@@ -19,13 +19,14 @@ namespace TianWen.Lib.Tests;
 /// <para>
 /// The whole-sky walk also pins two facts about the baked blob that nothing else did, because
 /// <c>Tycho2LiteLookupParityTests</c> skipped a candidate its lightweight lookup could not read.
-/// 254 identifiers are in the blob TWICE: Supplement 1 lists a star the main catalogue already
-/// has (TYC 2271-1073-1 at V 7.555 and again at V 10.6), and the baker appends the supplement
-/// without asking. And ONE entry is unaddressable: TYC 1327-606-4, whose component number the
-/// packed index truncates to 0 in its two-bit field (<c>CatalogUtils.TYC3_MASK</c>), so the index
-/// the scan yields for it decodes to a star that does not exist. Both are pre-existing, both are
-/// in <c>docs/known-limitations.md</c>, and a re-bake that fixes either fails the exact counts
-/// below on purpose: they are the fixture's premise, and the numbers should move WITH the blob.
+/// NO identifier is in the blob twice. Until #396's re-bake, 254 were: Supplement 1 lists the faint
+/// Hipparcos companion of a close double under its primary's Tycho-1 identifier (TYC 2271-1073-1
+/// at V 7.555 and again at V 10.6), and the baker appended it without asking; it now skips such a
+/// record. And ONE entry is unaddressable: TYC 1327-606-4, whose component number the packed index
+/// truncates to 0 in its two-bit field (<c>CatalogUtils.TYC3_MASK</c>), so the index the scan
+/// yields for it decodes to a star that does not exist. Both are in
+/// <c>docs/known-limitations.md</c>, and a re-bake that changes either fails the exact assertions
+/// below on purpose: they are the fixture's premise, and they should move WITH the blob.
 /// </para>
 /// </summary>
 [Collection("Astrometry")]
@@ -141,9 +142,9 @@ public class RaDecCellEnumerationTests(ITestOutputHelper output)
         mismatches.ShouldBeEmpty(string.Join(Environment.NewLine, mismatches));
         (tychoTotal + unplaced).ShouldBe(stars.Length, "every entry of the blob is in exactly one cell");
 
-        // The two blob facts, pinned exactly (see the class doc). A re-bake that removes either moves
-        // these numbers, and should.
-        duplicates.Count.ShouldBe(254, "Supplement 1 identifiers the main catalogue already has, appended by the baker without a check");
+        // The two blob facts, pinned exactly (see the class doc). A re-bake that changes either moves
+        // these, and should.
+        duplicates.ShouldBeEmpty("the baker skips a Supplement 1 record whose identifier the main catalogue already holds (#396)");
         unreadable.Select(i => i.ToCanonical()).ShouldBe(["TYC 1327-606-0"],
             "the one supplement star with component 4, truncated to 0 by the packed index's two-bit field");
     }

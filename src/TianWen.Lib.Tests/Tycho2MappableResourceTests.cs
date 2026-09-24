@@ -84,7 +84,9 @@ namespace TianWen.Lib.Tests
             var ct = TestContext.Current.CancellationToken;
             var db = await SharedCatalogDB.InitAsync(ct);
 
-            db.Tycho2StarCount.ShouldBe(2557501, "the expanded catalogue must hold exactly the stars the compressed one did");
+            // 2,539,913 main-catalogue stars and 17,334 of Supplement 1's 17,588: the other 254 reuse a
+            // main identifier for the faint companion of a close double, and the baker skips them (#396).
+            db.Tycho2StarCount.ShouldBe(2557247, "the expanded catalogue must hold exactly the stars the compressed one did");
 
             var stars = new Tycho2StarLite[8];
             db.CopyTycho2Stars(stars).ShouldBe(stars.Length);

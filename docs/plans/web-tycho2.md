@@ -131,7 +131,8 @@ Read before proposing any change to the asset. Measured from the shipped `tyc2.b
 ```
 
 Region sizes: min 391 B / 23 stars, median 3723 B / 219 stars, max 26962 B / 1586 stars;
-2,557,501 stars total.
+2,557,501 stars total (2,557,247 since #396's re-bake skipped the 254 Supplement 1 companions that
+reused a main identifier).
 
 Three consequences, each of which a proposal has to respect:
 
