@@ -823,7 +823,11 @@ namespace TianWen.UI.Abstractions
             // slots it stopped using.
             ReleaseUnusedChannelTextures(uploadedSlots);
 
-            UploadHistogramData(source);
+            // The histogram follows the frame only when it is next DRAWN (RenderHistogram): both live
+            // hosts start with the overlay hidden, and a live source takes its histograms on first read,
+            // so an upload asking for them here cost a histogram pass and a set of bins per exposure for
+            // an overlay nobody had opened (256 KB a channel for a 16-bit sensor, every guide frame).
+            _histogramUploadPending = true;
 
             // A DOCUMENT load ends a burst of uploads, so the host-visible scratch the uploads went
             // through can go back. A LIVE frame does not -- this same method runs per frame for a camera
@@ -849,6 +853,12 @@ namespace TianWen.UI.Abstractions
         /// is the generation a never-replaced source has, so a live feed never trims.
         /// </summary>
         private int _lastUploadSourceGeneration;
+
+        /// <summary>
+        /// A texture upload happened whose histogram has not been taken yet: the next
+        /// <see cref="RenderHistogram"/> takes it, so a hidden overlay never asks the source for one.
+        /// </summary>
+        private bool _histogramUploadPending;
 
         /// <summary>
         /// Releases whatever host-visible scratch the texture uploads went through. Called once per
