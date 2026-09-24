@@ -104,6 +104,14 @@ under it, and the fake asserts that state by construction.
 - [ ] **18. ZWO EAF `MaxStep`** reported by the real focuser during discovery (the seeding is a code item in
       `TODO.md`; this confirms the value against the EAF's own utility).
 
+- [ ] **26. A bright star's core reads as its ADU on a 16-bit camera** (`DALCameraDriver.DownloadImage`,
+      `RawPixelConversion`): on a camera whose converter is 16-bit (ASI2600 / IMX571, ASI6200 / IMX455, QHY268,
+      QHY600), or on any Player One (which left-aligns 12 bits up to 65520), take a light with a star at or
+      near saturation. Observe: the core reads 32768 or more, never a negative number, and the frame's peak
+      is its brightest pixel. Validates the unsigned read of 2026-09-24. Before it, every pixel above half
+      scale arrived as a large negative float; the scripted SDK in `DALCameraDownloadTests` pins the fix,
+      but only real hardware delivers such values.
+
 ## Focusers and covers (native serial)
 
 - [ ] **19. Gemini Focuser Pro** (rebadged myFocuserPro2; driver transcribed from the vendor source, never on
