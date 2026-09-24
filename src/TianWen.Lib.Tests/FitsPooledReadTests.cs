@@ -135,46 +135,41 @@ namespace TianWen.Lib.Tests
         {
             // The failure this bounds: a heterogeneous archive never fills any single bucket, so
             // the per-bucket cap alone let the pool pin arrays across 24 distinct frame shapes and
-            // the survey OOMed MORE often with pooling on. The budget must refuse the return
-            // rather than grow, and must not corrupt its own accounting while doing so.
-            var before = Array2DPool<float>.RetainedBytes;
-            var evictionsBefore = Array2DPool<float>.BudgetEvictionCount;
+            // the survey OOMed MORE often with pooling on. The budget must make room or refuse, never
+            // grow, and must not corrupt its own accounting while doing so.
+            //
+            // On a pool of its own with a 1 MiB budget. Through the SHARED pool this pushed 320 MiB
+            // and then a 258 MiB array, which since the budget makes room by evicting would take the
+            // planes of whatever test runs beside it; and that pool's Gen2 trim, which empties it above
+            // 90 % memory load, once failed this test on a loaded box having exercised the right code
+            // with the wrong preconditions (the loop took the machine from 88 % to 95 %).
+            const long Budget = 1L << 20;
+            var pool = new Array2DPoolCore<float>(Budget, maxPerBucket: 8);
 
-            const long Budget = 256L * 1024 * 1024;
-
-            // Accumulation across distinct shapes: 40 x ~8 MiB, none of which fills its own bucket.
-            // The assertion inside the loop is the CEILING, which is trim-safe by construction: the
-            // Gen2 trim only ever lowers the retained total, so it can make this pass sooner but
-            // never fail it.
-            const int side = 1448; // 1448^2 x 4 B ~ 8 MiB
+            // Accumulation across distinct shapes: 40 x ~64 KiB, none of which fills its own bucket,
+            // about 2.6 times the budget in all.
+            const int side = 128; // 128^2 x 4 B = 64 KiB
             for (var i = 0; i < 40; i++)
             {
-                Array2DPool<float>.Return(new float[side + i, side]);
-                Array2DPool<float>.RetainedBytes.ShouldBeLessThanOrEqualTo(Budget,
-                    "the budget must refuse a return rather than let the pool grow past its ceiling");
+                pool.Return(new float[side + i, side]);
+                pool.RetainedBytes.ShouldBeLessThanOrEqualTo(Budget,
+                    "the budget must make room or refuse a return, never let the pool grow past its ceiling");
             }
 
-            // The REFUSAL itself, proved in one return rather than by accumulating to the ceiling and
-            // hoping it is still there. One array larger than the whole budget is over it from any
-            // starting state, including an empty pool, so this cannot race the trim.
-            //
-            // It is what the loop above used to assert, and could only assert while the pool survived
-            // 320 MiB of allocation: measured on a box at 88% memory load, that loop itself takes the
-            // machine to 95%, where the trim drops every pooled array and the ceiling is never
-            // reached. The eviction count then never moves and the test fails having exercised the
-            // right code with the wrong preconditions.
-            Array2DPool<float>.Return(new float[8192, 8256]); // 258 MiB, past the 256 MiB budget alone
-            Array2DPool<float>.BudgetEvictionCount.ShouldBeGreaterThan(evictionsBefore,
+            // The REFUSAL itself, proved in one return: one array larger than the whole budget is over
+            // it from any starting state.
+            var evictionsBefore = pool.BudgetEvictionCount;
+            pool.Return(new float[1100, 256]); // 1.07 MiB, past the 1 MiB budget alone
+            pool.BudgetEvictionCount.ShouldBeGreaterThan(evictionsBefore,
                 "a single array bigger than the whole budget must be refused whatever else is pooled");
 
-            // Renting each shape back must leave the accounting non-negative -- a mismatched
-            // credit here would make the pool believe it is permanently full.
+            // Renting each shape back must leave the accounting exact -- a mismatched credit here
+            // would make the pool believe it is permanently full.
             for (var i = 0; i < 40; i++)
             {
-                Array2DPool<float>.Rent(side + i, side);
+                pool.Rent(side + i, side);
             }
-            Array2DPool<float>.RetainedBytes.ShouldBeGreaterThanOrEqualTo(0);
-            Array2DPool<float>.RetainedBytes.ShouldBeLessThanOrEqualTo(before + 256L * 1024 * 1024);
+            pool.RetainedBytes.ShouldBe(0L, "every shape rented back or evicted leaves nothing held");
         }
 
         /// <summary>
