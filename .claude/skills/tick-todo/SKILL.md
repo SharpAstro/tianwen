@@ -1,23 +1,27 @@
 ---
 name: tick-todo
-description: Mark a TODO item done in TODO.md and propagate updates to CLAUDE.md, docs/plans/*.md files, and related memory entries. Use when the user asks to tick off, check off, mark done, or close out a TODO item.
+description: Close a backlog item (a GitHub issue since 2026-09-24, when TODO.md and docs/todo/*.md became issues) and propagate the update to CLAUDE.md, docs/plans/*.md and related memory entries. Use when the user asks to tick off, check off, mark done, or close out a TODO or backlog item.
 ---
 
-Usage: `/tick-todo <search text>` or pass the search text as an argument. Examples: `DrawEllipse`, `Mosaic panel support`.
+Usage: `/tick-todo <search text or issue number>`. Examples: `DrawEllipse`, `#361`, `Mosaic panel support`.
+
+**The backlog is GitHub issues**, labelled by area (`area:astrometry`, `area:drivers`, `area:guider`,
+`area:imaging`, `area:infra`, `area:sequencing`, `area:ui`), plus `bench` (needs a real device or a
+real night), `needs-triage` (the old inbox), and `priority:high` / `priority:next`. `from-todo` marks
+the 2026-09-24 migration. `TODO.md` and `docs/todo/*.md` hold only the DONE archive and never a new
+open box: an open box written there is the drift this move removed.
 
 Steps:
-1. Search `TODO.md` (active/high-priority list) AND the area files under `docs/todo/` for the item matching the given text
-2. Change `- [ ]` to `- [x]` for the matched item
-3. If the item has a brief description, optionally expand it with what was done
-4. Check if the item is mentioned in `CLAUDE.md` and update if needed
-   (e.g. architecture docs that reference the feature)
-5. Check if there's a related `docs/plans/*.md` file and mark the corresponding
-   phase/step as done
-6. Check memory files in the `.claude/` memory directory for related project
-   entries that should be updated (e.g. move from "todo" to "done")
-7. Show the user what was changed across all files
+1. Find the issue: `gh issue view <n>`, or `gh issue list --state open --search "<text>" --limit 20`.
+   Several matches: show them and ask which one.
+2. **Prefer closing through the PR that did the work** (`Closes #n` in its body, so the merge closes
+   it). Closing by hand is for work that landed without one, or for an item that is moot:
+   `gh issue close <n> --comment "<what did it, as a PR number or commit subject in quotes, never a hash>"`,
+   and `--reason "not planned"` for a moot or refuted item.
+3. Check whether `CLAUDE.md` describes the feature and needs updating.
+4. Check the related `docs/plans/*.md` and mark its phase or step done; update `docs/plans/summary.md`
+   if the plan's status changed.
+5. Check the memory directory for project entries to update.
+6. Show the user what changed.
 
-Do NOT commit - let the user review the changes first.
-
-If the search text matches multiple items, show all matches and ask the user
-to clarify which one.
+Do NOT commit; let the user review the changes first.

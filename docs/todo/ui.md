@@ -1,18 +1,11 @@
 # TODO -- UI & Rendering
 
-Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the active/high-priority list.
+**The open items are GitHub issues** labelled [`area:ui`](https://github.com/SharpAstro/tianwen/issues?q=is%3Aissue+is%3Aopen+label%3Aarea%3Aui) since 2026-09-24, when this file was migrated. What is left here is the DONE archive, kept for the measurements and reasons it records. Never add an open `- [ ]` here: open an issue.
 
 ## Live Session Tab (Phase 2, Polish)
 
 - [x] Guide star profile bitmap from guider (rendered in GuiderTab star profile panel)
-- [ ] Extract `GuiderContent` shared helpers (TianWen.UI.Abstractions); `TuiGuiderTab` and the GPU `GuiderTab<TSurface>` currently inline their formatting / sparkline logic. Mirror the `LiveSessionActions` pattern: `FormatGuidePhase(phase)`, `FormatStarInfo(metrics)`, `FormatSettleProgress(current, target)`, `BuildErrorSparkline(samples, axis, width)` -> Unicode string, `GetErrorGraphPoints(samples, axis, timeWindow)` -> points for the GPU line graph, `GetBullseyePoints(samples, count)` -> (ra, dec) scatter. Lets both the TUI and GPU tabs share the same phase strings and error-graph data derivation instead of duplicating.
-- [ ] Inline V-curve charts in focus history panel
-- [ ] Per-filter frame count breakdown in stats
-- [ ] Meridian flip countdown indicator
 - [x] Dither event markers on guide graph
-- [ ] Click exposure log entry → open in Viewer tab
-- [ ] Exposure log thumbnails: 128px height, preserve aspect ratio
-- [ ] Finalise as background task: keep UI responsive during park/warmup after abort/complete
 
 ## TUI Equipment tab (found during the 2026-07-29 cell-buffer session)
 
@@ -36,47 +29,12 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
   - The `IsEditingSite` note needs no code change: site-edit mode owning the keys is correct, and it
     was the *automation* that was wrong to send keys without verifying the mode. The chord removes
     most of the residual risk regardless. Pinned by `TuiEquipmentRowTests`.
-- [ ] Wire the slot row's `[On|Off]` and `[>]` to clicks -- the same defect the `[X]` had, on the two
-  affordances beside it: both are painted on every device-slot row and neither is bound, so connecting a
-  device or opening the assignment picker is keyboard-only (`O`, `Enter`). Not done with the 4.10 row port
-  deliberately: the geometry half is now a one-line `.Clickable(...)` per cell, but the row has no handler
-  to bind -- it would need the tab's connect/disconnect and assign flows threaded in as callbacks, and the
-  disconnect path carries a safety pre-check plus a confirm strip that must not be bypassed. Model it on
-  `EquipmentFieldItem.OnRemoveOta`.
-- [ ] Restore the settings-list selection after a tab switch; `Attach` rebuilds the list and the
-  cursor resets to row 0, so switching away and back loses the white-on-blue selected row (measured
-  via the console inspector: row 3 `Mount` returns as unselected). Remember the cursor index per tab
-  instance across `Attach`, clamped to the rebuilt item count.
 
 ## TUI terminal integration (Windows Terminal / ConEmu), explored 2026-08-08
 
 The TUI already writes the terminal title (OSC 0, change-gated in the `TuiSubCommand` render block)
 and Console.Lib already speaks OSC 8 (hyperlinks), OSC 52 (clipboard) and Sixel, so surfacing session
 state through the terminal is a small addition that follows an existing pattern:
-
-- [ ] **Taskbar progress via OSC 9;4** (`ESC ] 9 ; 4 ; <state> ; <pct> BEL` -- ConEmu's sequence,
-  rendered by Windows Terminal 1.6+ as progress on the taskbar button; every other mainstream
-  terminal consumes an unknown OSC silently, so it can be emitted unconditionally, same rule as the
-  existing OSC 0 title). Add an `Osc9Progress` helper beside `Osc8` in Console.Lib (the library owns
-  escape shapes, the app owns the mapping) and emit it change-gated next to the title write:
-  - imaging: state 1 (normal) + percent -- reuse the `F:n/~est` math `TuiLiveSessionTab.RenderTopBar`
-    already does (extract it to `LiveSessionActions` so the top bar and the taskbar cannot disagree);
-  - running with no meaningful denominator (cooling / slew / focus / guider calibration): state 3
-    (indeterminate);
-  - pending session prompt: state 4 (paused/yellow) -- the rig is blocked on a human, which is exactly
-    what a taskbar-visible state exists to surface;
-  - `SessionPhase.Failed`: state 2 (error/red);
-  - idle: state 0 (remove), and also clear it on the quit path so a stale bar cannot outlive the run.
-- [ ] **BEL on prompt raise** (once per prompt, alongside state 4): Windows Terminal's `bellStyle`
-  can flash the taskbar/window on BEL (user-configurable; the default is audible only), which turns
-  "a prompt is waiting" into an OS-level attention signal with no new machinery.
-- [ ] **Meridian-flip warning in the title**: within N minutes of the flip, prepend a countdown to
-  the already change-gated title (the four taskbar states are too coarse for a countdown). Ties into
-  the "Meridian flip countdown indicator" item in the Live Session section above.
-- [ ] Consider unifying the TUI title shape with the GUI's window title
-  (`{tab icon} {tab} - {profile} · {phase} - {target}`, `TianWen.UI.Gui/Program.cs`); the TUI
-  currently writes `\U0001F52D {profile} — {tab}` with the phase folded into the tab name.
-
 
 ## An overlay's keyboard routing lives nowhere near the overlay (found + fixed 2026-08-14)
 
@@ -107,8 +65,6 @@ state through the terminal is a small addition that follows an existing pattern:
 - [x] **A docked strip could overrun its container** (found + fixed 2026-08-18; the fix is in **DIR.Lib**, `DockLayout<T>.Dock`, so it needs a DIR.Lib release to ship). `Dock` never clamped `size` to what remained, and both halves of the consequence are invisible at the call site: a `Right` strip resolves its x as `Right - size`, so an over-large one walks LEFT past its container and paints over its siblings, and the fill rect is handed the NEGATIVE leftover. Measured live via `describe_layout` at surface width 733: `infoPanel` arranged at `x=283 w=450` inside a parent starting at 459, straight over the split divider at 450..459, and `image` at `w=-176`. So the panel therefore painted over the divider. **This was NOT the cause of the reported ungrabbable-divider bug** (see the entry below) -- it was found while chasing it, reproduces only once a window is narrow enough to over-commit the band, and the user's window was fullscreen. Recorded separately so the wrong attribution does not survive. `Layout.Engine.ArrangeSplit` right above it already clamped, with a comment saying consumer-owned extents must be; `DockLayout` simply never got the same treatment. Pinned in DIR.Lib (`LayoutEngineTests.Dock_*`, incl. `Recompute`, which replays recorded sizes against a new root and needs the identical clamp) and at the consumer by `ViewerFileListResizeTests.HoweverFarTheDividerIsDraggedThePanesStillTileTheBand`.
 - [x] **The file-list divider looked unresizable because CURSOR FEEDBACK was gated behind the redraw decision** (reported + fixed 2026-08-18; user-diagnosed). `TianWen.UI.FitsViewer` computed the cursor at the END of `OnRender`, and `OnRender` is gated by `CheckNeedsRedraw`. A pointer move that changes no pixel requests no redraw, so on that path the cursor was never recomputed and the pointer kept whatever kind it last had. The dead zone is every part of the window that repaints for nothing: **the letterbox around the image**, empty file-list space, the gap beside a panel. Unless the image happened to sit flush against the divider, the approach to the handle crossed letterbox, no frame was drawn, no resize cursor appeared -- and a handle with no cursor reads as not being a handle. The PRESS worked throughout (`HandleMouseDown` hit-tests directly), which is exactly why it came alive "once I started dragging it", and why window size was irrelevant. Fixed by setting the cursor on `MouseMove` inside `OnPointerInput`, which needs no frame at all and is the shape **`TianWen.UI.Gui` already used** -- the viewer was the odd one out. Still called after a paint too, for a repaint that changes which regions sit under a stationary pointer.
   - **Lesson worth keeping: a redraw-gated frame loop must not carry work that is not drawing.** Anything a host does at the end of its render -- cursors, hover state, tooltips, telemetry -- is silently skipped exactly where the UI is quiet, and "quiet" is not the same as "nothing to report". The tooltip hover bug fixed hours earlier in this same session was the identical shape one layer up; that one at least needed a repaint, so it could be fixed by requesting one. A cursor needs no repaint, so requesting one would have been the wrong fix.
-- [ ] **`ReservedLabelWidth` is a workaround, kept deliberately, and should be labelled as one** (user, 2026-09-15: "that thing where we widen all buttons to avoid flicker is a bit of a hack but i do see it helps keeping mouse clicks stable so we can keep it. I just don't like its actually just a work-around"). The toolbar is ONE left-packed run, so a button's x is the sum of every width before it and any label change shifts every button after it -- measured at 26.4 px of travel across ten buttons over a single wheel zoom. Reserving the widest label for Zoom and Enhance does not remove that dependency; it freezes the inputs to it, for the two buttons someone noticed. Every other stateful label still moves the run, just less often, and the reservation spends width on a bar that already wraps on a narrow window. **The structural fix is to stop deriving position from neighbours' current widths**: lay the run out once against each button's WIDEST state and keep those slots, or anchor each group rather than the whole run, or move the bar onto the layout DSL with fixed slots the way the Home board's cards are. Any of those makes the reservation unnecessary rather than necessary-but-narrow. Not done now because it is a layout rewrite of the one widget every viewer test drives, and the workaround does hold clicks steady in the meantime.
-- [ ] **Decide what YIELDS when the viewer band cannot seat both panels.** With the clamp above the arrangement is now sound but degenerate: at ~730 px the image pane arrives at **zero** width, the info panel takes the whole band, and the histogram overlay -- anchored to the image pane -- lands on top of the file list. Nothing is wrong geometrically; nothing has decided the policy. Options: hide the info panel below a threshold (`.CollapseBelow`, which the Home board already uses), cap `FileListWidthBase` against the band, give the image pane a hard minimum, or some combination. Deliberately NOT invented while fixing the clamp -- it changes what the app shows, so it is the user's call. Note `FileListWidthBaseMin` (180 design units) is absolute and window-unaware, which is part of the same question.
 - [x] **Toolbar wraps to two rows on a narrow window** (user's own suggestion, done 2026-08-19). The unblock was ordering, not new machinery: the band's height is an input to `ComputeLayout`, and what decides it is the measured labels against the window width -- so `PrepareToolbarLayout` measures the run BEFORE the layout pass and `ComputeLayout` reserves `BaseToolbarHeight * _toolbarRows`. `WalkToolbarRows` is then pure arithmetic over the already-measured widths, run twice (once for the row COUNT before the pass, once for the POSITIONS after it, against the arranged band) so no label is measured twice and the two answers cannot drift. The placement walk is capped at the rows that were actually reserved, so it can never paint a row the band has no room for.
   - **The bar did not fit an ORDINARY window, and nobody had noticed.** The full run needs ~1.6k px; every window narrower than that had been silently dropping its tail, which at 1400 px is SPCC and NeutBg -- two of the buttons whose whole job is colour calibration. The tell was in the test suite, not the app: `ViewerToolbarLayoutTests` used a 1400 px surface as its "wide" baseline, so the pinning tests had been asserting against a bar that was already over-committed. The baseline is now 2400 (stated, with the reason) and 1400 became `OrdinaryWindowW`, the wrap case.
   - **Help stays on the FIRST row**, not the last: a corner that moves down whenever the wrap count changes is exactly the drift the pin exists to prevent, and the wrap count changes with the window. A wrapped row also starts flush under the one above with no leading group gap -- the row break already says what the gap would have.
@@ -161,78 +117,18 @@ state through the terminal is a small addition that follows an existing pattern:
       plain `+` and was judged broken when it was fine. Use a DPI-aware `PrintWindow` capture
       (`SetThreadDpiAwarenessContext(-4)`, or PowerShell virtualises the coordinates and downscales too)
       plus nearest-neighbour magnification.
-- [ ] **Toolbar marks, wave 2 (DIR.Lib `IconKind`).** Boost as a double chevron is a genuine candidate --
-  monochrome and geometric, so `CellLayout` can pick a glyph for it, which is the bar the enum's own doc
-  sets ("a consumer on both" surfaces). Same category: a split light/dark rectangle for A/B (lets that
-  label go too) and a folder for Open. Needs a DIR.Lib release, so it is deliberately a second wave;
-  wave 1 is pure TianWen and shipped without one (and DIR.Lib 8.5 is already cut, so wave 2 needs 8.6).
-  Leave NeutBg, SPCC, Calibrate and Solve as text -- no mark reads at 13 px, and for the three colour ops
-  the word is the information.
-  **Procedural is right for these three for a second reason now: they are not bakeable.** The baked-glyph
-  route added in wave 1 takes the glyph's ALPHA silhouette, so an emoji whose structure is drawn in colour
-  rather than in transparency collapses to a solid rectangle -- measured at 20 px, `FolderOpen` U+1F4C2
-  (Open), `DoubleUp` U+23EB (Boost) and `Crosshair` U+1F3AF are all fully inked, no hole anywhere. So
-  there is no shortcut here: Open, A/B and Boost need drawn geometry, exactly as this entry assumed.
-  Two glyphs that DO bake cleanly if a mark is wanted for them: `Sparkles` U+2728 (a candidate for
-  Enhance) and `Magnifier` U+1F50D (Zoom). Verify any candidate by baking it and printing the mask, not
-  by looking at the emoji -- every failure above looks fine in a colour preview.
-- [ ] Rename HDR button/label to "Compress Highlights"
 - [x] Remove debug `Console.Error.WriteLine` WCS output from `Program.cs` DONE (2026-06-02): none present in `TianWen.UI.FitsViewer/Program.cs` (all logging via `ILogger`).
 - [x] Support rec601/rec2020 luminance weighting options in luma stretch (2026-05-11); see Stretch / Image Processing section.
-- [ ] Grid label formatting: show arc-seconds for very narrow FOVs
-- [ ] Crosshair / reticle overlay at image center
 - [x] Annotation overlay (object names from catalogs when plate-solved)
 - [x] Star detection overlay: `FitsDocument.DetectStarsAsync()` runs as background task,
       draws HFD-sized green circles, shows count/HFR/FWHM in status bar (S key toggle)
 - [x] Background neutralization toggle: N key and toolbar `NeutBg` button; computes pivot1 gains from `ScanBackgroundRegion` and applies via GPU shader
 - [x] SPCC color calibration via W key: tries spectrophotometric (Pickles SED + system throughput) first, falls back to sky-background method; toolbar `SPCC` button
 - [x] Clip star overlay circles to image viewport + fix centroid alignment (+0.5px offset)
-- [ ] Remember last opened folder and recent images across sessions
-- [ ] Continuous image advance when holding arrow keys (advance every ~1 second while pressed)
-- [ ] Display original bit depth before normalization (e.g. "16-bit" in status bar) when available from FITS header
-- [ ] Star profile tooltip: show radial profile plot (flux vs. distance) when mouse hovers over a detected star
-- [ ] Named star labels: match detected stars against Tycho2 via WCS→RA/Dec projection,
-      label with cross-catalog names (HIP, HD) using `TryGetCrossIndices`
 - [x] Replace custom `AsyncLazy<T>` with `DotNext.Threading.AsyncLazy<T>` (already a dependency in TianWen.Lib)
 - [x] Use a `WeakReference<AstroImageDocument>` cache (keyed by file path) so that cycling through
       images can reuse recently loaded documents without keeping them pinned in memory
       (`DocumentCache` with `ConditionalWeakTable` + `WeakReference<T>`)
-- [ ] Investigate `DotNext.Threading.RandomAccessCache<TKey, TValue>` (or similar bounded cache)
-      as an alternative to `WeakReference` for the document cache; may offer better eviction control
-
-- [ ] **Blink mode over the file list, and the display-state carry-over it needs** (user's notes
-  2026-08-27, P19 in [viewer-prerelease-fixes](../plans/viewer-prerelease-fixes.md)). Two halves that
-  only work together: stepping between frames of the SAME shape should carry the stretch, WB and
-  calibration rather than re-solving each one, and a transport (fixed interval, play/pause) should walk
-  the file list. Without the carry-over a sequence flickers in brightness instead of showing what
-  moved, which is the whole point of a blink. The transport already exists for SER (`Space`,
-  `Left`/`Right`); `Up`/`Down` already step files. Gate on comparable frames: same dimensions, channel
-  count, declared depth, and filter where stated. `AstroImageDocument.InheritColorCalibration` is the
-  precedent for the WB half; background neutralisation is re-solved per document BY DESIGN elsewhere,
-  so blink needs an explicit hold rather than the default.
-- [ ] **Save as seen on screen, Save-As, and iconised Open/Save** (user's notes 2026-08-27, P18).
-  There is no `Save` in `ToolbarAction` at all. "As seen" is the display raster, which
-  `Image.RenderStretchedRgba` already produces on the CPU, so no framebuffer readback is needed;
-  Save-As is a picker over what the codecs facade already writes (PNG 8/16-bit, JPEG, float TIFF, EXR)
-  rather than new encoders. 16-bit PNG and float TIFF are the interesting ones, being lossless against
-  the raster. Iconising Open and Save buys toolbar width, which the two-row wrap makes measurable.
-- [ ] **Fetch the missing AI models from the `?` panel** (user's notes 2026-08-22, the remaining half of
-  P11). The panel already REPORTS which SAS weights are absent and which directories were searched
-  (`AiCapabilities.ProbeAsync`); what it cannot do is get them, because
-  `tools/tianwen-ai-models-fetch.ps1` is a repo script and a Store install cannot reach it. Must not
-  undo the deliberate deferral of the RC-vs-SAS license probe to the first `EnhanceAsync`: a fetch is
-  an explicit user action, so it composes with that rather than fighting it.
-- [ ] **Star profile + object identify, and a clickable object mode** (user's notes 2026-08-27, and
-  explicitly UNDECIDED by the user: *"not decided on that. can be an extra button with a mouse pointer
-  icon or so to enable that"*). Middle mouse is pan, so a select mode needs its own affordance. The
-  overlay already knows the objects it drew, so identification is a hit test over what
-  `OverlayEngine` produced rather than a new query.
-- [ ] **A mosaic's channel views show the mosaic** (P21). `ChannelView.DisplayedSourceChannel` clamps to
-  the channels the IMAGE has, so on 1-channel RGGB, Red/Green/Blue all resolve to channel 0. The viewer
-  never CPU-debayers by design, so the cheap form is a shader-side isolate of one channel of the
-  debayered triple (`debayerBilinear` / `debayerMhc` already compute it); the cursor readout is the
-  part that would need CPU values, which is where a `Channel.AsSpan()` view earns its place. There is
-  no `AsChannel*` API anywhere -- that note resolved to `Channel.AsSpan()`.
 
 ## Planetary: the histogram has to answer "what exposure?" (user, 2026-09-14)
 
@@ -277,25 +173,6 @@ advice for a linear sensor; worth checking against what the SV605CC actually doe
 - [x] Replace `vkDeviceWaitIdle` in font atlas `Flush` with per-frame upload buffers (like `_vertexBuffers`) to avoid GPU stall on every glyph upload; `VkFontAtlas` + `VkSdfFontAtlas` now keep an N-slot ring indexed by `ctx.CurrentFrame`; `MaxFramesInFlight` exposed as `public const` on `VulkanContext` (commit `3ccd6a2`).
 - [x] SDF font atlas: `Grow()` / `CreateImage` used to transition the fresh `VkImage` via `ctx.ExecuteOneShot`, which submits a side cmd buffer to the graphics queue while the frame's cmd buffer is recording; some drivers reject this with `VK_ERROR_INITIALIZATION_FAILED` from the next `vkQueueSubmit`. Fixed: deferred initial transition to the next `Flush` via `_needsInitialTransition` flag; initial atlas dim now scales with `SdfRasterSize` (`2048²` at 128px raster) so `Grow()` rarely fires during typical startup UI anyway (commit `30fcdf7`).
 - [x] `VkTexture.CreateDeferred`: pixel-format parameter; was hard-coded to `B8G8R8A8Unorm`, which forced RGBA-producing CPU renderers (altitude chart via `RgbaImageRenderer`) to run a per-pixel swizzle loop before upload. Now takes `VkFormat format = B8G8R8A8Unorm` so callers can pass `R8G8B8A8Unorm` with RGBA bytes directly (commit `90f877a`); `VkPlannerTab` dropped its CPU swizzle loop.
-- [ ] `VkSdfFontAtlas.Grow()` mid-frame hazard: destroys the old `VkImage` and calls `vkUpdateDescriptorSets` while the frame's cmd buffer is still recording. Works on current drivers but is spec-grey (`VUID-vkUpdateDescriptorSets-pDescriptorWrites-06993` forbids updating a descriptor set that is in use by a pending submission). If we ever see corruption or validation noise tied to `Grow()`, defer the destroy + descriptor update to the next `OnPreRenderPass` (same pattern as `VkPlannerTab`'s deferred texture swap). Not pre-emptively worth fixing; the initial-atlas bump in `30fcdf7` makes `Grow()` rare, and there is no known observed corruption.
-- [~] **The inspector could only synthesize a LEFT click and could not move the pointer at all** (found
-  2026-08-27 while verifying the viewer's new right-click menu and the dropdown hover state, both of
-  which had to be checked by hand). Two additions were asked for, and **one of them shipped**.
-  - [x] **`move` -- DONE 2026-08-26, SdlVulkan.Renderer 7.27** (`feat(inspector): expose move as an
-    MCP tool`). `DebugInspector.ExecuteMove` delivers interpolated pointer motion with NO button held
-    and requests a redraw; the MCP tool's own description names what it is for ("the only verb that
-    can reach hover-driven behaviour: a hover highlight, a tooltip, a cursor change"). So hover IS
-    verifiable unattended, and this entry saying otherwise is what made it read as still blocked on
-    2026-09-20, three weeks after the fix.
-  - [ ] **A `button` on the click command is still missing.** There is no `button` parameter anywhere
-    in `InspectorTools` -- `click` takes `mods` and `clicks` and nothing else -- so right-click (the
-    image context menu, reverse-cycling a toolbar button) and middle-drag pan remain unreachable.
-    `drag` is not a substitute: it presses, which selects a menu item.
-  - **This repo cannot USE `move` yet, and that is a pin, not a gap.** `.mcp.json` runs the inspector
-    as `SdlVulkan.Renderer.Inspector@7.5.1921`, which predates 7.27 by twenty-two minors; latest
-    published is 7.44.3321. Bump the pin (and reconnect the MCP server) before relying on hover
-    verification here.
-- [ ] `SdlVulkanWindow.Create` should take the SDL `WindowFlags` as a parameter instead of hardcoding `WindowFlags.Vulkan | WindowFlags.Resizable | WindowFlags.Maximized`. Default keeps `Maximized` (matches today's behaviour) but callers can opt out, e.g. to launch at the supplied `1280×900` non-maximized, or to force fullscreen at startup. Both `TianWen.UI.Gui/Program.cs:74` and `TianWen.UI.FitsViewer/Program.cs` (same `Create` call) pick up the change for free. Consider exposing as an overload `Create(title, width, height, WindowFlags extraFlags)` with `Vulkan | Resizable` always on, `Maximized` added by default but overridable.
 
 ### SdlEventLoop (DONE, all consumers now use the shared loop)
 - [x] Add `DropFile` event support (`EventType.DropFile`); `Action<string>? OnDropFile`
@@ -488,31 +365,6 @@ reading and the next person will reach for it again.
   drag), and normalises by `DeltaMode` first, since the divisor was a hardcoded 100 whether the browser
   reported pixels, lines or pages, which made one notch a 15% zoom in Chrome and 0.45% in Firefox.
 
-## Sky Map as a manual-aiming aid for a slew-less mount (user's note 2026-08-28)
-
-- [ ] **Use the atlas as a quasi-goto target finder for the SkyGuider Pro, with auto zoom.**
-  `SgpMountDriverBase` declares `CanSlew => false` / `CanSlewAsync => false` (an RA-only tracker, no
-  goto), so today the atlas can show where a target is and nothing can point at it. The ask is to
-  make the map itself the aiming instrument: select a target and have the view zoom to a framing a
-  human can star-hop against, which is the only "goto" this mount will ever have. The truthful-marker
-  half already exists and should be built on rather than re-invented -- `MountActions.SolveAndSyncAsync`
-  is recorded in [drivers.md](drivers.md) as *the* path for slew-less trackers (`CanSlew=false`,
-  `CanSync=true`), and was verified there against a real 6.5' cone error. What is missing is the
-  aiming affordance on top of it.
-  - **Both connected and unconnected modes** (note 2.1). Unconnected there is no pointing truth at
-    all, so the map is a pure planning aid; connected, it can anchor on the synced position. Worth
-    stating because unconnected is how a tracker is most often used, so it cannot be the degraded
-    afterthought.
-  - **Past-meridian with the Dec unchanged, when the axis is perpendicular** (note 2.2), and
-    **compute the effective new Dec when it is not** (note 2.3). On an RA-only tracker a "flip" is
-    the operator physically re-hanging the camera; if the imaging axis is perpendicular to the Dec
-    axis that leaves declination untouched and the case can be offered directly, and if it is not,
-    the re-hang moves the Dec and the map should say where the rig now points instead of leaving the
-    operator to work it out. That second one is geometry, not UI, and is the part with real content.
-  - **[?] Confirm the reading of 2.2/2.3 before building.** Those two notes are terse (and 2.3 is
-    autocorrected -- *"Aromatically calc"*); the interpretation above is inferred from SGP being
-    RA-only, not stated. Cheap to check, expensive to get wrong, because the whole item hangs on it.
-
 ## Selected text is invisible in every text field (reported 2026-09-07, seen on the web atlas)
 
 - [x] **The selection highlight was painted OVER the glyphs**, so selected text disappeared (fixed 2026-09-08, DIR.Lib 8.14).
@@ -545,15 +397,6 @@ reading and the next person will reach for it again.
 
 Three items from one note, root-caused against the code rather than left as a bare repro request.
 
-- [ ] **Label collision avoidance is not 100%, and part of that is by design.**
-  `OverlayEngine.PlaceLabels` (`OverlayEngine.cs:1713-1805`) tries 4 candidate positions per label and
-  drops the label outright when none is clear (`OverlayEngine.cs:1793`), rather than falling back to
-  *some* position. Separately, `VkSkyMapTab.RenderObjectOverlay` (`VkSkyMapTab.cs:440-463`) only runs
-  that collision-checked path below a sticky projected-item-count band (~60-100); above it, it switches
-  to `OverlayEngine.PlaceLabelsBestEffort` (`OverlayEngine.cs:1807-1821`), which does no inter-label
-  check at all ("labels that happen to overlap simply overlap") because the O(N^2) scan dominates cost
-  at wide FOV / dense fields. Overlap in a crowded field is therefore the current, deliberate trade-off;
-  the part actually worth fixing is the low-density path's drop-with-no-fallback case.
 - [x] **A "show objects with picture" mode. DONE 2026-09-20.** Shipped as
   `SkyMapState.ShowOnlyObjectsWithPicture`, a SUB-SETTING of the object overlay rather than a layer of
   its own -- it draws nothing, it only narrows what [O] and [D] already admit -- keyed `I` and drawn
@@ -620,21 +463,9 @@ Three items from one note, root-caused against the code rather than left as a ba
 
 ## Charts and the web showcase (user's notes 2026-08-27)
 
-- [ ] **Log / time-compressed graphs.** The session and guider graphs plot linear time, so a long night
-  spends most of its width on the quiet middle. A compressed time axis (log, or piecewise by event
-  density) would put the interesting transitions where they can be read. Applies to the guide-error
-  graph, the focus history and the session progress strip; whatever it lands on should go through the
-  shared `GuiderContent` helpers rather than into one surface, so the TUI gets it too.
-- [ ] **Expose the fake profiles in the web build so framing can be tried without hardware.** The
-  fakes already surface from discovery behind `IncludeFake:true` and carry the real URI shapes; the web
-  host simply never offers them. That is what makes the deployed showcase demonstrate framing rather
-  than only rendering.
 - [x] **Milky Way texture in the web sky map: DONE (2026-09-17).** The desktop path had it
   ([skymap-milkyway](../plans/skymap-milkyway.md)); the WebGL pipeline did not. Shipped as that plan's
   Phase 6, on WebGl.Renderer 1.33 (SharpAstro/WebGl.Renderer#9).
-- [ ] **Copy a link to a point (right-click), and the `&t=<time of capture>` parameter behind it.**
-  This is the other end of the viewer's share-link item (P20): the viewer needs somewhere to point, so
-  the web build has to accept a position AND an instant before that menu entry can exist.
 
 ## Planner (reported 2026-08-03)
 
@@ -670,20 +501,6 @@ AOT-free after the `perf(skymap)` commits (async Milky Way decode + VSOP87 pre-w
 anatomy in the `reference_skymap_first_open_perf` memory. These two are the remaining optional
 levers, both low priority because production (NativeAOT) first-open is already fast.
 
-- [ ] (b) Pre-warm `VkSkyMapPipeline` at GUI startup. The ~140 ms pipeline shaderc compile
-  (runtime GLSL-to-SPIR-V) is the ONLY real production first-open cost; NativeAOT does not
-  eliminate it. Construct the pipeline once `renderer.Context` is live (overlapping the
-  cold-start font-atlas warmup) so it is off the first tab-open frame. Higher risk: touches the
-  GPU-context lifecycle. Alternative: compile the sky-map shaders to SPIR-V offline at build
-  time (measured ~117 ms, earlier deemed not worth the MSBuild machinery; revisit if pursuing).
-- [ ] (c) Data-encode the VSOP87 coefficients (astrometry). `MarsX.cs` etc. are ~24 giant
-  `GetX/GetY/GetZ` methods of thousands of inline `x += c*Math.Cos(p + f*t)` statements (~3.6 MB
-  of source). Re-encode as `static readonly double[]` (or a packed binary resource) plus one
-  generic evaluation loop. Eliminates the dev-only ~330 ms first-call JIT (measured 467 ms dev
-  vs 7 ms AOT), shrinks the AOT binary, and speeds the AOT publish. Full accuracy retained (same
-  coefficients) so the GOTO/pointing consumers (`Transform.cs`) stay correct. Pure cleanup, NOT
-  a production-perf fix. Cross-ref: also tracked under astrometry.
-
 ## SignalBus / render-thread invariants
 
 - [x] **No device connect/disconnect may run its synchronous prefix on the render thread** (DONE
@@ -697,43 +514,3 @@ levers, both low priority because production (NativeAOT) first-open is already f
       code:** any signal handler that may call a blocking driver op must offload it the same way,
       never `await hub.XAsync(...)` directly in an inline-invoked handler. The deeper ASCOM
       correctness fix (STA + message pump) is [../plans/ascom-com-sta-message-pump.md](../plans/ascom-com-sta-message-pump.md).
-- [ ] Consider fixing this at the `SignalBus` level (DIR.Lib): the documented contract says async
-      handlers are "submitted to the tracker," but the implementation runs their prefix inline.
-      Making `tracker.Run(() => handler(signal), ...)` invoke the handler *inside* the tracked
-      delegate would offload every async handler, but it's a broad DIR.Lib behaviour change (some
-      handlers may rely on running their prefix on the render thread) and needs its own release, so
-      the per-call-site offload above is the surgical fix for now.
-
-## Viewer statistics and histogram (raised 2026-09-15, from a register sweep)
-
-- [ ] **Fuse the two stats passes at document open.** The stats collector
-      (`StretchSolver.CollectPerChannelStats`) and the display collector
-      (`CollectChannelHistograms`) each walk the pixels, so a mosaic pays about eight walks at open:
-      three CFA stats, three CFA histograms, the whole-mosaic histogram and the luma stat. **The two
-      are NOT redundant and must not simply be merged** -- the stats are taken with the pedestal
-      REMOVED (the shader subtracts it before the curve, so the median positioning the curve has to be
-      in that space) while the display wants the frame's own levels, which is exactly why they sit
-      beside each other rather than inside one another. The win available is one TRAVERSAL producing
-      both sets of bins, not one histogram serving both purposes. Wants measurement before and after:
-      `DocumentOpenCostProbe` and `StatsPathBenchmarks` already exist.
-- [ ] **`HistogramDisplay.UpdateRawBins` has no CFA-aware form**, so the per-frame refresh during SER
-      playback sits out a Bayer mosaic entirely (`VkImageRenderer.IsCfaMosaicSource`) and the
-      histogram shows frame-0 bins for the whole clip. It used to be worse: display channel `c` was
-      paired with `GetChannelData(c)`, a flat walk of the interleaved mosaic, so the bound `min(3, 1)`
-      wrote every colour into the slot that MEANS red and left green and blue stale -- one wrong curve
-      and two stale ones, all three plausible enough to read as live. The fix is an overload that
-      walks one CFA phase per channel, the same `CfaPhaseStarts` / `CfaStep` traversal
-      `Image.Histogram` takes; then drop the guard.
-- [ ] **`GetLumaStretchStatsAsync` lost its `debayerAlgorithm` parameter** (2026-09-15) when the RGGB
-      branch stopped materialising a full debayer for three scalars. That is a BREAKING change to
-      published `TianWen.Lib` API, so it needs its version bump taken deliberately -- the org rule is
-      major for breaking, and a minor was floated.
-
-## GLSL shader cleanup
-
-- [ ] The stereographic-projection GLSL (`stereoProject`) is currently inlined into `skymap_star.vert`
-      / `skymap_line.vert` / `skymap_overlay.vert`. It was a shared C# const substituted at runtime via
-      a `PROJECTION_PLACEHOLDER` token; the switch to pre-baked SPIR-V (`tools/BakeShaders`) inlined it
-      into all three files. Restoring a single source (a BakeShaders placeholder or a `#include` step)
-      is a deferred cleanup.
-

@@ -3,7 +3,7 @@
 **Status: P0 DONE (2026-09-24, merged in #349, with FITS.Lib 6.1); P1 DONE (2026-09-24); P2 to P5 NOT
 STARTED.**
 Raised by the user on 2026-09-24: "if we have allocations that are useless already right now, we should
-remove them prior to this server change" ([hardware-in-the-server.md](hardware-in-the-server.md)). A
+remove them prior to this server change" (the hardware-in-the-server plan, not yet on `main`). A
 read-only sweep of every capture path the same day found the items below; each carries the file, the
 size, the rate and the cheapest fix it named. Rates assume a 26 MP main-camera sub every 60 to 300 s, a
 2 MP guide frame every 1 to 2 s and a 640 x 480 planetary ROI at 60 to 200 fps. Line numbers drift;
