@@ -460,6 +460,7 @@ internal partial record Session
             // detected/expected ratio in the Milky Way and flag a clear field as obstructed).
             var stars = await image.FindStarsAsync(image.ReferenceStarChannel, snrMin: 10, maxStars: 1000, cancellationToken: cancellationToken);
             var gain = await ResilientInvokeAsync(camera, camera.GetGainAsync, ResilientCallOptions.IdempotentRead, cancellationToken);
+            var filterPosition = await GetCurrentFilterPositionAsync(telescopeIndex, cancellationToken);
 
             // Kept BEFORE the star count is judged, and whatever it turns out to be: the frame is only
             // worth anything when the verdict is surprising, and a zero-star scout is the surprising
@@ -481,10 +482,10 @@ internal partial record Session
             if (stars.Count == 0)
             {
                 return new FrameMetrics(StarCount: 0, MedianHfd: 0, MedianFwhm: 0,
-                    Exposure: scoutExposure, Gain: gain);
+                    Exposure: scoutExposure, Gain: gain, FilterPosition: filterPosition);
             }
 
-            return FrameMetrics.FromStarList(stars, scoutExposure, gain, image.Width, image.Height);
+            return FrameMetrics.FromStarList(stars, scoutExposure, gain, filterPosition, image.Width, image.Height);
         }
         finally
         {

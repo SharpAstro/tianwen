@@ -15,7 +15,7 @@ internal static class FocusDriftDetector
 {
     /// <summary>
     /// Least-squares linear fit of median HFD over the samples in <paramref name="history"/>
-    /// that are valid and comparable to <paramref name="baseline"/> (same exposure + gain),
+    /// that are valid and comparable to <paramref name="baseline"/> (same exposure, gain and filter),
     /// evaluated at the newest frame's position -- a de-noised stand-in for the newest frame's
     /// HFD. The frame ordinal within the window is the x coordinate; skipped samples keep their
     /// gap so the slope stays in per-frame units. Returns <paramref name="fallbackHfd"/> (the

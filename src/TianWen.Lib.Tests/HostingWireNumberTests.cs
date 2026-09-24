@@ -151,7 +151,7 @@ public class HostingWireNumberTests
             new CameraExposureState(0, DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(60), 0, "L", 0,
                 CameraState.Idle, FocuserTemperature: double.NaN, FocuserIsMoving: false),
         ]);
-        session.LastFrameMetrics.Returns([new FrameMetrics(0, float.NaN, float.NaN, TimeSpan.Zero, 0)]);
+        session.LastFrameMetrics.Returns([new FrameMetrics(0, float.NaN, float.NaN, TimeSpan.Zero, 0, FilterPosition: -1)]);
         session.LastGuideStats.Returns(GuideStats.FromRms(double.NaN, double.NaN, double.NaN, double.NaN, double.NaN));
         session.GuideSamples.Returns(
             [new GuideErrorSample(DateTimeOffset.UnixEpoch, double.NaN, double.NaN, double.NaN, double.NaN)]);

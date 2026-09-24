@@ -19,7 +19,7 @@ namespace TianWen.Lib.Tests;
 public class SessionScoutClassifierTests(ITestOutputHelper output)
 {
     private static FrameMetrics M(int starCount, double exposureSec = 10.0)
-        => new(starCount, MedianHfd: 2.5f, MedianFwhm: 3.0f, Exposure: TimeSpan.FromSeconds(exposureSec), Gain: 0);
+        => new(starCount, MedianHfd: 2.5f, MedianFwhm: 3.0f, Exposure: TimeSpan.FromSeconds(exposureSec), Gain: 0, FilterPosition: -1);
 
     [Fact]
     public async Task GivenScoutMatchingBaselineWhenClassifyThenHealthy()

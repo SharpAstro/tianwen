@@ -520,6 +520,9 @@ internal partial record Session
 
         var autoFocusExposure = TimeSpan.FromSeconds(2);
         var currentGain = await ResilientInvokeAsync(camera, camera.GetGainAsync, ResilientCallOptions.IdempotentRead, cancellationToken);
+        // The slot actually in the light path once any switch above has landed: under UseScheduledFilter
+        // (or Auto on a refractor) that is whatever the ladder left there, not preFocusFilterPosition.
+        var focusFilterPosition = await GetCurrentFilterPositionAsync(telescopeIndex, cancellationToken);
 
         // Bootstrap per-focuser EWMA from disk on first encounter so the very first move
         // of the session uses last-night's overshoot estimate, not the URI seed.
@@ -752,7 +755,7 @@ internal partial record Session
                 verified.Release();
                 if (verifyStars.Count > 3)
                 {
-                    var baseline = FrameMetrics.FromStarList(verifyStars, autoFocusExposure, currentGain);
+                    var baseline = FrameMetrics.FromStarList(verifyStars, autoFocusExposure, currentGain, focusFilterPosition);
                     var expectedHfd = solution.Value.A;
                     var hfdRatio = baseline.MedianHfd / expectedHfd;
 
@@ -784,7 +787,7 @@ internal partial record Session
 
             // Fit converged but we couldn't measure baseline; use the hyperbola minimum as HFD estimate
             AppendFocusRunRecord(telescopeIndex, telescope, filterWheelDriver, preFocusFilterPosition, bestPos, (float)solution.Value.A, sampleMap, solution.Value.A, solution.Value.B);
-            return (true, new FrameMetrics(0, (float)solution.Value.A, float.NaN, autoFocusExposure, currentGain));
+            return (true, new FrameMetrics(0, (float)solution.Value.A, float.NaN, autoFocusExposure, currentGain, focusFilterPosition));
         }
 
         _logger.LogWarning("Auto-focus telescope #{TelescopeNumber}: hyperbola fit did not converge.", telescopeIndex + 1);
