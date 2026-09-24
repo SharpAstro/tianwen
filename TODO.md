@@ -31,8 +31,8 @@ records. Never add an open `- [ ]` here: open an issue.
   - [x] T1 / T2: tianwen on the router; popovers and sliders as nodes; delete
     `ISelfDispatchingInputWidget`, `OverlayOwnsPointer`, the five drag flags, the tab-shortcut switch.
   - [x] D2 (DIR.Lib 10.0): the five cuts, one wave, `MIGRATION.md`.
-  - **Only T3 is left, and it is the next item** (the viewer chrome onto the engine, `viewer-layout-engine`
-    P1 to P4). D2 shipped 2026-09-17 (DIR.Lib 10.0, #290); `main` is on DIR.Lib 11.2.
+  - **Only T3 is left** (the viewer chrome onto the engine, `viewer-layout-engine`, where only P3
+    remains: issue #367). D2 shipped 2026-09-17 (DIR.Lib 10.0, #290); `main` is on DIR.Lib 11.2.
 
 - [x] **Auto-crop: an interior drizzle hole is not a canvas ring** (2026-09-15, issue #250). Both
   halves of the rule the measurement over 79 masters found, closed together.
