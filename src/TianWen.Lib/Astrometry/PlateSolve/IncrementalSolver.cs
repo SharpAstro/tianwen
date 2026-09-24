@@ -13,30 +13,38 @@ namespace TianWen.Lib.Astrometry.PlateSolve
 {
     /// <summary>
     /// Fast differential plate "solver" used during the polar-alignment refining
-    /// loop. Drops the catalog query + star-detect + pattern-match steps of a
-    /// full <see cref="CatalogPlateSolver"/>, replacing them with ROI centroid
-    /// against an anchor list captured at seed time. Targets &lt;20 ms per
-    /// frame on a 60 MP polar-align preview where a full hinted solve runs
-    /// ~700 ms.
+    /// loop. Drops the catalog query and catalog match of a full
+    /// <see cref="CatalogPlateSolver"/>: every refine matches the live frame's
+    /// stars against the star list of ONE seed frame, whose WCS came from a
+    /// full solve, and carries that WCS across by the fitted pixel affine.
     ///
     /// <para><b>Algorithm</b></para>
     /// <list type="number">
-    ///   <item>Seed from a successful full solve: detect stars in the seed
-    ///         frame, project each detected centroid through the seed WCS to
-    ///         get a J2000 (RA, Dec). Stash the (image-px, sky) pairs.</item>
-    ///   <item>Refine on each subsequent frame: ROI centroid each anchor's
-    ///         expected position (using the previous frame's pixel coords as
-    ///         the prior, since refining is sub-pixel between frames). Drop
-    ///         anchors whose ROI peak SNR falls below a threshold.</item>
-    ///   <item>Fit an affine M from old-pixel to new-pixel via weighted least
-    ///         squares (<see cref="Matrix3x2Helper.FitAffineTransform"/>).</item>
-    ///   <item>Apply M to the previous WCS: the new CRPix is the affine
-    ///         applied to the old CRPix; the new CD matrix is the old CD
-    ///         post-multiplied by the linear part of M^-1.</item>
-    ///   <item>Validate via RMS residual. If above
-    ///         <see cref="MaxRmsResidualPx"/>, return null and let the
-    ///         orchestrator fall back to a full hinted solve.</item>
+    ///   <item>Seed from a successful full solve: pick a detection scale (bin
+    ///         the frame toward 1.5"/px when it is sampled finer), detect stars
+    ///         at that scale, and freeze the seed star list with its quads
+    ///         pre-built, together with the seed WCS. Fewer than
+    ///         <see cref="MinAnchors"/> stars is a failed seed.</item>
+    ///   <item>Refine each live frame: detect stars at the SEED's detection
+    ///         scale (quad distances are in pixels, so both lists must share
+    ///         it) and match star quads against the frozen seed list via
+    ///         <see cref="SortedStarList.FindOffsetAndRotationWithRetryAsync"/>,
+    ///         which sweeps the quad tolerance upward until
+    ///         <see cref="StarReferenceTable.FindFit"/> yields an affine that
+    ///         the affine's <c>Decompose</c> accepts (no mirror, no
+    ///         skew, near-unit scale).</item>
+    ///   <item>Apply the affine M (seed pixel to live pixel, its translation
+    ///         scaled back to native pixels) to the SEED WCS: the new CRPix is
+    ///         M applied to the seed CRPix, the new CD matrix is the seed CD
+    ///         post-multiplied by the linear part of M^-1. Then move CRPix
+    ///         back to the frame centre and re-read the sky there.</item>
+    ///   <item>Fall back: too few live stars, no validated quad match (a
+    ///         field that shares no quads with the seed) or a singular affine
+    ///         returns null, and the orchestrator runs a full hinted solve.</item>
     /// </list>
+    /// Every refine is independent of the one before it: the reference is the
+    /// frozen seed, never the previous refine, so the error of any one frame is
+    /// that frame's own match noise and nothing accumulates over a long run.
     ///
     /// <para><b>Use cases</b></para>
     /// Only valid when the field is essentially locked between frames (polar
@@ -46,7 +54,7 @@ namespace TianWen.Lib.Astrometry.PlateSolve
     /// </summary>
     /// <remarks>
     /// Not <see cref="IPlateSolver"/>: incremental refinement requires explicit
-    /// state (anchor list + previous WCS) and can't be exposed as a stateless
+    /// state (the frozen seed star list + seed WCS) and can't be exposed as a stateless
     /// solver. The polar-align orchestrator owns the instance.
     /// </remarks>
     internal sealed class IncrementalSolver(ILogger? logger = null, ITimeProvider? timeProvider = null)
