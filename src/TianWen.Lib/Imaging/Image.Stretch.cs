@@ -44,43 +44,53 @@ public partial class Image
             var needsNorm = !HasUnitScalePeak;
             var normFactor = 1.0f / MaxValue;
 
-            var lumaChannel = new float[height, width];
-            var lumaMin = float.MaxValue;
-
-            // Residency resolved ONCE, and every plane read as a flat span: this loop went through the
-            // Planes accessor three times per pixel, which is the per-sample residency check Image.cs
-            // documents at +8.7 to +20.3 percent on the resample loops, on top of a [y, x] index each.
-            var n = lumaChannel.Length;
-            if (n > 0)
+            // Rented: the luma plane is read once, for a median and a MAD, and was a new full-size array on
+            // every call (every colour document, so every live master a planetary stack publishes). Every
+            // sample is written below, so a recycled plane carries nothing in.
+            var lumaChannel = Array2DPool<float>.Rent(height, width);
+            try
             {
-                var r = GetChannelSpan(0);
-                var g = GetChannelSpan(1);
-                var b = GetChannelSpan(2);
-                var luma = MemoryMarshal.CreateSpan(ref lumaChannel[0, 0], n);
-                for (var i = 0; i < n; i++)
+                var lumaMin = float.MaxValue;
+
+                // Residency resolved ONCE, and every plane read as a flat span: this loop went through the
+                // Planes accessor three times per pixel, which is the per-sample residency check Image.cs
+                // documents at +8.7 to +20.3 percent on the resample loops, on top of a [y, x] index each.
+                var n = lumaChannel.Length;
+                if (n > 0)
                 {
-                    var rv = r[i];
-                    var gv = g[i];
-                    var bv = b[i];
-                    if (float.IsNaN(rv) || float.IsNaN(gv) || float.IsNaN(bv))
+                    var r = GetChannelSpan(0);
+                    var g = GetChannelSpan(1);
+                    var b = GetChannelSpan(2);
+                    var luma = MemoryMarshal.CreateSpan(ref lumaChannel[0, 0], n);
+                    for (var i = 0; i < n; i++)
                     {
-                        luma[i] = float.NaN;
-                    }
-                    else
-                    {
-                        if (needsNorm) { rv *= normFactor; gv *= normFactor; bv *= normFactor; }
-                        var l = LumaWeighting.Rec709.ToLuma(rv, gv, bv);
-                        luma[i] = l;
-                        if (l < lumaMin) lumaMin = l;
+                        var rv = r[i];
+                        var gv = g[i];
+                        var bv = b[i];
+                        if (float.IsNaN(rv) || float.IsNaN(gv) || float.IsNaN(bv))
+                        {
+                            luma[i] = float.NaN;
+                        }
+                        else
+                        {
+                            if (needsNorm) { rv *= normFactor; gv *= normFactor; bv *= normFactor; }
+                            var l = LumaWeighting.Rec709.ToLuma(rv, gv, bv);
+                            luma[i] = l;
+                            if (l < lumaMin) lumaMin = l;
+                        }
                     }
                 }
+
+                if (lumaMin == float.MaxValue) lumaMin = 0f;
+
+                var lumaImage = new Image([lumaChannel], BitDepth.Float32, 1.0f, lumaMin, 0f,
+                    imageMeta with { SensorType = SensorType.Monochrome });
+                return lumaImage.GetPedestralMedianAndMADScaledToUnit(0);
             }
-
-            if (lumaMin == float.MaxValue) lumaMin = 0f;
-
-            var lumaImage = new Image([lumaChannel], BitDepth.Float32, 1.0f, lumaMin, 0f,
-                imageMeta with { SensorType = SensorType.Monochrome });
-            return lumaImage.GetPedestralMedianAndMADScaledToUnit(0);
+            finally
+            {
+                Array2DPool<float>.Return(lumaChannel);
+            }
         }, cancellationToken);
     }
 
