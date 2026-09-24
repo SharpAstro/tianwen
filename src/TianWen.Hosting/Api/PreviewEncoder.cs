@@ -40,13 +40,29 @@ namespace TianWen.Hosting.Api
         /// <param name="scale">Output scale factor, clamped to (0, 1]; 1 = full sensor resolution.</param>
         internal static async Task<byte[]> EncodeJpegAsync(Image image, int quality, double scale, CancellationToken cancellationToken)
         {
-            // A CFA frame previews in colour rather than as a visible Bayer grid. For a mono or already
-            // 3-channel image this returns the same instance untouched, so there is no copy to pay for.
-            // normalizeToUnit MUST stay false -- see the ownership note on the class.
-            var rgb = await image.DebayerAsync(DebayerAlgorithm.MHC, normalizeToUnit: false, cancellationToken);
+            // A mono or already 3-channel image previews as it is: nothing to interpolate, no copy to pay for.
+            // (The same test DebayerAsync makes before it returns its input untouched.)
+            if (image.ImageMeta.SensorType is SensorType.Monochrome or SensorType.Color)
+            {
+                // Stat scan + stretch + JPEG entropy coding are all CPU-bound and a full-frame preview of a
+                // modern sensor is tens of megapixels, so keep it off the request thread.
+                return await Task.Run(() => Encode(image, quality, scale), cancellationToken);
+            }
 
-            // Stat scan + stretch + JPEG entropy coding are all CPU-bound and a full-frame preview of a
-            // modern sensor is tens of megapixels, so keep it off the request thread.
+            // A CFA frame previews in colour rather than as a visible Bayer grid, debayered into RENTED
+            // planes: this runs per request, and the guide camera's per guide frame for every remote client,
+            // so three fresh planes were 12 bytes a pixel of garbage each time, 25 MB for a 2 MP colour guide
+            // frame. MHC writes every pixel of its destination, so what the last renter left never shows
+            // (pinned by AMosaicPreviewsExactlyAsItsFreshDebayerDoes). The planes go back only once the
+            // encode has finished reading them: a started Task.Run runs to the end whatever the token says.
+            // normalizeToUnit MUST stay false -- see the ownership note on the class.
+            using var red = Array2DPool<float>.RentScoped(image.Height, image.Width);
+            using var green = Array2DPool<float>.RentScoped(image.Height, image.Width);
+            using var blue = Array2DPool<float>.RentScoped(image.Height, image.Width);
+            var rgb = await image.DebayerIntoAsync(
+                [new Channel(red.Array, default, 0f, 0f, 0), new Channel(green.Array, default, 0f, 0f, 1), new Channel(blue.Array, default, 0f, 0f, 2)],
+                DebayerAlgorithm.MHC, normalizeToUnit: false, cancellationToken);
+
             return await Task.Run(() => Encode(rgb, quality, scale), cancellationToken);
         }
 
