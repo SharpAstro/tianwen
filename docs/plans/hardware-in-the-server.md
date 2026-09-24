@@ -369,6 +369,19 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
     pixels are. For a client on the local socket that is a shared-memory slot (map, slot, generation);
     for a TCP client it is the byte endpoint above. The client picks by transport, so a remote rig
     and the local GUI share one code path above the carrier.
+  - **A frame the server SAVES needs no slot: the file is the shared memory** (user, 2026-09-24).
+    - Right after the server writes a sub, its bytes are in the OS page cache, which every process
+      shares. The announcement then names the file, and a local client maps it.
+    - That memory is reclaimable, where a pagefile-backed slot is commit. It holds the sensor's own
+      16 bits, half a float slot, and the server's copy into a slot disappears, since the FITS write it
+      does anyway takes its place.
+    - Measured on a 26 MP 16-bit sub (hot cache): a mapped read that widens straight into a recycled
+      `float[,]` took 22.6 ms and allocated nothing, against 44 ms and 158.7 MB for today's
+      `TryReadFitsFile`. It belongs in FITS.Lib as the reading counterpart of `FitsWriter`:
+      [frame-path-allocations.md](frame-path-allocations.md) P5.
+    - Slots therefore remain only for frames that are never saved: previews, polar refinement, guide
+      frames and the planetary live frame. For planetary, a memory-mapped SER may be the ring itself
+      (the same plan, P2).
   - **Two slots per source** (each OTA's camera, the guide camera, the planetary live frame), sized
     for the largest frame that source can produce, so a smaller ROI or a higher bin fits the same
     slot. Two is the minimum a drop-to-latest seqlock needs (one being written, one readable), and
