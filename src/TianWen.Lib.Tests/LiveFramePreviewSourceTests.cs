@@ -213,7 +213,7 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// <b>The live preview has histograms now, so <c>V</c> works in the GUI's live session.</b> They
+        /// <b>The live preview has histograms now, so the histogram key (<c>H</c>) works in the GUI's live session.</b> They
         /// were empty, which made <c>UploadHistogramData</c> a no-op -- a chromeless host draws no
         /// toolbar, but the overlay is gated on <c>ShowHistogram</c> alone, so the reason nothing
         /// appeared was that there was nothing to draw rather than nowhere to draw it. Three for a

@@ -149,8 +149,11 @@ What shipped:
   wave with no shim. `ImageRendererBase.TonePanel.cs` is the panel; `ToneSliderHit` / `ToneSlider`
   carry the drag, mirroring `WhiteBalanceSliderHit`.
 - **Three continuous dials where there were two preset ladders**: boost (0 to 1.5), soft-clip amount
-  (0 to 2.0) and knee (0.50 to 0.95). The ladders stay on `B` and `H` and write the same fields, so a
+  (0 to 2.0) and knee (0.50 to 0.95). The ladders stayed on `B` and `H` and write the same fields, so a
   key press moves the sliders, exactly as the white balance's `Auto` drops a triple into its.
+  **Since 2026-09-24 the soft clip has no key**: `H` is the histogram (the user's call, freeing `V`),
+  and the soft-clip ladder is reached through the Tone popover's dials and the wheel over its button
+  (`TryHandleToolbarWheel`), which step the same presets. `B` keeps the boost's ladder.
 - **Each dial states its own precondition and registers no track when it is unmet.** The boost needs
   detected stars (the gate its button carried); the knee means nothing at zero amount; the curve mode
   reaches the pixels only through the boost. A live band over a control that cannot move is a slider
@@ -190,7 +193,8 @@ Three things the draft above got wrong, all found by reading the code rather tha
 Not done here, deliberately: the status line still reads `Soft clip: 1.0 (knee 0.80)` on a key press
 and the info strip's snapshot still names the slot, both already renamed. The `?` panel gained a row
 for `B` and one for `H`, because someone hunting for HDR finds `H` first and what it does is not what
-they came for.
+they came for. (Superseded 2026-09-24: `H` is the histogram's row now, and `B`'s row says the soft
+clip is on the Tone panel.)
 
 ## P2: capability detection (NOT STARTED; SdlVulkan.Renderer first)
 
