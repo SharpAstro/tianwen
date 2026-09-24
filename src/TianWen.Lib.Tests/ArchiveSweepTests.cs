@@ -96,6 +96,53 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public async Task GivenTheSameBytesUnderADifferentBzero_WhenLinking_ThenItIsRefusedAsDifferentPixels()
+        {
+            // Identical data bytes read under a different BZERO are different pixels, and no digest of
+            // the bytes can see it. BZERO is a structural card, which the general veto skips, so this
+            // is exactly the case that passed before the meaning cards were compared on their own.
+            var dir = TempDir();
+            var (raw, _) = FitsFixture.WriteFits(dir, "raw.fits", ["IMAGETYP= 'LIGHT'"]);
+            // The fixture writes BZERO = 32768; a later card of the same keyword is the one a reader keeps.
+            var (curated, _) = FitsFixture.WriteFits(dir, "curated.fits", ["IMAGETYP= 'LIGHT'", "BZERO   =                    0"]);
+            var rawBefore = FitsFixture.ShaOfFile(raw);
+
+            var result = await ArchiveLinkSweep.LinkAsync(
+                raw, curated, apply: true, cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(ArchiveLinkSweep.LinkOutcome.HeaderWouldLose);
+            result.Detail.ShouldContain("BZERO");
+            FitsFixture.IdentityOf(raw).IsSameFileAs(FitsFixture.IdentityOf(curated)).ShouldBeFalse();
+            FitsFixture.ShaOfFile(raw).ShouldBe(rawBefore);
+        }
+
+        [Fact]
+        public async Task GivenBytesThatDifferPastTheFirstDataUnit_WhenLinking_ThenItIsRefusedThoughTheLedgerDigestAgrees()
+        {
+            // The ledger's digest (StackManifest.DigestData) covers the first image's data unit and
+            // stops, so an extension or trailing bytes that differ are invisible to it. The link
+            // would silently discard them; everything after the primary header must match.
+            var dir = TempDir();
+            var (raw, _) = FitsFixture.WriteFits(dir, "raw.fits", ["IMAGETYP= 'LIGHT'"]);
+            var (curated, _) = FitsFixture.WriteFits(dir, "curated.fits", ["IMAGETYP= 'LIGHT'"]);
+            using (var fs = new FileStream(curated, FileMode.Open, FileAccess.ReadWrite))
+            {
+                // The fixture's data unit is one block (40 x 36 x 16 bit); its payload runs three.
+                fs.Position = fs.Length - 5;
+                fs.WriteByte(0xA5);
+            }
+            TianWen.Lib.Imaging.Stacking.StackManifest.DigestData(raw)
+                .ShouldBe(TianWen.Lib.Imaging.Stacking.StackManifest.DigestData(curated));
+            var rawBefore = FitsFixture.ShaOfFile(raw);
+
+            var result = await ArchiveLinkSweep.LinkAsync(
+                raw, curated, apply: true, cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(ArchiveLinkSweep.LinkOutcome.PayloadDiffers);
+            FitsFixture.ShaOfFile(raw).ShouldBe(rawBefore);
+        }
+
+        [Fact]
         public async Task GivenADryRun_WhenLinking_ThenTheVerdictMatchesTheRealRunAndNothingIsWritten()
         {
             var dir = TempDir();
@@ -332,6 +379,64 @@ namespace TianWen.Lib.Tests
             verdict.Files.ShouldBe(1);
             Directory.Exists(drop).ShouldBeFalse();
             File.Exists(curated).ShouldBeTrue();
+        }
+
+        [Fact]
+        public void GivenAFolderNamedThroughAJunction_WhenPruning_ThenItIsRefusedAndTheOnlyCopySurvives()
+        {
+            // The case that lost data before. The file has ONE name. Asked through a junction, that
+            // name comes back as its real path, which does not start with the junction's path, so it
+            // looked like a name elsewhere and the folder was removed: the only copy with it. The
+            // curated archive's targets/ tree is a junction farm, so this is a path a person types.
+            var root = TempDir();
+            var real = Path.Combine(root, "real");
+            Directory.CreateDirectory(real);
+            var (only, payload) = FitsFixture.WriteFits(real, "frame.fits", ["IMAGETYP= 'LIGHT'"]);
+            var alias = Path.Combine(root, "alias");
+            JunctionOrSkip(alias, real);
+
+            var verdict = ArchivePruneSweep.Consider(alias, apply: true, TestContext.Current.CancellationToken);
+
+            verdict.Outcome.ShouldBe(ArchivePruneSweep.PruneOutcome.NotItsRealPath);
+            verdict.Detail.ShouldContain(real);
+            File.ReadAllBytes(only).TakeLast(payload.Length).ShouldBe(payload);
+        }
+
+        [Fact]
+        public void GivenAFolderInsideOneNamedThroughAJunction_WhenPruning_ThenItIsRefusedToo()
+        {
+            // Not only the folder itself: a junction ANYWHERE above it makes the typed path an alias,
+            // and the old test looked only below the folder, never at it or its parents.
+            var root = TempDir();
+            var nested = Path.Combine(root, "real", "Light");
+            Directory.CreateDirectory(nested);
+            var (only, _) = FitsFixture.WriteFits(nested, "frame.fits", ["IMAGETYP= 'LIGHT'"]);
+            var alias = Path.Combine(root, "alias");
+            JunctionOrSkip(alias, Path.Combine(root, "real"));
+
+            var verdict = ArchivePruneSweep.Consider(Path.Combine(alias, "Light"), apply: true, TestContext.Current.CancellationToken);
+
+            verdict.Outcome.ShouldBe(ArchivePruneSweep.PruneOutcome.NotItsRealPath);
+            File.Exists(only).ShouldBeTrue();
+        }
+
+        /// <summary>A directory junction at <paramref name="link"/>, skipping the test where one cannot
+        /// be made. Through <c>mklink /J</c> because a junction, unlike a directory symbolic link, needs
+        /// no privilege, and .NET only creates the symbolic kind.</summary>
+        private static void JunctionOrSkip(string link, string target)
+        {
+            Assert.SkipUnless(OperatingSystem.IsWindows(), "Junctions are a Windows construct.");
+            using var mklink = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                "cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            });
+            Assert.SkipUnless(mklink is not null, "cmd.exe could not be started.");
+            mklink.WaitForExit();
+            Assert.SkipUnless(mklink.ExitCode == 0 && Directory.Exists(link), "Could not create a junction here.");
         }
     }
 }

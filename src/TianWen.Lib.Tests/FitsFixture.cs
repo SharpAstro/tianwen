@@ -28,7 +28,10 @@ namespace TianWen.Lib.Tests
         {
             var dir = Path.Combine(Path.GetTempPath(), suite, name, Guid.NewGuid().ToString("N")[..8]);
             Directory.CreateDirectory(dir);
-            return dir;
+            // The REAL path. The temp path is commonly an 8.3 short form ("C:\Users\ABCDEF~1\..."),
+            // which the prune sweep rightly refuses as an alias: hand the tests the name the file
+            // system uses, as a person running the sweep would be told to.
+            return HardLinkProbe.TryGetFinalPath(dir) ?? dir;
         }
 
         /// <summary>A primary header of <paramref name="extraCards"/> plus the mandatory structural

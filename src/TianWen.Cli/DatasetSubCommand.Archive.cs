@@ -89,6 +89,11 @@ internal sealed partial class DatasetSubCommand
                 consoleHost.WriteError($"Curated tree does not exist: {curatedRoot}");
                 return 1;
             }
+            // Compared as the file system names them. Given through a junction, a curated root and a
+            // raw root that are really one tree would pass a string test, and every "already linked"
+            // answer below is a test against REAL link names.
+            rawRoot = ArchiveLinkSweep.CanonicalRoot(rawRoot);
+            curatedRoot = ArchiveLinkSweep.CanonicalRoot(curatedRoot);
             // Pointing a tree at itself would re-point every frame at a sibling of its own and call
             // it a saving. Cheap to check, catastrophic to get wrong.
             if (Overlaps(rawRoot, curatedRoot))
@@ -319,6 +324,13 @@ internal sealed partial class DatasetSubCommand
                         wouldOrphan += verdict.OrphanBytes;
                         Count(counts, "kept (holds bytes with no other name)");
                         break;
+
+                    case ArchivePruneSweep.PruneOutcome.NotItsRealPath:
+                        // Only the ROOT can land here (a child of a real path is real), so say how to
+                        // fix it rather than just counting it.
+                        Count(counts, "REFUSED (not its real path)");
+                        consoleHost.WriteError($"[prune] {verdict.Folder}: {verdict.Detail}");
+                        return;
 
                     default:
                         Count(counts, verdict.Outcome.ToString());
