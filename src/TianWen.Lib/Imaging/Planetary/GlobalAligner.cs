@@ -12,6 +12,10 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// The combined shift is the displacement of the frame's planet relative to the reference's -- consumed
 /// directly by <see cref="Image.AccumulateTranslatedInto"/>. This is the live-path aligner and the
 /// per-frame coarse step the Phase 5 alignment-point mesh refines.
+/// <para><b>One <see cref="Estimate"/> at a time per instance.</b> It reuses the instance's tile and
+/// spectrum scratch, which is what keeps a frame from costing a new 256 KB tile and a new 1 MB spectrum
+/// (at a 256 px tile). Both stackers align frame by frame from one task, so one set is enough; a caller
+/// that wanted to align in parallel would take an aligner per worker.</para>
 /// </summary>
 public sealed class GlobalAligner
 {
@@ -19,6 +23,8 @@ public sealed class GlobalAligner
     private readonly Complex[] _referenceSpectrum;
     private readonly double _refCenterX;
     private readonly double _refCenterY;
+    private readonly float[] _tile;
+    private readonly Complex[] _spectrumScratch;
 
     private GlobalAligner(int tileSize, Complex[] referenceSpectrum, double refCenterX, double refCenterY)
     {
@@ -26,6 +32,8 @@ public sealed class GlobalAligner
         _referenceSpectrum = referenceSpectrum;
         _refCenterX = refCenterX;
         _refCenterY = refCenterY;
+        _tile = new float[tileSize * tileSize];
+        _spectrumScratch = new Complex[tileSize * tileSize];
     }
 
     /// <summary>The power-of-two tile edge used for phase correlation.</summary>
@@ -76,13 +84,13 @@ public sealed class GlobalAligner
         var rcx = Math.Round(cx);
         var rcy = Math.Round(cy);
 
-        var tile = new float[_tileSize * _tileSize];
-        PlanetaryTile.ExtractLuma(frame, rcx, rcy, _tileSize, tile);
+        // ExtractLuma writes every sample of the tile, so the scratch carries nothing from the last frame.
+        PlanetaryTile.ExtractLuma(frame, rcx, rcy, _tileSize, _tile);
 
         // Bulk shift = integer rounded-COM difference (matches the tile centring); the phase-correlation
         // residual is the full sub-pixel remainder between the two integer-centred tiles. Window on --
         // real, non-periodic imagery.
-        var residual = PhaseCorrelation.Estimate(_referenceSpectrum, tile, _tileSize, _tileSize, applyWindow: true);
+        var residual = PhaseCorrelation.Estimate(_referenceSpectrum, _tile, _tileSize, _tileSize, _spectrumScratch, applyWindow: true);
 
         var dx = (rcx - _refCenterX) + residual.Dx;
         var dy = (rcy - _refCenterY) + residual.Dy;
