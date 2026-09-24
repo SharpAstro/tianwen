@@ -655,6 +655,20 @@ the resolver and the coverage report alike), and flats rank filter, proof tier, 
 then gain and temperature as a tie-break. Pinned by `CalibrationResolverTests` and
 `CalibrationEpochsTests`; seven of the new tests fail with the old grouping and ranking restored.
 
+**Exposure split a flat run the same way.** The key compares exposure exactly and a flat wizard
+steps it while settling: the SV605CC's 2025-12-20 L-Quad run was 46 frames at 0.47768 s and 3 at
+0.47808 s, two groups slugged alike, and two sessions took the 3-frame one. The grouping key is one
+function, `CalibrationEpochs.SetGroupKey` (temperature left to the set, a FLAT's exposure to three
+significant figures, a dark's kept exact for its scaling), called by both grouping paths. Of the 96
+filed flat and dark-flat runs two hold more than one exposure, that one and a flat wizard's probes
+(0.205 s and 16.4 s beside 6.68 s), which the rule keeps apart.
+
+**Measured over the four bake roots once the Samyang frames all read 130 mm** (`dataset coverage`,
+before and after): sessions on a master of fewer than 10 frames 18 to 0, sessions passing over
+their own same-night flats 16 to 1 (the ASI585 Helix, which resolves no flat at all), and the flats
+drawn from another filter's folder 6 to 2, both of them sessions with no flats of their own
+borrowing the same lens's set a few days away (Seagull 2022, the Uranus-C's Lagoon).
+
 ### Some dark-flats are recorded as `IMAGETYP='DARK'`
 
 On the reference archive, 2,220 dark-flat frames sit in a `DARKFLAT` folder while their header says
