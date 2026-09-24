@@ -295,11 +295,29 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
     pixels are. For a client on the local socket that is a shared-memory slot (map, slot, generation);
     for a TCP client it is the byte endpoint above. The client picks by transport, so a remote rig
     and the local GUI share one code path above the carrier.
-  - **A small ring per source** (each OTA's camera, the guide camera, the planetary live frame), with
-    two or three slots sized for the largest frame that source can produce. Sections are
-    pagefile-backed, so they count against the commit charge from creation even though only touched
-    pages are resident. A 26 MP camera's three slots are about 312 MB of commit, which is why the
-    ring stays small.
+  - **Two slots per source** (each OTA's camera, the guide camera, the planetary live frame), sized
+    for the largest frame that source can produce, so a smaller ROI or a higher bin fits the same
+    slot. Two is the minimum a drop-to-latest seqlock needs (one being written, one readable), and
+    enough when a copy (4.5 ms) is far shorter than the frame interval. Sections are pagefile-backed,
+    so they count against the commit charge from creation even though only touched pages are
+    resident: about 208 MB for a 26 MP camera.
+  - **It plugs into the existing buffer mechanism at both ends, and not in the middle.** A slot cannot
+    BE a camera buffer: a slot is unmanaged memory, and a plane is a managed `float[,]` and stays one
+    (CLAUDE.md, "Image Mutability"). So:
+    - **In the server, the slot writer is one more BORROWER** of the frame's `ChannelBuffer`:
+      `TryAddRef`, copy into the slot, `Release`. That is the hosted guide preview's pattern
+      (`GuidePreview`), and a lost race means "no frame now", never an error. The camera driver's free
+      list (the DAL pattern: `onRelease` returns the array to `_freeBuffers`) is untouched.
+    - **In the client, the reader is shaped like a camera driver.** It copies out of the slot into a
+      `float[,]` from its own per-source free list and wraps it in a `ChannelBuffer` whose `onRelease`
+      returns the array there. Everything above it (`Image`, `Release`, the DEBUG
+      `ChannelBufferLeakTracker`, the viewer's `AcceptFrame`) sees a frame from the server exactly as
+      it sees one from a local camera, and a 104 MB frame no longer means a 104 MB allocation.
+      `Array2DPool` stays scratch only, as it is today.
+  - **Memory, for one 26 MP camera watched locally**: the camera's own recycled buffers (unchanged),
+    two slots (about 208 MB of commit), and the client's recycled buffers. That is one slot pair and
+    one client free list MORE than today's single process holds, which is the price of surviving the
+    GUI; it is stated here so it is paid on purpose.
   - **A seqlock per slot, never an acknowledgement.** The server makes the slot's generation odd,
     writes, then makes it even. The client reads the generation, copies, and reads it again, dropping
     a torn read and taking the next frame. A dead or stalled client can therefore never block the
@@ -312,9 +330,9 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
   - **Security.** The name is unguessable and travels only over the per-user socket. On Windows the
     section needs an explicit DACL for the current user, which means `CreateFileMappingW` with security
     attributes, because .NET's `CreateNew` takes none. On Unix, `shm_open` mode 0600.
-  - **Still one copy on the client.** `Image` planes are managed `float[,]`, so the client copies out of
-    the slot (the 4.5 ms). A later step can upload a display frame to the GPU straight from the
-    mapped view and copy into an `Image` only when statistics, a solve or a save need one.
+  - **One copy on each side, measured.** The server copies in and the client copies out, 4.5 ms each. A
+    later step could upload a display frame to the GPU straight from the mapped view and build an
+    `Image` only when statistics, a solve or a save need one; not before a measurement asks for it.
   - **Where it pays.** The socket's ~80 ms is fine for a sub every 2 to 300 s. Shared memory matters
     for polar refinement (a full frame about once a second), the planetary live frame, a future live
     view, and several local clients watching one camera.
@@ -353,7 +371,7 @@ each piece as it lands. Then the GUI switches over in one step.
 | **P2** | Session-less device plane: connect / disconnect / warm-and-disconnect, cooling and camera settings, focuser, filter, mount actions, leased move-axis, snapshot plus `DEVICE-STATE`, mount-limit verdict, `DeviceOwnershipGate` on every actuation | the server functional suite drives the Equipment flows the GUI runs today, end to end, against fakes |
 | **P3** | Profiles and discovery on the server: async discovery job, profile edits (socket only), site reconcile, sensor capture, credential store; the server as the one profile writer | reconcile and edit parity tests against today's `EquipmentActions` results |
 | **P4** | Linear frames: binary format, `FRAME-AVAILABLE`, guide frames; a network-backed `LiveFramePreviewSource` | a round-trip test that is pixel-exact against the camera's own buffer; a measured 26 MP transfer |
-| **P4b** | Shared-memory carrier for local clients: a per-source slot ring, a seqlock per slot, Windows sections with a per-user DACL, `shm_open` on Linux and macOS | the same pixel-exact test through the slot; a client killed mid-read leaves the server writing; a measured cross-process 26 MP frame on each OS |
+| **P4b** | Shared-memory carrier for local clients: two slots per source, a seqlock per slot, the server writer as a `ChannelBuffer` borrower and the client reader as a driver-shaped recycling source, Windows sections with a per-user DACL, `shm_open` on Linux and macOS | the same pixel-exact test through the slot; a client killed mid-read leaves the server writing; a measured cross-process 26 MP frame on each OS |
 | **P5** | Run kinds: polar alignment, planetary capture with the rolling stack and recentering, preview / snapshot / solve and sync | each mode run over a fake rig through the socket, including a client killed mid-run with the run continuing |
 | **P6** | **The cut**: the GUI drops `IDeviceHub`, every device source and its `TianWen.Devices.Native` reference; Local means the local node; quit detaches; its `MountLimitWatcher` is deleted; inspector snapshot fields read the mirror; `unattended-ui-driving.md` and the E2E harness spawn a server; packaging ships `tianwen-server` inside the GUI's archive and `.app` (every file in `Contents/MacOS` signed) | the unattended-driving flows pass unchanged against a spawned server; killing the GUI mid-session leaves the session running; a new GUI re-attaches to it |
 | **P7** | GPU recovery by respawn: `OnGpuWedged` starts a successor GUI and exits; `gpu-device-recovery.md` updated (in-process recreation becomes optional) | `gpu_fault lost` mid-session: a new window appears on the same session within seconds |
