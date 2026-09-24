@@ -155,7 +155,16 @@ public partial class Image
     /// final demosaic -- the "merge" half of the split-CFA stacking seam.
     /// </summary>
     /// <exception cref="InvalidOperationException">The image is not a four-channel Bayer sub-plane set.</exception>
-    public Image MergeBayerChannels()
+    public Image MergeBayerChannels() => MergeBayerChannelsInto(new float[Height * 2, Width * 2]);
+
+    /// <summary>
+    /// <see cref="MergeBayerChannels"/> into a caller-supplied <c>2 * Height</c> x <c>2 * Width</c> plane,
+    /// every sample of which is overwritten, so a rented one carries nothing in. The returned image wraps
+    /// <paramref name="destination"/> and does not own it: the caller returns it wherever it came from once
+    /// the mosaic is read. For the callers that only read a merged mosaic once, a live colour master's
+    /// demosaic and the batch Bayer drizzle, where a new full-size plane per master or per frame was garbage.
+    /// </summary>
+    internal Image MergeBayerChannelsInto(float[,] destination)
     {
         if (ChannelCount != 4 || imageMeta.SensorType is not SensorType.RGGB)
         {
@@ -168,8 +177,14 @@ public partial class Image
         var oy = imageMeta.BayerOffsetY & 1;
         var pw = Width;
         var ph = Height;
-        var mosaic = CreateChannelData(1, ph * 2, pw * 2);
-        var dst = mosaic[0];
+        if (destination.GetLength(0) != ph * 2 || destination.GetLength(1) != pw * 2)
+        {
+            throw new ArgumentException(
+                $"The mosaic of {pw}x{ph} sub-planes is {pw * 2}x{ph * 2}; got a {destination.GetLength(1)}x{destination.GetLength(0)} plane.",
+                nameof(destination));
+        }
+
+        var dst = destination;
         float[,] r = Planes[0].Data, g1 = Planes[1].Data, g2 = Planes[2].Data, b = Planes[3].Data;
 
         var mosaicWidth = pw * 2;
@@ -194,6 +209,6 @@ public partial class Image
             }
         }
 
-        return new Image(mosaic, BitDepth.Float32, MaxValue, MinValue, Pedestal, imageMeta);
+        return new Image([dst], BitDepth.Float32, MaxValue, MinValue, Pedestal, imageMeta);
     }
 }

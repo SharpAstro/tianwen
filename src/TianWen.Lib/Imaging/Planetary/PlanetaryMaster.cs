@@ -64,8 +64,18 @@ internal static class PlanetaryMaster
     {
         if (layout == PlanetaryFrameLayout.SplitCfa && stacked.ChannelCount == 4)
         {
-            var mosaic = stacked.MergeBayerChannels();
-            return await mosaic.DebayerAsync(DebayerAlgorithm.MHC, normalizeToUnit: false, cancellationToken).ConfigureAwait(false);
+            // The mosaic is read once, by the demosaic, and then never again: rented, where it used to be a
+            // new full-size plane per master (the demosaic's RGB output is the master and stays fresh).
+            var mosaicPlane = Array2DPool<float>.Rent(stacked.Height * 2, stacked.Width * 2);
+            try
+            {
+                var mosaic = stacked.MergeBayerChannelsInto(mosaicPlane);
+                return await mosaic.DebayerAsync(DebayerAlgorithm.MHC, normalizeToUnit: false, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                Array2DPool<float>.Return(mosaicPlane);
+            }
         }
 
         return stacked;

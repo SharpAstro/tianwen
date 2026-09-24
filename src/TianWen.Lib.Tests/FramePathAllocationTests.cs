@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Planetary;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -68,6 +69,40 @@ public class FramePathAllocationTests
         {
             File.Delete(path);
         }
+    }
+
+    [Fact]
+    public async Task AColourLiveMasterAllocatesItsColourPlanesAndNoMosaic()
+    {
+        // A split-CFA master merges its four sub-planes back into a mosaic only to demosaic it once; the
+        // RGB result is the master, and the mosaic between them used to be a new full-size plane per master.
+        const int sub = 256;
+        var planes = Image.CreateChannelData(4, sub, sub);
+        var rng = new Random(5);
+        foreach (var plane in planes)
+        {
+            for (var y = 0; y < sub; y++)
+            {
+                for (var x = 0; x < sub; x++)
+                {
+                    plane[y, x] = (float)rng.NextDouble();
+                }
+            }
+        }
+
+        var stacked = new Image(planes, BitDepth.Float32, 1f, 0f, 0f, Meta(SensorType.RGGB));
+        var ct = TestContext.Current.CancellationToken;
+        _ = await PlanetaryMaster.MergeAndDemosaicAsync(stacked, PlanetaryFrameLayout.SplitCfa, ct);
+
+        var before = GC.GetTotalAllocatedBytes(precise: true);
+        var master = await PlanetaryMaster.MergeAndDemosaicAsync(stacked, PlanetaryFrameLayout.SplitCfa, ct);
+        var allocated = GC.GetTotalAllocatedBytes(precise: true) - before;
+
+        master.ChannelCount.ShouldBe(3);
+        var fullPlane = 4L * sub * sub * sizeof(float);
+        TestContext.Current.TestOutputHelper?.WriteLine($"colour live master from {sub} x {sub} sub-planes: {allocated} bytes, a full plane is {fullPlane}");
+        allocated.ShouldBeLessThan((fullPlane * 7) / 2,
+            $"three colour planes for the master and no mosaic: {allocated:N0} bytes against {fullPlane:N0} a plane");
     }
 
     private static ImageMeta Meta(SensorType sensorType) => new ImageMeta(
