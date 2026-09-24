@@ -44,6 +44,10 @@ public static class ArchivePruneSweep
         WouldOrphan,
         /// <summary>The folder holds a junction, so what a walk would include is ambiguous.</summary>
         HoldsJunction,
+        /// <summary>The folder was named through a junction, a symbolic link or an 8.3 short name,
+        /// not by its real path. Refused, because "has a name outside this folder" is a test on the
+        /// link's REAL path, and against an alias every file's own name looks like one elsewhere.</summary>
+        NotItsRealPath,
         /// <summary>Nothing under it at all. Left alone; an empty folder is not this pass's business.</summary>
         Empty,
         /// <summary>The folder or something under it could not be read.</summary>
@@ -79,6 +83,28 @@ public static class ArchivePruneSweep
         if (!Directory.Exists(full))
         {
             return new FolderVerdict(folder, PruneOutcome.Unreadable, "the folder does not exist.", 0, 0, 0);
+        }
+
+        // The test below compares every file's names against this folder's path, and the names come
+        // back REAL. Named through an alias (a junction anywhere above it, as in the curated archive's
+        // targets/ farm, or a short name), a file's own real name does not start with the alias, so
+        // it reads as a name elsewhere and the folder's only copy would be deleted. Refuse unless the
+        // path given is the path the file system itself uses. Off Windows there is no answer, but
+        // there are no link names either, so every file is an orphan and nothing is ever removed.
+        if (OperatingSystem.IsWindows())
+        {
+            if (HardLinkProbe.TryGetFinalPath(full) is not { } real)
+            {
+                return new FolderVerdict(folder, PruneOutcome.Unreadable,
+                    "its real path could not be resolved, so nothing about it can be decided.", 0, 0, 0);
+            }
+            if (!string.Equals(
+                    real.TrimEnd(Path.DirectorySeparatorChar), full.TrimEnd(Path.DirectorySeparatorChar),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return new FolderVerdict(folder, PruneOutcome.NotItsRealPath,
+                    $"it is named through a link or a short name; its real path is {real}. Name that one.", 0, 0, 0);
+            }
         }
 
         List<string> files;
@@ -133,18 +159,68 @@ public static class ArchivePruneSweep
             return new FolderVerdict(folder, PruneOutcome.Pruned, "", files.Count, 0, 0);
         }
 
-        try
+        // Never a recursive delete. The verdict above is a walk that took time, and a recursive delete
+        // removes whatever is there NOW: a file that arrived after the walk, or one whose outside name
+        // went away in the meantime, would go with no check at all. So each file is asked again at the
+        // moment it is deleted, and directories go only once empty, so anything that was not checked
+        // keeps its folder.
+        var removed = 0;
+        foreach (var file in files)
         {
-            Directory.Delete(full, recursive: true);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!HasANameOutside(file, full))
+            {
+                return new FolderVerdict(folder, PruneOutcome.Failed,
+                    $"{file} lost its name outside this folder after the check, so the pass stopped. " +
+                    $"{removed} of {files.Count} names removed, each with another name kept.",
+                    files.Count, 1, 0);
+            }
+            try
+            {
+                // A read-only file fails here, deliberately: clearing the attribute would change it on
+                // EVERY name of the file, the curated one included, since attributes belong to the file.
+                File.Delete(file);
+                removed++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return new FolderVerdict(folder, PruneOutcome.Failed,
+                    $"{ex.Message} {removed} of {files.Count} names removed, each with another name kept.",
+                    files.Count, 0, 0);
+            }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+
+        foreach (var dir in DirectoriesDeepestFirst(full).Append(full))
         {
-            return new FolderVerdict(folder, PruneOutcome.Failed,
-                $"{ex.Message} Some names may already have been removed; every byte still has another name.",
-                files.Count, 0, 0);
+            try
+            {
+                Directory.Delete(dir, recursive: false);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return new FolderVerdict(folder, PruneOutcome.Failed,
+                    $"{dir} could not be removed ({ex.Message}); something arrived after the check, or is " +
+                    $"held open, and was left alone. All {files.Count} checked names were removed.",
+                    files.Count, 0, 0);
+            }
         }
 
         return new FolderVerdict(folder, PruneOutcome.Pruned, "", files.Count, 0, 0);
+    }
+
+    /// <summary>Every directory under <paramref name="folder"/>, children before their parents, so a
+    /// non-recursive delete in this order empties the tree from the leaves up. Junctions were refused
+    /// before this runs, so none is entered.</summary>
+    private static IEnumerable<string> DirectoriesDeepestFirst(string folder)
+    {
+        foreach (var dir in Directory.EnumerateDirectories(folder, "*", SearchOption.TopDirectoryOnly).ToList())
+        {
+            foreach (var child in DirectoriesDeepestFirst(dir))
+            {
+                yield return child;
+            }
+            yield return dir;
+        }
     }
 
     /// <summary>True when any name for this file lies outside <paramref name="folder"/>. Reads the

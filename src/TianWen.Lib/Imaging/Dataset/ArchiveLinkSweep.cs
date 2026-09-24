@@ -132,17 +132,23 @@ public static class ArchiveLinkSweep
         // Never trust a ledger at the moment of writing. The digest store is refreshed by hand and
         // was 6 percent stale when this was written, and the cost of being wrong here is a frame
         // replaced by a different frame.
-        var rawDigest = StackManifest.DigestData(rawPath);
-        var curatedDigest = StackManifest.DigestData(curatedPath);
-        if (rawDigest.Length == 0 || curatedDigest.Length == 0)
+        //
+        // And not the data-unit digest a ledger keys on either (StackManifest.DigestData): that hashes
+        // the first image's data unit and stops, so it cannot see an extension HDU or trailing bytes,
+        // which the link would silently discard. What is compared here is EVERYTHING after the primary
+        // header, byte for byte, which is exactly the part of the raw file that stops existing.
+        var rawBody = await BodyDigestAsync(rawPath, cancellationToken).ConfigureAwait(false);
+        var curatedBody = await BodyDigestAsync(curatedPath, cancellationToken).ConfigureAwait(false);
+        if (rawBody is null || curatedBody is null)
         {
             return new LinkResult(rawPath, curatedPath, LinkOutcome.Unreadable,
-                "one of the two has no readable data unit to digest.", 0);
+                "one of the two has no primary header this reader understands.", 0);
         }
-        if (!string.Equals(rawDigest, curatedDigest, StringComparison.Ordinal))
+        if (!string.Equals(rawBody, curatedBody, StringComparison.Ordinal))
         {
             return new LinkResult(rawPath, curatedPath, LinkOutcome.PayloadDiffers,
-                $"data digests differ ({rawDigest} against {curatedDigest}).", 0);
+                $"everything after the primary header must be byte-identical, and it is not ({rawBody} against " +
+                $"{curatedBody}): the pixels, the padding or an extension differ.", 0);
         }
 
         var veto = await HeaderVetoAsync(rawPath, curatedPath, headerPolicy, cancellationToken).ConfigureAwait(false);
@@ -194,6 +200,16 @@ public static class ArchiveLinkSweep
     }
 
     /// <summary>
+    /// The path the file system itself uses for a tree root: junctions and symbolic links resolved,
+    /// short names expanded, falling back to the full path where the platform cannot say. Link names
+    /// come back REAL, so a root compared against them (the overlap check, "already linked into the
+    /// curated tree") must be real too, or a root given through the curated archive's junction farm
+    /// is not recognised as the tree it is.
+    /// </summary>
+    public static string CanonicalRoot(string path)
+        => HardLinkProbe.TryGetFinalPath(path) ?? Path.GetFullPath(path);
+
+    /// <summary>
     /// True when this raw frame already has a name under <paramref name="curatedRoot"/>, so the
     /// sweep has nothing left to do with it.
     ///
@@ -222,16 +238,66 @@ public static class ArchiveLinkSweep
         return false;
     }
 
+    /// <summary>
+    /// Cards that decide what the data bytes MEAN. Identical bytes read under a different
+    /// <c>BZERO</c>, <c>BSCALE</c>, <c>BLANK</c>, <c>BITPIX</c> or axis shape are different pixels,
+    /// and no digest of the bytes can see it, so these must be EQUAL under every policy. They are
+    /// structural, so the general veto below skips them, which is exactly why they are checked here.
+    /// A header edit could change one (the generic <c>tag-card</c> does not refuse structural
+    /// keywords), so this is not a theoretical case.
+    /// </summary>
+    private static bool DecidesPixelMeaning(string keyword)
+        => keyword is "BITPIX" or "BZERO" or "BSCALE" or "BLANK"
+           || keyword.StartsWith("NAXIS", StringComparison.Ordinal);
+
+    /// <summary>A digest of every byte after the primary header, or null when the header cannot be
+    /// read. The primary header is the one thing the sweep lets differ.</summary>
+    private static async Task<string?> BodyDigestAsync(string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var stream = new FileStream(
+                path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16, useAsync: true);
+            if (await FitsHeaderEditor.ReadPrimaryHeaderAsync(stream, cancellationToken).ConfigureAwait(false)
+                is not { } header)
+            {
+                return null;
+            }
+            stream.Position = header.Length;
+            return ContentDigest.OfStream(stream, stream.Length - header.Length);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>The reason to refuse, or an empty string to go ahead.</summary>
     private static async Task<string> HeaderVetoAsync(
         string rawPath, string curatedPath, HeaderPolicy policy, CancellationToken cancellationToken)
     {
-        var raw = await ReadCardsAsync(rawPath, cancellationToken).ConfigureAwait(false);
-        var curated = await ReadCardsAsync(curatedPath, cancellationToken).ConfigureAwait(false);
-        if (raw is null || curated is null)
+        var rawAll = await ReadCardsAsync(rawPath, cancellationToken).ConfigureAwait(false);
+        var curatedAll = await ReadCardsAsync(curatedPath, cancellationToken).ConfigureAwait(false);
+        if (rawAll is null || curatedAll is null)
         {
             return "a primary header could not be read, so the two cannot be compared.";
         }
+
+        var meaning = rawAll.Keys.Union(curatedAll.Keys)
+            .Where(DecidesPixelMeaning)
+            .Where(k => !rawAll.TryGetValue(k, out var a)
+                     || !curatedAll.TryGetValue(k, out var b)
+                     || !string.Equals(a, b, StringComparison.Ordinal))
+            .OrderBy(k => k, StringComparer.Ordinal).ToArray();
+        if (meaning.Length > 0)
+        {
+            return $"the two read the same bytes differently ({string.Join(", ", meaning.Select(k => $"{k} " +
+                $"{rawAll.GetValueOrDefault(k, "absent")} against {curatedAll.GetValueOrDefault(k, "absent")}"))}), " +
+                "so they are not the same pixels.";
+        }
+
+        var raw = rawAll.Where(kv => !StructuralCards.Contains(kv.Key)).ToDictionary(StringComparer.Ordinal);
+        var curated = curatedAll.Where(kv => !StructuralCards.Contains(kv.Key)).ToDictionary(StringComparer.Ordinal);
 
         var lost = raw.Keys.Where(k => !curated.ContainsKey(k)).OrderBy(k => k, StringComparer.Ordinal).ToArray();
         if (lost.Length > 0)
@@ -259,8 +325,9 @@ public static class ArchiveLinkSweep
         return "";
     }
 
-    /// <summary>Primary-header cards as keyword to value, structural cards dropped. Null when the
-    /// file has no header this reader understands.</summary>
+    /// <summary>Primary-header cards as keyword to value, only the ones with no value at all
+    /// (<c>COMMENT</c>, <c>HISTORY</c>, <c>END</c>, blank) dropped. Null when the file has no header
+    /// this reader understands.</summary>
     private static async Task<Dictionary<string, string>?> ReadCardsAsync(
         string path, CancellationToken cancellationToken)
     {
@@ -278,7 +345,7 @@ public static class ArchiveLinkSweep
             foreach (var card in header.Cards)
             {
                 var keyword = card.Length >= 8 ? card[..8].Trim() : card.Trim();
-                if (StructuralCards.Contains(keyword))
+                if (keyword is "COMMENT" or "HISTORY" or "END" or "")
                 {
                     continue;
                 }

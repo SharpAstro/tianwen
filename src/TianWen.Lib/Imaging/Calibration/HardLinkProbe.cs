@@ -215,6 +215,63 @@ internal static partial class HardLinkProbe
         return false;
     }
 
+    /// <summary>
+    /// The path the file system itself uses for <paramref name="path"/> (a file or a directory):
+    /// every junction and symbolic link on the way resolved, every 8.3 short name expanded. Null when
+    /// the platform cannot answer or the path cannot be opened.
+    ///
+    /// <para><b>Why a prefix test needs this.</b> <see cref="EnumerateLinks"/> answers with REAL
+    /// paths. A caller that asks "is this name inside folder X" by comparing against X as the user
+    /// typed it is wrong whenever X was reached through a junction or a short name: the file's own
+    /// real name does not start with the alias, so it looks like a name ELSEWHERE, and a pass that
+    /// deletes on that answer removes the last copy. Compare against this instead, or refuse.</para>
+    /// </summary>
+    public static string? TryGetFinalPath(string path)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return null;
+        }
+        return TryGetFinalPathWindows(Path.GetFullPath(path));
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static string? TryGetFinalPathWindows(string path)
+    {
+        // No access rights at all: the handle exists only to be asked its name. Backup semantics is
+        // what lets CreateFile open a DIRECTORY, and fully shared so the probe never blocks anyone.
+        using var handle = CreateFile(path, 0, FileShareAll, IntPtr.Zero, OpenExisting, FileFlagBackupSemantics, IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            return null;
+        }
+
+        scoped Span<char> buffer = stackalloc char[StackNameBuffer];
+        var length = GetFinalPathNameByHandle(handle, ref Start(buffer), (uint)buffer.Length, 0);
+        if (length == 0)
+        {
+            return null;
+        }
+        if (length > buffer.Length)
+        {
+            // Too small: the return is the size needed, including the terminating NUL.
+            buffer = new char[length];
+            length = GetFinalPathNameByHandle(handle, ref Start(buffer), (uint)buffer.Length, 0);
+            if (length == 0 || length > buffer.Length)
+            {
+                return null;
+            }
+        }
+
+        // VOLUME_NAME_DOS answers in the extended form, "\\?\D:\..." or "\\?\UNC\server\share\...".
+        ReadOnlySpan<char> final = buffer[..(int)length];
+        if (final.StartsWith(@"\\?\UNC\"))
+        {
+            return string.Concat(@"\\".AsSpan(), final[8..]);
+        }
+        return final.StartsWith(@"\\?\") ? final[4..].ToString() : final.ToString();
+    }
+
     /// <summary>Scratch name a re-pointed link is created under before it is renamed over the name
     /// it replaces. A leftover file with this suffix says which step stopped.</summary>
     public const string RepointSuffix = ".tianwen-relink";
@@ -283,6 +340,19 @@ internal static partial class HardLinkProbe
     /// all (CS8175), so the reinterpretation has to happen behind a real parameter.</summary>
     private static ref ushort Start(Span<char> buffer)
         => ref Unsafe.As<char, ushort>(ref MemoryMarshal.GetReference(buffer));
+
+    private const uint FileShareAll = 0x1 | 0x2 | 0x4; // FILE_SHARE_READ | WRITE | DELETE
+    private const uint OpenExisting = 3;
+    private const uint FileFlagBackupSemantics = 0x02000000;
+
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    private static partial Microsoft.Win32.SafeHandles.SafeFileHandle CreateFile(
+        string fileName, uint desiredAccess, uint shareMode, IntPtr securityAttributes,
+        uint creationDisposition, uint flagsAndAttributes, IntPtr templateFile);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "GetFinalPathNameByHandleW", SetLastError = true)]
+    private static partial uint GetFinalPathNameByHandle(
+        Microsoft.Win32.SafeHandles.SafeFileHandle file, ref ushort filePath, uint filePathLength, uint flags);
 
     [LibraryImport("kernel32.dll", EntryPoint = "GetFileInformationByHandle", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
