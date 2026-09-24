@@ -31,6 +31,15 @@ internal interface IDispatchTransport : IDisposable
     string[] GetStringArray(string name);
     int[] GetIntArray(string name);
     int[,] GetInt2DArray(string name);
+
+    /// <summary>
+    /// A camera's 2-D image property (<c>ImageArray</c>) as a frame channel, into <paramref name="recycled"/>
+    /// when its shape matches. The default is the portable path, <see cref="GetInt2DArray"/> then the
+    /// transpose, which the JSON-RPC transport keeps; the in-proc <see cref="DispatchObject"/> reads the
+    /// SAFEARRAY straight into the plane instead (<see cref="SafeArrayMarshal.ToImageChannel"/>).
+    /// </summary>
+    Imaging.Channel GetImageChannel(string name, float[,]? recycled)
+        => Imaging.Channel.FromWxHImageData(GetInt2DArray(name), recycled);
     object? GetObject(string name);
 
     void Set(string name, bool value);

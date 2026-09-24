@@ -85,5 +85,12 @@ internal sealed partial class AscomDispatchCamera : IDisposable
     public partial void AbortExposure();
     public partial void PulseGuide(int Direction, int Duration);
 
+    /// <summary>
+    /// <see cref="ImageArray"/> as a frame channel, converted into <paramref name="recycled"/> when its shape
+    /// matches: over in-proc COM the SAFEARRAY is widened straight into the plane, with no intermediate
+    /// <c>int</c> arrays and no transpose (<see cref="IDispatchTransport.GetImageChannel"/>).
+    /// </summary>
+    public Imaging.Channel ReadImageArray(float[,]? recycled) => _dispatch.GetImageChannel("ImageArray", recycled);
+
     public void Dispose() { /* dispatch owned by AscomDispatchDevice */ }
 }

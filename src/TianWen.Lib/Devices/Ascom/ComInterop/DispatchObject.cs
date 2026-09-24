@@ -134,6 +134,20 @@ internal sealed unsafe class DispatchObject : IDispatchTransport
         }
     }
 
+    public Imaging.Channel GetImageChannel(string name, float[,]? recycled)
+    {
+        // The SAFEARRAY is read while the VARIANT that owns it is alive, straight into the plane.
+        var variant = GetPropertyVariant(name);
+        try
+        {
+            return SafeArrayMarshal.ToImageChannel(SafeArrayPtr(ref variant), recycled);
+        }
+        finally
+        {
+            variant.Dispose();
+        }
+    }
+
     // VT_ARRAY variants hold the SAFEARRAY* in the VARIANT data union; hand it to SafeArrayMarshal.
     // Returns 0 for a non-array variant (the marshaler then yields an empty array).
     private static nint SafeArrayPtr(ref ComVariant variant)
