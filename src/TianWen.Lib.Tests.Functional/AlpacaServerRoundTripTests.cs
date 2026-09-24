@@ -352,7 +352,7 @@ namespace TianWen.Lib.Tests.Functional
 
             ready.ShouldBeTrue("the fake camera should finish a 1 ms exposure");
 
-            var payload = await client.GetImageArrayBytesAsync(_baseUrl, "camera", 0, "imagearray", ct);
+            using var payload = await client.GetImageArrayBytesAsync(_baseUrl, "camera", 0, "imagearray", ct);
             payload.Length.ShouldBeGreaterThan(AlpacaImageBytesWriter.MetadataV1Length);
 
             var width = await client.GetIntAsync(_baseUrl, "camera", 0, "cameraxsize", ct);
@@ -363,7 +363,7 @@ namespace TianWen.Lib.Tests.Functional
                 "a transposed encode would have the same byte count, which is why the decode test below matters");
 
             // Decode with the production decoder and check the frame is the right way round.
-            var channel = AlpacaImageBytes.DecodeChannel(payload);
+            var channel = AlpacaImageBytes.DecodeChannel(payload.Span);
             channel.Height.ShouldBe(height);
             channel.Width.ShouldBe(width);
         }

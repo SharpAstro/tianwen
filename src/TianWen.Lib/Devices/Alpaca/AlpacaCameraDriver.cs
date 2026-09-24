@@ -318,7 +318,8 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
 
     // Frame downloaded + decoded once when the server first reports the image ready
     // (see GetImageReadyAsync), then read by the default ICameraDriver.GetImageAsync via the
-    // sync ImageData property. No buffer recycling: the float[,] is GC-managed per frame.
+    // sync ImageData property. Nothing is allocated per frame in the steady state: the float[,]
+    // recycles through _freeBuffers below, and the download's payload through ArrayPool.
     private Imaging.Channel? _imageData;
     // Recycled frame buffers returned by consumers via ChannelBuffer.onRelease (the DAL pattern);
     // a shape-mismatched buffer (ROI/bin change) is dropped inside DecodeChannel, never re-added.
@@ -362,12 +363,16 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
         // later poll/retry re-downloads.
         if (ready && _imageData is null)
         {
-            var bytes = await Client.GetImageArrayBytesAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "imagearray", cancellationToken);
-            // Decode into a recycled buffer when one is available (the DAL recycle loop):
-            // the consumer's image.Release() returns the float[,] to _freeBuffers, so a steady
-            // capture loop stops allocating a fresh full-frame LOH array per frame.
-            var recycled = _freeBuffers.TryTake(out var buffer) ? buffer : null;
-            var channel = AlpacaImageBytes.DecodeChannel(bytes, recycled);
+            Imaging.Channel channel;
+            // The payload is a RENTED buffer, handed back to the pool as soon as the decode has read it.
+            using (var payload = await Client.GetImageArrayBytesAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "imagearray", cancellationToken))
+            {
+                // Decode into a recycled buffer when one is available (the DAL recycle loop):
+                // the consumer's image.Release() returns the float[,] to _freeBuffers, so a steady
+                // capture loop stops allocating a fresh full-frame LOH array per frame.
+                var recycled = _freeBuffers.TryTake(out var buffer) ? buffer : null;
+                channel = AlpacaImageBytes.DecodeChannel(payload.Span, recycled);
+            }
             // The ref-counted buffer travels ON the Channel into GetImageAsync's Image.
             _imageData = channel with { Buffer = new Imaging.ChannelBuffer(channel.Data, onRelease: recycledBuf => _freeBuffers.Add(recycledBuf)) };
 
