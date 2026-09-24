@@ -243,6 +243,13 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "slow one: for those sessions it is the build's dominant I/O.",
             DefaultValueFactory = _ => "",
         };
+        var noStageLightsOpt = new Option<bool>("--no-stage-lights")
+        {
+            Description = "Read every session's raw lights from the archive, instead of copying the next " +
+                          "session's onto the scratch volume while the current one bakes (the default). " +
+                          "For measuring what staging buys; a session already on the scratch volume, or too " +
+                          "large for it, is never staged anyway.",
+        };
 
         var buildCommand = new Command("build", "Build the training tile set from raw archive lights.")
         {
@@ -251,6 +258,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 archiveRootOpt, outOpt,
                 minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, holdOutOpt, parametersOpt, minSubsOpt,
                 tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, hotPixelSigmaOpt, warpInterpolationOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt, forcePsfOpt, remeasureSubsOpt, siteOpt, scratchRootOpt,
+                noStageLightsOpt,
             },
         };
         buildCommand.SetAction(async (parseResult, ct) =>
@@ -293,6 +301,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 WarpInterpolation = parseResult.GetValue(warpInterpolationOpt),
                 SoftwareIncludePattern = parseResult.Required(softwareOpt),
                 ScratchRoot = parseResult.Required(scratchRootOpt),
+                StageLights = !parseResult.GetValue(noStageLightsOpt),
                 Resume = parseResult.GetValue(resumeOpt),
                 RegenPsfForExportedSessions = parseResult.GetValue(regenPsfOpt),
                 ForcePsfRemeasure = parseResult.GetValue(forcePsfOpt),

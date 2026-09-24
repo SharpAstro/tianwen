@@ -254,11 +254,23 @@ public sealed record DatasetBuildOptions
     /// the warp phase wrote at <b>400-564 MB/s</b> (against the 37 MB/s the same writes got on the
     /// hard disk) with the slow disk completely idle, the integrator then read scratch back at
     /// ~300 MB/s, and the slow disk went busy again only for the next session's raw lights at
-    /// 22-38 MB/s. <b>So the remaining slow-disk traffic is the archive reads, which is irreducible:
-    /// the lights live there.</b> Do not read a busy archive disk as evidence this setting is not
-    /// working; check that the scratch volume is the one taking the write burst.</para>
+    /// 22-38 MB/s. <b>So the remaining slow-disk traffic is the archive reads: the lights live
+    /// there.</b> Do not read a busy archive disk as evidence this setting is not working; check that
+    /// the scratch volume is the one taking the write burst. What CAN be taken off the critical path is
+    /// WHEN those reads happen: <see cref="StageLights"/> copies the next session's lights here while
+    /// the current one bakes (2026-09-24).</para>
     /// </summary>
     public string ScratchRoot { get; init; } = "";
+
+    /// <summary>
+    /// Copy the next session's raw lights to <c>&lt;ScratchRoot&gt;/_stage</c> while the current one
+    /// bakes, and read them from there (<see cref="SessionStager"/>). On by default: a session reads
+    /// its lights at least four times, the archive disk is the slow one here, and the copy of session
+    /// k+1 overlaps session k's compute. A session whose lights already sit on the scratch volume, or
+    /// would not fit beside the stager's reserve, is read from the archive as before, so turning this
+    /// off (<c>--no-stage-lights</c>) is only for measuring what it buys.
+    /// </summary>
+    public bool StageLights { get; init; } = true;
 
     /// <summary>
     /// Re-measure the PSF/noise record for exported sessions <b>even when one already exists</b>,
