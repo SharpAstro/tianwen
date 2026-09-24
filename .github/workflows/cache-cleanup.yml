@@ -1,0 +1,69 @@
+name: Cache cleanup
+
+# Deletes the Actions caches a closed pull request saved. A cache saved on refs/pull/N/merge can be
+# restored only by that PR's own later runs, never by main or another PR, so once the PR closes it is
+# dead weight in the repo's 10 GB cache budget, and least-recently-used eviction then decides what goes
+# instead. On 2026-09-25 the budget stood at 11.2 GB, and what was one bad day from being evicted were
+# the lfs-* entries: with the LFS bandwidth budget spent, a job whose LFS cache misses cannot pull and
+# fails. Those four PR-ref NuGet entries (1.3 GB each) were deleted by hand then; this does it on close.
+#
+# It NEVER touches a cache on main. The lfs-* entries there are irreplaceable while LFS downloads are
+# refused, and an older one is still a restore-key fallback when a pointer change moves the key, so a
+# pull then fetches only the delta. Unused main entries expire on their own after seven days.
+#
+# No checkout, no LFS and no cache of its own: it only calls the API.
+
+on:
+  pull_request:
+    types: [closed]
+  # A close event can be missed (a workflow disabled at the time, an outage). The daily sweep
+  # catches those, and a manual run is the backfill for PRs closed before this workflow existed.
+  schedule:
+    - cron: '41 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write        # gh cache delete
+  pull-requests: read   # gh pr view, to leave an OPEN PR's caches alone
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete the caches of closed pull requests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          CLOSED_PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "pull_request" ]; then
+            refs="refs/pull/$CLOSED_PR/merge"
+          else
+            refs=$(gh cache list --limit 1000 --json ref --jq '[.[].ref | select(startswith("refs/pull/"))] | unique | .[]')
+          fi
+          freed=0
+          for ref in $refs; do
+            pr=${ref#refs/pull/}; pr=${pr%%/*}
+            # The close event names its own PR; the sweep must ask, keeps an OPEN PR's caches, and
+            # keeps them too when it cannot tell (a failed lookup is not a closed PR).
+            if [ "$EVENT" != "pull_request" ]; then
+              state=$(gh pr view "$pr" --json state --jq .state 2>/dev/null || echo UNKNOWN)
+              if [ "$state" != "MERGED" ] && [ "$state" != "CLOSED" ]; then
+                echo "kept $ref: PR #$pr is $state"
+                continue
+              fi
+            fi
+            while read -r id size key; do
+              [ -n "$id" ] || continue
+              # A concurrent run may have got there first; that is not a failure of this one.
+              if gh cache delete "$id" >/dev/null 2>&1; then
+                freed=$((freed + size))
+                echo "deleted $key ($((size / 1000000)) MB) from $ref"
+              else
+                echo "could not delete $key from $ref (already gone?)"
+              fi
+            done < <(gh cache list --ref "$ref" --limit 1000 --json id,sizeInBytes,key --jq '.[] | "\(.id) \(.sizeInBytes) \(.key)"')
+          done
+          echo "freed $((freed / 1000000)) MB"
