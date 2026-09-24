@@ -79,9 +79,7 @@ public sealed class SessionStager(string stageRoot, Func<ImagingSession, bool> w
     private Staging Start(ImagingSession session, int index, CancellationToken ct)
     {
         var dir = Path.Combine(stageRoot, $"{index:D4}_{ShortHash(session.Id)}");
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var ready = Task.Run(() => CopyAsync(session, dir, cts.Token), CancellationToken.None);
-        return new Staging(dir, cts, ready, logger);
+        return new Staging(dir, ct, token => CopyAsync(session, dir, token), logger);
     }
 
     private async Task<ImagingSession> CopyAsync(ImagingSession session, string dir, CancellationToken ct)
@@ -187,25 +185,39 @@ public sealed class SessionStager(string stageRoot, Func<ImagingSession, bool> w
         }
     }
 
-    /// <summary>One session's copy: its directory, the copy task, and the means to stop it.</summary>
-    private sealed class Staging(string dir, CancellationTokenSource cts, Task<ImagingSession> ready, ILogger? logger) : IAsyncDisposable
+    /// <summary>One session's copy: its directory, the copy task, and the means to stop it. It owns
+    /// its cancellation source, created here and disposed in <see cref="DisposeAsync"/>.</summary>
+    private sealed class Staging : IAsyncDisposable
     {
-        public Task<ImagingSession> Ready => ready;
+        private readonly string _dir;
+        private readonly CancellationTokenSource _cts;
+        private readonly ILogger? _logger;
+
+        public Staging(string dir, CancellationToken ct, Func<CancellationToken, Task<ImagingSession>> copy, ILogger? logger)
+        {
+            _dir = dir;
+            _logger = logger;
+            _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var token = _cts.Token;
+            Ready = Task.Run(() => copy(token), CancellationToken.None);
+        }
+
+        public Task<ImagingSession> Ready { get; }
 
         public async ValueTask DisposeAsync()
         {
-            await cts.CancelAsync();
+            await _cts.CancelAsync();
             try
             {
-                await ready;
+                await Ready;
             }
             catch (OperationCanceledException ex)
             {
                 // Expected: the copy was cancelled because nothing will read it now.
-                logger?.LogDebug(ex, "staging under {Dir} cancelled", dir);
+                _logger?.LogDebug(ex, "staging under {Dir} cancelled", _dir);
             }
-            cts.Dispose();
-            TryDeleteDirectory(dir, logger);
+            _cts.Dispose();
+            TryDeleteDirectory(_dir, _logger);
         }
     }
 }
