@@ -48,7 +48,10 @@ internal static class SyntheticPlanetRenderer
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(radius);
 
         // 1) Sharp planet body: limb-darkened disk * latitude bands * an oval spot, all in disk-local coords.
-        var sharp = new float[height, width];
+        // Rented (a video frame renders this per frame) and cleared, since the sky is whatever stays 0.
+        using var sharpLease = Array2DPool<float>.RentScoped(height, width);
+        sharpLease.AsMutableSpan().Clear();
+        var sharp = sharpLease.Array;
         var peak = maxAdu * bodyLevel;
         var r2 = radius * radius;
         for (var y = 0; y < height; y++)
@@ -80,14 +83,18 @@ internal static class SyntheticPlanetRenderer
             }
         }
 
-        // 2) Seeing blur (separable Gaussian). Small sigma -> sharp ("lucky") frame, skipped below the floor.
-        var body = blurSigma > 0.35 ? GaussianBlur(sharp, width, height, blurSigma) : sharp;
+        // 2) Seeing blur (separable Gaussian), in place. Small sigma -> sharp ("lucky") frame, skipped below the floor.
+        if (blurSigma > 0.35)
+        {
+            using var tmp = Array2DPool<float>.RentScoped(height, width);
+            GaussianBlurInto(sharp, width, height, blurSigma, tmp.Array, sharp);
+        }
 
         // 3) Compose: sky background + body + (shot (+) read) noise, deterministic per noiseSeed. The
         // procedural disk keeps the legacy unity-gain noise (fullWell == maxAdu => 1 e-/ADU, read in ADU) so
         // the renderer-grading unit tests stay stable; the image-based JupiterTextureRenderer drives the
         // realistic low-electron planetary noise instead.
-        return ComposeWithNoise(body, width, height, maxAdu, skyBackground,
+        return ComposeWithNoise(sharp, width, height, maxAdu, skyBackground,
             fullWellElectrons: maxAdu, readNoiseElectrons: readNoise, noiseSeed, dest);
     }
 
@@ -95,6 +102,7 @@ internal static class SyntheticPlanetRenderer
     /// Composes a (blurred) body buffer into the final frame: adds sky background + shot (+) read noise,
     /// deterministic per <paramref name="noiseSeed"/>, clamped to [0, <paramref name="maxAdu"/>]. Shared by
     /// the procedural disk and the image-based <see cref="JupiterTextureRenderer"/> so both noise identically.
+    /// <paramref name="dest"/> may BE <paramref name="body"/>: each pixel is read before it is written.
     /// <para>
     /// Noise is modelled in the <b>electron</b> domain, not ADU: shot noise is Poisson in collected electrons
     /// (variance = electron count), and a short, high-gain planetary frame collects only a few hundred
@@ -134,8 +142,23 @@ internal static class SyntheticPlanetRenderer
     // Separable Gaussian blur with edge clamping. Kernel radius = ceil(3*sigma).
     internal static float[,] GaussianBlur(float[,] src, int width, int height, double sigma)
     {
+        var dst = new float[height, width];
+        using var tmp = Array2DPool<float>.RentScoped(height, width);
+        GaussianBlurInto(src, width, height, sigma, tmp.Array, dst);
+        return dst;
+    }
+
+    /// <summary>
+    /// <see cref="GaussianBlur"/> into <paramref name="dst"/>, which may BE <paramref name="src"/>: the
+    /// horizontal pass reads all of src into <paramref name="tmp"/> before the vertical pass writes dst.
+    /// <paramref name="tmp"/> is scratch of the same shape whose contents do not matter, so a video frame
+    /// blurs in place with one rented plane instead of two new ones per channel.
+    /// </summary>
+    internal static void GaussianBlurInto(float[,] src, int width, int height, double sigma, float[,] tmp, float[,] dst)
+    {
         var radius = (int)Math.Ceiling(3.0 * sigma);
-        var kernel = new double[(2 * radius) + 1];
+        var kernelLength = (2 * radius) + 1;
+        Span<double> kernel = kernelLength <= 256 ? stackalloc double[kernelLength] : new double[kernelLength];
         var twoSigma2 = 2.0 * sigma * sigma;
         var sum = 0.0;
         for (var i = -radius; i <= radius; i++)
@@ -150,7 +173,6 @@ internal static class SyntheticPlanetRenderer
         }
 
         // Horizontal pass src -> tmp.
-        var tmp = new float[height, width];
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
@@ -166,7 +188,6 @@ internal static class SyntheticPlanetRenderer
         }
 
         // Vertical pass tmp -> dst.
-        var dst = new float[height, width];
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
@@ -180,8 +201,6 @@ internal static class SyntheticPlanetRenderer
                 dst[y, x] = (float)acc;
             }
         }
-
-        return dst;
     }
 
     // Standard Box-Muller normal draw; deterministic given the supplied Random.
