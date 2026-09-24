@@ -247,6 +247,80 @@ public class FramePathAllocationTests
             $"the debayer's planes are rented, not allocated: {allocated:N0} bytes against {planes:N0} of planes");
     }
 
+    /// <summary>
+    /// A plate solver bins the frame it detects on, on every polar-alignment refine, and a new binned
+    /// frame was a quarter of the frame at factor 2: 26 MB a refine on a 26 MP sensor. Rented, it must be
+    /// exactly what <see cref="Image.Downsample"/> gives, a NaN block and the binned metadata included,
+    /// whatever the planes held before, and it must allocate no plane.
+    /// </summary>
+    [Fact]
+    public void ABinnedDetectionFrameIsRentedAndIsExactlyTheDownsample()
+    {
+        const int width = 1024, height = 768, factor = 2;
+        var data = new float[height, width];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                data[y, x] = ((y * 131) + (x * 17)) % 65536;
+            }
+        }
+        // One block wholly NaN (it stays NaN) and one partly (the rest of it averages).
+        (data[10, 10], data[10, 11], data[11, 10], data[11, 11], data[20, 21]) = (float.NaN, float.NaN, float.NaN, float.NaN, float.NaN);
+        var image = new Image([data], BitDepth.Int16, 65535f, 0f, 0f, Meta(SensorType.Monochrome));
+
+        var expected = image.Downsample(factor);
+
+        // A plane of exactly the binned shape, full of junk, handed to the pool for the rent to take.
+        var junk = Array2DPool<float>.Rent(height / factor, width / factor);
+        System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref junk[0, 0], junk.Length).Fill(12345f);
+        Array2DPool<float>.Return(junk);
+
+        using (var rented = image.DownsampleRented(factor))
+        {
+            rented.Image.GetChannelSpan(0).SequenceEqual(expected.GetChannelSpan(0)).ShouldBeTrue();
+            float.IsNaN(rented.Image.GetChannelSpan(0)[5 * (width / factor) + 5]).ShouldBeTrue("premise: the NaN block stayed NaN");
+            rented.Image.ImageMeta.ShouldBe(expected.ImageMeta);
+            (rented.Image.Width, rented.Image.Height, rented.Image.MaxValue, rented.Image.MinValue)
+                .ShouldBe((expected.Width, expected.Height, expected.MaxValue, expected.MinValue));
+        }
+
+        image.DownsampleRented(factor).Dispose();
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        image.DownsampleRented(factor).Dispose();
+        var rentedBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        before = GC.GetAllocatedBytesForCurrentThread();
+        _ = image.Downsample(factor);
+        var allocatingBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        var plane = (long)(width / factor) * (height / factor) * sizeof(float);
+        TestContext.Current.TestOutputHelper?.WriteLine($"{width}x{height} at factor {factor}: Downsample {allocatingBytes:N0} bytes, rented {rentedBytes:N0}");
+        allocatingBytes.ShouldBeGreaterThanOrEqualTo(plane, "premise: the allocating downsample makes a plane");
+        rentedBytes.ShouldBeLessThan(1024L);
+    }
+
+    /// <summary>
+    /// A plane returned to the pool twice is handed to two renters at once. Disposing a rented image
+    /// again must not return anything; two rents of its shape afterwards must get two planes.
+    /// </summary>
+    [Fact]
+    public void ARentedImageReturnsItsPlanesOnceHoweverOftenItIsDisposed()
+    {
+        // A shape nothing else in the suite rents, so the two rents below see only this test's return.
+        var image = new Image([new float[46, 74]], BitDepth.Float32, 1f, 0f, 0f, Meta(SensorType.Monochrome));
+
+        var rented = image.DownsampleRented(2);
+        rented.Dispose();
+        rented.Dispose();
+
+        var first = Array2DPool<float>.Rent(23, 37);
+        var second = Array2DPool<float>.Rent(23, 37);
+        second.ShouldNotBeSameAs(first);
+        Array2DPool<float>.Return(first);
+        Array2DPool<float>.Return(second);
+    }
+
     /// <summary>A mono frame of whole ADU across the 16-bit range, as a camera hands it over.</summary>
     private static Image SixteenBitFrame(int width, int height)
     {

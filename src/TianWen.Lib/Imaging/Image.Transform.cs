@@ -899,14 +899,55 @@ public partial class Image
         }
 
         var (channelCount, srcWidth, srcHeight) = Shape;
-        var dstWidth = srcWidth / factor;
-        var dstHeight = srcHeight / factor;
-        var blockArea = factor * factor;
+        return DownsampleInto(factor, CreateChannelData(channelCount, srcHeight / factor, srcWidth / factor));
+    }
 
-        var dst = new float[channelCount][,];
+    /// <summary>
+    /// <see cref="Downsample"/> into planes rented from <see cref="Array2DPool{T}"/>, for a caller that only
+    /// DETECTS on the result and lets it go, which every plate solver does on every frame: 26 MB of new
+    /// planes per polar-alignment refine at factor 2 on a 26 MP sensor. Dispose the result as soon as the
+    /// detection is done and read its <see cref="RentedImage.Image"/> no further. A factor of 1 is this image
+    /// itself, with nothing to return.
+    /// </summary>
+    internal RentedImage DownsampleRented(int factor)
+    {
+        if (factor < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(factor), factor, "factor must be >= 1");
+        }
+        if (factor == 1)
+        {
+            return new RentedImage(this, null);
+        }
+
+        var (channelCount, srcWidth, srcHeight) = Shape;
+        var planes = new float[channelCount][,];
         for (var c = 0; c < channelCount; c++)
         {
-            dst[c] = new float[dstHeight, dstWidth];
+            planes[c] = Array2DPool<float>.Rent(srcHeight / factor, srcWidth / factor);
+        }
+        return new RentedImage(DownsampleInto(factor, planes), planes);
+    }
+
+    // The one block-averaging loop, into one [Height / factor, Width / factor] plane per channel. It writes
+    // every destination pixel, so a rented plane's previous contents never show.
+    private Image DownsampleInto(int factor, float[][,] dst)
+    {
+        var (channelCount, srcWidth, srcHeight) = Shape;
+        var dstWidth = srcWidth / factor;
+        var dstHeight = srcHeight / factor;
+        if (dst.Length != channelCount)
+        {
+            throw new ArgumentException($"{dst.Length} planes for {channelCount} channels", nameof(dst));
+        }
+
+        for (var c = 0; c < channelCount; c++)
+        {
+            if (dst[c].GetLength(0) != dstHeight || dst[c].GetLength(1) != dstWidth)
+            {
+                throw new ArgumentException($"Plane {c} is {dst[c].GetLength(1)}x{dst[c].GetLength(0)}, not {dstWidth}x{dstHeight}", nameof(dst));
+            }
+
             var src = Planes[c].Data;
             for (var y = 0; y < dstHeight; y++)
             {
