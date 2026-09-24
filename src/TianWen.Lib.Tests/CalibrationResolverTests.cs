@@ -736,6 +736,30 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public void GroupCalibration_KeepsADriftingFlatRunWhole_SoTheBakeUsesAllOfIt()
+        {
+            // #712 (#307 #39): the same rule for FLATS. An uncooled flat run warms through several
+            // degrees while the panel is on (the ASI294MM's Leo Triplet flats, 100 frames of which the
+            // bake used 4 when grouped by the degree). As ONE run it is one master of every frame, and
+            // that is the one the matcher hands a light on any of the degrees it crossed.
+            var night = Utc(2022, 3, 4, 20, 0);
+            var frames = new List<FrameInfo>();
+            for (var i = 0; i < 100; i++)
+            {
+                frames.Add(Cal(FrameType.Flat, 1.5, 21.6f + (0.05f * i), gain: 120, when: night + TimeSpan.FromSeconds(10 * i)));
+            }
+
+            var flats = CalibrationResolver.GroupCalibration(frames)[FrameType.Flat];
+
+            var flat = flats.ShouldHaveSingleItem();
+            flat.Frames.Length.ShouldBe(100);
+            foreach (var tempC in new[] { 21.6f, 24f, 26.5f })
+            {
+                CalibrationResolver.BestFlat(flats, Light(300, tempC, gain: 120, when: night - TimeSpan.FromHours(2))).ShouldBe(flat);
+            }
+        }
+
+        [Fact]
         public void GroupCalibration_ACoolersSettlingFrames_AreNotALibraryOfTheirOwn()
         {
             // The ASI585's 2025-08-09 library: 74 frames at -10.0 C and two at -9.4 C. Keyed by the
