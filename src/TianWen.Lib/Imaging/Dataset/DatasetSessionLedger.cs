@@ -81,40 +81,65 @@ public static class DatasetSessionLedger
             path, entry, DatasetSessionLedgerJsonContext.Default.SessionLedgerEntry, "session ledger", logger, cancellationToken);
 
     /// <summary>
-    /// A digest of the calibration library: every calibration frame's path, size and mtime, in path
-    /// order. Computed once per run and folded into every session's fingerprint.
+    /// A digest of the calibration a session CHOSE (<see cref="CalibrationResolver.Choose"/>): for each
+    /// role (dark, flat, flat pedestal, dark bias) the group it resolved to and every frame in it, by
+    /// path, size and mtime. So a session is stale when what calibrates it changed, and only then.
     /// </summary>
-    public static string CalibrationLibraryDigest(IEnumerable<FrameInfo> calibrationFrames)
+    /// <remarks>
+    /// This used to digest the WHOLE calibration library, which made every session in a store stale
+    /// whenever any calibration frame anywhere moved: deleting one camera's damaged 200 s dark on
+    /// 2026-09-24 invalidated 58 finished sessions of other cameras for a resume. The resolver's choice
+    /// is a pure function of the lights and the library, computed from metadata alone, and it is the
+    /// same function <see cref="CalibrationResolver.ResolveAsync"/> builds from, so digesting the choice
+    /// is exact where the library digest was only conservative: a new set that would now be CHOSEN for
+    /// a session changes its choice and so its fingerprint, and one it would not choose changes nothing.
+    /// A store fingerprinted the old way reads as stale once on its first resume under this rule.
+    /// </remarks>
+    public static string CalibrationDigest(CalibrationResolver.CalibrationChoice choice)
     {
-        var paths = new List<string>();
-        foreach (var frame in calibrationFrames)
-        {
-            paths.Add(frame.Path);
-        }
-        paths.Sort(StringComparer.Ordinal);
-
         var hash = new XxHash128();
-        foreach (var path in paths)
-        {
-            AppendFile(hash, path);
-        }
+        AppendGroup(hash, "dark", choice.Dark);
+        AppendGroup(hash, "flat", choice.Flat);
+        AppendGroup(hash, "flat-pedestal", choice.FlatPedestal);
+        AppendGroup(hash, "dark-bias", choice.DarkBias);
         return ContentDigest.Format(hash.GetCurrentHash());
+
+        static void AppendGroup(XxHash128 hash, string role, CalibrationResolver.CalGroup? group)
+        {
+            if (group is null)
+            {
+                Append(hash, role + ":none");
+                return;
+            }
+
+            Append(hash, $"{role}:{group.Key.Slug()}{group.Train.SlugSuffix()}{group.EpochSuffix}|master:{group.IsMaster}");
+            var paths = new List<string>(group.Frames.Length);
+            foreach (var frame in group.Frames)
+            {
+                paths.Add(frame.Path);
+            }
+            paths.Sort(StringComparer.Ordinal);
+            foreach (var path in paths)
+            {
+                AppendFile(hash, path);
+            }
+        }
     }
 
     /// <summary>
     /// The fingerprint of one session as it would be built now.
     /// </summary>
     /// <param name="session">The session, whose lights are stat-ed (never read).</param>
-    /// <param name="calibrationLibraryDigest">From <see cref="CalibrationLibraryDigest"/>.</param>
+    /// <param name="calibrationDigest">From <see cref="CalibrationDigest"/>.</param>
     /// <param name="recipe">The options that shape this session's outputs, already reduced to a
     /// string by the caller (<c>DatasetBuildOptions.RecipeKey()</c>), so this file needs no view of
     /// the options type and a new option that changes outputs has one place to be added.</param>
-    public static string FingerprintOf(ImagingSession session, string calibrationLibraryDigest, string recipe)
+    public static string FingerprintOf(ImagingSession session, string calibrationDigest, string recipe)
     {
         var hash = new XxHash128();
         Append(hash, "recipe-version:" + RecipeVersion);
         Append(hash, "recipe:" + recipe);
-        Append(hash, "calibration:" + calibrationLibraryDigest);
+        Append(hash, "calibration:" + calibrationDigest);
         Append(hash, "session:" + session.Id);
 
         var paths = new List<string>(session.Lights.Length);

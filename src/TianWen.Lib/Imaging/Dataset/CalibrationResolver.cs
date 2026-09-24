@@ -255,6 +255,51 @@ public static class CalibrationResolver
     public static MasterGroupKey SessionKey(IReadOnlyList<FrameInfo> lights) =>
         MasterGroupKey.FromFrame(lights[0]) with { TemperatureC = TemperatureClusters.MedianTemperatureC(lights) };
 
+    /// <summary>The calibration groups a session resolves to, chosen from their metadata alone:
+    /// what <see cref="ResolveAsync"/> then builds masters from, and what the session ledger
+    /// fingerprints, so the two cannot disagree about which frames calibrate a session.</summary>
+    /// <param name="Dark">The light-dark, or null.</param>
+    /// <param name="Flat">The flat, or null.</param>
+    /// <param name="FlatPedestal">The bias / dark-flat the flat's own pedestal is taken from, or null.</param>
+    /// <param name="DarkBias">The bias that separates the dark's offset from its thermal signal when the
+    /// dark's exposure differs from the lights', or null.</param>
+    public sealed record CalibrationChoice(CalGroup? Dark, CalGroup? Flat, CalGroup? FlatPedestal, CalGroup? DarkBias);
+
+    /// <summary>
+    /// Chooses a session's calibration groups without reading a pixel or building a master: the
+    /// selection half of <see cref="ResolveAsync"/>, which builds from exactly this.
+    /// </summary>
+    public static CalibrationChoice Choose(
+        ImagingSession session,
+        IReadOnlyDictionary<FrameType, List<CalGroup>> calGroups,
+        bool requireGainMatch = true,
+        double? maxDarkTemperatureDelta = null)
+    {
+        var light = session.Lights[0];
+        var lightKey = SessionKey(session.Lights);
+        var darkGroup = BestDark(calGroups.GetValueOrDefault(FrameType.Dark), light, requireGainMatch, maxDarkTemperatureDelta, lightKey);
+        var flatGroup = BestFlat(calGroups.GetValueOrDefault(FrameType.Flat), light, lightKey);
+        // A flat's own pedestal (bias / dark-flat) is removed before normalising; a foreign master
+        // flat was integrated by its own tool and is not re-pedestalled.
+        var flatPedestalGroup = flatGroup is { IsMaster: false }
+            ? BestFlatPedestal(calGroups.GetValueOrDefault(FrameType.Bias),
+                calGroups.GetValueOrDefault(FrameType.DarkFlat),
+                calGroups.GetValueOrDefault(FrameType.Dark), flatGroup)
+            : null;
+        // Dark scaling needs a bias only when the dark's exposure is not the lights'.
+        CalGroup? darkBiasGroup = null;
+        if (darkGroup is not null)
+        {
+            var darkSeconds = darkGroup.Key.Exposure.TotalSeconds;
+            var lightSeconds = lightKey.Exposure.TotalSeconds;
+            if (darkSeconds > 0.0 && lightSeconds > 0.0 && Math.Abs(lightSeconds - darkSeconds) > 0.01)
+            {
+                darkBiasGroup = BestDarkBias(calGroups.GetValueOrDefault(FrameType.Bias), darkGroup);
+            }
+        }
+        return new CalibrationChoice(darkGroup, flatGroup, flatPedestalGroup, darkBiasGroup);
+    }
+
     /// <summary>
     /// Resolves the best-matching <see cref="Calibrator"/> for a session (dark + flat, no bias),
     /// building/loading the matched masters through <paramref name="masterCache"/>. Returns
@@ -273,8 +318,10 @@ public static class CalibrationResolver
         var light = session.Lights[0];
         var lightKey = SessionKey(session.Lights);
 
-        var darkGroup = BestDark(calGroups.GetValueOrDefault(FrameType.Dark), light, requireGainMatch, maxDarkTemperatureDelta, lightKey);
-        var flatGroup = BestFlat(calGroups.GetValueOrDefault(FrameType.Flat), light, lightKey);
+        // The one selection, shared with the session ledger's fingerprint (Choose).
+        var choice = Choose(session, calGroups, requireGainMatch, maxDarkTemperatureDelta);
+        var darkGroup = choice.Dark;
+        var flatGroup = choice.Flat;
 
         // A gain/offset-mismatched dark is only ever picked when no same-gain library exists (the
         // penalty guarantees a matching one wins) -- but it mis-scales the fixed pattern that dark
@@ -306,11 +353,7 @@ public static class CalibrationResolver
         // an exposure-matched dark-flat also removes the thermal signal the flat accumulated,
         // which a bias cannot. Only a RAW flat group needs it: a foreign master flat arrives
         // already calibrated by whatever produced it.
-        var flatPedestalGroup = flatGroup is { IsMaster: false }
-            ? BestFlatPedestal(calGroups.GetValueOrDefault(FrameType.Bias),
-                calGroups.GetValueOrDefault(FrameType.DarkFlat),
-                calGroups.GetValueOrDefault(FrameType.Dark), flatGroup)
-            : null;
+        var flatPedestalGroup = choice.FlatPedestal;
 
         var dark = darkGroup is null ? null : await masterCache.GetOrBuildAsync(darkGroup.Key, darkGroup.Train, darkGroup.Frames, darkGroup.IsMaster, normalizedAduScale, epochSuffix: darkGroup.EpochSuffix, cancellationToken: cancellationToken);
         var flat = flatGroup is null ? null : await masterCache.GetOrBuildAsync(flatGroup.Key, flatGroup.Train, flatGroup.Frames, flatGroup.IsMaster, normalizedAduScale, flatPedestalGroup, flatGroup.EpochSuffix, cancellationToken);
@@ -354,7 +397,7 @@ public static class CalibrationResolver
             var lightSeconds = lightKey.Exposure.TotalSeconds;
             if (darkSeconds > 0.0 && lightSeconds > 0.0 && Math.Abs(lightSeconds - darkSeconds) > 0.01)
             {
-                var darkBiasGroup = BestDarkBias(calGroups.GetValueOrDefault(FrameType.Bias), darkGroup);
+                var darkBiasGroup = choice.DarkBias;
                 darkBias = darkBiasGroup is null
                     ? null
                     : await masterCache.GetOrBuildAsync(darkBiasGroup.Key, darkBiasGroup.Train, darkBiasGroup.Frames,

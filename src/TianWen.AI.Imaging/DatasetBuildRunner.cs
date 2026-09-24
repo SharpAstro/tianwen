@@ -154,11 +154,6 @@ public static class DatasetBuildRunner
         var frames = (scan ?? await SessionDiscovery.ScanAsync(options, logger, progress, cancellationToken: cancellationToken)).Frames;
         var (sessions, stats) = SessionDiscovery.GroupSessions(frames, options);
         var calGroups = CalibrationResolver.GroupCalibration(frames.Select(f => f.Frame));
-        // One digest of the whole calibration library, folded into every session's fingerprint: the
-        // resolver's choice for a session is a function of the lights and this library, so hashing
-        // the library is what lets a resume decide a session's fate without resolving its calibration.
-        var calibrationLibraryDigest = DatasetSessionLedger.CalibrationLibraryDigest(
-            calGroups.Values.SelectMany(static groups => groups).SelectMany(static g => g.Frames));
         var recipeKey = options.RecipeKey();
         progress?.Report(
             $"[dataset] {stats.Sessions} sessions / {stats.Lights} lights; " +
@@ -297,7 +292,13 @@ public static class DatasetBuildRunner
             var resumeStart = StageTimings.Start();
             var checkpoint = priorTiles.GetValueOrDefault(session.Id);
             var tilesReusable = checkpoint is not null && TilesStillPresent(outDir, checkpoint, logger);
-            var fingerprint = DatasetSessionLedger.FingerprintOf(session, calibrationLibraryDigest, recipeKey);
+            // Fingerprinted on the calibration this session CHOOSES (metadata alone, the same choice
+            // ResolveAsync builds from), so a change to another camera's library leaves it valid.
+            var fingerprint = DatasetSessionLedger.FingerprintOf(
+                session,
+                DatasetSessionLedger.CalibrationDigest(
+                    CalibrationResolver.Choose(session, calGroups, options.RequireGainMatch, options.MaxDarkTemperatureDelta)),
+                recipeKey);
             // STALE is decided by the ledger and the files, never by their presence alone: the inputs
             // moved (a light added, removed or re-typed; the calibration library changed), the recipe
             // moved, or the retained master lacks what the recipe now writes beside it (a coverage

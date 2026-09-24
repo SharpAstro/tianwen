@@ -722,6 +722,30 @@ byte-identical, the integration of everything 2.2 minutes against 4.7 + 6.0, the
 against 27.2, and back to its 11.5 before the clip existed. Export (3.0 minutes, 8,700 tiles) is now
 the largest stage.
 
+### A bake scanned the archive twice, cold, and one camera's calibration change invalidated every camera (FIXED 2026-09-25)
+
+**The scan.** A header read is a seek on the archive's USB hard disk, about 15 a second: the 2026-09-24
+re-bake spent 26 minutes reading 35,000 headers before its first session. And every `dataset build`
+scanned twice, because the CLI's session listing (`SessionDiscovery.DiscoverAsync`) and the build
+(`DatasetBuildRunner`) each had their own loop, as did the coverage report; the second was quick only
+because the first had just warmed the file cache. Now there is one scan (`SessionDiscovery.ScanAsync`),
+the CLI hands it to the build, and a root's headers are remembered between scans (`FitsHeaderIndex`:
+the raw header bytes, keyed on path, size and write time, replayed through the one parse). Measured on
+real folders (`FitsHeaderIndexProbe`): every N.I.N.A., SharpCap, QHY and SVBONY header in them
+replayed identically, and the 1,898 flats of one folder took 77 s to read and 122 ms from the index.
+
+**Not done, deliberately: skipping excluded folders before their headers are read.** The same frames
+feed calibration grouping, and a calibration frame under an `ExcludePathSegments` folder still
+calibrates today (only lights are dropped there), so skipping it would change a session's calibration.
+
+**The resume.** The ledger folded a digest of the WHOLE calibration library into every session's
+fingerprint, so deleting one camera's damaged 200 s dark on 2026-09-24 made all 58 finished sessions of
+the stopped bake stale for a resume, whatever camera they were. A session is now fingerprinted on the
+calibration it CHOSE (`CalibrationResolver.Choose`, the metadata-only half of `ResolveAsync`, which
+builds from the same choice): each role's group and its frames. A new set the resolver would now choose
+changes the choice and so the fingerprint; one it would not choose changes nothing
+(`CalibrationDigestTests`). A store fingerprinted the old way reads as stale once, on its first resume.
+
 **Also added the same day: session staging** (`SessionStager`, on by default, `--no-stage-lights`):
 the next session's lights are copied onto the scratch volume while the current one bakes, so its
 several passes read a local copy. Only the read is redirected (`FrameInfo.StagedPath`); every record
