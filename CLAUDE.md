@@ -1355,7 +1355,10 @@ vocabulary (own/borrow/consume), the four conventions and the DEBUG leak leg:
 - `Array2DPool` is scratch only; camera buffers use `ChannelBuffer`. A buffer nobody released is
   findable in DEBUG (`ChannelBufferLeakTracker`); the recycle loop is complete for DAL/Fake/Alpaca/
   ASCOM/Canon, a streaming driver's multi-plane frames going through `PlaneRecycler`; FC.SDK.Raw's own
-  decode buffers are that library's to recycle.
+  decode buffers are that library's to recycle. **A full pool budget makes room by evicting the oldest
+  arrays of other shapes, and its policy is tested on an `Array2DPoolCore` of its own, never through the
+  shared pool**, whose Gen2 trim empties it above 90 % memory load and so makes any fill-the-budget
+  test measure the machine (it emptied a 256 MiB fill halfway on a loaded box, and never ran on CI).
 - **`Image.MaxValue` is the peak pixel OBSERVED, not saturation** (`ImageMeta.SensorFullScaleAdu` is
   the fixed value). Two "full scale" numbers must not be conflated: the BITPIX container width vs the
   native ADC resolution -- never route a native ADC depth through `BitDepthEx.FromValue` (falls back

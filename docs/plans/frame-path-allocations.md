@@ -155,7 +155,16 @@ vector pass. Measured on a 26 MP 16-bit sub, hot page cache, win-arm64, Release:
 
 - **`Array2DPool.Rent`'s documentation says "zero-cleared", but the code does not clear.** Every caller
   added here overwrites every element, so it is safe; the comment is wrong and any caller that relies
-  on it is not.
+  on it is not. FIXED: the comments now say a pooled array holds whatever its last user left in it
+  ("refactor(imaging): the pool's policy is an instance the shared pool delegates to").
+- **A full byte budget turned a new shape away for as long as it stayed full.** The trim runs only
+  above 70% memory load, so on a roomy machine the budget one workload filled stayed filled, and every
+  return of the next workload's shape was refused: a live capture after a session's masters paid a new
+  plane per frame. Found on #759's CI, where the frame-path allocation tests met a budget earlier tests
+  had filled; a dev box at 86% load, where the trim kept emptying the pool, passed them. FIXED: a return
+  that would pass the budget evicts the arrays of other shapes returned longest ago. Measured on a 1 MiB
+  pool of its own, a new shape's steady state went from 81,960 bytes per frame (every rent a new plane)
+  to 0.
 - **Each forced gen2 also ran `Array2DPool`'s trim.** Above 70% memory load that drops entries older
   than 30 s, which at a 60-300 s sub cadence discarded the pooled planes on every sub. With the forced
   collection gone, the trim runs only on natural gen2s.

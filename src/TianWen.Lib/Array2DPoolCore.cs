@@ -20,7 +20,9 @@ internal sealed class Array2DPoolCore<T>(long maxRetainedBytes, int maxPerBucket
     /// <summary>Arrays unused for longer than this are trimmed under moderate pressure.</summary>
     private const long TrimAfterMs = 30_000;
 
-    private readonly record struct PoolEntry(T[,] Array, long Timestamp);
+    // Timestamp is for the trim's age test, in milliseconds; Sequence orders eviction, since many
+    // returns share a millisecond and the victim must be the array returned longest ago.
+    private readonly record struct PoolEntry(T[,] Array, long Timestamp, long Sequence);
 
     private readonly ConcurrentDictionary<long, ConcurrentQueue<PoolEntry>> _buckets = new();
 
@@ -29,6 +31,7 @@ internal sealed class Array2DPoolCore<T>(long maxRetainedBytes, int maxPerBucket
     private long _returns;
     private long _retainedBytes;
     private long _budgetEvictions;
+    private long _sequence;
 
     /// <summary>Number of active pool buckets (distinct array sizes).</summary>
     public int BucketCount => _buckets.Count;
@@ -56,7 +59,10 @@ internal sealed class Array2DPoolCore<T>(long maxRetainedBytes, int maxPerBucket
     /// <summary>Bytes currently retained across all buckets.</summary>
     public long RetainedBytes => Volatile.Read(ref _retainedBytes);
 
-    /// <summary>Arrays dropped because the pool was already at its byte budget.</summary>
+    /// <summary>
+    /// Arrays the byte budget dropped: an older array evicted to make room for a return, or a return
+    /// refused because it could never fit, or because everything held is its own shape.
+    /// </summary>
     public long BudgetEvictionCount => Volatile.Read(ref _budgetEvictions);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -92,10 +98,10 @@ internal sealed class Array2DPoolCore<T>(long maxRetainedBytes, int maxPerBucket
     {
         Interlocked.Increment(ref _returns);
 
-        // Budget first: a heterogeneous workload never fills a single bucket, so the per-bucket
-        // cap alone would let the pool grow without bound across shapes.
+        // An array larger than the whole budget can never fit: refuse it, and evict nothing for it,
+        // since everything evicted would be dropped for no gain.
         var bytes = BytesOf(array);
-        if (Volatile.Read(ref _retainedBytes) + bytes > maxRetainedBytes)
+        if (bytes > maxRetainedBytes)
         {
             Interlocked.Increment(ref _budgetEvictions);
             return;
@@ -103,12 +109,61 @@ internal sealed class Array2DPoolCore<T>(long maxRetainedBytes, int maxPerBucket
 
         var key = Key(array.GetLength(0), array.GetLength(1));
         var queue = _buckets.GetOrAdd(key, static _ => new ConcurrentQueue<PoolEntry>());
-        if (queue.Count < maxPerBucket)
+        if (queue.Count >= maxPerBucket)
         {
-            queue.Enqueue(new PoolEntry(array, Environment.TickCount64));
-            Interlocked.Add(ref _retainedBytes, bytes);
+            return; // let GC collect it; pool is full for this size
         }
-        // else: let GC collect it; pool is full for this size
+
+        // The budget bounds the pool across shapes, which the per-bucket cap alone never would: a
+        // heterogeneous workload fills no single bucket. A return that would pass it makes ROOM,
+        // evicting the arrays of other shapes returned longest ago, rather than being refused. The
+        // shared pool trims only above 70 % memory load, so on a roomy machine a budget one workload
+        // filled used to stay filled and turn the next workload's shape away on every frame (found
+        // on #759's CI). Oldest first keeps the shape in use, since each of its rents takes an entry
+        // out and each return enqueues a newer one.
+        while (Volatile.Read(ref _retainedBytes) + bytes > maxRetainedBytes)
+        {
+            if (!TryEvictOldest(except: queue))
+            {
+                // Everything held is this shape's own, and evicting one to keep another buys nothing.
+                Interlocked.Increment(ref _budgetEvictions);
+                return;
+            }
+        }
+
+        queue.Enqueue(new PoolEntry(array, Environment.TickCount64, Interlocked.Increment(ref _sequence)));
+        Interlocked.Add(ref _retainedBytes, bytes);
+    }
+
+    /// <summary>
+    /// Evicts the entry returned longest ago from any bucket but <paramref name="except"/>, and says
+    /// whether there was one. Losing the chosen entry to a concurrent rent still counts as progress,
+    /// since that rent lowered the retained total itself.
+    /// </summary>
+    private bool TryEvictOldest(ConcurrentQueue<PoolEntry> except)
+    {
+        ConcurrentQueue<PoolEntry>? victim = null;
+        var oldest = long.MaxValue;
+        foreach (var (_, queue) in _buckets)
+        {
+            if (!ReferenceEquals(queue, except) && queue.TryPeek(out var head) && head.Sequence < oldest)
+            {
+                oldest = head.Sequence;
+                victim = queue;
+            }
+        }
+
+        if (victim is null)
+        {
+            return false;
+        }
+
+        if (victim.TryDequeue(out var evicted))
+        {
+            Interlocked.Add(ref _retainedBytes, -BytesOf(evicted.Array));
+            Interlocked.Increment(ref _budgetEvictions);
+        }
+        return true;
     }
 
     /// <summary>Drops every pooled array.</summary>

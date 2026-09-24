@@ -89,13 +89,22 @@ public static class Array2DPool<T>
     ///
     /// <para>256 MiB holds ~7 frames at 3008^2 float32, i.e. the whole working set of a normal
     /// session, while being a rounding error next to an external enhancer's footprint.</para>
+    ///
+    /// <para>A return that would pass the ceiling makes ROOM, evicting the arrays of other shapes
+    /// returned longest ago (<see cref="Array2DPoolCore{T}.Return"/>), rather than being refused. The
+    /// trim runs only above 70 % memory load, so on a roomy machine a budget one workload filled used
+    /// to stay filled and turn the next workload's shape away on every frame, which is per-frame
+    /// garbage the pool exists to prevent.</para>
     /// </summary>
     private const long MaxRetainedBytes = 256L * 1024 * 1024;
 
     /// <summary>Bytes currently retained across all buckets.</summary>
     public static long RetainedBytes => Shared.RetainedBytes;
 
-    /// <summary>Arrays dropped because the pool was already at <see cref="MaxRetainedBytes"/>.</summary>
+    /// <summary>
+    /// Arrays the <see cref="MaxRetainedBytes"/> budget dropped: an older array evicted to make room, or a
+    /// return refused (see <see cref="Array2DPoolCore{T}.BudgetEvictionCount"/>).
+    /// </summary>
     public static long BudgetEvictionCount => Shared.BudgetEvictionCount;
 
     static Array2DPool()
