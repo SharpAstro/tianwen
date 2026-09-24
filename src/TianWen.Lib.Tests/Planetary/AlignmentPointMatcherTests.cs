@@ -140,6 +140,11 @@ public class AlignmentPointMatcherTests
 
         TestContext.Current.TestOutputHelper?.WriteLine($"BuildMesh over {aps.Length} points: {allocated} bytes");
         again.Sample(48.5f, 47.25f).ShouldBe(first.Sample(48.5f, 47.25f), "the reused scratch carries nothing between calls");
-        allocated.ShouldBeLessThan(8 * 1024, $"{aps.Length} points used to cost two 16 KB spectra each");
+        // The budget sits between normal and broken, not at normal. Measured: 1,032 bytes on Windows x64 Release
+        // and on ten Release runs on a Linux runner. One ubuntu-latest CI run read 8,200 bytes (#766), which was
+        // work unrelated to BuildMesh landing on the test thread between the two GetAllocatedBytesForCurrentThread
+        // reads; the old 8 KB limit failed on it. The regression this guards against is two 16 KB spectra per
+        // point, over 1 MB for these ~32 points, so 64 KB is 16x under that and 60x over the measured figure.
+        allocated.ShouldBeLessThan(64 * 1024, $"{aps.Length} points used to cost two 16 KB spectra each");
     }
 }
