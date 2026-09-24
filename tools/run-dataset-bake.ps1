@@ -107,7 +107,8 @@ try {
 
     # The CLI treats a missing parameters file as "no standing decisions", which is right for a
     # fresh checkout and wrong for a launcher that names one: fail here instead.
-    if ($ExtraArgs -contains '--parameters') { throw 'pass -Parameters, not --parameters in -ExtraArgs' }
+    # Matched as a prefix, so '--parameters=path' and '--parameters:path' are caught too.
+    if (@($ExtraArgs) -match '^--parameters') { throw 'pass -Parameters, not --parameters in -ExtraArgs' }
     $Parameters = (Resolve-Path $Parameters -ErrorAction Stop).Path
     Write-Host "parameters $Parameters"
 
