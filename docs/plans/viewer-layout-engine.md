@@ -1,6 +1,8 @@
 # The chrome should not be doing its own arithmetic
 
-Status: NOT STARTED, HIGH PRIORITY (user, 2026-09-15). Scope measured the same day; no phase started.
+Status: P0, P1, P2 and P4 DONE (2026-09-16; P2 keeps `ReservedLabelWidth` on measurement, see P2); only P3
+is left, the viewer's own core file and the sky-map tab, lower value and ratcheted by P4 (issue #367).
+Planned 2026-09-15 (user, high priority); the header said NOT STARTED until 2026-09-24.
 **P0 (the measure seam) now ships as part of [dir-lib-10.md](dir-lib-10.md) D1**, the same DIR.Lib release
 that adds the input router; P1 to P4 are unchanged and are that plan's T3.
 The tone popover (`ImageRendererBase.TonePanel.cs`, shipped 8.1) is the worked example of the target
