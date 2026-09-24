@@ -1,6 +1,6 @@
 # TODO -- Imaging, Stretch & Colour
 
-Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the active/high-priority list.
+**The open items are GitHub issues** labelled [`area:imaging`](https://github.com/SharpAstro/tianwen/issues?q=is%3Aissue+is%3Aopen+label%3Aarea%3Aimaging) since 2026-09-24, when this file was migrated. What is left here is the DONE archive, kept for the measurements and reasons it records. Never add an open `- [ ]` here: open an issue.
 
 ## A map sidecar is stored quantised and gzipped, and the mask is kept
 
@@ -122,48 +122,6 @@ prompted by finding that the master flat was never calibrated. Ordered by value 
 The flat gap itself is **fixed** (see [known-limitations](../known-limitations.md)); these are what
 the comparison turned up alongside it.
 
-- [ ] **Gate or weight subs on their own guiding statistics, now that they carry them.** Lights written
-  since 2026-08-29 carry `GUIDERMS` / `GUIRMSRA` / `GUIRMSDE` / `GUIDEPK` / `GUIDEN` in arcsec, measured
-  over each frame's OWN exposure window (`ImageMeta.Guiding`, `GuideStatistics.OverExposure`), so the
-  stacker can reject or down-weight the smeared ones from the header alone -- no pixel read, and it
-  composes with the per-frame weighting item below. **Prefer `GUIDEPK` over `GUIDERMS` for the reject
-  decision**: a trailed sub is usually one gust against an otherwise clean exposure, which is precisely
-  what an RMS averages away, and the two cards exist separately for that reason. Two gotchas before
-  anyone wires it: **an absent card means UNKNOWN, never good** (an unguided rig writes no cards at all,
-  by design, so a missing-is-fine default silently exempts every frame it should be judging), and
-  **`GUIDEN` bounds how much the number is worth** -- a two-sample RMS from a short sub or a truncated
-  ring buffer should not gate anything. Nothing consumes these yet.
-- [ ] **Per-frame weighting in the combine.** We gate binary (`FrameQualityFilter` keeps or rejects)
-  and then combine with an unweighted mean. Siril weights by wFWHM / star count / noise, PixInsight
-  by `SubframeSelector` output, APP by its own quality measure. This is free SNR on any session with
-  variable transparency, and **the seam already exists**: `MeanCombiner.Combine` computes
-  `sum += v * k; cnt += k` over the keepMask, so a keepMask entry carrying the frame's weight
-  instead of 1.0 is a correct weighted mean with no change to the math. The work is threading a
-  per-frame weight from `FrameMetrics` (which already carries median HFD, FWHM, ellipticity and star
-  count) down through the strategies to where the mask is built. Cheapest real win on this list.
-- [ ] **Local normalisation.** `Normalizer` applies one global per-channel affine
-  (`(x - min) * target/median`). A gradient that changes SHAPE between subs (rising moon, drifting
-  light pollution) cannot be followed by a single scalar pair. PixInsight has `LocalNormalization`,
-  APP has LNC to degree 4. This is also the blocker for mosaics: APP pairs LNC with multi-band
-  blending to kill panel seams, and we have no answer for that at all, which matters because the
-  Vela project is a 20-panel mosaic.
-- [ ] **Cosmetic correction is narrower than it looks.** `BadPixelDetection.BuildMaskFromDark` builds
-  a good iterative-MAD hot-pixel mask, but only the drizzle strategies consume
-  `IntegrationJob.BadPixelMask`; everything else leans on sigma-clip across frames, which does
-  nothing for a 10-frame group. Siril (`-cc=dark`) and PI (`CosmeticCorrection`) apply it per frame
-  BEFORE registration, which also cleans up star detection. We also have no cold-pixel path.
-- [ ] **Registration has no distortion model.** Star-quad match solves an affine. PI offers thin-plate
-  splines and APP several projective models. Matters most on wide fields, which is what the Samyang
-  135 f/2 shoots, and for mosaic panel joins.
-- [ ] **Dark optimisation is deliberately absent; keep it that way or do it properly.** Siril `-opt`
-  and PI both least-squares-scale a mismatched dark, which requires a bias-subtracted dark that we
-  do not build. We instead refuse anything outside 0.5x to 2.0x exposure. That strictness is load
-  bearing: it is what keeps the 2,220 mislabelled dark-flats from ever being selected as a light's
-  dark. Anyone implementing scaling needs to read that note first.
-- [ ] **Prefer an exposure-matched dark-flat over bias as the flat pedestal.** Worth single-digit ADU
-  (784 vs 788 measured), so this is a refinement, not a fix. Blocked on the `IMAGETYP` labelling
-  above being resolvable without guessing from exposure.
-
 ## Archive filter inference (committing a validated method)
 
 Filed 2026-08-04. The method is validated on 48 sessions / 7,161 frames and the *write* end is
@@ -171,35 +129,6 @@ committed (`dataset tag-filter` + `FitsHeaderEditor`), but every measurement liv
 plus a `_provenance` folder on `D:`, so a fresh checkout re-derives nothing. Full method, the
 reference bias table, the resolution limits and four recorded negative results:
 [docs/plans/filter-inference.md](../plans/filter-inference.md).
-
-- [ ] **F1 `dataset bias-library`.** Group `IMAGETYP=BIAS` on `(camera, gain, offset, temperature)`
-  and emit **per-channel** medians plus n. Per-channel is not optional: one era ran with ZWO white
-  balance on, so its bias is `649/516/649` rather than grey, and the pipeline undoes WB from the bias
-  frame's own channel ratios. Everything downstream keys on this artifact.
-- [ ] **F2 frame-scale detection.** GCD of pixel values tells N.I.N.A.'s times-four 14-to-16-bit
-  recording scale from an unscaled writer. Today this is an assumption in a comment, and it is why
-  every SharpCap session was set aside wholesale. Must be per frame and reported, never inferred
-  from `SWCREATE`.
-- [ ] **F3 `dataset measure-filter`.** Per session, sample frames from the middle of the run, resolve
-  bias from F1, and emit sky rate (e-/px/s / airmass) plus background B/G. Read-only.
-- [ ] **F4 band derivation.** Match F3 rows against a committed reference band table and propose a
-  `FILTER` per session with its basis and deviation. Keep it a **proposal a human locks in**: B/G
-  cleanly separates 3 nm from quad-band (43 sd) but cannot separate two dual-bands from each other.
-- [ ] **F5 `archive organize`.** The copy-to-a-new-root tool: verify both sides, never write to the
-  source, collapse hard-linked frames to one copy, file calibration by what it is. Proven once at
-  5,750 files / 96.95 GiB with 0 failures; needs to become code. Two layout rules it must keep:
-  flats belong under **their own** `DATE-OBS` (filing them under the session date left 10 of 18
-  session dates with no flats folder), and calibration folders must key on **temperature** (without
-  it a bias folder merged two sets seven months and 5 C apart, and daylight dark-flats at +22 C hid
-  inside `DARK`).
-- [ ] **Groups C and beyond are unmeasured**: 16 SV605CC + SH61 EDPH sessions (same IMX533, so the
-  bands transfer, but they need their own bias frames), the 18,354 frames with `TELESCOP='?'`, and
-  the Newtonian, which appears exactly once as `SWQ8`. Askar D1/D2 and IDAS D3 have **zero** textual
-  presence anywhere, so only pixels can place them.
-- [ ] **Settle the times-four claim for the 12-bit ASI585.** CLAUDE.md's "the vendor SDK does not
-  left-shift" was established on the 14-bit ASI533. A 16-ADU comb is measurable (53% of values on an
-  exact 16-ADU grid against 6.25% expected flat), which fits the SDK left-shifting RAW16 for a 12-bit
-  sensor. That is inference, so it wants a live capture rather than a doc edit.
 
 ### Do NOT discard the SharpCap era on the focus assumption (measured 2026-08-04)
 
@@ -237,54 +166,12 @@ undersampled, so HFD is partly floor-limited and the differences above **underst
 error; and (2) this covers the ASI533-at-FL130 years only. The 2021 to 2022 era was **not** tested,
 because 511 of its directories carry no `IMAGETYP` card at all and were skipped by the session gate.
 
-- [ ] **Triage the SharpCap era on `FOCTEMP` delta + measured HFD** rather than discarding it, and
-  give the 511 no-`IMAGETYP` directories a gate that does not depend on that card.
-
 ## Archive + FITS interop backlog (recovered 2026-08-20)
 
 Filed from the `feat/ai-enhancements` handover. **Provenance matters here:** these were tracked as a
 numbered task list that lived only inside a chat session, so the numbers referenced nothing durable
 and are dropped; the old number is given once per entry only so the handover history stays greppable.
 Several entries carry a DECISION already made, which is the part that was actually at risk.
-
-- [ ] **QHY294 gain-1600 dark library.** The only real coverage hole in the 2025-2026 archive.
-  Capture spec (read off the stranded sessions' own lights, so it is a spec and not a guess) in
-  [../plans/astro-archive-survey.md](../plans/astro-archive-survey.md) section 10.1. Shooting it
-  un-drops **193 lights across 3 targets**. (was #10)
-- [ ] **Bake the older archive years, behind CALSTAT / FLIPSTAT read guards.** (was #11) Two decided
-  points:
-  - **`CALSTAT` is a read guard, and it is no longer theoretical.** Its letters (B/D/F) accumulate
-    per applied correction, so a light that already reads `CALSTAT` must not be calibrated again.
-    `C:\temp\test-data` is entirely pre-calibrated (`CALSTAT='BDF'`) and a stack run would happily
-    re-calibrate it if matching darks were present.
-  - **`FLIPSTAT` is raster-transform provenance, NOT pier side** (the raster was flipped or rotated
-    at recording). The nom-tam-fits javadoc gloss conflates the two, and an earlier reading of this
-    repo's own notes made the same mistake. Support it for READING only; never write it.
-- [ ] **Write `CALSTAT` + `DARKTIME` on our own calibration outputs.** (was #39) Partially superseded
-  by the shipped `SWCREATE` + `DATE-BEG`/`DATE-END` master provenance, so check what is already
-  written before starting.
-- [ ] **Mono narrowband, end to end.** (was #37) The M42 Ha + OIII set under `C:\temp\test-data` is
-  the real fixture and M33 LRGB exercises mono broadband; both parse correctly now that the SBFITSEXT
-  `IMAGETYP` spellings land (they used to read as `FrameType.None`, i.e. invisible).
-- [ ] **`TILEXY` + panel identity for mosaics.** (was #50) **The convention is decided, and this is
-  the only place it is written down:** MaxIm publishes no orientation convention (theirs is
-  scan-order dependent), so `TILEXY` is a **grouping key only** and all geometry stays on
-  `OBJCTRA`/`OBJCTDEC` plus the solved WCS. Ours is **X grows with RA, Y grows with Dec, (0,0) at the
-  min-RA / min-Dec corner** -- chosen for self-consistency, not because anyone else does it that way.
-  N.I.N.A. names mosaic panels through `OBJECT` as "Target Panel N". Existing files can be recovered
-  retroactively from `OBJCTRA`/`OBJCTDEC` + a solved WCS, so this is not capture-time-only.
-- [ ] **Panel level in the organized archive.** (was #38)
-- [ ] **Re-organise `D:\Astro-Organized` where several sessions share one folder.** (was #49) Scope
-  measured in [../plans/astro-archive-survey.md](../plans/astro-archive-survey.md) section 10.2:
-  **1,073 lights with no organized counterpart**, every one from a non-ASI533 / non-SV605CC camera.
-- [ ] **Filter identity for the dual-band sessions.** Either sidecars (`.tianwen-meta.json`) or a
-  `dataset tag-filter` verb. The coverage census makes the gap explicit: `filter_source=none` on all
-  60 sessions, because **no session in the source archive carries a `FILTER` header at all**. Related:
-  the archive filter-inference section above, and [../plans/filter-inference.md](../plans/filter-inference.md).
-- [ ] **ML gradient fields.** (was #15) Belongs to
-  [../plans/ai-denoise-deconv.md](../plans/ai-denoise-deconv.md) P5 rather than here; listed so the
-  handover's backlog is fully accounted for.
-- [ ] Optional: run `dataset coverage` over `D:\Astro-Organized` too, for a filter-aware report.
 
 Interop facts hit on real data during that review, kept because they are not written down anywhere
 else and each cost time to establish:
@@ -310,278 +197,12 @@ mode reads all of them, roughly 47 MP at half the pitch, and there **the colour 
 Bayer tile but a 4x4 block of 2x2 same-colour quads**, so a standard demosaic is wrong on it by
 construction rather than by a phase error.
 
-- [ ] **Whether the 4x mode buys anything is a question about the TRAIN, and the two trains answer
-  it oppositely** (owner, 2026-09-16; the first draft of this entry got it wrong by asking only the
-  Quattro). The camera currently sits on the **SV204, 45 mm at f/4.5, about 202 mm**, where a 45 mm
-  aperture is well under a typical r0 so the PSF is **diffraction-limited at about 2.57 arcsec**,
-  not seeing-limited:
-
-  | train | 11 MP | 47 MP (4x) |
-  |---|---|---|
-  | SV204, 202 mm, PSF 2.57 arcsec | 4.72 arcsec/px, **0.55 px per FWHM** | 2.36 arcsec/px, **1.09 px per FWHM** |
-  | SWQ8, 800 mm, PSF about 2.5 arcsec seeing | 1.19 arcsec/px, 2.09 px | 0.60 arcsec/px, 4.19 px |
-
-  **On the SV204 the 11 MP mode is severely undersampled -- stars are SUB-PIXEL -- and the 4x mode
-  still does not reach Nyquist**, so it is plainly worth having; on the Quattro the 11 MP mode is
-  already at Nyquist and the 4x mode is oversampled, so it buys nothing for four times the data and
-  a quarter of the per-pixel SNR. The archive corroborates the first row: the 10P set on that train
-  **solved at 4.7172 arcsec/px** against the 4.72 this predicts. Undersampled dithered data is the
-  case drizzle was invented for, which is a second reason the drizzle-only decision below is right.
-  **Not high priority** (owner), but the answer is yes for the rig as it stands today.
-- [ ] **A plain four-way split does NOT preserve the resolution, and the first version of this entry
-  was wrong to say it would** (owner caught it). Each 2x2 sub-lattice of the quad mosaic does come
-  out as clean `RGGB` -- sub-lattice (0,0) takes R at (0,0), G at (2,0), G at (0,2), B at (2,2) --
-  but it samples on the **4.63 um grid, which IS the 11 MP geometry**. Four splits are therefore
-  four 11 MP images, not one 47 MP image: **the resolution lives in the OFFSETS between them, not
-  inside any one of them.** Keeping it means recombining the four on the native grid -- Bayer
-  drizzle with exactly-known (0/1, 0/1) offsets, which is what drizzle is for and which the pipeline
-  already has -- or a true remosaic. A per-split demosaic throws away precisely the thing the 4x
-  mode exists for.
-- [ ] **DECIDED (owner, 2026-09-16): no quad-Bayer demosaic is to be written. Drizzle is the only
-  path to native resolution.** That also avoids the shader obligation, since an algorithm the viewer
-  OFFERS must have its own branch in `image.frag` or a Save writes a different picture from the one
-  on screen. **And it costs no extra frames**: `DrizzleOptions.MinFrameCount` is 60 for the density
-  reason its own doc gives ("R and B, each only 25% of input pixels under RGGB"), and under
-  quad-Bayer red is 4 of 16 photosites, still 25%. The per-pixel coverage probability is unchanged
-  too: an output pixel is covered iff the frame's dither phase `(dx,dy) mod 4` lands the 2x2 red
-  block on it, **4 of 16 phases = 1/4**, exactly RGGB's 1 of 4 mod 2, so `P(no red after N)` is
-  `(3/4)^N` either way and 3e-8 at 60. **What changes is the dither AMPLITUDE**: the CFA cell is 4 px
-  rather than 2, so phases must be sampled over a 4-pixel cell (about 2 binned px, which any normal
-  dither clears). The red samples arriving in contiguous 2x2 clumps rather than singly makes
-  coverage lumpier at a given N, which argues for a modest uplift to the floor, not a multiple.
-- [ ] **Drizzle-only leaves a single quad frame with NO colour path, and that is where the split
-  earns its keep** -- not for integration but for display. One sub-lattice is a clean 11 MP RGGB
-  image the viewer, the thumbnailer and any single-frame measurement can use with no new demosaic
-  and no new shader branch.
-- [ ] **The split's one unambiguous win survives the above, and is not about resolution.** The four
-  sub-images are independent PHOTOSITES, so their noise is independent while the scene is identical:
-  a four-way N2N pair source from a SINGLE exposure. That is exactly the shared-scene,
-  independent-noise property [denoiser-training.md](../plans/denoiser-training.md) H8 needed and
-  could not get from a night's halves, where the sky's own systematic (5.5 to 18.6 percent of the
-  deviation) broke the zero-conditional-mean requirement. Worth having even if the resolution
-  question above comes back "no".
-- [ ] **Read the mode rather than infer it from the dimensions.** Two modes means two pixel
-  pitches, two full-well figures and two gain tables, so `MasterGroupKey` must not pair a frame from
-  one with a dark from the other. Today the only tell would be `NAXIS1/2`, which is a guess dressed
-  as a fact; the driver knows, and `READOUTM` is the card for it.
-- [ ] **Confirm the block geometry on a real 4x frame before writing any of it.** GATED ON GEAR: the
-  archive has no 47 MP frame, so the 4x4 layout, its phase and whether QHY's own driver already
-  de-quads it are all unmeasured. The green-pair statistic generalises to the check
-  (`SensorType.FromFITSValue`'s `VALID` arm and the 2026-09-16 SharpCap reading both use it): in a
-  correct split, each sub-image's two greens agree and its own CFA phase reads plain `RGGB`.
-  Bench queue: [hardware-validation.md](hardware-validation.md).
-
 ## An embedded preview HDU in our own masters
 
 Filed 2026-09-13, out of the Explorer-thumbnail work (`fix(thumbnails): read nothing until asked`).
 
-- [ ] **Write a small preview image as an extension HDU when we write a master.** Today a FITS embeds
-  nothing a thumbnail could be built from, so every consumer that wants a 256 px picture decodes the
-  whole frame: `ThumbnailRenderer` reads and demosaics a 238 MB IMX455 single frame in 547 ms to
-  produce 256x171, and the shell handler answers `WTS_E_FASTEXTRACTIONNOTSUPPORTED` to any
-  `WTSCF_FAST` request because there is nothing cheap to answer WITH. A preview HDU turns both around.
-  Four things to settle before writing any of it, in the order they bite:
-  - **It must never be the first image HDU, and the risk is not hypothetical.**
-    `Fits.ReadFirstImageHdu()` walks to the first HDU that CARRIES an image and every reader of an
-    image file goes through it, so a preview landing ahead of the data is not a degraded read, it is
-    every tool in the chain silently opening a 256 px thumbnail as the science frame. It goes after
-    the data, carries its own marker card, and `ReadFirstImageHdu` should learn to skip a marked one
-    rather than rely on ordering alone. Note the `.fz` case has the primary empty by construction.
-  - **Format: a plain image extension, not JPEG bytes in a binary table.** FITS has no convention for
-    embedded JPEG, so the table form is opaque to every other tool and buys only size. A small
-    8-bit image extension is readable by anything, costs ~64-192 KB, and other viewers can show it.
-    Decide whether it stores the STRETCHED display render (what a thumbnail wants) or a linear
-    decimation (what a viewer might want), and say so in the marker; they are not interchangeable.
-  - **It does NOT solve hydration, and the entry exists partly to stop someone assuming it does.**
-    Reading a preview at a known offset still reads the file, and OneDrive hydrates whole-file, so a
-    cloud placeholder is still downloaded. The win is SPEED on local files plus the ability to honour
-    `WTSCF_FAST` at all. If the fast path is ever wired to the preview it must still refuse when the
-    file is not already local, or the guard added in that commit is undone.
-  - **Only our own output gets it.** Third-party captures (the bulk of the archive) embed nothing, so
-    this narrows the slow path rather than removing it, and `MasterPostProcessor` /
-    `IntegrationFitsWriter` are where it would be written. Check it against the provenance skip
-    (`STACK_N` / `SWCREATE`) and `MasterCache.ReadFingerprint` so an extra HDU cannot be read as a
-    second frame.
-
 ## Imaging
 
-- [ ] **A bare `LPS` filter tag resolves to NO curve, and at least one baked master carries one.**
-  Measured 2026-09-16 with `SpccReachabilityProbe`, which already had these exact spellings in its
-  list: `IDAS LPS-D3`, `IDAS LPS D3`, `LPS-D3` and `IDAS-LPS-D3` **all resolve to `IDAS_LPS_D3`**,
-  while **`LPS` and `IDAS` each resolve to nothing**. That is the matcher working as designed (a brand
-  alone, or a family alone, must not answer), but it means the archive's older short convention is a
-  silent SPCC skip: `Rim Nebula 120s F2.8 LPS RGB / 2024-06-06 / ASI533MC` is baked with its filter
-  tagged `LPS` in the master's own filename, so it gets no curve. Its FITS `FILTER` card reads
-  `'None'`, so nothing downstream can recover the identity either.
-  **The fix is the long name, not a shorter one**, which inverts the usual worry about verbose cards:
-  a tag that says less resolves worse here, and a one-sided difference still matches (`LPS-D3` leaves
-  `{idas}` unmatched and resolves anyway), so there is no cost to writing it out in full. **No LPS
-  dataset in the archive carries a `FILTER` card at all** (all `<absent>`, bar two frames saying `RGB`
-  and `all channels`, which are processing modes), so the tag is ours to choose everywhere and nothing
-  is being contradicted by writing `IDAS-LPS-D3`.
-  Two more gaps the same probe printed, worth their own look: **`LPS-D2` resolves to nothing** (no D2
-  curve exists, only D3 and P3), and **`Optolong L-eXtreme` resolves to nothing** while L-eNhance,
-  L-Ultimate, L-Quad and L-Pro all do.
-  Candidates to re-tag: `Rim Nebula 120s F2.8 LPS RGB` (baked), `ASI55mc Cal June LPS 60s 8deg`, and
-  `2026-08 SV545` (1,122 files, QHY294PROC, carries a `USING_IDAS_LPS.txt` marker and is not in the
-  bake or in Astro-Organized).
-- [ ] **A calibration set is chosen entirely on metadata, and nothing ever checks it against the
-  pixels.** `CalibrationResolver` scores gain, offset, exposure, temperature and instrument, plus a
-  capture-date distance, and `CalibrationCoverageReport` reports availability under those gates. Neither
-  reads a pixel of the candidate master. So a set that matches on paper and is wrong in fact passes
-  silently: a drifted offset, a readout mode that reports the same gain, a dark carrying amp glow the
-  lights do not have, a flat from a different optical train.
-  **The date-distance score is a PROXY for exactly this**, penalising an old set because old calibration
-  is usually drifted. The pixels can say whether this one is, in one pass, and a measurement beats a
-  proxy. Three numbers are enough, all one-pass and all measured by hand on 2026-09-16 for the SW8Q
-  session, whose only calibration is 184 days younger than its lights:
-  - **`median(dark - bias)`**: what the dark carries beyond the offset. Read +0.000 there, so at -5C over
-    60 s this dark IS the bias and adds nothing, which is also worth knowing when a session has a bias
-    and no matching dark.
-  - **fraction of `light - dark` below zero**: over-subtraction, and the only destructive direction,
-    since it clips faint signal to the floor irrecoverably. Read 0.000% of 11.6M pixels.
-  - **p0.01 of that residual**: the headroom left. Read +524 ADU.
-  **The test is one-sided and should say so rather than pretending otherwise.** It rules out an offset
-  ABOVE the lights', which destroys data; it cannot certify one below, because the floor could be sky.
-  That asymmetry is the point: under-subtraction leaves a constant pedestal, which is what background
-  extraction removes anyway. A verdict of "no over-subtraction, 524 ADU of headroom" is worth more than
-  "184 days apart" and is available for the same read.
-  Wire it as a veto or a confirmation beside the resolver's score, and surface the numbers in the
-  coverage report, so a map row records what was measured instead of what was assumed.
-- [ ] **Give the auto-crop a second direction: it recognises too LITTLE and should recognise too MUCH.**
-  User's suggestion, 2026-09-16, and the numbers say it is safe. Today there are two tiers and both look
-  downward: `Image.LargestCoveredRectangle` finds absence (zero or NaN) and `CoverageEdgeWalk` finds
-  noise that has not settled. Neither can see an edge band that is anomalously BRIGHT, which is what the
-  overscan entry below leaves behind, and what the walk's own remarks say defeated a level rule once:
-  level matching against the interior "trimmed 300+ px of that master's left edge where the truth was 4".
-  **That rejection was at the 1.1x scale, and this is not that scale.** Measured over all 79 masters of
-  `2026-09-12-clamped`, taking the worst edge line median in the outermost 32 as a multiple of the
-  interior median: **p50 1.08x, p90 1.32x, and 78 of 79 at or under 3.99x**, against **7,057x** on the
-  overscan master. A bar anywhere from about 5x to 1000x trims exactly that one master and touches
-  nothing else, so the rule that is hopeless at separating partial coverage is trivially safe at
-  separating a shielded column, for the same reason: three orders of margin. Worth a per-line median
-  taken inside the covered rectangle, not a per-pixel test (a star must not move it), and worth being a
-  separate tier from the noise walk rather than a clause inside it, since it answers a different
-  question.
-  **The two runners-up were then looked at, and neither is the same animal, which is what sets the bar.**
-  `SMC 120s LEnh ASI585`, top edge: rows 0 and 1 mostly absent, then rows 2 to 17 sit at 3.41x to 3.99x
-  and row 18 drops to 1.34x. A step, 16 rows deep. `SVBONY Great Orion L-Quad`, bottom edge: rows 1 to 24
-  run 2.65x down to about 1.5x and settle under the bar by row 25, a ramp rather than a step, and it
-  looks like one, a brightness glow into the edge. Both carry a clean **two-row alternation** inside the
-  band (3.75x / 3.44x repeating on the first, 2.10x / 1.76x on the second), which is a CFA phase showing
-  through where coverage is partial, and is worth its own look some time. So these are ordinary edge
-  artefacts in the 1.5x to 4x range, exactly the class the walk's remarks say a level rule cannot judge
-  and the noise walk can. **Put the level tier's bar at 10x**: it clears both of these by 2.5x, clears
-  the overscan case by 700x, and leaves the noise walk owning everything it already owned.
-- [ ] **The bake's masters are in two different unit scales, and the split is not a clean one.**
-  Measured 2026-09-16 over all 79 of `2026-09-12-clamped`, by peak value: **53 are in unit scale** (max
-  0.80 to 1.07, so divided by a full-scale figure their own peak slightly exceeds) and **26 are in raw
-  ADU** (max 48,912 upward). Every `Float16Staged` master is raw, which would at least be a convention;
-  `BayerDrizzle` is split **53 unit against 7 raw**, which is not. Nothing downstream should care, since
-  both the exporter's `ToUnitRange` and `Image.UnitScaleDivisor` divide before use, but a scale that
-  depends on the master rather than on the strategy means **any absolute threshold read off a master is
-  reading a different quantity on a quarter of the bake**, and it is the kind of difference that makes
-  two measurements silently incomparable (see the 2026-08-27 note in CLAUDE.md about normalised levels
-  quoted in the old units). Worth deciding what the convention IS before more is measured on top of it.
-- [ ] **A QHY master carries its OVERSCAN, and calibration turns those columns into pixels six orders
-  above sky.** `Eta Car SII NB / QHYCCD / 2024-03-02` (`Float16Staged`, 36 frames, 240 s, SII, mono
-  5570 x 3747) has a sky median of 212.8 and a peak of **2.46e8**. Every one of the 7,912 runaway pixels
-  is in **columns 1 to 21**, across 3,545 of the 3,747 rows, and the column medians say it plainly:
-  164,580 / 238,697 / 257,563 / 279,058 on columns 6 to 9, a thousand times the body's 213 **as a
-  median, not as an outlier**, decaying through 17,660 on column 10 and 282 on column 11 to a normal 184
-  by column 15. Column 0 is canvas zero and the RIGHT edge is clean (column 5567 reads 176). Left-edge
-  only, shielded, asymmetric: overscan. Identified by the user on sight, 2026-09-16; the picture is
-  otherwise a good frame.
-  **The large numbers are made HERE, in our own flat division, and the flat says so exactly.**
-  `master_flat_3s_5C_SulphurII_g15_QHYCCD-Cameras-Capture` has a body median of 1.006 and column medians
-  of **0, 0, 0.0019, 0.0143** on columns 0 to 3, back to 0.989 by column 4. Dividing a light by that
-  multiplies those columns by **infinity, infinity, 528x and 70x** at the column median, and by much more
-  per pixel: the observed 2.46e8 over a 213 sky is a gain of about 1.2e6, which wants a flat pixel near
-  1e-6. The flat is 5544 x 3684 against the master's 5570 x 3747, so the sensor's columns 2 and 3 land
-  around canvas columns 6 to 9 once registration has placed and dithered them, which is exactly where the
-  master's bright band is. Nothing after calibration amplifies anything: `MeanCombiner` is `sum / cnt`
-  over an integer count, so it cannot raise a value at all.
-  **The exact line is `Calibrator.FlatEpsilon`, and the arithmetic closes to the last digit.** The
-  formula is `max(light - bias - dark + pedestal, 0) / max(flat, epsilon)` with `FlatEpsilon = 1e-6f`,
-  documented as preventing "inf/NaN on dead sensor pixels". A flat pixel of exactly 0 is therefore
-  clamped to 1e-6 and the light is **multiplied by a million**: 245,827,712 x 1e-6 = **245.83**, which is
-  an ordinary bias-subtracted ADU value in an overscan column. The master's peak is not an accumulation
-  of anything, it is one light pixel divided by the epsilon.
-  **That clamp is the bug, not the guard.** It does not prevent the division by zero, it converts an
-  infinity into a finite number a million times too big, which is strictly worse: an infinity or a NaN
-  says "no calibration information here" and every consumer already knows what to do with it, while
-  245,827,712 is indistinguishable from data and travels through warp, staging, the mean and the master
-  into everything downstream. A dead pixel HAS no flat value; the honest output is absence.
-  **The division half is FIXED (2026-09-16).** `Calibrator.FlatEpsilon` is 0.02 and marks the pixel
-  absent instead of clamping the divisor; `Image.Divide` and `Calibrator.ApplyTile` both state it, with
-  a parity test over a region containing an absent pixel so the two copies cannot drift. The threshold
-  was measured, not chosen: across the bake's 18 master flats nothing at all lies between 0.02 and 0.3 of
-  the mean, so the dead population and the shallowest real vignette are separated by an empty band 15x
-  wide. **Still open: crop QHY to its effective area on import** as Canon already is, so shielded columns
-  never enter a light OR a flat in the first place.
-  **The re-bake scope is the three flats, and the exact session list is not recoverable from what was
-  logged.** Only `master_flat_15s_16C_OptolongL-Ultimate3nm_...SV605CC_SH61EDPH` (18 dead px),
-  `master_flat_3s_5C_SulphurII_g15_QHYCCD` (11,057 under 0.01, 6,747 exactly zero) and
-  `master_flat_7s_10C_OptolongL-QuadEnhance_...SV605CC_SH61EDPH` (5 px) contain a pixel the new floor
-  touches, so a session calibrated with any of the other 15 is byte-identical and needs no re-bake. Which
-  sessions resolved to which flat is not in `bake-provenance.json`, the per-session `psf-sessions.jsonl`
-  or the bake log, so it has to come from a re-run. **Worth fixing while re-baking: record the resolved
-  calibration masters per session**, which would have answered this in one grep. Do not try to identify
-  affected masters by looking for large pixels: 34 of 79 carry a pixel over 100x their own p99.9 and
-  almost all of those are just bright stars, so that test finds the wrong set.
-  Watch two things when changing it: `Image.FillInteriorHolesInPlace` will then interpolate these,
-  which is right for a dead pixel and wrong for a 21-column band, and the rectangle rule treats a
-  border-reachable NaN as absence, which is what would finally make the crop cut this band on its own.
-  **This is the QHY half of [sensor-active-area](../plans/sensor-active-area.md) reaching the data.**
-  That plan records that Canon is the only sensor the active-area crop is wired for, and that QHY
-  exposes the same geometry (`GetQHYCCDEffectiveArea` / `GetQHYCCDOverScanArea` /
-  `CAM_IGNOREOVERSCAN_INTERFACE`) with nothing calling any of it. Here is what that costs.
-  Two consequences beyond the one frame. **The auto-crop nearly saves it and not quite**: the census
-  rectangle for this master starts at column 20, so columns 20 and 21 survive it still carrying 5.8e7
-  and 6.4e7. And **`DatasetTileExporter.RequireFiniteRange` cannot see this at all**, being a finiteness
-  test where 2.46e8 is perfectly finite, so the guard written precisely to stop a poisoned master
-  exporting a session of near-zero tiles does not fire: `ToUnitRange` divides the frame by 2.46e8 and
-  puts the sky at 8.7e-7. Whether the MTF rescues it afterwards is unmeasured. The guard wants a second
-  clause about the RATIO of the peak to the sky, not just about the value being a number.
-- [ ] **A saturated core is not an outlier, and the rejection is treating it as one.** The biggest
-  "drizzle hole" in the bake is not a coverage gap: it is the blown Trapezium. On
-  `SVBONY SV605CC / L-Ultimate 3nm / Great Orion / 2025-10-14` the interior NaN is 1,856 px of which
-  **1,812 are one component**, sitting on the core, and the pixels immediately around it read a median of
-  0.489 against a sky median of 0.0014 with 21 percent of that rim at or above the frame's p99.99
-  (measured 2026-09-16). Where every contributing sub is clipped, kappa-sigma rejects every sample, the
-  output pixel gets zero weight and the drizzle writes NaN. **This is the same defect as the carved core
-  pixels**, [deconvolver-training](../plans/deconvolver-training.md), the 20:50 addendum under E3.0,
-  where the rejection clips an undersampled core in ONE colour plane on about a tenth of bright stars and
-  RL then turns each into a black pixel inside the halo; the Trapezium is that case taken to every plane
-  at once. The per-channel NaN counts say the same thing: 12,085 red, 5,258 green, 11,622 blue, green
-  being half because a Bayer green has twice the photosites feeding it and so twice the chance that some
-  sample survives. Fix belongs in the integrator (do not reject a sample for being at the ceiling; a
-  clipped core is signal we know the value of a bound for), not in the consumers.
-  **And it makes `FillInteriorHolesInPlace` worse than it looks on this frame**: the fill interpolates
-  the hole from its rim, so on the Trapezium it invents the brightest structure in the picture out of
-  saturated neighbours, plausibly enough that nothing looks wrong. `AstroImageDocument.InteriorHolesFilled`
-  is the only tell. Filling sky specks is right; filling a blown core is not, and the two are the same
-  code path today.
-- [ ] **Crop the canvas ring before `DatasetDegradationExporter`'s stretch gate, or take the gate's
-  anchor off the minimum.** Two sessions are refused by that gate and both are admitted inside the
-  viewer's crop rectangle; the measurement is done and written up in
-  [known-limitations](../known-limitations.md), "the stretch-gate section" (re-measured 2026-09-14 over
-  the 79 masters of `2026-09-12-clamped`). The statistic is `median(value - min)` against 0.125, and on a
-  master with an exact-zero canvas ring the minimum is the RING rather than the darkest sky, so it
-  degenerates to the raw median: 0.321 on the ASI585 SMC master and 0.133 on the eta Car Ha one, against
-  0.044 and 0.022 inside the crop, under the bar by 3x and 6x. **Nothing here is about NaN or about
-  drizzle holes**, which are the separate half of #250; the anchor is the zero ring. Either fix works and
-  neither is done: the exporter has no crop step, and a percentile in place of the min would need no crop
-  at all.
-  **Re-measured 2026-09-16 straight off the `2026-09-12-clamped` masters, and the count is now ONE, not
-  two.** `SMC ZS61 ASI585 2024-10-02` reads 0.2859 whole-frame with a minimum of exactly 0 (its canvas
-  ring is 3.46 percent of the frame and reaches every row and column), and 0.0727 with the absent pixels
-  excluded, so it is still refused and still admitted by the fix. The eta Car Ha master
-  (`ASI1600MM 180mm fl 2025-02`) has moved to **0.1147**, just under the bar, so it passes today; the
-  re-bake shifted it. Two notes for whoever takes this: a naive central crop does NOT stand in for the
-  covered rectangle here (a central 95 percent leaves the statistic at 0.2863, because that ring is not
-  a border), and the frame really is bright, its median being 29 percent of full scale, so the fix is
-  the anchor and never a brightness test.
 - [x] **DONE 2026-08-21. Document-open traversal cost, and a correction to how it was first
   reported.** The original entry here quoted `Statistics(c)` x3 = 1,028-1,195 ms and called it the
   dominant cost. **Those were DEBUG numbers.** `dotnet test` defaults to Debug, and this library's
@@ -653,28 +274,8 @@ Filed 2026-09-13, out of the Explorer-thumbnail work (`fix(thumbnails): read not
   `MemoryDiagnoser` also reports Gen0/1/2 collections per 1000 ops, which the probes could not
   produce at all (five reps never triggered a GC): the histogram buffer goes 14.77 -> 7.20
   collections per 1000 ops at Size=1280.
-- [ ] **`Image.Histogram` still has one measured lever left: parallel row bands, 32 -> 8 ms per
-  24 MP channel.** Deliberately not taken. It needs per-band bin arrays plus a merge, and it
-  reorders the `total_value` double summation, which feeds `hist_mean` -> `Background()`'s mode
-  search -> the star-detection threshold. The reordering is almost certainly invisible at float
-  precision, but "almost certainly" is not the bit-identical claim the other three changes carry,
-  so it wants its own change with its own evidence. Reproduce with
-  `TIANWEN_HISTOGRAM_PROBE=1 dotnet test -c Release --filter HistogramCostDecompositionProbe`
-  (note `-c Release`).
-- [ ] **`FindStarsAsync(maxStars:)` caps nothing -- delete the parameter.** Its only effect is to
-  default `minStars`, so a call passing it alone reads as "cap the list" and means "rescan until you
-  find this many". The doc now says so (2026-08-21) but the name still lies. Deleting it is
-  behaviour-preserving at every site (callers that pass both just drop it; callers that pass only
-  `maxStars` rename it to `minStars`), and it is ~50 call sites incl. tests, so it wants its own
-  wave rather than riding on an unrelated branch.
-- [ ] Not sure if `SensorType` LRGB check is correct (`SensorType.cs:54`)
-- [ ] Find bounding box of non-NaN region in `Image.cs` (for stacked images with NaN borders)
-- [ ] Star detection noise robustness: `FindStarsAsync` with `snrMin: 5` picks up false positives from shot noise halos around bright stars (e.g. M42 synthetic field: 49 rendered stars → 64 detected). Consider deblending or a minimum star separation filter to reject noise peaks near bright stars.
-- [ ] **Row-by-row odd/even amplifier (banding) correction.** CMOS sensors with per-row-parity amplifiers leave horizontal odd/even banding that calibration frames don't fully remove (it varies frame-to-frame). Classic fix (Siril's banding reduction, PixInsight CanonBandingReduction): per-row median (or odd/even-row-pair delta) minus the global background, subtracted per row, optionally protected by a star/signal mask so nebulosity isn't flattened. Should slot into the stacking pipeline as an opt-in per-light calibration step (post dark/flat, pre register); a standalone `image` verb variant is a cheap byproduct. (2026-07-07)
 - [x] `RollingWindowStacker.BuildMasterAsync`: reuse a persistent sum scratch; **DONE (2026-07-06, same-day as the audit)** with a twist the audit missed: `PlanetaryMaster.NormalizeInPlace` *wraps* its input arrays into the returned `Image` and `MergeAndDemosaicAsync` passes mono/RGB masters through, so for mono/RGB the old `Clone()` **was** the master's backing store (not reducible, the previous master may still be displayed / cached for wavelet re-sharpen). Fix shipped as the fused `PlanetaryMaster.NormalizeInto(src, weight, dst, meta)` (single read-sum/write-dst pass replaces Clone-then-normalise for **both** paths, halving memory traffic) + a persistent `_sumScratch` used **only** on the split-CFA branch, where the normalised sub-planes are transient (merged + demosaiced into a fresh master). Scratch is shape-checked (reference/ROI can change). Pinned by `RollingWindowStackerTests.Published_mono_master_stays_valid_after_the_next_publish` (guards against ever routing mono through the scratch).
-- [ ] Decide the fate of `Image.DebayerIntoAsync`: the write-into-caller-`Channel[]` debayer variant has **zero callers** (viewers upload the raw mosaic and the GPU debayers; batch paths use the allocating `DebayerAsync`). Either wire it into a real consumer or delete it; CLAUDE.md no longer cites it as "the viewer path". (Buffer-utilization audit 2026-07-06; see `docs/architecture/image-pipeline.md` § Driver Coverage.)
 - [x] `Image` constructor should take `Channel`s, not raw `float[][,]`; **DONE (2026-07-06, same day as filed)**. The primary ctor is now `Image(ImmutableArray<Channel> channels, BitDepth, pedestal, meta)`: per-channel `Filter`/`MinValue`/`MaxValue`/`Index` live on each `Channel` (readable via `Image.GetChannel`), the image-wide `MaxValue`/`MinValue` are **derived extrema** across the channels, shapes are validated same-dimension, and the ref-counted camera buffer travels ON the channel (new `internal Channel.Buffer` init-prop, harvested by the ctor, `WithChannelBuffers` and the `ICameraDriver.ChannelBuffer` side-channel property are deleted). The legacy raw-array signature survives as a delegating overload that stamps the image-wide values on every channel, so all ~164 existing construction sites compiled untouched (derived extrema == the passed values by construction). `ICameraDriver.GetImageAsync` is the single typed hand-off (`new Image([channel], …)`); all four buffer-recycling drivers (DAL, Fake, Alpaca, ASCOM) attach the buffer at `Channel` creation, and `FakeCameraDriver.ReleaseImageData` strips the buffer from its retained channel so a second `GetImageAsync` cannot harvest an already-transferred ref. `ScaleFloatValuesToUnitInPlace` rewraps per-channel min/max scaled but deliberately drops `Buffer` (release responsibility stays with the original, double-release guard). Pinned by `ImageChannelCtorTests`.
-- [ ] **AHD debayer: SIMD via output-tile chunking**. Phase 3 (homogeneity comparison, ~70% of AHD's cost) is currently scalar with `Unsafe.Add` (commit 958e42e). To vectorise, process 8 output pixels per `Vector<float>` lane: the 5×5 neighbourhoods of consecutive x positions overlap heavily, so each dx offset becomes a single AVX2 load that serves all 8 pixels. Realistic landing: AHD 298 ms → ~140-150 ms (another ~2× on top of what we have). Non-trivial: the `if (diffH < diffV) homH++ else homV++` branch needs `Vector.GreaterThan` + masked accumulate, the direction-select tail needs `Vector.ConditionalSelect`, and `Vector.Sum`'s tree-add will likely change FP rounding order vs scalar sequential add → `DebayerRegressionTests` hashes will need repinning. Code complexity ~3-5× current scalar+unsafe path. Worth taking on if/when AHD perf dominates wall-clock for big groups (SoL 60s and similar 200+ frame stacks). See `Image.Debayer.cs:559-643` Phase 3 + the discussion in commit 958e42e for design context.
 
 ## Codecs facade (read + write)
 
@@ -683,23 +284,6 @@ The `SharpAstro.Codecs 3.6.*` facade (sniff → dispatch: PNG/JPEG/TIFF/JXR/EXR/
 fallback (`Image.Import.TryReadViaCodecs`; full arc in [`../plans/image-codecs-facade.md`](../plans/image-codecs-facade.md)).
 Open gaps:
 
-- [ ] **We ship a JBIG2 decoder we can never use, and trimming cannot remove it.** `SharpAstro.Codecs`
-  is a `static readonly` dispatch array that literally names `Register<Jbig2ImageDecoder>()`, so the
-  decoder is ROOTED -- the trimmer must keep it, in every AOT binary. JBIG2 is bilevel fax/PDF
-  compression; it appears nowhere in this repo (no extension in `Image.Import.cs`'s codec list, no
-  call site, no mention) and no astro tool emits it. Cost: **97,792 bytes of IL**, more once
-  AOT-compiled, across the four shipped binaries. Small against a 58 MB MSIX -- under a percent -- so
-  this is tidiness with a number on it, not urgency.
-  JXL (168,960 B) and JXR (220,672 B) are NOT in the same category: `Image.Import.cs:57` routes
-  `.jxl`/`.jxr`/`.wdp` deliberately, so both are paid for on purpose.
-  Preferred fix is upstream and non-breaking: give the facade a per-decoder trim feature switch
-  (`ILLink.Substitutions.xml` + `RuntimeHostConfigurationOption`, the BCL's `EventSourceSupport`
-  pattern), so a consumer opts out and the decoder is substituted away. That needs no API change, no
-  package split, and leaves every existing consumer byte-identical. Rejected alternatives: splitting
-  the facade into core + `.All` (changes its contract), and having tianwen reference individual codecs
-  (the facade owns the sniff table, which is real shared logic -- though note the ORIGINAL reason for
-  the facade, version skew from cherry-picking, is now handled by the single
-  `$(SharpAstroCodecsVersion)` property, so that argument is weaker than it was).
 - [x] **CMYK / Separated TIFF renders as a negative (DONE 2026-08-20).** A `Photometric = 5` TIFF with 4 samples per
   pixel (a print export, e.g. GraXpert's `..._printer.tiff`) has its C/M/Y read as R/G/B with K
   dropped, and since a high CMYK value means MORE ink the polarity inverts: white sky, dark stars,
@@ -730,15 +314,6 @@ Open gaps:
   **Caveat:** a gray gain map recovers highlight *structure/luminance*, not saturation (the recovered core
   keeps the SDR base's hue), per-channel re-saturation would need an RGB gain map (a later refinement),
   and it can only recover headroom the linear master actually holds (a sensor-saturated core stays flat).
-- [ ] **Honour `IDecodedImage.ColorEncoding` on facade read.** `TryReadViaCodecs` ingests `ToFloats()`
-  verbatim as `[0,1]` (container-only), so a PQ/HLG or non-sRGB HDR raster (incl. tianwen's own cICP-PQ
-  PNG previews) is read as if linear; wrong for display. Linearise / tone-map per `ColorEncoding` on
-  ingest instead of trusting the `[0,1]` convention (correct only for the scene-linear TIFF/EXR/JXR
-  masters tianwen writes). Bespoke TIFF / CR2 / CR3 / FITS readers never route through the facade.
-- [ ] **No gain-map reconstruction on read.** A gain-map JPEG decodes to its base SDR image only; the
-  gain map is not applied to recover HDR. Follows the export work + the JPEG encoder.
-- [ ] **Phase 6: FC.SDK → facade.** FC.SDK still references the individual codec packages; pointing it at
-  the facade removes the last version-skew source (`../plans/image-codecs-facade.md` phase 6).
 
 ## AI Enhancement
 
@@ -748,24 +323,11 @@ Shipped on branch `ai-enhancement` (Phases 0-6 of `docs/plans/ai-enhancement.md`
 
 Each verb maps to an enhancer / classical implementation that hasn't been wired yet. CLI shape mirrors the shipped `tianwen image sharpen` (input FITS, `-o output`, default `<input>_<verb>.fits`).
 
-- [ ] `tianwen image denoise` -- wraps `deep_denoise_{color,mono}_AI4.onnx`. New `IDenoiseEnhancer` interface + ONNX impl following the same shape as the three shipped enhancers.
-- [ ] `tianwen image denoise-walking` -- specialised walking-noise variant via `deep_denoise_*_AI4_1w.onnx`. Could be a flag on `denoise` rather than a separate verb.
-- [ ] `tianwen image upscale 2x|3x|4x` -- wraps `superres_{2,3,4}x.onnx`. New `IUpscaleEnhancer`. Output dimensions are scale * input.
-- [ ] `tianwen image remove-trails` -- `satelliteRemovalAI4.onnx`. Per `docs/plans/stacking.md` this logically belongs in the stacking pipeline as a pre-rejection filter; standalone single-image verb is also useful.
-- [ ] `tianwen image correct-aberration` -- optical aberration correction (coma, astigmatism, off-axis distortion). Models hosted in `riccardoalberghi/abberation_models` (different repo + release cadence than AI4); needs a separate fetcher branch in `tools/tianwen-ai-models-fetch.ps1` + runtime self-bootstrap. **Not the same fix as raising SIP order** -- SIP corrects centroid position, never PSF/star shape; see `docs/plans/astropy-parity.md`'s SIP design note.
-- [ ] WCS-driven image undistort + mosaic reprojection (use `WCS.PixelToSky`/`SkyToPixel` generatively, to resample pixels, not just report a header). See [docs/plans/wcs-reprojection.md](../plans/wcs-reprojection.md).
 - [x] `tianwen image flatten` -- ABE gradient removal (classical, no AI). **Core SHIPPED 2026-09-02** as
   `ClassicalBackgroundExtractor` (`docs/plans/background-extraction.md`, "Implementation": robust degree-2
   polynomial + optional inpainted surface, linear, level preserved per plane, CFA per photosite), and
   `flatten` runs it whenever GraXpert's weights are absent (`FallbackGradientCorrector`). RBF was dropped by
   the reference review, not deferred.
-- [ ] `tianwen image flatten` options for the classical fit (background-extraction Phase 4): `--degree`,
-  `--surface`, `--divide`, exclusion polygons, and a way to force classical over GraXpert; then the GUI
-  preview. **The two structure thresholds were measured 2026-09-03 (G1, 118 masters) and neither is a
-  knob**: 3 is safe anywhere in 2 to 6, 10 is inert across 5 to 40 because a real surface residual never
-  reaches five sigma. Do NOT expose either on the CLI; expose `--surface`, which is the switch that
-  actually moves the model (0.40 sigma RMS p50, kept 0.795 to 0.581). See
-  [background-extraction.md](../plans/background-extraction.md), "The two thresholds, MEASURED".
 - [x] **Gradient-distribution report over the retained masters** (gradient-remover-training.md G1).
   **DONE 2026-09-03**: `tianwen dataset gradient-report --masters <bake>/session-masters --out <bake>`
   (`DatasetGradientReport`, `tools/run-gradient-report.ps1` for the detached run), append-only
@@ -801,26 +363,9 @@ Each verb maps to an enhancer / classical implementation that hasn't been wired 
     implementation rather than from the docs.
   **The licence rule from the narrowband work applies verbatim**: the Siril script repo is GPL-3.0
   against our AGPL-3.0, so reimplement from the recorded maths, never vendor.
-- [ ] `tianwen image stretch` -- apply MTF stretch for display / PNG export.
-- [ ] `tianwen image debayer` -- Bayer raw → RGB.
-- [ ] `tianwen image calibrate` -- apply master bias/dark/flat (wraps the calibrator types from `docs/plans/stacking.md`).
-- [ ] `tianwen image stats` -- HFD/FWHM/background/SNR.
-- [ ] `tianwen image info` -- print FITS headers.
-- [ ] `tianwen image histogram` -- text or PNG output.
-- [ ] `tianwen image crop`, `tianwen image resize`, `tianwen image convert <fits|tiff|png|jpg>` -- existing IO methods on `Image`; just need CLI surfacing.
 
 ### Other deferred AI work
 
-- [ ] **Deployment / runtime self-bootstrap of model files.** Today the AI enhancers depend on `%LOCALAPPDATA%\TianWen\models` being populated by the dev script `tools/tianwen-ai-models-fetch.ps1`; shipped binaries can't expect that. Need (a) in-app first-launch fetch with progress UI, (b) `tianwen models fetch` CLI sub-command (programmatic equivalent of the pwsh script). Hardlink-from-SAS-Pro fast path stays as a power-user optimisation.
-- [ ] `tianwen models list` -- show which models are present under `%LOCALAPPDATA%\TianWen\models` and which are missing per the expected manifest. Complement to `tianwen models fetch`.
-- [ ] **Classical (non-AI) fallbacks** via `AddTianWenClassicalEnhancers()` extension, `TryAddSingleton` so `AddTianWenAi` wins when models present. Lucy-Richardson `INonStellarDeconvolver`, unsharp-mask `IStellarSharpener`, bilateral/NLM denoise. No classical fallback for `IStarRemover` -- no respectable analogue.
-- [ ] **Hexagon NPU acceleration on win-arm64.** AI4 ships pure FP32; QNN HTP wants INT8/INT16 or a pre-compiled `.serialized.bin`. Either upstream re-export at INT8 or our own ORT QNN compile pass. Current behaviour: FP32 nodes per-node-fall-back to CPU on win-arm64 -- works, just doesn't use the NPU. The new per-phase timing log (`infer={ms}ms`) is the diagnostic that surfaces this.
-- [ ] **Per-chunk PSF re-measurement for `INonStellarDeconvolver`.** v1 `HfdPsfEstimator` returns a whole-image scalar; SAS Pro re-measures PSF per chunk via SEP to capture tilt/coma variation across the field. Would land as a new `SepPerChunkPsfEstimator` (port of SAS Pro's `measure_psf_radius`) registered through `IPsfEstimator` -- no changes to the deconvolver needed.
-- [ ] **GUI menu entry for `SharpenPipeline`.** Surface the same flow through the GUI's processing menu so non-CLI users can run AI sharpen against the currently-loaded image. Reuses `SharpenPipeline` from DI; UI is a checkbox set per `SharpenRequest` field.
-- [ ] **Star plate hue preservation under clipping.** `StretchStarsStep` is per-channel MTF (`Image.StarStretch` = fixed-midtones MTF with `m = 1/(3^amount+1)`), so a bright star that pegs one channel at 1.0 post-stretch but not the others collapses toward white -- an A0 blue and a K2 orange both end up grey. Existing `Image.StretchLumaPixelCpu` (Y'/Y chrominance scaling, used by the viewer's Luma stretch mode) already does the right math. Plan: add a `LumaBlend` knob to `StretchStarsStep` mirroring `StretchUniforms.LumaBlend`; 0 = today's per-channel (sensor-accurate, can clip), 1 = pure Y'/Y (no hue shift under any stretch), ~0.7 default for "coloured stars even at heavy stretch without going artificial". Zero overhead when `LumaBlend=0`. ~80 LOC + 2-3 unit tests against synthetic clipping cases.
-- [ ] **Frank Sackenheim's colour-boost (saturation) option on star stretch.** The original SAS Pro `StarStretch` script ships a "Saturate" slider that increases star chroma -- gives the blue / orange end of the stellar spectrum visible punch without changing brightness ordering. Typical impl: RGB -> HSV (or LCh), multiply S/C by 1.x, back to RGB. Pairs naturally with the hue-preserving Luma-blend variant above; you stretch luminance, then optionally boost saturation in the same pass. Add as `StretchStarsStep.SaturationBoost` (default 1.0 = no-op). Cite SAS Pro `star_stretch.py` in the xmldoc for the exact ratio.
-- [ ] **Colour-preservation audit across the AI pipeline.** Quantify channel-wise saturation drift pre/post each `SharpenPipeline` stage (measure mean/95th-pct chroma in LCh, per stage, on the enhance corpus) to ground the "we lose a lot of colour info" impression with numbers and decide whether a saturation-restore step is needed (and after which stage). Pure measurement first -- pairs with the Luma-blend + SaturationBoost items above, which are the likely remedies. (2026-07-07)
-- [ ] **Star-halo detection via Hough circle transform.** Detect circular halos around bright stars (reflection halos from filters/optics) with a Hough circle pass seeded at bright-star positions from `FindStarsAsync`, then feed the detected annuli into a removal step -- investigate combining with SETI Astro's manual halo-removal approach (the PixInsight plugin) as the correction model, i.e. our detector supplies the centres/radii the SAS tool takes as manual input. Could also serve the star-detection false-positive item above (noise peaks in halos). (2026-07-07)
 - [x] **Productionise the GHS starless stretch.** DONE on branch `ghs-converge` per [ghs.md](../plans/ghs.md). The dim-output problem was the convergence target -- median-target = 0.25 left the bg peak (mode) below 0.25 for typical astro frames where median sits above mode (signal tail). Resolved by adding mode-target convergence (`--ghs-target Mode`) + Cranfield's canonical multi-stage chain (`--ghs-stages 3`: stage 1 + BackgroundReduce + stage 2 b=2.5/hp=0.95 + stage 3 b=-1/hp=0.99 log). Canonical recipe: `--dual-stretch --starless-stretch-mode Ghs --ghs-target Mode --ghs-target-value 0.25 --ghs-stages 3`. **GHS stays opt-in per `feedback_ghs_not_default`** -- MTF remains the default starless stretch; user explicitly decided against promotion to `SharpenRequest.Canonical()` because GHS is a different aesthetic, not a universal upgrade. Outstanding: {broadband, narrowband, single-light} corpus validation outside SoL drizzle. The parameter-prediction model idea is parked -- the multi-stage canonical chain with mode convergence covers the in-corpus failure modes without ML.
 
 ## Stretch / Image Processing
@@ -828,43 +373,6 @@ Each verb maps to an enhancer / classical implementation that hasn't been wired 
 Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 
 - [x] **Masked finishing boost for the preview render** (2026-07-03); `Image.MaskedBoost` composes the new mask primitives (`LuminanceRangeMask` + `BlendThroughMask` + `Saturate` / `ContrastBoost`, `Image.Masks.cs`) into the Affinity masked-contrast-boost + saturation macro; surfaced as `stack --saturation/--contrast-boost` + the same flags on `image render`, applied to the stretched preview PNG only (`MasterPreviewRenderer.ApplyMaskedBoost`). Basic mask support shipped alongside: `Invert`, `Binarize`, `GaussianBlur` (feathering), scalar `Multiply` (partial-strength masks). Linear masters + split-plate TIFFs untouched by design.
-- [ ] **Give the autostretch black point a confidence signal, and an estimator that does not assume a
-  Gaussian background.** Two gaps in our own code, stated as such because they are worth closing on
-  their own merits. We derive the black point statistically as `median + (-2.8 x MAD)`, mirroring
-  Siril's `find_linked_midtones_balance`, which (a) assumes a roughly Gaussian background and (b)
-  reports nothing when it is wrong, so **a bad MAD silently produces a bad stretch** and the first
-  anyone hears of it is a render that looks off. A confidence number is arguably the more valuable
-  half: it lets the pipeline warn or fall back instead of quietly emitting a bad frame.
-  A **geometric** estimator gives both. Per channel: build a cumulative histogram from 0 up to the
-  median (averaging adjacent bins); take the noise floor as the first bin whose cumulative exceeds
-  `(totalPixels / 10000) * aggressiveness`; least-squares fit a line to the cumulative between that
-  floor and the histogram peak; the black point is that line's **x-intercept** (`-c/m`), and the fit's
-  **R-squared is the confidence measure**, falling back to 0 with a warning when the fit fails or lands
-  above the median. Worth pairing with a **negative output shadow** in the histogram transform, so
-  input-black maps above 0: a deliberate "do not crush the blacks" control (a sensible default is
-  around 0.05).
-  *Prior art:* this is the approach EZ_SoftStretch takes. Its source carries a bare copyright line with
-  **no licence grant at all**, i.e. all rights reserved, not GPL, and it is deliberately not linked
-  here: the method above is all that is needed and all that is usable. Do not go looking for the code.
-  (Surfaced 2026-08-02 via the "RESCUE the BLUE" workflow; adjacent to
-  [narrowband-colour](../plans/narrowband-colour.md) but a stretch concern, not a colour one.)
-- [ ] **DarkStructureEnhance: a one-sided unsharp mask that darkens dust lanes.** Read from source
-  (`DarkStructureEnhance.js`, Carlos Sonnenstein + Oriol Lehmkuhl, PTeam). Two steps. **Mask:** an
-  a-trous wavelet pass strips the small scales to leave a large-scale (locally smoothed) version, then
-  `mask = large_scale - original`, converted to grayscale, rescaled to [0,1] and noise-reduced. Where a
-  pixel sits *below* its local large-scale average the difference is positive, so the mask lights up on
-  exactly the dark structures (dust lanes, dark nebulae) and is near zero elsewhere. It is an unsharp
-  mask kept only on its negative side. **Apply:** a `HistogramTransformation` whose RGB midtones balance
-  is the "Amount" parameter, applied *through* that mask; a midtones value below 0.5 darkens, so only
-  the dark structures get pushed down. Repeated `iterations` times through a ProcessContainer. Runs on
-  **stretched** data, typically last in the workflow, no user mask needed. **Cheap for us:** we already
-  have a-trous wavelets (`WaveletSharpen`, from the planetary stacker), the MTF (`Image.StretchValue`)
-  and `BlendThroughMask`, so this is composition rather than new maths. **Licence: algorithm only.**
-  `DarkStructureEnhance.js` ships with PixInsight and its reuse terms have not been established, so it
-  gets the same treatment as any unverified source: implement from the description above, do not copy.
-  (2026-08-02, from the "RESCUE the BLUE" workflow.)
-- [ ] **`tianwen image adjust` standalone verb**: apply `Image.MaskedBoost` (and the raw mask primitives, e.g. `--export-mask` for previewing what a step will touch) to an already-stretched TIFF/FITS plate outside the stack/render flow. The primitives + CLI parsing shape (mirror `image render`'s flags) are in place; deferred until a concrete need.
-- [ ] **Mask morphology (dilate / erode)**: the remaining classic mask ops beyond invert/feather/binarize; useful for growing a star mask before protection. Deferred until a consumer exists.
 
 - [x] Luma-only stretch mode (Rec. 709 luminance, stretch Y, scale RGB by Y'/Y)
 - [x] HDR compression in GPU shader (Hermite soft-knee, `uHdrAmount`/`uHdrKnee` uniforms)
@@ -898,17 +406,10 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 - [x] Luma blend (2026-05-11): `StretchUniforms.LumaBlend` (0 = pure linked, 1 = pure luma, default 1 preserves status-quo Luma-mode behaviour). Producer always populates `LumaStretch` (scalar Luma MTF params) and per-channel linked `Shadows/Midtones/Rescale` in Luma mode so the shader has both branches ready; GLSL `mix(linked, luma, lumaBlend)` inside the Luma branch. Tests: `StretchTests_NewPipeline.GivenColorFitsWhenBlendingLumaWithLinkedThenOutputInterpolates` + `GpuStretchPipelineTests.GpuMatchesCpuForLumaBlend`.
 - [x] Rec.601 / Rec.2020 luma weighting (2026-05-11); new `LumaWeighting` enum, `StretchUniforms.LumaWeights` `(R,G,B)` triple, resolved by producer; CPU mirror + GLSL Luma branch + `ComputePostStretchBackground` all read from the uniform. Default Rec.709 keeps existing callers on the same numerical path. Tests: `StretchTests_NewPipeline.GivenColorFitsWhenSwitchingLumaWeightingThenWeightsFlowThrough` + `GpuStretchPipelineTests.GpuMatchesCpuForLumaWeightingProfiles`.
 - [x] Sensor-derived luma weights (2026-05-11): `LumaWeighting.SensorMatched` resolves through `FilterCurveDatabase.TryComputeSensorLumaWeights(meta, ...)`, which integrates the doc's `BuildChannelThroughputs` (sensor QE x Sony CFA R/G/B) and normalises to sum to 1. Helper retries with `SensorType.RGGB` so debayered OSC images still resolve to the sensor-specific triple; gated on a recognised SensorModel so typos fall back to Rec.709 instead of silently returning CFA-only weights. Pure producer-side wire-up via `AstroImageDocument.ResolveLumaWeights`; no UBO / shader churn. Sample weights: IMX533 (0.29,0.36,0.34), IMX571 (0.35,0.37,0.28), IMX455 (0.30,0.37,0.34) -- broadband response (no photopic V(lambda) convolution, since the database doesn't ship it). Tests: `FilterCurveDatabaseTests.TryComputeSensorLumaWeights_*` + `StretchTests_NewPipeline.GivenOscMetaWhenLumaWeightingIsSensorMatched...` + `GpuStretchPipelineTests.GpuMatchesCpuForSensorMatchedLumaWeights`.
-- [ ] Per-channel convergence: `ConvergeStretchFactor` runs once on luma stats; for Linked/Unlinked the converged factor is approximate per channel (still uses single factor with per-channel WB-scaled stats). Per-channel convergence would tighten the post-stretch median per channel; bigger refactor (factor becomes a triple).
 
 ## Colour: Unified camera→sRGB matrix
 
 The dcraw `adobe_coeff` 3×3 (now shipped via `FC.SDK.Raw.CanonCameraProfiles`) handles Canon CR2 sensible-default rendering. For OSC astro cameras (ZWO / QHY / etc.) and for Canon bodies whose spectral data is publicly available, we can derive the matrix from first principles; same QE × CFA spectral integration that `Tycho2ColorCalibration.ComputeSpectrophotometricWhiteBalance` already does for SPCC WB. Three pieces, in order:
-
-- [ ] **Add `ImageMeta.CameraToSrgbMatrix`**: nullable `float[]` (9 floats, row-major). Importers populate when known. Render pipeline applies after debayer + WB, before stretch. Identity when null (preserves current behaviour for FITS / TIFF / unknown sensors). This is the generic slot; it doesn't care whether the matrix came from a factory table or was derived from spectral curves.
-
-- [ ] **`FilterCurveDatabase.TryComputeCameraToSrgbMatrix(sensorModel)`**: closed-form integral over the same QE × CFA curves SPCC already loads. For each sRGB primary, integrate against `QE(λ) × CFA_c(λ)` per channel to get the camera-RGB response; invert the resulting 3×3. No stars needed, no per-image fit; pure spectral algebra. Pre-condition: `FilterCurveDatabase.TryGet` returns spectral data for the sensor.
-
-- [ ] **Jiang et al spectral CSV importer**: Stanford 2013 measured camera spectral response (QE × CFA per channel) for ~28 cameras including Canon EOS 5D Mark II / III, 1D X, 40D / 60D, Nikon D40 / D700 / D5100, several Sony / Olympus / Fuji bodies. Public CSV download. Small Python or C# tool that normalises to TianWen's `FilterCurveDatabase` `.gs.gz` format. Once imported, those camera models go through the spectral matrix path; cameras without entries fall back to `CanonCameraProfiles` (Canon) or identity (everything else).
 
 Dispatch order on CR2 import: try spectral matrix first (best, first-principles); fall back to dcraw matrix (factory-curated); fall back to identity (warn). For non-Canon raws (NEF / ARW / etc.) only the spectral path applies until / unless a vendor-specific factory table lands too.
 
@@ -922,22 +423,6 @@ and per-channel autostretch happen to produce.
 Planned in **[docs/plans/narrowband-colour.md](../plans/narrowband-colour.md)** (researched 2026-08-02),
 which carries the algorithms, a pros/cons table across the three candidate techniques, and four ADRs.
 Summary of what was decided, so this file is not misleading on its own:
-
-- [ ] **Phase 1-2: robust channel normalization + palette mixer** (the useful minimum). Median offset then
-  MAD/percentile gain applied **about the background**, aligning G and B to R, followed by an `Ha`/`OIII`
-  to RGB lerp. No catalog, no plate solve, no new data, and it is what actually fixes red-dominated HOO.
-  Built almost entirely from primitives we already have. Reimplement from the maths in the plan: the
-  reference implementation is GPL-3.0; reimplement rather than vendor by preference now that TianWen
-  is AGPL-3.0-or-later and vendoring would be lawful (ADR-2, revised 2026-08-11).
-- [ ] **Phase 3: dual-band Ha/OIII unmixing** (optional, gated on a known sensor). DBXtract algebra plus a
-  nine-coefficient per-sensor crosstalk table, sourced from DBXtract rather than lifted from the script.
-- [ ] **Phase 4: SPCC narrowband. BLOCKED, and the framing this item used to carry was wrong** (ADR-3). It
-  cannot be done by pointing a narrow passband at our existing Pickles SEDs: a Pickles template is a
-  spectral *type average*, so over a 3 nm window it cannot know whether a given star shows Ha in absorption
-  or emission. Siril uses Gaia DR3 `xp_sampled` per-star spectra, which we do not have, so this is a Gaia
-  project rather than a colour project. Also scoped to **exclude SHO** on Siril's own guidance: SPCC
-  reproduces true spectral intensities and true SHO intensities are green-dominated, so the Hubble palette
-  is not something a photometric calibrator should be producing.
 
 Two items added by the 2026-09-08 Slack sweep, both from the user working on an HOO master:
 
@@ -1001,15 +486,3 @@ Two items added by the 2026-09-08 Slack sweep, both from the user working on an 
   - Pinned by `NarrowbandStretchModeTests`, whose broadband control is what stops the fix degenerating
     into "Auto never picks Linked again"; both narrowband cases were seen red with the rule reverted.
 
-- [ ] **`Ionfreefly01/siril-spectral-extract` as a reference for Phase 1-2** (user's link, 2026-09-05,
-  sent without comment). A Siril plug-in that SYNTHESISES a narrowband-ish layer from OSC data: it fits
-  three coefficients weighting R, G and B to approximate a requested transmission curve (wavelength plus
-  FWHM), with optional continuum rejection to suppress broadband starlight, and writes the extracted
-  layers plus a combine step with per-layer blending. Inputs are an OSC image and, optionally, a sensor
-  QE curve as CSV, which is the same spectral input `FilterCurveDatabase` already holds.
-  - **Its own stated limit is our ADR-3 in one line**: three broadband measurements cannot be unmixed
-    into a 3 nm passband, so it claims usefulness at 40 nm and up and for continuum suppression, not
-    narrowband fidelity. It is a palette and enhancement tool, explicitly not photometric, so it informs
-    Phase 1-2 and the Phase 3 crosstalk algebra rather than Phase 4.
-  - **GPL-3.0-or-later**, matching Siril. Under ADR-2 (revised 2026-08-11) vendoring would be lawful now
-    that TianWen is AGPL-3.0-or-later, and the preference there still stands: reimplement from the maths.

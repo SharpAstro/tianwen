@@ -1,26 +1,11 @@
 # TODO -- Guider
 
-Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the active/high-priority list.
+**The open items are GitHub issues** labelled [`area:guider`](https://github.com/SharpAstro/tianwen/issues?q=is%3Aissue+is%3Aopen+label%3Aarea%3Aguider) since 2026-09-24, when this file was migrated. What is left here is the DONE archive, kept for the measurements and reasons it records. Never add an open `- [ ]` here: open an issue.
 
 ## Guider
 
-- [ ] `appState` parameter should probably be an enum (`GuiderStateChangedEventArgs.cs:34`)
-- [ ] Decide whether to ship a pretrained neural guide model (or train from scratch per-mount). **Plan
-  (2026-09-02): [../plans/neural-guider-training.md](../plans/neural-guider-training.md).** Its H5 predicts
-  "both": the policy transfers across mounts, the PE component does not, so ship a pretrained base and
-  refine per profile online. Its H1/H2 say the four items below are moot until the trainer's TARGET
-  changes: `TrainEpoch` distils the P controller, so it cannot clear the monitor's 15 percent bar by
-  construction; the predictive (next-frame) target is what makes any of them answerable.
-- [ ] Guider profile should use profile id (not name) for model persistence and lookup
-- [ ] Write guide logs (CSV) into folder next to model weights for post-session analysis
-- [ ] Investigate if increasing neural model parameters (wider/deeper MLP) improves guide accuracy
-- [ ] Investigate improving pretrained model with real-time mount telemetry data
 - [x] Built-in guider receives same mount driver instance via `IMountDependentGuider` wiring in `SessionFactory`
 - [x] Support ST-4 guide port as guiding output: `PulseGuideRouter` + `PulseGuideSource` (`?pulseGuideSource=Auto|Camera|Mount` on the guider URI) routes corrections through `ICameraDriver.StartPulseGuideAsync`. `Auto` prefers the mount (commit 8a08691): camera `CanPulseGuide` only proves an ST-4 *socket* exists (`HasST4Port`), not that a cable is connected
-- [ ] Support snap/shutter-release port for external camera triggering
-- [ ] MetaGuide support: as an external guider (MetaMonitor UDP telemetry listener, like `OpenPHD2GuiderDriver` for PHD2) and/or adopting its video/lucky-guiding technique internally. See [docs/plans/video-guiding.md](../plans/video-guiding.md).
-- [ ] Finish the fake disturbance-model refactor (see `docs/architecture/fake-disturbance-model.md`). DONE so far: the neural-vs-P comparison (`GuideLoopTests`) migrated onto the coupling harness via `SetupCoupledGuidedMount` (real ~99-sample runs, not the 2-sample vacuity). REMAINING: (a) the shared `IDisturbanceTerm` / `MountDisturbanceModel` abstraction (steps 1-5) so PE/polar/flexure/wind/seeing are one composable model instead of three overlapping ones; (b) migrate the other `SetupGuidedMount`-based tests (`GivenWindGusts…`, `GivenCableSnag…`, `GivenCombinedDisturbances…`) off the sidereal-contaminated hand-rolled renderer; (c) add wind + seeing knobs to the coupling path (step 7). Also: the comparison currently only exercises ~5-10% neural blend (BlendRampInFrames=480 vs 100 iterations) on a gentle, well-correctable disturbance, so neural ≈ P; a discriminating variant (harder regime + fuller blend, or a model trained on outcomes not P-imitation) would make the guardrail bite.
-
 
 ### Filed 2026-08-30 from the 2026-08-29 session notes (found in passing, neither fixed)
 
@@ -30,7 +15,7 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
   for the equator. Make the placeholder unmistakable (NaN, or construct at guide start). **DONE 2026-09-02:**
   constructed at guide start only (`RunAsync`, keyed on the model rather than on a placeholder builder), and
   the `NeuralGuideFeatures` ctor lost its `= 0` default so every caller has to state the latitude.
-- [ ] **`NeuralGuideTrainer` hardcodes `siteLatitude: 45.0`.** Features 18/19/20 are HA, altitude and Dec,
+- [x] **`NeuralGuideTrainer` hardcodes `siteLatitude: 45.0`.** Features 18/19/20 are HA, altitude and Dec,
   which are mutually consistent for latitude 45 at TRAINING and for the user's latitude at INFERENCE, so
   the model can learn a relation between them that only holds at 45 deg. Second-order (the neural guider
   is opt-in), but the trainer should take the site it trains for, or the features should not encode

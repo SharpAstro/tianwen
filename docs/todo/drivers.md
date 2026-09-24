@@ -1,24 +1,9 @@
 # TODO -- Devices & Drivers
 
-Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the active/high-priority list.
+**The open items are GitHub issues** labelled [`area:drivers`](https://github.com/SharpAstro/tianwen/issues?q=is%3Aissue+is%3Aopen+label%3Aarea%3Adrivers) since 2026-09-24, when this file was migrated. What is left here is the DONE archive, kept for the measurements and reasons it records. Never add an open `- [ ]` here: open an issue.
 
 ## Camera / ICameraDriver
 
-- [ ] Consider using external temp sensor if no heatsink temp is available (`ICameraDriver.cs:314`)
-- [~] **QHY native ADC bits: query `OutputDataActualBits` in QHYCCD.SDK**; implemented in
-      [QHYCCD.SDK#3](https://github.com/SharpAstro/QHYCCD.SDK/pull/3) (`fix/qhy-adc-actual-bits`), NOT yet
-      merged/released. `QHYCCD_CAMERA_INFO.BitDepth` reported `GetQHYCCDChipInfo`'s `bpp` = the
-      TRANSFER/container bits (8/16), not the ADC resolution, so `DALCameraDriver.AdcDepth` for QHY
-      resolved to 16 bits and `MaxADU`/`ImageMeta.SensorFullScaleAdu` stamped 65535 (numerically the same
-      as the pre-`AdcResolution` fallback, so no regression, but wrong-high for the 14-bit QHY294). The PR
-      refines `BitDepth` post-init from `CONTROL_ID.OutputDataActualBits` into a separate `_adcBitDepth`
-      field (guarded no-regression). Once merged + on NuGet, TianWen's `1.0.*` pin auto-picks it (no re-pin)
-      and `AdcDepth` is correct for QHY with no changes here. **Still open:** (1) merge + release the sibling
-      (`/release-lib QHYCCD.SDK`), gated on PR #96 landing first (one-PR-in-flight); (2) **hardware-verify on
-      a real QHY294** whether the SDK delivers native LSB-aligned data (max ~16383) as assumed, or
-      MSB-aligned/left-shifted (max ~65532); `OutputDataAlignment` is the hook, deliberately not acted on
-      without hardware (a wrong guess over-scales → clips highlights). ZWO needs nothing
-      (`ASI_CAMERA_INFO.BitDepth` is the true ADC depth, e.g. 14 for ASI533).
 - [x] **Canon Live View video: EVF-zoom planetary regime + host-side ROI jog (Phase E zoom-pan).** Phase E
       *core* shipped 2026-07-16; the zoom crop and its pannable ROI shipped 2026-08-03 on FC.SDK `3.0.751`.
       `NumX` snaps to a zoom level, `VideoRoi` reports the body's own rect, `CanJogRoi` / `JogRoiAsync` pan it,
@@ -53,47 +38,6 @@ keeps reporting open), rebuilding the connection when the handshake goes silent.
       cold (the "not required" reading was a confound). Discovery: `ISerialProbe.Warmup` + `AssertControlLines`
       (isolated pass 2 only), and probes moved to the cancellable **`SynchronousReads`** path (async
       `SerialPort.BaseStream` reads spuriously abort on CH34x). See the protocol doc + [../plans/soft-discovery.md](../plans/soft-discovery.md).
-- [ ] **Pinned-verify tier skips a DTR-only device.** `SerialProbeService.VerifyPinnedPortsAsync` probes on
-      the shared handle (`isolatePerProbe: false`), so with the new DTR-skip a pinned Gemini is skipped in
-      verification and falls to Stage 2 (direct URI connect of a pinned panel still works). Fix: isolate
-      (assert DTR + warmup) for probes that need control lines. Tracked in [../plans/soft-discovery.md](../plans/soft-discovery.md);
-      bench confirmation with a pinned panel: [hardware-validation.md](hardware-validation.md) item 20.
-
-## Serial I/O reliability (cross-cutting)
-
-- [ ] **.NET `SerialPort` async reads are unreliable; roll our own serial lib.** Async `BaseStream` reads
-      spuriously abort (`ERROR_OPERATION_ABORTED`) after the first read on CH34x bridges, and the BCL "async"
-      is blocking-on-a-thread underneath anyway (dotnet/runtime#28968). Interim fix shipped: cancellable
-      `SynchronousReads` path in `SerialConnection`. Proper fix: a `Serial.Lib` sibling repo (Lzip.Lib-style).
-      Plan: [../plans/serial-lib.md](../plans/serial-lib.md).
-- [ ] **ASCOM COM drivers that busy-spin `Application.DoEvents()` crash headless connect** (Gemini
-      FlatPanel + Focuser Pro confirmed; iOptron ×2, QHYFWRS232 suspected). Mainstream drivers (OmniSim,
-      ZWO/ASI/PlayerOne/QHYCCD) are clean. Fix: host ASCOM COM calls on an STA thread with a real message
-      pump. Plan: [../plans/ascom-com-sta-message-pump.md](../plans/ascom-com-sta-message-pump.md).
-
-- [ ] **Serial round-trip time distribution per command** (idea salvaged 2026-08-29 from GSS `f70d821`'s
-  `CommandQueueStatistics`; we have no command queue to instrument, but the analogous measurement is worth
-  having and we have none). A failing USB cable, a saturated port or a mount that has begun retrying all
-  present as "guiding got worse", and nothing in the logs separates those from seeing. Per-command
-  histogram (p50/p95/max) on `SendAndReceiveAsync` in the serial drivers, surfaced in the log summary
-  and, later, the Home board's rig card.
-
-## GUI (runtime, unrelated to the driver work, flagged during bring-up)
-
-- [ ] **GUI preview render crashes on this box (native, Release).** Reproducible: on the Equipment tab, right
-      after `AppSignalHandler` logs `Preview mount first sample: RA=0 Dec=0…` (mount sample succeeds, sets
-      `NeedsRedraw`), the process dies during the ensuing render; exit 127, **no managed dump** (even with
-      `DOTNET_DbgEnableMiniDump=1`), no stderr, no WER event ⇒ a native SDL/Vulkan/GPU render fault, not a
-      managed exception. Independent of the Gemini/serial work (all in `Lib`, test-validated). To debug: needs
-      either a native WER LocalDump (registry) / debugger, or the DEBUG build + `sdl-ui-inspector`, which
-      needs the missing sibling checkouts (below).
-- [ ] **DEBUG GUI build needs the sibling checkouts.** `DebugInspector`'s `SignalFactories` consume
-      SdlVulkan.Renderer's `DebugSignalArgs` (`JsonElement.OptInt/OptDouble`, C# 14 `extension` members),
-      which are `#if DEBUG` → **stripped from the published Release package**. So a DEBUG build (and thus the
-      MCP inspector) only works with `UseLocalSiblings=true`, i.e. all siblings cloned (QHYCCD.SDK, FITS.Lib,
-      SER.Lib, StbImageSharp, Lzip.Lib were absent on the bring-up box → `UseLocalSiblings=false` → Release
-      package → CS1061). Release GUI builds/runs fine. (Pin bumped SdlVulkan.Renderer 6.9→6.10 + DIR.Lib
-      6.0→6.3 for currency; that alone can't fix DEBUG since the members are DEBUG-only in the package.)
 
 ## Rotator (new device type, per-OTA)
 
@@ -103,15 +47,6 @@ position-angle math exists). Wrapping one is the same dispatch-interop pattern a
 mechanical-vs-sky PA / Reverse) and Alpaca mirrors it. No vendor-native rotator SDKs exist, so
 ASCOM + Alpaca is full coverage for this device class. **Full phased plan: [docs/plans/rotator.md](../plans/rotator.md).**
 
-- [ ] `IRotatorDriver` interface (mechanical position, sky PA, IsMoving, MoveAbsolute, MoveMechanical, Reverse, StepSize) + `DeviceType.Rotator`
-- [ ] `AscomRotatorDriver` (wrap a new `AscomDispatchRotator`, mirror `AscomCoverCalibratorDriver`) + `AlpacaRotatorDriver`
-- [ ] `FakeRotatorDriver` (settle model + reverse) for tests
-- [ ] **Per-OTA wiring** -- the rotator lives on each `Setup.Telescopes[i]` next to its camera/FW/focuser, NOT as a singleton on the mount. Multi-OTA rigs frame each tube independently, so this is the design constraint that makes it harder than a single-train app's one rotator.
-- [ ] Framing-angle automation: a target carries a desired sky PA; on slew/center, drive each OTA's rotator to its PA using the plate-solved field rotation
-- [ ] Post-meridian-flip re-rotate: a GEM flip rotates the field 180deg, so re-issue the PA to preserve framing (today nothing drives a physical rotator across a flip)
-- [ ] `$$ROTATORANGLE$$` (per-OTA) token for the configurable FITS path/header template (pairs with the path-template item in `sequencing.md`)
-- [ ] Equipment-tab slot + profile URI persistence (sky-PA offset, reverse flag)
-
 ## Dome (new device type, per-site)
 
 No dome support today. ASCOM `IDomeV3` / Alpaca expose shutter + azimuth; the real value is
@@ -119,50 +54,24 @@ No dome support today. ASCOM `IDomeV3` / Alpaca expose shutter + azimuth; the re
 coordinates + pier side + mount/dome geometry. A per-site singleton (one dome per mount), so
 simpler than the per-OTA rotator.
 
-- [ ] `IDomeDriver` interface (shutter open/close, slew-to-az, IsSlewing, CanSlave, park) + `DeviceType.Dome`
-- [ ] `AscomDomeDriver` + `AlpacaDomeDriver` (same dispatch-interop pattern)
-- [ ] `FakeDomeDriver` for tests
-- [ ] Dome-follower loop: target az from mount RA/Dec + pier side + geometry offsets; resync on slew + meridian flip; park the dome on session finalise
-- [ ] Imaging gate: hold capture while the shutter is not open or the dome is still slewing (mirror the existing safety-gate pattern)
-
 > The third commonly-missing device type, **SafetyMonitor** (ASCOM `ISafetyMonitorV3`, also a
 > per-site singleton), is already tracked in [TODO.md](../../TODO.md) "Next Up".
 
-## DAL Camera Driver
-
-- [ ] Implement trigger for ReadoutMode (`DALCameraDriver.cs:290`)
-- [ ] Add proper exceptions for `SetCCDTemperature` setter (`DALCameraDriver.cs:381`)
-- [ ] Add proper exceptions for `Offset` getter (`DALCameraDriver.cs:661`)
-- [ ] Support auto-exposure (`DALCameraDriver.cs:848`)
-
 ## Alpaca Drivers
 
-- [ ] Query tracking rates from Alpaca when endpoint supports enumeration (`AlpacaTelescopeDriver.cs:46`)
-- [ ] Parse axis rates from Alpaca response (`AlpacaTelescopeDriver.cs:315`)
 - [x] Implement string[] and int[] typed getters for filter names and focus offsets (`AlpacaClient.cs`)
-- [ ] Parse string[] from Alpaca for `Offsets` (`AlpacaCameraDriver.cs:241`)
-- [ ] Parse string[] from Alpaca for `Gains` (`AlpacaCameraDriver.cs:254`)
 - [x] Alpaca `imagearray` endpoint requires special binary handling; done via the `application/imagebytes` binary transfer (`AlpacaImageBytes.DecodeChannel` + `AlpacaClient.GetImageArrayBytesAsync`); `GetImageReadyAsync` downloads + decodes once on first-ready into `ImageData`/`ChannelBuffer`. `AddAlpaca()` now wired into CLI/Server/GUI. (PR #51)
-- [ ] Async call to `lastexposureduration` endpoint (`AlpacaCameraDriver.cs:294`)
 - [x] Alpaca camera: recycle frame buffers; **DONE (2026-07-06, same-day as the audit)**: `AlpacaCameraDriver` now carries a DAL-style `_freeBuffers` `ConcurrentBag`; `AlpacaImageBytes.DecodeChannel(payload, recycled)` decodes into the recycled buffer when the shape matches (drops it to GC on an ROI/bin change), and `onRelease` returns the `float[,]` to the bag; a steady capture loop no longer allocates a fresh full-frame LOH array per frame. Pinned by the recycle tests in `AlpacaImageBytesTests`.
 
 ## ASCOM Drivers
 
-- [ ] Implement axis rates for telescope (`AscomTelescopeDriver.cs:320`)
-- [ ] Support ASCOM `Setup()` method: call the driver's native setup dialog for device-specific configuration
 - [x] ASCOM camera: cache `ImageData` on first read; **DONE (2026-07-06, same-day as the audit)**: `AscomCameraDriver.ImageData` now materialises the COM `ImageArray` exactly once per exposure into `_imageData` (cleared by `ReleaseImageData` + `StartExposureAsync`, restoring the "reads null after `GetImageAsync`" contract), attaches a recycling `ChannelBuffer`, and `Channel.FromWxHImageData(sourceData, recycled)` converts into a recycled buffer from the DAL-style `_freeBuffers` bag when the shape matches.
 
 ## Mount / Meade LX200 Protocol
 
-- [ ] Implement effective `:Gm#` command; ask Johansen (Melbourne) if he knows how to get it or how to use `:E;` to retrieve state
-- [ ] Determine precision based on firmware/patchlevel (`MeadeLX200ProtocolMountDriverBase.cs:43`)
-- [ ] LX800 fixed GW response not being terminated issue, account for that (`MeadeLX200ProtocolMountDriverBase.cs:143`)
-- [ ] Pier side detection only works for GEM mounts (`MeadeLX200ProtocolMountDriverBase.cs:305`)
-- [ ] Support `:RgSS.S#` to set guide rate on AutoStar II (`MeadeLX200ProtocolMountDriverBase.cs:573,583`)
-- `:Q#` stopping pulse guiding too (`MeadeLX200ProtocolMountDriverBase.cs:873`): bench check, [hardware-validation.md](hardware-validation.md) item 13.
+- `:Q#` stopping pulse guiding too (`MeadeLX200ProtocolMountDriverBase.cs:873`): bench check, bench issue #647.
 - [x] Use standard atmosphere for `SitePressure` (`IMountDriver.cs:344`); DONE (branch `feat/top-5-todo`): the `1010` hardcode is gone; `TryGetTransformAsync` now leaves `SitePressure` unset for the standard tier (`SiteConditions.Standard`), so `Transform` auto-derives it barometrically from elevation (more accurate at altitude than a flat 1010).
 - [x] Check online or via connected devices for `SiteTemperature` (`IMountDriver.cs:345`); DONE (branch `feat/top-5-todo`): `SiteConditions.Resolve` consults a connected `IWeatherDriver` (live), else standard, per value. Session resolves it via `Session.ResolveSiteConditions()`; polar alignment uses the same resolver. (No profile-stored override, temp/pressure vary.)
-- [ ] Handle refraction, assumes driver does not support/do refraction (`IMountDriver.cs:347`), still open; the `Refraction = true` assumption (per-driver native-refraction handling) is deliberately out of scope of `docs/plans/site-conditions.md`.
 
 ## Mount / Skywatcher Protocol (gaps vs GSServer reference, `../../other/GSServer/GS.SkyWatcher`)
 
@@ -197,26 +106,9 @@ The fakes now model this honestly, and the sky map gained the discovery tool:
 - [x] `FakeSkywatcherMountDriver` public `GetRA/GetDec` report the believed (encoder) pointing; the misaligned TRUE pointing moved to the internal `IFakeTruePointingSource.GetTruePointingNativeAsync` seam (all three regimes: near-pole encoder sweep, pre-sync axis tilt, post-sync tracking drift + believed-deviation term).
 - [x] `FakeCameraDriver` guide path renders from the true seam; main path shifts the stamped `Target` by the per-exposure `(true - believed)` J2000 delta so plate solves of main frames reveal the hidden error. `FakeGuider.SaveImageAsync` stamps WCS from the true seam (polar-align sim signal preserved). Shared conversion extracted to `EquatorialFrameConversion.TopocentricToJ2000` (one path with `IMountDriver.GetRaDecJ2000Async`).
 - [x] Sky-map mount reticle is clickable -> mount info panel -> **Solve & Sync** button: `MountActions.SolveAndSyncAsync` (stamp + preview capture + plate solve + `SyncRaDec` via the profile transform). Marker jumps to truth on the next telemetry poll; re-slew stays the user's decision. Uses the OTA's MAIN camera (`OTAs[OtaIndex].Camera`, index 0 from the button). This is the only truthful-marker path for slew-less trackers (SkyGuider Pro: `CanSlew=false`, `CanSync=true`). Verified end-to-end in the GUI: blind goto lands marker ON target; Solve & Sync revealed a 6.5' cone error; re-goto landed true; second solve showed 1.3' residual (pure tracking drift).
-- [ ] Optional: per-OTA picker for Solve & Sync on multi-OTA rigs (button currently posts OTA 0).
-- [ ] Optional: expose Solve & Sync exposure/gain/binning in the UI (currently 5 s / camera default / bin 1).
-
-## Device Management
-
-- [ ] Try to parse URI manually in Profile fallback (`Profile.cs:130`)
-- [ ] **Post-connect mount liveness probe (ASCOM hubs / GS Server).** GS Server is a COM *hub*: a
-      client's `Connected = true` attaches the client but doesn't force the hub↔mount link, so a
-      driver can report connected while returning RA=0 / tracking=false (observed 2026-07-04, the
-      GSS form showed disconnected until the mount was connected *inside* GSS). After `Connected =
-      true`, read RA/Dec (or `AtPark`/`Tracking`) and surface a warning ("connected but not
-      reporting position; connect the mount inside GS Server") instead of silently proceeding into
-      a session against a dead link. Cross-ref [../plans/ascom-com-sta-message-pump.md](../plans/ascom-com-sta-message-pump.md).
 
 ## Protocol Support
 
-- [ ] GSS ServoCAT / SiTech protocol support + simulator
 - [x] iOptron SkyGuider Pro (SGP) mount driver: `SgpMountDriverBase<T>` with custom serial protocol at 28800 baud, RA-only axis, pulse guiding via timed move, CameraSnap support, `FakeSgpSerialDevice` for testing
-- iOptron SkyGuider Pro handbox firmware patch feasibility (STM32F103): needs the handbox + a probe, [hardware-validation.md](hardware-validation.md) item 22.
-- [ ] iOptron SkyGuider Pro: device identity; no UUID mechanism available (firmware has no user string storage, doesn't read STM32 hardware UID); falls back to firmware version + port name
-- [ ] Generic iOptron serial protocol support (SmartEQ, CEM series); same 28800 baud, similar command set but with position feedback
-- [ ] SGP pulse guiding should restore previous speed not just siderial (wait Pulse guiding is wrong, it will be 1x siderial but SGP has a different guide rate configured) or make this configurable; alternative: if guide rate is 0.5, half guide pulse time by 2
+- iOptron SkyGuider Pro handbox firmware patch feasibility (STM32F103): needs the handbox + a probe, bench issue #657.
 

@@ -1,37 +1,12 @@
 # TODO -- Infrastructure, Quality & Testing
 
-Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the active/high-priority list.
+**The open items are GitHub issues** labelled [`area:infra`](https://github.com/SharpAstro/tianwen/issues?q=is%3Aissue+is%3Aopen+label%3Aarea%3Ainfra) since 2026-09-24, when this file was migrated. What is left here is the DONE archive, kept for the measurements and reasons it records. Never add an open `- [ ]` here: open an issue.
 
 ## Flaky Tests
 
-- [ ] **TWIC0001 (and its shader-bake twin) warn on a fresh clone.** The staleness check is an MSBuild
-  `Inputs`/`Outputs` mtime comparison, and a git checkout writes `icons.recipe` and `BakedIcons.g.cs`
-  in directory order -- measured 19 ms apart on this box, recipe last -- so it fires on a clean tree
-  whose table is byte-correct (`pwsh tools/bake-icons.ps1 -Verify` answers "matches its recipe"). A
-  warning that cries wolf after every clone trains people to ignore the log; CI already runs the
-  authoritative `-Verify`. Either drop the mtime target in favour of that, or give it a tolerance.
-
-- [ ] `PlanetaryCaptureControllerTests.Auto_recenter_off_leaves_the_roi_window_fixed`: hit its 60s test timeout in 2 of 3 full-suite runs on 2026-07-03 (win-arm64 dev box under load); all 7 tests in the class pass in isolation in 10s. Suspected thread-pool starvation under `maxParallelThreads: 4` (the capture loop runs on `Task.Run` like the Session tests did before they were serialized). **Recurred 2026-07-06** (1 of 4 full-suite runs, same signature: timeout before/at first frame, 7/7 green in isolation in 7s). The originally-prescribed own-`[Collection]` fix is **moot, the class already sits in `[Collection("Session")]`**; the remaining suspects are the wall-clock poll loops (`5000×`/`600×` iterations of `Tick(); await Task.Delay(2)`, under contention each 2 ms delay stretches to ~15-30 ms timer granularity, and a starved capture `Task.Run` never sets `FramesReceived`) racing the `[Fact(Timeout = 60_000)]`. Proper fix: condition-based waits (wait for `FramesReceived >= N` with the timeout as the only bound, drop the fixed iteration counts) and/or pumping the capture loop off `FakeTimeProvider` instead of real 2 ms sleeps.
 - [x] `SessionObservationLoopTests.GivenRefocusOnNewTargetWhenSwitchingTargetsThenBaselineStoredPerTarget`: fixed: cooperative time pump, `[Collection("Session")]` serialization, removed wall-clock timeouts
 
 ## CI
-
-- [ ] **Set `enableCrossOsArchive: true` on the LFS cache steps** (deferred 2026-08-20; do it once the
-  LFS budget resets in 2026-09). Since 2026-09-18 that is ONE cache step, in
-  `.github/actions/lfs-pull`, which every workflow's LFS pull goes through. `actions/cache` segregates Windows entries from POSIX ones unless this
-  is set, so a Windows job can never restore the `lfs-build-` entry the ubuntu `build` job saves -- not
-  by key, not by the `restore-keys` prefix -- and cannot bootstrap one of its own, because a cache is
-  saved only when the job succeeds. Measured on release run #1311: all six `publish-apps` legs computed
-  the same key `lfs-build-5dcb5df07512d63d`, both Linux legs AND both macOS legs hit it, and only the two
-  Windows legs reported `Cache not found`. macOS restoring a Linux-saved entry is what rules out a
-  generic per-OS scoping story -- the split is specifically Windows, which is what the flag exists for.
-  **Why deferred:** the flag changes the computed cache *version*, so enabling it invalidates every
-  existing `lfs-build-*` and `lfs-tests-*` entry. While the budget is dry a miss means a live
-  `git lfs pull` that gets refused, so turning it on today would take the currently-green `build`,
-  `test-unit` and `test-functional` jobs red -- including the ~197 MB test-fixture pull. After the reset
-  the same change costs one cheap re-save.
-  **Not blocking:** `publish-apps` no longer reads that cache at all (it takes its files from the
-  `lfs-payload` artifact), so this is about the remaining cache users and any future Windows job.
 
 - [x] **REVERT the n2n model out of plain git and back into LFS.** Done 2026-09-06, on exactly the occasion
   it was written for: the replacement checkpoint landed (`tianwen_denoise_osc_e2wide_s2.onnx`) and the LFS
@@ -61,7 +36,6 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 - [x] **Migrate remaining `appState.StatusMessage = …` sites to `appState.AppendNotification(when, sev, msg)`.** Swept `AppSignalHandler.cs` (site-recompute, Goto validation, discovery results, assign/connect/disconnect/force-disconnect result+failure, cooler setpoint, warm-and-disconnect, warm-and-cooler-off, cooler off, session start validation + finalizer phase + cancel/fail, preview/snapshot/plate-solve/jog result+failure) and `Program.cs` (site warning, warming-cameras prompt, shutdown initial-state). Kept pure transient progress hints as plain assignments: `Recomputing…`, `Discovering devices…`, `Building schedule…`, `Initialising session…`, `Plate solving…`, Sun-slew confirmation prompt, shutdown pending-count ticker, ESC-to-quit prompt.
 
 - [x] **`lock` standing-rule sweep** (rule in CLAUDE.md → Concurrency, 2026-07-03; finished 2026-09-24, #353): every `lock` needs a justification comment at the lock site, must not be reachable from a rendering thread, and must use `System.Threading.Lock`, never `lock` on an `object`, a collection, or a StringBuilder. **No `lock` in `src/` targets anything but a `System.Threading.Lock` now**, and every `Lock` carries its justification. Already compliant: `FakeCameraDriver`, the fake serial devices, `LiveCameraFrameStream`, the 5× `TianWen.AI.Imaging/Onnx/*` `_gate` fields (ONNX session single-flight) + `N2nDenoiser._gate`, `HostedSession._targetLock`, `StreamingFrameStaging.StreamingFrameReader._gate`, `FileCredentialStore._gate`, `SyntheticStarFieldRenderer._noiseTilesLock` (converted 2026-09-18, #304), `AscomHostJob`/`AscomHostProcess._gate`, `StartupTrace._anchorGate`. The last object locks went LOCK-FREE rather than changing type: `SerialProbeService` (per-probe results are an `ImmutableArray` replaced through `ConcurrentDictionary.AddOrUpdate`, so `ResultsFor` no longer copies and the pass-drop check no longer locks each list; the pinned-port verify set is a `ConcurrentDictionary`), `RcAstroCli` (stderr into a `ConcurrentQueue<string>` joined after exit, as `ExternalProcessPlateSolverBase` does), and the test/probe collectors `CometRepositoryTests`, `ObjectPictureCacheTests`, `SharpenPipelineDebayerTests` and eight `TianWen.UI.Web.E2E` probes (`ConcurrentQueue`). `OnStepQuirkProbeTests._rxLock` became a `Lock` (the drain records a count and clears as one step). `Image.Histogram`'s `lockObj` was already gone (one result slot per row strip, then a serial argmin, replaced it). Justification comments added to `FileLoggerProvider`, `FakeCameraDriver`, the three fake serial devices and `N2nDenoiser`. One clause is still unmet, tracked below.
-- [ ] **`FileLoggerProvider._lock` is reachable from a render thread.** Every `FileLogger` in the process shares one `Lock` around one `AutoFlush` `StreamWriter`, and the GUI and viewer render threads log, so a render thread can wait on another thread's disk write. A `Channel`/queue drained by one writer task would take it off the render thread, but gives up what `AutoFlush` under the lock buys today: every line is on disk before `Log` returns, which is what keeps the last lines before a crash. Needs a flush-on-crash story (drain on `AppDomain.UnhandledException` / process exit) before it can change.
 - [x] **Signal handler cleanup: route, don't implement.** (Completed 2026-07-03 across two passes; `AppSignalHandler.cs` 2,991 → 2,519 lines.) The original audit below listed six handlers; a follow-up sweep found the audit itself was incomplete; the two biggest handlers (`StartPolarAlignmentSignal`, `SkyMapSolveSyncSignal`) and the whole TextInput-callback block were never enumerated. All now resolved.
   - Part 1 (the originally-audited six):
     - [x] `StartSessionSignal`: extracted to `SessionBootstrapper.BuildAndStartAsync` (container-free: caller resolves `ISessionFactory`); the lambda keeps the three preconditions + one call. Biggest single win (255 → 30 lines).
@@ -79,20 +53,6 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
     - [x] TextInput commit callbacks: `saveSite` parse/validate → `EquipmentActions.TryParseSite`, mount push → `EquipmentActions.PushSiteToMountIfProfileWinsAsync`; `StringSettingInput.OnCommit` masked-secret/URI decision → `EquipmentActions.CommitDeviceSetting`. (`ProfileName`/`GuiderFL`/`saveOta` left as-is: already thin, single helper call or single-field set + save.)
   - Pinned by `RouteOnlyExtractionTests` (`TryParseSite`, `CommitDeviceSetting`, `GateSunSlew`).
 - [x] **Signal-handler boilerplate reduction** -- DONE (Phases 1-3 + 5, branch `refactor/signal-handler-boilerplate`): `Notify` / guard helpers (`EnsureSessionIdle` / `TryGetConnected<T>` / `TryResolveIdleOtaFocuser`) / `RunTracked` (over the upstreamed `DIR.Lib.BackgroundTaskTracker.RunGuarded`) swept across the handlers and extended to the ones added since the draft (Flats/manual-cover/comets); the ctor's subscription groups then split verbatim into per-concern `Subscribe*` partials (`.Planner/.SkyMap/.Equipment/.LiveSession/.Polar/.Flats.cs`, call order = registration order). Bespoke error sites left untouched; Tier 4 `Wire<T>` dropped by its own kill criterion. Core file ~2687 -> ~860 lines. [docs/plans/signal-handler-boilerplate.md](../plans/signal-handler-boilerplate.md).
-- [ ] **OnStep follow-ups** (leftover from the OnStep commit series):
-  - [ ] MoveAxis via `:Mn/:Ms/:Me/:Mw#` + `:Qe/Qw/Qn/Qs#` + `:RA/:RE` rates; enables direct jog buttons in GUI
-  - [ ] Per-axis guide-rate setter via `:Rn#` (index 0–9) + `:GX90#` query; enables `CanSetGuideRates = true` on the OnStep override
-  - [ ] Test `EquipmentActions.ReconcileAllProfilesAsync` with a fake `IExternal` that captures `AtomicWriteJsonAsync`; orchestration layer currently untested; unit tests only cover `ReconcileProfileData`
-  - [ ] mDNS bind fallback, if port 5353 is owned by Bonjour/Avahi, bind to an ephemeral UDP port and accept unicast responses (currently silently returns empty results). Common on macOS
-  - [ ] "Add unseen device" button in equipment tab: today WiFi OnStep mounts that don't advertise mDNS require hand-editing the profile JSON. Add a modal with host + port fields that constructs an `OnStepDevice` and injects it into discovery cache
-  - [ ] Parse SRV records in `ParseMdnsResponse` to pick up non-default TCP ports. Currently assume 9999; some firmware advertises a different port via SRV
-- [ ] Split `IDeviceSource<T>` discovery role from per-device driver role. Several drivers fuse both into one class and rely on a placeholder/"default root device" ctor so DI can construct the singleton:
-  - `OpenPHD2GuiderDriver`: singleton ctor synthesizes a `MakeDefaultRootDevice(external.DefaultGuiderAddress)` just to satisfy `_guiderDevice`; only `_equipmentProfiles` is meaningful in the discovery role
-  - `QHYDeviceSource` / `ZWODeviceSource` / `AscomDeviceIterator` etc. review for the same smell
-  - Proper fix: separate `OpenPHD2DeviceSource : IDeviceSource<OpenPHD2GuiderDevice>` (no device field) from `OpenPHD2GuiderDriver : IGuider` (constructed only via `OpenPHD2GuiderDevice.NewInstanceFromDevice`). Mirror pattern across other dual-role classes
-- [ ] Replace `IReadOnlyList<T>` in parameters with `ReadOnlySpan<T>`, return types with `ImmutableArray<T>`; gradual migration for better perf semantics and thread safety
-- [ ] Abstract redraw flag propagation in TUI main loop; register `INeedsRedraw` state objects instead of listing `plannerState.NeedsRedraw || sessionState.NeedsRedraw || ...` manually
-- [ ] Live Session tab: `RollingGraphWidget<TSurface>` extracted to DIR.Lib (reusable for guide graph, cooling graph, future charts)
 
 ## External / Infrastructure
 
@@ -123,31 +83,12 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
       real contexts -- asserted policy-aware, so a legitimate flip does not fail for the wrong reason.
       Verified to fail when a guard is removed, and re-checked against the published AOT binary: all five
       nina `*/info` endpoints plus 12 other GETs answer 200.
-- [ ] Free unmanaged resources and override finalizer in `External.Dispose` (`External.cs:85-91`)
-- [ ] Actually ensure that FITS library writes async (`IExternal.cs:226`)
-- [ ] Write an MCP server for TianWen (expose session status, device state, observation schedule). PARTIAL (verified 2026-06-02): `TianWen.AI.MCP` (`tianwen-mcp`) ships `FitsTools` (Header/Stats/FindStars/PlateSolve/Pixels), `CatalogTools` (Lookup), `LogTools` (Tail). Session-status / device-state / observation-schedule tools still TODO (planned `stack.*`/`profile.*`/`devices.*`/`app.*` categories are doc-only in `Program.cs`).
 
 ## Testing
 
-- [ ] `ObjectType.IsStar()` helper method
-- [ ] VDB has objects listed as `Be*`, but in HIP we only know stars (`*`) (`CelestialObjectDBTests.cs:73`)
 - [x] Read WCS from FITS file in `FakePlateSolver` (`FakePlateSolver.cs:26`) DONE (2026-06-02): `SolveFileAsync` falls back to `Image.TryReadFitsFile(...)` WCS when no `CatalogPlateSolver` is injected (`FakePlateSolver.cs:50-54`).
-- [ ] See if fake mounts (`FakeMountDriver` and `FakeMeadeLX200ProtocolMountDriver`) can share a mount-specific base class
-- [ ] GPU offscreen comp-test followups not yet done (per the GPU comp-test survey): **A** Bayer demosaic comp, **C** WCS grid overlay comp. (D `VkRenderer` primitives, F sky-map line tessellation, B histogram already shipped as `VkRendererPrimitiveTests` / `SkyMapLineTessellationTests` / `VkHistogramPipelineTests`.)
 
 ### External AI tools in the test suite (from the 2026-08-17 handover)
-
-- [ ] **Env-gate the RC-Astro integration tests?** Proposed as `TIANWEN_RCASTRO_TESTS`, following the
-  device-simulator suite's pattern, so a routine `dotnet test` stops invoking the real `rc-astro`
-  binary (each call spikes the GPU through DirectML). **Undecided by the user -- do not do this
-  unprompted.**
-- [ ] **Unexplained: something launches PixInsight during a test run.** Nothing reproducible does it.
-  Measured: `rc-astro` spawns **zero** child processes (both the license probe and a real `nxt` run),
-  the RC test classes leave the tripwire untouched, and a full suite under a 200 ms process watcher
-  saw nothing at all. PixInsight genuinely ran once, at 21:35:24, *during* a suite but not provably
-  *because* of one. **Tripwire to reuse:** the `LastWriteTime` of
-  `%APPDATA%\Pleiades\core-001-pxi.settings`. Closing this needs a concrete sighting (what, and when)
-  rather than more speculative instrumentation.
 
 Method note worth keeping, since it cost real time: **for process-launch forensics on Windows without
 admin, a vendor's app-data write time is a better tripwire than process polling**, because it catches
@@ -171,98 +112,6 @@ a launch that happened while nobody was watching. A 200 ms `Win32_Process` poll 
 - [x] Run star detection and use the mask to exclude stars from background estimation.
       `ScanBackgroundRegion` accepts optional `BitMatrix? starMask`, re-scanned with
       48×48 squares after detection. Star mask reused from `StarList.StarMask`.
-
-## Dataset builder: make a re-measure cheap
-
-- [ ] **Retain the session masters so re-deriving PSF stats does not mean re-registering.**
-  **Evidence: two full 7h16m re-runs in two days** (2026-08-10 the star-detection duplicate fix,
-  2026-08-11 the FWHM estimator fix), both of which re-registered 50 sessions purely to recompute a
-  handful of numbers per star. `DatasetPsfStore` checkpoints *measured values*, which is exactly right
-  for surviving an interrupted run and useless for surviving a change to the estimator that produced
-  them. The measurement itself takes seconds; the registration takes the 7 hours.
-
-  Why it currently cannot be short-circuited: the field-radius profile (`Bins[].Fwhm`, the only part
-  P2's synthetic-PSF sweep actually needs) is measured by detecting stars on the **session master**,
-  and the master exists only as the output of register + integrate into `outDir/_scratch`, which is
-  wiped per session on purpose so peak disk is bounded by the largest single session.
-
-  **Classify the change before choosing a mechanism**, because it is easy to build something that
-  helps less than it appears to:
-
-  | Change | What re-measuring needs |
-  |---|---|
-  | Registration or integration itself | Full re-register. Unavoidable, and correct. |
-  | **Detection** (which stars, centroid, aperture sizing) | The master's PIXELS (field-radius half) and the subs' pixels (per-sub half) |
-  | **A quantity derived from one star's radial profile** (the FWHM change) | Only the stored profile |
-
-  Two candidate mechanisms:
-
-  - **(A) Keep the 50 session masters.** ~108 MB each (3008x3008x3 float32), so ~5.4 GB, or ~2.7 GB at
-    fp16. Covers the detection *and* derived classes for the field-radius half, and is nearly free to
-    implement: write the master to a retained per-session path instead of only into scratch. Disk is
-    abundant on this box and the masters are already computed. **Preferred**, because it covers the
-    strictly larger class of change.
-  - **(B) Persist the per-star radial profile** (`profileFlux` / `profileWeight` from
-    `Image.AnalyseStar`, ~8-16 floats per star; ~219k sampled stars implies roughly 5-15 MB). Covers
-    only the derived class, but covers it for **both** halves, and is small enough to commit-adjacent.
-    A cheap complement to (A), not a substitute.
-
-  **The per-sub half does not fully benefit either way, and say so up front.** `SubFwhm[]` comes from
-  the analysis pass over each of the 5,984 subs, so re-deriving it needs a calibrate + detect sweep of
-  the subs. That is far cheaper than register + integrate but not free (order 40 min), and retaining
-  masters does nothing for it. Mechanism (B) is what makes that half cheap.
-
-  Precedent for the shape: `TianWen.Lib.Tests/Data/vela-mosaic-starlists.json.gz` stands in 2.1 MiB of
-  star positions for ~9 GB of FITS, because the property under test was geometric. Same idea, applied
-  to the dataset builder's own statistics.
-
-- [ ] **`--regen-psf` oversells what it does; either rename it or make it mean its name.**
-  `DatasetBuildRunner.RunAsync` returns early for a session that already has a PSF record **before**
-  consulting `RegenPsfForExportedSessions`, so the flag only fills in *missing* records and cannot
-  force a re-measure. The 2026-08-11 FWHM re-run therefore needed the store rotated aside by hand to
-  make all 50 records "missing" before the flag would do anything. The doc comment is accurate but the
-  name is not, and it mispredicted its own behaviour within a day of being written, which is evidence
-  about the name rather than about the reader. Options: rename to `--fill-missing-psf`, or add a force
-  path and let missing-record be the subset. Note that rotating the store is *independently* worth
-  doing (it preserves the prior distribution for a before/after comparison, which an append-only
-  last-wins force would bury), so whichever way this goes, keep rotation as the documented gesture.
-
-## Licensing / release hygiene
-
-- [ ] **Ship third-party notices with the release binaries.** The four AOT release assets
-  (`tianwen`, `tianwen-server`, `tianwen-gui`, `tianwen-fits`) **static-link everything**, so each
-  `.tar.gz` is a binary redistribution of its dependencies. MIT and BSD both require the copyright
-  notice be reproduced in such a redistribution, and the assets carry no notices at all today.
-  Concretely at least: `FITS.Lib` / CSharpFITS, whose BSD-style terms say "Redistributions in binary
-  form must reproduce the above copyright notice ... in the documentation" (Thomas McGlynn, Samuel
-  Carliles, Virtual Observatory India), the seven MIT SharpAstro siblings, SDL3 (zlib) and DotNext.
-  `Codecs` is UNLICENSE so it needs nothing, and QHYCCD.SDK already separates QHYCCD's proprietary
-  natives from its MIT wrapper in its own `license.txt`.
-
-  Two ways: generate `THIRD-PARTY-NOTICES.txt` at publish time from the restored dependency graph, or
-  hand-maintain it and accept the drift. Prefer generated. Then add it to the release upload globs in
-  `.github/workflows/dotnet.yml` beside the binaries, and reference it from `NOTICE`, which today
-  credits methods and data but says nothing about linked code.
-
-  Worth stating so it is not re-investigated: **every sibling repo IS properly licensed.** An earlier
-  pass claimed FITS.Lib, Codecs and QHYCCD.SDK had no licence file, which was wrong; the check globbed
-  only `LICENSE*` and `COPYING*` and missed `license.txt`, `UNLICENSE` and `license.txt`
-  respectively. All three also declare `PackageLicenseFile` in their csproj.
-
-- [ ] **Open-Meteo data is CC-BY 4.0 and we credit it nowhere.** `OpenMeteoDriver` fetches from
-  the keyless free API, whose terms bind the caller to CC-BY 4.0 on the data and to non-commercial
-  use (<10'000 calls/day, 5'000/hour, 600/minute). NOTICE has an "Embedded data" section that credits
-  the Jupiter reference image, the catalogues and the fonts, but nothing covers data fetched at
-  runtime, and no surface in the GUI or TUI names the source either. The fix is small: a line in
-  NOTICE and a credit wherever the forecast is displayed.
-
-  The other half needs a decision rather than an edit. Open-Meteo defines commercial use as
-  "operating websites or apps that have subscriptions or display advertisements" and "integrating
-  our service into commercial products". `tianwen-fits` ships in the Microsoft Store as *Astro Photo
-  Viewer*; as long as it is free, has no ads and no subscription, the free tier reads as fair, but
-  that is a property of the listing, not of the code — so if the Store app ever takes money, this
-  driver needs a paid API plan or a different provider. Worth recording now, while the answer is
-  still "no" (found 2026-09-15, see [inbox.md](inbox.md) field note on astrophoto.app).
 
 ## Build / dev environment (local siblings)
 
@@ -290,11 +139,6 @@ a launch that happened while nobody was watching. A 200 ms `Win32_Process` poll 
       is consumed by tianwen as a **package**, not a project ref, so its config was never actually in
       tianwen's restore graph; the graph-poisoning configs were `FITS.Lib` / `SER.Lib` (project refs)
       plus the user-wide config, all now on `nuget.org`.
-- [ ] **Keep `open-vs.ps1`'s "Siblings" folder in sync with `Directory.Build.props`'
-      `UseLocalSiblings` set** (currently: DIR.Lib, Console.Lib, SdlVulkan.Renderer, Codecs
-      family, QHYCCD.SDK, FITS.Lib, SER.Lib, Lzip.Lib, + transitive Fonts.Lib for
-      `SharpAstro.Fonts.Tables.OpenTypeMath`). If a new sibling is added to the switch, add it here
-      too or VS Go-To-Definition drops into the stale NuGet package instead of source.
 
 - [x] **Harden `Planetary/PlanetaryCaptureControllerTests` off the wall clock** (2026-08-07). Was six
       spin loops of up to 5000 iterations, each doing a real `await Task.Delay(2)`, plus one of 600,
@@ -311,12 +155,6 @@ a launch that happened while nobody was watching. A 200 ms `Win32_Process` poll 
       (completed in place, never re-armed) so a stopped or faulted producer surfaces as a failed
       predicate instead of a `[Fact]` timeout; pinned by
       `Pumping_past_the_end_of_a_capture_bounds_out_instead_of_hanging`, verified to hang without it.
-
-## Upstream Extraction (to SharpAstro NuGet packages)
-
-- [ ] Move `FileDialogHelper` to DIR.Lib: cross-platform native file picker (comdlg32/zenity/osascript), zero TianWen dependencies
-- [ ] Move `Stat/` DSP suite to DIR.Lib: 12 files: FFT, DFT, 25+ window functions, Catmull-Rom splines, StatisticsHelper, AggregationMethod; all pure math with no astro imports (note: DFT/FFT missing namespace declarations)
-- [ ] Port debayer algos out for FC.SDK.Raw to consume; `Image.Debayer.cs` / `DebayerAlgorithm.cs` / `DebayerAlgorithmExtensions.cs` are pure Bayer-mosaic operations and don't depend on TianWen-specific types beyond `Image`/`Channel`. FC.SDK.Raw currently stops at the raw `ushort[]` mosaic on `CanonRawFile.BayerMosaic` (by design, astronomical stacking only needs the mosaic), but downstream consumers that want a sensible default JPEG render have to roll their own demosaic. Extract to DIR.Lib (or a new `SharpAstro.Imaging`/`SharpAstro.Debayer` package) so both TianWen and FC.SDK.Raw consume the same implementation; keep the 5×5 BilinearMono as the default and the simple 2×2 bilinear as a fallback. As of FC.SDK.Raw 1.4 the parallel ushort-based `CanonDemosaic.Bilinear`/`Ahd` already exist for consumer raw-render use cases; TianWen's float-based copies are intentional duplication for the stretch-aware astronomical path.
 
 ## `stack` has no `--masters-dir`, so a fresh `-o` rebuilds every calibration master
 

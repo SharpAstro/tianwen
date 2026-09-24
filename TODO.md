@@ -1,7 +1,10 @@
 # TODOs
 
-Checks that only a real device or a real night can answer live in ONE place, indexed by the gear they need:
-[docs/todo/hardware-validation.md](docs/todo/hardware-validation.md) (the bench queue; tick there, not here).
+**The backlog is GitHub issues** since 2026-09-24, when this file and `docs/todo/*.md` were migrated
+(see CLAUDE.md, "Project Tracking Docs"). This file's sections became labels: High Priority is
+[`priority:high`](https://github.com/SharpAstro/tianwen/issues?q=is%3Aissue+is%3Aopen+label%3Apriority%3Ahigh), Next Up is [`priority:next`](https://github.com/SharpAstro/tianwen/issues?q=is%3Aissue+is%3Aopen+label%3Apriority%3Anext), and bench checks
+are [`bench`](https://github.com/SharpAstro/tianwen/issues?q=is%3Aissue+is%3Aopen+label%3Abench). What is left here is the DONE archive, kept for the measurements and reasons it
+records. Never add an open `- [ ]` here: open an issue.
 
 ## High Priority
 
@@ -11,29 +14,7 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   that frame was still queued for its FITS write: the sub was likely saved as 0 or 1 ADU. It now previews
   a leased copy through `AstroImageDocument.FromLiveFrameAsync`, pinned by `LiveFrameDocumentTests`:
   [docs/plans/frame-path-allocations.md](docs/plans/frame-path-allocations.md) P1.
-- [ ] **Per-frame garbage on the capture paths** (sweep of 2026-09-24): planetary video at 80-480 MB/s plus a
-  ring of about 1.26 GB of float copies at 640 x 480 (a memory-mapped SER as the ring is the proposal),
-  ASCOM guide frames at 17 MB each, Alpaca payloads, per-frame GUI histograms, polar refinement, Canon.
-  Every finding with its size, rate and fix, and the per-sub fixes already made (P0), in
-  [docs/plans/frame-path-allocations.md](docs/plans/frame-path-allocations.md).
-- [ ] **Recover from a lost GPU device in-process** (user, 2026-09-22, high priority: "a queue
-  submit failed should not stop the whole app to work. remember we might be connecting cooling
-  cameras etc."). What happened: on the Adreno X1-85 the driver rejected every `vkQueueSubmit` for
-  minutes; the process, the session and the input all kept running, tabs changed in state, and the
-  window kept showing its last frame. SdlVulkan.Renderer 7.46 now reports a streak of rejections,
-  runs the mid-frame recovery, backs off and fires the host's load-shed; a device that stays dead
-  still leaves the window frozen on its last frame. The real fix is Vulkan's: destroy the `VkDevice`
-  and create a new one, rebuild everything device-owned in the renderer (pipelines, sync, vertex
-  ring, glyph atlases, swapchain), and give the host one "GPU resources invalidated" event so the
-  viewer re-uploads its textures, the sky map its star and Milky Way buffers, and the GUI its
-  planner chart texture (`docs/architecture/viewer-gpu-lifetime.md` holds the lifetime rules that
-  every re-upload must follow). What stays impossible is the same device after `DEVICE_LOST`, and a
-  driver that blocks inside its own teardown on a hung device (the June zombie), which is why the
-  recovery must run on the sacrificial task and be abandonable. The trigger of the 2026-09-22 wedge
-  is still unnamed on this machine (no validation layer installed); the desktop with the layer runs
-  the repro first.
-
-- [ ] **DIR.Lib 10: a control is declared once, and the engine behaves** (user, 2026-09-15, high
+- [x] **DIR.Lib 10: a control is declared once, and the engine behaves** (user, 2026-09-15, high
   priority: "the usage site of a text box should not have to write in that double click or Ctrl-A
   while inside the control selects text ... declaring that the textbox is selectable via Ctrl-F via a
   property/fluid build step should be enough"). Reviewed the same day: the engine HAS the pointer rule
@@ -42,27 +23,16 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   five obligations and a dispatcher line; a drag is five flags on `ViewerState`. Plan, the seven
   findings with file:line, the six engine pieces, the five breaking cuts and the phasing:
   [docs/plans/dir-lib-10.md](docs/plans/dir-lib-10.md).
-  - [ ] **T0, no engine change:** pin DIR.Lib `9.1.*`, replace the three `clicks >= 2 -> SelectAll`
+  - [x] **T0, no engine change:** pin DIR.Lib `9.1.*`, replace the three `clicks >= 2 -> SelectAll`
     sites with `TextInputInteraction.HandlePointer` + `CaretIndexAt`, route the TUI's inline editor
     through `TextInputInteraction.HandleKey`. A double-click selects the word on every surface.
-  - [ ] D1 (DIR.Lib 9.2, additive): `InputRouter`, `OnPress`, `.Shortcut`, `Popover`, `Content.Slider`,
+  - [x] D1 (DIR.Lib 9.2, additive): `InputRouter`, `OnPress`, `.Shortcut`, `Popover`, `Content.Slider`,
     `.Selectable()`, `.Disabled(reason)`, `Focus` selects its seed, `MeasureLayout`.
-  - [ ] T1 / T2: tianwen on the router; popovers and sliders as nodes; delete
+  - [x] T1 / T2: tianwen on the router; popovers and sliders as nodes; delete
     `ISelfDispatchingInputWidget`, `OverlayOwnsPointer`, the five drag flags, the tab-shortcut switch.
-  - [ ] D2 (DIR.Lib 10.0): the five cuts, one wave, `MIGRATION.md`.
-
-- [ ] **The chrome should not be doing its own arithmetic** (user, 2026-09-15, high priority:
-  "its not just cursor += h, but box width calc, non-DIR.Lib etc side text measurements, unions of all
-  possible values, etc, all should be handled by the engine"). Measured the same day: 55 `MeasureText`
-  call sites across 16 widget files (recounted; the plan's first figure was 47), 31 hand-advanced cursor lines across 8, three width unions over
-  every label a control can carry, and two test files that sweep a 900 x 700 surface asking `HitTest`
-  at every point because a hand-laid-out panel gives a test no other way to find anything. Two bugs of
-  that shape are already measured -- the toolbar's 26.4 px drift across four buttons over one wheel
-  zoom, and the tone popover's first draft running its own heading out of its box. Phasing, the
-  acceptance test per phase, and what is deliberately left alone:
-  [docs/plans/viewer-layout-engine.md](docs/plans/viewer-layout-engine.md). `ImageRendererBase.TonePanel.cs`
-  (8.1) is the worked example. **P0 is now D1 of [docs/plans/dir-lib-10.md](docs/plans/dir-lib-10.md)** (the measure seam
-  rides the same DIR.Lib release as the router); nothing else here needs a sibling release.
+  - [x] D2 (DIR.Lib 10.0): the five cuts, one wave, `MIGRATION.md`.
+  - **Only T3 is left, and it is the next item** (the viewer chrome onto the engine, `viewer-layout-engine`
+    P1 to P4). D2 shipped 2026-09-17 (DIR.Lib 10.0, #290); `main` is on DIR.Lib 11.2.
 
 - [x] **Auto-crop: an interior drizzle hole is not a canvas ring** (2026-09-15, issue #250). Both
   halves of the rule the measurement over 79 masters found, closed together.
@@ -81,10 +51,6 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     invent rather than interpolate, and erase the only evidence the crop works from.
     `AstroImageDocument.InteriorHolesFilled` reports the count, because a viewer that silently invents
     pixels is one you cannot trust a measurement from.
-  - [ ] **Still open, from the same measurement:** the two masters `DatasetDegradationExporter`'s
-    stretch gate refuses on the whole frame are admitted inside the crop (0.321 -> 0.044, 0.133 ->
-    0.022) -- the min anchor was the canvas ring, not the sky. Cropping before the gate, or a
-    percentile in place of the min, admits both sessions.
   - Measurements and the per-master table: [docs/plans/viewer-prerelease-fixes.md](docs/plans/viewer-prerelease-fixes.md) P25.
 
 - [x] **A register sweep of viewer stats, presets and the icon bake** (2026-09-15). Eight items,
@@ -120,7 +86,7 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     total against ~343, both inside single-run variance, so neither number was rewritten on one
     sample. The premise had lapsed anyway: the snapshot was re-baked 2026-09-14. (It applies
     `unverified-no-tyc2-lz`, so the hash gate cannot run where the tyc2 `.lz` is stripped.)
-  - [ ] **The double stats scan at open stays**, deliberately: the two collectors take DIFFERENT
+  - [x] **The double stats scan at open stays**, deliberately: the two collectors take DIFFERENT
     histograms (pedestal-removed for the curve, the frame's own levels for the display) and merging
     them would be a silent numeric bug. One traversal producing both is the available win, and it
     wants measurement ([docs/todo/ui.md](docs/todo/ui.md)).
@@ -327,12 +293,6 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     `HideChrome` like the rest of the chrome, neither panel can climb out of the top of its host rect,
     and the atlas click test names the region it expects instead of asserting merely non-null. Three
     new/changed behaviours, each sabotage-verified on its own.
-  - [ ] **Still open: clicking a STAR is a separate resolver.** `document.Stars` holds DETECTED
-    CENTROIDS, not catalogue entries, so it is a nearest-centroid search over the star list rather
-    than `FindObjectAt`. "Click an object or a star" reads like one feature and is two.
-  - [ ] **Still open (judgement, not a bug): whether the resolver should also apply the overlay's
-    MAGNITUDE cutoff.** It would complete the "only ever names something the overlay drew" promise,
-    at the cost of making the answer depend on zoom.
   - [x] **Constellation-figure stars now reach the overlay at wider fields** (2026-09-10):
     `OverlayEngine.FigureStarMagCutoff = 5.0` is a FLOOR under the field-of-view tiers for a star a
     figure line runs through, resolved through the cross-references since the figure set is keyed by
@@ -340,7 +300,6 @@ Checks that only a real device or a real night can answer live in ONE place, ind
     than an assignment (which would DARKEN a 100 percent view). **Still open, as the user left it:
     whether it should apply only to figure stars inside the FRAME** -- one line, and it wants an
     eyeball at a wide zoom, along with whether 5.0 is the number.
-
 
 - [x] **Finalise never stopped tracking; it only checked** (SHIPPED 2026-08-29). The step logged
   "Finalise: stopping tracking..." and then read `IsTracking` -- `SetTrackingAsync(false)` was called
@@ -453,8 +412,6 @@ Checks that only a real device or a real night can answer live in ONE place, ind
 - [x] MiniViewer: optional lightweight mode that skips storing UnstretchedImage, for live preview where we never re-stretch, just keep stats + GPU texture. Saves ~140MB per displayed frame
 - [x] Cache altitude chart as texture, only re-render the mouse follower overlay on hover, not the entire chart. Currently 20% GPU on mouse hover due to full chart redraw per frame
 - [x] TianWen.Hosting remote API: ASP.NET Core Minimal API + WebSocket for headless Raspi operation. Multi-OTA native routes (`/api/v1/ota/{index}/camera/info`) with ninaAPI v2 compatibility shim (`/v2/api/*` → OTA[0]) so Touch N Stars works for single-scope setups. All 4 phases complete: read-only state, control, ninaAPI shim (equipment info/control, sequence, images, WebSocket, device lifecycle, guider graph, move-axis), profile CRUD + pending target queue. `tianwen-server` headless executable published as AOT binary for all platforms
-- [ ] **Viewer memory footprint**: a 13228x9354x3ch 8-bit TIFF costs ~2.5 GB (19 B/px, measured and fully decomposed), and the Vulkan staging buffer's 472 MiB of that is high-water-marked for the PROCESS LIFETIME -- `EnsureStagingBuffer` is grow-only and freed only on dispose, so every small FITS opened afterwards still carries it. Three items: M1 explicit `TrimStagingBuffer` from the document-load path (not inside the upload -- the live path uploads a ~104 MB channel per frame); M2 a decode-into API in `SharpAstro.Tiff` so strips land straight in the float planes instead of via a whole raster (-354 MiB peak); M3 (design only) let the VIEWER hold the source bit depth -- `Imaging` is rightly float throughout, but the shader is indifferent, since `texture()` on `R8Unorm` returns [0,1] exactly as `R32Sfloat` does. See `docs/plans/viewer-memory-footprint.md`.
-- [ ] PlayerOne Astronomy / ToupTek / SVBony native drivers; these vendors use ZWO-compatible SDKs with different library prefixes (PlayerOne: `PlayerOneCamera`, ToupTek: `toupcam`/`starshootg`, SVBony: `SVBCameraSDK`). Investigate sharing `ZWODeviceSource`/`ZWOCameraDriver` infrastructure with a pluggable SDK shim rather than duplicating per vendor. NINA uses a `ToupTekAlike` pattern for this family. Cameras, filter wheels, and focusers where applicable
 - [x] Catalog cold-start Phase 2 (pre-bake init state) -- **CLOSED 2026-09-03; 2A, 2B and both halves of 2C are in, and nothing actionable remains**; see `docs/plans/catalog-binary-format.md` § Phase 2. **2A SHIPPED 2026-05-05:** `hd_hip_cross.bin.gz` snapshot (~350 ms saved). **2B SHIPPED 2026-05-05:** `simbad_merge.bin.gz` snapshot (~180 ms saved). **2C: the Tycho-2 bulk-load half is DONE** (measured 2026-08-31 at **0.3 ms** of init -- `ExpandTycho2` plus the background task closed it; `tyc2.bin` already carries a per-GSC-region offset table). **2C's BFS half was SUPERSEDED, not skipped** (`a7c7f9a2`, 2026-08-09): the plan offered pooled frontier buffers (~0 B/call, walk unchanged) or transitive closures pre-computed at init (dict hit, +~50 ms of init), and `_crossIndexClosures` -- a lazy `ConcurrentDictionary` memo on `TryGetCrossIndices` -- delivers the second option's outcome without its init cost, because the closure is a fixed function of an append-only-then-frozen table. Found by measuring rather than by this plan: the sky map's full-sky overlay gather allocated 78.1 MB a pass and `GC.GetAllocatedBytesForCurrentThread` deltas put **53.89 MB of it in `TryGetCrossIndices` alone**; memoising it (plus a `RaDecIndex` cell-merge cache and dropping a duplicate ask per object) took the gather to **22.98 MB and 105.7 -> 84.8 ms, Gen0/1000 8833 -> 1833**. The early-out for a missing row shipped with it and answers only a quarter of calls -- 113k of the 151k objects a sweep visits DO have a row -- so the cache, not the early-out, is what did the work. Cost stated: up to ~20 MB resident once a session has swept the whole sky, against 54 MB of churn per pass; revisit if this ever runs somewhere small. **`ReadTycho2CrossRefArrays` FIXED 2026-08-31:** it still lzip-decompressed `hip_to_tyc`/`hd_to_tyc` (274.7 ms) because only `tyc2.bin` had been given the build-time expansion; `ExpandTycho2CrossRef` now expands both into `obj/` (LFS-neutral, the committed `.lz` untouched as fallback). **Init 587 -> 343 ms, the blocking join phase 269.9 -> 0.0 ms.** The per-record base91 string round trip is ALSO fixed (`CatalogUtils.Tyc2CatalogIndex`): it allocated a string AND a boxed enum per star, **33.7 MB of Gen0 garbage and 11 collections -> 3.84 MB and 4**, where 3.84 MB is exactly the output arrays. Note `AbbreviationToEnumMember<T>`'s `Enum.ToObject` boxing affects every other catalog-parse caller too and is deliberately untouched. Largest remaining item is `hd-hip-cross` at 121.8 ms, and that IS the 2A fast path -- deserialise-and-apply, not the 330 ms recompute the snapshot replaced -- so it is the phase's intended end state rather than an outstanding item. Phase 2 as written targeted 280-400 ms and init went 729 -> 343 ms.
 
 ## Flaky CI Tests
@@ -552,27 +509,6 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   and 1.80x at 2048**, and ten times nearer the window than the form it replaced. Twelve times the
   whole `[y, x]` pass bought on this box, which is the argument for pricing a loop's shares before
   optimising the visible one. `docs/architecture/image-pipeline.md`, "How a plane is READ".
-- [ ] **Plane loops still spelled `[y, x]`, one measured commit each.** The 2026-09-15 pass
-  (`docs/architecture/image-pipeline.md`, "How a plane is READ") settled that the storage stays
-  `float[,]` and the LOOP spelling is the lever (on a stencil 2.4x arm64 / 2.1x x64; on a gather 15
-  percent arm64 / 72 percent x64, the figure that does not travel between the two boxes).
-  Converted: MHC, the 2x2 mono fold, `Lanczos3Value`, `SubpixelValue`, the warp destination rows, the
-  luma stats loop, the CFA split/merge. Left, by site count: `Stacking/CometModel.cs` (26),
-  `Stacking/ChunkedTwoPassStrategy.cs` (20), `Planetary/FrameSharpnessMap.cs` (10),
-  `Calibration/BadPixelAccumulator.cs` (7), and the planetary `Accumulate*Into` STORE side, which is
-  the control that says whether the store matters at all. Price each with `PlaneAccessBenchmarks` /
-  a sibling first; a stream loop gains nothing and should be left alone.
-
-- [ ] **macOS `.dmg` lane: turn ad-hoc into Developer ID** (lane SHIPPED 2026-09-11, `packaging/macos/`,
-  the `dmg` job; until the secrets exist it signs ad-hoc and a downloaded copy needs Privacy &
-  Security > Open Anyway). Three steps, in order: enrol SharpAstro's OWN Apple Developer Program
-  membership (US$99/yr, about A$149; individual via the Apple Developer app on the iPad, which signs
-  with the person's legal name -- an organisation membership needs a D-U-N-S number; the Drawboard
-  team's Developer role can mint nothing and would put Drawboard's name on it); mint the five secrets
-  per `packaging/macos/README.md`; dispatch `dotnet.yml` from a branch and read the first real run for
-  the two things only it answers (the sign step's dylib count, and whether `13.0` is the right
-  `LSMinimumSystemVersion`).
-
 
 - [x] **SkyWatcher driver: `RaToSteps`/`DecToSteps` only ever produce the Normal-state axis solution.**
   **DONE 2026-08-30 -- `SkyToSteps(ra, dec, PointingState)`**: a goto chooses the solution from
@@ -658,152 +594,16 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   the tier. OnStep exposes raw steps but was not modelled.
   (e) **P5**: observe a driver-enforced limit rather than duplicating it, so a GSS-managed rig does
   not read as a malfunction.
-- [ ] **GSS parity: what is left of the pulse contract** (findings 1 and 2; finding 3, the
-  unverified pulse-restore, is FIXED) ([docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md)).
-  **Done so far:** the restore and both axis stops are verified with a retry and throw
-  `SkywatcherDriverException`, which the guider already turns into a session-visible fault (the
-  blocking shape never got this right "for free" -- a refusal only reached the log and a timeout
-  reached nothing); and the pulse is now **two methods**, `StartPulseGuideAsync` (the primitive:
-  command and return, `IsPulseGuidingAsync` carries progress) plus `PulseGuideAsync` (the composite
-  on the internal guider surface: start AND wait). 82 references over 29 files, no behaviour change,
-  and `GuiderCalibration`'s eight hand-written start-then-wait pairs collapsed to eight single calls
-  with the wait hoisted into the composite.
-  **Also done:** the composite has a **two-axis overload** plus a `CanPulseGuideSimultaneously`
-  capability answered by all 13 implementations from the mechanism (SkyWatcher's
-  `_pulseGuideInFlight` was ALREADY a counter for exactly this; DAL keys stop timers per direction;
-  ASCOM and Alpaca answer false because the spec has no word for simultaneity and guessing wrong
-  there throws mid-guide). The branch lives INSIDE the composite, never in the caller. And
-  `GuideLoop` calls it once with both corrections -- **a bug fix, not the speedup**: overlapping
-  only helps Synta hardware, while on every other family the loop **never waited for a pulse at
-  all**, which the blocking SkyWatcher driver was accidentally covering up.
-  **Also done: `SkywatcherMountDriverBase` holds the duration on a background task**, so every
-  driver honours the primitive now. Split at *commanded* (four `TrySetResult` points, one per
-  branch) so a mount that will not accept the pulse is still the caller's problem; the in-flight
-  count rises before the first write and falls when the hold ends; and a failed restore, which no
-  longer has a caller to throw to, parks in `_pendingPulseFault` and is re-thrown from the next
-  start AND from `IsPulseGuidingAsync` -- the latter deliberately, since the guider polls it while
-  waiting for the very pulse that failed. Done LAST on purpose: before the guide loop waited, this
-  would have left a window in which NOTHING waits on any mount.
-  **Slews DONE 2026-08-30** (`_slewCommandedAtTicks` + `SlewStartGrace` in `SkywatcherMountDriverBase`,
-  pinned on the fake SkyWatcher with its new `slewStartLatencyMs` knob; see the audit's finding 2).
-  **What remains of finding 2:** audit the OTHER drivers for the same "flag observable before the
-  starter returns" property. SkyWatcher and LX200 are right by construction; ASCOM/Alpaca inherit
-  whatever the remote driver does and have not been checked.
-  Also: cancellation must reach an unawaited pulse, and `_pulseGuideInFlight` must be set BEFORE the
-  write or the conversion introduces finding 2.
-  **A test for it must assert on fake time traversed per guide frame** -- `GuideLoopTests` builds
-  `FakeMountDriver` so it never blocks, and where the blocking driver is driven the fake clock
-  auto-advances `SleepAsync`, so the stall is real and costs no wall time.
-  **24-bit rollover: CLOSED, no action.** GSS does nothing about it either -- its pointing path is
-  the same three stateless lines ours is, and `6e6dba9` turned out to be a scripting-API diagnostic
-  (only internal caller feeds PLOTTING), not machinery. +/-0x800000 is +/-0.93 rev from home at an
-  EQ6's CPR, so a GEM meets its pier or cable wrap first: the real protection is the mount safety
-  limits, not wrap tracking. Tracking it would need persistent per-axis revolution state that goes
-  stale the instant anyone touches the hand controller, which mis-points by a whole turn and looks
-  like a sync bug -- worse than the raw discontinuity it replaces.
-  **Still unanswered:** whether to regenerate `gss-oracle-transcripts.json` against `origin/master`.
-  It currently pins GSS's PRE-fix behaviour, and regenerating may legitimately turn
-  `SkywatcherGssOracleTests` red. Note while answering the rollover question we found a probable
-  copy-paste bug in upstream `SkyServer.GetRawStepsDt` (different command type per axis) -- GSS is a
-  reference, not a specification.
-- [ ] **Astro Photo Viewer, the release AFTER 7.0.1513 (P11-P21, from the user's notes 2026-08-22 and
-  2026-08-27)**. **7.0.1513 went to the Store on 2026-09-04** carrying the fixed half of this list --
-  P17 and P11's version + AI-status line were the two that had not been released before it -- plus
-  Explorer thumbnails, Auto stretch and the SPCC/Calibrate render toggle. None of the open items made
-  that release, so they move to the next one. **The next one is 7.0.1568, dispatched 2026-09-07, and
-  it carries P15, P18, P19, P20 and P22** -- see
-  `packaging/windows/msix/release-notes/7.0.1568.txt` for the submission record. P13 was written
-  last on purpose and earned it. **Only P11.2 and P21 remain**, and P11.2 is the shippable one.
-  - [x] **P11.1** `--help`, `--version` and the in-app `?` panel report the version, beside an
-    AI-enhancer discovery status saying which backend resolved, which RC products are licensed and
-    which SAS models are missing -- **without** undoing the deliberate deferral of the RC-vs-SAS
-    license probe to the first `EnhanceAsync`.
-  - [ ] **P11.2: a way to FETCH the missing SAS models.** `tools/tianwen-ai-models-fetch.ps1` is a repo
-    script and a Store install cannot reach it, so P11.1's status panel names a gap the user has no way
-    to close.
-  - [x] **P12** Gain/ISO and offset render in the info pane.
-  - [x] **P13: in-depth user documentation** for the Store listing to point at. DONE 2026-09-06:
-    `guide/viewer.html` in the `sharpastro.github.io` repo, linked from the Astro Photo Viewer
-    section of the landing page and reachable at
-    `https://sharpastro.github.io/guide/viewer.html`. Written LAST on purpose and it earned it --
-    P15, P18, P19 and P20 all changed what there was to describe. Every claim is checked against the
-    code: the shortcut tables come from the app's own `?` panel list (`ShortcutLines`) and
-    `GetToolbarButtonTooltip`, the two places the app already documents itself, so the page and the
-    program cannot disagree about a key. The three current limitations are stated rather than
-    omitted -- Save writes the clean raster (P22), SPCC is broadband-only, and a mosaic's channel
-    views show the mosaic (P21). Structured so the CLI / server / session runner can join as sibling
-    pages under `/guide/` without a rewrite.
-  - [x] **P14** An EMPTY instance adopts an opened file instead of spawning a second window.
-  - [x] **P15** A faint residue left by a narrowed repaint (damage-era). The entry's standing
-    hypothesis was wrong -- the damage box already spans everything below the toolbar, so the info
-    panel was never the region at risk -- and measuring it found two real ones instead: the A|B
-    divider's half labels (a guessed 220-unit sweep margin, never scaled by DPI, against labels whose
-    width is the user's own settings) and every hover repaint the readout's narrowing silently
-    replaced, which is the toolbar tooltip flicker. Pinned by `ViewerRepaintResidueTests`, which
-    asserts the SCREEN rather than the declaration. Done 2026-09-06.
-  - [x] **P16** `Frame: None` no longer prints the enum default as if it were a frame kind.
-  - [x] **P17** Right-click on the image copies RA/Dec, the per-channel value or the position -- which
-    is also what found that no viewer dropdown had ever had a mouse hover state.
-  - [x] **P18: Save as seen on screen** -- a Save button writes the display raster (stretch, WB,
-    curves, HDR, channel view) as PNG-16 / JPEG / float TIFF through a native save dialog, at the
-    IMAGE's resolution rather than the window's. `DisplayRasterExport` + `IFileDialogHelper.SaveAsync`
-    (no save dialog existed on any platform). Open and Save are hand-drawn marks now, and the bar no
-    longer wraps to a second row. 8-bit PNG is in the API with no UI: it shares `.png` with the 16-bit
-    variant, so choosing it needs a menu that does not exist. Done 2026-09-04.
-  - [x] **P19: carry the display state across frames of the same shape**, and the BLINK mode it
-    enables. `DisplayCarry` decides which frame's statistics a document is shown with; the anchor is a
-    DOCUMENT rather than a snapshot, because the anchor's own SPCC triple and star-masked background
-    arrive seconds after the load and a snapshot would leave the anchor looking different from every
-    frame following it. On by default, so a step between two subs no longer re-solves the auto-stretch;
-    it also makes the SPCC fit run once per run instead of once per file, which is the "load faster"
-    half. The keys are a transport, so Shift is the other direction: `Space` blinks forward (the SER
-    transport still owns Space while a sequence is loaded), `Shift+Space` backward, `Ctrl+Space` returns
-    to the held frame, and `Shift+H` holds or releases. The status bar says "Held to <file>", and the
-    blink stops itself on a frame the anchor cannot describe. `DisplayCarryTests` +
-    `ViewerControllerTests`. Done 2026-09-04.
-  - [x] **P20: a share link to the web Sky Atlas** from the right-click menu.
-    `?view=sky&ra=<deg>&dec=<deg>&fov=<deg>&t=<ISO-8601 Z>`, the vocabulary defined once in
-    `SkyAtlasLink` for both ends. It was never blocked on anyone else -- the "web side" is
-    `TianWen.UI.Web`, in this repo -- and the gap was wider than the note assumed: the web build read
-    only `view` and `object`, and `object=` takes a catalog token, so there was no way to point at a
-    plain coordinate. RA travels in DEGREES (hours everywhere internally; both readings of a number
-    are a legal RA, so the x15 is isolated with a test), no site travels (the equatorial view at an
-    instant is the same sky anywhere), and a missing capture time drops `t=` rather than sending a
-    sentinel. The browser E2E caught what neither side's units could: the atlas's first render
-    installed a home position over the link's pointing. `SkyAtlasLinkTests` + `ShareLinkTests`.
-    Done 2026-09-04.
-  - [ ] **P21** A mosaic's channel views show the mosaic, not the debayered planes. BACKLOG; a shader
-    change whose cheap form is not obvious yet.
-  - [x] **P22** Save the ANNOTATED view (pixels + grid + star markers + object labels), as a second
-    entry in P18's Save-As menu. DONE 2026-09-06 (`cdefb1d0`), shipped in 7.0.1568. Split off P18 on
-    2026-09-04 over one question: `PlateSolveAnnotator` already draws these onto a CPU raster so the
-    machinery exists, but it is a SECOND drawing path beside the GPU one and the two will drift --
-    every overlay added to the shader would then owe a twin, with nothing failing when it was
-    forgotten. **The answer was to write neither twin.** `AnnotatedRasterExport` runs
-    `ImageRendererBase<TSurface>` itself, the class the window is drawn by, over an
-    `RgbaImageRenderer` surface the size of the image: the layout pass, the placement,
-    `OverlayEngine.ComputeOverlays` and the label collision avoidance are the SAME code, and only
-    three primitives (ellipse, cross, line) plus the image blit are backend-specific. An overlay
-    added to the viewer appears in the export for free.
-
-  P18 and P19 shared a sitting: both touch the display raster and the file list. See
-  `docs/plans/viewer-prerelease-fixes.md` (phases G and H) and
-  `docs/architecture/desktop-shell.md`.
-- [ ] **Atlas planet detail** (tracked in the plan only, per the user): vmag sparkline + visibility curve + the date of the next opposition / greatest elongation for a selected planet. `SkyPathEventDetector` already computes the events and draws them as rings along the selection path, so the date is a text row over tested math -- except the 120-day path window is far shorter than a synodic period, so the event query needs its own coarse long sweep. Also fixes a planet's info-panel magnitude, which is currently the STATIC catalog `V_Mag` and so is off by magnitudes for most of Mars's cycle. See `docs/plans/atlas-planet-detail.md`.
 - [x] RC-Astro enhancer integration: drive RC-Astro StarX/NoiseX/BlurXTerminator (encrypted ONNX, so via the `rc-astro` `--json` CLI, not in-proc ORT), preferred over the SETI Astro ONNX enhancers when the CLI is installed + the product is licensed. **Phase 1+2 SHIPPED:** `RcAstroCli` + NDJSON parser + FITS round-trip base, `RcAstroStarRemover`/`RcAstroDenoiser` (noise-adaptive `--dn`)/`RcAstroNonStellarDeconvolver`, deferred license-gated selector (`DeferredEnhancer` proxy, no subprocess at DI build/resolve), wired into `TianWen.Cli`. 13 tests. **Phase 3 SHIPPED (PR #59, 2026-06-30):** immutable threaded `EnhanceOptions`/`EnhanceTuning` (no mutable singleton) + shared `EnhanceOptions.TryParse`; CLI flags (`--ai-backend`/`--bxt-sharpen`/`--nxt-denoise`/`--nxt-iterations`) on `image sharpen` + `stack --enhance` (3a); per-step `EnhanceProgress` -> CLI printer (3b); interactive Enhance action in `tianwen-fits` (3c); `tianwen-server` `POST /api/v1/image/enhance` single-flight endpoint + `ENHANCE-PROGRESS`/`-COMPLETED` WS, presence-gated 503 when no pipeline (3d). Job-id/queue model deferred as a nice-to-have (`docs/plans/server-enhance-job-model.md`). See `docs/plans/rc-astro-enhancers.md`.
 - [x] QHYCCD device support: native camera, filter wheel (camera-cable + standalone serial QHYCFW3), and QFOC focuser (Standard + High Precision) drivers. JSON-over-serial protocol for QFOC with typed records and AOT-safe `QfocJsonContext`. Three-phase discovery in `QHYDeviceSource`: cameras → serial probe → camera-cable CFW check
 - [x] Weather overlay in planner: hourly forecast from Open-Meteo (free, no API key) with layered color emoji (rain/snow/thunder/fog/cloud/sun/moon), file-cached with 1h TTL + offline fallback. Weather as full device type (IWeatherDriver) with equipment/profile integration
 - [x] Planner: show Moon phase + position; altitude curve on the chart with phase emoji (hemisphere-aware). Uses Meeus lunar ephemeris via VSOP87a pipeline
 - [x] Moon penalty in target scoring: penalise targets within ~30° of a bright Moon (illumination × proximity factor). Compute angular separation per target in ObservationScheduler.ScoreTarget. **Shipped** (branch `feat/moon-avoidance`): per-bin `MoonGrid` (illumination × quadratic proximity, Moon-below-horizon gate); radius is an optional param (default 30, ON) on Schedule/TonightsBest/ScoreTarget. See `docs/plans/moon-avoidance.md`
-- [ ] Live viewer: camera switching; allow selecting which OTA's camera to preview in both GUI MiniViewer and TUI Sixel preview (currently always shows first available). PARTIAL (verified 2026-06-02): GUI DONE (`MiniViewerState.SelectedCameraIndex` + `#1`/`#2` toolbar toggles, `LiveSessionTab.cs:373`); TUI Sixel preview still always takes first available (`TuiLiveSessionTab.cs:644`).
 - [x] Guider graph: connect dots with lines (Bresenham or anti-aliased) instead of scatter dots; users expect smooth curves like PHD2
 - [x] Guider graph: scrolling window (last N samples) with dynamic Y scale and grid lines at integer arcsec
 - [x] Guider graph: reuse the existing LiveSessionTab guide graph widget; the guider tab should show a larger version of the same graph, not a separate implementation. Extract shared graph rendering
 - [x] DIR.Lib: add `FillEllipse`/`FillCircle`/`DrawEllipse`/`DrawCircle`/`DrawLine` primitives to `PixelWidgetBase`; `DrawLine` and `DrawEllipse` on abstract `Renderer` with CPU-optimized overrides on `RgbaImageRenderer` (midpoint ellipse, scanline quad, Span.Fill); GPU-optimized overrides on `VkRenderer` (rotated quad via FlatPipeline, ring shader via EllipsePipeline). Benchmarks in `DIR.Lib.Benchmarks`
 - [x] Guider graph: show applied correction pulses (RA/Dec duration bars) alongside error; log-scaled bars (blue RA / orange Dec) extending up/down from zero line
-- [ ] SyntheticStarFieldRenderer: refactor 20-parameter methods into records/structs
-- [ ] Sky map: GPU text labels; move constellation names, planet labels, and overlay labels into the GPU sky-map pipeline (glyph atlas + instanced quads, like Stellarium). Currently all text is CPU-drawn via `PixelWidgetBase.DrawText`. The 1-frame desync during fast pans was fixed by per-swapchain-image UBO ("Fix sky map label-vs-stars 1-frame desync with per-swapchain UBO"), but full GPU text would eliminate the CPU/GPU render-pass split entirely and enable projected text that follows the stereographic distortion.
-- [ ] Sky map: `[R]`efraction grid; toggle a second coordinate grid drawn in JNow + refraction-corrected (apparent) coordinates on top of the existing J2000 grid. Shows where objects actually appear from the observer's current site right now vs. the catalog J2000 positions. Full `Transform.SetJ2000 → RAApparent/DECApparent` (refraction on, site pressure/temperature from profile) for each grid line, tessellated like `BuildGridBuffers`. Near-zenith shift is ~0.35° precession alone; near the horizon the refraction bend stacks on top, reaching ~0.6° at 0° altitude. Makes the mount reticle's J2000 offset intuitive; the JNow grid passes through the reticle by construction for a topocentric-reporting mount.
 - [x] Sky map: Stellarium-style time adjuster; step the observation instant relative to now (e.g. press `+1h` / `+1d` and it becomes Thursday 23:04 etc.), not a pick-a-date. Stores an offset from wall clock (minutes, hours, days, weeks) so the user can scrub forward and back. **Shipped** (branch `feat/top-5-todo`): `SkyMapState.TimeOffset` stacks on the base instant in the single `viewingTime` derivation in `SkyMapTab.Render`, so it drives everything downstream automatically:
     - sky color (feeds `SkyMapState.GetSunAltitudeDegCached` with the adjusted instant)
     - LST so stars / crosshair / horizon rotate correctly
@@ -822,36 +622,18 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   - [x] `FakeGuider`: generate synthetic guide frames with star field
   - [x] GUI: guide camera Canvas + crosshair overlay + SNR + frame counter
   - [x] GUI: star profile panel with 1D H/V intensity cross-sections + Gaussian fits + FWHM
-  - [ ] PHD2: no image (show placeholder), SNR/mass from event stream only. PARTIAL (verified 2026-06-02): placeholder DONE (`GuiderTabState.PlaceholderReason`); SNR/mass from PHD2 event stream still TODO (`OpenPHD2GuiderDriver` leaves `GuideStarSNR` null).
 - [x] Live session: show dither state; guider header shows `[Settling 0.42px]` with live distance, `[Paused (Slewing)]` during slews, correction arrows `[Guiding →142ms ↑38ms]`
-- [ ] Cooling graph: same scrolling window treatment
-- [ ] VSOP87 vectorization: convert 43K lines of hardcoded `amplitude * Cos(phase + frequency * t)` into coefficient arrays, evaluate with `Vector256<double>` (AVX2). Process 4 terms per iteration. Requires source generator or one-time conversion of all planet files (EarthX/Y/Z, MarsX/Y/Z, etc.)
-- [ ] CLI: `train-guide-model` command for offline epoch training of the neural guide model; connects to mount + guide camera, records guide data for N worm cycles, then runs `TrainEpoch` with real PE data as teacher signal. Produces a base `.ngm` model file for the optical train. Aimed at permanent setups where users can invest a one-time training session to get a high-quality starting model. The online trainer (`TrainOnBatch`) should eventually converge to the same quality; offline training just gets there faster by seeing many PE cycles upfront instead of learning incrementally
 - [x] Equipment tab: fully data-driven profile panel; replace hardcoded `RenderProfileSlot` calls (mount, guider, guider cam/foc) with a declarative slot model that includes special sections (site editing, focal length input, device settings) as metadata. Goal: single loop over all slots with pluggable section renderers. **DONE (2026-06-17, branch `feature/layout`, commit `31dc4e3`):** `EquipmentContent.GetProfilePanelSections(ProfileData)` emits an ordered surface-neutral `PanelSection` list (header / slots / site / guide-FL / device-settings / telemetry / per-OTA loop with FW-gated filter table / Add-OTA); `EquipmentTab.RenderProfilePanel` now just walks the list and dispatches each section via `RenderSection`. Chose the pragmatic **section-driver** over a full single-`LayoutNode` tree (the panel is mostly interactive + variable-height, so the tree's static-arrange model added little for high cost, see [docs/plans/layout-engine.md](docs/plans/layout-engine.md) Phase 2D). The section list is surface-neutral, so a future TUI panel can consume it with its own dispatch.
-- [ ] Equipment tab: generic per-device settings pane, each device type (camera, mount, guider, etc.) should declare configurable properties via URI query params (like BuiltInGuiderDevice), and the equipment tab renders them automatically. FakeDevice should carry PE amplitude, period, guide rate etc. as URI params so FakeCameraDriver initializes from them instead of hardcoded defaults
 - [x] Store device secrets (API keys) in the OS credential store, not the profile URI; DONE (branch `feat/planner-weather-skymap`, commit `cd24b68`). The OpenWeatherMap `apiKey` used to live in `?apiKey=` on the device URI, so switching weather providers / re-discovery silently wiped it (replaced by the keyless discovered URI). New `ICredentialStore` keyed `{deviceId}/{settingKey}`: `WindowsCredentialStore` (Credential Manager via `LibraryImport`, visible in Control Panel) + `FileCredentialStore` (owner-only 0600 file fallback for Linux/macOS; libsecret/Keychain can drop in later behind the same interface). `OpenWeatherMapDevice`/`Driver` read from the store; masked `DeviceSettingDescriptor` edits route to the store (`AppSignalHandler.OnCommit`) and re-fetch weather; a leftover `?apiKey=` is ignored. Keyed per-device → shared across profiles (enter once). No migration (strip a stale `?apiKey=` by hand). **Follow-ups:** per-profile override (needs an active-profile-id provider at driver creation); equipment settings display reads the store so a stored masked value shows as set instead of `(empty)`; TUI parity check.
 - [x] Fake camera: shift/change star field during slews. **DONE, and well past what the note asked.** `FakeCameraDriver` projects the field through the coupled mount's **true** pointing, not a fixed seed: the main camera stamps a per-exposure (true − believed) J2000 delta, the guide camera rides a live pointing snapshot at its own configurable sensor offset, and polar-misalignment drift, worm PE and guide pulses all move the projection centre (PE never appears in encoder reads, so it is visible only in the pixels, which is the point). The remaining determinism is the *seeing* draw, deliberately seeded so a coupled scenario replays identically. See the `FakeCameraDriver` header comments and the fake-misalignment-drift / fake-camera-mount-PE-sync work.
 - [x] Fake camera: scale synthetic background noise with exposure duration in `SyntheticStarFieldRenderer`; long subs (≥60s) have unrealistically clean backgrounds, causing per-channel stretch to produce degenerate parameters. Real cameras accumulate sky glow + dark current + read noise over time. DONE (2026-06-02): sky background scales by exposure on all paths (`skyLevel = skyBackground * exposureSeconds`, `SyntheticStarFieldRenderer.cs:132,270,836`); star flux scales too, read noise stays fixed (correct).
 
 - [x] Fake filter wheels should have pre-installed filters (realistic filter sets per device ID)
-- [ ] Planner: disambiguate duplicate common names, when multiple catalog entries share the same display name (e.g. NGC 4038 and NGC 4039 both named "Antennae Galaxies"), append the catalog designation in brackets: "Antennae Galaxies (NGC 4038)"
 - [x] Planner: full rescan when site coordinates change significantly (>1°) instead of fast-path recompute; currently changing lat from -37 to 50 keeps southern-hemisphere targets with 0° altitude. DONE (2026-06-02): `AppSignalHandler.cs:489-510` runs full `ComputeTonightsBestAsync` when |Δlat| or |Δlon| > 1°, else fast-path `RecomputeForDate`.
-- [ ] Extract VkImageRenderer UI layout to Abstractions; toolbar, file list, status bar, hit testing are renderer-agnostic; image rendering + texture upload stay Vulkan-specific in Shared
-- [ ] Viewer tab renders at (0,0) ignoring contentRect; refactor ImageRendererBase.Render to accept a contentRect like PlannerTab/SessionTab/EquipmentTab so it works correctly when embedded in the tabbed GUI
 - [x] Pinned items in planner should persist to disk; auto-save/load via `PlannerPersistence` keyed by profile+date, stored under `{OutputFolder}/Planner/{profileId}/{date}.json`
-- [ ] Seed focuser `MaxStep` from hardware during ZWO EAF discovery (same `seedQueryParams` pattern as EFW slot count)
-- [ ] Remember last focus position in profile URI after auto-focus (save after every auto-focus attempt, whether successful or not) so the focuser can start near the last known good position on next session
 - [x] HFD drift detection via linear regression over last N frames (NINA uses `AutofocusAfterHFRIncreaseTrigger` with configurable `SampleSize` and `Amount` threshold); more robust than single-frame ratio comparison, reduces false refocus triggers. **DONE (2026-07-03):** the inline regression extracted into pure `FocusDriftDetector.EstimateTrendHfd` with its filtered-fit bug fixed (divisor was the window length, not the included-sample count, every skipped low-star/non-comparable sample biased slope + intercept); `FocusDriftSampleSize` (window, default 30) + `FocusDriftMinSamples` (default 5) on `SessionConfiguration` (`FocusDriftThreshold` = the Amount analogue); history cleared on drift-triggered refocus + target change (refocus-oscillation guard); `CircularBuffer<T>` rewritten lock-free (ImmutableArray + CAS `Snapshot`, `Session.GuideSamples` render-thread poll is now a free reference read instead of a 300-item lock-and-copy per frame). Pinned by `FocusDriftDetectorTests` + `CircularBufferTests`.
-- [ ] Use IWeatherDriver ambient temperature for camera warm-up, when no hardware weather station or external temp sensor (Pegasus Astro) provides heat sink temp, pass ambient temp from weather driver as a denormalised property to the camera driver (via Session orchestration, not direct driver-to-driver coupling). Use as ambient target for `CoolCamerasToAmbientAsync` ramp
-- [ ] SafetyMonitor integration: ASCOM `ISafetyMonitor` driver polling (5s interval watchdog) that can interrupt imaging and stop tracking when unsafe. Gate on safety in dither, meridian flip, and centering triggers. Park scope on unsafe condition.
-- [ ] Rotator device type (per-OTA field rotation): no `IRotatorDriver`/`DeviceType.Rotator` today (only WCS PA math). ASCOM `IRotatorV4` + Alpaca wrap (same pattern as `CoverCalibrator`); framing-angle automation + post-meridian-flip re-rotate; the rotator slots into each `Setup.Telescopes[i]`, not the mount. See [docs/todo/drivers.md](docs/todo/drivers.md).
-- [ ] Dome device type + telescope slaving (per-site); `IDomeDriver` + ASCOM `IDomeV3`/Alpaca; an azimuth-follow loop driven by the single `Setup.Mount`; park on finalise. See [docs/todo/drivers.md](docs/todo/drivers.md).
-- [ ] Alt-az SkyWatcher mount support, Phase 1 (correct GOTO + tracking + position); today `?alignment=AltAz` is **report-only** (refused; Phase 0 shipped PRs #47/#48, see [docs/plans/altaz-mount-support.md](docs/plans/altaz-mount-support.md)). Phase 1 makes an AZ-GTi-class mount actually point/track in alt-az for visual / EAA / plate-solve (no imaging): Az/Alt↔encoder-step transforms in `SkywatcherMountDriverBase` (home = az0/alt0), `IMountDriver.BeginSlewToTargetAsync` pier-side-gate bypass when alignment is alt-az (an `IMountDriver`-layer change → also unblocks ASCOM/Alpaca `algAltAz` mounts), dual-axis predictor tracking (vs single-axis sidereal `:I`), and Az/Alt→RA/Dec position reads. Phase 2 (alt-az guiding) and Phase 3 (long-exposure imaging) follow; **Phase 3 is blocked on field-rotation handling; needs the Rotator device type above (no derotator → no long alt-az subs).** See [docs/todo/drivers.md](docs/todo/drivers.md).
 - [x] Flat-frame acquisition automation: **Phases 1-3 SHIPPED**. Phase 1 (panel/calibrator): pure `FlatExposureSolver` + `Session.TakeFlatsAsync` (per-OTA/filter; close cover → calibrator on → auto-expose → write `FrameType.Flat` → off), opt-in `TakeFlatsOnSessionEnd`. Phase 2 (twilight sky-flats, dawn + dusk): pure `SkyFlatExposureSolver` (re-metered per frame, Capture/Adjust/Wait/Stop) + `Session.TakeSkyFlatsAsync`, opens covers, solar-altitude window gate (`VSOP87a`), anti-solar zenith slew (`BeginSlewToZenithAsync`, tracking off so stars average out), `FlatSource` dispatch at the end-of-session hook (dawn) + a new session-start hook (dusk, cooled first; cloud-insurance for a fogged dawn). Phase 3 (on-demand + manual panel): `ISession.RunFlatsOnlyAsync` (connect-only-flat-devices → cool → capture → finalise, no wait-for-dark/focus/guider) behind CLI `tianwen flats` + `POST /api/v1/session/flats` (shared `FlatRunParsing`). A manual hand-switched panel is a **device** (`ManualCoverDevice`/`ManualCoverDriver`, a degenerate `ICoverDriver` mirroring the manual filter wheel: cover `NotPresent`, calibrator `Ready`-on-demand) assigned to the OTA cover slot and captured through the **same** calibrator path; no `ManualPanel` source, no session branching; registered via `AddDeviceType` so it round-trips through `TryGetDeviceFromUri`. Frames land under `Flats/<date>/<filter>/Flat/`; `MasterFrameBuilder` consumes by FITS headers. 37 tests. **Deferred:** a GUI `LiveSessionMode.Flats` mode on the Live Session tab (like PolarAlign/Planetary; assign 💡 Manual Light Panel + source dropdown + interactive prompt). See [docs/plans/flat-frame-automation.md](docs/plans/flat-frame-automation.md).
 - [x] TUI Sixel preview in live session tab: **DONE** (verified 2026-07-29): `TuiLiveSessionTab.RenderPreview` watches `LiveState.LastCapturedImages`, adopts a new frame via async `AstroImageDocument.AdoptImageAsync` on a background `Task` polled by the render loop (the lock-free Task-handoff pattern, the ownership-transfer semantics the item warned about are honoured, the tab never touches the `Image` after adoption), and the Sixel raster draws from `PaintHost` at the arranged pixel size with a text fallback on non-Sixel terminals. With Console.Lib 4.8's buffered rendering the blit also declares its cell region (`BeginRawOutput`/`MarkRawRegion`), so the diff breaks around the picture.
-- [ ] `TuiCellRenderer<CellBuffer>` for live position view -- **LARGELY SUPERSEDED** (2026-07-29) by the `CellLayout` path: `Layout.Node` trees now render natively on the terminal (`CellLayout.Paint` + `CellMeasureContext.PixelAuthored`, corner glyphs, draw==hit via `CellLayout.HitTest`, mouse mapped), which is how the TUI home board shares the GPU tab's tree -- no `Renderer<TSurface>` needed for anything the layout DSL expresses. What remains is the **raster-drawing residue only**: widgets that call `Renderer` primitives directly (charts, sky map) would still need a cell-grid `Renderer<TSurface>` (block shading, midpoint-ellipse glyphs) to escape Sixel; today they fall back to text or require Sixel. **The second residue category -- `ScrollableList` rows as formatted strings -- is CLOSED (2026-07-30, Console.Lib 4.10):** `IRowFormatter` and `ITreeNode.FormatNodeContent` are gone, replaced by `IRowLayout.BuildRow(in RowContext)` / `ITreeNode.BuildNodeContent` returning a `Layout.Node`, so a row's inline buttons are clickable NODES resolved through `ScrollableList.DispatchRowHit` against the rect that was painted. That retired the hand-derived click columns (`EquipmentFieldItem.DeleteActionColumns`, `InfoRowItem.ButtonRegion`), the SGR-byte-counting pad compensation (`VisibleOverhead`/`StyleSegment`), and the reason the OTA `[X]` could not be right-anchored -- it now is, where the GUI's `[Remove]` sits. Ported across four repos (tianwen, Console.Lib, chess, LALR.CC) in one cut. Re-scope before picking up: implement `Renderer<TSurface>` over a terminal cell grid so the live-session forms widgets (target name, alt/az, tracking state, guider status, dither/settling indicators) render natively over SSH without Sixel. Box-drawing chars (`┌─┐│└─┘`) for frames, block shading (`█▓▒░`) for fills/bars, midpoint ellipse -> perimeter glyphs for circles, truecolor or 256-cube depending on `$TERM`. Map xterm mouse + kitty keyboard -> existing `InputEvent`. Sky map degrades to a non-spatial summary (current target, alt/az, next slew, visible-object count) driven by the same SignalBus data -- Sixel/kitty graphics protocol stays as the optional "I really want pixels" mode for terminals that support it. Unlocks headless scope-host operation without leaving the SignalBus + widget-tree abstractions.
-- [ ] SDL window icon for non-Windows: `<ApplicationIcon>` only embeds in the PE for Windows. On Linux/macOS, need `SDL.SetWindowIcon` with a surface loaded via `SDL_image.IMG_Load` (requires adding SDL3_image package) or `SDL.LoadBMP` (requires BMP conversion). Also set `.desktop` file icon on Linux.
-- [ ] **Hosted polar alignment**: `PolarAlignmentSession` runs outside `Session.RunAsync` and is GUI-driven only today, so a remote rig cannot be polar-aligned. Needs a lifecycle surface on `IHostedSession` (start/abort/state) + a phase/solve-result DTO; the imagery is free (the P2 preview endpoint already carries frames, reticle/rings are client-side). **Settle first:** whether the node grows a *run kind* (session / flats / polar-align) or a parallel endpoint group; lean run kind, since the P0 device lease already models "exactly one run owns the rig" and a second notion of "running" is the mistake P0 just undid. Likely-next (user, 2026-07-27). See [docs/plans/remote-profile.md](docs/plans/remote-profile.md) § Deferred.
 - [x] **Guide-cam image stream over the hosted API** (**SHIPPED 2026-08-05**); `GET /api/v1/preview/guider` serves the live guide frame through the same `PreviewEncoder` and the same `X-Frame-Number` contract as the per-OTA previews, and `RemoteSessionMirror` fills `LastGuideFrame` / `GuideStarPosition` / `GuideStarSNR`, so the Guider tab renders a remote rig through the code that renders a local one. Its own route rather than an OTA index: one guider serves the whole rig, its frames arrive at guiding cadence rather than per sub, and it is wanted precisely while the science cameras are mid-exposure with nothing new to show. **The recorded blocker was already stale**; `ISessionTelemetry.LastGuideFrame` existed and `Session` already forwarded it. **The real hazard was sharper, and its primitive was unsound:** `GuideLoop` does `LastFrame?.Release(); LastFrame = frame;` every exposure, so a request encoding a JPEG across an await reads a buffer the camera has taken back (a valid JPEG of a flat grey rectangle, hence `GuidePreviewTests` modelling recycling as a clobber and asserting the star survives). `ChannelBuffer.AddRef` could not be used for it: it checked liveness and then incremented as two steps, so a borrower could resurrect a released buffer. Now `TryAddRef` (CAS, never resurrects) + `Image.TryLease` (all-or-nothing over the planes, distinct instance with its own one-shot `Release`, `false` when the race is lost). The change token also needed a **new** counter: `_guideFrameCount` counts frames the loop *corrected on* and sits past the star-lost `continue`, so it freezes during an outage while the camera keeps publishing; exactly when an operator wants to look. Both drivers funnel every publish site through one setter so the increment cannot be forgotten. Guide frames are a **separate opt-in** (`PreviewOptions.IncludeGuider`, default off) from the OTA thumbnails: the home dashboard shows science previews and never a guide frame. **Deferred:** the star-profile arrays + calibration overlay stay local-only; a per-poll array pair for an often-invisible panel, and it cannot be derived client-side (cross-sections from a stretched lossy preview give a confidently wrong FWHM rather than none), so it wants its own opt-in fetch like the frame got. See [docs/plans/remote-profile.md](docs/plans/remote-profile.md) § Deferred.
 - [x] **Multi-rig dashboard / home screen** (**SHIPPED 2026-07-28**); `GuiTab.Home` is the landing tab (house icon, Ctrl+H, first in `TabOrder`), with one card per rig: local node plus every bound remote one, title = the rig and subtitle = the profile it runs. `HomeBoard.BuildCards` is the pure projection (unit-pinned) and `HomeTab<TSurface>` renders a per-frame snapshot published on `GuiAppState.HomeCards`; the tab never reaches into `RemoteRigRegistry`, mirroring how bound rigs already reach the equipment picker. All four invariants hold as designed: previews stay off, the board is read-only w.r.t. hardware (a card click posts the same `SelectRemoteRigSignal`/`SelectLocalContextSignal` the picker does), cards are built in the PRE-gate part of `PollPreviewTelemetry` and the board is **not** added to its `ActiveTab` gate, and the card section is content-sized (`WrapH` + trailing `Spacer`). Three prerequisites turned out to be missing and shipped with it: **`SessionPromptEventArgs.RaisedUtc` / `PendingPromptDto.RaisedUtc`** so the prompt badge ages from the node's own instant rather than from when a client noticed (an unknown age stays unknown, never filled in); **`GET /api/v1/session/profile`** so a node can report which profile it runs at all (`ActiveProfileId` had no way out of the node, and `/profiles` lists what exists without saying which is live), cached per connection and refreshed every 2 min; and **per-mirror poll backoff** (doubling to a 30 s cap, derived from a consecutive-failure count so one answer resets it, and a 404 counts as an answer). **Follow-ups shipped 2026-07-29** (branch `home-screen-dashboard`, PR #120): the card grew per-target progress (`target 2/3 · frame 23/100`, via `ScheduledObservation.PlannedFrameCount` on the wire so a mirror answers identically to a local session), cooling (worst camera from setpoint, freshness-gated), median HFD, guide RMS, last notification, and a meridian-flip countdown crossing as an INSTANT (`ISessionTelemetry.MeridianFlipUtc`); the board picks its shape (`Auto | Cards | Table` header selector: Auto swaps to a one-row-per-rig table when the cards' actual height doesn't fit, and the header says why); and the **TUI home board landed** (`TuiHomeTab` renders the *same* `HomeBoardLayout` tree via `CellMeasureContext.PixelAuthored`; the first tree genuinely shared across surface kinds, made livable by Console.Lib 4.8's diffing cell buffer: one cell per clock tick). **Next:** multi-night progress beside the cards, now its own plan, [docs/plans/multi-night-progress.md](docs/plans/multi-night-progress.md). See [docs/plans/remote-profile.md](docs/plans/remote-profile.md) § Deferred for the design record.
 

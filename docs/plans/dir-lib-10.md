@@ -1,7 +1,9 @@
 # DIR.Lib 10: a control is declared once, and the engine behaves
 
-Status: PLANNED, HIGH PRIORITY (user, 2026-09-15). Reviewed the same day against DIR.Lib 9.1 and every
-tianwen host (GUI, `tianwen-fits`, web, TUI). Nothing started. This plan ABSORBS
+Status: DONE except T3 (2026-09-24). T0, D1 (DIR.Lib 9.2), T1, T2, D2 (DIR.Lib 10.0, 2026-09-17) and C1
+all landed; T3, the viewer chrome onto the engine, is [viewer-layout-engine.md](viewer-layout-engine.md)
+P1 to P4 and is tracked there. Planned 2026-09-15 (user, high priority), reviewed the same day against
+DIR.Lib 9.1 and every tianwen host (GUI, `tianwen-fits`, web, TUI). This plan ABSORBS
 [viewer-layout-engine.md](viewer-layout-engine.md) P0 (the measure seam) and
 [automatic-text-input.md](automatic-text-input.md) P3b (declarative focus), both of which turn out to be
 corners of the same missing piece.

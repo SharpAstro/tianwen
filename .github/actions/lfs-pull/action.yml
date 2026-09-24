@@ -23,7 +23,7 @@ description: >
 
   A Windows runner cannot restore an entry a Linux job saved (actions/cache segregates Windows
   unless `enableCrossOsArchive` is set). That flag goes on the cache step below and nowhere else:
-  docs/todo/infra.md, "Set enableCrossOsArchive".
+  issue #540, "Set enableCrossOsArchive".
 
 inputs:
   include:

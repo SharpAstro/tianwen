@@ -15,16 +15,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Tracking Docs
 
-Canonical project state lives in these markdown files; read the relevant ones before starting non-trivial work:
+**The backlog is GitHub issues, not a file** (since 2026-09-24, when `TODO.md` and `docs/todo/*.md` were
+migrated, 345 open items). Labels: `area:astrometry` / `drivers` / `guider` / `imaging` / `infra` /
+`sequencing` / `ui`; `bench` (only a real device or night can answer it); `needs-triage` (the old inbox);
+`priority:high` / `priority:next`; `from-todo` marks the migration. **Close an item through the PR that
+does it** (`Closes #n`), so it cannot drift from the code, which is the whole reason for the move: the
+same task used to be kept in `TODO.md`, an area file, a plan and a tracking issue, and a PR landing
+updated at most one of them. **Never write a new open `- [ ]` into `TODO.md` or `docs/todo/`**; open an
+issue (`gh issue create --label area:...`). A plan keeps the design and the *why*, and names its issue.
+
+Canonical project state otherwise lives in these markdown files; read the relevant ones before starting
+non-trivial work:
 
 | File | Purpose |
 |------|---------|
 | `docs/plans/summary.md` | Current status of every plan in `docs/plans/` (DONE / PARTIAL / NOT STARTED) cross-checked against the codebase |
 | `docs/plans/*.md` | Per-feature implementation plans with phasing tables |
 | `docs/architecture/*.md` | Architecture deep-dives, one file per subject, where a section below keeps only the rules that bite (`ls docs/architecture/` is the index) |
-| `TODO.md` | Active / high-priority task list (repo root) |
-| `docs/todo/*.md` | Full backlog + done-archive + unsorted inbox, split by area |
-| `docs/todo/hardware-validation.md` | The bench queue: every check only a real device or night can answer, indexed by GEAR; one home per item (plans keep the *why* + a pointer, never a second checkbox) |
+| `TODO.md`, `docs/todo/*.md` | The DONE archive, by area (the open items are issues now; see above). Kept because a done entry often records the measurement or the reason behind a decision |
+| Issues labelled `bench` | The bench queue (was `docs/todo/hardware-validation.md`): every check only a real device or night can answer, one issue each, its gear in the body; a plan keeps the *why* and a pointer, never a second checkbox |
 | `docs/known-limitations.md` | Root causes of limitations/bugs (the *why*); read before "fixing" a suspected bug |
 | `CHANGELOG.md` | Released version history, newest first, one section per `MAJOR.MINOR`. A version bump adds its entry **in the same commit** (`/bump-version` step 6), so a number can never ship without its note. The GitHub Release lists the commits; this says what the release was FOR and what breaks |
 
@@ -53,7 +62,7 @@ Available in `.claude/skills/<name>/SKILL.md`: auto-invocable when the request m
 | `digitize-filter` | Digitise a vendor filter chart into `FilterCurveDatabase` (three chart families, the validation gates, the matcher re-check) |
 | `curate-session` | File a capture session into `Astro-Organized` so a bake can use it: the four archive tiers, backfilling a filter identity by measurement, checking a calibration set against the pixels, and what to stop and report rather than guess |
 | `dataset-gallery` | Build a browsable gallery of a bake's session masters (enhanced beside raw) and publish it as an Artifact |
-| `tick-todo` | Mark a TODO item done and update CLAUDE.md, PLAN files, and memory |
+| `tick-todo` | Close a backlog ISSUE (preferably through its PR) and update CLAUDE.md, the plan files and memory |
 
 ## Project Overview
 
@@ -1464,10 +1473,11 @@ L and put ~3% of the frame, pinned at the black level, into every statistic take
   pixel where cropped and uncropped reads differ because the R5 fixture is almost all zero after black
   subtraction and every fixed block matched on both sides.
 
-**Canon is the only sensor this is wired for.** QHY exposes the same geometry
-(`GetQHYCCDEffectiveArea` / `GetQHYCCDOverScanArea` / `CAM_IGNOREOVERSCAN_INTERFACE`) and nothing calls
-any of it; nothing anywhere reads or writes the IRAF `DATASEC`/`BIASSEC`/`TRIMSEC` sections, whose
-1-based inclusive coordinates are the same trap as CRPIX. Design, phasing and the measurements:
+**Canon is the only sensor that is CROPPED.** A DAL camera (QHY first) now reads its effective and
+overscan areas and RECORDS them, as `ImageMeta.DataSection` / `BiasSection` written to the IRAF
+`DATASEC` / `BIASSEC` cards (and read back, `TRIMSEC` as `DATASEC`'s synonym only when it is absent),
+but keeps the whole raster. Those sections are 1-based and inclusive, the same trap as CRPIX, so
+`FitsSection` is the ONE place the convention is converted. Design, phasing and the measurements:
 `docs/plans/sensor-active-area.md`.
 
 ### Float TIFF Convention (`SharpAstro.Tiff` I/O; Magick.NET fully removed)
@@ -1586,7 +1596,7 @@ TianWen.UI.Shared's shaders are GLSL 450 files under `src/TianWen.UI.Shared/Shad
 the `.spv`** (`dotnet run --project tools/BakeShaders -c Release -- src/TianWen.UI.Shared/Shaders`;
 **warning TWSH0001** flags a source newer than its `.spv` and never fails); **ASCII only**, shaderc's
 lexer rejects non-ASCII bytes even inside comments. The `stereoProject` GLSL is inlined into the three
-`skymap_*.vert` files; restoring a single source is a deferred cleanup (docs/todo/ui.md).
+`skymap_*.vert` files; restoring a single source is a deferred cleanup (#634).
 
 `Image.StretchValue()` is the single source of truth for the scalar stretch math (normalize → subtract
 pedestal → rescale → MTF). Don't reimplement it.
@@ -1816,7 +1826,7 @@ Canonical example: `AppSignalHandler.PollCameraTelemetry` and `EquipmentTabState
   frame stall -- hand the render thread an immutable snapshot instead); (3) if the lock stays, it must
   be `System.Threading.Lock` (C# 13), never `lock` on an `object`, a collection or any other reachable
   instance (faster, self-documenting, compiler-enforced). None are left (swept 2026-09-24, #353); the
-  one clause still unmet, `FileLoggerProvider` being reachable from a render thread, is in `docs/todo/infra.md`. For a most-recent-N window polled by readers (guide
+  one clause still unmet, `FileLoggerProvider` being reachable from a render thread, is #541. For a most-recent-N window polled by readers (guide
   samples, frame metrics), prefer the lock-free `CircularBuffer<T>` (`TianWen.Lib/Sequencing`):
   ImmutableArray + CAS replace, torn-free `Snapshot` reads, O(capacity) appends -- right when producers
   are low-rate (per exposure) and pollers high-rate (per frame).

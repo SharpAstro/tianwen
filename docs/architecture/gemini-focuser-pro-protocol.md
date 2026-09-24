@@ -122,5 +122,5 @@ entry per physical focuser. If no native device is found, the ASCOM twin passes 
 
 Three things only a board can answer -- the exact `:04#` firmware name, whether DTR-reset is required at all
 and the real boot time, and whether Move/Halt are truly unacked -- are queued with their procedures as
-[docs/todo/hardware-validation.md](../todo/hardware-validation.md) item 19. The design consequences of each
+bench issue #654. The design consequences of each
 answer are described above (the matcher, `ResetControllerOnConnect`, the bounded drain in `SendAsync`).
