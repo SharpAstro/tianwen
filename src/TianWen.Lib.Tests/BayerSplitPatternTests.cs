@@ -1,4 +1,5 @@
-﻿using Shouldly;
+﻿using System;
+using Shouldly;
 using TianWen.Lib.Imaging;
 using Xunit;
 
@@ -82,6 +83,43 @@ public class BayerSplitPatternTests
                 v.ShouldBe(expected[c], $"{pattern}: sub-plane {names[c]} picked up the wrong photosite");
             }
         }
+    }
+
+    [Theory]
+    [MemberData(nameof(Patterns))]
+    public void MergingIntoAPlaneLandsOnExactlyWhatMergeAllocates(string pattern, int offsetX, int offsetY)
+    {
+        // The rented form a live master and the batch drizzle merge into: the same mosaic, and every sample
+        // of the target overwritten (it arrives full of NaN, as a recycled plane may be full of anything).
+        const int w = 8, h = 6;
+        var plane = new float[h, w];
+        var next = 1f;
+        for (var y = 0; y < h; y++)
+        {
+            for (var x = 0; x < w; x++)
+            {
+                plane[y, x] = next++;
+            }
+        }
+
+        var meta = new ImageMeta() with { SensorType = SensorType.RGGB, BayerOffsetX = offsetX, BayerOffsetY = offsetY };
+        var split = new Image([plane], BitDepth.Float32, next, 1f, 0f, meta).SplitBayerChannels();
+        var target = new float[h, w];
+        for (var y = 0; y < h; y++)
+        {
+            for (var x = 0; x < w; x++)
+            {
+                target[y, x] = float.NaN;
+            }
+        }
+
+        var into = split.MergeBayerChannelsInto(target);
+        var allocated = split.MergeBayerChannels();
+
+        into.GetChannelArray(0).ShouldBeSameAs(target, $"{pattern}: merged into the caller's plane");
+        into.GetChannelSpan(0).SequenceEqual(allocated.GetChannelSpan(0)).ShouldBeTrue($"{pattern}: the same mosaic");
+        (into.BitDepth, into.MaxValue, into.MinValue, into.Pedestal, into.ImageMeta)
+            .ShouldBe((allocated.BitDepth, allocated.MaxValue, allocated.MinValue, allocated.Pedestal, allocated.ImageMeta));
     }
 
     [Theory]
