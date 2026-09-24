@@ -4,6 +4,7 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using SdlVulkan.Renderer;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.UI.Shared;
 using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
@@ -199,12 +200,22 @@ public abstract unsafe class OffscreenGpuFixtureBase : IDisposable
         return result;
     }
 
+    /// <summary>
+    /// Destroys any device-owned state a derived fixture built beyond the base stack. Runs on the
+    /// fixture's own thread, before the base pipeline, renderer and context, so nothing outlives the
+    /// device it was created on.
+    /// </summary>
+    protected virtual void DisposeDeviceObjects()
+    {
+    }
+
     public void Dispose()
     {
         if (VulkanAvailable)
         {
             _work.Add(() =>
             {
+                DisposeDeviceObjects();
                 Pipeline?.Dispose();
                 Renderer?.Dispose();
                 Ctx?.Dispose();
@@ -244,17 +255,109 @@ public sealed class VkPrimitiveGpuFixture : OffscreenGpuFixtureBase
 /// ratio would make that comparison carry the viewport's shape as well as the sky's.
 /// </summary>
 /// <remarks>
-/// The sky map pipeline is NOT built here. It is the one piece of device-owned state a test creates
-/// and destroys itself, on this fixture's own thread through <see cref="OffscreenGpuFixtureBase.Invoke"/>,
-/// because the base's Dispose is not virtual and a pipeline outliving its device is a crash at exit
-/// rather than a failed test.
+/// <para><b>The sky map pipeline and its star buffer are built ONCE per class, not per test.</b> The
+/// buffer is the whole Tycho-2 catalogue, ~2.5 million stars, and xUnit constructs a fresh test-class
+/// instance per method, so a pipeline owned by the test was built twice; on llvmpipe that is slow
+/// (#749). Every render sets the view and the uniforms in full, so sharing the geometry carries no
+/// state from one test to the next.</para>
+/// <para>It is built on first use rather than in the ctor, because the build needs the catalogue,
+/// which a test loads asynchronously, and a host without Vulkan must never pay for it. It is
+/// destroyed through <see cref="DisposeDeviceObjects"/>, on this fixture's own thread and before the
+/// device, since a pipeline outliving its device is a crash at exit rather than a failed test.</para>
 /// </remarks>
 public sealed class VkSkyMapGpuFixture : OffscreenGpuFixtureBase
 {
     public const int Width = 512;
     public const int Height = 512;
 
+    private TaskCompletionSource<VkSkyMapPipeline>? _starPipeline;
+    private DateTimeOffset _starEpoch;
+    private VkSkyMapPipeline? _failedStarPipeline;
+
     public VkSkyMapGpuFixture() : base(Width, Height) { }
+
+    /// <summary>
+    /// The sky map pipeline with the full star buffer uploaded for <paramref name="starEpoch"/>,
+    /// building it on the first call and returning the same one to every later call.
+    /// </summary>
+    public async Task<VkSkyMapPipeline> GetStarPipelineAsync(ICelestialObjectDB db, DateTimeOffset starEpoch, CancellationToken cancellationToken)
+    {
+        // The placeholder is published BEFORE the build starts, so only the CAS winner builds.
+        var mine = new TaskCompletionSource<VkSkyMapPipeline>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (Interlocked.CompareExchange(ref _starPipeline, mine, null) is { } existing)
+        {
+            if (existing.Task.IsCompletedSuccessfully && _starEpoch != starEpoch)
+            {
+                throw new InvalidOperationException(
+                    $"the star buffer was built for {_starEpoch:O}, not {starEpoch:O}; one fixture serves one epoch");
+            }
+
+            return await existing.Task.WaitAsync(cancellationToken);
+        }
+
+        _starEpoch = starEpoch;
+        try
+        {
+            // No test token on the build itself: it is shared, so one test's cancellation must not
+            // fault it for the next. The deadline inside bounds it instead.
+            mine.SetResult(await BuildStarPipelineAsync(db, starEpoch));
+        }
+        catch (Exception ex)
+        {
+            mine.SetException(ex);
+        }
+
+        return await mine.Task.WaitAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Builds the star geometry and waits for the upload. <see cref="VkSkyMapPipeline.BuildGeometry"/>
+    /// starts an async rebuild and <see cref="VkSkyMapPipeline.TryApplyPendingStarBuild"/> performs the
+    /// GPU swap on a later frame, which in the app is the render thread coming round again.
+    /// </summary>
+    private async Task<VkSkyMapPipeline> BuildStarPipelineAsync(ICelestialObjectDB db, DateTimeOffset starEpoch)
+    {
+        var ctx = Ctx ?? throw new InvalidOperationException($"Vulkan is not available ({UnavailableReason})");
+        var pipeline = Invoke(() => new VkSkyMapPipeline(ctx));
+
+        Invoke(() =>
+        {
+            pipeline.BuildGeometry(db, starEpoch);
+            return 0;
+        });
+
+        // Bounded, because a wait that cannot end turns a broken build into a hung suite.
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(60);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var ready = Invoke(() =>
+            {
+                pipeline.TryApplyPendingStarBuild();
+                return pipeline.GeometryReady && pipeline.FullStarsReady;
+            });
+
+            if (ready)
+            {
+                return pipeline;
+            }
+
+            await Task.Delay(50);
+        }
+
+        // Still owned by the fixture, so it is destroyed with the device like a finished one.
+        _failedStarPipeline = pipeline;
+        throw new TimeoutException("the star geometry was never ready; nothing would have been measuring the cull");
+    }
+
+    protected override void DisposeDeviceObjects()
+    {
+        if (_starPipeline?.Task is { IsCompletedSuccessfully: true } built)
+        {
+            built.Result.Dispose();
+        }
+
+        _failedStarPipeline?.Dispose();
+    }
 }
 
 /// <summary>Offscreen Vulkan stack sized for <see cref="VkHistogramPipelineTests"/> (512x64).</summary>
