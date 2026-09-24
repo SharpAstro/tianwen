@@ -267,11 +267,22 @@ internal sealed partial class DatasetSubCommand
         {
             Description = "CSV of every folder considered and what happened to it. Written atomically at the end.",
         };
+        var keepUnderOpt = new Option<string?>("--keep-under")
+        {
+            Description = "Count a file's other name only if it is under this tree (typically the curated archive), " +
+                          "not merely outside the folder. Without it, a name anywhere else is enough.",
+        };
+        var journalOpt = new Option<string?>("--journal")
+        {
+            Description = "CSV, appended to, with one row per name removed (or that would be, on a dry run) and where " +
+                          "its bytes survive. Each row reaches the disk BEFORE its delete, so an interrupted run's " +
+                          "record is exact: at most the last row names a file still there.",
+        };
 
         var command = new Command("prune",
             "Remove raw folders that have become pure hard links, keeping every byte under another name.")
         {
-            rootOpt, applyOpt, outOpt,
+            rootOpt, applyOpt, outOpt, keepUnderOpt, journalOpt,
         };
 
         command.SetAction((parseResult, ct) =>
@@ -283,8 +294,24 @@ internal sealed partial class DatasetSubCommand
                 return Task.FromResult(1);
             }
             var apply = parseResult.GetValue(applyOpt);
+            var keepUnder = parseResult.GetValue(keepUnderOpt);
+            if (keepUnder is not null)
+            {
+                if (!Directory.Exists(keepUnder))
+                {
+                    consoleHost.WriteError($"Keep-under tree does not exist: {keepUnder}");
+                    return Task.FromResult(1);
+                }
+                keepUnder = ArchiveLinkSweep.CanonicalRoot(keepUnder);
+            }
+
+            using var journal = OpenJournal(parseResult.GetValue(journalOpt));
 
             consoleHost.WriteScrollable($"[prune] {(apply ? "APPLYING" : "DRY RUN")}: {root}");
+            if (keepUnder is not null)
+            {
+                consoleHost.WriteScrollable($"[prune] a file counts as kept only if another name is under {keepUnder}");
+            }
             consoleHost.WriteScrollable(
                 "[prune] a successful prune frees NO space: the condition for removing a name is that the " +
                 "bytes keep another one. Space comes from relink.");
@@ -300,7 +327,8 @@ internal sealed partial class DatasetSubCommand
             void Consider(string folder, int depth)
             {
                 ct.ThrowIfCancellationRequested();
-                var verdict = ArchivePruneSweep.Consider(folder, apply, ct);
+                var verdict = ArchivePruneSweep.Consider(
+                    folder, apply, keepUnder, journal is null ? null : journal.Write, ct);
                 rows.Add(string.Join(',', [
                     Csv(verdict.Folder), verdict.Outcome.ToString(),
                     verdict.Files.ToString(CultureInfo.InvariantCulture),
@@ -322,7 +350,9 @@ internal sealed partial class DatasetSubCommand
 
                     case ArchivePruneSweep.PruneOutcome.WouldOrphan:
                         wouldOrphan += verdict.OrphanBytes;
-                        Count(counts, "kept (holds bytes with no other name)");
+                        Count(counts, keepUnder is null
+                            ? "kept (holds bytes with no other name)"
+                            : "kept (holds bytes with no name under the keep-under tree)");
                         break;
 
                     case ArchivePruneSweep.PruneOutcome.NotItsRealPath:
@@ -373,6 +403,50 @@ internal sealed partial class DatasetSubCommand
         });
 
         return command;
+    }
+
+    private static PruneJournal? OpenJournal(string? path)
+        => string.IsNullOrWhiteSpace(path) ? null : new PruneJournal(path);
+
+    /// <summary>
+    /// The per-name record of a prune, appended to so several runs share one file. Every row is
+    /// forced to the DISK (not just the OS cache) before the sweep deletes the name it describes, so a
+    /// crash or a pulled plug cannot leave a removed name without a row. The cost is one flush per
+    /// name, which next to the directory work of removing it is noise.
+    /// </summary>
+    private sealed class PruneJournal : IDisposable
+    {
+        private readonly FileStream _stream;
+        private readonly StreamWriter _writer;
+
+        public PruneJournal(string path)
+        {
+            _stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read);
+            _writer = new StreamWriter(_stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)) { NewLine = "\n" };
+            if (_stream.Length == 0)
+            {
+                _writer.WriteLine("utc,action,path,surviving_name,file_id,bytes");
+                Sync();
+            }
+        }
+
+        public void Write(ArchivePruneSweep.PrunedName name)
+        {
+            _writer.WriteLine(string.Join(',', [
+                DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+                name.Applied ? "remove" : "would-remove",
+                Csv(name.Path), Csv(name.SurvivingName), name.FileId,
+                name.Bytes.ToString(CultureInfo.InvariantCulture)]));
+            Sync();
+        }
+
+        private void Sync()
+        {
+            _writer.Flush();
+            _stream.Flush(flushToDisk: true);
+        }
+
+        public void Dispose() => _writer.Dispose();
     }
 
     private static IEnumerable<string> FitsFilesUnder(string root)

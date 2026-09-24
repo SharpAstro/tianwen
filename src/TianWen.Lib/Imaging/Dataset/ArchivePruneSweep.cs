@@ -32,6 +32,16 @@ namespace TianWen.Lib.Imaging.Dataset;
 /// <para>Junctions are neither followed nor removed. The curated archive's <c>targets/</c> tree is
 /// a junction farm, and a walk that enters one counts the same file twice; a folder containing one
 /// is refused rather than guessed about.</para>
+///
+/// <para><b>"Elsewhere" can be narrowed to a tree</b> (<c>keepUnder</c>). Outside the folder is
+/// enough never to lose bytes, but not to keep them somewhere USEFUL: a raw frame whose only other
+/// name is elsewhere in the raw archive survives in a tree no bake reads. With a keep-under root, a
+/// name counts only if it is under that root, typically the curated archive.</para>
+///
+/// <para><b>Every name removed is reported before it goes</b> (<c>onName</c>), with the name its
+/// bytes stay reachable under. A caller writing that to disk has an exact record of an interrupted
+/// run: the only row that can be wrong is the last, for a name that was about to go and may not
+/// have.</para>
 /// </summary>
 public static class ArchivePruneSweep
 {
@@ -65,6 +75,16 @@ public static class ArchivePruneSweep
     public readonly record struct FolderVerdict(
         string Folder, PruneOutcome Outcome, string Detail, int Files, int Orphans, long OrphanBytes);
 
+    /// <summary>One name the pass removes, or would remove on a dry run, reported BEFORE the delete.</summary>
+    /// <param name="Path">The name going away.</param>
+    /// <param name="SurvivingName">A name the same bytes stay reachable under, outside the folder and,
+    /// with a keep-under root, under it.</param>
+    /// <param name="FileId">The file's volume and index, so the survivor can be matched to the removed
+    /// name after the fact. Empty where the platform cannot say.</param>
+    /// <param name="Bytes">The file's size. Nothing is freed by removing it: the survivor holds these.</param>
+    /// <param name="Applied">True on a real run, false on a dry run.</param>
+    public readonly record struct PrunedName(string Path, string SurvivingName, string FileId, long Bytes, bool Applied);
+
     /// <summary>How many blocking files to name in <see cref="FolderVerdict.Detail"/> before
     /// summarising. Enough to see the pattern, short enough to read.</summary>
     private const int NamedBlockers = 5;
@@ -75,14 +95,34 @@ public static class ArchivePruneSweep
     /// </summary>
     /// <param name="folder">The folder to consider, with everything under it.</param>
     /// <param name="apply">When false (the default) nothing is deleted.</param>
+    /// <param name="keepUnder">When set, a file's other name counts only if it is under this root
+    /// (resolved to its real path), not merely outside the folder.</param>
+    /// <param name="onName">Called for every name the pass removes (or would remove, on a dry run),
+    /// immediately BEFORE the delete, with where its bytes survive.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     public static FolderVerdict Consider(
-        string folder, bool apply = false, CancellationToken cancellationToken = default)
+        string folder,
+        bool apply = false,
+        string? keepUnder = null,
+        Action<PrunedName>? onName = null,
+        CancellationToken cancellationToken = default)
     {
         var full = Path.GetFullPath(folder);
         if (!Directory.Exists(full))
         {
             return new FolderVerdict(folder, PruneOutcome.Unreadable, "the folder does not exist.", 0, 0, 0);
+        }
+
+        // Link names come back REAL, so the keep-under root must be real too, or a root given through
+        // a junction or a short name matches nothing and every folder is kept (safe, but useless).
+        string? keepRoot = null;
+        if (keepUnder is not null)
+        {
+            if (!Directory.Exists(keepUnder))
+            {
+                return new FolderVerdict(folder, PruneOutcome.Unreadable, $"the keep-under root {keepUnder} does not exist.", 0, 0, 0);
+            }
+            keepRoot = HardLinkProbe.TryGetFinalPath(keepUnder) ?? Path.GetFullPath(keepUnder);
         }
 
         // The test below compares every file's names against this folder's path, and the names come
@@ -129,33 +169,36 @@ public static class ArchivePruneSweep
 
         var orphans = new List<string>();
         long orphanBytes = 0;
+        var survivors = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var file in files)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!HasANameOutside(file, full))
+            if (SurvivingName(file, full, keepRoot) is { } survivor)
             {
-                orphans.Add(file);
-                try
-                {
-                    orphanBytes += new FileInfo(file).Length;
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                }
+                survivors[file] = survivor;
+                continue;
             }
+            orphans.Add(file);
+            orphanBytes += SizeOf(file);
         }
 
         if (orphans.Count > 0)
         {
             var named = string.Join(", ", orphans.Take(NamedBlockers).Select(Path.GetFileName));
             var more = orphans.Count > NamedBlockers ? $" and {orphans.Count - NamedBlockers} more" : "";
+            var where = keepRoot is null ? "outside this folder" : $"under {keepRoot}";
             return new FolderVerdict(folder, PruneOutcome.WouldOrphan,
-                $"{orphans.Count} of {files.Count} file(s) have no name outside this folder: {named}{more}.",
+                $"{orphans.Count} of {files.Count} file(s) have no name {where}: {named}{more}.",
                 files.Count, orphans.Count, orphanBytes);
         }
 
         if (!apply)
         {
+            // The same report a real run makes, so a dry run's journal previews exactly what would go.
+            foreach (var file in files)
+            {
+                onName?.Invoke(new PrunedName(file, survivors[file], FileIdOf(file), SizeOf(file), Applied: false));
+            }
             return new FolderVerdict(folder, PruneOutcome.Pruned, "", files.Count, 0, 0);
         }
 
@@ -168,13 +211,17 @@ public static class ArchivePruneSweep
         foreach (var file in files)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!HasANameOutside(file, full))
+            if (SurvivingName(file, full, keepRoot) is not { } survivor)
             {
                 return new FolderVerdict(folder, PruneOutcome.Failed,
-                    $"{file} lost its name outside this folder after the check, so the pass stopped. " +
+                    $"{file} lost its surviving name after the check, so the pass stopped. " +
                     $"{removed} of {files.Count} names removed, each with another name kept.",
                     files.Count, 1, 0);
             }
+
+            // Reported BEFORE the delete, so a record written from this is never missing a name that
+            // went: the worst an interrupted run leaves is one row for a name that is still there.
+            onName?.Invoke(new PrunedName(file, survivor, FileIdOf(file), SizeOf(file), Applied: true));
             try
             {
                 // A read-only file fails here, deliberately: clearing the attribute would change it on
@@ -223,30 +270,54 @@ public static class ArchivePruneSweep
         }
     }
 
-    /// <summary>True when any name for this file lies outside <paramref name="folder"/>. Reads the
-    /// link's PATH rather than the link COUNT, because a count cannot tell a name elsewhere from a
-    /// second name in the folder about to be deleted.</summary>
-    private static bool HasANameOutside(string file, string folder)
+    /// <summary>A name for this file outside <paramref name="folder"/> and, when
+    /// <paramref name="keepRoot"/> is set, under it; null when there is none. Reads the link's PATH
+    /// rather than the link COUNT, because a count cannot tell a name elsewhere from a second name in
+    /// the folder about to be deleted.</summary>
+    private static string? SurvivingName(string file, string folder, string? keepRoot)
     {
         var links = HardLinkProbe.EnumerateLinks(file);
         if (links.IsDefaultOrEmpty)
         {
             // No answer is not the same as no other name. Refuse rather than guess: the cost of
             // being wrong here is the last copy of a frame.
-            return false;
+            return null;
         }
 
-        var prefix = folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                   + Path.DirectorySeparatorChar;
+        var inFolder = AsDirectoryPrefix(folder);
+        var inKeep = keepRoot is null ? null : AsDirectoryPrefix(keepRoot);
         foreach (var link in links)
         {
             var linkFull = Path.GetFullPath(link);
-            if (!linkFull.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            if (linkFull.StartsWith(inFolder, StringComparison.OrdinalIgnoreCase))
             {
-                return true;
+                continue;
+            }
+            if (inKeep is null || linkFull.StartsWith(inKeep, StringComparison.OrdinalIgnoreCase))
+            {
+                return linkFull;
             }
         }
-        return false;
+        return null;
+    }
+
+    /// <summary>The path with exactly one trailing separator, so a prefix test on it cannot match a
+    /// sibling that merely starts with the same characters (<c>raw</c> against <c>raw-old</c>).</summary>
+    private static string AsDirectoryPrefix(string path)
+        => path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+
+    private static string FileIdOf(string file) => HardLinkProbe.TryGetIdentity(file)?.ToString() ?? "";
+
+    private static long SizeOf(string file)
+    {
+        try
+        {
+            return new FileInfo(file).Length;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return 0;
+        }
     }
 
     private static bool HoldsAJunction(string folder, CancellationToken cancellationToken)

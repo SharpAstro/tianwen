@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -310,7 +311,7 @@ namespace TianWen.Lib.Tests
             var (curated, payload) = FitsFixture.WriteFits(keep, "frame.fits", ["IMAGETYP= 'LIGHT'"]);
             FitsFixture.LinkOrSkip(Path.Combine(drop, "frame.fits"), curated);
 
-            var verdict = ArchivePruneSweep.Consider(drop, apply: true, TestContext.Current.CancellationToken);
+            var verdict = ArchivePruneSweep.Consider(drop, apply: true, cancellationToken: TestContext.Current.CancellationToken);
 
             verdict.Outcome.ShouldBe(ArchivePruneSweep.PruneOutcome.Pruned);
             verdict.Files.ShouldBe(1);
@@ -330,7 +331,7 @@ namespace TianWen.Lib.Tests
             FitsFixture.LinkOrSkip(Path.Combine(drop, "frame-again.fits"), first);
 
             FitsFixture.IdentityOf(first).LinkCount.ShouldBe(2);
-            var verdict = ArchivePruneSweep.Consider(drop, apply: true, TestContext.Current.CancellationToken);
+            var verdict = ArchivePruneSweep.Consider(drop, apply: true, cancellationToken: TestContext.Current.CancellationToken);
 
             verdict.Outcome.ShouldBe(ArchivePruneSweep.PruneOutcome.WouldOrphan);
             verdict.Orphans.ShouldBe(2);
@@ -352,7 +353,7 @@ namespace TianWen.Lib.Tests
             FitsFixture.LinkOrSkip(Path.Combine(drop, "frame.fits"), curated);
             File.WriteAllText(Path.Combine(drop, "run.CameraSettings.txt"), "White Bal (R)=65\n");
 
-            var verdict = ArchivePruneSweep.Consider(drop, apply: true, TestContext.Current.CancellationToken);
+            var verdict = ArchivePruneSweep.Consider(drop, apply: true, cancellationToken: TestContext.Current.CancellationToken);
 
             verdict.Outcome.ShouldBe(ArchivePruneSweep.PruneOutcome.WouldOrphan);
             verdict.Orphans.ShouldBe(1);
@@ -371,7 +372,7 @@ namespace TianWen.Lib.Tests
             var (curated, _) = FitsFixture.WriteFits(keep, "frame.fits", ["IMAGETYP= 'LIGHT'"]);
             FitsFixture.LinkOrSkip(Path.Combine(drop, "frame.fits"), curated);
 
-            var verdict = ArchivePruneSweep.Consider(drop, apply: false, TestContext.Current.CancellationToken);
+            var verdict = ArchivePruneSweep.Consider(drop, apply: false, cancellationToken: TestContext.Current.CancellationToken);
 
             verdict.Outcome.ShouldBe(ArchivePruneSweep.PruneOutcome.Pruned);
             Directory.Exists(drop).ShouldBeTrue();
@@ -386,7 +387,7 @@ namespace TianWen.Lib.Tests
             var drop = Path.Combine(root, "raw");
             Directory.CreateDirectory(drop);
 
-            var verdict = ArchivePruneSweep.Consider(drop, apply: true, TestContext.Current.CancellationToken);
+            var verdict = ArchivePruneSweep.Consider(drop, apply: true, cancellationToken: TestContext.Current.CancellationToken);
 
             verdict.Outcome.ShouldBe(ArchivePruneSweep.PruneOutcome.Empty);
             Directory.Exists(drop).ShouldBeTrue();
@@ -404,7 +405,7 @@ namespace TianWen.Lib.Tests
             var (curated, _) = FitsFixture.WriteFits(keep, "frame.fits", ["IMAGETYP= 'LIGHT'"]);
             FitsFixture.LinkOrSkip(Path.Combine(nested, "frame.fits"), curated);
 
-            var verdict = ArchivePruneSweep.Consider(drop, apply: true, TestContext.Current.CancellationToken);
+            var verdict = ArchivePruneSweep.Consider(drop, apply: true, cancellationToken: TestContext.Current.CancellationToken);
 
             verdict.Outcome.ShouldBe(ArchivePruneSweep.PruneOutcome.Pruned);
             verdict.Files.ShouldBe(1);
@@ -426,7 +427,7 @@ namespace TianWen.Lib.Tests
             var alias = Path.Combine(root, "alias");
             JunctionOrSkip(alias, real);
 
-            var verdict = ArchivePruneSweep.Consider(alias, apply: true, TestContext.Current.CancellationToken);
+            var verdict = ArchivePruneSweep.Consider(alias, apply: true, cancellationToken: TestContext.Current.CancellationToken);
 
             verdict.Outcome.ShouldBe(ArchivePruneSweep.PruneOutcome.NotItsRealPath);
             verdict.Detail.ShouldContain(real);
@@ -445,7 +446,7 @@ namespace TianWen.Lib.Tests
             var alias = Path.Combine(root, "alias");
             JunctionOrSkip(alias, Path.Combine(root, "real"));
 
-            var verdict = ArchivePruneSweep.Consider(Path.Combine(alias, "Light"), apply: true, TestContext.Current.CancellationToken);
+            var verdict = ArchivePruneSweep.Consider(Path.Combine(alias, "Light"), apply: true, cancellationToken: TestContext.Current.CancellationToken);
 
             verdict.Outcome.ShouldBe(ArchivePruneSweep.PruneOutcome.NotItsRealPath);
             File.Exists(only).ShouldBeTrue();
@@ -468,6 +469,89 @@ namespace TianWen.Lib.Tests
             Assert.SkipUnless(mklink is not null, "cmd.exe could not be started.");
             mklink.WaitForExit();
             Assert.SkipUnless(mklink.ExitCode == 0 && Directory.Exists(link), "Could not create a junction here.");
+        }
+
+        [Fact]
+        public void GivenAKeepUnderRoot_WhenTheOnlyOtherNameIsOutsideIt_ThenTheFolderIsKept()
+        {
+            // Outside the folder is enough never to lose bytes, not enough to keep them where a bake
+            // reads: here the only other name is a second raw copy. Without the root the folder
+            // would go; with it, it stays, and the reason names the root.
+            var root = TempDir();
+            var drop = Path.Combine(root, "raw");
+            var elsewhere = Path.Combine(root, "raw-older");
+            var curated = Path.Combine(root, "curated");
+            Directory.CreateDirectory(drop);
+            Directory.CreateDirectory(elsewhere);
+            Directory.CreateDirectory(curated);
+            var (frame, payload) = FitsFixture.WriteFits(drop, "frame.fits", ["IMAGETYP= 'LIGHT'"]);
+            FitsFixture.LinkOrSkip(Path.Combine(elsewhere, "frame.fits"), frame);
+
+            ArchivePruneSweep.Consider(drop, apply: false, cancellationToken: TestContext.Current.CancellationToken)
+                .Outcome.ShouldBe(ArchivePruneSweep.PruneOutcome.Pruned);
+            var verdict = ArchivePruneSweep.Consider(
+                drop, apply: true, keepUnder: curated, cancellationToken: TestContext.Current.CancellationToken);
+
+            verdict.Outcome.ShouldBe(ArchivePruneSweep.PruneOutcome.WouldOrphan);
+            verdict.Detail.ShouldContain(curated);
+            File.ReadAllBytes(frame).TakeLast(payload.Length).ShouldBe(payload);
+        }
+
+        [Fact]
+        public void GivenAKeepUnderRoot_WhenEveryFileHasANameUnderIt_ThenEachNameIsReportedWithItsSurvivorBeforeItGoes()
+        {
+            var root = TempDir();
+            var drop = Path.Combine(root, "raw");
+            var curated = Path.Combine(root, "curated");
+            Directory.CreateDirectory(drop);
+            Directory.CreateDirectory(curated);
+            var (keptA, payload) = FitsFixture.WriteFits(curated, "a.fits", ["IMAGETYP= 'LIGHT'"]);
+            var (keptB, _) = FitsFixture.WriteFits(curated, "b.fits", ["IMAGETYP= 'LIGHT'"], seed: 3);
+            FitsFixture.LinkOrSkip(Path.Combine(drop, "a.fits"), keptA);
+            FitsFixture.LinkOrSkip(Path.Combine(drop, "b.fits"), keptB);
+
+            var reported = new List<ArchivePruneSweep.PrunedName>();
+            var stillThereWhenReported = new List<bool>();
+            var verdict = ArchivePruneSweep.Consider(
+                drop, apply: true, keepUnder: curated,
+                onName: n => { reported.Add(n); stillThereWhenReported.Add(File.Exists(n.Path)); },
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            verdict.Outcome.ShouldBe(ArchivePruneSweep.PruneOutcome.Pruned);
+            Directory.Exists(drop).ShouldBeFalse();
+            reported.Count.ShouldBe(2);
+            // Reported BEFORE the delete: that ordering is what makes a written journal exact.
+            stillThereWhenReported.ShouldAllBe(x => x);
+            reported.ShouldAllBe(n => n.Applied && n.Bytes > 0 && n.FileId.Length > 0);
+            reported.Select(n => n.SurvivingName).OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+                .ShouldBe([keptA, keptB], ignoreOrder: true);
+            File.ReadAllBytes(keptA).TakeLast(payload.Length).ShouldBe(payload);
+        }
+
+        [Fact]
+        public void GivenADryRunWithAReport_WhenPruning_ThenEveryNameIsReportedAndNothingGoes()
+        {
+            // The dry run's journal previews exactly what a real run would remove.
+            var root = TempDir();
+            var drop = Path.Combine(root, "raw");
+            var curated = Path.Combine(root, "curated");
+            Directory.CreateDirectory(drop);
+            Directory.CreateDirectory(curated);
+            var (kept, _) = FitsFixture.WriteFits(curated, "frame.fits", ["IMAGETYP= 'LIGHT'"]);
+            var name = Path.Combine(drop, "frame.fits");
+            FitsFixture.LinkOrSkip(name, kept);
+
+            var reported = new List<ArchivePruneSweep.PrunedName>();
+            var verdict = ArchivePruneSweep.Consider(
+                drop, apply: false, keepUnder: curated, onName: reported.Add,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            verdict.Outcome.ShouldBe(ArchivePruneSweep.PruneOutcome.Pruned);
+            var only = reported.ShouldHaveSingleItem();
+            only.Applied.ShouldBeFalse();
+            only.Path.ShouldBe(name, StringCompareShould.IgnoreCase);
+            only.SurvivingName.ShouldBe(kept, StringCompareShould.IgnoreCase);
+            File.Exists(name).ShouldBeTrue();
         }
     }
 }
