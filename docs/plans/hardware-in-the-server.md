@@ -342,7 +342,7 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
   - The server needs floats itself, for star detection, HFD, plate solving, guiding and writing the FITS,
     so the frame is float before any client exists, and a slot carries it as float.
   - Moving the conversion to the client would halve a slot but make the server convert twice.
-- **The DAL conversion read 16-bit pixels as SIGNED, found while tracing this, and FIXED** ("fix(dal): a
+- **The DAL conversion read 16-bit pixels as SIGNED, found while tracing this, and FIXED in #349** ("fix(dal): a
   16-bit camera's pixels are read unsigned, in place, in one pass").
   - A pixel of 32768 or more became a large negative float. That is every bright star core on a 16-bit
     converter (ASI2600, ASI6200, QHY268, QHY600) and on Player One's left-aligned 12-bit data.
@@ -428,29 +428,31 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
     than today's single process.** The texture is device memory, and on the Adreno laptop, as on any
     integrated GPU, device memory IS system RAM.
 
-    **Garbage per sub** (today, in the one process; it moves to the server with the split):
+    **Garbage per sub** (in the one process, as the sweep found it; all three frame-sized items are gone
+    since #349, which is what lets the split start without them):
 
     | Allocation | Mono | Colour | Remedy |
     |---|---|---|---|
-    | DAL `short[]` read copy | 52 | 52 | FIXED, read in place |
-    | FITS write, `QuantisePlane` `new short[h, w]` | 52 | 52 | rent it from `Array2DPool` |
-    | star detection, the mono debayer (`CreateChannelData`) | | 104 | pass it a pooled `destination`, which the method already takes |
+    | DAL `short[]` read copy | 52 | 52 | FIXED (#349), read in place |
+    | FITS write, `QuantisePlane` `new short[h, w]` | 52 | 52 | FIXED (#349): streamed through FITS.Lib 6.1's `FitsWriter`, a 2 MB band at a time, so no quantised copy exists |
+    | star detection, the mono debayer (`CreateChannelData`) | | 104 | FIXED (#349): debayered into an `Array2DPool` lease |
     | star detection, `BitMatrix` star mask | 3 | 3 | minor |
 
-    That garbage is why every FITS write is followed by `GC.Collect(2, Forced, blocking: true)` and
+    That garbage is why every FITS write was followed by `GC.Collect(2, Forced, blocking: true)` and
     `WaitForPendingFinalizers` ("Add forced GC after FITS write to keep working set bounded": without it
     the working set climbed to 2 to 3 GB between natural collections).
     - A forced blocking collection suspends every managed thread, the render thread included. On a
       643 MB synthetic heap (3 million small objects and four frame planes) it took 29 ms: about two
       dropped frames once per sub.
-    - Once the three allocations above are gone, it can go too.
-    - Measure first, with the commit's own method: the working set logged after each write, over 20 subs
-      from a 26 MP fake camera, with and without the collection.
+    - With the three allocations gone, it went too (#349). Measured with the commit's own method, the
+      working set logged after each write over 20 simulated 26 MP colour subs: 302 to 335 MB with ONE
+      natural gen2.
 
     **The levers, in order of value for effort:**
-    1. **Pool the FITS quantise plane and the star-detection debayer, then drop the forced GC.** Today,
-       Lib only, small. With the DAL fix already in, removes the last 52 MB (mono) or 156 MB (colour) of
-       frame-sized garbage per sub, and a whole-process pause per sub.
+    1. **Pool the FITS quantise plane and the star-detection debayer, then drop the forced GC.** DONE in
+       #349: it removed the last 52 MB (mono) or 156 MB (colour) of frame-sized garbage per sub, and a
+       whole-process pause per sub. Every finding the capture-path sweep made beyond it is in
+       [frame-path-allocations.md](frame-path-allocations.md).
     2. **A 16-bit texture for a 16-bit frame.** Today, `VkFitsImagePipeline`, medium.
        - `R16Unorm` is exact for integer data. The pipeline already swaps in `R8Unorm` for 8-bit
          sources, "a quarter of the device memory, lossless".
