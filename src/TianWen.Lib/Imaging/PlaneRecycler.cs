@@ -54,8 +54,8 @@ internal sealed class PlaneRecycler
     }
 
     /// <summary>A channel over <paramref name="plane"/> whose buffer returns it here on release.</summary>
-    public Channel Wrap(float[,] plane, float minValue, float maxValue, byte index)
-        => new Channel(plane, default, minValue, maxValue, index)
+    public Channel Wrap(float[,] plane, float minValue, float maxValue, byte index, Filter filter = default)
+        => new Channel(plane, filter, minValue, maxValue, index)
         {
             Buffer = new ChannelBuffer(plane, _return, _owner, 0),
         };

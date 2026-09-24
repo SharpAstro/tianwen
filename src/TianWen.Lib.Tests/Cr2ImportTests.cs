@@ -250,4 +250,51 @@ public class Cr2ImportTests(ITestOutputHelper output)
         Directory.CreateDirectory(dir);
         return dir;
     }
+
+    /// <summary>
+    /// The Canon driver reads each sub into a RECYCLED plane, which holds the previous sub's pixels: the
+    /// decode must ask for exactly the active area's shape, write every pixel of the plane it is given,
+    /// and produce the plain read's frame; and it must not allocate a plane of its own.
+    /// </summary>
+    [Fact]
+    public void A_raw_read_into_a_supplied_plane_is_the_plain_read_and_makes_no_plane()
+    {
+        var path = FixturePath;
+        if (!IsFixtureUsable(path))
+        {
+            Assert.Skip($"CR2 fixture not present or LFS pointer at {path}. " +
+                "Run `git lfs pull --include=\"*.CR2\"` to fetch.");
+            return;
+        }
+
+        Image.TryReadImageFile(path, out var plain).ShouldBeTrue();
+        var (height, width) = (plain.Height, plain.Width);
+        var supplied = new float[height, width];
+        System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref supplied[0, 0], supplied.Length).Fill(float.NaN);
+        (int Height, int Width)? asked = null;
+        float[,] PlaneFor(int h, int w)
+        {
+            asked = (h, w);
+            return supplied;
+        }
+
+        // Warm, then measure both reads on this thread: the difference is the plane.
+        Image.TryReadCanonRaw(path, PlaneFor, out _).ShouldBeTrue();
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        Image.TryReadImageFile(path, out _).ShouldBeTrue();
+        var plainBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref supplied[0, 0], supplied.Length).Fill(float.NaN);
+        before = GC.GetAllocatedBytesForCurrentThread();
+        Image.TryReadCanonRaw(path, PlaneFor, out var into).ShouldBeTrue();
+        var intoBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        asked.ShouldBe((height, width));
+        into.GetChannelArray(0).ShouldBeSameAs(supplied);
+        into.GetChannelSpan(0).SequenceEqual(plain.GetChannelSpan(0)).ShouldBeTrue("every pixel of the supplied plane is the plain read's");
+        (into.MaxValue, into.MinValue).ShouldBe((plain.MaxValue, plain.MinValue));
+
+        var plane = (long)height * width * sizeof(float);
+        output.WriteLine($"{width}x{height} CR2: plain read {plainBytes:N0} bytes, into a supplied plane {intoBytes:N0} ({plane:N0} of plane)");
+        (plainBytes - intoBytes).ShouldBeGreaterThanOrEqualTo(plane, "the plane is the caller's, not a new one");
+    }
 }
