@@ -223,8 +223,11 @@ function Write-Tycho2BinaryEntry
     if ($DecDeg  -lt $OutputData.GscMinDec[$gscIdx]) { $OutputData.GscMinDec[$gscIdx] = $DecDeg }
     if ($DecDeg  -gt $OutputData.GscMaxDec[$gscIdx]) { $OutputData.GscMaxDec[$gscIdx] = $DecDeg }
 
-    # accumulate HIP -> TYC mapping
-    if ($Hip -ne 0) {
+    # accumulate HIP -> TYC mapping, never to an identifier the packed CatalogIndex cannot address:
+    # it gives tyc3 two bits (CatalogUtils.TYC3_MASK), so the one component-4 star (TYC 1327-606-4,
+    # HIP 30075D) would load as TYC 1327-606-0, a star that does not exist, and put it among the
+    # catalogue's indices (docs/known-limitations.md). HIP 30075 keeps its A and B components.
+    if ($Hip -ne 0 -and $Tyc3 -le 3) {
         if (-not $OutputData.HIPMap.ContainsKey($Hip)) {
             $OutputData.HIPMap[$Hip] = [System.Collections.Generic.List[short[]]]::new()
         }
@@ -382,7 +385,7 @@ function ConvertAndWrite-Tycho2Supplement1
         # Pipe-delimited fields (0-indexed):
         #   0 TYC "t1 t2 t3" | 1 flag[HT] | 2 RAdeg | 3 DEdeg | 4 pmRA | 5 pmDE
         #   | 6-9 errors | 10 mflag[ BVH] | 11 BTmag | 12 e_BT | 13 VTmag/Hp
-        #   | 14 e_VT | 15 prox | 16 TYC[ T] | 17 HIP | 18 CCDM
+        #   | 14 e_VT | 15 prox | 16 TYC[ T] | 17 HIP (I6) and CCDM (A1), ONE field
         $values = $line.Split('|')
         if ($values.Length -lt 14) { continue }   # need at least through the VT field
 
@@ -437,9 +440,15 @@ function ConvertAndWrite-Tycho2Supplement1
         [float]$vtSlot = if ($mflag -eq 'B') { $btField } else { $vtField }
         [float]$btSlot = if ($mflag -eq '')  { $btField } else { [float]::NaN }
 
+        # The HIP field is the number AND its CCDM component ("69673A"): parse the six digits alone,
+        # as the main parser does its field 23. Parsing the whole field failed on every component
+        # letter, so 3,768 records mapped no HIP and 384 numbers resolved nowhere in the app (found
+        # re-baking for #396). A number the main catalogue maps too stays its main record's: the
+        # multi-TYC JSON keeps the main entry first, and the loader resolves a number to its first.
         $hip = 0
         if ($values.Length -ge 18) {
-            [void][int]::TryParse($values[17].Trim(), $inv, [ref] $hip)
+            $hipField = $values[17]
+            [void][int]::TryParse($hipField.Substring(0, [Math]::Min(6, $hipField.Length)).Trim(), $inv, [ref] $hip)
         }
 
         Write-Tycho2BinaryEntry -Tyc1 $tyc1 -Tyc2 $tyc2 -Tyc3 $tyc3 `
