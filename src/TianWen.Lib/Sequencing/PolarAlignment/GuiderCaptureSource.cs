@@ -69,9 +69,19 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             Directory.CreateDirectory(_frameFolder);
         }
 
-        public async ValueTask<CaptureResult> CaptureAsync(
+        public ValueTask<CaptureResult> CaptureAsync(
             TimeSpan exposure,
             CancellationToken ct = default)
+            => CaptureCoreAsync(exposure, loadImage: true, ct);
+
+        /// <param name="loadImage">Whether to read the saved frame into memory: only the incremental
+        /// path wants it, and the file-based solve of <see cref="CaptureAndSolveAsync"/> never looks at it,
+        /// so reading it there was a whole frame of garbage (the FITS reader's buffers, its typed array and
+        /// the float plane, 17 MB for a 2 MP guide frame) per capture for nothing.</param>
+        private async ValueTask<CaptureResult> CaptureCoreAsync(
+            TimeSpan exposure,
+            bool loadImage,
+            CancellationToken ct)
         {
             if (!_guider.Connected)
             {
@@ -117,12 +127,18 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             // Eagerly load the saved FITS into memory so the incremental-solver
             // path can run ROI centroid + affine refit against it. The
             // file-based solve path (CaptureAndSolveAsync below) still uses
-            // SolveFileAsync against the path to avoid a re-encode. A failed
-            // load doesn't fail the capture -- the file is still on disk and
-            // the orchestrator can solve against it; only the incremental
-            // fast path is unavailable.
+            // SolveFileAsync against the path to avoid a re-encode, and so does
+            // not load it at all. A failed load doesn't fail the capture -- the
+            // file is still on disk and the orchestrator can solve against it;
+            // only the incremental fast path is unavailable.
+            //
+            // POOLED: the planes come from Array2DPool, and releasing the image
+            // gives them back, which the refine loop already does after its
+            // solves (PolarAlignmentSession, `OwnershipTransferredToUi: false`
+            // below); that loop runs at guide cadence, so an unpooled read was a
+            // new float plane per frame.
             Image? image = null;
-            if (!Image.TryReadFitsFile(fitsPath, out image))
+            if (loadImage && !Image.TryReadFitsFile(fitsPath, out image, out _, pooled: true))
             {
                 _logger.LogDebug("GuiderCaptureSource: failed to load saved FITS {Path}", fitsPath);
             }
@@ -141,11 +157,12 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             IPlateSolver solver,
             CancellationToken ct = default)
         {
-            // Success implies FitsPath populated by CaptureAsync; the file path is the canonical
+            // Success implies FitsPath populated by the capture; the file path is the canonical
             // artifact for guider sources (the image is a lazy optimisation for the incremental
-            // path). Asked for in the SAME condition rather than asserted after it, so a success
-            // that somehow carries no path takes the failure exit instead of throwing later.
-            var capture = await CaptureAsync(exposure, ct).ConfigureAwait(false);
+            // path, which is why it is not loaded here). Asked for in the SAME condition rather than
+            // asserted after it, so a success that somehow carries no path takes the failure exit
+            // instead of throwing later.
+            var capture = await CaptureCoreAsync(exposure, loadImage: false, ct).ConfigureAwait(false);
             if (!capture.Success || capture.FitsPath is not { } fitsPath)
             {
                 return new CaptureAndSolveResult(false, null, default, 0, exposure, capture.FitsPath, capture.FailureReason);
