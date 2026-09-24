@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Hosting.Api;
@@ -168,6 +169,35 @@ namespace TianWen.Lib.Tests
             Image.TryDecodeRaster(jpeg, out var decoded).ShouldBeTrue();
             decoded.ShouldNotBeNull();
             decoded.ChannelCount.ShouldBe(3);
+        }
+
+        /// <summary>
+        /// A mosaic previews through planes RENTED from the pool, which hold whatever the last renter left,
+        /// so the debayer has to overwrite every pixel of them. The JPEG must be byte for byte the one its
+        /// fresh debayer gives, with the pool first handed planes of exactly that shape full of NaN: a
+        /// single pixel left unwritten reaches the stretch statistics and changes the picture.
+        /// </summary>
+        [Fact]
+        public async Task AMosaicPreviewsExactlyAsItsFreshDebayerDoes()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var linear = MakeLinearSub(width: 66, height: 50);
+            var mosaic = new Image([linear.GetChannelArray(0)], BitDepth.Int16, maxValue: linear.MaxValue,
+                minValue: linear.MinValue, pedestal: 0f, new ImageMeta { SensorType = SensorType.RGGB });
+
+            var fresh = await mosaic.DebayerAsync(DebayerAlgorithm.MHC, cancellationToken: ct);
+            var expected = await PreviewEncoder.EncodeJpegAsync(fresh, quality: 90, scale: 1.0, ct);
+
+            var poisoned = new[] { Array2DPool<float>.Rent(50, 66), Array2DPool<float>.Rent(50, 66), Array2DPool<float>.Rent(50, 66) };
+            foreach (var plane in poisoned)
+            {
+                MemoryMarshal.CreateSpan(ref plane[0, 0], plane.Length).Fill(float.NaN);
+                Array2DPool<float>.Return(plane);
+            }
+
+            var actual = await PreviewEncoder.EncodeJpegAsync(mosaic, quality: 90, scale: 1.0, ct);
+
+            actual.AsSpan().SequenceEqual(expected).ShouldBeTrue("the rented debayer must draw exactly what a fresh one does");
         }
     }
 }
