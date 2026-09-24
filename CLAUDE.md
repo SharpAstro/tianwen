@@ -1321,6 +1321,9 @@ vocabulary (own/borrow/consume), the four conventions and the DEBUG leak leg:
   this?" from a `ReferenceEquals` -- the answer is always in hand one branch earlier, else make the
   producer CONSUME its input.
 - Never hold an `Image` from `GetImageAsync` longer than needed; it pins the camera buffer.
+- **A preview of a frame someone else owns goes through `AstroImageDocument.FromLiveFrameAsync`**
+  (lease, copy, adopt the copy), **never `AdoptImageAsync`**, which consumes its input: the TUI once
+  rescaled the session's own sub to [0, 1] in place while it waited for its FITS write.
 - **A demosaic the viewer OFFERS must have its own branch in `image.frag`**, or a Save's CPU debayer
   silently writes a different picture from the one on screen. `DebayerAlgorithm.Auto` resolves via
   `ResolveAuto` before `GpuDebayerMode`, which THROWS on an unresolved Auto rather than falling
