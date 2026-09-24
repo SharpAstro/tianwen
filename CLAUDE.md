@@ -1802,8 +1802,8 @@ Canonical example: `AppSignalHandler.PollCameraTelemetry` and `EquipmentTabState
   fit; (2) the locked path should not be reachable from a rendering thread (a contended lock there is a
   frame stall -- hand the render thread an immutable snapshot instead); (3) if the lock stays, it must
   be `System.Threading.Lock` (C# 13), never `lock` on an `object`, a collection or any other reachable
-  instance (faster, self-documenting, compiler-enforced). Remaining `object`-based sites are inventoried
-  in `docs/todo/infra.md`. For a most-recent-N window polled by readers (guide
+  instance (faster, self-documenting, compiler-enforced). None are left (swept 2026-09-24, #353); the
+  one clause still unmet, `FileLoggerProvider` being reachable from a render thread, is in `docs/todo/infra.md`. For a most-recent-N window polled by readers (guide
   samples, frame metrics), prefer the lock-free `CircularBuffer<T>` (`TianWen.Lib/Sequencing`):
   ImmutableArray + CAS replace, torn-free `Snapshot` reads, O(capacity) appends -- right when producers
   are low-rate (per exposure) and pollers high-rate (per frame).

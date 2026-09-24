@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -54,7 +55,10 @@ internal sealed class SerialProbeService : ISerialProbeService
     private readonly IPinnedSerialPortsProvider? _pinnedPortsProvider;
     private readonly ISerialProbe[] _probes;
     private readonly double[] _probePassMultipliers;
-    private readonly ConcurrentDictionary<string, List<SerialProbeMatch>> _results = new(StringComparer.Ordinal);
+    // Per probe name, the matches published so far. Lock-free: a publish replaces the whole array through
+    // AddOrUpdate's retry (the update factory is pure, so a lost race only re-runs it), and a reader gets a
+    // snapshot without a copy, since the array it read can never change under it.
+    private readonly ConcurrentDictionary<string, ImmutableArray<SerialProbeMatch>> _results = new(StringComparer.Ordinal);
 
     // Bound by number of physical USB-serial bridges a hobbyist typically has; higher
     // parallelism has diminishing returns and risks thread-pool starvation when
@@ -90,7 +94,7 @@ internal sealed class SerialProbeService : ISerialProbeService
     }
 
     public IReadOnlyList<SerialProbeMatch> ResultsFor(string probeName)
-        => _results.TryGetValue(probeName, out var list) ? list.ToArray() : [];
+        => _results.TryGetValue(probeName, out var list) ? list : [];
 
     public async ValueTask ProbeAllAsync(CancellationToken cancellationToken)
     {
@@ -186,12 +190,9 @@ internal sealed class SerialProbeService : ISerialProbeService
         var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var list in _results.Values)
         {
-            lock (list)
+            foreach (var m in list)
             {
-                foreach (var m in list)
-                {
-                    matched.Add(m.Port);
-                }
+                matched.Add(m.Port);
             }
         }
         return matched;
@@ -209,16 +210,16 @@ internal sealed class SerialProbeService : ISerialProbeService
         IReadOnlyList<PinnedSerialPort> pinned,
         CancellationToken cancellationToken)
     {
-        var verified = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (pinned.Count == 0 || _probes.Length == 0) return verified;
+        if (pinned.Count == 0 || _probes.Length == 0) return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // Only verify pinned ports that are actually present in this enumeration; 
         // a stale pin (cable unplugged, port number shifted) is nothing to verify.
         var enumeratedSet = new HashSet<string>(enumeratedPorts, StringComparer.OrdinalIgnoreCase);
         var candidates = pinned.Where(p => enumeratedSet.Contains(p.Port)).ToArray();
-        if (candidates.Length == 0) return verified;
+        if (candidates.Length == 0) return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var verifyLock = new object();
+        // Written concurrently by the per-port onMatch callbacks, read once after the pass has finished.
+        var verified = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
         var parallelism = Math.Min(MaxPortParallelism, candidates.Length);
 
         await Parallel.ForEachAsync(
@@ -259,13 +260,13 @@ internal sealed class SerialProbeService : ISerialProbeService
                             return false;
                         }
 
-                        lock (verifyLock) verified.Add(entry.Port);
+                        verified.TryAdd(entry.Port, 0);
                         _logger.LogInformation("Verified pinned device at {Port}: {Uri}", entry.Port, match.DeviceUri);
                         return true;
                     });
             });
 
-        return verified;
+        return new HashSet<string>(verified.Keys, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -590,14 +591,7 @@ internal sealed class SerialProbeService : ISerialProbeService
         _results.AddOrUpdate(
             probeName,
             _ => [match],
-            (_, existing) =>
-            {
-                lock (existing)
-                {
-                    existing.Add(match);
-                }
-                return existing;
-            });
+            (_, existing) => existing.Add(match));
     }
 
     /// <summary>

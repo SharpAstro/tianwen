@@ -74,7 +74,7 @@ public sealed class N2nDenoiser(
     /// </summary>
     public const string ModelFileName = "tianwen_denoise_osc_e2wide_s2.onnx";
 
-    private readonly System.Threading.Lock _gate = new();
+    private readonly System.Threading.Lock _gate = new(); // serializes lazy InferenceSession creation and Dispose; session build is a one-time cold path, not a hot-path hand-off
     private InferenceSession? _session;
     private bool _disposed;
 

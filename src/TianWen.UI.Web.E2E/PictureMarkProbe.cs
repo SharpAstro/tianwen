@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Playwright;
 using Xunit;
 using static Microsoft.Playwright.Assertions;
@@ -41,12 +42,12 @@ public sealed class PictureMarkProbe(TianWenWebFixture fixture, ITestOutputHelpe
         Directory.CreateDirectory(dir);
 
         var page = await fixture.NewPageAsync();
-        var console = new List<string>();
-        page.Console += (_, m) => { lock (console) { console.Add($"[{m.Type}] {m.Text}"); } };
-        page.PageError += (_, e) => { lock (console) { console.Add($"[pageerror] {e}"); } };
+        var console = new ConcurrentQueue<string>();
+        page.Console += (_, m) => console.Enqueue($"[{m.Type}] {m.Text}");
+        page.PageError += (_, e) => console.Enqueue($"[pageerror] {e}");
         // The console's "Failed to load resource" line names no URL; this does, so a failed fetch is identified
         // rather than guessed at.
-        page.Response += (_, r) => { if (r.Status >= 400) { lock (console) { console.Add($"[http {r.Status}] {r.Url}"); } } };
+        page.Response += (_, r) => { if (r.Status >= 400) console.Enqueue($"[http {r.Status}] {r.Url}"); };
 
         await page.GotoAsync(fixture.BaseUrl + "?e2e=1&view=sky&object=M42", new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
         await Expect(page.Locator("[data-view=sky]")).ToBeVisibleAsync(new() { Timeout = BootTimeout });
@@ -71,14 +72,10 @@ public sealed class PictureMarkProbe(TianWenWebFixture fixture, ITestOutputHelpe
         // Baked only by pages.yml's deploy (JPL sends no CORS headers), so a local dev server has neither and the
         // app reads the absence as "no comets". Exempted BY NAME, so any other failed fetch still fails the probe.
         string[] deployOnly = ["/comets-apparitions.json", "/comets-sbdb.json"];
-        string[] errors;
-        lock (console)
-        {
-            errors = [.. console.Where(c => c.StartsWith("[pageerror]", StringComparison.Ordinal)
-                || (c.StartsWith("[http ", StringComparison.Ordinal) && !deployOnly.Any(asset => c.EndsWith(asset, StringComparison.Ordinal)))
-                // The console's own line for a failed fetch carries no URL; the [http] entry above is its identified twin.
-                || (c.StartsWith("[error]", StringComparison.Ordinal) && !c.Contains("Failed to load resource", StringComparison.Ordinal)))];
-        }
+        string[] errors = [.. console.Where(c => c.StartsWith("[pageerror]", StringComparison.Ordinal)
+            || (c.StartsWith("[http ", StringComparison.Ordinal) && !deployOnly.Any(asset => c.EndsWith(asset, StringComparison.Ordinal)))
+            // The console's own line for a failed fetch carries no URL; the [http] entry above is its identified twin.
+            || (c.StartsWith("[error]", StringComparison.Ordinal) && !c.Contains("Failed to load resource", StringComparison.Ordinal)))];
         foreach (var line in errors)
         {
             output.WriteLine("  " + line);

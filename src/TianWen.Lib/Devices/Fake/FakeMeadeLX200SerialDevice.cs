@@ -54,6 +54,9 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     protected readonly StringBuilder _responseBuffer = new StringBuilder();
     private int _responsePointer = 0;
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+    // Guards the mount state machine, the response buffer and the command log against the slew, tracking and pulse-guide timers.
+    // A lock rather than a CAS swap because one command mutates several fields and appends its reply as one
+    // step; a fake serial device, never reached from a render thread.
     protected readonly Lock _lockObj = new Lock();
 
     /// <summary>

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
@@ -228,22 +229,19 @@ public class CometRepositoryTests(ITestOutputHelper output)
     /// <summary>Records what actually reached the log, which is how a skipped catch is observed.</summary>
     private sealed class RecordingLogger : ILogger<CometRepository>
     {
-        private readonly List<Exception?> _entries = [];
+        private readonly ConcurrentQueue<Exception?> _entries = new ConcurrentQueue<Exception?>();
 
         /// <summary>True once an entry carrying a <typeparamref name="T"/> has been logged.</summary>
         public bool Logged<T>() where T : Exception
         {
-            lock (_entries)
+            foreach (var e in _entries)
             {
-                foreach (var e in _entries)
+                if (e is T)
                 {
-                    if (e is T)
-                    {
-                        return true;
-                    }
+                    return true;
                 }
-                return false;
             }
+            return false;
         }
 
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
@@ -253,7 +251,7 @@ public class CometRepositoryTests(ITestOutputHelper output)
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
-            lock (_entries) { _entries.Add(exception); }
+            _entries.Enqueue(exception);
         }
     }
 

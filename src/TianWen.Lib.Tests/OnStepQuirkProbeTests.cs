@@ -148,7 +148,10 @@ public class OnStepQuirkProbeTests(ITestOutputHelper output)
         private readonly Encoding _encoding;
         private readonly Queue<byte> _rxBuffer = new();
         private readonly SemaphoreSlim _sem = new(1, 1);
-        private readonly object _rxLock = new();
+        // Guards _rxBuffer between the scripted reply writer and the probe's reads. A Lock and not a
+        // ConcurrentQueue because DiscardInBuffer must record the drained count and clear in one step,
+        // and a reply must be enqueued whole; test code, never on a render thread.
+        private readonly Lock _rxLock = new();
         private int _gvpWriteCount;
 
         public QuirkyOnStepStubConnection(Encoding encoding)
