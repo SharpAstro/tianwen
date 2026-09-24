@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using Shouldly;
+using TianWen.Hosting.Api;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
@@ -208,6 +209,42 @@ public class FramePathAllocationTests
         }
 
         return new Image([data], BitDepth.Float32, background + amplitude, background - 8f, 0f, Meta(SensorType.RGGB));
+    }
+
+    /// <summary>
+    /// The hosted preview debayers a colour frame on every request, and the guider's is requested per
+    /// guide frame by every remote client, so three fresh planes were 12 bytes a pixel of garbage each
+    /// time. Rented, the planes are not the garbage; the JPEG's input and output still are.
+    /// </summary>
+    [Fact]
+    public async Task AColourPreviewDebayersIntoRentedPlanes()
+    {
+        const int width = 512, height = 384;
+        var image = RggbStarField(width, height);
+        var ct = TestContext.Current.CancellationToken;
+
+        for (var i = 0; i < 3; i++)
+        {
+            await PreviewEncoder.EncodeJpegAsync(image, PreviewEncoder.DefaultQuality, scale: 0.5, ct);
+        }
+
+        // The FEWEST bytes of several calls. ArrayPool keeps a returned buffer in the returning thread's
+        // own slot first, so one call whose Task.Run landed on another thread can miss the RGBA raster's
+        // rent (a 1 MB array here) and read as garbage it is not. A cost every frame pays shows in every
+        // call, so the minimum still carries it.
+        var allocated = long.MaxValue;
+        for (var i = 0; i < 5; i++)
+        {
+            var before = GC.GetTotalAllocatedBytes(precise: true);
+            var jpeg = await PreviewEncoder.EncodeJpegAsync(image, PreviewEncoder.DefaultQuality, scale: 0.5, ct);
+            allocated = Math.Min(allocated, GC.GetTotalAllocatedBytes(precise: true) - before);
+            jpeg.Length.ShouldBeGreaterThan(0);
+        }
+
+        var planes = 3L * width * height * sizeof(float);
+        TestContext.Current.TestOutputHelper?.WriteLine($"{width}x{height} mosaic preview at 0.5: {allocated:N0} bytes, against {planes:N0} of planes");
+        allocated.ShouldBeLessThan(planes / 2,
+            $"the debayer's planes are rented, not allocated: {allocated:N0} bytes against {planes:N0} of planes");
     }
 
     /// <summary>A mono frame of whole ADU across the 16-bit range, as a camera hands it over.</summary>
