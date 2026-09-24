@@ -18,9 +18,12 @@ namespace TianWen.Lib.Devices.Ascom.ComInterop;
 /// The surface mirrors <see cref="DispatchObject"/> exactly, so the <c>[DispatchInterface]</c>
 /// source generator and every hand-written wrapper are transport-agnostic -- they hold an
 /// <see cref="IDispatchTransport"/> field and never know which side of the CET boundary the driver is on.
+/// <para><c>tianwen-ascomhost</c> compiles this file as a linked source with no TianWen.Lib behind it, so
+/// it may use only the BCL and COM interop. The member that reads a frame channel needs TianWen.Lib's
+/// imaging types and lives in <c>IDispatchTransport.Imaging.cs</c>, which only TianWen.Lib compiles.</para>
 /// </summary>
 [SupportedOSPlatform("windows")]
-internal interface IDispatchTransport : IDisposable
+internal partial interface IDispatchTransport : IDisposable
 {
     bool GetBool(string name);
     int GetInt(string name);

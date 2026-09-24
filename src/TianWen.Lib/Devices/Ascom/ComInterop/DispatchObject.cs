@@ -9,9 +9,11 @@ namespace TianWen.Lib.Devices.Ascom.ComInterop;
 /// <summary>
 /// AOT-safe wrapper around a COM IDispatch object.
 /// Uses raw vtable function pointers: no reflection, no dynamic, no Type.InvokeMember.
+/// <para><c>tianwen-ascomhost</c> compiles this file as a linked source with no TianWen.Lib behind it, so
+/// it may use only the BCL and COM interop; the frame-channel read is in <c>DispatchObject.Imaging.cs</c>.</para>
 /// </summary>
 [SupportedOSPlatform("windows")]
-internal sealed unsafe class DispatchObject : IDispatchTransport
+internal sealed unsafe partial class DispatchObject : IDispatchTransport
 {
     private nint _pDispatch;
     private readonly Dictionary<string, int> _dispIdCache = new(StringComparer.OrdinalIgnoreCase);

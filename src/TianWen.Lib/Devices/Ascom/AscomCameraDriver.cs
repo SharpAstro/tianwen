@@ -275,14 +275,16 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     }
 
     // Cached on first read: _camera.ImageArray marshals the ENTIRE frame over COM on every access,
-    // so the download + FromWxHImageData transpose must happen exactly once per exposure. The cache
+    // so the download + its conversion into a float plane must happen exactly once per exposure. The cache
     // restores the "ImageData reads null after GetImageAsync" contract (ReleaseImageData clears it)
     // that the old computed property silently broke, and StartExposureAsync drops a stale frame so
     // the next read re-downloads: mirroring AlpacaCameraDriver.
     private Imaging.Channel? _imageData;
 
     // Recycled frame buffers returned by consumers via ChannelBuffer.onRelease (the DAL pattern);
-    // a shape-mismatched buffer (ROI/bin change) is dropped inside FromWxHImageData, never re-added.
+    // a shape-mismatched buffer (ROI/bin change) is dropped inside ReadImageArray, never re-added.
+    // Over in-proc COM that read widens the SAFEARRAY straight into the buffer, so a recycled frame
+    // allocates nothing (SafeArrayMarshal.ToImageChannel); the JSON-RPC host keeps the int[,] path.
     private readonly ConcurrentBag<float[,]> _freeBuffers = [];
 
     public Imaging.Channel? ImageData
@@ -299,7 +301,7 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
             }
 
             var recycled = _freeBuffers.TryTake(out var buffer) ? buffer : null;
-            if (SafeGet<Imaging.Channel?>(() => Imaging.Channel.FromWxHImageData(_camera.ImageArray, recycled), null) is { } channel)
+            if (SafeGet<Imaging.Channel?>(() => _camera.ReadImageArray(recycled), null) is { } channel)
             {
                 // The ref-counted buffer travels ON the Channel into GetImageAsync's Image.
                 _imageData = channel with { Buffer = new Imaging.ChannelBuffer(channel.Data, onRelease: recycledBuf => _freeBuffers.Add(recycledBuf)) };

@@ -18,9 +18,12 @@ namespace TianWen.Lib.Devices.Ascom.ComInterop;
 /// Takes the raw <c>SAFEARRAY*</c> so it is unit-testable against a hand-built SAFEARRAY with no COM
 /// object in play.
 /// </para>
+/// <para><c>tianwen-ascomhost</c> compiles this file as a linked source with no TianWen.Lib behind it, so
+/// it may use only the BCL and COM interop; the read into a frame channel is in
+/// <c>SafeArrayMarshal.Imaging.cs</c>.</para>
 /// </summary>
 [SupportedOSPlatform("windows")]
-internal static unsafe class SafeArrayMarshal
+internal static unsafe partial class SafeArrayMarshal
 {
     private const ushort VT_BSTR = 8;
 
