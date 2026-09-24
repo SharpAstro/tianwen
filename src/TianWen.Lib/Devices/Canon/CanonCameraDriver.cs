@@ -597,9 +597,12 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
             }
             await _camera.TransferCompleteAsync(handle, ct);
 
-            if (Image.TryReadImageFile(tmpPath, out var image))
+            // Into a recycled plane, the DAL pattern: the ref-counted buffer travels ON the channel into
+            // GetImageAsync's Image, whose release hands the plane back for the next sub. A new plane per sub
+            // was 120 MB on a 30 MP body. (FC.SDK.Raw's own decode buffers are its to recycle.)
+            if (Image.TryReadCanonRaw(tmpPath, _stillPlanes.Take, out var image))
             {
-                _lastImageData = new Channel(image.GetChannelArray(0), Filter.None, image.MinValue, image.MaxValue, 0);
+                _lastImageData = _stillPlanes.Wrap(image.GetChannelArray(0), image.MinValue, image.MaxValue, 0, Filter.None);
 
                 // Update sensor dimensions from actual image if not set from model table
                 if (_cameraXSize <= 0)
@@ -775,6 +778,9 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     /// <param name="CanPan">Magnified AND the body advertises the pan operation. False at 1x, where the crop is
     /// the whole frame and the accepted range collapses to a single point.</param>
     internal sealed record EvfWindow(RoiRect Roi, int SensorWidth, int SensorHeight, bool CanPan);
+
+    // A still sub's active-area plane, handed back by the frame's release (see WaitAndDownloadAsync).
+    private readonly Imaging.PlaneRecycler _stillPlanes = new Imaging.PlaneRecycler(nameof(CanonCameraDriver) + ".Still");
 
     // The Live View frames' planes, handed back by each frame's release (see CaptureVideoAsync).
     private readonly Imaging.PlaneRecycler _evfPlanes = new Imaging.PlaneRecycler(nameof(CanonCameraDriver) + ".LiveView");
