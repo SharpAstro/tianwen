@@ -18,13 +18,23 @@ namespace TianWen.Lib.Tests;
 /// </summary>
 /// <remarks>
 /// Each test warms the call once, which fills the pool and the JIT, and then measures the SECOND call,
-/// the steady state of a night. The threshold is half the frame-sized array the call used to allocate,
+/// the steady state of a night. The pool is emptied before each test (the constructor says why). The threshold is half the frame-sized array the call used to allocate,
 /// so it fails while that array is still allocated and passes on everything else a call legitimately
 /// allocates.
 /// </remarks>
 [Collection("Allocations")]
 public class FramePathAllocationTests
 {
+    // Every test starts from an EMPTY pool, because warming once and measuring the second call needs
+    // the pool to take the warm-up's planes back. The pool trims only above 70 % memory load, so after
+    // thousands of tests on a roomy machine its byte budget can be full of other shapes and refuse those
+    // returns: on 2026-09-24 (#759) three of these failed that way on CI's arm64 leg and two on x64,
+    // and a pool filled to within 64 KiB of its budget failed five of eight here until this ran.
+    public FramePathAllocationTests()
+    {
+        Array2DPool<float>.Clear();
+    }
+
     [Fact]
     public async Task StarDetectionOnAColourFrameAllocatesNoFrameSizedPlane()
     {

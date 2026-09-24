@@ -178,6 +178,21 @@ public static class Array2DPool<T>
     }
 
     /// <summary>
+    /// Drops every pooled array, as a high-pressure <see cref="Trim"/> does. For a test that measures a
+    /// path's OWN allocations: the trim never runs below 70 % memory load, so on a roomy machine (a CI
+    /// runner) the byte budget can be full of arrays earlier work returned, which refuses the warm-up's
+    /// returns and makes the measured call allocate. Safe at any time, since a concurrent renter only
+    /// misses; it is the measurement that needs the pool to itself.
+    /// </summary>
+    internal static void Clear()
+    {
+        foreach (var queue in _buckets.Values)
+        {
+            while (queue.TryDequeue(out var dropped)) { Interlocked.Add(ref _retainedBytes, -BytesOf(dropped.Array)); }
+        }
+    }
+
+    /// <summary>
     /// Trims pooled arrays based on memory pressure. Called from Gen2 GC callback.
     /// High pressure (>90%): clear all pools. Moderate (>70%): trim entries older than 30s.
     /// </summary>
@@ -191,10 +206,7 @@ public static class Array2DPool<T>
         if (pressure > 0.9)
         {
             // High pressure: drop everything
-            foreach (var queue in _buckets.Values)
-            {
-                while (queue.TryDequeue(out var dropped)) { Interlocked.Add(ref _retainedBytes, -BytesOf(dropped.Array)); }
-            }
+            Clear();
         }
         else if (pressure > 0.7)
         {
