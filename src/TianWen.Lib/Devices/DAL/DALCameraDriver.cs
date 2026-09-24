@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -872,39 +873,30 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
         {
             channel = new float[h, w];
         }
-        float maxValue = 0f, minValue = float.MaxValue;
-        switch (exposureSettings.BitDepth.BitSize)
+        // The SDK's buffer is read IN PLACE, as UNSIGNED samples, straight into the (recycled) float[,],
+        // in one pass that also finds the range. It used to be Marshal.Copy'd into a new short[] first:
+        // 52 MB of garbage per 26 MP frame, and SIGNED, so every pixel of 32768 or more became a large
+        // negative float. Invisible on a 12- or 14-bit ZWO or QHY sensor, whose native scale stays below
+        // 32768; every bright star core on a 16-bit converter (IMX571, IMX455) or on Player One's
+        // left-aligned 12-bit data (see RawPixelConversion, DALCameraDownloadTests).
+        var pixels = w * h;
+        var destination = MemoryMarshal.CreateSpan(ref Unsafe.As<byte, float>(ref MemoryMarshal.GetArrayDataReference(channel)), pixels);
+        float minValue, maxValue;
+        unsafe
         {
-            case 8:
-                var bytes = new byte[w * h];
-                Marshal.Copy(nativeBuffer.Pointer, bytes, 0, bytes.Length);
-                for (var i = 0; i < h; i++)
-                {
-                    for (var j = 0; j < w; j++)
-                    {
-                        var @byte = channel[i, j] = bytes[(w * i) + j];
-                        maxValue = MathF.Max(@byte, maxValue);
-                        minValue = MathF.Min(@byte, minValue);
-                    }
-                }
-                break;
+            switch (exposureSettings.BitDepth.BitSize)
+            {
+                case 8:
+                    (minValue, maxValue) = RawPixelConversion.WidenToSingle(new ReadOnlySpan<byte>((void*)nativeBuffer.Pointer, pixels), destination);
+                    break;
 
-            case 16:
-                var shorts = new short[w * h];
-                Marshal.Copy(nativeBuffer.Pointer, shorts, 0, shorts.Length);
-                for (var i = 0; i < h; i++)
-                {
-                    for (var j = 0; j < w; j++)
-                    {
-                        var @short = channel[i, j] = shorts[(w * i) + j];
-                        maxValue = MathF.Max(@short, maxValue);
-                        minValue = MathF.Min(@short, minValue);
-                    }
-                }
-                break;
+                case 16:
+                    (minValue, maxValue) = RawPixelConversion.WidenToSingle(new ReadOnlySpan<ushort>((void*)nativeBuffer.Pointer, pixels), destination);
+                    break;
 
-            default:
-                throw new InvalidOperationException($"Cannot handle bit depth {exposureSettings.BitDepth}");
+                default:
+                    throw new InvalidOperationException($"Cannot handle bit depth {exposureSettings.BitDepth}");
+            }
         }
 
         // Wrap in ChannelBuffer for ref-counted lifecycle; onRelease recycles the float[,];

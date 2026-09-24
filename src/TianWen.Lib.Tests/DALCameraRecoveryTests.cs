@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.DAL;
@@ -192,12 +193,20 @@ public class DALCameraRecoveryTests(ITestOutputHelper output)
         (await camera.GetCameraStateAsync(TestContext.Current.CancellationToken)).ShouldBe(CameraState.Idle);
     }
 
-    private async Task<(TestDalCameraDriver Camera, FakeCmosState State, FakeTimeProviderWrapper Time)> NewConnectedCameraAsync(bool canReset = false)
+    private Task<(TestDalCameraDriver Camera, FakeCmosState State, FakeTimeProviderWrapper Time)> NewConnectedCameraAsync(bool canReset = false)
+        => ScriptedDalCamera.ConnectAsync(output, canReset);
+}
+
+/// <summary>Connects a <see cref="TestDalCameraDriver"/> over a scripted SDK, for every DAL test class.</summary>
+internal static class ScriptedDalCamera
+{
+    internal static async Task<(TestDalCameraDriver Camera, FakeCmosState State, FakeTimeProviderWrapper Time)> ConnectAsync(
+        ITestOutputHelper output, bool canReset = false, IReadOnlyList<PixelDataFormat>? formats = null)
     {
         var time = new FakeTimeProviderWrapper();
         var external = new FakeExternal(output, time);
         var device = new FakeDevice(DeviceType.Camera, 1);
-        var state = new FakeCmosState(device.DeviceId) { CanReset = canReset };
+        var state = new FakeCmosState(device.DeviceId) { CanReset = canReset, Formats = formats ?? [PixelDataFormat.RAW16] };
         var camera = new TestDalCameraDriver(device, external.BuildServiceProvider(), state);
         await camera.ConnectAsync(TestContext.Current.CancellationToken);
         camera.Connected.ShouldBeTrue();
@@ -258,6 +267,15 @@ internal sealed class FakeCmosState(string serial)
 
     public PixelDataFormat Format { get; set; } = PixelDataFormat.RAW16;
 
+    /// <summary>The pixel formats the SDK offers; a second one makes the bit depth settable.</summary>
+    public IReadOnlyList<PixelDataFormat> Formats { get; init; } = [PixelDataFormat.RAW16];
+
+    /// <summary>
+    /// The bytes the SDK hands over on a download, exactly as it lays them out (16-bit pixels
+    /// little-endian). Null leaves the driver's buffer untouched, which is all the recovery tests need.
+    /// </summary>
+    public byte[]? Pixels { get; set; }
+
     public int StartX { get; set; }
 
     public int StartY { get; set; }
@@ -317,7 +335,6 @@ internal sealed class FakeCmosIterator(FakeCmosState state) : INativeDeviceItera
 internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterface
 {
     private static readonly IReadOnlyList<int> Bins = [1, 2, 0];
-    private static readonly IReadOnlyList<PixelDataFormat> Formats = [PixelDataFormat.RAW16];
 
     public int ID => 0;
     public string Name => "Scripted CMOS";
@@ -345,7 +362,7 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
     public double PixelSize => 3.76;
     public BayerPattern BayerPattern => BayerPattern.Monochrome;
     public IReadOnlyList<int> SupportedBins => Bins;
-    public IReadOnlyList<PixelDataFormat> SupportedPixelDataFormats => Formats;
+    public IReadOnlyList<PixelDataFormat> SupportedPixelDataFormats => state.Formats;
     public bool IsTriggerCamera => false;
     public bool HasMechanicalShutter => false;
     public bool HasCooler => true;
@@ -446,5 +463,13 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
         return CMOSErrorCode.Success;
     }
 
-    public CMOSErrorCode GetDataAfterExposure(IntPtr buffer, int bufferSize) => CMOSErrorCode.Success;
+    public CMOSErrorCode GetDataAfterExposure(IntPtr buffer, int bufferSize)
+    {
+        if (state.Pixels is { } pixels)
+        {
+            Marshal.Copy(pixels, 0, buffer, Math.Min(pixels.Length, bufferSize));
+        }
+
+        return CMOSErrorCode.Success;
+    }
 }
