@@ -155,11 +155,11 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         var observation = observations[0];
         var twoSec = TimeSpan.FromSeconds(2);
 
-        var zeroStars = new[] { new FrameMetrics(StarCount: 0, MedianHfd: 0, MedianFwhm: 0, Exposure: twoSec, Gain: 0) };
+        var zeroStars = new[] { new FrameMetrics(StarCount: 0, MedianHfd: 0, MedianFwhm: 0, Exposure: twoSec, Gain: 0, FilterPosition: -1) };
         var obstruction = await ctx.Session.ClassifyFirstScoutAgainstZenithAsync(observation, zeroStars, twoSec, ct);
         obstruction.ShouldBe(ScoutClassification.Obstruction);
 
-        var manyStars = new[] { new FrameMetrics(StarCount: 100_000, MedianHfd: 2.5f, MedianFwhm: 3.0f, Exposure: twoSec, Gain: 0) };
+        var manyStars = new[] { new FrameMetrics(StarCount: 100_000, MedianHfd: 2.5f, MedianFwhm: 3.0f, Exposure: twoSec, Gain: 0, FilterPosition: -1) };
         var healthy = await ctx.Session.ClassifyFirstScoutAgainstZenithAsync(observation, manyStars, twoSec, ct);
         healthy.ShouldBe(ScoutClassification.Healthy);
     }
@@ -207,7 +207,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         ctx.Session.SetBaselineForObservationForTest(0,
         [
             new FrameMetrics(StarCount: 30, MedianHfd: 2.5f, MedianFwhm: 3.0f,
-                Exposure: TimeSpan.FromSeconds(2), Gain: 0)
+                Exposure: TimeSpan.FromSeconds(2), Gain: 0, FilterPosition: -1)
         ]);
 
         // Move to index 1: scout will compare against baseline at index 0
@@ -243,7 +243,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         ctx.Session.SetBaselineForObservationForTest(0,
         [
             new FrameMetrics(StarCount: 50, MedianHfd: 2.5f, MedianFwhm: 3.0f,
-                Exposure: TimeSpan.FromSeconds(2), Gain: 0)
+                Exposure: TimeSpan.FromSeconds(2), Gain: 0, FilterPosition: -1)
         ]);
 
         ctx.Session.AdvanceObservationForTest();
@@ -282,12 +282,12 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         var scout = new[]
         {
             new FrameMetrics(StarCount: 0, MedianHfd: 0, MedianFwhm: 0,
-                Exposure: TimeSpan.FromSeconds(2), Gain: 0),
+                Exposure: TimeSpan.FromSeconds(2), Gain: 0, FilterPosition: -1),
         };
         var baseline = new[]
         {
             new FrameMetrics(StarCount: 100, MedianHfd: 2.5f, MedianFwhm: 3.0f,
-                Exposure: TimeSpan.FromSeconds(2), Gain: 0),
+                Exposure: TimeSpan.FromSeconds(2), Gain: 0, FilterPosition: -1),
         };
 
         var (classification, ratio) = ctx.Session.ClassifyAgainstBaseline(scout, baseline);
@@ -310,7 +310,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         var baseline = new[]
         {
             new FrameMetrics(StarCount: 100, MedianHfd: 2.5f, MedianFwhm: 3.0f,
-                Exposure: TimeSpan.FromSeconds(2), Gain: 0),
+                Exposure: TimeSpan.FromSeconds(2), Gain: 0, FilterPosition: -1),
         };
 
         var (classification, _) = ctx.Session.ClassifyAgainstBaseline(scout, baseline);
@@ -335,7 +335,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         ctx.Session.SetBaselineForObservationForTest(0,
         [
             new FrameMetrics(StarCount: 30, MedianHfd: 2.5f, MedianFwhm: 3.0f,
-                Exposure: TimeSpan.FromSeconds(2), Gain: 0),
+                Exposure: TimeSpan.FromSeconds(2), Gain: 0, FilterPosition: -1),
         ]);
 
         ctx.Session.AdvanceObservationForTest();
@@ -376,7 +376,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         ctx.Session.SetBaselineForObservationForTest(0,
         [
             new FrameMetrics(StarCount: 30, MedianHfd: 2.5f, MedianFwhm: 3.0f,
-                Exposure: TimeSpan.FromSeconds(2), Gain: 0),
+                Exposure: TimeSpan.FromSeconds(2), Gain: 0, FilterPosition: -1),
         ]);
         ctx.Session.AdvanceObservationForTest();
         ctx.Session.AdvanceObservationForTest();
@@ -422,7 +422,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         ctx.Session.SetBaselineForObservationForTest(0,
         [
             new FrameMetrics(StarCount: 50, MedianHfd: 2.5f, MedianFwhm: 3.0f,
-                Exposure: TimeSpan.FromSeconds(2), Gain: 0),
+                Exposure: TimeSpan.FromSeconds(2), Gain: 0, FilterPosition: -1),
         ]);
         ctx.Session.AdvanceObservationForTest();
         ctx.Session.AdvanceObservationForTest();

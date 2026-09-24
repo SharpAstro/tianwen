@@ -347,6 +347,9 @@ internal partial record Session
         var isGermanEquatorial =
             await CatchAsync(mount.Driver.GetAlignmentAsync, cancellationToken, AlignmentMode.GermanPolar) == AlignmentMode.GermanPolar;
         var currentSubExposuresSec = new int[scopes];
+        // The wheel slot each OTA's current frame is exposing through, read once the ladder's switch
+        // has landed, so the frame's FrameMetrics names the filter it was actually taken through.
+        var frameFilterPositions = new int[scopes];
 
         for (var i = 0; i < scopes; i++)
         {
@@ -566,6 +569,8 @@ internal partial record Session
                         logger: _logger,
                         ct: cancellationToken).ConfigureAwait(false);
 
+                    frameFilterPositions[i] = await GetCurrentFilterPositionAsync(i, cancellationToken);
+
                     var subExposureSec = (int)Math.Ceiling(currentEntry.SubExposure.TotalSeconds);
                     currentSubExposuresSec[i] = subExposureSec;
                     var frameExpTime = TimeSpan.FromSeconds(subExposureSec);
@@ -672,7 +677,7 @@ internal partial record Session
 
                                 var stars = await image.FindStarsAsync(image.ReferenceStarChannel, snrMin: 10, maxStars: 1000, cancellationToken: cancellationToken);
                                 var currentGain = await camDriver.GetGainAsync(cancellationToken);
-                                metrics = FrameMetrics.FromStarList(stars, frameExpTime, currentGain, image.Width, image.Height);
+                                metrics = FrameMetrics.FromStarList(stars, frameExpTime, currentGain, frameFilterPositions[i], image.Width, image.Height);
                                 _lastFrameMetrics[i] = metrics;
                                 _frameMetricsHistory[i].Add(metrics);
                             }
@@ -1131,6 +1136,19 @@ internal partial record Session
 
         return cursor;
     }
+
+    /// <summary>
+    /// The wheel slot the OTA's light path goes through right now, recorded on its <see cref="FrameMetrics"/>
+    /// so focus drift only compares frames taken through the same filter (chromatic focus shift).
+    /// -1 when the OTA has no connected wheel or the wheel cannot say (moving, or the read failed);
+    /// an unknown slot only ever matches another unknown one, so it can never fake a comparison.
+    /// </summary>
+    private ValueTask<int> GetCurrentFilterPositionAsync(int telescopeIndex, CancellationToken cancellationToken)
+        => Setup.Telescopes[telescopeIndex].FilterWheel?.Driver is { Connected: true } filterWheelDriver
+            ? CatchAsync(
+                ct => ResilientInvokeAsync(filterWheelDriver, filterWheelDriver.GetPositionAsync, ResilientCallOptions.IdempotentRead, ct),
+                cancellationToken, -1)
+            : ValueTask.FromResult(-1);
 
     /// <summary>
     /// Switches the filter wheel to the target position if it's not already there.
@@ -1596,7 +1614,8 @@ internal partial record Session
             var imgH = image.Height;
             image.Release();
             var currentGain = await ResilientInvokeAsync(camera, camera.GetGainAsync, ResilientCallOptions.IdempotentRead, cancellationToken);
-            var metrics = FrameMetrics.FromStarList(stars, testExposure, currentGain, imgW, imgH);
+            var filterPosition = await GetCurrentFilterPositionAsync(telescopeIndex, cancellationToken);
+            var metrics = FrameMetrics.FromStarList(stars, testExposure, currentGain, filterPosition, imgW, imgH);
 
             if (!metrics.IsValid)
             {

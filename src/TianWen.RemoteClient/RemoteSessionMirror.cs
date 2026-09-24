@@ -866,11 +866,12 @@ namespace TianWen.RemoteClient
                 var metrics = new FrameMetrics[cameras.Length];
                 for (var i = 0; i < cameras.Length; i++)
                 {
-                    // Exposure + gain are not carried per-frame in the state DTO; the countdown reads
-                    // CameraStates.SubExposure instead, and the drift detector is a node-side concern.
+                    // Exposure, gain and filter slot are not carried per-frame in the state DTO; the
+                    // countdown reads CameraStates.SubExposure instead, and the drift detector is a
+                    // node-side concern.
                     metrics[i] = new FrameMetrics(
                         cameras[i].StarCount, cameras[i].MedianHfd, cameras[i].MedianFwhm,
-                        TimeSpan.Zero, Gain: 0);
+                        TimeSpan.Zero, Gain: 0, FilterPosition: -1);
                 }
                 return metrics;
             }

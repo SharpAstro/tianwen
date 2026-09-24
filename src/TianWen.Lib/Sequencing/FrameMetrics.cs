@@ -7,19 +7,27 @@ namespace TianWen.Lib.Sequencing;
 /// <summary>
 /// Aggregated metrics from a single frame's star detection, used as baseline for focus drift
 /// and environmental anomaly detection. Lighter weight than keeping a full <see cref="StarList"/>.
-/// Includes exposure and gain context because star metrics are not comparable across different
-/// acquisition settings (e.g., short high-gain auto-focus exposures vs. longer imaging exposures).
+/// Includes exposure, gain and filter context because star metrics are not comparable across different
+/// acquisition settings (e.g., short high-gain auto-focus exposures vs. longer imaging exposures, or the
+/// chromatic focus shift between two filters at equal exposure).
 /// Already keyed per-telescope since each OTA has different optics and thus different HFD/FWHM.
 /// </summary>
-public readonly record struct FrameMetrics(int StarCount, float MedianHfd, float MedianFwhm, TimeSpan Exposure, short Gain)
+/// <param name="FilterPosition">
+/// The filter wheel slot the frame was taken through, -1 when the OTA has no wheel or the slot is unknown.
+/// Deliberately required with no default: a metrics instance that forgot its filter would never compare
+/// equal to one that stated it, which would silently switch focus-drift detection off.
+/// </param>
+public readonly record struct FrameMetrics(int StarCount, float MedianHfd, float MedianFwhm, TimeSpan Exposure, short Gain, int FilterPosition)
 {
     public readonly bool IsValid => StarCount > 3 && MedianHfd > 0 && !float.IsNaN(MedianHfd);
 
     /// <summary>
-    /// Whether this metrics instance was captured with the same acquisition settings as <paramref name="other"/>,
-    /// meaning their star metrics (HFD, FWHM, star count) are directly comparable.
+    /// Whether this metrics instance was captured with the same acquisition settings as <paramref name="other"/>
+    /// (equal exposure, gain AND filter position), meaning their star metrics (HFD, FWHM, star count) are
+    /// directly comparable.
     /// </summary>
-    public readonly bool IsComparableTo(in FrameMetrics other) => Exposure == other.Exposure && Gain == other.Gain;
+    public readonly bool IsComparableTo(in FrameMetrics other)
+        => Exposure == other.Exposure && Gain == other.Gain && FilterPosition == other.FilterPosition;
 
     /// <summary>
     /// Border margin fraction (0.1 = 10% border on each side = 80% central region).
@@ -28,7 +36,7 @@ public readonly record struct FrameMetrics(int StarCount, float MedianHfd, float
     /// </summary>
     public const float BorderMargin = 0.1f;
 
-    public static FrameMetrics FromStarList(StarList stars, TimeSpan exposure, short gain, int imageWidth = 0, int imageHeight = 0)
+    public static FrameMetrics FromStarList(StarList stars, TimeSpan exposure, short gain, int filterPosition, int imageWidth = 0, int imageHeight = 0)
     {
         if (stars.Count == 0)
         {
@@ -58,7 +66,8 @@ public readonly record struct FrameMetrics(int StarCount, float MedianHfd, float
             stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median),
             stars.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median),
             exposure,
-            gain
+            gain,
+            filterPosition
         );
     }
 }

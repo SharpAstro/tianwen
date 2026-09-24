@@ -231,7 +231,7 @@ public record struct SessionConfiguration(
     /// </summary>
     int FocusDriftSampleSize = 30,
     /// <summary>
-    /// Minimum number of baseline-comparable samples (same exposure + gain, enough stars) in the
+    /// Minimum number of baseline-comparable samples (same exposure, gain and filter, enough stars) in the
     /// history window before the trend fit is trusted; below this the drift check falls back to
     /// the newest frame's raw HFD (the pre-trend single-frame behaviour). Default 5.
     /// </summary>

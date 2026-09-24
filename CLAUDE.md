@@ -860,7 +860,9 @@ no astro-dark. Pinned by a no-dark German-solstice test in `SessionLifecycleTest
 **Focus-drift refocus trigger (trend, not single-frame):** the imaging loop compares
 `FocusDriftDetector.EstimateTrendHfd` -- a least-squares fit of median HFD over the last
 `SessionConfiguration.FocusDriftSampleSize` frames (default 30; only samples comparable to the
-baseline participate -- same exposure + gain, enough stars -- and below `FocusDriftMinSamples` of them
+baseline participate -- same exposure, gain AND filter position (`FrameMetrics.IsComparableTo`, so a
+filter ladder never compares one filter's chromatic focus shift against another's baseline), enough
+stars -- and below `FocusDriftMinSamples` of them
 it falls back to the newest frame's raw HFD) -- against the per-target baseline at
 `FocusDriftThreshold` (the NINA `AutofocusAfterHFRIncreaseTrigger` analogue), so one bloated frame
 (wind gust, passing haze) cannot trigger a spurious refocus. Two invariants: **the LSQ divisor is the

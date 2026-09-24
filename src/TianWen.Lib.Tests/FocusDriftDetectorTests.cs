@@ -13,9 +13,12 @@ public class FocusDriftDetectorTests
 {
     private const float ImagingExposureSeconds = 30f;
     private const short ImagingGain = 100;
+    // The wheel slot the baseline was focused through (the luminance filter on a typical LRGB wheel).
+    private const int BaselineFilter = 0;
+    private const int OtherFilter = 3;
 
-    private static FrameMetrics Metrics(float hfd, int stars = 100, float exposureSeconds = ImagingExposureSeconds, short gain = ImagingGain)
-        => new FrameMetrics(stars, hfd, hfd * 1.2f, TimeSpan.FromSeconds(exposureSeconds), gain);
+    private static FrameMetrics Metrics(float hfd, int stars = 100, float exposureSeconds = ImagingExposureSeconds, short gain = ImagingGain, int filterPosition = BaselineFilter)
+        => new FrameMetrics(stars, hfd, hfd * 1.2f, TimeSpan.FromSeconds(exposureSeconds), gain, filterPosition);
 
     private static readonly FrameMetrics Baseline = Metrics(2.0f);
 
@@ -74,6 +77,26 @@ public class FocusDriftDetectorTests
         var trend = FocusDriftDetector.EstimateTrendHfd(history, Baseline, fallbackHfd: 0f, minSamples: 5);
 
         trend.ShouldBe(2.0f, 1e-3f);
+    }
+
+    [Fact]
+    public void A_filter_ladder_at_equal_exposure_fits_only_the_baseline_filter()
+    {
+        // A ladder alternating two filters at the SAME exposure and gain. The other filter sits at a
+        // higher HFD purely from chromatic focus shift, and grows over the window, so if it reached the
+        // fit it would both lift the level and tilt the slope into a false drift trigger.
+        var history = new FrameMetrics[12];
+        for (var k = 0; k < 12; k++)
+        {
+            history[k] = k % 2 == 0
+                ? Metrics(2.0f)
+                : Metrics(2.6f + 0.05f * k, filterPosition: OtherFilter);
+        }
+
+        var trend = FocusDriftDetector.EstimateTrendHfd(history, Baseline, fallbackHfd: 0f, minSamples: 5);
+
+        trend.ShouldBe(2.0f, 1e-3f);
+        (trend / Baseline.MedianHfd).ShouldBeLessThan(1.07f);
     }
 
     [Fact]

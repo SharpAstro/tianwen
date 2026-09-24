@@ -721,7 +721,7 @@ public class RemoteSessionMirrorTests
         session.CameraStates.Returns(
             [new CameraExposureState(0, new DateTimeOffset(2026, 7, 26, 20, 0, 0, TimeSpan.Zero),
                 TimeSpan.FromSeconds(120), 7, "L", 980, CameraState.Exposing, 15.0, false)]);
-        session.LastFrameMetrics.Returns([new FrameMetrics(412, 3.1f, 2.4f, TimeSpan.FromSeconds(120), 100)]);
+        session.LastFrameMetrics.Returns([new FrameMetrics(412, 3.1f, 2.4f, TimeSpan.FromSeconds(120), 100, FilterPosition: -1)]);
         session.Observations.Returns(new ScheduledObservationTree(
             [new ScheduledObservation(new Target(5.588, -5.39, "M42", null),
                 new DateTimeOffset(2026, 7, 26, 19, 45, 0, TimeSpan.Zero), TimeSpan.FromHours(1),
