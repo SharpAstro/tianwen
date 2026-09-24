@@ -276,11 +276,11 @@ public sealed class PlanetaryCaptureController(
                     stream = rebuilt;
                 }
 
-                // A Bayer source is split into its four CFA sub-planes here (the ring stores half-res planes,
-                // exactly as SerFrameStream does on load); mono / RGB push through unchanged. The stream is sized
-                // to this frame above, so the dimensions always match.
-                var toPush = stream.Layout == PlanetaryFrameLayout.SplitCfa ? frame.SplitBayerChannels() : frame;
-                stream.Push(toPush, timeProvider.GetUtcNow());
+                // A Bayer source is pushed WHOLE: the ring splits it into its four CFA sub-planes itself (it
+                // stores half-res planes, exactly as SerFrameStream does on load), straight into recycled
+                // planes, where a SplitBayerChannels here allocated four new ones per frame. Mono / RGB push
+                // through unchanged. The stream is sized to this frame above, so the dimensions always match.
+                stream.Push(frame, timeProvider.GetUtcNow());
                 var received = Interlocked.Increment(ref _framesReceived);
 
                 // COM recenter (Phase C): measure the disk on the just-captured frame (still alive here, before
@@ -299,13 +299,8 @@ public sealed class PlanetaryCaptureController(
                         received, stream.FrameCount, MeasuredFps, DroppedFrames);
                 }
 
-                // The split is a transient (the ring deep-copied it); release it separately from the
-                // camera frame. Gated on the SAME layout test that produced it one branch above, not
-                // on a reference comparison -- P1 of docs/plans/frame-lifecycle.md.
-                if (stream.Layout == PlanetaryFrameLayout.SplitCfa)
-                {
-                    toPush.Release();
-                }
+                // The ring deep-copied the frame (and split it, for a Bayer source), so the camera's buffer
+                // goes back now.
                 frame.Release();
                 state.NeedsRedraw = true;
 

@@ -74,6 +74,9 @@ public class GlobalAlignTests
 
         TestContext.Current.TestOutputHelper?.WriteLine($"GlobalAligner.Estimate at a 256 px tile: {allocated} bytes");
         again.ShouldBe(first, "the reused scratch carries nothing from one frame into the next");
-        allocated.ShouldBeLessThan(16 * 1024, "the tile alone is 256 KB and the spectrum 1 MB");
+        // 0 bytes when run alone. The bound leaves room for one refill of the SHARED ArrayPool, which
+        // CenterOfMass rents its luma from and which trims itself on every gen2 collection: under a parallel
+        // suite the rent can miss and allocate its 16 KB. That is a pool refill, not per-frame garbage.
+        allocated.ShouldBeLessThan(64 * 1024, "the tile alone is 256 KB and the spectrum 1 MB");
     }
 }

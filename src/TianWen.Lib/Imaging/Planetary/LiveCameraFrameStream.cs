@@ -108,20 +108,28 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
     /// <summary>
     /// Pushes a freshly-captured frame onto the stream (capture-loop thread). The frame is deep-copied into
     /// a ring-owned image, so the caller may immediately <see cref="Image.Release"/> / reuse
-    /// <paramref name="frame"/>. The frame must match the stream's plane dimensions.
+    /// <paramref name="frame"/>. The frame must match the stream's plane dimensions -- or, for a
+    /// <see cref="PlanetaryFrameLayout.SplitCfa"/> stream, be the single-channel Bayer mosaic those planes
+    /// are half of, which the ring splits straight into its own planes (the same samples and labels
+    /// <see cref="Image.SplitBayerChannels"/> then a push would give, without the four planes in between).
     /// </summary>
     public void Push(Image frame, DateTimeOffset? timestamp = null)
     {
         ArgumentNullException.ThrowIfNull(frame);
-        if (frame.Width != Width || frame.Height != Height)
+        var isWholeMosaic = Layout == PlanetaryFrameLayout.SplitCfa && frame.IsCfaMosaic;
+        var (planeWidth, planeHeight) = isWholeMosaic ? (frame.Width / 2, frame.Height / 2) : (frame.Width, frame.Height);
+        if (planeWidth != Width || planeHeight != Height)
         {
             throw new ArgumentException(
-                $"Pushed frame is {frame.Width}x{frame.Height} but the stream expects {Width}x{Height}.", nameof(frame));
+                isWholeMosaic
+                    ? $"Pushed mosaic is {frame.Width}x{frame.Height}, which splits into {planeWidth}x{planeHeight} planes, but the stream expects {Width}x{Height}."
+                    : $"Pushed frame is {frame.Width}x{frame.Height} but the stream expects {Width}x{Height}.",
+                nameof(frame));
         }
 
         // Deep-copy OUTSIDE the lock: the camera recycles its buffer for the next frame, so the ring must
         // own independent arrays. They come from the free list, so steady-state pushing allocates no plane.
-        var copy = CopyIntoRingPlanes(frame);
+        var copy = isWholeMosaic ? SplitIntoRingPlanes(frame) : CopyIntoRingPlanes(frame);
 
         Image? evicted = null;
         var disposed = false;
@@ -244,6 +252,7 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
         // The scale-at-all gate stays keyed on the frame's ACTUAL pixel range (MaxValue > 1), not the
         // metadata: an already-[0,1] source (SER, or a frame normalised upstream that still carries a
         // stale ADU-domain SensorFullScaleAdu) must pass through unscaled rather than be divided again.
+        // SplitIntoRingPlanes takes the same scale the same way.
         var scale = src.HasUnitScalePeak ? 1f : 1f / src.UnitScaleDivisor;
         for (var c = 0; c < channels; c++)
         {
@@ -271,28 +280,85 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
         // peak itself (an unsaturated frame normalised by its sensor's full-scale stays below 1.0,
         // correctly reflecting how exposed it actually was).
         var bitDepth = scale == 1f ? src.BitDepth : BitDepth.Float32;
-        var maxValue = src.MaxValue * scale;
-        var minValue = src.MinValue * scale;
-        // Keep SensorFullScaleAdu in the same units as the (rescaled) pixels -- after a
-        // divide-by-full-scale it reads 1.0. Single implementation: ImageMeta.Rescale.
-        var meta = src.ImageMeta.Rescale(scale);
-
-        // Each plane travels with its ChannelBuffer, whose creator reference the ring's image takes over;
-        // the image-wide min and max on every channel, as the raw-array constructor used to set them.
-        var channelsWithBuffers = ImmutableArray.CreateBuilder<Channel>(channels);
-        for (var c = 0; c < channels; c++)
-        {
-            channelsWithBuffers.Add(new Channel(dst[c], default, minValue, maxValue, (byte)c)
-            {
-                Buffer = new ChannelBuffer(dst[c], _returnPlane),
-            });
-        }
-
         // A scale other than 1 divided by full scale, so the result is unit-referred by construction;
         // at scale 1 nothing moved, so whatever the source said still holds. Forwarded because
         // bitDepth above may keep an INTEGER container width, which on its own no longer implies ADU.
-        return new Image(channelsWithBuffers.MoveToImmutable(), bitDepth, src.Pedestal * scale, meta,
-            samplesAreUnitReferred: scale != 1f || src.SamplesAreUnitReferred);
+        return WrapRingPlanes(dst, bitDepth, src, scale, samplesAreUnitReferred: scale != 1f || src.SamplesAreUnitReferred);
+    }
+
+    /// <summary>
+    /// Splits a single-channel Bayer mosaic into four half-size CFA planes <c>[R, G1, G2, B]</c> taken from
+    /// the free list, normalising in the same pass: the fusion of <see cref="Image.SplitBayerChannels"/> and
+    /// <see cref="CopyIntoRingPlanes"/>, and bit for bit what those two steps produced. The scale is the
+    /// same because it reads only the frame's peak and metadata, which the split carried across unchanged;
+    /// the labels are the split image's (a <c>Float32</c> container that never claimed unit reference).
+    /// It spares the four planes the split allocated per frame, 74 to 246 MB/s at video rate.
+    /// </summary>
+    private Image SplitIntoRingPlanes(Image mosaic)
+    {
+        var scale = mosaic.HasUnitScalePeak ? 1f : 1f / mosaic.UnitScaleDivisor;
+        var ox = mosaic.ImageMeta.BayerOffsetX & 1;
+        var oy = mosaic.ImageMeta.BayerOffsetY & 1;
+        var dst = new float[4][,];
+        for (var c = 0; c < 4; c++)
+        {
+            dst[c] = RentPlane();
+        }
+
+        // SplitBayerChannels' own traversal: red sits where (x - offsetX) and (y - offsetY) are both even,
+        // G1 shares red's row and G2 blue's. Every sample of every recycled plane is written.
+        var src = mosaic.GetChannelArray(0);
+        var width = mosaic.Width;
+        float[,] r = dst[0], g1 = dst[1], g2 = dst[2], b = dst[3];
+        for (var sy = 0; sy < Height; sy++)
+        {
+            var yR = (sy * 2) + oy;
+            var yB = (sy * 2) + (1 - oy);
+            var srcR = MemoryMarshal.CreateReadOnlySpan(ref src[yR, 0], width);
+            var srcB = MemoryMarshal.CreateReadOnlySpan(ref src[yB, 0], width);
+            var rRow = MemoryMarshal.CreateSpan(ref r[sy, 0], Width);
+            var g1Row = MemoryMarshal.CreateSpan(ref g1[sy, 0], Width);
+            var g2Row = MemoryMarshal.CreateSpan(ref g2[sy, 0], Width);
+            var bRow = MemoryMarshal.CreateSpan(ref b[sy, 0], Width);
+            for (var sx = 0; sx < Width; sx++)
+            {
+                var xR = (sx * 2) + ox;
+                var xB = (sx * 2) + (1 - ox);
+                // A multiply by 1 is exact, so an already-unit frame keeps its samples bit for bit.
+                rRow[sx] = srcR[xR] * scale;
+                g1Row[sx] = srcR[xB] * scale;
+                g2Row[sx] = srcB[xR] * scale;
+                bRow[sx] = srcB[xB] * scale;
+            }
+        }
+
+        return WrapRingPlanes(dst, BitDepth.Float32, mosaic, scale, samplesAreUnitReferred: scale != 1f);
+    }
+
+    // The ring image over freshly written planes: each travels with a ChannelBuffer whose creator reference
+    // the image takes over, and carries the image-wide min and max, as the raw-array constructor set them.
+    private Image WrapRingPlanes(float[][,] planes, BitDepth bitDepth, Image source, float scale, bool samplesAreUnitReferred)
+    {
+        // After scaling, the data is fractional [0,1] floats regardless of the source bit depth. The
+        // resulting max is the observed peak scaled down by the SAME factor applied to the pixels --
+        // NOT necessarily 1.0 now that the divisor can be the fixed full-scale rather than the observed
+        // peak itself (an unsaturated frame normalised by its sensor's full-scale stays below 1.0,
+        // correctly reflecting how exposed it actually was).
+        var maxValue = source.MaxValue * scale;
+        var minValue = source.MinValue * scale;
+        var channels = ImmutableArray.CreateBuilder<Channel>(planes.Length);
+        for (var c = 0; c < planes.Length; c++)
+        {
+            channels.Add(new Channel(planes[c], default, minValue, maxValue, (byte)c)
+            {
+                Buffer = new ChannelBuffer(planes[c], _returnPlane),
+            });
+        }
+
+        // Keep SensorFullScaleAdu in the same units as the (rescaled) pixels -- after a
+        // divide-by-full-scale it reads 1.0. Single implementation: ImageMeta.Rescale.
+        return new Image(channels.MoveToImmutable(), bitDepth, source.Pedestal * scale, source.ImageMeta.Rescale(scale),
+            samplesAreUnitReferred);
     }
 
     /// <inheritdoc/>
