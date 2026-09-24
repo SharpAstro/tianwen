@@ -9,7 +9,7 @@ What it does NOT do is free space. Unlinking one of several hard links returns n
 is released only when the final link goes, which this rule forbids. The win is walk cost and
 duplicate ingestion, which is what was asked for.
 
-This script only reports. Deletion is a separate, reviewed step the user runs.
+This script only reports. Deletion is a separate, reviewed step the user runs: `prune_apply.py`.
 """
 import csv
 import os

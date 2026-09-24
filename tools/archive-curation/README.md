@@ -8,7 +8,9 @@ logic is meant to move into `tianwen dataset` verbs over time (task #40); `datas
 `tag-frame-type` and `relabel-frame-type` are the parts that already have.
 
 **Every script is READ-ONLY on the archive** except `organizeM.py`, `targetview.py` and `finishM.py`,
-which are dry runs unless given `--apply` and write only under `D:/Astro-Organized`. Roots and
+which are dry runs unless given `--apply` and write only under `D:/Astro-Organized`, and
+`prune_apply.py`, a dry run unless given `--apply`, the one script that DELETES (a directory entry
+outside Astro-Organized, only while its Organized twin is the same inode and `st_nlink > 1`). Roots and
 cache paths are constants at the top of each file (`D:/Astro-Reports/digests.jsonl`, the archive
 roots, caches under `C:/temp/e2`), so edit those rather than expecting arguments. The group-named
 scripts are the reference for the next session of the same kind: copy, change the constants, keep
@@ -30,6 +32,7 @@ Release CLI at its build path (the `TIANWEN` constant), so build `src/TianWen.Cl
 | `find_m83.py` | find a target by its `OBJECT` header, one header per directory (the template for any "where is X") |
 | `astro-archive-folder-vs-object.py` | how far the Organized folder names disagree with `OBJECT`, read off a bake's scan summary |
 | `twins_from_ledger.py`, `prune_audit.py` | where a hard link's twin lives, and what a "drop a path only while `st_nlink > 1`" prune would do. Audits; neither deletes |
+| `prune_apply.py [--apply] [--limit N]` | that prune, #732. Stricter than the audit: the surviving name must be the row's Organized copy (`samefile`), not just any other link, all re-checked the instant before each unlink, each removal journalled to `_provenance/prune-journal-<utc>.csv`. Frees next to no bytes |
 | `ctemp_redundancy.py` | how much of `C:/temp/astro` is already on D: by content |
 | `astro-archive-dedup.py`, `astro-archive-hardlink.py`, `astro-archive-organize.py` | the 2026-08 BobbyBox-Temp reconciliation (Step 0 of `docs/plans/ai-denoise-deconv.md`): header index, hard-link dedup, organizer |
 
