@@ -12,14 +12,17 @@ public sealed class HistogramDisplay
     /// <summary>Number of bins in the display histogram.</summary>
     public const int BinCount = 512;
 
-    private readonly float[,] _rawBins;
+    // Grow-only: a row holds at least RawBinCount bins, and only the first RawBinCount of it are in use.
+    // A raw frame's bin count is its peak plus one, which moves on almost every exposure, so a buffer
+    // sized exactly to each frame was a new 256 KB a channel per exposure (see Refresh).
+    private float[,] _rawBins;
     private readonly float[,] _displayBins;
 
     /// <summary>Number of channels.</summary>
     public int ChannelCount { get; }
 
     /// <summary>Number of full-resolution bins per channel.</summary>
-    public int RawBinCount { get; }
+    public int RawBinCount { get; private set; }
 
     /// <summary>Peak of log(1 + binCount) across all display bins and channels.</summary>
     public float LogPeak { get; private set; }
@@ -37,13 +40,55 @@ public sealed class HistogramDisplay
         RawBinCount = ChannelCount > 0 ? channelStatistics[0].Histogram.Length : 0;
         _rawBins = new float[ChannelCount, RawBinCount];
         _displayBins = new float[ChannelCount, BinCount];
+        CopyRawBins(channelStatistics);
+    }
 
+    /// <summary>
+    /// Takes the raw bins of new statistics with the same channel count, IN PLACE: the bin count may
+    /// change (a raw frame's is its peak plus one), and the buffer grows only when a frame needs more
+    /// bins than any before it. Call <see cref="Recompute"/> afterwards to regenerate the display bins.
+    /// </summary>
+    /// <remarks>
+    /// For a live feed, whose statistics are new on every exposure. Rebuilding the display per exposure
+    /// instead cost a raw buffer the size of the frame's histogram each time, 256 KB a channel for a
+    /// 16-bit sensor, because the bin count moved with the peak and so never matched the last one.
+    /// </remarks>
+    /// <exception cref="ArgumentException">The statistics have a different channel count; build a new
+    /// display for those.</exception>
+    public void Refresh(ImageHistogram[] channelStatistics)
+    {
+        var channels = Math.Min(channelStatistics.Length, 3);
+        if (channels != ChannelCount)
+        {
+            throw new ArgumentException($"A display of {ChannelCount} channels cannot take {channels}; build a new one.", nameof(channelStatistics));
+        }
+
+        RawBinCount = channels > 0 ? channelStatistics[0].Histogram.Length : 0;
+        if (RawBinCount > _rawBins.GetLength(1))
+        {
+            _rawBins = new float[ChannelCount, RawBinCount];
+        }
+
+        CopyRawBins(channelStatistics);
+    }
+
+    // Row c's first RawBinCount entries from channel c's histogram; what lies past them is never read.
+    // A channel shorter than channel 0 (which sets the count) reads as empty past its end, never as the
+    // previous exposure's counts.
+    private void CopyRawBins(ImageHistogram[] channelStatistics)
+    {
         for (var c = 0; c < ChannelCount; c++)
         {
             var hist = channelStatistics[c].Histogram;
-            for (var i = 0; i < hist.Length; i++)
+            var count = Math.Min(hist.Length, RawBinCount);
+            var i = 0;
+            for (; i < count; i++)
             {
                 _rawBins[c, i] = hist[i];
+            }
+            for (; i < RawBinCount; i++)
+            {
+                _rawBins[c, i] = 0f;
             }
         }
     }

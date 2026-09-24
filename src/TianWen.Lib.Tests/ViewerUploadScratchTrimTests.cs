@@ -104,6 +104,39 @@ public class ViewerUploadScratchTrimTests
         viewer.TrimCalls.ShouldBe(3);
     }
 
+    /// <summary>
+    /// The histogram follows a frame only when the overlay DRAWS it. Both live hosts start with it
+    /// hidden, and a live source takes its histograms when asked, so an upload that asked for them was
+    /// a histogram pass and a set of bins per exposure for an overlay nobody had opened: 256 KB a
+    /// channel for a 16-bit sensor, every guide frame. Shown, it is one take per upload, at the first
+    /// draw after it, however many draws follow.
+    /// </summary>
+    [Fact]
+    public void AHiddenHistogramIsNeverTakenAndAShownOneOncePerUpload()
+    {
+        using var renderer = new RgbaImageRenderer(800, 600);
+        var viewer = new TrimCountingViewer(renderer);
+        var state = new ViewerState { ShowHistogram = false };
+        var source = new StubSource();
+
+        for (var frame = 0; frame < 3; frame++)
+        {
+            viewer.UploadDocumentTextures(source, state);
+            viewer.Render(source, state);
+        }
+        viewer.HistogramUploads.ShouldBe(0, "three exposures with the overlay hidden asked the source for no histogram");
+
+        state.ShowHistogram = true;
+        viewer.Render(source, state);
+        viewer.HistogramUploads.ShouldBe(1, "shown, the last upload's histogram is taken at the first draw");
+        viewer.Render(source, state);
+        viewer.HistogramUploads.ShouldBe(1, "and not again until another upload");
+
+        viewer.UploadDocumentTextures(source, state);
+        viewer.Render(source, state);
+        viewer.HistogramUploads.ShouldBe(2, "the next exposure's is taken at its first draw");
+    }
+
     private sealed class TrimCountingViewer : ImageRendererBase<RgbaImage>
     {
         public TrimCountingViewer(RgbaImageRenderer renderer) : base(renderer)
@@ -113,6 +146,8 @@ public class ViewerUploadScratchTrimTests
         }
 
         public int TrimCalls { get; private set; }
+
+        public int HistogramUploads { get; private set; }
 
         protected override void TrimUploadScratch() => TrimCalls++;
 
@@ -137,7 +172,7 @@ public class ViewerUploadScratchTrimTests
         public override void UploadImageTexture(ReadOnlySpan<float> data, int channel,
             int width, int height) { }
 
-        public override void UploadHistogramData(IPreviewSource source) { }
+        public override void UploadHistogramData(IPreviewSource source) => HistogramUploads++;
 
         protected override HistogramDisplay? GetHistogramDisplay() => null;
     }
