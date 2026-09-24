@@ -792,6 +792,11 @@ public enum AlignmentMode
     GermanPolar = 2
 }
 
+/// <remarks>
+/// The numbering is TianWen's own and is NOT the wire's: ASCOM and Alpaca <c>DriveRates</c> start at
+/// <c>Sidereal = 0</c>. Crossing that boundary goes through <see cref="DriveRates"/> and never a cast, or
+/// a request for sidereal tracking puts the mount on lunar.
+/// </remarks>
 public enum TrackingSpeed
 {
     None = 0,
@@ -799,6 +804,60 @@ public enum TrackingSpeed
     Lunar = 2,
     Solar = 3,
     King = 4,
+}
+
+/// <summary>
+/// The one mapping between <see cref="TrackingSpeed"/> and the ASCOM / Alpaca <c>DriveRates</c> integer
+/// (<c>Sidereal = 0, Lunar = 1, Solar = 2, King = 3</c>), used by the ASCOM and Alpaca drivers and by
+/// the hosted Alpaca plane.
+/// <list type="bullet">
+/// <item><see cref="TrackingSpeed.None"/> has no DriveRates value (not tracking is <c>Tracking = false</c>
+/// on the wire, not a rate), so it does not map: <see cref="TryToDriveRate"/> answers false and
+/// <see cref="ToDriveRate"/> throws.</item>
+/// <item>A wire value outside 0..3 does not map either: <see cref="TryFromDriveRate"/> answers false and
+/// <see cref="FromDriveRate"/> throws. It never becomes None or Sidereal, since either would let a
+/// caller act on a rate the mount is not running.</item>
+/// </list>
+/// </summary>
+public static class DriveRates
+{
+    public static bool TryToDriveRate(TrackingSpeed speed, out int driveRate)
+    {
+        driveRate = speed switch
+        {
+            TrackingSpeed.Sidereal => 0,
+            TrackingSpeed.Lunar => 1,
+            TrackingSpeed.Solar => 2,
+            TrackingSpeed.King => 3,
+            _ => -1
+        };
+        return driveRate >= 0;
+    }
+
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="speed"/> is None or not a defined speed.</exception>
+    public static int ToDriveRate(TrackingSpeed speed)
+        => TryToDriveRate(speed, out var driveRate)
+            ? driveRate
+            : throw new ArgumentOutOfRangeException(nameof(speed), speed, $"Tracking speed {speed} has no ASCOM DriveRates value");
+
+    public static bool TryFromDriveRate(int driveRate, out TrackingSpeed speed)
+    {
+        speed = driveRate switch
+        {
+            0 => TrackingSpeed.Sidereal,
+            1 => TrackingSpeed.Lunar,
+            2 => TrackingSpeed.Solar,
+            3 => TrackingSpeed.King,
+            _ => TrackingSpeed.None
+        };
+        return speed is not TrackingSpeed.None;
+    }
+
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="driveRate"/> is not an ASCOM DriveRates value.</exception>
+    public static TrackingSpeed FromDriveRate(int driveRate)
+        => TryFromDriveRate(driveRate, out var speed)
+            ? speed
+            : throw new ArgumentOutOfRangeException(nameof(driveRate), driveRate, $"{driveRate} is not an ASCOM DriveRates value (Sidereal 0, Lunar 1, Solar 2, King 3)");
 }
 
 public enum TelescopeAxis

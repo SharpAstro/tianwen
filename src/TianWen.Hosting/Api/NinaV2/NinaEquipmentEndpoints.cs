@@ -16,6 +16,9 @@ namespace TianWen.Hosting.Api.NinaV2;
 /// </summary>
 internal static class NinaEquipmentEndpoints
 {
+    /// <summary>ninaAPI's <c>mount/tracking?mode=</c> value for "stop tracking"; 0..3 are ASCOM DriveRates.</summary>
+    internal const int NinaTrackingStopped = 4;
+
     public static RouteGroupBuilder MapNinaEquipmentApi(this IEndpointRouteBuilder routes)
     {
         var group = routes.MapGroup("/v2/api/equipment");
@@ -215,7 +218,8 @@ internal static class NinaEquipmentEndpoints
         });
 
         // GET /v2/api/equipment/mount/tracking?mode=<0-4>
-        // mode: 0=None, 1=Sidereal, 2=Lunar, 3=Solar, 4=King
+        // mode is ninaAPI's numbering, not TrackingSpeed's: 0=Sidereal, 1=Lunar, 2=Solar, 3=King,
+        // 4=Stopped. 0..3 are the ASCOM DriveRates values, so they go through DriveRates; 4 stops tracking.
         group.MapGet("/mount/tracking", async (IHostedSession hosted, int mode, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session)
@@ -229,16 +233,19 @@ internal static class NinaEquipmentEndpoints
                 return NinaFail("Mount cannot set tracking");
             }
 
-            var speed = (TrackingSpeed)mode;
-            if (speed == TrackingSpeed.None)
+            if (mode == NinaTrackingStopped)
             {
                 await mount.SetTrackingAsync(false, ct);
+                return NinaOk("Tracking stopped");
             }
-            else
+
+            if (!DriveRates.TryFromDriveRate(mode, out var speed))
             {
-                await mount.SetTrackingAsync(true, ct);
-                await mount.SetTrackingSpeedAsync(speed, ct);
+                return NinaFail($"Tracking mode {mode} out of range (0=Sidereal, 1=Lunar, 2=Solar, 3=King, 4=Stopped)");
             }
+
+            await mount.SetTrackingAsync(true, ct);
+            await mount.SetTrackingSpeedAsync(speed, ct);
 
             return NinaOk($"Tracking set to {speed}");
         });

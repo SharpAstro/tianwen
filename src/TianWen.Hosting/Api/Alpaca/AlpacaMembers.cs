@@ -100,9 +100,12 @@ namespace TianWen.Hosting.Api.Alpaca
             new("tracking", AlpacaMember.GetSet(
                 Bool<IMountDriver>((m, ct) => m.IsTrackingAsync(ct)),
                 Do<IMountDriver>((m, p, ct) => m.SetTrackingAsync(p.Bool("Tracking"), ct)))),
+            // The wire speaks ASCOM DriveRates (Sidereal = 0), not TrackingSpeed (Sidereal = 1): both
+            // directions go through DriveRates, never a cast.
             new("trackingrate", AlpacaMember.GetSet(
-                async (d, ct) => AlpacaValue.Of((int)await As<IMountDriver>(d).GetTrackingSpeedAsync(ct)),
-                Do<IMountDriver>((m, p, ct) => m.SetTrackingSpeedAsync((TrackingSpeed)p.Int("TrackingRate"), ct)))),
+                async (d, ct) => AlpacaValue.Of(ToWireDriveRate(await As<IMountDriver>(d).GetTrackingSpeedAsync(ct))),
+                Do<IMountDriver>((m, p, ct) => m.SetTrackingSpeedAsync(FromWireDriveRate(p.Int("TrackingRate")), ct)))),
+            new("trackingrates", AlpacaMember.Get(Sync<IMountDriver>(m => AlpacaValue.Of(ToWireDriveRates(m.TrackingSpeeds))))),
 
             new("rightascensionrate", AlpacaMember.GetSet(
                 Double<IMountDriver>((m, ct) => m.GetRightAscensionRateAsync(ct)),
@@ -145,6 +148,31 @@ namespace TianWen.Hosting.Api.Alpaca
             new("moveaxis", AlpacaMember.Action(Do<IMountDriver>((m, p, ct) =>
                 m.MoveAxisAsync((TelescopeAxis)p.Int("Axis"), p.Double("Rate"), ct)))),
         ]);
+
+        // A driver reporting None (e.g. an LX200 at an unrecognised frequency) has no DriveRates value to
+        // publish, and an unknown value from a client names no speed: both are refused, never guessed.
+        private static int ToWireDriveRate(TrackingSpeed speed) =>
+            DriveRates.TryToDriveRate(speed, out var driveRate)
+                ? driveRate
+                : throw new AlpacaFault(AlpacaError.InvalidOperation, $"The mount reports tracking speed {speed}, which has no ASCOM DriveRates value");
+
+        private static TrackingSpeed FromWireDriveRate(int driveRate) =>
+            DriveRates.TryFromDriveRate(driveRate, out var speed)
+                ? speed
+                : throw new AlpacaFault(AlpacaError.InvalidValue, $"TrackingRate {driveRate} is not an ASCOM DriveRates value (Sidereal 0, Lunar 1, Solar 2, King 3)");
+
+        private static int[] ToWireDriveRates(IReadOnlyList<TrackingSpeed> speeds)
+        {
+            var driveRates = new List<int>(speeds.Count);
+            foreach (var speed in speeds)
+            {
+                if (DriveRates.TryToDriveRate(speed, out var driveRate))
+                {
+                    driveRates.Add(driveRate);
+                }
+            }
+            return [.. driveRates];
+        }
 
         // -----------------------------------------------------------------------------------------
         // Focuser

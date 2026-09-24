@@ -63,7 +63,10 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     {
         if (Connected)
         {
-            return ValueTask.FromResult(SafeGet(() => (TrackingSpeed)_telescope.TrackingRate, TrackingSpeed.Sidereal));
+            // A failed read keeps its old Sidereal fallback; a value the mapping does not know throws
+            // from FromDriveRate rather than being guessed at.
+            var driveRate = SafeGet(() => _telescope.TrackingRate, DriveRates.ToDriveRate(TrackingSpeed.Sidereal));
+            return ValueTask.FromResult(DriveRates.FromDriveRate(driveRate));
         }
         else
         {
@@ -72,7 +75,11 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     }
 
     public ValueTask SetTrackingSpeedAsync(TrackingSpeed value, CancellationToken cancellationToken)
-        => SafeValueTask(() => _telescope.TrackingRate = (int)value);
+    {
+        // Mapped outside the lambda: an unmappable speed is the caller's error, not an ASCOM fault to log as one.
+        var driveRate = DriveRates.ToDriveRate(value);
+        return SafeValueTask(() => _telescope.TrackingRate = driveRate);
+    }
 
     public ValueTask<bool> AtHomeAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(SafeGet(() => _telescope.AtHome, false));
