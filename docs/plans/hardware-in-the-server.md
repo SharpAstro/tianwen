@@ -272,16 +272,31 @@ else happens, and what the plan does about each:
     left under the node's prefix.
 - **The GUI notices at once, says so, and starts a new server.** It does not ask first: the rule "nobody
   manages the server" holds here too.
-- **A crash journal (proposed, decision 8).** The server keeps a small file beside `node.lock`, written
-  atomically whenever it changes, of what it holds: the connected devices and the run in progress.
-  - A clean exit deletes it, so a server that starts and finds one knows the last one died. It then:
-    - reconnects those devices at once, which restores mount-limit enforcement and the camera's cooler
-      setpoint;
+- **A crash journal (DECIDED 2026-09-24, decision 8).** The server keeps a small file beside
+  `node.lock`, written atomically whenever it changes, of what it holds:
+  - the connected devices;
+  - the run in progress (kind, profile, target, start time);
+  - each camera's cooler INTENT, set out below.
+
+  A clean exit deletes it, so a server that starts and finds one knows the last one died. It then:
+    - reconnects those devices at once, which restores mount-limit enforcement;
+    - **re-establishes each camera's cooling from its recorded intent**:
+      - cooling to a setpoint is re-applied through the same cool-down the session uses
+        (`CoolCamerasToSetpointAsync`), never as a jump;
+      - a warm-up in progress continues its ramp from the camera's CURRENT temperature, so a camera
+        that was being warmed is not cooled back down to the old setpoint;
+      - a cooler that was off stays off;
     - tells the GUI which run was interrupted and when.
   - The GUI offers "Stop the rig safely" (park if configured, warm-up, disconnect) or "Start the session
     again".
   - **It never resumes a session silently**: a mount that has kept tracking for unknown minutes is
     exactly where a blind resume goes wrong.
+  - **Two guards:**
+    - **A crash loop.** The journal counts restarts. If a DRIVER crashed the server, reconnecting it
+      crashes the next one too, so after two crashes within a few minutes the server stops
+      reconnecting and names the device it was touching when it died.
+    - **A stale journal.** A journal older than the machine's last boot (a power cut) describes a rig
+      whose state nobody knows, so it is shown for information and not acted on.
   - Without the journal, a server crash is today's GUI crash: the mount runs unguarded until someone
     notices.
 
@@ -326,20 +341,14 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
   - The server needs floats itself, for star detection, HFD, plate solving, guiding and writing the FITS,
     so the frame is float before any client exists, and a slot carries it as float.
   - Moving the conversion to the client would halve a slot but make the server convert twice.
-- **The DAL conversion has a bug and a spare copy, found while tracing this** (`DALCameraDriver`, the
-  16-bit case).
-  - It reads the native buffer as SIGNED `short`, so a pixel of 32768 or more becomes a large negative
-    float. The driver's own comment says ZWO and QHY deliver native-scale values, which a 12- or 14-bit
-    sensor keeps below 32768.
-  - A 16-bit converter delivers up to 65535, and Player One left-aligns a 12-bit sensor up to 65520 (the
-    same comment, measured). The ASI2600 (IMX571), the ASI6200 (IMX455), the QHY268 and the QHY600 are
-    such converters.
-  - On those cameras every pixel above half scale, which is every bright star core, would arrive
-    negative. That is read from the code, not reproduced on hardware; the test fake's
-    `GetDataAfterExposure` writes nothing, so no test sees it.
-  - It also `Marshal.Copy`s into a NEW `short[w * h]` every frame (52 MB of garbage per 26 MP frame)
-    before a scalar loop converts. Reading the native buffer as `ushort` in place fixes the sign, drops
-    that array and saves a copy, in one change. It is independent of this plan: `TODO.md`, High Priority.
+- **The DAL conversion read 16-bit pixels as SIGNED, found while tracing this, and FIXED** ("fix(dal): a
+  16-bit camera's pixels are read unsigned, in place, in one pass").
+  - A pixel of 32768 or more became a large negative float. That is every bright star core on a 16-bit
+    converter (ASI2600, ASI6200, QHY268, QHY600) and on Player One's left-aligned 12-bit data.
+  - The read also went through a NEW 52 MB `short[]` per 26 MP frame.
+  - `RawPixelConversion.WidenToSingle` now reads the SDK buffer in place, unsigned, in one fused vector
+    pass. Measured 26 MP, win-arm64: 3.5 ms and no allocation, against 34.5 ms and 52 MB.
+  - Bench item 26 asks a real 16-bit camera to confirm.
 - **Wire format.** The float planes plus an `ImageMeta` header, bit-exact, row-major, so neither end
   transposes. When every sample is a
   whole number in 0 to 65535, which is the usual case for a camera frame in ADU, the planes are packed
@@ -379,32 +388,81 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
       `ChannelBufferLeakTracker`, the viewer's `AcceptFrame`) sees a frame from the server exactly as
       it sees one from a local camera, and a 104 MB frame no longer means a 104 MB allocation.
       `Array2DPool` stays scratch only, as it is today.
-  - **Memory and copies, one 26 MP mono frame from a 16-bit sensor on its way to the screen** (sizes in
-    decimal MB; every buffer is reused frame to frame unless marked; traced through `DALCameraDriver`,
-    `LiveFramePreviewSource.AcceptFrame` and `VkFitsImagePipeline`, 2026-09-24):
+  - **Memory and copies, one 26 MP mono frame from a 16-bit sensor, camera to screen** (decimal MB;
+    traced through `DALCameraDriver`, `Session.Imaging`, `Image.Fits`, `Image.StarDetection`,
+    `LiveFramePreviewSource.AcceptFrame` and `VkFitsImagePipeline`, 2026-09-24). The session releases
+    each frame right after its FITS write, and `LastCapturedImages` keeps the RECYCLED `Image`, not
+    its buffer, so one camera array is in use at a time, not two.
 
-    | Buffer | Holds | Today (one process) | Planned: server | Planned: GUI |
-    |---|---|---|---|---|
-    | SDK native buffer | uint16 | 52 | 52 | |
-    | `short[]` read copy | int16, NEW every frame | 52 | 52 | |
-    | camera `float[,]` (`ChannelBuffer`) | float32 | 104 | 104 | |
-    | slots A and B | float32, shared by both | | 208 | (mapped, not counted again) |
-    | reader `float[,]` | float32 | | | 104 |
-    | viewer's normalised copy (`AcceptFrame`) | float32 | 104 | | 104 |
-    | Vulkan staging buffer | float32 | 104 | | 104 |
-    | GPU texture (`R32Sfloat`) | float32 | 104 | | 104 |
-    | **total** | | **520** | **416** | **416** |
-    | **copies of the frame** | | **6** | **4** | **4** |
+    **Buffers that hold the frame** (resident, reused frame to frame):
 
-    Planned is 832 MB against 520, and 8 copies against 6: the two slots and the reader's array are the
-    price of the rig outliving the window, stated here so it is paid on purpose. Two changes pay part of
-    it back:
-    - **The DAL read fix above** removes the `short[]` both today and planned: 52 MB and one copy.
-    - **Normalising while copying out of the slot** (the "later step" above) would let the viewer skip
-      the reader's `float[,]` until a statistic, a solve or a save needs one: 104 MB and one copy.
+    | Buffer | Today (one process) | Planned: server | Planned: GUI | Reduced: server | Reduced: GUI |
+    |---|---|---|---|---|---|
+    | SDK native buffer (uint16) | 52 | 52 | | 52 | |
+    | camera `float[,]` (`ChannelBuffer`) | 104 | 104 | | 104 | |
+    | shared-memory slots | | 208 (two, float) | mapped | 52 (one, uint16) | mapped |
+    | reader `float[,]` | | | 104 | | none: normalised straight into the viewer |
+    | viewer's normalised copy (`AcceptFrame`) | 104 | | 104 | | 104 |
+    | Vulkan staging buffer | 104 | | 104 | | 52 (16-bit) |
+    | GPU texture | 104 (`R32Sfloat`) | | 104 | | 52 (`R16Unorm`) |
+    | **total** | **468** | **364** | **416** | **208** | **208** |
+    | **copies of the frame** | **5** | **3** | **4** | **3** | **3** |
 
-    The texture is device memory; on the Adreno laptop, as on any integrated GPU, device memory IS system
-    RAM.
+    Planned as first drawn is 780 MB and 7 copies, against today's 468 and 5: the slots and the reader's
+    array are the price of the rig outliving the window. **Reduced is 416 MB and 6 copies, LESS memory
+    than today's single process.** The texture is device memory, and on the Adreno laptop, as on any
+    integrated GPU, device memory IS system RAM.
+
+    **Garbage per sub** (today, in the one process; it moves to the server with the split):
+
+    | Allocation | Mono | Colour | Remedy |
+    |---|---|---|---|
+    | DAL `short[]` read copy | 52 | 52 | FIXED, read in place |
+    | FITS write, `QuantisePlane` `new short[h, w]` | 52 | 52 | rent it from `Array2DPool` |
+    | star detection, the mono debayer (`CreateChannelData`) | | 104 | pass it a pooled `destination`, which the method already takes |
+    | star detection, `BitMatrix` star mask | 3 | 3 | minor |
+
+    That garbage is why every FITS write is followed by `GC.Collect(2, Forced, blocking: true)` and
+    `WaitForPendingFinalizers` ("Add forced GC after FITS write to keep working set bounded": without it
+    the working set climbed to 2 to 3 GB between natural collections).
+    - A forced blocking collection suspends every managed thread, the render thread included. On a
+      643 MB synthetic heap (3 million small objects and four frame planes) it took 29 ms: about two
+      dropped frames once per sub.
+    - Once the three allocations above are gone, it can go too.
+    - Measure first, with the commit's own method: the working set logged after each write, over 20 subs
+      from a 26 MP fake camera, with and without the collection.
+
+    **The levers, in order of value for effort:**
+    1. **Pool the FITS quantise plane and the star-detection debayer, then drop the forced GC.** Today,
+       Lib only, small. With the DAL fix already in, removes the last 52 MB (mono) or 156 MB (colour) of
+       frame-sized garbage per sub, and a whole-process pause per sub.
+    2. **A 16-bit texture for a 16-bit frame.** Today, `VkFitsImagePipeline`, medium.
+       - `R16Unorm` is exact for integer data. The pipeline already swaps in `R8Unorm` for 8-bit
+         sources, "a quarter of the device memory, lossless".
+       - What it needs: a per-channel scale uniform (a live frame is normalised by its own peak, not by
+         65535), a re-bake of `image.frag`, and an `R16Unorm` sampled-and-linear-filter query with the
+         `R32Sfloat` fallback that already exists for float.
+       - Saves 104 MB in the viewing process: half the staging buffer and half the texture.
+    3. **One uint16 slot for an exposure source** (two only for the video-rate planetary frame). Split
+       only. Frames seconds apart need no second slot, since the reader copies within milliseconds of the
+       announcement, and uint16 costs nothing on the way out: the widening IS the copy (3.5 ms for
+       26 MP, measured). Saves 156 MB of shared memory per 26 MP camera.
+    4. **Normalise while copying out of the slot, straight into the viewer's buffer.** Split only.
+       - In the split the GUI only DISPLAYS. Saving the file and solving it happen in the server, which
+         holds the full `Image` anyway.
+       - So the reader's `float[,]` has no consumer. Saves 104 MB and one copy.
+
+    Two further steps take the split to about 260 MB and 4 copies:
+    - **The SDK writes straight into the slot** (DAL only). The native buffer is unmanaged memory
+      already, so it can BE the slot: 52 MB and one copy off the server. It couples the DAL driver to
+      the slot provider, and every other driver keeps the borrower path.
+    - **The GUI uploads straight from the slot and takes its statistics from the uint16 samples.** That
+      drops the viewer's float copy entirely, but it means a uint16 `IPreviewSource`, which is the
+      larger refactor.
+
+    **Considered and not proposed: `Image` planes as `ushort`.** That would halve every float buffer
+    above, but "a plane is `float[,]` and stays one" (CLAUDE.md) is what every processing stage is built
+    on. The savings above come from the edges of the pipeline and leave its middle alone.
   - **A seqlock per slot, never an acknowledgement.** The server makes the slot's generation odd,
     writes, then makes it even. The client reads the generation, copies, and reads it again, dropping
     a torn read and taking the next frame. A dead or stalled client can therefore never block the
@@ -490,10 +548,11 @@ each piece as it lands. Then the GUI switches over in one step.
    image is not necessarily in HDU 0").
 7. **Migration.** Recommended: build the server surface first, then cut the GUI over in one wave (P6).
    The alternative is a startup flag with both paths alive, which this repo's rules argue against.
-8. **After a server crash.** Recommended: the crash journal, so the next server reconnects what the dead
-   one held (restoring mount-limit enforcement and the cooler setpoint) and the GUI offers "Stop the rig
-   safely" or "Start the session again", never a silent resume. The alternative is a clean start that
-   leaves the mount unguarded until someone notices, which is today's behaviour after a GUI crash.
+8. **After a server crash: DECIDED 2026-09-24, the crash journal** (user: "yes we do need that crash
+   journal", and it must re-establish the cameras' cooling). The next server reconnects what the dead
+   one held, restoring mount-limit enforcement and each camera's cooling from its recorded intent. The
+   GUI offers "Stop the rig safely" or "Start the session again", never a silent resume. Its design and
+   its two guards are under "When the server dies".
 
 ## Open questions (engineering, not the user's)
 
