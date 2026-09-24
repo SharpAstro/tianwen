@@ -80,7 +80,8 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
 
     // Identity wavelet (all-1 gains, no denoise) reconstructs the input exactly -- used as the "sharpening
     // off" case so the display image is always a FRESH copy to adopt (AdoptImageAsync normalises in place),
-    // never the cached raw master.
+    // never the cached raw master. WaveletSharpen recognises identity gains and copies (clamped) instead of
+    // decomposing: this used to run a 6-scale decomposition, ten working planes a channel, per live master.
     private static readonly WaveletSharpenOptions IdentitySharpen = WaveletSharpenOptions.Uniform(6, 1f);
 
     // A finished background result. Stacked=false means a sharpen-only re-render (the cached raw master was
