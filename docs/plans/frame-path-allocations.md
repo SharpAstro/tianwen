@@ -30,6 +30,23 @@ maps, extra cards, gzip) are byte-identical before and after, apart from the tim
 card has always stamped into its comment. The functional suite's peak working set moved only about 2%
 (719-723 MB to 693-709 MB over three runs each): its frames are small, and the savings scale with the frame.
 
+**What the signed read did to frames already written: every pixel of 32768 or more is a 0 on disk.**
+Read from the code (2026-09-24), not yet measured on a file, because the archive is not on the machine
+this was found on:
+- The camera frame reached the writer with those pixels negative, and the writer stores a 16-bit frame
+  conventionally (`FitsSampleStorage.Conventional`, `BZERO` 32768), which clamps anything below the
+  container's bottom to stored -32768: physical 0. The writer on `main` on 2026-09-22 already went
+  through `FitsSampleStorage`, so this holds for every frame TianWen has captured through a DAL camera.
+- On the left-aligned 12-bit data Player One and ToupTek hand over, 32768 is HALF the converter's
+  range, so a hot pixel in a dark or a star core in a light need not saturate to be lost.
+- **The frames known to be affected are the 253 group P bias and darks** shot with `tianwen darks` on
+  2026-09-22 for the Uranus-C Lagoon-and-Trifid sessions (#307 `#78`, `#94`), which the re-bake uses.
+  Any hot pixel above half scale in those darks reads 0. The bad-pixel detector sees a 0 as a cold
+  outlier, so the mask probably excludes those photosites anyway, but their values are gone.
+- **The signature to check**: exact zeros in a frame whose pedestal sits well above zero, which a sound
+  frame does not have, together with no pixel at or above 32768. A maximum below 32768 alone proves
+  nothing, since a short dark may never reach half scale.
+
 ## P1: the TUI live preview corrupts the sub it previews (CORRECTNESS, fix first)
 
 `TuiLiveSessionTab.RenderPreview` passes `LiveState.LastCapturedImages[i]`, which is the session's OWN
