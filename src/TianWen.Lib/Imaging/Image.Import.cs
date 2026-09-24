@@ -4,6 +4,7 @@ using SharpAstro.Exif;
 using SharpAstro.Tiff;
 using System;
 using System.Buffers.Binary;
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.IO.MemoryMappedFiles;
@@ -359,6 +360,15 @@ public partial class Image
     /// </para>
     /// </summary>
     public static bool TryDecodeRaster(byte[] bytes, [NotNullWhen(true)] out Image? image)
+        => TryDecodeRaster(bytes, recycler: null, out image);
+
+    /// <summary>
+    /// <see cref="TryDecodeRaster(byte[], out Image?)"/> into planes taken from <paramref name="recycler"/>,
+    /// for a driver decoding a STREAM: the frame's release hands them back for the next frame, which makes
+    /// it a recycled camera frame its consumer must release and not read after (see
+    /// <see cref="PlaneRecycler"/>). Null is the self-owned image the public overload returns.
+    /// </summary>
+    internal static bool TryDecodeRaster(byte[] bytes, PlaneRecycler? recycler, [NotNullWhen(true)] out Image? image)
     {
         try
         {
@@ -374,26 +384,16 @@ public partial class Image
             // matching TryReadTiff's R/G/B-only extraction.
             var outChannels = decoded.Channels >= 3 ? 3 : 1;
 
-            // ToFloats widens to interleaved RGBA float32: integer samples normalise to [0, 1]
-            // (endpoints exact), Float32 samples pass through verbatim, gray broadcasts across
-            // R/G/B. Container-only: values keep decoded.ColorEncoding's meaning (a PQ/HLG
+            // Integer samples normalise to [0, 1] (endpoints exact), Float32 samples pass through
+            // verbatim. Container-only: values keep decoded.ColorEncoding's meaning (a PQ/HLG
             // raster stays non-linear), which matches the [0, 1] float convention TryReadTiff
             // already trusts. A tone / linearisation pass for non-sRGB HDR inputs is deferred.
-            var rgba = decoded.ToFloats();
-
-            var channels = CreateChannelData(outChannels, height, width);
-            for (var y = 0; y < height; y++)
+            var channels = new float[outChannels][,];
+            for (var c = 0; c < outChannels; c++)
             {
-                var row = y * width;
-                for (var x = 0; x < width; x++)
-                {
-                    var pix = (row + x) * 4; // interleaved RGBA stride
-                    for (var c = 0; c < outChannels; c++)
-                    {
-                        channels[c][y, x] = rgba[pix + c];
-                    }
-                }
+                channels[c] = recycler?.Take(height, width) ?? new float[height, width];
             }
+            WidenDecodedInto(decoded, channels);
 
             var bitDepth = decoded.SampleFormat switch
             {
@@ -407,13 +407,72 @@ public partial class Image
             // empty instrument). Values are already [0, 1] for integer sources and follow the
             // [0, 1] convention for float, so maxValue = 1 mirrors TryReadTiff.
             var meta = BuildImageMetaFromExif(null, fileIsLittleEndian: true);
-            image = new Image(channels, bitDepth, 1.0f, 0f, 0f, meta, samplesAreUnitReferred: true);
+            if (recycler is null)
+            {
+                image = new Image(channels, bitDepth, 1.0f, 0f, 0f, meta, samplesAreUnitReferred: true);
+            }
+            else
+            {
+                var wrapped = ImmutableArray.CreateBuilder<Channel>(outChannels);
+                for (var c = 0; c < outChannels; c++)
+                {
+                    wrapped.Add(recycler.Wrap(channels[c], minValue: 0f, maxValue: 1.0f, (byte)c));
+                }
+                image = new Image(wrapped.MoveToImmutable(), bitDepth, 0f, meta, samplesAreUnitReferred: true);
+            }
             return true;
         }
         catch
         {
             image = null;
             return false;
+        }
+    }
+
+    /// <summary>
+    /// A decoded raster's samples straight into mono or RGB planes, in one pass per plane. The values
+    /// are exactly <c>RasterImage.ExpandToFloats</c>'s (an integer sample divided by its maximum code, a
+    /// Float32 one verbatim), without its interleaved RGBA float copy: that intermediate was 16 bytes a
+    /// pixel on every decode, the largest part of the 21.6 MB each Canon Live View frame cost.
+    /// </summary>
+    /// <param name="planes">One plane (gray, or gray plus alpha, keeps its gray) or three (RGB, or RGBA
+    /// without its alpha), each <c>[Height, Width]</c>; every pixel of each is written.</param>
+    internal static void WidenDecodedInto(SharpAstro.Codecs.Abstractions.IDecodedImage decoded, float[][,] planes)
+    {
+        var pixelCount = decoded.Width * decoded.Height;
+        if (pixelCount == 0)
+        {
+            return;
+        }
+
+        var stride = decoded.Channels;
+        var pixels = decoded.Pixels;
+        for (var c = 0; c < planes.Length; c++)
+        {
+            var dst = MemoryMarshal.CreateSpan(ref planes[c][0, 0], pixelCount);
+            switch (decoded.SampleFormat)
+            {
+                case CodecSampleFormat.UInt8:
+                    for (int p = 0, s = c; p < pixelCount; p++, s += stride)
+                    {
+                        dst[p] = pixels[s] / 255f;
+                    }
+                    break;
+                case CodecSampleFormat.UInt16:
+                    var s16 = MemoryMarshal.Cast<byte, ushort>(pixels);
+                    for (int p = 0, s = c; p < pixelCount; p++, s += stride)
+                    {
+                        dst[p] = s16[s] / 65535f;
+                    }
+                    break;
+                default:
+                    var sf = MemoryMarshal.Cast<byte, float>(pixels);
+                    for (int p = 0, s = c; p < pixelCount; p++, s += stride)
+                    {
+                        dst[p] = sf[s];
+                    }
+                    break;
+            }
         }
     }
 
