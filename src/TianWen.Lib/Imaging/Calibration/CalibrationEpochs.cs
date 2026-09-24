@@ -164,6 +164,9 @@ namespace TianWen.Lib.Imaging.Calibration
                 {
                     var start = epoch.Start;
                     var end = epoch.End;
+                    // Narrowed to the set's own frames only in a DATED epoch. That is safe because
+                    // Split puts every undated frame in the undated epoch, so a dated epoch holds no
+                    // frame without a date to leave the span at MaxValue / MinValue.
                     if (start != default)
                     {
                         start = DateTimeOffset.MaxValue;
