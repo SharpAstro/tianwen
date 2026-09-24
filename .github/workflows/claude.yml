@@ -37,6 +37,18 @@ jobs:
     # conversation around them, so a run over it is stuck rather than busy.
     timeout-minutes: 60
     runs-on: ubuntu-latest
+    # No LFS file may reach this job except through the cached pull below. Every GitHub-hosted
+    # Ubuntu runner registers git-lfs's smudge filter system-wide (its Debian package runs
+    # `git lfs install --system`), and actions/checkout suppresses it only for its OWN commands
+    # (it sets this same variable while `lfs: false`). So when the action checked out a PR's head
+    # for a comment on that PR, every LFS file the PR changed came straight from LFS, past the
+    # cache and never saved to it, again on every mention. With the smudge skipped job-wide those
+    # stay pointer stubs: a PR that changes an LFS file cannot be built here, which is the honest
+    # answer while its files are not cached. `git lfs pull` ignores the variable (checked
+    # 2026-09-25 on a file:// clone: a pointer checked out with it set, pulled with it still set,
+    # came back as the full file), so the cached set below still arrives whole.
+    env:
+      GIT_LFS_SKIP_SMUDGE: '1'
     permissions:
       contents: read
       pull-requests: read
