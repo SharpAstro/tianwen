@@ -247,15 +247,21 @@ public class LiveCameraFrameStreamTests
             stream.Push(frame);
         }
 
+        const int pushes = 50;
         var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 50; i++)
+        for (var i = 0; i < pushes; i++)
         {
             stream.Push(frame);
         }
         var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
         stream.PlanesAllocated.ShouldBe((capacity + 1) * 4);
-        allocated.ShouldBeLessThan((mosaic / 2) * (mosaic / 2) * sizeof(float), "less than ONE sub-plane over 50 pushes; the split cost four per push");
+        // Per PUSH, and an eighth of a sub-plane: the split used to cost four whole sub-planes a push, so any
+        // plane made per push still fails, while the frame's own small objects pass in either build. A Debug
+        // build adds the leak tracker's entry, weak reference and table node to every buffer (about 1.7 KB a
+        // push here), which a bound of one sub-plane for all fifty pushes left no room for.
+        var subPlane = (mosaic / 2) * (mosaic / 2) * sizeof(float);
+        (allocated / pushes).ShouldBeLessThan(subPlane / 8, $"{allocated:N0} bytes over {pushes} pushes; the split cost four sub-planes per push");
     }
 
     [Fact]

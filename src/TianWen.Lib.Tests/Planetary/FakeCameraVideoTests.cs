@@ -65,6 +65,88 @@ public class FakeCameraVideoTests(ITestOutputHelper output)
         LaplacianVariance(sharp).ShouldBeGreaterThan(LaplacianVariance(soft));
     }
 
+    /// <summary>
+    /// The video renderers work in planes rented from the pool and render into an output plane the fake's
+    /// frames hand back, so no working memory may show: a render into a destination full of NaN, with the
+    /// pool holding NaN planes of the shape as well, is bit for bit a render into fresh arrays.
+    /// </summary>
+    [Theory]
+    [InlineData("jupiter-bayer", 1.6)]
+    [InlineData("jupiter-bayer", 0.2)]
+    [InlineData("jupiter-mono", 1.6)]
+    [InlineData("procedural", 1.6)]
+    public void ARenderIntoUsedPlanesIsTheRenderIntoFreshOnes(string renderer, double blurSigma)
+    {
+        const int w = 96, h = 64;
+        float[,] Render(float[,]? dest) => renderer switch
+        {
+            "jupiter-bayer" => JupiterTextureRenderer.RenderBayer(w, h, 48, 30, 25, blurSigma: blurSigma, noiseSeed: 5, dest: dest),
+            "jupiter-mono" => JupiterTextureRenderer.Render(w, h, 48, 30, 25, blurSigma: blurSigma, noiseSeed: 5, dest: dest),
+            _ => SyntheticPlanetRenderer.Render(w, h, 48, 30, 25, blurSigma: blurSigma, noiseSeed: 5, dest: dest),
+        };
+
+        var fresh = Render(null);
+
+        var junk = new float[5][,];
+        for (var i = 0; i < junk.Length; i++)
+        {
+            junk[i] = Array2DPool<float>.Rent(h, w);
+            System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref junk[i][0, 0], junk[i].Length).Fill(float.NaN);
+        }
+        for (var i = 1; i < junk.Length; i++)
+        {
+            Array2DPool<float>.Return(junk[i]); // the renderer's own rents take these
+        }
+
+        var reused = Render(junk[0]);
+
+        reused.ShouldBeSameAs(junk[0]);
+        System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpan(ref reused[0, 0], reused.Length)
+            .SequenceEqual(System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpan(ref fresh[0, 0], fresh.Length))
+            .ShouldBeTrue("what a renderer is given to work in must never show in the frame");
+    }
+
+    /// <summary>
+    /// A colour video frame rendered through eleven new planes: three sharp, a scratch and a result for
+    /// each colour's blur, the mosaic and the output. Given its output plane, it now allocates none.
+    /// </summary>
+    [Fact]
+    public void AColourRenderIntoItsOutputAllocatesNoWorkingPlane()
+    {
+        const int w = 320, h = 240;
+        var dest = new float[h, w];
+        JupiterTextureRenderer.RenderBayer(w, h, 160, 120, 80, blurSigma: 1.6, noiseSeed: 1, dest: dest); // texture + pool
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        JupiterTextureRenderer.RenderBayer(w, h, 160, 120, 80, blurSigma: 1.6, noiseSeed: 2, dest: dest);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        var plane = (long)w * h * sizeof(float);
+        output.WriteLine($"{w}x{h} colour render into its output: {allocated:N0} bytes, against a {plane:N0}-byte plane");
+        allocated.ShouldBeLessThan(plane / 4);
+    }
+
+    [Fact]
+    public async Task AStreamThatReleasesEachFrameRendersThemAllIntoOnePlane()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, _) = await CreateCameraAsync();
+        camera.NumX = 320;
+        camera.NumY = 256;
+
+        var count = 0;
+        await foreach (var frame in camera.CaptureVideoAsync(new VideoCaptureOptions(TimeSpan.FromMilliseconds(2)), ct))
+        {
+            frame.Release();
+            if (++count >= 10)
+            {
+                break;
+            }
+        }
+
+        camera.VideoPlanesAllocated.ShouldBe(1, "each released frame handed its plane to the next");
+    }
+
     // ── FakeCameraDriver video path ──────────────────────────────────────────
 
     [Fact]
