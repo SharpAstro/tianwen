@@ -251,6 +251,13 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "large for it, is never staged anyway.",
         };
 
+        var noHeaderIndexOpt = new Option<bool>("--no-header-index")
+        {
+            Description = "Read every FITS header from its file, instead of reusing the headers the last scan " +
+                          "stored for files that have not changed since (the default, under the scratch root's " +
+                          "_header-index). For measuring what the index buys.",
+        };
+
         var buildCommand = new Command("build", "Build the training tile set from raw archive lights.")
         {
             Options =
@@ -258,7 +265,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 archiveRootOpt, outOpt,
                 minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, holdOutOpt, parametersOpt, minSubsOpt,
                 tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, hotPixelSigmaOpt, warpInterpolationOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt, forcePsfOpt, remeasureSubsOpt, siteOpt, scratchRootOpt,
-                noStageLightsOpt,
+                noStageLightsOpt, noHeaderIndexOpt,
             },
         };
         buildCommand.SetAction(async (parseResult, ct) =>
@@ -302,6 +309,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 SoftwareIncludePattern = parseResult.Required(softwareOpt),
                 ScratchRoot = parseResult.Required(scratchRootOpt),
                 StageLights = !parseResult.GetValue(noStageLightsOpt),
+                UseHeaderIndex = !parseResult.GetValue(noHeaderIndexOpt),
                 Resume = parseResult.GetValue(resumeOpt),
                 RegenPsfForExportedSessions = parseResult.GetValue(regenPsfOpt),
                 ForcePsfRemeasure = parseResult.GetValue(forcePsfOpt),
@@ -343,7 +351,10 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             }
 
             consoleHost.WriteScrollable($"[dataset] scanning {roots.Length} root(s) for raw lights ...");
-            var (sessions, stats) = await SessionDiscovery.DiscoverAsync(options, logger, ct);
+            // ONE scan, listed here and then handed to the build, which used to scan the archive again.
+            var scan = await SessionDiscovery.ScanAsync(options, logger,
+                new Progress<string>(line => consoleHost.WriteScrollable(line)), cancellationToken: ct);
+            var (sessions, stats) = SessionDiscovery.Discover(scan, options);
 
             consoleHost.WriteScrollable(
                 $"[dataset] scanned {stats.Scanned} FITS: {stats.Sessions} sessions / {stats.Lights} lights kept; " +
@@ -403,7 +414,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             // The solver the rest of the CLI uses, so a retained master carries a WCS and every
             // consumer downstream can colour-calibrate and identify what is in it without solving the
             // file again. Null when no solver is configured, which simply retains masters as before.
-            var result = await DatasetBuildRunner.RunAsync(options, logger, progress, plateSolverFactory, ct);
+            var result = await DatasetBuildRunner.RunAsync(options, scan, logger, progress, plateSolverFactory, ct);
 
             consoleHost.WriteScrollable(
                 $"[dataset] {result.Registered}/{result.Sessions} sessions" +

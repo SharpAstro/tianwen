@@ -74,27 +74,33 @@ public sealed class FitsFolderFrameSource : IFrameSource
     /// had them.</summary>
     public int RejectedAtCapture => _rejectedAtCapture;
 
+    /// <summary>
+    /// Headers remembered from earlier scans (<see cref="FitsHeaderIndex"/>): an unchanged file is
+    /// parsed from its stored header instead of being read. The caller loads and saves it.
+    /// </summary>
+    public FitsHeaderIndex? HeaderIndex { get; init; }
+
     /// <inheritdoc/>
     public async IAsyncEnumerable<FrameInfo> EnumerateAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         // FileEnumeration is lazy, so the directory scan streams. It also refuses to enter reparse
         // points (the organized archive's junction farm used to be scanned once per link) and skips
         // a folder it cannot read instead of aborting a multi-hour walk; see its remarks.
-        var paths = FileEnumeration.EnumerateFiles(_folder, FitsExtensions, _recursive)
-            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase);
+        var stamps = FileEnumeration.EnumerateFileStamps(_folder, FitsExtensions, _recursive)
+            .OrderBy(p => p.Path, StringComparer.OrdinalIgnoreCase);
 
-        foreach (var path in paths)
+        foreach (var stamp in stamps)
         {
             cancellationToken.ThrowIfCancellationRequested();
             // Before the header read, because the answer is in the name and the read is the cost.
             // A frame graded out at the telescope stays out of every consumer of this source: the
             // stacker, the calibration resolver and the dataset bake all enumerate through here.
-            if (CaptureRejection.IsRejectedAtCapture(path))
+            if (CaptureRejection.IsRejectedAtCapture(stamp.Path))
             {
                 _rejectedAtCapture++;
                 continue;
             }
-            var info = await Task.Run(() => TryReadFrameInfo(path), cancellationToken);
+            var info = await Task.Run(() => TryReadFrameInfo(stamp), cancellationToken);
             if (info is not null)
             {
                 yield return ApplySidecar(info);
@@ -129,8 +135,23 @@ public sealed class FitsFolderFrameSource : IFrameSource
         return frame with { Meta = frame.Meta with { Filter = filter } };
     }
 
-    private static FrameInfo? TryReadFrameInfo(string path)
+    private FrameInfo? TryReadFrameInfo(FileStamp stamp)
     {
-        return Image.TryReadFitsHeader(path, out var info) ? info : null;
+        if (HeaderIndex is { } index)
+        {
+            if (index.TryGet(stamp, out var stored) && Image.TryReadFitsHeaderFromBytes(stamp.Path, stored, out var fromIndex))
+            {
+                return fromIndex;
+            }
+
+            if (!Image.TryReadFitsHeader(stamp.Path, out var read, out var replayable))
+            {
+                return null;
+            }
+            index.Remember(stamp, replayable, read);
+            return read;
+        }
+
+        return Image.TryReadFitsHeader(stamp.Path, out var info) ? info : null;
     }
 }

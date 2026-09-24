@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Immutable;
+using System.IO;
+using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Stacking;
 
 namespace TianWen.Lib.Imaging.Dataset;
@@ -271,6 +273,20 @@ public sealed record DatasetBuildOptions
     /// off (<c>--no-stage-lights</c>) is only for measuring what it buys.
     /// </summary>
     public bool StageLights { get; init; } = true;
+
+    /// <summary>
+    /// Remember every archive root's FITS headers between scans (<see cref="FitsHeaderIndex"/>) under
+    /// <see cref="HeaderIndexDirectory"/>, so a rescan reads only the files that changed. On by default:
+    /// a cold scan of this archive's 35,000 headers off its USB disk took 26 minutes (2026-09-24) and
+    /// preceded every bake. <c>--no-header-index</c> reads every header, for measuring what it buys.
+    /// </summary>
+    public bool UseHeaderIndex { get; init; } = true;
+
+    /// <summary>Where the header indexes live: <c>&lt;ScratchRoot&gt;/_header-index</c> (the fast local
+    /// disk, which outlives any one output store), else beside the output. Never inside
+    /// <c>_scratch</c>, which is wiped after every session.</summary>
+    public string HeaderIndexDirectory =>
+        Path.Combine(string.IsNullOrWhiteSpace(ScratchRoot) ? OutputDir : ScratchRoot, "_header-index");
 
     /// <summary>
     /// Re-measure the PSF/noise record for exported sessions <b>even when one already exists</b>,

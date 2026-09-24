@@ -102,8 +102,23 @@ public static class DatasetBuildRunner
     /// charging this to sessions would make the commonest case the invisible one.</summary>
     public const string ResumeCheckStage = "resume-check";
 
+    public static Task<RunResult> RunAsync(
+        DatasetBuildOptions options,
+        ILogger? logger = null,
+        IProgress<string>? progress = null,
+        IPlateSolver? plateSolver = null,
+        CancellationToken cancellationToken = default)
+        => RunAsync(options, scan: null, logger, progress, plateSolver, cancellationToken);
+
+    /// <summary>
+    /// As <see cref="RunAsync(DatasetBuildOptions, ILogger?, IProgress{string}?, IPlateSolver?, CancellationToken)"/>,
+    /// reusing a scan the caller already made (<see cref="SessionDiscovery.ScanAsync"/>) instead of
+    /// scanning the archive again. The CLI lists the sessions before it builds, and that listing used
+    /// to be a scan of its own, so every bake read every header twice.
+    /// </summary>
     public static async Task<RunResult> RunAsync(
         DatasetBuildOptions options,
+        SessionDiscovery.ArchiveScan? scan,
         ILogger? logger = null,
         IProgress<string>? progress = null,
         IPlateSolver? plateSolver = null,
@@ -136,16 +151,7 @@ public static class DatasetBuildRunner
         }
 
         // 1. Single scan of every archive root -> sessions + calibration groups from the same frames.
-        var frames = new List<(FrameInfo Frame, string Root)>();
-        foreach (var root in options.ArchiveRoots)
-        {
-            var source = new FitsFolderFrameSource(root, recursive: true);
-            await foreach (var frame in source.EnumerateAsync(cancellationToken))
-            {
-                frames.Add((frame, root));
-            }
-            progress?.Report($"[dataset] scanned {root}: {frames.Count} FITS headers so far");
-        }
+        var frames = (scan ?? await SessionDiscovery.ScanAsync(options, logger, progress, cancellationToken: cancellationToken)).Frames;
         var (sessions, stats) = SessionDiscovery.GroupSessions(frames, options);
         var calGroups = CalibrationResolver.GroupCalibration(frames.Select(f => f.Frame));
         // One digest of the whole calibration library, folded into every session's fingerprint: the

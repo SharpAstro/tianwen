@@ -199,8 +199,19 @@ public partial class Image
     /// header alone.</para>
     /// </remarks>
     public static bool TryReadFitsHeader(string fileName, [NotNullWhen(true)] out Calibration.FrameInfo? frameInfo)
+        => TryReadFitsHeader(fileName, out frameInfo, out _);
+
+    /// <summary>
+    /// As <see cref="TryReadFitsHeader(string, out Calibration.FrameInfo?)"/>, also reporting how many
+    /// leading bytes of the file hold everything the parse read, when that is replayable from memory
+    /// (<see cref="TryReadFitsHeaderFromBytes"/>): the image in the PRIMARY HDU of an uncompressed file,
+    /// whose header is the first <paramref name="replayableHeaderBytes"/> bytes. Zero for anything else
+    /// (a gzipped file, a tile-compressed or extension image), which the header index then never caches.
+    /// </summary>
+    internal static bool TryReadFitsHeader(
+        string fileName, [NotNullWhen(true)] out Calibration.FrameInfo? frameInfo, out int replayableHeaderBytes)
     {
-        frameInfo = null;
+        replayableHeaderBytes = 0;
         // Resilient header read over an UNTRUSTED archive: a malformed / truncated / locked FITS,
         // or a header FITS.Lib itself can't parse, must be SKIPPED (return false), never fatal -- a
         // single bad file cannot abort a 20k-frame archive scan. The known offender is
@@ -211,34 +222,17 @@ public partial class Image
         try
         {
             using var fitsFile = OpenFitsHeader(fileName);
-            var hdu = fitsFile.ReadFirstImageHduHeaderOnly();
-            if (hdu?.Axes?.Length is not { } axisLength
-                || hdu.Data is not ImageData
-                || !(BitDepth.FromValue(hdu.BitPix) is { } bitDepth))
+            if (!TryParseFrameInfo(fitsFile, fileName, out frameInfo, out var hdu))
             {
                 return false;
             }
 
-            int height, width, channelCount;
-            switch (axisLength)
+            if (!IsGzipped(fileName)
+                && !fileName.EndsWith(".fz", StringComparison.OrdinalIgnoreCase)
+                && hdu.Header.ContainsKey("SIMPLE"))
             {
-                case 2:
-                    height = hdu.Axes[0];
-                    width = hdu.Axes[1];
-                    channelCount = 1;
-                    break;
-                case 3:
-                    channelCount = hdu.Axes[0];
-                    height = hdu.Axes[1];
-                    width = hdu.Axes[2];
-                    break;
-                default:
-                    return false;
+                replayableHeaderBytes = checked((int)hdu.Header.Size);
             }
-
-            var imageMeta = ParseImageMetaFromHeader(hdu, channelCount);
-            var stackedFrameCount = ReadStackedFrameCount(hdu.Header);
-            frameInfo = new Calibration.FrameInfo(fileName, width, height, channelCount, bitDepth, imageMeta, stackedFrameCount);
             return true;
         }
         catch (Exception)
@@ -246,6 +240,65 @@ public partial class Image
             frameInfo = null;
             return false;
         }
+    }
+
+    /// <summary>
+    /// Parses a header held in memory: the first bytes of <paramref name="fileName"/>, as
+    /// <see cref="TryReadFitsHeader(string, out Calibration.FrameInfo?, out int)"/> reported them
+    /// replayable. The same parse as the file read, so a cached header answers what the file would.
+    /// </summary>
+    internal static bool TryReadFitsHeaderFromBytes(
+        string fileName, byte[] header, [NotNullWhen(true)] out Calibration.FrameInfo? frameInfo)
+    {
+        try
+        {
+            using var fits = new Fits(new MemoryStream(header, writable: false), compressed: false);
+            return TryParseFrameInfo(fits, fileName, out frameInfo, out _);
+        }
+        catch (Exception)
+        {
+            frameInfo = null;
+            return false;
+        }
+    }
+
+    /// <summary>The one header-to-<see cref="Calibration.FrameInfo"/> parse, for a file and for bytes.</summary>
+    private static bool TryParseFrameInfo(
+        Fits fitsFile, string fileName,
+        [NotNullWhen(true)] out Calibration.FrameInfo? frameInfo, [NotNullWhen(true)] out BasicHDU? imageHdu)
+    {
+        frameInfo = null;
+        imageHdu = null;
+        var hdu = fitsFile.ReadFirstImageHduHeaderOnly();
+        if (hdu?.Axes?.Length is not { } axisLength
+            || hdu.Data is not ImageData
+            || !(BitDepth.FromValue(hdu.BitPix) is { } bitDepth))
+        {
+            return false;
+        }
+
+        int height, width, channelCount;
+        switch (axisLength)
+        {
+            case 2:
+                height = hdu.Axes[0];
+                width = hdu.Axes[1];
+                channelCount = 1;
+                break;
+            case 3:
+                channelCount = hdu.Axes[0];
+                height = hdu.Axes[1];
+                width = hdu.Axes[2];
+                break;
+            default:
+                return false;
+        }
+
+        var imageMeta = ParseImageMetaFromHeader(hdu, channelCount);
+        var stackedFrameCount = ReadStackedFrameCount(hdu.Header);
+        frameInfo = new Calibration.FrameInfo(fileName, width, height, channelCount, bitDepth, imageMeta, stackedFrameCount);
+        imageHdu = hdu;
+        return true;
     }
 
     // Pointing intent for the master / re-solve hint. Captures the INTENDED
