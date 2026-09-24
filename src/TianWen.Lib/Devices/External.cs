@@ -12,7 +12,7 @@ using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices;
 
-internal class External(
+internal sealed class External(
     IUtf8TextBasedConnectionFactory textBasedConnectionFactory,
     ILogger<External> logger,
     Astrometry.Catalogs.ICelestialObjectDB celestialObjectDB
@@ -21,7 +21,7 @@ internal class External(
     private Task? _dbInitTask;
     private readonly SemaphoreSlim _serialPortEnumerationSemaphore = new SemaphoreSlim(1, 1);
     private readonly ConcurrentDictionary<string, ISerialConnection> _serialConnections = [];
-    private bool disposedValue;
+    private bool _disposed;
 
     /// <summary>
     /// Gets the directory where application output files are stored.
@@ -94,37 +94,24 @@ internal class External(
         await Task.Run(() => image.WriteToFitsFile(fileName)).ConfigureAwait(false);
     }
 
-    protected virtual void Dispose(bool disposing)
-    {
-        if (!disposedValue)
-        {
-            if (disposing)
-            {
-                _serialPortEnumerationSemaphore.Dispose();
-
-                foreach (var serialConnection in _serialConnections.Values)
-                {
-                    serialConnection.Dispose();
-                }
-            }
-
-            // TODO: free unmanaged resources (unmanaged objects) and override finalizer
-            // TODO: set large fields to null
-            disposedValue=true;
-        }
-    }
-
-    // // TODO: override finalizer only if 'Dispose(bool disposing)' has code to free unmanaged resources
-    // ~External()
-    // {
-    //     // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
-    //     Dispose(disposing: false);
-    // }
-
+    /// <remarks>
+    /// Everything held here is a managed wrapper: the semaphore, and serial connections that each own
+    /// and release their own OS handle. So there is nothing unmanaged to free and no finalizer.
+    /// </remarks>
     public void Dispose()
     {
-        // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
-        Dispose(disposing: true);
-        GC.SuppressFinalize(this);
+        if (_disposed)
+        {
+            return;
+        }
+
+        _serialPortEnumerationSemaphore.Dispose();
+
+        foreach (var serialConnection in _serialConnections.Values)
+        {
+            serialConnection.Dispose();
+        }
+
+        _disposed = true;
     }
 }
