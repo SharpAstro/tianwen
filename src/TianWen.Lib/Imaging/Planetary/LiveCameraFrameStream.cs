@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,18 +15,28 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// <para>
 /// <b>Bounded ring, copy-on-push.</b> Frames are kept in a fixed-capacity ring (the rolling window only
 /// ever looks back <c>MaxWindowFrames</c>, so older frames are never needed). Each pushed frame is
-/// <b>deep-copied</b> into a ring-owned, non-pooled <see cref="Image"/>: the camera recycles its own
-/// buffer for the next frame, so the stream cannot hold the camera's array. Because the copy carries no
-/// <c>ChannelBuffer</c>, the stacker's <see cref="Image.Release"/> on a loaded frame is a no-op, so
-/// <see cref="LoadAsync"/> can safely hand back the <i>shared</i> ring reference (no per-load copy) --
-/// the frame is immutable once pushed.
+/// <b>deep-copied</b> into ring-owned planes: the camera recycles its own buffer for the next frame, so
+/// the stream cannot hold the camera's array.
+/// </para>
+/// <para>
+/// <b>The planes are recycled, and a loaded frame is a LEASE.</b> Every push used to copy into new planes
+/// and drop the evicted slot's, 74 to 246 MB/s of garbage at video rate. Now each plane is a
+/// <see cref="ChannelBuffer"/>: the ring holds one reference, <see cref="LoadAsync"/> hands out a leased
+/// image holding another, and a plane returns to the stream's free list only when the last of them is
+/// released. So a frame a stacker still holds keeps its pixels even after its slot is overwritten, and its
+/// planes are reused only once it lets go. Every consumer releases what it loads in a <c>finally</c>
+/// (the stackers and <see cref="FrameGrader"/>), which is exactly the obligation a lease asks for; a
+/// loaded frame must not be read after its <see cref="Image.Release"/>, which now throws where it used
+/// to be a no-op. A consumer that never releases costs recycling, never correctness: its planes simply
+/// stay out of the pool and the ring allocates fresh ones.
 /// </para>
 /// <para>
 /// <b>Threading.</b> <see cref="Push"/> runs on the capture loop; <see cref="LoadAsync"/> /
 /// <see cref="FrameCount"/> / <see cref="TimestampOf"/> run on the stacker's background task. All ring
-/// access is guarded by one <see cref="Lock"/>; the work outside the lock (the deep copy on push) touches
-/// only caller-local arrays. <see cref="FrameCount"/> grows monotonically with the number of frames ever
-/// pushed; only the last <see cref="Capacity"/> are retained.
+/// access is guarded by one <see cref="Lock"/>; the work outside the lock (the deep copy on push, the
+/// release of an evicted frame) touches only that frame's own planes, and the free list is a lock-free
+/// queue because a plane comes back on whichever thread released it last. <see cref="FrameCount"/> grows
+/// monotonically with the number of frames ever pushed; only the last <see cref="Capacity"/> are retained.
 /// </para>
 /// </summary>
 public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
@@ -33,7 +45,13 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
     private readonly Image?[] _ring;
     private readonly DateTimeOffset?[] _timestamps;
     private int _count;       // total frames ever pushed; == FrameCount, grows monotonically
-    private bool _disposed;
+    private volatile bool _disposed;
+
+    // Planes no frame holds any more, every one Height x Width. Steady state needs Capacity + 1 per channel
+    // (the incoming copy exists before the slot it replaces is released) plus whatever loaders still hold.
+    private readonly ConcurrentQueue<float[,]> _freePlanes = new();
+    private readonly Action<float[,]> _returnPlane;
+    private int _planesAllocated;
 
     /// <summary>
     /// Creates a live frame stream. <paramref name="width"/> / <paramref name="height"/> are the per-plane
@@ -54,10 +72,14 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
         HasTimestamps = hasTimestamps;
         _ring = new Image?[capacity];
         _timestamps = new DateTimeOffset?[capacity];
+        _returnPlane = ReturnPlane;
     }
 
     /// <summary>Ring capacity: the maximum number of recent frames retained for loading.</summary>
     public int Capacity => _ring.Length;
+
+    /// <summary>Planes ever allocated, for the tests that hold the ring to recycling them.</summary>
+    internal int PlanesAllocated => Volatile.Read(ref _planesAllocated);
 
     /// <summary>Index of the most recently pushed frame, or <c>-1</c> before the first push.</summary>
     public int LatestIndex
@@ -98,17 +120,36 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
         }
 
         // Deep-copy OUTSIDE the lock: the camera recycles its buffer for the next frame, so the ring must
-        // own independent arrays. The copy carries no ChannelBuffer -> Release() on a loaded frame is a no-op.
-        var copy = DeepCopy(frame);
+        // own independent arrays. They come from the free list, so steady-state pushing allocates no plane.
+        var copy = CopyIntoRingPlanes(frame);
 
+        Image? evicted = null;
+        var disposed = false;
         lock (_gate)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            var slot = _count % _ring.Length;
-            _ring[slot] = copy;
-            _timestamps[slot] = HasTimestamps ? timestamp : null;
-            _count++;
+            if (_disposed)
+            {
+                disposed = true;
+            }
+            else
+            {
+                var slot = _count % _ring.Length;
+                evicted = _ring[slot];
+                _ring[slot] = copy;
+                _timestamps[slot] = HasTimestamps ? timestamp : null;
+                _count++;
+            }
         }
+
+        if (disposed)
+        {
+            copy.Release();
+            throw new ObjectDisposedException(nameof(LiveCameraFrameStream));
+        }
+
+        // The ring's own reference to the frame it just overwrote. Its planes go back to the free list now,
+        // or later, when the last loader still holding it releases it.
+        evicted?.Release();
     }
 
     /// <inheritdoc/>
@@ -130,7 +171,7 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        Image image;
+        ImageLease lease;
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -140,22 +181,52 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
                 throw new ArgumentOutOfRangeException(nameof(index),
                     $"Frame {index} is not in the live ring (retained [{oldest}, {_count - 1}], capacity {_ring.Length}).");
             }
-            image = slot;
+
+            // Under the gate the ring still holds its reference to this slot (eviction swaps the slot here
+            // before releasing outside), so the lease cannot lose a race with the frame's last release.
+            if (!slot.TryLease(out lease))
+            {
+                throw new InvalidOperationException($"Frame {index} is in the ring but could not be leased.");
+            }
         }
 
-        // Ring-owned, immutable, no ChannelBuffer: the stacker's Release() is a no-op, so sharing the
-        // reference is safe and avoids a per-load copy. The slot won't be overwritten for Capacity more
-        // pushes, far beyond the rolling window the stacker touches.
-        return ValueTask.FromResult(image);
+        // A lease, not the ring's own image: the loader's Release() spends only the reference taken here,
+        // and the planes stay out of the pool until it does, however many pushes overwrite the slot. No
+        // pixel is copied.
+        return ValueTask.FromResult(lease.Image);
     }
 
     // A frame index is loadable iff it has been pushed and has not yet rolled out of the ring.
     private bool IsRetained(int index) => index >= 0 && index < _count && index >= _count - _ring.Length;
 
-    private static Image DeepCopy(Image src)
+    private float[,] RentPlane()
+    {
+        if (_freePlanes.TryDequeue(out var plane))
+        {
+            return plane;
+        }
+
+        Interlocked.Increment(ref _planesAllocated);
+        return new float[Height, Width];
+    }
+
+    // A plane's last reference went: back to the pool, unless the stream is gone and nothing will push again.
+    private void ReturnPlane(float[,] plane)
+    {
+        if (!_disposed)
+        {
+            _freePlanes.Enqueue(plane);
+        }
+    }
+
+    private Image CopyIntoRingPlanes(Image src)
     {
         var channels = src.ChannelCount;
-        var dst = Image.CreateChannelData(channels, src.Height, src.Width);
+        var dst = new float[channels][,];
+        for (var c = 0; c < channels; c++)
+        {
+            dst[c] = RentPlane();
+        }
 
         // The planetary stack pipeline operates in [0,1] (PlanetaryMaster.NormalizeInPlace declares the
         // master MaxValue = 1, and the SER bridge decodes raw frames straight to [0,1]). A live camera,
@@ -176,6 +247,7 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
         var scale = src.HasUnitScalePeak ? 1f : 1f / src.UnitScaleDivisor;
         for (var c = 0; c < channels; c++)
         {
+            // Every sample of the recycled plane is written, so nothing of the frame it last held survives.
             var plane = src.GetChannelArray(c);
             var outPlane = dst[c];
             if (scale == 1f)
@@ -200,19 +272,33 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
         // correctly reflecting how exposed it actually was).
         var bitDepth = scale == 1f ? src.BitDepth : BitDepth.Float32;
         var maxValue = src.MaxValue * scale;
+        var minValue = src.MinValue * scale;
         // Keep SensorFullScaleAdu in the same units as the (rescaled) pixels -- after a
         // divide-by-full-scale it reads 1.0. Single implementation: ImageMeta.Rescale.
         var meta = src.ImageMeta.Rescale(scale);
+
+        // Each plane travels with its ChannelBuffer, whose creator reference the ring's image takes over;
+        // the image-wide min and max on every channel, as the raw-array constructor used to set them.
+        var channelsWithBuffers = ImmutableArray.CreateBuilder<Channel>(channels);
+        for (var c = 0; c < channels; c++)
+        {
+            channelsWithBuffers.Add(new Channel(dst[c], default, minValue, maxValue, (byte)c)
+            {
+                Buffer = new ChannelBuffer(dst[c], _returnPlane),
+            });
+        }
+
         // A scale other than 1 divided by full scale, so the result is unit-referred by construction;
         // at scale 1 nothing moved, so whatever the source said still holds. Forwarded because
         // bitDepth above may keep an INTEGER container width, which on its own no longer implies ADU.
-        return new Image(dst, bitDepth, maxValue, src.MinValue * scale, src.Pedestal * scale, meta,
+        return new Image(channelsWithBuffers.MoveToImmutable(), bitDepth, src.Pedestal * scale, meta,
             samplesAreUnitReferred: scale != 1f || src.SamplesAreUnitReferred);
     }
 
     /// <inheritdoc/>
     public void Dispose()
     {
+        Image?[] retained;
         lock (_gate)
         {
             if (_disposed)
@@ -221,8 +307,18 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
             }
 
             _disposed = true;
+            retained = (Image?[])_ring.Clone();
             Array.Clear(_ring);
             Array.Clear(_timestamps);
         }
+
+        // The ring's references, released outside the gate like an eviction. A frame a loader still holds
+        // stays valid until that loader releases it; nothing returns to the pool after disposal.
+        foreach (var image in retained)
+        {
+            image?.Release();
+        }
+
+        _freePlanes.Clear();
     }
 }
