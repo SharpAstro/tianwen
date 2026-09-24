@@ -1,7 +1,8 @@
 # Frame-path allocations: what a frame costs on its way through
 
-**Status: P0 DONE (2026-09-24, merged in #349, with FITS.Lib 6.1); P1 DONE (2026-09-24); P2 to P5 NOT
-STARTED.**
+**Status: P0 DONE (2026-09-24, merged in #349, with FITS.Lib 6.1); P1 DONE (2026-09-24, #350); P2 to P4
+DONE (2026-09-24, #365): what is left is the SER frame ring (P2), the sibling libraries' own buffers, and
+three rows kept on purpose; P5 NOT STARTED (#755).**
 Raised by the user on 2026-09-24: "if we have allocations that are useless already right now, we should
 remove them prior to this server change" ([hardware-in-the-server.md](hardware-in-the-server.md)). A
 read-only sweep of every capture path the same day found the items below; each carries the file, the
