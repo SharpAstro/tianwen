@@ -669,6 +669,21 @@ their own same-night flats 16 to 1 (the ASI585 Helix, which resolves no flat at 
 drawn from another filter's folder 6 to 2, both of them sessions with no flats of their own
 borrowing the same lens's set a few days away (Seagull 2022, the Uranus-C's Lagoon).
 
+**`tianwen stack`'s master cache had to learn what built a master** (found in #348's review). The
+dataset cache has always checked a cached master's input set (`DSETFPR` / `DSETNIN`) before serving
+it; `stack`'s trusted any file under the right name, and a name says which configuration a master
+serves, never which frames built it. With the new grouping a drifting run's master takes the name one
+degree's master already had, so a re-run over an existing `masters/` folder would have served the
+one-degree master while logging the whole run's frame count. Both caches now write and check the same
+pair (`MasterFrameBuilder.InputSetFingerprint` / `ReadInputSet`); a master from before the check
+declares nothing and is rebuilt once. The old grouping had the same collision without any upgrade:
+the SV605CC's two flat groups above slugged alike, so under `stack` whichever was built second was
+served the first one's file. Pinned by `StackingMasterCacheTests`, both of which fail with the old
+check restored. Every built master's log line now also prints its temperature range, since the run
+rule bounds the gap between readings and not a run's width: a library begun while a cooler was still
+pulling down chains into the setpoint's set, outvoted in the per-pixel median but visible there. The
+widest run in the archive is 4.8 C.
+
 ### Some dark-flats are recorded as `IMAGETYP='DARK'`
 
 On the reference archive, 2,220 dark-flat frames sit in a `DARKFLAT` folder while their header says

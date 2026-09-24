@@ -97,6 +97,39 @@ public static class TemperatureClusters
         return clusters;
     }
 
+    /// <summary>
+    /// How a set's readings are described in a log line: <c>"16.3..17.5 C"</c>, one reading
+    /// <c>"-10.0 C"</c>, or empty when no frame carries a temperature.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Split"/> bounds the gap between two consecutive readings, never a run's whole width,
+    /// so a run can be wide: a library started while the cooler was still pulling down chains, a few
+    /// tenths at a time, into the setpoint's set. It is keyed on its median, and a master is a
+    /// per-pixel median, so a minority of warm frames is outvoted. Printing the width beside every
+    /// built master is what makes that case visible rather than silent. The widest run in the
+    /// archive, measured 2026-09-24, is 4.8 C (the 294MC's 2021-12-12 darks, 26.0 to 30.8 C;
+    /// <see cref="CalibrationEpochs.TemperatureToleranceC"/>).
+    /// </remarks>
+    public static string DescribeRange(IReadOnlyList<FrameInfo> frames)
+    {
+        var min = float.PositiveInfinity;
+        var max = float.NegativeInfinity;
+        foreach (var frame in frames)
+        {
+            var t = frame.Meta.CCDTemperature;
+            if (!float.IsNaN(t))
+            {
+                min = MathF.Min(min, t);
+                max = MathF.Max(max, t);
+            }
+        }
+        return min > max
+            ? ""
+            : min == max
+                ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{min:0.0} C")
+                : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{min:0.0}..{max:0.0} C");
+    }
+
     /// <summary>The rounded median sensor temperature of <paramref name="frames"/>, or null when none
     /// carries one. What a SESSION is matched on: its first light alone can sit a degree off the
     /// rest (a cooler still settling), and one frame's reading then decided the dark for the whole

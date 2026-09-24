@@ -1,7 +1,11 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -76,6 +80,75 @@ public static class MasterFrameBuilder
             extras["DATE-END"] = (end.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss", System.Globalization.CultureInfo.InvariantCulture), "Latest input frame (UTC)");
         }
         return extras;
+    }
+
+    /// <summary>The card a persisted master names its input set by (<see cref="InputSetFingerprint"/>),
+    /// so a cache can tell a master built from THESE frames from one built from others under the same
+    /// file name. The DSET prefix is historical (the dataset cache wrote it first) and stays, because
+    /// renaming it would invalidate every master already on disk.</summary>
+    public const string InputSetFingerprintCard = "DSETFPR";
+
+    /// <summary>The card holding how many frames went into a persisted master.</summary>
+    public const string InputCountCard = "DSETNIN";
+
+    /// <summary>
+    /// SHA-256 digest (first 16 hex chars) of the sorted input identities. Uses each frame's
+    /// path + DATE-OBS: a changed library (a night added/removed) changes the DATE-OBS set and
+    /// so the digest, while a pure re-run over the same files reproduces it exactly.
+    /// </summary>
+    /// <remarks>
+    /// Both master caches check it before trusting a file (<c>MasterCache</c> for the dataset,
+    /// <c>StackingPipeline.BuildMastersAsync</c> for <c>tianwen stack</c>). A master's file name says
+    /// which configuration it serves, never which frames built it: when calibration went from one
+    /// set per degree to one set per temperature run (#307 <c>#96</c>), a drifting run's master took
+    /// the name one degree's master already had, and a cache trusting the name served the old one.
+    /// </remarks>
+    public static string InputSetFingerprint(IReadOnlyList<FrameInfo> inputs)
+    {
+        var ids = inputs
+            .Select(f => $"{Path.GetFileName(f.Path)}|{f.Meta.ExposureStartTime.UtcDateTime:O}")
+            .OrderBy(s => s, StringComparer.Ordinal);
+        var sb = new StringBuilder();
+        foreach (var id in ids)
+        {
+            sb.Append(id).Append('\n');
+        }
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
+        return Convert.ToHexStringLower(hash)[..16];
+    }
+
+    /// <summary>Adds the input-set pair a cache checks a master by, on top of
+    /// <see cref="ProvenanceHeaders"/>.</summary>
+    public static void AddInputSetCards(Dictionary<string, (object Value, string Comment)> headers, string fingerprint, int count)
+    {
+        headers[InputSetFingerprintCard] = (fingerprint, "TianWen master input-set fingerprint");
+        headers[InputCountCard] = (count, "TianWen master input frame count");
+    }
+
+    /// <summary>
+    /// The input set a persisted master declares (<see cref="InputSetFingerprintCard"/> and
+    /// <see cref="InputCountCard"/>), or null for a file that states none, including every master
+    /// written before a cache stamped them, so such a file reads as a miss and is rebuilt.
+    /// </summary>
+    public static (string Fingerprint, int Count)? ReadInputSet(string masterPath)
+    {
+        try
+        {
+            using var fits = Image.OpenFitsHeader(masterPath);
+            var header = fits.ReadFirstImageHduHeaderOnly()?.Header;
+            // Asked as one question: a fingerprint that came back is proof the header did too, which
+            // is what the second read needed and used to assert.
+            if (header?.GetStringValue(InputSetFingerprintCard) is not { } fingerprint)
+            {
+                return null;
+            }
+            var count = header.GetIntValue(InputCountCard, -1);
+            return (fingerprint, count);
+        }
+        catch
+        {
+            return null; // unreadable / not a TianWen master -> treat as a miss, rebuild
+        }
     }
 
     /// <summary>Combines bias frames via per-pixel median. Bias has no
