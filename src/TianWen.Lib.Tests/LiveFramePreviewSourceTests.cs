@@ -17,8 +17,8 @@ namespace TianWen.Lib.Tests
     {
         private const float Max = 1000f;
 
-        // Mono float[,] image; px(x, y) gives the raw sample (0..Max). Image channel is [y, x] row-major.
-        private static Image MonoImage(int w, int h, Func<int, int, float> px, SensorType sensor = SensorType.Monochrome)
+        // Mono float[,] image; px(x, y) gives the raw sample (0..max). Image channel is [y, x] row-major.
+        private static Image MonoImage(int w, int h, Func<int, int, float> px, SensorType sensor = SensorType.Monochrome, float max = Max)
         {
             var ch = new float[h, w];
             for (var y = 0; y < h; y++)
@@ -32,7 +32,7 @@ namespace TianWen.Lib.Tests
             var meta = new ImageMeta("synth", DateTimeOffset.UtcNow, TimeSpan.FromSeconds(1),
                 FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
                 float.NaN, sensor, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
-            return new Image([ch], BitDepth.Float32, maxValue: Max, minValue: 0f, pedestal: 0f, imageMeta: meta);
+            return new Image([ch], BitDepth.Float32, maxValue: max, minValue: 0f, pedestal: 0f, imageMeta: meta);
         }
 
         // The same, as a single-plane Bayer mosaic: SensorType.RGGB names the CFA and the offsets carry
@@ -242,6 +242,56 @@ namespace TianWen.Lib.Tests
             var medians = cfa.ChannelStatistics.Select(hh => hh.Median ?? float.NaN).ToArray();
             medians[0].ShouldBeLessThan(medians[1]);
             medians[1].ShouldBeLessThan(medians[2]);
+        }
+
+        /// <summary>
+        /// The display histograms are taken when something READS them, which a hidden overlay never
+        /// does, so an exposure accepted with nobody asking allocates no bins. Taken per exposure they
+        /// were uint[peak + 1] a channel: 240 KB for this 60000-ADU frame, on every guide frame.
+        /// </summary>
+        [Fact]
+        public void An_exposure_nobody_reads_the_histograms_of_allocates_no_bins()
+        {
+            var src = new LiveFramePreviewSource();
+            var frame = MonoImage(256, 256, (x, y) => 1000f + (x * 7 + y * 13) % 500, max: 60000f);
+            src.AcceptFrame(frame, freezeStats: false); // allocates the planes
+            src.AcceptFrame(frame, freezeStats: false); // and the steady state after them
+
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            src.AcceptFrame(frame, freezeStats: false);
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+            TestContext.Current.TestOutputHelper?.WriteLine($"256x256 exposure at a 60000 ADU peak: {allocated:N0} bytes");
+            allocated.ShouldBeLessThan(16_384L,
+                $"an exposure takes its statistics over rented bins and its histograms not at all: {allocated:N0} bytes");
+        }
+
+        /// <summary>
+        /// Taken on first read, the histograms must still describe the exposure they are read after, and
+        /// new statistics must be a NEW array: the renderer takes new bins when the array changes and, for
+        /// the same one, re-bins the pixels of whatever frame is showing, which is what a frozen feed
+        /// (polar alignment) relies on.
+        /// </summary>
+        [Fact]
+        public void The_histograms_read_after_an_exposure_are_that_exposures()
+        {
+            var src = new LiveFramePreviewSource();
+            src.AcceptFrame(MonoImage(64, 64, (x, y) => x == 0 && y == 0 ? Max : 300f), freezeStats: false);
+            var first = src.ChannelStatistics;
+
+            src.AcceptFrame(MonoImage(64, 64, (x, y) => x == 0 && y == 0 ? Max : 700f), freezeStats: false);
+            var second = src.ChannelStatistics;
+
+            second.ShouldNotBeSameAs(first);
+            (second[0].Median ?? float.NaN).ShouldBeGreaterThan(first[0].Median ?? float.NaN,
+                "the second exposure's sky is brighter, and its histogram says so");
+            src.ChannelStatistics.ShouldBeSameAs(second, "read again with no exposure between, it is the same statistics");
+
+            // Frozen: the edge takes one set of statistics, and frames after it keep that set.
+            src.AcceptFrame(MonoImage(64, 64, (x, y) => 500f), freezeStats: true);
+            var frozen = src.ChannelStatistics;
+            src.AcceptFrame(MonoImage(64, 64, (x, y) => 900f), freezeStats: true);
+            src.ChannelStatistics.ShouldBeSameAs(frozen);
         }
 
         [Fact]

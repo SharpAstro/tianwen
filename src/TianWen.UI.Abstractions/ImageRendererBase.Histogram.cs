@@ -56,6 +56,14 @@ namespace TianWen.UI.Abstractions
 
         private void RenderHistogram(IPreviewSource source, ViewerState state)
         {
+            // Taken here, the first time the overlay is drawn after an upload, rather than at the upload:
+            // see UploadDocumentTexturesCore. Hidden, the source is never asked.
+            if (_histogramUploadPending)
+            {
+                _histogramUploadPending = false;
+                UploadHistogramData(source);
+            }
+
             if (GetHistogramDisplay() is not { ChannelCount: > 0 } histogramDisplay)
             {
                 return;

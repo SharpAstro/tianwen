@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.UI.Abstractions
@@ -33,19 +34,26 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public sealed class LiveFramePreviewSource : IPreviewSource
     {
-        // Owned, [0,1]-normalised per-channel buffers (channel-major, each height*width row-major). Reallocated
-        // only when the frame geometry changes. Read on the render thread in GetChannelData; written in
-        // AcceptFrame on the same (render) thread the consumer feeds frames from, so no cross-thread guard.
-        private float[][] _channels = [];
+        // Owned, [0,1]-normalised per-channel planes ([height, width], row-major). Reallocated only when the
+        // frame geometry changes. Read on the render thread in GetChannelData; written in AcceptFrame on the
+        // same (render) thread the consumer feeds frames from, so no cross-thread guard. PLANES rather than
+        // flat arrays so the display histograms can be taken over them after the frame itself has gone
+        // back to the camera (see ChannelStatistics).
+        private float[][,] _planes = [];
         private int _width;
         private int _height;
         private int _channelCount;
         private SensorType _sensorType = SensorType.Monochrome;
         private int _bayerOffsetX;
         private int _bayerOffsetY;
+        // The frame's metadata, for the view the display histograms are taken over: its sensor type and
+        // Bayer offsets decide the channel rule there exactly as they did on the frame.
+        private ImageMeta _meta;
+        private int _statsStride = 1;
 
         private ChannelStretchStats[] _stats = [];
-        private ImageHistogram[] _histograms = [];
+        // The display histograms of the latest statistics, taken on FIRST READ; null until then.
+        private ImageHistogram[]? _histograms;
 
         // Background level (= the subsampled pedestal) the post-stretch background math reads. Sized to the
         // channel count (min 1) so the renderer's per-channel ComputePostStretchBackground never indexes past
@@ -80,18 +88,41 @@ namespace TianWen.UI.Abstractions
 
         /// <inheritdoc/>
         public ReadOnlySpan<float> GetChannelData(int channel)
-            => (uint)channel < (uint)_channels.Length ? _channels[channel] : default;
+            => (uint)channel < (uint)_planes.Length ? PlaneSpan(_planes[channel]) : default;
+
+        private static Span<float> PlaneSpan(float[,] plane)
+            => plane.Length > 0 ? MemoryMarshal.CreateSpan(ref plane[0, 0], plane.Length) : default;
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Three for a Bayer mosaic, one per plane otherwise -- the channel rule lives in
+        /// <para>Three for a Bayer mosaic, one per plane otherwise -- the channel rule lives in
         /// <see cref="StretchSolver.CollectChannelHistograms"/> and nowhere else. These used to be empty,
         /// which made <c>UploadHistogramData</c> a no-op and left <c>V</c> dead in the GUI's live session
         /// and guider previews: a chromeless host draws no toolbar, but the histogram overlay is gated on
         /// <see cref="ViewerState.ShowHistogram"/> alone, so there was nothing to draw rather than
-        /// nowhere to draw it.
+        /// nowhere to draw it.</para>
+        /// <para><b>Taken on first read, not per exposure.</b> Both live hosts start with the overlay
+        /// hidden and the renderer asks only once it is drawn, so an exposure nobody looks at the
+        /// histogram of costs no histogram pass and no bins: 256 KB a channel for a 16-bit sensor, which
+        /// was every guide frame. They are taken over the normalised planes, the frame's own pixels over
+        /// [0, 1], so they draw the same picture a histogram of the raw frame does, at a fixed 65536 bins
+        /// that also keep the renderer's display one size from exposure to exposure. A new array per
+        /// statistics refresh, never one filled again: an <see cref="ImageHistogram"/> is immutable.</para>
         /// </remarks>
-        public ImageHistogram[] ChannelStatistics => _histograms;
+        public ImageHistogram[] ChannelStatistics => _histograms ??= CollectDisplayHistograms();
+
+        private ImageHistogram[] CollectDisplayHistograms()
+        {
+            if (_planes.Length == 0 || _width == 0 || _height == 0)
+            {
+                return [];
+            }
+
+            // A view over the planes, which it neither copies nor owns: [0, 1] Float32, so the histogram
+            // bins it at the unit scale.
+            var view = new Image(_planes, BitDepth.Float32, maxValue: 1f, minValue: 0f, pedestal: 0f, imageMeta: _meta);
+            return StretchSolver.CollectChannelHistograms(view, _statsStride);
+        }
 
         /// <inheritdoc/>
         public float[] PerChannelBackground => _perChannelBg;
@@ -186,14 +217,13 @@ namespace TianWen.UI.Abstractions
                 sensorType = meta.SensorType;
             }
 
-            var n = w * h;
-            var geometryChanged = _width != w || _height != h || _channelCount != channelCount || _channels.Length != channelCount;
+            var geometryChanged = _width != w || _height != h || _channelCount != channelCount || _planes.Length != channelCount;
             if (geometryChanged)
             {
-                _channels = new float[channelCount][];
+                _planes = new float[channelCount][,];
                 for (var c = 0; c < channelCount; c++)
                 {
-                    _channels[c] = new float[n];
+                    _planes[c] = new float[h, w];
                 }
                 _hasStats = false; // dims changed -> stats are stale
             }
@@ -204,6 +234,7 @@ namespace TianWen.UI.Abstractions
             _sensorType = sensorType;
             _bayerOffsetX = bayerX;
             _bayerOffsetY = bayerY;
+            _meta = meta;
 
             // Normalise raw [0, MaxValue] samples to [0, 1] so the display path (and the linear None mode) is
             // correct regardless of stretch mode -- the [0,1] convention every other IPreviewSource follows.
@@ -212,7 +243,7 @@ namespace TianWen.UI.Abstractions
             for (var c = 0; c < channelCount; c++)
             {
                 var src = image.GetChannelSpan(c);
-                var dst = _channels[c];
+                var dst = PlaneSpan(_planes[c]);
                 var count = Math.Min(src.Length, dst.Length);
                 for (var i = 0; i < count; i++)
                 {
@@ -238,15 +269,15 @@ namespace TianWen.UI.Abstractions
                 // (both its phases) and blue together visit what one scan at this stride visits.
                 var pixels = (long)w * h;
                 var stride = pixels > StatsSampleTarget ? (int)Math.Sqrt((double)pixels / StatsSampleTarget) : 1;
+                _statsStride = stride;
 
                 _stats = StretchSolver.CollectPerChannelStats(image, channelCount, stride);
 
-                // The histograms the overlay draws (V). Kept rather than discarded: the median and MAD
-                // above are DERIVED from a histogram of the same pixels, so the marginal cost of having
-                // one to draw is the retention, not the work -- and this path is per EXPOSURE (the live
-                // session and the guider), never per video frame. The planetary preview is a different
-                // source (LiveStackPreviewSource, document-backed) and is unaffected.
-                _histograms = StretchSolver.CollectChannelHistograms(image, stride);
+                // The histograms the overlay draws (V) are NOT taken here: they are taken over the planes
+                // on first read (ChannelStatistics), at this same stride, and dropping them is what makes
+                // the next read describe this exposure. Taken here, every exposure paid a histogram pass
+                // and a set of bins that only an open overlay ever looked at.
+                _histograms = null;
 
                 // The pedestal is the background estimate the post-stretch background math reads. Sized to
                 // the STAT count, which is the channel count except on a mosaic, so the renderer's

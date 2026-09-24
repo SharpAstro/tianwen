@@ -19,6 +19,9 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
     private readonly VkFitsImagePipeline _fitsPipeline;
 
     private HistogramDisplay? _histogramDisplay;
+    // The statistics the display last took, by REFERENCE: a new array is new statistics (take its bins),
+    // the same one again is a sequence playing on top of one frame's statistics (re-bin the pixels).
+    private ImageHistogram[]? _histogramStatistics;
     private StretchMode? _histogramLastStretchMode;
     private float _histogramLastNormFactor;
 
@@ -190,16 +193,22 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
     {
         var stats = source.ChannelStatistics;
         var channels = Math.Min(stats.Length, 3);
-        var rawBins = channels > 0 ? stats[0].Histogram.Length : 0;
 
-        // Recycle to avoid per-frame GC pressure: only (re)allocate when the geometry changes (a new
-        // file with different channel/bin counts). For a multi-frame sequence, refresh the existing
-        // display's raw bins IN PLACE from the current frame so the histogram tracks playback while the
-        // cached stretch stats stay fixed -- per-frame-accurate, zero allocation. A still image keeps
-        // its frame-0 bins (re-binning the same pixels would be wasted work).
-        if (_histogramDisplay is null || _histogramDisplay.ChannelCount != channels || _histogramDisplay.RawBinCount != rawBins)
+        // Recycle to avoid per-frame GC pressure: only allocate when the channel count changes. NEW
+        // statistics for the same channels -- a live feed's next exposure, the next file -- are taken in
+        // place, whatever their bin count (HistogramDisplay.Refresh grows its buffer only past the widest
+        // yet); this used to rebuild the display whenever the bin count moved, which for a raw frame is
+        // every time its peak does. For a multi-frame sequence, whose statistics stay those of one frame,
+        // refresh the existing display's raw bins IN PLACE from the current frame so the histogram tracks
+        // playback while the cached stretch stats stay fixed -- per-frame-accurate, zero allocation. A
+        // still image keeps its frame-0 bins (re-binning the same pixels would be wasted work).
+        if (_histogramDisplay is null || _histogramDisplay.ChannelCount != channels)
         {
             _histogramDisplay = new HistogramDisplay(stats);
+        }
+        else if (!ReferenceEquals(stats, _histogramStatistics))
+        {
+            _histogramDisplay.Refresh(stats);
         }
         else if (source.FrameCount > 1 && !IsCfaMosaicSource(source))
         {
@@ -210,6 +219,7 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
             }
         }
 
+        _histogramStatistics = stats;
         _histogramLastStretchMode = null; // force re-upload on next render
     }
 
