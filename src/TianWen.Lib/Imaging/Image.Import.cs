@@ -86,6 +86,16 @@ public partial class Image
     /// (drizzle-friendly, the mosaic is preserved for stacking workflows
     /// that need it).</summary>
     private static bool TryReadCanonRaw(string fileName, [NotNullWhen(true)] out Image? image)
+        => TryReadCanonRaw(fileName, planeFor: null, out image);
+
+    /// <summary>
+    /// <see cref="TryReadCanonRaw(string, out Image?)"/> into the plane <paramref name="planeFor"/> hands out
+    /// for the active area's height and width: the Canon driver's recycled plane, so a sub's
+    /// plane is not a new one each time (120 MB on a 30 MP body). Every pixel of it is written. The image
+    /// carries the plane as its own, with no buffer: attaching the recycling buffer is the caller's, since
+    /// the caller is who hands the frame on.
+    /// </summary>
+    internal static bool TryReadCanonRaw(string fileName, Func<int, int, float[,]>? planeFor, [NotNullWhen(true)] out Image? image)
     {
         try
         {
@@ -128,7 +138,7 @@ public partial class Image
             // margin sits at the black level and black-subtract takes it to ~0 -- but the frame we
             // keep and the frame we measure should not be two different frames.) For daylight WB the
             // peak lands around 2.0 on the R channel; narrow-band or extreme WB pushes higher.
-            var channel = new float[area.Height, area.Width];
+            var channel = planeFor?.Invoke(area.Height, area.Width) ?? new float[area.Height, area.Width];
             var max = 0f;
             for (var y = 0; y < area.Height; y++)
             {
