@@ -1600,7 +1600,10 @@ TianWen.UI.Shared's shaders are GLSL 450 files under `src/TianWen.UI.Shared/Shad
 `tools/BakeShaders`; there is **no runtime shaderc** (SdlVulkan.Renderer 6.23 dropped
 `Vortice.ShaderCompiler`; shaderc ships no android RID). Two rules: **edit a shader → re-bake → commit
 the `.spv`** (`dotnet run --project tools/BakeShaders -c Release -- src/TianWen.UI.Shared/Shaders`;
-**warning TWSH0001** flags a source newer than its `.spv` and never fails); **ASCII only**, shaderc's
+**warning TWSH0001** flags a source newer than its `.spv` by more than `StaleBakeToleranceSeconds` (60,
+since a fresh checkout writes a source a few ms after its `.spv`) or a missing `.spv`, names the shader,
+and never fails; nothing in CI checks the `.spv`, so it is their only guard; TWIC0001 is its twin for
+both icon recipes); **ASCII only**, shaderc's
 lexer rejects non-ASCII bytes even inside comments. The `stereoProject` GLSL is inlined into the three
 `skymap_*.vert` files; restoring a single source is a deferred cleanup (#634).
 

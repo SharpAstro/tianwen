@@ -5,8 +5,11 @@
 .DESCRIPTION
     The manifest is DATA, not this script: see src/TianWen.UI.Abstractions/icons.recipe, which carries
     the font, the output path, the namespace and the glyph list with a note on what each is for. Keeping
-    it out of here is what lets the build watch it (warning TWIC0001 fires when the recipe is newer than
-    the generated table) and what would let a generator read the same file later.
+    it out of here is what lets the build watch it (warning TWIC0001 fires when a recipe is newer than
+    its generated table by more than a 60 s tolerance, or the table is missing; the tolerance absorbs the
+    few milliseconds a git checkout leaves between the two, and each IconRecipe item in
+    TianWen.UI.Abstractions.csproj names its table) and what would let a generator read the same file
+    later.
 
     The baking itself is DIR.Lib.IconBaker, run via `dnx` straight from nuget.org, so there is nothing to
     build first and no copy of the generator in this repo.
