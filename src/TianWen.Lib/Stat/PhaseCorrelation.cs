@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Numerics;
 
 namespace TianWen.Lib.Stat;
@@ -77,6 +78,16 @@ public static class PhaseCorrelation
     /// <paramref name="applyWindow"/> must match the value used to build <paramref name="referenceSpectrum"/>.
     /// </summary>
     public static Shift Estimate(ReadOnlySpan<Complex> referenceSpectrum, ReadOnlySpan<float> moving, int width, int height, bool applyWindow = true)
+        => Estimate(referenceSpectrum, moving, width, height, new Complex[width * height], applyWindow);
+
+    /// <summary>
+    /// <see cref="Estimate(ReadOnlySpan{Complex}, ReadOnlySpan{float}, int, int, bool)"/> into caller-owned
+    /// <paramref name="scratch"/> of <c>width * height</c> samples, which is overwritten: the call then
+    /// allocates nothing. For a caller that correlates tile after tile, such as the planetary aligners,
+    /// where a new spectrum per call was 1 MB of large-object garbage per frame at a 256 px tile.
+    /// Numerically identical to the allocating overload.
+    /// </summary>
+    public static Shift Estimate(ReadOnlySpan<Complex> referenceSpectrum, ReadOnlySpan<float> moving, int width, int height, Span<Complex> scratch, bool applyWindow = true)
     {
         ValidateTile(width, height);
         var n = width * height;
@@ -85,9 +96,14 @@ public static class PhaseCorrelation
             throw new ArgumentException($"referenceSpectrum/moving must both be {n} samples ({width}x{height}).");
         }
 
-        // Forward-transform the moving tile into per-call scratch; the cross-power spectrum then overwrites
-        // it (the cached reference spectrum is never mutated).
-        var f2 = new Complex[n];
+        if (scratch.Length < n)
+        {
+            throw new ArgumentException($"scratch must hold at least {n} samples ({width}x{height}).", nameof(scratch));
+        }
+
+        // Forward-transform the moving tile into the scratch; the cross-power spectrum then overwrites it (the
+        // cached reference spectrum is never mutated).
+        var f2 = scratch[..n];
         FillWindowed(moving, f2, width, height, applyWindow);
         Fft2D.Forward(f2, width, height);
 
@@ -107,13 +123,14 @@ public static class PhaseCorrelation
     // Windows (or copies) a real tile into a complex buffer. The window multiply keeps the original
     // operation order -- w = wx*wy first, then src*w -- so the precomputed-reference path is bit-identical
     // to the single-call path (float multiply is not associative).
-    private static void FillWindowed(ReadOnlySpan<float> src, Complex[] dst, int width, int height, bool applyWindow)
+    private static void FillWindowed(ReadOnlySpan<float> src, Span<Complex> dst, int width, int height, bool applyWindow)
     {
         if (applyWindow)
         {
-            // Separable Hann window, precomputed per axis.
-            var wx = HannWindow(width);
-            var wy = HannWindow(height);
+            // Separable Hann window, per axis, built once per length and shared: the values are a pure
+            // function of the length, so a cached window is the very array a fresh one would be.
+            var wx = HannWindows.GetOrAdd(width, MakeHannWindow);
+            var wy = HannWindows.GetOrAdd(height, MakeHannWindow);
             for (var y = 0; y < height; y++)
             {
                 for (var x = 0; x < width; x++)
@@ -134,7 +151,7 @@ public static class PhaseCorrelation
     }
 
     // Locates the correlation peak on the inverse-transformed surface and refines it to sub-pixel.
-    private static Shift PeakShift(Complex[] surface, int width, int height)
+    private static Shift PeakShift(ReadOnlySpan<Complex> surface, int width, int height)
     {
         var n = width * height;
 
@@ -180,6 +197,16 @@ public static class PhaseCorrelation
             throw new ArgumentException($"Phase correlation tile dimensions must each be a power of two, got {width}x{height}.");
         }
     }
+
+    /// <summary>
+    /// Hann windows by length, read-only once built. Written once per distinct tile size a process uses
+    /// (two or three in practice) and read on every correlation, which is the shape a lock-free
+    /// <see cref="ConcurrentDictionary{TKey, TValue}"/> is for. Two per call used to be allocated fresh.
+    /// </summary>
+    private static readonly ConcurrentDictionary<int, double[]> HannWindows = new();
+
+    // A cached delegate, so GetOrAdd does not allocate one per call.
+    private static readonly Func<int, double[]> MakeHannWindow = HannWindow;
 
     private static double[] HannWindow(int length)
     {

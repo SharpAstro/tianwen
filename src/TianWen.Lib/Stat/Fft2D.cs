@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Numerics;
 
 namespace TianWen.Lib.Stat;
@@ -12,15 +13,35 @@ namespace TianWen.Lib.Stat;
 /// </summary>
 public static class Fft2D
 {
+    /// <summary>
+    /// Columns up to this many samples are gathered into stack scratch (16 bytes each, so 8 KB); a longer
+    /// column rents from the shared pool. Either way a transform allocates nothing, which matters because
+    /// the planetary aligners run two transforms per frame per tile.
+    /// </summary>
+    private const int MaxStackColumn = 512;
+
     /// <summary>Unnormalised forward 2D FFT, in place.</summary>
-    public static void Forward(Complex[] data, int width, int height) => RowColumn(data, width, height, inverse: false);
-
-    /// <summary>Inverse 2D FFT (normalised by <c>width * height</c>), in place.</summary>
-    public static void Inverse(Complex[] data, int width, int height) => RowColumn(data, width, height, inverse: true);
-
-    private static void RowColumn(Complex[] data, int width, int height, bool inverse)
+    public static void Forward(Complex[] data, int width, int height)
     {
         ArgumentNullException.ThrowIfNull(data);
+        RowColumn(data, width, height, inverse: false);
+    }
+
+    /// <summary>Inverse 2D FFT (normalised by <c>width * height</c>), in place.</summary>
+    public static void Inverse(Complex[] data, int width, int height)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        RowColumn(data, width, height, inverse: true);
+    }
+
+    /// <summary>Unnormalised forward 2D FFT over a span (rented or stack scratch), in place.</summary>
+    public static void Forward(Span<Complex> data, int width, int height) => RowColumn(data, width, height, inverse: false);
+
+    /// <summary>Inverse 2D FFT (normalised by <c>width * height</c>) over a span, in place.</summary>
+    public static void Inverse(Span<Complex> data, int width, int height) => RowColumn(data, width, height, inverse: true);
+
+    private static void RowColumn(Span<Complex> data, int width, int height, bool inverse)
+    {
         if (!ComplexFft.IsPowerOfTwo(width) || !ComplexFft.IsPowerOfTwo(height))
         {
             throw new ArgumentException($"FFT dimensions must each be a power of two, got {width}x{height}.");
@@ -34,7 +55,7 @@ public static class Fft2D
         // Rows.
         for (var y = 0; y < height; y++)
         {
-            var row = data.AsSpan(y * width, width);
+            var row = data.Slice(y * width, width);
             if (inverse)
             {
                 ComplexFft.Inverse(row);
@@ -45,28 +66,41 @@ public static class Fft2D
             }
         }
 
-        // Columns (gathered into a contiguous scratch buffer, since they are strided in the array).
-        var col = new Complex[height];
-        for (var x = 0; x < width; x++)
+        // Columns (gathered into a contiguous scratch buffer, since they are strided in the array). It used to
+        // be a new array per transform.
+        Complex[]? rented = null;
+        var col = height <= MaxStackColumn
+            ? stackalloc Complex[height]
+            : (rented = ArrayPool<Complex>.Shared.Rent(height)).AsSpan(0, height);
+        try
         {
-            for (var y = 0; y < height; y++)
+            for (var x = 0; x < width; x++)
             {
-                col[y] = data[(y * width) + x];
-            }
+                for (var y = 0; y < height; y++)
+                {
+                    col[y] = data[(y * width) + x];
+                }
 
-            var span = col.AsSpan();
-            if (inverse)
-            {
-                ComplexFft.Inverse(span);
-            }
-            else
-            {
-                ComplexFft.Forward(span);
-            }
+                if (inverse)
+                {
+                    ComplexFft.Inverse(col);
+                }
+                else
+                {
+                    ComplexFft.Forward(col);
+                }
 
-            for (var y = 0; y < height; y++)
+                for (var y = 0; y < height; y++)
+                {
+                    data[(y * width) + x] = col[y];
+                }
+            }
+        }
+        finally
+        {
+            if (rented is not null)
             {
-                data[(y * width) + x] = col[y];
+                ArrayPool<Complex>.Shared.Return(rented);
             }
         }
     }

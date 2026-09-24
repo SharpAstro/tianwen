@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Numerics;
 using TianWen.Lib.Geometry;
 using TianWen.Lib.Stat;
 
@@ -11,6 +12,12 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// the frame patch at the globally-predicted location; the residual is the local seeing distortion the
 /// whole-disk global shift missed at that point. The sparse residual field is interpolated to a per-pixel
 /// mesh. Matching runs on the luminance proxy, so the one mesh co-registers all CFA sub-planes.
+/// <para><b>Each reference patch is transformed ONCE</b>, here, not per frame: the reference is fixed, so
+/// its Hann-windowed spectrum is too, and re-transforming it for every point of every frame was one of the
+/// three FFTs a match paid for (numerically identical, pinned by
+/// <c>Precomputed_reference_spectrum_matches_single_call_exactly</c>). <b>One <see cref="BuildMesh"/> at a
+/// time per instance</b>, because the frame patch and its spectrum are per-instance scratch; together those
+/// were two new 16 KB spectra per point per frame at a 32 px patch.</para>
 /// </summary>
 public sealed class AlignmentPointMatcher
 {
@@ -18,15 +25,19 @@ public sealed class AlignmentPointMatcher
     private readonly int _width;
     private readonly int _height;
     private readonly ImmutableArray<PixelPoint> _apCenters;
-    private readonly float[][] _referencePatches;
+    private readonly Complex[][] _referenceSpectra;
+    private readonly float[] _patch;
+    private readonly Complex[] _spectrumScratch;
 
-    private AlignmentPointMatcher(int patchSize, int width, int height, ImmutableArray<PixelPoint> apCenters, float[][] referencePatches)
+    private AlignmentPointMatcher(int patchSize, int width, int height, ImmutableArray<PixelPoint> apCenters, Complex[][] referenceSpectra)
     {
         _patchSize = patchSize;
         _width = width;
         _height = height;
         _apCenters = apCenters;
-        _referencePatches = referencePatches;
+        _referenceSpectra = referenceSpectra;
+        _patch = new float[patchSize * patchSize];
+        _spectrumScratch = new Complex[patchSize * patchSize];
     }
 
     /// <summary>The alignment-point centres being tracked (reference-frame coordinates).</summary>
@@ -44,16 +55,16 @@ public sealed class AlignmentPointMatcher
             throw new ArgumentException($"patchSize must be a power of two, got {patchSize}.", nameof(patchSize));
         }
 
-        var patches = new float[apCenters.Length][];
+        var spectra = new Complex[apCenters.Length][];
+        var patch = new float[patchSize * patchSize];
         for (var i = 0; i < apCenters.Length; i++)
         {
             var p = apCenters[i];
-            var patch = new float[patchSize * patchSize];
             PlanetaryTile.ExtractLuma(reference, p.X, p.Y, patchSize, patch);
-            patches[i] = patch;
+            spectra[i] = PhaseCorrelation.PrepareReferenceSpectrum(patch, patchSize, patchSize, applyWindow: true);
         }
 
-        return new AlignmentPointMatcher(patchSize, reference.Width, reference.Height, apCenters, patches);
+        return new AlignmentPointMatcher(patchSize, reference.Width, reference.Height, apCenters, spectra);
     }
 
     /// <summary>
@@ -71,12 +82,12 @@ public sealed class AlignmentPointMatcher
         var rgy = MathF.Round(globalDy);
 
         var shifts = _apCenters.Length == 0 ? [] : new AlignmentPointShift[_apCenters.Length];
-        var patch = new float[_patchSize * _patchSize];
         for (var i = 0; i < _apCenters.Length; i++)
         {
             var p = _apCenters[i];
-            PlanetaryTile.ExtractLuma(frame, p.X + rgx, p.Y + rgy, _patchSize, patch);
-            var residual = PhaseCorrelation.Estimate(_referencePatches[i], patch, _patchSize, _patchSize, applyWindow: true);
+            // ExtractLuma writes every sample, so the reused patch carries nothing from the last point.
+            PlanetaryTile.ExtractLuma(frame, p.X + rgx, p.Y + rgy, _patchSize, _patch);
+            var residual = PhaseCorrelation.Estimate(_referenceSpectra[i], _patch, _patchSize, _patchSize, _spectrumScratch, applyWindow: true);
             shifts[i] = new AlignmentPointShift(p.X, p.Y, (float)residual.Dx, (float)residual.Dy);
         }
 
