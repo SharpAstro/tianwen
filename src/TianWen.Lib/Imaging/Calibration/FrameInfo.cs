@@ -35,6 +35,20 @@ public sealed record FrameInfo(
     /// <summary>Convenience accessor: <c>Meta.FrameType</c>.</summary>
     public FrameType FrameType => Meta.FrameType;
 
+    /// <summary>
+    /// A copy of this file on a faster disk that the pixels are READ from, or null to read
+    /// <see cref="Path"/> itself (<c>SessionStager</c>, the dataset bake's scratch staging).
+    /// </summary>
+    /// <remarks>
+    /// Only the read is redirected. <see cref="Path"/> stays the archive file, because it is the
+    /// frame's identity: session ids, ledgers, fingerprints, manifests and every store name the frame
+    /// by it, and a staged copy lives in a scratch directory that is deleted when its session ends.
+    /// </remarks>
+    public string? StagedPath { get; init; }
+
+    /// <summary>The file the pixels are read from: the staged copy when there is one.</summary>
+    public string ReadPath => StagedPath ?? Path;
+
     /// <summary>Convenience accessor: <c>Meta.IsMaster</c>: this frame is an already-integrated
     /// MASTER calibration frame (e.g. IMAGETYP=MASTERDARK), not a raw sub. Its <see cref="FrameType"/>
     /// still reports the underlying type (Dark / Flat / Bias).</summary>
@@ -69,9 +83,11 @@ public sealed record FrameInfo(
     public Task<Image> LoadFullAsync(bool pooled, CancellationToken cancellationToken = default)
         => Task.Run(() =>
         {
-            if (!Image.TryReadFitsFile(Path, out var image, out _, pooled))
+            if (!Image.TryReadFitsFile(ReadPath, out var image, out _, pooled))
             {
-                throw new IOException($"Failed to read FITS file: {Path}");
+                throw new IOException(StagedPath is null
+                    ? $"Failed to read FITS file: {Path}"
+                    : $"Failed to read FITS file: {Path} (staged as {StagedPath})");
             }
             return image;
         }, cancellationToken);

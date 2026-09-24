@@ -722,6 +722,11 @@ byte-identical, the integration of everything 2.2 minutes against 4.7 + 6.0, the
 against 27.2, and back to its 11.5 before the clip existed. Export (3.0 minutes, 8,700 tiles) is now
 the largest stage.
 
+**Also added the same day: session staging** (`SessionStager`, on by default, `--no-stage-lights`):
+the next session's lights are copied onto the scratch volume while the current one bakes, so its
+several passes read a local copy. Only the read is redirected (`FrameInfo.StagedPath`); every record
+still names the archive file.
+
 ### Some dark-flats are recorded as `IMAGETYP='DARK'`
 
 On the reference archive, 2,220 dark-flat frames sit in a `DARKFLAT` folder while their header says

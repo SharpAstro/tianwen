@@ -271,10 +271,20 @@ public static class DatasetBuildRunner
         // 72.9% unaccounted, all of it the resume checks below, and that is exactly the reading the
         // unaccounted line exists to make possible.
         var overhead = new StageTimings();
-        foreach (var session in sessions)
+        // Each session's lights copied onto the scratch volume while the one before it baked
+        // (SessionStager), beside _scratch rather than in it, since _scratch is wiped after every
+        // session. A session a resume will skip reads nothing, so it is not worth a copy.
+        await using var stager = options.StageLights
+            ? new SessionStager(
+                Path.Combine(string.IsNullOrWhiteSpace(options.ScratchRoot) ? outDir : options.ScratchRoot, "_stage"),
+                s => !(options.Resume && priorTiles.ContainsKey(s.Id)),
+                logger)
+            : null;
+        foreach (var listed in sessions)
         {
             cancellationToken.ThrowIfCancellationRequested();
             idx++;
+            var session = stager is null ? listed : await stager.EnterAsync(sessions, idx - 1, cancellationToken);
 
             // Resume decides per ARTIFACT, not per session: tiles and the PSF record are checkpointed
             // separately, so a session can legitimately need one and not the other.
