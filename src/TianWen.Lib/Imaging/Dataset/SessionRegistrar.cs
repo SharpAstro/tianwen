@@ -917,7 +917,46 @@ public static class SessionRegistrar
         }
 
         var all = Enumerable.Range(0, subsList.Length).ToImmutableArray();
+        // Per strategy unless the caller insists: the drizzled floor answers R/B coverage and the
+        // rejected one answers rejection strength, so one number would be wrong for one of them.
+        var halfMasterFloor = minSubsForHalfMasters ?? MinSubsForHalfMasters(useDrizzle);
+        var (sideOne, sideTwo) = SplitByFieldRotation(subsList);
+        var sidesDue = sideOne.Length >= minSubs && sideTwo.Length >= minSubs;
         var integrateStart = StageTimings.Start();
+
+        // A drizzled session builds every integration it needs (the master, its halves, each pier side
+        // and ITS halves) in ONE fused run: every raw light is loaded and calibrated twice in all,
+        // instead of twice per integration, up to nine integrations on a flipped session. Each result is
+        // bit-identical to the integration IntegrateSubsetAsync would have run on its own
+        // (DrizzleStrategy.RunSubsetsAsync), so the calls below are unchanged and take theirs from here.
+        // So for a drizzled session the Integrate stage covers the halves and the sides too, and Halves
+        // is not recorded (StageNames).
+        Dictionary<string, (ImmutableArray<int> Pick, IntegrationResult Result)>? fused = null;
+        if (useDrizzle)
+        {
+            var plan = new List<(string Name, ImmutableArray<int> Pick)> { ("_integrate", all) };
+            if (subsList.Length >= halfMasterFloor)
+            {
+                plan.Add(("_half_a", [.. all.Where(i => i % 2 == 0)]));
+                plan.Add(("_half_b", [.. all.Where(i => i % 2 == 1)]));
+            }
+
+            if (sidesDue)
+            {
+                foreach (var (label, pick) in new[] { (FlipSideFirst, sideOne), (FlipSideSecond, sideTwo) })
+                {
+                    plan.Add(($"_flip_{label}", pick));
+                    if (pick.Length >= halfMasterFloor)
+                    {
+                        plan.Add(($"_flip_{label}_half_a", [.. pick.Where((_, k) => k % 2 == 0)]));
+                        plan.Add(($"_flip_{label}_half_b", [.. pick.Where((_, k) => k % 2 == 1)]));
+                    }
+                }
+            }
+
+            fused = await FusedDrizzleAsync(plan);
+        }
+
         var integration = await IntegrateSubsetAsync(all, "_integrate");
         var master = integration.Master;
         timings?.Record(StageNames.Integrate, integrateStart, subsList.Length, (long)subsList.Length * canvasW * canvasH);
@@ -949,9 +988,6 @@ public static class SessionRegistrar
         //     to remove.
         Image? halfA = null;
         Image? halfB = null;
-        // Per strategy unless the caller insists: the drizzled floor answers R/B coverage and the
-        // rejected one answers rejection strength, so one number would be wrong for one of them.
-        var halfMasterFloor = minSubsForHalfMasters ?? MinSubsForHalfMasters(useDrizzle);
         if (subsList.Length >= halfMasterFloor)
         {
             // Both halves record into ONE stage, and between them they cover every sub exactly once,
@@ -962,7 +998,10 @@ public static class SessionRegistrar
                 all.Where(i => i % 2 == 0).ToImmutableArray(), "_half_a")).Master;
             halfB = (await IntegrateSubsetAsync(
                 all.Where(i => i % 2 == 1).ToImmutableArray(), "_half_b")).Master;
-            timings?.Record(StageNames.Halves, halvesStart, subsList.Length, (long)subsList.Length * canvasW * canvasH);
+            if (fused is null)
+            {
+                timings?.Record(StageNames.Halves, halvesStart, subsList.Length, (long)subsList.Length * canvasW * canvasH);
+            }
             logger?.LogInformation(
                 "  [{Session}] half-master pair integrated ({A} + {B} frames)",
                 session.Id, (subsList.Length + 1) / 2, subsList.Length / 2);
@@ -992,8 +1031,7 @@ public static class SessionRegistrar
         //     reverses in sensor coordinates across the flip, and each covers its own canvas more
         //     fully, so its stats rect is larger and the tiler gets more usable cells out of it.
         var sides = ImmutableArray<RegisteredSession>.Empty;
-        var (sideOne, sideTwo) = SplitByFieldRotation(subsList);
-        if (sideOne.Length >= minSubs && sideTwo.Length >= minSubs)
+        if (sidesDue)
         {
             logger?.LogInformation(
                 "  [{Session}] field rotation splits it {First}/{Second} subs (meridian flip); integrating each side as its own master",
@@ -1051,6 +1089,18 @@ public static class SessionRegistrar
 
         async Task<IntegrationResult> IntegrateSubsetAsync(ImmutableArray<int> pick, string scratchName, PixelRect? subsetStatsRect = null)
         {
+            if (fused is not null && fused.Remove(scratchName, out var done))
+            {
+                // The plan and this call must name the same frames, or the fused run built a different
+                // integration from the one asked for here.
+                if (!done.Pick.SequenceEqual(pick))
+                {
+                    throw new InvalidOperationException(
+                        $"The fused drizzle planned {scratchName} over other frames than it is asked for.");
+                }
+                return done.Result;
+            }
+
             var scratch = Path.Combine(sessionScratch, scratchName);
             var job = new IntegrationJob(
                 WarpedFrames: token => WarpedProducer(pick, token),
@@ -1076,6 +1126,57 @@ public static class SessionRegistrar
             return useDrizzle
                 ? await new DrizzleStrategy().RunAsync(job, cancellationToken)
                 : await new Float16StagedStrategy().RunAsync(job, cancellationToken);
+        }
+
+        // Runs a drizzle plan as few fused integrations as memory allows (DrizzleStrategy.RunSubsetsAsync),
+        // each streaming only the frames its targets use. A target holds six canvas planes of three
+        // channels (flux, weight and the four moment planes), so a 13 MP canvas costs about 0.9 GB each
+        // and the nine of a flipped session fit a quarter of any machine this bake runs on in one run;
+        // a smaller machine gets several runs instead of an out-of-memory.
+        async Task<Dictionary<string, (ImmutableArray<int> Pick, IntegrationResult Result)>> FusedDrizzleAsync(
+            List<(string Name, ImmutableArray<int> Pick)> plan)
+        {
+            var perTarget = 6L * 3 * canvasW * canvasH * sizeof(float);
+            var budget = Math.Max(perTarget, GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 4);
+            var perRun = (int)Math.Max(1, budget / perTarget);
+            var results = new Dictionary<string, (ImmutableArray<int> Pick, IntegrationResult Result)>(plan.Count);
+            for (var first = 0; first < plan.Count; first += perRun)
+            {
+                var run = plan.GetRange(first, Math.Min(perRun, plan.Count - first));
+                var union = run.SelectMany(p => p.Pick).Distinct().Order().ToImmutableArray();
+                var position = new Dictionary<int, int>(union.Length);
+                for (var k = 0; k < union.Length; k++)
+                {
+                    position[union[k]] = k;
+                }
+
+                var job = new IntegrationJob(
+                    WarpedFrames: token => WarpedProducer(union, token),
+                    ExpectedFrameCount: union.Length,
+                    Options: new IntegrationOptions(Rejector: StackingPipeline.BuildRejector(union.Length), ApplyNormalization: false)
+                    {
+                        DrizzleSkyReference = skyReference,
+                    },
+                    StagingDir: Path.Combine(sessionScratch, "_drizzle"),
+                    StatsRect: statsRect,
+                    FrameFootprints: [.. union.Select(i => footprints[i])],
+                    CanvasWidth: canvasW,
+                    CanvasHeight: canvasH,
+                    RawBayerFrames: token => RawBayerProducer(union, token),
+                    DrizzleOptions: new DrizzleOptions(),
+                    BadPixelMask: badPixelMask);
+                // Each target's own rejector, as IntegrateSubsetAsync builds it: the clip thresholds
+                // follow the target's frame count, so a half is not judged at the master's.
+                var subsets = run
+                    .Select(p => new DrizzleSubset([.. p.Pick.Select(i => position[i])], StackingPipeline.BuildRejector(p.Pick.Length)))
+                    .ToArray();
+                var built = await new DrizzleStrategy().RunSubsetsAsync(job, subsets, cancellationToken);
+                for (var k = 0; k < run.Count; k++)
+                {
+                    results[run[k].Name] = (run[k].Pick, built[k]);
+                }
+            }
+            return results;
         }
 
         async IAsyncEnumerable<Image> WarpedProducer(

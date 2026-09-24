@@ -1,5 +1,8 @@
 using System;
+using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 
 namespace TianWen.Lib.Imaging.Stacking;
 
@@ -112,6 +115,13 @@ internal sealed class DrizzleMoments
     /// difference between its mean and a covered neighbour's (left, right, up, down). A cell with no
     /// covered neighbour gets zero, which is no allowance at all.
     /// </summary>
+    /// <remarks>
+    /// Rows in parallel (each reads its neighbours' sums and writes only its own slope row) and columns
+    /// in SIMD lanes. Every lane does what the scalar edge loop does, with the same float divisions,
+    /// absolute differences and maxima, and an uncovered cell keeps whatever it held, so the plane is
+    /// bit-identical to the scalar one. A maximum is exact, so the order the neighbours are taken in
+    /// cannot change it.
+    /// </remarks>
     public void ComputeSlope()
     {
         for (var c = 0; c < Sum.Length; c++)
@@ -120,43 +130,101 @@ internal sealed class DrizzleMoments
             var weight = Weight[c];
             var slope = Slope[c];
             var h = sum.GetLength(0);
-            var w = sum.GetLength(1);
-            for (var y = 0; y < h; y++)
-            {
-                for (var x = 0; x < w; x++)
-                {
-                    var wc = weight[y, x];
-                    if (wc <= 0f)
-                    {
-                        continue;
-                    }
-
-                    var m = sum[y, x] / wc;
-                    var s = 0f;
-                    if (x > 0 && weight[y, x - 1] > 0f)
-                    {
-                        s = MathF.Max(s, MathF.Abs(sum[y, x - 1] / weight[y, x - 1] - m));
-                    }
-
-                    if (x < w - 1 && weight[y, x + 1] > 0f)
-                    {
-                        s = MathF.Max(s, MathF.Abs(sum[y, x + 1] / weight[y, x + 1] - m));
-                    }
-
-                    if (y > 0 && weight[y - 1, x] > 0f)
-                    {
-                        s = MathF.Max(s, MathF.Abs(sum[y - 1, x] / weight[y - 1, x] - m));
-                    }
-
-                    if (y < h - 1 && weight[y + 1, x] > 0f)
-                    {
-                        s = MathF.Max(s, MathF.Abs(sum[y + 1, x] / weight[y + 1, x] - m));
-                    }
-
-                    slope[y, x] = s;
-                }
-            }
+            Parallel.For(0, h, y => SlopeRow(sum, weight, slope, y));
         }
+    }
+
+    private static void SlopeRow(float[,] sum, float[,] weight, float[,] slope, int y)
+    {
+        var h = sum.GetLength(0);
+        var w = sum.GetLength(1);
+        var x = 0;
+
+        // Interior columns in lanes: every lane there has both a left and a right neighbour.
+        if (Vector.IsHardwareAccelerated && w >= Vector<float>.Count + 2)
+        {
+            var lanes = Vector<float>.Count;
+            ref var s0 = ref sum[y, 0];
+            ref var w0 = ref weight[y, 0];
+            ref var out0 = ref slope[y, 0];
+            var hasUp = y > 0;
+            var hasDown = y < h - 1;
+            ref var sUp = ref hasUp ? ref sum[y - 1, 0] : ref s0;
+            ref var wUp = ref hasUp ? ref weight[y - 1, 0] : ref w0;
+            ref var sDown = ref hasDown ? ref sum[y + 1, 0] : ref s0;
+            ref var wDown = ref hasDown ? ref weight[y + 1, 0] : ref w0;
+            var zero = Vector<float>.Zero;
+            x = 1;
+            for (; x <= w - 1 - lanes; x += lanes)
+            {
+                var i = (nuint)x;
+                var wc = Vector.LoadUnsafe(ref w0, i);
+                var m = Vector.LoadUnsafe(ref s0, i) / wc;
+                var acc = zero;
+                acc = Neighbour(acc, m, Vector.LoadUnsafe(ref s0, i - 1), Vector.LoadUnsafe(ref w0, i - 1));
+                acc = Neighbour(acc, m, Vector.LoadUnsafe(ref s0, i + 1), Vector.LoadUnsafe(ref w0, i + 1));
+                if (hasUp)
+                {
+                    acc = Neighbour(acc, m, Vector.LoadUnsafe(ref sUp, i), Vector.LoadUnsafe(ref wUp, i));
+                }
+
+                if (hasDown)
+                {
+                    acc = Neighbour(acc, m, Vector.LoadUnsafe(ref sDown, i), Vector.LoadUnsafe(ref wDown, i));
+                }
+
+                var covered = Vector.GreaterThan(wc, zero);
+                Vector.ConditionalSelect(covered, acc, Vector.LoadUnsafe(ref out0, i)).StoreUnsafe(ref out0, i);
+            }
+
+            // The first column, left of the lanes.
+            ScalarSlope(sum, weight, slope, 0, y, w, h);
+        }
+
+        for (; x < w; x++)
+        {
+            ScalarSlope(sum, weight, slope, x, y, w, h);
+        }
+
+        static Vector<float> Neighbour(Vector<float> acc, Vector<float> m, Vector<float> neighbourSum, Vector<float> neighbourWeight)
+        {
+            var step = Vector.Abs((neighbourSum / neighbourWeight) - m);
+            var take = Vector.GreaterThan(neighbourWeight, Vector<float>.Zero);
+            return Vector.ConditionalSelect(take, Vector.Max(acc, step), acc);
+        }
+    }
+
+    private static void ScalarSlope(float[,] sum, float[,] weight, float[,] slope, int x, int y, int w, int h)
+    {
+        var wc = weight[y, x];
+        if (wc <= 0f)
+        {
+            return;
+        }
+
+        var m = sum[y, x] / wc;
+        var s = 0f;
+        if (x > 0 && weight[y, x - 1] > 0f)
+        {
+            s = MathF.Max(s, MathF.Abs(sum[y, x - 1] / weight[y, x - 1] - m));
+        }
+
+        if (x < w - 1 && weight[y, x + 1] > 0f)
+        {
+            s = MathF.Max(s, MathF.Abs(sum[y, x + 1] / weight[y, x + 1] - m));
+        }
+
+        if (y > 0 && weight[y - 1, x] > 0f)
+        {
+            s = MathF.Max(s, MathF.Abs(sum[y - 1, x] / weight[y - 1, x] - m));
+        }
+
+        if (y < h - 1 && weight[y + 1, x] > 0f)
+        {
+            s = MathF.Max(s, MathF.Abs(sum[y + 1, x] / weight[y + 1, x] - m));
+        }
+
+        slope[y, x] = s;
     }
 }
 

@@ -1,7 +1,11 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
 using TianWen.Lib.Geometry;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace TianWen.Lib.Imaging.Stacking;
@@ -139,6 +143,31 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
     }
 
     public async ValueTask<IntegrationResult> RunAsync(IntegrationJob job, CancellationToken ct)
+        => (await RunSubsetsAsync(job, [new DrizzleSubset(default, job.Options.Rejector)], ct))[0];
+
+    /// <summary>
+    /// Several drizzle integrations over one stream of frames, in ONE pair of passes: each frame is
+    /// loaded, calibrated and prepared once per pass and deposited into every <see cref="DrizzleSubset"/>
+    /// that lists it. What the dataset bake builds per session (the master, its two halves, each pier
+    /// side and its halves) used to be up to nine integrations, each streaming its frames from the
+    /// archive twice; now it is two streams whatever the number of targets.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Each target is exactly the integration <see cref="RunAsync"/> would have run on its own
+    /// frames</b>, bit for bit: its own accumulators, its own statistics, its own clip (the rejector,
+    /// and so the thresholds, depend on the target's frame count), its own first-frame metadata, and its
+    /// frames deposited in the same order. Only the loading is shared. A half-master pair judged
+    /// against the master's statistics would no longer be independent of the other half, which is the
+    /// property N2N training needs from it; this keeps them independent.</para>
+    /// <para>Frames are prepared one ahead on a background task (<see cref="PrefetchDepth"/>) while the
+    /// current one deposits, and every deposit is split across canvas strips in parallel
+    /// (<see cref="DrizzleKernel"/>), which is also bit-identical to the serial deposit.</para>
+    /// </remarks>
+    /// <param name="subsets">Targets, in the order the results come back. A target's frames are
+    /// ascending indices into <paramref name="job"/>'s <see cref="IntegrationJob.RawBayerFrames"/>
+    /// stream; a default array means every frame.</param>
+    public async ValueTask<ImmutableArray<IntegrationResult>> RunSubsetsAsync(
+        IntegrationJob job, IReadOnlyList<DrizzleSubset> subsets, CancellationToken ct)
     {
         if (job.RawBayerFrames is null)
         {
@@ -164,22 +193,13 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
                 "the pipeline computes these from the union-BB transform set.");
         }
 
-        // Paired-plane accumulator: per-channel flux sum + per-channel
-        // coverage-weight sum. The final master cell value is flux/weight;
-        // cells with weight=0 land as NaN to mark uncovered regions.
-        // 3 channels (R, G, B) baked in -- drizzle on a non-RGGB sensor
-        // isn't meaningful and is gated out upstream.
-        var flux = new float[3][,];
-        var weight = new float[3][,];
-        for (var c = 0; c < 3; c++)
+        if (subsets.Count == 0)
         {
-            flux[c] = new float[canvasH, canvasW];
-            weight[c] = new float[canvasH, canvasW];
+            throw new ArgumentException("No drizzle targets to integrate.", nameof(subsets));
         }
 
         var pixfrac = options.Pixfrac;
         var halfP = pixfrac * 0.5f;
-        ImageMeta? refMeta = null;
         // Per-frame, per-CFA-COLOUR normalisation -- the same mechanism every other integration
         // strategy applies (Integrator / TilePipelinedStrategy normalise each of a debayered frame's
         // R/G/B planes independently via Normalizer.ComputeStats' per-ChannelCount loop), now here
@@ -210,11 +230,6 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
         // docs/architecture/stacking-render-pipeline.md § 1 for the full comparison.
         var applyNormalization = job.Options.ApplyNormalization;
         var normalizationTarget = job.Options.NormalizationTarget;
-        var sourceMaxValue = 1.0f;
-        // The first frame's pedestal, which an UNNORMALISED drizzle keeps in its data (every sample is
-        // divided by sourceMaxValue and nothing is subtracted), so the master states it in those units.
-        var sourcePedestal = 0f;
-        var frameCount = 0;
         // Bad-pixel mask is 1-channel (the raw Bayer plane is 1-channel
         // pre-debayer). We pick the first channel of the mask -- callers
         // wiring a multi-channel mask onto a Bayer drizzle producer
@@ -223,7 +238,7 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
         var badPixelMask = job.BadPixelMask is { Length: > 0 } m ? m[0] : default;
         var hasBadPixelMask = job.BadPixelMask is { Length: > 0 };
 
-        // Outlier rejection, from the rejector the pipeline built for this session. Drizzle used to
+        // Outlier rejection, from the rejector the pipeline built for each target. Drizzle used to
         // ignore it ("no kappa-sigma rejection by design", on the grounds that coverage weight is the
         // natural mask), which confused two questions: weight says whether any frame covered a cell,
         // rejection says whether THIS frame's sample there is an outlier. A satellite or airplane
@@ -231,75 +246,96 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
         // master (the Omega Cen 2024-02-16 gallery card carried an airplane through the cluster).
         // With a clip, the frames are streamed TWICE: once to accumulate each cell's moments, once
         // to deposit only the samples that pass against the rest of their cell. See DrizzleClip.
-        var clip = DrizzleClip.From(job.Options.Rejector);
-        var moments = clip is null ? null : new DrizzleMoments(3, canvasH, canvasW);
-        long rejectedDeposits = 0, totalDeposits = 0;
+        var targets = new Target[subsets.Count];
+        for (var t = 0; t < targets.Length; t++)
+        {
+            targets[t] = new Target(t, subsets[t], canvasH, canvasW);
+        }
 
-        await foreach (var frame in job.RawBayerFrames(ct).WithCancellation(ct))
+        var anyClip = false;
+        var frameIndex = 0;
+        await foreach (var frame in Prefetch(job.RawBayerFrames(ct), Prepare, ct).WithCancellation(ct))
         {
             ct.ThrowIfCancellationRequested();
-            var (raw, transform, pattern) = Prepare(frame);
-            var sourceRect = new PixelRect(0, 0, raw.Width, raw.Height);
-            if (moments is not null)
+            foreach (var target in targets)
             {
-                DrizzleKernel.IterateAndAccumulateMoments(
-                    raw, transform, pattern, halfP, moments,
-                    xStart: 0, xEnd: canvasW, yStart: 0, yEnd: canvasH,
-                    sourceRect, badPixelMask, hasBadPixelMask);
-            }
-            else
-            {
-                // Full-canvas deposit: iterate the entire source frame, accumulate into the
-                // full-canvas flux/weight planes. The kernel handles the chunked hot-pixel-mask fast
-                // path internally so the streaming drizzle and the tile-pipelined variant share one
-                // deposit implementation -- a previous version inlined the loop here and diverged
-                // subtly from the half-pixel convention in the warp path, producing dumbbell stars
-                // in combined-pier-flip output.
-                DrizzleKernel.IterateAndDeposit(
-                    raw, transform, pattern, halfP, flux, weight,
-                    xStart: 0, xEnd: canvasW, yStart: 0, yEnd: canvasH,
-                    sourceRect, badPixelMask, hasBadPixelMask);
+                if (!target.Takes(frameIndex))
+                {
+                    continue;
+                }
+
+                target.Observe(frame);
+                if (target.Moments is { } moments)
+                {
+                    anyClip = true;
+                    DrizzleKernel.IterateAndAccumulateMomentsParallel(
+                        frame.Raw, frame.Transform, frame.Pattern, halfP, moments,
+                        canvasW, canvasH, badPixelMask, hasBadPixelMask);
+                }
+                else
+                {
+                    // Full-canvas deposit: iterate the entire source frame, accumulate into the
+                    // full-canvas flux/weight planes. The kernel handles the chunked hot-pixel-mask
+                    // fast path internally so the streaming drizzle and the tile-pipelined variant
+                    // share one deposit implementation -- a previous version inlined the loop here and
+                    // diverged subtly from the half-pixel convention in the warp path, producing
+                    // dumbbell stars in combined-pier-flip output.
+                    DrizzleKernel.IterateAndDepositParallel(
+                        frame.Raw, frame.Transform, frame.Pattern, halfP, target.Flux, target.Weight,
+                        canvasW, canvasH, badPixelMask, hasBadPixelMask);
+                }
             }
 
-            frameCount++;
+            frameIndex++;
         }
 
-        if (moments is not null && clip is { } c2)
+        foreach (var target in targets)
         {
-            moments.ComputeSlope();
-            await foreach (var frame in job.RawBayerFrames(ct).WithCancellation(ct))
+            target.EndPass(frameIndex);
+        }
+
+        if (anyClip)
+        {
+            foreach (var target in targets)
+            {
+                target.Moments?.ComputeSlope();
+            }
+
+            frameIndex = 0;
+            await foreach (var frame in Prefetch(job.RawBayerFrames(ct), Prepare, ct).WithCancellation(ct))
             {
                 ct.ThrowIfCancellationRequested();
-                var (raw, transform, pattern) = Prepare(frame);
-                var (rejected, total) = DrizzleKernel.IterateAndDepositClipped(
-                    raw, transform, pattern, halfP, moments, c2, flux, weight,
-                    xStart: 0, xEnd: canvasW, yStart: 0, yEnd: canvasH,
-                    new PixelRect(0, 0, raw.Width, raw.Height), badPixelMask, hasBadPixelMask);
-                rejectedDeposits += rejected;
-                totalDeposits += total;
+                foreach (var target in targets)
+                {
+                    if (!target.Takes(frameIndex) || target.Moments is not { } moments || target.Clip is not { } clip)
+                    {
+                        continue;
+                    }
+
+                    var (rejected, total) = DrizzleKernel.IterateAndDepositClippedParallel(
+                        frame.Raw, frame.Transform, frame.Pattern, halfP, moments, clip, target.Flux, target.Weight,
+                        canvasW, canvasH, badPixelMask, hasBadPixelMask);
+                    target.RejectedDeposits += rejected;
+                    target.TotalDeposits += total;
+                }
+
+                frameIndex++;
             }
         }
 
-        // One frame's plane ready to deposit: the reference metadata captured off the first frame,
-        // normalised (or sky-shifted) exactly as before, with its Bayer pattern and transform. Called
-        // once per frame per pass, and deterministic, so both passes deposit identical values.
-        (Image Raw, System.Numerics.Matrix3x2 Transform, int[,] Pattern) Prepare(RawBayerFrame frame)
+        var results = ImmutableArray.CreateBuilder<IntegrationResult>(targets.Length);
+        foreach (var target in targets)
         {
-            if (refMeta is null)
-            {
-                refMeta = frame.RawCfa.ImageMeta;
-                // UnitScaleDivisor, not MaxValue: the canonical [0, 1] divisor, which prefers a
-                // DECLARED full scale (ImageMeta.SensorFullScaleAdu, i.e. a FITS SATURATE card) over
-                // the frame's own observed peak. A no-op for raw subs, which declare nothing and fall
-                // back to the peak exactly as before. It matters for a frame whose peak is not its
-                // full scale -- a per-frame starless plate, whose brightest pixel was a star that has
-                // been removed, so its peak understates its scale by ~7x.
-                sourceMaxValue = frame.RawCfa.UnitScaleDivisor;
-                sourcePedestal = frame.RawCfa.Pedestal;
-            }
+            results.Add(target.Finalise(applyNormalization, canvasW, canvasH));
+        }
+        return results.MoveToImmutable();
 
+        // One frame's plane ready to deposit, normalised (or sky-shifted) exactly as before, with its
+        // Bayer pattern and transform, plus what a target reads off its FIRST frame. Pure, so both
+        // passes deposit identical values, and run ahead on the prefetch task.
+        PreparedFrame Prepare(RawBayerFrame frame)
+        {
             var meta = frame.RawCfa.ImageMeta;
-            var transform = frame.TransformToCanvas;
             // Bayer dispatch is direct: sensor pixel (ySrc, xSrc) has a
             // fixed physical Bayer color set by the sensor's filter array
             // -- the mount's pointing orientation doesn't change which
@@ -318,7 +354,7 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
             // but-not-yet-warped frame: stats are whole-frame (there is no canvas-space StatsRect to
             // restrict to here -- the raw CFA plane is still in SOURCE coordinates, pre-warp), and the
             // transform applies unchanged afterwards. Per-CFA-colour (not the pooled whole-plane
-            // scalar) -- see the comment above this loop.
+            // scalar) -- see the comment above.
             // Unnormalised, the sky still has to agree across frames at every phase, so a caller that
             // keeps the linear scale (the dataset bake) shifts each colour onto one reference sky.
             var raw = applyNormalization
@@ -326,74 +362,222 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
                 : job.Options.DrizzleSkyReference is { } skyReference
                     ? Normalizer.OffsetCfaToReference(frame.RawCfa, Normalizer.ComputeCfaStats(frame.RawCfa), skyReference)
                     : frame.RawCfa;
-            return (raw, transform, pattern);
+            // UnitScaleDivisor, not MaxValue: the canonical [0, 1] divisor, which prefers a
+            // DECLARED full scale (ImageMeta.SensorFullScaleAdu, i.e. a FITS SATURATE card) over
+            // the frame's own observed peak. A no-op for raw subs, which declare nothing and fall
+            // back to the peak exactly as before. It matters for a frame whose peak is not its
+            // full scale -- a per-frame starless plate, whose brightest pixel was a star that has
+            // been removed, so its peak understates its scale by ~7x.
+            return new PreparedFrame(raw, frame.TransformToCanvas, pattern, meta,
+                frame.RawCfa.UnitScaleDivisor, frame.RawCfa.Pedestal);
+        }
+    }
+
+    /// <summary>Frames prepared ahead of the one depositing. One is enough to hide a load behind a
+    /// deposit (they take the same order of time on a USB disk); more would only hold more frames.</summary>
+    internal const int PrefetchDepth = 1;
+
+    /// <summary>
+    /// Enumerates <paramref name="source"/> on a background task, running <paramref name="prepare"/>
+    /// there too, <see cref="PrefetchDepth"/> frames ahead of the consumer. A fault in the producer
+    /// surfaces at the consumer's next read; the consumer leaving early cancels the producer and waits
+    /// for it, so no frame is being prepared after the enumeration ends.
+    /// </summary>
+    private static async IAsyncEnumerable<PreparedFrame> Prefetch(
+        IAsyncEnumerable<RawBayerFrame> source,
+        Func<RawBayerFrame, PreparedFrame> prepare,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        // Qualified: inside TianWen.Lib.Imaging, a bare Channel is the image plane type.
+        var channel = System.Threading.Channels.Channel.CreateBounded<PreparedFrame>(new BoundedChannelOptions(PrefetchDepth)
+        {
+            SingleReader = true,
+            SingleWriter = true,
+            FullMode = BoundedChannelFullMode.Wait,
+        });
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var producer = Task.Run(async () =>
+        {
+            try
+            {
+                await foreach (var frame in source.WithCancellation(cts.Token))
+                {
+                    await channel.Writer.WriteAsync(prepare(frame), cts.Token);
+                }
+                channel.Writer.TryComplete();
+            }
+            catch (Exception ex)
+            {
+                // Handed to the reader, which rethrows it: nothing here is swallowed.
+                channel.Writer.TryComplete(ex);
+            }
+        }, CancellationToken.None);
+
+        try
+        {
+            await foreach (var frame in channel.Reader.ReadAllAsync(ct))
+            {
+                yield return frame;
+            }
+        }
+        finally
+        {
+            cts.Cancel();
+            // The producer catches everything and completes the channel with it, so this await only
+            // waits for it to stop; it never throws.
+            await producer;
+        }
+    }
+
+    /// <summary>One prepared frame and what a target reads off its first one.</summary>
+    private readonly record struct PreparedFrame(
+        Image Raw, Matrix3x2 Transform, int[,] Pattern, ImageMeta Meta, float UnitScaleDivisor, float Pedestal);
+
+    /// <summary>One integration of a fused run: its accumulators, statistics, clip, and first-frame
+    /// metadata, exactly the state <see cref="RunAsync"/> keeps for its one integration.</summary>
+    private sealed class Target(int index, DrizzleSubset subset, int canvasH, int canvasW)
+    {
+        private readonly ImmutableArray<int> _frames = subset.Frames;
+        private int _cursor;
+        private ImageMeta? _refMeta;
+        private float _sourceMaxValue = 1.0f;
+        // The first frame's pedestal, which an UNNORMALISED drizzle keeps in its data (every sample is
+        // divided by sourceMaxValue and nothing is subtracted), so the master states it in those units.
+        private float _sourcePedestal;
+        private int _frameCount;
+
+        // Paired-plane accumulator: per-channel flux sum + per-channel
+        // coverage-weight sum. The final master cell value is flux/weight;
+        // cells with weight=0 land as NaN to mark uncovered regions.
+        // 3 channels (R, G, B) baked in -- drizzle on a non-RGGB sensor
+        // isn't meaningful and is gated out upstream.
+        public float[][,] Flux { get; } = [new float[canvasH, canvasW], new float[canvasH, canvasW], new float[canvasH, canvasW]];
+
+        public float[][,] Weight { get; } = [new float[canvasH, canvasW], new float[canvasH, canvasW], new float[canvasH, canvasW]];
+
+        public DrizzleClip? Clip { get; } = DrizzleClip.From(subset.Rejector);
+
+        public DrizzleMoments? Moments { get; } = DrizzleClip.From(subset.Rejector) is null ? null : new DrizzleMoments(3, canvasH, canvasW);
+
+        public long RejectedDeposits { get; set; }
+
+        public long TotalDeposits { get; set; }
+
+        /// <summary>Whether frame <paramref name="frameIndex"/> of the stream belongs to this target.
+        /// Called once per frame, in stream order.</summary>
+        public bool Takes(int frameIndex)
+        {
+            if (_frames.IsDefault)
+            {
+                return true;
+            }
+
+            if (_cursor < _frames.Length && _frames[_cursor] == frameIndex)
+            {
+                _cursor++;
+                return true;
+            }
+
+            return false;
         }
 
-        if (frameCount == 0 || refMeta is null)
+        /// <summary>First-pass bookkeeping for a frame this target takes.</summary>
+        public void Observe(PreparedFrame frame)
         {
-            throw new InvalidOperationException("DrizzleStrategy received zero frames from RawBayerFrames.");
+            if (_refMeta is null)
+            {
+                _refMeta = frame.Meta;
+                _sourceMaxValue = frame.UnitScaleDivisor;
+                _sourcePedestal = frame.Pedestal;
+            }
+            _frameCount++;
         }
 
-        // Final divide -- master[c, y, x] = flux / weight, NaN where weight is zero. The kernel
-        // helper mutates flux in place and returns the covered-cell count for the coverage-rate
-        // stat. Shared with TilePipelinedDrizzleStrategy so the post-processing path is identical
-        // regardless of memory layout. When normalisation ran, every deposited sample already sits
-        // near [0, 1] (median ~= normalizationTarget) -- dividing by sourceMaxValue here as well
-        // would double-scale, so invMax is the identity in that case; it only falls back to the raw
-        // ADU-to-unit conversion when a caller explicitly disabled normalisation.
-        var invMax = applyNormalization
-            ? 1f
-            : sourceMaxValue > 0f ? 1f / sourceMaxValue : 1f;
-        var totalCells = (long)canvasH * canvasW * 3;
-        var coveredCells = DrizzleKernel.FinaliseDivide(flux, weight, invMax, canvasH, canvasW);
-
-        var master = IntegratedMaster.Labelled(new Image(
-            data: flux,
-            bitDepth: BitDepth.Float32,
-            maxValue: 1.0f,
-            minValue: 0f,
-            pedestal: sourcePedestal * invMax,
-            imageMeta: refMeta.Value), normalised: applyNormalization);
-
-        // Coverage map doubles as the rejection map: per-channel weight
-        // accumulated; low-coverage cells are effectively "rejected" by
-        // having less signal contribute to their average. We do NOT divide
-        // weight by the number of frames here -- the raw weight sum is
-        // more informative for QA (a cell with weight=10.0 saw 10 unit-
-        // drops; weight<1.0 is suspiciously under-covered).
-        var coverageMap = new Image(
-            data: weight,
-            bitDepth: BitDepth.Float32,
-            maxValue: 1.0f,
-            minValue: 0f,
-            pedestal: 0f,
-            imageMeta: refMeta.Value);
-
-        // Drizzle's outlier rejection is per SAMPLE, not per output cell (see DrizzleClip), so it
-        // has no per-cell rejection fraction to put here and reports its count separately
-        // (DrizzleRejectedDeposits). The IntegrationResult rejection fields carry coverage instead:
-        //   TotalRejections    -> uncovered (weight==0) cells on the canvas
-        //   RejectionMap       -> per-channel coverage weight buffer
-        //   MeanRejectionRate  -> fraction of canvas cells uncovered
-        // This piggybacks on the existing IntegrationFitsWriter contract:
-        // the writer emits the rejection-map FITS when TotalRejections > 0,
-        // which is exactly what we want -- the coverage map only lands on
-        // disk when there are actually holes worth inspecting. A well-
-        // dithered run with full coverage drops the side-car file entirely.
-        var uncovered = totalCells - coveredCells;
-        // Drizzle rejects per sample, so it has no per-cell rejection fraction to report. Its
-        // accumulated per-pixel weight is coverage and says so by WHERE it is put, rather than by a
-        // flag on a field named for the other thing; the clip's own count travels beside it.
-        return new IntegrationResult(
-            Master: master,
-            RejectionMap: null,
-            FrameCount: frameCount,
-            TotalRejections: uncovered,
-            MeanRejectionRate: (double)uncovered / totalCells)
+        /// <summary>After a pass: every frame the target named must have been in the stream. Rewinds
+        /// for the next pass.</summary>
+        public void EndPass(int streamLength)
         {
-            Coverage = coverageMap,
-            DrizzleRejectedDeposits = rejectedDeposits,
-            DrizzleTotalDeposits = totalDeposits,
-        };
+            if (!_frames.IsDefault && _cursor != _frames.Length)
+            {
+                throw new ArgumentException(
+                    $"Drizzle target {index} names frame {_frames[_cursor]}, past the {streamLength} the stream produced (or out of order).");
+            }
+            _cursor = 0;
+        }
+
+        public IntegrationResult Finalise(bool applyNormalization, int canvasW, int canvasH)
+        {
+            if (_frameCount == 0 || _refMeta is not { } refMeta)
+            {
+                throw new InvalidOperationException($"DrizzleStrategy received zero frames for target {index}.");
+            }
+
+            // Final divide -- master[c, y, x] = flux / weight, NaN where weight is zero. The kernel
+            // helper mutates flux in place and returns the covered-cell count for the coverage-rate
+            // stat. Shared with TilePipelinedDrizzleStrategy so the post-processing path is identical
+            // regardless of memory layout. When normalisation ran, every deposited sample already sits
+            // near [0, 1] (median ~= normalizationTarget) -- dividing by sourceMaxValue here as well
+            // would double-scale, so invMax is the identity in that case; it only falls back to the raw
+            // ADU-to-unit conversion when a caller explicitly disabled normalisation.
+            var invMax = applyNormalization
+                ? 1f
+                : _sourceMaxValue > 0f ? 1f / _sourceMaxValue : 1f;
+            var totalCells = (long)canvasH * canvasW * 3;
+            var coveredCells = DrizzleKernel.FinaliseDivide(Flux, Weight, invMax, canvasH, canvasW);
+
+            var master = IntegratedMaster.Labelled(new Image(
+                data: Flux,
+                bitDepth: BitDepth.Float32,
+                maxValue: 1.0f,
+                minValue: 0f,
+                pedestal: _sourcePedestal * invMax,
+                imageMeta: refMeta), normalised: applyNormalization);
+
+            // Coverage map doubles as the rejection map: per-channel weight
+            // accumulated; low-coverage cells are effectively "rejected" by
+            // having less signal contribute to their average. We do NOT divide
+            // weight by the number of frames here -- the raw weight sum is
+            // more informative for QA (a cell with weight=10.0 saw 10 unit-
+            // drops; weight<1.0 is suspiciously under-covered).
+            var coverageMap = new Image(
+                data: Weight,
+                bitDepth: BitDepth.Float32,
+                maxValue: 1.0f,
+                minValue: 0f,
+                pedestal: 0f,
+                imageMeta: refMeta);
+
+            // Drizzle's outlier rejection is per SAMPLE, not per output cell (see DrizzleClip), so it
+            // has no per-cell rejection fraction to put here and reports its count separately
+            // (DrizzleRejectedDeposits). The IntegrationResult rejection fields carry coverage instead:
+            //   TotalRejections    -> uncovered (weight==0) cells on the canvas
+            //   RejectionMap       -> per-channel coverage weight buffer
+            //   MeanRejectionRate  -> fraction of canvas cells uncovered
+            // This piggybacks on the existing IntegrationFitsWriter contract:
+            // the writer emits the rejection-map FITS when TotalRejections > 0,
+            // which is exactly what we want -- the coverage map only lands on
+            // disk when there are actually holes worth inspecting. A well-
+            // dithered run with full coverage drops the side-car file entirely.
+            var uncovered = totalCells - coveredCells;
+            // Drizzle rejects per sample, so it has no per-cell rejection fraction to report. Its
+            // accumulated per-pixel weight is coverage and says so by WHERE it is put, rather than by a
+            // flag on a field named for the other thing; the clip's own count travels beside it.
+            return new IntegrationResult(
+                Master: master,
+                RejectionMap: null,
+                FrameCount: _frameCount,
+                TotalRejections: uncovered,
+                MeanRejectionRate: (double)uncovered / totalCells)
+            {
+                Coverage = coverageMap,
+                DrizzleRejectedDeposits = RejectedDeposits,
+                DrizzleTotalDeposits = TotalDeposits,
+            };
+        }
     }
 }
+
+/// <summary>One target of <see cref="DrizzleStrategy.RunSubsetsAsync"/>: which frames of the stream it
+/// integrates (ascending indices; default means all), and the rejector its clip thresholds come from,
+/// which depends on its own frame count (<c>StackingPipeline.BuildRejector</c>).</summary>
+public readonly record struct DrizzleSubset(ImmutableArray<int> Frames, IPixelRejector? Rejector);
