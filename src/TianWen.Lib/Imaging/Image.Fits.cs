@@ -2,6 +2,7 @@ using CommunityToolkit.HighPerformance;
 using nom.tam.fits;
 using nom.tam.util;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
@@ -11,6 +12,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Numerics;
 using System.Numerics.Tensors;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging.Dataset;
@@ -20,29 +22,10 @@ namespace TianWen.Lib.Imaging;
 public partial class Image
 {
     /// <summary>
-    /// The integer planes one <see cref="WriteToFitsFile(string, WCS?, IReadOnlyDictionary{string, ValueTuple{object, string}}?, FitsSampleStorage?)"/>
-    /// rents for its quantised copy, handed back to <see cref="Array2DPool{T}"/> together when the write
-    /// is over. A collector rather than one lease per plane because the element type is chosen per
-    /// write and a multi-channel write rents one plane per channel.
+    /// Bytes of one quantised band in <see cref="WriteToFitsFile(string, WCS?, IReadOnlyDictionary{string, ValueTuple{object, string}}?, FitsSampleStorage?)"/>:
+    /// whole rows, quantised, swapped to big-endian and written, then reused for the next rows.
     /// </summary>
-    private sealed class RentedPlanes : IDisposable
-    {
-        private Action? _returnAll;
-
-        public T[,] Rent<T>(int height, int width)
-        {
-            var array = Array2DPool<T>.Rent(height, width);
-            _returnAll += () => Array2DPool<T>.Return(array);
-            return array;
-        }
-
-        public void Dispose()
-        {
-            var returnAll = _returnAll;
-            _returnAll = null;
-            returnAll?.Invoke();
-        }
-    }
+    private const int QuantiseBandBytes = 2 * 1024 * 1024;
 
     /// <summary>
     /// What makes a FITS file gzipped, on both ends: the reader decompresses a name ending this
@@ -804,63 +787,30 @@ public partial class Image
         FitsSampleStorage? storage = null)
     {
         var (channelCount, width, height) = Shape;
-        using var fits = new Fits();
-        // The integer planes below are rented, not allocated, and go back when the file is written:
-        // a new frame-sized array per write was garbage on every captured sub (52 MB at 26 MP, 16-bit).
-        // Declared after `fits`, so it is disposed first, and only once the write is over.
-        using var rented = new RentedPlanes();
         // The container the samples go into: the caller's, or the conventional one for this image's
         // own depth, which is what this writer produced before storage was expressible. Everything
         // below goes through it, so BITPIX, BSCALE and BZERO cannot disagree with the bytes.
         var sampleStorage = storage ?? FitsSampleStorage.Conventional(bitDepth);
         var storedDepth = sampleStorage.Depth;
 
-        Array arrayToWrite;
-        bool dataIsInt;
-        switch (storedDepth)
+        var dataIsInt = storedDepth switch
         {
-            case BitDepth.Int8:
-                dataIsInt = true;
-                arrayToWrite = QuantisePlanes<byte>();
-                break;
+            BitDepth.Int8 or BitDepth.Int16 => true,
+            // A label map: every value is a whole number the reader converts straight back to
+            // float, and a float32 plane would hold it exactly only up to 2^24. No BZERO offset,
+            // FITS 32-bit integers are signed and a label is never negative.
+            BitDepth.Int32 => true,
+            BitDepth.Float32 => false,
+            _ => throw new NotSupportedException($"Bits per pixel {storedDepth} is not supported"),
+        };
 
-            case BitDepth.Int16:
-                dataIsInt = true;
-                arrayToWrite = QuantisePlanes<short>();
-                break;
-
-            case BitDepth.Int32:
-                // A label map: every value is a whole number the reader converts straight back to
-                // float, and a float32 plane would hold it exactly only up to 2^24. No BZERO offset,
-                // FITS 32-bit integers are signed and a label is never negative.
-                dataIsInt = true;
-                arrayToWrite = QuantisePlanes<int>();
-                break;
-
-            case BitDepth.Float32:
-                dataIsInt = false;
-                if (channelCount == 1)
-                {
-                    arrayToWrite = Planes[0].Data;
-                }
-                else
-                {
-                    // Jagged reference projection of the channel planes (no pixel copy); 
-                    // the FITS factory wants the raw float[][,] shape for multi-channel data.
-                    var planes = new float[channelCount][,];
-                    for (var c = 0; c < channelCount; c++)
-                    {
-                        planes[c] = Planes[c].Data;
-                    }
-                    arrayToWrite = planes;
-                }
-                break;
-
-            default:
-                throw new NotSupportedException($"Bits per pixel {storedDepth} is not supported");
-        }
-        var basicHdu = FitsFactory.HDUFactory(arrayToWrite);
-        basicHdu.Header.Bitpix = (int)storedDepth;
+        // The header of an image nobody has to hold: the samples are written after it, a band at a
+        // time (WriteData), so an integer frame is never quantised into a copy the size of the frame.
+        // Axes in FITS order, NAXIS1 = width; several channels are a cube of planes. It is the same
+        // primary header the old FitsFactory path wrote, so a file from one is a file from the other.
+        var header = channelCount == 1
+            ? FitsWriter.ImageHeader((int)storedDepth, width, height)
+            : FitsWriter.ImageHeader((int)storedDepth, width, height, channelCount);
         // The comments describe the affine rather than one depth's use of it: the old wording said
         // "offset data range to that of unsigned short", which a BITPIX 8 map with BZERO 0 makes
         // nonsense of, and a header should not say something untrue about its own numbers.
@@ -1025,7 +975,7 @@ public partial class Image
         }
         if (wcs is { } wcsValue)
         {
-            wcsValue.WriteToHeader(basicHdu.Header);
+            wcsValue.WriteToHeader(header);
         }
 
         // Caller-supplied extras. Dispatched per-type because nom.tam.fits's
@@ -1037,12 +987,12 @@ public partial class Image
             {
                 switch (value)
                 {
-                    case int i: basicHdu.Header.AddValue(key, i, comment); break;
-                    case long l: basicHdu.Header.AddValue(key, l, comment); break;
-                    case float f: basicHdu.Header.AddValue(key, f, comment); break;
-                    case double d: basicHdu.Header.AddValue(key, d, comment); break;
-                    case bool b: basicHdu.Header.AddValue(key, b, comment); break;
-                    case string s: basicHdu.Header.AddValue(key, s, comment); break;
+                    case int i: header.AddValue(key, i, comment); break;
+                    case long l: header.AddValue(key, l, comment); break;
+                    case float f: header.AddValue(key, f, comment); break;
+                    case double d: header.AddValue(key, d, comment); break;
+                    case bool b: header.AddValue(key, b, comment); break;
+                    case string s: header.AddValue(key, s, comment); break;
                     default:
                         throw new ArgumentException(
                             $"Unsupported FITS header value type {value?.GetType().Name ?? "null"} for key '{key}'.",
@@ -1051,88 +1001,94 @@ public partial class Image
             }
         }
 
-        fits.AddHDU(basicHdu);
-
         if (fileName.EndsWith(GzipSuffix, StringComparison.OrdinalIgnoreCase))
         {
             // The reader has always keyed on this suffix, so the two ends agree with no format
             // negotiation.
             //
-            // Written out plain and then compressed, rather than straight down a GZipStream:
-            // FITS.Lib wraps any stream it is handed in a BufferedDataStream, which constructs a
-            // BinaryReader over it, and a compressing GZipStream is write-only -- "Stream was not
-            // readable". Buffering the whole file in memory instead would cost tens of MB per map
-            // with several sessions integrating at once, so the scratch file is the cheap way
-            // round. Deleted on the way out, including when the compression throws.
-            var scratch = fileName + ".uncompressed";
-            try
-            {
-                WritePlain(scratch);
-                using var source = new FileStream(scratch, FileMode.Open, FileAccess.Read, FileShare.None, 1 << 16);
-                using var target = new FileStream(fileName, FileMode.Create, FileAccess.Write, FileShare.Read, 1 << 16);
-                // Optimal rather than SmallestSize: on a quantised map the two land within a few
-                // percent of each other and Optimal costs a fraction of the time.
-                using var gzip = new GZipStream(target, CompressionLevel.Optimal);
-                source.CopyTo(gzip);
-            }
-            finally
-            {
-                if (File.Exists(scratch))
-                {
-                    File.Delete(scratch);
-                }
-            }
+            // Straight down a GZipStream. FitsWriter only ever WRITES its stream, where FITS.Lib's
+            // old writer wrapped any stream in a BufferedDataStream that built a BinaryReader over it
+            // and so refused a write-only GZipStream ("Stream was not readable"): this used to write
+            // a plain scratch file and then compress it.
+            using var target = new FileStream(fileName, FileMode.Create, FileAccess.Write, FileShare.Read, 1 << 16);
+            // Optimal rather than SmallestSize: on a quantised map the two land within a few
+            // percent of each other and Optimal costs a fraction of the time.
+            using var gzip = new GZipStream(target, CompressionLevel.Optimal);
+            using var writer = new FitsWriter(gzip, leaveOpen: true);
+            writer.WriteHeader(header);
+            WriteData(writer);
+            writer.Finish();
         }
         else
         {
-            WritePlain(fileName);
+            // Unbuffered and preallocated: every write is the header, a band or the padding.
+            using var writer = FitsWriter.CreateFile(fileName, header);
+            WriteData(writer);
+            writer.Finish();
         }
 
-        void WritePlain(string path)
+        void WriteData(FitsWriter writer)
         {
-            // 64 KiB, as the gzip path above uses. BufferedFile hands the size to BOTH a FileStream and a
-            // BufferedStream, so the 2 MB asked for here before cost two 2 MB buffers per write, garbage
-            // on every sub, while FITS.Lib writes the pixels in 2 MB chunks that pass straight through a
-            // smaller buffer anyway.
-            using var bufferedWriter = new BufferedFile(path, FileAccess.ReadWrite, FileShare.Read, 1 << 16);
-            fits.Write(bufferedWriter);
-            bufferedWriter.Flush();
-            bufferedWriter.Close();
+            switch (storedDepth)
+            {
+                case BitDepth.Int8:
+                    WriteQuantised<byte>(writer);
+                    break;
+
+                case BitDepth.Int16:
+                    WriteQuantised<short>(writer);
+                    break;
+
+                case BitDepth.Int32:
+                    WriteQuantised<int>(writer);
+                    break;
+
+                default:
+                    // Float32: the planes themselves, swapped to big-endian through the writer's band,
+                    // with no copy of our own.
+                    for (var c = 0; c < channelCount; c++)
+                    {
+                        var plane = Planes[c].Data;
+                        writer.Write<float>(MemoryMarshal.CreateReadOnlySpan(ref plane[0, 0], plane.Length));
+                    }
+                    break;
+            }
         }
 
         // One narrowing loop for every integer container: the storage decides what a physical value
-        // becomes, so a byte, a short and an int differ only in the type it lands in.
-        Array QuantisePlanes<T>() where T : struct, INumberBase<T>
+        // becomes, so a byte, a short and an int differ only in the type it lands in. A band of whole
+        // rows at a time, quantised into rented scratch and swapped to big-endian IN PLACE, so no plane
+        // the size of the frame exists at any point; it used to be a new T[h, w] per write, 52 MB for a
+        // 26 MP 16-bit sub.
+        void WriteQuantised<T>(FitsWriter writer) where T : unmanaged, INumberBase<T>
         {
-            if (channelCount == 1)
+            var rowsPerBand = Math.Max(1, QuantiseBandBytes / (width * Unsafe.SizeOf<T>()));
+            var band = ArrayPool<T>.Shared.Rent(rowsPerBand * width);
+            try
             {
-                return QuantisePlane<T>(Planes[0].Data);
-            }
+                for (var c = 0; c < channelCount; c++)
+                {
+                    // A row at a time: every term of the conversion but the sample itself is the same for
+                    // the whole plane, and asking per pixel re-derives the container bounds, the offset
+                    // conversion and two mode tests tens of millions of times per map.
+                    var source = Planes[c].Data.AsSpan2D();
+                    for (var y0 = 0; y0 < height; y0 += rowsPerBand)
+                    {
+                        var rows = Math.Min(rowsPerBand, height - y0);
+                        var span = band.AsSpan(0, rows * width);
+                        for (var r = 0; r < rows; r++)
+                        {
+                            sampleStorage.Narrow(source.GetRowSpan(y0 + r), span.Slice(r * width, width));
+                        }
 
-            var quantised = new T[channelCount][,];
-            for (var c = 0; c < channelCount; c++)
+                        writer.WriteInPlace(span);
+                    }
+                }
+            }
+            finally
             {
-                quantised[c] = QuantisePlane<T>(Planes[c].Data);
+                ArrayPool<T>.Shared.Return(band);
             }
-
-            return quantised;
-        }
-
-        T[,] QuantisePlane<T>(float[,] src) where T : struct, INumberBase<T>
-        {
-            // Every element is written below, so the pool's uncleared array is safe.
-            var dst = rented.Rent<T>(height, width);
-            // A row at a time: every term of the conversion but the sample itself is the same for
-            // the whole plane, and asking per pixel re-derives the container bounds, the offset
-            // conversion and two mode tests tens of millions of times per map.
-            var source = src.AsSpan2D();
-            var destination = dst.AsSpan2D();
-            for (var h = 0; h < height; h++)
-            {
-                sampleStorage.Narrow(source.GetRowSpan(h), destination.GetRowSpan(h));
-            }
-
-            return dst;
         }
 
         // BZERO and BSCALE go out as integers whenever they are whole, which they are for every
@@ -1169,7 +1125,7 @@ public partial class Image
 
             if (card is not null)
             {
-                basicHdu.Header.AddCard(card);
+                header.AddCard(card);
             }
         }
     }
