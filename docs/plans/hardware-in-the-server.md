@@ -70,10 +70,10 @@ Every rule below is a requirement, and a phase that breaks one is not done:
 - the quit dialog when a run is active (decision 1);
 - a single setting, sharing this rig on the LAN (decision 3).
 
-**When the server itself dies.** The GUI says so in plain words and starts a new one; the new one finds
-the hardware again as a fresh start does today. A session running in it is lost, exactly as a GUI crash
-loses one today, which is the case this plan makes RARER: the server has no GPU, no window and no
-render thread.
+**When the server itself dies**, the GUI says so in plain words and starts a new one, which reconnects
+what the dead one held (see "When the server dies" under the target architecture). The run it was in
+is lost, as a GUI crash loses one today. That case becomes RARER, because the server has no GPU, no
+window and no render thread.
 
 INDI runs one process per driver so that a driver crash takes out only its device. This plan runs one
 process for all drivers, which is simpler to own and to manage. It isolates only the class of driver
@@ -197,7 +197,9 @@ one API, one client and one test surface.
 **Spike, 2026-09-24, win-arm64 Windows 11 26200, NOT elevated.** Kestrel `ListenUnixSocket` on
 `%LOCALAPPDATA%\TianWen\spike.sock` (58 chars) served a GET and a WebSocket echo through that client
 code. A warm 16 MB body came back in 12 ms. No elevation, no port, no firewall prompt, nothing reachable
-from the LAN.
+from the LAN. **It is AOT-clean**: the same spike published with native AOT (`-r win-arm64`, a 13.3 MB
+executable) with no trim or AOT warnings, and the native binary ran the GET, the WebSocket echo and the
+16 MB body (8 ms). P1 still verifies the real server by `publish`, per the repo rule.
 
 - **The path is an argument**: `tianwen-server --socket <path>`. The default comes from ONE shared
   helper in `TianWen.Hosting.Contracts`, a short name under the per-user `%LOCALAPPDATA%\TianWen` (or
@@ -253,6 +255,36 @@ hardware server must survive its parent:
   server run by hand on a mini PC keeps its current default (decision 3).
 - **Logs**: `Logs/<date>/Server_*.log`, beside the GUI's.
 
+### When the server dies
+
+The socket connection is gone at once: the GUI's WebSocket closes and every request is refused. What
+else happens, and what the plan does about each:
+
+- **The hardware is released, not stopped.** The OS closes the process's USB and serial handles. A mount
+  controller keeps tracking on its own, but **nothing enforces the mount limits any more**, and that
+  is the dangerous part. Whether a cooled camera keeps its setpoint without a host is per camera and
+  unverified; it is a bench item. The run is lost.
+- **The socket FILE stays on disk.** It is stale until the next server takes the lock and replaces it
+  (the lock rule above). A shared-memory section behaves per OS:
+  - Windows keeps a section alive while the client still maps it, so the client drops its mappings when
+    it reconnects.
+  - A POSIX `shm_open` object persists until it is unlinked, so the new lock holder unlinks any object
+    left under the node's prefix.
+- **The GUI notices at once, says so, and starts a new server.** It does not ask first: the rule "nobody
+  manages the server" holds here too.
+- **A crash journal (proposed, decision 8).** The server keeps a small file beside `node.lock`, written
+  atomically whenever it changes, of what it holds: the connected devices and the run in progress.
+  - A clean exit deletes it, so a server that starts and finds one knows the last one died. It then:
+    - reconnects those devices at once, which restores mount-limit enforcement and the camera's cooler
+      setpoint;
+    - tells the GUI which run was interrupted and when.
+  - The GUI offers "Stop the rig safely" (park if configured, warm-up, disconnect) or "Start the session
+    again".
+  - **It never resumes a session silently**: a mount that has kept tracking for unknown minutes is
+    exactly where a blind resume goes wrong.
+  - Without the journal, a server crash is today's GUI crash: the mount runs unguarded until someone
+    notices.
+
 ### What crosses the socket
 
 The rule that decides every row below: **an operation that must finish if the GUI dies runs in the
@@ -288,6 +320,26 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
   - **`SessionStateDto.LastFramePath`** names the last sub the server wrote. A local GUI could open it
     as is, linear and with its headers, but only saved subs have one; previews, polar and planetary
     frames never touch disk.
+- **Where the 16-bit to float conversion happens: in the camera driver, so in the server, unchanged.**
+  - The DAL driver (ZWO, QHY, Player One, ToupTek) converts right after `GetDataAfterExposure` fills its
+    reused native buffer. Alpaca and ASCOM convert as they decode.
+  - The server needs floats itself, for star detection, HFD, plate solving, guiding and writing the FITS,
+    so the frame is float before any client exists, and a slot carries it as float.
+  - Moving the conversion to the client would halve a slot but make the server convert twice.
+- **The DAL conversion has a bug and a spare copy, found while tracing this** (`DALCameraDriver`, the
+  16-bit case).
+  - It reads the native buffer as SIGNED `short`, so a pixel of 32768 or more becomes a large negative
+    float. The driver's own comment says ZWO and QHY deliver native-scale values, which a 12- or 14-bit
+    sensor keeps below 32768.
+  - A 16-bit converter delivers up to 65535, and Player One left-aligns a 12-bit sensor up to 65520 (the
+    same comment, measured). The ASI2600 (IMX571), the ASI6200 (IMX455), the QHY268 and the QHY600 are
+    such converters.
+  - On those cameras every pixel above half scale, which is every bright star core, would arrive
+    negative. That is read from the code, not reproduced on hardware; the test fake's
+    `GetDataAfterExposure` writes nothing, so no test sees it.
+  - It also `Marshal.Copy`s into a NEW `short[w * h]` every frame (52 MB of garbage per 26 MP frame)
+    before a scalar loop converts. Reading the native buffer as `ushort` in place fixes the sign, drops
+    that array and saves a copy, in one change. It is independent of this plan: `TODO.md`, High Priority.
 - **Wire format.** The float planes plus an `ImageMeta` header, bit-exact, row-major, so neither end
   transposes. When every sample is a
   whole number in 0 to 65535, which is the usual case for a camera frame in ADU, the planes are packed
@@ -327,10 +379,32 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
       `ChannelBufferLeakTracker`, the viewer's `AcceptFrame`) sees a frame from the server exactly as
       it sees one from a local camera, and a 104 MB frame no longer means a 104 MB allocation.
       `Array2DPool` stays scratch only, as it is today.
-  - **Memory, for one 26 MP camera watched locally**: the camera's own recycled buffers (unchanged),
-    two slots (about 208 MB of commit), and the client's recycled buffers. That is one slot pair and
-    one client free list MORE than today's single process holds, which is the price of surviving the
-    GUI; it is stated here so it is paid on purpose.
+  - **Memory and copies, one 26 MP mono frame from a 16-bit sensor on its way to the screen** (sizes in
+    decimal MB; every buffer is reused frame to frame unless marked; traced through `DALCameraDriver`,
+    `LiveFramePreviewSource.AcceptFrame` and `VkFitsImagePipeline`, 2026-09-24):
+
+    | Buffer | Holds | Today (one process) | Planned: server | Planned: GUI |
+    |---|---|---|---|---|
+    | SDK native buffer | uint16 | 52 | 52 | |
+    | `short[]` read copy | int16, NEW every frame | 52 | 52 | |
+    | camera `float[,]` (`ChannelBuffer`) | float32 | 104 | 104 | |
+    | slots A and B | float32, shared by both | | 208 | (mapped, not counted again) |
+    | reader `float[,]` | float32 | | | 104 |
+    | viewer's normalised copy (`AcceptFrame`) | float32 | 104 | | 104 |
+    | Vulkan staging buffer | float32 | 104 | | 104 |
+    | GPU texture (`R32Sfloat`) | float32 | 104 | | 104 |
+    | **total** | | **520** | **416** | **416** |
+    | **copies of the frame** | | **6** | **4** | **4** |
+
+    Planned is 832 MB against 520, and 8 copies against 6: the two slots and the reader's array are the
+    price of the rig outliving the window, stated here so it is paid on purpose. Two changes pay part of
+    it back:
+    - **The DAL read fix above** removes the `short[]` both today and planned: 52 MB and one copy.
+    - **Normalising while copying out of the slot** (the "later step" above) would let the viewer skip
+      the reader's `float[,]` until a statistic, a solve or a save needs one: 104 MB and one copy.
+
+    The texture is device memory; on the Adreno laptop, as on any integrated GPU, device memory IS system
+    RAM.
   - **A seqlock per slot, never an acknowledgement.** The server makes the slot's generation odd,
     writes, then makes it even. The client reads the generation, copies, and reads it again, dropping
     a torn read and taking the next frame. A dead or stalled client can therefore never block the
@@ -387,7 +461,7 @@ each piece as it lands. Then the GUI switches over in one step.
 |---|---|---|
 | **P0a** | A dead GPU keeps the night alive (above) | live `gpu_fault reject` over a fake session: the session ends at its own time, `Finalise` runs |
 | **P0b** | Server lifecycle and wire bugs 1-8; the GUI context-gating bug 9 | a test per item that fails first; a server test that aborts a session and sees park and warm-up |
-| **P1** | Local node transport and lifetime: `--socket`, the lock, spawn with breakaway / setsid, readiness, idle exit, version handshake, clock hand-off, LAN opt-in; `TianWenNodeClient` and the event stream over the socket; `tianwen-server` built and published INTO the GUI's own output directory (a build-only reference), so "spawned from the GUI's own directory" holds in a checkout as well as in a release | functional tests spawn a real server on a temp socket with fakes; AOT `publish -r win-arm64` and `linux-arm64`, then run it |
+| **P1** | Local node transport and lifetime: `--socket`, the lock, spawn with breakaway / setsid, readiness, idle exit, version handshake, clock hand-off, LAN opt-in, the crash journal and stale socket and shared-memory clean-up; `TianWenNodeClient` and the event stream over the socket; `tianwen-server` built and published INTO the GUI's own output directory (a build-only reference), so "spawned from the GUI's own directory" holds in a checkout as well as in a release | functional tests spawn a real server on a temp socket with fakes, and kill it mid-run to see the next one reconnect from the journal; AOT `publish -r win-arm64` and `linux-arm64`, then run it |
 | **P2** | Session-less device plane: connect / disconnect / warm-and-disconnect, cooling and camera settings, focuser, filter, mount actions, leased move-axis, snapshot plus `DEVICE-STATE`, mount-limit verdict, `DeviceOwnershipGate` on every actuation | the server functional suite drives the Equipment flows the GUI runs today, end to end, against fakes |
 | **P3** | Profiles and discovery on the server: async discovery job, profile edits (socket only), site reconcile, sensor capture, credential store; the server as the one profile writer | reconcile and edit parity tests against today's `EquipmentActions` results |
 | **P4** | Linear frames: binary format, `FRAME-AVAILABLE`, guide frames; a network-backed `LiveFramePreviewSource` | a round-trip test that is pixel-exact against the camera's own buffer; a measured 26 MP transfer |
@@ -416,6 +490,10 @@ each piece as it lands. Then the GUI switches over in one step.
    image is not necessarily in HDU 0").
 7. **Migration.** Recommended: build the server surface first, then cut the GUI over in one wave (P6).
    The alternative is a startup flag with both paths alive, which this repo's rules argue against.
+8. **After a server crash.** Recommended: the crash journal, so the next server reconnects what the dead
+   one held (restoring mount-limit enforcement and the cooler setpoint) and the GUI offers "Stop the rig
+   safely" or "Start the session again", never a silent resume. The alternative is a clean start that
+   leaves the mount unguarded until someone notices, which is today's behaviour after a GUI crash.
 
 ## Open questions (engineering, not the user's)
 
