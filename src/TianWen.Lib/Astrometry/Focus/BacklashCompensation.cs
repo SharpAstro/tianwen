@@ -6,6 +6,24 @@ using TianWen.Lib.Devices;
 namespace TianWen.Lib.Astrometry.Focus;
 
 /// <summary>
+/// How a compensated move commands the focuser and asks whether it has arrived. The session passes
+/// its resilient versions (a transient fault retried and counted against reconnect escalation, like
+/// every other hot-path driver call); a caller with no resilience layer takes <see cref="Direct"/>.
+/// <para>A move-wait that polled the driver directly stopped at the first failed read: a driver that
+/// reported the failure as "not moving" ended the wait while the focuser was still travelling, and one
+/// that throws failed the whole autofocus run on a single glitch the resilience layer would have
+/// retried (#781).</para>
+/// </summary>
+public readonly record struct FocuserMotion(
+    Func<int, CancellationToken, ValueTask> BeginMoveAsync,
+    Func<CancellationToken, ValueTask<bool>> IsMovingAsync)
+{
+    /// <summary>The driver's own calls, with no retry: for tools and tests.</summary>
+    public static FocuserMotion Direct(IFocuserDriver focuser)
+        => new(async (position, ct) => await focuser.BeginMoveAsync(position, ct).ConfigureAwait(false), focuser.GetIsMovingAsync);
+}
+
+/// <summary>
 /// Provides backlash-compensated focuser movement. Always approaches the target
 /// from the preferred direction (determined by <see cref="FocusDirection"/>) by
 /// overshooting past the target and returning, ensuring consistent mechanical engagement.
@@ -16,9 +34,11 @@ public static class BacklashCompensation
     /// Moves the focuser to <paramref name="targetPosition"/> with backlash compensation,
     /// always approaching from the preferred direction as defined by <paramref name="focusDirection"/>.
     /// When a direction reversal occurs, overshoots past target and returns from the preferred side.
+    /// Every move and every is-moving poll goes through <paramref name="motion"/>.
     /// </summary>
     public static async Task MoveWithCompensationAsync(
         IFocuserDriver focuser,
+        FocuserMotion motion,
         int targetPosition,
         int currentPosition,
         int backlashStepsIn,
@@ -38,7 +58,7 @@ public static class BacklashCompensation
         if (approachingFromPreferred)
         {
             // Moving in the preferred direction: no compensation needed, just move directly
-            await MoveAndWaitAsync(focuser, targetPosition, timeProvider, cancellationToken);
+            await MoveAndWaitAsync(motion, targetPosition, timeProvider, cancellationToken);
         }
         else
         {
@@ -58,42 +78,22 @@ public static class BacklashCompensation
                     overshootPos = Math.Min(focuser.MaxStep, overshootPos);
                 }
 
-                await MoveAndWaitAsync(focuser, overshootPos, timeProvider, cancellationToken);
+                await MoveAndWaitAsync(motion, overshootPos, timeProvider, cancellationToken);
             }
             // Now approach target from the preferred direction
-            await MoveAndWaitAsync(focuser, targetPosition, timeProvider, cancellationToken);
+            await MoveAndWaitAsync(motion, targetPosition, timeProvider, cancellationToken);
         }
     }
 
-    /// <summary>
-    /// Overload without FocusDirection for backward compatibility.
-    /// Defaults to preferring positive direction (approach from below).
-    /// </summary>
-    public static Task MoveWithCompensationAsync(
-        IFocuserDriver focuser,
-        int targetPosition,
-        int currentPosition,
-        int backlashStepsIn,
-        int backlashStepsOut,
-        ITimeProvider timeProvider,
-        CancellationToken cancellationToken)
-    {
-        return MoveWithCompensationAsync(
-            focuser, targetPosition, currentPosition,
-            backlashStepsIn, backlashStepsOut,
-            new FocusDirection(PreferOutward: true, OutwardIsPositive: true),
-            timeProvider, cancellationToken);
-    }
-
     private static async Task MoveAndWaitAsync(
-        IFocuserDriver focuser,
+        FocuserMotion motion,
         int position,
         ITimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
-        await focuser.BeginMoveAsync(position, cancellationToken);
+        await motion.BeginMoveAsync(position, cancellationToken);
 
-        while (await focuser.GetIsMovingAsync(cancellationToken) && !cancellationToken.IsCancellationRequested)
+        while (await motion.IsMovingAsync(cancellationToken) && !cancellationToken.IsCancellationRequested)
         {
             await timeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
         }

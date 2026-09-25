@@ -113,6 +113,14 @@ cable bump) defeat the whole helper.
 
 Anything else rethrows immediately.
 
+**A read the device did not answer must THROW, never return a value.** Every layer in this document
+reacts to an exception, so a driver that turns a missing or unparseable reply into `false`,
+`int.MinValue` or `NaN` hands all of them a value. For a poll that decides something is FINISHED
+that is the wrong answer rather than no answer: the Gemini focuser's `:01#` read "not moving" on a
+lost reply, so a compensated move-wait stopped polling while the focuser travelled on (#781). Not
+connected is a different case and keeps its neutral value; connected with no valid reply is an
+`IOException`, which the filter above already treats as transient.
+
 ## Per-driver fault counter
 
 Each `IDeviceDriver` has a session-scoped reconnect counter, incremented by

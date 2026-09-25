@@ -66,9 +66,10 @@ internal static class GeminiFocuserProtocol
     public static ValueTask<int?> GetPositionAsync(ISerialConnection conn, CancellationToken cancellationToken)
         => QueryIntAsync(conn, ":00#", cancellationToken);
 
-    /// <summary>Sends <c>:01#</c> and returns whether the focuser is moving (payload <c>1</c> = moving).</summary>
-    public static async ValueTask<bool> GetIsMovingAsync(ISerialConnection conn, CancellationToken cancellationToken)
-        => await QueryIntAsync(conn, ":01#", cancellationToken).ConfigureAwait(false) is { } m && m != 0;
+    /// <summary>Sends <c>:01#</c> and returns whether the focuser is moving (payload <c>1</c> = moving), or null
+    /// when there is no parseable reply: "no answer" is not "not moving".</summary>
+    public static async ValueTask<bool?> GetIsMovingAsync(ISerialConnection conn, CancellationToken cancellationToken)
+        => await QueryIntAsync(conn, ":01#", cancellationToken).ConfigureAwait(false) is { } m ? m != 0 : null;
 
     /// <summary>Sends <c>:08#</c> and returns the maximum step position, or null when unavailable/unparseable.</summary>
     public static ValueTask<int?> GetMaxStepAsync(ISerialConnection conn, CancellationToken cancellationToken)

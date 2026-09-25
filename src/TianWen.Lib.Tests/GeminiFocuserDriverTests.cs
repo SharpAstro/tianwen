@@ -1,12 +1,15 @@
 using Microsoft.Extensions.Logging;
 using Shouldly;
 using System;
+using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Connections;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Gemini;
+using TianWen.Lib.Sequencing;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -64,5 +67,48 @@ public class GeminiFocuserDriverTests(ITestOutputHelper output)
         (await GeminiFocuserProtocol.GetTemperatureAsync(conn, ct)).ShouldBe(20.0, 0.001);
         driver.TempCompAvailable.ShouldBeFalse();
         double.IsNaN(await driver.GetTemperatureAsync(ct)).ShouldBeTrue("no probe was found at boot, so there is no temperature to report");
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AReadWithNoReplyThrowsRatherThanReportingNotMovingOrASentinel()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var conn = new FakeGeminiFocuserSerialDevice { Moving = true };
+        await using var driver = CreateDriver(conn);
+        await driver.ConnectAsync(ct);
+
+        conn.Dead = true;
+
+        // #781: "not moving" here ended a move-wait while the focuser travelled on, and int.MinValue was a
+        // position a caller had to know to distrust.
+        await Should.ThrowAsync<IOException>(async () => await driver.GetIsMovingAsync(ct));
+        await Should.ThrowAsync<IOException>(async () => await driver.GetPositionAsync(ct));
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ADisconnectedFocuserStillReportsNoPositionAndNotMoving()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var driver = CreateDriver(new FakeGeminiFocuserSerialDevice { Moving = true });
+        await driver.ConnectAsync(ct);
+        await driver.DisconnectAsync(ct);
+
+        (await driver.GetPositionAsync(ct)).ShouldBe(int.MinValue);
+        (await driver.GetIsMovingAsync(ct)).ShouldBeFalse();
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ATransientNoReplyIsRetriedByTheResilienceLayerNotReadAsNotMoving()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var conn = new FakeGeminiFocuserSerialDevice { Moving = true };
+        await using var driver = CreateDriver(conn);
+        await driver.ConnectAsync(ct);
+
+        conn.DropReplies = 1;
+        var moving = await ResilientCall.InvokeAsync(driver, driver.GetIsMovingAsync, ResilientCallOptions.IdempotentRead, ct);
+
+        moving.ShouldBeTrue("the one lost reply was retried, and the focuser is still moving");
+        conn.WrittenCommands.Count(c => c == ":01#").ShouldBe(2, "one lost query, one retried");
     }
 }
