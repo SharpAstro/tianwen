@@ -266,8 +266,9 @@ fixed by #799: an API session runs on the declared defaults, and the whole confi
 (the fifth invariant; the site case it leaves is #798). Items 5, 6, 15 and 16 are fixed by #800: a
 mirror hears the node's events, an error answers its own HTTP status, and the live preview leases a frame
 the session keeps on show, under the slot's own token as a conditional GET (`hosting-api.md`, the preview
-section). Item 14 is withdrawn (below). The rest (7, 8, 9, 11, 13, 17 and 18) are open, one PR per
-concern.
+section). Items 7 and 13 are fixed by #801: a broadcast only queues, each client with its own bounded
+sender, and a prompt is held only for a client that can answer it, and only until it settles. Item 14 is
+withdrawn (below). The rest (8, 9, 11, 17 and 18) are open, one PR per concern.
 
 Each item below is confirmed in the code, except where it says otherwise; the review of 2026-09-25
 re-checked all nine and found nine more (10 to 18). The first four, and 10 and 11, decide whether a
