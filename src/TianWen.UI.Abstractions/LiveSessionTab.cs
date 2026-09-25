@@ -297,11 +297,14 @@ namespace TianWen.UI.Abstractions
                     }
                 }
 
-                if (latestImage is not null && !ReferenceEquals(latestImage, _displayedImage))
+                // Normalise + (unless frozen) re-scan stats into the live source, then flag a re-upload. A
+                // frame its owner already gave back is refused and NOT marked shown, so _displayedImage
+                // stays the frame whose pixels are on screen and the solve binding below cannot attach a
+                // WCS to an exposure nobody saw; asking again next frame costs one failed lease.
+                if (latestImage is not null && !ReferenceEquals(latestImage, _displayedImage)
+                    && _previewSource.AcceptFrame(latestImage, pst.FreezeStretchStats))
                 {
                     _displayedImage = latestImage;
-                    // Normalise + (unless frozen) re-scan stats into the live source, then flag a re-upload.
-                    _previewSource.AcceptFrame(latestImage, pst.FreezeStretchStats);
                     pst.NeedsTextureUpdate = true;
                     // A fresh frame invalidates any prior solve until the user requests a new plate solve.
                     // Without this, the grid would be drawn over a frame the WCS doesn't actually describe.

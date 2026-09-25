@@ -9,18 +9,22 @@ public partial class Image
     /// there is no <c>Release</c> to pair by hand and no way to spend the owner's ref by mistake.
     /// <para>
     /// <b>Why this exists rather than just reading <c>LastGuideFrame</c> (or any other live frame)
-    /// directly.</b> A frame published by a driver is valid only until that driver publishes the
-    /// next one: publishers swap the pointer BEFORE releasing the superseded frame, but the
-    /// superseded frame IS then released, so a reader holding a bare reference across any await is
-    /// reading a buffer the camera may already have taken back. The GUI gets away with a bare
-    /// reference because it draws on the render thread within the same frame it read; a hosted
-    /// request encoding a JPEG does not, and that difference is the whole reason for a lease.
+    /// directly.</b> A published frame is its owner's, and the owner releases it from ITS thread
+    /// whenever it is done, so a reader holding a bare reference is reading a buffer the camera may
+    /// already have taken back. That is not a matter of awaits: a render-thread reader drawing in the
+    /// same frame it read the reference is exposed just the same, and the GUI's live previews read
+    /// that way until one threw on the render thread in the live check of 2026-09-25. Every reader
+    /// that is not the owner leases, the render thread included.
     /// </para>
     /// <para>
-    /// Losing the race is normal and is reported as <see langword="false"/>, not an exception --
-    /// and because publishers swap first, a refusal has exactly one meaning: this frame was
-    /// superseded between the caller's read of the published pointer and the lease. Re-reading the
-    /// pointer observes the live successor, so a retry converges in one step.
+    /// Losing the race is normal and is reported as <see langword="false"/>, not an exception. What
+    /// a refusal means depends on the publisher. A guider swaps its pointer BEFORE releasing the
+    /// superseded frame, so there a refusal means the frame was superseded between the caller's read
+    /// of the pointer and the lease, and re-reading the pointer converges in one step. A session's
+    /// <c>LastCapturedImages</c> slot keeps a frame after the session released it (its FITS write
+    /// done, an autofocus rung's stars counted) until the next exposure replaces it, so there a
+    /// refusal means nothing is left to show until that exposure, and re-reading returns the same
+    /// released frame.
     /// </para>
     /// <para>
     /// <b>Frame ownership: this is the BORROW primitive.</b> Everyone who is not the owner reads
