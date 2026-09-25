@@ -1335,7 +1335,10 @@ DTOs + `HostingJsonContext`) and `TianWen.RemoteClient` (`TianWenNodeClient`, `T
   invariant is per NODE; `RemoteRigBinding` persists on a stable `NodeId`, never an address.
 - **One `LiveSessionState` per view context**: Active (renders), Local (this node's own hardware --
   every quit/park/disconnect path belongs here), All (poll + redraw). Reaching for Active where Local
-  is meant parks the local mount from a remote view.
+  is meant parks the local mount from a remote view. The reverse bites too: a button drawn over a
+  remote rig's panel posts the same signal as the local one, so **every handler that drives this
+  computer's rig asks `EnsureLocalContext` first** (runs, and since P0b item 9 the device actions:
+  planetary Start, nudges, Goto, Solve and Sync, the focuser), and a new one owes the same.
 - **`ISession`/`ISessionTelemetry` split**: telemetry is the wire-crossable read surface, `Setup` stays
   local, so a remote rig renders with no tab knowing it is remote.
 - **Two wire traps:** never `required` on a nullable wire property (`WhenWritingNull` omits it); route

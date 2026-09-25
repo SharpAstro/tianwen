@@ -423,7 +423,9 @@ plain interfaces, so remote implementations slot in without tab changes.
    use, which is why the TUI tabs became a `LiveState` property over `contexts.Active` rather than a
    constructor-captured field. New guard `AppSignalHandler.EnsureLocalContext` refuses the three
    run-starting signals while a remote context is on screen (per-action guards for the device handlers
-   come with the remote Equipment/Preview surfaces in P5). `IGuiChrome.LiveSessionState` became
+   come with the remote Equipment/Preview surfaces in P5; they did not, and came with P0b item 9 of
+   `hardware-in-the-server.md` instead, 2026-09-25, after five device actions were found driving the
+   local rig from a remote rig's panel). `IGuiChrome.LiveSessionState` became
    `IGuiChrome.ViewContexts`. The DEBUG inspector snapshot gained `viewContext`, `viewContextCount` and
    `localSessionRunning` so an agent can tell the overlay apart from the thing underneath it.
    <br>One deliberate behaviour change: the TUI now polls every context each loop instead of only when
