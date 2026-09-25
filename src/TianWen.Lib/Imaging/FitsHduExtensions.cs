@@ -1,3 +1,4 @@
+using System;
 using nom.tam.fits;
 
 namespace TianWen.Lib.Imaging;
@@ -25,8 +26,9 @@ public static class FitsHduExtensions
     extension(Fits fits)
     {
         /// <summary>Read forward to the first HDU carrying an image array, skipping HDUs that
-        /// hold no data (the empty primary of a compressed file) or hold something other than an
-        /// image (a catalogue table). Returns null at end of file.</summary>
+        /// hold no data (the empty primary of a compressed file, and the placeholder FITS.Lib
+        /// writes in front of a table) or hold something other than an image (a catalogue table).
+        /// Returns null at end of file.</summary>
         /// <remarks>Reading forward is cheap: on a seekable stream an image HDU's pixels are
         /// skipped rather than read, and a tile-compressed one defers its tiles the same way, so
         /// the walk costs one header parse per HDU passed over.</remarks>
@@ -44,7 +46,13 @@ public static class FitsHduExtensions
             // Axes is null for NAXIS = 0. A tile-compressed image satisfies both tests, since
             // FITS.Lib 5.0 surfaces it as an ImageHDU whose header has been translated back into
             // the image's own BITPIX / NAXIS / NAXISn.
-            if (hdu is ImageHDU && hdu.Axes?.Length > 0)
+            //
+            // An axis of length zero means no sample either. A table cannot be primary, so FITS.Lib
+            // writes a placeholder in front of one (BasicHDU.DummyHDU, the image of an empty array:
+            // NAXIS = 1, NAXIS1 = 0), and stopping there read nothing while the image sat in the next
+            // extension. FitsReader takes the first image holding a sample by the same rule, so the
+            // pixel read, this walk and the header-only walk all land on one HDU.
+            if (hdu is ImageHDU && hdu.Axes is { Length: > 0 } axes && Array.TrueForAll(axes, static length => length > 0))
             {
                 return hdu;
             }

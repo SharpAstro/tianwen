@@ -83,6 +83,38 @@ public class FramePathAllocationTests
     }
 
     [Fact]
+    public void APooledSixteenBitFitsReadAllocatesNoFrameSizedArray()
+    {
+        // The read side of the test above: the stacker reads hundreds of subs pooled, and each read used
+        // to allocate FITS.Lib's typed array (the whole frame again, as shorts) and a 2 MB read-ahead
+        // buffer before converting a sample. Counted on this thread, since the read is synchronous and
+        // other collections allocate in parallel.
+        const int width = 3000, height = 2000;
+        var image = SixteenBitFrame(width, height);
+        var path = Path.Combine(Path.GetTempPath(), $"tianwen-alloc-{Guid.NewGuid():N}.fits");
+        try
+        {
+            image.WriteToFitsFile(path);
+            Image.TryReadFitsFile(path, out var warm, out _, pooled: true).ShouldBeTrue();
+            warm.Release();
+
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            Image.TryReadFitsFile(path, out var read, out _, pooled: true).ShouldBeTrue();
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+            var typed = (long)width * height * sizeof(short);
+            allocated.ShouldBeLessThan(typed / 2,
+                $"the read goes straight into the rented plane: {allocated:N0} bytes against a {typed:N0}-byte typed array");
+            read.GetChannelSpan(0)[width + 1].ShouldBe(image.GetChannelSpan(0)[width + 1], "the same pixels");
+            read.Release();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task AColourLiveMasterAllocatesItsColourPlanesAndNoMosaic()
     {
         // A split-CFA master merges its four sub-planes back into a mosaic only to demosaic it once; the

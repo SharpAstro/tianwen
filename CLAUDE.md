@@ -1395,6 +1395,18 @@ first HDU that carries an image, and **every reader of an image file uses them**
 `Image.TryReadFitsFile`, `Image.TryReadFitsHeader`, `MasterCache.ReadFingerprint`,
 `IntegrationFitsWriter.IsTianWenMaster`. A bare `ReadHDU()` on the read path is a regression.
 
+- **A plain file's pixels come through FITS.Lib's `FitsReader`, and the first image is the first
+  one holding a SAMPLE.** `TryReadFitsFile(path)` reads a plain FITS file through
+  `TryReadThroughFitsReader` (2 MB positional reads straight into the float planes: a pooled 26 MP
+  read went from 39.5 ms and 54 MB to 10.5 ms and 56 KB) and falls back to the HDU reader for `.gz`,
+  `.fz` and anything the reader declines. **Not a memory mapping**: measured, a mapping read the same
+  sub cold SLOWER than the old reader (105.6 against 90.4 ms). The two paths are pinned bit for bit by
+  `FitsReadPathParityTests`, whose reader side must be `TryReadThroughFitsReader` itself: through the
+  public entry, a file the reader quietly declined compares the HDU reader with itself. An image HDU
+  with an axis of length zero holds no sample (FITS.Lib's placeholder primary before a table,
+  `BasicHDU.DummyHDU`: NAXIS = 1, NAXIS1 = 0), so the walk, the header-only walk and the reader all
+  pass over it. `docs/plans/frame-path-allocations.md` P5.
+
 - **A file is OPENED through `Image.OpenFits`, never by constructing a `BufferedFile` beside a
   `.gz` test.** Handed FITS.Lib's own `BufferedFile`, a gzipped file reads back as an EMPTY HDU list
   rather than throwing, so every reader answered "unreadable" for one, silently, until the first
