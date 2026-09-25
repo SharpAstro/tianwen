@@ -110,7 +110,6 @@ public class ModelResolverTests : IDisposable
         ex.Message.ShouldContain(_primary);
         ex.Message.ShouldContain(_fallback);
         ex.Message.ShouldContain("notthere.onnx");
-        ex.Message.ShouldContain("tianwen-ai-models-fetch.ps1");
     }
 
     /// <summary>
@@ -142,17 +141,17 @@ public class ModelResolverTests : IDisposable
     }
 
     /// <summary>
-    /// Both remedies must be named: the fetch script for third-party weights, git-lfs for the
-    /// in-house ones. Naming only the script is what sent a real investigation to a tool that
-    /// does not have the missing model.
+    /// The message names the in-house remedy (git-lfs, for a pointer stub) and never the developer
+    /// fetch script: SETI Astro's AI4 weights allow use only inside SASpro without the author's
+    /// consent (their licence of 2026-09-24), so the product must not tell a user to download them.
     /// </summary>
     [Fact]
-    public void Resolve_NamesBothWaysToPopulateAModel()
+    public void Resolve_NamesTheInHouseRemedyAndNeverTheDeveloperFetchScript()
     {
         var ex = Should.Throw<FileNotFoundException>(() => MakeResolver().Resolve("notthere.onnx"));
 
-        ex.Message.ShouldContain("tianwen-ai-models-fetch.ps1");
         ex.Message.ShouldContain("git lfs pull");
+        ex.Message.ShouldNotContain("tianwen-ai-models-fetch.ps1");
     }
 
     [Fact]

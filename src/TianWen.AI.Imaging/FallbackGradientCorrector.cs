@@ -46,7 +46,7 @@ namespace TianWen.AI.Imaging
             if (Interlocked.Exchange(ref _fallbackAnnounced, 1) == 0)
             {
                 logger?.LogInformation(
-                    "Gradient correction: {Model} is not installed (GraXpert's weights are read from its own install, or from %LOCALAPPDATA%/TianWen/models via tools/tianwen-ai-models-fetch.ps1); using the classical robust fit instead.",
+                    "Gradient correction: {Model} is not installed (GraXpert's weights are read from its own install once it has run); using the classical robust fit instead.",
                     OnnxBackgroundExtractor.ModelName);
             }
             return classical;

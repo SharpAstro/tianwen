@@ -1347,7 +1347,7 @@ internal sealed class ImageSubCommand(
             "(light pollution, vignette, sky-glow asymmetry) and takes it out while preserving the " +
             "mean sky level per plane. Runs at the head of the canonical Frank Sackenheim flow " +
             "(gradient -> stars -> detail -> stretch). Two backends: the GraXpert BGE ONNX model when " +
-            "its weights are installed (tools/tianwen-ai-models-fetch.ps1), and the classical robust " +
+            "its weights are installed (read from GraXpert's own cache once it has run), and the classical robust " +
             "polynomial fit, which needs nothing and is what --degree/--surface/--downsample/" +
             "--divide/--exclude tune. Passing any of those selects --backend classical.")
         {
@@ -1423,7 +1423,7 @@ internal sealed class ImageSubCommand(
                 // would make a script's output depend on which box it ran on.
                 consoleHost.WriteError(
                     "--backend graxpert: the GraXpert BGE weights are not installed, so the active corrector is "
-                    + $"'{gradientCorrector.Name}'. Install them (tools/tianwen-ai-models-fetch.ps1, or GraXpert's own cache), "
+                    + $"'{gradientCorrector.Name}'. Install GraXpert and run it once (its model cache is read in place), "
                     + "or use --backend classical / --backend auto.");
                 return 1;
             }

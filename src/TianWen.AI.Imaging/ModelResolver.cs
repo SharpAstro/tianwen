@@ -87,19 +87,20 @@ public sealed class ModelResolver : IModelResolver
         }
 
         var probed = string.Join(Environment.NewLine + "  ", CandidateFiles(modelFileName));
-        // Name BOTH remedies: the third-party weights are fetched per user, the in-house ones
-        // ship in the repo. Naming only the fetch script sends anyone hitting the in-house case to
-        // a script that does not have their model. The in-house weights are currently a plain git
-        // blob (a .gitattributes exemption from the *.onnx LFS rule), so a checkout has them
-        // outright and 'git lfs pull' would be the wrong advice; it is named only as the remedy for
-        // the pointer-stub case, which is what a revert of that exemption would reintroduce.
+        // Name the in-house remedy and say where a third-party model is looked for, and never send
+        // the reader to tools/tianwen-ai-models-fetch.ps1. That script is a DEVELOPER tool: SETI
+        // Astro's AI4 weights have carried their own licence since 2026-09-24, which allows use only
+        // inside SASpro without the author's written consent, so nothing the product prints may
+        // tell a user to download them. A third-party model is read where its vendor put it, and
+        // the probed list below says where that was. 'git lfs pull' is named only for the
+        // pointer-stub case, which is what a revert of the in-house weights' .gitattributes
+        // exemption from the *.onnx LFS rule would reintroduce.
         //
-        // A vendor model gets its OWN remedy first, because neither of those two applies to it and
-        // both are addressed to someone holding a checkout. The person who hits this is an end user
+        // A vendor model gets its OWN remedy first, because the person who hits this is an end user
         // of a packaged install, and "install GraXpert and run it once" is the whole fix.
         var graXpertRemedy = GraXpertRemedy(modelFileName);
         throw new FileNotFoundException(
-            $"AI model '{modelFileName}' not found in any search path. {graXpertRemedy}Third-party weights are populated by tools/tianwen-ai-models-fetch.ps1; the in-house models ship in the repo under src/TianWen.AI.Imaging/models/, so a checkout should already have them (if one is a ~130-byte LFS pointer stub instead, run 'git lfs pull'). Probed:{Environment.NewLine}  {probed}");
+            $"AI model '{modelFileName}' not found in any search path. {graXpertRemedy}The in-house models ship beside the binary, and in a checkout under src/TianWen.AI.Imaging/models/ (if one is a ~130-byte LFS pointer stub instead, run 'git lfs pull'); a third-party model is read only where its vendor installed it. Probed:{Environment.NewLine}  {probed}");
     }
 
     public bool TryResolve(string modelFileName, [NotNullWhen(true)] out string? absolutePath)

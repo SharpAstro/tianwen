@@ -1,6 +1,13 @@
 # Fetch + materialize TianWen AI models (AI4, Walking Noise, GraXpert BGE, and
 # TianWen's own in-repo models) into %LOCALAPPDATA%\TianWen\models.
 #
+# A DEVELOPER tool, not an install step. Nothing the product prints points a user
+# here, by design. SETI Astro's AI4 weights have carried their own licence since
+# 2026-09-24 (COSMIC_CLARITY_LICENSE.txt on the same benchmarkFIT release): use
+# only within SASpro, for personal non-commercial processing, unless the author
+# (Franklin Marek, setiastro.com) consents in writing; no redistribution. Running
+# this is the developer's own use under those terms.
+#
 # Sourcing strategy:
 #   1. Probe %LOCALAPPDATA%\SASpro\models. If SetiAstroSuite Pro has a file we
 #      need, hardlink it into TianWen's tree -- zero disk cost on NTFS, the
@@ -17,7 +24,8 @@
 #      re-runs are safe and cheap.
 #
 # When to run this:
-#   - First-time TianWen install where we want AI4 / Walking Noise models.
+#   - A development machine that needs the AI4 / Walking Noise models (the
+#     smoke tests skip without them).
 #   - After clearing %LOCALAPPDATA%\TianWen\models to re-materialize from scratch.
 #   - On CI before running AI enhancement tests (use -NoDownload to fail
 #     loudly if SAS Pro isn't pre-staged, or omit it to pull from GitHub).
