@@ -1,0 +1,18 @@
+# Probe BB step 2, what the ARM adds to bb-ctl-14.txt (run-bb-arm.ps1): every train-split broadband
+# session of 2026-09-25-full on the ZWO ASI533MC Pro whose master median plane sits inside the E9 WIDE
+# range (0.07 to 0.62, condpool.py), excluding the 2024 Vela mosaic (already in the control) and the
+# comet (12P). Two filters (UV/IR cut, IDAS LPS-D3), 35 mm to 135 mm optics, a star cloud, a globular
+# and emission / dark nebulae. The plane cut keeps the arm ONE change (broadband field and filter
+# diversity, not new plane coverage, which was E9's lever); the camera cut keeps both eval sensors
+# (IMX294 on the QHY294C, IMX585 on the Uranus-C and ASI585MC) unseen by either arm, so a gain on
+# bb-eval-4 cannot be rig familiarity. Planes, in order: 0.07 0.10 0.11 0.14 0.23 0.26 0.31 0.46 0.51 0.52.
+ZWO-ASI533MC-Pro/UV-IR-Cut/Vela-SNR/2022-12-03|ZWO ASI533MC Pro|Vela SNR RGB
+ZWO-ASI533MC-Pro/UV-IR-Cut/Sagittarius-Star-Cloud/2022-07-29|ZWO ASI533MC Pro|Sgr Star Cloud
+ZWO-ASI533MC-Pro/UV-IR-Cut/Great-Orion-Nebula/2022-12-03|ZWO ASI533MC Pro|M42 RGB
+ZWO-ASI533MC-Pro/UV-IR-Cut/Orion-Wide/2022-01-31|ZWO ASI533MC Pro|Orion 35mm RGB
+ZWO-ASI533MC-Pro/UV-IR-Cut/Prawn-Nebula/2022-05-29|ZWO ASI533MC Pro|Prawn Nebula 60s 35mm
+ZWO-ASI533MC-Pro/UV-IR-Cut/Lobster-Nebula/2022-05-29|ZWO ASI533MC Pro|Lobster Nebula 60s 35mm
+ZWO-ASI533MC-Pro/IDAS-LPS-D3/Ophiuchus-Molecular-Cloud/2024-05-28|ZWO ASI533MC Pro|Oph Mol Cloud 120s F2.8 RGB|IDAS LPS D3
+ZWO-ASI533MC-Pro/IDAS-LPS-D3/Omega-Cen-Cluster/2024-02-16|ZWO ASI533MC Pro|Omega Cen 120s
+ZWO-ASI533MC-Pro/UV-IR-Cut/Horsehead-Nebula/2022-12-24|ZWO ASI533MC Pro|Horsehead Nebula SY135mm
+ZWO-ASI533MC-Pro/IDAS-LPS-D3/Rim-Nebula/2024-06-06|ZWO ASI533MC Pro|Rim Nebula|IDAS LPS D3
