@@ -125,6 +125,11 @@ namespace TianWen.RemoteClient
         // same panel, the next filter -- is raised again rather than swallowed as a duplicate.
         private string? _raisedPromptKey;
 
+        // The completion of the prompt raised locally, so it can be WITHDRAWN when the node stops offering
+        // it (answered elsewhere, or its run moved on): a local prompt bar drops it on Settled rather than go
+        // on asking. Poll loop only, like the key.
+        private TaskCompletionSource<bool>? _raisedPromptCompletion;
+
         // Decoded preview frames, one slot per OTA, and the frame number each slot holds. Published by
         // reference swap: the poll loop decodes off the render thread and the render thread reads the
         // array per frame.
@@ -386,7 +391,7 @@ namespace TianWen.RemoteClient
                 Volatile.Write(ref _snapshot, null);
                 _lastGuiderState = null;
                 _lastPhase = SessionPhase.NotStarted;
-                _raisedPromptKey = null;
+                WithdrawRaisedPrompt();
                 ClearPreviews();
                 return;
             }
@@ -602,7 +607,7 @@ namespace TianWen.RemoteClient
         {
             if (pending is null)
             {
-                _raisedPromptKey = null;
+                WithdrawRaisedPrompt();
                 return;
             }
 
@@ -616,6 +621,8 @@ namespace TianWen.RemoteClient
                 return;
             }
 
+            // A different prompt replaces the one raised before, which the node no longer offers.
+            WithdrawRaisedPrompt();
             _raisedPromptKey = key;
 
             if (_promptRequested is not { } handler)
@@ -629,6 +636,7 @@ namespace TianWen.RemoteClient
             }
 
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _raisedPromptCompletion = completion;
             handler(this, new SessionPromptEventArgs(
                 pending.Title,
                 pending.Message,
@@ -647,12 +655,30 @@ namespace TianWen.RemoteClient
             _ = ForwardPromptAnswerAsync(completion.Task, pending.Title);
         }
 
+        /// <summary>
+        /// Withdraws the prompt raised locally, if any: the node no longer offers it, so a local prompt bar
+        /// drops it (<see cref="SessionPromptEventArgs.Settled"/>) and nothing is forwarded. It used to stay up,
+        /// inviting an answer to a question the node's run had moved past (P0b item 13 of
+        /// docs/plans/hardware-in-the-server.md, #752).
+        /// </summary>
+        private void WithdrawRaisedPrompt()
+        {
+            _raisedPromptKey = null;
+            _raisedPromptCompletion?.TrySetCanceled();
+            _raisedPromptCompletion = null;
+        }
+
         private async Task ForwardPromptAnswerAsync(Task<bool> answer, string title)
         {
             bool proceed;
             try
             {
                 proceed = await answer.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Withdrawn: the node stopped offering it, so there is no answer to forward.
+                return;
             }
             catch (Exception ex)
             {

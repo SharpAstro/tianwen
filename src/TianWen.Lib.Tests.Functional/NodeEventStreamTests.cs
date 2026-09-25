@@ -70,4 +70,44 @@ public class NodeEventStreamTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         var phase = await received.Task.WaitAsync(ct);
         phase.Data.ShouldNotBeNull()["NewPhase"]?.ToString().ShouldBe("Cooling");
     }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ARunsFirstEventReachesAClientAlreadyListening()
+    {
+        // The broadcaster used to find a new run on its own 1 s poll, so whatever the run raised in its first
+        // second was lost, and a prompt raised then got the unattended answer while a client was watching. It
+        // attaches as the node starts the run now (P0b item 13 of docs/plans/hardware-in-the-server.md, #752).
+        var ct = TestContext.Current.CancellationToken;
+        _harness.Factory.Initialised.SetResult();
+        _harness.Factory.OnCreated = created => created.AtRunStart = () =>
+            created.Session.PhaseChanged += Raise.EventWith(created.Session,
+                new SessionPhaseChangedEventArgs(SessionPhase.NotStarted, SessionPhase.Initialising));
+
+        var received = new TaskCompletionSource<WebSocketEventDto>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var stream = new TianWenEventStream(
+            _harness.Client.BaseAddress ?? throw new InvalidOperationException("the harness client has no base address"),
+            new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
+        stream.EventReceived += (_, e) =>
+        {
+            if (e.Event == "SESSION-PHASE-CHANGED")
+            {
+                received.TrySetResult(e);
+            }
+        };
+        stream.Start(ct);
+
+        // Listening BEFORE the run starts: the one event the run raises at once is the only chance to hear it.
+        for (var i = 0; i < 250 && !stream.IsConnected; i++)
+        {
+            await Task.Delay(20, ct);
+        }
+        stream.IsConnected.ShouldBeTrue("the stream connects to a running node");
+        // The node registers the socket just after the handshake the client has seen complete.
+        await Task.Delay(200, ct);
+
+        await _harness.StartSessionAsync(ct);
+
+        var phase = await received.Task.WaitAsync(TimeSpan.FromSeconds(5), ct);
+        phase.Data.ShouldNotBeNull()["NewPhase"]?.ToString().ShouldBe("Initialising");
+    }
 }

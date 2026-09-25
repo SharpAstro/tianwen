@@ -429,7 +429,21 @@ namespace TianWen.UI.Abstractions
         /// <see cref="TianWen.Lib.Sequencing.SessionPromptEventArgs.Respond"/> and clears it. Generic across
         /// session flows (flats now; dark-frame cover-close later), not flats-specific.
         /// </summary>
-        public TianWen.Lib.Sequencing.SessionPromptEventArgs? PendingPrompt { get; set; }
+        public TianWen.Lib.Sequencing.SessionPromptEventArgs? PendingPrompt
+        {
+            get => Volatile.Read(ref _pendingPrompt);
+            set => Volatile.Write(ref _pendingPrompt, value);
+        }
+        private TianWen.Lib.Sequencing.SessionPromptEventArgs? _pendingPrompt;
+
+        /// <summary>
+        /// Takes <paramref name="prompt"/> off the bar if it is still the one shown, and leaves a newer prompt
+        /// alone. For a prompt that settled by another route (the session withdrew it when its run was
+        /// cancelled, <see cref="TianWen.Lib.Sequencing.SessionPromptEventArgs.Settled"/>), from whatever
+        /// thread that happened on.
+        /// </summary>
+        public bool TryClearPendingPrompt(TianWen.Lib.Sequencing.SessionPromptEventArgs prompt)
+            => ReferenceEquals(Interlocked.CompareExchange(ref _pendingPrompt, null, prompt), prompt);
 
         /// <summary>
         /// True once nobody can SEE a prompt any more: the window's GPU died and the runs go on without it

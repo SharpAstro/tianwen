@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 
@@ -97,6 +98,20 @@ public sealed class SessionPromptEventArgs(
     /// session-cancel cannot throw.
     /// </summary>
     public void Respond(bool proceed) => _completion.TrySetResult(proceed);
+
+    /// <summary>
+    /// Completes, and never faults, once the prompt needs no answer: somebody responded, or whoever raised
+    /// it withdrew it (the session, when its run was cancelled while it waited; a mirror, when its node
+    /// stopped offering it).
+    /// <para>
+    /// Whoever holds a prompt to offer drops it then: the node's <c>/session/state</c>, a mirror, a UI's
+    /// prompt bar. A prompt the session had stopped waiting on used to stay on offer, so a client could
+    /// answer a question the run had moved past (P0b item 13 of docs/plans/hardware-in-the-server.md,
+    /// #752).
+    /// </para>
+    /// </summary>
+    public Task Settled { get; } = completion.Task.ContinueWith(
+        static _ => { }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
 }
 
 /// <summary>

@@ -449,6 +449,33 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public async Task APromptTheNodeStopsOfferingIsWithdrawnLocally()
+        {
+            // The node's run moved on: aborted while the prompt waited, or answered from another client. Its
+            // snapshot stops carrying the prompt, and a prompt bar still showing it would invite an answer to a
+            // question nobody asks (P0b item 13 of docs/plans/hardware-in-the-server.md, #752). Withdrawing is
+            // not answering, so nothing goes back to the node.
+            PendingPromptDto? current = ManualPanelPrompt();
+            var (mirror, handler) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(StateWith(prompt: current))));
+
+            await using (mirror)
+            {
+                SessionPromptEventArgs? raised = null;
+                mirror.PromptRequested += (_, e) => raised = e;
+
+                await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+                var prompt = raised.ShouldNotBeNull();
+                prompt.Settled.IsCompleted.ShouldBeFalse("the node still offers it");
+
+                current = null;
+                await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+                await prompt.Settled.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+                handler.Requests.ShouldNotContain(r => r.Contains("/prompt/respond"));
+            }
+        }
+
+        [Fact]
         public async Task AnUnansweredPromptIsNotAnsweredOnTheOperatorsBehalf()
         {
             // With no local handler the mirror must stay silent. The node already applied its own

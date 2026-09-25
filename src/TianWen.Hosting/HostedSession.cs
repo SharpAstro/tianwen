@@ -127,6 +127,15 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
 
     public ISession? CurrentSession => Volatile.Read(ref _run)?.Session;
 
+    /// <summary>
+    /// Raised as a run starts: after its start has won the node and before its body is released, so a
+    /// subscriber has the run's session before the session can raise anything. The broadcaster attaches
+    /// here; attaching from its 1 s poll lost a run's first events, and a prompt raised in that second got
+    /// the unattended answer while a client was watching (P0b item 13 of
+    /// docs/plans/hardware-in-the-server.md, #752).
+    /// </summary>
+    internal event Action<ISession>? RunStarting;
+
     public bool IsRunning => Volatile.Read(ref _run) is { Completion.IsCompleted: false };
 
     public Guid? ActiveProfileId => _activeProfileId;
@@ -197,7 +206,19 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
     /// Records the session's outstanding prompt so it can be answered over HTTP. Called by
     /// <c>EventBroadcaster</c>, which is the one component already subscribed to every session event.
     /// </summary>
-    internal void SetPendingPrompt(SessionPromptEventArgs? prompt) => Volatile.Write(ref _pendingPrompt, prompt);
+    internal void SetPendingPrompt(SessionPromptEventArgs? prompt)
+    {
+        Volatile.Write(ref _pendingPrompt, prompt);
+        if (prompt is not null)
+        {
+            // Offered until it settles, however it settles: an answer by another route, or the session
+            // withdrawing it because its run was cancelled while it waited. Only while it is still the
+            // prompt on offer, so a later prompt is never cleared by an earlier one settling.
+            _ = prompt.Settled.ContinueWith(
+                _ => { Interlocked.CompareExchange(ref _pendingPrompt, null, prompt); },
+                CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+        }
+    }
 
     /// <summary>
     /// Drains pending targets and clears the list. Called by session start endpoints.
@@ -242,6 +263,17 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
             // The last run's session goes before this one touches the rig: a session drives its own
             // drivers (until P0b item 11 borrows them from the hub), so both could hold one device.
             await previous.DisposeAsync(logger);
+        }
+
+        // Before the body is released, so a subscriber sees every event the run raises. A subscriber failing
+        // must not keep the run from starting: the rig would sit idle on a start that answered success.
+        try
+        {
+            RunStarting?.Invoke(session);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "A subscriber failed as the node's run started; the run starts anyway");
         }
 
         next.Release(won: true);

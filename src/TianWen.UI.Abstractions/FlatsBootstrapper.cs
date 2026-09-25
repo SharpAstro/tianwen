@@ -132,6 +132,16 @@ namespace TianWen.UI.Abstractions
                     liveSessionState.NeedsRedraw = true;
                     appState.ActiveTab = GuiTab.LiveSession;
                     appState.NeedsRedraw = true;
+
+                    // Off the bar once it settles by any route: the session withdraws it when the run is
+                    // cancelled while it waits, and a prompt it no longer waits on must not stay up.
+                    _ = e.Settled.ContinueWith(_ =>
+                    {
+                        if (liveSessionState.TryClearPendingPrompt(e))
+                        {
+                            liveSessionState.NeedsRedraw = true;
+                        }
+                    }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
                 }
                 session.PromptRequested += OnPromptRequested;
 
