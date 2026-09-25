@@ -1520,13 +1520,23 @@ without naming the box it came off. Full tables, the `Lanczos3Weights` angle-add
 
 **Every histogram goes through ONE vectorised kernel, `Image.Traverse`, bit for bit, and its running
 sum is ORDERED.**
-- Lanes are added in walk order, and parallel row bands stay declined (#490).
+- Lanes are added in walk order.
 - A change to it is checked against the scalar walk by `HistogramKernelParityTests`. That test compares
   the DOUBLE sum, because the float `Mean` hides almost any order change: a lane swap passed every check
   on the mean.
 - A document open takes its stretch statistics and display histograms in one walk per channel
-  (`Image.GetStats` / `StretchSolver.CollectStats`), with the channels in parallel. Measurements:
-  `docs/plans/viewer-memory-footprint.md` (#631).
+  (`Image.GetStats` / `StretchSolver.CollectStats`), with the channels in parallel.
+
+**Parallel row bands reorder that sum, so they go through `Image.TraverseInBands` and nowhere else** (#490).
+- It takes the sum from the bands only when it PROVES no order could change it: every addend is a
+  multiple of the smallest ulp g among them, and a total magnitude below 2^53 g makes every partial sum
+  exact. Otherwise it takes the sum again in walk order.
+- The document open uses it (`GetStats`, the luminance statistic). `Statistics` / `Histogram` keep the
+  single walk, because star detection runs them inside stacking that is already parallel.
+- Real frames pass the bound 99.8 percent of the time; only drizzle weight sidecars failed it.
+  `ExactSumBoundProbe` re-measures that.
+- A parallel site rethrows a body's own exception (`ParallelFor.Run`), because the viewer shows it as the
+  reason a file did not open. Measurements: `docs/plans/viewer-memory-footprint.md` (#631, #490).
 
 **Test fixtures must not share `Image` instances across tests.** `SharedTestData` caches the extracted
 temp file path, not an `Image` -- two parallel collections sharing one cached `Image` through
