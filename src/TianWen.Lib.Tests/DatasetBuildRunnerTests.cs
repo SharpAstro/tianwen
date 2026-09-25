@@ -596,6 +596,94 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// A store baked when the calibration part of the fingerprint was the whole LIBRARY is recognised on
+        /// resume and its entries re-recorded in the current form: without it every session of such a store
+        /// reads as stale for its format alone (140 sessions, a 13-hour bake, for the seven whose lights had
+        /// changed on 2026-09-25). A legacy entry whose lights DID move is still redone, and
+        /// <c>--rebuild-session</c> rebuilds exactly the sessions it names.
+        /// </summary>
+        [Fact]
+        public async Task Run_Resume_RecognisesALegacyLibraryFingerprint_AndRebuildsOnlyTheNamedSessions()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var root = Path.Combine(_dir, "archive");
+            var m42 = Path.Combine(root, "M42", "LIGHT");
+            Directory.CreateDirectory(m42);
+            Directory.CreateDirectory(Path.Combine(root, "DARK"));
+            RgbBayerSyntheticFixture.WriteSyntheticLights(m42);
+            RgbBayerSyntheticFixture.WriteSyntheticDarks(Path.Combine(root, "DARK"));
+            var n43 = Path.Combine(root, "N43", "LIGHT");
+            WriteShiftedCopies(m42, n43);
+
+            var outDir = Path.Combine(_dir, "out");
+            var options = new DatasetBuildOptions
+            {
+                ArchiveRoots = [root],
+                OutputDir = outDir,
+                MinExposure = TimeSpan.FromSeconds(0.5),
+                MaxExposure = TimeSpan.FromMinutes(5),
+                MinSubsPerSession = 4,
+                TileSize = 64,
+                CellsPerSession = 20,
+                SubsPerCell = 3,
+            };
+
+            var first = await DatasetBuildRunner.RunAsync(options, cancellationToken: ct);
+            first.Registered.ShouldBe(2);
+            var ledgerPath = Path.Combine(outDir, "stats", DatasetSessionLedger.FileName);
+            var current = await DatasetSessionLedger.ReadAsync(ledgerPath, cancellationToken: ct);
+
+            // What a pre-change bake would have written: the same entries, the calibration part the library.
+            var scan = await SessionDiscovery.ScanAsync(options, cancellationToken: ct);
+            var (sessions, _) = SessionDiscovery.GroupSessions(scan.Frames, options);
+            var calGroups = CalibrationResolver.GroupCalibration(scan.Frames.Select(f => f.Frame));
+            var legacyDigest = DatasetSessionLedger.LegacyCalibrationLibraryDigest(
+                calGroups.Values.SelectMany(static groups => groups).SelectMany(static g => g.Frames));
+            async Task WriteLegacyLedgerAsync()
+            {
+                File.Delete(ledgerPath);
+                foreach (var session in sessions)
+                {
+                    var legacy = DatasetSessionLedger.FingerprintOf(session, legacyDigest, options.RecipeKey());
+                    legacy.ShouldNotBe(current[session.Id].Fingerprint, "the precondition: the two forms differ");
+                    await DatasetSessionLedger.AppendAsync(ledgerPath, current[session.Id] with { Fingerprint = legacy }, ct);
+                }
+            }
+
+            // Unchanged inputs, legacy form: nothing redone, every entry re-recorded as the current fingerprint.
+            await WriteLegacyLedgerAsync();
+            var migrated = await DatasetBuildRunner.RunAsync(options with { Resume = true }, cancellationToken: ct);
+            migrated.Redone.ShouldBe(0, "a legacy entry whose inputs still match is not redone for its format");
+            migrated.Resumed.ShouldBe(2);
+            var rerecorded = await DatasetSessionLedger.ReadAsync(ledgerPath, cancellationToken: ct);
+            foreach (var session in sessions)
+            {
+                rerecorded[session.Id].Fingerprint.ShouldBe(current[session.Id].Fingerprint, "re-recorded in the current form");
+            }
+
+            // A legacy entry whose lights moved since is redone; the other still migrates.
+            await WriteLegacyLedgerAsync();
+            var touched = Directory.GetFiles(n43, "*.fits")[0];
+            File.SetLastWriteTimeUtc(touched, File.GetLastWriteTimeUtc(touched).AddMinutes(7));
+            var afterTouch = await DatasetBuildRunner.RunAsync(options with { Resume = true }, cancellationToken: ct);
+            afterTouch.Redone.ShouldBe(1, "the moved session, under either form");
+            afterTouch.Resumed.ShouldBe(1);
+
+            // Named rebuilds: exactly the matching session, case-insensitively; a pattern matching nothing
+            // rebuilds nothing.
+            var named = await DatasetBuildRunner.RunAsync(
+                options with { Resume = true, RebuildSessionPatterns = ["*m42*"] }, cancellationToken: ct);
+            named.Redone.ShouldBe(1);
+            named.Resumed.ShouldBe(1);
+            named.TotalTiles.ShouldBe(first.TotalTiles, "the rebuilt session's tiles replace its rows, never join them");
+
+            var none = await DatasetBuildRunner.RunAsync(
+                options with { Resume = true, RebuildSessionPatterns = ["*no-such-session*"] }, cancellationToken: ct);
+            none.Redone.ShouldBe(0);
+            none.Resumed.ShouldBe(2);
+        }
+
+        /// <summary>
         /// A forced PSF re-measure must read the RETAINED master instead of re-registering the session.
         /// This is the payoff for retention and the whole reason it exists: re-registering every
         /// exported session costs a full re-read of the archive (measured at over seven hours on the

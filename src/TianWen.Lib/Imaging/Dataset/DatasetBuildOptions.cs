@@ -66,6 +66,18 @@ public sealed record DatasetBuildOptions
     /// </remarks>
     public ImmutableArray<string> AlwaysHeldOutSessions { get; init; } = [];
 
+    /// <summary>
+    /// Case-insensitive wildcards on the session id (the <see cref="ExcludeObjectPattern"/> matching):
+    /// on a resume a matching session is rebuilt even when its inputs and recipe are unchanged.
+    /// </summary>
+    /// <remarks>
+    /// For a change that reaches only some sessions without moving any input: a solver that now
+    /// places a field it refused (the dense 24 mm masters of 2026-09-25) rebuilds their masters with a
+    /// WCS while every other session resumes. Deliberately NOT part of <see cref="RecipeKey"/>: it
+    /// decides WHICH sessions are redone, never what a session's outputs are.
+    /// </remarks>
+    public ImmutableArray<string> RebuildSessionPatterns { get; init; } = [];
+
     /// <summary>MAD threshold (standard-deviation-equivalent units) for the session-relative
     /// quality gate (<see cref="SessionFrameAnalyzer.ApplyGate"/>); the stacker's
     /// <c>--quality-reject-sigma</c> semantics. 0 disables the relative gate

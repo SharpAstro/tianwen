@@ -80,6 +80,16 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             AllowMultipleArgumentsPerToken = true,
         };
 
+        var rebuildSessionOpt = new Option<string[]>("--rebuild-session")
+        {
+            Description = "Case-insensitive wildcard(s) on the session id (repeatable): with --resume, a " +
+                          "matching session is rebuilt even when its inputs and recipe are unchanged, and " +
+                          "every other session resumes. For a fix that reaches only some sessions, e.g. a " +
+                          "solver that now places a field it refused. A pattern matching no session is " +
+                          "reported, never silently ignored.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+
         var excludePathOpt = new Option<string[]>("--exclude-path")
         {
             Description = "Case-insensitive wildcard(s) matched against each PATH SEGMENT; a frame " +
@@ -263,7 +273,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Options =
             {
                 archiveRootOpt, outOpt,
-                minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, holdOutOpt, parametersOpt, minSubsOpt,
+                minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, holdOutOpt, rebuildSessionOpt, parametersOpt, minSubsOpt,
                 tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, hotPixelSigmaOpt, warpInterpolationOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt, forcePsfOpt, remeasureSubsOpt, siteOpt, scratchRootOpt,
                 noStageLightsOpt, noHeaderIndexOpt,
             },
@@ -348,6 +358,11 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             if (parseResult.GetValue(holdOutOpt) is { Length: > 0 } holdOut)
             {
                 options = options with { AlwaysHeldOutSessions = [.. holdOut] };
+            }
+
+            if (parseResult.GetValue(rebuildSessionOpt) is { Length: > 0 } rebuild)
+            {
+                options = options with { RebuildSessionPatterns = [.. rebuild] };
             }
 
             consoleHost.WriteScrollable($"[dataset] scanning {roots.Length} root(s) for raw lights ...");
