@@ -1196,7 +1196,9 @@ full native-AOT rules, and the reasoning behind each rule below:
 10. **The machine's node is found on its SOCKET, and one lock admits it** (`NodeSocket`, `NodeLock`): every node
    takes `node.lock` however it was started, only the lock's holder clears a stale socket (never probe-then-delete),
    and the lock file is never deleted. A client reaches a node through `NodeTransport` (`OverSocket` / `OverTcp`)
-   and asks `GET /api/v1/node` first; compatibility is `NodeWire.Version`, never the build (P1, #917).
+   and asks `GET /api/v1/node` first; compatibility is `NodeWire.Version`, never the build (P1, #917). A client
+   finds or starts the machine's node through `LocalNodeLauncher`, which starts the KEEPER (`--keeper`) from the
+   client's own directory, never the node and never a spawn of its own.
 
 ### Remote Rigs (mirror another node's session "as if local")
 

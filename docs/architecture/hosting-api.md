@@ -91,7 +91,26 @@ does not take it down and it can never write over a TUI; a spawned node logs to 
 - **Logs roll at local midnight**: `Logs/<date>/Server_*.log` and `Keeper_*.log`, one file per process and day, for
   every program (`FileLoggerProvider`).
 
-Pinned by `NodeSocketTests`, `NodeAddressTests`, `ExeBesideTests`, `NodeKeeperTests` and `NodeKeeperProcessTests`.
+
+**A client finds or starts the node through `LocalNodeLauncher`**, never with a spawn of its own:
+1. It asks the socket. A node there of this wire is the one (`Found`). One of another wire is stopped over its
+   socket and replaced if it is idle, and left running (`BusyWithAnotherWire`) if it holds hardware: an older node
+   still running a night after an update.
+2. A socket the client was pointed at (`--node-socket`, `TIANWEN_NODE_SOCKET`) is only ever connected to
+   (`NamedNodeUnreachable`, `AnotherWire`).
+3. With nothing on the socket, a node under another account (a service) answering on `localhost:1888` is used as it
+   is (`AnotherAccount`).
+4. Otherwise it starts `tianwen-server --keeper` from its OWN directory (`ServerMissing` names the path it looked in)
+   and waits for the node to answer. On Windows that is `CreateProcessW` (`DetachedProcess`): broken away from the
+   client's job, no window, a process group of its own, no inherited handle. A job that forbids breaking away gets a
+   plain start instead (`StartedWithTheClient`, which the client must say). A keeper that ends first is reported
+   with its logs (`CouldNotStart`), unless another client's node won the socket, which is then the one.
+5. **The node runs on the client's clock**: `StartupTimeOverride.ForAChildProcess()` hands it the client's frozen
+   offset as `TIANWEN_CLOCK_OFFSET`, which wins over the `TIANWEN_NOW` it also inherits and would anchor at its own,
+   later, start. `GET /api/v1/node` answers `NowUtc`, so a client can see it did.
+
+Pinned by `NodeSocketTests`, `NodeAddressTests`, `ExeBesideTests`, `NodeKeeperTests`, `NodeKeeperProcessTests`,
+`LocalNodeLauncherTests` and `DetachedProcessTests`.
 
 ## Six invariants on the session plane
 

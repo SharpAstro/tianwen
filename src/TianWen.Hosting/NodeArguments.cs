@@ -25,7 +25,7 @@ namespace TianWen.Hosting;
 public sealed record NodeArguments(string SocketPath, int Port, bool LocalOnly, bool Keeper, bool Spawned, bool FakeDevicesOnly)
 {
     /// <summary>The port a node run by hand listens on for the LAN.</summary>
-    public const int DefaultPort = 1888;
+    public const int DefaultPort = NodeWire.LanPort;
 
     /// <summary>The usage line an error ends with.</summary>
     public const string Usage = "usage: tianwen-server [--socket <path>] [--port <n>] [--local-only] [--fake-devices] [--keeper]";
