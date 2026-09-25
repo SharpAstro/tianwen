@@ -32,10 +32,11 @@ namespace TianWen.Lib.Imaging.Dataset;
 /// store skips re-hashing a file whose size and mtime are unchanged, and this uses the same rule.</para>
 /// <para>What the fingerprint covers, and why each: the RECIPE version (bumped by hand when the bake's
 /// outputs change for identical inputs; the <c>SimbadMergeSnapshot.AlgorithmVersion</c> precedent);
-/// the options that shape a session's outputs; a digest of the whole calibration LIBRARY (the
-/// resolver's choice is a pure function of the lights and that library, and hashing the library is
-/// what avoids resolving calibration for every session just to decide whether to skip it: a new dark
-/// invalidates everything, which is conservative and rare); and every light's path, size and mtime.
+/// the options that shape a session's outputs; a digest of the calibration the session CHOSE
+/// (<see cref="CalibrationDigest"/>: a set it would now choose changes it, another camera's library
+/// does not); and every light's path, size and mtime. A store fingerprinted when the calibration part
+/// was the whole library is recognised through <see cref="LegacyCalibrationLibraryDigest"/> and
+/// re-recorded in the current form, so it is not read as stale for its format alone.
 /// What it deliberately does NOT cover is the outputs: <c>RetainedMasterStore</c> answers whether a
 /// master's sidecars are complete from the files, so a master baked before a strategy learned to
 /// write coverage reads as stale by data, with no version bump.</para>
@@ -93,7 +94,8 @@ public static class DatasetSessionLedger
     /// same function <see cref="CalibrationResolver.ResolveAsync"/> builds from, so digesting the choice
     /// is exact where the library digest was only conservative: a new set that would now be CHOSEN for
     /// a session changes its choice and so its fingerprint, and one it would not choose changes nothing.
-    /// A store fingerprinted the old way reads as stale once on its first resume under this rule.
+    /// A store fingerprinted the old way is recognised through <see cref="LegacyCalibrationLibraryDigest"/>
+    /// rather than read as stale.
     /// </remarks>
     public static string CalibrationDigest(CalibrationResolver.CalibrationChoice choice)
     {
@@ -124,6 +126,35 @@ public static class DatasetSessionLedger
                 AppendFile(hash, path);
             }
         }
+    }
+
+    /// <summary>
+    /// The calibration digest every store baked before "a resume fingerprints the calibration a session
+    /// chose, not the whole library" folded into every fingerprint: the WHOLE library, each calibration
+    /// frame by path, size and mtime.
+    /// </summary>
+    /// <remarks>
+    /// Kept ONLY so a resume can recognise such an entry, <see cref="FingerprintOf"/> over this in place of
+    /// <see cref="CalibrationDigest"/>, and re-record it in the current form. Without it every session of
+    /// such a store reads as stale once for its format alone: 140 sessions, a 13-hour bake, for the
+    /// seven whose lights had actually changed (2026-09-25). Byte for byte the method that change removed;
+    /// delete it, and its one caller in the resume check, when no store fingerprinted that way remains.
+    /// </remarks>
+    public static string LegacyCalibrationLibraryDigest(IEnumerable<FrameInfo> calibrationFrames)
+    {
+        var paths = new List<string>();
+        foreach (var frame in calibrationFrames)
+        {
+            paths.Add(frame.Path);
+        }
+        paths.Sort(StringComparer.Ordinal);
+
+        var hash = new XxHash128();
+        foreach (var path in paths)
+        {
+            AppendFile(hash, path);
+        }
+        return ContentDigest.Format(hash.GetCurrentHash());
     }
 
     /// <summary>

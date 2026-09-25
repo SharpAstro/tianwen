@@ -1063,7 +1063,10 @@ grouping, and a calibration frame under an `ExcludePathSegments` folder still ca
 skipped excluded folders would silently change a session's calibration. **A resume fingerprints the
 calibration a session CHOSE** (`CalibrationResolver.Choose`, the metadata-only half `ResolveAsync`
 builds from), never the whole library, so deleting one camera's frames leaves every other camera's
-sessions valid.
+sessions valid. A store fingerprinted the old (whole-library) way is RECOGNISED and re-recorded, never
+rebuilt for its format (`DatasetSessionLedger.LegacyCalibrationLibraryDigest`, deletable once no such
+store remains), and **`--rebuild-session <wildcard>` rebuilds named sessions** whose inputs did not
+move, for a fix that reaches only some of them (a solver that now places a field it refused).
 
 **A master is the mean of its warped frames, star by star, to 0.3 percent, so its width is its subs'
 plus the warp kernel's plus any misregistration, and NOTHING in the combine.** Three things measured
