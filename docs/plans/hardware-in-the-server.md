@@ -263,8 +263,11 @@ and refuses one that binds nothing (SharpAstro/DIR.Lib#101).
 is the node's, an abort ends it through its `Finalise`, and the host starts and stops the node in the
 safe order (see `docs/architecture/hosting-api.md`, the fourth session-plane invariant). Item 10 is
 fixed by #799: an API session runs on the declared defaults, and the whole configuration crosses the wire
-(the fifth invariant; the site case it leaves is #798). Item 14 is withdrawn (below). The rest are open,
-one PR per concern.
+(the fifth invariant; the site case it leaves is #798). Items 5, 6, 15 and 16 are fixed by #800: a
+mirror hears the node's events, an error answers its own HTTP status, and the live preview leases a frame
+the session keeps on show, under the slot's own token as a conditional GET (`hosting-api.md`, the preview
+section). Item 14 is withdrawn (below). The rest (7, 8, 9, 11, 13, 17 and 18) are open, one PR per
+concern.
 
 Each item below is confirmed in the code, except where it says otherwise; the review of 2026-09-25
 re-checked all nine and found nine more (10 to 18). The first four, and 10 and 11, decide whether a
