@@ -244,6 +244,34 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// "No NaN" is answered by a vectorised read that stops at the first NaN, sixteen samples a step and
+        /// then a scalar tail, so it must see a single NaN at EVERY position of every channel. A miss skips
+        /// the fill and leaves the hole to be drawn black; a miss in the tail could not even be seen through
+        /// the fill, since the tail ends the last row and that row is border.
+        /// </summary>
+        [Fact]
+        public void ASingleNaNIsSeenAtEveryPosition()
+        {
+            // 37 x 5 = 185 samples a plane: eleven whole steps of sixteen and a tail of nine.
+            var image = Synthetic(37, 5, 3, static (_, _, _) => 0.25f);
+            image.AnyNaN().ShouldBeFalse();
+
+            for (var c = 0; c < 3; c++)
+            {
+                var plane = image.GetChannelArray(c);
+                for (var y = 0; y < 5; y++)
+                {
+                    for (var x = 0; x < 37; x++)
+                    {
+                        plane[y, x] = float.NaN;
+                        image.AnyNaN().ShouldBeTrue($"channel {c}, ({x}, {y})");
+                        plane[y, x] = 0.25f;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
         /// A hole deeper than the pass budget keeps its core rather than acquiring a fabricated one. The
         /// fill closes a hole from its rim inward at one pixel per pass, so the budget bounds the RADIUS;
         /// leaving the middle NaN is the honest outcome, and the real distribution never reaches it

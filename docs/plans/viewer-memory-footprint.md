@@ -378,6 +378,65 @@ and its ~5,000-sample noise grid are both accumulative and could fold into the d
 free; the detection scan cannot, because its threshold is a global property of the whole frame and
 the first trigger comparison needs the last strip.
 
+### 2026-09-25: the statistics in one vectorised walk, and no hole census without a hole (#631)
+
+**Measured on win-arm64 (12 cores), Release, tiered compilation off**, on three files the viewer opens
+every night:
+- a 26 MP 16-bit mono sub;
+- a 26 MP 16-bit OSC sub, an RGGB mosaic as another program writes it;
+- a 3072 x 3060 x 3 float master.
+
+The whole open is `AstroImageDocument.OpenAsync`: hot is from the page cache, median of 11, and cold is a
+copy written with unbuffered I/O, median of 3.
+
+| | mono sub | OSC sub | float master |
+|---|---|---|---|
+| whole open, hot, before | 204.7 ms | 323.0 ms | 239.6 ms |
+| whole open, hot, after | **93.0 ms** | **90.9 ms** | **90.2 ms** |
+| whole open, cold, before | 267.5 ms | 375.0 ms | 370.4 ms |
+| whole open, cold, after | 122.6 ms | 125.6 ms | 255.1 ms |
+| the adopt step alone, before (statistics, histograms, hole fill) | 174 ms | 317 ms | 209 ms |
+| the adopt step alone, after | 46.5 ms | 47.3 ms | 48.0 ms |
+
+What changed, and what each part bought:
+
+- **The histogram kernel takes four samples at a time.** `Image.Traverse` walks with `Vector128`; for a
+  mosaic colour it takes two loads and keeps the even lanes.
+  - Every histogram in the program goes through it, bit for bit: star detection's `Background`, the
+    stretch statistics, the previews.
+  - One pass over a 24 MP channel went from 29.3 to 18.3 ms in `HistogramCostDecompositionProbe`, and over
+    the 26 MP mono sub from 65 to 24 ms.
+- **One walk per channel for the stretch statistics AND the histogram a display draws** (`Image.GetStats`,
+  `StretchSolver.CollectStats`). A mosaic's whole-plane histogram and its luminance statistic share a walk
+  too. The stretch half keeps no running sum: its mean used to be computed and thrown away.
+  - Once each pass is vectorised, the fusion is worth less than it looked: 39 ms fused against 45 ms for
+    the two vectorised passes.
+  - What is left is the scattered increments and the ordered sum, not the read.
+- **The channels are walked in parallel,** and a mosaic's three colours alongside its whole plane. Each has
+  its own bins and its own sum, so this changes no bit. `StatsPathBenchmarks`, category "document open
+  stats": 43.2 to 12.3 ms for a 3008 x 3008 x 3 frame.
+- **A frame with no NaN no longer pays the hole fill's classify pass.** `Image.AnyNaN` looks for a NaN
+  sixteen samples a step and stops at the first, which took the fill from 45 ms to 2 ms per open. The
+  classify pass allocated its bitmaps and read every pixel of every channel to report that there was
+  nothing to do.
+- **The TIFF and raw open** (`OpenImageFileAsync`) spelled the same statistics out a second time; it now
+  takes them from the same `ComputeStretchStatsAsync`.
+
+**The trap found doing it: a float mean cannot show a sum's order.** The running sum is the one ordered,
+floating-point part of the walk, so its lanes must be added in walk order.
+- A version with two lanes swapped passed every check that compared the public `Mean`. A double summed in
+  another order differs only in its last bits, and only where a rounding tie or a change of exponent
+  falls; the conversion to float hides even that.
+- `HistogramKernelParityTests` therefore compares the DOUBLE, through the internal `Traverse`.
+- `TheRunningSumIsTakenInWalkOrder` builds the tie on purpose: a sum of exactly 2^31, then 2^-22 and 2^-21.
+  It is the only test that fails with the lanes swapped.
+
+**Left, and why.**
+- **The mono walk is bounded by its ordered sum:** 23 ms of its 37 on its own. What remains there is the
+  #490 question, which this does not change, because parallel bands reorder the sum.
+- **A colour image's luminance statistic** is about 30 ms of a master's 48. It builds a Rec. 709 plane
+  first, and that loop is the next candidate for four lanes at a time. The care it needs: its running
+  minimum must keep the sign of a zero exactly as the scalar loop does.
 
 ### The two things that will actually bite
 
