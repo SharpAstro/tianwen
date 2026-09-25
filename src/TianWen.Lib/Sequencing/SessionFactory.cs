@@ -33,10 +33,28 @@ internal class SessionFactory(
 
     public ISession Create(Guid profileId, in SessionConfiguration configuration, ReadOnlySpan<ScheduledObservation> observations)
     {
-        var (setup, _) = CreateSetup(profileId);
+        var (setup, profileData) = CreateSetup(profileId);
 
-        return new Session(setup, configuration, plateSolverFactory, external, serviceProvider, new ScheduledObservationTree(observations));
+        return new Session(setup, WithProfileSite(configuration, profileData), plateSolverFactory, external, serviceProvider, new ScheduledObservationTree(observations));
     }
+
+    /// <summary>
+    /// A configuration that names no site takes the profile's when the profile is the site's authority
+    /// (<see cref="SiteTieBreaker.Profile"/>), and the session then syncs it to the mount. Otherwise the site
+    /// stays unset and the mount keeps its own, which is what the tie-breaker's default (the mount wins) asks.
+    /// </summary>
+    /// <remarks>
+    /// Before P0b item 10 (#752) an API session named no site only by accident: its zero-filled configuration
+    /// named 0, 0, and the session synced the mount to it. What this does NOT cover is a mount with no site
+    /// of its own under the mount-wins default, which the GUI's reconcile on mount connect fills from the
+    /// profile; that reconcile is a device-model rule still living in the GUI (#798).
+    /// </remarks>
+    internal static SessionConfiguration WithProfileSite(in SessionConfiguration configuration, in ProfileData profile)
+        => double.IsNaN(configuration.SiteLatitude) && double.IsNaN(configuration.SiteLongitude)
+            && profile.SiteTieBreaker is SiteTieBreaker.Profile
+            && profile.SiteLatitude is { } latitude && profile.SiteLongitude is { } longitude
+            ? configuration with { SiteLatitude = latitude, SiteLongitude = longitude }
+            : configuration;
 
 
 

@@ -258,9 +258,13 @@ namespace TianWen.RemoteClient
         /// <c>PendingTarget</c> drops the per-filter plan, the altitude-optimised start time and
         /// <c>AcrossMeridian</c>, and start would stamp <c>Start = now</c> over the result.
         /// </para>
+        /// <para>
+        /// <paramref name="configuration"/> is the configuration the run uses, sent whole; null runs on the
+        /// node's declared defaults, never on a partial one.
+        /// </para>
         /// </summary>
         public async Task<NodeResult<string>> StartAsync(
-            ScheduledObservationDto[] schedule, Guid? profileId, CancellationToken cancellationToken)
+            ScheduledObservationDto[] schedule, Guid? profileId, SessionConfigApiDto? configuration, CancellationToken cancellationToken)
         {
             if (schedule.Length > 0)
             {
@@ -277,7 +281,7 @@ namespace TianWen.RemoteClient
 
             _logger.LogInformation("Starting a session on {Node} with {Count} scheduled observation(s)",
                 _client.BaseAddress, schedule.Length);
-            return await _client.StartSessionAsync(profileId, cancellationToken).ConfigureAwait(false);
+            return await _client.StartSessionAsync(profileId, configuration, cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>Starts an on-demand flat run on the node.</summary>

@@ -170,15 +170,19 @@ namespace TianWen.RemoteClient
             GetAsync("api/v1/session/state", HostingJsonContext.Default.ResponseEnvelopeSessionStateDto, _timeouts.StatePoll, cancellationToken);
 
         /// <summary>
-        /// <c>POST /session/start</c>. <paramref name="profileId"/> null uses the node's active profile.
-        /// Returns as soon as the node has launched the run; poll the state for progress.
+        /// <c>POST /session/start</c>. <paramref name="profileId"/> null uses the node's active profile, and
+        /// <paramref name="configuration"/> null runs on the node's declared defaults; a client that holds a
+        /// configuration sends it whole (<see cref="SessionConfigApiDto.FromConfiguration"/>). Returns as
+        /// soon as the node has launched the run; poll the state for progress.
         /// </summary>
-        public Task<NodeResult<string>> StartSessionAsync(Guid? profileId, CancellationToken cancellationToken) =>
-            PostAsync(
-                profileId is { } id ? $"api/v1/session/start?profileId={id}" : "api/v1/session/start",
-                content: null,
-                HostingJsonContext.Default.ResponseEnvelopeString,
-                _timeouts.Control, cancellationToken);
+        public Task<NodeResult<string>> StartSessionAsync(Guid? profileId, SessionConfigApiDto? configuration, CancellationToken cancellationToken)
+        {
+            var path = profileId is { } id ? $"api/v1/session/start?profileId={id}" : "api/v1/session/start";
+            return configuration is null
+                ? PostAsync(path, content: null, HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken)
+                : SendJsonAsync(HttpMethod.Post, path, configuration, HostingJsonContext.Default.SessionConfigApiDto,
+                    HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
+        }
 
         /// <summary>
         /// <c>POST /session/flats</c>. All request fields are optional; unset knobs use the node's

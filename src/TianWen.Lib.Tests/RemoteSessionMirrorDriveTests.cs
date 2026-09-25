@@ -512,7 +512,7 @@ namespace TianWen.Lib.Tests
 
             await using (mirror)
             {
-                var result = await mirror.StartAsync(OneObservation(), profileId: null, TestContext.Current.CancellationToken);
+                var result = await mirror.StartAsync(OneObservation(), profileId: null, configuration: null, TestContext.Current.CancellationToken);
 
                 result.IsSuccess.ShouldBeTrue();
                 handler.Requests.ShouldBe([
@@ -534,7 +534,7 @@ namespace TianWen.Lib.Tests
 
             await using (mirror)
             {
-                var result = await mirror.StartAsync(OneObservation(), profileId: null, TestContext.Current.CancellationToken);
+                var result = await mirror.StartAsync(OneObservation(), profileId: null, configuration: null, TestContext.Current.CancellationToken);
 
                 result.IsSuccess.ShouldBeFalse();
                 result.Error.ShouldBe("Cannot change the schedule while a session is running");
@@ -550,7 +550,7 @@ namespace TianWen.Lib.Tests
 
             await using (mirror)
             {
-                await mirror.StartAsync([], profileId: null, TestContext.Current.CancellationToken);
+                await mirror.StartAsync([], profileId: null, configuration: null, TestContext.Current.CancellationToken);
 
                 handler.Requests.ShouldBe(["POST /api/v1/session/start"]);
             }

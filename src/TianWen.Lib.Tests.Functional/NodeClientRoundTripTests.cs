@@ -186,7 +186,7 @@ public class NodeClientRoundTripTests(ITestOutputHelper outputHelper) : IAsyncLi
     [Fact(Timeout = 15_000)]
     public async Task StartingWithAnUnknownProfileSurfacesTheNodesOwnMessage()
     {
-        var result = await _client.StartSessionAsync(Guid.NewGuid(), TestContext.Current.CancellationToken);
+        var result = await _client.StartSessionAsync(Guid.NewGuid(), configuration: null, TestContext.Current.CancellationToken);
 
         result.IsSuccess.ShouldBeFalse();
         result.Error.ShouldNotBeNullOrWhiteSpace();

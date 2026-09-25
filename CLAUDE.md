@@ -1298,6 +1298,11 @@ full native-AOT rules, and the reasoning behind each rule below:
    underneath; a finished run never blocks the next; the host stopping aborts, awaits `Finalise`, then
    warms the hub's cameras inside `HostedSession.ShutdownBudget` (and systemd's `TimeoutStopSec` must allow
    as long). Pinned by `NodeRunLifecycleTests`.
+8. **`new SessionConfiguration()` is the DECLARED defaults; `default(SessionConfiguration)` is all zeros.**
+   A record struct whose primary constructor has required parameters zero-fills on `new()` unless it
+   declares a parameterless constructor, and before one was added every API session synced the mount's
+   site to 0, 0. `SessionConfigApiDto` carries every field: **a field added to the configuration is added
+   there and to `SessionConfigApiDtoTests`'s round trip**, or it silently cannot cross the wire.
 
 ### Remote Rigs (mirror another node's session "as if local")
 

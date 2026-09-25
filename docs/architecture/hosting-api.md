@@ -26,7 +26,7 @@ into the ring).
 
 Run: `dotnet run --project TianWen.Server` or `tianwen-server [--port 1888]`.
 
-## Four invariants on the session plane
+## Five invariants on the session plane
 
 1. **A pushed schedule beats the target queue.** `POST /session/schedule` takes
    `ScheduledObservationDto[]` and preserves per-filter plans, the planner's altitude-optimised
@@ -69,6 +69,17 @@ Run: `dotnet run --project TianWen.Server` or `tianwen-server [--port 1888]`.
      `TimeoutStopSec=35min`, or it kills the process mid-ramp.
 
    Pinned by `NodeRunLifecycleTests`, all nine seen failing against the old code.
+5. **A start runs on the DECLARED defaults plus what the request sets, and the whole configuration
+   crosses the wire** (P0b item 10, #752). `new SessionConfiguration()` is the declared defaults (an
+   explicit parameterless constructor); without it, it was the struct's zero-initialiser, which zeroes
+   every field, the declared defaults included, so every API session synced the mount's site to 0, 0,
+   autofocused 0 steps over a 0 range and never warmed its cameras. `default(SessionConfiguration)` is
+   still zeros; never use it. `SessionConfigApiDto` carries every field, each optional, and
+   `SessionConfigApiDtoTests` round-trips one with every field away from its default, so **a field added
+   to the configuration is added to the DTO and to that test**. The body is read whatever its framing
+   (the client's own `JsonContent` is chunked, with no Content-Length, and used to be ignored), and a
+   malformed body is a 400, never a run on defaults. A start that names no site takes the profile's when
+   `SiteTieBreaker` is `Profile`, else the mount keeps its own (#798 is the case that misses).
 
 ## Previews go through the shared stretch, never a private one
 

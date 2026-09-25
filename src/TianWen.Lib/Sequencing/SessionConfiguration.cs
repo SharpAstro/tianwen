@@ -270,6 +270,32 @@ public record struct SessionConfiguration(
     bool SaveIntermediates = false
 )
 {
+    /// <summary>
+    /// Every declared default, with the nine fields that declare none set to the values every host starts
+    /// from: -10 °C, five-minute ramps, 20° above the horizon, a 5 px dither every third frame settling to
+    /// 1 px within 10 s, three guiding tries.
+    /// </summary>
+    /// <remarks>
+    /// <b>Without this constructor <c>new SessionConfiguration()</c> is the struct's zero-initialiser</b>,
+    /// and that sets EVERY field to zero, the 51 declared defaults included: the site 0, 0 (which the
+    /// session then syncs to the mount), autofocus 0 steps over a 0 range, no warm-up at the end, 0 flats.
+    /// Every session started over the API ran on it (P0b item 10, #752). <c>default(SessionConfiguration)</c>
+    /// is still all zeros, which a struct cannot help; never use it for a configuration. Pinned by
+    /// <c>SessionConfigurationDefaultsTests</c>.
+    /// </remarks>
+    public SessionConfiguration() : this(
+        SetpointCCDTemperature: new SetpointTemp(-10, SetpointTempKind.Normal),
+        CooldownRampInterval: TimeSpan.FromMinutes(5),
+        WarmupRampInterval: TimeSpan.FromMinutes(5),
+        MinHeightAboveHorizon: 20,
+        DitherPixel: 5.0,
+        SettlePixel: 1.0,
+        DitherEveryNthFrame: 3,
+        SettleTime: TimeSpan.FromSeconds(10),
+        GuidingTries: 3)
+    {
+    }
+
     /// <summary>Effective default for <see cref="GuiderRecoveryGrace"/> when unset.</summary>
     public static readonly TimeSpan DefaultGuiderRecoveryGrace = TimeSpan.FromMinutes(3);
 
