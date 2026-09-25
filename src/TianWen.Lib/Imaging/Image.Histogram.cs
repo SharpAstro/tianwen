@@ -3,6 +3,9 @@ using System.Buffers;
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.Arm;
+using System.Runtime.Intrinsics.X86;
 using System.Threading.Tasks;
 using TianWen.Lib.Geometry;
 using static TianWen.Lib.Stat.StatisticsHelper;
@@ -33,7 +36,7 @@ public partial class Image
         // A plain array, wrapped without copying at the return. The builder this replaced cost
         // TWICE the memory for the same bins: its own backing array, then another one because
         // ToImmutableArray() on a Builder copies. Measured at 0.50 MB per call against 0.25 MB,
-        // and a document open makes 10-12 of these calls. The zero-fill loop is gone too -- it was
+        // and a document open made 10-12 of these calls (before GetStats took two at a time). The zero-fill loop is gone too -- it was
         // 64 AddRange calls per histogram to write zeros that `new uint[]` already guarantees.
         var histogram = new uint[threshold];
         var (hist_mean, hist_total, median, mad) = FillHistogram(
@@ -84,16 +87,61 @@ public partial class Image
         return (rescaledMaxValue, scaleFactor, threshold);
     }
 
-    // The one traversal: fills `histogram` (threshold bins, zeroed by the caller) and derives the mean, the
-    // count and, with calcStats, the median and MAD. Histogram runs it over a new array it then returns;
-    // GetPedestralMedianAndMADScaledToUnit runs it over rented bins, since only two numbers leave.
+    // A histogram with its mean, its count and, with calcStats, its median and MAD: Traverse over `histogram`
+    // (threshold bins, zeroed by the caller), then MedianAndMad over what it filled. Histogram runs it over a
+    // new array it then returns.
     private (float Mean, long Total, float? Median, float? Mad) FillHistogram(
         int channel, bool ignoreBlack, bool calcStats, bool removePedestral, int pixelStride, CfaChannel? cfa,
         float scaleFactor, uint threshold, Span<uint> histogram)
     {
+        var pedestralAdjustValue = removePedestral ? MinValue * scaleFactor : 0f;
+        var (total_value, hist_total, _) = Traverse(channel, ignoreBlack, pixelStride, cfa, scaleFactor, threshold,
+            histogram, pedestralAdjustValue, sumFirst: true, secondHistogram: default, secondPedestal: 0f);
+
+        // The count behind the mean started at 1, to prevent a divide by zero, and grew with every binned sample.
+        var hist_mean = (float)(total_value / (hist_total + 1));
+        if (!calcStats)
+        {
+            return (hist_mean, hist_total, null, float.NaN);
+        }
+
+        var (median, mad) = MedianAndMad(histogram, hist_total, threshold);
+        return (hist_mean, hist_total, median, mad);
+    }
+
+    /// <summary>
+    /// THE traversal every histogram here is built by. Bins each sample of <paramref name="channel"/>, walked
+    /// per <paramref name="cfa"/> and <paramref name="pixelStride"/>, into <paramref name="histogram"/> after
+    /// subtracting <paramref name="pedestal"/>; and, when <paramref name="secondHistogram"/> is not empty,
+    /// into that one too after subtracting <paramref name="secondPedestal"/>, in the same pass.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Two histograms from one walk</b> is what a document open wants (<see cref="GetStats"/>): the
+    /// display histogram at the frame's own levels and the stretch statistics' histogram with the pedestal
+    /// removed. They cannot be one histogram, since they bin different numbers; they can be one READ of the
+    /// samples, which was two before.</para>
+    /// <para><b>Only the first histogram has a running sum, and only when <paramref name="sumFirst"/> asks.</b>
+    /// The sum is the one ordered, floating-point part of the walk: every other result is an integer count,
+    /// which no order changes. It is also the walk's longest dependency chain, so a histogram whose mean
+    /// nobody reads (the stretch statistics keep only the median and the MAD) leaves it out.</para>
+    /// <para><b>Four samples at a time, bit for bit.</b> Where the walk is contiguous (step 1) or takes every
+    /// other photosite (step 2, a CFA colour at full resolution: two loads, the even lanes kept), a
+    /// <see cref="Vector128{T}"/> does the scale, the pedestal, the range test, the rounding and the clamp for
+    /// four samples at once. Each of those is an IEEE operation per lane, so each lane computes exactly what the
+    /// scalar walk computes, and the sum takes the lanes in walk order. The increments stay scalar: a histogram
+    /// is a scatter. Any other step, and step 2 on a machine with no native even-lane shuffle, walks scalar.</para>
+    /// <para><b>Internal, not private, so a test can see the sum.</b> What leaves through the public methods is
+    /// a FLOAT mean, and a double sum taken in another order differs from this one in its last bits, which
+    /// the conversion to float almost always hides. HistogramKernelParityTests compares the double itself.</para>
+    /// </remarks>
+    internal (double Sum, long Total, long SecondTotal) Traverse(
+        int channel, bool ignoreBlack, int pixelStride, CfaChannel? cfa, float scaleFactor, uint threshold,
+        Span<uint> histogram, float pedestal, bool sumFirst, Span<uint> secondHistogram, float secondPedestal)
+    {
         var (_, width, height) = Shape;
+        var dual = !secondHistogram.IsEmpty;
         var hist_total = 0L;
-        var count = 1; /* prevent divide by zero */
+        var secondTotal = 0L;
         // Accumulate as double, not float: a 61 MP IMX455 frame with sky ~12 ADU
         // gives a true sum of ~732 M, but float32's 24-bit mantissa quantises
         // increments below 16 once the accumulator passes ~256 M, so successive
@@ -105,7 +153,6 @@ public partial class Image
         // bench. Double accumulator has 53-bit mantissa -- ULP at 1 G is 1e-7,
         // so single-ADU increments stay exact for any sane image size.
         var total_value = 0.0;
-        var pedestralAdjustValue = removePedestral ? MinValue * scaleFactor : 0f;
         var channelData = Planes[channel].Data;
 
         // pixelStride > 1 subsamples on a fixed grid (every Nth row, every Nth
@@ -116,6 +163,11 @@ public partial class Image
         var stride = Math.Max(1, pixelStride);
         var maxBinIndex = (int)threshold - 1;
         var maxBinF = (float)maxBinIndex;
+
+        // A sample is binned when low <= value < threshold. Ignoring black puts the floor at 1 (the black
+        // overlap areas of a stack); otherwise the floor is -infinity, which every number passes. NaN passes
+        // neither comparison, so the vector lanes need no test of their own for it.
+        var low = ignoreBlack ? 1f : float.NegativeInfinity;
 
         // Walk a FLAT span, not channelData[h, w]. A float[,] element access recomputes the row
         // offset and bounds-checks both dimensions per pixel, and the JIT can hoist neither out
@@ -129,6 +181,9 @@ public partial class Image
         //   32 ms  with the float-domain clamp below
         //    8 ms  with parallel row bands -- NOT taken, see docs/todo/imaging.md; it reorders
         //          the total_value summation that feeds Background()'s mode search.
+        //   18 ms  with four samples at a time (the Vector128 walk below), bit for bit; the
+        //          probe's copy of the scalar loop read 29 ms in the same run (2026-09-25,
+        //          win-arm64, #631).
         // Reproduce: TIANWEN_HISTOGRAM_PROBE=1 dotnet test -c Release
         //            --filter HistogramCostDecompositionProbe
         // A CFA colour is the mosaic walked at that colour's photosites -- one start per phase, red
@@ -140,6 +195,16 @@ public partial class Image
         var phaseCount = CfaPhaseStarts(cfa, phaseStarts);
         var step = CfaStep(cfa, stride);
 
+        var vectorised = Vector128.IsHardwareAccelerated
+            && (step == 1 || (step == 2 && (AdvSimd.Arm64.IsSupported || Sse.IsSupported)));
+        var columnsPerVector = 4 * step;
+        var vScale = Vector128.Create(scaleFactor);
+        var vPedestal = Vector128.Create(pedestal);
+        var vSecondPedestal = Vector128.Create(secondPedestal);
+        var vLow = Vector128.Create(low);
+        var vThreshold = Vector128.Create((float)threshold);
+        var vMaxBin = Vector128.Create(maxBinF);
+
         var flat = MemoryMarshal.CreateReadOnlySpan(ref channelData[0, 0], channelData.Length);
         for (var phase = 0; phase < phaseCount; phase++)
         {
@@ -147,149 +212,254 @@ public partial class Image
             for (var h = rowStart; h <= height - 1; h += step)
             {
                 var row = flat.Slice(h * width, width);
-                for (var w = colStart; w <= width - 1; w += step)
+                var w = colStart;
+                if (vectorised)
+                {
+                    ref var rowOrigin = ref MemoryMarshal.GetReference(row);
+                    for (; w + columnsPerVector <= width; w += columnsPerVector)
+                    {
+                        var raw = step == 1
+                            ? Vector128.LoadUnsafe(ref rowOrigin, (nuint)w)
+                            : EvenLanes(Vector128.LoadUnsafe(ref rowOrigin, (nuint)w), Vector128.LoadUnsafe(ref rowOrigin, (nuint)(w + 4)));
+                        var value = raw * vScale;
+
+                        var first = value - vPedestal;
+                        var firstIn = (Vector128.GreaterThanOrEqual(first, vLow) & Vector128.LessThan(first, vThreshold)).ExtractMostSignificantBits();
+                        if (firstIn == 0b1111)
+                        {
+                            var bin = BinIndices(first, vMaxBin);
+                            histogram[bin.GetElement(0)]++;
+                            histogram[bin.GetElement(1)]++;
+                            histogram[bin.GetElement(2)]++;
+                            histogram[bin.GetElement(3)]++;
+                            hist_total += 4;
+                            if (sumFirst)
+                            {
+                                // Lane order IS walk order, so the ordered sum sees the samples in exactly
+                                // the sequence the scalar walk would.
+                                total_value += first.GetElement(0);
+                                total_value += first.GetElement(1);
+                                total_value += first.GetElement(2);
+                                total_value += first.GetElement(3);
+                            }
+                        }
+                        else if (firstIn != 0)
+                        {
+                            var bin = BinIndices(first, vMaxBin);
+                            for (var lane = 0; lane < 4; lane++)
+                            {
+                                if ((firstIn & (1u << lane)) != 0)
+                                {
+                                    histogram[bin.GetElement(lane)]++;
+                                    hist_total++;
+                                    if (sumFirst)
+                                    {
+                                        total_value += first.GetElement(lane);
+                                    }
+                                }
+                            }
+                        }
+
+                        if (dual)
+                        {
+                            var second = value - vSecondPedestal;
+                            var secondIn = (Vector128.GreaterThanOrEqual(second, vLow) & Vector128.LessThan(second, vThreshold)).ExtractMostSignificantBits();
+                            if (secondIn == 0b1111)
+                            {
+                                var bin = BinIndices(second, vMaxBin);
+                                secondHistogram[bin.GetElement(0)]++;
+                                secondHistogram[bin.GetElement(1)]++;
+                                secondHistogram[bin.GetElement(2)]++;
+                                secondHistogram[bin.GetElement(3)]++;
+                                secondTotal += 4;
+                            }
+                            else if (secondIn != 0)
+                            {
+                                var bin = BinIndices(second, vMaxBin);
+                                for (var lane = 0; lane < 4; lane++)
+                                {
+                                    if ((secondIn & (1u << lane)) != 0)
+                                    {
+                                        secondHistogram[bin.GetElement(lane)]++;
+                                        secondTotal++;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // The scalar walk: the whole row when nothing is vectorised, else what is left of it.
+                for (; w <= width - 1; w += step)
                 {
                     var rawValue = row[w];
                     if (!float.IsNaN(rawValue))
                     {
                         var value = rawValue * scaleFactor;
-                        var valueMinusPedestral = value - pedestralAdjustValue;
+                        var valueMinusPedestral = value - pedestal;
 
                         // ignore black overlap areas and bright stars (if threshold percentage is below 100%)
-                        if ((!ignoreBlack || valueMinusPedestral >= 1) && valueMinusPedestral < threshold)
+                        if (valueMinusPedestral >= low && valueMinusPedestral < threshold)
                         {
-                            // Clamp in float, cast once. Math.Clamp(float, int, uint) binds the
-                            // DOUBLE overload, so the old form ran float -> double -> clamp ->
-                            // double -> int per pixel. Comparing before the cast also keeps the
-                            // cast in range, which the double clamp was doing implicitly -- a
-                            // calibrated frame can carry very negative pixels, and (int) on an
-                            // out-of-range float is platform-defined.
-                            var rounded = MathF.Round(valueMinusPedestral);
-                            var valueAsInt = rounded <= 0f
-                                ? 0
-                                : (rounded >= maxBinF ? maxBinIndex : (int)rounded);
-                            histogram[valueAsInt]++; // calculate histogram
+                            histogram[Bin(valueMinusPedestral, maxBinIndex, maxBinF)]++; // calculate histogram
                             hist_total++;
-                            total_value += valueMinusPedestral;
-                            count++;
+                            if (sumFirst)
+                            {
+                                total_value += valueMinusPedestral;
+                            }
                         }
-                    }
-                }
-            }
-        }
 
-        var hist_mean = (float)(total_value / count);
-
-        float? median, mad;
-        if (calcStats)
-        {
-            // Median threshold is half the PIXEL count (hist_total), not half
-            // the BIN count (histogram.Count). The old `histogram.Count / 2.0`
-            // typically resolved to threshold/2 ~= 32768; on images with more
-            // than that many pixels the walker stopped well below the actual
-            // median bin, biasing median toward 0. Latent because typical
-            // astro frames have a tight background dominating early bins, so
-            // both thresholds resolved to the same bin -- but a uniform
-            // [0, 1] ramp on a 512^2+ image returns ~0.13 instead of ~0.5
-            // under the old behaviour.
-            var medianlength = hist_total / 2.0;
-            uint occurances = 0;
-            int median1 = 0, median2 = 0;
-
-            /* Determine median out of histogram array */
-            for (int i = 0; i < threshold; i++)
-            {
-                var histValue = histogram[i];
-
-                occurances += histValue;
-                if (occurances > medianlength)
-                {
-                    median1 = i;
-                    median2 = i;
-                    break;
-                }
-                else if (occurances == medianlength)
-                {
-                    median1 = i;
-                    // Find the next bin j with non-zero count. Previous code
-                    // tested `histValue > 0` (the OUTER bin's count) which is
-                    // always true at this point -- so j=i+1 unconditionally,
-                    // regardless of whether that bin had any pixels. Fix
-                    // mirrors the obvious intent of "next non-empty bin".
-                    for (int j = i + 1; j < threshold; j++)
-                    {
-                        if (histogram[j] > 0)
+                        if (dual)
                         {
-                            median2 = j;
-                            break;
+                            var secondValue = value - secondPedestal;
+                            if (secondValue >= low && secondValue < threshold)
+                            {
+                                secondHistogram[Bin(secondValue, maxBinIndex, maxBinF)]++;
+                                secondTotal++;
+                            }
                         }
                     }
-                    break;
-                }
-            }
-            median = median1 * 0.5f + median2 * 0.5f;
-
-            /* Determine median Absolute Deviation out of histogram array and previously determined median
-             * As the histogram already has the values sorted and we know the median,
-             * we can determine the mad by beginning from the median and step up and down
-             * By doing so we will gain a sorted list automatically, because MAD = DetermineMedian(|xn - median|)
-             * So starting from the median will be 0 (as median - median = 0), going up and down will increment by the steps
-             *
-             * Sub-bin linear interpolation: without it the MAD is quantised to integer
-             * bin distances {0, 1, 2, ...}, which on a 65535-bin histogram floors any
-             * observable σ at ~1.5e-5 in unit space (MAD_TO_SD / 65535) and makes
-             * drizzle-stacked frames read identical bin-noise values regardless of
-             * their true noise level. Interpolating by the fraction of in-bin count
-             * needed to cross medianlength recovers float precision below 1 bin.
-             */
-            occurances = 0;
-            var idxDown = median1;
-            var idxUp = median2;
-            mad = null;
-            while (true)
-            {
-                uint currCount;
-                if (idxDown >= 0 && idxDown != idxUp)
-                {
-                    currCount = histogram[idxDown] + histogram[idxUp];
-                }
-                else
-                {
-                    currCount = histogram[idxUp];
-                }
-                var prevOccurances = occurances;
-                occurances += currCount;
-
-                if (occurances > medianlength)
-                {
-                    var k = (double)idxUp - median.Value;
-                    var frac = currCount > 0
-                        ? (medianlength - prevOccurances) / (double)currCount
-                        : 0.5;
-                    // For k > 0: |delta| range of this bin step is [k - 0.5, k + 0.5].
-                    // For k == 0 (first iter, all pixels in the median bin): |delta|
-                    // range collapses to [0, 0.5] (only one side of the bin contributes
-                    // because pixels on the median's own bin have |delta| <= 0.5).
-                    var madD = k == 0 ? frac * 0.5 : Math.Max(0, k - 0.5 + frac);
-                    mad = (float)madD;
-                    break;
-                }
-
-                idxUp++;
-                idxDown--;
-                if (idxUp >= threshold)
-                {
-                    break;
                 }
             }
         }
-        else
+
+        return (total_value, hist_total, secondTotal);
+    }
+
+    // The bin a sample lands in.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int Bin(float value, int maxBinIndex, float maxBinF)
+    {
+        // Clamp in float, cast once. Math.Clamp(float, int, uint) binds the
+        // DOUBLE overload, so the old form ran float -> double -> clamp ->
+        // double -> int per pixel. Comparing before the cast also keeps the
+        // cast in range, which the double clamp was doing implicitly -- a
+        // calibrated frame can carry very negative pixels, and (int) on an
+        // out-of-range float is platform-defined.
+        var rounded = MathF.Round(value);
+        return rounded <= 0f ? 0 : (rounded >= maxBinF ? maxBinIndex : (int)rounded);
+    }
+
+    // Bin for four lanes at once, and the same bins: MathF.Round and Vector128.Round both round to even, and
+    // clamping the rounded value into [0, maxBin] before the conversion is Bin's two comparisons (a rounded
+    // -0 or anything below it lands in bin 0, anything at or past maxBin in maxBin).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static Vector128<int> BinIndices(Vector128<float> value, Vector128<float> maxBin)
+        => Vector128.ConvertToInt32(Vector128.Min(Vector128.Max(Vector128.Round(value), Vector128<float>.Zero), maxBin));
+
+    // Lanes 0 and 2 of each vector, in order: the samples at w, w + 2, w + 4 and w + 6 of eight contiguous
+    // ones, which is a CFA colour's next four photosites along its row. UZP1 on Arm, SHUFPS on x86; Traverse
+    // only calls this where one of the two exists.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static Vector128<float> EvenLanes(Vector128<float> lower, Vector128<float> upper)
+        => AdvSimd.Arm64.IsSupported
+            ? AdvSimd.Arm64.UnzipEven(lower, upper)
+            : Sse.Shuffle(lower, upper, 0b10_00_10_00);
+
+    // The median and the MAD of a filled histogram, in bin units.
+    private static (float Median, float? Mad) MedianAndMad(ReadOnlySpan<uint> histogram, long hist_total, uint threshold)
+    {
+        // Median threshold is half the PIXEL count (hist_total), not half
+        // the BIN count (histogram.Count). The old `histogram.Count / 2.0`
+        // typically resolved to threshold/2 ~= 32768; on images with more
+        // than that many pixels the walker stopped well below the actual
+        // median bin, biasing median toward 0. Latent because typical
+        // astro frames have a tight background dominating early bins, so
+        // both thresholds resolved to the same bin -- but a uniform
+        // [0, 1] ramp on a 512^2+ image returns ~0.13 instead of ~0.5
+        // under the old behaviour.
+        var medianlength = hist_total / 2.0;
+        uint occurances = 0;
+        int median1 = 0, median2 = 0;
+
+        /* Determine median out of histogram array */
+        for (int i = 0; i < threshold; i++)
         {
-            median = null;
-            mad = float.NaN;
+            var histValue = histogram[i];
+
+            occurances += histValue;
+            if (occurances > medianlength)
+            {
+                median1 = i;
+                median2 = i;
+                break;
+            }
+            else if (occurances == medianlength)
+            {
+                median1 = i;
+                // Find the next bin j with non-zero count. Previous code
+                // tested `histValue > 0` (the OUTER bin's count) which is
+                // always true at this point -- so j=i+1 unconditionally,
+                // regardless of whether that bin had any pixels. Fix
+                // mirrors the obvious intent of "next non-empty bin".
+                for (int j = i + 1; j < threshold; j++)
+                {
+                    if (histogram[j] > 0)
+                    {
+                        median2 = j;
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+        var median = median1 * 0.5f + median2 * 0.5f;
+
+        /* Determine median Absolute Deviation out of histogram array and previously determined median
+         * As the histogram already has the values sorted and we know the median,
+         * we can determine the mad by beginning from the median and step up and down
+         * By doing so we will gain a sorted list automatically, because MAD = DetermineMedian(|xn - median|)
+         * So starting from the median will be 0 (as median - median = 0), going up and down will increment by the steps
+         *
+         * Sub-bin linear interpolation: without it the MAD is quantised to integer
+         * bin distances {0, 1, 2, ...}, which on a 65535-bin histogram floors any
+         * observable σ at ~1.5e-5 in unit space (MAD_TO_SD / 65535) and makes
+         * drizzle-stacked frames read identical bin-noise values regardless of
+         * their true noise level. Interpolating by the fraction of in-bin count
+         * needed to cross medianlength recovers float precision below 1 bin.
+         */
+        occurances = 0;
+        var idxDown = median1;
+        var idxUp = median2;
+        float? mad = null;
+        while (true)
+        {
+            uint currCount;
+            if (idxDown >= 0 && idxDown != idxUp)
+            {
+                currCount = histogram[idxDown] + histogram[idxUp];
+            }
+            else
+            {
+                currCount = histogram[idxUp];
+            }
+            var prevOccurances = occurances;
+            occurances += currCount;
+
+            if (occurances > medianlength)
+            {
+                var k = (double)idxUp - median;
+                var frac = currCount > 0
+                    ? (medianlength - prevOccurances) / (double)currCount
+                    : 0.5;
+                // For k > 0: |delta| range of this bin step is [k - 0.5, k + 0.5].
+                // For k == 0 (first iter, all pixels in the median bin): |delta|
+                // range collapses to [0, 0.5] (only one side of the bin contributes
+                // because pixels on the median's own bin have |delta| <= 0.5).
+                var madD = k == 0 ? frac * 0.5 : Math.Max(0, k - 0.5 + frac);
+                mad = (float)madD;
+                break;
+            }
+
+            idxUp++;
+            idxDown--;
+            if (idxUp >= threshold)
+            {
+                break;
+            }
         }
 
-        return (hist_mean, hist_total, median, mad);
+        return (median, mad);
     }
 
     public ImageHistogram Statistics(int channel, bool removePedestral = false, int pixelStride = 1, CfaChannel? cfa = null)
@@ -302,20 +472,66 @@ public partial class Image
         // on every live preview frame (StretchSolver.CollectPerChannelStats, per channel) and every document.
         var (rescaledMaxValue, scaleFactor, threshold) = HistogramScale(channel, thresholdPct: 100);
         var rented = ArrayPool<uint>.Shared.Rent((int)threshold);
-        float? medianOrNull, madOrNull;
         try
         {
             var bins = rented.AsSpan(0, (int)threshold);
             bins.Clear();
-            (_, _, medianOrNull, madOrNull) = FillHistogram(
-                channel, ignoreBlack: false, calcStats: true, removePedestral: true, pixelStride, cfa, scaleFactor, threshold, bins);
+            // No running sum: the mean it would feed never leaves this method.
+            var (_, total, _) = Traverse(channel, ignoreBlack: false, pixelStride, cfa, scaleFactor, threshold,
+                bins, MinValue * scaleFactor, sumFirst: false, secondHistogram: default, secondPedestal: 0f);
+            var (median, mad) = MedianAndMad(bins, total, threshold);
+            return StretchStatsScaledToUnit(median, mad, rescaledMaxValue);
         }
         finally
         {
             ArrayPool<uint>.Shared.Return(rented);
         }
+    }
 
-        if (medianOrNull is not { } median || madOrNull is not { } mad)
+    /// <summary>
+    /// The display histogram and the stretch statistics of one channel from ONE walk of its samples: bit for
+    /// bit what <see cref="Statistics"/> and <see cref="GetPedestralMedianAndMADScaledToUnit"/> return, for the
+    /// price of one of them.
+    /// </summary>
+    /// <remarks>
+    /// They are two histograms, not one: the stretch statistics are taken with the pedestal REMOVED (the
+    /// shader subtracts it before the curve, so the median that positions the curve must be in that same
+    /// space), while a display draws the frame's own levels. What they share is the read of the samples, which
+    /// a document open used to make twice for every channel, or every colour of a mosaic.
+    /// </remarks>
+    public (ImageHistogram Histogram, ChannelStretchStats Stretch) GetStats(int channel, int pixelStride = 1, CfaChannel? cfa = null)
+    {
+        const byte thresholdPct = 100;
+        var (rescaledMaxValue, scaleFactor, threshold) = HistogramScale(channel, thresholdPct);
+        var histogram = new uint[threshold];
+        var rented = ArrayPool<uint>.Shared.Rent((int)threshold);
+        try
+        {
+            var stretchBins = rented.AsSpan(0, (int)threshold);
+            stretchBins.Clear();
+            var (total_value, hist_total, stretchTotal) = Traverse(channel, ignoreBlack: false, pixelStride, cfa, scaleFactor, threshold,
+                histogram, pedestal: 0f, sumFirst: true, stretchBins, secondPedestal: MinValue * scaleFactor);
+
+            // Statistics(channel), field for field: the count behind the mean started at 1.
+            var (median, mad) = MedianAndMad(histogram, hist_total, threshold);
+            var display = new ImageHistogram(channel, ImmutableCollectionsMarshal.AsImmutableArray(histogram),
+                (float)(total_value / (hist_total + 1)), hist_total, threshold, thresholdPct, rescaledMaxValue, median, mad, IgnoreBlack: false);
+
+            var (stretchMedian, stretchMad) = MedianAndMad(stretchBins, stretchTotal, threshold);
+            var (pedestral, unitMedian, unitMad) = StretchStatsScaledToUnit(stretchMedian, stretchMad, rescaledMaxValue);
+            return (display, new ChannelStretchStats(pedestral, unitMedian, unitMad));
+        }
+        finally
+        {
+            ArrayPool<uint>.Shared.Return(rented);
+        }
+    }
+
+    // The stretch statistics' median and MAD, found in bins, moved into the unit-scaled space the shader
+    // works in, beside the pedestal of that same space.
+    private (float Pedestral, float Median, float MAD) StretchStatsScaledToUnit(float median, float? madOrNull, float? rescaledMaxValue)
+    {
+        if (madOrNull is not { } mad)
         {
             throw new InvalidOperationException("Median and MAD should have been calculated");
         }

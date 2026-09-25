@@ -13,8 +13,8 @@ using TianWen.Lib.Stat;
 namespace TianWen.UI.Benchmarks;
 
 /// <summary>
-/// Before/after for the three stats paths changed on this branch, each against the implementation it
-/// replaced as a baseline.
+/// Before/after for the stats paths changed here, each against what it replaced as a baseline: the
+/// three this class was written for, and the document open's statistics (#631).
 /// </summary>
 /// <remarks>
 /// <para>These started life as hand-rolled probes in the test project timing "best of 3" and reading
@@ -38,6 +38,7 @@ public class StatsPathBenchmarks
     private const string NormWhole = "Normalizer whole image";
     private const string NormBox = "Normalizer box";
     private const string HistBins = "histogram bin buffer";
+    private const string DocumentOpen = "document open stats";
 
     private Image _starField = null!;
     private Image _warped = null!;
@@ -135,6 +136,22 @@ public class StatsPathBenchmarks
         histogram[1234]++;
         return ImmutableCollectionsMarshal.AsImmutableArray(histogram);
     }
+
+    // ---------------------------------------------------------------------- document open stats
+    // What a viewer document takes from its pixels at open (#631): the stretch statistics AND the
+    // histograms a display draws, for every channel. Both rows run the same vectorised kernel, so this
+    // isolates the fusion and the parallel channels; the kernel's own before and after is
+    // HistogramCostDecompositionProbe in the test project.
+
+    [BenchmarkCategory(DocumentOpen)]
+    [Benchmark(Baseline = true, Description = "two collectors, a walk each")]
+    public int DocumentOpenBefore()
+        => StretchSolver.CollectPerChannelStats(_starField, 3).Length + StretchSolver.CollectChannelHistograms(_starField).Length;
+
+    [BenchmarkCategory(DocumentOpen)]
+    [Benchmark(Description = "CollectStats: one walk per channel, channels in parallel")]
+    public int DocumentOpenAfter()
+        => StretchSolver.CollectStats(_starField).Histograms.Length;
 
     // ------------------------------------------------------------------- the replaced code, once
 

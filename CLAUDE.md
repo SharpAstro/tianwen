@@ -1509,6 +1509,16 @@ without naming the box it came off. Full tables, the `Lanczos3Weights` angle-add
 1.80x, computed in double, judged against a double reference) and the double-vs-float tap-offset trap:
 `docs/architecture/image-pipeline.md`.
 
+**Every histogram goes through ONE vectorised kernel, `Image.Traverse`, bit for bit, and its running
+sum is ORDERED.**
+- Lanes are added in walk order, and parallel row bands stay declined (#490).
+- A change to it is checked against the scalar walk by `HistogramKernelParityTests`. That test compares
+  the DOUBLE sum, because the float `Mean` hides almost any order change: a lane swap passed every check
+  on the mean.
+- A document open takes its stretch statistics and display histograms in one walk per channel
+  (`Image.GetStats` / `StretchSolver.CollectStats`), with the channels in parallel. Measurements:
+  `docs/plans/viewer-memory-footprint.md` (#631).
+
 **Test fixtures must not share `Image` instances across tests.** `SharedTestData` caches the extracted
 temp file path, not an `Image` -- two parallel collections sharing one cached `Image` through
 `AdoptImageAsync` produced a "1 ms / 0 stars" `FindStarsAsync` flake.
