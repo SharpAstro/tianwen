@@ -96,7 +96,10 @@ expectation, not a measurement.
      texture, and the font atlases refill lazily.
    - A host that cannot rebuild keeps running headless with a degraded surface and a notification,
      never a frozen window, because a running session with cooling cameras is worth more than the
-     picture of it.
+     picture of it. **The TianWen GUI does since P0a of the hardware-in-the-server plan (#743)**:
+     SdlVulkan.Renderer 7.49 keeps a wedged window inert and closable while `Run` pumps its events
+     again, and `RigShutdown`'s `DisplayLost` lets a session and a flat run finish on their own,
+     `Finalise` included, before the cameras are warmed and the process exits.
 
 ## What the desktop found, and what the laptop then measured (2026-09-23)
 

@@ -114,60 +114,70 @@ namespace TianWen.UI.Abstractions
                 liveSessionState.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
 
+                // Completed last of all, whatever the run does, a constructor that throws included: a
+                // RigShutdown waits on it before it touches the mount or the camera polar was driving.
+                var ended = liveSessionState.BeginPolarRun();
                 tracker.Run(async () =>
                 {
-                    var session = new PolarAlignmentSession(
-                        external, mount, source, solverFactory,
-                        _timeProvider, logger, site, config);
                     try
                     {
-                        // If the guider was looping/calibrating/guiding from a prior session,
-                        // stop it cleanly first. PHD2's LoopAsync (used inside GuiderCaptureSource)
-                        // will refuse if the app is mid-calibration. Best-effort; failure here
-                        // is logged but doesn't fail the routine; the orchestrator's first frame
-                        // will surface the real problem with a useful message.
-                        if (activeGuider is not null)
+                        var session = new PolarAlignmentSession(
+                            external, mount, source, solverFactory,
+                            _timeProvider, logger, site, config);
+                        try
                         {
-                            try
+                            // If the guider was looping/calibrating/guiding from a prior session,
+                            // stop it cleanly first. PHD2's LoopAsync (used inside GuiderCaptureSource)
+                            // will refuse if the app is mid-calibration. Best-effort; failure here
+                            // is logged but doesn't fail the routine; the orchestrator's first frame
+                            // will surface the real problem with a useful message.
+                            if (activeGuider is not null)
                             {
-                                await activeGuider.StopCaptureAsync(TimeSpan.FromSeconds(10), polarCts.Token);
+                                try
+                                {
+                                    await activeGuider.StopCaptureAsync(TimeSpan.FromSeconds(10), polarCts.Token);
+                                }
+                                catch (Exception ex)
+                                {
+                                    logger.LogWarning(ex, "PolarAlignment: guider StopCaptureAsync before run failed");
+                                }
                             }
-                            catch (Exception ex)
-                            {
-                                logger.LogWarning(ex, "PolarAlignment: guider StopCaptureAsync before run failed");
-                            }
-                        }
 
-                        await PolarAlignmentActions.RunAsync(session, liveSessionState, logger, polarCts.Token);
-                    }
-                    catch (OperationCanceledException ex)
-                    {
-                        logger.LogInformation(ex, "Polar alignment routine cancelled");
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError(ex, "Polar alignment routine failed");
-                        liveSessionState.PolarPhase = PolarAlignmentPhase.Failed;
-                        liveSessionState.PolarStatusMessage = $"Polar alignment error: {StatusText.FromException(ex)}";
-                        Notify(NotificationSeverity.Error, $"Polar alignment failed: {ex.Message}");
+                            await PolarAlignmentActions.RunAsync(session, liveSessionState, logger, polarCts.Token);
+                        }
+                        catch (OperationCanceledException ex)
+                        {
+                            logger.LogInformation(ex, "Polar alignment routine cancelled");
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.LogError(ex, "Polar alignment routine failed");
+                            liveSessionState.PolarPhase = PolarAlignmentPhase.Failed;
+                            liveSessionState.PolarStatusMessage = $"Polar alignment error: {StatusText.FromException(ex)}";
+                            Notify(NotificationSeverity.Error, $"Polar alignment failed: {ex.Message}");
+                        }
+                        finally
+                        {
+                            // ReverseAxisBack / Park / LeaveInPlace runs here.
+                            liveSessionState.PolarPhase = PolarAlignmentPhase.RestoringMount;
+                            liveSessionState.NeedsRedraw = true;
+                            try { await session.DisposeAsync(); }
+                            catch (Exception ex) { logger.LogWarning(ex, "PolarAlignmentSession dispose failed"); }
+                            liveSessionState.PolarAlignmentCts = null;
+                            polarCts.Dispose();
+                            // Drop back into preview mode unless the user already swapped tabs.
+                            if (liveSessionState.Mode == LiveSessionMode.PolarAlign)
+                            {
+                                liveSessionState.Mode = LiveSessionMode.Preview;
+                            }
+                            liveSessionState.PolarPhase = PolarAlignmentPhase.Idle;
+                            liveSessionState.NeedsRedraw = true;
+                            appState.NeedsRedraw = true;
+                        }
                     }
                     finally
                     {
-                        // ReverseAxisBack / Park / LeaveInPlace runs here.
-                        liveSessionState.PolarPhase = PolarAlignmentPhase.RestoringMount;
-                        liveSessionState.NeedsRedraw = true;
-                        try { await session.DisposeAsync(); }
-                        catch (Exception ex) { logger.LogWarning(ex, "PolarAlignmentSession dispose failed"); }
-                        liveSessionState.PolarAlignmentCts = null;
-                        polarCts.Dispose();
-                        // Drop back into preview mode unless the user already swapped tabs.
-                        if (liveSessionState.Mode == LiveSessionMode.PolarAlign)
-                        {
-                            liveSessionState.Mode = LiveSessionMode.Preview;
-                        }
-                        liveSessionState.PolarPhase = PolarAlignmentPhase.Idle;
-                        liveSessionState.NeedsRedraw = true;
-                        appState.NeedsRedraw = true;
+                        ended.TrySetResult();
                     }
                 }, "PolarAlignment");
             });

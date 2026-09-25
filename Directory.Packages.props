@@ -59,7 +59,7 @@
     <PackageVersion Include="Pastel" Version="8.0.0" />
     <PackageVersion Include="System.CommandLine" Version="2.0.12" />
 
-    <PackageVersion Include="DIR.Lib" Version="11.2.*" />
+    <PackageVersion Include="DIR.Lib" Version="11.4.*" />
 
     <PackageVersion Include="SharpAstro.Tiff" Version="$(SharpAstroCodecsVersion)" />
     <PackageVersion Include="SharpAstro.Exif" Version="$(SharpAstroCodecsVersion)" />
@@ -78,7 +78,7 @@
 
     <PackageVersion Include="Console.Lib" Version="5.4.*" />
 
-    <PackageVersion Include="SdlVulkan.Renderer" Version="7.48.*" />
+    <PackageVersion Include="SdlVulkan.Renderer" Version="7.49.*" />
     <!-- tools/BakeShaders only. Here rather than inline because this file now covers tools/ as well as
          src/, which is the whole point: a version the sweep cannot see is a version that drifts. -->
     <PackageVersion Include="Vortice.ShaderCompiler" Version="1.9.0" />
