@@ -47,9 +47,12 @@ trainings and the shared tooling), [deconvolver-training.md](deconvolver-trainin
    planned fix and are a **final negative** (three seeds, two conditioning shapes). Section 3b of the
    programme doc promotes supervised **synthetic noise injection** to co-primary for the deep end;
    no arm has yet been trained that way.
-2. **The pool is 100 percent OSC narrowband, and the deployment target says broadband.** The
-   organized bake (`D:\Astro-Dataset\2025-2026-organized`) holds 40 sessions of Optolong L-Ultimate
-   3 nm and 11 of L-Quad Enhance, zero broadband. Task N3 (restate or acquire) is still open.
+2. **The pool was OSC narrowband, and the deployment target says broadband.** The organized bake
+   (`D:\Astro-Dataset\2025-2026-organized`) holds 40 sessions of Optolong L-Ultimate 3 nm and 11 of
+   L-Quad Enhance, zero broadband. **Corrected 2026-09-25 (Probe BB, run log):** E9's WIDE pool, and so
+   the shipped `e2_wide_s2`, already held eight broadband sessions, the 2024 Vela SNR mosaic on IDAS
+   LPS-D3; `2026-09-25-full` holds 53 broadband colour sessions. The shipped model removes as much
+   noise on broadband fields as on narrowband ones and pays more for it on extended structure only.
 3. **There is no size recipe, and the variance exceeds every effect chased since v17.** Three disjoint
    eight-session draws scored 0.825 / 0.726 / 0.739 on the same observer; one arm's three seeds
    spanned 0.122 on the operator probe against a 0.084 group gap. Any claim below needs several seeds
@@ -205,6 +208,11 @@ stays: it is free (3.7e-9 on the per-channel std) and the guard belongs in the r
 **H4. Narrowband training does not transfer to broadband.** A 3 nm frame has flux in one channel and
 near-nothing in the others; a broadband frame has all three. The pool has never contained a
 broadband session, so nothing measured so far says how v19d behaves on one.
+*Status 2026-09-25:* step 1 ran as Probe BB (run log) on `2026-09-25-full`, whose QHY294C SMC
+2026-08-01 is the SV545 folder's SMC night (the frames say `INSTRUME = QHY294PROC`), plus three more
+broadband fields. Removal transfers; the E2 recipe's economy on extended structure does not. The
+premise above was also wrong for E9: WIDE's Vela mosaic is broadband. Step 2 is `run-bb-arm.ps1`
+(E10), a broadband arm against its own control, not arm B.
 *Data:* `C:\temp\astro\2026-08 SV545` (a working copy of the D: archive, two nights, SV545 camera,
 `FILTER='IDAS LPS-D3'` on all 780 frames, 729 lights: 135 comet, 354 Lobster Nebula, 240 SMC; FLAT 51,
 BIAS 200, DARK 60 at 60 s / -5 C / gain 1600 / offset 20, DARKFLAT 60). The comet night is a moving
@@ -440,6 +448,8 @@ Settled by the campaign; restated so no run re-derives them.
 | **E8** | Cross-night arm X (H8). **Exporter SHIPPED 2026-09-05**: `tianwen dataset pair` (`DatasetCrossNightExporter`) flattens, level-matches per channel, registers both nights onto the MIDPOINT grid, stretches both with the mean's MTF, and writes the two nights into the trainer's half slots with a `pairs.jsonl` sidecar; `n2n_pairstats.py` runs the same residual statistic on the bake's same-session halves as the control. Seven pairs exported from `2026-09-full` (HD 74167 x1, Rim Nebula x6), two refused for want of a quad fit (Vela SNR, HD 71272: partial overlap, a WCS-seeded registration is the fix). The pair statistics are in the run log (2026-09-05, "the paired cache"). **Arm X RUN and KILLED 2026-09-05** (`run-x.ps1`, pre-registration in its header; run log "arm X, the cross-night pairs"): the gate takes night A's half slot on a pair cache (`n2n_gate.Gate(input_slot=)`, chosen by `--half-only`), cache `n2n-x` is the six Rim pairs (60 cells each, 360 train) with the HD 74167 pair held out for the gate, and the pool-matched control `n2n-x-ctl` is same-session N2N (`--mix-avg`, real subs) on the SAME four Rim nights from the bake, 360 cells, val on the two HD 74167 nights. Three seeds each, the E2 recipe. No X seed passed a probe (0.88 to 0.92x, faint amplitude falling one for one); X removes noise on one eval field (eta Car, where at matched removal it costs more stars than xctl) and ADDS 7 to 25 percent on Horsehead and the Statue. Cause: one sky's master-depth halves span p5 0.22 to 0.54 of the conditioning plane against deployed 0.09 to 0.83, and the nights' signals disagree at the pixel scale. The kill fires against xctl; its pre-registered inference (the ceiling is not shared noise) does not follow from an arm that never learned the task. H8 PARKED. **UNPARKED and REFUTED 2026-09-06** (run log, "H8 unparked"): the exporter gained exported-side PSF matching, an escalating quad budget (Vela SNR joins at 400 stars a side; HD 71272 still refuses at the detection cap and needs a coordinate seed), injected draws in the sub slots and a third measurement night, and `n2n_smoke.py --synthetic-target` moves ONLY the target. Arm X2: every control seed removes noise (0.94 / 0.92 / 0.88x, 5.3 to 9.5 percent on eval4b), every independent-target seed adds it (1.07 / 1.04 / 1.07x, -6.2 to -9.5 percent). **X2R RUN 2026-09-06** with the nights swapped (target 1.19x the input's noise instead of 2.25x) EXCLUDES the depth confound: the independent-target arm gets worse (1.30 / 1.25 / 1.25x, -20.9 to -25.7 percent on eval4b, extended column near -68) while its control improves, so independence is what costs. | 12 x 11-14 min | H8 |
 
 | **E9** | The WIDE arm (H9, the pool covers the deployed conditioning plane). `run-wide.ps1`: E2's eight sessions plus nine low-plane ones that are not eval nights (`arms/wide-train-17.txt`; Pleiades and eight 2024 Vela SNR panels, eight of the nine one mosaic on one rig, stated as the confound it is), 45 cells each, the E2 recipe byte for byte, val and export seed unchanged so the eight shared sessions carry the same cells and drawn depths as `warped`. `tianwen dataset degrade` gained a repeatable `--session` filter for it (nineteen sessions in 54 minutes against two and a half hours for the whole bake). **RUN and WON 2026-09-05** (run log, "the conditioning range over the whole pool"): 13.7 / 16.2 / 17.0 percent of the noise removed at full strength on the two low-plane eval4 fields, clear of all NINE warped seeds (2.8 to 11.3), inside warped's spread on the faint-structure columns, and the per-field collapse on HIP-85088 gone (6.9 and 7.6 percent become 18.0 to 26.8). Two of three seeds fail the gate's 0.82x noise criterion, which was calibrated on models trained off the low end of the plane. | 3 x 11 min | H9 |
+
+| **E10** | Probe BB (H4 step 1 and 2 on `2026-09-25-full`). **Step 1 DONE 2026-09-25** (run log, "Probe BB"): `run-bb-probe.ps1` + `run-bb-perfield.ps1`, no training; the shipped model removes 18 to 34 percent on the four broadband fields of `arms/bb-eval-4.txt` and spends 1.5 to 3.9 percent of extended amplitude at 4 percent removed where eval4b's four fields spend 0.1 to 1.0, field for field. **Step 2** `run-bb-arm.ps1`: `arms/bb-ctl-14.txt` (WIDE minus this bake's test sessions) against it plus `arms/bb-add-10.txt` (ten ASI533MC broadband sessions inside WIDE's plane range), one export, seeds sized from the measured spread, final weights. | ~1.3 h export, 11 min per seed per arm | H4 |
 
 Every arm: pre-register predictions in the run script header; three seeds; one prepared cache per
 arm, never edited between runs; launch multi-hour jobs detached (`Start-Process`), never through the
@@ -1618,3 +1628,74 @@ injected draws each), `D:/Astro-Dataset/pairs-triple`, `C:/temp/e2/x2.log`, `C:/
 `C:/temp/e2/scripts-x2/`, `C:/temp/e2/starsplit-x2-eval4b.txt`,
 `C:/temp/tianwen-scratch/n2n-x2/x2_s{0,1,2}.pt` and `x2ctl_s{0,1,2}.pt`, `D:/Astro-Dataset/pairs-x2r`
 and `C:/temp/tianwen-scratch/n2n-x2r/` (the reversed arm).
+
+### 2026-09-25: Probe BB, the shipped model on broadband fields, and what the pool already held
+
+`2026-09-25-full` is the first bake with broadband colour sessions in number (53 of 121: IDAS LPS-D3,
+UV/IR cut, Baader Semi-APO, two unidentified broadband filters). Probe BB asked, with no training,
+whether the shipped `e2_wide_s2` denoises them or whether broadband is the pool's gap
+(`run-bb-probe.ps1`, pre-registered in its header). Of the 14 broadband sessions the bake holds out as
+test, four can be scored (a drizzled session needs 120 subs for halves): `arms/bb-eval-4.txt`, four
+fields on three rigs, 60 cells each, scored beside eval4b in the same run.
+
+**Removal transfers.** At full strength wide_s2 removes 18.5 / 34.2 / 29.4 / 31.3 percent of the noise
+on the four broadband fields against 20.9 to 33.5 on eval4b's four, and adds noise on none. Neither of
+the rule's first two clauses (under half the eval4b median on two fields, noise added on any) fires.
+Lagoon sits at plane 0.98, above everything WIDE trained on (0.07 to 0.62), and is the best-removed
+field, so an input above the trained plane range costs nothing here.
+
+**The structure economy does not.** The third clause fired on the pooled table: at 4 / 10 percent
+removed, extended peaks cost 2.7 / 7.1 on broadband against 0.4 / 1.0 on eval4b, stars and compact no
+worse. A pooled matched point is a mixture of operating points (arm X), so it was re-read per field
+(`run-bb-perfield.ps1`, `--only`), wide_s2, amplitude spent at 4 and 10 percent removed:
+
+| field | removed at full | stars 4 / 10 | compact 4 / 10 | extended 4 / 10 | extended peaks |
+|---|---|---|---|---|---|
+| bb: QHY294C SMC 2026-08-01 | 18.5 | 2.1 / 5.7 | 3.3 / 9.1 | 1.5 / 5.4 | 294 |
+| bb: Uranus-C Lagoon 2023-08-03 | 34.2 | 4.3 / 11.0 | 4.7 / 12.0 | 1.6 / 4.6 | 327 |
+| bb: Uranus-C SMC 2023-07-29 | 29.4 | 1.6 / 4.3 | 2.7 / 6.9 | 1.6 / 4.1 | 526 |
+| bb: ASI585MC Carina 24 mm 2025-03-19 | 31.3 | 3.9 / 9.8 | 3.7 / 9.5 | 3.9 / 9.9 | 591 |
+| e4b: HIP-34710 | 33.5 | 3.2 / 8.2 | 4.3 / 10.7 | 0.5 / 1.5 | 589 |
+| e4b: HIP-85088 | 25.1 | 3.0 / 7.7 | 3.3 / 8.4 | 1.0 / 2.1 | 1030 |
+| e4b: V1045 Ori | 28.6 | 2.8 / 6.6 | 3.1 / 7.9 | 0.1 / 0.4 | 1234 |
+| e4b: eta Car | 20.9 | 4.9 / 13.9 | 5.7 / 15.3 | 0.2 / 0.6 | 924 |
+
+No broadband field spends as little on extended structure as any narrowband one, Lagoon's real
+nebulosity included, while stars and compact detail sit in one range across both. v19d, the model
+before E2, spends 3 to 4 at 4 percent on EVERY field of both sets; warped and wide keep the
+narrowband advantage (0.1 to 1.0) and lose it on broadband. So what E2's recipe bought on structure is
+a narrowband property. On the 24 mm Carina the extended column costs exactly what a star costs (9.9
+against 9.8 at 10 percent), the signature of blended stars rather than nebulosity: the column may be
+reading a different population on a dense broadband field, which step 2's kill names as the next
+suspect.
+
+**Two corrections the probe forced.**
+- *The pool was not 100 percent narrowband* (fact 2, H4). Eight of WIDE's 17 sessions, and so of the
+  shipped model's, are the 2024 Vela SNR mosaic, IDAS LPS-D3 on the ASI533MC: P4, P5, p7 and p9 are
+  curated under that filter now, and P1 to P3 and P6 are the same mosaic, rig and settings under their
+  unsorted names. The shipped model saw one broadband mosaic from one rig and still spends on broadband
+  extended peaks like on stars. H4's "SV545" SMC night is this bake's QHY294C SMC 2026-08-01 (the
+  frames say `INSTRUME = QHY294PROC`), so H4's step 1 is this probe.
+- *E2 and WIDE trained on two sessions their own bake held out as test.* HD-71526 2026-02-10 and
+  Lobster Nebula 2025-05-09 are in `2026-09-full/test-sessions.txt` and in `arms/e2-train-8.txt`. Neither
+  is in eval4, eval4b or bb-eval-4, so no reported number is contaminated, but the shipped model has
+  seen them and a future test on that split must drop them. `2026-09-25-full` also holds out Vela SNR p7;
+  step 2 excludes all three.
+
+**Step 2 is running** (`run-bb-arm.ps1`, E10, pre-registered in its header and committed before the
+export): WIDE on this bake's ids minus the three test sessions (`arms/bb-ctl-14.txt`) against it plus
+ten ASI533MC broadband sessions inside WIDE's plane range (`arms/bb-add-10.txt`), from one export, the
+E2 recipe, seeds interleaved and compared at final weights. Primary: M, the mean over the four
+broadband fields of extended spent at 10 percent removed (4 percent on a field where any seed never
+reaches 10, which puts SMC 2026-08-01 at 4 for everyone); prediction, the arm lowers M by at least
+2.4 points (half the gap), with stars, compact, full-strength removal and eval4b's extended column
+inside the control's seed spread. **Seeds from the spread, not a default:** over the twelve
+final-weight seeds on disk (wide s0 / s1 / s2 final, warped s0..s8), M's pooled within-recipe sd is
+0.62 (10 dof; wide 0.99 on three, warped 0.48 on nine), which at d = 2.4 asks for two seeds per arm, so
+the pre-registered floor of six holds. The shipped gate-selected s2 and its final weights read within
+0.1 of each other on every field.
+
+Artefacts: `C:/temp/e2/bb-condpool.txt`, `bb-starsplit-n2n-bb-eval4.txt`,
+`bb-starsplit-n2n-e2-eval4b.txt`, `bb-perfield-*.txt`, `bb-seeds-*.txt`, `scripts-bb-probe/`;
+`C:/temp/tianwen-scratch/n2n-bb-eval4` (250 cells, 1.01 GiB); the broadband masters solved into
+`C:/temp/e2/gaia/solved-2026-09-25-full`; step 2's export `D:/Astro-Dataset/degraded/bb-arm`.
