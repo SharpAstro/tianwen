@@ -455,6 +455,7 @@ Settled by the campaign; restated so no run re-derives them.
 | **E10** | Probe BB (H4 step 1 and 2 on `2026-09-25-full`). **Step 1 DONE 2026-09-25** (run log, "Probe BB"): `run-bb-probe.ps1` + `run-bb-perfield.ps1`, no training; the shipped model removes 18 to 34 percent on the four broadband fields of `arms/bb-eval-4.txt` and spends 1.5 to 3.9 percent of extended amplitude at 4 percent removed where eval4b's four fields spend 0.1 to 1.0, field for field. **Step 2** `run-bb-arm.ps1`: `arms/bb-ctl-14.txt` (WIDE minus this bake's test sessions) against it plus `arms/bb-add-10.txt` (ten ASI533MC broadband sessions inside WIDE's plane range), one export, seeds sized from the measured spread, final weights. **Step 2 KILLED 2026-09-26** (run log): six seeds each, the arm's broadband extended cost is +0.43 [-0.48, +1.35] against the control, and it removes about half the noise the control does. Then found to rest on blended stars and a failed Carina catalogue match (run log, "what went wrong in Probe BB and E10"). | 2 h export, 11.5 min per seed per arm | H4 |
 | **E11** | SUPERSEDED by E12 (its one seed died at ~4800 steps; its partial curve is in the run log). The step budget (run log, "what went wrong in Probe BB and E10"). `run-steps.ps1`: the E10 control cache and recipe at 16000 steps instead of 4000 (the cosine then spans the whole run), four seeds, final weights, scored with the fixed split beside the six 4000-step controls. Primary R, full-strength removal over all eight fields (24.67 at 4000, seed sd 3.67): predicted gain >= 8; killed if the interval's upper bound is under 5. | superseded | steps |
 | **E12** | Train to convergence (run log, "what went wrong in Probe BB and E10"). `run-converge.ps1`: E11's cache and recipe under `--schedule plateau` (held rate, held-out objective every 500 steps, halve after four flat windowed scores, stop after the fourth halving, 60000-step cap), four seeds, final weights, E11's primary and kill. Launched 2026-09-26. | ~1 to 3 h per seed | steps |
+| **E13** | The varied pool (run log, E13): 81 sessions on 7 cameras, the injected shape varied per draw (0.22 to 0.65), three converged arms from one cache: `pool` (the new recipe), `poolb` (band conditioning, more signal), `pool48` (base 48, more features), three seeds each, twelve fields. `run-pool.ps1` exports now and trains once E12 hands over the GPU. | ~2.5 h export, then ~15 to 25 h GPU | data, signal, features |
 
 Every arm: pre-register predictions in the run script header; three seeds; one prepared cache per
 arm, never edited between runs; launch multi-hour jobs detached (`Start-Process`), never through the
@@ -1841,3 +1842,30 @@ mean of the last three scores (one score moves 38 percent between evaluations fr
 halves the rate after four scores without a 0.1 percent gain, and stops at the plateau after the fourth
 halving; `--steps` (60000) is only a cap. Four seeds, final weights, scored with the fixed split beside
 the six 4000-step controls, with E11's primary and kill.
+
+**E13, the varied pool** (`run-pool.ps1`, pre-registered 2026-09-26 before its export): what a model meant
+for any sensor needs once runs converge, raised by the user ("more variety needs more signal and more
+features"). Two past negatives about exactly those levers were read at the broken budget: band
+conditioning was rejected because it "converges far more slowly" and its planes were "nearly
+redundant, because level dominates shape" on a pool whose injected shape never varied, and capacity was
+only ever tested on N2N pairs. The pool is 81 train-split colour sessions on 7 cameras
+(`arms/pool-train.txt`); it holds out every session sharing a night and a camera with an eval session,
+and five eval sessions (HIP-34710, HIP-85088, V1045 Ori, eta Car 2026-02-20, Rim 2025-05-02) are
+themselves in this bake's train split, so a whole-bake pool would have trained on the eval. The export
+varies the injected shape per draw (`tianwen dataset degrade --white-fraction 0.25 --warp-sigma 0
+--warp-sigma-max 0.7`), measured on this bake with `--measure-shape`:
+
+| injected | band1/band0 |
+|---|---|
+| white | 0.218 |
+| warped, sigma 0 / 0.5 / 0.7 / 0.8 / 1.0 / 1.5 | 0.314 / 0.433 / 0.653 / 0.756 / 0.952 / 1.411 |
+| real masters | 0.26 (this Lanczos bake) to 0.62 (the bilinear one) |
+
+so the range stops at 0.7, and every export before this (0.5) sat at 0.43 whatever the bake. Three
+converged arms from one cache, seeds interleaved: `pool` (base 32, one level plane), `poolb` (band
+conditioning), `pool48` (base 48), scored on twelve fields beside E12's converged controls.
+
+**The other models share the budget.** Every deconvolver run (`run-e3-*.ps1`, including E3.4d's prior
+that met the star clauses) trained the same fixed 4000-step cosine; `--schedule plateau` does not yet
+cover the psf01 / operator path (it refuses rather than guess), which is the next thing to extend
+before any further deconvolver arm.
