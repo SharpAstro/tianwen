@@ -141,7 +141,7 @@ its connection closing, never cancels a serial probe half-way.
 Discovery is the first: `POST /api/v1/devices/discover`. It was a `GET` that ran the whole discovery
 inline on the REQUEST's token and answered display strings, so a client's 10 s control budget cut a serial
 sweep off mid-probe (P0b item 17 of [../plans/hardware-in-the-server.md](../plans/hardware-in-the-server.md),
-#752). Connect, warm and disconnect, a preview exposure, solve and sync, and a move follow in P2, through the
+#752, fixed by #916). Connect, warm and disconnect, a preview exposure, solve and sync, and a move follow in P2, through the
 same `NodeJobs.StartOrJoin`; **a new slow endpoint starts a job, never runs inline**. `TianWenNodeClient`
 has `StartDiscoveryAsync`, `GetJobAsync`, `GetJobsAsync` and `CancelJobAsync`. Pinned by `NodeJobTests`.
 

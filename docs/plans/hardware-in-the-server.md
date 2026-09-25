@@ -450,7 +450,7 @@ Found by the review (2026-09-25), all confirmed in the code:
     `BroadcastEventSerializationTests` sends each through both contexts.
 17. **`/devices/discover` runs a full discovery inline on the request token** and returns only display
     strings. The client's 10 s control budget cuts it off mid-probe, and a dropped request cancels a
-    serial probe half-way. It becomes a job (P1's long-operation model). **FIXED**, with the job model
+    serial probe half-way. It becomes a job (P1's long-operation model). **FIXED** by #916, with the job model
     pulled forward from P1 for it: `NodeJobs` runs a job on the node's token, `POST /devices/discover`
     answers 202 with the job (a second start joins the running one), `GET /jobs/{id}` is authoritative,
     `DELETE /jobs/{id}` cancels, and `JOB-PROGRESS` is pushed; `TianWenNodeClient` drives all of it.
