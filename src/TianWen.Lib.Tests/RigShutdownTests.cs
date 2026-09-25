@@ -136,16 +136,22 @@ public class RigShutdownTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var local = new LiveSessionState();
         var (hub, _) = HubWithOneIdleCamera(local);
-        StartFakeSession(local, endsOnItsOwn: NeverEnds(), Task.CompletedTask);
+        // Still in its Finalise when the stop looks, so the stop has to wait for the session and say what
+        // for. A Finalise that is already done ends the session inside the cancel, and nothing is waited on.
+        var finalise = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        StartFakeSession(local, endsOnItsOwn: NeverEnds(), finalise.Task);
         using var stopRig = new CancellationTokenSource();
         stopRig.Cancel();
         var reported = new ConcurrentQueue<string>();
 
-        await new RigShutdown(local, hub, Substitute.For<ITimeProvider>(), FakeExternal.CreateLogger(output))
-            .StopAsync(RigShutdownMode.DisplayLost, stopRig.Token, reported.Enqueue).WaitAsync(ct);
+        var stop = new RigShutdown(local, hub, Substitute.For<ITimeProvider>(), FakeExternal.CreateLogger(output))
+            .StopAsync(RigShutdownMode.DisplayLost, stopRig.Token, reported.Enqueue);
 
-        reported.ShouldNotContain(RigShutdown.SessionGoesOn);
+        reported.ShouldNotContain(RigShutdown.SessionGoesOn, "the stop was asked for before the wait began");
         reported.ShouldContain(RigShutdown.StoppingTheRig);
+
+        finalise.SetResult();
+        await stop.WaitAsync(ct);
     }
 
     [Fact(Timeout = 30_000)]
