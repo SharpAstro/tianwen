@@ -131,7 +131,14 @@ consumes this node's devices with the existing `AddAlpaca()` and no new client c
 - **Ownership is the hub lease, not an Alpaca policy.** Actuation and `Connected=false` answer
   `0x40B` with `DeviceOwnershipGate.Describe()`; reads and `Connected=true` always pass. Never make
   the plane read-only during a session -- every standard client PUTs `Connected=true` before reading,
-  so that would make a running rig unreadable.
+  so that would make a running rig unreadable. The native and ninaAPI actuation routes ask the same
+  lease (`ActuationGate`), as soon as they have the device and before anything touches its driver, and
+  refuse with 409 naming the run: they commanded the session's own drivers unasked, so a client could
+  slew the mount or abort an exposure mid-night (P0b item 8 of
+  [../plans/hardware-in-the-server.md](../plans/hardware-in-the-server.md), #752). The ninaAPI profile
+  switch asks `ProfileSwitchGate` like the native one, and `DELETE /profiles/{id}` refuses the node's
+  active profile and, while a run is going, any profile, since the node does not record which one the
+  run was started from (P0b item 18).
 - **Device numbers come from the ACTIVE PROFILE, in profile order** -- never from discovery, whose
   order varies between scans; a number that moved would point a client at different hardware
   mid-session.
