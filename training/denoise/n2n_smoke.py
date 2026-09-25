@@ -33,6 +33,7 @@ TILE, CH = 256, 3
 BORDER = 16          # AiNafnetInputs.StitchBorderPx: no output pixel ever comes from a chunk edge
 BYTES = CH * TILE * TILE * 2
 SUBS_PER_CELL = 8
+VAL_WINDOW = 3        # --schedule plateau judges the mean of this many consecutive held-out scores
 MIX_LEVELS = (1, 2, 4)   # subs averaged per side; 8 subs per cell caps the disjoint pair at 4
 HALF = "half"            # the half-master regime, which is not a count of subs
 SYNTH = "synth"          # supervised against slot 0, only meaningful on an injected cache
@@ -1185,7 +1186,60 @@ def train(args):
         print(f"scale augmentation ON: each synthetic batch resampled by a factor in [{lo}, {hi}] (sides a multiple of 16), "
               f"kernel labels and star positions scaled with it")
     steps = args.steps
-    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps)
+    held_out = None
+    if args.schedule == "cosine":
+        sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps)
+    else:
+        # E12 (2026-09-26): every recipe before this annealed a cosine to zero at a step count chosen
+        # in advance, and at 4000 steps the val noise was still falling when the schedule stopped it.
+        # Here the run stops when the objective it is minimising stops improving on cells it never
+        # trains on. That objective is the TRAINING one (pixel term plus band term, rim masked) on the
+        # synthetic regime, so the plateau means "learned what this loss can teach", not "strong";
+        # the gate still reports strength beside it. Fixed cells and fixed draws, so between two
+        # scores only the weights change, and no draw from the training rng, so its stream is intact.
+        sched = None
+        if regimes != [SYNTH] or psf01_labels is not None or scale_aug is not None:
+            raise SystemExit("--schedule plateau is implemented for the plain synthetic denoiser only "
+                             "(--synthetic, no psf01 labels, no --scale-aug)")
+        vall = np.arange(n_train, meta["cells"])
+        if len(vall) == 0:
+            raise SystemExit("--schedule plateau needs val cells in the cache")
+        vsel = vall[np.linspace(0, len(vall) - 1, min(args.val_loss_cells, len(vall))).round().astype(int)]
+        print(f"schedule: plateau on the held-out objective over {len(vsel)} val cells x 2 fixed draws, "
+              f"every {args.val_every} steps, patience {args.patience}, min gain {args.min_improve:g}, "
+              f"{args.max_decays} halvings from lr {args.lr:g}, cap {steps} steps")
+
+        def held_out():
+            was = model.training
+            model.eval()
+            total = 0.0
+            with torch.no_grad():
+                for j0 in range(0, len(vsel), 16):
+                    vi = vsel[j0:j0 + 16]
+                    y = torch.from_numpy(np.ascontiguousarray(mm[vi, synth_target])).to(dev).float()
+                    yc = y[:, :, BORDER:-BORDER, BORDER:-BORDER]
+                    for shift in (0, SUBS_PER_CELL // 2):
+                        slots = 1 + (np.arange(j0, j0 + len(vi)) + shift) % SUBS_PER_CELL
+                        x = torch.from_numpy(np.ascontiguousarray(mm[vi, slots])).to(dev).float()
+                        pred = model(with_sigma(x, planes=cond_planes) if cond_planes else x)
+                        pc = pred[:, :, BORDER:-BORDER, BORDER:-BORDER]
+                        obj = (nn.functional.l1_loss(pc, yc) if args.loss == "l1"
+                               else nn.functional.mse_loss(pc, yc))
+                        if args.band_loss > 0:
+                            band = 0.0
+                            for s1, s2 in band_scales:
+                                k1, k2 = kernels[s1], kernels[s2]
+                                band = band + nn.functional.mse_loss(
+                                    _blur(pc, k1) - _blur(pc, k2), _blur(yc, k1) - _blur(yc, k2))
+                            obj = obj + args.band_loss * band / len(band_scales)
+                        total += float(obj.item()) * len(vi)
+            if was:
+                model.train()
+            return total / (2 * len(vsel))
+        held_out = held_out
+    val_best, val_best_step, val_bad, val_decays = float("inf"), 0, 0, 0
+    val_hist = []
+    stop_now = False
     t0 = time.perf_counter()
     running = []
     running_star = []
@@ -1374,17 +1428,45 @@ def train(args):
         opt.zero_grad(set_to_none=True)
         loss.backward()
         opt.step()
-        sched.step()
+        if sched is not None:
+            sched.step()
         running.append(loss.item())
 
-        if step % args.log_every == 0 or step == steps:
+        if held_out is not None and step % args.val_every == 0:
+            # Judged on the mean of the last VAL_WINDOW scores, never one: at a held rate the weights
+            # jitter enough to move a single score 38 percent between two evaluations 200 steps apart
+            # (the smoke run: 4.38e-5, 6.06e-5, 4.42e-5), so a lucky low would trigger every halving.
+            val_hist.append(held_out())
+            v = float(np.mean(val_hist[-VAL_WINDOW:]))
+            lr_now = opt.param_groups[0]["lr"]
+            note = ""
+            if len(val_hist) < VAL_WINDOW:
+                pass
+            elif v < val_best * (1.0 - args.min_improve):
+                val_best, val_best_step, val_bad = v, step, 0
+            else:
+                val_bad += 1
+            if val_bad >= args.patience:
+                if val_decays >= args.max_decays:
+                    stop_now = True
+                    note = "converged: no gain after the last halving, stopping"
+                else:
+                    val_decays += 1
+                    val_bad = 0
+                    for g in opt.param_groups:
+                        g["lr"] = lr_now * 0.5
+                    note = f"plateau: rate halved to {lr_now * 0.5:.2e} ({val_decays}/{args.max_decays})"
+            print(f"  val  {step:6d}   held-out {val_hist[-1]:.6e}   window {v:.6e}   best {val_best:.6e} at "
+                  f"{val_best_step}   lr {lr_now:.2e}   {note}", flush=True)
+
+        if step % args.log_every == 0 or step == steps or stop_now:
             el = time.perf_counter() - t0
             star_note = (f"  star {np.mean(running_star[-args.log_every:]):.4f}"
                          if star_term is not None and running_star else "")
             print(f"  step {step:6d}/{steps}  loss {np.mean(running[-args.log_every:]):.5f}{star_note}  "
                   f"{step*args.batch/el:5.1f} tiles/s  elapsed {el/60:5.1f} min", flush=True)
 
-        if gate is not None and (step % args.gate_every == 0 or step == steps):
+        if gate is not None and (step % args.gate_every == 0 or step == steps or stop_now):
             m = gate.evaluate(model) if psf01_labels is not None else gate.evaluate(model, cond_planes)
             # Three hard gates, then MINIMISE noise among whatever passes. Framing invention,
             # residual correlation and faint-flux retention as GATES rather than as terms in a
@@ -1476,6 +1558,17 @@ def train(args):
             for si, (_, og) in enumerate(observers):
                 om = og.evaluate(model) if psf01_labels is not None else og.evaluate(model, cond_planes)
                 print(f"  obs{si} {step:6d}   {fmt(om)}", flush=True)
+
+        if stop_now:
+            print(f"  stopped at step {step}: the held-out objective's best was {val_best:.6e} at step "
+                  f"{val_best_step}", flush=True)
+            steps = step
+            break
+    else:
+        if held_out is not None:
+            print(f"  reached the {steps}-step cap BEFORE the held-out objective converged "
+                  f"(best {val_best:.6e} at {val_best_step}, {val_decays} halvings); the cap, not the "
+                  f"data, ended this run", flush=True)
 
     if len(regimes) > 1:
         print("  steps per regime: " + "  ".join(
@@ -1738,7 +1831,21 @@ if __name__ == "__main__":
     p.add_argument("--base", type=int, default=32)
     p.add_argument("--batch", type=int, default=8)
     p.add_argument("--lr", type=float, default=2e-4)
-    p.add_argument("--steps", type=int, default=4000)
+    p.add_argument("--steps", type=int, default=4000,
+                   help="the run's length under --schedule cosine; only a safety cap under plateau")
+    p.add_argument("--schedule", choices=("cosine", "plateau"), default="cosine",
+                   help="cosine (every recipe before E12): anneal the rate to zero at --steps, so the run "
+                        "stops wherever that is. plateau: hold --lr, score the training objective on fixed "
+                        "val cells and draws every --val-every steps, halve the rate after --patience "
+                        "scores without a --min-improve relative gain, and stop at the plateau after "
+                        "--max-decays halvings. The run then decides its own length.")
+    p.add_argument("--val-every", type=int, default=500)
+    p.add_argument("--patience", type=int, default=4)
+    p.add_argument("--min-improve", type=float, default=1e-3,
+                   help="relative gain in the held-out objective that counts as improving")
+    p.add_argument("--max-decays", type=int, default=4)
+    p.add_argument("--val-loss-cells", type=int, default=240,
+                   help="val cells in the held-out objective, evenly spaced, two fixed draws each")
     p.add_argument("--nondeterministic", action="store_true",
                    help="let cudnn autotune. Faster, but two runs of one seed then differ, so "
                         "only use it when no comparison depends on the result")
