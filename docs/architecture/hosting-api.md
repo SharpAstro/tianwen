@@ -18,11 +18,20 @@ model this deliberately is *not* yet).
 `IHostedSession` holds the node's run (the one going on, or the last one to end, until the next start
 replaces it), `ActiveProfileId`, `PendingTargets` (pre-session queue, drained into
 `ScheduledObservation[]` at `/session/start`), `PendingSchedule`, the outstanding `PendingPrompt`, and
-a `Notifications` ring. `EventBroadcaster` (`BackgroundService`) subscribes to
-`PhaseChanged` / `FrameWritten` / `PlateSolveCompleted` / `ScoutCompleted` / `GuiderStateChanged` /
-`PromptRequested` and pushes through the dual pool of `EventHub`; it is also the node's
-**notification recorder** (it already watches every session event, so it writes what it broadcasts
-into the ring).
+a `Notifications` ring. `EventBroadcaster` (`BackgroundService`) attaches to each run as the node starts
+it (`HostedSession.RunStarting`, before the run's body is released, so the run's first events reach the
+clients), subscribes to `PhaseChanged` / `FrameWritten` / `PlateSolveCompleted` / `ScoutCompleted` /
+`GuiderStateChanged` / `PromptRequested`, and pushes through `EventHub`'s two pools; it is also the
+node's **notification recorder** (it already watches every session event, so it writes what it
+broadcasts into the ring).
+
+**A broadcast never waits for a socket.** Every client has a bounded queue drained by one sender of its
+own: a broadcast serialises the event once per pool and queues it, so one stalled client costs nobody
+else anything, and order holds per client. A client whose queue fills, or whose send outlasts the send
+timeout, is dropped (its socket aborted) and resyncs by polling, which is the authoritative channel.
+It used to send to every client in turn on the broadcasting thread, so one stalled client held up every
+other client and every later broadcast, without bound (P0b item 7 of
+[../plans/hardware-in-the-server.md](../plans/hardware-in-the-server.md), #752).
 
 Run: `dotnet run --project TianWen.Server` or `tianwen-server [--port 1888]`.
 
@@ -36,12 +45,18 @@ Run: `dotnet run --project TianWen.Server` or `tianwen-server [--port 1888]`.
 2. **Subscribing to `PromptRequested` takes over the session's unattended answer.** A session answers
    a prompt itself only while *nothing* is subscribed, which is what keeps unattended runs from
    blocking on a step nobody will perform. `EventBroadcaster` is a subscriber, so it restores the
-   guarantee: **no WebSocket client attached -> answer immediately with
+   guarantee: **no native WebSocket client attached -> answer immediately with
    `SessionPromptEventArgs.DefaultIfUnanswerable`** (the session's own policy, carried on the prompt
    so it cannot drift); **one attached -> hold indefinitely**, with no timer, because guessing after
-   an arbitrary interval fabricates a decision rather than fixing an unresponsive client. The only
-   bound is liveness -- if the last observer disconnects while a prompt is outstanding the poll loop
-   resolves it. Any new subscriber on a headless path owes the same.
+   an arbitrary interval fabricates a decision rather than fixing an unresponsive client. Only a
+   native client counts (`EventHub.PromptObserverCount`): a ninaAPI v2 socket has no prompt route, so it
+   is nobody to wait for, and it used to hold every prompt indefinitely. The only bound is liveness --
+   if the last observer disconnects while a prompt is outstanding the poll loop resolves it. Any new
+   subscriber on a headless path owes the same.
+   **A prompt is offered until it settles** (`SessionPromptEventArgs.Settled`): answered, or withdrawn
+   by whoever raised it (the session withdraws one when its run is cancelled while it waits; a mirror
+   when its node stops offering it). Every holder drops it then, `/session/state`, a mirror and the
+   GUI's prompt bar alike, rather than go on asking a question the run has moved past (P0b item 13).
 3. **The JSON contract uses numeric enums.** No `JsonStringEnumConverter` is configured on
    `HostingJsonContext`, so every enum crosses as its ordinal. A request DTO with a `required` enum
    is therefore hostile to hand-written callers -- default it (as `ScheduledObservationDto.Priority`

@@ -1275,9 +1275,12 @@ full native-AOT rules, and the reasoning behind each rule below:
    the planner's `Start` and `AcrossMeridian`; `PendingTarget` carries none and `/session/start` stamps
    `Start = now`. Never route a real schedule through `/targets`.
 2. **Subscribing to `PromptRequested` takes over the session's unattended answer.** `EventBroadcaster`
-   restores the guarantee (no WebSocket client -> `SessionPromptEventArgs.DefaultIfUnanswerable` at
-   once; one attached -> hold with no timer, liveness is the only bound). **Any new subscriber on a
-   headless path owes the same.**
+   restores the guarantee (no NATIVE WebSocket client -> `SessionPromptEventArgs.DefaultIfUnanswerable` at
+   once, since a ninaAPI socket cannot answer; one attached -> hold with no timer, liveness is the only
+   bound), and it attaches as the node starts a run, never from its poll. **Any new subscriber on a
+   headless path owes the same**, and **whoever holds a prompt drops it on `Settled`**: the session
+   withdraws one it stops waiting on. **A broadcast only queues** (`EventHub`, a bounded queue and one
+   sender per client); a client that falls behind is dropped to resync by polling.
 3. **Numeric enums on the wire** (no `JsonStringEnumConverter` on `HostingJsonContext`): a `required`
    enum on a request DTO is hostile to hand-written callers, default it.
 4. **Previews go through the shared stretch, never a private one.** `PreviewEncoder` runs
