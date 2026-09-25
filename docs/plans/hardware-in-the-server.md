@@ -268,7 +268,8 @@ mirror hears the node's events, an error answers its own HTTP status, and the li
 the session keeps on show, under the slot's own token as a conditional GET (`hosting-api.md`, the preview
 section). Items 7 and 13 are fixed by #801: a broadcast only queues, each client with its own bounded
 sender, and a prompt is held only for a client that can answer it, and only until it settles. Item 14 is
-withdrawn (below). The rest (8, 9, 11, 17 and 18) are open, one PR per concern.
+withdrawn (below). Items 8 and 18 are fixed by #803: a client cannot command hardware a run is driving,
+nor switch or delete the profile out from under it. The rest (9, 11 and 17) are open, one PR per concern.
 
 Each item below is confirmed in the code, except where it says otherwise; the review of 2026-09-25
 re-checked all nine and found nine more (10 to 18). The first four, and 10 and 11, decide whether a
