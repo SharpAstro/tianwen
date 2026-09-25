@@ -453,7 +453,8 @@ Settled by the campaign; restated so no run re-derives them.
 | **E9** | The WIDE arm (H9, the pool covers the deployed conditioning plane). `run-wide.ps1`: E2's eight sessions plus nine low-plane ones that are not eval nights (`arms/wide-train-17.txt`; Pleiades and eight 2024 Vela SNR panels, eight of the nine one mosaic on one rig, stated as the confound it is), 45 cells each, the E2 recipe byte for byte, val and export seed unchanged so the eight shared sessions carry the same cells and drawn depths as `warped`. `tianwen dataset degrade` gained a repeatable `--session` filter for it (nineteen sessions in 54 minutes against two and a half hours for the whole bake). **RUN and WON 2026-09-05** (run log, "the conditioning range over the whole pool"): 13.7 / 16.2 / 17.0 percent of the noise removed at full strength on the two low-plane eval4 fields, clear of all NINE warped seeds (2.8 to 11.3), inside warped's spread on the faint-structure columns, and the per-field collapse on HIP-85088 gone (6.9 and 7.6 percent become 18.0 to 26.8). Two of three seeds fail the gate's 0.82x noise criterion, which was calibrated on models trained off the low end of the plane. | 3 x 11 min | H9 |
 
 | **E10** | Probe BB (H4 step 1 and 2 on `2026-09-25-full`). **Step 1 DONE 2026-09-25** (run log, "Probe BB"): `run-bb-probe.ps1` + `run-bb-perfield.ps1`, no training; the shipped model removes 18 to 34 percent on the four broadband fields of `arms/bb-eval-4.txt` and spends 1.5 to 3.9 percent of extended amplitude at 4 percent removed where eval4b's four fields spend 0.1 to 1.0, field for field. **Step 2** `run-bb-arm.ps1`: `arms/bb-ctl-14.txt` (WIDE minus this bake's test sessions) against it plus `arms/bb-add-10.txt` (ten ASI533MC broadband sessions inside WIDE's plane range), one export, seeds sized from the measured spread, final weights. **Step 2 KILLED 2026-09-26** (run log): six seeds each, the arm's broadband extended cost is +0.43 [-0.48, +1.35] against the control, and it removes about half the noise the control does. Then found to rest on blended stars and a failed Carina catalogue match (run log, "what went wrong in Probe BB and E10"). | 2 h export, 11.5 min per seed per arm | H4 |
-| **E11** | The step budget (run log, "what went wrong in Probe BB and E10"). `run-steps.ps1`: the E10 control cache and recipe at 16000 steps instead of 4000 (the cosine then spans the whole run), four seeds, final weights, scored with the fixed split beside the six 4000-step controls. Primary R, full-strength removal over all eight fields (24.67 at 4000, seed sd 3.67): predicted gain >= 8; killed if the interval's upper bound is under 5. | 4 x ~50 min | steps |
+| **E11** | SUPERSEDED by E12 (its one seed died at ~4800 steps; its partial curve is in the run log). The step budget (run log, "what went wrong in Probe BB and E10"). `run-steps.ps1`: the E10 control cache and recipe at 16000 steps instead of 4000 (the cosine then spans the whole run), four seeds, final weights, scored with the fixed split beside the six 4000-step controls. Primary R, full-strength removal over all eight fields (24.67 at 4000, seed sd 3.67): predicted gain >= 8; killed if the interval's upper bound is under 5. | superseded | steps |
+| **E12** | Train to convergence (run log, "what went wrong in Probe BB and E10"). `run-converge.ps1`: E11's cache and recipe under `--schedule plateau` (held rate, held-out objective every 500 steps, halve after four flat windowed scores, stop after the fourth halving, 60000-step cap), four seeds, final weights, E11's primary and kill. Launched 2026-09-26. | ~1 to 3 h per seed | steps |
 
 Every arm: pre-register predictions in the run script header; three seeds; one prepared cache per
 arm, never edited between runs; launch multi-hour jobs detached (`Start-Process`), never through the
@@ -1826,3 +1827,17 @@ under the fixed split; its range finding stands and is what item 2 predicts, whi
 4000-step controls. Primary: R, full-strength removal averaged over all eight fields (24.67 at 4000
 steps, seed sd 3.67); prediction G >= +8 with stars and compact at matched removal no worse and a
 smaller seed spread; kill if the interval's upper bound is under +5.
+
+**E11 was superseded before its first checkpoint, and E12 replaces it.** Its only seed died at step
+~4800 when the running script was stopped to end the run after that seed: the script owned the
+trainer's output pipe, so the trainer died on its next print (run scripts now stop between seeds through
+a stop file, never by stopping the process). The partial log still answered the question it was asking.
+The same seed on the same cache read **0.72x** val noise at step 4000 under the 16000-step cosine
+against **0.85x** under the 4000-step one, and passed the gate there, below every 4000-step control's
+final value (0.76 to 0.85). 16000 would have been a number chosen in advance too, so **E12**
+(`run-converge.ps1`) trains to convergence instead. `n2n_smoke.py --schedule plateau` holds the rate,
+scores the training objective on 240 fixed val cells and two fixed draws every 500 steps, judges the
+mean of the last three scores (one score moves 38 percent between evaluations from weight jitter alone),
+halves the rate after four scores without a 0.1 percent gain, and stops at the plateau after the fourth
+halving; `--steps` (60000) is only a cap. Four seeds, final weights, scored with the fixed split beside
+the six 4000-step controls, with E11's primary and kill.
