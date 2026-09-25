@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Connections;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.IO;
 
 namespace TianWen.Lib.Devices;
 
@@ -41,23 +42,11 @@ public interface IExternal
 
     /// <summary>
     /// Atomically writes to a file by writing to a temporary file first, then renaming.
-    /// Prevents data loss if the process is interrupted (e.g. Ctrl+C) during write.
+    /// Prevents data loss if the process is interrupted (e.g. Ctrl+C) during write, and holds when another
+    /// process writes or reads the same file (<see cref="SharedFile"/>).
     /// </summary>
-    public async Task AtomicWriteAsync(string filePath, Func<Stream, CancellationToken, Task> writeAction, CancellationToken ct = default)
-    {
-        var dir = Path.GetDirectoryName(filePath);
-        if (dir is not null)
-        {
-            Directory.CreateDirectory(dir);
-        }
-
-        var tmpPath = filePath + ".tmp";
-        using (var stream = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None))
-        {
-            await writeAction(stream, ct);
-        }
-        File.Move(tmpPath, filePath, overwrite: true);
-    }
+    public Task AtomicWriteAsync(string filePath, Func<Stream, CancellationToken, Task> writeAction, CancellationToken ct = default)
+        => SharedFile.WriteAsync(filePath, writeAction, ct);
 
     /// <summary>
     /// Atomically writes a JSON-serializable value to a file using source-generated serialization.
@@ -79,7 +68,7 @@ public interface IExternal
 
         try
         {
-            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            await using var stream = await SharedFile.OpenReadAsync(filePath, ct);
             return await System.Text.Json.JsonSerializer.DeserializeAsync(stream, jsonTypeInfo, ct);
         }
         catch (Exception ex)
@@ -87,6 +76,19 @@ public interface IExternal
             logger?.LogWarning(ex, "Failed to read JSON from {FilePath}", filePath);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Reads a JSON file, lets <paramref name="update"/> derive the next version from it (null when there is
+    /// none, or it cannot be read), and writes that, holding the file's lock across all three so no other
+    /// process writes in between. For a file every writer ADDS to; a document one writer owns whole is an
+    /// <see cref="AtomicWriteJsonAsync"/>.
+    /// </summary>
+    public async Task UpdateJsonAsync<T>(string filePath, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> jsonTypeInfo, Func<T?, T> update, ILogger? logger = null, CancellationToken ct = default) where T : class
+    {
+        using var fileLock = await SharedFile.LockAsync(filePath, ct);
+        var current = await TryReadJsonAsync(filePath, jsonTypeInfo, logger, ct);
+        await AtomicWriteJsonAsync(filePath, update(current), jsonTypeInfo, ct);
     }
 
     /// <summary>

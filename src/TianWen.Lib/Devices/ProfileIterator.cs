@@ -6,6 +6,7 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.IO;
 
 namespace TianWen.Lib.Devices;
 
@@ -27,7 +28,8 @@ internal class ProfileIterator(IExternal external, ILogger<ProfileIterator> logg
             var file = info.file;
             try
             {
-                using var stream = info.file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
+                // Shared, since another process may be replacing the file right now (SharedFile).
+                await using var stream = await SharedFile.OpenReadAsync(info.file.FullName, cancellationToken);
                 if (await JsonSerializer.DeserializeAsync(stream, Profile.ProfileJsonSerializerContextIndented.ProfileDto, cancellationToken: cancellationToken) is { } dto)
                 {
                     if (string.IsNullOrWhiteSpace(dto.Name))

@@ -498,7 +498,19 @@ first; none needs a decision.
    viewer, MCP), so one process drops another's fetched entries; it merges on write. Files with two
    writers after the split: profiles (until P3 makes the server the only writer), the comet caches, and,
    once the GUI and the TUI are both clients, planner, session, remote-rig bindings and the weather
-   cache.
+   cache. **FIXED**: one primitive, `SharedFile` (`TianWen.Lib/IO`), under `IExternal`'s atomic write, its
+   JSON read and the profile and backlash readers. A write stages under a name of its own, a read shares
+   read, write and delete, and a sharing violation is retried for a bounded time. **Delete sharing alone
+   does not let the write through, which this item assumed**: `MoveFileEx`, under `File.Move`, refuses to
+   replace a file ANY handle holds open. On Windows the replace is therefore the POSIX-semantics rename
+   (`SetFileInformationByHandle`, `FileRenameInfoEx`, Windows 10 1709 and later, falling back to
+   `File.Move` where the file system has none): the name moves at once and a reader holding the old file
+   keeps reading it, as on Unix. A file every host adds to goes through `IExternal.UpdateJsonAsync`, which
+   holds the file's lock (`<file>.lock`) across the read, the merge and the write, and the apparition cache
+   merges there, newest fetch winning per comet. The credential store's temp name is its own too.
+   `SharedAppDataFileTests` failed first (two writers of one profile collided on the temp name) and
+   `CometRepositoryTests` too (a host's write dropped another's upgrade). Each part of the fix is
+   pinned: taking any one out turns a test red.
 4. **On Linux, where lights land depends on the working directory.** `ImageOutputFolder` calls
    `GetFolderPath(MyPictures)` without the create option, so on a box with no `~/Pictures` it resolves
    to a relative `TianWen` folder, and a spawned server's working directory would decide where a

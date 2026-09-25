@@ -46,15 +46,24 @@ internal sealed class FileCredentialStore(IExternal external) : ICredentialStore
             }
 
             // Write to a temp file (restricted before it carries the secret) then rename, so a
-            // reader never sees a half-written or world-readable secret file.
-            var tmp = file + ".tmp";
-            using (var stream = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+            // reader never sees a half-written or world-readable secret file. The temp name is
+            // this write's own: the lock above covers this process only, and a GUI and a server
+            // can both store a secret (a fixed name had the second writer fail on the first's).
+            var tmp = $"{file}.{Guid.NewGuid():N}.tmp";
+            try
             {
-                RestrictToOwner(tmp);
-                var bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(value);
-                stream.Write(bytes, 0, bytes.Length);
+                using (var stream = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    RestrictToOwner(tmp);
+                    var bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(value);
+                    stream.Write(bytes, 0, bytes.Length);
+                }
+                File.Move(tmp, file, overwrite: true);
             }
-            File.Move(tmp, file, overwrite: true);
+            finally
+            {
+                File.Delete(tmp);
+            }
             RestrictToOwner(file);
         }
     }
