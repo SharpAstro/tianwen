@@ -17,14 +17,12 @@ public partial class Image
     /// that is not the owner leases, the render thread included.
     /// </para>
     /// <para>
-    /// Losing the race is normal and is reported as <see langword="false"/>, not an exception. What
-    /// a refusal means depends on the publisher. A guider swaps its pointer BEFORE releasing the
-    /// superseded frame, so there a refusal means the frame was superseded between the caller's read
-    /// of the pointer and the lease, and re-reading the pointer converges in one step. A session's
-    /// <c>LastCapturedImages</c> slot keeps a frame after the session released it (its FITS write
-    /// done, an autofocus rung's stars counted) until the next exposure replaces it, so there a
-    /// refusal means nothing is left to show until that exposure, and re-reading returns the same
-    /// released frame.
+    /// Losing the race is normal and is reported as <see langword="false"/>, not an exception. Every
+    /// publisher swaps its pointer BEFORE releasing the frame it replaces, a guider's
+    /// <c>LastGuideFrame</c> and a session's <c>LastCapturedImages</c> slot alike (the slot holds a
+    /// lease of its own, so a frame stays readable until the next one replaces it, whatever the
+    /// session does with its own hold). So a refusal means the frame was superseded between the
+    /// caller's read of the pointer and the lease, and re-reading the pointer converges in one step.
     /// </para>
     /// <para>
     /// <b>Frame ownership: this is the BORROW primitive.</b> Everyone who is not the owner reads

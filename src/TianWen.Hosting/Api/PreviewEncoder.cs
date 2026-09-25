@@ -23,9 +23,10 @@ namespace TianWen.Hosting.Api
     /// of being its own third rendering of the same frame.
     /// </para>
     /// <para>
-    /// <b>Ownership: the image belongs to the session and is only ever read here.</b>
-    /// <c>LastCapturedImages</c> pins a recycled camera buffer, so this must not mutate, normalise, or
-    /// release it -- see the <see cref="Image"/> mutability notes. That is why the debayer call passes
+    /// <b>Ownership: the image is only ever read here.</b> A live frame arrives as its reader's LEASE of a
+    /// recycled camera buffer the session or the guider owns (<see cref="CapturedImagePreview"/>,
+    /// <see cref="GuidePreview"/>), so this must not mutate, normalise, or release it -- see the
+    /// <see cref="Image"/> mutability notes. That is why the debayer call passes
     /// <c>normalizeToUnit: false</c>; the normalising overload rescales its input <i>in place</i>.
     /// </para>
     /// </summary>
@@ -71,8 +72,15 @@ namespace TianWen.Hosting.Api
             var (channelCount, width, height) = image.Shape;
 
             var stats = StretchSolver.CollectPerChannelStats(image, channelCount);
+
+            // Resolved exactly as the live pane resolves a live frame (LiveFramePreviewSource), so a remote
+            // preview is the picture the operator sees locally: a live frame carries no calibration, so colour
+            // renders Unlinked (each channel's sky neutralised) and mono Linked. This was a literal Linked,
+            // which kept a raw colour sub's channel imbalance as a cast, and CLAUDE.md's rule is that every
+            // renderer resolves Auto, headless included (P0b item 15 of docs/plans/hardware-in-the-server.md).
+            var mode = StretchMode.Auto.ResolveAuto(isColour: channelCount >= 3, calibrationActive: false);
             var uniforms = StretchSolver.ComputeStretchUniforms(
-                StretchMode.Linked,
+                mode,
                 StretchParameters.Default,
                 stats,
                 lumaStats: null,

@@ -1103,6 +1103,15 @@ namespace TianWen.RemoteClient
         /// </summary>
         public Image?[] LastCapturedImages => Volatile.Read(ref _previews);
 
+        /// <inheritdoc/>
+        /// <remarks>The token the node answered with when the frame in <see cref="LastCapturedImages"/> was
+        /// fetched, so a view of a remote rig reads the same number as the node's own slot carries.</remarks>
+        public int LastCapturedImageNumber(int otaIndex)
+        {
+            var numbers = Volatile.Read(ref _previewFrameNumbers);
+            return (uint)otaIndex < (uint)numbers.Length && numbers[otaIndex] is { } number ? (int)number : 0;
+        }
+
         /// <summary>
         /// The mirrored guide-camera frame, present once <see cref="Previews"/> is on and the node has a
         /// guider producing frames. Like <see cref="LastCapturedImages"/> this is an ordinary decoded

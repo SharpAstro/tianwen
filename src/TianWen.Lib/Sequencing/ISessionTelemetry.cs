@@ -173,8 +173,24 @@ namespace TianWen.Lib.Sequencing
         /// <summary>
         /// The most recently captured image per camera (in memory). Replaced on each new frame.
         /// Index matches <see cref="CameraStates"/>. Length equals telescope count.
+        /// <para>A frame here is the session's: LEASE it to read it (<see cref="Image.TryLease"/>), never read
+        /// the bare reference. It stays readable until the next frame replaces it, so a refused lease means it
+        /// was replaced between reading the slot and leasing it, and reading the slot again converges.</para>
         /// </summary>
         Image?[] LastCapturedImages { get; }
+
+        /// <summary>
+        /// The change token for OTA <paramref name="otaIndex"/>'s <see cref="LastCapturedImages"/> slot: 0 before
+        /// anything was published there (and for an index out of range), then a new number every time a frame
+        /// is published into the slot, advanced AFTER the frame is in it. So read it BEFORE the frame: the pair
+        /// may then carry a number older than its frame, which costs one refetch, but never a newer one, which
+        /// would make a client skip a frame it has not drawn. Compare for difference, not order.
+        /// <para>It is not <see cref="CameraExposureState.FrameNumber"/>, which advances as an exposure STARTS
+        /// and restarts at every target, so it names the exposure in progress while the slot still shows the
+        /// one before it. The node's preview used it as its token and ran a whole sub behind (P0b item 15 of
+        /// docs/plans/hardware-in-the-server.md, #752).</para>
+        /// </summary>
+        int LastCapturedImageNumber(int otaIndex);
 
         /// <summary>Fired when the session transitions to a new phase.</summary>
         event EventHandler<SessionPhaseChangedEventArgs>? PhaseChanged;

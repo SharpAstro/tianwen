@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Shouldly;
@@ -18,9 +19,10 @@ namespace TianWen.Lib.Tests
         /// <summary>
         /// A linear astronomical sub: a faint background a couple of percent off the floor, a handful of
         /// bright stars, in a 16-bit container. This shape is the whole point -- it is what makes a naive
-        /// divide-by-max render black.
+        /// divide-by-max render black. <paramref name="skies"/> gives each channel its own background, the
+        /// imbalance of a raw colour sky.
         /// </summary>
-        private static Image MakeLinearSub(int width = 64, int height = 48, bool color = false)
+        private static Image MakeLinearSub(int width = 64, int height = 48, bool color = false, float[]? skies = null)
         {
             var channelCount = color ? 3 : 1;
             var planes = Image.CreateChannelData(channelCount, height, width);
@@ -36,7 +38,7 @@ namespace TianWen.Lib.Tests
                     {
                         // A little structure so the median/MAD scan sees a real distribution rather than
                         // a constant (a zero-MAD frame is a degenerate stretch input).
-                        planes[c][y, x] = background + ((x * 7 + y * 13) % 40);
+                        planes[c][y, x] = (skies?[c] ?? background) + ((x * 7 + y * 13) % 40);
                     }
                 }
             }
@@ -157,6 +159,37 @@ namespace TianWen.Lib.Tests
             var first = await PreviewEncoder.EncodeJpegAsync(image, quality: 80, scale: 1.0, TestContext.Current.CancellationToken);
             var second = await PreviewEncoder.EncodeJpegAsync(image, quality: 80, scale: 1.0, TestContext.Current.CancellationToken);
             second.ShouldBe(first);
+        }
+
+        /// <summary>
+        /// A colour sub resolves <see cref="StretchMode.Auto"/> as the live pane resolves a live frame: no
+        /// calibration, so Unlinked, each channel's sky neutralised, and the background renders grey. The
+        /// encoder rendered a literal Linked, one curve for all three, which kept a raw colour sky's imbalance
+        /// as a cast (P0b item 15 of docs/plans/hardware-in-the-server.md, #752).
+        /// </summary>
+        [Fact]
+        public async Task AColourSubsSkyRendersNeutralAsTheLivePaneShowsIt()
+        {
+            var image = MakeLinearSub(color: true, skies: [900f, 1500f, 1150f]);
+
+            var jpeg = await PreviewEncoder.EncodeJpegAsync(image, quality: 95, scale: 1.0, TestContext.Current.CancellationToken);
+
+            Image.TryDecodeRaster(jpeg, out var decoded).ShouldBeTrue();
+            decoded.ShouldNotBeNull().ChannelCount.ShouldBe(3);
+
+            // The frame is nearly all sky, so each channel's median IS its sky, in 0..255 levels.
+            var toLevels = decoded.MaxValue > 1.0f ? 255.0 / decoded.MaxValue : 255.0;
+            var skyLevels = Enumerable.Range(0, 3)
+                .Select(c =>
+                {
+                    var values = decoded.GetChannelSpan(c).ToArray();
+                    Array.Sort(values);
+                    return values[values.Length / 2] * toLevels;
+                })
+                .ToArray();
+
+            (skyLevels.Max() - skyLevels.Min()).ShouldBeLessThan(6.0,
+                $"the sky must render grey, not with its channels' imbalance as a cast: R {skyLevels[0]:F1}, G {skyLevels[1]:F1}, B {skyLevels[2]:F1}");
         }
 
         [Fact]

@@ -141,6 +141,62 @@ public class SessionImagingTests(ITestOutputHelper output)
         guided.ShouldBeGreaterThan(0, "a guided loop must stamp guide statistics on at least one light");
     }
 
+    /// <summary>
+    /// The frame a session publishes for previews stays readable until the next one replaces it, which is
+    /// the guider's contract too. The imaging loop used to release it once its FITS write was done and
+    /// leave the slot pointing at the released frame for the rest of the exposure, so everything that
+    /// leased it properly (a remote preview, a client attaching mid-sub) had nothing to show for all but
+    /// the second or so between the frame landing and its write (P0b item 15 of
+    /// docs/plans/hardware-in-the-server.md, #752).
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenAWrittenFrameWhenTheLoopMovesOnThenThePreviewSlotStillLeasesIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(16.695, 36.46, "M13", null),
+                new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero),
+                TimeSpan.FromMinutes(5),
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(TimeSpan.FromSeconds(30)),
+                Gain: 0,
+                Offset: 0)
+        };
+
+        await using var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
+
+        IMountDriver mount = ctx.Mount;
+        await mount.EnsureTrackingAsync(cancellationToken: ct);
+
+        var guider = (FakeGuider)ctx.Session.Setup.Guider.Driver;
+        await guider.GuideAsync(0.3, 3, 30, ct);
+        await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(4), ct);
+
+        var observation = ctx.Session.ActiveObservation.ShouldNotBeNull();
+        var hourAngle = await mount.GetHourAngleAsync(ct);
+
+        ctx.TimeProvider.ExternalTimePump = true;
+        var imagingTask = ctx.Track(Task.Run(
+            async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ctx.Token), ctx.Token));
+        await ctx.TimeProvider.PumpUntilCompletedAsync(imagingTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4),
+            progress: () => ctx.Session.ImagingLoopTicks, cancellationToken: ct);
+        imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
+        await imagingTask;
+
+        // The loop drains its write queue as it ends, so every frame has been written and the session's
+        // own hold on each one released. What the slot shows must still be there to read.
+        ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(0, "the loop should have written at least one light");
+        var shown = ctx.Session.LastCapturedImages.ShouldHaveSingleItem().ShouldNotBeNull("the slot keeps the last frame");
+        shown.TryLease(out var lease).ShouldBeTrue(
+            "the last frame is readable until the next one replaces it, not only until its FITS write is done");
+        using (lease)
+        {
+            lease.Image.Width.ShouldBeGreaterThan(0);
+        }
+    }
+
     [Fact(Timeout = 120_000)]
     public async Task GivenHighAltitudeTargetWhenImagingLoopThenHighUtilization()
     {

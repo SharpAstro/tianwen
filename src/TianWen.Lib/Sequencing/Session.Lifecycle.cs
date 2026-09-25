@@ -252,6 +252,10 @@ internal partial record Session
             _logger.LogInformation("Shutdown complete, session ended. Please turn off mount and camera cooler power.");
         }
 
+        // Last, so the final frame stayed on show through the park and the warm-up. A preview slot holds
+        // its own lease, so until here the cameras could not recycle these buffers.
+        ReleaseCapturedImages();
+
         ValueTask<bool> CloseCoversAsync(CancellationToken cancellationToken) => MoveTelescopeCoversToStateAsync(CoverStatus.Closed, cancellationToken);
 
         ValueTask<bool> TurnOffCameraCoolingAsync(CancellationToken cancellationToken) =>

@@ -192,9 +192,9 @@ namespace TianWen.UI.Abstractions
         /// <remarks>
         /// <b>Frame ownership: a BORROW.</b> The frame is its publisher's (a session's
         /// <c>LastCapturedImages</c> slot, a guider's <c>LastGuideFrame</c>), and the publisher releases it
-        /// when IT is done, from its own thread: an autofocus rung straight after star detection, a guide
-        /// frame as its successor lands. So the frame is leased for the copy and given back the moment the
-        /// copy exists, and one released before the lease is skipped, leaving the exposure already shown.
+        /// from its own thread as its successor lands. So the frame is leased for the copy and given back
+        /// the moment the copy exists, and one superseded before the lease is skipped, leaving the
+        /// exposure already shown until the next read finds its successor.
         /// The copy is the whole reason no reference is kept: the owner's release still recycles the frame.
         /// Reading through the bare reference threw on the render thread in the live check of 2026-09-25
         /// and took the display down mid-autofocus.
