@@ -1693,7 +1693,10 @@ inside the control's seed spread. **Seeds from the spread, not a default:** over
 final-weight seeds on disk (wide s0 / s1 / s2 final, warped s0..s8), M's pooled within-recipe sd is
 0.62 (10 dof; wide 0.99 on three, warped 0.48 on nine), which at d = 2.4 asks for two seeds per arm, so
 the pre-registered floor of six holds. The shipped gate-selected s2 and its final weights read within
-0.1 of each other on every field.
+0.1 of each other on every field. **The gap is not wide_s2's seed draw:** over the same twelve seeds,
+M on the broadband fields runs 4.67 to 6.77 and the same quantity on eval4b's four runs -0.20 to 4.38,
+no overlap. Narrowband M is the noisier of the two (seed sd 1.39, warped 0.15 to 4.38), so step 2's
+guardrail (c), eval4b's extended column inside the control's spread, is a loose check by construction.
 
 Artefacts: `C:/temp/e2/bb-condpool.txt`, `bb-starsplit-n2n-bb-eval4.txt`,
 `bb-starsplit-n2n-e2-eval4b.txt`, `bb-perfield-*.txt`, `bb-seeds-*.txt`, `scripts-bb-probe/`;
