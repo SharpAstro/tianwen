@@ -328,6 +328,10 @@ Then the correctness items:
    that ordering is not guaranteed and nothing times a send out, so one stalled client blocks every
    later client and every later broadcast queues behind it without bound. Give each client a bounded
    send channel with a single writer and a send timeout: a lock-free hand-off, per the lock rules.
+   **FIXED**: every client has a bounded queue (256 events) drained by its own sender, each send bounded
+   at 10 s. A broadcast serialises once per pool and queues, so it never waits on a socket, and order
+   holds per client. A client that falls behind or stalls a send is dropped, its socket aborted, and
+   resyncs by polling. The two socket endpoints are one helper now.
 8. **Native v1 in-session actuation skips the lease.** The mount and OTA endpoints call `session.Setup`
    drivers directly, without `DeviceOwnershipGate`: `/mount/slew`, `/park`, `/unpark`, `/tracking`,
    `/ota/{i}/focuser/move`, `/focuser/stop`, `/filterwheel/change`, and every actuation route of the
@@ -375,7 +379,18 @@ Found by the review (2026-09-25), all confirmed in the code:
     socket (Touch N Stars) counts as an observer although v2 has no prompt route, so it holds every
     prompt indefinitely. A prompt the session cancelled is never cleared from `_pendingPrompt`. And
     `EventBroadcaster` attaches to a new session by 1 s polling, so events of a run's first second are
-    lost and a prompt raised then gets the unattended answer while a client is watching.
+    lost and a prompt raised then gets the unattended answer while a client is watching. **FIXED**,
+    all three:
+    - Only a native socket counts as an observer (`EventHub.PromptObserverCount`).
+    - The session withdraws a prompt it stops waiting on, and whoever holds a prompt drops it once it
+      settles (`SessionPromptEventArgs.Settled`): the node's `/session/state`, the mirror, and the GUI's
+      flat-run prompt bar.
+    - The broadcaster attaches as the node starts a run (`HostedSession.RunStarting`), before the run's
+      body is released.
+
+    The node's test hosts ran on the fake auto-advancing clock, whose `SleepAsync` made the broadcaster's
+    1 s poll spin, and that hid the third bug: attaching from a spinning poll is instant. They run on a
+    real clock now, and the two hosting test classes went from 6.2 s to 4.5 s with the spin gone.
 14. **WITHDRAWN (2026-09-25): not a bug.** This item called `/session/flats`'s hard-set
     `UnattendedPromptResponse = Proceed` a breach of "an unanswered prompt is declined". That rule is
     the SCHEDULED run's. An operator-invoked flat run opts into Proceed on purpose, as
