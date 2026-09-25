@@ -926,10 +926,10 @@ void RunWithoutDisplay(string why)
         p => Volatile.Write(ref progress, p)));
 
     var local = guiRenderer.ViewContexts.Local.LiveSession;
-    var nightGoesOn = local.IsRunning || local.FlatsCts is not null;
-    SetHeadlessTitle(nightGoesOn
-        ? $"{why}: the session continues (close this window to stop the rig)"
-        : $"{why}: stopping the rig");
+    SetHeadlessTitle(HeadlessTitle(why,
+        local.IsRunning ? RigShutdown.SessionGoesOn
+        : local.FlatsCts is not null ? RigShutdown.FlatRunGoesOn
+        : "Stopping the rig"));
 
     // Nothing of the app runs now: no frame is drawn, and no input, signal, telemetry poll or chrome has a
     // window to serve. The loop only keeps the window's events pumping, which SdlVulkan.Renderer 7.49 makes
@@ -958,18 +958,16 @@ void RunWithoutDisplay(string why)
         if (Volatile.Read(ref progress) is { } now && !ReferenceEquals(now, shownProgress))
         {
             shownProgress = now;
-            SetHeadlessTitle($"{why}: {now}");
+            SetHeadlessTitle(HeadlessTitle(why, now));
         }
         return false;
     };
 
     loop.OnQuit = () =>
     {
-        if (!stopRig.IsCancellationRequested)
-        {
-            stopRig.Cancel();
-            SetHeadlessTitle($"{why}: stopping the rig (park, warm-up, covers)");
-        }
+        // Asking reports itself through the progress (RigShutdown.StoppingTheRig), on this thread, so the
+        // next check above shows it and nothing reported earlier can overwrite it.
+        stopRig.Cancel();
         // Always intercepted: the window stays until the stop completes, since a warm-up must not be cut.
         return true;
     };
@@ -982,6 +980,13 @@ void RunWithoutDisplay(string why)
         logger.LogError(stopFault.GetBaseException(), "Stopping the rig without a display failed.");
     }
 }
+
+// The title is the only thing a window that cannot draw still shows, so while a run is left to finish it
+// also says what closing does. Once the rig is stopping, closing again changes nothing, so the hint goes.
+static string HeadlessTitle(string why, string progress)
+    => progress is RigShutdown.SessionGoesOn or RigShutdown.FlatRunGoesOn
+        ? $"{why}. {progress}. Close this window to stop the rig."
+        : $"{why}. {progress}";
 
 // Needs no GPU (SDL's own window title), so it works on a window that can no longer draw.
 void SetHeadlessTitle(string title)
