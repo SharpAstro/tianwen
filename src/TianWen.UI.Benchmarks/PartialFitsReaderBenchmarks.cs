@@ -9,10 +9,13 @@ namespace TianWen.UI.Benchmarks;
 
 /// <summary>
 /// Full-read comparison: <see cref="PartialFitsReader"/> (memory-mapped, lazy
-/// decode of a sub-rectangle) vs <see cref="Image.TryReadFitsFile"/>
-/// (FITS.Lib full HDU load + per-pixel byte-swap + scaled into a
-/// <c>float[,]</c>). Both readers must touch every pixel of the same
-/// fixture; <c>PartialFitsReader.ReadRegion</c> is called with
+/// decode of a sub-rectangle) vs FITS.Lib's HDU reader (full HDU load into a
+/// typed array, then scaled into a <c>float[,]</c>, which is what
+/// <see cref="Image.TryReadFitsFile(nom.tam.fits.Fits, out Image?)"/> still does
+/// for a gzipped or tile-compressed file) vs <see cref="Image.TryReadFitsFile(string, out Image?)"/>,
+/// which reads a plain file through FITS.Lib's <c>FitsReader</c> (2 MB
+/// positional reads straight into the plane). Every reader touches every pixel
+/// of the same fixture; <c>PartialFitsReader.ReadRegion</c> is called with
 /// <c>new PixelRect(0, 0, Width, Height)</c> so the comparison is
 /// apples-to-apples (same pixel work, same physical pixel format).
 ///
@@ -86,8 +89,16 @@ public class PartialFitsReaderBenchmarks
         int16Image.WriteToFitsFile(path);
     }
 
-    [Benchmark(Description = "Full read via FITS.Lib (Image.TryReadFitsFile)", Baseline = true)]
+    [Benchmark(Description = "Full read via FITS.Lib's HDU reader (TryReadFitsFile over Image.OpenFits)", Baseline = true)]
     public Image? FullRead_FitsLib()
+    {
+        using var fits = Image.OpenFits(_fitsPath);
+        Image.TryReadFitsFile(fits, out var image);
+        return image;
+    }
+
+    [Benchmark(Description = "Full read via Image.TryReadFitsFile (FitsReader, banded positional reads)")]
+    public Image? FullRead_FitsReader()
     {
         Image.TryReadFitsFile(_fitsPath, out var image);
         return image;
@@ -125,12 +136,12 @@ public class PartialFitsReaderBenchmarks
     }
 
     /// <summary>
-    /// For reference: the FITS.Lib equivalent of a 256x256 tile read.
-    /// There is no sub-rectangle API in CSharpFITS -- callers have to read
-    /// the whole HDU and crop, paying the full decode + allocation. This
-    /// number is the floor PartialFitsReader has to beat on the tile read.
+    /// For reference: the whole-frame equivalent of a 256x256 tile read.
+    /// Neither whole-frame reader has a sub-rectangle API -- a caller has to
+    /// read the whole image and crop, paying the full decode + allocation.
+    /// This number is the floor PartialFitsReader has to beat on the tile read.
     /// </summary>
-    [Benchmark(Description = "Tile 256x256 read via FITS.Lib (full read + crop)")]
+    [Benchmark(Description = "Tile 256x256 read via Image.TryReadFitsFile (full read + crop)")]
     public Image? TileRead_FitsLib()
     {
         Image.TryReadFitsFile(_fitsPath, out var image);

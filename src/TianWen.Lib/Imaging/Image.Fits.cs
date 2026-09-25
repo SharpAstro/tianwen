@@ -166,6 +166,14 @@ public partial class Image
         // found and fixed upstream instead of vanishing.
         try
         {
+            // A plain file is read by FITS.Lib's FitsReader, straight into the float planes; a gzipped
+            // one, a tile-compressed one and any layout the reader declines go through the HDU reader
+            // exactly as before. The two agree bit for bit (TryReadThroughFitsReader says how).
+            if (!IsGzipped(fileName) && TryReadThroughFitsReader(fileName, out image, out wcs, pooled))
+            {
+                return true;
+            }
+
             using var fitsFile = OpenFits(fileName);
             return TryReadFitsFile(fitsFile, out image, out wcs, pooled);
         }
@@ -174,6 +182,96 @@ public partial class Image
             image = null;
             wcs = null;
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Reads a plain FITS file through FITS.Lib's <see cref="FitsReader"/>: each plane straight from the
+    /// file into its float plane, a band at a time. False when the reader declines the file (not FITS,
+    /// tile-compressed, no image holding a sample, data cut short) or the image is one the conversion in
+    /// <see cref="TryReadFitsFile(Fits, out Image?, out WCS?, bool)"/> does not take (NAXIS other than 2
+    /// or 3, BITPIX 64 or -64); the caller then reads it through that path, which decides.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why.</b> The HDU reader allocates the whole frame again as FITS.Lib's typed array, plus a
+    /// read-ahead buffer, before a sample is converted. Measured on a 26 MP 16-bit sub TianWen wrote
+    /// (win-arm64, Release, from the page cache): pooled, 39.5 ms and 54.3 MB through the HDU reader
+    /// against 10.5 ms and 56 KB through this; unpooled, 73.0 ms and 158.7 MB against 24.3 ms and the
+    /// plane itself. From disk, pooled, 75 against 62 ms. The whole table, and why the reader does
+    /// positional reads rather than map the file: <c>docs/plans/frame-path-allocations.md</c> P5.</para>
+    /// <para><b>The same image, bit for bit.</b> The reader walks to the same HDU, the first image holding
+    /// a sample (see <see cref="FitsHduExtensions"/>), and its header-only HDU is what the metadata parse
+    /// below reads. It converts a sample as <c>ConvertChannel</c> does, <c>bscale * stored + bzero</c> in
+    /// single precision, multiplied then added, and copies a float plane with no scaling unchanged, which
+    /// is what adopting FITS.Lib's own float array amounted to. Pinned over every BITPIX, scaling and
+    /// layout by <c>FitsReadPathParityTests</c>.</para>
+    /// </remarks>
+    internal static bool TryReadThroughFitsReader(string fileName, [NotNullWhen(true)] out Image? image, out WCS? wcs, bool pooled)
+    {
+        image = null;
+        wcs = null;
+        if (!FitsReader.TryOpen(fileName, out var reader))
+        {
+            return false;
+        }
+
+        using (reader)
+        {
+            var hdu = reader.Hdu;
+            if (reader.BitPix is not (8 or 16 or 32 or -32)
+                || BitDepth.FromValue(hdu.BitPix) is not { } bitDepth
+                || hdu.Axes is not { Length: 2 or 3 } axes)
+            {
+                return false;
+            }
+
+            // The layout the HDU path derives from the same axes (C order, NAXIS1 last), checked
+            // against the reader's own so the two can never be reading different shapes.
+            var (channelCount, height, width) = axes.Length == 2 ? (1, axes[0], axes[1]) : (axes[0], axes[1], axes[2]);
+            if (width != reader.Width || height != reader.Height || channelCount != reader.Planes)
+            {
+                return false;
+            }
+
+            // The pedestal, metadata and range exactly as TryReadFitsFile(Fits) reads them.
+            var pedestal = hdu.Header.GetFloatValue("PEDESTAL", hdu.Header.GetFloatValue("AD-PED", 0f));
+            var imageMeta = ParseImageMetaFromHeader(hdu, channelCount);
+            var minValue = (float)hdu.MinimumValue;
+            var maxValue = (float)hdu.MaximumValue;
+            var needsMinMaxValRecalc = NeedsMinMaxRecalc(minValue, maxValue);
+
+            var planes = new float[channelCount][,];
+            var rented = pooled ? new bool[channelCount] : null;
+            try
+            {
+                for (var c = 0; c < channelCount; c++)
+                {
+                    // A rented array arrives dirty; ReadPlane writes every sample of it.
+                    planes[c] = pooled ? Array2DPool<float>.Rent(height, width) : new float[height, width];
+                    if (rented is not null)
+                    {
+                        rented[c] = true;
+                    }
+
+                    reader.ReadPlane(c, MemoryMarshal.CreateSpan(ref planes[c][0, 0], planes[c].Length));
+                }
+            }
+            catch
+            {
+                ReturnRented(planes, rented);
+                throw;
+            }
+
+            if (needsMinMaxValRecalc)
+            {
+                (minValue, maxValue) = ObservedRange(planes);
+            }
+
+            image = rented is null
+                ? new Image(planes, bitDepth, maxValue, minValue, pedestal, imageMeta)
+                : new Image(WrapPooledPlanes(planes, rented, minValue, maxValue), bitDepth, pedestal, imageMeta);
+            wcs = WCS.FromHeader(hdu.Header);
+            return true;
         }
     }
 

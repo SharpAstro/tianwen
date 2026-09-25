@@ -2,7 +2,7 @@
 
 **Status: P0 DONE (2026-09-24, merged in #349, with FITS.Lib 6.1); P1 DONE (2026-09-24, #350); P2 to P4
 DONE (2026-09-24, #365): what is left is the SER frame ring (P2), the sibling libraries' own buffers, and
-three rows kept on purpose; P5 NOT STARTED (#755).**
+three rows kept on purpose; P5 DONE (2026-09-25, #755, with FITS.Lib 6.2).**
 Raised by the user on 2026-09-24: "if we have allocations that are useless already right now, we should
 remove them prior to this server change" (the hardware-in-the-server plan, not yet on `main`). A
 read-only sweep of every capture path the same day found the items below; each carries the file, the
@@ -114,7 +114,7 @@ frame store: a 178-byte header, raw little-endian 8- or 16-bit frames, a timesta
 | Finding | Size and rate | Fix |
 |---|---|---|
 | Polar refine `Downsample` per frame (`IncrementalSolver.RefineAsync`, `Image.Transform`): a new float[h/f, w/f] per channel below 1.5"/px; full-solve iterations downsample twice more | 26 MB/s at f = 2 (61 MB/s on an IMX455) | **FIXED**: `Image.DownsampleRented` bins into planes from `Array2DPool` behind a `RentedImage` that returns them once (a class, so a copy cannot return them twice), and `IncrementalSolver` (seed and every refine) and `CatalogPlateSolver` return them as soon as the detection has read them; `Downsample` and the rented form share one loop, pinned bit-identical (a NaN block and the binned metadata included) after the pool was handed junk planes. Measured at 1024 x 768, factor 2: 787,184 bytes to 744. The incremental path had no active test (its seven target the retired centroid matcher, and at 1.55"/px would never bin); one now seeds and refines a 2x-binned frame to the seed's own solution. The seed's `SortedStarList` is now disposed when its quad build is cancelled |
-| PHD2 capture source (`GuiderCaptureSource`): `TryReadFitsFile` UNPOOLED per frame, plus FITS.Lib's typed array and the reader's two 2 MB buffers | about 17 MB per 2 MP frame | **FIXED** in part: the refine loop's read is `pooled: true` (it already released the image after its solves), and `CaptureAndSolveAsync`, whose solve reads the FILE, no longer reads the frame at all: 8,953,224 bytes per 1024 x 768 capture and solve to 13,256. Left for P5: the pooled read still pays FITS.Lib's typed array and `OpenFits`'s 2 MB frame read-ahead, which every FRAME read in the app shares (a header-only read has had its own 64 KiB opener, `OpenFitsHeader`, since "perf(fits): a header-only read fills a header-sized buffer, not a frame-sized one"), so shrinking it is the mapped reader's decision, not this path's |
+| PHD2 capture source (`GuiderCaptureSource`): `TryReadFitsFile` UNPOOLED per frame, plus FITS.Lib's typed array and the reader's two 2 MB buffers | about 17 MB per 2 MP frame | **FIXED** in part: the refine loop's read is `pooled: true` (it already released the image after its solves), and `CaptureAndSolveAsync`, whose solve reads the FILE, no longer reads the frame at all: 8,953,224 bytes per 1024 x 768 capture and solve to 13,256. P5 took the rest: the pooled read goes through FITS.Lib's `FitsReader` now, and pays neither FITS.Lib's typed array nor `OpenFits`'s 2 MB frame read-ahead, which every frame read in the app shared (a header-only read has had its own 64 KiB opener, `OpenFitsHeader`, since "perf(fits): a header-only read fills a header-sized buffer, not a frame-sized one") |
 | ASTAP fallback when the catalogue solve fails | a temporary FITS per solve | acceptable: fallback only |
 | Canon stills: a temporary CR2 round trip, `CanonRaw.Open`, `PreprocessMosaic` (a flat float[]) and a new plane, none recycled | about 300 MB per sub | **FIXED** in part, TianWen's share: the driver reads each sub into a `PlaneRecycler` plane (`Image.TryReadCanonRaw` with a plane provider) and hands it on with the recycling `ChannelBuffer`, the DAL pattern. Measured on the 20 MP CR2 fixture: 265,297,112 bytes per read to 185,443,320, the difference exactly the plane. **Left, in FC.SDK.Raw** (not auto-detected, so a NuGet release): the decode's own buffers and `PreprocessMosaic`'s flat `float[]` over the whole raster (together the 185 MB), and opening from the downloaded bytes instead of a temporary file |
 | ASCOM out-of-process host (`AscomHostProcess`, `RemoteDispatchTransport`): a line string, a `JsonDocument` and an `int[,]` | about 40 B/px per frame | only for drivers that cannot run in-process under CET; a binary frame transfer if it ever matters |
@@ -124,32 +124,72 @@ Confirmed clean by the same sweep: `LiveFramePreviewSource.AcceptFrame` allocate
 change; `VkFitsImagePipeline`'s staging buffer is persistent and grow-only; the built-in guider's DAL
 frames alternate between two recycled buffers.
 
-## P5: reading a FITS file (the viewer, the stacker, and re-hydrating in the hardware split)
+## P5: reading a FITS file (the viewer, the stacker, and re-hydrating in the hardware split) (DONE 2026-09-25, #755)
 
-**`TryReadFitsFile` allocates three times the frame to read it**:
+**`TryReadFitsFile` allocated three times the frame to read it**:
 - FITS.Lib's typed array;
 - the float plane;
-- two 2 MB buffers, since the read side still asks `BufferedFile` for `1000 * 2088`.
+- two 2 MB buffers, since the read side still asked `BufferedFile` for `1000 * 2088`.
 
-**A memory-mapped read that goes straight from the file's big-endian samples to the float plane
-allocates nothing, and is twice as fast.** It finds END, then byte-swaps, adds BZERO and widens in one
-vector pass. Measured on a 26 MP 16-bit sub, hot page cache, win-arm64, Release:
+**A plain file is now read by FITS.Lib 6.2's `FitsReader`, straight from the file into the float
+planes** (`Image.TryReadThroughFitsReader`); a gzipped or tile-compressed file, and anything the reader
+declines, still goes through the HDU reader. The reader walks to the same HDU, parses its header with
+FITS.Lib's own parser, and reads each plane a 2 MB band at a time, swapping, widening and scaling each
+band into the plane: no typed array and no read-ahead buffer. It serves the viewer, the stacker
+(hundreds of subs per integration), the PHD2 capture source and, in the hardware split, the GUI
+re-hydrating a sub the server saved.
 
-| Read | Time | Allocated |
-|---|---|---|
-| `TryReadFitsFile` | 44 ms | 158.7 MB |
-| `TryReadFitsFile`, pooled | 40 ms | 54.3 MB |
-| mapped, one pass into a recycled `float[,]` | 22.6 ms | 0 |
-| mapped, straight to uint16 (what a 16-bit texture wants) | about 20 ms | 0 |
+**Positional reads, not the memory mapping this section first proposed.** The mapping measured 22.6 ms
+hot on 2026-09-24, and it was never measured cold. Both measured on 2026-09-25 at the FITS.Lib level,
+one 26 MP BITPIX 16 sub, win-arm64, Release, tiered compilation off, hot from the page cache (median of
+15) and cold (written with unbuffered I/O, so no page of it was cached; median of 4):
 
-- **It belongs in FITS.Lib**, as the reading counterpart of `FitsWriter`. It serves the viewer, the
-  stacker (hundreds of subs per integration), the PHD2 capture source and, in the hardware split, the
-  GUI re-hydrating a sub the server saved.
-- **Saved frames need no slot at all.** The file IS the shared memory: page cache, reclaimable, at the
-  sensor's own 16 bits. The plan's shared-memory slots remain only for frames that are never saved
-  (previews, polar refinement, guide frames, planetary video), and for planetary the SER ring above
-  may take that role too.
-- **Plain FITS only.** A `.gz` or `.fz` file must be decompressed, so it cannot be mapped.
+| Read | Hot | Allocated | Cold |
+|---|---|---|---|
+| FITS.Lib's HDU reader, converted as `TryReadFitsFile` did | 81.8 ms | 158.7 MB | 100.5 ms |
+| the same into a preallocated plane | 46.1 ms | 54.3 MB | 90.4 ms |
+| memory-mapped (`PartialFitsReader` over the whole frame) | 24.6 ms | 3.4 KB | **105.6 ms** |
+| memory-mapped, `PrefetchVirtualMemory` first | 27.4 ms | 0.8 KB | 70.8 ms |
+| **2 MB positional reads into a rented band** | **10.0 ms** | 0.5 KB | **65.7 ms** |
+
+- **A mapping loses both ways.** It pays a page fault for every page on every read, and cold it faults
+  the file in a few pages at a time, so cold it was SLOWER than the reader it was meant to replace,
+  which is the stacker reading a night off a USB disk. A 2 MB read is one request.
+- **Saved frames still need no slot.** The bytes come out of the page cache every process shares,
+  reclaimable and at the sensor's own 16 bits, whether they are mapped or read. The plan's
+  shared-memory slots remain only for frames that are never saved (previews, polar refinement, guide
+  frames, planetary video), and for planetary the SER ring above may take that role too.
+- **`PartialFitsReader` keeps its mapping**, which suits its many small tile regions of one frame; it
+  decodes through the same FITS.Lib decoder (`BigEndianSamples`) now, so a region and its plane agree.
+
+**Through `Image.TryReadFitsFile`**, the same sub and conditions, hot median of 15, cold median of 3:
+
+| Read | Hot, a sub TianWen wrote | Hot, another program's (no range cards) | Allocated | Cold, pooled |
+|---|---|---|---|---|
+| HDU reader | 73.0 ms | 72.9 ms | 158.7 MB | |
+| HDU reader, pooled | 39.5 ms | 52.4 ms | 54.3 MB | 75.1 / 105.5 ms |
+| `FitsReader` | 24.3 ms | 17.8 ms | 104.4 MB, the plane itself | |
+| **`FitsReader`, pooled** | **10.5 ms** | **14.3 ms** | **18 to 56 KB** | **61.8 / 73.4 ms** |
+
+Unpooled and cold, the two were the same within the noise of three reads (71 to 106 ms against 72 to
+109). The other program's sub carries no DATAMIN or DATAMAX, so both paths also scan the planes for the
+range. `FramePathAllocationTests.APooledSixteenBitFitsReadAllocatesNoFrameSizedArray` pins it: a pooled
+6 MP read allocated 14,124,256 bytes before, against a bound of half the typed array.
+
+- **The same image, bit for bit.** The reader converts a sample as `ConvertChannel` does, `bscale *
+  stored + bzero` in single precision, multiplied then added, and copies a float plane with no scaling
+  unchanged, which is what adopting FITS.Lib's own float array amounted to. `FitsReadPathParityTests`
+  reads 33 files both ways, pooled and not: every BITPIX with no scaling, unsigned and scaled, mono and
+  a cube; TianWen's own files, one with a WCS; float specials (payload NaNs, -0.0, infinities,
+  subnormals); an empty primary; a table before the image. BITPIX 64 and -64 both refuse. Its reader
+  side is `TryReadThroughFitsReader` itself, never the public entry, whose fallback would compare the
+  HDU reader with itself for any file the reader quietly declined.
+- **Found doing it: the first image must hold a SAMPLE.** FITS.Lib writes a placeholder in front of a
+  table (`BasicHDU.DummyHDU`, the image of an empty array: NAXIS = 1, NAXIS1 = 0). It is an image HDU,
+  and the walk (`FitsHduExtensions`) stopped there, so such a file read as unreadable while the
+  header-only read described the placeholder. The walk and the reader now both skip an image HDU with
+  an axis of length zero.
+- **Plain FITS only.** A `.gz` or `.fz` file must be decompressed, and goes through the HDU reader.
 
 ## Side findings
 
