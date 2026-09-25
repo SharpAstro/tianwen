@@ -148,20 +148,7 @@ internal sealed class EventBroadcaster(
                 newest = sample.Timestamp;
             }
 
-            _ = BroadcastSafeAsync(new WebSocketEventDto
-            {
-                Event = "GUIDE-STEP",
-                Data = new Dictionary<string, object?>
-                {
-                    ["Timestamp"] = sample.Timestamp,
-                    ["RaError"] = JsonNumber.ForWire(sample.RaError),
-                    ["DecError"] = JsonNumber.ForWire(sample.DecError),
-                    ["RaCorrectionMs"] = JsonNumber.ForWire(sample.RaCorrectionMs),
-                    ["DecCorrectionMs"] = JsonNumber.ForWire(sample.DecCorrectionMs),
-                    ["IsDither"] = sample.IsDither,
-                    ["IsSettling"] = sample.IsSettling
-                }
-            });
+            _ = BroadcastSafeAsync(BroadcastEvents.GuideStep(sample));
         }
 
         _lastGuideStepPushed = newest;
@@ -169,22 +156,7 @@ internal sealed class EventBroadcaster(
 
     private void OnEnhanceProgress(object? sender, EnhanceProgress e)
     {
-        var overall = e.StepCount > 0
-            ? (e.StepIndex + System.Math.Clamp(e.StepPercent, 0f, 1f)) / e.StepCount * 100f
-            : 0f;
-        _ = BroadcastSafeAsync(new WebSocketEventDto
-        {
-            Event = "ENHANCE-PROGRESS",
-            Data = new Dictionary<string, object?>
-            {
-                ["StepName"] = e.StepName,
-                ["StepIndex"] = e.StepIndex,
-                ["StepCount"] = e.StepCount,
-                ["StepPercent"] = e.StepPercent,
-                ["Percent"] = overall,
-                ["EtaSeconds"] = e.EtaSeconds
-            }
-        });
+        _ = BroadcastSafeAsync(BroadcastEvents.EnhanceProgress(e));
     }
 
     private void OnEnhanceCompleted(object? sender, EnhanceJobCompletedEventArgs e)
@@ -194,17 +166,7 @@ internal sealed class EventBroadcaster(
             Notify("Warning", $"Image enhance failed: {e.Error ?? "unknown error"}");
         }
 
-        _ = BroadcastSafeAsync(new WebSocketEventDto
-        {
-            Event = "ENHANCE-COMPLETED",
-            Data = new Dictionary<string, object?>
-            {
-                ["InputPath"] = e.InputPath,
-                ["OutputPath"] = e.OutputPath,
-                ["Succeeded"] = e.Succeeded,
-                ["Error"] = e.Error
-            }
-        });
+        _ = BroadcastSafeAsync(BroadcastEvents.EnhanceCompleted(e));
     }
 
     private void SubscribeToSession(ISession session)
@@ -240,33 +202,13 @@ internal sealed class EventBroadcaster(
             Notify("Info", $"{e.OldPhase} -> {e.NewPhase}");
         }
 
-        _ = BroadcastSafeAsync(new WebSocketEventDto
-        {
-            Event = "SESSION-PHASE-CHANGED",
-            Data = new Dictionary<string, object?>
-            {
-                ["OldPhase"] = e.OldPhase.ToString(),
-                ["NewPhase"] = e.NewPhase.ToString()
-            }
-        });
+        _ = BroadcastSafeAsync(BroadcastEvents.PhaseChanged(e));
     }
 
     private void OnFrameWritten(object? sender, FrameWrittenEventArgs e)
     {
         var entry = e.Entry;
-        _ = BroadcastSafeAsync(new WebSocketEventDto
-        {
-            Event = "FRAME-WRITTEN",
-            Data = new Dictionary<string, object?>
-            {
-                ["TargetName"] = entry.TargetName,
-                ["FilterName"] = entry.FilterName,
-                ["ExposureSeconds"] = entry.Exposure.TotalSeconds,
-                ["FrameNumber"] = entry.FrameNumber,
-                ["MedianHfd"] = JsonNumber.ForWire(entry.MedianHfd),
-                ["StarCount"] = entry.StarCount
-            }
-        });
+        _ = BroadcastSafeAsync(BroadcastEvents.FrameWritten(entry));
     }
 
     private void OnPlateSolveCompleted(object? sender, PlateSolveCompletedEventArgs e)
@@ -277,21 +219,7 @@ internal sealed class EventBroadcaster(
             Notify("Warning", $"Plate solve failed ({record.Context}) on {record.OtaName}: {record.DetectedStars} stars detected");
         }
 
-        _ = BroadcastSafeAsync(new WebSocketEventDto
-        {
-            Event = "PLATE-SOLVE-COMPLETED",
-            Data = new Dictionary<string, object?>
-            {
-                ["Context"] = record.Context.ToString(),
-                ["OtaName"] = record.OtaName,
-                ["Succeeded"] = record.Succeeded,
-                ["SolvedRA"] = record.Solution?.CenterRA,
-                ["SolvedDec"] = record.Solution?.CenterDec,
-                ["ElapsedMs"] = record.Elapsed.TotalMilliseconds,
-                ["DetectedStars"] = record.DetectedStars,
-                ["MatchedStars"] = record.MatchedStars
-            }
-        });
+        _ = BroadcastSafeAsync(BroadcastEvents.PlateSolveCompleted(record));
     }
 
     private void OnScoutCompleted(object? sender, ScoutCompletedEventArgs e)
@@ -301,18 +229,7 @@ internal sealed class EventBroadcaster(
             Notify("Warning", $"Scout on {e.Target.Name}: {e.Classification} -> {e.Outcome}");
         }
 
-        _ = BroadcastSafeAsync(new WebSocketEventDto
-        {
-            Event = "SCOUT-COMPLETED",
-            Data = new Dictionary<string, object?>
-            {
-                ["TargetName"] = e.Target.Name,
-                ["Classification"] = e.Classification.ToString(),
-                ["Outcome"] = e.Outcome.ToString(),
-                ["EstimatedClearInSeconds"] = e.EstimatedClearIn?.TotalSeconds,
-                ["StarCountsPerOTA"] = e.StarCountsPerOTA
-            }
-        });
+        _ = BroadcastSafeAsync(BroadcastEvents.ScoutCompleted(e));
     }
 
     private void OnGuiderStateChanged(object? sender, GuiderStateChangedEventArgs e)
@@ -322,15 +239,7 @@ internal sealed class EventBroadcaster(
         var severity = string.Equals(e.NewState, "Guiding", StringComparison.OrdinalIgnoreCase) ? "Info" : "Warning";
         Notify(severity, $"Guider: {e.OldState ?? "none"} -> {e.NewState ?? "none"}");
 
-        _ = BroadcastSafeAsync(new WebSocketEventDto
-        {
-            Event = "GUIDER-STATE-CHANGED",
-            Data = new Dictionary<string, object?>
-            {
-                ["OldState"] = e.OldState,
-                ["NewState"] = e.NewState
-            }
-        });
+        _ = BroadcastSafeAsync(BroadcastEvents.GuiderStateChanged(e));
     }
 
     /// <summary>
@@ -373,23 +282,7 @@ internal sealed class EventBroadcaster(
             ? $"{e.Title} (needs someone at the rig): {e.Message}"
             : $"{e.Title}: {e.Message}");
 
-        _ = BroadcastSafeAsync(new WebSocketEventDto
-        {
-            Event = "PROMPT-REQUESTED",
-            Data = new Dictionary<string, object?>
-            {
-                ["Title"] = e.Title,
-                ["Message"] = e.Message,
-                ["ContinueLabel"] = e.ContinueLabel,
-                ["CancelLabel"] = e.CancelLabel,
-                ["RequiresPhysicalPresence"] = e.RequiresPhysicalPresence,
-                // Carried here as well as on /session/state so the two paths agree. A client that learns
-                // of a prompt from the broadcast would otherwise know less about it than one that polled,
-                // for no reason -- and the age is the part worth knowing. Null when the session did not
-                // stamp it; a boxed DateTimeOffset already crosses on this dictionary (GUIDE-STEP).
-                ["RaisedUtc"] = e.RaisedUtc
-            }
-        });
+        _ = BroadcastSafeAsync(BroadcastEvents.PromptRequested(e));
     }
 
     /// <summary>
@@ -467,16 +360,7 @@ internal sealed class EventBroadcaster(
 
         hostedSession.AddNotification(dto);
 
-        _ = BroadcastSafeAsync(new WebSocketEventDto
-        {
-            Event = "NOTIFICATION",
-            Data = new Dictionary<string, object?>
-            {
-                ["Severity"] = dto.Severity,
-                ["Message"] = dto.Message,
-                ["TimestampUtc"] = dto.TimestampUtc
-            }
-        });
+        _ = BroadcastSafeAsync(BroadcastEvents.Notification(dto));
     }
 
     private async Task BroadcastSafeAsync(WebSocketEventDto eventDto)
