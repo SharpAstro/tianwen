@@ -62,7 +62,7 @@ public class EquipmentTabState
 
     /// <summary>Safety classification cached from the pre-check that put the URI into
     /// <see cref="PendingDisconnectConfirm"/>: drives the warning text.</summary>
-    public EquipmentActions.DisconnectSafety PendingDisconnectSafety { get; set; }
+    public DisconnectSafety PendingDisconnectSafety { get; set; }
 
     /// <summary>
     /// Second-stage force-disconnect confirmation: when set, the row shows

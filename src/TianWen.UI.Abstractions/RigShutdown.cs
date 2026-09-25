@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -140,66 +139,14 @@ public sealed class RigShutdown(LiveSessionState local, IDeviceHub? hub, ITimePr
 
         try
         {
-            await WarmAndDisconnectCamerasAsync(progress);
+            if (hub is not null)
+            {
+                await hub.StopConnectedCamerasAsync(timeProvider, logger, progress);
+            }
         }
         finally
         {
             mine.TrySetResult();
-        }
-    }
-
-    private async Task WarmAndDisconnectCamerasAsync(Action<string>? progress)
-    {
-        if (hub is null)
-        {
-            return;
-        }
-
-        var cameras = new List<(Uri Uri, string Name)>();
-        foreach (var (uri, driver) in hub.ConnectedDevices)
-        {
-            if (driver is ICameraDriver)
-            {
-                cameras.Add((uri, hub.TryGetDeviceFromUri(uri, out var device) ? device.DisplayName : uri.Host));
-            }
-        }
-
-        if (cameras.Count == 0)
-        {
-            return;
-        }
-
-        progress?.Invoke(cameras.Count == 1 ? $"Disconnecting {cameras[0].Name}" : $"Disconnecting {cameras.Count} cameras");
-        var stops = new Task[cameras.Count];
-        for (var i = 0; i < cameras.Count; i++)
-        {
-            stops[i] = StopCameraAsync(hub, cameras[i].Uri, cameras[i].Name, progress);
-        }
-        await Task.WhenAll(stops);
-    }
-
-    private async Task StopCameraAsync(IDeviceHub devices, Uri uri, string name, Action<string>? progress)
-    {
-        try
-        {
-            // CancellationToken.None throughout: a thermal ramp that has started must finish, whatever
-            // else is being torn down.
-            var safety = await EquipmentActions.GetDisconnectSafetyAsync(devices, uri, CancellationToken.None);
-            if (safety == EquipmentActions.DisconnectSafety.Safe)
-            {
-                // force: every run has ended, so no lease should remain; a run that failed to release one
-                // must not keep the process from exiting (force is for shutdown only, and this is it).
-                await devices.DisconnectAsync(uri, force: true, CancellationToken.None);
-            }
-            else
-            {
-                progress?.Invoke($"Warming {name}");
-                await EquipmentActions.WarmAndDisconnectAsync(devices, uri, timeProvider, logger, force: true, CancellationToken.None);
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Shutdown: stopping camera {Uri} failed", uri);
         }
     }
 }
