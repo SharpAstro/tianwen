@@ -28,12 +28,21 @@ internal static class MountEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeMountStateDto);
         });
 
-        group.MapPost("/slew", async (double ra, double dec, IHostedSession hosted, CancellationToken ct) =>
+        group.MapPost("/slew", async (double ra, double dec, IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session)
             {
                 return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            // Ownership first (ActuationGate): a run driving the mount is the answer, before anything the
+            // mount itself can or cannot do.
+            if (ActuationGate.Refusal(hub, session.Setup.Mount.Device) is { } refused)
+            {
+                return EnvelopeResults.Json(
+                    ResponseEnvelope<string>.Fail(refused, 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
@@ -51,12 +60,21 @@ internal static class MountEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
 
-        group.MapPost("/park", async (IHostedSession hosted, CancellationToken ct) =>
+        group.MapPost("/park", async (IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session)
             {
                 return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            // Ownership first (ActuationGate): a run driving the mount is the answer, before anything the
+            // mount itself can or cannot do.
+            if (ActuationGate.Refusal(hub, session.Setup.Mount.Device) is { } refused)
+            {
+                return EnvelopeResults.Json(
+                    ResponseEnvelope<string>.Fail(refused, 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
@@ -74,12 +92,21 @@ internal static class MountEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
 
-        group.MapPost("/unpark", async (IHostedSession hosted, CancellationToken ct) =>
+        group.MapPost("/unpark", async (IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session)
             {
                 return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            // Ownership first (ActuationGate): a run driving the mount is the answer, before anything the
+            // mount itself can or cannot do.
+            if (ActuationGate.Refusal(hub, session.Setup.Mount.Device) is { } refused)
+            {
+                return EnvelopeResults.Json(
+                    ResponseEnvelope<string>.Fail(refused, 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
@@ -97,12 +124,21 @@ internal static class MountEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
 
-        group.MapPost("/tracking", async (bool on, IHostedSession hosted, CancellationToken ct) =>
+        group.MapPost("/tracking", async (bool on, IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session)
             {
                 return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            // Ownership first (ActuationGate): a run driving the mount is the answer, before anything the
+            // mount itself can or cannot do.
+            if (ActuationGate.Refusal(hub, session.Setup.Mount.Device) is { } refused)
+            {
+                return EnvelopeResults.Json(
+                    ResponseEnvelope<string>.Fail(refused, 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 

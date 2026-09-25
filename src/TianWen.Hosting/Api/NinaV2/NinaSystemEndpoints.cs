@@ -89,12 +89,23 @@ internal static class NinaSystemEndpoints
         });
 
         // GET /v2/api/profile/switch?profileid=: set active profile
-        group.MapGet("/profile/switch", (string profileid, IHostedSession hosted) =>
+        group.MapGet("/profile/switch", (string profileid, IHostedSession hosted, IDeviceHub hub) =>
         {
             if (!Guid.TryParse(profileid, out var guid))
             {
                 return Results.Json(
                     ResponseEnvelope<string>.Fail($"Invalid profile ID: {profileid}"),
+                    NinaApiJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            // The gate the native PUT /session/profile asks (ProfileSwitchGate): a running session or connected
+            // hardware belongs to the current profile. This route skipped it, so Touch N Stars could re-point the
+            // node's profile under a running night (P0b item 18 of docs/plans/hardware-in-the-server.md, #752).
+            var verdict = ProfileSwitchGate.Evaluate(hub, hosted.IsRunning);
+            if (!verdict.Allowed)
+            {
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail(verdict.Describe(), 409),
                     NinaApiJsonContext.Default.ResponseEnvelopeString);
             }
 

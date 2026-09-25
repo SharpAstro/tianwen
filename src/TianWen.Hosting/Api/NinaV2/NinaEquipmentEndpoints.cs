@@ -14,6 +14,12 @@ namespace TianWen.Hosting.Api.NinaV2;
 /// ninaAPI v2 equipment endpoints. All use GET (even actions) per ninaAPI convention.
 /// Equipment maps to OTA[0] (single-OTA assumption matching NINA's model).
 /// </summary>
+/// <remarks>
+/// Every ACTUATION route asks <see cref="ActuationGate"/> first, before touching the driver, and a device a
+/// run is driving is refused with 409 naming the run. They commanded the session's own drivers unasked, so
+/// Touch N Stars could slew the mount or abort an exposure in the middle of a night (P0b item 8 of
+/// docs/plans/hardware-in-the-server.md, #752). The info routes are reads and are never gated.
+/// </remarks>
 internal static class NinaEquipmentEndpoints
 {
     /// <summary>ninaAPI's <c>mount/tracking?mode=</c> value for "stop tracking"; 0..3 are ASCOM DriveRates.</summary>
@@ -58,11 +64,16 @@ internal static class NinaEquipmentEndpoints
         });
 
         // GET /v2/api/equipment/camera/abort-exposure
-        group.MapGet("/camera/abort-exposure", async (IHostedSession hosted, CancellationToken ct) =>
+        group.MapGet("/camera/abort-exposure", async (IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session || session.Setup.Telescopes.Length == 0)
             {
                 return NinaFail("No camera available");
+            }
+
+            if (ActuationGate.Refusal(hub, session.Setup.Telescopes[0].Camera.Device) is { } refused)
+            {
+                return NinaFail(refused, 409);
             }
 
             var cam = session.Setup.Telescopes[0].Camera.Driver;
@@ -76,11 +87,16 @@ internal static class NinaEquipmentEndpoints
         });
 
         // GET /v2/api/equipment/camera/cool?temperature=&minutes= or ?cancel=true
-        group.MapGet("/camera/cool", async (IHostedSession hosted, double? temperature, int? minutes, bool? cancel, CancellationToken ct) =>
+        group.MapGet("/camera/cool", async (IHostedSession hosted, IDeviceHub hub, double? temperature, int? minutes, bool? cancel, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session || session.Setup.Telescopes.Length == 0)
             {
                 return NinaFail("No camera available");
+            }
+
+            if (ActuationGate.Refusal(hub, session.Setup.Telescopes[0].Camera.Device) is { } refused)
+            {
+                return NinaFail(refused, 409);
             }
 
             var cam = session.Setup.Telescopes[0].Camera.Driver;
@@ -106,11 +122,16 @@ internal static class NinaEquipmentEndpoints
         });
 
         // GET /v2/api/equipment/camera/warm?minutes= or ?cancel=true
-        group.MapGet("/camera/warm", async (IHostedSession hosted, int? minutes, bool? cancel, CancellationToken ct) =>
+        group.MapGet("/camera/warm", async (IHostedSession hosted, IDeviceHub hub, int? minutes, bool? cancel, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session || session.Setup.Telescopes.Length == 0)
             {
                 return NinaFail("No camera available");
+            }
+
+            if (ActuationGate.Refusal(hub, session.Setup.Telescopes[0].Camera.Device) is { } refused)
+            {
+                return NinaFail(refused, 409);
             }
 
             var cam = session.Setup.Telescopes[0].Camera.Driver;
@@ -152,11 +173,16 @@ internal static class NinaEquipmentEndpoints
         });
 
         // GET /v2/api/equipment/mount/slew?ra=&dec=
-        group.MapGet("/mount/slew", async (IHostedSession hosted, double ra, double dec, CancellationToken ct) =>
+        group.MapGet("/mount/slew", async (IHostedSession hosted, IDeviceHub hub, double ra, double dec, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session)
             {
                 return NinaFail("No active session");
+            }
+
+            if (ActuationGate.Refusal(hub, session.Setup.Mount.Device) is { } refused)
+            {
+                return NinaFail(refused, 409);
             }
 
             var mount = session.Setup.Mount.Driver;
@@ -170,11 +196,16 @@ internal static class NinaEquipmentEndpoints
         });
 
         // GET /v2/api/equipment/mount/slew/stop
-        group.MapGet("/mount/slew/stop", async (IHostedSession hosted, CancellationToken ct) =>
+        group.MapGet("/mount/slew/stop", async (IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session)
             {
                 return NinaFail("No active session");
+            }
+
+            if (ActuationGate.Refusal(hub, session.Setup.Mount.Device) is { } refused)
+            {
+                return NinaFail(refused, 409);
             }
 
             await session.Setup.Mount.Driver.AbortSlewAsync(ct);
@@ -182,11 +213,16 @@ internal static class NinaEquipmentEndpoints
         });
 
         // GET /v2/api/equipment/mount/park
-        group.MapGet("/mount/park", async (IHostedSession hosted, CancellationToken ct) =>
+        group.MapGet("/mount/park", async (IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session)
             {
                 return NinaFail("No active session");
+            }
+
+            if (ActuationGate.Refusal(hub, session.Setup.Mount.Device) is { } refused)
+            {
+                return NinaFail(refused, 409);
             }
 
             var mount = session.Setup.Mount.Driver;
@@ -200,11 +236,16 @@ internal static class NinaEquipmentEndpoints
         });
 
         // GET /v2/api/equipment/mount/unpark
-        group.MapGet("/mount/unpark", async (IHostedSession hosted, CancellationToken ct) =>
+        group.MapGet("/mount/unpark", async (IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session)
             {
                 return NinaFail("No active session");
+            }
+
+            if (ActuationGate.Refusal(hub, session.Setup.Mount.Device) is { } refused)
+            {
+                return NinaFail(refused, 409);
             }
 
             var mount = session.Setup.Mount.Driver;
@@ -220,11 +261,16 @@ internal static class NinaEquipmentEndpoints
         // GET /v2/api/equipment/mount/tracking?mode=<0-4>
         // mode is ninaAPI's numbering, not TrackingSpeed's: 0=Sidereal, 1=Lunar, 2=Solar, 3=King,
         // 4=Stopped. 0..3 are the ASCOM DriveRates values, so they go through DriveRates; 4 stops tracking.
-        group.MapGet("/mount/tracking", async (IHostedSession hosted, int mode, CancellationToken ct) =>
+        group.MapGet("/mount/tracking", async (IHostedSession hosted, IDeviceHub hub, int mode, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session)
             {
                 return NinaFail("No active session");
+            }
+
+            if (ActuationGate.Refusal(hub, session.Setup.Mount.Device) is { } refused)
+            {
+                return NinaFail(refused, 409);
             }
 
             var mount = session.Setup.Mount.Driver;
@@ -253,11 +299,16 @@ internal static class NinaEquipmentEndpoints
         // GET /v2/api/equipment/mount/move-axis?direction=<N|S|E|W>&rate=<0-8>
         // direction: N/S = Secondary (Dec), E/W = Primary (RA)
         // rate: index into AxisRates array (0 = slowest guide rate)
-        group.MapGet("/mount/move-axis", async (IHostedSession hosted, string direction, int rate, CancellationToken ct) =>
+        group.MapGet("/mount/move-axis", async (IHostedSession hosted, IDeviceHub hub, string direction, int rate, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session)
             {
                 return NinaFail("No active session");
+            }
+
+            if (ActuationGate.Refusal(hub, session.Setup.Mount.Device) is { } refused)
+            {
+                return NinaFail(refused, 409);
             }
 
             var mount = session.Setup.Mount.Driver;
@@ -290,11 +341,16 @@ internal static class NinaEquipmentEndpoints
         });
 
         // GET /v2/api/equipment/mount/move-axis/stop
-        group.MapGet("/mount/move-axis/stop", async (IHostedSession hosted, CancellationToken ct) =>
+        group.MapGet("/mount/move-axis/stop", async (IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session)
             {
                 return NinaFail("No active session");
+            }
+
+            if (ActuationGate.Refusal(hub, session.Setup.Mount.Device) is { } refused)
+            {
+                return NinaFail(refused, 409);
             }
 
             var mount = session.Setup.Mount.Driver;
@@ -342,13 +398,18 @@ internal static class NinaEquipmentEndpoints
         });
 
         // GET /v2/api/equipment/focuser/move?position=
-        group.MapGet("/focuser/move", async (IHostedSession hosted, int position, CancellationToken ct) =>
+        group.MapGet("/focuser/move", async (IHostedSession hosted, IDeviceHub hub, int position, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session
                 || session.Setup.Telescopes.Length == 0
                 || session.Setup.Telescopes[0].Focuser is not { } focuser)
             {
                 return NinaFail("No focuser available");
+            }
+
+            if (ActuationGate.Refusal(hub, focuser.Device) is { } refused)
+            {
+                return NinaFail(refused, 409);
             }
 
             if (!focuser.Driver.Connected)
@@ -386,13 +447,18 @@ internal static class NinaEquipmentEndpoints
         });
 
         // GET /v2/api/equipment/filterwheel/change-filter?filterId=
-        group.MapGet("/filterwheel/change-filter", async (IHostedSession hosted, int filterId, CancellationToken ct) =>
+        group.MapGet("/filterwheel/change-filter", async (IHostedSession hosted, IDeviceHub hub, int filterId, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session
                 || session.Setup.Telescopes.Length == 0
                 || session.Setup.Telescopes[0].FilterWheel is not { } fw)
             {
                 return NinaFail("No filter wheel available");
+            }
+
+            if (ActuationGate.Refusal(hub, fw.Device) is { } refused)
+            {
+                return NinaFail(refused, 409);
             }
 
             if (!fw.Driver.Connected)
@@ -431,11 +497,16 @@ internal static class NinaEquipmentEndpoints
         });
 
         // GET /v2/api/equipment/guider/start?calibrate=
-        group.MapGet("/guider/start", async (IHostedSession hosted, bool? calibrate, CancellationToken ct) =>
+        group.MapGet("/guider/start", async (IHostedSession hosted, IDeviceHub hub, bool? calibrate, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session)
             {
                 return NinaFail("No active session");
+            }
+
+            if (ActuationGate.Refusal(hub, session.Setup.Guider.Device) is { } refused)
+            {
+                return NinaFail(refused, 409);
             }
 
             var guider = session.Setup.Guider.Driver;
@@ -454,11 +525,16 @@ internal static class NinaEquipmentEndpoints
         });
 
         // GET /v2/api/equipment/guider/stop
-        group.MapGet("/guider/stop", async (IHostedSession hosted, CancellationToken ct) =>
+        group.MapGet("/guider/stop", async (IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session)
             {
                 return NinaFail("No active session");
+            }
+
+            if (ActuationGate.Refusal(hub, session.Setup.Guider.Device) is { } refused)
+            {
+                return NinaFail(refused, 409);
             }
 
             await session.Setup.Guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(10), ct);
@@ -498,11 +574,16 @@ internal static class NinaEquipmentEndpoints
         });
 
         // GET /v2/api/equipment/guider/clear-calibration
-        group.MapGet("/guider/clear-calibration", async (IHostedSession hosted, CancellationToken ct) =>
+        group.MapGet("/guider/clear-calibration", async (IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session)
             {
                 return NinaFail("No active session");
+            }
+
+            if (ActuationGate.Refusal(hub, session.Setup.Guider.Device) is { } refused)
+            {
+                return NinaFail(refused, 409);
             }
 
             await session.Setup.Guider.Driver.ClearCalibrationAsync(ct);

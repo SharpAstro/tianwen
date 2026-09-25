@@ -65,7 +65,7 @@ internal static class OtaEndpoints
         });
 
         // Focuser move
-        group.MapPost("/{index:int}/focuser/move", async (int index, int position, IHostedSession hosted, CancellationToken ct) =>
+        group.MapPost("/{index:int}/focuser/move", async (int index, int position, IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session)
             {
@@ -78,6 +78,14 @@ internal static class OtaEndpoints
             {
                 return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail($"OTA index {index} out of range"),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            // Ownership first (ActuationGate), before the focuser's driver is touched.
+            if (ota.Focuser is { } focuserSlot && ActuationGate.Refusal(hub, focuserSlot.Device) is { } refused)
+            {
+                return EnvelopeResults.Json(
+                    ResponseEnvelope<string>.Fail(refused, 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
@@ -95,12 +103,21 @@ internal static class OtaEndpoints
         });
 
         // Focuser halt
-        group.MapPost("/{index:int}/focuser/stop", async (int index, IHostedSession hosted, CancellationToken ct) =>
+        group.MapPost("/{index:int}/focuser/stop", async (int index, IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session)
             {
                 return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            // Ownership first (ActuationGate), before the focuser's driver is touched.
+            if (TryGetOta(session, index, out var owned) && owned.Focuser is { } focuserSlot
+                && ActuationGate.Refusal(hub, focuserSlot.Device) is { } refused)
+            {
+                return EnvelopeResults.Json(
+                    ResponseEnvelope<string>.Fail(refused, 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
@@ -118,12 +135,21 @@ internal static class OtaEndpoints
         });
 
         // Filter wheel change
-        group.MapPost("/{index:int}/filterwheel/change", async (int index, int position, IHostedSession hosted, CancellationToken ct) =>
+        group.MapPost("/{index:int}/filterwheel/change", async (int index, int position, IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session)
             {
                 return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            // Ownership first (ActuationGate), before the filter wheel's driver is touched.
+            if (TryGetOta(session, index, out var owned) && owned.FilterWheel is { } wheelSlot
+                && ActuationGate.Refusal(hub, wheelSlot.Device) is { } refused)
+            {
+                return EnvelopeResults.Json(
+                    ResponseEnvelope<string>.Fail(refused, 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 

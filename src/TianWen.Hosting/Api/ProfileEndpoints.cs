@@ -71,7 +71,7 @@ internal static class ProfileEndpoints
         });
 
         // DELETE /api/v1/profiles/{id}: delete a profile
-        group.MapDelete("/{id:guid}", async (Guid id, IExternal external, IDeviceDiscovery deviceDiscovery, CancellationToken ct) =>
+        group.MapDelete("/{id:guid}", async (Guid id, IHostedSession hosted, IExternal external, IDeviceDiscovery deviceDiscovery, CancellationToken ct) =>
         {
             var profile = deviceDiscovery.RegisteredDevices(DeviceType.Profile)
                 .OfType<Profile>()
@@ -81,6 +81,24 @@ internal static class ProfileEndpoints
             {
                 return EnvelopeResults.Json(
                     ResponseEnvelope<string>.NotFound($"Profile {id} not found"),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            // A profile in use is not deleted from under its user (P0b item 18 of
+            // docs/plans/hardware-in-the-server.md, #752): the node's active profile, which a start without
+            // ?profileId= runs on, and, while a run is going, any profile, since the node does not record
+            // which one the run was started from and so cannot tell the one in use from the rest.
+            if (hosted.ActiveProfileId == id)
+            {
+                return EnvelopeResults.Json(
+                    ResponseEnvelope<string>.Fail($"Profile {id} is the node's active profile; make another one active first", 409),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            if (hosted.IsRunning)
+            {
+                return EnvelopeResults.Json(
+                    ResponseEnvelope<string>.Fail("A run is going; stop it before deleting a profile", 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
