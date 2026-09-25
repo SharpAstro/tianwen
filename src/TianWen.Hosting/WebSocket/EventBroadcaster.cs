@@ -26,6 +26,7 @@ namespace TianWen.Hosting.WebSocket;
 internal sealed class EventBroadcaster(
     HostedSession hostedSession,
     HostedImageEnhancer imageEnhancer,
+    NodeJobs jobs,
     EventHub eventHub,
     ITimeProvider timeProvider,
     ILogger<EventBroadcaster> logger
@@ -54,6 +55,7 @@ internal sealed class EventBroadcaster(
     public override Task StartAsync(CancellationToken cancellationToken)
     {
         hostedSession.RunStarting += Attach;
+        jobs.Changed += OnJobChanged;
         return base.StartAsync(cancellationToken);
     }
 
@@ -123,6 +125,7 @@ internal sealed class EventBroadcaster(
         imageEnhancer.Progressed -= OnEnhanceProgress;
         imageEnhancer.Completed -= OnEnhanceCompleted;
         hostedSession.RunStarting -= Attach;
+        jobs.Changed -= OnJobChanged;
 
         if (Interlocked.Exchange(ref _subscribedSession, null) is { } last)
         {
@@ -175,6 +178,8 @@ internal sealed class EventBroadcaster(
 
         _lastGuideStepPushed = newest;
     }
+
+    private void OnJobChanged(object? sender, JobDto job) => BroadcastSafe(BroadcastEvents.JobProgress(job));
 
     private void OnEnhanceProgress(object? sender, EnhanceProgress e)
     {

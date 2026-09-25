@@ -41,6 +41,8 @@ public static class HostedSessionServiceCollectionExtensions
         services.AddSingleton<HostedImageEnhancer>(sp => new HostedImageEnhancer(
             sp.GetService<TianWen.Lib.Imaging.Enhancement.SharpenPipeline>(),
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<HostedImageEnhancer>>()));
+        // The node's slow operations (discovery first): started by a request, run on the node's token.
+        services.AddSingleton<NodeJobs>();
         services.AddHostedService<EventBroadcaster>();
 
         // The host starts and stops the node's runs. It never used to: registered only as IHostedSession,
@@ -87,6 +89,7 @@ public static class HostedSessionServiceCollectionExtensions
         app.MapMountApi();
         app.MapGuiderApi();
         app.MapDeviceApi();
+        app.MapJobApi();
         app.MapImageApi();
         app.MapPreviewApi();
         app.MapWebSocketEndpoint();

@@ -4,6 +4,11 @@
 (see [rc-astro-enhancers.md](rc-astro-enhancers.md) Phase 3d). Captured here so the design is on
 record; build it only when a client actually needs concurrency, history, or per-job cancel.
 
+**The node has a general job model now** (`NodeJobs`, `GET/DELETE /api/v1/jobs/{id}`, `JOB-PROGRESS`;
+P0b item 17 of [hardware-in-the-server.md](hardware-in-the-server.md), where discovery is the first job).
+It already gives a job an id, a short history and a targeted cancel, so building this plan means moving
+enhance onto it rather than growing `HostedImageEnhancer` its own queue and registry as sketched below.
+
 ## What ships today (Phase 3d)
 
 The server enhance endpoint is **single-flight**, modelled on `POST /api/v1/session/start`:

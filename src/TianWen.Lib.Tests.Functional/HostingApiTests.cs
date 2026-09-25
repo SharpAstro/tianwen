@@ -164,19 +164,37 @@ public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
     // Phase 2: Control endpoints
 
     [Fact(Timeout = 30_000)]
-    public async Task DeviceDiscover_ReturnsDevices()
+    public async Task DeviceDiscover_IsAJobThatFindsTheFakeDevices()
     {
         var ct = TestContext.Current.CancellationToken;
-        var response = await _client.GetAsync("/api/v1/devices/discover", ct);
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        var json = await response.Content.ReadAsStringAsync(ct);
-        var doc = JsonDocument.Parse(json);
-        doc.RootElement.GetProperty("success").GetBoolean().ShouldBeTrue();
+        var job = await DiscoverAsync(ct);
 
-        // Fake device source should discover fake devices
-        var devices = doc.RootElement.GetProperty("response");
-        devices.GetArrayLength().ShouldBeGreaterThan(0);
+        // Fake device source should discover fake devices, and the job says how many.
+        job.GetProperty("step").GetString().ShouldStartWith("Found ");
+        using var devices = JsonDocument.Parse(await _client.GetStringAsync("/api/v1/devices/structured", ct));
+        devices.RootElement.GetProperty("response").GetArrayLength().ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>Starts a discovery and waits for its job to succeed (P0b item 17: it is a job now).</summary>
+    private async Task<JsonElement> DiscoverAsync(System.Threading.CancellationToken ct)
+    {
+        using var started = await _client.PostAsync("/api/v1/devices/discover", null, ct);
+        started.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        using var startedBody = JsonDocument.Parse(await started.Content.ReadAsStringAsync(ct));
+        var id = startedBody.RootElement.GetProperty("response").GetProperty("id").GetString();
+
+        while (true)
+        {
+            using var job = JsonDocument.Parse(await _client.GetStringAsync($"/api/v1/jobs/{id}", ct));
+            var state = job.RootElement.GetProperty("response").GetProperty("state").GetInt32();
+            if (state != (int)TianWen.Hosting.Dto.JobState.Running)
+            {
+                state.ShouldBe((int)TianWen.Hosting.Dto.JobState.Succeeded);
+                return job.RootElement.GetProperty("response").Clone();
+            }
+            await System.Threading.Tasks.Task.Delay(20, ct);
+        }
     }
 
     [Fact(Timeout = 10_000)]
@@ -331,7 +349,7 @@ public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var ct = TestContext.Current.CancellationToken;
 
         // Discover first so there is something to report; the fake source surfaces devices.
-        (await _client.GetAsync("/api/v1/devices/discover", ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await DiscoverAsync(ct);
 
         var response = await _client.GetAsync("/api/v1/devices/structured", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);

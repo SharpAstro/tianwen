@@ -6,7 +6,7 @@ namespace TianWen.Hosting.Api;
 /// </summary>
 /// <param name="Response">The payload (string, object, array, or null).</param>
 /// <param name="Error">Error message, empty string on success.</param>
-/// <param name="StatusCode">HTTP status code (200, 400, 404, 500).</param>
+/// <param name="StatusCode">HTTP status code (200, 202, 400, 404, 500).</param>
 /// <param name="Success">True if the request succeeded.</param>
 /// <param name="Type">"API" for REST responses, "Socket" for WebSocket push.</param>
 public sealed record ResponseEnvelope<T>(
@@ -19,6 +19,10 @@ public sealed record ResponseEnvelope<T>(
 {
     public static ResponseEnvelope<T> Ok(T response, string type = "API")
         => new(response, "", 200, true, type);
+
+    /// <summary>A request that started something the node finishes on its own: a job (HTTP 202).</summary>
+    public static ResponseEnvelope<T> Accepted(T response, string type = "API")
+        => new(response, "", 202, true, type);
 
     public static ResponseEnvelope<T> Fail(string error, int statusCode = 400, string type = "API")
         => new(default, error, statusCode, false, type);

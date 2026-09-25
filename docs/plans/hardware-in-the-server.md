@@ -450,7 +450,12 @@ Found by the review (2026-09-25), all confirmed in the code:
     `BroadcastEventSerializationTests` sends each through both contexts.
 17. **`/devices/discover` runs a full discovery inline on the request token** and returns only display
     strings. The client's 10 s control budget cuts it off mid-probe, and a dropped request cancels a
-    serial probe half-way. It becomes a job (P1's long-operation model).
+    serial probe half-way. It becomes a job (P1's long-operation model). **FIXED**, with the job model
+    pulled forward from P1 for it: `NodeJobs` runs a job on the node's token, `POST /devices/discover`
+    answers 202 with the job (a second start joins the running one), `GET /jobs/{id}` is authoritative,
+    `DELETE /jobs/{id}` cancels, and `JOB-PROGRESS` is pushed; `TianWenNodeClient` drives all of it.
+    `NodeJobTests` failed first on every one, and each is pinned: running the discovery on the request's
+    token, starting a second, dropping the cancel or the push each turns a test red.
 18. **The ninaAPI shim and the profile endpoints skip their own gates.** `GET /v2/api/profile/switch`
     switches the active profile ungated (the native `PUT /session/profile` asks `ProfileSwitchGate`),
     and `DELETE /profiles/{id}` deletes a profile without asking whether it is active or running.
@@ -753,8 +758,9 @@ preview exposure, solve and sync, and a focuser or mount move each start with a 
 202 and a job id, then finish in the server: `GET /jobs/{id}` is authoritative, a `JOB-PROGRESS` push is
 the latency hint, and `DELETE /jobs/{id}` cancels. It generalises the enhance endpoint's single-flight
 job (`server-enhance-job-model.md`) instead of adding a variant per endpoint, and it is what lets every
-request keep its short budget: today `/devices/discover` runs inline on a 10 s client budget and is cut
-off mid-probe (P0b 17).
+request keep its short budget. Discovery was the first (P0b 17): it ran inline on a 10 s client budget and
+was cut off mid-probe, and it is a job now (`NodeJobs`, `/api/v1/jobs`); the other slow operations join
+it in P2.
 
 **A prompt is held only while a client can SEE it.** Liveness today is "a socket is registered"
 (P0b 13), and a frozen window keeps its socket open, so a GPU wedge that freezes rather than crashes

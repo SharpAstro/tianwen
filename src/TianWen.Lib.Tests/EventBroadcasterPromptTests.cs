@@ -32,8 +32,9 @@ namespace TianWen.Lib.Tests
             var host = new HostedSession(Substitute.For<ISessionFactory>(), Substitute.For<IDeviceHub>(), Substitute.For<ITimeProvider>(), Microsoft.Extensions.Logging.Abstractions.NullLogger<HostedSession>.Instance);
             var hub = new EventHub(NullLogger<EventHub>.Instance);
             var enhancer = new HostedImageEnhancer(pipeline: null, NullLogger<HostedImageEnhancer>.Instance);
+            var jobs = new NodeJobs(Substitute.For<Microsoft.Extensions.Hosting.IHostApplicationLifetime>(), Substitute.For<ITimeProvider>(), NullLogger<NodeJobs>.Instance);
             var broadcaster = new EventBroadcaster(
-                host, enhancer, hub,
+                host, enhancer, jobs, hub,
                 Substitute.For<ITimeProvider>(),
                 NullLogger<EventBroadcaster>.Instance);
             return (broadcaster, host, hub);

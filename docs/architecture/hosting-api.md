@@ -35,7 +35,7 @@ other client and every later broadcast, without bound (P0b item 7 of
 
 Run: `dotnet run --project TianWen.Server` or `tianwen-server [--port 1888]`.
 
-## Five invariants on the session plane
+## Six invariants on the session plane
 
 1. **A pushed schedule beats the target queue.** `POST /session/schedule` takes
    `ScheduledObservationDto[]` and preserves per-filter plans, the planner's altitude-optimised
@@ -121,6 +121,29 @@ Run: `dotnet run --project TianWen.Server` or `tianwen-server [--port 1888]`.
 
    Pinned by `DeviceHubAdoptionTests` and by
    `SessionLifecycleTests.GivenNothingPreConnectedWhenInitialisationThenTheHubHoldsTheSessionsOwnDrivers`.
+
+## Slow operations are JOBS
+
+A request that starts something slow answers **202 with a `JobDto`** at once, and the node finishes it on
+its OWN token (`NodeJobs`), as a run is the node's (invariant 4): a client's short budget running out, or
+its connection closing, never cancels a serial probe half-way.
+
+- `GET /api/v1/jobs/{id}` is authoritative. It answers 404 once the job is forgotten; the node keeps the
+  last 32 that ended.
+- `GET /api/v1/jobs` lists the running and recently ended ones, newest first, for a client that reconnects.
+- `DELETE /api/v1/jobs/{id}` cancels; the job ends `Cancelled` once its work notices.
+- A `JOB-PROGRESS` push (`Id`, `Kind`, `State`, `Step`, `Error`) is the latency hint.
+- **One of a kind runs at a time, and a second start JOINS it**: a discovery is one sweep of the ports, and
+  a second would fight the first for them.
+- **A job carries no result.** What it produced is read where it lives (a discovery's devices from
+  `/devices/structured`), so a job kind never needs a payload type of its own on the wire.
+
+Discovery is the first: `POST /api/v1/devices/discover`. It was a `GET` that ran the whole discovery
+inline on the REQUEST's token and answered display strings, so a client's 10 s control budget cut a serial
+sweep off mid-probe (P0b item 17 of [../plans/hardware-in-the-server.md](../plans/hardware-in-the-server.md),
+#752). Connect, warm and disconnect, a preview exposure, solve and sync, and a move follow in P2, through the
+same `NodeJobs.StartOrJoin`; **a new slow endpoint starts a job, never runs inline**. `TianWenNodeClient`
+has `StartDiscoveryAsync`, `GetJobAsync`, `GetJobsAsync` and `CancelJobAsync`. Pinned by `NodeJobTests`.
 
 ## Previews go through the shared stretch, never a private one
 

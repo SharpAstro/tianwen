@@ -45,7 +45,9 @@ internal sealed class NodeHarness : IAsyncDisposable
 
     public IHostedSession Node => App.Services.GetRequiredService<IHostedSession>();
 
-    public static async Task<NodeHarness> StartAsync(ITestOutputHelper outputHelper, CancellationToken cancellationToken)
+    /// <param name="configure">Registers services last, over the node's own (a discovery a test controls).</param>
+    public static async Task<NodeHarness> StartAsync(ITestOutputHelper outputHelper, CancellationToken cancellationToken,
+        Action<IServiceCollection>? configure = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
@@ -66,6 +68,7 @@ internal sealed class NodeHarness : IAsyncDisposable
         builder.Services.AddHostedSession();
         // Registered last, so it is the factory every endpoint resolves.
         builder.Services.AddSingleton<ISessionFactory>(factory);
+        configure?.Invoke(builder.Services);
 
         var app = builder.Build();
         app.UseWebSockets();
