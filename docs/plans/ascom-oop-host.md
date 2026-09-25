@@ -204,8 +204,10 @@ crash **and** the per-host `MyComPort` bug above); the native serial path has ne
 - **HResult fidelity.** A COM failure on the helper is re-thrown as `JsonRpcException(msg, HResult)`; the
   transport reconstructs `COMException(msg, HResult)`. This keeps the driver's Platform-6 fallback
   (`catch (COMException) when (HResult == DISP_E_UNKNOWNNAME)`) working across the wire.
-- **Helper location:** `TIANWEN_ASCOMHOST` env override → beside the running app → sibling build output
-  (dev/test).
+- **Helper location:** `TIANWEN_ASCOMHOST` env override → beside the running app. A checkout's build puts it
+  there as a release does (`src/ExeBeside.targets`, P1 of [hardware-in-the-server.md](hardware-in-the-server.md),
+  #917: the node carries the helper, and every client and test carries the node or the helper), which replaced a
+  walk up to the solution for the sibling build output.
 - **Not yet supported over the wire:** opaque `GetObject`/`InvokeMethodObject` VARIANTs and sub-dispatch
   (`InvokeMethodDispatch`/`GetPropertyDispatch`, i.e. telescope `AxisRates`) throw `NotSupportedException`;
   none of the crash-cluster devices (cover/focuser/FW/switch) use them; the mount is Phase 5.

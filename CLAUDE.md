@@ -120,6 +120,11 @@ Six projects set `PublishAot` + an `<AssemblyName>` short lower-case name: `tian
 `tianwen-server`, `tianwen-fits`, `tianwen-gui`, `tianwen-mcp`, `tianwen-ascomhost`. **Only the
 first four are packaged as release assets** by `.github/workflows/dotnet.yml`; adding a binary to
 the release means adding it to the upload/glob steps there as well as setting the properties here.
+**A program another one starts ships BESIDE it, in a checkout as in a release** (`src/ExeBeside.targets`,
+P1 of `hardware-in-the-server.md`): `tianwen-server` is built and published into `tianwen-gui`'s and
+`tianwen`'s own output (and the functional tests'), `tianwen-ascomhost` into the server's. List a new
+one there as `<ExeBesideThis>`; never find a sibling's build output by walking up to the solution. A file
+both outputs carry must be the same file, or the build fails naming it.
 
 ## Build & Test Commands
 

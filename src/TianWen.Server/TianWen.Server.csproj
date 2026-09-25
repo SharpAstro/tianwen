@@ -25,4 +25,11 @@
     <ProjectReference Include="..\TianWen.AI.Imaging\TianWen.AI.Imaging.csproj" />
   </ItemGroup>
 
+  <!-- tianwen-ascomhost beside the node, which looks for it beside itself to host a legacy in-proc COM ASCOM
+       driver out of process (docs/plans/ascom-oop-host.md). Windows only: it hosts Windows COM. -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <ExeBesideThis Include="..\TianWen.AscomHost\TianWen.AscomHost.csproj" />
+  </ItemGroup>
+  <Import Project="..\ExeBeside.targets" />
+
 </Project>

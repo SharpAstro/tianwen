@@ -65,7 +65,13 @@ a second one onto the same hardware (P1 of [../plans/hardware-in-the-server.md](
   the same `TianWenNodeClient` and `TianWenEventStream` above either. `--node-socket` / `TIANWEN_NODE_SOCKET`
   (`NodeSocket.TryGetNamed`) point a client at a node and forbid it to start one.
 
-Pinned by `NodeSocketTests` and `NodeAddressTests`.
+- **A client starts the node from its OWN directory, never from PATH**, so it always gets its own build:
+  `src/ExeBeside.targets` builds and publishes `tianwen-server` beside `tianwen-gui`, `tianwen` and the
+  functional tests, and `tianwen-ascomhost` beside the server, which looks for it beside itself. A file the
+  client writes itself is only compared, and one the program carries in another version fails the build naming
+  it; every other file is the program's and is copied.
+
+Pinned by `NodeSocketTests`, `NodeAddressTests` and `ExeBesideTests`.
 
 ## Six invariants on the session plane
 
