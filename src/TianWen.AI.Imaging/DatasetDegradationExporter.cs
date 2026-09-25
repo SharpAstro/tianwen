@@ -165,6 +165,10 @@ namespace TianWen.AI.Imaging
         /// exponent when <see cref="KernelSource"/> is "drawn".</param>
         /// <param name="KernelEstimateRefusal">Which fit refused and why ("clean TooFewStacked", "observed
         /// PoorFit"), null when both returned.</param>
+        /// <param name="WarpSigma">The extra smoothing THIS draw's warped noise carried, in pixels, or null for
+        /// a white draw. Recorded per draw because <see cref="Options.WarpResampleSigmaMax"/> and
+        /// <see cref="Options.WhiteFraction"/> make the shape vary within one export, and a row that named
+        /// only the export's setting would say nothing about the tile beside it.</param>
         public sealed record DegradationRow(
             string Tile,
             string SessionId,
@@ -201,7 +205,8 @@ namespace TianWen.AI.Imaging
             double? ObservedFitBeta = null,
             double? EstimatedKernelFwhmPx = null,
             double? EstimatedKernelBeta = null,
-            string? KernelEstimateRefusal = null);
+            string? KernelEstimateRefusal = null,
+            double? WarpSigma = null);
 
         /// <summary>What to export.</summary>
         /// <param name="BakeRoot">A dataset bake: it must hold <c>tiles-manifest.jsonl</c> and
@@ -270,6 +275,14 @@ namespace TianWen.AI.Imaging
         /// sessions matching at least one are exported. The way an arm names its pool without exporting
         /// the whole bake (the 51-session E2 export ran two and a half hours, and the widened arm of
         /// 2026-09-05 wanted nineteen sessions of a 76-session bake).</param>
+        /// <param name="WarpResampleSigmaMax">Warped shape only: when above <see cref="WarpResampleSigma"/>,
+        /// each DRAW takes its smoothing uniform in [<see cref="WarpResampleSigma"/>, this], one value for
+        /// all its channels. A pool of many sensors and stacking paths is not one noise shape (real pairs
+        /// read band1/band0 0.26 on a Lanczos bake and 0.46 to 0.62 on a bilinear one), so a model meant
+        /// for all of them has to meet the range in training, and a shape-aware conditioning input has
+        /// something to read only where the shape varies. 0 (the default) keeps one shape.</param>
+        /// <param name="WhiteFraction">Warped shape only: the probability that a draw is white instead,
+        /// taken before the smoothing draw. 0 (the default) keeps every draw warped.</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -291,7 +304,9 @@ namespace TianWen.AI.Imaging
             double MinBlurRatio = 1.05,
             bool EstimateKernels = false,
             int EstimateWindowPx = 1024,
-            ImmutableArray<string> SessionFilters = default);
+            ImmutableArray<string> SessionFilters = default,
+            double WarpResampleSigmaMax = 0.0,
+            double WhiteFraction = 0.0);
 
         /// <summary>What one session's export produced. <paramref name="Estimator"/> is the estimator step's
         /// own cost, null unless <see cref="Options.EstimateKernels"/>.</summary>
@@ -703,6 +718,27 @@ namespace TianWen.AI.Imaging
             var minDepth = Math.Min(options.MinDepthScale, options.MasterDepthFraction * masterDepth);
             var depthScale = LogUniform(rng, minDepth, options.MaxDepthScale);
 
+            // One noise shape per DRAW, shared by its channels, from a stream of its own: the draw's own
+            // sequence (position, level, the noise itself) is untouched, so with both options off the
+            // export is byte for byte what it was, and with them on it differs from a fixed-shape export
+            // of the same seed in the shape and nothing else.
+            var drawShape = options.Shape;
+            var drawSigma = options.WarpResampleSigma;
+            if (options.Shape == NoiseShape.Warped
+                && (options.WhiteFraction > 0 || options.WarpResampleSigmaMax > options.WarpResampleSigma))
+            {
+                var shapeRng = new Random(seed ^ 0x2c1b3c6d);
+                if (shapeRng.NextDouble() < options.WhiteFraction)
+                {
+                    drawShape = NoiseShape.White;
+                }
+                else if (options.WarpResampleSigmaMax > options.WarpResampleSigma)
+                {
+                    drawSigma = options.WarpResampleSigma
+                        + (shapeRng.NextDouble() * (options.WarpResampleSigmaMax - options.WarpResampleSigma));
+                }
+            }
+
             for (var c = 0; c < channels; c++)
             {
                 var region = CutClamped(unitMaster, c, origin.X - margin, origin.Y - margin, cut, cut);
@@ -723,9 +759,9 @@ namespace TianWen.AI.Imaging
                     adjacent = LinearDegradation.NoiseCalibration.AdjacentDifferenceSigma(inner, size, size);
                 }
 
-                var shape = options.Shape == NoiseShape.White
+                var shape = drawShape == NoiseShape.White
                     ? NoiseField.White(cut, cut, rng)
-                    : NoiseField.Warped(cut, cut, Math.Max(2, Math.Min(stackedFrames, 16)), rng, options.WarpResampleSigma);
+                    : NoiseField.Warped(cut, cut, Math.Max(2, Math.Min(stackedFrames, 16)), rng, drawSigma);
 
                 var channelKernel = perChannelKernels is null ? kernel : perChannelKernels[c];
                 var degraded = channelKernel is null
@@ -821,9 +857,9 @@ namespace TianWen.AI.Imaging
                     var windowRegion = CutClamped(unitMaster, green, windowOrigin.X - windowMargin, windowOrigin.Y - windowMargin, windowCut, windowCut);
                     var windowBlurred = greenKernel.Convolve(windowRegion, windowCut, windowCut);
                     var windowRng = new Random(seed ^ 0x5bd1e995);
-                    var windowShape = options.Shape == NoiseShape.White
+                    var windowShape = drawShape == NoiseShape.White
                         ? NoiseField.White(windowCut, windowCut, windowRng)
-                        : NoiseField.Warped(windowCut, windowCut, Math.Max(2, Math.Min(stackedFrames, 16)), windowRng, options.WarpResampleSigma);
+                        : NoiseField.Warped(windowCut, windowCut, Math.Max(2, Math.Min(stackedFrames, 16)), windowRng, drawSigma);
                     LinearDegradation.AddNoiseInPlace(windowBlurred, windowShape, calibration, depthScale);
                     var windowPlane = new float[windowSize, windowSize];
                     for (var y = 0; y < windowSize; y++)
@@ -883,7 +919,7 @@ namespace TianWen.AI.Imaging
                     CellY: cell.Y,
                     Draw: draw,
                     Mode: options.Mode.ToString(),
-                    Shape: options.Shape.ToString(),
+                    Shape: drawShape.ToString(),
                     StackedFrames: stackedFrames,
                     DepthScale: depthScale,
                     OneSubSigma: calibration.OneSubSigmaAdu,
@@ -911,7 +947,8 @@ namespace TianWen.AI.Imaging
                     EstimatedKernelBeta: estimatedKernelBeta,
                     KernelEstimateRefusal: kernelRefusal,
                     Psf01Stars: psf01Stars,
-                    CleanFwhmPx: cleanFwhmPx);
+                    CleanFwhmPx: cleanFwhmPx,
+                    WarpSigma: drawShape == NoiseShape.Warped ? drawSigma : null);
             }
             finally
             {
