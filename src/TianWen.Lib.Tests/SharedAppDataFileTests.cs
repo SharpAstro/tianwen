@@ -20,6 +20,10 @@ public class SharedAppDataFileTests(ITestOutputHelper output)
 {
     private const int WritesPerWriter = 1000;
 
+    // Reads that must happen WHILE the writers write: on a fast runner (Linux, no real-time scanner) 2,000 writes
+    // took 0.8 s and finished before the reader had read once, so the test proved nothing and failed its premise.
+    private const int ReadsBeside = 20;
+
     [Fact(Timeout = 300_000)]
     public async Task TwoWritersOfOneProfileBesideItsReadersLoseNothingAndNeverFail()
     {
@@ -53,15 +57,17 @@ public class SharedAppDataFileTests(ITestOutputHelper output)
                     missed.Add($"read {reads}: the JSON read found nothing; logged [{log.Drain()}]");
                 }
 
-                reads++;
+                Interlocked.Increment(ref reads);
             }
         }, ct);
 
+        int lastA, lastB;
         try
         {
             var a = Task.Run(() => WriteAsync("a"), ct);
             var b = Task.Run(() => WriteAsync("b"), ct);
-            await Task.WhenAll(a, b);
+            lastA = await a;
+            lastB = await b;
         }
         finally
         {
@@ -69,21 +75,24 @@ public class SharedAppDataFileTests(ITestOutputHelper output)
             await readers;
         }
 
-        output.WriteLine($"{reads} reads beside {2 * WritesPerWriter} writes");
-        reads.ShouldBeGreaterThan(0, "premise: the readers ran beside the writers");
+        output.WriteLine($"{reads} reads beside {lastA + lastB} writes");
+        reads.ShouldBeGreaterThanOrEqualTo(ReadsBeside, "premise: the readers ran beside the writers");
         missed.ShouldBeEmpty("a reader found the profile gone or unreadable while it was being replaced");
         var last = await shared.TryReadJsonAsync(path, Profile.ProfileJsonSerializerContextIndented.ProfileDto, ct: ct);
-        last.ShouldNotBeNull().Name.ShouldBeOneOf($"a {WritesPerWriter}", $"b {WritesPerWriter}");
+        last.ShouldNotBeNull().Name.ShouldBeOneOf($"a {lastA}", $"b {lastB}");
         Directory.GetFiles(external.ProfileFolder.FullName, "*.tmp").ShouldBeEmpty("a write left its staging file behind");
 
         Profile Version(string writer, int n) => new Profile(profileId, $"{writer} {n}", ProfileData.Empty);
 
-        async Task WriteAsync(string writer)
+        // At least WritesPerWriter each, and on until the readers have read beside them ReadsBeside times.
+        async Task<int> WriteAsync(string writer)
         {
-            for (var n = 1; n <= WritesPerWriter; n++)
+            var n = 0;
+            while (n < WritesPerWriter || Volatile.Read(ref reads) < ReadsBeside)
             {
-                await Version(writer, n).SaveAsync(external, ct);
+                await Version(writer, ++n).SaveAsync(external, ct);
             }
+            return n;
         }
     }
 
