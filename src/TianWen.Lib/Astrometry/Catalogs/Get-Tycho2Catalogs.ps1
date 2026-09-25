@@ -223,8 +223,11 @@ function Write-Tycho2BinaryEntry
     if ($DecDeg  -lt $OutputData.GscMinDec[$gscIdx]) { $OutputData.GscMinDec[$gscIdx] = $DecDeg }
     if ($DecDeg  -gt $OutputData.GscMaxDec[$gscIdx]) { $OutputData.GscMaxDec[$gscIdx] = $DecDeg }
 
-    # accumulate HIP -> TYC mapping
-    if ($Hip -ne 0) {
+    # accumulate HIP -> TYC mapping, never to an identifier the packed CatalogIndex cannot address:
+    # it gives tyc3 two bits (CatalogUtils.TYC3_MASK), so the one component-4 star (TYC 1327-606-4,
+    # HIP 30075D) would load as TYC 1327-606-0, a star that does not exist, and put it among the
+    # catalogue's indices (docs/known-limitations.md). HIP 30075 keeps its A and B components.
+    if ($Hip -ne 0 -and $Tyc3 -le 3) {
         if (-not $OutputData.HIPMap.ContainsKey($Hip)) {
             $OutputData.HIPMap[$Hip] = [System.Collections.Generic.List[short[]]]::new()
         }
@@ -251,6 +254,9 @@ function ConvertAndWrite-Tycho2Data
         $tyc = ConvertFrom-TycIdComponents $values[0].Split(' ')
         $tyc1 = $tyc.Tyc1; $tyc2 = $tyc.Tyc2; $tyc3 = $tyc.Tyc3
         $tycIdShort = [short[]]@($tyc1, $tyc2, $tyc3)
+
+        # Every identifier the main catalogue writes, so Supplement-1 can skip one it reuses.
+        [void]$OutputData.MainIds.Add(([long]$tyc1 * 100000 + $tyc2) * 10 + $tyc3)
 
         $posType = $values[1]
 
@@ -343,6 +349,20 @@ function ConvertAndWrite-Tycho2Data
 #   'H' Hp instead of VT -> Hp in VT slot, BT blank -- this is how the brightest
 #                           stars (e.g. Antares, Hp only) carry a magnitude
 #   'B' only BT          -> BT in VT slot so the star still renders
+#
+# A supplement record whose TYC identifier the main catalogue already wrote is SKIPPED, HIP
+# cross-reference and all, because the identifier is the main record's. Measured over the raw
+# files (2026-09-25, #396): 254 of the 17,588 reuse a main identifier, and every one is a
+# Hipparcos record ('H', Hp magnitude) 0.26 to 1.16 arcsec (median 0.91) from the main star at
+# the common epoch 1991.25, fainter in all 254 by a median 2.9 mag, and under the main star's own
+# HIP number with the next CCDM component (A in the main catalogue; B in 250, C in 3, P in 1). So
+# each is the faint companion of a close double that Tycho-1 saw as one star: Tycho-2 gives the
+# Tycho-1 TYC3 to the brighter component (ReadMe note 9), and Supplement-1 copies the Tycho-1
+# identifier onto the companion (note 1). Appending both put two stars under one index, which a
+# cell scan yielded twice and a binary search resolved to whichever sorted first. At about an
+# arcsecond and fifteen times fainter, the companion cannot be told from its primary at any scale
+# the sky map draws or a plate solve matches, and the HIP cross-reference loses nothing: the
+# number is the primary's too, and the main record maps it.
 function ConvertAndWrite-Tycho2Supplement1
 {
     [CmdletBinding()]
@@ -360,17 +380,24 @@ function ConvertAndWrite-Tycho2Supplement1
     $deg2Rad = [Math]::PI / 180.0
 
     $written = 0
+    $shadowed = 0
     foreach ($line in $lines) {
         # Pipe-delimited fields (0-indexed):
         #   0 TYC "t1 t2 t3" | 1 flag[HT] | 2 RAdeg | 3 DEdeg | 4 pmRA | 5 pmDE
         #   | 6-9 errors | 10 mflag[ BVH] | 11 BTmag | 12 e_BT | 13 VTmag/Hp
-        #   | 14 e_VT | 15 prox | 16 TYC[ T] | 17 HIP | 18 CCDM
+        #   | 14 e_VT | 15 prox | 16 TYC[ T] | 17 HIP (I6) and CCDM (A1), ONE field
         $values = $line.Split('|')
         if ($values.Length -lt 14) { continue }   # need at least through the VT field
 
         $tyc = ConvertFrom-TycIdComponents $values[0].Split(' ')
         $tyc1 = $tyc.Tyc1; $tyc2 = $tyc.Tyc2; $tyc3 = $tyc.Tyc3
         if ($tyc1 -lt 1 -or $tyc1 -gt $OutputData.Streams.Length) { continue }
+
+        # The identifier is the main record's (see above): skip the companion that reuses it.
+        if ($OutputData.MainIds.Contains(([long]$tyc1 * 100000 + $tyc2) * 10 + $tyc3)) {
+            $shadowed++
+            continue
+        }
 
         # ICRS @ J1991.25 (degrees).
         [float]$raDeg = [float]::NaN; [float]$decDeg = [float]::NaN
@@ -413,9 +440,15 @@ function ConvertAndWrite-Tycho2Supplement1
         [float]$vtSlot = if ($mflag -eq 'B') { $btField } else { $vtField }
         [float]$btSlot = if ($mflag -eq '')  { $btField } else { [float]::NaN }
 
+        # The HIP field is the number AND its CCDM component ("69673A"): parse the six digits alone,
+        # as the main parser does its field 23. Parsing the whole field failed on every component
+        # letter, so 3,768 records mapped no HIP and 384 numbers resolved nowhere in the app (found
+        # re-baking for #396). A number the main catalogue maps too stays its main record's: the
+        # multi-TYC JSON keeps the main entry first, and the loader resolves a number to its first.
         $hip = 0
         if ($values.Length -ge 18) {
-            [void][int]::TryParse($values[17].Trim(), $inv, [ref] $hip)
+            $hipField = $values[17]
+            [void][int]::TryParse($hipField.Substring(0, [Math]::Min(6, $hipField.Length)).Trim(), $inv, [ref] $hip)
         }
 
         Write-Tycho2BinaryEntry -Tyc1 $tyc1 -Tyc2 $tyc2 -Tyc3 $tyc3 `
@@ -424,7 +457,7 @@ function ConvertAndWrite-Tycho2Supplement1
         $written++
     }
 
-    Write-Host "  Supplement-1: wrote $written stars"
+    Write-Host "  Supplement-1: wrote $written stars, skipped $shadowed whose identifier the main catalogue already holds"
 }
 
 # Writes a flat fixed-size cross-reference binary file where each entry's position determines the key:
@@ -598,6 +631,9 @@ $cats.GetEnumerator() | ForEach-Object {
             # Exact-pm overflow for the ~0.15% of stars whose |pm| > 254 mas/yr
             # (one-or-both axes). Sorted + written to tyc2_pm_sidecar.bin at end.
             SidecarEntries = [System.Collections.Generic.List[object]]::new()
+            # Every main-catalogue identifier as (tyc1 * 100000 + tyc2) * 10 + tyc3; Supplement-1
+            # skips a record that reuses one (ConvertAndWrite-Tycho2Supplement1 says why).
+            MainIds        = [System.Collections.Generic.HashSet[long]]::new()
         }
 
         $needsProcessing = $false
