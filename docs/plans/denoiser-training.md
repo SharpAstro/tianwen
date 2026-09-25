@@ -212,7 +212,7 @@ broadband session, so nothing measured so far says how v19d behaves on one.
 2026-08-01 is the SV545 folder's SMC night (the frames say `INSTRUME = QHY294PROC`), plus three more
 broadband fields. Removal transfers; the E2 recipe's economy on extended structure does not. The
 premise above was also wrong for E9: WIDE's Vela mosaic is broadband. Step 2 is `run-bb-arm.ps1`
-(E10), a broadband arm against its own control, not arm B.
+(E10), a broadband arm against its own control, not arm B; **KILLED 2026-09-26**: ten ASI533MC broadband sessions made a gentler model and no cheaper one on broadband structure.
 *Data:* `C:\temp\astro\2026-08 SV545` (a working copy of the D: archive, two nights, SV545 camera,
 `FILTER='IDAS LPS-D3'` on all 780 frames, 729 lights: 135 comet, 354 Lobster Nebula, 240 SMC; FLAT 51,
 BIAS 200, DARK 60 at 60 s / -5 C / gain 1600 / offset 20, DARKFLAT 60). The comet night is a moving
@@ -449,7 +449,7 @@ Settled by the campaign; restated so no run re-derives them.
 
 | **E9** | The WIDE arm (H9, the pool covers the deployed conditioning plane). `run-wide.ps1`: E2's eight sessions plus nine low-plane ones that are not eval nights (`arms/wide-train-17.txt`; Pleiades and eight 2024 Vela SNR panels, eight of the nine one mosaic on one rig, stated as the confound it is), 45 cells each, the E2 recipe byte for byte, val and export seed unchanged so the eight shared sessions carry the same cells and drawn depths as `warped`. `tianwen dataset degrade` gained a repeatable `--session` filter for it (nineteen sessions in 54 minutes against two and a half hours for the whole bake). **RUN and WON 2026-09-05** (run log, "the conditioning range over the whole pool"): 13.7 / 16.2 / 17.0 percent of the noise removed at full strength on the two low-plane eval4 fields, clear of all NINE warped seeds (2.8 to 11.3), inside warped's spread on the faint-structure columns, and the per-field collapse on HIP-85088 gone (6.9 and 7.6 percent become 18.0 to 26.8). Two of three seeds fail the gate's 0.82x noise criterion, which was calibrated on models trained off the low end of the plane. | 3 x 11 min | H9 |
 
-| **E10** | Probe BB (H4 step 1 and 2 on `2026-09-25-full`). **Step 1 DONE 2026-09-25** (run log, "Probe BB"): `run-bb-probe.ps1` + `run-bb-perfield.ps1`, no training; the shipped model removes 18 to 34 percent on the four broadband fields of `arms/bb-eval-4.txt` and spends 1.5 to 3.9 percent of extended amplitude at 4 percent removed where eval4b's four fields spend 0.1 to 1.0, field for field. **Step 2** `run-bb-arm.ps1`: `arms/bb-ctl-14.txt` (WIDE minus this bake's test sessions) against it plus `arms/bb-add-10.txt` (ten ASI533MC broadband sessions inside WIDE's plane range), one export, seeds sized from the measured spread, final weights. | ~1.3 h export, 11 min per seed per arm | H4 |
+| **E10** | Probe BB (H4 step 1 and 2 on `2026-09-25-full`). **Step 1 DONE 2026-09-25** (run log, "Probe BB"): `run-bb-probe.ps1` + `run-bb-perfield.ps1`, no training; the shipped model removes 18 to 34 percent on the four broadband fields of `arms/bb-eval-4.txt` and spends 1.5 to 3.9 percent of extended amplitude at 4 percent removed where eval4b's four fields spend 0.1 to 1.0, field for field. **Step 2** `run-bb-arm.ps1`: `arms/bb-ctl-14.txt` (WIDE minus this bake's test sessions) against it plus `arms/bb-add-10.txt` (ten ASI533MC broadband sessions inside WIDE's plane range), one export, seeds sized from the measured spread, final weights. **Step 2 KILLED 2026-09-26** (run log): six seeds each, the arm's broadband extended cost is +0.43 [-0.48, +1.35] against the control, and it removes about half the noise the control does. The next question is the metric on dense broadband fields, not another arm. | 2 h export, 11.5 min per seed per arm | H4 |
 
 Every arm: pre-register predictions in the run script header; three seeds; one prepared cache per
 arm, never edited between runs; launch multi-hour jobs detached (`Start-Process`), never through the
@@ -1702,3 +1702,59 @@ Artefacts: `C:/temp/e2/bb-condpool.txt`, `bb-starsplit-n2n-bb-eval4.txt`,
 `bb-starsplit-n2n-e2-eval4b.txt`, `bb-perfield-*.txt`, `bb-seeds-*.txt`, `scripts-bb-probe/`;
 `C:/temp/tianwen-scratch/n2n-bb-eval4` (250 cells, 1.01 GiB); the broadband masters solved into
 `C:/temp/e2/gaia/solved-2026-09-25-full`; step 2's export `D:/Astro-Dataset/degraded/bb-arm`.
+
+### 2026-09-26: Probe BB step 2, the broadband arm, KILLED
+
+`run-bb-arm.ps1` ran as pre-registered: one export of `2026-09-25-full`, the control
+(`arms/bb-ctl-14.txt`) and the arm (the control plus `arms/bb-add-10.txt`), six seeds each,
+interleaved, scored at final weights on the four broadband and four eval4b fields per field. It took
+2 h 04 for the export (32 sessions: the named 26 plus the pier-side views of sessions that flipped,
+which the prepare's exact names leave unused) and 11.5 min per seed.
+
+**The primary does not move, and not toward the prediction.** Every broadband field is read at 4
+percent removed for every seed, because on each at least one seed never reaches 10. M, arm minus
+control, is **+0.43, 95 percent interval [-0.48, +1.35]** (Welch, df 6.9): the ten broadband sessions
+did not lower the extended cost on broadband fields, and the point estimate is the wrong side of zero.
+
+| field (extended spent at 4 percent removed) | control, six seeds | arm, six seeds |
+|---|---|---|
+| ASI585MC Carina 24 mm | 3.98 (3.50 to 4.80) | 4.45 (3.20 to 6.40) |
+| Uranus-C Lagoon | 1.67 (0.90 to 2.60) | 2.37 (1.40 to 3.70) |
+| Uranus-C SMC 2023 | 2.13 (1.70 to 2.60) | 2.35 (1.40 to 3.50) |
+| QHY294C SMC 2026 | 2.53 (1.90 to 3.10) | 2.88 (1.50 to 4.00) |
+| **M** | **2.58, sd 0.37** | **3.01, sd 0.83** |
+
+**The kill's threshold was set at the wrong operating point, and the verdict survives correcting it.**
+d = 2.4 was half the shipped model's gap at 10 percent removed; the header's own fallback moved the
+read to 4 percent, where the WHOLE gap is about that size (these controls: 2.58 on broadband against
+0.23 on eval4b). Rescaled to half the gap where it was read, 1.18, the interval's lower bound (-0.48)
+still excludes it. A pre-registered d must be stated at the operating point the read will actually be
+made at, or with its fallback rescaled alongside it.
+
+**Guardrails.** (a) holds: stars and compact at matched removal sit inside the control's spread on
+all four broadband fields. (b) FAILS on every field: at full strength the arm removes 8.4 / 17.1 /
+12.3 / 16.7 percent of the noise on the broadband fields against the control's 15.6 / 32.5 / 24.5 /
+36.9, and about half the control's on eval4b as well (10.2 to 15.5 against 16.6 to 27.5). Five of six
+arm seeds fail the gate's noise criterion against one of six controls, which is the same fact seen
+from the val. (c): V1045 Ori's extended column sits just above the control's range; eta Car is
+unreadable because arm s3 never reaches 4 percent removed there.
+
+**So the arm is a gentler denoiser that is no cheaper on structure at the point both can reach.** What
+made it gentler cannot be separated here: the ten sessions' content (a star cloud, a globular, 35 mm
+fields dense with stars, which reward leaving small things alone) or the second stated difference, 1080
+cells against 630 under the same 4000 steps. Either way broadband diversity on a known sensor is not
+the lever for H4 step 2, and the header's next suspect stands: what the extended column IS on a dense
+broadband field, where on the 24 mm Carina it costs exactly what a star costs. That is a metric
+question to settle before any further broadband training.
+
+**A per-bake fact the export surfaced, not predicted:** on this bake the real half-master pairs
+measure band1/band0 = 0.257 and real sub pairs 0.270, against 0.619 and 0.818 on `2026-09-full`,
+while the injected draws stay at 0.444. The injector's `--warp-sigma 0.5` was calibrated on bilinear
+bakes; this bake's masters are Lanczos-3 (the default since 7.1), which leaves noise nearly white,
+so the likely reading is that the injected noise is now MORE correlated than the real noise it stands
+for. Both arms share it, so the comparison stands, but a model meant for Lanczos masters should be
+trained against a shape re-measured on them (`reference_injected_noise_shape_calibration`).
+
+Artefacts: `D:/Astro-Dataset/degraded/bb-arm`, `C:/temp/tianwen-scratch/n2n-bb-{ctl,arm}/`
+(`bb_{ctl,arm}_s{0..5}.pt`, `_final.pt` where the gate passed, `_bestprobe.pt` where it did not),
+`C:/temp/e2/bb-arm.log`, `C:/temp/e2/bb-arm-score-*.txt`, `C:/temp/e2/scripts-bb-arm/`.
