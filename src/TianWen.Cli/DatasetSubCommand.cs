@@ -864,6 +864,19 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "the bake's own real pairs; 0 is bilinear alone.",
             DefaultValueFactory = _ => 0d,
         };
+        var warpSigmaMaxOpt = new Option<double>("--warp-sigma-max")
+        {
+            Description = "Warped shape only: when above --warp-sigma, each draw takes its smoothing uniform " +
+                          "between the two, so one export spans a RANGE of noise shapes (a pool of many sensors " +
+                          "and stacking paths is not one shape). The row records each draw's value. 0 keeps one.",
+            DefaultValueFactory = _ => 0d,
+        };
+        var whiteFractionOpt = new Option<double>("--white-fraction")
+        {
+            Description = "Warped shape only: the probability that a draw is white noise instead. 0 keeps " +
+                          "every draw warped.",
+            DefaultValueFactory = _ => 0d,
+        };
         var maxBlurRatioOpt = new Option<double>("--max-blur-ratio")
         {
             Description = "Blur mode only: cap each draw at this multiple of the CELL'S OWN measured width, " +
@@ -922,7 +935,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -937,6 +950,18 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             if (!Enum.TryParse<DatasetDegradationExporter.NoiseShape>(shapeText, ignoreCase: true, out var shape))
             {
                 consoleHost.WriteError($"--shape must be white or warped, got '{shapeText}'");
+                return 1;
+            }
+            var whiteFraction = parseResult.GetValue(whiteFractionOpt);
+            var warpSigmaMax = parseResult.GetValue(warpSigmaMaxOpt);
+            if (whiteFraction is < 0 or > 1 || warpSigmaMax < 0)
+            {
+                consoleHost.WriteError($"--white-fraction must be in [0, 1] and --warp-sigma-max non-negative, got {whiteFraction} and {warpSigmaMax}");
+                return 1;
+            }
+            if ((whiteFraction > 0 || warpSigmaMax > 0) && shape != DatasetDegradationExporter.NoiseShape.Warped)
+            {
+                consoleHost.WriteError("--white-fraction and --warp-sigma-max vary a WARPED export's shape; pass --shape warped");
                 return 1;
             }
 
@@ -956,7 +981,9 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 MinBlurRatio: parseResult.GetValue(minBlurRatioOpt),
                 EstimateKernels: parseResult.GetValue(estimateKernelsOpt),
                 EstimateWindowPx: parseResult.GetValue(estimateWindowOpt),
-                SessionFilters: [.. parseResult.GetValue(sessionFilterOpt) ?? []]);
+                SessionFilters: [.. parseResult.GetValue(sessionFilterOpt) ?? []],
+                WarpResampleSigmaMax: warpSigmaMax,
+                WhiteFraction: whiteFraction);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);
