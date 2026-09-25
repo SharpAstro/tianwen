@@ -63,8 +63,12 @@ internal sealed class GeminiFocuserDriver(GeminiFocuserDevice device, IServicePr
             ? GeminiFocuserProtocol.GetIsMovingAsync(conn, cancellationToken)
             : ValueTask.FromResult(false);
 
+    // No probe reads as NaN. The firmware looks for its DS18B20 once, at boot, and with none found ':06#'
+    // still answers, with a placeholder a reader cannot tell from a room temperature: 20.00 C on stock
+    // myFocuserPro2, 18.00 on the Gemini build. ':25#' (temp comp available) is what says a probe was
+    // found, on both firmwares, as is the dedicated ':83#' (measured on two units, 2026-09-25, #654).
     public ValueTask<double> GetTemperatureAsync(CancellationToken cancellationToken = default)
-        => _conn is { IsOpen: true } conn
+        => _conn is { IsOpen: true } conn && _tempCompAvailable
             ? GeminiFocuserProtocol.GetTemperatureAsync(conn, cancellationToken)
             : ValueTask.FromResult(double.NaN);
 
@@ -215,6 +219,10 @@ internal sealed class GeminiFocuserDriver(GeminiFocuserDevice device, IServicePr
                 : double.NaN;
 
             _tempCompAvailable = await GeminiFocuserProtocol.GetTempCompAvailableAsync(conn, cancellationToken).ConfigureAwait(false);
+            if (!_tempCompAvailable)
+            {
+                Logger.LogInformation("Gemini Focuser {DeviceId}: no temperature probe found at boot; temperature reads as unavailable.", device.DeviceId);
+            }
         }
         catch
         {

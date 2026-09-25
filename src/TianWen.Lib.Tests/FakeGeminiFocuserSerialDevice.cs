@@ -13,7 +13,10 @@ namespace TianWen.Lib.Tests;
 /// In-memory <see cref="ISerialConnection"/> that simulates a Gemini Focuser Pro (myFocuserPro2) controller:
 /// it parses the <c>':' … '#'</c> framed commands, holds position / target / temperature / temp-comp state,
 /// answers the get commands with a <c>&lt;status-char&gt;&lt;payload&gt;#</c> reply, and treats the set
-/// commands (Move/Halt) as silent. Used by the protocol and probe tests; no hardware.
+/// commands (Move/Halt) as silent. Used by the protocol, probe and driver tests; no hardware.
+/// <para><paramref name="tempCompAvailable"/> is the TEMPERATURE PROBE flag, as on the real firmware: with
+/// it false, <c>:25#</c> answers 0 and <c>:06#</c> answers the firmware's 20.00 C placeholder, never
+/// <see cref="Temperature"/> (measured on a Gemini Focuser Pro, 2026-09-25, #654).</para>
 /// </summary>
 internal sealed class FakeGeminiFocuserSerialDevice(
     string firmwareName = "myFP2",
@@ -67,11 +70,12 @@ internal sealed class FakeGeminiFocuserSerialDevice(
     private void HandleCommand(string body)
     {
         // Get commands reply "<status-char><payload>#"; set commands are silent (Move/Halt) or ack "OK"
-        // (temp-comp toggle). The status char is arbitrary here (the codec strips it unconditionally).
+        // (temp-comp toggle). The status chars are the ones a real board sent (#654); the codec strips them
+        // unconditionally, so none of them is load-bearing.
         switch (body)
         {
             case "02": // controller present
-                Enqueue(present ? "!OK#" : "!NO#");
+                Enqueue(present ? "EOK#" : "ENO#");
                 break;
             case "04": // firmware name + version
                 Enqueue($"F{firmwareName}\r\n{firmwareVersion.ToString(CultureInfo.InvariantCulture)}#");
@@ -82,20 +86,20 @@ internal sealed class FakeGeminiFocuserSerialDevice(
             case "01": // is moving
                 Enqueue($"I{(Moving ? "1" : "0")}#");
                 break;
-            case "06": // temperature
-                Enqueue($"T{Temperature.ToString("0.00", CultureInfo.InvariantCulture)}#");
+            case "06": // temperature: the placeholder when the firmware found no probe at boot
+                Enqueue($"Z{(tempCompAvailable ? Temperature : 20.0).ToString("0.00", CultureInfo.InvariantCulture)}#");
                 break;
             case "08": // max step
                 Enqueue($"M{maxStep.ToString(CultureInfo.InvariantCulture)}#");
                 break;
             case "24": // temp comp enabled
-                Enqueue($"A{(TempCompEnabled ? "1" : "0")}#");
+                Enqueue($"1{(TempCompEnabled ? "1" : "0")}#");
                 break;
-            case "25": // temp comp available
-                Enqueue($"B{(tempCompAvailable ? "1" : "0")}#");
+            case "25": // temp comp available, i.e. a probe was found at boot
+                Enqueue($"A{(tempCompAvailable ? "1" : "0")}#");
                 break;
             case "33": // step size
-                Enqueue($"Q{StepSize.ToString("0.0", CultureInfo.InvariantCulture)}#");
+                Enqueue($"T{StepSize.ToString("0.00", CultureInfo.InvariantCulture)}#");
                 break;
             case "27": // halt, silent
                 Moving = false;
