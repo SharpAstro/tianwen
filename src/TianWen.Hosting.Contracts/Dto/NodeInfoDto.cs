@@ -27,4 +27,10 @@ public sealed class NodeInfoDto
 
     /// <summary>TianWen clients attached to the event stream now. Only the last one asks before a window closes.</summary>
     public int ClientsAttached { get; init; }
+
+    /// <summary>
+    /// Whether the node holds hardware now: a device connected, or a run going on. A node that does is never stopped
+    /// to replace it (an older node still running a night after an update is left alone), and never stops by itself.
+    /// </summary>
+    public bool HoldsHardware { get; init; }
 }

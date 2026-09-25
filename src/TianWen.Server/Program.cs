@@ -19,6 +19,21 @@ if (!NodeArguments.TryParse(args, out var node, out var invalid))
     return NodeExitCodes.InvalidArguments;
 }
 
+// A client starts the keeper, never the node itself: the keeper starts the node and starts it again if it crashes
+// ("Spawn and lifetime", decision 10). It takes no lock and holds no hardware.
+if (node.Keeper)
+{
+    using var keeperLogging = LoggerFactory.Create(logging => logging.AddProvider(new FileLoggerProvider("Keeper")));
+    var keeperLogger = keeperLogging.CreateLogger("TianWen.Keeper");
+    if (!OperatingSystem.IsWindows())
+    {
+        NodeDetachment.FromTheClient(keeperLogger);
+    }
+
+    var nodePath = Environment.ProcessPath ?? throw new InvalidOperationException("The keeper cannot tell which executable it is, to start the node");
+    return await NodeKeeper.ForProcess(nodePath, node.ForTheNode(), TimeProvider.System, keeperLogger).RunAsync(CancellationToken.None);
+}
+
 var socketPath = node.SocketPath;
 
 // One node per socket: the lock, not the socket file, decides it, and only its holder may clear a stale socket.
@@ -46,33 +61,27 @@ using (held)
     builder.Services
         .AddLogging(logging =>
         {
-            logging.AddSimpleConsole(static options =>
+            if (node.Spawned)
             {
-                options.IncludeScopes = false;
-                options.SingleLine = true;
-            });
+                // A spawned node has no terminal, and its standard streams are the null device: its log file is where
+                // it writes, and nothing else (the host's defaults would add the console and, on Windows, the event log).
+                logging.ClearProviders();
+            }
+            else
+            {
+                logging.AddSimpleConsole(static options =>
+                {
+                    options.IncludeScopes = false;
+                    options.SingleLine = true;
+                });
+            }
             logging.AddProvider(new FileLoggerProvider("Server"));
         })
         .AddExternal()
         .AddAstrometry()
-        .AddZWO()
-        .AddPlayerOne()
-        .AddToupTek()
-        .AddQHY()
-        .AddAscom()
-        .AddAlpaca()
-        .AddMeade()
-        .AddOnStep()
-        .AddIOptron()
-        .AddSkywatcher()
-        .AddGemini()
         .AddProfiles()
         .AddFake()
-        .AddPHD2()
         .AddBuiltInGuider()
-        .AddOpenMeteo()
-        .AddCanon()
-        .AddOpenWeatherMap()
         .AddDevices()
         .AddSessionFactory()
         // RC-Astro (preferred when present + licensed) + SAS ONNX fallback for the enhance endpoint.
@@ -80,6 +89,28 @@ using (held)
         .AddRcAstroAi()
         .AddHostedSession()
         .AddSingleton(listening);
+
+    // Every source that reaches hardware or the network, left out of a node told --fake-devices: a test's node, or a
+    // demonstration's, must not probe the serial ports and cameras of the machine it runs on.
+    if (!node.FakeDevicesOnly)
+    {
+        builder.Services
+            .AddZWO()
+            .AddPlayerOne()
+            .AddToupTek()
+            .AddQHY()
+            .AddAscom()
+            .AddAlpaca()
+            .AddMeade()
+            .AddOnStep()
+            .AddIOptron()
+            .AddSkywatcher()
+            .AddGemini()
+            .AddPHD2()
+            .AddOpenMeteo()
+            .AddCanon()
+            .AddOpenWeatherMap();
+    }
 
     // LAN peer discovery (docs/plans/remote-profile.md): announces this node as "tianwen-server" so a remote GUI
     // can find it and bind to it across restarts via the stable node id, which it reads from the same file as
@@ -96,9 +127,7 @@ using (held)
             o.ServiceName = "tianwen-server";
             o.ServicePort = announcedPort;
             o.Listen = false;
-            o.StableNodeIdPath = Path.Combine(
-                Environment.SpecialFolder.LocalApplicationData.CreateAppSubFolder("TianWen").FullName,
-                NodeIdentity.IdFileName);
+            o.StableNodeIdPath = Path.Combine(TianWenDataRoot.Directory.FullName, NodeIdentity.IdFileName);
         });
     }
 
@@ -117,8 +146,9 @@ using (held)
     // LAN announcement then reads the same file rather than minting a second one beside it.
     var identity = app.Services.GetRequiredService<NodeIdentity>();
     var logger = app.Services.GetRequiredService<ILogger<Program>>();
-    logger.LogInformation("TianWen Server {Version} starting on {Socket}{Lan} (node {NodeId})",
-        identity.Version, socketPath, listening.LanPort is { } p ? $" and TCP {p}" : "", identity.NodeId);
+    logger.LogInformation("TianWen Server {Version} starting on {Socket}{Lan} (node {NodeId}){Spawned}{Fake}",
+        identity.Version, socketPath, listening.LanPort is { } p ? $" and TCP {p}" : "", identity.NodeId,
+        node.Spawned ? ", started by a client" : "", node.FakeDevicesOnly ? ", fake devices only" : "");
 
     await app.RunAsync();
 }

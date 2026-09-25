@@ -1850,13 +1850,15 @@ Centralized in `Directory.Packages.props`: version numbers go there, not in indi
 
 ## Runtime Data (AppData)
 
-`%LOCALAPPDATA%/TianWen/`. The whole set, because there is **no** single choke point that creates these:
-`IExternal.CreateSubDirectoryInAppDataFolder(name)` covers four of them, `Planner`/`Session` are built
-from `AppDataFolder` directly, `Profiles`/`Logs` off `SharedStaticData.CommonDataRoot`, and `models` +
-`lan-node-id.txt` are resolved by their own owners. Add a directory here when you add one there.
+`%LOCALAPPDATA%/TianWen/` (`TianWenDataRoot`), or the folder `TIANWEN_DATA_ROOT` names: a whole tree kept
+apart from the user's, which a test's node runs on and a spawned node inherits. The whole set, because there
+is **no** single choke point that creates these: `IExternal.CreateSubDirectoryInAppDataFolder(name)` covers
+four of them, `Planner`/`Session` are built from `AppDataFolder` directly, `Profiles`/`Logs` off
+`SharedStaticData.CommonDataRoot`, and `models` + `lan-node-id.txt` + the node's socket and lock are resolved by
+their own owners. Add a directory here when you add one there.
 ```
 TianWen/
-├── Logs/<date>/        # <appName>_<timestamp>.log per process: GUI_*, FitsViewer_*, ... (FileLoggerProvider)
+├── Logs/<date>/        # <appName>_<timestamp>.log per process and day: GUI_*, Server_*, Keeper_*, ... (FileLoggerProvider; rolls at local midnight)
 ├── Profiles/           # Per-profile data (*.json + NeuralGuider/*.ngm + BacklashHistory/*.json)
 ├── Planner/            # Pinned targets: <profileId>/<date>.json, remote rigs under rigs/<bindingId>/
 ├── Session/            # Session-setup state, <profileId>.json (SessionPersistence)
@@ -1866,6 +1868,8 @@ TianWen/
 ├── SmallBodies/        # JPL SBDB comet cache: comets.json + apparitions.json
 ├── models/             # AI ONNX models (ModelResolver; also probes SASpro's own models dir)
 ├── Secrets/            # Non-Windows only: 0600 file per device secret (Windows uses Credential Manager)
+├── node.sock           # The machine's node's socket (NodeSocket), owner-only on Unix
+├── node.lock           # One node per socket: held for the node's life, never deleted (NodeLock)
 └── lan-node-id.txt     # tianwen-server's stable LAN NodeId, the key remote-rig bindings persist against
 ```
 

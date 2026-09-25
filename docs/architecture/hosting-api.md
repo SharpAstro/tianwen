@@ -71,7 +71,27 @@ a second one onto the same hardware (P1 of [../plans/hardware-in-the-server.md](
   client writes itself is only compared, and one the program carries in another version fails the build naming
   it; every other file is the program's and is copied.
 
-Pinned by `NodeSocketTests`, `NodeAddressTests` and `ExeBesideTests`.
+
+**A client starts the KEEPER, never the node** (`tianwen-server --keeper`, `NodeKeeper`, decision 10). The keeper
+takes no lock and holds no hardware: it starts the node (`--spawned`, from the data root as its working directory),
+waits on it, and starts it again after a crash. It ends when the node ends cleanly, when the node never started (a
+wrong command line, another node on the socket: `NodeExitCodes`), and after a crash LOOP, two crashes within
+`NodeKeeper.CrashLoopWindow`, since a driver that crashes the node would crash every node started after it. On Unix
+it calls `setsid()` itself and puts its standard streams on `/dev/null` (`NodeDetachment`), so a closed terminal
+does not take it down and it can never write over a TUI; a spawned node logs to its file only.
+
+- **`POST /api/v1/node/shutdown`** stops the node the safe way (the host's stop: a run's `Finalise`, the hub's
+  cameras warmed), after which it exits 0 and its keeper with it. Only over the socket (a request with no IP
+  address; the connection's end-point feature is not one a request can see), 403 over TCP.
+- **`HoldsHardware`** on `GET /api/v1/node`: a device connected or a run going on. A node that holds hardware is
+  never stopped to replace it.
+- **`--fake-devices`** registers the fake device source and no other, for a node that must touch no hardware: a
+  test's, or a demonstration's. With `TIANWEN_DATA_ROOT` it touches none of the user's data either
+  (`KeptNode`, the functional tests' real keeper and node).
+- **Logs roll at local midnight**: `Logs/<date>/Server_*.log` and `Keeper_*.log`, one file per process and day, for
+  every program (`FileLoggerProvider`).
+
+Pinned by `NodeSocketTests`, `NodeAddressTests`, `ExeBesideTests`, `NodeKeeperTests` and `NodeKeeperProcessTests`.
 
 ## Six invariants on the session plane
 

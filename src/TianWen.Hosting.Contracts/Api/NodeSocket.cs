@@ -34,7 +34,7 @@ public static class NodeSocket
     /// The socket every node binds unless <c>--socket</c> names another, and where every client looks. A GUI
     /// restarted after a crash finds the node that outlived it here.
     /// </summary>
-    public static string DefaultPath { get; } = Path.Combine(SharedStaticData.CommonDataRoot.FullName, DefaultFileName);
+    public static string DefaultPath { get; } = Path.Combine(TianWenDataRoot.Directory.FullName, DefaultFileName);
 
     /// <summary>
     /// The address a request over the socket carries. Only its host reaches the node, as the <c>Host</c> header;
