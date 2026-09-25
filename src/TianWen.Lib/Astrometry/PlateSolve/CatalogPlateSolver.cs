@@ -47,7 +47,9 @@ namespace TianWen.Lib.Astrometry.PlateSolve;
 /// <b>chance-aware acceptance gate</b> counts bright detected stars landing within a few px of a
 /// catalog star under the final WCS and rejects any solution that cannot beat the Poisson
 /// expectation of random alignment: the dense-field failure mode produced 1,400+ "matches" that
-/// were pure nearest-neighbour noise while reporting confident success.</para>
+/// were pure nearest-neighbour noise while reporting confident success. The bar is the lower of
+/// five times that expectation and ten standard deviations above it (<see cref="AcceptanceThreshold"/>),
+/// since on a dense wide field five times chance can exceed the sample itself.</para>
 ///
 /// <para>Requires a pre-initialised <see cref="ICelestialObjectDB"/> with Tycho-2 data and a
 /// valid <c>searchOrigin</c>; blind solving (no search hint) is not supported and returns
@@ -145,8 +147,36 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     /// </summary>
     private const int GateSampleSize = 120;
 
-    /// <summary>Accepted gate hits must exceed this multiple of the Poisson chance expectation.</summary>
+    /// <summary>Accepted gate hits must exceed this multiple of the Poisson chance expectation, or
+    /// <see cref="GateChanceSigma"/> of the chance spread, whichever bar is lower (see <see cref="AcceptanceThreshold"/>).</summary>
     private const double GateChanceSafetyFactor = 5.0;
+
+    /// <summary>How many standard deviations of the random-alignment hit count accepted hits must clear.</summary>
+    private const double GateChanceSigma = 10.0;
+
+    /// <summary>
+    /// The hit count the acceptance gate requires of <paramref name="sampled"/> bright detected stars when
+    /// <paramref name="expectedChance"/> of them are expected to land on a catalog star by chance.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Five times the chance expectation stops being a test once chance alone expects a fifth of
+    /// the sample</b>, because the bar then exceeds the sample. A dense wide field is exactly that: the
+    /// 24 mm Sagittarius star cloud master (31 arcsec/px, 2026-09-25) expected 28.8 of 120 by chance, so the
+    /// gate asked for 144 of 120 and rejected, as indistinguishable from noise, a solve that put 115 of them
+    /// within 3 px of a catalog star.</para>
+    /// <para>Under a random alignment the hit count is binomial in the sampled stars, so the honest bar is
+    /// the chance mean plus <see cref="GateChanceSigma"/> of its spread (about 76 there, against a random
+    /// alignment's 29 +/- 5). The LOWER of the two bars applies. On a sparse field that is the 5x one, so
+    /// every field the gate was tuned on is judged exactly as before; the spread bar only takes over where
+    /// chance is dense, and it is still a ten-sigma test. The linear chance rate overstates the per-star
+    /// probability at high density, which only makes that bar stricter.</para>
+    /// </remarks>
+    internal static double AcceptanceThreshold(int sampled, double expectedChance)
+    {
+        var p = Math.Min(1.0, expectedChance / Math.Max(1, sampled));
+        var spreadBar = expectedChance + GateChanceSigma * Math.Sqrt(sampled * p * (1 - p));
+        return Math.Max(MinStarsForMatch, Math.Min(GateChanceSafetyFactor * expectedChance, spreadBar));
+    }
 
     /// <summary>
     /// How far clear of the Poisson chance rate a seed must be before it is allowed to STOP the
@@ -1255,7 +1285,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         }
 
         var v = CountTightMatches(wcs, catalogCoords, detectedStars, dim, tolerancePx);
-        return v.Hits >= Math.Max(MinStarsForMatch, GateChanceSafetyFactor * v.ExpectedChance);
+        return v.Hits >= AcceptanceThreshold(v.Sampled, v.ExpectedChance);
     }
 
     /// <summary>
@@ -1281,7 +1311,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         }
 
         var v = CountTightMatches(wcs, catalogCoords, detectedStars, dim, tolerancePx);
-        var threshold = Math.Max(MinStarsForMatch, GateChanceSafetyFactor * v.ExpectedChance);
+        var threshold = AcceptanceThreshold(v.Sampled, v.ExpectedChance);
         if (v.Hits >= threshold)
         {
             _logger.LogDebug("CatalogPlateSolver: acceptance gate passed -- {Hits}/{Sampled} bright detected stars within {Tol:F1}px of a catalog star ({Chance:F1} expected by chance)",
@@ -1292,7 +1322,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         if (loser.Wcs is { } loserWcs)
         {
             var lv = CountTightMatches(loserWcs, catalogCoords, detectedStars, dim, tolerancePx);
-            if (lv.Hits >= Math.Max(MinStarsForMatch, GateChanceSafetyFactor * lv.ExpectedChance))
+            if (lv.Hits >= AcceptanceThreshold(lv.Sampled, lv.ExpectedChance))
             {
                 _logger.LogInformation("CatalogPlateSolver: parity pick overturned by the acceptance gate -- winner scored {WHits}, other parity {LHits}/{Sampled} within {Tol:F1}px",
                     v.Hits, lv.Hits, lv.Sampled, tolerancePx);
