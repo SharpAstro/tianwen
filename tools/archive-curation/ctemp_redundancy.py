@@ -7,19 +7,14 @@ nowhere else is the only copy and must not be touched.
 
 Reports only. Deletion is the user's to run.
 """
-import json
 import collections
 
-LEDGER = "D:/Astro-Reports/digests.jsonl"
+import digest_ledger
+
 DROOTS = ("d:/astro-pics/", "d:/astro-organized/", "d:/astro-unsorted/", "d:/astro-processing/")
 
-recs = {}
-for line in open(LEDGER, encoding="utf-8"):
-    try:
-        r = json.loads(line)
-    except Exception:
-        continue
-    recs[r["path"].replace("\\", "/")] = r
+# Live paths only: a deleted D: file's old record would otherwise make a C: copy look redundant.
+recs = digest_ledger.load()
 
 d_digests = {r["digest"] for q, r in recs.items()
              if q.lower().startswith(DROOTS) and r.get("digest")}

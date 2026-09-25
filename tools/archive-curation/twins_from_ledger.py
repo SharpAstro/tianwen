@@ -6,11 +6,11 @@ inode: it finds content that was COPIED as well as content that was linked, and 
 good an argument that a path is redundant.
 """
 import csv
-import json
 import os
 import collections
 
-LEDGER = "D:/Astro-Reports/digests.jsonl"
+import digest_ledger
+
 CAND = "D:/Astro-Organized/_provenance/deletion-candidates.csv"
 
 
@@ -20,13 +20,7 @@ def root_of(p):
     return "/".join(parts[:2]) if len(parts) > 1 else q
 
 
-recs = {}
-for line in open(LEDGER, encoding="utf-8"):
-    try:
-        r = json.loads(line)
-    except Exception:
-        continue
-    recs[r["path"].replace("\\", "/")] = r   # later record wins
+recs = digest_ledger.load()   # later record wins, gone paths dropped
 
 by_ino = collections.defaultdict(list)
 by_dig = collections.defaultdict(list)

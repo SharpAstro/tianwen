@@ -11,16 +11,12 @@ import json
 import os
 import collections
 
-LEDGER = "D:/Astro-Reports/digests.jsonl"
+import digest_ledger
+
 ORG = "d:/astro-organized"
 
-recs = {}
-for line in open(LEDGER, encoding="utf-8"):
-    try:
-        r = json.loads(line)
-    except Exception:
-        continue
-    recs[r["path"].replace("\\", "/")] = r
+# Live paths only: a withdrawn Organized file's old record would otherwise count its content as filed.
+recs = digest_ledger.load()
 
 organized_digests = {r["digest"] for q, r in recs.items()
                      if q.lower().startswith(ORG) and r.get("digest")}

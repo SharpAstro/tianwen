@@ -46,7 +46,10 @@ size, so a frame reads as filed whenever any run of that camera is.** Found 2026
 sessions read as filed on that test with 16, 76 and 153 frames not in the tree. Test reachability by
 CONTENT instead: `tools/archive-curation/astro-digest-store.py` keeps a data-section xxh128 per inode
 for all three tiers in `D:/Astro-Reports/digests.jsonl` (refresh it first, it is resumable), and a
-source frame is filed iff its digest appears under `D:/Astro-Organized`. **`D:/Astro-Unsorted` holds
+source frame is filed iff its digest appears under `D:/Astro-Organized` **at a path that still
+exists**. Read the ledger through `tools/archive-curation/digest_ledger.py`, never line by line: it
+is append-only, so a withdrawn or deleted file's record stays and only a later TOMBSTONE says it went
+(650 withdrawn QHY183M records made 1,300 raw names read as filed until 2026-09-25). **`D:/Astro-Unsorted` holds
 TRUNCATED copies of some runs** (Tarantula 2024-10-02: 120 of 136; Eta Car 2025-01-14: 49 of 125; the
 sweep caught them mid-capture), and groups G and H were filed from it; Astro-Pics holds the whole runs,
 so compare run LENGTHS against Astro-Pics before calling a session filed, and file a tail with
@@ -487,7 +490,12 @@ hand it over rather than executing it. Same rule as any destructive operation on
 `{path, size, mtime, dev, ino, nlink, digest, kind}`. It is keyed per INODE so a hard link is never
 re-hashed, it is resumable (an unchanged size and mtime is not re-read), and FITS are digested over
 the DATA SECTION only, matching `ContentDigest` / `StackManifest.DigestData`. Last full pass: 97,706
-records, 78,037 distinct inodes, 1.74 TiB unique.
+records, 78,037 distinct inodes, 1.74 TiB unique. **A path that goes away is tombstoned, not
+erased**: after a full walk the store checks every recorded path the walk did not reach, writes
+`{"path", "gone": true, "checked_utc"}` only on a clean "not found", and NAMES one that is on disk
+but was not reached (the 2026-09-20 walk that skipped 820 files would now say so). So "what went,
+and is its content still anywhere" is answerable from the ledger alone: on 2026-09-25, 4,562 paths
+were gone, and every raw frame among them still had its content at a live path.
 
 **It records `path`, so the folder structure is preserved as metadata** and a tree can be described,
 compared or rebuilt-in-name from the ledger. Refresh it before and after any prune: the diff is what

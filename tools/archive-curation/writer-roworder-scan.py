@@ -16,18 +16,14 @@ import warnings
 warnings.filterwarnings("ignore")
 from astropy.io import fits  # noqa: E402
 
-LEDGER = "D:/Astro-Reports/digests.jsonl"
+import digest_ledger  # noqa: E402
+
 OUT = "C:/temp/e2/writer-roworder.json"
 KEYS = ("SWCREATE", "CREATOR", "PROGRAM", "DATE-OBS", "ROWORDER", "BAYERPAT", "INSTRUME",
         "TELESCOP", "XBAYROFF", "YBAYROFF", "NAXIS1", "NAXIS2", "IMAGETYP")
 
 leaves = {}
-for line in open(LEDGER, encoding="utf-8"):
-    try:
-        r = json.loads(line)
-    except Exception:
-        continue
-    p = r["path"].replace("\\", "/")
+for p in digest_ledger.load():
     if p.lower().endswith((".fits", ".fit", ".fts")):
         leaves.setdefault(os.path.dirname(p), p)
 
