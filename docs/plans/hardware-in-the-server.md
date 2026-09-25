@@ -273,7 +273,7 @@ only queues, each client with its own bounded sender, and a prompt is held only 
 answer it, and only until it settles. Item 14 is withdrawn (below). Items 8 and 18 are fixed by #803: a
 client cannot command hardware a run is driving, nor switch or delete the profile out from under it.
 Item 11 is fixed by #807: a run's drivers are the hub's, so a node holds one driver per device. Item 9
-is fixed too: the GUI's device actions refuse to drive this computer's rig while a remote rig is on
+is fixed by #812: the GUI's device actions refuse to drive this computer's rig while a remote rig is on
 screen. The rest (17) waits for P1's long-operation model.
 
 Each item below is confirmed in the code, except where it says otherwise; the review of 2026-09-25
@@ -357,10 +357,10 @@ Then the correctness items:
    (the remote mode pill offers Planetary, and Start drives the local camera and flips the local mode),
    the planetary N/S/E/W nudges, Goto from any object panel, and Solve and Sync (its reticle is the
    Active mount's). Until P6 routes each to its context's node, each refuses outside the Local context.
-   **Verify each with a test before fixing.** **FIXED**, with a fifth the review missed: the planetary
-   panel's focuser jog, beside its nudges, moved the local focuser the same way, and the preview panel's
-   focuser jog and goto share its handler's resolver. Each now asks `EnsureLocalContext`, as the three
-   run starts already did, and refuses with the reason. `GuiContextGatingTests` drives the GUI's own
+   **Verify each with a test before fixing.** **FIXED** by #812, with a fifth the review missed: the
+   planetary panel's focuser jog, beside its nudges, moved the local focuser the same way, and the preview
+   panel's focuser jog and goto share its handler's resolver. Each now asks `EnsureLocalContext`, as the
+   three run starts already did, and refuses with the reason. `GuiContextGatingTests` drives the GUI's own
    signal handler with a remote rig on screen: all five tests failed first, each on the local work
    actually starting, and a control shows the same Goto still slews with this computer's rig on screen.
 
