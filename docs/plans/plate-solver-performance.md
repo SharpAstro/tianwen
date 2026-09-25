@@ -172,6 +172,8 @@ costs nothing in the common case and stays correct in the rare one.
 
 #### What phase A measured, and what it actually did
 
+Tracked by #881.
+
 The one-frame anecdote above (32,179 vs 915,994) understated it. `PlateSolveParityWasteProbe`
 (`TIANWEN_PARITY_WASTE=1`) walks all 96 frozen Vela frames through both parities and reports:
 
@@ -227,6 +229,8 @@ proves the cancellation FIRES end to end (and fails when it is disabled -- the s
 byte-identical either way, so nothing else could).
 
 #### The cache half -- **SHIPPED 2026-09-01**, and it is a BUDGET, not a skip
+
+Tracked by #882.
 
 `SolveHintCache` remembers, per light path, what an ACCEPTED solve answered: the plate scale (as the
 header-over-solved RATIO, the same quantity `QuadScaleRecovery.Recovery` carries, so it consumes

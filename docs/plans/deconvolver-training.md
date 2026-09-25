@@ -381,6 +381,8 @@ everything and above it recovers little.
 
 ## 5. Experiments, in order
 
+Tracked by #845.
+
 | Step | What | Cost | Decides |
 |---|---|---|---|
 | E0 | **DONE 2026-09-06, and no re-measure was needed** (results below): `2026-09-full` is already current-detector, its report is already rendered, and what remained was the fit. | 0 GPU, ~5 min of probes | Calibration of everything below |
@@ -3529,6 +3531,8 @@ named rather than 48 of 50 with none.
   a 1.5 px one, spends a slice of the training set on a problem nothing can solve.
 
 ## 6. Integration
+
+Tracked by #844.
 
 `OnnxTianWenDeconvolver : INonStellarDeconvolver` in `src/TianWen.AI.Imaging/Onnx/`, thin over
 `ChunkedNafnetRunner` (the stretched domain is the RIGHT one here, unlike the denoiser's runner),

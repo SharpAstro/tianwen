@@ -809,6 +809,8 @@ second way to command hardware.
 
 ### Hosted planetary mode
 
+Tracked by #884.
+
 The one item where "poll a JPEG" genuinely does not work: planetary is a high-rate video stream
 feeding a CPU-heavy rolling stack. The realistic shape is not "mirror the planetary tab" but "the
 node runs the pipeline and you steer it" -- capture + `RollingWindowStacker` stay on the node
@@ -847,6 +849,8 @@ auth a **prerequisite** rather than a companion item.
 
 ### Full ASCOM conformance (N.I.N.A. / SharpCap)
 
+Tracked by #885.
+
 P5's scope is the members our own `AlpacaClient` calls, pinned by round-trip tests. Third-party
 clients call more, and ConformU is the arbiter. Two known gaps beyond breadth: Alpaca has **no
 Guider device type at all**, and the three deliberate `NotImplemented` members
@@ -866,6 +870,8 @@ the current "TianWen does not model this that way". A conformance grind, not a d
   the inspector's `describe_ui` asserts remote mode renders the session.
 
 ## Networking (ports that must be open)
+
+Tracked by #886.
 
 Two distinct ports, both plain unencrypted -- no TLS/auth on either (see Security below):
 

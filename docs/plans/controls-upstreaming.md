@@ -214,6 +214,8 @@ No behaviour change, pixel-identical. Not scheduled; recorded so the door stays 
 
 ## U5 -- `RenderTextInput(RectF32)` overload (DONE + SHIPPED, DIR.Lib 6.15/6.16; small residue)
 
+Tracked by #843.
+
 The layout-driven refactor left every arranged-rect text-input call site repeating a four-way
 `(int)r.X, (int)r.Y, (int)r.Width, (int)r.Height` cast because `PixelWidgetBase.RenderTextInput` was
 `int`-only (its `TextInputRenderer.Render` is genuinely integer-grid -- builds `RectInt`/`PointInt`).

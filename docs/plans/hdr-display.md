@@ -198,6 +198,8 @@ clip is on the Tone panel.)
 
 ## P2: capability detection (NOT STARTED; SdlVulkan.Renderer first)
 
+Tracked by #858.
+
 The greyed row needs a fact from the renderer. `VulkanContext` creates the swapchain with
 `VkColorSpaceKHR.SrgbNonLinear` hard-coded and never asks. Add, in SdlVulkan.Renderer:
 
@@ -213,6 +215,8 @@ by the host (`tianwen-fits` `Program.cs`, policy only) and read by the dropdown.
 user asked for.
 
 ## P3: an HDR swapchain where one is offered (NOT STARTED; gated on P2 answering yes on some box)
+
+Tracked by #859.
 
 DECIDED: opt-in. Off by default, the greyed row becomes selectable when P2 says yes, and choosing it
 is what turns the swapchain over.
@@ -245,6 +249,8 @@ it on the real OLED, since a screenshot cannot capture what this does. Days, not
 itself an afternoon.
 
 ## P4: the gain-map JPEG follows the display (NOT STARTED; needs P3's shader rule, not P3's swapchain)
+
+Tracked by #860.
 
 DECIDED (as a "maybe", firmed up here): saving a JPEG with a gain map becomes automatic when HDR
 display is on, and available as an explicit row regardless.

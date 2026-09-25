@@ -382,6 +382,8 @@ log. Probably both: digest for identity, path for legibility.
 
 ## Not done
 
+Tracked by #839, #840.
+
 Roughly in dependency order.
 
 1. **A data-derived comet/sky mask** (raised by the user 2026-08-25; not started, and do not lose
@@ -636,6 +638,8 @@ and the one that degrades gracefully if it is wrong.
 
 ## The two-layer composite, and what it cost to learn (measured 2026-08-26)
 
+Tracked by #841.
+
 The four artifacts are the star layer, the comet-aligned stack of raws, the comet LAYER
 (`stack --remove-stars`), and the composite of the first and third. Getting the composite right
 turned up five defects, four of them silent, and they share a root cause worth stating first:
@@ -764,6 +768,8 @@ removed it, so compositing onto the rejected master directly removes the artifac
   because at dt = 0 the comet compose is the identity.
 
 ### Still open
+
+Tracked by #839.
 
 - **`sxt` removes the comet's central condensation.** It is compact and star-like, so the model takes
   it and leaves the diffuse coma. The 27% flux loss at r=0 understates it: what goes is the sharp part
@@ -1264,6 +1270,8 @@ drifting frames, and a fixed star trailing out of the median).
 one for a cast: it averages red's deficit against blue's excess and reports flat.
 
 ### Colour: the SWAN composite rendered blue, and three SPCC defects were behind it, not the filter
+
+Tracked by #842.
 
 The layers are right and the render was not. SPCC on the SWAN star layer and composite solved
 **WB = (1.937, 1.000, 3.259)**, blue gained 3.3x, and painted the sky, the star halos and the

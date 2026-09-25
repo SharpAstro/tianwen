@@ -189,6 +189,8 @@ internal enum ScoutClassification
 
 ## Known limitations of the shipped scout
 
+Tracked by #852.
+
 Three places where an obstruction can still bite a session because the scout's
 preconditions aren't met:
 

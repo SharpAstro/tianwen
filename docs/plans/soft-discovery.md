@@ -40,6 +40,8 @@ budget, so it's "~17 s and correct" vs "~1 s and finds nothing on that port."
 
 ## The soft-discovery / GC model (NOT STARTED, the big win)
 
+Tracked by #896.
+
 Treat the profile's known devices like live objects in a GC: **verify they survive cheaply, only do
 the expensive full scan for what's new/changed.**
 
@@ -60,6 +62,8 @@ general pass. What's missing is (a) letting a fully-verified profile **skip** th
 entirely, and (b) extending the same idea to non-serial sources (Alpaca/ASCOM by device id).
 
 ## Open work / gaps
+
+Tracked by #897.
 
 1. **`device discover` (CLI) registers no pinned provider** (`0 pinned`) and forces a full scan; it's
    a "find everything new" command. The GUI wires `ActiveProfilePinnedSerialPortsProvider`. Soft mode

@@ -248,6 +248,8 @@ before. Root-causing it needs a stack (`--hangdump`), not more inference.
 
 ## Invariants to preserve
 
+Tracked by #869.
+
 - **Never re-introduce an HA-only flip-success check** on a computed-state mount -- that is the whole
   bug. Gate the PA override on `PointingStateSource == Computed`; measured-state mounts already have a
   real pier side and the PA is a cross-check only.

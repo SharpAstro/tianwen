@@ -123,6 +123,8 @@ implement `IDecodedImage` or make DIR.Lib pull the codec stack.
 
 ## Phasing
 
+Tracked by #861.
+
 | Phase | Scope | Done when |
 |------|-------|-----------|
 | 1 | `SharpAstro.Codecs.Abstractions`: `IDecodedImage`, `SampleFormat`, `RasterImage`, `IImageDecoder` | package builds, AOT-clean, unit-pinned |

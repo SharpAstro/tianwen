@@ -38,6 +38,8 @@ drives `FillRect` / `DrawLine`.
 
 ## Phases
 
+Tracked by #903.
+
 ### Phase 1: Extract renderer-agnostic draw helpers (prep)
 
 - [ ] Move `RenderCompactGuideGraph` body from `LiveSessionTab<TSurface>` into a

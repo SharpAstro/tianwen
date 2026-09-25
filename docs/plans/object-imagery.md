@@ -325,6 +325,8 @@ an object absent from the table gets no link rather than a dead one.
 
 ### P2: positioned images on the atlas
 
+Tracked by #878.
+
 - At bake time, read AVM `Spatial.*` tags where present and store the WCS.
 - Where absent, plate-solve at bake time with `CatalogPlateSolver`. It wants a pixel-scale estimate; derive
   one from the object's catalogued extent against the image size, and sweep a few. **Narrow Hubble and JWST

@@ -74,6 +74,8 @@ both axes driven at continuously-recomputed rates (a predictor + periodic re-rat
 `AltAzTrackingTimerEvent`). New subsystem in the driver.
 
 ### 4. Alt-az guiding ⛔ (after 1–3)
+
+Tracked by #828.
 `PulseGuideCoreAsync` maps N/S/E/W to the Dec/RA axes (equatorial). In alt-az, corrections map to
 Alt/Az and the field **rotates continuously**, so:
 - the built-in guider's calibration would drift as the field rotates (calibration assumes a fixed

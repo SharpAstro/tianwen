@@ -83,6 +83,8 @@ this audit was the viewer drawing "Flame Nebula" over the Horsehead.
 
 ## Deferred
 
+Tracked by #895.
+
 - Phase 4 sky-map group-frame rendering (shared FOV rectangle + member labels).
 - Group-aware exposure planning (per-member filter weighting within one frame).
 - A UI affordance to opt a specific pin out of grouping.

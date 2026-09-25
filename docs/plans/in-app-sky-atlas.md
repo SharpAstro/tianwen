@@ -197,6 +197,8 @@ no atlas of its own keeps opening the browser, which is what makes P2 shippable 
 
 ## Phasing
 
+Tracked by #862, #863, #864, #865.
+
 | # | What | Where | Risk |
 |---|---|---|---|
 | **P0 DONE** | `FloatingPalette<TSurface>` (DIR.Lib) + a palette on `SkyMapTab` itself carrying the ten layer toggles, the mode and the time / FOV controls. **Independent of every other phase and the first one worth doing**: it is the GUI atlas's first visible control surface and the web atlas's only reachable one. The DIR-level foundation (`Layout.Builder.Anchored` + the palette marks) is already in the pinned 8.15, so this generalises the PDF viewer's `ToolPalette` into DIR.Lib rather than starting one; the viewer inherits it free at P4 | DIR.Lib, `TianWen.UI.Abstractions` | Medium |

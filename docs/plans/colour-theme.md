@@ -354,6 +354,8 @@ has settled in one consumer.
 
 ## Phases
 
+Tracked by #834, #835.
+
 | Phase | Work | Blocks |
 |---|---|---|
 | C0 | **DONE 2026-08-07. DIR.Lib**: `UiPalette` widened to 16 roles as a `sealed record` with computed `IsDark`; new `TabBarColors` + `FromPalette` and a settable `TabBar.Colors`; `MenuColors.FromPalette`. Pinned by `UiPaletteTests` (11). | C1 |

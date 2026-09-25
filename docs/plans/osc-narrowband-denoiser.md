@@ -712,6 +712,8 @@ Recorded here because each one cost real time and each was written down BEFORE i
 
 ## 3. What is left
 
+Tracked by #880.
+
 Ordered by value per unit of work, not by dependency.
 
 | Phase | Deliverable | Cost | Why now |

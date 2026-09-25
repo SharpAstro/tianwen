@@ -97,6 +97,8 @@ Phase 4 when generalizing to the mount.
 
 ## Phasing
 
+Tracked by #830.
+
 | Phase | Scope | Status |
 |---|---|---|
 | P1 | Extract the JSON-RPC client buried in the PHD2 driver into a shared `JsonRpcClient` (spine for both PHD2 and the host); refactor `OpenPHD2GuiderDriver` onto it | **DONE** (`d1471d58`; unit + live-PHD2 smoke tests) |

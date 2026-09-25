@@ -1892,6 +1892,8 @@ catalogue, probed before UGC; pinned by `UGCAndUGCAAreDistinctCatalogsDespiteSha
 
 ## P35. Save does not default to the opened file's folder  (BACKLOG, filed 2026-09-19)
 
+Tracked by #904.
+
 *Filed as "P30" on 2026-09-19, which was already taken by the Auto-renders-a-flat-colour-field fix
 above; renumbered 2026-09-20. A reference to "P30" written between those dates means this entry.*
 

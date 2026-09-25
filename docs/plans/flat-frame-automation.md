@@ -132,6 +132,8 @@ flows through the ordinary calibrator path with no session branching.
 
 ## Phase 4: GUI Flats mode in the Live Session tab (DONE)
 
+Tracked by #849.
+
 A **`LiveSessionMode.Flats`** entry on the Live Session tab, joining Preview / PolarAlign / Planetary via
 the mode-pill dropdown. It drives `ISession.RunFlatsOnlyAsync` as a tracked background task
 (`FlatsBootstrapper`, the flats counterpart to `SessionBootstrapper`) and does **not** set

@@ -42,6 +42,8 @@ the run log of the first campaign.
 
 ## 2. Shared infrastructure (what exists now, and what does not)
 
+Tracked by #824, #870.
+
 **The trainer IS in the repo since 2026-09-02 (`training/denoise/`, E0 passed; see `training/README.md`
 for what came across and what stayed on D:). The rest of this section is the state it was written
 against, kept because the layout below is still the target: only `denoise/` exists, and `common/` is
@@ -199,6 +201,8 @@ Written down once here because each item cost a wrong conclusion in the first ca
 - **Mono models.** Until mono data worth training on exists.
 
 ## 7. Bookkeeping this roadmap owes
+
+Tracked by #871.
 
 - `docs/plans/summary.md` rows for the five plans (added 2026-09-02).
 - `ai-denoise-deconv.md` phasing rows P1, P2, P4, P5 point here.

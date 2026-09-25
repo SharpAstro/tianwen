@@ -433,6 +433,8 @@ this plan no longer asks for it.
 
 ## Phasing
 
+Tracked by #908.
+
 | Phase | Scope | Risk | Ships |
 |-------|-------|------|-------|
 | **P1 ✅ DONE** | **Lazy-fetch + serial decode.** tyc2 stays un-embedded for web (`Lightweight`); shipped as a same-origin static asset (CI-staged into wwwroot); fetched on **first atlas-open**; serial decode + flatten off the first-paint path; swapped over the HR seed. | Med | Full-density atlas, no first-load bloat |

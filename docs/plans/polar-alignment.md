@@ -604,6 +604,8 @@ big-bang UX. Phases 4-5 can land separately afterward.
 
 ## Risks / open questions
 
+Tracked by #883.
+
 - **Plate-solve speed.** ASTAP solves a 1280×960 guide-cam frame in ~0.5-2 s
   on a Pi-class CPU. Refinement at 1 Hz is feasible; 2 Hz is the upper bound.
   The adaptive exposure ramp helps here: a 50mm f/4 mini-guider may solve
@@ -657,6 +659,8 @@ big-bang UX. Phases 4-5 can land separately afterward.
   `StopCaptureAsync` first and restore state on exit.
 
 ## Out of scope (v1)
+
+Tracked by #883.
 
 - **Drift alignment** (alternative method using sustained tracking). The
   plate-solve method is strictly better for amateurs and lacks the 30+ min

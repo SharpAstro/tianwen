@@ -136,6 +136,8 @@ capacity only if the U-Net plateaus on completeness while the plate quality is n
 
 ## 7. Phasing
 
+Tracked by #902.
+
 | Phase | Deliverable | Exit |
 |---|---|---|
 | P4.0 | Classical plate builder with its residual report | R0 |

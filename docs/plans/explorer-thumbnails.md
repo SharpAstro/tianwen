@@ -157,6 +157,8 @@ cache in the library?* Windows.
 
 ## Phasing
 
+Tracked by #848.
+
 | Phase | Scope | Status |
 |---|---|---|
 | P0 | Spike outside the repo: NativeLib + generated COM against TianWen.Lib publishes; full COM path from PowerShell; size with and without stripping | DONE 2026-09-02 (numbers above) |

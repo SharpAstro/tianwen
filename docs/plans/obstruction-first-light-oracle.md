@@ -168,6 +168,8 @@ if gauge.Valid && gauge.Efficiency < CloudGateEfficiencyFloor:    // default 0.1
 
 ### B: transparency readout (follow-up, NOT v1)
 
+Tracked by #879.
+
 `gauge.Efficiency` and `gauge.EffectiveLimitMag` are a transparency signal essentially for free.
 Two expressions: a model-light index (`detected_z / CountStarsInField(zenith, 11.0)`, ~1 clear) or
 the effective limiting magnitude / extinction gap to `TheoreticalLimitMag`. Read as a RELATIVE
