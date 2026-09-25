@@ -528,7 +528,7 @@ first; none needs a decision.
    `GetFolderPath(MyPictures)` without the create option, so on a box with no `~/Pictures` it resolves
    to a relative `TianWen` folder, and a spawned server's working directory would decide where a
    night's subs go. It resolves to an absolute path (created if missing), and the spawner sets the
-   child's working directory anyway (P1). **FIXED**: `SpecialFolderHelper.ResolveAppSubFolder` asks for the
+   child's working directory anyway (P1). **FIXED** by #915: `SpecialFolderHelper.ResolveAppSubFolder` asks for the
    special folder WITH the create option and takes it only as a full path, falling back to
    `<AppData>/Images` where there is none to create (a service account with no home). `ImageOutputFolderTests`
    failed first on both, with the folder lookup injected, since the machine running the test has its own
