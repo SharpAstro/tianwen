@@ -498,7 +498,7 @@ first; none needs a decision.
    viewer, MCP), so one process drops another's fetched entries; it merges on write. Files with two
    writers after the split: profiles (until P3 makes the server the only writer), the comet caches, and,
    once the GUI and the TUI are both clients, planner, session, remote-rig bindings and the weather
-   cache. **FIXED**: one primitive, `SharedFile` (`TianWen.Lib/IO`), under `IExternal`'s atomic write, its
+   cache. **FIXED** by #914: one primitive, `SharedFile` (`TianWen.Lib/IO`), under `IExternal`'s atomic write, its
    JSON read and the profile and backlash readers. A write stages under a name of its own, a read shares
    read, write and delete, and a sharing violation is retried for a bounded time. **Delete sharing alone
    does not let the write through, which this item assumed**: `MoveFileEx`, under `File.Move`, refuses to
